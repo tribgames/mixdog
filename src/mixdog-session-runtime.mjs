@@ -148,6 +148,30 @@ export async function createMixdogSessionRuntime({
     listPresets() {
       return cfgMod.listPresets(config);
     },
+    async listProviderModels() {
+      const allProviders = reg.getAllProviders();
+      const results = [];
+      for (const [name, provider] of allProviders) {
+        if (typeof provider?.listModels !== 'function') continue;
+        try {
+          const models = await provider.listModels();
+          if (Array.isArray(models)) {
+            for (const m of models) {
+              if (!m?.id) continue;
+              results.push({
+                id: m.id,
+                provider: name,
+                display: m.display || m.name || m.id,
+                contextWindow: m.contextWindow,
+              });
+            }
+          }
+        } catch (err) {
+          process.stderr.write(`[runtime] listModels failed for ${name}: ${err.message}\n`);
+        }
+      }
+      return results;
+    },
     async ask(prompt, options = {}) {
       if (!session?.id) await createCurrentSession();
       const result = await mgr.askSession(
@@ -171,6 +195,12 @@ export async function createMixdogSessionRuntime({
     async clear() {
       if (!session?.id) return false;
       return await mgr.clearSessionMessages(session.id);
+    },
+    async compact() {
+      if (!session?.id) return null;
+      const result = await mgr.compactSessionMessages(session.id);
+      session = mgr.getSession(session.id) || session;
+      return result;
     },
     async setToolMode(nextMode) {
       mode = normalizeToolMode(nextMode);

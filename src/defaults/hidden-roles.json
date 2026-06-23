@@ -9,6 +9,7 @@
       "toolSchemaProfile": "filesystem-read",
       "kind": "retrieval",
       "permission": "read",
+      "catalogShareAgents": ["worker"],
       "stallCap": { "idleSeconds": 240, "toolRunningSeconds": 180 }
     },
     {
@@ -52,6 +53,8 @@
       "invokedBy": "scheduler",
       "toolSchemaProfile": "unified",      "kind": "maintenance",
       "permission": "read-write",
+      "inboundEvent": true,
+      "instructionDir": "schedules",
       "stallCap": { "idleSeconds": 600, "toolRunningSeconds": 600 }
     },
     {
@@ -62,6 +65,8 @@
       "invokedBy": "webhook",
       "toolSchemaProfile": "unified",      "kind": "maintenance",
       "permission": "read-write",
+      "inboundEvent": true,
+      "instructionDir": "webhooks",
       "stallCap": { "idleSeconds": 600, "toolRunningSeconds": 600 }
     }
   ]

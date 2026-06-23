@@ -334,18 +334,22 @@ export function loadRoleTemplate(role, dataDir) {
 //
 // Classification is dynamic — hidden retrieval/maintenance sets come from the
 // `kind` field in internal-roles.mjs. Any other non-null role is public/custom.
-import { listHiddenRolesByKind, isHiddenRole } from '../internal-roles.mjs';
-
-let _roleClassificationCache = null;
+import {
+    listHiddenRolesByKind,
+    isHiddenRole,
+    getRoleCatalogShareAgents,
+    isInboundEventRole,
+} from '../internal-roles.mjs';
 
 function loadRoleClassification() {
-    if (_roleClassificationCache) return _roleClassificationCache;
-    const value = {
+    // Not cached — called only on catalog rebuild (mtime-busted), and
+    // listHiddenRolesByKind now reads from the mtime-aware cache inside
+    // internal-roles.mjs so the classification always reflects the current
+    // hidden-roles.json on disk.
+    return {
         retrieval: new Set(listHiddenRolesByKind('retrieval')),
         maintenance: new Set(listHiddenRolesByKind('maintenance')),
     };
-    _roleClassificationCache = value;
-    return value;
 }
 
 const _scopedRoleCatalogCache = new Map();
@@ -403,12 +407,13 @@ function loadAgentSections(pluginRoot) {
 // be added back without re-introducing the dead code.
 const EXPLICIT_CACHE_PROVIDERS = new Set();
 
-// Inbound-event maintenance roles that report results back to Lead. These
-// must follow rules/bridge/20-skip-protocol.md so genuine no-ops (label-only
-// events, dedup, "nothing to report") prefix their output with `[meta:silent]`
-// and the dispatch layer suppresses the Lead inject. Other roles
-// (cycle1/cycle2 memory maintenance, retrieval roles) never emit toward Lead.
-const INBOUND_EVENT_ROLES = new Set(['webhook-handler', 'scheduler-task']);
+// Inbound-event maintenance roles that report results back to Lead are
+// declared via `inboundEvent: true` in defaults/hidden-roles.json and read
+// through isInboundEventRole(). Such roles must follow
+// rules/bridge/20-skip-protocol.md so genuine no-ops (label-only events,
+// dedup, "nothing to report") prefix their output with `[meta:silent]` and the
+// dispatch layer suppresses the Lead inject. Other roles (cycle1/cycle2 memory
+// maintenance, retrieval roles) never emit toward Lead.
 
 export function loadScopedRoleCatalog(role, provider = null) {
     const useUnified = !!(provider && EXPLICIT_CACHE_PROVIDERS.has(provider));
@@ -421,15 +426,27 @@ export function loadScopedRoleCatalog(role, provider = null) {
     const mtime = pluginRoot ? maxMtimeRecursive([
         join(pluginRoot, 'agents'),
         join(pluginRoot, 'rules', 'bridge'),
+        join(pluginRoot, 'defaults', 'hidden-roles.json'),
     ]) : 0;
     if (cached && mtime <= cached.mtime) {
         return cached.value;
     }
+    if (!pluginRoot) return '';
+
+    // Compute classification before file loading — internal-roles metadata
+    // failures (malformed/missing hidden-roles.json) must propagate, not be
+    // silently swallowed by the file-IO catch below.
+    const classification = loadRoleClassification();
+    const roleSharesCatalog = role && classification.retrieval.has(role)
+        ? new Set(getRoleCatalogShareAgents(role))
+        : new Set();
+    const roleIsInboundEvent = role && classification.maintenance.has(role)
+        ? isInboundEventRole(role)
+        : false;
+
     try {
-        if (!pluginRoot) return '';
         const agentSections = loadAgentSections(pluginRoot);
         const hiddenPairs = loadHiddenRoleSnippets(pluginRoot);
-        const classification = loadRoleClassification();
 
         // Pick which bridge-rule sections + agents/<role>.md sections to emit
         // based on role classification. Self-only emit keeps BP2 minimal:
@@ -445,16 +462,19 @@ export function loadScopedRoleCatalog(role, provider = null) {
             // role identity, so behavior parity is preserved.
             bridgeRuleSectionsToEmit = hiddenPairs.map(p => `## ${p.name}\n\n${p.body}`);
             agentSectionsToEmit = agentSections;
-        } else if (role === 'explorer') {
-            // Explorer-specific contract (rules/bridge/30-explorer.md) rides
-            // BP2 — a deliberate cache-shard split from `worker`: brief-level
-            // descriptive-only constraints proved insufficient (haiku still
-            // rendered verdicts on evaluative queries), so the contract must
-            // sit at system level. agents/worker.md is still shared for the
-            // tool-use discipline.
-            const self = hiddenPairs.find(p => p.name === 'explorer');
+        } else if (role && classification.retrieval.has(role)) {
+            // Retrieval roles (explorer) get their own contract section
+            // (rules/bridge/30-explorer.md) riding BP2 — a deliberate
+            // cache-shard split from `worker`: brief-level descriptive-only
+            // constraints proved insufficient (haiku still rendered verdicts on
+            // evaluative queries), so the contract must sit at system level.
+            // The agents/*.md sections shared for tool-use discipline are
+            // declared per-role via `catalogShareAgents` in
+            // defaults/hidden-roles.json (explorer → worker).
+            const self = hiddenPairs.find(p => p.name === role);
             bridgeRuleSectionsToEmit = self ? [`## ${self.name}\n\n${self.body}`] : [];
-            agentSectionsToEmit = agentSections.filter(s => s.startsWith('## worker\n'));
+            agentSectionsToEmit = agentSections.filter(s =>
+                [...roleSharesCatalog].some(name => s.startsWith(`## ${name}\n`)));
         } else if (role && classification.maintenance.has(role)) {
             const self = hiddenPairs.find(p => p.name === role);
             bridgeRuleSectionsToEmit = [];
@@ -470,7 +490,7 @@ export function loadScopedRoleCatalog(role, provider = null) {
             // Inbound-event roles also need the skip-protocol rule so they
             // can opt their no-op outputs out of the Lead inject (BP1 would
             // waste the bytes on unrelated bridge workers).
-            if (INBOUND_EVENT_ROLES.has(role)) {
+            if (roleIsInboundEvent) {
                 const skip = hiddenPairs.find(p => p.name === 'skip-protocol');
                 if (skip) bridgeRuleSectionsToEmit.push(`## ${skip.name}\n\n${skip.body}`);
             }

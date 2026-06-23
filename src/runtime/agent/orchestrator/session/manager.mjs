@@ -5,6 +5,8 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { getProvider, providerInputExcludesCache } from '../providers/registry.mjs';
 import { agentLoop } from './loop.mjs';
+import { compactActiveTurn, compactMessages } from './compact.mjs';
+import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';
 import { getMcpTools } from '../mcp/client.mjs';
 import { getInternalTools, executeInternalTool } from '../internal-tools.mjs';
 import { BUILTIN_TOOLS } from '../tools/builtin.mjs';
@@ -23,6 +25,7 @@ import { resolvePluginData, DEFAULT_PLUGIN, DEFAULT_MARKETPLACE } from '../../..
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { appendBridgeTrace } from '../bridge-trace.mjs';
 import { maxMtimeRecursive } from '../cache-mtime.mjs';
+import { getRoleInstructionDir } from '../internal-roles.mjs';
 // Phase B: Pool B Tier 2 content builder (common rules only).
 // Loaded once per process via createRequire so the CJS module reaches us.
 const _require = createRequire(import.meta.url);
@@ -84,11 +87,14 @@ function _buildRoleSpecific(currentRole) {
         || join(homedir(), '.claude', 'plugins', 'marketplaces', DEFAULT_MARKETPLACE, 'external_plugins', DEFAULT_PLUGIN);
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
+    const roleInstructionDir = getRoleInstructionDir(currentRole);
     const mtime = maxMtimeRecursive([
         join(RULES_DIR, 'shared'),
         join(DATA_DIR, 'mixdog-config.json'),
         join(DATA_DIR, 'webhooks'),
         join(DATA_DIR, 'schedules'),
+        ...(roleInstructionDir ? [join(DATA_DIR, roleInstructionDir)] : []),
+        join(PLUGIN_ROOT, 'defaults', 'hidden-roles.json'),
     ]);
     const entry = _roleSpecificCache.get(currentRole);
     if (entry && mtime <= entry.mtime) {
@@ -2001,6 +2007,69 @@ export async function clearSessionMessages(sessionId) {
     session.updatedAt = Date.now();
     await saveSessionAsync(session, { expectedGeneration: session.generation });
     return true;
+}
+export async function compactSessionMessages(sessionId) {
+    const session = loadSession(sessionId);
+    if (!session) return null;
+    if (session.closed === true) return null;
+    const beforeMessages = Array.isArray(session.messages) ? session.messages : [];
+    const beforeTokens = estimateMessagesTokens(beforeMessages);
+    const nonSystem = beforeMessages.filter(m => m?.role !== 'system');
+    let currentTurnStart = -1;
+    for (let i = nonSystem.length - 1; i >= 0; i -= 1) {
+        if (nonSystem[i]?.role === 'user') {
+            currentTurnStart = i;
+            break;
+        }
+    }
+    const boundary = positiveContextWindow(session.compactBoundaryTokens)
+        || positiveContextWindow(session.autoCompactTokenLimit)
+        || positiveContextWindow(session.contextWindow);
+    if (!boundary) {
+        throw new Error('compact: no context window is available for this session');
+    }
+    const reserveTokens = estimateRequestReserveTokens(session.tools || []);
+    if (currentTurnStart <= 0) {
+        return {
+            changed: false,
+            reason: 'nothing to compact',
+            beforeMessages: beforeMessages.length,
+            afterMessages: beforeMessages.length,
+            beforeTokens,
+            afterTokens: beforeTokens,
+            budgetTokens: boundary,
+            reserveTokens,
+        };
+    }
+    let beforeEncoded = '';
+    try { beforeEncoded = JSON.stringify(beforeMessages); } catch { beforeEncoded = ''; }
+    let compacted;
+    try {
+        compacted = compactMessages(beforeMessages, boundary, { reserveTokens, force: true });
+    } catch (err) {
+        try {
+            process.stderr.write(`[session] manual compact fallback (sess=${sessionId}): ${err?.message || err}\n`);
+        } catch { /* best-effort */ }
+        compacted = compactActiveTurn(beforeMessages, boundary, { reserveTokens });
+    }
+    const afterTokens = estimateMessagesTokens(compacted);
+    let afterEncoded = '';
+    try { afterEncoded = JSON.stringify(compacted); } catch { afterEncoded = ''; }
+    const changed = beforeEncoded && afterEncoded
+        ? beforeEncoded !== afterEncoded
+        : (compacted.length !== beforeMessages.length || afterTokens !== beforeTokens);
+    session.messages = compacted;
+    session.updatedAt = Date.now();
+    await saveSessionAsync(session, { expectedGeneration: session.generation });
+    return {
+        changed,
+        beforeMessages: beforeMessages.length,
+        afterMessages: compacted.length,
+        beforeTokens,
+        afterTokens,
+        budgetTokens: boundary,
+        reserveTokens,
+    };
 }
 export async function updateSessionStatus(id, status) {
     const session = loadSession(id);

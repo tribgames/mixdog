@@ -141,7 +141,16 @@ function moveVertical(draft, direction, width) {
   return { ...draft, cursor };
 }
 
-export function PromptInput({ onSubmit, disabled = false }) {
+export function PromptInput({
+  onSubmit,
+  disabled = false,
+  onDraftChange,
+  commandPaletteActive = false,
+  onCommandPaletteNavigate,
+  onCommandPaletteAccept,
+  onCommandPaletteCancel,
+  onCommandPaletteComplete,
+}) {
   const [draft, setDraft] = useState(() => ({ value: '', cursor: 0 }));
   const draftRef = useRef(draft);
   const history = useRef([]);
@@ -165,6 +174,7 @@ export function PromptInput({ onSubmit, disabled = false }) {
   const commitDraft = (next) => {
     draftRef.current = next;
     setDraft(next);
+    onDraftChange?.(next.value);
   };
 
   const updateDraft = (fn) => {
@@ -203,6 +213,18 @@ export function PromptInput({ onSubmit, disabled = false }) {
 
     const returnIndex = rawInput.indexOf('\r');
     if (returnIndex !== -1 && !key.shift && !key.meta) {
+      if (commandPaletteActive) {
+        const accepted = onCommandPaletteAccept?.(draftRef.current.value);
+        if (accepted !== false) {
+          const text = draftRef.current.value;
+          if (text.trim()) {
+            history.current.push(text);
+          }
+          histIdx.current = -1;
+          commitDraft({ value: '', cursor: 0 });
+        }
+        return;
+      }
       submitDraft(insertText(draftRef.current, rawInput.slice(0, returnIndex)));
       return;
     }
@@ -213,6 +235,19 @@ export function PromptInput({ onSubmit, disabled = false }) {
           value: `${d.value.slice(0, d.cursor)}\n${d.value.slice(d.cursor)}`,
           cursor: d.cursor + 1,
         }));
+        return;
+      }
+
+      if (commandPaletteActive) {
+        const accepted = onCommandPaletteAccept?.(draftRef.current.value);
+        if (accepted !== false) {
+          const current = draftRef.current.value;
+          if (current.trim()) {
+            history.current.push(current);
+          }
+          histIdx.current = -1;
+          commitDraft({ value: '', cursor: 0 });
+        }
         return;
       }
 
@@ -230,6 +265,11 @@ export function PromptInput({ onSubmit, disabled = false }) {
     }
 
     if (key.upArrow) {
+      if (commandPaletteActive) {
+        onCommandPaletteNavigate?.(-1);
+        return;
+      }
+
       const moved = moveVertical(draftRef.current, -1, wrapWidth);
       if (moved) {
         commitDraft(moved);
@@ -246,6 +286,11 @@ export function PromptInput({ onSubmit, disabled = false }) {
     }
 
     if (key.downArrow) {
+      if (commandPaletteActive) {
+        onCommandPaletteNavigate?.(1);
+        return;
+      }
+
       const moved = moveVertical(draftRef.current, 1, wrapWidth);
       if (moved) {
         commitDraft(moved);
@@ -263,6 +308,19 @@ export function PromptInput({ onSubmit, disabled = false }) {
         const v = h[next] ?? '';
         commitDraft({ value: v, cursor: v.length });
       }
+      return;
+    }
+
+    if (key.tab && commandPaletteActive) {
+      const completed = onCommandPaletteComplete?.(draftRef.current.value);
+      if (typeof completed === 'string') {
+        commitDraft({ value: completed, cursor: completed.length });
+      }
+      return;
+    }
+
+    if (key.escape && commandPaletteActive) {
+      onCommandPaletteCancel?.(draftRef.current.value);
       return;
     }
 

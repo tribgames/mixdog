@@ -43,6 +43,11 @@ export default class Output {
     // parked, captured during renderNodeToOutput from the anchored input node's
     // real laid-out position. null = no cursor this frame.
     cursor = null;
+    // [mixdog fork] absolute terminal cell rectangle the user has drag-selected
+    // with the mouse, applied as an inverse highlight at serialization time.
+    // null = no selection. { x1, y1, x2, y2 } are inclusive, normalized so
+    // (x1,y1) is the top-left and (x2,y2) the bottom-right.
+    selection = null;
     constructor(options) {
         const { width, height } = options;
         this.width = width;
@@ -51,6 +56,10 @@ export default class Output {
     // [mixdog fork] record the cursor's absolute output cell (last write wins).
     setCursor(x, y) {
         this.cursor = { x, y };
+    }
+    // [mixdog fork] set the drag-selection rectangle (absolute output cells).
+    setSelection(rect) {
+        this.selection = rect;
     }
     write(x, y, text, options) {
         const { transformers } = options;
@@ -200,6 +209,51 @@ export default class Output {
                 }
             }
         }
+        // [mixdog fork] Apply the drag-selection highlight. We flip the SGR
+        // inverse attribute (7m / 27m) on every cell inside the selection
+        // rectangle. Cells come from a per-line styledChars cache shared across
+        // frames, so we MUST clone each touched cell and its styles array before
+        // mutating — otherwise the inverse leaks into the cache and stains
+        // unselected frames. styledCharsToString diffs the styles, so simply
+        // appending the inverse code object renders correct open/close runs.
+        const sel = this.selection;
+        let selectedText = null;
+        if (sel) {
+            const invCode = { code: '[7m', endCode: '[27m' };
+            const y1 = Math.max(0, sel.y1);
+            const y2 = Math.min(this.height - 1, sel.y2);
+            const selRows = [];
+            for (let y = y1; y <= y2; y++) {
+                const row = output[y];
+                if (!row) {
+                    selRows.push('');
+                    continue;
+                }
+                const x1 = Math.max(0, sel.x1);
+                const x2 = Math.min(row.length - 1, sel.x2);
+                let rowText = '';
+                for (let x = x1; x <= x2; x++) {
+                    const cell = row[x];
+                    if (!cell) {
+                        continue;
+                    }
+                    // Collect the visible glyph. Wide-char trailing placeholders
+                    // carry value '' and contribute nothing, which is correct.
+                    rowText += cell.value ?? '';
+                    // Skip if already inverted (defensive; shouldn't happen).
+                    if (cell.styles?.some((s) => s.code === invCode.code)) {
+                        continue;
+                    }
+                    row[x] = {
+                        ...cell,
+                        styles: [...(cell.styles ?? []), invCode],
+                    };
+                }
+                // Trailing spaces in a selected row are padding, not content.
+                selRows.push(rowText.replace(/\s+$/u, ''));
+            }
+            selectedText = selRows.join('\n');
+        }
         const generatedOutput = output
             .map(line => {
             // See https://github.com/vadimdemedes/ink/pull/564#issuecomment-1637022742
@@ -211,6 +265,7 @@ export default class Output {
             output: generatedOutput,
             height: output.length,
             cursor: this.cursor, // [mixdog fork] absolute cursor cell or null
+            selectedText, // [mixdog fork] text inside the selection rect, or null
         };
     }
 }

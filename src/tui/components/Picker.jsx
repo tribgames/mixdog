@@ -18,7 +18,7 @@ import { theme } from '../theme.mjs';
 /** Max items visible at once before scrolling kicks in. */
 const MAX_VISIBLE = 8;
 
-export function Picker({ items, onSelect, onCancel, title }) {
+export function Picker({ items, onSelect, onCancel, title, columns = 80 }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useInput(
@@ -33,7 +33,7 @@ export function Picker({ items, onSelect, onCancel, title }) {
           return;
         }
         if (key.return) {
-          onSelect(items[selectedIndex].value);
+          onSelect(items[selectedIndex].value, items[selectedIndex]);
           return;
         }
         if (key.escape) {
@@ -76,15 +76,17 @@ export function Picker({ items, onSelect, onCancel, title }) {
   const maxLabelWidth = visible.reduce((w, item) => Math.max(w, item.label.length), 0);
 
   return (
-    <Box flexDirection="column" flexShrink={0}>
+    <Box flexDirection="column" flexShrink={0} width="100%">
       <Box
         flexDirection="column"
         borderStyle="round"
         borderColor={theme.promptBorder}
         paddingX={1}
+        width="100%"
       >
-        <Box flexDirection="row" marginBottom={1}>
+        <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
           <Text color={theme.claude}>{title}</Text>
+          <Text color={theme.subtle}>↑↓ select · Enter choose · Esc cancel</Text>
         </Box>
         {visible.map((item, i) => {
           const idx = start + i;
@@ -94,7 +96,7 @@ export function Picker({ items, onSelect, onCancel, title }) {
               key={item.value}
               label={item.label}
               description={item.description}
-              labelWidth={maxLabelWidth}
+              labelWidth={Math.min(maxLabelWidth, Math.max(12, Math.floor(columns * 0.32)))}
               isSelected={isSelected}
             />
           );
@@ -112,11 +114,15 @@ export function Picker({ items, onSelect, onCancel, title }) {
 }
 
 const ItemRow = React.memo(function ItemRow({ label, description, labelWidth, isSelected }) {
+  const displayLabel = label.length > labelWidth
+    ? label.slice(0, Math.max(1, labelWidth - 1)) + '…'
+    : label;
+
   return (
     <Box flexDirection="row">
       <Text color={isSelected ? theme.text : theme.inactive}>
         {isSelected ? '→ ' : '  '}
-        {label.padEnd(labelWidth)}
+        {displayLabel.padEnd(labelWidth)}
       </Text>
       {description ? (
         <Text color={isSelected ? theme.inactive : theme.subtle}>

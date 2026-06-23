@@ -6,6 +6,7 @@
  *   transcript (finished items, a live column — terminal scrolls older rows off)
  *   live reasoning (∴ Thinking… — only while a turn streams)
  *   spinner / TurnDone (while a turn runs / just finished)
+ *   top option picker (when a slash command opens one)
  *   queued steering prompts + rounded prompt input (one cluster)
  *   statusline (vendored L1/L2)
  *
@@ -15,7 +16,8 @@
  * layout, which <Static> collapses. The terminal handles scrollback itself as
  * the transcript column grows past the screen height.
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import { spawn } from 'node:child_process';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import { theme, TURN_MARKER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
@@ -27,26 +29,81 @@ import { StatusLine } from './components/StatusLine.jsx';
 import { PromptInput } from './components/PromptInput.jsx';
 import { QueuedCommands } from './components/QueuedCommands.jsx';
 import { Picker } from './components/Picker.jsx';
+import { SlashCommandPalette } from './components/SlashCommandPalette.jsx';
 import { MAX_RESULT_LINES } from './components/ToolExecution.jsx';
 
 const HELP = [
   'Slash commands:',
   '  /help            show this help',
   '  /clear           reset the conversation',
+  '  /compact         compact older conversation context',
   '  /new             start a fresh session (closes current)',
   '  /resume [id]     resume a saved session (picker if no id)',
   '  /model <name>    switch model for subsequent turns (picker if no name)',
   '  /mode <name>     switch tool surface: full | readonly',
   '  /exit, /quit     quit',
-  'Picker: ↑/↓ navigate, Enter confirm, Escape cancel.',
-  'Ctrl+C exits. Drag to select text, Ctrl+C to copy. ↑/↓ recall history.',
+  'Picker: ↑/↓ navigate, Enter confirm, Escape cancel (opens at top).',
+  'Ctrl+C exits. Drag with the mouse to select & auto-copy. ↑/↓ recall history.',
 ].join('\n');
+
+const SLASH_COMMANDS = [
+  { name: 'help', usage: '/help', description: 'show slash command help' },
+  { name: 'clear', usage: '/clear', description: 'reset the conversation' },
+  { name: 'compact', usage: '/compact', description: 'compact older conversation context' },
+  { name: 'new', usage: '/new', description: 'start a fresh session' },
+  { name: 'resume', usage: '/resume', description: 'resume a saved session' },
+  { name: 'model', usage: '/model', description: 'switch model for subsequent turns' },
+  { name: 'mode', usage: '/mode', description: 'switch tool surface' },
+  { name: 'exit', usage: '/exit', description: 'quit the TUI' },
+  { name: 'quit', usage: '/quit', description: 'quit the TUI' },
+];
+
+function slashQuery(value) {
+  const text = String(value ?? '');
+  if (!/^\/[^\s]*$/.test(text)) return null;
+  return text.slice(1).toLowerCase();
+}
 
 function terminalSize(stdout) {
   return {
     columns: stdout?.columns ?? 80,
     rows: stdout?.rows ?? 24,
   };
+}
+
+// Copy text to the OS clipboard via the platform's native command. We avoid
+// OSC 52 (terminal clipboard escape) because support is uneven across Windows
+// terminals; spawning clip/pbcopy/xclip is reliable. Resolves on success,
+// rejects if the helper is missing or errors.
+function copyToClipboard(text) {
+  return new Promise((resolve, reject) => {
+    let cmd;
+    let args = [];
+    if (process.platform === 'win32') {
+      cmd = 'clip';
+    } else if (process.platform === 'darwin') {
+      cmd = 'pbcopy';
+    } else if (process.env.WAYLAND_DISPLAY) {
+      cmd = 'wl-copy';
+    } else {
+      cmd = 'xclip';
+      args = ['-selection', 'clipboard'];
+    }
+    let child;
+    try {
+      child = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'ignore'] });
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${cmd} exited with code ${code}`));
+    });
+    child.stdin.on('error', () => { /* ignore EPIPE if the helper closed early */ });
+    child.stdin.end(text, 'utf8');
+  });
 }
 
 const Item = React.memo(function Item({ item, prevKind, columns }) {
@@ -62,7 +119,13 @@ const Item = React.memo(function Item({ item, prevKind, columns }) {
 export function App({ store, initialStatusLine = '' }) {
   const state = useEngine(store);
   const { exit } = useApp();
-  const { isRawModeSupported, stdin } = useStdin();
+  // internal_eventEmitter is ink's parsed-input bus. ink 7 consumes stdin via
+  // the 'readable' event + stdin.read() (see ink's App.js), draining the buffer
+  // so a plain stdin.on('data') listener of ours never sees mouse bytes. Instead
+  // we subscribe to ink's 'input' events, which carry every parsed sequence —
+  // including raw SGR mouse sequences (\x1b[<…M/m), since ink's input-parser
+  // passes CSI sequences through untouched and emitInput forwards them verbatim.
+  const { isRawModeSupported, stdin, internal_eventEmitter: inkInput } = useStdin();
   const { stdout } = useStdout();
   const [exiting, setExiting] = useState(false);
   const [resizeState, setResizeState] = useState(() => ({ ...terminalSize(stdout), epoch: 0 }));
@@ -71,7 +134,32 @@ export function App({ store, initialStatusLine = '' }) {
   // it; a new turn / new items snap back to 0 (handled below).
   const [scrollOffset, setScrollOffset] = useState(0);
   // picker = null | { type, title, items, onSelect }
+  // Rendered as a top option panel while the bottom prompt stays anchored and
+  // disabled, matching the OpenCode-style modal flow.
   const [picker, setPicker] = useState(null);
+  const [promptDraft, setPromptDraft] = useState('');
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashDismissedFor, setSlashDismissedFor] = useState('');
+  // dragRef tracks an in-progress mouse text selection (see the mouse handler):
+  // anchor = where the drag began, last = the latest cell, active = button held.
+  const dragRef = useRef({ anchor: null, last: null, active: false });
+
+  // Copy the currently-highlighted selection to the OS clipboard. ink's fork
+  // refreshed store.getRenderSelectionText() on the synchronous render that the
+  // final setSelection() triggered, so the text under the rect is ready to read.
+  const copySelection = useCallback((rect) => {
+    const text = store.getRenderSelectionText?.();
+    if (!text || !text.trim()) return;
+    copyToClipboard(text)
+      .then(() => {
+        const lines = text.split('\n').length;
+        const chars = text.length;
+        store.pushNotice(`📋 copied ${chars} char${chars === 1 ? '' : 's'}${lines > 1 ? ` · ${lines} lines` : ''}`, 'info');
+      })
+      .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
+    // Clear the highlight a beat after copying so the user sees what was taken.
+    setTimeout(() => { store.setRenderSelection?.(null); }, 120);
+  }, [store]);
 
   useEffect(() => {
     if (!stdout) return undefined;
@@ -101,31 +189,85 @@ export function App({ store, initialStatusLine = '' }) {
     };
   }, [stdout]);
 
-  // Mouse-wheel scrolling. index.jsx enabled SGR mouse tracking; the terminal
-  // sends `\x1b[<64;col;rowM` for wheel-up and `\x1b[<65;col;rowM` for wheel-down
-  // (button 64/65 = wheel). We watch raw stdin for these and move scrollOffset.
-  // ink's own input handling ignores mouse sequences, so this side-listener is
-  // additive and doesn't interfere with keyboard input.
+  // Mouse handling. index.jsx enabled SGR mouse tracking (?1000h button + ?1002h
+  // drag-motion + ?1006h SGR coords). Every event arrives as `\x1b[<b;col;rowM`
+  // (press/motion) or `\x1b[<b;col;rowm` (release), 1-based col/row. We watch raw
+  // stdin and split it two ways, both additive to ink's keyboard handling:
+  //   • wheel (button 64 up / 65 down) → scroll the transcript
+  //   • left-button (0) press → drag → release → in-app text selection + copy,
+  //     OpenCode-style: capture stays on so wheel and drag-select coexist. We
+  //     paint an inverse highlight via the ink fork (store.setRenderSelection)
+  //     and copy the selected cells to the OS clipboard on release.
+  // Because we run a true fullscreen alt-screen, the reported (row,col) maps 1:1
+  // to ink's absolute output grid, so the selection rectangle needs no scroll/
+  // viewport translation — we highlight exactly the cells the user sees.
   useEffect(() => {
-    if (!stdin || !isRawModeSupported) return undefined;
-    const WHEEL = /\x1b\[<(64|65);\d+;\d+[Mm]/g;
+    if (!inkInput || !isRawModeSupported) return undefined;
+    // Match every SGR mouse event: button, col, row, and final M(press)/m(release).
+    const MOUSE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
+    const setSel = store.setRenderSelection;
+    const normalize = (a, b) => {
+      // Build an axis-aligned rectangle from the two drag endpoints. x and y MUST
+      // be min/max'd INDEPENDENTLY — ordering by row and copying that point's x
+      // breaks diagonal drags (e.g. dragging up-and-left), producing x1 > x2 so
+      // the selection loop skips every cell and nothing highlights or copies.
+      return {
+        x1: Math.min(a.x, b.x),
+        y1: Math.min(a.y, b.y),
+        x2: Math.max(a.x, b.x),
+        y2: Math.max(a.y, b.y),
+      };
+    };
     const onData = (data) => {
       const s = typeof data === 'string' ? data : data.toString('utf8');
-      if (s.indexOf('\x1b[<6') === -1) return;
+      if (s.indexOf('\x1b[<') === -1) return;
       let up = 0;
       let down = 0;
       let m;
-      WHEEL.lastIndex = 0;
-      while ((m = WHEEL.exec(s)) !== null) {
-        if (m[1] === '64') up += 1; else down += 1;
+      MOUSE.lastIndex = 0;
+      while ((m = MOUSE.exec(s)) !== null) {
+        const button = Number(m[1]);
+        const x = Number(m[2]) - 1; // SGR is 1-based; grid is 0-based
+        const y = Number(m[3]) - 1;
+        const press = m[4] === 'M';
+        if (button === 64) { up += 1; continue; }
+        if (button === 65) { down += 1; continue; }
+        // Low 2 bits = button id; bit 5 (32) = motion-while-pressed flag.
+        const baseButton = button & 3;
+        const isMotion = (button & 32) !== 0;
+        if (baseButton === 0 && press && !isMotion) {
+          // Left-button press: begin a new selection anchored here.
+          dragRef.current = { anchor: { x, y }, last: { x, y }, active: true };
+          setSel?.({ x1: x, y1: y, x2: x, y2: y });
+        } else if (baseButton === 0 && isMotion && dragRef.current.active) {
+          // Drag motion: extend the selection to the current cell.
+          dragRef.current.last = { x, y };
+          setSel?.(normalize(dragRef.current.anchor, { x, y }));
+        } else if (!press && dragRef.current.active) {
+          // Button release while dragging: finalize with the release coordinate
+          // (the SGR release event carries col/row), then copy.
+          const { anchor } = dragRef.current;
+          dragRef.current.active = false;
+          const rect = normalize(anchor, { x, y });
+          const empty = rect.x1 === rect.x2 && rect.y1 === rect.y2;
+          if (empty) {
+            setSel?.(null); // a plain click clears any prior highlight
+          } else {
+            // Push the final rect so ink re-renders and refreshes the selection
+            // text synchronously, then read it back inside copySelection.
+            setSel?.(rect);
+            copySelection(rect);
+          }
+        }
       }
-      if (up === 0 && down === 0) return;
-      const STEP = 3; // rows per wheel notch
-      setScrollOffset((prev) => Math.max(0, prev + (up - down) * STEP));
+      if (up !== 0 || down !== 0) {
+        const STEP = 3; // rows per wheel notch
+        setScrollOffset((prev) => Math.max(0, prev + (up - down) * STEP));
+      }
     };
     stdin.on('data', onData);
     return () => { stdin.off('data', onData); };
-  }, [stdin, isRawModeSupported]);
+  }, [stdin, isRawModeSupported, store, copySelection]);
 
   // Snap back to the latest content whenever the transcript grows (new message /
   // turn) so the user always sees fresh output after sending.
@@ -177,6 +319,181 @@ export function App({ store, initialStatusLine = '' }) {
     }
   }, { isActive: isRawModeSupported });
 
+  const openModelPicker = () => {
+    let presets;
+    try {
+      presets = store.listPresets();
+    } catch (e) {
+      store.pushNotice(`could not list presets: ${e?.message || e}`, 'error');
+      return;
+    }
+    if (!presets || presets.length === 0) {
+      store.pushNotice(`current model: ${state.model}`, 'info');
+      return;
+    }
+    const items = presets.map((p) => {
+      const key = p.id || p.name || p.model;
+      const label = p.name || p.id || p.model;
+      return {
+        value: key,
+        label,
+        description: `${p.provider}/${p.model}`,
+      };
+    }).filter((item) => item.value);
+    setPicker({
+      title: `Model (current: ${state.model})`,
+      items,
+      onSelect: (value) => {
+        setPicker(null);
+        void store.setModel(value)
+          .then(ok => store.pushNotice(ok ? `✓ model → ${value}` : 'model switch already in progress', ok ? 'info' : 'warn'))
+          .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
+  const openModePicker = () => {
+    const modes = [
+      { value: 'full', label: 'full', description: 'all configured tools' },
+      { value: 'readonly', label: 'readonly', description: 'read-only tool surface' },
+    ];
+    setPicker({
+      title: `Mode (current: ${state.toolMode || 'full'})`,
+      items: modes,
+      onSelect: (value) => {
+        setPicker(null);
+        store.setToolMode(value);
+        store.pushNotice(`✓ mode → ${value}`, 'info');
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
+  const openResumePicker = () => {
+    let sessions;
+    try {
+      sessions = store.listSessions();
+    } catch (e) {
+      store.pushNotice(`could not list sessions: ${e?.message || e}`, 'error');
+      return;
+    }
+    if (!sessions || sessions.length === 0) {
+      store.pushNotice('no saved sessions', 'warn');
+      return;
+    }
+    const items = sessions.map((s) => ({
+      value: s.id,
+      label: s.id.length > 28 ? s.id.slice(0, 25) + '…' : s.id,
+      description: `${s.messageCount} msgs${s.preview ? ' · ' + s.preview.slice(0, 50).replace(/\n/g, ' ') : ''}`,
+    }));
+    setPicker({
+      title: 'Resume session',
+      items,
+      onSelect: (value) => {
+        setPicker(null);
+        void store.resume(value)
+          .then(ok => store.pushNotice(ok ? `✓ resumed ${value}` : 'resume failed', ok ? 'info' : 'warn'))
+          .catch((e) => store.pushNotice(`resume failed: ${e?.message || e}`, 'error'));
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
+  const runSlashCommand = (cmd, arg = '') => {
+    switch (cmd) {
+      case 'help': store.pushNotice(HELP, 'info'); return true;
+      case 'clear':
+        if (state.busy) {
+          store.pushNotice('wait for the current turn to finish before /clear', 'warn');
+          return false;
+        }
+        void store.clear().then(() => {}).catch(e => store.pushNotice(`clear failed: ${e?.message || e}`, 'error'));
+        return true;
+      case 'model':
+        if (state.busy) {
+          store.pushNotice('wait for the current turn to finish before /model', 'warn');
+          return false;
+        }
+        if (!arg) {
+          openModelPicker();
+          return true;
+        }
+        void store.setModel(arg)
+          .then(ok => store.pushNotice(ok ? `✓ model → ${arg}` : 'model switch already in progress', ok ? 'info' : 'warn'))
+          .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
+        return true;
+      case 'mode':
+        if (!arg) {
+          openModePicker();
+          return true;
+        }
+        store.setToolMode(arg);
+        store.pushNotice(`✓ mode → ${arg}`, 'info');
+        return true;
+      case 'compact':
+        if (state.busy) {
+          store.pushNotice('wait for the current turn to finish before /compact', 'warn');
+          return false;
+        }
+        void store.compact()
+          .then((r) => {
+            if (!r) {
+              store.pushNotice('compact failed', 'warn');
+              return;
+            }
+            if (r.changed === false && r.reason) {
+              store.pushNotice(r.reason, 'warn');
+              return;
+            }
+            store.pushNotice(
+              `✓ compacted context: ${r.beforeMessages}→${r.afterMessages} messages, ${r.beforeTokens}→${r.afterTokens} est tokens`,
+              r.changed ? 'info' : 'warn',
+            );
+          })
+          .catch((e) => store.pushNotice(`compact failed: ${e?.message || e}`, 'error'));
+        return true;
+      case 'new':
+        if (state.busy) {
+          store.pushNotice('wait for the current turn to finish before /new', 'warn');
+          return false;
+        }
+        void store.newSession()
+          .then(() => store.pushNotice('✓ new session', 'info'))
+          .catch((e) => store.pushNotice(`new session failed: ${e?.message || e}`, 'error'));
+        return true;
+      case 'resume':
+        if (state.busy) {
+          store.pushNotice('wait for the current turn to finish before /resume', 'warn');
+          return false;
+        }
+        if (arg) {
+          void store.resume(arg)
+            .then(ok => store.pushNotice(ok ? `✓ resumed ${arg}` : 'resume failed', ok ? 'info' : 'warn'))
+            .catch((e) => store.pushNotice(`resume failed: ${e?.message || e}`, 'error'));
+        } else {
+          openResumePicker();
+        }
+        return true;
+      case 'exit':
+      case 'quit':
+        requestExit();
+        return true;
+      default:
+        store.pushNotice(`unknown command: /${cmd} (try /help)`, 'warn');
+        return true;
+    }
+  };
+
   const onSubmit = (raw) => {
     const text = String(raw ?? '');
     const commandText = text.trim();
@@ -188,125 +505,41 @@ export function App({ store, initialStatusLine = '' }) {
 
     if (commandText.startsWith('/')) {
       const [cmd, ...rest] = commandText.slice(1).split(/\s+/);
-      const arg = rest.join(' ').trim();
-      switch (cmd) {
-        case 'help': store.pushNotice(HELP, 'info'); return true;
-        case 'clear':
-          if (state.busy) {
-            store.pushNotice('wait for the current turn to finish before /clear', 'warn');
-            return false;
-          }
-          void store.clear().then(() => {}).catch(e => store.pushNotice(`clear failed: ${e?.message || e}`, 'error'));
-          return true;
-        case 'model':
-          if (state.busy) {
-            store.pushNotice('wait for the current turn to finish before /model', 'warn');
-            return false;
-          }
-          if (!arg) {
-            let presets;
-            try {
-              presets = store.listPresets();
-            } catch (e) {
-              store.pushNotice(`could not list presets: ${e?.message || e}`, 'error');
-              return true;
-            }
-            if (!presets || presets.length === 0) {
-              store.pushNotice(`current model: ${state.model}`, 'info');
-            } else {
-              const items = presets.map((p) => {
-                const key = p.id || p.name || p.model;
-                const label = p.name || p.id || p.model;
-                return {
-                  value: key,
-                  label,
-                  description: `${p.provider}/${p.model}`,
-                };
-              }).filter((item) => item.value);
-              setPicker({
-                title: `Model (current: ${state.model})`,
-                items,
-                onSelect: (value) => {
-                  setPicker(null);
-                  void store.setModel(value)
-                    .then(ok => store.pushNotice(ok ? `✓ model → ${value}` : 'model switch already in progress', ok ? 'info' : 'warn'))
-                    .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
-                },
-                onCancel: () => {
-                  setPicker(null);
-                  store.pushNotice('canceled', 'info');
-                },
-              });
-            }
-            return true;
-          }
-          void store.setModel(arg)
-            .then(ok => store.pushNotice(ok ? `✓ model → ${arg}` : 'model switch already in progress', ok ? 'info' : 'warn'))
-            .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
-          return true;
-        case 'mode':
-          if (!arg) { store.pushNotice(`current mode: ${state.toolMode || 'full'}`, 'info'); return true; }
-          store.setToolMode(arg);
-          store.pushNotice(`✓ mode → ${arg}`, 'info');
-          return true;
-        case 'new':
-          if (state.busy) {
-            store.pushNotice('wait for the current turn to finish before /new', 'warn');
-            return false;
-          }
-          void store.newSession()
-            .then(() => store.pushNotice('✓ new session', 'info'))
-            .catch((e) => store.pushNotice(`new session failed: ${e?.message || e}`, 'error'));
-          return true;
-        case 'resume':
-          if (state.busy) {
-            store.pushNotice('wait for the current turn to finish before /resume', 'warn');
-            return false;
-          }
-          if (arg) {
-            void store.resume(arg)
-              .then(ok => store.pushNotice(ok ? `✓ resumed ${arg}` : 'resume failed', ok ? 'info' : 'warn'))
-              .catch((e) => store.pushNotice(`resume failed: ${e?.message || e}`, 'error'));
-          } else {
-            let sessions;
-            try {
-              sessions = store.listSessions();
-            } catch (e) {
-              store.pushNotice(`could not list sessions: ${e?.message || e}`, 'error');
-              return true;
-            }
-            if (!sessions || sessions.length === 0) {
-              store.pushNotice('no saved sessions', 'warn');
-            } else {
-              const items = sessions.map((s) => ({
-                value: s.id,
-                label: s.id.length > 28 ? s.id.slice(0, 25) + '…' : s.id,
-                description: `${s.messageCount} msgs${s.preview ? ' · ' + s.preview.slice(0, 50).replace(/\n/g, ' ') : ''}`,
-              }));
-              setPicker({
-                title: 'Resume session',
-                items,
-                onSelect: (value) => {
-                  setPicker(null);
-                  void store.resume(value)
-                    .then(ok => store.pushNotice(ok ? `✓ resumed ${value}` : 'resume failed', ok ? 'info' : 'warn'))
-                    .catch((e) => store.pushNotice(`resume failed: ${e?.message || e}`, 'error'));
-                },
-                onCancel: () => {
-                  setPicker(null);
-                  store.pushNotice('canceled', 'info');
-                },
-              });
-            }
-          }
-          return true;
-        case 'exit':
-        case 'quit': requestExit(); return true;
-        default: store.pushNotice(`unknown command: /${cmd} (try /help)`, 'warn'); return true;
-      }
+      return runSlashCommand(cmd, rest.join(' ').trim());
     }
     return store.submit(text);
   };
+
+  const activeSlashQuery = slashQuery(promptDraft);
+  const slashCommands = activeSlashQuery === null || picker || exiting || state.commandBusy
+    ? []
+    : SLASH_COMMANDS.filter((command) => {
+      const needle = activeSlashQuery;
+      return command.name.includes(needle) || command.usage.toLowerCase().includes(needle);
+    });
+  const slashPaletteOpen = activeSlashQuery !== null
+    && slashDismissedFor !== promptDraft
+    && slashCommands.length > 0;
+
+  useEffect(() => {
+    setSlashIndex((index) => Math.min(index, Math.max(0, slashCommands.length - 1)));
+  }, [slashCommands.length, activeSlashQuery]);
+
+  const onPromptDraftChange = useCallback((value) => {
+    setPromptDraft(value);
+    setSlashDismissedFor((dismissed) => (dismissed && dismissed !== value ? '' : dismissed));
+  }, []);
+
+  const acceptSlashPalette = useCallback(() => {
+    const command = slashCommands[slashIndex];
+    if (!command) return false;
+    return runSlashCommand(command.name, '');
+  }, [slashCommands, slashIndex]);
+
+  const completeSlashPalette = useCallback(() => {
+    const command = slashCommands[slashIndex];
+    return command ? `/${command.name} ` : undefined;
+  }, [slashCommands, slashIndex]);
 
   const resizeEpoch = resizeState.epoch;
 
@@ -340,9 +573,11 @@ export function App({ store, initialStatusLine = '' }) {
   const INPUT_BOX_ROWS = 4;
   const STATUSLINE_ROWS = 3;
   const PICKER_MAX_VISIBLE = 8;
-  const PICKER_ROWS = picker ? Math.min(picker.items.length, PICKER_MAX_VISIBLE) + 3 : 0;
-  const queuedRows = !picker && state.queued?.length ? state.queued.length + 1 : 0;
-  const bottomReserve = WELCOME_ROWS + LIVE_STATUS_ROWS + (picker ? PICKER_ROWS : INPUT_BOX_ROWS) + STATUSLINE_ROWS + queuedRows;
+  const SLASH_PALETTE_MAX_VISIBLE = 8;
+  const TOP_PICKER_ROWS = picker ? Math.min(picker.items.length, PICKER_MAX_VISIBLE) + 4 : 0;
+  const SLASH_PALETTE_ROWS = slashPaletteOpen ? Math.min(slashCommands.length, SLASH_PALETTE_MAX_VISIBLE) + 4 : 0;
+  const queuedRows = !picker && !slashPaletteOpen && state.queued?.length ? state.queued.length + 1 : 0;
+  const bottomReserve = WELCOME_ROWS + TOP_PICKER_ROWS + SLASH_PALETTE_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
@@ -365,6 +600,18 @@ export function App({ store, initialStatusLine = '' }) {
             <Text color={theme.text}>mixdog-cli</Text>
             <Text color={theme.inactive}>{`  ${state.provider}/${state.model}`}</Text>
           </Text>
+        </Box>
+      ) : null}
+
+      {picker ? (
+        <Box flexShrink={0} marginBottom={1}>
+          <Picker
+            items={picker.items}
+            onSelect={picker.onSelect}
+            onCancel={picker.onCancel}
+            title={picker.title}
+            columns={resizeState.columns}
+          />
         </Box>
       ) : null}
 
@@ -428,31 +675,46 @@ export function App({ store, initialStatusLine = '' }) {
         </Box>
       ) : null}
 
-      {/* Bottom bar — pinned to the physical bottom, never moves. Picker
-          (when open) replaces the queued prompts + input box; statusline
-          stays last. */}
+      {/* Bottom bar — pinned to the physical bottom, never moves. When a picker
+          is open, the prompt remains visible but disabled; the picker itself
+          lives above the transcript like OpenCode's option panel. */}
       <Box flexDirection="column" flexShrink={0}>
-        {picker ? (
-          <Picker
-            items={picker.items}
-            onSelect={picker.onSelect}
-            onCancel={picker.onCancel}
-            title={picker.title}
+        {slashPaletteOpen ? (
+          <Box flexShrink={0}>
+            <SlashCommandPalette
+              commands={slashCommands}
+              selectedIndex={slashIndex}
+              title="Slash commands"
+              columns={resizeState.columns}
+            />
+          </Box>
+        ) : !picker ? (
+          <QueuedCommands queued={state.queued} columns={resizeState.columns} />
+        ) : null}
+        <Box
+          marginTop={1}
+          width="100%"
+          borderStyle="round"
+          borderColor={state.busy || state.commandBusy || picker ? theme.subtle : theme.promptBorder}
+          paddingX={1}
+        >
+          <PromptInput
+            onSubmit={onSubmit}
+            disabled={exiting || state.commandBusy || !!picker}
+            onDraftChange={onPromptDraftChange}
+            commandPaletteActive={slashPaletteOpen}
+            onCommandPaletteNavigate={(direction) => {
+              setSlashIndex((index) => {
+                const total = slashCommands.length;
+                if (total === 0) return 0;
+                return (index + direction + total) % total;
+              });
+            }}
+            onCommandPaletteAccept={acceptSlashPalette}
+            onCommandPaletteCancel={(value) => setSlashDismissedFor(value)}
+            onCommandPaletteComplete={completeSlashPalette}
           />
-        ) : (
-          <>
-            <QueuedCommands queued={state.queued} columns={resizeState.columns} />
-            <Box
-              marginTop={1}
-              width="100%"
-              borderStyle="round"
-              borderColor={state.busy || state.commandBusy ? theme.subtle : theme.promptBorder}
-              paddingX={1}
-            >
-              <PromptInput onSubmit={onSubmit} disabled={exiting || state.commandBusy || !!picker} />
-            </Box>
-          </>
-        )}
+        </Box>
         <StatusLine
           sessionId={state.sessionId}
           provider={state.provider}

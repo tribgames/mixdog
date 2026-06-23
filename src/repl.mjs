@@ -42,6 +42,7 @@ const HELP_LINES = [
   'Slash commands (inside the REPL):',
   '  /help              show this help',
   '  /clear             reset the conversation and clear the screen',
+  '  /compact           compact older conversation context',
   '  /model <name>      switch model/preset for subsequent turns',
   '  /mode <name>       switch tool surface: full | readonly',
   '  /exit              quit',
@@ -216,6 +217,21 @@ async function handleSlash(line, ctx) {
       stdout.write((await renderStatusline({
         provider: ctx.runtime.provider, model: ctx.runtime.model, cwd: ctx.cwd, stats: ctx.stats,
       })) + '\n');
+      return;
+
+    case 'compact':
+      {
+        const r = await ctx.runtime.compact();
+        if (!r) {
+          stdout.write(yellow('compact failed') + '\n');
+          return;
+        }
+        if (r.changed === false && r.reason) {
+          stdout.write(yellow(r.reason) + '\n');
+          return;
+        }
+        stdout.write(green(`✓ compacted context: ${r.beforeMessages}→${r.afterMessages} messages, ${r.beforeTokens}→${r.afterTokens} est tokens`) + '\n');
+      }
       return;
 
     case 'model':

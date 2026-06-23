@@ -421,7 +421,7 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
     }
     const budget = effectiveBudget(budgetTokens, opts);
     const sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
-    if (estimateMessagesTokens(sanitized) <= budget) {
+    if (opts.force !== true && estimateMessagesTokens(sanitized) <= budget) {
         return { messages: sanitized, usage: null, semantic: false };
     }
 
@@ -497,7 +497,7 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
 export function compactMessages(messages, budgetTokens, opts = {}) {
     const budget = effectiveBudget(budgetTokens, opts);
     const sanitized = sanitizeToolPairs(messages);
-    if (estimateMessagesTokens(sanitized) <= budget) return reconcileDedupStubs(sanitized);
+    if (opts.force !== true && estimateMessagesTokens(sanitized) <= budget) return reconcileDedupStubs(sanitized);
 
     const system = sanitized.filter(m => m?.role === 'system');
     const nonSystem = sanitized.filter(m => m?.role !== 'system');

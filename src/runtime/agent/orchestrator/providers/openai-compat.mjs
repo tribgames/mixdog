@@ -23,6 +23,7 @@ import {
 } from '../stall-policy.mjs';
 import { traceHash, stableTraceStringify, summarizeTraceTools, traceTextShape } from './trace-utils.mjs';
 import {
+    contentHasImage,
     normalizeContentForOpenAIChat,
     normalizeContentForOpenAIResponses,
     splitToolContentForOpenAIChat,
@@ -906,6 +907,11 @@ function toOpenAIMessages(messages, providerName) {
     flushToolMedia();
     return out;
 }
+
+function messagesHaveImageContent(messages) {
+    return (messages || []).some((m) => contentHasImage(m?.content));
+}
+
 function toOpenAITools(tools) {
     return tools.map((t) => ({
         type: 'function',
@@ -1094,7 +1100,7 @@ export class OpenAICompatProvider {
         const useModel = model || this.defaultModel;
         const opts = sendOpts || {};
         if (this.name === 'xai' && useXaiResponsesApi(opts, this.config)) {
-            if (useXaiResponsesWebSocket(opts, this.config)) {
+            if (useXaiResponsesWebSocket(opts, this.config) && !messagesHaveImageContent(messages)) {
                 return await this._doSendXaiResponsesWebSocket(messages, useModel, tools, opts);
             }
             return await this._doSendXaiResponses(messages, useModel, tools, opts);

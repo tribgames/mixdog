@@ -1,6 +1,6 @@
 import renderNodeToOutput, { renderNodeToScreenReaderOutput, } from './render-node-to-output.js';
 import Output from './output.js';
-const renderer = (node, isScreenReaderEnabled) => {
+const renderer = (node, isScreenReaderEnabled, selection) => {
     if (node.yogaNode) {
         if (isScreenReaderEnabled) {
             const output = renderNodeToScreenReaderOutput(node, {
@@ -23,6 +23,12 @@ const renderer = (node, isScreenReaderEnabled) => {
             width: node.yogaNode.getComputedWidth(),
             height: node.yogaNode.getComputedHeight(),
         });
+        // [mixdog fork] hand the mouse drag-selection rectangle to the output so
+        // it can paint an inverse highlight over the selected cells at the
+        // serialization step. null when there is no active selection.
+        if (selection) {
+            output.setSelection(selection);
+        }
         renderNodeToOutput(node, output, {
             skipStaticElements: true,
         });
@@ -36,11 +42,12 @@ const renderer = (node, isScreenReaderEnabled) => {
                 skipStaticElements: false,
             });
         }
-        const { output: generatedOutput, height: outputHeight, cursor } = output.get();
+        const { output: generatedOutput, height: outputHeight, cursor, selectedText } = output.get();
         return {
             output: generatedOutput,
             outputHeight,
             cursor, // [mixdog fork] absolute cursor cell from the anchored input node, or null
+            selectedText, // [mixdog fork] text inside the drag-selection, or null
             // Newline at the end is needed, because static output doesn't have one, so
             // interactive output will override last line of static output
             staticOutput: staticOutput ? `${staticOutput.get().output}\n` : '',

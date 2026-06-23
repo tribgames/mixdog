@@ -39,22 +39,45 @@
  * Tool schema profile:
  *   - 'unified'         : shared bridge tool schema for provider cache reuse.
  *   - 'llm-only'        : no tools exposed; pure transform/classifier roles.
+ *
+ * BP2 cache-shard metadata (consumed by collect.mjs loadScopedRoleCatalog):
+ *   - catalogShareAgents : agents/<name>.md sections this role shares in its
+ *                          BP2 catalog in addition to its own self section
+ *                          (e.g. explorer rides agents/worker.md for tool-use
+ *                          discipline). Maintenance roles default to none.
+ *
+ * BP3 role-specific instruction metadata (consumed by rules-builder.cjs
+ * buildBridgeRoleSpecificContent + collect.mjs):
+ *   - inboundEvent   : role reports results back to Lead and must carry the
+ *                      skip-protocol rule (rules/bridge/20-skip-protocol.md)
+ *                      in its BP2 catalog so no-op outputs opt out of the Lead
+ *                      inject.
+ *   - instructionDir : DATA_DIR subdir whose *.md tree is folded into the
+ *                      role's BP3 role-specific block (webhook-handler →
+ *                      webhooks, scheduler-task → schedules).
  */
 
 import { fileURLToPath } from 'url'
-import { readFileSync } from 'fs'
+import { readFileSync, statSync } from 'fs'
 import { join, dirname } from 'path'
 
-// Load hidden-role definitions from defaults/hidden-roles.json at module
-// initialisation. CLAUDE_PLUGIN_ROOT points to the plugin root directory
-// (same pattern used by bridge-llm.mjs pluginRoot()). Falls back to a
-// path derived from import.meta.url (3 levels up from src/agent/orchestrator/)
-// so tests and standalone scripts work without the env var.
-function _loadHiddenRoles() {
+// Resolve the path to defaults/hidden-roles.json once. Same resolution
+// strategy used by bridge-llm.mjs pluginRoot() and the original eager load.
+const _HIDDEN_ROLES_PATH = (() => {
   const root = process.env.CLAUDE_PLUGIN_ROOT
     || join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
+  return join(root, 'defaults', 'hidden-roles.json')
+})()
+
+/** @type {{ mtime: number, map: object } | null} */
+let _hiddenRolesCache = null
+
+/**
+ * Read and parse defaults/hidden-roles.json. Throws on missing/malformed.
+ */
+function _loadHiddenRoles() {
   try {
-    const raw = JSON.parse(readFileSync(join(root, 'defaults', 'hidden-roles.json'), 'utf8'))
+    const raw = JSON.parse(readFileSync(_HIDDEN_ROLES_PATH, 'utf8'))
     const map = Object.create(null)
     for (const entry of (raw.roles || [])) {
       if (entry && entry.name) map[entry.name] = Object.freeze({ ...entry })
@@ -66,14 +89,37 @@ function _loadHiddenRoles() {
   }
 }
 
-const _HIDDEN_ROLES = _loadHiddenRoles()
+/**
+ * Return the hidden-role map, re-reading from disk when the file mtime has
+ * changed since the last load. This ensures that BP2 cache rebuilds triggered
+ * by a hidden-roles.json modification (tracked via maxMtimeRecursive in
+ * collect.mjs) consume fresh metadata in the same process.
+ */
+function _getHiddenRoles() {
+  try {
+    const mtime = statSync(_HIDDEN_ROLES_PATH).mtimeMs
+    if (_hiddenRolesCache && mtime <= _hiddenRolesCache.mtime) {
+      return _hiddenRolesCache.map
+    }
+    const map = _loadHiddenRoles()
+    _hiddenRolesCache = { mtime, map }
+    return map
+  } catch (err) {
+    // Fail loudly — re-throw with a clear message. A cache hit is never used
+    // when statSync fails because the caller expects current data.
+    throw new Error(`[internal-roles] failed to load defaults/hidden-roles.json: ${err.message}`)
+  }
+}
+
+// Eager validate at module init so startup failures are immediate.
+_getHiddenRoles()
 
 /**
  * Return the hidden-role definition, or null if the name is not internal.
  */
 export function getHiddenRole(name) {
   if (!name) return null
-  return _HIDDEN_ROLES[name] || null
+  return _getHiddenRoles()[name] || null
 }
 
 /**
@@ -93,7 +139,7 @@ export function resolveBridgeSessionPermission(role, callerPermission) {
  */
 export function isHiddenRole(name) {
   if (!name) return false
-  return Object.prototype.hasOwnProperty.call(_HIDDEN_ROLES, name)
+  return Object.prototype.hasOwnProperty.call(_getHiddenRoles(), name)
 }
 
 /**
@@ -101,7 +147,7 @@ export function isHiddenRole(name) {
  * a user-defined role doesn't collide with an internal one.
  */
 export function listHiddenRoleNames() {
-  return Object.keys(_HIDDEN_ROLES)
+  return Object.keys(_getHiddenRoles())
 }
 
 /**
@@ -111,8 +157,41 @@ export function listHiddenRoleNames() {
  */
 export function listHiddenRolesByKind(kind) {
   const out = []
-  for (const [name, def] of Object.entries(_HIDDEN_ROLES)) {
+  for (const [name, def] of Object.entries(_getHiddenRoles())) {
     if (def.kind === kind) out.push(name)
   }
   return out
+}
+
+/**
+ * Return the agents/<name>.md sections a hidden role shares in its BP2 catalog
+ * (in addition to its own self section). Drives the explorer→worker cache
+ * alignment declaratively instead of a hard-coded role-name branch in
+ * collect.mjs. Returns [] when the role declares none.
+ */
+export function getRoleCatalogShareAgents(name) {
+  const hidden = getHiddenRole(name)
+  if (!hidden || !Array.isArray(hidden.catalogShareAgents)) return []
+  return hidden.catalogShareAgents.map((n) => String(n || '').trim()).filter(Boolean)
+}
+
+/**
+ * True when a hidden role reports results back to Lead and must carry the
+ * skip-protocol rule in its BP2 catalog. Replaces the hard-coded
+ * INBOUND_EVENT_ROLES set in collect.mjs.
+ */
+export function isInboundEventRole(name) {
+  const hidden = getHiddenRole(name)
+  return !!(hidden && hidden.inboundEvent === true)
+}
+
+/**
+ * Return the DATA_DIR subdir whose *.md tree folds into a role's BP3
+ * role-specific block, or null when the role declares none. Replaces the
+ * webhook/scheduler ternary in rules-builder.cjs buildBridgeRoleSpecificContent.
+ */
+export function getRoleInstructionDir(name) {
+  const hidden = getHiddenRole(name)
+  const dir = hidden && typeof hidden.instructionDir === 'string' ? hidden.instructionDir.trim() : ''
+  return dir || null
 }

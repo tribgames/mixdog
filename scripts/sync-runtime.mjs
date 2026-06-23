@@ -111,7 +111,12 @@ const PATCHES = [
   {
     file: join(RUNTIME, 'agent', 'orchestrator', 'providers', 'openai-oauth.mjs'),
     name: 'quiet provider stderr (D14, openai-oauth)',
-    apply: (s) => patchProviderLog(s, 'openai-oauth'),
+    apply: patchOpenAIOAuth,
+  },
+  {
+    file: join(RUNTIME, 'agent', 'orchestrator', 'providers', 'openai-compat.mjs'),
+    name: 'OpenAI-compatible image HTTP fallback',
+    apply: patchOpenAICompatImageHttpFallback,
   },
   // D15 — standalone CLI consumes mixdog's session manager as the runtime
   // boundary. askSession still owns persistence/compaction/tool lifecycle, but
@@ -159,6 +164,125 @@ function patchProviderLog(src, provider) {
   re.lastIndex = 0;
   const text = src.replace(re, (_m, lit) => `${GATE}${lit}`);
   return { text, already: false };
+}
+
+function patchOpenAIOAuth(src) {
+  const quieted = patchProviderLog(src, 'openai-oauth').text;
+  return patchOpenAIOAuthImageHttpFallback(quieted);
+}
+
+function patchOpenAIOAuthImageHttpFallback(src) {
+  if (
+    src.includes('messagesHaveImageContent(messages)') &&
+    src.includes("dispatchHttp(hasImageContent ? 'image_content' : 'forced')")
+  ) {
+    return { text: src, already: true };
+  }
+  let s = src;
+  const importAnchor = `import {
+    normalizeContentForOpenAIResponses,
+    splitToolContentForOpenAIResponses,
+} from './media-normalization.mjs';`;
+  if (!s.includes(importAnchor)) {
+    throw new Error('[sync] openai-oauth media-normalization import anchor not found — reconcile image HTTP fallback patch manually.');
+  }
+  s = s.replace(importAnchor, `import {
+    contentHasImage,
+    normalizeContentForOpenAIResponses,
+    splitToolContentForOpenAIResponses,
+} from './media-normalization.mjs';`);
+
+  const helperAnchor = `    return out;
+}
+export function buildRequestBody(messages, model, tools, sendOpts) {`;
+  if (!s.includes(helperAnchor)) {
+    throw new Error('[sync] openai-oauth buildRequestBody helper anchor not found — reconcile image HTTP fallback patch manually.');
+  }
+  s = s.replace(helperAnchor, `    return out;
+}
+
+function messagesHaveImageContent(messages) {
+    return (messages || []).some((m) => contentHasImage(m?.content));
+}
+
+export function buildRequestBody(messages, model, tools, sendOpts) {`);
+
+  const bodyAnchor = `        const body = await _bodyP;
+        // poolKey ≠ cacheKey by design`;
+  if (!s.includes(bodyAnchor)) {
+    throw new Error('[sync] openai-oauth body await anchor not found — reconcile image HTTP fallback patch manually.');
+  }
+  s = s.replace(bodyAnchor, `        const body = await _bodyP;
+        const hasImageContent = messagesHaveImageContent(messages);
+        // poolKey ≠ cacheKey by design`);
+
+  const forcedAnchor = `        if (opts.forceHttpFallback === true
+            || this._forceHttpFallback
+            || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)) {
+            return dispatchHttp('forced');
+        }`;
+  if (!s.includes(forcedAnchor)) {
+    throw new Error('[sync] openai-oauth forced HTTP fallback anchor not found — reconcile image HTTP fallback patch manually.');
+  }
+  s = s.replace(forcedAnchor, `        if (opts.forceHttpFallback === true
+            || this._forceHttpFallback
+            || hasImageContent
+            || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)) {
+            return dispatchHttp(hasImageContent ? 'image_content' : 'forced');
+        }`);
+  return { text: s, already: false };
+}
+
+function patchOpenAICompatImageHttpFallback(src) {
+  if (
+    src.includes('messagesHaveImageContent(messages)') &&
+    src.includes('useXaiResponsesWebSocket(opts, this.config) && !messagesHaveImageContent(messages)')
+  ) {
+    return { text: src, already: true };
+  }
+  let s = src;
+  const importAnchor = `import {
+    normalizeContentForOpenAIChat,
+    normalizeContentForOpenAIResponses,
+    splitToolContentForOpenAIChat,
+    splitToolContentForOpenAIResponses,
+} from './media-normalization.mjs';`;
+  if (!s.includes(importAnchor)) {
+    throw new Error('[sync] openai-compat media-normalization import anchor not found — reconcile image HTTP fallback patch manually.');
+  }
+  s = s.replace(importAnchor, `import {
+    contentHasImage,
+    normalizeContentForOpenAIChat,
+    normalizeContentForOpenAIResponses,
+    splitToolContentForOpenAIChat,
+    splitToolContentForOpenAIResponses,
+} from './media-normalization.mjs';`);
+
+  const helperAnchor = `    return out;
+}
+function toOpenAITools(tools) {`;
+  if (!s.includes(helperAnchor)) {
+    throw new Error('[sync] openai-compat toOpenAIMessages helper anchor not found — reconcile image HTTP fallback patch manually.');
+  }
+  s = s.replace(helperAnchor, `    return out;
+}
+
+function messagesHaveImageContent(messages) {
+    return (messages || []).some((m) => contentHasImage(m?.content));
+}
+
+function toOpenAITools(tools) {`);
+
+  const wsAnchor = `            if (useXaiResponsesWebSocket(opts, this.config)) {
+                return await this._doSendXaiResponsesWebSocket(messages, useModel, tools, opts);
+            }`;
+  if (!s.includes(wsAnchor)) {
+    throw new Error('[sync] openai-compat xai websocket selection anchor not found — reconcile image HTTP fallback patch manually.');
+  }
+  s = s.replace(wsAnchor, `            if (useXaiResponsesWebSocket(opts, this.config) && !messagesHaveImageContent(messages)) {
+                return await this._doSendXaiResponsesWebSocket(messages, useModel, tools, opts);
+            }`);
+  return { text: s, already: false };
 }
 
 function patchSessionManagerUiCallbacks(src) {

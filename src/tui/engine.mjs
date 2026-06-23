@@ -243,6 +243,15 @@ export async function createEngineSession({
         })
         .catch((error) => pushItem({ kind: 'notice', id: nextId(), text: `[error] ${error?.message || error}`, tone: 'error' }));
     },
+    compact: async () => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        return await runtime.compact();
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
     abort: () => {
       if (!state.busy) return false;
       return runtime.abort('cli-react-abort');

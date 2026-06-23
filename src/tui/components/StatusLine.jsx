@@ -9,6 +9,8 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 
+const REFRESH_INTERVAL_MS = 1000;
+
 // Loaded at RUNTIME (not bundled) so its vendored statusline-lib relative
 // imports resolve from the real src/ui location, not the dist/ bundle dir.
 // esbuild leaves dynamic-import string specifiers alone.
@@ -22,6 +24,12 @@ export function normalizeStatusLine(text) {
 
 export function StatusLine({ sessionId, provider, model, cwd, stats, resizeEpoch, initialLine = '' }) {
   const [line, setLine] = useState(() => initialLine);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => setRefreshTick((tick) => tick + 1), REFRESH_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -43,7 +51,7 @@ export function StatusLine({ sessionId, provider, model, cwd, stats, resizeEpoch
         if (alive) setLine('');
       });
     return () => { alive = false; };
-  }, [sessionId, provider, model, cwd, stats, resizeEpoch]);
+  }, [sessionId, provider, model, cwd, stats, resizeEpoch, refreshTick]);
 
   return (
     <Box flexDirection="column" height={2} paddingLeft={2} marginBottom={1}>

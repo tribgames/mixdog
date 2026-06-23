@@ -177,6 +177,13 @@ export default class Ink {
     // mode and bracketed paste state.
     pauseInput;
     resumeInput;
+    // [mixdog fork] current mouse drag-selection rectangle in absolute terminal
+    // cells ({ x1, y1, x2, y2 } inclusive, normalized) or null. The App sets it
+    // via setSelection(); onRender forwards it to the renderer for highlighting.
+    selectionRect = null;
+    // [mixdog fork] text under the current selection rect, refreshed every render
+    // from the output grid. Read back via getSelectionText() on drag-release.
+    selectedText = null;
     constructor(options) {
         autoBind(this);
         this.options = options;
@@ -307,6 +314,21 @@ export default class Ink {
         this.cursorPosition = position;
         this.log.setCursorPosition(position);
     };
+    // [mixdog fork] Update the mouse drag-selection rectangle and repaint so the
+    // inverse highlight tracks the drag live. Called by the App's mouse handler.
+    // A no-op-equal update is skipped to avoid redundant frames during motion.
+    setSelection = (rect) => {
+        const a = this.selectionRect;
+        const same = a === rect ||
+            (a && rect && a.x1 === rect.x1 && a.y1 === rect.y1 && a.x2 === rect.x2 && a.y2 === rect.y2);
+        if (same) {
+            return;
+        }
+        this.selectionRect = rect ?? null;
+        if (!this.isUnmounted) {
+            this.onRender();
+        }
+    };
     restoreLastOutput = () => {
         if (!this.interactive) {
             return;
@@ -345,7 +367,10 @@ export default class Ink {
             this.nextRenderCommit = undefined;
         }
         const startTime = performance.now();
-        const { output, outputHeight, staticOutput, cursor } = render(this.rootNode, this.isScreenReaderEnabled);
+        const { output, outputHeight, staticOutput, cursor, selectedText } = render(this.rootNode, this.isScreenReaderEnabled, this.selectionRect);
+        // [mixdog fork] Cache the text under the current selection rect so the App
+        // can read it back on drag-release to copy it to the OS clipboard.
+        this.selectedText = selectedText ?? null;
         this.options.onRender?.({ renderTime: performance.now() - startTime });
         // [mixdog fork] Drive the hardware cursor from the anchored input node's
         // real render-time position, computed fresh every frame. This replaces
