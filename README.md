@@ -38,8 +38,8 @@ src/
   app.mjs        # app wiring
   repl.mjs       # REPL loop
   runtime/       # agent runtime
-  tui/           # terminal UI primitives
-  tui-react/     # Ink (React) TUI (bundled to dist/)
+  tui/           # canonical Ink (React) TUI (bundled to dist/)
+  tui-pi/        # legacy pi-tui fallback implementation (not an entry route)
   lib/ ui/ hooks/ defaults/ vendor/
 scripts/
   build-tui.mjs  # esbuild bundle of the React TUI

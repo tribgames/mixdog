@@ -33,6 +33,9 @@ const CHECK = process.argv.includes('--check');
 const ENTRIES = [
   'agent/orchestrator/session/loop.mjs',
   'agent/orchestrator/session/manager.mjs',
+  // Worker-thread modules referenced via new URL(...) are invisible to the
+  // static import closure, so keep them as explicit sync roots.
+  'agent/orchestrator/session/save-session-worker.mjs',
   'agent/orchestrator/providers/registry.mjs',
 ];
 
@@ -110,6 +113,14 @@ const PATCHES = [
     name: 'quiet provider stderr (D14, openai-oauth)',
     apply: (s) => patchProviderLog(s, 'openai-oauth'),
   },
+  // D15 — standalone CLI consumes mixdog's session manager as the runtime
+  // boundary. askSession still owns persistence/compaction/tool lifecycle, but
+  // the TUI needs streamed text/usage/stage callbacks to render like an app.
+  {
+    file: join(RUNTIME, 'agent', 'orchestrator', 'session', 'manager.mjs'),
+    name: 'session-manager UI callbacks (D15)',
+    apply: patchSessionManagerUiCallbacks,
+  },
   // Statusline vendor — route-meta.mjs upstream lives next to claude-current in
   // mixdog/src/gateway and pulls sibling runtime modules via ../shared/** and
   // ../agent/**. Vendored under src/vendor/statusline/src/gateway, those
@@ -148,6 +159,99 @@ function patchProviderLog(src, provider) {
   re.lastIndex = 0;
   const text = src.replace(re, (_m, lit) => `${GATE}${lit}`);
   return { text, already: false };
+}
+
+function patchSessionManagerUiCallbacks(src) {
+  if (
+    src.includes('askOpts = {}') &&
+    src.includes('askOpts?.onTextDelta') &&
+    src.includes('askOpts?.onReasoningDelta') &&
+    src.includes('MIXDOG_QUIET_SESSION_LOG') &&
+    src.includes('opts.skipSkills ? []')
+  ) {
+    return { text: src, already: true };
+  }
+  let s = src;
+  const sig = 'export async function askSession(sessionId, prompt, context, onToolCall, cwdOverride, explicitPrefetch) {';
+  if (!s.includes(sig)) {
+    throw new Error('[sync] session-manager askSession signature anchor not found — reconcile UI callback patch manually.');
+  }
+  s = s.replace(
+    sig,
+    'export async function askSession(sessionId, prompt, context, onToolCall, cwdOverride, explicitPrefetch, askOpts = {}) {',
+  );
+
+  const usageAnchor = '                    onUsageDelta: (d) => persistIterationMetrics(d).catch(() => {}),';
+  if (!s.includes(usageAnchor)) {
+    throw new Error('[sync] session-manager onUsageDelta anchor not found — reconcile UI callback patch manually.');
+  }
+  s = s.replace(
+    usageAnchor,
+    `                    onTextDelta: typeof askOpts?.onTextDelta === 'function' ? askOpts.onTextDelta : undefined,
+                    onReasoningDelta: typeof askOpts?.onReasoningDelta === 'function' ? askOpts.onReasoningDelta : undefined,
+                    onUsageDelta: (d) => {
+                        persistIterationMetrics(d).catch(() => {});
+                        try { askOpts?.onUsageDelta?.(d); } catch {}
+                    },`,
+  );
+
+  const stageAnchor = `                    onStageChange: (stage) => updateSessionStage(sessionId, stage),
+                    onStreamDelta: () => markSessionStreamDelta(sessionId).catch(() => {}),`;
+  if (!s.includes(stageAnchor)) {
+    throw new Error('[sync] session-manager stage/stream anchors not found — reconcile UI callback patch manually.');
+  }
+  s = s.replace(
+    stageAnchor,
+    `                    onStageChange: (stage) => {
+                        updateSessionStage(sessionId, stage);
+                        try { askOpts?.onStageChange?.(stage); } catch {}
+                    },
+                    onStreamDelta: () => {
+                        markSessionStreamDelta(sessionId).catch(() => {});
+                        try { askOpts?.onStreamDelta?.(); } catch {}
+                    },`,
+  );
+
+  const skillsAnchor = '    const skills = collectSkillsCached(opts.cwd);';
+  if (!s.includes(skillsAnchor)) {
+    throw new Error('[sync] session-manager skills anchor not found — reconcile CLI skipSkills patch manually.');
+  }
+  s = s.replace(skillsAnchor, '    const skills = opts.skipSkills ? [] : collectSkillsCached(opts.cwd);');
+
+  const quietReplacements = [
+    [
+      'if (tools.length !== before) {\n            process.stderr.write(`[session] schemaAllowedTools=${callerAllow.join(\',\')} kept ${tools.length}/${before} tools\\n`);\n        }',
+      'if (tools.length !== before && !process.env.MIXDOG_QUIET_SESSION_LOG) {\n            process.stderr.write(`[session] schemaAllowedTools=${callerAllow.join(\',\')} kept ${tools.length}/${before} tools\\n`);\n        }',
+      'schemaAllowedTools quiet-log anchor',
+    ],
+    [
+      'if (tools.length !== before) {\n            process.stderr.write(`[session] disallowedTools=${callerDeny.join(\',\')} stripped ${before - tools.length} tools\\n`);\n        }',
+      'if (tools.length !== before && !process.env.MIXDOG_QUIET_SESSION_LOG) {\n            process.stderr.write(`[session] disallowedTools=${callerDeny.join(\',\')} stripped ${before - tools.length} tools\\n`);\n        }',
+      'disallowedTools quiet-log anchor',
+    ],
+    [
+      'if (tools.length !== before) {\n            process.stderr.write(`[session] bridgeHidden stripped ${before - tools.length} tools\\n`);\n        }',
+      'if (tools.length !== before && !process.env.MIXDOG_QUIET_SESSION_LOG) {\n            process.stderr.write(`[session] bridgeHidden stripped ${before - tools.length} tools\\n`);\n        }',
+      'bridgeHidden quiet-log anchor',
+    ],
+    [
+      'if (resolvedRole) {\n        process.stderr.write(`[session] role=${resolvedRole} permission=${permission || \'full\'} toolPermission=${toolPermission || \'full\'} tools=${tools.length}\\n`);\n    }',
+      'if (resolvedRole && !process.env.MIXDOG_QUIET_SESSION_LOG) {\n        process.stderr.write(`[session] role=${resolvedRole} permission=${permission || \'full\'} toolPermission=${toolPermission || \'full\'} tools=${tools.length}\\n`);\n    }',
+      'role quiet-log anchor',
+    ],
+    [
+      'process.stderr.write(`[bridge-close] ${parts.join(\' \')}\\n`);',
+      'if (!process.env.MIXDOG_QUIET_SESSION_LOG) process.stderr.write(`[bridge-close] ${parts.join(\' \')}\\n`);',
+      'bridge-close quiet-log anchor',
+    ],
+  ];
+  for (const [from, to, label] of quietReplacements) {
+    if (!s.includes(from)) {
+      throw new Error(`[sync] session-manager ${label} not found — reconcile quiet-log patch manually.`);
+    }
+    s = s.replace(from, to);
+  }
+  return { text: s, already: false };
 }
 
 function patchHttpAgent(src) {

@@ -1,15 +1,14 @@
 /**
  * mixdog-cli REPL — styled inline terminal loop over the ported mixdog brain.
  *
- * Drives the *ported mixdog brain* directly: our own agentLoop + provider +
- * builtin tools, with no pi AgentSession engine in the path (per port-plan D8 /
- * "our engine is the owner"). The engine is untouched here — this module is
- * presentation only: markdown-rendered replies, tool-call cards, a per-turn
- * statusline footer, slash commands, and arrow-key input history.
+ * Drives the *ported mixdog brain* through mixdog-session-runtime.mjs:
+ * createSession + askSession own agentLoop/provider/tools/compaction, while
+ * this module stays presentation-only: markdown-rendered replies, tool-call
+ * cards, a per-turn statusline footer, slash commands, and arrow-key history.
  *
- * Flow:  stdin line → agentLoop(provider, messages, ...) → onTextDelta streams
- *        tokens to stdout live → tool calls render as cards → on turn end we
- *        re-render the assistant text as markdown → statusline footer.
+ * Flow:  stdin line → runtime.ask(prompt) → onTextDelta streams tokens to
+ *        stdout live → tool calls render as cards → on turn end we re-render
+ *        the assistant text as markdown → statusline footer.
  *
  * STREAMING DECISION (approach (a) from the brief):
  *   Live token streaming via onTextDelta conflicts with post-hoc markdown
@@ -29,22 +28,22 @@ import { bold, dim, cyan, green, red, yellow, colorEnabled } from './ui/ansi.mjs
 import { renderMarkdown } from './ui/markdown.mjs';
 import { renderToolCard } from './ui/tool-card.mjs';
 import { createSessionStats, applyUsageDelta, renderStatusline } from './ui/statusline.mjs';
-
-const RUNTIME = './runtime/agent/orchestrator';
+import { createMixdogSessionRuntime } from './mixdog-session-runtime.mjs';
 
 /** Help text shared by `--help` and the `/help` slash command. */
 const HELP_LINES = [
   'mixdog-cli — a pi-based CLI/TUI coding agent (standalone mixdog brain).',
   '',
   'Usage:',
-  '  mixdog-cli [--provider <name>] [--model <name>]',
+  '  mixdog-cli [--provider <name>] [--model <name>] [--readonly]',
   '  mixdog-cli --help',
   '  mixdog-cli --pi            (temporary: boot the vendored pi reference)',
   '',
   'Slash commands (inside the REPL):',
   '  /help              show this help',
   '  /clear             reset the conversation and clear the screen',
-  '  /model <name>      switch model for subsequent turns',
+  '  /model <name>      switch model/preset for subsequent turns',
+  '  /mode <name>       switch tool surface: full | readonly',
   '  /exit              quit',
   '',
   'History: use ↑ / ↓ to recall previous inputs.',
@@ -55,7 +54,7 @@ export function printHelp(write = (s) => stdout.write(s)) {
   write(HELP_LINES.join('\n') + '\n');
 }
 
-export async function runRepl({ provider: providerName = 'anthropic-oauth', model = 'claude-opus-4-8' } = {}) {
+export async function runRepl({ provider: providerName, model, toolMode = 'full' } = {}) {
   // `--help` short-circuits before any provider init so the smoke test (which
   // invokes `src/cli.mjs --help`) gets clean help output and a 0 exit. We read
   // argv here rather than editing app.mjs, keeping changes confined to the REPL.
@@ -64,29 +63,11 @@ export async function runRepl({ provider: providerName = 'anthropic-oauth', mode
     return 0;
   }
 
-  const reg = await import(`${RUNTIME}/providers/registry.mjs`);
-  const { agentLoop } = await import(`${RUNTIME}/session/loop.mjs`);
-  const { BUILTIN_TOOLS } = await import(`${RUNTIME}/tools/builtin/builtin-tools.mjs`);
-
-  // Code-agent tool set: read/edit/write/bash/grep/glob/list. The loop executes
-  // these through our ported executeBuiltinTool. Drop host-only tools that have
-  // no meaning in the standalone CLI.
-  const HOST_ONLY = new Set(['diagnostics', 'open_config']);
-  const tools = BUILTIN_TOOLS.filter((t) => !HOST_ONLY.has(t.name));
-
-  await reg.initProviders({ [providerName]: { enabled: true } });
-  const provider = reg.getProvider(providerName);
-  if (!provider) {
-    stdout.write(red(`mixdog-cli: provider "${providerName}" is not configured.`) + '\n');
-    return 1;
-  }
-
-  // Mutable session state. `model` switches via /model without restarting.
-  let activeModel = model;
+  const runtime = await createMixdogSessionRuntime({ provider: providerName, model, toolMode });
   const stats = createSessionStats();
   const cwd = process.cwd();
 
-  printBanner(providerName, activeModel, cwd);
+  printBanner(runtime.provider, runtime.model, cwd, runtime.toolMode);
 
   const rl = createInterface({
     input: stdin,
@@ -96,7 +77,6 @@ export async function runRepl({ provider: providerName = 'anthropic-oauth', mode
     historySize: 200,
   });
 
-  const messages = [];
   rl.prompt();
 
   for await (const rawLine of rl) {
@@ -110,10 +90,8 @@ export async function runRepl({ provider: providerName = 'anthropic-oauth', mode
     if (line.startsWith('/')) {
       const handled = await handleSlash(line, {
         rl,
-        messages,
-        getModel: () => activeModel,
-        setModel: (m) => { activeModel = m; },
-        provider: providerName,
+        runtime,
+        stats,
         cwd,
       });
       if (handled === 'exit') {
@@ -125,24 +103,17 @@ export async function runRepl({ provider: providerName = 'anthropic-oauth', mode
       continue;
     }
 
-    messages.push({ role: 'user', content: line });
     stdout.write('\n');
 
     let streamedText = '';
     let printedAny = false;
     try {
-      const result = await agentLoop(
-        provider,
-        messages,
-        activeModel,
-        tools,
-        async (_iter, calls) => {
+      const { result } = await runtime.ask(
+        line,
+        {
+          onToolCall: async (_iter, calls) => {
           for (const c of calls || []) stdout.write('\n' + renderToolCard(c) + '\n');
         },
-        cwd,
-        {
-          sessionId: 'mixdog-cli-repl',
-          maxOutputTokens: 8000,
           onTextDelta: (chunk) => {
             printedAny = true;
             streamedText += chunk;
@@ -171,10 +142,8 @@ export async function runRepl({ provider: providerName = 'anthropic-oauth', mode
         }
       }
 
-      messages.push({ role: 'assistant', content: result?.content ?? finalText ?? '' });
-
       // Per-turn statusline footer.
-      stdout.write('\n' + (await renderStatusline({ provider: providerName, model: activeModel, cwd, stats })) + '\n');
+      stdout.write('\n' + (await renderStatusline({ provider: runtime.provider, model: runtime.model, cwd, stats })) + '\n');
     } catch (error) {
       stdout.write('\n' + red(`[error] ${error?.message || error}`) + '\n');
     }
@@ -184,6 +153,7 @@ export async function runRepl({ provider: providerName = 'anthropic-oauth', mode
     rl.prompt();
   }
 
+  runtime.close('cli-eof');
   return 0;
 }
 
@@ -193,10 +163,10 @@ function promptText() {
   return colorEnabled() ? cyan(bold('› ')) : '› ';
 }
 
-function printBanner(providerName, model, cwd) {
+function printBanner(providerName, model, cwd, toolMode) {
   const title = bold('mixdog-cli');
   const id = cyan(`${providerName}/${model}`);
-  stdout.write(`${title} ${dim('—')} ${id} ${dim('·')} ${dim(basename(cwd))}\n`);
+  stdout.write(`${title} ${dim('—')} ${id} ${dim('·')} ${dim(toolMode)} ${dim('·')} ${dim(basename(cwd))}\n`);
   stdout.write(dim('Type a message, or /help for commands. Ctrl+C to exit.') + '\n\n');
 }
 
@@ -235,27 +205,42 @@ async function handleSlash(line, ctx) {
       return;
 
     case 'clear':
-      ctx.messages.length = 0;
+      await ctx.runtime.clear();
+      {
+        const fresh = createSessionStats();
+        for (const k of Object.keys(fresh)) ctx.stats[k] = fresh[k];
+      }
       // Clear screen + scrollback and home the cursor.
       stdout.write(colorEnabled() ? '\x1b[2J\x1b[3J\x1b[H' : '\n');
       stdout.write(dim('conversation reset.') + '\n');
       stdout.write((await renderStatusline({
-        provider: ctx.provider, model: ctx.getModel(), cwd: ctx.cwd, stats: createSessionStats(),
+        provider: ctx.runtime.provider, model: ctx.runtime.model, cwd: ctx.cwd, stats: ctx.stats,
       })) + '\n');
       return;
 
     case 'model':
       if (!arg) {
-        stdout.write(yellow(`current model: ${ctx.getModel()}`) + '\n');
-        stdout.write(dim('usage: /model <name>') + '\n');
+        stdout.write(yellow(`current model: ${ctx.runtime.provider}/${ctx.runtime.model}`) + '\n');
+        stdout.write(dim('usage: /model <preset-or-model>') + '\n');
         return;
       }
-      ctx.setModel(arg);
-      stdout.write(green(`✓ model → ${arg}`) + '\n');
+      await ctx.runtime.setRoute({ model: arg });
+      stdout.write(green(`✓ model → ${ctx.runtime.provider}/${ctx.runtime.model}`) + '\n');
+      return;
+
+    case 'mode':
+      if (!arg) {
+        stdout.write(yellow(`current mode: ${ctx.runtime.toolMode}`) + '\n');
+        stdout.write(dim('usage: /mode full|readonly') + '\n');
+        return;
+      }
+      await ctx.runtime.setToolMode(arg);
+      stdout.write(green(`✓ mode → ${ctx.runtime.toolMode}`) + '\n');
       return;
 
     case 'exit':
     case 'quit':
+      ctx.runtime.close('cli-exit');
       stdout.write(dim('bye.') + '\n');
       return 'exit';
 

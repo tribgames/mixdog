@@ -14,13 +14,19 @@ import { Box, Text } from 'ink';
 // esbuild leaves dynamic-import string specifiers alone.
 const STATUSLINE_MODULE = '../../ui/statusline.mjs';
 
-export function StatusLine({ provider, model, cwd, stats, resizeEpoch }) {
-  const [line, setLine] = useState('');
+export function normalizeStatusLine(text) {
+  return String(text || '')
+    .replace(/\n+$/, '')
+    .replace(/^(?:\x1b\[[0-9;]*m)*◆(?:\x1b\[[0-9;]*m)*\s?/, '\x1b[97m');
+}
+
+export function StatusLine({ sessionId, provider, model, cwd, stats, resizeEpoch, initialLine = '' }) {
+  const [line, setLine] = useState(() => initialLine);
 
   useEffect(() => {
     let alive = true;
     import(STATUSLINE_MODULE)
-      .then((m) => m.renderStatusline({ provider, model, cwd, stats }))
+      .then((m) => m.renderStatusline({ sessionId, provider, model, cwd, stats }))
       .then((s) => {
         if (!alive) return;
         // Rework L1's leading segment: the vendored lib emits
@@ -31,21 +37,19 @@ export function StatusLine({ provider, model, cwd, stats, resizeEpoch }) {
         // Strip the leading `◆ ` glyph + its SGR AND the following space — the
         // 2-cell left pad is provided by the Box paddingLeft instead. Recolor
         // the model name white.
-        const cleaned = s
-          .replace(/\n+$/, '')
-          .replace(/^(?:\x1b\[[0-9;]*m)*◆(?:\x1b\[[0-9;]*m)*\s?/, '\x1b[97m');
-        setLine(cleaned);
+        setLine(normalizeStatusLine(s));
       })
-      .catch(() => {});
+      .catch(() => {
+        if (alive) setLine('');
+      });
     return () => { alive = false; };
-  }, [provider, model, cwd, stats, resizeEpoch]);
+  }, [sessionId, provider, model, cwd, stats, resizeEpoch]);
 
-  if (!line) return null;
   return (
-    <Box flexDirection="column" paddingLeft={2} marginBottom={1}>
-      {line.split('\n').map((l, i) => (
+    <Box flexDirection="column" height={2} paddingLeft={2} marginBottom={1}>
+      {line ? line.split('\n').slice(0, 2).map((l, i) => (
         <Text key={i}>{l}</Text>
-      ))}
+      )) : null}
     </Box>
   );
 }

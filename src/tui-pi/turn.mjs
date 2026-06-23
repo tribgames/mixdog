@@ -1,10 +1,10 @@
 /**
  * src/tui/turn.mjs — drive ONE engine turn into the pi-tui component tree.
  *
- * Bridge between OUR engine (agentLoop) and pi-tui's differential renderer. The
- * engine is consumed exactly as the REPL consumes it (same contract) — only the
- * *sink* changes: instead of writing to stdout we mutate pi-tui components and
- * call tui.requestRender().
+ * Bridge between the mixdog session runtime (askSession -> agentLoop) and
+ * pi-tui's differential renderer. The engine is consumed exactly as the REPL
+ * consumes it (same contract) — only the *sink* changes: instead of writing to
+ * stdout we mutate pi-tui components and call tui.requestRender().
  *
  * Claude-Code shape (refs/claude-code):
  *   onTextDelta  → stream into a `● <markdown>` assistant block (live).
@@ -17,7 +17,7 @@
  */
 import { Spacer } from '../../vendor/pi/packages/tui/dist/index.js';
 
-import { cyan, dim, red } from '../ui/ansi.mjs';
+import { dim, red } from '../ui/ansi.mjs';
 import { applyUsageDelta, renderStatusline } from '../ui/statusline.mjs';
 import {
   createAssistantMarkdown,
@@ -80,15 +80,11 @@ function flushToolResults(messages, cardsById, done, tui) {
 export async function runTurn({
   tui,
   trailing,
-  provider,
-  model,
-  tools,
-  messages,
+  prompt,
+  runtime,
   stats,
   statusText,
   cwd,
-  providerName,
-  agentLoop,
 }) {
   // Leading spacer so each assistant turn is visually separated from the prior
   // block (CC vertical rhythm).
@@ -104,7 +100,7 @@ export async function runTurn({
 
   const refreshStatus = async () => {
     try {
-      const line = await renderStatusline({ provider: providerName, model, cwd, stats });
+      const line = await renderStatusline({ provider: runtime.provider, model: runtime.model, cwd, stats });
       statusText.setText(line);
       tui.requestRender();
     } catch {
@@ -113,30 +109,22 @@ export async function runTurn({
   };
 
   try {
-    const result = await agentLoop(
-      provider,
-      messages,
-      model,
-      tools,
-      // onToolCall(iter, calls): render a card per call, then flush any results
-      // that have already landed for previous calls.
-      async (_iter, calls) => {
+    const { result, session } = await runtime.ask(
+      // The caller already rendered the user text; askSession owns persistence.
+      prompt,
+      {
+        // onToolCall(iter, calls): render a card per call. Tool results are
+        // attached after askSession returns, by scanning the manager-owned
+        // session messages.
+        onToolCall: async (_iter, calls) => {
         for (const c of calls || []) {
           const card = createToolCard(c);
           if (c?.id) cardsById.set(c.id, card);
           insertBeforeTrailing(tui, trailing, card.component);
         }
-        flushToolResults(messages, cardsById, resultsDone, tui);
         tui.requestRender();
       },
-      cwd,
-      {
-        sessionId: 'mixdog-cli-tui',
-        maxOutputTokens: 8000,
         onTextDelta: (chunk) => {
-          // A text delta after tool calls means their results are now in
-          // `messages` — attach the `⎿` trees before streaming the next text.
-          flushToolResults(messages, cardsById, resultsDone, tui);
           assistant.append(chunk);
           tui.requestRender();
         },
@@ -148,7 +136,7 @@ export async function runTurn({
     );
 
     // Final pass: attach any remaining tool results.
-    flushToolResults(messages, cardsById, resultsDone, tui);
+    flushToolResults(session?.messages || [], cardsById, resultsDone, tui);
 
     const finalText = (result?.content != null && String(result.content)) || assistant.get();
     if (finalText) {
@@ -157,8 +145,6 @@ export async function runTurn({
       // No text and no tools — leave a subtle marker rather than an empty block.
       assistant.set(dim('(no response)'));
     }
-
-    messages.push({ role: 'assistant', content: result?.content ?? finalText ?? '' });
 
     stats.turns = (stats.turns || 0) + 1;
     await refreshStatus();

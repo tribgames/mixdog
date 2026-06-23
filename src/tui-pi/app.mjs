@@ -2,9 +2,9 @@
  * src/tui/app.mjs — the Claude-Code-style TUI front-end for mixdog-cli.
  *
  * This is the DEFAULT launch surface (app.mjs routes here when no flag is
- * given). It drives OUR engine (agentLoop + provider + builtin tools — the
- * ported mixdog brain, exactly like src/repl.mjs) but renders through the
- * vendored pi-tui differential renderer instead of raw readline/stdout.
+ * given). It drives the ported mixdog session manager (createSession +
+ * askSession, which owns agentLoop/provider/tools/compaction) and renders
+ * through the vendored pi-tui differential renderer.
  *
  * Structure (modelled on vendor/pi/.../test/chat-simple.ts):
  *   children[0]            → a static welcome Text (stays pinned at the top)
@@ -17,10 +17,9 @@
  * them. The statusline is the LAST child so the footer sits below the input box,
  * matching the Claude-Code layout.
  *
- * Engine init mirrors src/repl.mjs (dynamic imports of the vendored runtime,
- * HOST_ONLY tool filtering, provider registry). Presentation lives in
- * theme.mjs / components.mjs / turn.mjs; this file only owns the app shell,
- * the editor submit loop, and slash commands.
+ * Engine init mirrors src/repl.mjs through mixdog-session-runtime.mjs.
+ * Presentation lives in theme.mjs / components.mjs / turn.mjs; this file only
+ * owns the app shell, the editor submit loop, and slash commands.
  *
  * Robustness: the onSubmit body is wrapped in try/catch so a thrown error is
  * rendered as a dim notice line and NEVER escapes into pi-tui's raw-mode input
@@ -45,11 +44,7 @@ import {
   createSessionStats,
   renderStatusline,
 } from '../ui/statusline.mjs';
-
-const RUNTIME = '../runtime/agent/orchestrator';
-
-/** Tools that have no meaning in the standalone CLI (same set as the REPL). */
-const HOST_ONLY = new Set(['diagnostics', 'open_config']);
+import { createMixdogSessionRuntime } from '../mixdog-session-runtime.mjs';
 
 /** Number of trailing chrome components (statusline Text + Editor). */
 const TRAILING = 2;
@@ -61,7 +56,8 @@ const HELP_LINES = [
   'Slash commands:',
   '  /help              show this help',
   '  /clear             reset the conversation',
-  '  /model <name>      switch model for subsequent turns',
+  '  /model <name>      switch model/preset for subsequent turns',
+  '  /mode <name>       switch tool surface: full | readonly',
   '  /exit, /quit       quit',
   '',
   'Ctrl+C exits.',
@@ -73,33 +69,20 @@ const HELP_LINES = [
  * @param {object} [opts]
  * @param {string} [opts.provider]
  * @param {string} [opts.model]
+ * @param {string} [opts.toolMode]
  * @returns {Promise<number>}
  */
-export async function runTui({ provider: providerName = 'anthropic-oauth', model = 'claude-opus-4-8' } = {}) {
+export async function runTui({ provider: providerName, model, toolMode = 'full' } = {}) {
   // Silence providers' catalog-refresh stderr writes (D14 patch reads this) so
   // they can't tear through the raw-mode TUI screen. --plain/--pi don't set it,
   // keeping diagnostic logs visible there.
   process.env.MIXDOG_QUIET_PROVIDER_LOG = '1';
 
-  // --- Engine init (mirrors src/repl.mjs lines ~67-82) ----------------------
-  const reg = await import(`${RUNTIME}/providers/registry.mjs`);
-  const { agentLoop } = await import(`${RUNTIME}/session/loop.mjs`);
-  const { BUILTIN_TOOLS } = await import(`${RUNTIME}/tools/builtin/builtin-tools.mjs`);
+  // --- Engine init ----------------------------------------------------------
+  const runtime = await createMixdogSessionRuntime({ provider: providerName, model, toolMode });
 
-  const tools = BUILTIN_TOOLS.filter((t) => !HOST_ONLY.has(t.name));
-
-  await reg.initProviders({ [providerName]: { enabled: true } });
-  const provider = reg.getProvider(providerName);
-  if (!provider) {
-    process.stderr.write(`mixdog-cli: provider "${providerName}" is not configured.\n`);
-    return 1;
-  }
-
-  // --- Session state --------------------------------------------------------
-  let activeModel = model;
   const stats = createSessionStats();
   const cwd = process.cwd();
-  const messages = [];
 
   // --- TUI shell ------------------------------------------------------------
   const terminal = new ProcessTerminal();
@@ -107,7 +90,7 @@ export async function runTui({ provider: providerName = 'anthropic-oauth', model
 
   // children[0]: welcome banner (pinned top).
   const welcome = new Text(
-    `mixdog-cli — ${providerName}/${activeModel} · ${basename(cwd)}\n` +
+    `mixdog-cli — ${runtime.provider}/${runtime.model} · ${runtime.toolMode} · ${basename(cwd)}\n` +
       `Type a message, or /help for commands. Ctrl+C to exit.`,
     1,
     1,
@@ -118,7 +101,7 @@ export async function runTui({ provider: providerName = 'anthropic-oauth', model
   // it renders as the very last line — the L1/L2 footer sits BELOW the input box
   // (Claude-Code layout). Trailing chrome order is therefore [editor, statusText].
   const statusText = new Text(
-    await renderStatusline({ provider: providerName, model: activeModel, cwd, stats }),
+    await renderStatusline({ provider: runtime.provider, model: runtime.model, cwd, stats }),
     1,
     0,
   );
@@ -133,7 +116,7 @@ export async function runTui({ provider: providerName = 'anthropic-oauth', model
   // Refresh the bottom statusline from the current stats (used by /clear, /model).
   const refreshStatus = async () => {
     try {
-      const line = await renderStatusline({ provider: providerName, model: activeModel, cwd, stats });
+      const line = await renderStatusline({ provider: runtime.provider, model: runtime.model, cwd, stats });
       statusText.setText(line);
       tui.requestRender();
     } catch {
@@ -154,6 +137,17 @@ export async function runTui({ provider: providerName = 'anthropic-oauth', model
     tui.requestRender();
   };
 
+  const resetVisibleConversation = () => {
+    const children = tui.children;
+    const removeCount = Math.max(0, children.length - 1 - TRAILING);
+    if (removeCount > 0) children.splice(1, removeCount);
+  };
+
+  const resetStats = () => {
+    const fresh = createSessionStats();
+    for (const k of Object.keys(fresh)) stats[k] = fresh[k];
+  };
+
   // --- Slash commands -------------------------------------------------------
   // Returns true if the line was a (handled) slash command.
   const handleSlash = async (line) => {
@@ -166,14 +160,9 @@ export async function runTui({ provider: providerName = 'anthropic-oauth', model
         return true;
 
       case 'clear': {
-        // Remove every message component between welcome[0] and the trailing 2.
-        const children = tui.children;
-        const removeCount = Math.max(0, children.length - 1 - TRAILING);
-        if (removeCount > 0) children.splice(1, removeCount);
-        // Reset state in place: drop history + zero the stats accumulator.
-        messages.length = 0;
-        const fresh = createSessionStats();
-        for (const k of Object.keys(fresh)) stats[k] = fresh[k];
+        resetVisibleConversation();
+        resetStats();
+        await runtime.clear();
         await refreshStatus();
         tui.requestRender();
         return true;
@@ -181,16 +170,31 @@ export async function runTui({ provider: providerName = 'anthropic-oauth', model
 
       case 'model':
         if (!arg) {
-          notice(`current model: ${activeModel}  (usage: /model <name>)`);
+          notice(`current model: ${runtime.provider}/${runtime.model}  (usage: /model <preset-or-model>)`);
           return true;
         }
-        activeModel = arg;
-        notice(`✓ model → ${arg}`);
+        await runtime.setRoute({ model: arg });
+        resetVisibleConversation();
+        resetStats();
+        notice(`✓ model → ${runtime.provider}/${runtime.model}`);
+        await refreshStatus();
+        return true;
+
+      case 'mode':
+        if (!arg) {
+          notice(`current mode: ${runtime.toolMode}  (usage: /mode full|readonly)`);
+          return true;
+        }
+        await runtime.setToolMode(arg);
+        resetVisibleConversation();
+        resetStats();
+        notice(`✓ mode → ${runtime.toolMode}`);
         await refreshStatus();
         return true;
 
       case 'exit':
       case 'quit':
+        runtime.close('cli-exit');
         try { tui.stop(); } catch { /* ignore */ }
         process.exit(0);
         return true; // unreachable
@@ -221,8 +225,7 @@ export async function runTui({ provider: providerName = 'anthropic-oauth', model
       busy = true;
       editor.disableSubmit = true;
 
-      // Echo the user message above the chrome + record it for history.
-      messages.push({ role: 'user', content: line });
+      // Echo the user message above the chrome + record it for input history.
       insertAboveChrome(createUserMarkdown(line));
       editor.addToHistory(line);
       tui.requestRender();
@@ -230,15 +233,11 @@ export async function runTui({ provider: providerName = 'anthropic-oauth', model
       await runTurn({
         tui,
         trailing: TRAILING,
-        provider,
-        model: activeModel,
-        tools,
-        messages,
+        prompt: line,
+        runtime,
         stats,
         statusText,
         cwd,
-        providerName,
-        agentLoop,
       });
     } catch (error) {
       notice(`[error] ${error?.message || error}`);
@@ -257,6 +256,7 @@ export async function runTui({ provider: providerName = 'anthropic-oauth', model
   // catching the raw ETX byte (\x03); we consume it and exit cleanly.
   tui.addInputListener((data) => {
     if (data === '\x03') {
+      runtime.close('cli-sigint');
       try { tui.stop(); } catch { /* ignore */ }
       // Consume the ETX byte so it can't leak to the focused editor / terminal
       // input pipeline during shutdown (would corrupt the restored cooked mode).

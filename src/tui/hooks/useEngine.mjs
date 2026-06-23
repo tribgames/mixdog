@@ -1,5 +1,5 @@
 /**
- * src/tui-react/hooks/useEngine.mjs — subscribe React to the engine store.
+ * src/tui/hooks/useEngine.mjs — subscribe React to the engine store.
  *
  * The store (engine.mjs) lives outside React and emits immutable snapshots;
  * useSyncExternalStore re-renders the tree whenever a snapshot changes. This

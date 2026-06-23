@@ -35,6 +35,7 @@ import {
 } from './retry-classifier.mjs';
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
+import { normalizeContentForAnthropic } from './media-normalization.mjs';
 
 // --- Model catalog cache helpers ---
 // Disk-backed cache so repeated process starts (cron, tool calls) don't
@@ -641,7 +642,7 @@ function toAnthropicMessages(messages) {
             const block = {
                 type: 'tool_result',
                 tool_use_id: m.toolCallId || '',
-                content: m.content,
+                content: normalizeContentForAnthropic(m.content),
             };
             if (last?.role === 'user' && Array.isArray(last.content)) {
                 last.content.push(block);
@@ -651,7 +652,7 @@ function toAnthropicMessages(messages) {
             continue;
         }
 
-        result.push({ role: m.role, content: m.content });
+        result.push({ role: m.role, content: normalizeContentForAnthropic(m.content) });
     }
     return sanitizeAnthropicContentPairs(result);
 }

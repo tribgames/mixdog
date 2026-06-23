@@ -22,6 +22,12 @@ import {
     resolveTimeoutMs,
 } from '../stall-policy.mjs';
 import { traceHash, stableTraceStringify, summarizeTraceTools, traceTextShape } from './trace-utils.mjs';
+import {
+    normalizeContentForOpenAIChat,
+    normalizeContentForOpenAIResponses,
+    splitToolContentForOpenAIChat,
+    splitToolContentForOpenAIResponses,
+} from './media-normalization.mjs';
 // OPENAI_COMPAT_PRESETS — self-declaring list of compat provider names and
 // their base URLs / defaults. registry.mjs imports this export so there is no
 // parallel OPENAI_COMPAT_PROVIDERS list to maintain separately.
@@ -860,19 +866,27 @@ function toOpenAIMessages(messages, providerName) {
     // is replayed; reasoning_effort itself remains caller/user-selected.
     const replaysReasoningContent = providerName === 'deepseek' || providerName === 'xai';
     const out = [];
+    const pendingToolMedia = [];
+    const flushToolMedia = () => {
+        if (!pendingToolMedia.length) return;
+        out.push({ role: 'user', content: pendingToolMedia.splice(0) });
+    };
     for (const m of messages) {
         if (m.role === 'tool') {
+            const { output, mediaContent } = splitToolContentForOpenAIChat(m.content);
             out.push({
                 role: 'tool',
                 tool_call_id: m.toolCallId || '',
-                content: m.content,
+                content: output,
             });
+            if (mediaContent) pendingToolMedia.push(...mediaContent);
             continue;
         }
+        flushToolMedia();
         if (m.role === 'assistant' && m.toolCalls?.length) {
             const msg = {
                 role: 'assistant',
-                content: m.content || null,
+                content: normalizeContentForOpenAIChat(m.content, { role: 'assistant' }) || null,
                 tool_calls: m.toolCalls.map((tc) => ({
                     id: tc.id,
                     type: 'function',
@@ -884,11 +898,12 @@ function toOpenAIMessages(messages, providerName) {
             continue;
         }
         if (m.role === 'assistant' && replaysReasoningContent && m.reasoningContent) {
-            out.push({ role: m.role, content: m.content, reasoning_content: m.reasoningContent });
+            out.push({ role: m.role, content: normalizeContentForOpenAIChat(m.content, { role: 'assistant' }), reasoning_content: m.reasoningContent });
             continue;
         }
-        out.push({ role: m.role, content: m.content });
+        out.push({ role: m.role, content: normalizeContentForOpenAIChat(m.content, { role: m.role }) });
     }
+    flushToolMedia();
     return out;
 }
 function toOpenAITools(tools) {
@@ -950,17 +965,20 @@ function responseOutputText(response) {
     }
     return chunks.join('');
 }
-function toResponsesInputMessage(m) {
+function toResponsesInputMessage(m, pendingToolMedia = null) {
     if (m.role === 'tool') {
-        return {
+        const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
+        const item = {
             type: 'function_call_output',
             call_id: m.toolCallId || '',
-            output: typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? ''),
+            output: output,
         };
+        if (mediaContent && pendingToolMedia) pendingToolMedia.push(...mediaContent);
+        return item;
     }
     if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length > 0) {
         const items = [];
-        if (m.content) items.push({ role: 'assistant', content: m.content });
+        if (m.content) items.push({ role: 'assistant', content: normalizeContentForOpenAIResponses(m.content, { role: 'assistant' }) });
         for (const tc of m.toolCalls) {
             items.push({
                 type: 'function_call',
@@ -971,7 +989,7 @@ function toResponsesInputMessage(m) {
         }
         return items;
     }
-    return { role: m.role, content: m.content || '' };
+    return { role: m.role, content: normalizeContentForOpenAIResponses(m.content || '', { role: m.role }) };
 }
 function xaiSystemInstructions(messages) {
     const instructions = (messages || [])
@@ -992,12 +1010,19 @@ function toXaiResponsesInput(messages, providerState, options = {}) {
         if (messages[startIndex]?.role === 'assistant') startIndex += 1;
     }
     const input = [];
+    const pendingToolMedia = [];
+    const flushToolMedia = () => {
+        if (!pendingToolMedia.length) return;
+        input.push({ role: 'user', content: pendingToolMedia.splice(0) });
+    };
     for (const m of messages.slice(startIndex)) {
         if (!includeSystem && m.role === 'system') continue;
-        const converted = toResponsesInputMessage(m);
+        if (m.role !== 'tool') flushToolMedia();
+        const converted = toResponsesInputMessage(m, pendingToolMedia);
         if (Array.isArray(converted)) input.push(...converted);
         else input.push(converted);
     }
+    flushToolMedia();
     return { input, previousResponseId, startIndex };
 }
 export class OpenAICompatProvider {

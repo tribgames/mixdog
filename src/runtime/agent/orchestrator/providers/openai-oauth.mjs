@@ -36,6 +36,10 @@ import {
 } from '../stall-policy.mjs';
 import { populateHttpStatusFromMessage } from './retry-classifier.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
+import {
+    normalizeContentForOpenAIResponses,
+    splitToolContentForOpenAIResponses,
+} from './media-normalization.mjs';
 // --- Constants ---
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const CODEX_OAUTH_ORIGINATOR = 'codex_cli_rs';
@@ -472,21 +476,7 @@ function _isRemoteCompactFallbackMessage(m) {
 }
 
 function _contentTextParts(content, type = 'input_text') {
-    if (typeof content === 'string') return content ? [{ type, text: content }] : [];
-    if (!Array.isArray(content)) {
-        const text = content == null ? '' : JSON.stringify(content);
-        return text ? [{ type, text }] : [];
-    }
-    const out = [];
-    for (const item of content) {
-        if (!item || typeof item !== 'object') continue;
-        if (typeof item.text === 'string') {
-            out.push({ type: item.type === 'output_text' ? 'output_text' : type, text: item.text });
-        } else if (typeof item.content === 'string') {
-            out.push({ type, text: item.content });
-        }
-    }
-    return out;
+    return normalizeContentForOpenAIResponses(content, { role: type === 'output_text' ? 'assistant' : 'user' });
 }
 
 function _messageToNativeRetainedItem(m) {
@@ -600,17 +590,25 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
     if (nativeCompact) {
         for (const item of nativeCompact.nativePrefix) out.push(_cloneJson(item));
     }
+    const pendingToolMedia = [];
+    const flushToolMedia = () => {
+        if (!pendingToolMedia.length) return;
+        out.push({ role: 'user', content: pendingToolMedia.splice(0) });
+    };
     for (const m of messages) {
         if (!m || m.role === 'system') continue;
         if (nativeCompact && _isRemoteCompactFallbackMessage(m)) continue;
         if (m.role === 'tool') {
+            const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
             out.push({
                 type: 'function_call_output',
                 call_id: m.toolCallId || '',
-                output: m.content,
+                output,
             });
+            if (mediaContent) pendingToolMedia.push(...mediaContent);
             continue;
         }
+        flushToolMedia();
         if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
             // Reasoning replay deliberately omitted: Codex rejects an
             // `rs_*` reasoning item with the same id across the same
@@ -618,7 +616,7 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
             // for the WS_IDLE_MS window even after a socket close).
             // Server-side state already preserves the prefix; sending
             // reasoning in `input` triggers "Duplicate item".
-            if (m.content) out.push({ role: 'assistant', content: m.content });
+            if (m.content) out.push({ role: 'assistant', content: normalizeContentForOpenAIResponses(m.content, { role: 'assistant' }) });
             for (const tc of m.toolCalls) {
                 out.push({
                     type: 'function_call',
@@ -631,9 +629,10 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
         }
         out.push({
             role: m.role === 'assistant' ? 'assistant' : 'user',
-            content: m.content,
+            content: normalizeContentForOpenAIResponses(m.content, { role: m.role }),
         });
     }
+    flushToolMedia();
     return out;
 }
 export function buildRequestBody(messages, model, tools, sendOpts) {

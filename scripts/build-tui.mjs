@@ -3,8 +3,8 @@
  * scripts/build-tui.mjs — bundle the React/ink TUI (JSX) to plain ESM.
  *
  * mixdog-cli is otherwise zero-build (plain .mjs), but the React/ink render
- * layer needs JSX transpilation. esbuild compiles src/tui-react/*.jsx into a
- * single ESM bundle at src/tui-react/dist/index.mjs.
+ * layer needs JSX transpilation. esbuild compiles src/tui/*.jsx into a single
+ * ESM bundle at src/tui/dist/index.mjs.
  *
  * What is bundled vs external:
  *   - bundled: our JSX + ink + react (+ their deps) — a self-contained UI layer.
@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SRC = join(ROOT, 'src', 'tui-react');
+const SRC = join(ROOT, 'src', 'tui');
 
 // Re-apply the ink cursor fork (idempotent) before bundling, so a fresh
 // npm install that overwrote node_modules/ink can't silently revert it.
@@ -45,4 +45,4 @@ await build({
   logLevel: 'info',
 });
 
-process.stdout.write('build:tui ok → src/tui-react/dist/index.mjs\n');
+process.stdout.write('build:tui ok → src/tui/dist/index.mjs\n');

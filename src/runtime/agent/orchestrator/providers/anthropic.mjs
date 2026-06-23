@@ -11,6 +11,7 @@ import {
 import { createAbortController } from '../../../shared/abort-controller.mjs';
 import { parseSSEStream, _classifyMidstreamError } from './anthropic-oauth.mjs';
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
+import { normalizeContentForAnthropic } from './media-normalization.mjs';
 
 // 4-BP cache policy aligned with anthropic-oauth — tools + system + tier3
 // + messages-tail. 1h TTL requires the extended-cache-ttl beta header,
@@ -183,7 +184,7 @@ function toAnthropicMessages(messages) {
             const block = {
                 type: 'tool_result',
                 tool_use_id: m.toolCallId || '',
-                content: m.content,
+                content: normalizeContentForAnthropic(m.content),
             };
             if (last?.role === 'user' && Array.isArray(last.content)) {
                 last.content.push(block);
@@ -193,7 +194,7 @@ function toAnthropicMessages(messages) {
             }
             continue;
         }
-        result.push({ role: m.role, content: m.content });
+        result.push({ role: m.role, content: normalizeContentForAnthropic(m.content) });
     }
     return sanitizeAnthropicContentPairs(result);
 }

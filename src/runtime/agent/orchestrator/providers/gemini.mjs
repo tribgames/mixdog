@@ -15,6 +15,7 @@ import {
 } from '../stall-policy.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { traceHash, stableTraceStringify, summarizeTraceTools, traceTextShape } from './trace-utils.mjs';
+import { normalizeContentForGeminiParts, splitToolContentForGemini } from './media-normalization.mjs';
 
 const MODELS = [
     { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', provider: 'gemini', contextWindow: 1048576 },
@@ -848,7 +849,7 @@ function toGeminiContent(message, toolNameByCallId) {
     if (!message || message.role === 'system') return null;
     if (message.role === 'assistant' && message.toolCalls?.length) {
         const parts = [];
-        if (message.content) parts.push({ text: message.content });
+        if (message.content) parts.push(...normalizeContentForGeminiParts(message.content));
         for (const tc of message.toolCalls) {
             // Gemini 3 thinking models require the original thoughtSignature
             // echoed back on every prior functionCall so the cached thinking
@@ -874,14 +875,17 @@ function toGeminiContent(message, toolNameByCallId) {
         const functionName = (toolNameByCallId && toolNameByCallId.get(message.toolCallId))
             || message.toolCallId
             || '';
+        const { response, mediaParts } = splitToolContentForGemini(message.content);
+        const parts = [{ functionResponse: { name: functionName, response } }];
+        if (mediaParts.length) parts.push(...mediaParts);
         return {
             role: 'user',
-            parts: [{ functionResponse: { name: functionName, response: { result: message.content } } }],
+            parts,
         };
     }
     return {
         role: message.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: message.content }],
+        parts: normalizeContentForGeminiParts(message.content),
     };
 }
 

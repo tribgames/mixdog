@@ -779,7 +779,7 @@ export function createSession(opts) {
     const id = `sess_${process.pid}_${nextId++}_${Date.now()}_${randomBytes(16).toString('hex')}`;
     const messages = [];
     const agentTemplate = opts.agent ? loadAgentTemplate(opts.agent, opts.cwd) : null;
-    const skills = collectSkillsCached(opts.cwd);
+    const skills = opts.skipSkills ? [] : collectSkillsCached(opts.cwd);
 
     // Bridge shared prefix (bit-identical across roles). Hidden roles reuse the
     // same shared bridge rules so the cache shard stays stable across bridge
@@ -924,7 +924,7 @@ export function createSession(opts) {
         const allowSet = new Set(callerAllow);
         const before = tools.length;
         tools = tools.filter(t => allowSet.has(String(t?.name || '').toLowerCase()));
-        if (tools.length !== before) {
+        if (tools.length !== before && !process.env.MIXDOG_QUIET_SESSION_LOG) {
             process.stderr.write(`[session] schemaAllowedTools=${callerAllow.join(',')} kept ${tools.length}/${before} tools\n`);
         }
     }
@@ -933,14 +933,14 @@ export function createSession(opts) {
         const denySet = new Set(callerDeny);
         const before = tools.length;
         tools = tools.filter(t => !denySet.has(String(t?.name || '').toLowerCase()));
-        if (tools.length !== before) {
+        if (tools.length !== before && !process.env.MIXDOG_QUIET_SESSION_LOG) {
             process.stderr.write(`[session] disallowedTools=${callerDeny.join(',')} stripped ${before - tools.length} tools\n`);
         }
     }
     if (opts.owner === 'bridge') {
         const before = tools.length;
         tools = tools.filter(t => !t?.annotations?.bridgeHidden);
-        if (tools.length !== before) {
+        if (tools.length !== before && !process.env.MIXDOG_QUIET_SESSION_LOG) {
             process.stderr.write(`[session] bridgeHidden stripped ${before - tools.length} tools\n`);
         }
     }
@@ -955,7 +955,7 @@ export function createSession(opts) {
     // bridge schemas shared unless a hidden-role schema profile explicitly
     // passes schemaAllowedTools for a small specialist; broad role
     // whitelists would fragment the cache shard.
-    if (resolvedRole) {
+    if (resolvedRole && !process.env.MIXDOG_QUIET_SESSION_LOG) {
         process.stderr.write(`[session] role=${resolvedRole} permission=${permission || 'full'} toolPermission=${toolPermission || 'full'} tools=${tools.length}\n`);
     }
     const contextMeta = resolveSessionContextMeta(provider, modelName);
@@ -1518,7 +1518,7 @@ function acquireSessionLock(sessionId) {
     });
 }
 
-export async function askSession(sessionId, prompt, context, onToolCall, cwdOverride, explicitPrefetch) {
+export async function askSession(sessionId, prompt, context, onToolCall, cwdOverride, explicitPrefetch, askOpts = {}) {
     const _askStartedAt = Date.now();
     const _promptSrc = 'prompt';
     const _prefetchFiles = (explicitPrefetch?.files?.length) || 0;
@@ -1680,7 +1680,12 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     effort: session.effort || null,
                     fast: session.fast === true,
                     sessionId,
-                    onUsageDelta: (d) => persistIterationMetrics(d).catch(() => {}),
+                    onTextDelta: typeof askOpts?.onTextDelta === 'function' ? askOpts.onTextDelta : undefined,
+                    onReasoningDelta: typeof askOpts?.onReasoningDelta === 'function' ? askOpts.onReasoningDelta : undefined,
+                    onUsageDelta: (d) => {
+                        persistIterationMetrics(d).catch(() => {});
+                        try { askOpts?.onUsageDelta?.(d); } catch {}
+                    },
                     promptCacheKey: session.promptCacheKey || sessionId,
                     // Provider-scoped cache key (mixdog-codex, mixdog-claude…).
                     // Distinct from sessionId — providers that pool sockets
@@ -1696,8 +1701,14 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     // don't get overridden by defaults. When session has no profile,
                     // providerCacheOpts is null and this spread is a no-op.
                     ...(session.providerCacheOpts || {}),
-                    onStageChange: (stage) => updateSessionStage(sessionId, stage),
-                    onStreamDelta: () => markSessionStreamDelta(sessionId).catch(() => {}),
+                    onStageChange: (stage) => {
+                        updateSessionStage(sessionId, stage);
+                        try { askOpts?.onStageChange?.(stage); } catch {}
+                    },
+                    onStreamDelta: () => {
+                        markSessionStreamDelta(sessionId).catch(() => {});
+                        try { askOpts?.onStreamDelta?.(); } catch {}
+                    },
                 }),
             );
             // Post-loop validation: if closeSession() landed while we were awaiting,
@@ -2054,7 +2065,7 @@ export function closeSession(id, reason = 'manual') {
         const durationMs = (typeof askStartedAt === 'number') ? (Date.now() - askStartedAt) : null;
         const parts = [`session=${id}`, `reason=${reason}`];
         if (durationMs != null) parts.push(`duration=${durationMs}ms`);
-        process.stderr.write(`[bridge-close] ${parts.join(' ')}\n`);
+        if (!process.env.MIXDOG_QUIET_SESSION_LOG) process.stderr.write(`[bridge-close] ${parts.join(' ')}\n`);
     } catch { /* best-effort */ }
     for (const bsid of allBashIds) {
         try { closeBashSession(bsid, `bridge-close:${id}`); } catch { /* ignore */ }

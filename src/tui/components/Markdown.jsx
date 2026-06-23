@@ -27,40 +27,40 @@ function configureMarked() {
   marked.use({ tokenizer: { del() { return undefined; } } });
 }
 
-let _k = 0;
-const key = () => `md_${_k++}`;
-
 export function Markdown({ children }) {
-  let elements;
-  try {
-    configureMarked();
-    const tokens = marked.lexer(String(children ?? ''));
-    elements = [];
-    let buffer = '';
-    const flush = () => {
-      if (buffer) {
-        // CC trims the coalesced non-table block (MarkdownBody: nonTableContent
-        // .trim()) so leading/trailing blank lines from token EOLs don't bleed
-        // into the surrounding gap={1} spacing. color={theme.text} makes plain
-        // (un-ANSI'd) body text white instead of the terminal's default gray;
-        // inline spans that carry their own SGR (codespan, bold, etc.) keep it.
-        elements.push(<Text key={key()} color={theme.text}>{buffer.trim()}</Text>);
-        buffer = '';
+  const elements = React.useMemo(() => {
+    try {
+      configureMarked();
+      const tokens = marked.lexer(String(children ?? ''));
+      const result = [];
+      let buffer = '';
+      let idx = 0;
+      const flush = () => {
+        if (buffer) {
+          // CC trims the coalesced non-table block (MarkdownBody: nonTableContent
+          // .trim()) so leading/trailing blank lines from token EOLs don't bleed
+          // into the surrounding gap={1} spacing. color={theme.text} makes plain
+          // (un-ANSI'd) body text white instead of the terminal's default gray;
+          // inline spans that carry their own SGR (codespan, bold, etc.) keep it.
+          result.push(<Text key={`md_${idx++}`} color={theme.text}>{buffer.trim()}</Text>);
+          buffer = '';
+        }
+      };
+      for (const token of tokens) {
+        if (token.type === 'table') {
+          flush();
+          result.push(<MarkdownTable key={`md_${idx++}`} token={token} />);
+        } else {
+          buffer += formatToken(token);
+        }
       }
-    };
-    for (const token of tokens) {
-      if (token.type === 'table') {
-        flush();
-        elements.push(<MarkdownTable key={key()} token={token} />);
-      } else {
-        buffer += formatToken(token);
-      }
+      flush();
+      return result;
+    } catch {
+      // Never throw into the render tree — fall back to raw text.
+      return [<Text key="md_0">{String(children ?? '')}</Text>];
     }
-    flush();
-  } catch {
-    // Never throw into the render tree — fall back to raw text.
-    elements = [<Text key={key()}>{String(children ?? '')}</Text>];
-  }
+  }, [children]);
 
   return (
     <Box flexDirection="column" gap={1}>

@@ -20,11 +20,17 @@ export function QueuedCommands({ queued, columns }) {
   // Explicit numeric width guarantees the band fills the row.
   return (
     <Box marginTop={1} flexDirection="column">
-      {queued.map((item) => (
-        <Box key={item.id} width={columns} backgroundColor={theme.userMessageBackground} paddingLeft={2} paddingRight={1}>
-          <Text color={theme.inactive} wrap="wrap">{item.text}</Text>
-        </Box>
-      ))}
+      {queued.map((item) => {
+        // Truncate to 1 line so the row reservation (queued.length in App.jsx)
+        // stays accurate — wrapped text would push the input box off-screen.
+        const maxLen = Math.max(1, columns - 4);
+        const displayText = item.text.length > maxLen ? item.text.slice(0, maxLen) + '…' : item.text;
+        return (
+          <Box key={item.id} width={columns} backgroundColor={theme.userMessageBackground} paddingLeft={2} paddingRight={1}>
+            <Text color={theme.inactive} wrap="wrap">{displayText}</Text>
+          </Box>
+        );
+      })}
     </Box>
   );
 }

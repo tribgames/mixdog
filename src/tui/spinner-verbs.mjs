@@ -1,5 +1,5 @@
 /**
- * src/tui-react/spinner-verbs.mjs — playful "thinking" verbs for the spinner.
+ * src/tui/spinner-verbs.mjs — playful "thinking" verbs for the spinner.
  *
  * Ported verbatim from Claude Code (refs/claude-code/src/constants/spinnerVerbs.ts
  * SPINNER_VERBS). Shown as `<Verb>… (Ns · ↑ N tokens)` while a turn runs.

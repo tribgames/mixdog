@@ -18,7 +18,7 @@ import { theme, TURN_MARKER } from '../theme.mjs';
 import { THEREFORE } from '../figures.mjs';
 import { Markdown } from './Markdown.jsx';
 
-export function AssistantMessage({ text }) {
+export const AssistantMessage = React.memo(function AssistantMessage({ text }) {
   return (
     <Box flexDirection="row" marginTop={1}>
       <Box flexShrink={0} minWidth={2}>
@@ -29,9 +29,9 @@ export function AssistantMessage({ text }) {
       </Box>
     </Box>
   );
-}
+});
 
-export function UserMessage({ text, attached = false, columns }) {
+export const UserMessage = React.memo(function UserMessage({ text, attached = false, columns }) {
   // `attached` = the previous transcript row is also a user message (consecutive
   // steering prompts). Those stack flush together; a user message that follows
   // an assistant/tool row gets a one-row gap above it.
@@ -44,7 +44,7 @@ export function UserMessage({ text, attached = false, columns }) {
       <Text color={theme.text} wrap="wrap">{text}</Text>
     </Box>
   );
-}
+});
 
 export function ThinkingMessage({ text }) {
   return (

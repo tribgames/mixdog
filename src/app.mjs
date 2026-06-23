@@ -47,9 +47,11 @@ export async function run(argv = []) {
 
   const provIdx = argv.indexOf('--provider');
   const modelIdx = argv.indexOf('--model');
+  const toolMode = argv.includes('--readonly') ? 'readonly' : 'full';
   const opts = {
     provider: provIdx >= 0 ? argv[provIdx + 1] : undefined,
     model: modelIdx >= 0 ? argv[modelIdx + 1] : undefined,
+    toolMode,
   };
 
   // `--help` / `-h`: print the help text and exit 0. The help source lives in
@@ -67,23 +69,20 @@ export async function run(argv = []) {
     return await runRepl(opts);
   }
 
-  // `--react`: the NEW React/ink TUI (port-plan: replace the pi-tui render layer
-  // with a real React terminal renderer, mirroring Claude Code). Requires a
-  // build (`npm run build:tui`); guide the user if the bundle is missing.
   if (argv.includes('--react')) {
-    const bundle = join(__dirname, 'tui-react', 'dist', 'index.mjs');
-    if (!existsSync(bundle)) {
-      process.stderr.write(
-        'mixdog-cli: React TUI bundle not found. Build it with:\n  npm run build:tui\n',
-      );
-      return 1;
-    }
-    const { runReactTui } = await import('./tui-react/dist/index.mjs');
-    return await runReactTui(opts);
+    process.stderr.write('mixdog-cli: --react was removed; run `mixdog-cli` for the canonical TUI.\n');
+    return 1;
   }
 
-  // Default: the Claude-Code-style pi-tui front-end over our engine.
-  const { runTui } = await import('./tui/app.mjs');
+  // Default: the canonical React/Ink TUI over the mixdog session runtime.
+  const bundle = join(__dirname, 'tui', 'dist', 'index.mjs');
+  if (!existsSync(bundle)) {
+    process.stderr.write(
+      'mixdog-cli: TUI bundle not found. Build it with:\n  npm run build:tui\n',
+    );
+    return 1;
+  }
+  const { runTui } = await import('./tui/dist/index.mjs');
   return await runTui(opts);
 }
 

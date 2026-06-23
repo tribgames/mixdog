@@ -1,106 +1,51 @@
 /**
- * src/tui/theme.mjs — pi-tui theme objects + Claude-Code-style glyphs/colors.
+ * src/tui/theme.mjs — Claude Code dark palette for the React/ink TUI.
  *
- * Colors are ported VERBATIM from Claude Code's dark theme
- * (refs/claude-code/src/utils/theme.ts → darkTheme), emitted as 24-bit
- * truecolor via src/ui/ansi.mjs (which honors NO_COLOR / TTY). This replaces the
- * earlier all-gray 16-color look with CC's actual palette: white body text,
- * Claude-orange turn markers, etc. Dark-fixed for now (terminal background
- * detection can pick light later).
+ * Colors ported verbatim from refs/claude-code/src/utils/theme.ts (darkTheme).
+ * ink accepts `rgb(r,g,b)` strings directly on the `color`/`backgroundColor`
+ * props, so these are plain strings (no escape wrapping needed — ink emits the
+ * SGR and honors NO_COLOR/non-TTY itself).
  *
- * Glyphs mirror figures.ts: turn marker `●`, result tree `  ⎿  `, effort dots.
+ * Dark-fixed for now (terminal background detection can pick light later).
  */
-import { bold, italic, underline, strike, dim, compose, rgb } from '../ui/ansi.mjs';
-
-/* --- Claude Code dark palette (rgb from theme.ts darkTheme) ---------------- */
-const CC = {
-  claude: rgb(215, 119, 87), // brand orange — turn marker / accents
-  text: rgb(255, 255, 255), // white — body text
-  inactive: rgb(153, 153, 153), // light gray — secondary
-  subtle: rgb(80, 80, 80), // dark gray — borders/rules
-  promptBorder: rgb(136, 136, 136), // medium gray — input border/prompt
-  success: rgb(78, 186, 101), // green
-  error: rgb(255, 107, 128), // red
-  warning: rgb(255, 193, 7), // amber
-  suggestion: rgb(177, 185, 249), // light blue-purple — links/select
-  code: rgb(235, 159, 127), // claudeShimmer-ish — inline code/accents
-  diffAddedWord: rgb(56, 166, 96), // medium green — code blocks
+export const theme = {
+  claude: 'rgb(215,119,87)', // brand orange — turn markers, accents
+  claudeShimmer: 'rgb(235,159,127)',
+  text: 'rgb(240,240,240)', // body text — soft white. Pure #fff (truecolor) renders heavy/bold-bright in Windows Terminal; a touch below white reads at normal weight while staying bright. Nudged 230→240 for a slightly brighter look without tripping the bold render.
+  inverseText: 'rgb(0,0,0)', // text on an inverted (light) background
+  inactive: 'rgb(153,153,153)', // secondary gray
+  subtle: 'rgb(80,80,80)', // borders / rules
+  promptBorder: 'rgb(136,136,136)', // input border / prompt
+  success: 'rgb(78,186,101)', // green
+  error: 'rgb(255,107,128)', // red
+  warning: 'rgb(255,193,7)', // amber
+  suggestion: 'rgb(87,105,247)', // links / select — CC medium blue
+  permission: 'rgb(87,105,247)', // CC `permission` — inline code (codespan) color (medium blue)
+  code: 'rgb(87,105,247)', // inline code accent = CC permission (medium blue)
+  codeBlock: 'rgb(56,166,96)', // code block body (medium green)
+  userMessageBackground: 'rgb(55,55,55)', // user bubble background (CC darkTheme)
+  userMessageBackgroundHover: 'rgb(70,70,70)', // hover variant (CC darkTheme)
+  fastMode: 'rgb(255,120,20)',
 };
 
-/* --- Claude-Code glyphs ----------------------------------------------------
- * CC uses `⏺` on macOS and `●` elsewhere (figures.ts BLACK_CIRCLE). We default
- * to `●` for cross-platform terminal alignment.
- */
-export const TURN_MARKER = '●';
-/** Dim result-tree prefix, exactly Claude Code's `  ⎿  ` (2 + glyph + 2). */
-export const RESULT_PREFIX = '  ⎿  ';
-/** Continuation indent for wrapped result lines (aligns under the glyph). */
+/* --- Glyphs (refs/claude-code/src/constants/figures.ts) ------------------- */
+import {
+  BLACK_CIRCLE,
+  POINTER,
+  EFFORT_LOW,
+  EFFORT_MEDIUM,
+  EFFORT_HIGH,
+  EFFORT_MAX,
+} from './figures.mjs';
+
+/** Turn marker — CC BLACK_CIRCLE (`⏺` on macOS; `●` elsewhere). */
+export const TURN_MARKER = BLACK_CIRCLE;
+/** Result-tree gutter, exactly Claude Code's `  ⎿  `. */
+export const RESULT_GUTTER = '  ⎿  ';
+/** Continuation indent aligning under the result content. */
 export const RESULT_INDENT = '     ';
-/** Prompt glyph shown before the input editor (CC `>`); MarkerBlock adds the
- * trailing space, rendering `> ` + the editor content. */
-export const PROMPT_GLYPH = '>';
+/** Prompt prefix glyph before the input — CC figures.pointer `❯`. */
+export const PROMPT_GLYPH = POINTER;
 
 /** Effort-level glyphs (figures.ts EFFORT_*). */
-export const EFFORT_GLYPH = {
-  low: '○',
-  medium: '◐',
-  high: '●',
-  max: '◉',
-};
-
-/** MarkdownTheme — consumed by `new Markdown(text, px, py, markdownTheme)`. */
-export const markdownTheme = {
-  heading: compose(bold, CC.claude), // headings in Claude orange, bold
-  link: CC.suggestion,
-  linkUrl: CC.inactive,
-  code: CC.code,
-  codeBlock: CC.diffAddedWord,
-  codeBlockBorder: CC.subtle,
-  quote: compose(italic, CC.inactive),
-  quoteBorder: CC.subtle,
-  hr: CC.subtle,
-  listBullet: CC.claude,
-  bold: bold,
-  italic: italic,
-  strikethrough: strike,
-  underline: underline,
-};
-
-/** SelectListTheme — the autocomplete/select dropdown inside the Editor. */
-export const selectListTheme = {
-  selectedPrefix: CC.claude,
-  selectedText: compose(bold, CC.text),
-  description: CC.inactive,
-  scrollInfo: CC.inactive,
-  noMatch: CC.inactive,
-};
-
-/** EditorTheme — consumed by `new Editor(tui, editorTheme)`. */
-export const editorTheme = {
-  // CC promptBorder gray — more legible than plain dim.
-  borderColor: CC.promptBorder,
-  selectList: selectListTheme,
-};
-
-/** Semantic colors for chat chrome (turn markers, notices, prompt). */
-export const colors = {
-  /** Assistant turn marker — Claude orange (the brand `●`). */
-  assistantMarker: CC.claude,
-  /** Tool-call turn marker — orange too (CC shows actions in brand color). */
-  toolMarker: CC.claude,
-  /** Error turn marker + text. */
-  errorMarker: compose(bold, CC.error),
-  /** Body text — white. */
-  text: CC.text,
-  /** Dim result tree + secondary chrome. */
-  resultTree: CC.inactive,
-  /** Tool name in a call card. */
-  toolName: bold,
-  /** Argument summary — secondary gray. */
-  toolArg: CC.inactive,
-  /** Prompt prefix color. */
-  prompt: CC.claude,
-};
-
-/** Re-export dim for callers that still want a plain dim line. */
-export { dim };
+export const EFFORT_GLYPH = { low: EFFORT_LOW, medium: EFFORT_MEDIUM, high: EFFORT_HIGH, max: EFFORT_MAX };

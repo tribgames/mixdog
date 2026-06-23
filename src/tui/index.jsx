@@ -1,5 +1,5 @@
 /**
- * src/tui-react/index.jsx — entry that mounts the React/ink TUI.
+ * src/tui/index.jsx — entry that mounts the React/ink TUI.
  *
  * Creates the engine session (runs OUR agentLoop outside React) and ink-renders
  * <App store={...}/>. Resolves when the app exits (Ctrl+C / /exit).
@@ -7,14 +7,19 @@
 import React from 'react';
 import { render } from 'ink';
 import { App } from './App.jsx';
+import { normalizeStatusLine } from './components/StatusLine.jsx';
 import { createEngineSession } from './engine.mjs';
 
-export async function runReactTui({ provider, model } = {}) {
+const STATUSLINE_MODULE = import.meta.url.replace(/\\/g, '/').includes('/tui/dist/')
+  ? '../../ui/statusline.mjs'
+  : '../ui/statusline.mjs';
+
+export async function runTui({ provider, model, toolMode } = {}) {
   // The React/ink TUI needs a raw-mode-capable TTY (interactive input). In a
   // pipe/redirect/CI, ink's input hooks throw — bail with a clear hint instead.
   if (!process.stdin.isTTY) {
     process.stderr.write(
-      'mixdog-cli: the --react TUI needs an interactive terminal (TTY).\n' +
+      'mixdog-cli: the TUI needs an interactive terminal (TTY).\n' +
         'Run it directly in a terminal, or use --plain for the readline REPL.\n',
     );
     return 1;
@@ -22,10 +27,25 @@ export async function runReactTui({ provider, model } = {}) {
 
   let store;
   try {
-    store = await createEngineSession({ provider, model });
+    store = await createEngineSession({ provider, model, toolMode });
   } catch (error) {
     process.stderr.write(`mixdog-cli: ${error?.message || error}\n`);
     return 1;
+  }
+
+  let initialStatusLine = '';
+  try {
+    const state = store.getState();
+    const { renderStatusline } = await import(STATUSLINE_MODULE);
+    initialStatusLine = normalizeStatusLine(await renderStatusline({
+      sessionId: state.sessionId,
+      provider: state.provider,
+      model: state.model,
+      cwd: state.cwd,
+      stats: state.stats,
+    }));
+  } catch {
+    initialStatusLine = '';
   }
 
   // Enter the alternate screen buffer for a true fullscreen UI: the input bar
@@ -54,7 +74,7 @@ export async function runReactTui({ provider, model } = {}) {
   // useInput handler runs, so our cursor-return-to-bottom teardown frame would
   // never render and the shell prompt would overlap our frame. We take over
   // Ctrl+C in App (requestExit) to draw the teardown frame first, then exit.
-  const { waitUntilExit } = render(<App store={store} />, { exitOnCtrlC: false, maxFps: 60 });
+  const { waitUntilExit } = render(<App store={store} initialStatusLine={initialStatusLine} />, { exitOnCtrlC: false, maxFps: 60 });
   try {
     await waitUntilExit();
   } finally {
