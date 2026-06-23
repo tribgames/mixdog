@@ -18,15 +18,23 @@ export function QueuedCommands({ queued, columns }) {
   // Each queued line reads as a full-width band like a user message (same
   // background, 2-col gutter), but dimmed text marks it as "waiting, not sent".
   // Explicit numeric width guarantees the band fills the row.
+  // One cell short of the edge: writing the last terminal column triggers
+  // Windows auto-wrap/scroll that drifts the alt-screen frame (see UserMessage).
+  const bandColumns = Math.max(1, columns - 1);
   return (
     <Box marginTop={1} flexDirection="column">
       {queued.map((item) => {
         // Truncate to 1 line so the row reservation (queued.length in App.jsx)
         // stays accurate — wrapped text would push the input box off-screen.
-        const maxLen = Math.max(1, columns - 4);
-        const displayText = item.text.length > maxLen ? item.text.slice(0, maxLen) + '…' : item.text;
+        // Content width = bandColumns(columns-1) - paddingLeft(2) - paddingRight(1)
+        // = columns-4. When truncating we append '…' (1 cell), so the slice must
+        // be columns-5 to keep the total at columns-4 and avoid a wrap to row 2.
+        const contentWidth = Math.max(1, columns - 4);
+        const displayText = item.text.length > contentWidth
+          ? item.text.slice(0, Math.max(1, contentWidth - 1)) + '…'
+          : item.text;
         return (
-          <Box key={item.id} width={columns} backgroundColor={theme.userMessageBackground} paddingLeft={2} paddingRight={1}>
+          <Box key={item.id} width={bandColumns} backgroundColor={theme.userMessageBackground} paddingLeft={2} paddingRight={1}>
             <Text color={theme.inactive} wrap="wrap">{displayText}</Text>
           </Box>
         );

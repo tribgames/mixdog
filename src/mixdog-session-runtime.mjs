@@ -228,11 +228,16 @@ export async function createMixdogSessionRuntime({
       return session.id;
     },
     async resume(id) {
-      if (session?.id) mgr.closeSession(session.id, 'cli-resume');
+      const previousId = session?.id || null;
       const resumed = await mgr.resumeSession(id, toolSpecForMode(mode));
       if (!resumed) return null;
+      if (previousId && previousId !== resumed.id) {
+        statusRoutes?.clearGatewaySessionRoute?.(previousId);
+        mgr.closeSession(previousId, 'cli-resume');
+      }
       session = resumed;
       route = resolveRoute(config, { provider: resumed.provider, model: resumed.model });
+      statusRoutes?.writeGatewaySessionRoute?.(session.id, routeForStatusline(route));
       return {
         id: resumed.id,
         messages: resumed.messages || [],

@@ -223,13 +223,17 @@ export async function createEngineSession({
       enqueue(t);
       return true;
     },
-    setModel: (m) => {
-      void runtime.setRoute({ model: m })
-        .then(() => {
-          resetStats();
-          set({ sessionId: runtime.id, provider: runtime.provider, model: runtime.model, stats: { ...state.stats } });
-        })
-        .catch((error) => pushItem({ kind: 'notice', id: nextId(), text: `[error] ${error?.message || error}`, tone: 'error' }));
+    setModel: async (m) => {
+      if (state.commandBusy) return false;
+      set({ commandBusy: true });
+      try {
+        await runtime.setRoute({ model: m });
+        resetStats();
+        set({ sessionId: runtime.id, provider: runtime.provider, model: runtime.model, stats: { ...state.stats } });
+        return true;
+      } finally {
+        set({ commandBusy: false });
+      }
     },
     setToolMode: (m) => {
       void runtime.setToolMode(m)
@@ -242,6 +246,9 @@ export async function createEngineSession({
     abort: () => {
       if (!state.busy) return false;
       return runtime.abort('cli-react-abort');
+    },
+    listPresets: () => {
+      return runtime.listPresets();
     },
     pushNotice: (text, tone = 'info') => pushItem({ kind: 'notice', id: nextId(), text, tone }),
     clear: async () => {

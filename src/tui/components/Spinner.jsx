@@ -17,8 +17,8 @@
  *     as columns allow (no time gate — live estimate from streamed text length).
  *   - token counter animation: smooth increment toward real count (CC
  *     tokenCounterRef ratcheting).
- *   - mode-aware token glyph: ↑ for requesting, ↓ for others (CC
- *     SpinnerModeGlyph).
+ *   - token delta glyph: ↑ while requesting, ↓ while generating (CC
+ *     SpinnerModeGlyph), shown only after this turn has token movement.
  *   - elided duration formatting (CC formatDuration: "0:25" after 60s).
  *   - mode prop: 'responding' | 'thinking' | 'tool-use' | 'tool-input' |
  *     'requesting' (default 'responding').
@@ -36,7 +36,7 @@ const FRAMES = [...SPINNER_FRAMES, ...[...SPINNER_FRAMES].reverse()];
 // Stall: response must grow within this window or the glyph reddens.
 const STALL_TIMEOUT_MS = 3000;
 const STALL_FADE_MS = 2000; // CC fades red over 2s
-// Hint ("esc to interrupt") shown after this threshold — timer/tokens are always visible.
+// Hint ("esc to interrupt") shown after this threshold.
 const SHOW_HINT_AFTER_MS = 30000;
 // Thinking shimmer starts after this delay (CC THINKING_DELAY_MS).
 const THINKING_DELAY_MS = 3000;
@@ -213,17 +213,17 @@ export function Spinner({ verb = 'Working', startedAt, tokens = 0, thinking = fa
 
   // Progressive width gating (CC SpinnerAnimationRow:
   //   show things left→right, each only if it fits after the previous ones).
-  // Timer and tokens show immediately as columns allow; hint ("esc to interrupt")
-  // is gated behind SHOW_HINT_AFTER_MS so it doesn't crowd the line early.
+  // Timer shows immediately as columns allow; token deltas appear once non-zero;
+  // hint ("esc to interrupt") is gated behind SHOW_HINT_AFTER_MS so it doesn't
+  // crowd the line early.
   const showHintNow = elapsedMs > SHOW_HINT_AFTER_MS;
   const avail = columns - messageLen - 5; // glyph(2) + ' (' + ')'
 
-  // Token glyph per mode: ↑ for requesting, ↓ for others (CC SpinnerModeGlyph)
+  // Token delta glyph per mode: ↑ for requesting, ↓ for others (CC SpinnerModeGlyph)
   const tokenGlyph = mode === 'requesting' ? UP_ARROW : DOWN_ARROW;
 
   const timerText = formatDuration(elapsedMs);
   const timerW = timerText.length;
-  // Always show token count (even at 0) so the user sees it animate from the start.
   const tokenText = `${formatNumber(displayedTokens)} tokens`;
   const tokenW = tokenGlyph.length + 1 + tokenText.length;
 
@@ -235,7 +235,7 @@ export function Spinner({ verb = 'Working', startedAt, tokens = 0, thinking = fa
   const showTimer = avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + timerW;
   if (showTimer) usedW += (usedW > 0 ? SEP_WIDTH : 0) + timerW;
 
-  const showTokens = avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + tokenW;
+  const showTokens = displayedTokens > 0 && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + tokenW;
   if (showTokens) usedW += (usedW > 0 ? SEP_WIDTH : 0) + tokenW;
 
   const showHint = showHintNow && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + HINT_WIDTH;
@@ -272,9 +272,9 @@ export function Spinner({ verb = 'Working', startedAt, tokens = 0, thinking = fa
       {segments.length > 0 ? (
         <Text color={theme.inactive}>
           {' ('}
-          {segments.reduce((acc, el, i) =>
+          {segments.reduce((acc, el, i) => (
             i === 0 ? [el] : [...acc, <Text key={`s${i}`} dimColor> · </Text>, el]
-          )}
+          ), [])}
           {')'}
         </Text>
       ) : null}

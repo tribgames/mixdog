@@ -26,6 +26,7 @@ import { TurnDone } from './components/TurnDone.jsx';
 import { StatusLine } from './components/StatusLine.jsx';
 import { PromptInput } from './components/PromptInput.jsx';
 import { QueuedCommands } from './components/QueuedCommands.jsx';
+import { Picker } from './components/Picker.jsx';
 import { MAX_RESULT_LINES } from './components/ToolExecution.jsx';
 
 const HELP = [
@@ -33,11 +34,12 @@ const HELP = [
   '  /help            show this help',
   '  /clear           reset the conversation',
   '  /new             start a fresh session (closes current)',
-  '  /resume [id]     resume a saved session (most recent if no id)',
-  '  /model <name>    switch model for subsequent turns',
+  '  /resume [id]     resume a saved session (picker if no id)',
+  '  /model <name>    switch model for subsequent turns (picker if no name)',
   '  /mode <name>     switch tool surface: full | readonly',
   '  /exit, /quit     quit',
-  'Ctrl+C exits. ↑/↓ recall history.',
+  'Picker: ↑/↓ navigate, Enter confirm, Escape cancel.',
+  'Ctrl+C exits. Drag to select text, Ctrl+C to copy. ↑/↓ recall history.',
 ].join('\n');
 
 function terminalSize(stdout) {
@@ -68,6 +70,8 @@ export function App({ store, initialStatusLine = '' }) {
   // (0 = pinned to the latest, showing the newest content). Mouse wheel adjusts
   // it; a new turn / new items snap back to 0 (handled below).
   const [scrollOffset, setScrollOffset] = useState(0);
+  // picker = null | { type, title, items, onSelect }
+  const [picker, setPicker] = useState(null);
 
   useEffect(() => {
     if (!stdout) return undefined;
@@ -166,7 +170,7 @@ export function App({ store, initialStatusLine = '' }) {
       toggleExpand();
       return;
     }
-    if (key.escape && state.busy) {
+    if (key.escape && state.busy && !picker) {
       if (store.abort()) {
         store.pushNotice('⎋ stopped — queued prompts kept (↑ to edit)', 'info');
       }
@@ -195,9 +199,50 @@ export function App({ store, initialStatusLine = '' }) {
           void store.clear().then(() => {}).catch(e => store.pushNotice(`clear failed: ${e?.message || e}`, 'error'));
           return true;
         case 'model':
-          if (!arg) { store.pushNotice(`current model: ${state.model}`, 'info'); return true; }
-          store.setModel(arg);
-          store.pushNotice(`✓ model → ${arg}`, 'info');
+          if (state.busy) {
+            store.pushNotice('wait for the current turn to finish before /model', 'warn');
+            return false;
+          }
+          if (!arg) {
+            let presets;
+            try {
+              presets = store.listPresets();
+            } catch (e) {
+              store.pushNotice(`could not list presets: ${e?.message || e}`, 'error');
+              return true;
+            }
+            if (!presets || presets.length === 0) {
+              store.pushNotice(`current model: ${state.model}`, 'info');
+            } else {
+              const items = presets.map((p) => {
+                const key = p.id || p.name || p.model;
+                const label = p.name || p.id || p.model;
+                return {
+                  value: key,
+                  label,
+                  description: `${p.provider}/${p.model}`,
+                };
+              }).filter((item) => item.value);
+              setPicker({
+                title: `Model (current: ${state.model})`,
+                items,
+                onSelect: (value) => {
+                  setPicker(null);
+                  void store.setModel(value)
+                    .then(ok => store.pushNotice(ok ? `✓ model → ${value}` : 'model switch already in progress', ok ? 'info' : 'warn'))
+                    .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
+                },
+                onCancel: () => {
+                  setPicker(null);
+                  store.pushNotice('canceled', 'info');
+                },
+              });
+            }
+            return true;
+          }
+          void store.setModel(arg)
+            .then(ok => store.pushNotice(ok ? `✓ model → ${arg}` : 'model switch already in progress', ok ? 'info' : 'warn'))
+            .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
           return true;
         case 'mode':
           if (!arg) { store.pushNotice(`current mode: ${state.toolMode || 'full'}`, 'info'); return true; }
@@ -233,10 +278,25 @@ export function App({ store, initialStatusLine = '' }) {
             if (!sessions || sessions.length === 0) {
               store.pushNotice('no saved sessions', 'warn');
             } else {
-              const sid = sessions[0].id;
-              void store.resume(sid)
-                .then(ok => store.pushNotice(ok ? `✓ resumed ${sid}` : 'resume failed', ok ? 'info' : 'warn'))
-                .catch((e) => store.pushNotice(`resume failed: ${e?.message || e}`, 'error'));
+              const items = sessions.map((s) => ({
+                value: s.id,
+                label: s.id.length > 28 ? s.id.slice(0, 25) + '…' : s.id,
+                description: `${s.messageCount} msgs${s.preview ? ' · ' + s.preview.slice(0, 50).replace(/\n/g, ' ') : ''}`,
+              }));
+              setPicker({
+                title: 'Resume session',
+                items,
+                onSelect: (value) => {
+                  setPicker(null);
+                  void store.resume(value)
+                    .then(ok => store.pushNotice(ok ? `✓ resumed ${value}` : 'resume failed', ok ? 'info' : 'warn'))
+                    .catch((e) => store.pushNotice(`resume failed: ${e?.message || e}`, 'error'));
+                },
+                onCancel: () => {
+                  setPicker(null);
+                  store.pushNotice('canceled', 'info');
+                },
+              });
             }
           }
           return true;
@@ -279,8 +339,10 @@ export function App({ store, initialStatusLine = '' }) {
   const LIVE_STATUS_ROWS = THINKING_ROWS + SPINNER_ROWS + TURNDONE_ROWS;
   const INPUT_BOX_ROWS = 4;
   const STATUSLINE_ROWS = 3;
-  const queuedRows = state.queued?.length ? state.queued.length + 1 : 0;
-  const bottomReserve = WELCOME_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
+  const PICKER_MAX_VISIBLE = 8;
+  const PICKER_ROWS = picker ? Math.min(picker.items.length, PICKER_MAX_VISIBLE) + 3 : 0;
+  const queuedRows = !picker && state.queued?.length ? state.queued.length + 1 : 0;
+  const bottomReserve = WELCOME_ROWS + LIVE_STATUS_ROWS + (picker ? PICKER_ROWS : INPUT_BOX_ROWS) + STATUSLINE_ROWS + queuedRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
@@ -366,19 +428,31 @@ export function App({ store, initialStatusLine = '' }) {
         </Box>
       ) : null}
 
-      {/* Bottom bar — pinned to the physical bottom, never moves. Queued
-          steering prompts sit just above the input box; statusline last. */}
+      {/* Bottom bar — pinned to the physical bottom, never moves. Picker
+          (when open) replaces the queued prompts + input box; statusline
+          stays last. */}
       <Box flexDirection="column" flexShrink={0}>
-        <QueuedCommands queued={state.queued} columns={resizeState.columns} />
-        <Box
-          marginTop={1}
-          width="100%"
-          borderStyle="round"
-          borderColor={state.busy || state.commandBusy ? theme.subtle : theme.promptBorder}
-          paddingX={1}
-        >
-          <PromptInput onSubmit={onSubmit} disabled={exiting || state.commandBusy} />
-        </Box>
+        {picker ? (
+          <Picker
+            items={picker.items}
+            onSelect={picker.onSelect}
+            onCancel={picker.onCancel}
+            title={picker.title}
+          />
+        ) : (
+          <>
+            <QueuedCommands queued={state.queued} columns={resizeState.columns} />
+            <Box
+              marginTop={1}
+              width="100%"
+              borderStyle="round"
+              borderColor={state.busy || state.commandBusy ? theme.subtle : theme.promptBorder}
+              paddingX={1}
+            >
+              <PromptInput onSubmit={onSubmit} disabled={exiting || state.commandBusy || !!picker} />
+            </Box>
+          </>
+        )}
         <StatusLine
           sessionId={state.sessionId}
           provider={state.provider}

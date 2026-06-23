@@ -39,8 +39,12 @@ export const UserMessage = React.memo(function UserMessage({ text, attached = fa
   // full-width band, not a text-hugging tag). An explicit numeric width is more
   // robust than "100%" here — it guarantees the band even if a parent's width
   // context is ambiguous. paddingLeft aligns the body under the 2-col gutter.
+  // Stop one cell short of the right edge: writing the terminal's last column
+  // makes Windows Terminal/conhost auto-wrap, which drifts the alt-screen frame
+  // and stacks stale gray bands on re-render. One narrower cell is invisible.
+  const bandColumns = Math.max(1, columns - 1);
   return (
-    <Box flexDirection="column" width={columns} marginTop={attached ? 0 : 1} backgroundColor={theme.userMessageBackground} paddingLeft={2} paddingRight={1}>
+    <Box flexDirection="column" width={bandColumns} marginTop={attached ? 0 : 1} backgroundColor={theme.userMessageBackground} paddingLeft={2} paddingRight={1}>
       <Text color={theme.text} wrap="wrap">{text}</Text>
     </Box>
   );
