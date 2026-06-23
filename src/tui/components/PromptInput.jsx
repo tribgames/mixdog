@@ -146,6 +146,8 @@ export function PromptInput({
   disabled = false,
   onDraftChange,
   commandPaletteActive = false,
+  mask = false,
+  onEscape,
   onCommandPaletteNavigate,
   onCommandPaletteAccept,
   onCommandPaletteCancel,
@@ -319,8 +321,15 @@ export function PromptInput({
       return;
     }
 
-    if (key.escape && commandPaletteActive) {
-      onCommandPaletteCancel?.(draftRef.current.value);
+    if (key.escape) {
+      if (commandPaletteActive) {
+        onCommandPaletteCancel?.(draftRef.current.value);
+        return;
+      }
+      if (onEscape) {
+        onEscape(draftRef.current.value);
+        commitDraft({ value: '', cursor: 0 });
+      }
       return;
     }
 
@@ -406,7 +415,8 @@ export function PromptInput({
 
   // Trailing space cell so the caret at end-of-input has a rendered cell to sit
   // on (kept visually blank — no synthetic underline).
-  const renderedValue = cursor === value.length ? `${value} ` : value;
+  const displayValue = mask ? value.replace(/[^\n]/g, '*') : value;
+  const renderedValue = cursor === value.length ? `${displayValue} ` : displayValue;
 
   return (
     <Box ref={boxRef} flexDirection="row" flexGrow={1} flexShrink={1}>

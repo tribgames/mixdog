@@ -259,6 +259,89 @@ export async function createEngineSession({
     listPresets: () => {
       return runtime.listPresets();
     },
+    listProviderModels: () => {
+      return runtime.listProviderModels();
+    },
+    listProviders: () => {
+      return runtime.listProviders();
+    },
+    getProviderSetup: () => {
+      return runtime.getProviderSetup();
+    },
+    loginOAuthProvider: async (provider) => {
+      if (state.commandBusy) return false;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.loginOAuthProvider(provider);
+        pushItem({
+          kind: 'notice',
+          id: nextId(),
+          text: `provider oauth ok: ${result.provider}`,
+          tone: 'info',
+        });
+        return true;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    saveProviderApiKey: (provider, secret) => {
+      const result = runtime.saveProviderApiKey(provider, secret);
+      pushItem({
+        kind: 'notice',
+        id: nextId(),
+        text: `provider api key saved: ${result.provider}`,
+        tone: 'info',
+      });
+      return true;
+    },
+    setLocalProvider: (provider, opts) => {
+      const result = runtime.setLocalProvider(provider, opts);
+      pushItem({
+        kind: 'notice',
+        id: nextId(),
+        text: `local provider ${result.enabled ? 'enabled' : 'disabled'}: ${result.provider}`,
+        tone: 'info',
+      });
+      return true;
+    },
+    authenticateProvider: async (provider, secret) => {
+      if (state.commandBusy) return false;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.authenticateProvider(provider, secret);
+        pushItem({
+          kind: 'notice',
+          id: nextId(),
+          text: `provider auth ok: ${result.provider} (${result.type})`,
+          tone: 'info',
+        });
+        return true;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    forgetProviderAuth: (provider) => {
+      const result = runtime.forgetProviderAuth(provider);
+      pushItem({
+        kind: 'notice',
+        id: nextId(),
+        text: `provider auth forgotten: ${result.provider}`,
+        tone: 'info',
+      });
+      return true;
+    },
+    setRoute: async (opts) => {
+      if (state.commandBusy) return false;
+      set({ commandBusy: true });
+      try {
+        await runtime.setRoute(opts);
+        resetStats();
+        set({ sessionId: runtime.id, provider: runtime.provider, model: runtime.model, stats: { ...state.stats } });
+        return true;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
     pushNotice: (text, tone = 'info') => pushItem({ kind: 'notice', id: nextId(), text, tone }),
     clear: async () => {
       if (state.commandBusy) return false;

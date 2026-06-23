@@ -33,6 +33,8 @@ const CHECK = process.argv.includes('--check');
 const ENTRIES = [
   'agent/orchestrator/session/loop.mjs',
   'agent/orchestrator/session/manager.mjs',
+  'agent/orchestrator/session/compact.mjs',
+  'agent/orchestrator/session/context-utils.mjs',
   // Worker-thread modules referenced via new URL(...) are invisible to the
   // static import closure, so keep them as explicit sync roots.
   'agent/orchestrator/session/save-session-worker.mjs',
@@ -290,12 +292,24 @@ function patchSessionManagerUiCallbacks(src) {
     src.includes('askOpts = {}') &&
     src.includes('askOpts?.onTextDelta') &&
     src.includes('askOpts?.onReasoningDelta') &&
+    src.includes('compactSessionMessages') &&
     src.includes('MIXDOG_QUIET_SESSION_LOG') &&
     src.includes('opts.skipSkills ? []')
   ) {
     return { text: src, already: true };
   }
   let s = src;
+  const importAnchor = "import { agentLoop } from './loop.mjs';";
+  if (!s.includes(importAnchor)) {
+    throw new Error('[sync] session-manager compact import anchor not found — reconcile compact patch manually.');
+  }
+  s = s.replace(
+    importAnchor,
+    `${importAnchor}
+import { compactActiveTurn, compactMessages } from './compact.mjs';
+import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';`,
+  );
+
   const sig = 'export async function askSession(sessionId, prompt, context, onToolCall, cwdOverride, explicitPrefetch) {';
   if (!s.includes(sig)) {
     throw new Error('[sync] session-manager askSession signature anchor not found — reconcile UI callback patch manually.');
@@ -375,6 +389,101 @@ function patchSessionManagerUiCallbacks(src) {
     }
     s = s.replace(from, to);
   }
+
+  const compactAnchor = `export async function clearSessionMessages(sessionId) {
+    const session = loadSession(sessionId);
+    if (!session)
+        return false;
+    // Don't resurrect a closed session just to clear its messages.
+    if (session.closed === true) return false;
+    session.messages = (session.messages || []).filter(m => m && m.role === 'system');
+    session.totalInputTokens = 0;
+    session.totalOutputTokens = 0;
+    session.updatedAt = Date.now();
+    await saveSessionAsync(session, { expectedGeneration: session.generation });
+    return true;
+}
+export async function updateSessionStatus(id, status) {`;
+  if (!s.includes(compactAnchor)) {
+    throw new Error('[sync] session-manager compact function anchor not found — reconcile compact patch manually.');
+  }
+  s = s.replace(compactAnchor, `export async function clearSessionMessages(sessionId) {
+    const session = loadSession(sessionId);
+    if (!session)
+        return false;
+    // Don't resurrect a closed session just to clear its messages.
+    if (session.closed === true) return false;
+    session.messages = (session.messages || []).filter(m => m && m.role === 'system');
+    session.totalInputTokens = 0;
+    session.totalOutputTokens = 0;
+    session.updatedAt = Date.now();
+    await saveSessionAsync(session, { expectedGeneration: session.generation });
+    return true;
+}
+export async function compactSessionMessages(sessionId) {
+    const session = loadSession(sessionId);
+    if (!session) return null;
+    if (session.closed === true) return null;
+    const beforeMessages = Array.isArray(session.messages) ? session.messages : [];
+    const beforeTokens = estimateMessagesTokens(beforeMessages);
+    const nonSystem = beforeMessages.filter(m => m?.role !== 'system');
+    let currentTurnStart = -1;
+    for (let i = nonSystem.length - 1; i >= 0; i -= 1) {
+        if (nonSystem[i]?.role === 'user') {
+            currentTurnStart = i;
+            break;
+        }
+    }
+    const boundary = positiveContextWindow(session.compactBoundaryTokens)
+        || positiveContextWindow(session.autoCompactTokenLimit)
+        || positiveContextWindow(session.contextWindow);
+    if (!boundary) {
+        throw new Error('compact: no context window is available for this session');
+    }
+    const reserveTokens = estimateRequestReserveTokens(session.tools || []);
+    if (currentTurnStart <= 0) {
+        return {
+            changed: false,
+            reason: 'nothing to compact',
+            beforeMessages: beforeMessages.length,
+            afterMessages: beforeMessages.length,
+            beforeTokens,
+            afterTokens: beforeTokens,
+            budgetTokens: boundary,
+            reserveTokens,
+        };
+    }
+    let beforeEncoded = '';
+    try { beforeEncoded = JSON.stringify(beforeMessages); } catch { beforeEncoded = ''; }
+    let compacted;
+    try {
+        compacted = compactMessages(beforeMessages, boundary, { reserveTokens, force: true });
+    } catch (err) {
+        try {
+            process.stderr.write(\`[session] manual compact fallback (sess=\${sessionId}): \${err?.message || err}\\n\`);
+        } catch { /* best-effort */ }
+        compacted = compactActiveTurn(beforeMessages, boundary, { reserveTokens });
+    }
+    const afterTokens = estimateMessagesTokens(compacted);
+    let afterEncoded = '';
+    try { afterEncoded = JSON.stringify(compacted); } catch { afterEncoded = ''; }
+    const changed = beforeEncoded && afterEncoded
+        ? beforeEncoded !== afterEncoded
+        : (compacted.length !== beforeMessages.length || afterTokens !== beforeTokens);
+    session.messages = compacted;
+    session.updatedAt = Date.now();
+    await saveSessionAsync(session, { expectedGeneration: session.generation });
+    return {
+        changed,
+        beforeMessages: beforeMessages.length,
+        afterMessages: compacted.length,
+        beforeTokens,
+        afterTokens,
+        budgetTokens: boundary,
+        reserveTokens,
+    };
+}
+export async function updateSessionStatus(id, status) {`);
   return { text: s, already: false };
 }
 
@@ -524,6 +633,18 @@ function main() {
     'mixdog-config.template.json', 'memory-chunk-prompt.md', 'memory-promote-prompt.md',
     'cycle3-review-prompt.md'];
   copyInto(defaultFiles, join(MIXDOG, 'defaults'), join(CLI, 'src', 'defaults'), 'defaults');
+  const agentFiles = ['worker.md', 'maintenance.md', 'memory-classification.md', 'scheduler-task.md', 'webhook-handler.md'];
+  copyInto(agentFiles, join(MIXDOG, 'agents'), join(CLI, 'src', 'agents'), 'agents');
+  const ruleFiles = [
+    'shared/01-tool.md',
+    'bridge/00-common.md',
+    'bridge/20-skip-protocol.md',
+    'bridge/30-explorer.md',
+    'bridge/40-cycle1-agent.md',
+    'bridge/41-cycle2-agent.md',
+    'bridge/42-cycle3-agent.md',
+  ];
+  copyInto(ruleFiles, join(MIXDOG, 'rules'), join(CLI, 'src', 'rules'), 'rules');
 
   // 3b'. statusline vendor — PURE verbatim copies of the plugin's L1/L2
   // renderer + its gateway deps, mirrored under src/vendor/statusline so the

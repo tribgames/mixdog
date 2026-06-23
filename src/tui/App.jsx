@@ -6,7 +6,7 @@
  *   transcript (finished items, a live column — terminal scrolls older rows off)
  *   live reasoning (∴ Thinking… — only while a turn streams)
  *   spinner / TurnDone (while a turn runs / just finished)
- *   top option picker (when a slash command opens one)
+ *   slash/model pickers (attached above the prompt)
  *   queued steering prompts + rounded prompt input (one cluster)
  *   statusline (vendored L1/L2)
  *
@@ -41,8 +41,11 @@ const HELP = [
   '  /resume [id]     resume a saved session (picker if no id)',
   '  /model <name>    switch model for subsequent turns (picker if no name)',
   '  /mode <name>     switch tool surface: full | readonly',
+  '  /providers       manage provider auth and local endpoints',
+  '  /auth <p> [key]  login OAuth provider or save API key',
+  '  /auth-forget <p> remove an API-key provider secret',
   '  /exit, /quit     quit',
-  'Picker: ↑/↓ navigate, Enter confirm, Escape cancel (opens at top).',
+  'Picker: ↑/↓ navigate, Enter confirm, Escape cancel (attached above prompt).',
   'Ctrl+C exits. Drag with the mouse to select & auto-copy. ↑/↓ recall history.',
 ].join('\n');
 
@@ -54,6 +57,9 @@ const SLASH_COMMANDS = [
   { name: 'resume', usage: '/resume', description: 'resume a saved session' },
   { name: 'model', usage: '/model', description: 'switch model for subsequent turns' },
   { name: 'mode', usage: '/mode', description: 'switch tool surface' },
+  { name: 'providers', usage: '/providers', description: 'manage provider auth and local endpoints' },
+  { name: 'auth', usage: '/auth', description: 'login OAuth provider or save API key' },
+  { name: 'auth-forget', usage: '/auth-forget', description: 'remove an API-key provider secret' },
   { name: 'exit', usage: '/exit', description: 'quit the TUI' },
   { name: 'quit', usage: '/quit', description: 'quit the TUI' },
 ];
@@ -134,9 +140,9 @@ export function App({ store, initialStatusLine = '' }) {
   // it; a new turn / new items snap back to 0 (handled below).
   const [scrollOffset, setScrollOffset] = useState(0);
   // picker = null | { type, title, items, onSelect }
-  // Rendered as a top option panel while the bottom prompt stays anchored and
-  // disabled, matching the OpenCode-style modal flow.
+  // Rendered as an option panel attached directly above the bottom prompt.
   const [picker, setPicker] = useState(null);
+  const [providerPrompt, setProviderPrompt] = useState(null);
   const [promptDraft, setPromptDraft] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedFor, setSlashDismissedFor] = useState('');
@@ -219,7 +225,9 @@ export function App({ store, initialStatusLine = '' }) {
       };
     };
     const onData = (data) => {
-      const s = typeof data === 'string' ? data : data.toString('utf8');
+      // ink emits each parsed input event as a string; a mouse SGR sequence
+      // arrives whole. Guard so non-mouse keystrokes fall through untouched.
+      const s = typeof data === 'string' ? data : String(data ?? '');
       if (s.indexOf('\x1b[<') === -1) return;
       let up = 0;
       let down = 0;
@@ -265,9 +273,9 @@ export function App({ store, initialStatusLine = '' }) {
         setScrollOffset((prev) => Math.max(0, prev + (up - down) * STEP));
       }
     };
-    stdin.on('data', onData);
-    return () => { stdin.off('data', onData); };
-  }, [stdin, isRawModeSupported, store, copySelection]);
+    inkInput.on('input', onData);
+    return () => { inkInput.off('input', onData); };
+  }, [inkInput, isRawModeSupported, store, copySelection]);
 
   // Snap back to the latest content whenever the transcript grows (new message /
   // turn) so the user always sees fresh output after sending.
@@ -319,34 +327,35 @@ export function App({ store, initialStatusLine = '' }) {
     }
   }, { isActive: isRawModeSupported });
 
-  const openModelPicker = () => {
-    let presets;
+  const openModelPicker = async () => {
+    let providerModels = [];
     try {
-      presets = store.listPresets();
+      providerModels = await store.listProviderModels();
     } catch (e) {
-      store.pushNotice(`could not list presets: ${e?.message || e}`, 'error');
+      store.pushNotice(`could not list models: ${e?.message || e}`, 'error');
       return;
     }
-    if (!presets || presets.length === 0) {
-      store.pushNotice(`current model: ${state.model}`, 'info');
+
+    if (!providerModels || providerModels.length === 0) {
+      store.pushNotice(`current model: ${state.model} (no provider models available)`, 'info');
       return;
     }
-    const items = presets.map((p) => {
-      const key = p.id || p.name || p.model;
-      const label = p.name || p.id || p.model;
-      return {
-        value: key,
-        label,
-        description: `${p.provider}/${p.model}`,
-      };
-    }).filter((item) => item.value);
+
+    const items = providerModels.map((m) => ({
+      value: `${m.provider}:${m.id}`,
+      label: m.display || m.id,
+      description: m.provider,
+      _provider: m.provider,
+      _modelId: m.id,
+    }));
+
     setPicker({
       title: `Model (current: ${state.model})`,
       items,
-      onSelect: (value) => {
+      onSelect: (value, item) => {
         setPicker(null);
-        void store.setModel(value)
-          .then(ok => store.pushNotice(ok ? `✓ model → ${value}` : 'model switch already in progress', ok ? 'info' : 'warn'))
+        void store.setRoute({ provider: item._provider, model: item._modelId })
+          .then(ok => store.pushNotice(ok ? `✓ model → ${item._provider}/${item._modelId}` : 'model switch already in progress', ok ? 'info' : 'warn'))
           .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
       },
       onCancel: () => {
@@ -368,6 +377,95 @@ export function App({ store, initialStatusLine = '' }) {
         setPicker(null);
         store.setToolMode(value);
         store.pushNotice(`✓ mode → ${value}`, 'info');
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
+  const openProviderSetupPicker = async () => {
+    let setup;
+    try {
+      setup = await store.getProviderSetup();
+    } catch (e) {
+      store.pushNotice(`providers failed: ${e?.message || e}`, 'error');
+      return;
+    }
+
+    const items = [];
+    for (const p of setup.api || []) {
+      items.push({
+        value: `api:${p.id}`,
+        label: p.name,
+        description: `API Key · ${p.status} · ${p.detail}`,
+        _type: 'api-key',
+        _providerId: p.id,
+        _providerName: p.name,
+      });
+    }
+    for (const p of setup.oauth || []) {
+      items.push({
+        value: `oauth:${p.id}`,
+        label: p.name,
+        description: `OAuth · ${p.status} · ${p.detail}`,
+        _type: 'oauth',
+        _providerId: p.id,
+        _providerName: p.name,
+      });
+    }
+    for (const p of setup.local || []) {
+      items.push({
+        value: `local:${p.id}`,
+        label: p.name,
+        description: `Local · ${p.status} · ${p.baseURL}`,
+        _type: 'local',
+        _providerId: p.id,
+        _providerName: p.name,
+        _enabled: p.enabled,
+        _baseURL: p.baseURL,
+        _defaultURL: p.defaultURL,
+      });
+    }
+
+    setProviderPrompt(null);
+    setPicker({
+      title: 'Providers',
+      items,
+      onSelect: (_value, item) => {
+        setPicker(null);
+        if (item._type === 'api-key') {
+          setProviderPrompt({
+            kind: 'api-key',
+            providerId: item._providerId,
+            label: item._providerName,
+          });
+          return;
+        }
+        if (item._type === 'oauth') {
+          void store.loginOAuthProvider(item._providerId)
+            .then(() => openProviderSetupPicker())
+            .catch((e) => store.pushNotice(`oauth login failed: ${e?.message || e}`, 'error'));
+          return;
+        }
+        if (item._type === 'local') {
+          if (item._enabled) {
+            try {
+              store.setLocalProvider(item._providerId, { enabled: false, baseURL: item._baseURL });
+              void openProviderSetupPicker();
+            } catch (e) {
+              store.pushNotice(`local provider update failed: ${e?.message || e}`, 'error');
+            }
+            return;
+          }
+          setProviderPrompt({
+            kind: 'local-url',
+            providerId: item._providerId,
+            label: item._providerName,
+            defaultURL: item._defaultURL,
+          });
+        }
       },
       onCancel: () => {
         setPicker(null);
@@ -440,6 +538,46 @@ export function App({ store, initialStatusLine = '' }) {
         store.setToolMode(arg);
         store.pushNotice(`✓ mode → ${arg}`, 'info');
         return true;
+      case 'providers':
+        void openProviderSetupPicker();
+        return true;
+      case 'auth': {
+        const [providerId, ...secretParts] = arg.split(/\s+/).filter(Boolean);
+        if (!providerId) {
+          store.pushNotice('usage: /auth <provider> [api-key]', 'warn');
+          return true;
+        }
+        if (secretParts.length === 0) {
+          void store.loginOAuthProvider(providerId)
+            .catch((e) => {
+              if (/unknown OAuth provider/i.test(String(e?.message || e))) {
+                setProviderPrompt({ kind: 'api-key', providerId, label: providerId });
+              } else {
+                store.pushNotice(`auth failed: ${e?.message || e}`, 'error');
+              }
+            });
+        } else {
+          try {
+            store.saveProviderApiKey(providerId, secretParts.join(' '));
+          } catch (e) {
+            store.pushNotice(`auth failed: ${e?.message || e}`, 'error');
+          }
+        }
+        return true;
+      }
+      case 'auth-forget': {
+        const providerId = arg.trim();
+        if (!providerId) {
+          store.pushNotice('usage: /auth-forget <provider>', 'warn');
+          return true;
+        }
+        try {
+          store.forgetProviderAuth(providerId);
+        } catch (e) {
+          store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
+        }
+        return true;
+      }
       case 'compact':
         if (state.busy) {
           store.pushNotice('wait for the current turn to finish before /compact', 'warn');
@@ -497,6 +635,41 @@ export function App({ store, initialStatusLine = '' }) {
   const onSubmit = (raw) => {
     const text = String(raw ?? '');
     const commandText = text.trim();
+    if (providerPrompt) {
+      if (state.commandBusy) {
+        store.pushNotice('wait for the current command to finish', 'warn');
+        return false;
+      }
+      if (providerPrompt.kind === 'api-key') {
+        if (!commandText) {
+          store.pushNotice(`API key is required for ${providerPrompt.providerId}`, 'warn');
+          return false;
+        }
+        try {
+          store.saveProviderApiKey(providerPrompt.providerId, commandText);
+          setProviderPrompt(null);
+          void openProviderSetupPicker();
+          return true;
+        } catch (e) {
+          store.pushNotice(`api key save failed: ${e?.message || e}`, 'error');
+          return false;
+        }
+      }
+      if (providerPrompt.kind === 'local-url') {
+        try {
+          store.setLocalProvider(providerPrompt.providerId, {
+            enabled: true,
+            baseURL: commandText || providerPrompt.defaultURL,
+          });
+          setProviderPrompt(null);
+          void openProviderSetupPicker();
+          return true;
+        } catch (e) {
+          store.pushNotice(`local provider update failed: ${e?.message || e}`, 'error');
+          return false;
+        }
+      }
+    }
     if (!commandText) return false;
     if (state.commandBusy) {
       store.pushNotice('wait for the current command to finish', 'warn');
@@ -510,7 +683,7 @@ export function App({ store, initialStatusLine = '' }) {
     return store.submit(text);
   };
 
-  const activeSlashQuery = slashQuery(promptDraft);
+  const activeSlashQuery = providerPrompt ? null : slashQuery(promptDraft);
   const slashCommands = activeSlashQuery === null || picker || exiting || state.commandBusy
     ? []
     : SLASH_COMMANDS.filter((command) => {
@@ -529,6 +702,11 @@ export function App({ store, initialStatusLine = '' }) {
     setPromptDraft(value);
     setSlashDismissedFor((dismissed) => (dismissed && dismissed !== value ? '' : dismissed));
   }, []);
+
+  const cancelProviderPrompt = useCallback(() => {
+    setProviderPrompt(null);
+    store.pushNotice('canceled', 'info');
+  }, [store]);
 
   const acceptSlashPalette = useCallback(() => {
     const command = slashCommands[slashIndex];
@@ -574,10 +752,11 @@ export function App({ store, initialStatusLine = '' }) {
   const STATUSLINE_ROWS = 3;
   const PICKER_MAX_VISIBLE = 8;
   const SLASH_PALETTE_MAX_VISIBLE = 8;
-  const TOP_PICKER_ROWS = picker ? Math.min(picker.items.length, PICKER_MAX_VISIBLE) + 4 : 0;
+  const PICKER_ROWS = picker ? Math.min(picker.items.length, PICKER_MAX_VISIBLE) + 4 : 0;
   const SLASH_PALETTE_ROWS = slashPaletteOpen ? Math.min(slashCommands.length, SLASH_PALETTE_MAX_VISIBLE) + 4 : 0;
-  const queuedRows = !picker && !slashPaletteOpen && state.queued?.length ? state.queued.length + 1 : 0;
-  const bottomReserve = WELCOME_ROWS + TOP_PICKER_ROWS + SLASH_PALETTE_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
+  const PROVIDER_PROMPT_ROWS = providerPrompt ? 1 : 0;
+  const queuedRows = !picker && !slashPaletteOpen && !providerPrompt && state.queued?.length ? state.queued.length + 1 : 0;
+  const bottomReserve = WELCOME_ROWS + PICKER_ROWS + SLASH_PALETTE_ROWS + PROVIDER_PROMPT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
@@ -600,18 +779,6 @@ export function App({ store, initialStatusLine = '' }) {
             <Text color={theme.text}>mixdog-cli</Text>
             <Text color={theme.inactive}>{`  ${state.provider}/${state.model}`}</Text>
           </Text>
-        </Box>
-      ) : null}
-
-      {picker ? (
-        <Box flexShrink={0} marginBottom={1}>
-          <Picker
-            items={picker.items}
-            onSelect={picker.onSelect}
-            onCancel={picker.onCancel}
-            title={picker.title}
-            columns={resizeState.columns}
-          />
         </Box>
       ) : null}
 
@@ -675,11 +842,20 @@ export function App({ store, initialStatusLine = '' }) {
         </Box>
       ) : null}
 
-      {/* Bottom bar — pinned to the physical bottom, never moves. When a picker
-          is open, the prompt remains visible but disabled; the picker itself
-          lives above the transcript like OpenCode's option panel. */}
+      {/* Bottom bar — pinned to the physical bottom, never moves. Pickers and
+          slash palettes attach directly above the prompt like Codex/OpenCode. */}
       <Box flexDirection="column" flexShrink={0}>
-        {slashPaletteOpen ? (
+        {picker ? (
+          <Box flexShrink={0}>
+            <Picker
+              items={picker.items}
+              onSelect={picker.onSelect}
+              onCancel={picker.onCancel}
+              title={picker.title}
+              columns={resizeState.columns}
+            />
+          </Box>
+        ) : slashPaletteOpen ? (
           <Box flexShrink={0}>
             <SlashCommandPalette
               commands={slashCommands}
@@ -688,11 +864,19 @@ export function App({ store, initialStatusLine = '' }) {
               columns={resizeState.columns}
             />
           </Box>
+        ) : providerPrompt ? (
+          <Box flexShrink={0} paddingX={1}>
+            <Text color={theme.inactive}>
+              {providerPrompt.kind === 'api-key'
+                ? `API key for ${providerPrompt.label} · Enter save · Esc cancel`
+                : `Base URL for ${providerPrompt.label} · Enter enable · Esc cancel · default ${providerPrompt.defaultURL}`}
+            </Text>
+          </Box>
         ) : !picker ? (
           <QueuedCommands queued={state.queued} columns={resizeState.columns} />
         ) : null}
         <Box
-          marginTop={1}
+          marginTop={picker || slashPaletteOpen || providerPrompt ? 0 : 1}
           width="100%"
           borderStyle="round"
           borderColor={state.busy || state.commandBusy || picker ? theme.subtle : theme.promptBorder}
@@ -702,6 +886,8 @@ export function App({ store, initialStatusLine = '' }) {
             onSubmit={onSubmit}
             disabled={exiting || state.commandBusy || !!picker}
             onDraftChange={onPromptDraftChange}
+            mask={providerPrompt?.kind === 'api-key'}
+            onEscape={providerPrompt ? cancelProviderPrompt : undefined}
             commandPaletteActive={slashPaletteOpen}
             onCommandPaletteNavigate={(direction) => {
               setSlashIndex((index) => {

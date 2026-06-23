@@ -1,5 +1,21 @@
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { ensureStandaloneEnvironment } from './standalone/seeds.mjs';
+import { createStandaloneBridge } from './standalone/bridge-tool.mjs';
+import {
+  PROVIDER_STATUS_TOOL,
+  forgetProviderAuth,
+  loginOAuthProvider,
+  providerSetup,
+  renderProviderStatus,
+  saveProviderApiKey,
+  setLocalProvider,
+} from './standalone/provider-admin.mjs';
+
 const RUNTIME = './runtime/agent/orchestrator';
 const STATUSLINE_SESSION_ROUTES = './vendor/statusline/src/gateway/session-routes.mjs';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const STANDALONE_ROOT = __dirname;
 
 const DEFAULT_PROVIDER = 'anthropic-oauth';
 const DEFAULT_MODEL = 'claude-opus-4-8';
@@ -8,6 +24,14 @@ const TOOL_MODES = new Set(['full', 'readonly']);
 function normalizeToolMode(mode) {
   const value = String(mode || '').trim().toLowerCase();
   return TOOL_MODES.has(value) ? value : 'full';
+}
+
+const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'max']);
+
+function normalizeEffort(value) {
+  const v = clean(value).toLowerCase();
+  if (!v || v === 'auto') return null;
+  return EFFORT_LEVELS.has(v) ? v : null;
 }
 
 function toolSpecForMode(mode) {
@@ -29,9 +53,10 @@ function findPreset(config, key) {
   }) || null;
 }
 
-function resolveRoute(config, { provider, model } = {}) {
+function resolveRoute(config, { provider, model, effort } = {}) {
   const explicitProvider = clean(provider);
   const explicitModel = clean(model);
+  const explicitEffort = effort !== undefined ? normalizeEffort(effort) : undefined;
 
   if (explicitModel && !explicitProvider) {
     const preset = findPreset(config, explicitModel);
@@ -40,6 +65,7 @@ function resolveRoute(config, { provider, model } = {}) {
         provider: clean(preset.provider) || DEFAULT_PROVIDER,
         model: clean(preset.model) || DEFAULT_MODEL,
         preset,
+        effort: explicitEffort !== undefined ? explicitEffort : undefined,
       };
     }
   }
@@ -52,6 +78,7 @@ function resolveRoute(config, { provider, model } = {}) {
         provider: clean(preset.provider) || DEFAULT_PROVIDER,
         model: clean(preset.model) || DEFAULT_MODEL,
         preset,
+        effort: explicitEffort !== undefined ? explicitEffort : undefined,
       };
     }
   }
@@ -60,6 +87,7 @@ function resolveRoute(config, { provider, model } = {}) {
     provider: explicitProvider || DEFAULT_PROVIDER,
     model: explicitModel || DEFAULT_MODEL,
     preset: null,
+    effort: explicitEffort !== undefined ? explicitEffort : undefined,
   };
 }
 
@@ -82,6 +110,8 @@ function routeForStatusline(route) {
   if (preset.displayEffort) out.displayEffort = preset.displayEffort;
   if (preset.modelDisplay) out.modelDisplay = preset.modelDisplay;
   if (preset.fast === true || preset.fast === false) out.fast = preset.fast;
+  // Route-level explicit effort overrides preset
+  if (route.effort) out.effort = route.effort;
   return out;
 }
 
@@ -92,16 +122,42 @@ export async function createMixdogSessionRuntime({
   toolMode = 'full',
 } = {}) {
   process.env.MIXDOG_QUIET_SESSION_LOG ??= '1';
+  ensureStandaloneEnvironment({
+    rootDir: STANDALONE_ROOT,
+    dataDir: process.env.MIXDOG_DATA_DIR || join(process.env.USERPROFILE || process.env.HOME || process.cwd(), '.mixdog', 'data'),
+  });
 
   const cfgMod = await import(`${RUNTIME}/config.mjs`);
   const reg = await import(`${RUNTIME}/providers/registry.mjs`);
   const mgr = await import(`${RUNTIME}/session/manager.mjs`);
+  const internalTools = await import(`${RUNTIME}/internal-tools.mjs`);
   const statusRoutes = await import(STATUSLINE_SESSION_ROUTES).catch(() => null);
 
-  const config = cfgMod.loadConfig();
+  let config = cfgMod.loadConfig();
   let route = resolveRoute(config, { provider, model });
   let mode = normalizeToolMode(toolMode);
   let session = null;
+
+  const bridge = createStandaloneBridge({
+    cfgMod,
+    reg,
+    mgr,
+    dataDir: cfgMod.getPluginData(),
+    cwd,
+  });
+  const standaloneTools = [
+    ...bridge.tools,
+    PROVIDER_STATUS_TOOL,
+  ];
+  internalTools.setInternalToolsProvider({
+    tools: standaloneTools,
+    executor: async (name, args) => {
+      if (name === 'bridge') return await bridge.execute(args);
+      if (name === 'provider_status') return renderProviderStatus(cfgMod.loadConfig());
+      throw new Error(`unknown standalone internal tool: ${name}`);
+    },
+  });
+  internalTools.markBootReady?.();
 
   async function createCurrentSession() {
     const providers = ensureProviderEnabled(config, route.provider);
@@ -114,6 +170,7 @@ export async function createMixdogSessionRuntime({
       provider: route.provider,
       model: route.model,
       preset: route.preset || undefined,
+      effort: route.effort || route.preset?.effort || undefined,
       tools: toolSpecForMode(mode),
       owner: 'cli',
       lane: 'cli',
@@ -139,18 +196,56 @@ export async function createMixdogSessionRuntime({
     get model() {
       return route.model;
     },
+    get effort() {
+      return route.effort || null;
+    },
     get toolMode() {
       return mode;
     },
     get session() {
       return session;
     },
+    listProviders() {
+      return renderProviderStatus(cfgMod.loadConfig());
+    },
+    async getProviderSetup() {
+      return await providerSetup(cfgMod.loadConfig());
+    },
+    async authenticateProvider(providerId, secret) {
+      const result = String(secret || '').trim()
+        ? saveProviderApiKey(cfgMod, providerId, secret)
+        : await loginOAuthProvider(cfgMod, providerId);
+      config = cfgMod.loadConfig();
+      return result;
+    },
+    async loginOAuthProvider(providerId) {
+      const result = await loginOAuthProvider(cfgMod, providerId);
+      config = cfgMod.loadConfig();
+      return result;
+    },
+    saveProviderApiKey(providerId, secret) {
+      const result = saveProviderApiKey(cfgMod, providerId, secret);
+      config = cfgMod.loadConfig();
+      return result;
+    },
+    setLocalProvider(providerId, opts) {
+      const result = setLocalProvider(cfgMod, providerId, opts);
+      config = cfgMod.loadConfig();
+      return result;
+    },
+    forgetProviderAuth(providerId) {
+      const result = forgetProviderAuth(providerId);
+      config = cfgMod.loadConfig();
+      return result;
+    },
     listPresets() {
-      return cfgMod.listPresets(config);
+      return cfgMod.listPresets(cfgMod.loadConfig());
     },
     async listProviderModels() {
+      await reg.initProviders(config.providers || {});
       const allProviders = reg.getAllProviders();
       const results = [];
+      const seen = new Set();
       for (const [name, provider] of allProviders) {
         if (typeof provider?.listModels !== 'function') continue;
         try {
@@ -158,6 +253,9 @@ export async function createMixdogSessionRuntime({
           if (Array.isArray(models)) {
             for (const m of models) {
               if (!m?.id) continue;
+              const key = `${name}:${m.id}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
               results.push({
                 id: m.id,
                 provider: name,
@@ -166,8 +264,9 @@ export async function createMixdogSessionRuntime({
               });
             }
           }
-        } catch (err) {
-          process.stderr.write(`[runtime] listModels failed for ${name}: ${err.message}\n`);
+        } catch {
+          // Ignore per-provider catalog failures so one bad credential or
+          // transient /models error does not hide other authenticated models.
         }
       }
       return results;
