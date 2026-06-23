@@ -1,0 +1,34 @@
+{
+  "name": "mixdog-cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Temporary standalone coding-agent CLI/TUI workspace for turning mixdog into a pi-based terminal app.",
+  "bin": {
+    "mixdog-cli": "./src/cli.mjs"
+  },
+  "scripts": {
+    "start": "node src/cli.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "build:tui": "node scripts/build-tui.mjs",
+    "sync": "node scripts/sync-runtime.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.105.0",
+    "@google/generative-ai": "^0.24.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "diff": "^9.0.0",
+    "ink": "^7.1.0",
+    "marked": "^14.1.4",
+    "openai": "^6.44.0",
+    "react": "^19.2.7",
+    "undici": "^8.5.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
+  }
+}

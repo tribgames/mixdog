@@ -1,0 +1,68 @@
+{
+  "roles": [
+    {
+      "name": "explorer",
+      "slot": "explore",
+      "systemFile": "rules/bridge/30-explorer.md",
+      "description": "Filesystem navigation agent invoked by the `explore` MCP tool",
+      "invokedBy": "explore",
+      "toolSchemaProfile": "filesystem-read",
+      "kind": "retrieval",
+      "permission": "read",
+      "stallCap": { "idleSeconds": 240, "toolRunningSeconds": 180 }
+    },
+    {
+      "name": "cycle1-agent",
+      "slot": "cycle1",
+      "systemFile": "rules/bridge/40-cycle1-agent.md",
+      "description": "Chunker/classifier invoked by memory-cycle runCycle1",
+      "invokedBy": "cycle1",
+      "maintKey": "memory",
+      "toolSchemaProfile": "llm-only",      "kind": "maintenance",
+      "permission": "read",
+      "stallCap": { "idleSeconds": 300, "toolRunningSeconds": 300 }
+    },
+    {
+      "name": "cycle2-agent",
+      "slot": "cycle2",
+      "systemFile": "rules/bridge/41-cycle2-agent.md",
+      "description": "Root re-scorer invoked by memory-cycle runCycle2",
+      "invokedBy": "cycle2",
+      "maintKey": "memory",
+      "toolSchemaProfile": "llm-only",      "kind": "maintenance",
+      "permission": "read",
+      "stallCap": { "idleSeconds": 300, "toolRunningSeconds": 300 }
+    },
+    {
+      "name": "cycle3-agent",
+      "slot": "cycle3",
+      "systemFile": "rules/bridge/42-cycle3-agent.md",
+      "description": "Core memory reviewer invoked by memory-cycle runCycle3",
+      "invokedBy": "cycle3",
+      "maintKey": "memory",
+      "toolSchemaProfile": "llm-only",      "kind": "maintenance",
+      "permission": "read",
+      "stallCap": { "idleSeconds": 300, "toolRunningSeconds": 300 }
+    },
+    {
+      "name": "scheduler-task",
+      "slot": "scheduler",
+      "systemFile": "agents/scheduler-task.md",
+      "description": "Scheduled-task executor invoked by scheduler tick",
+      "invokedBy": "scheduler",
+      "toolSchemaProfile": "unified",      "kind": "maintenance",
+      "permission": "read-write",
+      "stallCap": { "idleSeconds": 600, "toolRunningSeconds": 600 }
+    },
+    {
+      "name": "webhook-handler",
+      "slot": "webhook",
+      "systemFile": "agents/webhook-handler.md",
+      "description": "Webhook payload handler invoked by inbound webhook events",
+      "invokedBy": "webhook",
+      "toolSchemaProfile": "unified",      "kind": "maintenance",
+      "permission": "read-write",
+      "stallCap": { "idleSeconds": 600, "toolRunningSeconds": 600 }
+    }
+  ]
+}

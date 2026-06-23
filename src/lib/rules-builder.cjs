@@ -1,0 +1,241 @@
+'use strict';
+
+/**
+ * mixdog rules builder.
+ *
+ * Three surfaces:
+ *   - buildInjectionContent              — Lead (Claude Code main session)
+ *   - buildBridgeInjectionContent        — bridge session BP1 (true cross-role common)
+ *   - buildBridgeRoleSpecificContent     — bridge session BP3 (role-specific instructions)
+ *
+ * 4-BP cache layout (composeSystemPrompt):
+ *   BP1 = bridge BP1 content (this file's buildBridgeInjectionContent) — every role identical
+ *   BP2 = scoped role catalog (collect.mjs loadScopedRoleCatalog) — role family / self
+ *   BP3 = project context + role marker + permission + role-specific instructions
+ *   BP4 = task brief + memory recap (5m volatile)
+ *
+ * Source files (rules/):
+ *   - shared/01-tool.md              — universal tool policy (Lead + bridge BP1, identical full set)
+ *   - lead/00-tool-lead.md           — Lead-specific control-tower / delegation / ToolSearch guidance
+ *   - lead/01-04                     — Lead workflow / channels / team / general
+ *   - bridge/00-common.md            — bridge common behavior + universal worker contract (BP1)
+ *   - bridge/10..50-*.md             — per-hidden-role bodies (consumed by loadScopedRoleCatalog)
+ *
+ * Core memory snapshot and session recap are injected separately by
+ * hooks/session-start.cjs from the memory worker (pgdata) (Lead only).
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * Read a single section from mixdog-config.json (unified config).
+ *
+ * @param {string} dataDir  — DATA_DIR passed into build* functions
+ * @param {string} section  — top-level key ('memory' | 'search' | …)
+ * @returns {object}
+ */
+function readConfigSection(dataDir, section) {
+  try {
+    const unified = JSON.parse(fs.readFileSync(path.join(dataDir, 'mixdog-config.json'), 'utf8'));
+    if (unified && typeof unified === 'object') return unified[section] || {};
+  } catch {}
+  return {};
+}
+
+function readOptional(filePath) {
+  try { return fs.readFileSync(filePath, 'utf8').trim(); } catch { return ''; }
+}
+
+/**
+ * Recursively collect all `.md` files under `dir`. Returns absolute paths
+ * in stack-DFS order (callers sort before use). Missing/unreadable `dir`
+ * yields an empty array — matches the previous inline `try {} catch {}`
+ * behavior at every call site.
+ */
+function collectMarkdownFilesRecursive(dir) {
+  const collected = [];
+  try {
+    const stack = [dir];
+    while (stack.length) {
+      const current = stack.pop();
+      const entries = fs.readdirSync(current, { withFileTypes: true });
+      for (const entry of entries) {
+        const full = path.join(current, entry.name);
+        if (entry.isDirectory()) stack.push(full);
+        else if (entry.isFile() && entry.name.endsWith('.md')) collected.push(full);
+      }
+    }
+  } catch {}
+  return collected;
+}
+
+// Address-form rule. Reads only `user.title` — `user.name` is intentionally
+// not consumed; the user is addressed solely by the configured form.
+// Returns '' when title is empty so nothing is injected.
+function composeUserAddressBullet(memoryConfig) {
+  const userTitle = (memoryConfig.user && memoryConfig.user.title || '').trim();
+  if (!userTitle) return '';
+  return `- User address form: ${userTitle} (use this address form exactly as written; do not combine it with any other name or honorific)`;
+}
+
+/**
+ * Build the Lead injection content.
+ */
+function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
+  const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
+  const SHARED_DIR = path.join(RULES_DIR, 'shared');
+  const LEAD_DIR = path.join(RULES_DIR, 'lead');
+  const HISTORY_DIR = path.join(DATA_DIR, 'history');
+
+  const memoryConfig = readConfigSection(DATA_DIR, 'memory');
+  const parts = [];
+
+  // Language policy injects first — global default, applied to every Lead reply
+  // and to plugin-internal communication regardless of locale.
+  const language = readOptional(path.join(SHARED_DIR, '00-language.md'));
+  if (language) parts.push(language);
+
+  const general = readOptional(path.join(LEAD_DIR, '01-general.md'));
+  if (general) {
+    const addressBullet = composeUserAddressBullet(memoryConfig);
+    parts.push(addressBullet ? `${general}\n${addressBullet}` : general);
+  }
+
+  const tool = readOptional(path.join(SHARED_DIR, '01-tool.md'));
+  if (tool) parts.push(tool);
+
+  const toolLead = readOptional(path.join(LEAD_DIR, '00-tool-lead.md'));
+  if (toolLead) parts.push(toolLead);
+
+  const channels = readOptional(path.join(LEAD_DIR, '02-channels.md'));
+  if (channels) parts.push(channels);
+
+  const team = readOptional(path.join(LEAD_DIR, '03-team.md'));
+  if (team) parts.push(team);
+
+  const workflow = readOptional(path.join(LEAD_DIR, '04-workflow.md'));
+  if (workflow) parts.push(workflow);
+
+  const userWorkflowJsonPath = path.join(DATA_DIR, 'user-workflow.json');
+  let userWorkflow = { roles: [] };
+  try {
+    if (fs.existsSync(userWorkflowJsonPath)) {
+      userWorkflow = JSON.parse(fs.readFileSync(userWorkflowJsonPath, 'utf8'));
+    }
+  } catch {}
+  if (Array.isArray(userWorkflow.roles) && userWorkflow.roles.length > 0) {
+    const roleLines = ['# Roles', ''];
+    for (const role of userWorkflow.roles) {
+      roleLines.push(`- ${role.name}: ${role.preset}`);
+    }
+    parts.push(roleLines.join('\n'));
+  }
+
+  const userWorkflowMdPath = path.join(DATA_DIR, 'user-workflow.md');
+  const userWorkflowMd = readOptional(userWorkflowMdPath);
+  if (userWorkflowMd) {
+    const startsWithHeader = /^#\s+User Workflow/i.test(userWorkflowMd);
+    parts.push(startsWithHeader ? userWorkflowMd : `# User Workflow\n\n${userWorkflowMd}`);
+  }
+
+  const userProfile = readOptional(path.join(HISTORY_DIR, 'user.md'));
+  if (userProfile) parts.push(`# User Profile\n\n${userProfile}`);
+
+  const botPersona = readOptional(path.join(HISTORY_DIR, 'bot.md'));
+  if (botPersona) parts.push(`# Bot Persona\n\n${botPersona}`);
+
+  return parts.join('\n\n');
+}
+
+/**
+ * BP1 — true cross-role common. Identical for every bridge role; the
+ * role-specific stuff (per-event webhook instructions, per-task schedule
+ * instructions, hidden role tool detail) lives in BP3 instead.
+ *
+ * @param {object} opts
+ * @param {string} opts.PLUGIN_ROOT
+ * @param {string} opts.DATA_DIR
+ * @returns {string}
+ */
+function buildBridgeInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
+  const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
+  const SHARED_DIR = path.join(RULES_DIR, 'shared');
+  const BRIDGE_DIR = path.join(RULES_DIR, 'bridge');
+  const parts = [];
+
+  // 0. Language policy — global default, language-neutral plugin behavior.
+  const language = readOptional(path.join(SHARED_DIR, '00-language.md'));
+  if (language) parts.push(language);
+
+  // 1. Universal tool policy — same full set Lead receives.
+  const tool = readOptional(path.join(SHARED_DIR, '01-tool.md'));
+  if (tool) parts.push(tool);
+
+  // 2. Bridge common behavior.
+  const common = readOptional(path.join(BRIDGE_DIR, '00-common.md'));
+  if (common) parts.push(common);
+
+  // 3. User-defined work-role overrides (DATA_DIR/roles/*.md). Pool-wide.
+  const rolesDir = path.join(DATA_DIR, 'roles');
+  const collected = collectMarkdownFilesRecursive(rolesDir);
+  if (collected.length > 0) {
+    collected.sort();
+    const blocks = collected.map(f => readOptional(f)).filter(Boolean);
+    if (blocks.length > 0) {
+      parts.push(['# Agent roles', '', blocks.join('\n\n')].join('\n'));
+    }
+  }
+
+  // userTitle / address form is intentionally NOT injected here — bridge
+  // workers produce tool I/O, not user-facing replies, so the persona signal
+  // only biases response language/tone without serving a purpose. Lead BP1
+  // (buildInjectionContent above) still carries it.
+
+  return parts.join('\n\n');
+}
+
+/**
+ * BP3 role-specific instructions. Only the calling role's own task / tool
+ * detail body emits — webhook-handler gets webhooks/<all-events>/, scheduler
+ * gets schedules/<all-tasks>/, hidden retrieval roles get their own tool
+ * detail. Other roles return ''.
+ *
+ * NOTE: webhook-event narrowing (one event per call) requires the inbound
+ * payload's event id at compose time; not implemented yet, so all 4 webhook
+ * instructions still bake into webhook-handler BP3 for now.
+ *
+ * @param {object} opts
+ * @param {string} opts.DATA_DIR
+ * @param {string|null} opts.currentRole
+ * @returns {string}
+ */
+function buildBridgeRoleSpecificContent({ DATA_DIR, currentRole }) {
+  if (!currentRole) return '';
+  const parts = [];
+
+  // webhook-handler / scheduler-task — pull their respective instruction trees.
+  const subdirForRole =
+    currentRole === 'webhook-handler' ? 'webhooks'
+    : currentRole === 'scheduler-task' ? 'schedules'
+    : null;
+  if (subdirForRole) {
+    const dir = path.join(DATA_DIR, subdirForRole);
+    const collected = collectMarkdownFilesRecursive(dir);
+    if (collected.length > 0) {
+      collected.sort();
+      const blocks = collected.map(f => readOptional(f)).filter(Boolean);
+      if (blocks.length > 0) {
+        parts.push([`# Agent ${subdirForRole}`, '', blocks.join('\n\n')].join('\n'));
+      }
+    }
+  }
+
+  return parts.join('\n\n');
+}
+
+module.exports = {
+  buildInjectionContent,
+  buildBridgeInjectionContent,
+  buildBridgeRoleSpecificContent,
+};

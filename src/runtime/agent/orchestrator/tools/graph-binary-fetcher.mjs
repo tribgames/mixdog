@@ -1,0 +1,154 @@
+// graph-binary-fetcher.mjs — fetches the prebuilt mixdog-graph native binary
+// from the GitHub release manifest. The code graph has NO JS parse fallback,
+// so the binary is required; ensureGraphBinary downloads + sha256-verifies it
+// on first use and caches it under <dataDir>/graph-bin/. Mirrors the runtime
+// fetcher pattern (memory/lib/runtime-fetcher.mjs) but for a single binary —
+// no tar extraction.
+//
+// Public API:
+//   ensureGraphBinary(dataDir) -> absolute path to the verified binary.
+//     Throws if no asset matches the platform, or download/verify fails.
+//   findCachedGraphBinary(dataDir) -> path | null (sync, no network).
+
+import { createHash } from 'node:crypto';
+import {
+  chmodSync, createWriteStream, existsSync, mkdirSync,
+  readFileSync, readdirSync, renameSync, rmSync,
+} from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { pipeline } from 'node:stream/promises';
+
+// Bundled fallback manifest shipped with the plugin. CI rewrites this on each
+// release with the per-platform asset URLs + sha256.
+const BUNDLED_MANIFEST_PATH = fileURLToPath(new URL('./graph-manifest.json', import.meta.url));
+
+// GitHub raw fallback — only consulted when neither cached nor bundled exists.
+const MANIFEST_URL = 'https://raw.githubusercontent.com/trib-plugin/mixdog/main/src/agent/orchestrator/tools/graph-manifest.json';
+
+function binSuffix() {
+  return process.platform === 'win32' ? '.exe' : '';
+}
+
+function platformKey() {
+  const os = process.platform === 'win32' ? 'win32' : process.platform;
+  return `${os}-${process.arch}`;
+}
+
+function graphBinDir(dataDir) {
+  return join(dataDir, 'graph-bin');
+}
+
+async function loadManifest(dataDir) {
+  const cached = join(graphBinDir(dataDir), 'manifest.json');
+  if (existsSync(cached)) {
+    try { return JSON.parse(readFileSync(cached, 'utf8')); } catch { /* fall through */ }
+  }
+  if (existsSync(BUNDLED_MANIFEST_PATH)) {
+    return JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'));
+  }
+  const res = await fetch(MANIFEST_URL, { signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) throw new Error(`[graph-fetcher] manifest fetch failed: ${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+async function sha256File(filePath) {
+  return createHash('sha256').update(await readFile(filePath)).digest('hex');
+}
+
+async function downloadWithRetry(url, destPath) {
+  // 4 attempts total (1 + 3 retries); backoff 1s/3s/9s. 4xx is terminal.
+  const delays = [1000, 3000, 9000];
+  let lastErr;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(180_000) });
+      if (res.status >= 400 && res.status < 500) {
+        throw new Error(`[graph-fetcher] asset HTTP ${res.status} (terminal) — ${url}`);
+      }
+      if (!res.ok) throw new Error(`[graph-fetcher] asset HTTP ${res.status} — ${url}`);
+      await pipeline(res.body, createWriteStream(destPath));
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (String(err?.message || '').includes('(terminal)')) throw err;
+      if (attempt < 3) {
+        process.stderr.write(`[graph-fetcher] download attempt ${attempt + 1} failed (${err?.message}), retrying in ${delays[attempt]}ms…\n`);
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+// Remove stale binaries + tmp files, keeping the active one.
+function gcGraphBin(dir, keepFile) {
+  try {
+    for (const name of readdirSync(dir)) {
+      if (name === 'manifest.json' || name === keepFile) continue;
+      if (name.startsWith('mixdog-graph')) {
+        try { rmSync(join(dir, name), { force: true }); } catch { /* best-effort */ }
+      }
+    }
+  } catch { /* dir may not exist yet */ }
+}
+
+// Sync, network-free lookup of an already-cached binary. Used by the sync
+// _graphBinaryPath() resolver before falling back to an async fetch.
+export function findCachedGraphBinary(dataDir) {
+  try {
+    const dir = graphBinDir(dataDir);
+    const hit = readdirSync(dir).find(
+      (n) => n.startsWith('mixdog-graph') && !n.endsWith('.json') && !n.includes('.tmp-'),
+    );
+    return hit ? join(dir, hit) : null;
+  } catch {
+    return null;
+  }
+}
+
+let _inflight = null;
+
+export function ensureGraphBinary(dataDir) {
+  // Single-flight: concurrent callers (prewarm + cache-miss) share one download.
+  if (_inflight) return _inflight;
+  _inflight = (async () => {
+    const manifest = await loadManifest(dataDir);
+    const pkey = platformKey();
+    const asset = manifest.assets?.[pkey];
+    if (!asset || !asset.url || !asset.sha256) {
+      // Unsupported platform/arch (e.g. win32-arm64): the manifest has no
+      // downloadable asset for this {os}-{arch}. The code graph has NO JS
+      // parsing fallback, so this is terminal — surface a single clear,
+      // actionable message instead of a cryptic crash downstream.
+      const supported = Object.keys(manifest.assets || {}).join(', ') || '(none)';
+      throw new Error(
+        `[graph-fetcher] no prebuilt mixdog-graph binary for platform ${pkey} `
+        + `(unsupported platform/arch — there is no JS parsing fallback). `
+        + `Supported platforms: ${supported}. `
+        + `Build it locally: cargo build --release in native/mixdog-graph.`,
+      );
+    }
+    const version = String(manifest.version || '0');
+    const dir = graphBinDir(dataDir);
+    mkdirSync(dir, { recursive: true });
+    const fileName = `mixdog-graph-${version}${binSuffix()}`;
+    const destPath = join(dir, fileName);
+    if (existsSync(destPath)) {
+      try { if (await sha256File(destPath) === asset.sha256) return destPath; } catch { /* re-download */ }
+    }
+    const tmpPath = `${destPath}.tmp-${process.pid}-${Date.now()}`;
+    await downloadWithRetry(asset.url, tmpPath);
+    const actual = await sha256File(tmpPath);
+    if (actual !== asset.sha256) {
+      try { rmSync(tmpPath, { force: true }); } catch { /* best-effort */ }
+      throw new Error(`[graph-fetcher] sha256 mismatch for ${pkey}: expected ${asset.sha256}, got ${actual}`);
+    }
+    renameSync(tmpPath, destPath);
+    if (process.platform !== 'win32') { try { chmodSync(destPath, 0o755); } catch { /* best-effort */ } }
+    gcGraphBin(dir, fileName);
+    return destPath;
+  })().finally(() => { _inflight = null; });
+  return _inflight;
+}

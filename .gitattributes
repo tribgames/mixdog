@@ -1,0 +1,15 @@
+# Normalize line endings: LF in repo, auto on checkout
+* text=auto
+
+# Always LF for shell scripts
+*.sh text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.js text eol=lf
+
+# Binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.node binary

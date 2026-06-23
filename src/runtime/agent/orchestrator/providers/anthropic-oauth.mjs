@@ -1,0 +1,2013 @@
+/**
+ * Anthropic OAuth provider — uses Claude Code's OAuth credentials
+ * (~/.claude/.credentials.json) for Claude Max subscription access.
+ *
+ * Raw HTTP + SSE streaming, reuses message/tool conversion patterns
+ * from anthropic.mjs. Bridge-trace instrumented.
+ */
+import { readFileSync, existsSync, statSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+import { createServer } from 'http';
+import { randomBytes, createHash } from 'crypto';
+import {
+    traceBridgeFetch,
+    traceBridgeSse,
+    traceBridgeUsage,
+} from '../bridge-trace.mjs';
+import { createAbortController } from '../../../shared/abort-controller.mjs';
+import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+import { enrichModels } from './model-catalog.mjs';
+import { makeModelCache } from './model-cache.mjs';
+import { sanitizeToolPairs, sanitizeAnthropicContentPairs } from '../session/context-utils.mjs';
+import {
+    PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
+    PROVIDER_RETRY_BACKOFF_MS,
+    PROVIDER_RETRY_MAX_ATTEMPTS,
+    PROVIDER_SSE_IDLE_TIMEOUT_MS,
+    PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
+    createPassthroughSignal,
+} from '../stall-policy.mjs';
+import {
+    classifyError,
+    retryAfterMsFromError,
+    withRetry,
+} from './retry-classifier.mjs';
+import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
+import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
+
+// --- Model catalog cache helpers ---
+// Disk-backed cache so repeated process starts (cron, tool calls) don't
+// hammer /v1/models. 24h TTL is the same cadence Claude Code itself uses
+// for its internal model discovery.
+const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
+// SSE progress emits (per-request "Response …" and "Done:" lines). Off by default.
+const SSE_VERBOSE = process.env.MIXDOG_SSE_VERBOSE === '1';
+
+const _modelCache = makeModelCache({
+    fileName: 'anthropic-oauth-models.json',
+    ttlMs: MODEL_CACHE_TTL_MS,
+    onSave: (m) => { _inMemoryCatalog = Array.isArray(m) ? m.slice() : null; },
+});
+
+// Async wrappers so callers can keep awaiting; the shared cache CRUD is sync.
+async function _loadModelCache() {
+    return _modelCache.loadSync();
+}
+
+async function _saveModelCache(models) {
+    _modelCache.save(models);
+}
+
+// In-memory mirror of the disk catalog — populated on first listModels() and
+// refreshed after every _saveModelCache. Used by _catalogHas and _displayModel
+// so hot paths don't hit disk on every response.
+let _inMemoryCatalog = null;
+let _modelRefreshInFlight = null;
+let _oauthRefreshInFlight = null;
+// No in-memory credential cache: the canonical credentials file is the
+// single source of truth. Cross-process refresh_token rotation by host
+// Claude Code (or another concurrent reader) would invalidate any cached
+// copy here and produce invalid_grant on the next refresh. Reading from
+// disk on demand is cheap (one stat + one small JSON parse) and removes
+// the cache-vs-disk skew entirely.
+
+
+function _catalogHas(id) {
+    if (!id || !Array.isArray(_inMemoryCatalog)) return false;
+    return _inMemoryCatalog.some(m => m.id === id);
+}
+
+// Display-name normalization for trace / usage. Turns dated or version-alias
+// ids into the version alias form: claude-opus-4-7 → claude-opus-4.7,
+// claude-haiku-4-5-20251001 → claude-haiku-4.5. Falls back to the raw id.
+function _displayModel(id) {
+    if (!id || typeof id !== 'string') return id;
+    const m = id.match(/^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d{8})?$/i);
+    if (!m) return id;
+    return `claude-${m[1].toLowerCase()}-${m[2]}.${m[3]}`;
+}
+
+// Classify a model id into our common tier/family shape. Anthropic's catalog
+// mixes dated ids (claude-opus-4-5-20251101), versioned aliases
+// (claude-opus-4-6), and the raw family tokens resolved via env vars.
+function _normalizeAnthropicModel(raw) {
+    const id = raw?.id || raw?.name;
+    if (!id) return null;
+    const familyMatch = id.match(/^claude-(opus|sonnet|haiku)/i);
+    const family = familyMatch ? familyMatch[1].toLowerCase() : 'other';
+    // Dated: trailing -YYYYMMDD (8 digits).
+    const dated = /-\d{8}$/.test(id);
+    // Versioned alias: claude-<family>-<major>-<minor>[-...] with no dated suffix.
+    const versioned = !dated && /-\d+-\d+/.test(id);
+    const tier = dated ? 'dated' : versioned ? 'version' : 'family';
+    const releaseDate = dated
+        ? id.match(/-(\d{4})(\d{2})(\d{2})$/)
+        : null;
+    return {
+        id,
+        display: raw?.display_name || _prettyName(id, family),
+        family,
+        provider: 'anthropic-oauth',
+        contextWindow: raw?.context_window || raw?.max_context_window || _defaultContextForModel(id, family),
+        tier,
+        latest: false, // assigned in a second pass once full list is known
+        releaseDate: releaseDate ? `${releaseDate[1]}-${releaseDate[2]}-${releaseDate[3]}` : null,
+    };
+}
+
+function _prettyName(id, family) {
+    const v = id.match(/-(\d+)-(\d+)/);
+    const base = family[0].toUpperCase() + family.slice(1);
+    return v ? `${base} ${v[1]}.${v[2]}` : base;
+}
+
+function _defaultContextForModel(id, family) {
+    if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/i.test(String(id || ''))) return 1000000;
+    if (family === 'opus') return 200000;
+    if (family === 'sonnet') return 200000;
+    if (family === 'haiku') return 200000;
+    return 200000;
+}
+
+// Mark the highest-numbered version per family as `latest: true`. Uses a simple
+// lexicographic comparison on the numeric parts embedded in the id.
+function _markLatestByFamily(models) {
+    const byFamily = new Map();
+    for (const m of models) {
+        if (m.tier !== 'version') continue;
+        const cur = byFamily.get(m.family);
+        if (!cur || _compareVersion(m.id, cur.id) > 0) {
+            byFamily.set(m.family, m);
+        }
+    }
+    for (const m of byFamily.values()) m.latest = true;
+}
+
+function _compareVersion(a, b) {
+    const na = (a.match(/-(\d+)-(\d+)/) || []).slice(1).map(Number);
+    const nb = (b.match(/-(\d+)-(\d+)/) || []).slice(1).map(Number);
+    for (let i = 0; i < Math.max(na.length, nb.length); i++) {
+        if ((na[i] || 0) !== (nb[i] || 0)) return (na[i] || 0) - (nb[i] || 0);
+    }
+    return a.localeCompare(b);
+}
+
+// Newest HIGH-TIER chat model by version, read from the SYNC in-memory catalog
+// mirror. Symmetric with resolveLatestGrokModel / resolveLatestCodexModel.
+// Anthropic ships three families: opus / sonnet / haiku. "Latest" is the
+// highest version across opus + sonnet only — haiku is the cheap tier and is
+// never the flagship default. Returns null until listModels() populates the
+// mirror; callers must warm the catalog (ensureLatestAnthropicModel) when null.
+export function resolveLatestAnthropicModel() {
+    if (!Array.isArray(_inMemoryCatalog)) return null;
+    let best = null;
+    for (const m of _inMemoryCatalog) {
+        if (!m?.id || (m.family !== 'opus' && m.family !== 'sonnet')) continue;
+        if (!best || _compareVersion(m.id, best.id) > 0) best = m;
+    }
+    return best?.id || null;
+}
+
+export async function ensureLatestAnthropicModel(provider) {
+    let m = resolveLatestAnthropicModel();
+    if (m) return m;
+    await provider._refreshModelCache();
+    m = resolveLatestAnthropicModel();
+    if (m) return m;
+    throw new Error('[anthropic-oauth] model catalog unavailable after warmup — cannot resolve default model');
+}
+
+const API_URL = 'https://api.anthropic.com/v1/messages';
+// SSRF guard for the OAuth token endpoint override. Env-supplied URLs must be
+// https with a valid http(s) URL shape; reject file:/data:/ftp:/etc. and any
+// http override so a hostile env cannot redirect refresh-token requests.
+function assertSafeTokenURL(rawURL) {
+    let parsed;
+    try {
+        parsed = new URL(String(rawURL));
+    } catch {
+        throw new Error(`[anthropic-oauth] invalid ANTHROPIC_OAUTH_TOKEN_URL: ${rawURL}`);
+    }
+    if (parsed.protocol.toLowerCase() !== 'https:') {
+        throw new Error(`[anthropic-oauth] ANTHROPIC_OAUTH_TOKEN_URL must use https (got ${parsed.protocol})`);
+    }
+    return rawURL;
+}
+const TOKEN_URL = assertSafeTokenURL(process.env.ANTHROPIC_OAUTH_TOKEN_URL || 'https://console.anthropic.com/v1/oauth/token');
+const ANTHROPIC_VERSION = '2023-06-01';
+const DEFAULT_CREDENTIALS_PATH = join(homedir(), '.claude', '.credentials.json');
+const CLAUDE_CODE_CLIENT_ID = process.env.ANTHROPIC_OAUTH_CLIENT_ID || '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
+const CLAUDE_AI_AUTHORIZE_URL = 'https://claude.com/cai/oauth/authorize';
+const ALL_OAUTH_SCOPES = [
+    'org:create_api_key',
+    'user:profile',
+    'user:inference',
+    'user:sessions:claude_code',
+    'user:mcp_servers',
+    'user:file_upload',
+];
+const OAUTH_LOGIN_SCOPE = ALL_OAUTH_SCOPES.join(' ');
+const OAUTH_CALLBACK_HOST = 'localhost';
+const OAUTH_CALLBACK_PORT = 54545;
+const OAUTH_CALLBACK_PATH = '/callback';
+const OAUTH_REDIRECT_URI = `http://${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}${OAUTH_CALLBACK_PATH}`;
+const OAUTH_LOGIN_TIMEOUT_MS = 5 * 60_000;
+const OAUTH_TOKEN_TIMEOUT_MS = 30_000;
+
+// Anthropic OAuth contract for first-party Claude Code clients.
+// Opus/Sonnet requests are gated on a specific system-prompt prefix.
+// Our plugin ONLY runs inside Claude Code (marketplace-distributed),
+// so declaring ourselves as Claude Code is literally accurate — not
+// impersonation. Haiku is not gated and ignores this prefix.
+const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude.";
+const OAUTH_BETA_HEADERS = 'oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,extended-cache-ttl-2025-04-11';
+const DEFAULT_CLI_VERSION = '2.1.77';
+
+function resolveCliVersion() {
+    // Claude Code sets CLAUDE_CODE_VERSION in the plugin subprocess env.
+    // Fallback exists so unit tests and older Claude Code versions still work.
+    return process.env.CLAUDE_CODE_VERSION
+        || process.env.CLAUDE_CODE_EXECPATH_VERSION
+        || DEFAULT_CLI_VERSION;
+}
+
+function requiresSystemPrefix(model) {
+    // Opus / Sonnet require the Claude Code system prefix when authenticated
+    // via OAuth. Haiku does not.
+    return /^claude-(opus|sonnet)/i.test(String(model || ''));
+}
+
+// OAuth rate-limit pool routing is gated by the server inspecting the first
+// system block. When it reads exactly "You are Claude Code, Anthropic's
+// official CLI for Claude." it routes into the Claude Code pool; any other
+// content (even the prefix concatenated with extra text in the same block)
+// falls into the standard pool and Opus/Sonnet return 429. Splitting into
+// two blocks — [prefix, rest] — keeps both routing and user instructions.
+function buildSystemBlocks(systemText, model, cacheControl, maxCacheBlocks = 2) {
+    // systemText is an array of strings — each element becomes its own Anthropic
+    // content block with its own cache_control breakpoint (BP1 + BP2).
+    // Invariant: callers must pass an array; scalar strings are not accepted.
+    const texts = Array.isArray(systemText)
+        ? systemText.map(s => typeof s === 'string' ? s.trim() : '').filter(Boolean)
+        : [];
+    const gated = requiresSystemPrefix(model);
+
+    const blocks = [];
+    if (gated) {
+        blocks.push({ type: 'text', text: CLAUDE_CODE_SYSTEM_PREFIX });
+    }
+    for (let i = 0; i < texts.length; i++) {
+        let body = texts[i];
+        // Strip a duplicated Claude Code prefix from the first block if present.
+        if (gated && i === 0 && body.startsWith(CLAUDE_CODE_SYSTEM_PREFIX)) {
+            body = body.slice(CLAUDE_CODE_SYSTEM_PREFIX.length).trim();
+            if (!body) continue;
+        }
+        blocks.push({ type: 'text', text: body });
+    }
+    if (cacheControl) {
+        let remaining = Math.max(0, Math.min(2, Number(maxCacheBlocks) || 0));
+        for (let i = blocks.length - 1; i >= 0 && remaining > 0; i--) {
+            if (blocks[i]?.text === CLAUDE_CODE_SYSTEM_PREFIX) continue;
+            blocks[i] = { ...blocks[i], cache_control: cacheControl };
+            remaining -= 1;
+        }
+    }
+    return blocks;
+}
+
+// Per-model max_tokens when the model id is explicitly listed. New models
+// (e.g., Sonnet 4.7) won't match a specific entry and fall through to the
+// family-based heuristic below. Conservative defaults — model may support
+// more but we'd rather stay within safe bounds.
+const MAX_TOKENS = {
+    'claude-opus-4-8': 65536,
+    'claude-opus-4-7': 65536,
+    'claude-opus-4-6': 65536,
+    'claude-sonnet-4-6': 16384,
+    'claude-haiku-4-5-20251001': 8192,
+};
+
+function resolveMaxTokens(model) {
+    if (MAX_TOKENS[model]) return MAX_TOKENS[model];
+    const id = String(model || '').toLowerCase();
+    if (id.includes('opus')) return 65536;
+    if (id.includes('sonnet')) return 16384;
+    if (id.includes('haiku')) return 8192;
+    return 8192;
+}
+
+const EFFORT_BUDGET = {
+    low: 1024,
+    medium: 4096,
+    high: 16384,
+    xhigh: 32768,
+    max: 32768,
+};
+
+// Tracks which unknown effort labels we've already logged so a repeated
+// session-level misconfig doesn't flood stderr with the same warning.
+const _LOGGED_UNKNOWN_EFFORT = new Set();
+
+// Layered cache TTLs — stable layers get 1h, volatile layers get 5m.
+// Anthropic requires 1h entries to appear before 5m entries in the request.
+const CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };   // tools, system
+const CACHE_TTL_VOLATILE = { type: 'ephemeral' };             // messages (5m default)
+
+// --- Credential helpers ---
+
+function _pushUnique(list, value) {
+    if (!value || typeof value !== 'string') return;
+    if (!list.includes(value)) list.push(value);
+}
+
+function _claudeCredentialsFromPluginRoot(root) {
+    const clean = String(root || '').replace(/\\/g, '/');
+    const marker = '/.claude/plugins/';
+    const idx = clean.indexOf(marker);
+    if (idx < 0) return null;
+    return `${clean.slice(0, idx)}/.claude/.credentials.json`;
+}
+
+function credentialCandidates() {
+    const paths = [];
+    _pushUnique(paths, process.env.CLAUDE_CODE_CREDENTIALS_PATH);
+    _pushUnique(paths, process.env.CLAUDE_CREDENTIALS_PATH);
+    _pushUnique(paths, _claudeCredentialsFromPluginRoot(process.env.CLAUDE_PLUGIN_ROOT));
+    _pushUnique(paths, DEFAULT_CREDENTIALS_PATH);
+    return paths;
+}
+
+// Fallback expiry from the access_token's JWT `exp` claim (epoch ms) when the
+// credentials file carries no explicit expiresAt — without it expiresAt stays 0,
+// which ensureAuth reads as "never expires", disabling proactive refresh. Claude
+// OAuth tokens are opaque so this returns 0 and the file's expiresAt governs; kept
+// for parity with the other OAuth providers. JWT `exp` is epoch SECONDS (RFC 7519).
+function _expiryFromAccessToken(token) {
+    try {
+        const parts = String(token || '').split('.');
+        if (parts.length !== 3) return 0;
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+        const exp = Number(payload?.exp);
+        return Number.isFinite(exp) && exp > 0 ? exp * 1000 : 0;
+    } catch { return 0; }
+}
+
+function _loadCredentialsFile(path) {
+    if (!existsSync(path)) return null;
+    try {
+        const stat = statSync(path);
+        const raw = JSON.parse(readFileSync(path, 'utf-8'));
+        const oauth = raw?.claudeAiOauth;
+        if (!oauth?.accessToken) return null;
+        return {
+            path,
+            mtimeMs: stat.mtimeMs,
+            accessToken: oauth.accessToken,
+            refreshToken: oauth.refreshToken || null,
+            expiresAt: _normalizeExpiresAt(oauth.expiresAt ?? oauth.expires_at) || _expiryFromAccessToken(oauth.accessToken),
+            scopes: Array.isArray(oauth.scopes) ? oauth.scopes : [],
+            subscriptionType: oauth.subscriptionType || null,
+        };
+    } catch {
+        return null;
+    }
+}
+
+// Cross-process safe write-back. Lockfile (O_EXCL) prevents two refreshers
+// from clobbering each other; atomic rename guarantees readers see either
+// the old or new file, never a half-written one. Used so refresh_token
+// rotation propagates to host Claude Code (and any other reader of the
+// same credentials file) instead of leaving them stuck on the previous
+// refresh_token. Mirrors openai-oauth.mjs:saveTokens.
+function _saveCredentialsFile(path, raw) {
+    // No `secret: true`: this is the HOST-owned credentials file (~/.claude/
+    // .credentials.json) — mixdog only writes back the rotated refresh_token,
+    // it must not re-permission a file Claude Code owns. (Forcing an owner-
+    // only ACL here also used to clamp the parent ~/.claude and wipe the
+    // whole tree's DACLs — see atomic-file.mjs secret-write note.)
+    writeJsonAtomicSync(path, raw, { lock: true, fsyncDir: true, mode: 0o600 });
+}
+
+// Cheap stat-only probe so ensureAuth can detect host-rotated credentials
+// (claude login, logout/relogin) without paying a full JSON read every call.
+function _credentialsMaxMtime() {
+    let max = 0;
+    for (const p of credentialCandidates()) {
+        try {
+            const s = statSync(p);
+            if (s.mtimeMs > max) max = s.mtimeMs;
+        } catch { /* not present — skip */ }
+    }
+    return max;
+}
+
+function loadCredentials() {
+    const loaded = credentialCandidates()
+        .map(_loadCredentialsFile)
+        .filter(Boolean);
+    if (!loaded.length) return null;
+    loaded.sort((a, b) => (Number(b.expiresAt) || 0) - (Number(a.expiresAt) || 0));
+    return loaded[0];
+}
+
+// Public predicate used by config.buildDefaultConfig — provider is enabled
+// when on-disk credentials exist AND carry the inference scope. Single
+// truth: same loader the runtime uses, no parallel hard-coded path probe.
+export function hasAnthropicOAuthCredentials() {
+    const creds = loadCredentials();
+    if (!creds?.accessToken) return false;
+    return Array.isArray(creds.scopes) && creds.scopes.includes('user:inference');
+}
+
+function _normalizeExpiresAt(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0;
+    return value < 1e12 ? value * 1000 : value;
+}
+
+function _scrubTokens(text) {
+    return String(text || '')
+        .replace(/Bearer [A-Za-z0-9._\-]+/g, 'Bearer [REDACTED]')
+        .replace(/sk-ant-[A-Za-z0-9._\-]+/g, '[REDACTED]')
+        .replace(/"access[Tt]oken"\s*:\s*"[^"]+"/g, '"accessToken":"[REDACTED]"')
+        .replace(/"refresh[Tt]oken"\s*:\s*"[^"]+"/g, '"refreshToken":"[REDACTED]"')
+        .replace(/"access_token"\s*:\s*"[^"]+"/g, '"access_token":"[REDACTED]"')
+        .replace(/"refresh_token"\s*:\s*"[^"]+"/g, '"refresh_token":"[REDACTED]"');
+}
+
+async function refreshOAuthCredentials(creds) {
+    if (!creds?.refreshToken) {
+        throw new Error('Anthropic OAuth refresh token not available. Run "claude login" to re-authenticate.');
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+        const res = await fetch(TOKEN_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'anthropic-dangerous-direct-browser-access': 'true',
+                'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
+            },
+            body: JSON.stringify({
+                grant_type: 'refresh_token',
+                refresh_token: creds.refreshToken,
+                client_id: CLAUDE_CODE_CLIENT_ID,
+            }),
+            // Never follow a redirect on a secret-bearing request: a token
+            // endpoint that 307/308-redirects would replay the refresh_token to
+            // the redirect target. Fail loud instead.
+            redirect: 'error',
+            signal: controller.signal,
+            dispatcher: getLlmDispatcher(),
+        });
+
+        const text = await res.text();
+        let json = null;
+        try { json = text ? JSON.parse(text) : null; } catch { /* handled below */ }
+        if (!res.ok) {
+            const isInvalidGrant = text.includes('invalid_grant') || json?.error === 'invalid_grant';
+            throw Object.assign(new Error(`token refresh ${res.status}: ${_scrubTokens(text).slice(0, 200)}`), { isInvalidGrant });
+        }
+
+        const accessToken = json?.access_token || json?.accessToken;
+        if (!accessToken) throw new Error('token refresh returned no access token');
+        const expiresAt = _normalizeExpiresAt(json?.expires_at ?? json?.expiresAt)
+            || (typeof json?.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0);
+        const refreshed = {
+            path: creds.path,
+            accessToken,
+            refreshToken: json?.refresh_token || json?.refreshToken || creds.refreshToken,
+            expiresAt,
+            scopes: Array.isArray(json?.scope) ? json.scope : creds.scopes,
+            subscriptionType: creds.subscriptionType,
+        };
+        // Persist rotated tokens back so host Claude Code and any other
+        // reader of the same credentials file pick up the new refresh_token.
+        // Without this, host's next refresh invalidates our copy and we
+        // loop on invalid_grant.
+        if (creds.path && existsSync(creds.path)) {
+            try {
+                const raw = JSON.parse(readFileSync(creds.path, 'utf-8'));
+                raw.claudeAiOauth = {
+                    ...(raw.claudeAiOauth || {}),
+                    accessToken: refreshed.accessToken,
+                    refreshToken: refreshed.refreshToken,
+                    expiresAt: refreshed.expiresAt,
+                    scopes: refreshed.scopes,
+                };
+                _saveCredentialsFile(creds.path, raw);
+            } catch (err) {
+                process.stderr.write(`[anthropic-oauth] credential write-back failed: ${_scrubTokens(err?.message || String(err)).slice(0, 200)}\n`);
+                throw new Error(`[oauth] credentials write-back failed: ${err?.message ?? String(err)}`);
+            }
+        }
+        return refreshed;
+    } catch (err) {
+        if (err?.name === 'AbortError') {
+            throw new Error('Anthropic OAuth token refresh timed out after 30000ms');
+        }
+        throw err;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+// Exported so callers can detect re-auth-required scenarios and prompt the user.
+export class ReauthRequired extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'ReauthRequired';
+    }
+}
+
+// --- Message conversion (mirrors anthropic.mjs) ---
+
+function withCacheControl(block, ttl = CACHE_TTL_VOLATILE) {
+    if (!block || typeof block !== 'object' || block.cache_control) return block;
+    return { ...block, cache_control: ttl };
+}
+
+function appendCacheControl(content, ttl = CACHE_TTL_VOLATILE) {
+    if (Array.isArray(content)) {
+        if (content.length === 0) return content;
+        const next = [...content];
+        next[next.length - 1] = withCacheControl(next[next.length - 1], ttl);
+        return next;
+    }
+    if (typeof content === 'string') {
+        return [withCacheControl({ type: 'text', text: content }, ttl)];
+    }
+    return content;
+}
+
+// Anthropic's tool spec forbids oneOf / allOf / anyOf at the TOP level of
+// input_schema (nested usage inside properties is allowed). External MCP
+// servers (e.g. Claude Code's built-in tools) sometimes emit such schemas.
+// Convert them to a flat object schema so the API never sees a 400.
+function _sanitizeInputSchema(schema, toolName) {
+    if (!schema || typeof schema !== 'object') {
+        return { type: 'object', properties: {} };
+    }
+    const compound = schema.oneOf || schema.anyOf || schema.allOf;
+    if (!compound) return structuredClone(schema);
+    // Merge all branch properties into one permissive object schema.
+    // None of the branches' required lists are hoisted — callers that relied
+    // on discriminated-union semantics will still function; the model simply
+    // receives a union of the property surface with no hard-required constraint.
+    const mergedProps = {};
+    const branchDescs = [];
+    for (const branch of Array.isArray(compound) ? compound : []) {
+        if (branch && typeof branch === 'object' && branch.properties) {
+            Object.assign(mergedProps, branch.properties);
+        }
+        if (branch && typeof branch === 'object') {
+            const parts = [];
+            if (branch.description) parts.push(branch.description);
+            else if (branch.type) parts.push(`type:${branch.type}`);
+            if (parts.length) branchDescs.push(parts.join(' '));
+        }
+    }
+    const compoundKey = schema.oneOf ? 'oneOf' : schema.anyOf ? 'anyOf' : 'allOf';
+    let description = schema.description || '';
+    if (branchDescs.length) {
+        const parts = [];
+        let used = 0;
+        for (let i = 0; i < branchDescs.length; i++) {
+            const v = `(variant ${i + 1}: ${branchDescs[i]})`;
+            if (used + v.length + (parts.length ? 1 : 0) > 500) break;
+            parts.push(v);
+            used += v.length + (parts.length > 1 ? 1 : 0);
+        }
+        const addition = parts.join(' ');
+        if (addition) description = description ? `${description} ${addition}` : addition;
+    }
+    const mergedPropsCount = Object.keys(mergedProps).length;
+    process.stderr.write(
+        `[anthropic-oauth-sanitizer] tool="${toolName ?? ''}" compound="${compoundKey}" branches=${Array.isArray(compound) ? compound.length : 0} mergedProps=${mergedPropsCount}\n`
+    );
+    return {
+        type: 'object',
+        ...(description ? { description } : {}),
+        properties: mergedProps,
+    };
+}
+
+function toAnthropicTools(tools) {
+    return tools.map(t => ({
+        name: t.name,
+        description: t.description,
+        input_schema: _sanitizeInputSchema(t.inputSchema, t.name),
+    }));
+}
+
+function toAnthropicMessages(messages) {
+    // Marker-free lowering. cache_control is applied AFTER sanitization by
+    // applyAnthropicCacheMarkers() so that block drops/inserts/reorders
+    // performed by sanitizeAnthropicContentPairs cannot move or delete a
+    // marked block (the root cause of the sporadic COLD-turn cache miss:
+    // pre-sanitize markers landed on blocks the sanitizer then rewrote, so
+    // the provider-visible breakpoint diverged from the cached one).
+    const result = [];
+    for (let idx = 0; idx < messages.length; idx++) {
+        const m = messages[idx];
+        if (m.role === 'system') continue;
+
+        if (m.role === 'assistant' && (m.toolCalls?.length || m.assistantBlocks?.length)) {
+            let content;
+            if (m.assistantBlocks?.length) {
+                content = m.assistantBlocks.slice();
+            } else {
+                content = [];
+                if (m.content) content.push({ type: 'text', text: m.content });
+                for (const tc of m.toolCalls) {
+                    content.push({
+                        type: 'tool_use',
+                        id: tc.id,
+                        name: tc.name,
+                        input: tc.arguments,
+                    });
+                }
+            }
+            result.push({ role: 'assistant', content });
+            continue;
+        }
+
+        if (m.role === 'tool') {
+            const last = result[result.length - 1];
+            const block = {
+                type: 'tool_result',
+                tool_use_id: m.toolCallId || '',
+                content: m.content,
+            };
+            if (last?.role === 'user' && Array.isArray(last.content)) {
+                last.content.push(block);
+            } else {
+                result.push({ role: 'user', content: [block] });
+            }
+            continue;
+        }
+
+        result.push({ role: m.role, content: m.content });
+    }
+    return sanitizeAnthropicContentPairs(result);
+}
+
+// Applies cache_control markers to the FINAL, already-sanitized Anthropic
+// message array — by INVARIANT, never by pre-sanitize index. Because
+// sanitizeAnthropicContentPairs has already run (and must NOT run again
+// after this), the blocks we mark here are exactly the blocks the provider
+// sees, so the cache breakpoint is stable across turns.
+//   tier3:        the user message whose first text block / string content
+//                 startsWith '<system-reminder>' AND includes BP3_SENTINEL —
+//                 mark its last content block with tier3Ttl.
+//   message-anchor: prefer the previous real user text turn, then fill the tail
+//                   if more marker slots remain. Synthetic <system-reminder>
+//                   messages are excluded from the stable user-turn anchor so
+//                   per-call volatileTail content never becomes a 1h prefix key.
+// messageTtl === null disables the tail; tier3Ttl === null disables tier3.
+// ANTHROPIC_MSG_SLOTS=0 is honoured upstream by passing messageTtl = null.
+function applyAnthropicCacheMarkers(sanitizedMessages, { messageTtl = CACHE_TTL_VOLATILE, messageSlots = 1, tier3Ttl = null } = {}) {
+    if (!Array.isArray(sanitizedMessages) || sanitizedMessages.length === 0) {
+        return sanitizedMessages;
+    }
+
+    const firstText = (content) => {
+        if (typeof content === 'string') return content;
+        if (Array.isArray(content)) {
+            const first = content.find((b) => b?.type === 'text');
+            return first && typeof first.text === 'string' ? first.text : '';
+        }
+        return '';
+    };
+    const isSystemReminder = (content) => firstText(content).startsWith('<system-reminder>');
+    const isTier3SystemReminder = (content) => {
+        const text = firstText(content);
+        return text.startsWith('<system-reminder>') && text.includes(BP3_SENTINEL);
+    };
+
+    const markLast = (msg, ttl) => {
+        if (!msg) return;
+        msg.content = appendCacheControl(msg.content, ttl);
+    };
+    const ttlRank = (ttl) => ttl?.ttl === '1h' ? 2 : 1;
+    const canMarkMessageIdx = (idx, tier3Idx) => {
+        // Anthropic requires 1h cache_control blocks to appear before 5m
+        // blocks. If tier3 is a later 1h marker, do not put a 5m marker before
+        // it. Gateway Anthropic routes set messages:'1h', so this guard mostly
+        // protects raw/default callers.
+        if (idx < 0) return false;
+        const msg = sanitizedMessages[idx];
+        if (ttlRank(messageTtl) > ttlRank(CACHE_TTL_VOLATILE)
+            && isSystemReminder(msg?.content)
+            && !isTier3SystemReminder(msg?.content)) {
+            return false;
+        }
+        if (tier3Idx >= 0 && idx < tier3Idx && ttlRank(messageTtl) < ttlRank(tier3Ttl)) {
+            return false;
+        }
+        return true;
+    };
+    const hasUserText = (msg) => {
+        if (msg?.role !== 'user') return false;
+        if (isSystemReminder(msg.content)) return false;
+        if (typeof msg.content === 'string') return msg.content.trim().length > 0;
+        if (!Array.isArray(msg.content)) return false;
+        return msg.content.some(b => b?.type === 'text' && typeof b.text === 'string' && b.text.trim().length > 0);
+    };
+    const previousUserTextAnchorIdx = () => {
+        // Prefer the user text turn before the current tail. In a normal
+        // user->assistant->tool loop this is the last prompt that was already
+        // present in the previous API request, so its prefix can overlap.
+        const tailIdx = sanitizedMessages.length - 1;
+        for (let i = tailIdx - 1; i >= 0; i--) {
+            if (hasUserText(sanitizedMessages[i])) return i;
+        }
+        return -1;
+    };
+
+    // tier3 — locate the sentinel-tagged system-reminder user message.
+    let tier3MsgIdx = -1;
+    if (tier3Ttl !== null) {
+        for (let i = 0; i < sanitizedMessages.length; i++) {
+            const m = sanitizedMessages[i];
+            if (m?.role === 'user' && isTier3SystemReminder(m.content)) {
+                tier3MsgIdx = i;
+                break;
+            }
+        }
+        if (tier3MsgIdx >= 0) markLast(sanitizedMessages[tier3MsgIdx], tier3Ttl);
+    }
+
+    if (messageTtl !== null) {
+        const slots = Math.max(0, Math.min(4, Number(messageSlots) || 0));
+        const marked = new Set(tier3MsgIdx >= 0 ? [tier3MsgIdx] : []);
+        const candidates = [previousUserTextAnchorIdx(), sanitizedMessages.length - 1];
+        for (const idx of candidates) {
+            if (slots <= 0) break;
+            if (idx < 0 || marked.has(idx) || !canMarkMessageIdx(idx, tier3MsgIdx)) continue;
+            markLast(sanitizedMessages[idx], messageTtl);
+            marked.add(idx);
+            if (marked.size - (tier3MsgIdx >= 0 ? 1 : 0) >= slots) break;
+        }
+    }
+
+    return sanitizedMessages;
+}
+
+// --- SSE parser ---
+
+function _captureMidstreamAbort(state, reason) {
+    if (!state) return;
+    const reasonName = reason?.name || '';
+    if (reasonName === 'BridgeStallAbortError' || reasonName === 'StreamStalledAbortError') {
+        state.watchdogAbort = reasonName;
+    } else {
+        state.userAbort = true;
+    }
+}
+
+function _statusForAnthropicSseError(type, message) {
+    const kind = String(type || '').toLowerCase();
+    const text = String(message || '').toLowerCase();
+    if (kind.includes('overload') || text.includes('overload')) return 503;
+    if (kind.includes('rate_limit') || text.includes('rate limit') || text.includes('quota')) return 429;
+    if (kind.includes('authentication') || text.includes('authentication') || text.includes('unauthorized')) return 401;
+    if (kind.includes('permission') || text.includes('forbidden')) return 403;
+    if (kind.includes('not_found') || text.includes('not found')) return 404;
+    if (kind.includes('invalid_request')) return 400;
+    return 0;
+}
+
+function _anthropicSseError(event) {
+    const payload = event?.error && typeof event.error === 'object' ? event.error : event;
+    const type = payload?.type || event?.type || 'error';
+    const message = payload?.message || 'Anthropic SSE error';
+    const err = new Error(`Anthropic OAuth SSE error ${type}: ${message}`);
+    err.name = 'AnthropicSseError';
+    err.code = 'EANTHROPIC_SSE_ERROR';
+    err.providerErrorType = type;
+    err.requestId = event?.request_id || event?.requestId || null;
+    const status = _statusForAnthropicSseError(type, message);
+    if (status) {
+        err.httpStatus = status;
+        err.status = status;
+    }
+    return err;
+}
+
+async function parseSSEStream(response, signal, abortStream, onStreamDelta, onToolCall, state, onTextDelta) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const SSE_IDLE_TIMEOUT_MS = PROVIDER_SSE_IDLE_TIMEOUT_MS;
+    let content = '';
+    let hasThinkingContent = false;
+    const contentBlockTypes = new Set();
+    let model = '';
+    let toolCalls = [];
+    let usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, raw: null };
+    let stopReason = null;
+    let buffer = '';
+    let idleTimedOut = false;
+    let idleTimer = null;
+    let currentEvent = '';
+
+    const pendingToolInputs = new Map();
+
+    // Holds the in-flight reader.read() race rejector so the idle timer can
+    // force-unblock the loop even when reader.cancel() fails to settle the
+    // pending read (undici half-open socket). See resetIdleTimer below.
+    let idleReject = null;
+
+    const resetIdleTimer = () => {
+        // OFF by default (matches Claude Code native gate). When disabled the
+        // idle timer never arms, so the stream is never killed on inactivity;
+        // the bridge stall watchdog (600s) remains the dead-stream backstop.
+        if (!PROVIDER_SSE_IDLE_WATCHDOG_ENABLED) return;
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+            idleTimedOut = true;
+            try { abortStream?.(); } catch (err) {
+                try { process.stderr.write(`[anthropic-oauth] sse idle abortStream failed: ${err?.message ?? String(err)}\n`); } catch {}
+            }
+            try {
+                const _c = reader.cancel('SSE idle timeout');
+                if (_c && typeof _c.catch === 'function') _c.catch(() => {});
+            } catch (err) {
+                try { process.stderr.write(`[anthropic-oauth] sse idle cancel failed: ${err?.message ?? String(err)}\n`); } catch {}
+            }
+            // Force-reject the in-flight reader.read() race even when reader.cancel()
+            // fails to settle the pending read: without this the await below stays
+            // pending forever and the SSE idle timeout never unblocks the loop —
+            // the 391s-hang root cause.
+            if (idleReject) {
+                const e = new Error(`Anthropic OAuth SSE stream timed out after ${SSE_IDLE_TIMEOUT_MS}ms of inactivity`);
+                e.code = 'ETIMEDOUT';
+                const r = idleReject; idleReject = null; r(e);
+            }
+        // Shared provider policy: short inter-chunk inactivity catches the
+        // sess_9cfd11-class stuck pattern where SSE starts but then goes silent.
+        }, SSE_IDLE_TIMEOUT_MS);
+    };
+
+    const onAbort = () => {
+        try {
+            const _c = reader.cancel('SSE aborted');
+            if (_c && typeof _c.catch === 'function') _c.catch(() => {});
+        } catch {}
+    };
+    if (signal) {
+        if (signal.aborted) {
+            _captureMidstreamAbort(state, signal.reason);
+            throw signal.reason instanceof Error
+                ? signal.reason
+                : new Error('Anthropic OAuth SSE stream aborted');
+        }
+        signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    try {
+        resetIdleTimer();
+        streamLoop: while (true) {
+            let chunk;
+            try {
+                // Race the read against the idle timer's rejector so a stuck
+                // reader.read() (cancel did not settle it) still unblocks here.
+                chunk = await new Promise((resolve, reject) => {
+                    idleReject = reject;
+                    reader.read().then(resolve, reject);
+                });
+            } catch (err) {
+                if (idleTimedOut) {
+                    const idleErr = new Error(`Anthropic OAuth SSE stream timed out after ${SSE_IDLE_TIMEOUT_MS}ms of inactivity`);
+                    idleErr.code = 'ETIMEDOUT';
+                    throw idleErr;
+                }
+                if (signal?.aborted) {
+                    _captureMidstreamAbort(state, signal.reason);
+                    throw signal.reason instanceof Error
+                        ? signal.reason
+                        : new Error('Anthropic OAuth SSE stream aborted');
+                }
+                throw err;
+            }
+            const { done, value } = chunk;
+            if (done) break;
+
+            resetIdleTimer();
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (line.startsWith(':')) {
+                    // SSE comment frame (Anthropic `:ping` keepalive). The HTML Standard SSE
+                    // spec says comments are silently ignored, but we surface them here so
+                    // the bridge-stall-watchdog sees the stream is still alive during Opus
+                    // extended-thinking pauses. No content is emitted — this only refreshes
+                    // the runtime's lastStreamDeltaAt timestamp.
+                    try { onStreamDelta?.(); } catch {}
+                    continue;
+                }
+                if (line.startsWith('event: ')) {
+                    currentEvent = line.slice(7).trim();
+                    continue;
+                }
+                if (!line.startsWith('data: ')) continue;
+                const data = line.slice(6).trim();
+                if (!data) continue;
+
+                try {
+                    const event = JSON.parse(data);
+
+                    if (currentEvent === 'error' || event?.type === 'error' || event?.error) {
+                        throw _anthropicSseError(event);
+                    }
+
+                    if (event.type === 'message_start' && event.message) {
+                        if (state) state.sawMessageStart = true;
+                        if (event.message.model) model = event.message.model;
+                        if (event.message.usage) {
+                            usage.inputTokens = event.message.usage.input_tokens || 0;
+                            usage.cachedTokens = event.message.usage.cache_read_input_tokens || 0;
+                            usage.cacheWriteTokens = event.message.usage.cache_creation_input_tokens || 0;
+                            usage.raw = { ...event.message.usage };
+                        }
+                    }
+
+                    if (event.type === 'content_block_start') {
+                        const block = event.content_block;
+                        if (block?.type === 'tool_use') {
+                            pendingToolInputs.set(event.index, {
+                                id: block.id || '',
+                                name: block.name || '',
+                                inputJson: '',
+                            });
+                        }
+                    }
+
+                    if (event.type === 'content_block_delta') {
+                        const delta = event.delta;
+                        if (delta?.type) contentBlockTypes.add(delta.type);
+                        if (delta?.type === 'text_delta') {
+                            content += delta.text || '';
+                            try { onStreamDelta?.(); } catch {}
+                            // Live text relay (gateway): forward the explicit
+                            // text chunk. thinking/signature/input_json deltas
+                            // intentionally stay off this path.
+                            // Invariant: once a non-empty chunk has been relayed
+                            // live it cannot be withdrawn, so flag the attempt so
+                            // the mid-stream retry loop treats any later failure
+                            // as final (a retry would concatenate attempts).
+                            if (delta.text && onTextDelta) {
+                                if (state) state.emittedText = true;
+                                try { onTextDelta(delta.text); } catch {}
+                            }
+                        }
+                        if (delta?.type === 'thinking_delta' || delta?.type === 'signature_delta') {
+                            // Extended-thinking block: provider reasoning without
+                            // user-visible text. Track presence so a final turn
+                            // that emitted ONLY thinking (no text_delta, no
+                            // tool_use) can be classified by the loop as
+                            // synthesis-stalled rather than silent empty.
+                            hasThinkingContent = true;
+                            try { onStreamDelta?.(); } catch {}
+                        }
+                        if (delta?.type === 'input_json_delta') {
+                            const pending = pendingToolInputs.get(event.index);
+                            if (pending) {
+                                pending.inputJson += delta.partial_json || '';
+                            }
+                            try { onStreamDelta?.(); } catch {}
+                        }
+                    }
+
+                    if (event.type === 'content_block_stop') {
+                        const pending = pendingToolInputs.get(event.index);
+                        if (pending) {
+                            // Bare JSON.parse threw straight up into the
+                            // surrounding broad catch, which swallowed the
+                            // whole tool_call — the loop never saw it and
+                            // the assistant turn ended with an unmatched
+                            // tool_use id. Wrap the parse so a malformed
+                            // input still produces a tool_call (with empty
+                            // arguments and a logged error) instead of a
+                            // silent drop.
+                            let parsedArgs = {};
+                            if (pending.inputJson) {
+                                try { parsedArgs = JSON.parse(pending.inputJson); }
+                                catch (parseErr) {
+                                    process.stderr.write(`[anthropic-oauth] tool args JSON.parse failed (id=${pending.id}, name=${pending.name}): ${parseErr?.message || parseErr}\n`);
+                                    parsedArgs = {};
+                                }
+                            }
+                            // Tool arguments must be a plain object. Anthropic's
+                            // tool_use input is always a JSON object, but a
+                            // malformed stream could parse to an array/string/
+                            // number — wrap those as {} to keep the contract
+                            // (invariant-based, no heuristic coercion).
+                            if (parsedArgs === null
+                                || typeof parsedArgs !== 'object'
+                                || Array.isArray(parsedArgs)) {
+                                process.stderr.write(`[anthropic-oauth] tool args not a plain object (id=${pending.id}, name=${pending.name}, type=${Array.isArray(parsedArgs) ? 'array' : typeof parsedArgs}); using {}\n`);
+                                parsedArgs = {};
+                            }
+                            const call = {
+                                id: pending.id,
+                                name: pending.name,
+                                arguments: parsedArgs,
+                            };
+                            toolCalls.push(call);
+                            pendingToolInputs.delete(event.index);
+                            if (state) state.emittedToolCall = true;
+                            // Eager dispatch: let the loop start this tool
+                            // before message_stop arrives. The loop keys
+                            // pending promises by call.id so order is safe.
+                            try { onToolCall?.(call); } catch {}
+                            try { onStreamDelta?.(); } catch {}
+                        }
+                    }
+
+                    if (event.type === 'message_delta') {
+                        if (event.delta?.stop_reason) {
+                            stopReason = event.delta.stop_reason;
+                        }
+                        if (event.usage) {
+                            usage.outputTokens = event.usage.output_tokens || 0;
+                            usage.raw = { ...(usage.raw || {}), ...event.usage };
+                        }
+                        if (stopReason === 'tool_use' && toolCalls.length > 0 && pendingToolInputs.size === 0) {
+                            if (state) state.sawCompleted = true;
+                            break streamLoop;
+                        }
+                    }
+                    if (event.type === 'message_stop') {
+                        if (state) state.sawCompleted = true;
+                        // Anthropic streams can keep emitting `:ping` keepalive
+                        // frames after `message_stop`; if we wait for EOF the
+                        // outer reader.read() loop hangs indefinitely. Break
+                        // out of streamLoop the moment the message ends.
+                        break streamLoop;
+                    }
+                    // Unified prompt volume — what the model actually ingested.
+                    // Anthropic splits input into three billable slots (uncached
+                    // input + cache_read + cache_create); keep them separate for
+                    // cost math but also expose the sum so cross-provider logs
+                    // have a consistent `promptTokens` meaning.
+                    usage.promptTokens = (usage.inputTokens || 0)
+                        + (usage.cachedTokens || 0)
+                        + (usage.cacheWriteTokens || 0);
+                } catch (err) {
+                    if (err?.code === 'EANTHROPIC_SSE_ERROR') throw err;
+                    /* skip malformed events */
+                }
+            }
+        }
+
+        // Truncated-stream guard: if the reader loop exited (EOF or break)
+        // after message_start but without seeing message_stop / a tool_use
+        // stop_reason, the assistant turn was cut off mid-flight. Returning
+        // success here would silently surface partial content (or a partially
+        // streamed tool_use whose input_json never completed) as final.
+        // Throw a typed truncated-stream error so the loop can decide whether
+        // to retry, surface, or escalate instead of accepting the partial.
+        if (state?.sawMessageStart && !state?.sawCompleted) {
+            const pendingToolUse = pendingToolInputs.size > 0;
+            const err = Object.assign(
+                new Error(
+                    `Anthropic OAuth SSE stream truncated: message_start without message_stop`
+                    + (pendingToolUse ? ` (pending tool_use input)` : ''),
+                ),
+                {
+                    name: 'TruncatedStreamError',
+                    code: 'TRUNCATED_STREAM',
+                    truncatedStream: true,
+                    pendingToolUse,
+                    stopReason,
+                },
+            );
+            throw err;
+        }
+
+        return {
+            content,
+            model,
+            toolCalls: toolCalls.length ? toolCalls : undefined,
+            usage,
+            stopReason,
+            hasThinkingContent,
+            contentBlockTypes: Array.from(contentBlockTypes),
+        };
+    } finally {
+        if (idleTimer) clearTimeout(idleTimer);
+        if (signal) signal.removeEventListener('abort', onAbort);
+        try { reader.releaseLock(); } catch (err) {
+            try { process.stderr.write(`[anthropic-oauth] reader releaseLock failed: ${err?.message ?? String(err)}\n`); } catch {}
+        }
+    }
+}
+
+/**
+ * Classify an Anthropic SSE failure for single-shot mid-stream retry.
+ *
+ * Retry is allowed only after `message_start` and before `message_stop`,
+ * and only when no tool call has already been surfaced to the loop.
+ * That keeps recovery limited to transport/stream stalls without risking
+ * duplicate eager tool execution.
+ */
+export function _classifyMidstreamError(err, state) {
+    if (!state) return null;
+    if ((state.attemptIndex | 0) >= 1) return null;
+    if (state.sawCompleted) return null;
+    if (!state.sawMessageStart) return null;
+    if (state.userAbort) return null;
+    if (state.emittedToolCall) return null;
+
+    if (!err) return null;
+    const status = Number(err?.httpStatus || 0);
+    if (status === 401 || status === 403 || status === 429) return null;
+
+    const name = err?.name || '';
+    if (name === 'BridgeStallAbortError') return 'bridge_stall';
+    if (name === 'StreamStalledAbortError') return 'stream_stalled';
+    if (state.watchdogAbort === 'BridgeStallAbortError') return 'bridge_stall';
+    if (state.watchdogAbort === 'StreamStalledAbortError') return 'stream_stalled';
+
+    const code = err?.code || err?.cause?.code || '';
+    if (code === 'ECONNRESET') return 'reset';
+    if (code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT') return 'timeout';
+    if (code === 'ENOTFOUND' || code === 'EAI_AGAIN' || code === 'EAI_NODATA') return 'dns';
+
+    const msg = String(err?.message || '').toLowerCase();
+    if (msg.includes('stream timed out after') && msg.includes('of inactivity')) return 'sse_idle_timeout';
+    if (msg.includes('body stream') && msg.includes('terminated')) return 'stream_terminated';
+    if (msg.includes('fetch failed')) return 'fetch_failed';
+
+    return null;
+}
+
+// --- Build request body ---
+
+function resolveCacheTtls(opts) {
+    // Layered cache strategy — caller may override per-layer via opts.cacheStrategy.
+    // Anthropic enforces: 1h entries must appear before 5m entries in the request.
+    const strategy = opts.cacheStrategy || {};
+    const pick = (layer, fallback) => {
+        const v = strategy[layer];
+        if (v === '1h') return CACHE_TTL_STABLE;
+        if (v === '5m') return CACHE_TTL_VOLATILE;
+        if (v === 'none') return null;
+        return fallback;
+    };
+    // BP budget (4 total):
+    //   BP1 baseRules    — 1h (shared across ALL roles)
+    //   BP2 roleCatalog  — 1h (shared across ALL roles)
+    //   BP3 tier3        — 1h (sessionMarker: role + permission + project)
+    //   BP4 messages     — 5m sliding tail (tool_result cache across iter)
+    // tools BP is dropped — system BP covers the tools prefix via
+    // Anthropic's prompt cache prefix semantics (order: tools → system
+    // → messages).
+    // tier3 defaults to 1h (stable) — sessionMarker content is stable per
+    // (role, permission, project) tuple and Anthropic only spends the BP
+    // slot when findTier3Index() actually finds a <system-reminder> block,
+    // so this default is free for sessions that don't carry one. Previously
+    // null here meant any caller that skipped smart bridge resolve (CLI,
+    // raw bridge spawn) silently lost the tier3 cache layer even
+    // though their message layout supported it.
+    return {
+        tools: pick('tools', CACHE_TTL_STABLE),
+        system: pick('system', CACHE_TTL_STABLE),
+        tier3: pick('tier3', CACHE_TTL_STABLE),
+        messages: pick('messages', CACHE_TTL_VOLATILE),
+    };
+}
+
+// Tier 3 is injected by session/manager as a user message wrapped in
+// `<system-reminder>` whose body starts with the explicit sentinel
+// `<!-- bp3-sentinel -->` (emitted by collect.mjs:composeSystemPrompt only
+// when a stable projectContext is present). The sentinel is mandatory:
+// volatileTail (role/permission/taskBrief/memoryRecap) is also wrapped in
+// `<system-reminder>` but varies per-call, so a plain prefix match would
+// pin per-call data to the 1h BP3 slot and explode the cache.
+const BP3_SENTINEL = '<!-- bp3-sentinel -->';
+function findTier3Index(chatMsgs) {
+    for (let i = 0; i < chatMsgs.length; i++) {
+        const m = chatMsgs[i];
+        if (m?.role === 'user' && typeof m.content === 'string'
+            && m.content.startsWith('<system-reminder>')
+            && m.content.includes(BP3_SENTINEL)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+function buildRequestBody(messages, model, tools, sendOpts) {
+    const systemMsgs = messages.filter(m => m.role === 'system');
+    const chatMsgs = messages.filter(m => m.role !== 'system');
+    // Pass each system message text as its own entry so the Anthropic body
+    // gets N separate content blocks — each can have its own BP
+    // independent of the others.
+    const systemTexts = systemMsgs.map(m => m.content);
+    const maxTokens = resolveMaxTokens(model);
+    const opts = sendOpts || {};
+    const ttls = resolveCacheTtls(opts);
+    const systemBlocks = buildSystemBlocks(systemTexts, model, ttls?.system, 2);
+
+    // 4-BP budget layout. tools BP is dropped — system BP covers the
+    // tools prefix via Anthropic's prompt cache prefix semantics
+    // (order: tools → system → messages). That frees slots for
+    // tier3 + messages-tail.
+    const systemBpUsed = ttls.system ? systemBlocks.filter(b => b.cache_control).length : 0;
+    const toolsBpUsed = 0;
+    const tier3Idx = ttls.tier3 ? findTier3Index(chatMsgs) : -1;
+    const tier3BpUsed = tier3Idx >= 0 ? 1 : 0;
+    const usedSlots = toolsBpUsed + systemBpUsed + tier3BpUsed;
+    // Env override for BP strategy. ANTHROPIC_MSG_SLOTS=0 disables message
+    // caching entirely. Any value >=1 first marks the previous user text turn
+    // so consecutive requests share a breakpoint; a second free slot marks the
+    // tail for the newest delta.
+    const msgSlotsCap = Number.parseInt(process.env.ANTHROPIC_MSG_SLOTS, 10);
+    const defaultMsgSlots = Math.max(0, 4 - usedSlots);
+    const msgSlots = ttls.messages
+        ? (Number.isFinite(msgSlotsCap) && msgSlotsCap >= 0 ? Math.min(msgSlotsCap, defaultMsgSlots) : defaultMsgSlots)
+        : 0;
+    // Build → sanitize (once, inside toAnthropicMessages) → mark. Markers are
+    // applied to the FINAL sanitized array by invariant, so block drops /
+    // inserts / reorders performed by the sanitizer can never move or delete a
+    // marked block. NEVER sanitize again after this (see send path).
+    // msgSlots === 0 (ANTHROPIC_MSG_SLOTS=0, or no free slot) → tail disabled.
+    const tailTtl = msgSlots > 0 ? ttls.messages : null;
+    const tier3Ttl = tier3Idx >= 0 ? ttls.tier3 : null;
+    const anthropicMessages = applyAnthropicCacheMarkers(
+        toAnthropicMessages(chatMsgs),
+        { messageTtl: tailTtl, messageSlots: msgSlots, tier3Ttl },
+    );
+
+    const body = {
+        model,
+        max_tokens: maxTokens,
+        messages: anthropicMessages,
+        stream: true,
+    };
+
+    if (systemBlocks.length) body.system = systemBlocks;
+
+    if (tools?.length) {
+        // No cache_control on tools — the systemBase BP already covers the
+        // tools prefix via Anthropic's prompt cache prefix semantics (order:
+        // tools → system → messages). Placing a separate BP here would waste
+        // a slot that's better spent on messages tail.
+        body.tools = toAnthropicTools(tools);
+    }
+
+    const thinkingBudgetTokens = Number(opts.thinkingBudgetTokens);
+    if (Number.isFinite(thinkingBudgetTokens) && thinkingBudgetTokens > 0) {
+        body.thinking = { type: 'enabled', budget_tokens: Math.floor(thinkingBudgetTokens) };
+    } else if (opts.effort) {
+        if (EFFORT_BUDGET[opts.effort]) {
+            body.thinking = { type: 'enabled', budget_tokens: EFFORT_BUDGET[opts.effort] };
+        } else if (!_LOGGED_UNKNOWN_EFFORT.has(opts.effort)) {
+            _LOGGED_UNKNOWN_EFFORT.add(opts.effort);
+            try {
+                process.stderr.write(`[anthropic-oauth] unknown effort=${opts.effort} ignored (known: ${Object.keys(EFFORT_BUDGET).join(',')})\n`);
+            } catch {}
+        }
+    }
+
+    if (opts.fast === true && supportsAnthropicFastMode(model)) {
+        body.speed = 'fast';
+    }
+
+    return body;
+}
+
+export function _buildRequestBodyForCacheSmoke(messages, model, tools = [], sendOpts = {}) {
+    return buildRequestBody(messages, model, tools, sendOpts);
+}
+
+// --- Provider ---
+
+export class AnthropicOAuthProvider {
+    // input_tokens EXCLUDES cache_read_input_tokens (separate field) — add the
+    // cache back for the real context footprint. See registry.mjs.
+    static inputExcludesCache = true;
+    name = 'anthropic-oauth';
+    credentials = null;
+    config;
+    fastModeBetaHeaderLatched = false;
+
+    constructor(config) {
+        this.config = config || {};
+        this.credentials = loadCredentials();
+        // Warm a kept-alive socket to the messages API so the first request
+        // skips the cold TLS handshake. Best-effort; never throws.
+        preconnect('https://api.anthropic.com');
+    }
+
+    async ensureAuth({ forceRefresh = false, reason = 'preemptive' } = {}) {
+        if (!this.credentials) {
+            this.credentials = loadCredentials();
+        }
+        if (!this.credentials) {
+            throw new Error('Anthropic OAuth credentials not found. Run "claude login" to authenticate.');
+        }
+
+        // Pick up host-rotated tokens the moment the credentials file is
+        // rewritten — without this, a fresh `claude login` is ignored until
+        // the in-memory token's expiry skew triggers a refresh.
+        const diskMtime = _credentialsMaxMtime();
+        if (diskMtime > 0 && diskMtime > (this.credentials.mtimeMs || 0)) {
+            const fresh = loadCredentials();
+            if (fresh?.accessToken) {
+                this.credentials = fresh;
+                process.stderr.write(`[anthropic-oauth] Credentials reloaded from disk (mtime change)\n`);
+            }
+        }
+
+        const expiring = this.credentials.expiresAt
+            && this.credentials.expiresAt < Date.now() + TOKEN_REFRESH_SKEW_MS;
+        if (forceRefresh || expiring) {
+            this.credentials = await this._refreshCredentials({ force: forceRefresh, reason });
+        }
+
+        return this.credentials;
+    }
+
+    async _refreshCredentials({ force = false, reason = 'preemptive' } = {}) {
+        const currentToken = this.credentials?.accessToken || null;
+        const disk = loadCredentials();
+        const validAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
+        if (disk?.accessToken && disk.accessToken !== currentToken
+            && (!disk.expiresAt || disk.expiresAt >= validAfter)) {
+            this.credentials = disk;
+            process.stderr.write(`[anthropic-oauth] Credentials reloaded from disk\n`);
+            return disk;
+        }
+        if (!this.credentials && disk) this.credentials = disk;
+
+        if (_oauthRefreshInFlight) {
+            const shared = await _oauthRefreshInFlight;
+            this.credentials = shared;
+            if (!force || shared?.accessToken !== currentToken) return this.credentials;
+        }
+
+        const startingCreds = this.credentials || disk;
+        _oauthRefreshInFlight = (async () => {
+            const latest = loadCredentials() || startingCreds;
+            const latestValidAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
+            if (latest?.accessToken && latest.accessToken !== currentToken
+                && (!latest.expiresAt || latest.expiresAt >= latestValidAfter)) {
+                process.stderr.write(`[anthropic-oauth] Credentials reloaded from disk\n`);
+                return latest;
+            }
+
+            if (!latest?.refreshToken) {
+                if (!force && latest?.accessToken && (!latest.expiresAt || latest.expiresAt > Date.now())) {
+                    process.stderr.write(`[anthropic-oauth] WARNING: token expiring but no refresh token; using current token until expiry\n`);
+                    return latest;
+                }
+                throw new Error('Anthropic OAuth refresh token not available. Run "claude login" to re-authenticate.');
+            }
+
+            try {
+                process.stderr.write(`[anthropic-oauth] Token ${reason}, refreshing...\n`);
+                const refreshed = await refreshOAuthCredentials(latest);
+                process.stderr.write(`[anthropic-oauth] Token refreshed, expires in ${Math.round(((refreshed.expiresAt || Date.now()) - Date.now()) / 1000)}s\n`);
+                return refreshed;
+            } catch (err) {
+                if (!force && latest?.accessToken && (!latest.expiresAt || latest.expiresAt > Date.now())) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    process.stderr.write(`[anthropic-oauth] Refresh failed (${msg}); using still-valid current token\n`);
+                    return latest;
+                }
+                throw err;
+            }
+        })().finally(() => { _oauthRefreshInFlight = null; });
+
+        this.credentials = await _oauthRefreshInFlight;
+        return this.credentials;
+    }
+
+    scrubTokens(text) {
+        return _scrubTokens(text);
+    }
+
+    async send(messages, model, tools, sendOpts) {
+        // Defense-in-depth: enforce tool_use / tool_result pairing before
+        // the Anthropic API call. The trim.mjs sanitize pass is normally
+        // invoked by the budget trimmer in loop.mjs, but dispatches under
+        // budget skip it — a tool that aborted mid-flight then leaves an
+        // unmatched tool_use in messages, which the provider rejects with
+        // a hard 400. Pairing here closes the gap regardless of caller.
+        messages = sanitizeToolPairs(messages);
+        const opts = sendOpts || {};
+        const onStageChange = typeof opts.onStageChange === 'function' ? opts.onStageChange : null;
+        const onStreamDelta = typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null;
+        const onToolCall = typeof opts.onToolCall === 'function' ? opts.onToolCall : null;
+        const onTextDelta = typeof opts.onTextDelta === 'function' ? opts.onTextDelta : null;
+        const externalSignal = opts.signal || null;
+        // Test seam: lets the retry harness drive stream outcomes without a
+        // live OAuth session.
+        const parseSSEFn = typeof opts._parseSSEFn === 'function' ? opts._parseSSEFn : parseSSEStream;
+
+        let creds = await this.ensureAuth();
+        // Default when the caller doesn't pin a model: newest high-tier chat
+        // model from the live catalog (one warmup round-trip if cache is cold).
+        const useModel = model || await ensureLatestAnthropicModel(this);
+        const body = buildRequestBody(messages, useModel, tools, sendOpts);
+        if (body.speed === 'fast') {
+            this.fastModeBetaHeaderLatched = true;
+        }
+        const sessionId = opts.sessionId || null;
+        const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
+        // Option A: no absolute wall-clock cap on streaming generation. A stream
+        // that keeps emitting SSE deltas must NOT be killed by a fixed total-lifetime
+        // timer — the old PROVIDER_GENERATE_TOTAL_TIMEOUT_MS (~285s, derived from the
+        // stall WARN threshold) false-aborted live high-reasoning turns that were
+        // still alive and producing tokens. The streaming phase is bounded instead by:
+        //   (a) the per-attempt initial-response timeout in requestWithRetry
+        //       (PROVIDER_HTTP_RESPONSE_TIMEOUT_MS) for a socket that never sends a
+        //       first byte (truly wedged),
+        //   (b) externalSignal (client disconnect / replaced-by-newer-request), and
+        //   (c) the bridge stall watchdog (STALL_ABORT_S, 600s, progress-based) plus
+        //       the optional SSE idle watchdog for a stream that goes dead mid-flight.
+        // totalSignal is therefore a pure pass-through of externalSignal with no timer.
+        const totalTimeout = createPassthroughSignal(externalSignal);
+        const totalSignal = totalTimeout.signal;
+
+        const cleanupCancelHandler = (handler) => {
+            if (!handler) return;
+            try { totalSignal.removeEventListener('abort', handler); } catch {}
+        };
+
+        const doRequest = async (accessToken, requestSignal = null) => {
+            const controller = createAbortController();
+            const fetchStartedAt = Date.now();
+
+            let cancelHandler = null;
+            let attemptCancelHandler = null;
+            if (totalSignal) {
+                if (totalSignal.aborted) {
+                    controller.abort(totalSignal.reason);
+                    throw totalSignal.reason instanceof Error
+                        ? totalSignal.reason
+                        : new Error('Anthropic OAuth request aborted by session close');
+                }
+                cancelHandler = () => { try { controller.abort(totalSignal.reason); } catch {} };
+                totalSignal.addEventListener('abort', cancelHandler, { once: true });
+            }
+            if (requestSignal && requestSignal !== totalSignal) {
+                if (requestSignal.aborted) {
+                    cleanupCancelHandler(cancelHandler);
+                    controller.abort(requestSignal.reason);
+                    throw requestSignal.reason instanceof Error
+                        ? requestSignal.reason
+                        : new Error('Anthropic OAuth request attempt aborted');
+                }
+                attemptCancelHandler = () => { try { controller.abort(requestSignal.reason); } catch {} };
+                requestSignal.addEventListener('abort', attemptCancelHandler, { once: true });
+            }
+
+            try {
+                try { onStageChange?.('requesting'); } catch {}
+                // NOTE: do NOT sanitize here. body.messages was already
+                // sanitized once inside toAnthropicMessages and then had cache
+                // markers applied by applyAnthropicCacheMarkers. Re-sanitizing
+                // after marking could drop/reorder a marked block and move the
+                // provider-visible cache breakpoint off the cached one — the
+                // exact COLD-turn bug this change fixes. Order is fixed:
+                // build → sanitize (once) → mark → JSON.stringify.
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'anthropic-version': ANTHROPIC_VERSION,
+                        'anthropic-beta': buildAnthropicBetaHeaders({
+                            base: OAUTH_BETA_HEADERS,
+                            fastMode: this.fastModeBetaHeaderLatched,
+                        }),
+                        'anthropic-dangerous-direct-browser-access': 'true',
+                        'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
+                        'x-app': 'cli',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(body),
+                    signal: controller.signal,
+                    dispatcher: getLlmDispatcher(),
+                });
+
+                traceBridgeFetch({
+                    sessionId,
+                    headersMs: Date.now() - fetchStartedAt,
+                    httpStatus: response.status,
+                    provider: 'anthropic-oauth',
+                    model: useModel,
+                    transport: 'sse',
+                });
+
+                if (attemptCancelHandler) {
+                    try { requestSignal.removeEventListener('abort', attemptCancelHandler); } catch {}
+                }
+                return { response, controller, cancelHandler };
+            } catch (err) {
+                if (attemptCancelHandler) {
+                    try { requestSignal.removeEventListener('abort', attemptCancelHandler); } catch {}
+                }
+                cleanupCancelHandler(cancelHandler);
+                if (requestSignal?.aborted) {
+                    const reason = requestSignal.reason;
+                    throw reason instanceof Error ? reason : new Error('Anthropic OAuth request attempt aborted');
+                }
+                if (totalSignal?.aborted) {
+                    const reason = totalSignal.reason;
+                    throw reason instanceof Error ? reason : new Error('Anthropic OAuth request aborted by session close');
+                }
+                if (err?.name === 'AbortError') {
+                    const timeoutErr = new Error(`Anthropic OAuth API initial response timed out after ${PROVIDER_HTTP_RESPONSE_TIMEOUT_MS}ms`);
+                    timeoutErr.code = 'EPROVIDERTIMEOUT';
+                    throw timeoutErr;
+                }
+                throw err;
+            }
+        };
+        // Test seam: injectable request factory for retry-path tests.
+        const doRequestImpl = typeof opts._doRequestFn === 'function' ? opts._doRequestFn : doRequest;
+
+        const requestWithRetry = async (accessToken) => withRetry(async ({ signal: attemptSignal }) => {
+            const result = await doRequestImpl(accessToken, attemptSignal);
+            const status = Number(result?.response?.status || 0);
+            const transientStatus = classifyError({ httpStatus: status }) === 'transient';
+            if (transientStatus || status === 429) {
+                const err = new Error(`Anthropic OAuth API ${status}`);
+                err.httpStatus = status;
+                err.status = status;
+                err.headers = result?.response?.headers;
+                err.response = { status, headers: result?.response?.headers };
+                const retryAfterMs = retryAfterMsFromError(err);
+                if (transientStatus || retryAfterMs != null) {
+                    try { await result.response.text(); } catch {}
+                    cleanupCancelHandler(result.cancelHandler);
+                    try { result.controller?.abort?.(); } catch {}
+                    throw err;
+                }
+            }
+            return result;
+        }, {
+            signal: totalSignal,
+            maxAttempts: PROVIDER_RETRY_MAX_ATTEMPTS,
+            backoffMs: PROVIDER_RETRY_BACKOFF_MS,
+            perAttemptTimeoutMs: PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
+            perAttemptLabel: 'Anthropic OAuth initial response',
+            onRetry: ({ attempt, lastErr, delayMs, delayReason }) => {
+                const status = Number(lastErr?.httpStatus || lastErr?.status || lastErr?.response?.status || 0) || null;
+                const reason = status || lastErr?.code || lastErr?.message || 'network error';
+                const suffix = delayReason ? ` (${delayReason})` : '';
+                try {
+                    process.stderr.write(
+                        `[anthropic-oauth] retry attempt ${attempt + 1}/${PROVIDER_RETRY_MAX_ATTEMPTS} after ${reason}, backoff ${delayMs}ms${suffix}\n`,
+                    );
+                } catch {}
+            },
+        });
+        // One retry only: enough to recover transient stream loss without
+        // quietly replaying long-running work multiple times.
+        const MAX_MIDSTREAM_RETRIES = 1;
+        let firstAttemptError = null;
+        let firstAttemptClassifier = null;
+
+        try {
+        for (let attemptIndex = 0; attemptIndex <= MAX_MIDSTREAM_RETRIES; attemptIndex++) {
+            let response, controller, cancelHandler;
+            ({ response, controller, cancelHandler } = await requestWithRetry(creds.accessToken));
+
+            // 401: token expired/revoked. 403: organization permission flipped
+            // (e.g. relogin into a different org). Both: force a shared refresh
+            // and retry once with the new token.
+            if (response.status === 401 || response.status === 403) {
+                process.stderr.write(`[anthropic-oauth] ${response.status} — forcing refresh and retrying once\n`);
+                cleanupCancelHandler(cancelHandler);
+                creds = await this.ensureAuth({ forceRefresh: true, reason: String(response.status) });
+                ({ response, controller, cancelHandler } = await requestWithRetry(creds.accessToken));
+            }
+
+            if (!response.ok) {
+                cleanupCancelHandler(cancelHandler);
+                const text = await response.text().catch(() => '');
+                const safeText = this.scrubTokens(text).slice(0, 200);
+                process.stderr.write(`[anthropic-oauth] API error ${response.status}: ${safeText}\n`);
+
+                // Phase I: on unknown/404 model errors, force a catalog refresh and
+                // retry once. Protects against a silently-rotated model id.
+                const isUnknownModel = response.status === 404
+                    || /unknown[_\s-]?model|model[_\s-]?not[_\s-]?found/i.test(safeText);
+                if (isUnknownModel && !opts._modelRetry) {
+                    process.stderr.write(`[anthropic-oauth] unknown model — refreshing catalog + 1 retry\n`);
+                    await this._refreshModelCache();
+                    return this.send(messages, model, tools, { ...opts, _modelRetry: true });
+                }
+                throw new Error(`Anthropic OAuth API ${response.status}: ${safeText}`);
+            }
+
+            if (SSE_VERBOSE) process.stderr.write(`[anthropic-oauth] Response ${response.status}, parsing SSE...\n`);
+            try { onStageChange?.('streaming'); } catch {}
+
+            const midState = {
+                attemptIndex,
+                sawMessageStart: false,
+                sawCompleted: false,
+                emittedToolCall: false,
+                // Gateway live-text relay invariant: set by parseSSEStream once
+                // a non-empty text chunk has been forwarded to the client. A
+                // later failure is non-retryable (rendered text cannot be
+                // withdrawn; a retry would concatenate attempts).
+                emittedText: false,
+                userAbort: false,
+                watchdogAbort: null,
+                ttftAt: null,
+            };
+
+            try {
+                const sseStartedAt = Date.now();
+                const result = await parseSSEFn(
+                    response,
+                    controller.signal,
+                    () => controller.abort(),
+                    onStreamDelta,
+                    onToolCall,
+                    midState,
+                    onTextDelta,
+                );
+
+                const ttftMs = midState.ttftAt ? midState.ttftAt - sseStartedAt : null;
+                const liveModel = result.model || useModel;
+                traceBridgeSse({
+                    sessionId,
+                    sseParseMs: Date.now() - sseStartedAt,
+                    ttftMs,
+                    provider: 'anthropic-oauth',
+                    model: liveModel,
+                    transport: 'sse',
+                });
+
+                traceBridgeUsage({
+                    sessionId,
+                    iteration,
+                    inputTokens: result.usage?.inputTokens || 0,
+                    outputTokens: result.usage?.outputTokens || 0,
+                    cachedTokens: result.usage?.cachedTokens || 0,
+                    cacheWriteTokens: result.usage?.cacheWriteTokens || 0,
+                    promptTokens: result.usage?.promptTokens || 0,
+                    model: liveModel,
+                    modelDisplay: _displayModel(liveModel),
+                    rawUsage: result.usage?.raw || null,
+                    provider: 'anthropic-oauth',
+                    requestKind: opts.requestKind || null,
+                });
+
+                // Phase I: if the live response surfaced a model id we don't know
+                // about yet, kick off a background catalog refresh. Fire-and-forget
+                // — do not await, do not surface errors.
+                if (result.model && !_catalogHas(result.model)) {
+                    void this._refreshModelCache();
+                }
+
+                if (SSE_VERBOSE) process.stderr.write(`[anthropic-oauth] Done: ${result.content.length} chars, ${result.toolCalls?.length || 0} tool calls\n`);
+                // Empty-stream guard. Invariant: a valid Anthropic SSE response
+                // ALWAYS opens with message_start (which carries usage.input_tokens).
+                // A 200 whose body produced no message_start delivered nothing —
+                // no usage, no content, no tool calls — i.e. a dropped/empty stream
+                // (transient, often rate-limit-adjacent under concurrent load), NOT
+                // a valid terminal turn. Returning it surfaces upstream as a silent
+                // empty turn (0 tokens, no content) that masks the cause. Throw a
+                // marked error: retry is provably safe here (no message_start ⇒
+                // nothing was emitted ⇒ no duplicate-tool risk), and once retries
+                // are exhausted the error is surfaced instead of swallowed.
+                if (!midState.sawMessageStart
+                    && !midState.userAbort
+                    && !midState.watchdogAbort
+                    && !result.content
+                    && !(result.toolCalls && result.toolCalls.length)
+                    && !(result.usage && result.usage.inputTokens > 0)) {
+                    const emptyErr = new Error('Anthropic OAuth SSE stream produced no message_start (empty/dropped stream — likely transient or rate-limited)');
+                    emptyErr.code = 'EEMPTYSTREAM';
+                    emptyErr.isEmptyStream = true;
+                    throw emptyErr;
+                }
+                try {
+                    Object.defineProperty(result, '__midstreamRetries', { value: attemptIndex, enumerable: false });
+                } catch { /* ignore non-extensible result */ }
+                return result;
+            } catch (err) {
+                // Live-text invariant: once a non-empty text chunk has been
+                // relayed to the client (gateway live mode), the rendered output
+                // cannot be withdrawn and re-issuing would concatenate a second
+                // attempt. Surface the failure immediately — never retry — and
+                // tag the error so upstream layers refuse to retry as well.
+                if (midState.emittedText) {
+                    try { err.liveTextEmitted = true; err.unsafeToRetry = true; } catch {}
+                    try { controller?.abort?.(err); } catch { /* best-effort teardown */ }
+                    if (attemptIndex > 0 && firstAttemptError) {
+                        try { firstAttemptError.midstreamRetries = attemptIndex; } catch {}
+                        try { firstAttemptError.midstreamClassifier = firstAttemptClassifier; } catch {}
+                        throw firstAttemptError;
+                    }
+                    throw err;
+                }
+                // Empty/dropped stream (no message_start): safe to retry once —
+                // nothing was emitted, so there is no duplicate-tool risk. This
+                // is intentionally NOT routed through _classifyMidstreamError,
+                // which requires sawMessageStart and would reject it.
+                if (err?.isEmptyStream && attemptIndex < MAX_MIDSTREAM_RETRIES) {
+                    firstAttemptError = err;
+                    firstAttemptClassifier = 'empty_stream';
+                    try { controller?.abort?.(err); } catch { /* best-effort teardown */ }
+                    try { process.stderr.write(`[anthropic-oauth] empty stream (no message_start) — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES}\n`); } catch {}
+                    continue;
+                }
+                if (classifyError(err) === 'transient'
+                    && !midState.sawMessageStart
+                    && !midState.emittedToolCall
+                    && attemptIndex < MAX_MIDSTREAM_RETRIES) {
+                    firstAttemptError = err;
+                    firstAttemptClassifier = err?.providerErrorType || 'sse_transient';
+                    try { controller?.abort?.(err); } catch { /* best-effort teardown */ }
+                    try {
+                        process.stderr.write(`[anthropic-oauth] transient SSE error — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES} (${err?.providerErrorType || err?.message || 'unknown'})\n`);
+                    } catch {}
+                    continue;
+                }
+                // Truncated stream (message_start without message_stop): the
+                // partial result is discarded and re-requesting is safe (a
+                // pendingToolUse means the tool_use input JSON never completed).
+                // _classifyMidstreamError does not cover this; route it through
+                // the shared classifier so it inherits the cross-provider
+                // transient policy instead of escaping and killing the worker.
+                // Guard: parseSSEStream eagerly fires onToolCall and sets
+                // emittedToolCall=true at content_block_stop, BEFORE message_stop.
+                // If the stream truncates after that, retrying would
+                // double-execute the tool. Only retry when nothing was emitted
+                // yet; otherwise let the error surface.
+                if ((err?.truncatedStream === true || err?.code === 'TRUNCATED_STREAM')
+                    && classifyError(err) === 'transient'
+                    && !midState.emittedToolCall
+                    && attemptIndex < MAX_MIDSTREAM_RETRIES) {
+                    firstAttemptError = err;
+                    firstAttemptClassifier = 'truncated_stream';
+                    try { controller?.abort?.(err); } catch { /* best-effort teardown */ }
+                    try { process.stderr.write(`[anthropic-oauth] truncated stream — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES}\n`); } catch {}
+                    continue;
+                }
+                const classifier = _classifyMidstreamError(err, midState);
+                if (classifier && attemptIndex < MAX_MIDSTREAM_RETRIES) {
+                    firstAttemptError = err;
+                    firstAttemptClassifier = classifier;
+                    try { controller?.abort?.(err); } catch (abortErr) {
+                        /* best-effort stream teardown */
+                        try { process.stderr.write(`[anthropic-oauth] abort on stream error failed: ${abortErr?.message ?? String(abortErr)}\n`); } catch {}
+                    }
+                    try {
+                        process.stderr.write(`[anthropic-oauth] mid-stream recovered: retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES} (cause: ${classifier})\n`);
+                    } catch {}
+                    continue;
+                }
+                if (attemptIndex > 0 && firstAttemptError) {
+                    try { firstAttemptError.midstreamRetries = attemptIndex; } catch {}
+                    try { firstAttemptError.midstreamClassifier = firstAttemptClassifier; } catch {}
+                    throw firstAttemptError;
+                }
+                throw err;
+            } finally {
+                cleanupCancelHandler(cancelHandler);
+            }
+        }
+        throw firstAttemptError || new Error('Anthropic OAuth mid-stream retry: unreachable');
+        } finally {
+            totalTimeout.cleanup();
+        }
+    }
+
+    async listModels() {
+        // Dynamic lookup via /v1/models — returns whatever Anthropic currently
+        // exposes for this OAuth account. Cached on disk with 24h TTL; falls
+        // back to the static MODELS list on any failure so the plugin still
+        // works offline or when Anthropic's /v1/models is momentarily down.
+        const cached = await _loadModelCache();
+        if (cached) {
+            _inMemoryCatalog = cached.slice();
+            return cached;
+        }
+        try {
+            const creds = await this.ensureAuth();
+            const res = await fetch('https://api.anthropic.com/v1/models', {
+                signal: AbortSignal.timeout(10_000),
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${creds.accessToken}`,
+                    'anthropic-version': ANTHROPIC_VERSION,
+                    'anthropic-beta': OAUTH_BETA_HEADERS,
+                    'anthropic-dangerous-direct-browser-access': 'true',
+                    'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
+                    'x-app': 'cli',
+                },
+                dispatcher: getLlmDispatcher(),
+            });
+            if (!res.ok) throw new Error(`list_models ${res.status}`);
+            const data = await res.json();
+            const items = Array.isArray(data?.data) ? data.data : [];
+            const normalized = items
+                .map(m => _normalizeAnthropicModel(m))
+                .filter(Boolean);
+            _markLatestByFamily(normalized);
+            // Enrich with LiteLLM catalog metadata (context, pricing, capabilities)
+            const enriched = await enrichModels(normalized);
+            await _saveModelCache(enriched);
+            return enriched;
+        } catch (err) {
+            process.stderr.write(`[anthropic-oauth] listModels fetch failed (${err.message})\n`);
+            // Fallback with full API model IDs. Short family tokens leaked
+            // through here would be accepted by setup and reintroduce the
+            // legacy shape. Env var override keeps this tracking defaults.
+            const opusId   = process.env.ANTHROPIC_DEFAULT_OPUS_MODEL   || 'claude-opus-4-8';
+            const sonnetId = process.env.ANTHROPIC_DEFAULT_SONNET_MODEL || 'claude-sonnet-4-6';
+            const haikuId  = process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL  || 'claude-haiku-4-5-20251001';
+            return [
+                { id: opusId,   display: 'Opus (auto)',   family: 'opus',   provider: 'anthropic-oauth', tier: 'family', latest: true, contextWindow: 1000000 },
+                { id: sonnetId, display: 'Sonnet (auto)', family: 'sonnet', provider: 'anthropic-oauth', tier: 'family', latest: true, contextWindow: 1000000 },
+                { id: haikuId,  display: 'Haiku (auto)',  family: 'haiku',  provider: 'anthropic-oauth', tier: 'family', latest: true, contextWindow: 200000 },
+            ];
+        }
+    }
+
+    // Force a catalog refresh (ignores the 24h TTL). De-duped via
+    // _modelRefreshInFlight so concurrent callers share one HTTP round-trip.
+    // Returns the new catalog on success, null on failure.
+    async _refreshModelCache() {
+        if (_modelRefreshInFlight) return _modelRefreshInFlight;
+        _modelRefreshInFlight = (async () => {
+            try {
+                const creds = await this.ensureAuth();
+                const res = await fetch('https://api.anthropic.com/v1/models', {
+                    signal: AbortSignal.timeout(10_000),
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${creds.accessToken}`,
+                        'anthropic-version': ANTHROPIC_VERSION,
+                        'anthropic-beta': OAUTH_BETA_HEADERS,
+                        'anthropic-dangerous-direct-browser-access': 'true',
+                        'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
+                        'x-app': 'cli',
+                    },
+                    dispatcher: getLlmDispatcher(),
+                });
+                if (!res.ok) throw new Error(`list_models ${res.status}`);
+                const data = await res.json();
+                const items = Array.isArray(data?.data) ? data.data : [];
+                const normalized = items
+                    .map(m => _normalizeAnthropicModel(m))
+                    .filter(Boolean);
+                _markLatestByFamily(normalized);
+                const enriched = await enrichModels(normalized);
+                await _saveModelCache(enriched);
+                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] catalog refreshed (${enriched.length} models)\n`);
+                return enriched;
+            } catch (err) {
+                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] catalog refresh failed (${err.message})\n`);
+                return null;
+            } finally {
+                _modelRefreshInFlight = null;
+            }
+        })();
+        return _modelRefreshInFlight;
+    }
+
+    async isAvailable() {
+        return this.credentials !== null || loadCredentials() !== null;
+    }
+}
+
+// --- Login flow (PKCE loopback, export for setup UI / CLI) ---
+
+function _oauthGeneratePKCE() {
+    const verifier = randomBytes(32).toString('base64url');
+    const challenge = createHash('sha256').update(verifier).digest('base64url');
+    return { verifier, challenge };
+}
+
+function _oauthCredentialsWritePath() {
+    for (const p of credentialCandidates()) {
+        if (existsSync(p)) return p;
+    }
+    return DEFAULT_CREDENTIALS_PATH;
+}
+
+function _oauthParseScopeField(scope) {
+    if (Array.isArray(scope)) return scope;
+    return String(scope || '').split(' ').filter(Boolean);
+}
+
+export async function loginOAuth() {
+    const pkce = _oauthGeneratePKCE();
+    const state = randomBytes(32).toString('base64url');
+    const url = new URL(CLAUDE_AI_AUTHORIZE_URL);
+    url.searchParams.set('code', 'true');
+    url.searchParams.set('client_id', CLAUDE_CODE_CLIENT_ID);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('redirect_uri', OAUTH_REDIRECT_URI);
+    url.searchParams.set('scope', OAUTH_LOGIN_SCOPE);
+    url.searchParams.set('code_challenge', pkce.challenge);
+    url.searchParams.set('code_challenge_method', 'S256');
+    url.searchParams.set('state', state);
+    process.stderr.write(`\n[anthropic-oauth] Open this URL to log in with Claude:\n${url.toString()}\n\n`);
+    const { openInBrowser } = await import('../../../shared/open-url.mjs');
+    openInBrowser(url.toString());
+
+    return new Promise((resolve) => {
+        const timeout = setTimeout(() => { server.close(); resolve(null); }, OAUTH_LOGIN_TIMEOUT_MS);
+        const server = createServer(async (req, res) => {
+            const u = new URL(req.url || '/', `http://${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}`);
+            if (u.pathname !== OAUTH_CALLBACK_PATH) {
+                res.writeHead(404);
+                res.end();
+                return;
+            }
+            const code = u.searchParams.get('code');
+            if (!code || u.searchParams.get('state') !== state) {
+                res.writeHead(400);
+                res.end('Invalid');
+                clearTimeout(timeout);
+                server.close();
+                resolve(null);
+                return;
+            }
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end('<html><body><h2>Claude login successful! You can close this tab.</h2></body></html>');
+            clearTimeout(timeout);
+            server.close();
+            try {
+                const tokenRes = await fetch(TOKEN_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'anthropic-dangerous-direct-browser-access': 'true',
+                        'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
+                    },
+                    body: JSON.stringify({
+                        grant_type: 'authorization_code',
+                        code,
+                        redirect_uri: OAUTH_REDIRECT_URI,
+                        client_id: CLAUDE_CODE_CLIENT_ID,
+                        code_verifier: pkce.verifier,
+                        state,
+                    }),
+                    redirect: 'error',
+                    signal: AbortSignal.timeout(OAUTH_TOKEN_TIMEOUT_MS),
+                    dispatcher: getLlmDispatcher(),
+                });
+                if (!tokenRes.ok) { resolve(null); return; }
+                const json = await tokenRes.json();
+                const accessToken = json?.access_token || json?.accessToken;
+                const refreshToken = json?.refresh_token || json?.refreshToken;
+                if (!accessToken || !refreshToken) { resolve(null); return; }
+                const expiresAt = _normalizeExpiresAt(json?.expires_at ?? json?.expiresAt)
+                    || (typeof json?.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0);
+                const scopes = _oauthParseScopeField(json?.scope);
+                const credPath = _oauthCredentialsWritePath();
+                let raw = {};
+                if (existsSync(credPath)) {
+                    raw = JSON.parse(readFileSync(credPath, 'utf-8'));
+                }
+                const existingOauth = raw.claudeAiOauth || {};
+                raw.claudeAiOauth = {
+                    ...existingOauth,
+                    accessToken,
+                    refreshToken,
+                    expiresAt,
+                    scopes,
+                    subscriptionType: existingOauth.subscriptionType ?? null,
+                };
+                _saveCredentialsFile(credPath, raw);
+                resolve({
+                    path: credPath,
+                    accessToken,
+                    refreshToken,
+                    expiresAt,
+                    scopes,
+                    subscriptionType: raw.claudeAiOauth.subscriptionType,
+                });
+            } catch {
+                resolve(null);
+            }
+        });
+        server.listen(OAUTH_CALLBACK_PORT, OAUTH_CALLBACK_HOST);
+        server.on('error', () => { clearTimeout(timeout); resolve(null); });
+    });
+}
+
+// Additive exports for test harnesses.
+// Lets the SSE parser be exercised in isolation against a synthetic
+// ReadableStream without needing a live OAuth session.
+export { parseSSEStream };
