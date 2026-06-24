@@ -17,7 +17,6 @@ import { Box, Text } from 'ink';
 import { marked } from 'marked';
 import { formatToken } from '../markdown/format-token.mjs';
 import { MarkdownTable } from './MarkdownTable.jsx';
-import { theme } from '../theme.mjs';
 
 let _configured = false;
 function configureMarked() {
@@ -39,10 +38,10 @@ export function Markdown({ children }) {
         if (buffer) {
           // CC trims the coalesced non-table block (MarkdownBody: nonTableContent
           // .trim()) so leading/trailing blank lines from token EOLs don't bleed
-          // into the surrounding gap={1} spacing. color={theme.text} makes plain
-          // (un-ANSI'd) body text white instead of the terminal's default gray;
-          // inline spans that carry their own SGR (codespan, bold, etc.) keep it.
-          result.push(<Text key={`md_${idx++}`} color={theme.text}>{buffer.trim()}</Text>);
+          // into the surrounding gap={1} spacing. Leave the foreground unset
+          // like Claude Code's <Ansi>, so plain body text uses the terminal's
+          // natural weight while inline spans keep their own SGR color.
+          result.push(<Text key={`md_${idx++}`}>{buffer.trim()}</Text>);
           buffer = '';
         }
       };

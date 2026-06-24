@@ -1,7 +1,8 @@
 /**
  * src/tui/theme.mjs — Claude Code dark palette for the React/ink TUI.
  *
- * Colors ported verbatim from refs/claude-code/src/utils/theme.ts (darkTheme).
+ * Colors follow refs/claude-code/src/utils/theme.ts (darkTheme), with the
+ * body marker softened slightly for Windows Terminal rendering.
  * ink accepts `rgb(r,g,b)` strings directly on the `color`/`backgroundColor`
  * props, so these are plain strings (no escape wrapping needed — ink emits the
  * SGR and honors NO_COLOR/non-TTY itself).
@@ -19,9 +20,9 @@ export const theme = {
   success: 'rgb(78,186,101)', // green
   error: 'rgb(255,107,128)', // red
   warning: 'rgb(255,193,7)', // amber
-  suggestion: 'rgb(87,105,247)', // links / select — CC medium blue
-  permission: 'rgb(87,105,247)', // CC `permission` — inline code (codespan) color (medium blue)
-  code: 'rgb(87,105,247)', // inline code accent = CC permission (medium blue)
+  suggestion: 'rgb(177,185,249)', // CC darkTheme suggestion (light blue-purple)
+  permission: 'rgb(177,185,249)', // CC darkTheme permission
+  code: 'rgb(177,185,249)', // inline code accent = CC permission
   codeBlock: 'rgb(56,166,96)', // code block body (medium green)
   userMessageBackground: 'rgb(55,55,55)', // user bubble background (CC darkTheme)
   userMessageBackgroundHover: 'rgb(70,70,70)', // hover variant (CC darkTheme)

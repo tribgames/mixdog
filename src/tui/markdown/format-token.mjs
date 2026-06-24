@@ -34,7 +34,7 @@ function rgbColor(str) {
   return chalk.rgb(Number(m[1]), Number(m[2]), Number(m[3]));
 }
 
-const accent = rgbColor(theme.code); // inline code / codespan accent (light blue-purple)
+const accent = rgbColor(theme.code); // inline code / codespan accent (CC permission)
 const dim = (s) => chalk.dim(s);
 
 // marked 14 HTML-encodes token.text / codespan.text (`"` → `&quot;`, `&` →
