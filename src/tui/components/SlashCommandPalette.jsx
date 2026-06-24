@@ -18,7 +18,14 @@ function truncateText(value, width) {
 }
 
 export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Commands', columns = 80 }) {
-  const visible = commands.slice(0, MAX_VISIBLE);
+  const total = commands.length;
+  const half = Math.floor(MAX_VISIBLE / 2);
+  let start = Math.max(0, selectedIndex - half);
+  let end = Math.min(total, start + MAX_VISIBLE);
+  if (end - start < MAX_VISIBLE && start > 0) {
+    start = Math.max(0, end - MAX_VISIBLE);
+  }
+  const visible = commands.slice(start, end);
   const labelWidth = Math.min(
     visible.reduce((w, item) => Math.max(w, item.usage.length), 0),
     Math.max(12, Math.floor(columns * 0.28)),
@@ -36,19 +43,19 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
       >
         <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
           <Text color={theme.claude}>{title}</Text>
-          <Text color={theme.subtle}>↑↓ select · Enter run · Tab complete · Esc close</Text>
+          <Text color={theme.subtle}>↑↓ Enter · Tab · Esc</Text>
         </Box>
         {visible.map((item, index) => (
           <CommandRow
             key={item.name}
             command={item}
-            isSelected={index === selectedIndex}
+            isSelected={start + index === selectedIndex}
             labelWidth={labelWidth}
             descriptionWidth={descriptionWidth}
           />
         ))}
         {commands.length > MAX_VISIBLE ? (
-          <Text color={theme.subtle}>1-{MAX_VISIBLE} of {commands.length}</Text>
+          <Text color={theme.subtle}>{start + 1}-{Math.min(end, total)} of {commands.length}</Text>
         ) : null}
       </Box>
     </Box>
@@ -60,7 +67,7 @@ const CommandRow = React.memo(function CommandRow({ command, isSelected, labelWi
   const description = truncateText(command.description, descriptionWidth);
 
   return (
-    <Box flexDirection="row">
+    <Box flexDirection="row" width="100%" backgroundColor={isSelected ? theme.userMessageBackground : undefined}>
       <Text color={isSelected ? theme.text : theme.inactive}>
         {isSelected ? '→ ' : '  '}
         {label.padEnd(labelWidth)}

@@ -38,6 +38,22 @@ export function Picker({ items, onSelect, onCancel, title, columns = 80 }) {
           setSelectedIndex((i) => (i < items.length - 1 ? i + 1 : 0));
           return;
         }
+        if (key.pageUp) {
+          setSelectedIndex((i) => Math.max(0, i - MAX_VISIBLE));
+          return;
+        }
+        if (key.pageDown) {
+          setSelectedIndex((i) => Math.min(items.length - 1, i + MAX_VISIBLE));
+          return;
+        }
+        if (key.home) {
+          setSelectedIndex(0);
+          return;
+        }
+        if (key.end) {
+          setSelectedIndex(items.length - 1);
+          return;
+        }
         if (key.return) {
           onSelect(items[selectedIndex].value, items[selectedIndex]);
           return;
@@ -60,8 +76,10 @@ export function Picker({ items, onSelect, onCancel, title, columns = 80 }) {
           borderStyle="round"
           borderColor={theme.subtle}
           paddingX={1}
-          height={3}
+          height={4}
+          width="100%"
         >
+          <Text color={theme.claude}>{title || 'Picker'}</Text>
           <Text color={theme.inactive}> (empty) </Text>
         </Box>
       </Box>
@@ -94,7 +112,7 @@ export function Picker({ items, onSelect, onCancel, title, columns = 80 }) {
       >
         <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
           <Text color={theme.claude}>{title}</Text>
-          <Text color={theme.subtle}>↑↓ select · Enter choose · Esc cancel</Text>
+          <Text color={theme.subtle}>↑↓ Pg Home End · Enter · Esc</Text>
         </Box>
         {visible.map((item, i) => {
           const idx = start + i;
@@ -127,7 +145,7 @@ const ItemRow = React.memo(function ItemRow({ label, description, labelWidth, de
   const displayDescription = truncateText(description, descriptionWidth);
 
   return (
-    <Box flexDirection="row">
+    <Box flexDirection="row" width="100%" backgroundColor={isSelected ? theme.userMessageBackground : undefined}>
       <Text color={isSelected ? theme.text : theme.inactive}>
         {isSelected ? '→ ' : '  '}
         {displayLabel.padEnd(labelWidth)}

@@ -65,9 +65,15 @@ export function ThinkingMessage({ text }) {
 
 export function NoticeMessage({ text, tone }) {
   const color = tone === 'error' ? theme.error : tone === 'warn' ? theme.warning : theme.inactive;
+  const prefix = tone === 'error' ? 'x' : tone === 'warn' ? '!' : 'i';
   return (
-    <Box marginTop={1} paddingLeft={2}>
-      <Text color={color}>{text}</Text>
+    <Box marginTop={1} paddingLeft={2} flexDirection="row">
+      <Box flexShrink={0} width={2}>
+        <Text color={color}>{prefix}</Text>
+      </Box>
+      <Box flexDirection="column" flexGrow={1}>
+        <Text color={color} wrap="wrap">{text}</Text>
+      </Box>
     </Box>
   );
 }

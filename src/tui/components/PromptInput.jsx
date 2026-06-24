@@ -327,6 +327,26 @@ export function PromptInput({
       return;
     }
 
+    if (commandPaletteActive && key.pageUp) {
+      onCommandPaletteNavigate?.(-8);
+      return;
+    }
+
+    if (commandPaletteActive && key.pageDown) {
+      onCommandPaletteNavigate?.(8);
+      return;
+    }
+
+    if (commandPaletteActive && key.home) {
+      onCommandPaletteNavigate?.('home');
+      return;
+    }
+
+    if (commandPaletteActive && key.end) {
+      onCommandPaletteNavigate?.('end');
+      return;
+    }
+
     if (key.tab && commandPaletteActive) {
       const completed = onCommandPaletteComplete?.(draftRef.current.value);
       if (typeof completed === 'string') {

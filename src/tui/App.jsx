@@ -196,6 +196,12 @@ function parseMemoryCommand(text) {
   return out;
 }
 
+function fitLine(value, columns, reserve = 4) {
+  const text = String(value || '');
+  const width = Math.max(1, Number(columns || 80) - reserve);
+  return text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text;
+}
+
 // Copy text to the OS clipboard via the platform's native command. We avoid
 // OSC 52 (terminal clipboard escape) because support is uneven across Windows
 // terminals; spawning clip/pbcopy/xclip is reliable. Resolves on success,
@@ -2177,25 +2183,25 @@ export function App({ store, initialStatusLine = '' }) {
         ) : providerPrompt ? (
           <Box flexShrink={0} paddingX={1}>
             <Text color={theme.inactive}>
-              {providerPrompt.kind === 'api-key'
+              {fitLine(providerPrompt.kind === 'api-key'
                 ? `API key for ${providerPrompt.label} · Enter save · Esc cancel`
-                : `Base URL for ${providerPrompt.label} · Enter enable · Esc cancel · default ${providerPrompt.defaultURL}`}
+                : `Base URL for ${providerPrompt.label} · Enter enable · Esc cancel · default ${providerPrompt.defaultURL}`, resizeState.columns)}
             </Text>
           </Box>
         ) : channelPrompt ? (
           <Box flexShrink={0} paddingX={1}>
             <Text color={theme.inactive}>
-              {channelPrompt.hint
+              {fitLine(channelPrompt.hint
                 ? `${channelPrompt.label} · ${channelPrompt.hint} · Enter save · Esc cancel`
-                : `${channelPrompt.label} · Enter save · Esc cancel`}
+                : `${channelPrompt.label} · Enter save · Esc cancel`, resizeState.columns)}
             </Text>
           </Box>
         ) : hookPrompt ? (
           <Box flexShrink={0} paddingX={1}>
             <Text color={theme.inactive}>
-              {hookPrompt.hint
+              {fitLine(hookPrompt.hint
                 ? `${hookPrompt.label} · ${hookPrompt.hint} · Enter save · Esc cancel`
-                : `${hookPrompt.label} · Enter save · Esc cancel`}
+                : `${hookPrompt.label} · Enter save · Esc cancel`, resizeState.columns)}
             </Text>
           </Box>
         ) : !picker ? (
@@ -2219,7 +2225,10 @@ export function App({ store, initialStatusLine = '' }) {
               setSlashIndex((index) => {
                 const total = slashCommands.length;
                 if (total === 0) return 0;
-                return (index + direction + total) % total;
+                if (direction === 'home') return 0;
+                if (direction === 'end') return total - 1;
+                const step = Number(direction) || 0;
+                return Math.max(0, Math.min(total - 1, index + step));
               });
             }}
             onCommandPaletteAccept={acceptSlashPalette}
