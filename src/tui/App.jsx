@@ -2533,17 +2533,16 @@ export function App({ store, initialStatusLine = '' }) {
   const LIVE_STATUS_ROWS = THINKING_ROWS + SPINNER_ROWS + TURNDONE_ROWS;
   const INPUT_BOX_ROWS = 4;
   const STATUSLINE_ROWS = 3;
-  const PICKER_MAX_VISIBLE = 8;
-  const SLASH_PALETTE_MAX_VISIBLE = 8;
-  const PICKER_ROWS = picker ? Math.min(picker.items.length, PICKER_MAX_VISIBLE) + 4 : 0;
-  const SLASH_PALETTE_ROWS = slashPaletteOpen ? Math.min(slashCommands.length, SLASH_PALETTE_MAX_VISIBLE) + 4 : 0;
+  const FLOATING_PANEL_ROWS = 12; // MAX_VISIBLE(8) + header/border/count room.
+  const PROMPT_HINT_ROWS = 1;
+  const floatingPanelRows = picker || slashPaletteOpen
+    ? FLOATING_PANEL_ROWS
+    : providerPrompt || channelPrompt || hookPrompt || settingsPrompt
+      ? PROMPT_HINT_ROWS
+      : 0;
   const TOAST_ROWS = state.toasts?.length ? 3 : 0;
-  const PROVIDER_PROMPT_ROWS = providerPrompt ? 1 : 0;
-  const CHANNEL_PROMPT_ROWS = channelPrompt ? 1 : 0;
-  const HOOK_PROMPT_ROWS = hookPrompt ? 1 : 0;
-  const SETTINGS_PROMPT_ROWS = settingsPrompt ? 1 : 0;
   const queuedRows = !picker && !slashPaletteOpen && !providerPrompt && !channelPrompt && !hookPrompt && !settingsPrompt && state.queued?.length ? state.queued.length + 1 : 0;
-  const bottomReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + PICKER_ROWS + SLASH_PALETTE_ROWS + TOAST_ROWS + PROVIDER_PROMPT_ROWS + CHANNEL_PROMPT_ROWS + HOOK_PROMPT_ROWS + SETTINGS_PROMPT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
+  const bottomReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + floatingPanelRows + TOAST_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
@@ -2636,66 +2635,68 @@ export function App({ store, initialStatusLine = '' }) {
         </Box>
       ) : null}
 
-      {/* Bottom bar — pinned to the physical bottom, never moves. Pickers and
-          slash palettes attach directly above the prompt like Codex/OpenCode. */}
+      {/* Bottom bar — pinned to the physical bottom, never moves. A fixed-height
+          floating slot keeps the prompt/status y-position stable while pickers
+          grow/shrink; the active panel is bottom-aligned inside the slot so it
+          still attaches directly above the prompt like Codex/OpenCode. */}
       <Box flexDirection="column" flexShrink={0}>
         {state.toasts?.length ? (
           <ToastNotice toast={state.toasts[state.toasts.length - 1]} columns={resizeState.columns} />
         ) : null}
-        {picker ? (
-          <Box flexShrink={0}>
-            <Picker
-              items={picker.items}
-              onSelect={picker.onSelect}
-              onCancel={picker.onCancel}
-              title={picker.title}
-              columns={resizeState.columns}
-            />
+        {floatingPanelRows > 0 ? (
+          <Box flexDirection="column" flexShrink={0} height={floatingPanelRows} justifyContent="flex-end">
+            {picker ? (
+              <Picker
+                items={picker.items}
+                onSelect={picker.onSelect}
+                onCancel={picker.onCancel}
+                title={picker.title}
+                columns={resizeState.columns}
+              />
+            ) : slashPaletteOpen ? (
+              <SlashCommandPalette
+                commands={slashCommands}
+                selectedIndex={slashIndex}
+                title="Slash commands"
+                columns={resizeState.columns}
+              />
+            ) : providerPrompt ? (
+              <Box flexShrink={0} paddingX={1}>
+                <Text color={theme.inactive}>
+                  {fitLine(providerPrompt.kind === 'api-key'
+                    ? `API key for ${providerPrompt.label} · Enter save · Esc cancel`
+                    : `Base URL for ${providerPrompt.label} · Enter enable · Esc cancel · default ${providerPrompt.defaultURL}`, resizeState.columns)}
+                </Text>
+              </Box>
+            ) : channelPrompt ? (
+              <Box flexShrink={0} paddingX={1}>
+                <Text color={theme.inactive}>
+                  {fitLine(channelPrompt.hint
+                    ? `${channelPrompt.label} · ${channelPrompt.hint} · Enter save · Esc cancel`
+                    : `${channelPrompt.label} · Enter save · Esc cancel`, resizeState.columns)}
+                </Text>
+              </Box>
+            ) : hookPrompt ? (
+              <Box flexShrink={0} paddingX={1}>
+                <Text color={theme.inactive}>
+                  {fitLine(hookPrompt.hint
+                    ? `${hookPrompt.label} · ${hookPrompt.hint} · Enter save · Esc cancel`
+                    : `${hookPrompt.label} · Enter save · Esc cancel`, resizeState.columns)}
+                </Text>
+              </Box>
+            ) : settingsPrompt ? (
+              <Box flexShrink={0} paddingX={1}>
+                <Text color={theme.inactive}>
+                  {fitLine(settingsPrompt.hint
+                    ? `${settingsPrompt.label} · ${settingsPrompt.hint} · Enter save · Esc cancel`
+                    : `${settingsPrompt.label} · Enter save · Esc cancel`, resizeState.columns)}
+                </Text>
+              </Box>
+            ) : null}
           </Box>
-        ) : slashPaletteOpen ? (
-          <Box flexShrink={0}>
-            <SlashCommandPalette
-              commands={slashCommands}
-              selectedIndex={slashIndex}
-              title="Slash commands"
-              columns={resizeState.columns}
-            />
-          </Box>
-        ) : providerPrompt ? (
-          <Box flexShrink={0} paddingX={1}>
-            <Text color={theme.inactive}>
-              {fitLine(providerPrompt.kind === 'api-key'
-                ? `API key for ${providerPrompt.label} · Enter save · Esc cancel`
-                : `Base URL for ${providerPrompt.label} · Enter enable · Esc cancel · default ${providerPrompt.defaultURL}`, resizeState.columns)}
-            </Text>
-          </Box>
-        ) : channelPrompt ? (
-          <Box flexShrink={0} paddingX={1}>
-            <Text color={theme.inactive}>
-              {fitLine(channelPrompt.hint
-                ? `${channelPrompt.label} · ${channelPrompt.hint} · Enter save · Esc cancel`
-                : `${channelPrompt.label} · Enter save · Esc cancel`, resizeState.columns)}
-            </Text>
-          </Box>
-        ) : hookPrompt ? (
-          <Box flexShrink={0} paddingX={1}>
-            <Text color={theme.inactive}>
-              {fitLine(hookPrompt.hint
-                ? `${hookPrompt.label} · ${hookPrompt.hint} · Enter save · Esc cancel`
-                : `${hookPrompt.label} · Enter save · Esc cancel`, resizeState.columns)}
-            </Text>
-          </Box>
-        ) : settingsPrompt ? (
-          <Box flexShrink={0} paddingX={1}>
-            <Text color={theme.inactive}>
-              {fitLine(settingsPrompt.hint
-                ? `${settingsPrompt.label} · ${settingsPrompt.hint} · Enter save · Esc cancel`
-                : `${settingsPrompt.label} · Enter save · Esc cancel`, resizeState.columns)}
-            </Text>
-          </Box>
-        ) : !picker ? (
+        ) : (
           <QueuedCommands queued={state.queued} columns={resizeState.columns} />
-        ) : null}
+        )}
         <Box
           marginTop={picker || slashPaletteOpen || providerPrompt || channelPrompt || hookPrompt || settingsPrompt ? 0 : 1}
           width="100%"
