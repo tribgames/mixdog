@@ -18,7 +18,7 @@ const MIN_RESULT_LINE_CHARS = 24;
 
 function stripToolPrefix(name) {
   return String(name || 'tool')
-    .replace(/^mcp__[^_]+__/, '')
+    .replace(/^mcp__.*__/, '')
     .replace(/^functions\./, '');
 }
 
@@ -138,6 +138,10 @@ export function displayToolName(name) {
     case 'update_plan':
       return 'Plan';
     case 'memory':
+    case 'remember':
+    case 'save_memory':
+    case 'update_memory':
+    case 'recall_memory':
       return 'Memory';
     case 'recall':
     case 'search_memories':
@@ -216,9 +220,13 @@ export function summarizeArgs(name, args) {
     case 'list_mcp_resource_templates':
       return truncate(a.server || 'all');
     case 'memory':
+    case 'remember':
+    case 'save_memory':
+    case 'update_memory':
+    case 'recall_memory':
       return compactParts([
-        a.action || a.type || a.operation || 'status',
-        truncate(firstText(a.query, a.key, a.name, a.text, a.value), 80),
+        a.action || a.type || a.operation || a.op || 'memory',
+        truncate(firstText(a.query, a.summary, a.element, a.key, a.name, a.text, a.value), 80),
       ]);
     case 'recall':
     case 'search_memories':

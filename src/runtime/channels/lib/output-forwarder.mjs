@@ -243,7 +243,7 @@ class OutputForwarder {
                 if (!this.inRecallSequence) {
                   this.inRecallSequence = true;
                   if (parts.length > 0) parts.push("");
-                  parts.push("\u25CF **recall_memory**");
+                  parts.push("\u25CF **Memory**");
                 }
                 continue;
               }
