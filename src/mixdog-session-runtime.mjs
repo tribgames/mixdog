@@ -525,6 +525,57 @@ function routeForStatusline(route) {
   return out;
 }
 
+const ONBOARDING_VERSION = 1;
+const WORKFLOW_ROUTE_SLOTS = ['lead', 'bridge', 'explorer', 'search', 'memory'];
+
+function workflowPresetId(slot) {
+  return `workflow-${slot}`;
+}
+
+function workflowPresetName(slot) {
+  return `WORKFLOW ${String(slot || '').toUpperCase()}`;
+}
+
+function normalizeWorkflowRoute(routeLike, fallback = {}) {
+  const provider = clean(routeLike?.provider) || clean(fallback.provider);
+  const model = clean(routeLike?.model) || clean(fallback.model);
+  if (!provider || !model) return null;
+  const effort = normalizeEffortInput(routeLike?.effort ?? fallback.effort);
+  return {
+    provider,
+    model,
+    ...(effort ? { effort } : {}),
+  };
+}
+
+function upsertWorkflowPreset(presets, slot, routeLike) {
+  const route = normalizeWorkflowRoute(routeLike);
+  if (!route) return presets;
+  const id = workflowPresetId(slot);
+  const preset = {
+    id,
+    name: workflowPresetName(slot),
+    type: 'bridge',
+    provider: route.provider,
+    model: route.model,
+    ...(route.effort ? { effort: route.effort } : {}),
+    tools: 'full',
+  };
+  const next = (Array.isArray(presets) ? presets : []).filter((p) => clean(p?.id) !== id && clean(p?.name) !== preset.name);
+  next.push(preset);
+  return next;
+}
+
+function summarizeWorkflowRoutes(config) {
+  const routes = config?.workflowRoutes && typeof config.workflowRoutes === 'object' ? config.workflowRoutes : {};
+  const out = {};
+  for (const slot of WORKFLOW_ROUTE_SLOTS) {
+    const route = routes[slot];
+    if (route?.provider && route?.model) out[slot] = normalizeWorkflowRoute(route);
+  }
+  return out;
+}
+
 function toolResponseText(result) {
   if (result && typeof result === 'object' && Array.isArray(result.content)) {
     return result.content
@@ -1150,6 +1201,61 @@ export async function createMixdogSessionRuntime({
     },
     async getProviderSetup() {
       return await providerSetup(cfgMod.loadConfig());
+    },
+    getOnboardingStatus() {
+      const nextConfig = cfgMod.loadConfig();
+      return {
+        completed: nextConfig?.onboarding?.completed === true,
+        version: nextConfig?.onboarding?.version || 0,
+        default: nextConfig?.default || null,
+        workflowRoutes: summarizeWorkflowRoutes(nextConfig),
+      };
+    },
+    async completeOnboarding(payload = {}) {
+      const defaultRoute = normalizeWorkflowRoute(payload.defaultRoute, route);
+      const workflowInput = payload.workflowRoutes && typeof payload.workflowRoutes === 'object'
+        ? payload.workflowRoutes
+        : {};
+      const nextConfig = cfgMod.loadConfig();
+      let presets = Array.isArray(nextConfig.presets) ? nextConfig.presets.slice() : [];
+      const workflowRoutes = { ...(nextConfig.workflowRoutes || {}) };
+
+      if (defaultRoute) {
+        presets = upsertWorkflowPreset(presets, 'lead', defaultRoute);
+        workflowRoutes.lead = defaultRoute;
+        nextConfig.default = workflowPresetId('lead');
+      }
+
+      for (const slot of WORKFLOW_ROUTE_SLOTS) {
+        const fallback = slot === 'lead' ? defaultRoute : (workflowRoutes.lead || defaultRoute || route);
+        const normalized = normalizeWorkflowRoute(workflowInput[slot], fallback);
+        if (!normalized) continue;
+        workflowRoutes[slot] = normalized;
+        presets = upsertWorkflowPreset(presets, slot, normalized);
+      }
+
+      nextConfig.presets = presets;
+      nextConfig.workflowRoutes = workflowRoutes;
+      nextConfig.maintenance = {
+        ...(nextConfig.maintenance || {}),
+        explore: workflowRoutes.explorer ? workflowPresetId('explorer') : (nextConfig.maintenance?.explore || 'haiku'),
+        memory: workflowRoutes.memory ? workflowPresetId('memory') : (nextConfig.maintenance?.memory || 'haiku'),
+      };
+      nextConfig.onboarding = {
+        ...(nextConfig.onboarding || {}),
+        completed: true,
+        version: ONBOARDING_VERSION,
+        completedAt: new Date().toISOString(),
+      };
+
+      cfgMod.saveConfig(nextConfig);
+      config = cfgMod.loadConfig();
+      if (defaultRoute) {
+        route = resolveRoute(config, { provider: defaultRoute.provider, model: defaultRoute.model, effort: defaultRoute.effort });
+        if (session?.id) mgr.closeSession(session.id, 'cli-onboarding-complete');
+        await createCurrentSession();
+      }
+      return this.getOnboardingStatus();
     },
     getChannelSetup() {
       return channelSetup();

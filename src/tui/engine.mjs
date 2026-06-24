@@ -580,6 +580,22 @@ export async function createEngineSession({
     getProviderSetup: () => {
       return runtime.getProviderSetup();
     },
+    getOnboardingStatus: () => {
+      return runtime.getOnboardingStatus?.() || { completed: true, workflowRoutes: {} };
+    },
+    completeOnboarding: async (payload = {}) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.completeOnboarding?.(payload);
+        resetStats();
+        set({ sessionId: runtime.id, provider: runtime.provider, model: runtime.model, effort: runtime.effort, effortOptions: runtime.effortOptions, stats: { ...state.stats } });
+        pushItem({ kind: 'notice', id: nextId(), text: 'first-run setup saved', tone: 'info' });
+        return result;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
     loginOAuthProvider: async (provider) => {
       if (state.commandBusy) return false;
       set({ commandBusy: true });

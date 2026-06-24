@@ -236,6 +236,8 @@ export function loadConfig() {
                 presets: normalizedPresets,
                 default: raw.default || null,
                 maintenance: { ...DEFAULT_MAINTENANCE, ...rawMaint },
+                workflowRoutes: raw.workflowRoutes && typeof raw.workflowRoutes === 'object' ? raw.workflowRoutes : {},
+                onboarding: raw.onboarding && typeof raw.onboarding === 'object' ? raw.onboarding : {},
                 agentMaintenance: { enabled: true, interval: '1h', ...raw.agentMaintenance },
                 trajectory: { enabled: true, ...raw.trajectory },
                 bridge: raw.bridge && typeof raw.bridge === 'object' ? raw.bridge : {},
@@ -250,6 +252,8 @@ export function loadConfig() {
         presets: DEFAULT_PRESETS.map(p => ({ ...p })),
         default: 'opus-high',
         maintenance: { ...DEFAULT_MAINTENANCE },
+        workflowRoutes: {},
+        onboarding: {},
         agentMaintenance: { enabled: true, interval: '1h' },
         trajectory: { enabled: true },
         bridge: {},
@@ -257,8 +261,9 @@ export function loadConfig() {
 }
 /**
  * Atomically save the agent section in mixdog-config.json. Caller passes the
- * full config object. Only persists mcpServers, presets, default, and user-set
- * provider entries (enabled, baseURL) — defaults are recomputed on next load.
+ * full config object. Only persists mcpServers, presets, default, workflow
+ * routing/onboarding, and user-set provider entries (enabled, baseURL) —
+ * defaults are recomputed on next load.
  * apiKey is NEVER persisted: provider keys live only in the OS keychain, and
  * loadConfig overlays them into memory, so they must be stripped on save or
  * they would leak back into mixdog-config.json as plaintext.
@@ -305,6 +310,8 @@ export function saveConfig(config) {
         presets: Array.isArray(config.presets) ? config.presets : [],
         default: config.default || null,
         maintenance: config.maintenance || {},
+        workflowRoutes: config.workflowRoutes || {},
+        onboarding: config.onboarding || {},
         agentMaintenance: config.agentMaintenance || {},
         trajectory: config.trajectory || {},
         bridge: config.bridge || {},

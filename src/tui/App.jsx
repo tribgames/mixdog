@@ -278,6 +278,8 @@ export function App({ store, initialStatusLine = '' }) {
   const [promptDraft, setPromptDraft] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedFor, setSlashDismissedFor] = useState('');
+  const onboardingStartedRef = useRef(false);
+  const onboardingRef = useRef({ defaultRoute: null, workflowRoutes: {}, providerModels: [] });
   // dragRef tracks an in-progress mouse text selection (see the mouse handler):
   // anchor = where the drag began, last = the latest cell, active = button held.
   const dragRef = useRef({ anchor: null, last: null, active: false });
@@ -472,6 +474,59 @@ export function App({ store, initialStatusLine = '' }) {
     }
   }, { isActive: isRawModeSupported });
 
+  const modelDescription = (m) => {
+    const meta = [];
+    if (m.contextWindow) meta.push(`${Math.round(Number(m.contextWindow) / 1000)}k ctx`);
+    if (m.supportsVision) meta.push('vision');
+    const efforts = (m.effortOptions || []).map((e) => e.value).filter((v) => v && v !== 'auto');
+    if (efforts.length) meta.push(`effort ${efforts.join('/')}`);
+    if (m.latest) meta.push('latest');
+    return [m.provider, ...meta].join(' · ');
+  };
+
+  const routeLabel = (route) => {
+    if (!route?.provider || !route?.model) return '(unset)';
+    return `${route.provider}/${route.model}${route.effort ? ` · ${route.effort}` : ''}`;
+  };
+
+  const routeFromModel = (model, effort = null) => ({
+    provider: model.provider,
+    model: model.id,
+    ...(effort && effort !== 'auto' ? { effort } : {}),
+  });
+
+  const modelScore = (model, slot) => {
+    const text = `${model.provider} ${model.id} ${model.display} ${model.family || ''} ${model.tier || ''}`.toLowerCase();
+    let score = 0;
+    if (model.latest) score += 6;
+    if (slot === 'lead' || slot === 'review') {
+      if (/opus|gpt-5\.5|gpt-5|sonnet/.test(text)) score += 20;
+      if (/mini|nano|haiku|flash/.test(text)) score -= 5;
+    } else if (slot === 'memory' || slot === 'search') {
+      if (/haiku|mini|nano|flash|fast/.test(text)) score += 20;
+      if (/opus|max/.test(text)) score -= 4;
+    } else if (slot === 'explorer' || slot === 'bridge') {
+      if (/sonnet|gpt-5|mini|haiku|flash/.test(text)) score += 12;
+      if (/opus/.test(text)) score += slot === 'bridge' ? 3 : -2;
+    }
+    if (model.supportsFunctionCalling) score += 2;
+    return score;
+  };
+
+  const chooseRecommendedModel = (models, slot, fallbackRoute) => {
+    if (!Array.isArray(models) || models.length === 0) return fallbackRoute || null;
+    const sorted = models.slice().sort((a, b) => modelScore(b, slot) - modelScore(a, slot));
+    return routeFromModel(sorted[0]);
+  };
+
+  const buildWorkflowDefaults = (models, defaultRoute) => ({
+    lead: defaultRoute,
+    bridge: chooseRecommendedModel(models, 'bridge', defaultRoute),
+    explorer: chooseRecommendedModel(models, 'explorer', defaultRoute),
+    search: chooseRecommendedModel(models, 'search', defaultRoute),
+    memory: chooseRecommendedModel(models, 'memory', defaultRoute),
+  });
+
   const openModelPicker = async () => {
     setProviderPrompt(null);
     setChannelPrompt(null);
@@ -491,16 +546,10 @@ export function App({ store, initialStatusLine = '' }) {
     }
 
     const items = providerModels.map((m) => {
-      const meta = [];
-      if (m.contextWindow) meta.push(`${Math.round(Number(m.contextWindow) / 1000)}k ctx`);
-      if (m.supportsVision) meta.push('vision');
-      const efforts = (m.effortOptions || []).map((e) => e.value).filter((v) => v && v !== 'auto');
-      if (efforts.length) meta.push(`effort ${efforts.join('/')}`);
-      if (m.latest) meta.push('latest');
       return {
         value: `${m.provider}:${m.id}`,
         label: m.display || m.id,
-        description: [m.provider, ...meta].join(' · '),
+        description: modelDescription(m),
         _provider: m.provider,
         _modelId: m.id,
       };
@@ -901,7 +950,8 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
-  const openProviderSetupPicker = async () => {
+  const openProviderSetupPicker = async (options = {}) => {
+    const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     let setup;
     try {
       setup = await store.getProviderSetup();
@@ -911,6 +961,14 @@ export function App({ store, initialStatusLine = '' }) {
     }
 
     const items = [];
+    if (returnTo) {
+      items.push({
+        value: 'continue-setup',
+        label: 'Continue setup',
+        description: 'return to first-run model setup',
+        _type: 'continue',
+      });
+    }
     for (const p of setup.api || []) {
       items.push({
         value: `api:${p.id}`,
@@ -954,6 +1012,10 @@ export function App({ store, initialStatusLine = '' }) {
       items,
       onSelect: (_value, item) => {
         setPicker(null);
+        if (item._type === 'continue') {
+          returnTo?.();
+          return;
+        }
         if (item._type === 'api-key') {
           setPicker({
             title: `Provider · ${item._providerName}`,
@@ -978,13 +1040,14 @@ export function App({ store, initialStatusLine = '' }) {
                   kind: 'api-key',
                   providerId: item._providerId,
                   label: item._providerName,
+                  afterSave: returnTo,
                 });
                 return;
               }
               if (detail._action === 'forget-key') {
                 try {
                   store.forgetProviderAuth(item._providerId);
-                  void openProviderSetupPicker();
+                  void openProviderSetupPicker(options);
                 } catch (e) {
                   store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
                 }
@@ -992,14 +1055,14 @@ export function App({ store, initialStatusLine = '' }) {
             },
             onCancel: () => {
               setPicker(null);
-              void openProviderSetupPicker();
+              void openProviderSetupPicker(options);
             },
           });
           return;
         }
         if (item._type === 'oauth') {
           void store.loginOAuthProvider(item._providerId)
-            .then(() => openProviderSetupPicker())
+            .then(() => openProviderSetupPicker(options))
             .catch((e) => store.pushNotice(`oauth login failed: ${e?.message || e}`, 'error'));
           return;
         }
@@ -1007,7 +1070,7 @@ export function App({ store, initialStatusLine = '' }) {
           if (item._enabled) {
             try {
               store.setLocalProvider(item._providerId, { enabled: false, baseURL: item._baseURL });
-              void openProviderSetupPicker();
+              void openProviderSetupPicker(options);
             } catch (e) {
               store.pushNotice(`local provider update failed: ${e?.message || e}`, 'error');
             }
@@ -1018,15 +1081,214 @@ export function App({ store, initialStatusLine = '' }) {
             providerId: item._providerId,
             label: item._providerName,
             defaultURL: item._defaultURL,
+            afterSave: returnTo,
           });
         }
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('canceled', 'info');
+        if (returnTo) returnTo();
+        else store.pushNotice('canceled', 'info');
       },
     });
   };
+
+  const openOnboardingModelStep = async () => {
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    let providerModels = [];
+    try {
+      providerModels = await store.listProviderModels();
+    } catch (e) {
+      store.pushNotice(`could not list models: ${e?.message || e}`, 'warn');
+    }
+    onboardingRef.current.providerModels = providerModels || [];
+    const modelItems = (providerModels || []).map((m) => ({
+      value: `${m.provider}:${m.id}`,
+      label: m.display || m.id,
+      description: modelDescription(m),
+      _action: 'select-model',
+      _model: m,
+    }));
+    const fallbackRoute = { provider: state.provider, model: state.model, ...(state.effort ? { effort: state.effort } : {}) };
+    const items = [
+      {
+        value: 'providers',
+        label: 'Connect providers',
+        description: 'OAuth, API keys, or local endpoints',
+        _action: 'providers',
+      },
+      ...(modelItems.length ? modelItems : [{
+        value: 'no-models',
+        label: 'No models loaded',
+        description: 'connect a provider, or continue with the current fallback route',
+        _action: 'noop',
+      }]),
+      {
+        value: 'continue-current',
+        label: 'Continue with current',
+        description: routeLabel(fallbackRoute),
+        _action: 'continue-current',
+      },
+    ];
+    setPicker({
+      title: 'First Run · Step 1/2 · Model Setup',
+      items,
+      onSelect: (_value, item) => {
+        setPicker(null);
+        if (item._action === 'providers') {
+          void openProviderSetupPicker({ returnTo: () => void openOnboardingModelStep() });
+          return;
+        }
+        const selectedRoute = item._action === 'select-model'
+          ? routeFromModel(item._model)
+          : fallbackRoute;
+        onboardingRef.current.defaultRoute = selectedRoute;
+        onboardingRef.current.workflowRoutes = buildWorkflowDefaults(onboardingRef.current.providerModels, selectedRoute);
+        if (item._action === 'select-model') {
+          void store.setRoute({ provider: selectedRoute.provider, model: selectedRoute.model, effort: selectedRoute.effort })
+            .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'warn'))
+            .finally(() => openOnboardingWorkflowStep());
+          return;
+        }
+        openOnboardingWorkflowStep();
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('first-run setup will open again next launch', 'warn');
+      },
+    });
+  };
+
+  const openOnboardingRoleModelPicker = (slot) => {
+    const models = onboardingRef.current.providerModels || [];
+    const fallbackRoute = onboardingRef.current.defaultRoute || { provider: state.provider, model: state.model };
+    const items = [
+      {
+        value: 'recommended',
+        label: 'Use recommended',
+        description: routeLabel(chooseRecommendedModel(models, slot, fallbackRoute)),
+        _action: 'recommended',
+      },
+      ...models.map((m) => ({
+        value: `${m.provider}:${m.id}`,
+        label: m.display || m.id,
+        description: modelDescription(m),
+        _action: 'select-model',
+        _model: m,
+      })),
+      {
+        value: 'fallback',
+        label: 'Use lead model',
+        description: routeLabel(fallbackRoute),
+        _action: 'fallback',
+      },
+    ];
+    setPicker({
+      title: `First Run · ${slot} model`,
+      items,
+      onSelect: (_value, item) => {
+        const next = item._action === 'select-model'
+          ? routeFromModel(item._model)
+          : item._action === 'recommended'
+            ? chooseRecommendedModel(models, slot, fallbackRoute)
+            : fallbackRoute;
+        onboardingRef.current.workflowRoutes = {
+          ...(onboardingRef.current.workflowRoutes || {}),
+          [slot]: next,
+        };
+        setPicker(null);
+        openOnboardingWorkflowStep();
+      },
+      onCancel: () => {
+        setPicker(null);
+        openOnboardingWorkflowStep();
+      },
+    });
+  };
+
+  const openOnboardingWorkflowStep = () => {
+    const routes = onboardingRef.current.workflowRoutes || {};
+    const slots = [
+      ['lead', 'Lead', 'main chat and planning route'],
+      ['bridge', 'Bridge', 'worker and agent dispatch route'],
+      ['explorer', 'Explorer', 'code graph, file reading, repo exploration'],
+      ['search', 'Search', 'web/search/retrieval helpers'],
+      ['memory', 'Memory', 'memory cycles and curation'],
+    ];
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setPicker({
+      title: 'First Run · Step 2/2 · Workflow Routes',
+      items: [
+        {
+          value: 'finish',
+          label: 'Finish setup',
+          description: 'save model and workflow route mapping',
+          _action: 'finish',
+        },
+        ...slots.map(([slot, label, description]) => ({
+          value: slot,
+          label,
+          description: `${routeLabel(routes[slot])} · ${description}`,
+          _action: 'slot',
+          _slot: slot,
+        })),
+        {
+          value: 'back',
+          label: 'Back to model setup',
+          description: 'change the default model/provider',
+          _action: 'back',
+        },
+      ],
+      onSelect: (_value, item) => {
+        setPicker(null);
+        if (item._action === 'finish') {
+          const defaultRoute = onboardingRef.current.defaultRoute || { provider: state.provider, model: state.model };
+          void store.completeOnboarding?.({
+            defaultRoute,
+            workflowRoutes: onboardingRef.current.workflowRoutes || {},
+          })
+            .then(() => store.pushNotice('✓ first-run setup complete', 'info'))
+            .catch((e) => store.pushNotice(`setup save failed: ${e?.message || e}`, 'error'));
+          return;
+        }
+        if (item._action === 'back') {
+          void openOnboardingModelStep();
+          return;
+        }
+        if (item._action === 'slot') {
+          openOnboardingRoleModelPicker(item._slot);
+        }
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('first-run setup will open again next launch', 'warn');
+      },
+    });
+  };
+
+  useEffect(() => {
+    if (onboardingStartedRef.current) return undefined;
+    let canceled = false;
+    try {
+      const status = store.getOnboardingStatus?.();
+      if (status?.completed === true) return undefined;
+      onboardingStartedRef.current = true;
+      setTimeout(() => {
+        if (!canceled) void openOnboardingModelStep();
+      }, 0);
+    } catch {
+      // If status probing fails, do not block normal TUI startup.
+    }
+    return () => {
+      canceled = true;
+    };
+  }, [store]);
 
   const openChannelSetupPicker = async (focus = 'all') => {
     setProviderPrompt(null);
@@ -1996,8 +2258,10 @@ export function App({ store, initialStatusLine = '' }) {
         }
         try {
           store.saveProviderApiKey(providerPrompt.providerId, commandText);
+          const afterSave = providerPrompt.afterSave;
           setProviderPrompt(null);
-          void openProviderSetupPicker();
+          if (afterSave) afterSave();
+          else void openProviderSetupPicker();
           return true;
         } catch (e) {
           store.pushNotice(`api key save failed: ${e?.message || e}`, 'error');
@@ -2010,8 +2274,10 @@ export function App({ store, initialStatusLine = '' }) {
             enabled: true,
             baseURL: commandText || providerPrompt.defaultURL,
           });
+          const afterSave = providerPrompt.afterSave;
           setProviderPrompt(null);
-          void openProviderSetupPicker();
+          if (afterSave) afterSave();
+          else void openProviderSetupPicker();
           return true;
         } catch (e) {
           store.pushNotice(`local provider update failed: ${e?.message || e}`, 'error');
@@ -2146,9 +2412,11 @@ export function App({ store, initialStatusLine = '' }) {
   }, []);
 
   const cancelProviderPrompt = useCallback(() => {
+    const afterSave = providerPrompt?.afterSave;
     setProviderPrompt(null);
-    store.pushNotice('canceled', 'info');
-  }, [store]);
+    if (afterSave) afterSave();
+    else store.pushNotice('canceled', 'info');
+  }, [providerPrompt, store]);
 
   const cancelChannelPrompt = useCallback(() => {
     setChannelPrompt(null);
