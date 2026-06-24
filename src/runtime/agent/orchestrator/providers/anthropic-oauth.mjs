@@ -170,6 +170,25 @@ export function resolveLatestAnthropicModel() {
     return best?.id || null;
 }
 
+function resolveAnthropicModelAfter404(requested) {
+    if (!Array.isArray(_inMemoryCatalog)) return null;
+    const wanted = String(requested || '');
+    const family = (wanted.match(/^claude-(opus|sonnet|haiku)/i) || [])[1]?.toLowerCase() || null;
+    let best = null;
+    for (const m of _inMemoryCatalog) {
+        if (!m?.id) continue;
+        if (family && m.family !== family) continue;
+        if (!family && m.family !== 'opus' && m.family !== 'sonnet') continue;
+        if (!best || _compareVersion(m.id, best.id) > 0) best = m;
+    }
+    if (best?.id && best.id !== wanted) return best.id;
+    if (family === 'opus') {
+        const flagship = resolveLatestAnthropicModel();
+        if (flagship && flagship !== wanted) return flagship;
+    }
+    return null;
+}
+
 export async function ensureLatestAnthropicModel(provider) {
     let m = resolveLatestAnthropicModel();
     if (m) return m;
@@ -1608,7 +1627,11 @@ export class AnthropicOAuthProvider {
                 if (isUnknownModel && !opts._modelRetry) {
                     process.stderr.write(`[anthropic-oauth] unknown model — refreshing catalog + 1 retry\n`);
                     await this._refreshModelCache();
-                    return this.send(messages, model, tools, { ...opts, _modelRetry: true });
+                    const fallbackModel = resolveAnthropicModelAfter404(useModel);
+                    if (fallbackModel) {
+                        process.stderr.write(`[anthropic-oauth] model fallback ${useModel} -> ${fallbackModel}\n`);
+                    }
+                    return this.send(messages, fallbackModel || model, tools, { ...opts, _modelRetry: true });
                 }
                 throw new Error(`Anthropic OAuth API ${response.status}: ${safeText}`);
             }

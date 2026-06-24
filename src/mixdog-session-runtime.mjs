@@ -1159,7 +1159,12 @@ export async function createMixdogSessionRuntime({
       sessionOpts.effort = route.effectiveEffort || null;
     }
     session = mgr.createSession(sessionOpts);
-    session.beforeToolHook = (input) => hooks.beforeTool(input);
+    Object.defineProperty(session, 'beforeToolHook', {
+      value: (input) => hooks.beforeTool(input),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
     applyDeferredToolSurface(session, mode, standaloneTools);
     statusRoutes?.writeGatewaySessionRoute?.(session.id, routeForStatusline(route));
     hooks.emit('session:create', { sessionId: session.id, provider: route.provider, model: route.model, toolMode: mode, cwd: currentCwd });
