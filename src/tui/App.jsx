@@ -591,10 +591,45 @@ export function App({ store, initialStatusLine = '' }) {
       onSelect: (_value, item) => {
         setPicker(null);
         if (item._type === 'api-key') {
-          setProviderPrompt({
-            kind: 'api-key',
-            providerId: item._providerId,
-            label: item._providerName,
+          setPicker({
+            title: `Provider · ${item._providerName}`,
+            items: [
+              {
+                value: 'set-key',
+                label: 'Set API key',
+                description: 'save or replace key in the OS keychain',
+                _action: 'set-key',
+              },
+              {
+                value: 'forget-key',
+                label: 'Forget API key',
+                description: 'remove stored key for this provider',
+                _action: 'forget-key',
+              },
+            ],
+            onSelect: (_detailValue, detail) => {
+              setPicker(null);
+              if (detail._action === 'set-key') {
+                setProviderPrompt({
+                  kind: 'api-key',
+                  providerId: item._providerId,
+                  label: item._providerName,
+                });
+                return;
+              }
+              if (detail._action === 'forget-key') {
+                try {
+                  store.forgetProviderAuth(item._providerId);
+                  void openProviderSetupPicker();
+                } catch (e) {
+                  store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
+                }
+              }
+            },
+            onCancel: () => {
+              setPicker(null);
+              void openProviderSetupPicker();
+            },
           });
           return;
         }
@@ -716,10 +751,52 @@ export function App({ store, initialStatusLine = '' }) {
         try {
           switch (item._action) {
             case 'discord-token':
-              setChannelPrompt({ kind: 'discord-token', label: 'Discord bot token' });
+              setPicker({
+                title: 'Discord Token',
+                items: [
+                  { value: 'set', label: 'Set token', description: `current: ${setup.discord.status}`, _action: 'set' },
+                  { value: 'forget', label: 'Forget token', description: 'remove stored Discord bot token', _action: 'forget' },
+                ],
+                onSelect: (_detailValue, detail) => {
+                  setPicker(null);
+                  if (detail._action === 'set') {
+                    setChannelPrompt({ kind: 'discord-token', label: 'Discord bot token' });
+                    return;
+                  }
+                  if (detail._action === 'forget') {
+                    store.forgetDiscordToken?.();
+                    void openChannelSetupPicker(focus);
+                  }
+                },
+                onCancel: () => {
+                  setPicker(null);
+                  void openChannelSetupPicker(focus);
+                },
+              });
               return;
             case 'webhook-token':
-              setChannelPrompt({ kind: 'webhook-token', label: 'Webhook/ngrok authtoken' });
+              setPicker({
+                title: 'Webhook Auth',
+                items: [
+                  { value: 'set', label: 'Set auth token', description: `current: ${setup.webhook.status}`, _action: 'set' },
+                  { value: 'forget', label: 'Forget auth token', description: 'remove stored webhook/ngrok auth token', _action: 'forget' },
+                ],
+                onSelect: (_detailValue, detail) => {
+                  setPicker(null);
+                  if (detail._action === 'set') {
+                    setChannelPrompt({ kind: 'webhook-token', label: 'Webhook/ngrok authtoken' });
+                    return;
+                  }
+                  if (detail._action === 'forget') {
+                    store.forgetWebhookAuthtoken?.();
+                    void openChannelSetupPicker(focus);
+                  }
+                },
+                onCancel: () => {
+                  setPicker(null);
+                  void openChannelSetupPicker(focus);
+                },
+              });
               return;
             case 'webhook-toggle':
               store.setWebhookConfig({ enabled: setup.webhook.enabled === false });

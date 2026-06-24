@@ -612,9 +612,19 @@ export async function createEngineSession({
       pushItem({ kind: 'notice', id: nextId(), text: 'discord token saved', tone: 'info' });
       return result;
     },
+    forgetDiscordToken: () => {
+      const result = runtime.forgetDiscordToken();
+      pushItem({ kind: 'notice', id: nextId(), text: 'discord token forgotten', tone: 'info' });
+      return result;
+    },
     saveWebhookAuthtoken: (token) => {
       const result = runtime.saveWebhookAuthtoken(token);
       pushItem({ kind: 'notice', id: nextId(), text: 'webhook/ngrok authtoken saved', tone: 'info' });
+      return result;
+    },
+    forgetWebhookAuthtoken: () => {
+      const result = runtime.forgetWebhookAuthtoken();
+      pushItem({ kind: 'notice', id: nextId(), text: 'webhook/ngrok authtoken forgotten', tone: 'info' });
       return result;
     },
     saveChannel: (entry) => {
