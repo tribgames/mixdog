@@ -1128,6 +1128,74 @@ export async function createMixdogSessionRuntime({
     }
   }
 
+  function sortProviderModels(models) {
+    return (models || []).sort((a, b) => {
+      const ar = a.provider === route.provider ? 0 : 1;
+      const br = b.provider === route.provider ? 0 : 1;
+      if (ar !== br) return ar - br;
+      if (a.provider !== b.provider) return a.provider.localeCompare(b.provider);
+      if (a.latest !== b.latest) return a.latest ? -1 : 1;
+      return String(a.display || a.id).localeCompare(String(b.display || b.id));
+    });
+  }
+
+  async function collectProviderModels() {
+    await reg.initProviders(config.providers || {});
+    const allProviders = reg.getAllProviders();
+    const results = [];
+    const seen = new Set();
+    for (const [name, provider] of allProviders) {
+      if (typeof provider?.listModels !== 'function') continue;
+      try {
+        const models = await provider.listModels();
+        if (Array.isArray(models)) {
+          for (const m of models) {
+            if (!m?.id) continue;
+            const key = `${name}:${m.id}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            results.push({
+              id: m.id,
+              provider: name,
+              display: m.display || m.name || m.id,
+              contextWindow: m.contextWindow,
+              outputTokens: m.outputTokens || null,
+              family: m.family || null,
+              tier: m.tier || null,
+              latest: m.latest === true,
+              description: m.description || '',
+              supportsVision: m.supportsVision === true,
+              supportsFunctionCalling: m.supportsFunctionCalling === true,
+              supportsPromptCaching: m.supportsPromptCaching === true,
+              reasoningLevels: Array.isArray(m.reasoningLevels) ? m.reasoningLevels : [],
+              effortOptions: effortItemsFor(name, m, null),
+            });
+          }
+        }
+      } catch {
+        // Ignore per-provider catalog failures so one bad credential or
+        // transient /models error does not hide other authenticated models.
+      }
+    }
+    return sortProviderModels(results);
+  }
+
+  async function resolveMissingRouteModelForFirstTurn() {
+    if (routeHasModel()) return route;
+    const models = await collectProviderModels();
+    const picked = models[0] || null;
+    if (!picked) {
+      throw new Error('No provider models available. Run /providers to authenticate, then /model to choose a model.');
+    }
+    route = {
+      ...route,
+      provider: picked.provider,
+      model: picked.id,
+      preset: null,
+    };
+    return route;
+  }
+
   async function refreshRouteEffort() {
     await reg.initProviders(ensureProviderEnabled(config, route.provider));
     const modelMeta = await lookupModelMeta(route.provider, route.model);
@@ -1137,7 +1205,26 @@ export async function createMixdogSessionRuntime({
     return route;
   }
 
+  function routeHasModel() {
+    return !!clean(route?.model);
+  }
+
+  function requireModelRoute() {
+    if (routeHasModel()) return;
+    throw new Error('No model configured. Run /providers to authenticate, then /model to choose a model.');
+  }
+
+  async function recreateCurrentSessionIfReady() {
+    if (!routeHasModel()) {
+      session = null;
+      return null;
+    }
+    return await createCurrentSession();
+  }
+
   async function createCurrentSession() {
+    await resolveMissingRouteModelForFirstTurn();
+    requireModelRoute();
     await refreshRouteEffort();
     const providerImpl = reg.getProvider(route.provider);
     if (!providerImpl) {
@@ -1171,7 +1258,7 @@ export async function createMixdogSessionRuntime({
     return session;
   }
 
-  await createCurrentSession();
+  await recreateCurrentSessionIfReady();
 
   return {
     get id() {
@@ -1257,7 +1344,7 @@ export async function createMixdogSessionRuntime({
       if (defaultRoute) {
         route = resolveRoute(config, { provider: defaultRoute.provider, model: defaultRoute.model, effort: defaultRoute.effort });
         if (session?.id) mgr.closeSession(session.id, 'cli-onboarding-complete');
-        await createCurrentSession();
+        await recreateCurrentSessionIfReady();
       }
       return this.getOnboardingStatus();
     },
@@ -1353,52 +1440,7 @@ export async function createMixdogSessionRuntime({
       return cfgMod.listPresets(cfgMod.loadConfig());
     },
     async listProviderModels() {
-      await reg.initProviders(config.providers || {});
-      const allProviders = reg.getAllProviders();
-      const results = [];
-      const seen = new Set();
-      for (const [name, provider] of allProviders) {
-        if (typeof provider?.listModels !== 'function') continue;
-        try {
-          const models = await provider.listModels();
-          if (Array.isArray(models)) {
-            for (const m of models) {
-              if (!m?.id) continue;
-              const key = `${name}:${m.id}`;
-              if (seen.has(key)) continue;
-              seen.add(key);
-              results.push({
-                id: m.id,
-                provider: name,
-                display: m.display || m.name || m.id,
-                contextWindow: m.contextWindow,
-                outputTokens: m.outputTokens || null,
-                family: m.family || null,
-                tier: m.tier || null,
-                latest: m.latest === true,
-                description: m.description || '',
-                supportsVision: m.supportsVision === true,
-                supportsFunctionCalling: m.supportsFunctionCalling === true,
-                supportsPromptCaching: m.supportsPromptCaching === true,
-                reasoningLevels: Array.isArray(m.reasoningLevels) ? m.reasoningLevels : [],
-                effortOptions: effortItemsFor(name, m, null),
-              });
-            }
-          }
-        } catch {
-          // Ignore per-provider catalog failures so one bad credential or
-          // transient /models error does not hide other authenticated models.
-        }
-      }
-      results.sort((a, b) => {
-        const ar = a.provider === route.provider ? 0 : 1;
-        const br = b.provider === route.provider ? 0 : 1;
-        if (ar !== br) return ar - br;
-        if (a.provider !== b.provider) return a.provider.localeCompare(b.provider);
-        if (a.latest !== b.latest) return a.latest ? -1 : 1;
-        return String(a.display || a.id).localeCompare(String(b.display || b.id));
-      });
-      return results;
+      return await collectProviderModels();
     },
     async ask(prompt, options = {}) {
       if (!session?.id) await createCurrentSession();
@@ -1453,7 +1495,7 @@ export async function createMixdogSessionRuntime({
     async setToolMode(nextMode) {
       mode = normalizeToolMode(nextMode);
       if (session?.id) mgr.closeSession(session.id, 'cli-mode-switch');
-      await createCurrentSession();
+      await recreateCurrentSessionIfReady();
       return mode;
     },
     setBridgeMode(nextMode) {
@@ -1502,7 +1544,7 @@ export async function createMixdogSessionRuntime({
       config = cfgMod.loadConfig();
       const status = await connectConfiguredMcp({ reset: true });
       if (session?.id) mgr.closeSession(session.id, 'cli-mcp-reconnect');
-      await createCurrentSession();
+      await recreateCurrentSessionIfReady();
       return status;
     },
     async removeMcpServer(name) {
@@ -1520,7 +1562,7 @@ export async function createMixdogSessionRuntime({
       config = cfgMod.loadConfig();
       const status = await connectConfiguredMcp({ reset: true });
       if (session?.id) mgr.closeSession(session.id, 'cli-mcp-remove');
-      await createCurrentSession();
+      await recreateCurrentSessionIfReady();
       return status;
     },
     skillsStatus() {
@@ -1531,7 +1573,7 @@ export async function createMixdogSessionRuntime({
     },
     async reloadSkills() {
       if (session?.id) mgr.closeSession(session.id, 'cli-skills-reload');
-      await createCurrentSession();
+      await recreateCurrentSessionIfReady();
       return skillsStatus();
     },
     pluginsStatus() {
@@ -1539,7 +1581,7 @@ export async function createMixdogSessionRuntime({
     },
     async reloadPlugins() {
       if (session?.id) mgr.closeSession(session.id, 'cli-plugins-reload');
-      await createCurrentSession();
+      await recreateCurrentSessionIfReady();
       return pluginsStatus();
     },
     async enablePluginMcp(plugin = {}) {
@@ -1566,7 +1608,7 @@ export async function createMixdogSessionRuntime({
       config = cfgMod.loadConfig();
       const status = await connectConfiguredMcp({ reset: true });
       if (session?.id) mgr.closeSession(session.id, 'cli-plugin-mcp-enable');
-      await createCurrentSession();
+      await recreateCurrentSessionIfReady();
       return { serverName, status };
     },
     hooksStatus() {
@@ -1605,7 +1647,7 @@ export async function createMixdogSessionRuntime({
       }
       route = resolveRoute(config, requested);
       if (session?.id) mgr.closeSession(session.id, 'cli-model-switch');
-      await createCurrentSession();
+      await recreateCurrentSessionIfReady();
       return route;
     },
 
