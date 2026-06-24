@@ -9,22 +9,22 @@
  * Dark-fixed for now (terminal background detection can pick light later).
  */
 export const theme = {
-  claude: 'rgb(240,138,94)', // warm brand accent
-  claudeShimmer: 'rgb(255,184,138)',
-  text: 'rgb(255,255,255)', // CC darkTheme text
+  claude: 'rgb(255,138,86)', // warm brand accent
+  claudeShimmer: 'rgb(255,190,142)',
+  text: 'rgb(240,240,240)', // primary text
   inverseText: 'rgb(0,0,0)', // text on an inverted (light) background
-  inactive: 'rgb(225,225,225)', // secondary gray
-  subtle: 'rgb(178,178,178)', // borders / helper text
-  promptBorder: 'rgb(205,205,205)', // input border / prompt
-  success: 'rgb(70,245,108)', // green
-  error: 'rgb(255,72,112)', // red
-  warning: 'rgb(255,218,56)', // amber
-  suggestion: 'rgb(68,143,255)', // selector/title blue
+  inactive: 'rgb(212,212,212)', // secondary text
+  subtle: 'rgb(154,154,154)', // helper text / quiet rules
+  promptBorder: 'rgb(200,200,200)', // input border / prompt
+  success: 'rgb(126,231,135)', // green
+  error: 'rgb(255,92,115)', // red
+  warning: 'rgb(255,216,74)', // amber
+  suggestion: 'rgb(95,135,255)', // selector/title blue
   permission: 'rgb(177,185,249)', // CC darkTheme permission
   code: 'rgb(177,185,249)', // inline code accent = CC permission
-  codeBlock: 'rgb(85,220,125)', // code block body
-  userMessageBackground: 'rgb(112,112,112)', // selected row / user bubble background
-  userMessageBackgroundHover: 'rgb(132,132,132)', // hover variant
+  codeBlock: 'rgb(126,231,135)', // code block body
+  userMessageBackground: 'rgb(128,128,128)', // selected row / user bubble background
+  userMessageBackgroundHover: 'rgb(148,148,148)', // hover variant
   fastMode: 'rgb(255,120,20)',
 };
 

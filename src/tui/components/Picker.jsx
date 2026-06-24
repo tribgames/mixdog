@@ -92,7 +92,7 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, colu
           height={4}
           width="100%"
         >
-          <Text color={theme.claude}>{title || 'Picker'}</Text>
+          <Text color={theme.suggestion}>{title || 'Picker'}</Text>
           <Text color={theme.inactive}> (empty) </Text>
         </Box>
       </Box>
