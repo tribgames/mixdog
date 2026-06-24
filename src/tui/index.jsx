@@ -2,7 +2,7 @@
  * src/tui/index.jsx — entry that mounts the React/ink TUI.
  *
  * Creates the engine session (runs OUR agentLoop outside React) and ink-renders
- * <App store={...}/>. Resolves when the app exits (Ctrl+C / /exit).
+ * <App store={...}/>. Resolves when the app exits (/exit or /quit).
  */
 import React from 'react';
 import { render } from 'ink';
@@ -72,10 +72,9 @@ export async function runTui({ provider, model, toolMode } = {}) {
   };
   process.on('exit', restoreTerminal);
 
-  // exitOnCtrlC:false — ink's own Ctrl+C path unmounts IMMEDIATELY, before our
-  // useInput handler runs, so our cursor-return-to-bottom teardown frame would
-  // never render and the shell prompt would overlap our frame. We take over
-  // Ctrl+C in App (requestExit) to draw the teardown frame first, then exit.
+  // exitOnCtrlC:false — keep Ctrl+C available for terminal copy behavior.
+  // Explicit exits go through /exit or /quit so teardown still restores the
+  // cursor, mouse mode, and alternate screen cleanly.
   const instance = render(<App store={store} initialStatusLine={initialStatusLine} />, { exitOnCtrlC: false, maxFps: 60 });
   const { waitUntilExit } = instance;
   // [mixdog fork] Hand the ink renderer's drag-selection setter to the store so

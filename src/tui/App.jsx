@@ -64,7 +64,7 @@ const HELP = [
   '  /recall <query>  search stored memory directly',
   '  /exit, /quit     quit',
   'Picker: ↑/↓ navigate, Enter confirm, Escape cancel (attached above prompt).',
-  'Ctrl+B toggles bridge sync/async. Ctrl+C exits. Ctrl+V/paste inserts text. Terminal drag/select/drop stays native. PageUp/PageDown scroll transcript. ↑/↓ recall history.',
+  'Ctrl+B toggles bridge sync/async. /exit or /quit exits. Ctrl+V/paste inserts text. Terminal drag/select/drop stays native. PageUp/PageDown scroll transcript. ↑/↓ recall history.',
 ].join('\n');
 
 const SLASH_COMMANDS = [
@@ -444,8 +444,8 @@ export function App({ store, initialStatusLine = '' }) {
     setTimeout(() => { store.dispose?.(); exit(); }, 60);
   }, [store, exit]);
 
-  // Ctrl+C → clean exit; ESC → interrupt the running turn (keeps the steering
-  // queue). Only active on a real TTY (raw mode); in pipes/CI useInput throws.
+  // ESC → interrupt the running turn (keeps the steering queue). Only active
+  // on a real TTY (raw mode); in pipes/CI useInput throws.
   // This handler is registered before PromptInput's, so ESC is caught here while
   // a turn is busy; when idle it falls through (PromptInput may use it later).
   // Ctrl+O toggles the global tool-output expansion, matching the Claude/Pi
@@ -455,10 +455,6 @@ export function App({ store, initialStatusLine = '' }) {
   }, []);
 
   useInput((input, key) => {
-    if (key.ctrl && input === 'c') {
-      requestExit();
-      return;
-    }
     if (key.ctrl && (input === 'b' || input === 'B')) {
       store.toggleBridgeMode?.();
       return;

@@ -9,7 +9,7 @@
  *   ↑ / ↓      — move selection (wraps at ends)
  *   Enter       — confirm selection, calls onSelect(value)
  *   Escape      — cancel, calls onCancel()
- *   Ctrl+C      — falls through to App's exit handler (not intercepted)
+ *   Ctrl+C      — ignored by the TUI so terminal copy behavior can win
  */
 import React, { useState, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
