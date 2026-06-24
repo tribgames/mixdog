@@ -211,6 +211,13 @@ function fitLine(value, columns, reserve = 4) {
   return text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text;
 }
 
+function centerLine(value, columns, reserve = 0) {
+  const text = fitLine(value, columns, reserve);
+  const width = Math.max(1, Number(columns || 80) - reserve);
+  const pad = Math.max(0, Math.floor((width - text.length) / 2));
+  return `${' '.repeat(pad)}${text}`;
+}
+
 // Copy text to the OS clipboard via the platform's native command. We avoid
 // OSC 52 (terminal clipboard escape) because support is uneven across Windows
 // terminals; spawning clip/pbcopy/xclip is reliable. Resolves on success,
@@ -2704,7 +2711,7 @@ export function App({ store, initialStatusLine = '' }) {
   //
   // Every sibling outside the viewport must be accounted for here; otherwise
   // the total tree height exceeds the terminal and the input box gets pushed.
-  const WELCOME_ROWS = state.items.length === 0 ? 7 : 0;
+  const WELCOME_ROWS = state.items.length === 0 ? 9 : 0;
   // Independent reservation for each live-status child — the viewport must
   // yield enough space for every bottom sibling. ThinkingMessage: outer
   // marginTop(1) + inner marginTop(1) + "∴ Thinking…" label(1) = 3.
@@ -2755,32 +2762,17 @@ export function App({ store, initialStatusLine = '' }) {
       {/* Empty-transcript header stays outside the bottom-anchored viewport and
           has its own reserved rows, so it cannot steal space from the input. */}
       {state.items.length === 0 ? (
-        <Box flexDirection="column" height={5} flexShrink={0} marginTop={1} marginBottom={1}>
-          <Box flexDirection="row">
-            <Box flexDirection="column" flexShrink={0} marginRight={2}>
-              <Text color={theme.claude}>███ ███</Text>
-              <Text color={theme.claude}> █████ </Text>
-              <Text color={theme.claude}>███ ███</Text>
-              <Text color={theme.claude}> █ █ █ </Text>
-            </Box>
-            <Box flexDirection="column" flexGrow={1}>
-              <Text>
-                <Text color={theme.text} bold>mixdog-cli</Text>
-                <Text color={theme.subtle}>  standalone coding agent</Text>
-              </Text>
-              <Text color={theme.inactive}>
-                {fitLine(`${state.model} · ${(state.effort || 'auto').toUpperCase()} · ${state.provider}`, resizeState.columns, 14)}
-              </Text>
-              <Text color={theme.inactive}>
-                {fitLine(`${state.toolMode || 'full'} tools · bridge ${state.bridgeMode || 'sync'}`, resizeState.columns, 14)}
-              </Text>
-              <Text color={theme.subtle}>
-                {fitLine(state.cwd, resizeState.columns, 14)}
-              </Text>
-            </Box>
-          </Box>
-          <Text color={theme.subtle}>
-            {fitLine('  /model switch model · /config settings · /providers auth · /help commands', resizeState.columns)}
+        <Box flexDirection="column" height={7} flexShrink={0} marginTop={1} marginBottom={1}>
+          <Text color={theme.text} bold>{centerLine('███╗   ███╗██╗██╗  ██╗██████╗  ██████╗  ██████╗ ', resizeState.columns)}</Text>
+          <Text color={theme.text} bold>{centerLine('████╗ ████║██║╚██╗██╔╝██╔══██╗██╔═══██╗██╔════╝ ', resizeState.columns)}</Text>
+          <Text color={theme.claude} bold>{centerLine('██╔████╔██║██║ ╚███╔╝ ██║  ██║██║   ██║██║  ███╗', resizeState.columns)}</Text>
+          <Text color={theme.claude} bold>{centerLine('██║╚██╔╝██║██║ ██╔██╗ ██║  ██║██║   ██║██║   ██║', resizeState.columns)}</Text>
+          <Text color={theme.claude} bold>{centerLine('██║ ╚═╝ ██║██║██╔╝ ██╗██████╔╝╚██████╔╝╚██████╔╝', resizeState.columns)}</Text>
+          <Text>
+            <Text color={theme.suggestion} bold>{centerLine('mixdog-cli', resizeState.columns)}</Text>
+          </Text>
+          <Text color={theme.inactive}>
+            {centerLine(`${state.provider}/${state.model} · ${(state.effort || 'auto').toUpperCase()} · ${state.toolMode || 'full'} access`, resizeState.columns)}
           </Text>
         </Box>
       ) : null}
