@@ -103,6 +103,12 @@ function slashQuery(value) {
   return text.slice(1).toLowerCase();
 }
 
+function slashCommandMatches(command, query) {
+  const needle = String(query || '').toLowerCase();
+  if (!needle) return true;
+  return String(command?.name || '').toLowerCase().startsWith(needle);
+}
+
 function terminalSize(stdout) {
   return {
     columns: stdout?.columns ?? 80,
@@ -2451,10 +2457,7 @@ export function App({ store, initialStatusLine = '' }) {
   const activeSlashQuery = providerPrompt || channelPrompt || hookPrompt || settingsPrompt ? null : slashQuery(promptDraft);
   const slashCommands = activeSlashQuery === null || picker || exiting || state.commandBusy
     ? []
-    : SLASH_COMMANDS.filter((command) => {
-      const needle = activeSlashQuery;
-      return command.name.includes(needle) || command.usage.toLowerCase().includes(needle);
-    });
+    : SLASH_COMMANDS.filter((command) => slashCommandMatches(command, activeSlashQuery));
   const slashPaletteOpen = activeSlashQuery !== null
     && slashDismissedFor !== promptDraft
     && slashCommands.length > 0;
