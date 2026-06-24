@@ -1133,6 +1133,9 @@ export async function createMixdogSessionRuntime({
     get bridgeMode() {
       return bridge.getDefaultMode();
     },
+    get cwd() {
+      return currentCwd;
+    },
     get session() {
       return session;
     },
@@ -1345,6 +1348,13 @@ export async function createMixdogSessionRuntime({
     },
     bridgeControl(args = {}) {
       return bridge.execute(args, { callerCwd: currentCwd });
+    },
+    setCwd(path) {
+      currentCwd = resolveCwdPath(currentCwd, path);
+      process.env.MIXDOG_SESSION_CWD = currentCwd;
+      writeLastSessionCwd(currentCwd);
+      if (session) session.cwd = currentCwd;
+      return currentCwd;
     },
     mcpStatus() {
       return mcpStatus();

@@ -84,7 +84,7 @@ export async function createEngineSession({
 
   const { createMixdogSessionRuntime } = await import(SESSION_RUNTIME_MODULE);
   const runtime = await createMixdogSessionRuntime({ provider: providerName, model, toolMode });
-  const cwd = process.cwd();
+  const cwd = runtime.cwd || process.cwd();
 
   let state = {
     items: [],
@@ -374,6 +374,12 @@ export async function createEngineSession({
       } finally {
         set({ commandBusy: false });
       }
+    },
+    setCwd: (path) => {
+      const next = runtime.setCwd(path);
+      set({ cwd: next });
+      pushItem({ kind: 'notice', id: nextId(), text: `cwd → ${next}`, tone: 'info' });
+      return next;
     },
     mcpStatus: () => {
       return runtime.mcpStatus?.() || { servers: [], configuredCount: 0, connectedCount: 0, failedCount: 0 };

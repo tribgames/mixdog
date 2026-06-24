@@ -41,6 +41,7 @@ const HELP = [
   '  /resume [id]     resume a saved session (picker if no id)',
   '  /model <name>    switch model for subsequent turns (picker if no name)',
   '  /effort [level] set reasoning effort for the current model',
+  '  /cwd [path]      show or set the session working directory',
   '  /bridge <mode>   switch bridge default: sync | async',
   '  /bridge spawn <role> <prompt>',
   '  /bridge send <tag> <message>',
@@ -71,6 +72,7 @@ const SLASH_COMMANDS = [
   { name: 'resume', usage: '/resume', description: 'resume a saved session' },
   { name: 'model', usage: '/model', description: 'switch model for subsequent turns' },
   { name: 'effort', usage: '/effort [level]', description: 'set reasoning effort for the current model' },
+  { name: 'cwd', usage: '/cwd [path]', description: 'show or set the session working directory' },
   { name: 'bridge', usage: '/bridge [sync|async|spawn|send|list|read]', description: 'control bridge workers' },
   { name: 'mcp', usage: '/mcp', description: 'manage MCP servers and tools' },
   { name: 'skills', usage: '/skills', description: 'list and view available skills' },
@@ -1344,6 +1346,19 @@ export function App({ store, initialStatusLine = '' }) {
           .then(result => store.pushNotice(result ? `✓ effort → ${result}` : 'effort switch already in progress', result ? 'info' : 'warn'))
           .catch((e) => store.pushNotice(`effort switch failed: ${e?.message || e}`, 'error'));
         return true;
+      case 'cwd': {
+        const nextPath = arg.trim();
+        if (!nextPath) {
+          store.pushNotice(`cwd: ${state.cwd}`, 'info');
+          return true;
+        }
+        try {
+          store.setCwd?.(nextPath);
+        } catch (e) {
+          store.pushNotice(`cwd failed: ${e?.message || e}`, 'error');
+        }
+        return true;
+      }
       case 'bridge': {
         const mode = arg.trim().toLowerCase();
         if (!mode) {
