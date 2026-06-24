@@ -208,7 +208,10 @@ function clampPct(v) {
 /** Human-friendly token count: 1234 -> 1.2k. */
 function fmt(n) {
   const v = Number(n) || 0;
-  if (v < 1000) return String(v);
-  if (v < 1_000_000) return (v / 1000).toFixed(v < 10_000 ? 1 : 0) + 'k';
+  if (v < 1000) return String(Math.round(v));
+  if (v < 1_000_000) {
+    const k = Math.round(v / 1000);
+    return k >= 1000 ? '1M' : `${k}k`;
+  }
   return (v / 1_000_000).toFixed(1) + 'M';
 }
