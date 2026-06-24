@@ -40,6 +40,8 @@ const HELP = [
   '  /new             start a fresh session (closes current)',
   '  /resume [id]     resume a saved session (picker if no id)',
   '  /status          open session/runtime status dashboard',
+  '  /settings        open configuration hub',
+  '  /config          alias for /settings',
   '  /model <name>    switch model for subsequent turns (picker if no name)',
   '  /effort [level] set reasoning effort for the current model',
   '  /cwd [path]      show or set the session working directory',
@@ -73,6 +75,8 @@ const SLASH_COMMANDS = [
   { name: 'new', usage: '/new', description: 'start a fresh session' },
   { name: 'resume', usage: '/resume', description: 'resume a saved session' },
   { name: 'status', usage: '/status', description: 'open session/runtime status dashboard' },
+  { name: 'settings', usage: '/settings', description: 'open configuration hub' },
+  { name: 'config', usage: '/config', description: 'open configuration hub' },
   { name: 'model', usage: '/model', description: 'switch model for subsequent turns' },
   { name: 'effort', usage: '/effort [level]', description: 'set reasoning effort for the current model' },
   { name: 'cwd', usage: '/cwd [path]', description: 'show or set the session working directory' },
@@ -723,6 +727,12 @@ export function App({ store, initialStatusLine = '' }) {
           _action: 'overview',
         },
         {
+          value: 'settings',
+          label: 'Settings',
+          description: 'open configuration hub',
+          _action: 'settings',
+        },
+        {
           value: 'tools',
           label: 'Tools',
           description: `${tools.activeCount || 0}/${tools.count || 0} active · mode ${tools.mode || state.toolMode}`,
@@ -773,12 +783,113 @@ export function App({ store, initialStatusLine = '' }) {
           ].join('\n'), 'info');
           return;
         }
-        if (item._action === 'tools') openToolsPicker();
+        if (item._action === 'settings') openSettingsPicker();
+        else if (item._action === 'tools') openToolsPicker();
         else if (item._action === 'mcp') openMcpPicker();
         else if (item._action === 'hooks') openHooksPicker();
         else if (item._action === 'plugins') openPluginsPicker();
         else if (item._action === 'skills') openSkillsPicker();
         else if (item._action === 'channels') void openChannelSetupPicker('all');
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
+  const openSettingsPicker = () => {
+    const tools = store.toolsStatus?.() || { activeCount: 0, count: 0 };
+    const mcp = store.mcpStatus?.() || { connectedCount: 0, configuredCount: 0, failedCount: 0 };
+    const hooks = store.hooksStatus?.() || { ruleCount: 0 };
+    const plugins = store.pluginsStatus?.() || { count: 0 };
+    const channelWorker = store.getChannelWorkerStatus?.();
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setPicker({
+      title: 'Settings',
+      items: [
+        {
+          value: 'model',
+          label: 'Model',
+          description: `${state.provider}/${state.model}`,
+          _action: 'model',
+        },
+        {
+          value: 'effort',
+          label: 'Reasoning effort',
+          description: state.effort || 'auto',
+          _action: 'effort',
+        },
+        {
+          value: 'providers',
+          label: 'Providers',
+          description: 'API keys, OAuth, local endpoints',
+          _action: 'providers',
+        },
+        {
+          value: 'cwd',
+          label: 'Working directory',
+          description: state.cwd,
+          _action: 'cwd',
+        },
+        {
+          value: 'bridge',
+          label: 'Bridge',
+          description: `default ${state.bridgeMode || 'sync'}`,
+          _action: 'bridge',
+        },
+        {
+          value: 'tools',
+          label: 'Tool surface',
+          description: `${tools.activeCount || 0}/${tools.count || 0} active · ${state.toolMode}`,
+          _action: 'tools',
+        },
+        {
+          value: 'mcp',
+          label: 'MCP servers',
+          description: `${mcp.connectedCount || 0}/${mcp.configuredCount || 0} connected${mcp.failedCount ? ` · ${mcp.failedCount} failed` : ''}`,
+          _action: 'mcp',
+        },
+        {
+          value: 'plugins',
+          label: 'Plugins',
+          description: `${plugins.count || 0} detected`,
+          _action: 'plugins',
+        },
+        {
+          value: 'hooks',
+          label: 'Hooks',
+          description: `${hooks.ruleCount || 0} before-tool rules`,
+          _action: 'hooks',
+        },
+        {
+          value: 'channels',
+          label: 'Channels',
+          description: channelWorker?.running ? `worker running · pid ${channelWorker.pid}` : 'worker stopped',
+          _action: 'channels',
+        },
+        {
+          value: 'status',
+          label: 'Runtime status',
+          description: 'open read-only overview dashboard',
+          _action: 'status',
+        },
+      ],
+      onSelect: (_value, item) => {
+        setPicker(null);
+        if (item._action === 'model') openModelPicker();
+        else if (item._action === 'effort') openEffortPicker();
+        else if (item._action === 'providers') void openProviderSetupPicker();
+        else if (item._action === 'cwd') store.pushNotice(`cwd: ${state.cwd}\nUse /cwd <path> to change it.`, 'info');
+        else if (item._action === 'bridge') openBridgePicker();
+        else if (item._action === 'tools') openToolsPicker();
+        else if (item._action === 'mcp') openMcpPicker();
+        else if (item._action === 'plugins') openPluginsPicker();
+        else if (item._action === 'hooks') openHooksPicker();
+        else if (item._action === 'channels') void openChannelSetupPicker('all');
+        else if (item._action === 'status') openStatusPicker();
       },
       onCancel: () => {
         setPicker(null);
@@ -1846,6 +1957,10 @@ export function App({ store, initialStatusLine = '' }) {
         return true;
       case 'status':
         openStatusPicker();
+        return true;
+      case 'settings':
+      case 'config':
+        openSettingsPicker();
         return true;
       case 'exit':
       case 'quit':
