@@ -508,8 +508,11 @@ export function App({ store, initialStatusLine = '' }) {
     const text = String(id || '').toLowerCase();
     const claude = text.match(/^claude-[a-z]+-(\d+)(?:[-.](\d+))?/);
     if (claude) return [Number(claude[1]) || 0, Number(claude[2]) || 0];
-    const generic = text.match(/(?:^|[-_])(\d+)(?:[.-](\d+))?(?:[.-](\d+))?/);
-    return generic ? generic.slice(1).map((v) => Number(v) || 0) : [0];
+    const compact = text.match(/(?:^|[-_])(?:o|gpt|grok|qwen|llama|mistral|gemma|phi|glm)(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/);
+    if (compact) return compact.slice(1).filter((v) => v != null).map((v) => Number(v) || 0);
+    const generic = text.match(/(?:^|[-_v])(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/);
+    if (!generic) return [];
+    return generic.slice(1).filter((v) => v != null).map((v) => Number(v) || 0);
   };
 
   const releaseTime = (m) => {
@@ -532,9 +535,17 @@ export function App({ store, initialStatusLine = '' }) {
     return provider.includes('anthropic') && /^claude-[a-z]+-/.test(id);
   };
 
+  const modelVersion = (m) => {
+    const fromId = parsedModelVersion(m?.id);
+    return fromId.length ? fromId : parsedModelVersion(m?.display || m?.name);
+  };
+
   const compareModelVersion = (a, b) => {
-    const va = parsedModelVersion(a?.id);
-    const vb = parsedModelVersion(b?.id);
+    const va = modelVersion(a);
+    const vb = modelVersion(b);
+    if (va.length === 0 && vb.length === 0) return 0;
+    if (va.length === 0) return 1;
+    if (vb.length === 0) return -1;
     for (let i = 0; i < Math.max(va.length, vb.length); i += 1) {
       const delta = (vb[i] || 0) - (va[i] || 0);
       if (delta) return delta;
@@ -543,9 +554,10 @@ export function App({ store, initialStatusLine = '' }) {
   };
 
   const compareModelRecency = (a, b) => {
+    const versionDelta = compareModelVersion(a, b);
+    if (versionDelta) return versionDelta;
+
     if (isClaudeModel(a) && isClaudeModel(b)) {
-      const versionDelta = compareModelVersion(a, b);
-      if (versionDelta) return versionDelta;
       if (!!a?.latest !== !!b?.latest) return a?.latest ? -1 : 1;
       const ta = releaseTime(a);
       const tb = releaseTime(b);
@@ -557,8 +569,6 @@ export function App({ store, initialStatusLine = '' }) {
     const tb = releaseTime(b);
     if (ta !== tb) return tb - ta;
     if (!!a?.latest !== !!b?.latest) return a?.latest ? -1 : 1;
-    const versionDelta = compareModelVersion(a, b);
-    if (versionDelta) return versionDelta;
     return String(a?.display || a?.id || '').localeCompare(String(b?.display || b?.id || ''));
   };
 
