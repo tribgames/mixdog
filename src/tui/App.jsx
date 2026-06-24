@@ -993,6 +993,8 @@ export function App({ store, initialStatusLine = '' }) {
 
   const openProviderSetupPicker = async (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    const onContinue = typeof options.onContinue === 'function' ? options.onContinue : returnTo;
+    const onCancel = typeof options.onCancel === 'function' ? options.onCancel : null;
     let setup;
     try {
       setup = await store.getProviderSetup();
@@ -1002,11 +1004,11 @@ export function App({ store, initialStatusLine = '' }) {
     }
 
     const items = [];
-    if (returnTo) {
+    if (returnTo || onContinue) {
       items.push({
         value: 'continue-setup',
-        label: 'Continue setup',
-        description: 'return to first-run model setup',
+        label: options.continueLabel || 'Continue setup',
+        description: options.continueDescription || 'return to setup',
         _type: 'continue',
       });
     }
@@ -1049,12 +1051,12 @@ export function App({ store, initialStatusLine = '' }) {
     setHookPrompt(null);
     setSettingsPrompt(null);
     setPicker({
-      title: 'Providers',
+      title: options.title || 'Providers',
       items,
       onSelect: (_value, item) => {
         setPicker(null);
         if (item._type === 'continue') {
-          returnTo?.();
+          onContinue?.();
           return;
         }
         if (item._type === 'api-key') {
@@ -1128,78 +1130,21 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        if (returnTo) returnTo();
+        if (onCancel) onCancel();
+        else if (returnTo) returnTo();
         else store.pushNotice('canceled', 'info');
       },
     });
   };
 
-  const openOnboardingModelStep = async () => {
-    setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
-    setSettingsPrompt(null);
-    let providerModels = [];
-    try {
-      providerModels = await store.listProviderModels();
-    } catch (e) {
-      store.pushNotice(`could not list models: ${e?.message || e}`, 'warn');
-    }
-    onboardingRef.current.providerModels = providerModels || [];
-    const modelItems = (providerModels || []).map((m) => ({
-      value: `${m.provider}:${m.id}`,
-      label: m.display || m.id,
-      description: modelDescription(m),
-      _action: 'select-model',
-      _model: m,
-    }));
-    const fallbackRoute = { provider: state.provider, model: state.model, ...(state.effort ? { effort: state.effort } : {}) };
-    const items = [
-      {
-        value: 'providers',
-        label: 'Connect providers',
-        description: 'OAuth, API keys, or local endpoints',
-        _action: 'providers',
-      },
-      ...(modelItems.length ? modelItems : [{
-        value: 'no-models',
-        label: 'No models loaded',
-        description: 'connect a provider, or continue with the current fallback route',
-        _action: 'noop',
-      }]),
-      {
-        value: 'continue-current',
-        label: 'Continue with current',
-        description: routeLabel(fallbackRoute),
-        _action: 'continue-current',
-      },
-    ];
-    setPicker({
-      title: 'First Run · Step 1/2 · Model Setup',
-      items,
-      onSelect: (_value, item) => {
-        setPicker(null);
-        if (item._action === 'providers') {
-          void openProviderSetupPicker({ returnTo: () => void openOnboardingModelStep() });
-          return;
-        }
-        const selectedRoute = item._action === 'select-model'
-          ? routeFromModel(item._model)
-          : fallbackRoute;
-        onboardingRef.current.defaultRoute = selectedRoute;
-        onboardingRef.current.workflowRoutes = buildWorkflowDefaults(onboardingRef.current.providerModels, selectedRoute);
-        if (item._action === 'select-model') {
-          void store.setRoute({ provider: selectedRoute.provider, model: selectedRoute.model, effort: selectedRoute.effort })
-            .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'warn'))
-            .finally(() => openOnboardingWorkflowStep());
-          return;
-        }
-        openOnboardingWorkflowStep();
-      },
-      onCancel: () => {
-        setPicker(null);
-        store.pushNotice('first-run setup will open again next launch', 'warn');
-      },
+  const openOnboardingAuthStep = () => {
+    void openProviderSetupPicker({
+      title: 'First Run · Step 1/2 · Provider Auth',
+      continueLabel: 'Continue to model setup',
+      continueDescription: 'choose the default and workflow models',
+      returnTo: () => openOnboardingAuthStep(),
+      onContinue: () => void openOnboardingWorkflowStep(),
+      onCancel: () => store.pushNotice('first-run setup will open again next launch', 'warn'),
     });
   };
 
@@ -1236,24 +1181,46 @@ export function App({ store, initialStatusLine = '' }) {
           : item._action === 'recommended'
             ? chooseRecommendedModel(models, slot, fallbackRoute)
             : fallbackRoute;
+        if (slot === 'lead') {
+          onboardingRef.current.defaultRoute = next;
+        }
         onboardingRef.current.workflowRoutes = {
           ...(onboardingRef.current.workflowRoutes || {}),
           [slot]: next,
         };
         setPicker(null);
-        openOnboardingWorkflowStep();
+        void openOnboardingWorkflowStep();
       },
       onCancel: () => {
         setPicker(null);
-        openOnboardingWorkflowStep();
+        void openOnboardingWorkflowStep();
       },
     });
   };
 
-  const openOnboardingWorkflowStep = () => {
+  const openOnboardingWorkflowStep = async () => {
+    if (!Array.isArray(onboardingRef.current.providerModels) || onboardingRef.current.providerModels.length === 0) {
+      try {
+        onboardingRef.current.providerModels = await store.listProviderModels();
+      } catch (e) {
+        onboardingRef.current.providerModels = [];
+        store.pushNotice(`could not list models: ${e?.message || e}`, 'warn');
+      }
+    }
+    const models = onboardingRef.current.providerModels || [];
+    const fallbackRoute = { provider: state.provider, model: state.model, ...(state.effort ? { effort: state.effort } : {}) };
+    if (!onboardingRef.current.defaultRoute) {
+      onboardingRef.current.defaultRoute = chooseRecommendedModel(models, 'lead', fallbackRoute) || fallbackRoute;
+    }
+    if (!onboardingRef.current.workflowRoutes || Object.keys(onboardingRef.current.workflowRoutes).length === 0) {
+      onboardingRef.current.workflowRoutes = buildWorkflowDefaults(models, onboardingRef.current.defaultRoute);
+    }
+    onboardingRef.current.workflowRoutes = {
+      ...(onboardingRef.current.workflowRoutes || {}),
+      lead: onboardingRef.current.defaultRoute,
+    };
     const routes = onboardingRef.current.workflowRoutes || {};
     const slots = [
-      ['lead', 'Lead', 'main chat and planning route'],
       ['bridge', 'Bridge', 'worker and agent dispatch route'],
       ['explorer', 'Explorer', 'code graph, file reading, repo exploration'],
       ['search', 'Search', 'web/search/retrieval helpers'],
@@ -1272,6 +1239,13 @@ export function App({ store, initialStatusLine = '' }) {
           description: 'save model and workflow route mapping',
           _action: 'finish',
         },
+        {
+          value: 'lead',
+          label: 'Default model',
+          description: `${routeLabel(onboardingRef.current.defaultRoute)} · main chat and planning route`,
+          _action: 'slot',
+          _slot: 'lead',
+        },
         ...slots.map(([slot, label, description]) => ({
           value: slot,
           label,
@@ -1281,8 +1255,8 @@ export function App({ store, initialStatusLine = '' }) {
         })),
         {
           value: 'back',
-          label: 'Back to model setup',
-          description: 'change the default model/provider',
+          label: 'Back to provider auth',
+          description: 'change API keys, OAuth, or local endpoints',
           _action: 'back',
         },
       ],
@@ -1299,7 +1273,7 @@ export function App({ store, initialStatusLine = '' }) {
           return;
         }
         if (item._action === 'back') {
-          void openOnboardingModelStep();
+          openOnboardingAuthStep();
           return;
         }
         if (item._action === 'slot') {
@@ -1321,7 +1295,7 @@ export function App({ store, initialStatusLine = '' }) {
       if (status?.completed === true) return undefined;
       onboardingStartedRef.current = true;
       setTimeout(() => {
-        if (!canceled) void openOnboardingModelStep();
+        if (!canceled) openOnboardingAuthStep();
       }, 0);
     } catch {
       // If status probing fails, do not block normal TUI startup.
