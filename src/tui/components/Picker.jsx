@@ -7,11 +7,12 @@
  *
  * Keyboard:
  *   ↑ / ↓      — move selection (wraps at ends)
+ *   ← / →      — optional item-level collapse / expand
  *   Enter       — confirm selection, calls onSelect(value)
  *   Escape      — cancel, calls onCancel()
  *   Ctrl+C      — ignored by the TUI so terminal copy behavior can win
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { theme } from '../theme.mjs';
 
@@ -24,8 +25,12 @@ function truncateText(value, width) {
   return text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text;
 }
 
-export function Picker({ items, onSelect, onCancel, title, columns = 80 }) {
+export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, columns = 80 }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
+
+  useEffect(() => {
+    setSelectedIndex((i) => Math.min(Math.max(0, i), Math.max(0, items.length - 1)));
+  }, [items.length]);
 
   useInput(
     useCallback(
@@ -54,6 +59,14 @@ export function Picker({ items, onSelect, onCancel, title, columns = 80 }) {
           setSelectedIndex(items.length - 1);
           return;
         }
+        if (key.leftArrow && onLeft) {
+          onLeft(items[selectedIndex], selectedIndex);
+          return;
+        }
+        if (key.rightArrow && onRight) {
+          onRight(items[selectedIndex], selectedIndex);
+          return;
+        }
         if (key.return) {
           onSelect(items[selectedIndex].value, items[selectedIndex]);
           return;
@@ -63,7 +76,7 @@ export function Picker({ items, onSelect, onCancel, title, columns = 80 }) {
           return;
         }
       },
-      [items, selectedIndex, onSelect, onCancel],
+      [items, selectedIndex, onSelect, onCancel, onLeft, onRight],
     ),
   );
 
@@ -112,7 +125,7 @@ export function Picker({ items, onSelect, onCancel, title, columns = 80 }) {
       >
         <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
           <Text color={theme.claude}>{title}</Text>
-          <Text color={theme.subtle}>↑↓ Pg Home End · Enter · Esc</Text>
+          <Text color={theme.subtle}>↑↓ ←→ Pg Home End · Enter · Esc</Text>
         </Box>
         {visible.map((item, i) => {
           const idx = start + i;
@@ -128,13 +141,6 @@ export function Picker({ items, onSelect, onCancel, title, columns = 80 }) {
             />
           );
         })}
-        {total > MAX_VISIBLE ? (
-          <Box justifyContent="flex-end" width="100%">
-            <Text color={theme.subtle}>
-              {start + 1}-{Math.min(end, total)} / {total}
-            </Text>
-          </Box>
-        ) : null}
       </Box>
     </Box>
   );

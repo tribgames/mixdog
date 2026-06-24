@@ -84,9 +84,9 @@ function _catalogHas(id) {
 // claude-haiku-4-5-20251001 → claude-haiku-4.5. Falls back to the raw id.
 function _displayModel(id) {
     if (!id || typeof id !== 'string') return id;
-    const m = id.match(/^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d{8})?$/i);
+    const m = id.match(/^claude-([a-z]+)-(\d+)(?:-(\d+))?(?:-\d{8})?$/i);
     if (!m) return id;
-    return `claude-${m[1].toLowerCase()}-${m[2]}.${m[3]}`;
+    return `claude-${m[1].toLowerCase()}-${m[2]}${m[3] ? `.${m[3]}` : ''}`;
 }
 
 // Classify a model id into our common tier/family shape. Anthropic's catalog
@@ -95,12 +95,12 @@ function _displayModel(id) {
 function _normalizeAnthropicModel(raw) {
     const id = raw?.id || raw?.name;
     if (!id) return null;
-    const familyMatch = id.match(/^claude-(opus|sonnet|haiku)/i);
+    const familyMatch = id.match(/^claude-([a-z]+)/i);
     const family = familyMatch ? familyMatch[1].toLowerCase() : 'other';
     // Dated: trailing -YYYYMMDD (8 digits).
     const dated = /-\d{8}$/.test(id);
     // Versioned alias: claude-<family>-<major>-<minor>[-...] with no dated suffix.
-    const versioned = !dated && /-\d+-\d+/.test(id);
+    const versioned = !dated && /^claude-[a-z]+-\d+(?:-\d+)?$/i.test(id);
     const tier = dated ? 'dated' : versioned ? 'version' : 'family';
     const releaseDate = dated
         ? id.match(/-(\d{4})(\d{2})(\d{2})$/)
@@ -118,16 +118,17 @@ function _normalizeAnthropicModel(raw) {
 }
 
 function _prettyName(id, family) {
-    const v = id.match(/-(\d+)-(\d+)/);
+    const v = id.match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i);
     const base = family[0].toUpperCase() + family.slice(1);
-    return v ? `${base} ${v[1]}.${v[2]}` : base;
+    return v ? `${base} ${v[1]}${v[2] ? `.${v[2]}` : ''}` : base;
 }
 
 function _defaultContextForModel(id, family) {
-    if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/i.test(String(id || ''))) return 1000000;
-    if (family === 'opus') return 200000;
-    if (family === 'sonnet') return 200000;
-    if (family === 'haiku') return 200000;
+    const text = String(id || '');
+    const version = text.match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i);
+    if (Number(version?.[1] || 0) >= 5) return 1000000;
+    if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/i.test(text)) return 1000000;
+    if (family && family !== 'other') return 200000;
     return 200000;
 }
 
@@ -146,8 +147,8 @@ function _markLatestByFamily(models) {
 }
 
 function _compareVersion(a, b) {
-    const na = (a.match(/-(\d+)-(\d+)/) || []).slice(1).map(Number);
-    const nb = (b.match(/-(\d+)-(\d+)/) || []).slice(1).map(Number);
+    const na = (a.match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i) || []).slice(1).map(Number);
+    const nb = (b.match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i) || []).slice(1).map(Number);
     for (let i = 0; i < Math.max(na.length, nb.length); i++) {
         if ((na[i] || 0) !== (nb[i] || 0)) return (na[i] || 0) - (nb[i] || 0);
     }
@@ -173,7 +174,7 @@ export function resolveLatestAnthropicModel() {
 function resolveAnthropicModelAfter404(requested) {
     if (!Array.isArray(_inMemoryCatalog)) return null;
     const wanted = String(requested || '');
-    const family = (wanted.match(/^claude-(opus|sonnet|haiku)/i) || [])[1]?.toLowerCase() || null;
+    const family = (wanted.match(/^claude-([a-z]+)/i) || [])[1]?.toLowerCase() || null;
     let best = null;
     for (const m of _inMemoryCatalog) {
         if (!m?.id) continue;

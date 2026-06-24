@@ -510,6 +510,60 @@ export function App({ store, initialStatusLine = '' }) {
     }
   }, { isActive: isRawModeSupported });
 
+  const parsedModelVersion = (id) => {
+    const text = String(id || '').toLowerCase();
+    const claude = text.match(/^claude-[a-z]+-(\d+)(?:[-.](\d+))?/);
+    if (claude) return [Number(claude[1]) || 0, Number(claude[2]) || 0];
+    const generic = text.match(/(?:^|[-_])(\d+)(?:[.-](\d+))?(?:[.-](\d+))?/);
+    return generic ? generic.slice(1).map((v) => Number(v) || 0) : [0];
+  };
+
+  const releaseTime = (m) => {
+    if (m?.releaseDate) {
+      const t = Date.parse(m.releaseDate);
+      if (Number.isFinite(t)) return t;
+    }
+    const dated = String(m?.id || '').match(/(?:^|-)(\d{4})(\d{2})(\d{2})(?:$|-)/);
+    if (!dated) return 0;
+    return Date.parse(`${dated[1]}-${dated[2]}-${dated[3]}`) || 0;
+  };
+
+  const compareModelRecency = (a, b) => {
+    const ta = releaseTime(a);
+    const tb = releaseTime(b);
+    if (ta !== tb) return tb - ta;
+    if (!!a?.latest !== !!b?.latest) return a?.latest ? -1 : 1;
+    const va = parsedModelVersion(a?.id);
+    const vb = parsedModelVersion(b?.id);
+    for (let i = 0; i < Math.max(va.length, vb.length); i += 1) {
+      const delta = (vb[i] || 0) - (va[i] || 0);
+      if (delta) return delta;
+    }
+    return String(a?.display || a?.id || '').localeCompare(String(b?.display || b?.id || ''));
+  };
+
+  const modelFamily = (m) => {
+    const text = String(m?.id || m?.display || '').toLowerCase();
+    const claude = text.match(/^claude-([a-z]+)/);
+    if (claude) return claude[1];
+    if (m?.family) return String(m.family).toLowerCase();
+    const first = text.match(/^[a-z]+(?:-[a-z]+)?/);
+    return first ? first[0] : 'model';
+  };
+
+  const modelContextWindow = (m) => {
+    const raw = Number(m?.contextWindow);
+    const n = Number.isFinite(raw) && raw > 0 ? raw : 0;
+    const provider = String(m?.provider || '').toLowerCase();
+    const id = String(m?.id || '').toLowerCase();
+    const version = parsedModelVersion(id);
+    if (provider.includes('anthropic') && /^claude-[a-z]+-/.test(id)) {
+      if ((version[0] || 0) >= 5) return Math.max(n, 1_000_000);
+      if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/.test(id)) return Math.max(n, 1_000_000);
+    }
+    return n;
+  };
+
   const formatContextWindow = (tokens) => {
     const n = Number(tokens);
     if (!Number.isFinite(n) || n <= 0) return '';
@@ -520,18 +574,81 @@ export function App({ store, initialStatusLine = '' }) {
     return `${Math.round(n / 1000)}k ctx`;
   };
 
-  const isVisibleModelOption = (m) => {
-    const provider = String(m?.provider || '').toLowerCase();
-    const id = String(m?.id || '').toLowerCase();
-    if (!provider.includes('anthropic')) return true;
-    if (m?.latest) return true;
-    if (Number(m?.contextWindow) >= 1_000_000) return true;
-    return /^claude-haiku-4-5(?:$|-)/.test(id);
+  const modelFamilyLimit = (provider, family) => {
+    const p = String(provider || '').toLowerCase();
+    if (!p.includes('anthropic')) return 8;
+    if (family === 'opus') return 3;
+    return 1;
   };
 
-  const visibleModelOptions = (models) => (Array.isArray(models) ? models.filter(isVisibleModelOption) : []);
+  const normalizeModelOptions = (models) => {
+    if (!Array.isArray(models)) return [];
+    const providers = new Map();
+    for (const model of models) {
+      if (!model?.provider || !model?.id) continue;
+      if (!providers.has(model.provider)) providers.set(model.provider, new Map());
+      const families = providers.get(model.provider);
+      const family = modelFamily(model);
+      if (!families.has(family)) families.set(family, []);
+      families.get(family).push(model);
+    }
 
-  const modelDescription = (m) => [m.provider, formatContextWindow(m.contextWindow)].filter(Boolean).join(' · ');
+    const normalized = [];
+    for (const [provider, families] of providers.entries()) {
+      const sortedFamilies = [...families.entries()].sort(([a], [b]) => {
+        const rank = { opus: 0, fable: 1, sonnet: 2, haiku: 3 };
+        return (rank[a] ?? 10) - (rank[b] ?? 10) || a.localeCompare(b);
+      });
+      for (const [family, group] of sortedFamilies) {
+        const limit = modelFamilyLimit(provider, family);
+        normalized.push(...group.slice().sort(compareModelRecency).slice(0, limit));
+      }
+    }
+    return normalized;
+  };
+
+  const modelDescription = (m) => [m.provider, formatContextWindow(modelContextWindow(m))].filter(Boolean).join(' · ');
+
+  const buildModelPickerItems = (models, expandedProviders) => {
+    const providers = new Map();
+    for (const model of models) {
+      if (!providers.has(model.provider)) providers.set(model.provider, []);
+      providers.get(model.provider).push(model);
+    }
+
+    const currentProvider = state.provider;
+    const orderedProviders = [...providers.keys()].sort((a, b) => {
+      if (a === currentProvider) return -1;
+      if (b === currentProvider) return 1;
+      return a.localeCompare(b);
+    });
+
+    const items = [];
+    for (const provider of orderedProviders) {
+      const providerModels = providers.get(provider) || [];
+      const contexts = [...new Set(providerModels.map((m) => formatContextWindow(modelContextWindow(m))).filter(Boolean))];
+      const expanded = expandedProviders.has(provider);
+      items.push({
+        value: `provider:${provider}`,
+        label: `${expanded ? '▾' : '▸'} ${provider}`,
+        description: contexts.slice(0, 2).join(' / '),
+        _action: 'toggle-provider',
+        _provider: provider,
+      });
+      if (!expanded) continue;
+      for (const model of providerModels) {
+        items.push({
+          value: `model:${model.provider}:${model.id}`,
+          label: `  ${model.display || model.id}`,
+          description: formatContextWindow(modelContextWindow(model)),
+          _action: 'select-model',
+          _provider: model.provider,
+          _modelId: model.id,
+        });
+      }
+    }
+    return items;
+  };
 
   const routeLabel = (route) => {
     if (!route?.provider || !route?.model) return '(unset)';
@@ -600,31 +717,46 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
 
-    const models = visibleModelOptions(providerModels);
-    const items = models.map((m) => {
-      return {
-        value: `${m.provider}:${m.id}`,
-        label: m.display || m.id,
-        description: modelDescription(m),
-        _provider: m.provider,
-        _modelId: m.id,
-      };
-    });
+    const models = normalizeModelOptions(providerModels);
+    const defaultProvider = state.provider || models[0]?.provider;
+    const expandedProviders = new Set(defaultProvider ? [defaultProvider] : []);
+    const toggleProvider = (provider, force) => {
+      if (!provider) return;
+      const next = force ?? !expandedProviders.has(provider);
+      if (next) expandedProviders.add(provider);
+      else expandedProviders.delete(provider);
+    };
+    const renderModelPicker = () => {
+      setPicker({
+        title: `Model (current: ${state.model})`,
+        items: buildModelPickerItems(models, expandedProviders),
+        onSelect: (_value, item) => {
+          if (item?._action === 'toggle-provider') {
+            toggleProvider(item._provider);
+            renderModelPicker();
+            return;
+          }
+          setPicker(null);
+          void store.setRoute({ provider: item._provider, model: item._modelId })
+            .then(ok => store.pushNotice(ok ? `✓ model → ${item._provider}/${item._modelId}` : 'model switch already in progress', ok ? 'info' : 'warn'))
+            .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
+        },
+        onLeft: (item) => {
+          toggleProvider(item?._provider, false);
+          renderModelPicker();
+        },
+        onRight: (item) => {
+          toggleProvider(item?._provider, true);
+          renderModelPicker();
+        },
+        onCancel: () => {
+          setPicker(null);
+          showPromptHint('canceled');
+        },
+      });
+    };
 
-    setPicker({
-      title: `Model (current: ${state.model})`,
-      items,
-      onSelect: (value, item) => {
-        setPicker(null);
-        void store.setRoute({ provider: item._provider, model: item._modelId })
-          .then(ok => store.pushNotice(ok ? `✓ model → ${item._provider}/${item._modelId}` : 'model switch already in progress', ok ? 'info' : 'warn'))
-          .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
-      },
-      onCancel: () => {
-        setPicker(null);
-        showPromptHint('canceled');
-      },
-    });
+    renderModelPicker();
   };
 
   const openEffortPicker = () => {
@@ -1205,7 +1337,7 @@ export function App({ store, initialStatusLine = '' }) {
   };
 
   const openOnboardingRoleModelPicker = (slot) => {
-    const models = visibleModelOptions(onboardingRef.current.providerModels || []);
+    const models = normalizeModelOptions(onboardingRef.current.providerModels || []);
     const fallbackRoute = onboardingRef.current.defaultRoute || null;
     if (models.length === 0) {
       store.pushNotice('no provider models available; open /providers to authenticate', 'warn');
@@ -2572,9 +2704,9 @@ export function App({ store, initialStatusLine = '' }) {
   const PANEL_MAX_VISIBLE = 8;
   const PROMPT_HINT_ROWS = 1;
   const desiredFloatingPanelRows = picker
-    ? Math.min(picker.items.length, PANEL_MAX_VISIBLE) + 4 + (picker.items.length > PANEL_MAX_VISIBLE ? 1 : 0)
+    ? Math.min(picker.items.length, PANEL_MAX_VISIBLE) + 4
     : slashPaletteOpen
-      ? Math.min(slashCommands.length, PANEL_MAX_VISIBLE) + 4 + (slashCommands.length > PANEL_MAX_VISIBLE ? 1 : 0)
+      ? Math.min(slashCommands.length, PANEL_MAX_VISIBLE) + 4
       : providerPrompt || channelPrompt || hookPrompt || settingsPrompt
         ? PROMPT_HINT_ROWS
         : 0;
@@ -2693,6 +2825,8 @@ export function App({ store, initialStatusLine = '' }) {
                 items={picker.items}
                 onSelect={picker.onSelect}
                 onCancel={picker.onCancel}
+                onLeft={picker.onLeft}
+                onRight={picker.onRight}
                 title={picker.title}
                 columns={resizeState.columns}
               />
