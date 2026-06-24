@@ -9,7 +9,7 @@
  *   - The result hangs under a single dim `  ⎿  ` gutter — the gutter is placed
  *     once, not repeated per wrapped line (CC MessageResponse.tsx style).
  */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import { theme, TURN_MARKER } from '../theme.mjs';
 
@@ -185,6 +185,7 @@ export function summarizeArgs(name, args) {
 }
 
 export const MAX_RESULT_LINES = 8;
+const TOOL_BLINK_MS = 500;
 
 function fitResultLine(line, columns) {
   const max = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
@@ -193,6 +194,7 @@ function fitResultLine(line, columns) {
 }
 
 export function ToolExecution({ name, args, result, isError, expanded, globalExpanded = false, columns = 80 }) {
+  const [blinkOn, setBlinkOn] = useState(true);
   const label = displayToolName(name);
   const summary = summarizeArgs(name, args);
   const resultText = result == null ? null : String(result).replace(/\s+$/, '');
@@ -206,23 +208,27 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
   const resultColor = isError ? theme.error : theme.inactive;
 
   // Status dot color mirrors CC's ToolUseLoader: in-progress (no result yet) is
-  // plain white, a finished call is success-green, a failed one is error-red.
-  const dotColor = result == null ? theme.text : isError ? theme.error : theme.success;
-  const statusText = result == null ? 'running' : isError ? 'error' : '';
-  const statusColor = isError ? theme.error : theme.inactive;
+  // a dim blinking dot, a finished call is success-green, a failed one is
+  // error-red. The label stays stable so it does not blink with the loader.
+  useEffect(() => {
+    if (result != null) return undefined;
+    const timer = setInterval(() => setBlinkOn((on) => !on), TOOL_BLINK_MS);
+    return () => clearInterval(timer);
+  }, [result]);
+  const dotColor = result == null ? theme.inactive : isError ? theme.error : theme.success;
+  const dotText = result == null && !blinkOn ? ' ' : TURN_MARKER;
 
   return (
     <Box flexDirection="column" marginTop={1}>
       {/* call line: ● Tool Name(args) — dot signals status, label bold white, args plain */}
       <Box flexDirection="row">
         <Box flexShrink={0} minWidth={2}>
-          <Text color={dotColor}>{TURN_MARKER}</Text>
+          <Text color={dotColor}>{dotText}</Text>
         </Box>
         <Box flexShrink={0}>
           <Text bold color={theme.text}>{label}</Text>
         </Box>
         {summary ? <Text color={theme.text}>{`(${summary})`}</Text> : null}
-        {statusText ? <Text color={statusColor}>{` · ${statusText}`}</Text> : null}
       </Box>
 
       {/* result: single dim `  ⎿  ` gutter + a column body that wraps on its own */}
