@@ -27,7 +27,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
-import { enrichModels } from './model-catalog.mjs';
+import { enrichModels, getModelMetadataSync } from './model-catalog.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { OpenAICompatProvider } from './openai-compat.mjs';
 import { createTimeoutSignal } from '../stall-policy.mjs';
@@ -412,16 +412,6 @@ async function refreshTokensWithFallback(tokens) {
 // --- Model catalog cache (24h disk TTL) ---
 const _modelCache = makeModelCache({ fileName: 'grok-oauth-models.json', ttlMs: MODEL_CACHE_TTL_MS });
 
-function _normalizeGrokContextWindow(id, value) {
-    const n = Number(value);
-    if (!Number.isFinite(n) || n <= 0) return 0;
-    const model = String(id || '');
-    if (/^grok-4(?:\.|-)/i.test(model) && !isProxyOnlyModel(model)) {
-        return Math.min(n, 1000000);
-    }
-    return n;
-}
-
 function _normalizeGrokModel(m) {
     const id = m?.id;
     if (!id) return null;
@@ -433,7 +423,10 @@ function _normalizeGrokModel(m) {
         family: 'grok',
         tier: 'version',
         latest: false,
-        contextWindow: _normalizeGrokContextWindow(id, m?.context_window),
+        // Do not trust provider-native context_window here: xAI has returned
+        // stale/route-specific values for OAuth catalogs. Context metadata is
+        // filled only by model-catalog exact/provider-scoped sources.
+        contextWindow: 0,
         created: typeof m?.created === 'number' ? m.created : null,
     };
 }
@@ -442,10 +435,14 @@ function _sanitizeGrokModels(models) {
     if (!Array.isArray(models)) return models;
     let changed = false;
     const next = models.map((m) => {
-        const contextWindow = _normalizeGrokContextWindow(m?.id, m?.contextWindow ?? m?.context_window);
-        if (contextWindow && contextWindow !== m?.contextWindow) {
+        const trustedContext = Number(getModelMetadataSync(m?.id, 'grok-oauth')?.contextWindow);
+        if (Number.isFinite(trustedContext) && trustedContext > 0 && trustedContext !== m?.contextWindow) {
             changed = true;
-            return { ...m, contextWindow };
+            return { ...m, contextWindow: trustedContext };
+        }
+        if (!(trustedContext > 0) && m?.contextWindow) {
+            changed = true;
+            return { ...m, contextWindow: 0 };
         }
         return m;
     });

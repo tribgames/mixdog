@@ -64,7 +64,61 @@ const _CATALOG_ENRICH_PREFIXES = ['anthropic/', 'openai/', 'gemini/', 'google/',
 // the catalog row shape so _normalize works unchanged. Source: each provider's
 // official pricing page; do not extrapolate. Promotional discounts are
 // intentionally NOT encoded — list rates only.
+const XAI_GROK_420_ROW = Object.freeze({
+    litellm_provider: 'xai',
+    input_cost_per_token: 1.25e-6,
+    output_cost_per_token: 2.5e-6,
+    cache_read_input_token_cost: 0.2e-6,
+    max_input_tokens: 1000000,
+    mode: 'chat',
+    supports_vision: true,
+    supports_function_calling: true,
+});
+const XAI_GROK_420_IDS = Object.freeze([
+    // https://docs.x.ai/developers/models/grok-4.20-0309-reasoning
+    'grok-4.20-0309-reasoning',
+    'grok-4.20-reasoning-latest',
+    'grok-4.20',
+    'grok-4.20-reasoning',
+    'grok-4.20-0309',
+    'grok-4.20-beta-0309-reasoning',
+    'grok-4.20-beta',
+    'grok-4.20-beta-0309',
+    'grok-4.20-beta-latest',
+    'grok-4.20-beta-latest-reasoning',
+    'grok-4.20-beta-reasoning',
+    'grok-4.20-experimental-beta-0304-reasoning',
+    'grok-4.20-experimental-beta-0304',
+    'grok-4.20-experimental-beta-reasoning-latest',
+    'grok-4.20-experimental-beta-latest',
+    'grok-4.20-reasoning-gv2',
+    // https://docs.x.ai/developers/models/grok-4.20-0309-non-reasoning
+    'grok-4.20-0309-non-reasoning',
+    'grok-4.20-non-reasoning',
+    'grok-4.20-non-reasoning-latest',
+    'grok-4.20-beta-non-reasoning',
+    'grok-4.20-beta-latest-non-reasoning',
+    'grok-4.20-experimental-beta-0304-non-reasoning',
+    'grok-4.20-experimental-beta-non-reasoning-latest',
+    'grok-4.20-beta-0309-non-reasoning',
+    'grok-4.20-non-reasoning-gv2',
+    // https://docs.x.ai/developers/models/grok-4.20-multi-agent-beta-0309
+    'grok-4.20-multi-agent-0309',
+    'grok-4.20-multi-agent',
+    'grok-4.20-multi-agent-latest',
+    'grok-4.20-beta-0309-multi-agent',
+]);
+
 const PRICING_OVERRIDES = {
+    ...Object.fromEntries(XAI_GROK_420_IDS.map((id) => [id, XAI_GROK_420_ROW])),
+    // https://docs.x.ai/developers/models — Grok Build 0.1, 256k context.
+    'grok-build-0.1': {
+        litellm_provider: 'xai',
+        input_cost_per_token: 1e-6,
+        output_cost_per_token: 2e-6,
+        max_input_tokens: 256000,
+        mode: 'chat',
+    },
     // https://www.anthropic.com/news/claude-opus-4-8 — unchanged from Opus 4.7.
     'claude-opus-4-8': {
         litellm_provider: 'anthropic',

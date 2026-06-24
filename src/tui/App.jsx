@@ -565,9 +565,6 @@ export function App({ store, initialStatusLine = '' }) {
       if ((version[0] || 0) >= 5) return Math.max(n, 1_000_000);
       if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/.test(id)) return Math.max(n, 1_000_000);
     }
-    if (provider.includes('grok') && /^grok-4(?:\.|-)/.test(id) && n > 1_000_000) {
-      return 1_000_000;
-    }
     return n;
   };
 
@@ -602,21 +599,19 @@ export function App({ store, initialStatusLine = '' }) {
 
     const normalized = [];
     for (const [provider, families] of providers.entries()) {
-      const sortedFamilies = [...families.entries()].sort(([a], [b]) => {
-        const rank = { opus: 0, fable: 1, sonnet: 2, haiku: 3 };
-        return (rank[a] ?? 10) - (rank[b] ?? 10) || a.localeCompare(b);
-      });
-      for (const [family, group] of sortedFamilies) {
+      const providerModels = [];
+      for (const [family, group] of families.entries()) {
         const limit = modelFamilyLimit(provider, family);
-        normalized.push(...group.slice().sort(compareModelRecency).slice(0, limit));
+        providerModels.push(...group.slice().sort(compareModelRecency).slice(0, limit));
       }
+      normalized.push(...providerModels.sort(compareModelRecency));
     }
     return normalized;
   };
 
   const modelDescription = (m) => [m.provider, formatContextWindow(modelContextWindow(m))].filter(Boolean).join(' · ');
 
-  const buildModelPickerItems = (models, expandedProviders) => {
+  const buildModelPickerItems = (models, expandedProvider) => {
     const providers = new Map();
     for (const model of models) {
       if (!providers.has(model.provider)) providers.set(model.provider, []);
@@ -633,12 +628,11 @@ export function App({ store, initialStatusLine = '' }) {
     const items = [];
     for (const provider of orderedProviders) {
       const providerModels = providers.get(provider) || [];
-      const contexts = [...new Set(providerModels.map((m) => formatContextWindow(modelContextWindow(m))).filter(Boolean))];
-      const expanded = expandedProviders.has(provider);
+      const expanded = expandedProvider === provider;
       items.push({
         value: `provider:${provider}`,
         label: `${expanded ? '▾' : '▸'} ${provider}`,
-        description: contexts.slice(0, 2).join(' / '),
+        description: '',
         _action: 'toggle-provider',
         _provider: provider,
       });
@@ -646,8 +640,10 @@ export function App({ store, initialStatusLine = '' }) {
       for (const model of providerModels) {
         items.push({
           value: `model:${model.provider}:${model.id}`,
-          label: `  ${model.display || model.id}`,
-          description: formatContextWindow(modelContextWindow(model)),
+          label: `    ${model.display || model.id}`,
+          description: formatContextWindow(modelContextWindow(model))
+            ? `    ${formatContextWindow(modelContextWindow(model))}`
+            : '',
           _action: 'select-model',
           _provider: model.provider,
           _modelId: model.id,
@@ -725,18 +721,23 @@ export function App({ store, initialStatusLine = '' }) {
     }
 
     const models = normalizeModelOptions(providerModels);
-    const defaultProvider = state.provider || models[0]?.provider;
-    const expandedProviders = new Set(defaultProvider ? [defaultProvider] : []);
+    let expandedProvider = null;
     const toggleProvider = (provider, force) => {
       if (!provider) return;
-      const next = force ?? !expandedProviders.has(provider);
-      if (next) expandedProviders.add(provider);
-      else expandedProviders.delete(provider);
+      if (force === false) {
+        if (expandedProvider === provider) expandedProvider = null;
+        return;
+      }
+      if (force === true) {
+        expandedProvider = provider;
+        return;
+      }
+      expandedProvider = expandedProvider === provider ? null : provider;
     };
     const renderModelPicker = () => {
       setPicker({
         title: `Model (current: ${state.model})`,
-        items: buildModelPickerItems(models, expandedProviders),
+        items: buildModelPickerItems(models, expandedProvider),
         onSelect: (_value, item) => {
           if (item?._action === 'toggle-provider') {
             toggleProvider(item._provider);

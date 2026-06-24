@@ -13,9 +13,9 @@ export const theme = {
   claudeShimmer: 'rgb(235,159,127)',
   text: 'rgb(255,255,255)', // CC darkTheme text
   inverseText: 'rgb(0,0,0)', // text on an inverted (light) background
-  inactive: 'rgb(153,153,153)', // secondary gray
-  subtle: 'rgb(80,80,80)', // borders / rules
-  promptBorder: 'rgb(136,136,136)', // input border / prompt
+  inactive: 'rgb(190,190,190)', // secondary gray
+  subtle: 'rgb(122,122,122)', // borders / rules
+  promptBorder: 'rgb(156,156,156)', // input border / prompt
   success: 'rgb(78,186,101)', // green
   error: 'rgb(255,107,128)', // red
   warning: 'rgb(255,193,7)', // amber
