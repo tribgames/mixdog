@@ -2772,18 +2772,12 @@ export function App({ store, initialStatusLine = '' }) {
       {/* Empty-transcript header stays outside the bottom-anchored viewport and
           has its own reserved rows, so it cannot steal space from the input. */}
       {state.items.length === 0 ? (
-        <Box flexDirection="column" height={7} flexShrink={0} marginTop={1} marginBottom={1}>
+        <Box flexDirection="column" height={5} flexShrink={0} marginTop={3} marginBottom={1}>
           <Text color={theme.text} bold>{centerLine('███╗   ███╗██╗██╗  ██╗██████╗  ██████╗  ██████╗ ', resizeState.columns)}</Text>
           <Text color={theme.text} bold>{centerLine('████╗ ████║██║╚██╗██╔╝██╔══██╗██╔═══██╗██╔════╝ ', resizeState.columns)}</Text>
           <Text color={theme.claude} bold>{centerLine('██╔████╔██║██║ ╚███╔╝ ██║  ██║██║   ██║██║  ███╗', resizeState.columns)}</Text>
           <Text color={theme.claude} bold>{centerLine('██║╚██╔╝██║██║ ██╔██╗ ██║  ██║██║   ██║██║   ██║', resizeState.columns)}</Text>
           <Text color={theme.claude} bold>{centerLine('██║ ╚═╝ ██║██║██╔╝ ██╗██████╔╝╚██████╔╝╚██████╔╝', resizeState.columns)}</Text>
-          <Text>
-            <Text color={theme.suggestion} bold>{centerLine('mixdog-cli', resizeState.columns)}</Text>
-          </Text>
-          <Text color={theme.inactive}>
-            {centerLine(`${state.provider}/${state.model} · ${(state.effort || 'auto').toUpperCase()} · ${state.toolMode || 'full'} access`, resizeState.columns)}
-          </Text>
         </Box>
       ) : null}
 
