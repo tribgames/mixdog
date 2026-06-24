@@ -519,17 +519,39 @@ export function App({ store, initialStatusLine = '' }) {
     return Date.parse(`${dated[1]}-${dated[2]}-${dated[3]}`) || 0;
   };
 
-  const compareModelRecency = (a, b) => {
-    const ta = releaseTime(a);
-    const tb = releaseTime(b);
-    if (ta !== tb) return tb - ta;
-    if (!!a?.latest !== !!b?.latest) return a?.latest ? -1 : 1;
+  const isClaudeModel = (m) => {
+    const provider = String(m?.provider || '').toLowerCase();
+    const id = String(m?.id || '').toLowerCase();
+    return provider.includes('anthropic') && /^claude-[a-z]+-/.test(id);
+  };
+
+  const compareModelVersion = (a, b) => {
     const va = parsedModelVersion(a?.id);
     const vb = parsedModelVersion(b?.id);
     for (let i = 0; i < Math.max(va.length, vb.length); i += 1) {
       const delta = (vb[i] || 0) - (va[i] || 0);
       if (delta) return delta;
     }
+    return 0;
+  };
+
+  const compareModelRecency = (a, b) => {
+    if (isClaudeModel(a) && isClaudeModel(b)) {
+      const versionDelta = compareModelVersion(a, b);
+      if (versionDelta) return versionDelta;
+      if (!!a?.latest !== !!b?.latest) return a?.latest ? -1 : 1;
+      const ta = releaseTime(a);
+      const tb = releaseTime(b);
+      if (ta !== tb) return tb - ta;
+      return String(a?.display || a?.id || '').localeCompare(String(b?.display || b?.id || ''));
+    }
+
+    const ta = releaseTime(a);
+    const tb = releaseTime(b);
+    if (ta !== tb) return tb - ta;
+    if (!!a?.latest !== !!b?.latest) return a?.latest ? -1 : 1;
+    const versionDelta = compareModelVersion(a, b);
+    if (versionDelta) return versionDelta;
     return String(a?.display || a?.id || '').localeCompare(String(b?.display || b?.id || ''));
   };
 
