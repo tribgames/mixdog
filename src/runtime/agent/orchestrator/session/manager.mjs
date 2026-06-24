@@ -1,9 +1,9 @@
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { randomBytes, createHash } from 'crypto';
-import { join } from 'path';
-import { homedir } from 'os';
+import { dirname, join } from 'path';
 import { getProvider, providerInputExcludesCache } from '../providers/registry.mjs';
+import { fetchOAuthUsageSnapshot } from '../providers/oauth-usage.mjs';
 import { agentLoop } from './loop.mjs';
 import { compactActiveTurn, compactMessages } from './compact.mjs';
 import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';
@@ -21,14 +21,20 @@ import { clearOffloadSession } from './tool-result-offload.mjs';
 import { classifyResultKind } from './result-classification.mjs';
 import { createAbortController } from '../../../shared/abort-controller.mjs';
 import { logLlmCall } from '../../../shared/llm/usage-log.mjs';
-import { resolvePluginData, DEFAULT_PLUGIN, DEFAULT_MARKETPLACE } from '../../../shared/plugin-paths.mjs';
+import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { appendBridgeTrace } from '../bridge-trace.mjs';
 import { maxMtimeRecursive } from '../cache-mtime.mjs';
 import { getRoleInstructionDir } from '../internal-roles.mjs';
+import {
+    buildGatewayLimits,
+    recordGatewayUsageEvent,
+    summarizeGatewayUsage,
+} from '../../../../vendor/statusline/src/gateway/route-meta.mjs';
 // Phase B: Pool B Tier 2 content builder (common rules only).
 // Loaded once per process via createRequire so the CJS module reaches us.
 const _require = createRequire(import.meta.url);
+const STANDALONE_PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../');
 const _rulesBuilder = (() => {
     const candidates = [
         process.env.CLAUDE_PLUGIN_ROOT && join(process.env.CLAUDE_PLUGIN_ROOT, 'lib', 'rules-builder.cjs'),
@@ -53,8 +59,7 @@ let _bridgeRulesCache = null;
 let _bridgeRulesMtime = 0;
 function _buildBridgeRules() {
     if (!_rulesBuilder || typeof _rulesBuilder.buildBridgeInjectionContent !== 'function') return '';
-    const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT
-        || join(homedir(), '.claude', 'plugins', 'marketplaces', DEFAULT_MARKETPLACE, 'external_plugins', DEFAULT_PLUGIN);
+    const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || STANDALONE_PLUGIN_ROOT;
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
     const mtime = maxMtimeRecursive([
@@ -80,8 +85,7 @@ let _leadRulesCache = null;
 let _leadRulesMtime = 0;
 function _buildLeadRules() {
     if (!_rulesBuilder || typeof _rulesBuilder.buildInjectionContent !== 'function') return '';
-    const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT
-        || join(homedir(), '.claude', 'plugins', 'marketplaces', DEFAULT_MARKETPLACE, 'external_plugins', DEFAULT_PLUGIN);
+    const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || STANDALONE_PLUGIN_ROOT;
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
     const mtime = maxMtimeRecursive([
@@ -112,8 +116,7 @@ const _roleSpecificCache = new Map(); // role → { value, mtime }
 function _buildRoleSpecific(currentRole) {
     if (!_rulesBuilder || typeof _rulesBuilder.buildBridgeRoleSpecificContent !== 'function') return '';
     if (!currentRole) return '';
-    const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT
-        || join(homedir(), '.claude', 'plugins', 'marketplaces', DEFAULT_MARKETPLACE, 'external_plugins', DEFAULT_PLUGIN);
+    const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || STANDALONE_PLUGIN_ROOT;
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
     const roleInstructionDir = getRoleInstructionDir(currentRole);
@@ -1319,6 +1322,59 @@ export async function persistIterationMetrics(delta) {
     await saveSessionAsync(session, { expectedGeneration: session.generation });
 }
 
+function standaloneStatusRouteInfo(session) {
+    if (!session) return null;
+    return {
+        provider: session.provider,
+        model: session.model,
+        modelDisplay: session.modelDisplay || session.displayName || session.model,
+        effort: session.effort || '',
+        fast: session.fast === true,
+        contextWindow: session.contextWindow || null,
+        rawContextWindow: session.rawContextWindow || session.contextWindow || null,
+        effectiveContextWindowPercent: session.effectiveContextWindowPercent || null,
+        autoCompactTokenLimit: session.autoCompactTokenLimit || session.compactBoundaryTokens || null,
+        presetId: session.presetId || null,
+        presetName: session.presetName || null,
+    };
+}
+
+function recordStandaloneStatusTelemetry(session, result, durationMs) {
+    if (!session || !result?.usage) return;
+    const routeInfo = standaloneStatusRouteInfo(session);
+    if (!routeInfo?.provider || !routeInfo?.model) return;
+    const providerOut = {
+        usage: result.usage,
+        model: result.model,
+        serviceTier: result.serviceTier,
+    };
+    try {
+        const summary = {
+            ...summarizeGatewayUsage(routeInfo, providerOut, result.compact || null, durationMs),
+            requestKind: 'chat',
+            sessionId: session.id || null,
+            toolCount: result.toolCallsTotal ?? null,
+            messageCount: Array.isArray(session.messages) ? session.messages.length : null,
+            cacheStrategy: session.providerCacheOpts?.cacheStrategy || null,
+        };
+        recordGatewayUsageEvent(summary);
+    } catch {
+        // Statusline telemetry must never affect the model turn.
+    }
+
+    const provider = getProvider(routeInfo.provider);
+    if (!provider) return;
+    fetchOAuthUsageSnapshot(routeInfo, provider, (message) => {
+        if (process.env.MIXDOG_STATUSLINE_TRACE) {
+            process.stderr.write(`[statusline] ${message}\n`);
+        }
+    })
+        .then((snapshot) => {
+            try { buildGatewayLimits(routeInfo, providerOut, snapshot); } catch {}
+        })
+        .catch(() => {});
+}
+
 /** Force-flush session metrics to disk. Used by watchdog terminal-reap (fix B). */
 export async function flushSessionMetrics(sessionId) {
     if (!sessionId) return;
@@ -1913,6 +1969,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     prefixHash: prefixHashForLog,
                     costUsd,
                 });
+                recordStandaloneStatusTelemetry(session, result, Date.now() - _askStartedAt);
             }
             // Persist opaque providerState for future stateful providers.
             // No provider currently emits it (Codex OAuth is stateless per

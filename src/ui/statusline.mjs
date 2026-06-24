@@ -14,7 +14,8 @@
  * effort / 5H-7D from the live gateway; our adapter only supplies sane
  * fallbacks (model name + a context% from this session's token usage).
  */
-import { basename } from 'node:path';
+import { homedir } from 'node:os';
+import { basename, join } from 'node:path';
 import { bold, green, rgb } from './ansi.mjs';
 import { renderStatusLine as renderVendoredStatusLine } from '../vendor/statusline/bin/statusline-lib.mjs';
 import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
@@ -135,49 +136,27 @@ function buildCcJson({ provider = '', model = '', effort = '', stats, sessionId 
  * @returns {Promise<string>}
  */
 export async function renderStatusline({ provider = '', model = '', effort = '', cwd = '', stats, sessionId } = {}) {
-  const prevStandalone = process.env.MIXDOG_STATUSLINE_STANDALONE;
+  const prevPluginData = process.env.CLAUDE_PLUGIN_DATA;
+  const prevStandalone = process.env.MIXDOG_STANDALONE;
   try {
-    process.env.MIXDOG_STATUSLINE_STANDALONE = '1';
+    process.env.CLAUDE_PLUGIN_DATA = process.env.MIXDOG_DATA_DIR || join(homedir(), '.mixdog', 'data');
+    process.env.MIXDOG_STANDALONE = '1';
     const ccJson = JSON.stringify(buildCcJson({ provider, model, effort, stats, sessionId }));
     const out = await renderVendoredStatusLine(ccJson);
     const text = typeof out === 'string' ? out.replace(/\n+$/, '') : '';
-    if (text) return appendUsageLine(text, { provider, stats });
+    if (text) return text;
     return fallbackLine({ provider, model, cwd, stats });
   } catch {
     return fallbackLine({ provider, model, cwd, stats });
   } finally {
-    if (prevStandalone == null) delete process.env.MIXDOG_STATUSLINE_STANDALONE;
-    else process.env.MIXDOG_STATUSLINE_STANDALONE = prevStandalone;
+    if (prevPluginData == null) delete process.env.CLAUDE_PLUGIN_DATA;
+    else process.env.CLAUDE_PLUGIN_DATA = prevPluginData;
+    if (prevStandalone == null) delete process.env.MIXDOG_STANDALONE;
+    else process.env.MIXDOG_STANDALONE = prevStandalone;
   }
 }
 
 // --- helpers -----------------------------------------------------------------
-
-function usageLine({ provider = '', stats } = {}) {
-  const s = stats || createSessionStats();
-  const prompt = promptFootprintTokens(provider, s);
-  const output = num(s.outputTokens);
-  const read = num(s.cachedTokens);
-  const write = num(s.cacheWriteTokens);
-  const cost = num(s.costUsd);
-  if (prompt <= 0 && output <= 0 && read <= 0 && write <= 0 && cost <= 0) return '';
-  const parts = [
-    `${fmt(prompt)} prompt`,
-    `${fmt(output)} out`,
-  ];
-  if (read > 0) parts.push(`${fmt(read)} read`);
-  if (write > 0) parts.push(`${fmt(write)} write`);
-  if (cost > 0) parts.push('$' + cost.toFixed(4));
-  return statusText(parts.join(statusSubtle(' · ')));
-}
-
-function appendUsageLine(text, opts) {
-  const usage = usageLine(opts);
-  if (!usage) return text;
-  const lines = String(text || '').split('\n').filter(Boolean);
-  if (!lines.length) return usage;
-  return [lines[0], usage].join('\n');
-}
 
 /** Minimal one-line footer used when the vendored renderer is unavailable. */
 function fallbackLine({ provider = '', model = '', cwd = '', stats } = {}) {

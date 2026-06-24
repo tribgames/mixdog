@@ -467,6 +467,9 @@ export function loadGatewayStatus(options = {}) {
     )
     : null;
   const recomputedContextUsedPct = pctOf(compactRequestWithLiveTokens ? liveContextTokens : (overflowContextTokens ?? lastUsage?.promptTokens ?? liveContextTokens), contextBoundary);
+  const activeQuotaWindows = metricsMatch && Array.isArray(active.gateway_quota_windows)
+    ? active.gateway_quota_windows
+    : [];
   const activeStatus = {
     provider: configured?.provider || active.gateway_provider,
     model: configured?.model || active.gateway_model,
@@ -481,9 +484,9 @@ export function loadGatewayStatus(options = {}) {
     autoCompactTokenLimit: configured?.autoCompactTokenLimit ?? num(active.gateway_auto_compact_token_limit, null),
     contextUsedPct: metricsMatch ? recomputedContextUsedPct ?? num(active.gateway_context_used_pct, null) : null,
     lastUsage,
-    quotaWindows: metricsMatch && Array.isArray(active.gateway_quota_windows) ? active.gateway_quota_windows : [],
-    balance: metricsMatch && active.gateway_balance && typeof active.gateway_balance === 'object' ? active.gateway_balance : null,
-    routeSpend: metricsMatch && active.gateway_route_spend && typeof active.gateway_route_spend === 'object' ? active.gateway_route_spend : null,
+    quotaWindows: activeQuotaWindows.length ? activeQuotaWindows : (configuredStatus?.quotaWindows || []),
+    balance: metricsMatch && active.gateway_balance && typeof active.gateway_balance === 'object' ? active.gateway_balance : (configuredStatus?.balance || null),
+    routeSpend: metricsMatch && active.gateway_route_spend && typeof active.gateway_route_spend === 'object' ? active.gateway_route_spend : (configuredStatus?.routeSpend || null),
     providerKind: active.gateway_provider_kind || '',
   };
   if (!configured) return activeStatus;

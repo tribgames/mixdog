@@ -88,6 +88,7 @@ function storedRouteNeedsGatewayStatus(sessionId, clientHostPid) {
 
 function shouldLoadGatewayStatus(currentRoute, sessionId, clientHostPid) {
   if (process.env.MIXDOG_STATUSLINE_STANDALONE === '1') return false;
+  if (process.env.MIXDOG_STANDALONE === '1') return true;
   if (!isClaudeNativeModelSelection(currentRoute)) return true;
   // Native model selection, but the gateway still owns the main base URL in
   // claude-current mode: every request flows through 3468, so the gateway's
