@@ -1,8 +1,12 @@
 import { existsSync, statSync, watch, openSync, readSync, closeSync } from "fs";
-import { basename } from "path";
 import { createHash } from "crypto";
 import { formatForDiscord, chunk, safeCodeBlock } from "./format.mjs";
 import { dropTrace, _dtPreview } from "./drop-trace.mjs";
+import {
+  formatToolSurface,
+  isExplorerSurface,
+  isMemorySurface,
+} from "../../shared/tool-surface.mjs";
 import {
   cwdToProjectSlug,
   discoverCurrentClaudeSession,
@@ -214,7 +218,6 @@ class OutputForwarder {
         }
         if (entry.type === "assistant" && entry.message?.content) {
           this.hasSeenAssistant = true;
-          const SEARCH_TOOLS = /* @__PURE__ */ new Set(["Read", "Grep", "Glob"]);
           const parts = [];
           for (const c of entry.message.content) {
             if (c.type === "text" && c.text?.trim()) {
@@ -227,19 +230,16 @@ class OutputForwarder {
               this.lastToolName = c.name || "";
               this.lastToolFilePath = c.input?.file_path || "";
               if (OutputForwarder.isHidden(c.name)) continue;
-              if (SEARCH_TOOLS.has(c.name)) {
+              const surface = formatToolSurface(c.name, c.input, { max: 50 });
+              if (isExplorerSurface(surface.label)) {
                 if (!this.inExplorerSequence) {
                   this.inExplorerSequence = true;
-                  let target = "";
-                  if (c.name === "Read") target = c.input?.file_path ? basename(c.input.file_path) : "";
-                  else if (c.name === "Grep") target = '"' + (c.input?.pattern || "").substring(0, 25) + '"';
-                  else if (c.name === "Glob") target = (c.input?.pattern || "").substring(0, 25);
                   if (parts.length > 0) parts.push("");
-                  parts.push("\u25CF **Explorer** (" + (target || c.name) + ")");
+                  parts.push("\u25CF **Explorer** (" + (surface.summary || surface.label) + ")");
                 }
                 continue;
               }
-              if (OutputForwarder.isRecallMemory(c.name)) {
+              if (isMemorySurface(surface.label)) {
                 if (!this.inRecallSequence) {
                   this.inRecallSequence = true;
                   if (parts.length > 0) parts.push("");

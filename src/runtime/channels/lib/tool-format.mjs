@@ -1,5 +1,11 @@
 import { basename } from "path";
 import { safeCodeBlock } from "./format.mjs";
+import {
+  formatToolSurface,
+  isExplorerSurface,
+  isMemorySurface,
+  normalizeToolName,
+} from "../../shared/tool-surface.mjs";
 
 // Texts that should never be forwarded to Discord (Claude's internal status lines)
 const SKIP_TEXTS = /* @__PURE__ */ new Set([
@@ -22,9 +28,7 @@ const HIDDEN_TOOLS = /* @__PURE__ */ new Set([
 
 /** Check if a tool name is recall_memory */
 function isRecallMemory(name) {
-  return name === "recall_memory"
-    || name === "mcp__plugin_mixdog_mixdog__recall_memory"
-    || name === "mcp__plugin_mixdog_trib-plugin__recall_memory";
+  return formatToolSurface(name, {}).label === "Memory";
 }
 /** Check if a file path points to a memory file */
 function isMemoryFile(filePath) {
@@ -37,6 +41,7 @@ function isMemoryFile(filePath) {
 /** Check if a tool should be hidden */
 function isHidden(name) {
   if (HIDDEN_TOOLS.has(name)) return true;
+  if (formatToolSurface(name, {}).label === "Memory") return false;
   if (name.includes("plugin_mixdog") && !name.endsWith("recall_memory") || name === "reply" || name === "react" || name === "edit_message" || name === "fetch" || name === "download_attachment") return true;
   return false;
 }
@@ -63,63 +68,42 @@ function buildDedupKey(name, input) {
 /** Build a tool log line from the tool name and input. */
 function buildToolLine(name, input, hiddenCheck = isHidden) {
   if (hiddenCheck(name)) return null;
-  let displayName = name;
-  let summary = "";
+  const surface = formatToolSurface(name, input, { max: 50 });
+  const displayName = surface.label;
+  const summary = surface.summary;
   let detail = "";
-  const isSearchTool = name === "Read" || name === "Grep" || name === "Glob";
-  switch (name) {
-    case "Bash": {
+  switch (normalizeToolName(name)) {
+    case "bash":
+    case "bash_session":
+    case "shell_command": {
       const desc = (input?.description || "").substring(0, 50);
-      summary = desc || "Bash";
-      detail = (input?.command || "").substring(0, 500);
+      detail = (input?.command || input?.cmd || desc || "").substring(0, 500);
       break;
     }
-    case "Read":
-      summary = input?.file_path ? basename(input.file_path) : "";
-      break;
-    case "Grep":
-      summary = '"' + (input?.pattern || "").substring(0, 25) + '"';
-      break;
-    case "Glob":
-      summary = (input?.pattern || "").substring(0, 25);
-      break;
-    case "Edit":
-    case "Write":
-      summary = input?.file_path ? basename(input.file_path) : "";
+    case "edit":
+    case "write":
+    case "apply_patch":
       detail = input?.file_path || "";
       break;
-    case "Agent": {
-      summary = input?.name || input?.subagent_type || "agent";
-      let d = (input?.prompt || "").substring(0, 200);
+    case "agent":
+    case "bridge":
+    case "task": {
+      let d = (input?.prompt || input?.message || "").substring(0, 200);
       const backticks = (d.match(/```/g) || []).length;
       if (backticks % 2 === 1) d += "\n```";
-      if (d.length < (input?.prompt || "").length) d += "...";
+      if (d.length < (input?.prompt || input?.message || "").length) d += "...";
       detail = d;
       break;
     }
-    case "TeamCreate":
-      summary = input?.team_name || "";
+    case "teamcreate":
       detail = input?.description || "";
       break;
-    case "TaskCreate":
-      summary = (input?.subject || "").substring(0, 50);
-      break;
-    case "Skill":
-      summary = input?.skill || "";
-      break;
     default:
-      if (name.startsWith("mcp__")) {
-        const parts = name.split("__");
-        displayName = "mcp";
-        summary = parts[parts.length - 1] || "";
-      } else {
-        summary = name;
-      }
       break;
   }
-  if (!summary) return null;
-  let toolLine = displayName === summary ? "\u25CF **" + displayName + "**" : "\u25CF **" + displayName + "** (" + summary + ")";
-  if (!isSearchTool && detail && detail !== summary) {
+  if (!displayName) return null;
+  let toolLine = !summary || displayName === summary ? "\u25CF **" + displayName + "**" : "\u25CF **" + displayName + "** (" + summary + ")";
+  if (!isExplorerSurface(displayName) && !isMemorySurface(displayName) && detail && detail !== summary) {
     const lines = detail.substring(0, 500).split("\n");
     const shown = lines.slice(0, 5);
     let block = shown.join("\n");

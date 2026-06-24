@@ -12,252 +12,21 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import { theme, TURN_MARKER } from '../theme.mjs';
+import {
+  displayToolName as surfaceDisplayToolName,
+  formatToolSurface,
+  summarizeToolArgs as surfaceSummarizeToolArgs,
+} from '../../runtime/shared/tool-surface.mjs';
 
-const MAX_SUMMARY_CHARS = 160;
 const MIN_RESULT_LINE_CHARS = 24;
 
-function stripToolPrefix(name) {
-  return String(name || 'tool')
-    .replace(/^mcp__.*__/, '')
-    .replace(/^functions\./, '');
-}
-
-function normalizeName(name) {
-  return stripToolPrefix(name).replace(/-/g, '_').toLowerCase();
-}
-
-function truncate(value, max = MAX_SUMMARY_CHARS) {
-  const text = String(value ?? '').trim();
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
-
-function parseArgs(args) {
-  if (!args) return {};
-  if (typeof args === 'string') {
-    try {
-      const parsed = JSON.parse(args);
-      return parsed && typeof parsed === 'object' ? parsed : { value: args };
-    } catch {
-      return { value: args };
-    }
-  }
-  if (typeof args === 'object') {
-    if (args.input && typeof args.input === 'object') return args.input;
-    return args;
-  }
-  return { value: args };
-}
-
-function displayPath(path) {
-  const text = String(path ?? '');
-  return text.replace(/\\/g, '/').split('/').filter(Boolean).at(-1) || text;
-}
-
-function compactParts(parts) {
-  return parts.filter((part) => part != null && String(part).trim()).map((part) => String(part).trim()).join(' · ');
-}
-
-function quoted(value) {
-  const text = truncate(value || '');
-  return text ? `"${text}"` : '';
-}
-
-function firstText(...values) {
-  for (const value of values) {
-    if (value != null && String(value).trim()) return String(value).trim();
-  }
-  return '';
-}
-
-function summarizeLineWindow(a) {
-  const offset = a.offset ?? a.start_line ?? a.startLine ?? a.line;
-  const limit = a.limit ?? a.line_count ?? a.lineCount ?? a.lines;
-  if (offset == null && limit == null) return '';
-  const start = Number(offset);
-  const count = Number(limit);
-  if (Number.isFinite(start) && Number.isFinite(count) && count > 0) {
-    return `lines ${start}-${Math.max(start, start + count - 1)}`;
-  }
-  if (Number.isFinite(start)) return `from line ${start}`;
-  if (Number.isFinite(count)) return `${count} lines`;
-  return '';
-}
-
-function titleizeToolName(name) {
-  return stripToolPrefix(name)
-    .split(/[_\s-]+/)
-    .filter(Boolean)
-    .map((part) => {
-      const lower = part.toLowerCase();
-      if (lower === 'ui') return 'UI';
-      if (lower === 'mcp') return 'MCP';
-      if (lower === 'id') return 'ID';
-      return `${lower.slice(0, 1).toUpperCase()}${lower.slice(1)}`;
-    })
-    .join(' ') || 'Tool';
-}
-
-export function displayToolName(name) {
-  switch (normalizeName(name)) {
-    case 'read':
-      return 'Read';
-    case 'write':
-      return 'Write';
-    case 'diagnostics':
-      return 'Mixdog Diagnostics';
-    case 'open_config':
-      return 'Open Config UI';
-    case 'job_wait':
-      return 'Background Job Control';
-    case 'edit':
-    case 'apply_patch':
-      return 'Update';
-    case 'bash':
-    case 'bash_session':
-    case 'shell_command':
-      return 'Bash';
-    case 'grep':
-    case 'glob':
-      return 'Search';
-    case 'list':
-      return 'List';
-    case 'search':
-      return 'Web Search';
-    case 'web_fetch':
-    case 'fetch':
-      return 'Fetch';
-    case 'view_image':
-      return 'View Image';
-    case 'read_mcp_resource':
-      return 'Read Resource';
-    case 'list_mcp_resources':
-    case 'list_mcp_resource_templates':
-      return 'List Resources';
-    case 'request_user_input':
-      return 'Ask User';
-    case 'update_plan':
-      return 'Plan';
-    case 'memory':
-    case 'remember':
-    case 'save_memory':
-    case 'update_memory':
-    case 'recall_memory':
-      return 'Memory';
-    case 'recall':
-    case 'search_memories':
-      return 'Recall';
-    case 'tool_search':
-      return 'Tool Search';
-    case 'cwd':
-      return 'Working Directory';
-    case 'bridge':
-      return 'Agent';
-    case 'code_graph':
-      return 'Code Graph';
-    default:
-      return titleizeToolName(name);
-  }
-}
-
-function summarizePatch(patch, basePath) {
-  const text = String(patch ?? '');
-  const files = [];
-  for (const line of text.split('\n')) {
-    const match = /^\*\*\*\s+(?:Update|Add|Delete) File:\s+(.+)\s*$/.exec(line);
-    if (match) files.push(displayPath(match[1]));
-  }
-  if (files.length === 1) return files[0];
-  if (files.length > 1) return `${files.length} files`;
-  if (basePath) return displayPath(basePath);
-  return text ? 'patch' : '';
+export function displayToolName(name, args) {
+  return surfaceDisplayToolName(name, args);
 }
 
 /** Claude Code-style one-line renderToolUseMessage summary. */
 export function summarizeArgs(name, args) {
-  const a = parseArgs(args);
-  if (!a || typeof a !== 'object') return '';
-  switch (normalizeName(name)) {
-    case 'read':
-      if (!a.path && !a.file_path) return '';
-      return compactParts([
-        displayPath(a.path ?? a.file_path),
-        a.pages ? `pages ${a.pages}` : summarizeLineWindow(a),
-      ]);
-    case 'write':
-    case 'edit':
-      return displayPath(a.path ?? a.file ?? a.file_path ?? '');
-    case 'apply_patch':
-      return summarizePatch(a.patch, a.base_path);
-    case 'bash':
-    case 'bash_session':
-    case 'shell_command':
-      return truncate(a.description || a.command || a.cmd || '');
-    case 'grep':
-      if (!a.pattern && !a.query) return '';
-      return compactParts([
-        quoted(a.pattern ?? a.query),
-        a.path ? `in ${displayPath(a.path)}` : '',
-        a.glob ? `glob ${a.glob}` : '',
-      ]);
-    case 'glob':
-      if (!a.pattern && !a.glob) return '';
-      return compactParts([
-        quoted(a.pattern ?? a.glob),
-        a.path ? `in ${displayPath(a.path)}` : '',
-      ]);
-    case 'list':
-      return displayPath(a.path ?? a.dir ?? '.') || '.';
-    case 'search':
-      return quoted(a.query || '');
-    case 'web_fetch':
-    case 'fetch':
-      return truncate(a.url || a.uri || '');
-    case 'view_image':
-      return displayPath(a.path || '');
-    case 'read_mcp_resource':
-      return truncate(a.uri || '');
-    case 'list_mcp_resources':
-    case 'list_mcp_resource_templates':
-      return truncate(a.server || 'all');
-    case 'memory':
-    case 'remember':
-    case 'save_memory':
-    case 'update_memory':
-    case 'recall_memory':
-      return compactParts([
-        a.action || a.type || a.operation || a.op || 'memory',
-        truncate(firstText(a.query, a.summary, a.element, a.key, a.name, a.text, a.value), 80),
-      ]);
-    case 'recall':
-    case 'search_memories':
-      return compactParts([
-        quoted(firstText(a.query, a.text, a.input)),
-        a.limit || a.topK ? `top ${a.limit ?? a.topK}` : '',
-      ]);
-    case 'tool_search':
-      return quoted(firstText(a.query, a.q, a.text));
-    case 'bridge':
-      return compactParts([
-        a.type || a.action || a.mode || '',
-        a.role || a.tag || a.sessionId || a.jobId || '',
-        truncate(firstText(a.description, a.prompt, a.message), 80),
-      ]);
-    case 'code_graph':
-      return compactParts([
-        a.mode || a.action || '',
-        truncate(firstText(a.symbol, a.file, a.path, a.query), 80),
-      ]);
-    case 'cwd':
-      return truncate(firstText(a.path, a.cwd, a.dir));
-    default: {
-      try {
-        const s = JSON.stringify(a);
-        return truncate(s, 80);
-      } catch {
-        return '';
-      }
-    }
-  }
+  return surfaceSummarizeToolArgs(name, args);
 }
 
 export const MAX_RESULT_LINES = 8;
@@ -271,8 +40,7 @@ function fitResultLine(line, columns) {
 
 export function ToolExecution({ name, args, result, isError, expanded, globalExpanded = false, columns = 80, attached = false }) {
   const [blinkOn, setBlinkOn] = useState(true);
-  const label = displayToolName(name);
-  const summary = summarizeArgs(name, args);
+  const { label, summary } = formatToolSurface(name, args);
   const resultText = result == null ? null : String(result).replace(/\s+$/, '');
   const lines = resultText ? resultText.split('\n') : [];
   const totalLines = lines.length;
