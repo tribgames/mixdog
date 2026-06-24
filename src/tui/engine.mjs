@@ -100,6 +100,7 @@ export async function createEngineSession({
 
   let state = {
     items: [],
+    toasts: [],
     busy: false,
     commandBusy: false,
     spinner: null,
@@ -121,6 +122,31 @@ export async function createEngineSession({
   const set = (patch) => { state = { ...state, ...patch }; emit(); };
 
   const pushItem = (item) => set({ items: [...state.items, item] });
+  const pushToast = (text, tone = 'info', ttlMs = 3200) => {
+    const id = nextId();
+    const value = String(text ?? '').trim();
+    if (!value) return null;
+    set({ toasts: [...state.toasts.filter((toast) => toast.id !== id), { id, text: value, tone }] });
+    const timer = setTimeout(() => {
+      if (disposed) return;
+      set({ toasts: state.toasts.filter((toast) => toast.id !== id) });
+    }, ttlMs);
+    timer.unref?.();
+    return id;
+  };
+  const pushNotice = (text, tone = 'info', options = {}) => {
+    const value = String(text ?? '').trim();
+    if (!value) return null;
+    const forceTranscript = options.transcript === true;
+    const forceToast = options.toast === true;
+    const shortEnough = value.length <= 180 && !value.includes('\n');
+    if ((forceToast || shortEnough) && !forceTranscript) {
+      return pushToast(value, tone, options.ttlMs);
+    }
+    const id = nextId();
+    pushItem({ kind: 'notice', id, text: value, tone });
+    return id;
+  };
   const patchItem = (id, patch) =>
     set({ items: state.items.map((it) => (it.id === id ? { ...it, ...patch } : it)) });
   const bridgeJobMonitors = new Map();
@@ -362,12 +388,12 @@ export async function createEngineSession({
           resetStats();
           set({ sessionId: runtime.id, toolMode: runtime.toolMode, stats: { ...state.stats } });
         })
-        .catch((error) => pushItem({ kind: 'notice', id: nextId(), text: `[error] ${error?.message || error}`, tone: 'error' }));
+        .catch((error) => pushNotice(`[error] ${error?.message || error}`, 'error'));
     },
     toggleBridgeMode: () => {
       const mode = runtime.toggleBridgeMode();
       set({ bridgeMode: runtime.bridgeMode });
-      pushItem({ kind: 'notice', id: nextId(), text: `bridge mode → ${mode}`, tone: 'info' });
+      pushNotice(`bridge mode → ${mode}`, 'info');
       return mode;
     },
     setBridgeMode: (mode) => {
@@ -399,18 +425,16 @@ export async function createEngineSession({
       const already = result.already?.length ? `already ${result.already.join(', ')}` : '';
       const blocked = result.blocked?.length ? `blocked ${result.blocked.map((row) => row.name).join(', ')}` : '';
       const missing = result.missing?.length ? `missing ${result.missing.join(', ')}` : '';
-      pushItem({
-        kind: 'notice',
-        id: nextId(),
-        text: [added, already, blocked, missing].filter(Boolean).join(' · ') || 'no tool changes',
-        tone: result.blocked?.length || result.missing?.length ? 'warn' : 'info',
-      });
+      pushNotice(
+        [added, already, blocked, missing].filter(Boolean).join(' · ') || 'no tool changes',
+        result.blocked?.length || result.missing?.length ? 'warn' : 'info',
+      );
       return result;
     },
     setCwd: (path) => {
       const next = runtime.setCwd(path);
       set({ cwd: next });
-      pushItem({ kind: 'notice', id: nextId(), text: `cwd → ${next}`, tone: 'info' });
+      pushNotice(`cwd → ${next}`, 'info');
       return next;
     },
     mcpStatus: () => {
@@ -423,12 +447,10 @@ export async function createEngineSession({
         const status = await runtime.reconnectMcp?.();
         resetStats();
         set({ sessionId: runtime.id, stats: { ...state.stats } });
-        pushItem({
-          kind: 'notice',
-          id: nextId(),
-          text: `mcp reconnect: ${status?.connectedCount || 0}/${status?.configuredCount || 0} connected${status?.failedCount ? ` · ${status.failedCount} failed` : ''}`,
-          tone: status?.failedCount ? 'warn' : 'info',
-        });
+        pushNotice(
+          `mcp reconnect: ${status?.connectedCount || 0}/${status?.configuredCount || 0} connected${status?.failedCount ? ` · ${status.failedCount} failed` : ''}`,
+          status?.failedCount ? 'warn' : 'info',
+        );
         return status;
       } finally {
         set({ commandBusy: false });
@@ -441,12 +463,7 @@ export async function createEngineSession({
         const status = await runtime.removeMcpServer?.(name);
         resetStats();
         set({ sessionId: runtime.id, stats: { ...state.stats } });
-        pushItem({
-          kind: 'notice',
-          id: nextId(),
-          text: `mcp removed: ${name}`,
-          tone: 'info',
-        });
+        pushNotice(`mcp removed: ${name}`, 'info');
         return status;
       } finally {
         set({ commandBusy: false });
@@ -465,12 +482,7 @@ export async function createEngineSession({
         const status = await runtime.reloadSkills?.();
         resetStats();
         set({ sessionId: runtime.id, stats: { ...state.stats } });
-        pushItem({
-          kind: 'notice',
-          id: nextId(),
-          text: `skills reload: ${status?.count || 0} available`,
-          tone: 'info',
-        });
+        pushNotice(`skills reload: ${status?.count || 0} available`, 'info');
         return status;
       } finally {
         set({ commandBusy: false });
@@ -486,12 +498,7 @@ export async function createEngineSession({
         const status = await runtime.reloadPlugins?.();
         resetStats();
         set({ sessionId: runtime.id, stats: { ...state.stats } });
-        pushItem({
-          kind: 'notice',
-          id: nextId(),
-          text: `plugins reload: ${status?.count || 0} detected`,
-          tone: 'info',
-        });
+        pushNotice(`plugins reload: ${status?.count || 0} detected`, 'info');
         return status;
       } finally {
         set({ commandBusy: false });
@@ -504,12 +511,7 @@ export async function createEngineSession({
         const result = await runtime.enablePluginMcp?.(plugin);
         resetStats();
         set({ sessionId: runtime.id, stats: { ...state.stats } });
-        pushItem({
-          kind: 'notice',
-          id: nextId(),
-          text: `plugin MCP enabled: ${result?.serverName || plugin?.name || 'plugin'}`,
-          tone: 'info',
-        });
+        pushNotice(`plugin MCP enabled: ${result?.serverName || plugin?.name || 'plugin'}`, 'info');
         return result;
       } finally {
         set({ commandBusy: false });
@@ -520,17 +522,17 @@ export async function createEngineSession({
     },
     addHookRule: (rule) => {
       const rules = runtime.addHookRule?.(rule) || [];
-      pushItem({ kind: 'notice', id: nextId(), text: `hook rule added (${rules.length} total)`, tone: 'info' });
+      pushNotice(`hook rule added (${rules.length} total)`, 'info');
       return rules;
     },
     setHookRuleEnabled: (index, enabled) => {
       const rules = runtime.setHookRuleEnabled?.(index, enabled) || [];
-      pushItem({ kind: 'notice', id: nextId(), text: `hook rule ${index + 1} ${enabled ? 'enabled' : 'disabled'}`, tone: 'info' });
+      pushNotice(`hook rule ${index + 1} ${enabled ? 'enabled' : 'disabled'}`, 'info');
       return rules;
     },
     deleteHookRule: (index) => {
       const rules = runtime.deleteHookRule?.(index) || [];
-      pushItem({ kind: 'notice', id: nextId(), text: `hook rule ${index + 1} deleted`, tone: 'info' });
+      pushNotice(`hook rule ${index + 1} deleted`, 'info');
       return rules;
     },
     memoryControl: async (args = {}) => {
@@ -590,7 +592,7 @@ export async function createEngineSession({
         const result = await runtime.completeOnboarding?.(payload);
         resetStats();
         set({ sessionId: runtime.id, provider: runtime.provider, model: runtime.model, effort: runtime.effort, effortOptions: runtime.effortOptions, stats: { ...state.stats } });
-        pushItem({ kind: 'notice', id: nextId(), text: 'first-run setup saved', tone: 'info' });
+        pushNotice('first-run setup saved', 'info');
         return result;
       } finally {
         set({ commandBusy: false });
@@ -601,12 +603,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const result = await runtime.loginOAuthProvider(provider);
-        pushItem({
-          kind: 'notice',
-          id: nextId(),
-          text: `provider oauth ok: ${result.provider}`,
-          tone: 'info',
-        });
+        pushNotice(`provider oauth ok: ${result.provider}`, 'info');
         return true;
       } finally {
         set({ commandBusy: false });
@@ -614,22 +611,12 @@ export async function createEngineSession({
     },
     saveProviderApiKey: (provider, secret) => {
       const result = runtime.saveProviderApiKey(provider, secret);
-      pushItem({
-        kind: 'notice',
-        id: nextId(),
-        text: `provider api key saved: ${result.provider}`,
-        tone: 'info',
-      });
+      pushNotice(`provider api key saved: ${result.provider}`, 'info');
       return true;
     },
     setLocalProvider: (provider, opts) => {
       const result = runtime.setLocalProvider(provider, opts);
-      pushItem({
-        kind: 'notice',
-        id: nextId(),
-        text: `local provider ${result.enabled ? 'enabled' : 'disabled'}: ${result.provider}`,
-        tone: 'info',
-      });
+      pushNotice(`local provider ${result.enabled ? 'enabled' : 'disabled'}: ${result.provider}`, 'info');
       return true;
     },
     authenticateProvider: async (provider, secret) => {
@@ -637,12 +624,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const result = await runtime.authenticateProvider(provider, secret);
-        pushItem({
-          kind: 'notice',
-          id: nextId(),
-          text: `provider auth ok: ${result.provider} (${result.type})`,
-          tone: 'info',
-        });
+        pushNotice(`provider auth ok: ${result.provider} (${result.type})`, 'info');
         return true;
       } finally {
         set({ commandBusy: false });
@@ -650,12 +632,7 @@ export async function createEngineSession({
     },
     forgetProviderAuth: (provider) => {
       const result = runtime.forgetProviderAuth(provider);
-      pushItem({
-        kind: 'notice',
-        id: nextId(),
-        text: `provider auth forgotten: ${result.provider}`,
-        tone: 'info',
-      });
+      pushNotice(`provider auth forgotten: ${result.provider}`, 'info');
       return true;
     },
     getChannelSetup: () => {
@@ -663,57 +640,57 @@ export async function createEngineSession({
     },
     saveDiscordToken: (token) => {
       const result = runtime.saveDiscordToken(token);
-      pushItem({ kind: 'notice', id: nextId(), text: 'discord token saved', tone: 'info' });
+      pushNotice('discord token saved', 'info');
       return result;
     },
     forgetDiscordToken: () => {
       const result = runtime.forgetDiscordToken();
-      pushItem({ kind: 'notice', id: nextId(), text: 'discord token forgotten', tone: 'info' });
+      pushNotice('discord token forgotten', 'info');
       return result;
     },
     saveWebhookAuthtoken: (token) => {
       const result = runtime.saveWebhookAuthtoken(token);
-      pushItem({ kind: 'notice', id: nextId(), text: 'webhook/ngrok authtoken saved', tone: 'info' });
+      pushNotice('webhook/ngrok authtoken saved', 'info');
       return result;
     },
     forgetWebhookAuthtoken: () => {
       const result = runtime.forgetWebhookAuthtoken();
-      pushItem({ kind: 'notice', id: nextId(), text: 'webhook/ngrok authtoken forgotten', tone: 'info' });
+      pushNotice('webhook/ngrok authtoken forgotten', 'info');
       return result;
     },
     saveChannel: (entry) => {
       const result = runtime.saveChannel(entry);
-      pushItem({ kind: 'notice', id: nextId(), text: `channel saved: ${entry.name}`, tone: 'info' });
+      pushNotice(`channel saved: ${entry.name}`, 'info');
       return result;
     },
     deleteChannel: (name) => {
       const result = runtime.deleteChannel(name);
-      pushItem({ kind: 'notice', id: nextId(), text: `channel deleted: ${name}`, tone: 'info' });
+      pushNotice(`channel deleted: ${name}`, 'info');
       return result;
     },
     setWebhookConfig: (patch) => {
       const result = runtime.setWebhookConfig(patch);
-      pushItem({ kind: 'notice', id: nextId(), text: 'webhook config updated', tone: 'info' });
+      pushNotice('webhook config updated', 'info');
       return result;
     },
     saveSchedule: (entry) => {
       const result = runtime.saveSchedule(entry);
-      pushItem({ kind: 'notice', id: nextId(), text: `schedule saved: ${result.name}`, tone: 'info' });
+      pushNotice(`schedule saved: ${result.name}`, 'info');
       return result;
     },
     deleteSchedule: (name) => {
       const result = runtime.deleteSchedule(name);
-      pushItem({ kind: 'notice', id: nextId(), text: `schedule deleted: ${name}`, tone: 'info' });
+      pushNotice(`schedule deleted: ${name}`, 'info');
       return result;
     },
     saveWebhook: (entry) => {
       const result = runtime.saveWebhook(entry);
-      pushItem({ kind: 'notice', id: nextId(), text: `webhook saved: ${result.name}`, tone: 'info' });
+      pushNotice(`webhook saved: ${result.name}`, 'info');
       return result;
     },
     deleteWebhook: (name) => {
       const result = runtime.deleteWebhook(name);
-      pushItem({ kind: 'notice', id: nextId(), text: `webhook deleted: ${name}`, tone: 'info' });
+      pushNotice(`webhook deleted: ${name}`, 'info');
       return result;
     },
     setRoute: async (opts) => {
@@ -728,14 +705,14 @@ export async function createEngineSession({
         set({ commandBusy: false });
       }
     },
-    pushNotice: (text, tone = 'info') => pushItem({ kind: 'notice', id: nextId(), text, tone }),
+    pushNotice,
     clear: async () => {
       if (state.commandBusy) return false;
       set({ commandBusy: true });
       try {
         await runtime.clear();
         resetStats();
-        set({ items: [], queued: [], thinking: null, spinner: null, lastTurn: null, sessionId: runtime.id, effort: runtime.effort, effortOptions: runtime.effortOptions, stats: { ...state.stats } });
+        set({ items: [], toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, sessionId: runtime.id, effort: runtime.effort, effortOptions: runtime.effortOptions, stats: { ...state.stats } });
         return true;
       } finally {
         set({ commandBusy: false });
@@ -750,7 +727,7 @@ export async function createEngineSession({
       try {
         await runtime.newSession();
         resetStats();
-        set({ items: [], queued: [], thinking: null, lastTurn: null, sessionId: runtime.id, stats: { ...state.stats } });
+        set({ items: [], toasts: [], queued: [], thinking: null, lastTurn: null, sessionId: runtime.id, stats: { ...state.stats } });
         return true;
       } finally {
         set({ commandBusy: false });
@@ -777,6 +754,7 @@ export async function createEngineSession({
         }
         set({
           items,
+          toasts: [],
           queued: [],
           thinking: null,
           spinner: null,

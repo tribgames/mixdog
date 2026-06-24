@@ -250,6 +250,19 @@ const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpan
   }
 });
 
+function ToastNotice({ toast, columns }) {
+  if (!toast) return null;
+  const color = toast.tone === 'error' ? theme.error : toast.tone === 'warn' ? theme.warning : theme.inactive;
+  const prefix = toast.tone === 'error' ? 'x' : toast.tone === 'warn' ? '!' : 'i';
+  return (
+    <Box flexShrink={0} paddingX={1}>
+      <Box borderStyle="round" borderColor={color} paddingX={1} width="100%">
+        <Text color={color}>{fitLine(`${prefix} ${toast.text}`, columns, 6)}</Text>
+      </Box>
+    </Box>
+  );
+}
+
 export function App({ store, initialStatusLine = '' }) {
   const state = useEngine(store);
   const [toolOutputExpanded, setToolOutputExpanded] = useState(false);
@@ -2495,12 +2508,13 @@ export function App({ store, initialStatusLine = '' }) {
   const SLASH_PALETTE_MAX_VISIBLE = 8;
   const PICKER_ROWS = picker ? Math.min(picker.items.length, PICKER_MAX_VISIBLE) + 4 : 0;
   const SLASH_PALETTE_ROWS = slashPaletteOpen ? Math.min(slashCommands.length, SLASH_PALETTE_MAX_VISIBLE) + 4 : 0;
+  const TOAST_ROWS = state.toasts?.length ? 3 : 0;
   const PROVIDER_PROMPT_ROWS = providerPrompt ? 1 : 0;
   const CHANNEL_PROMPT_ROWS = channelPrompt ? 1 : 0;
   const HOOK_PROMPT_ROWS = hookPrompt ? 1 : 0;
   const SETTINGS_PROMPT_ROWS = settingsPrompt ? 1 : 0;
   const queuedRows = !picker && !slashPaletteOpen && !providerPrompt && !channelPrompt && !hookPrompt && !settingsPrompt && state.queued?.length ? state.queued.length + 1 : 0;
-  const bottomReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + PICKER_ROWS + SLASH_PALETTE_ROWS + PROVIDER_PROMPT_ROWS + CHANNEL_PROMPT_ROWS + HOOK_PROMPT_ROWS + SETTINGS_PROMPT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
+  const bottomReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + PICKER_ROWS + SLASH_PALETTE_ROWS + TOAST_ROWS + PROVIDER_PROMPT_ROWS + CHANNEL_PROMPT_ROWS + HOOK_PROMPT_ROWS + SETTINGS_PROMPT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
@@ -2596,6 +2610,9 @@ export function App({ store, initialStatusLine = '' }) {
       {/* Bottom bar — pinned to the physical bottom, never moves. Pickers and
           slash palettes attach directly above the prompt like Codex/OpenCode. */}
       <Box flexDirection="column" flexShrink={0}>
+        {state.toasts?.length ? (
+          <ToastNotice toast={state.toasts[state.toasts.length - 1]} columns={resizeState.columns} />
+        ) : null}
         {picker ? (
           <Box flexShrink={0}>
             <Picker
