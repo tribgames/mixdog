@@ -274,6 +274,7 @@ export function App({ store, initialStatusLine = '' }) {
   const [providerPrompt, setProviderPrompt] = useState(null);
   const [channelPrompt, setChannelPrompt] = useState(null);
   const [hookPrompt, setHookPrompt] = useState(null);
+  const [settingsPrompt, setSettingsPrompt] = useState(null);
   const [promptDraft, setPromptDraft] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedFor, setSlashDismissedFor] = useState('');
@@ -485,6 +486,7 @@ export function App({ store, initialStatusLine = '' }) {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
+    setSettingsPrompt(null);
     let providerModels = [];
     try {
       providerModels = await store.listProviderModels();
@@ -534,6 +536,7 @@ export function App({ store, initialStatusLine = '' }) {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
+    setSettingsPrompt(null);
     const current = state.effort || 'auto';
     const items = Array.isArray(state.effortOptions) && state.effortOptions.length > 0
       ? state.effortOptions
@@ -558,6 +561,7 @@ export function App({ store, initialStatusLine = '' }) {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
+    setSettingsPrompt(null);
     const mode = state.bridgeMode || 'sync';
     setPicker({
       title: `Bridge (current: ${mode})`,
@@ -642,6 +646,7 @@ export function App({ store, initialStatusLine = '' }) {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
+    setSettingsPrompt(null);
     setPicker({
       title: query ? `Tools · ${query}` : 'Tools',
       items,
@@ -717,6 +722,7 @@ export function App({ store, initialStatusLine = '' }) {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
+    setSettingsPrompt(null);
     setPicker({
       title: 'Status',
       items: [
@@ -807,6 +813,7 @@ export function App({ store, initialStatusLine = '' }) {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
+    setSettingsPrompt(null);
     setPicker({
       title: 'Settings',
       items: [
@@ -882,7 +889,13 @@ export function App({ store, initialStatusLine = '' }) {
         if (item._action === 'model') openModelPicker();
         else if (item._action === 'effort') openEffortPicker();
         else if (item._action === 'providers') void openProviderSetupPicker();
-        else if (item._action === 'cwd') store.pushNotice(`cwd: ${state.cwd}\nUse /cwd <path> to change it.`, 'info');
+        else if (item._action === 'cwd') {
+          setSettingsPrompt({
+            kind: 'cwd',
+            label: 'Working directory',
+            hint: state.cwd,
+          });
+        }
         else if (item._action === 'bridge') openBridgePicker();
         else if (item._action === 'tools') openToolsPicker();
         else if (item._action === 'mcp') openMcpPicker();
@@ -945,6 +958,7 @@ export function App({ store, initialStatusLine = '' }) {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
+    setSettingsPrompt(null);
     setPicker({
       title: 'Providers',
       items,
@@ -1028,6 +1042,7 @@ export function App({ store, initialStatusLine = '' }) {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
+    setSettingsPrompt(null);
     let setup;
     try {
       setup = store.getChannelSetup();
@@ -1234,6 +1249,7 @@ export function App({ store, initialStatusLine = '' }) {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
+    setSettingsPrompt(null);
     setPicker({
       title: 'MCP',
       items,
@@ -1360,6 +1376,7 @@ export function App({ store, initialStatusLine = '' }) {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
+    setSettingsPrompt(null);
     setPicker({
       title: 'Skills',
       items,
@@ -1474,6 +1491,7 @@ export function App({ store, initialStatusLine = '' }) {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
+    setSettingsPrompt(null);
     setPicker({
       title: 'Plugins',
       items,
@@ -1661,6 +1679,7 @@ export function App({ store, initialStatusLine = '' }) {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
+    setSettingsPrompt(null);
     setPicker({
       title: 'Hooks',
       items,
@@ -2082,6 +2101,27 @@ export function App({ store, initialStatusLine = '' }) {
         return false;
       }
     }
+    if (settingsPrompt) {
+      if (state.commandBusy) {
+        store.pushNotice('wait for the current command to finish', 'warn');
+        return false;
+      }
+      try {
+        if (settingsPrompt.kind === 'cwd') {
+          if (!commandText) {
+            store.pushNotice('working directory path is required', 'warn');
+            return false;
+          }
+          store.setCwd?.(commandText);
+          setSettingsPrompt(null);
+          void openSettingsPicker();
+          return true;
+        }
+      } catch (e) {
+        store.pushNotice(`settings update failed: ${e?.message || e}`, 'error');
+        return false;
+      }
+    }
     if (!commandText) return false;
     if (state.commandBusy) {
       store.pushNotice('wait for the current command to finish', 'warn');
@@ -2095,7 +2135,7 @@ export function App({ store, initialStatusLine = '' }) {
     return store.submit(text);
   };
 
-  const activeSlashQuery = providerPrompt || channelPrompt || hookPrompt ? null : slashQuery(promptDraft);
+  const activeSlashQuery = providerPrompt || channelPrompt || hookPrompt || settingsPrompt ? null : slashQuery(promptDraft);
   const slashCommands = activeSlashQuery === null || picker || exiting || state.commandBusy
     ? []
     : SLASH_COMMANDS.filter((command) => {
@@ -2127,6 +2167,11 @@ export function App({ store, initialStatusLine = '' }) {
 
   const cancelHookPrompt = useCallback(() => {
     setHookPrompt(null);
+    store.pushNotice('canceled', 'info');
+  }, [store]);
+
+  const cancelSettingsPrompt = useCallback(() => {
+    setSettingsPrompt(null);
     store.pushNotice('canceled', 'info');
   }, [store]);
 
@@ -2180,8 +2225,9 @@ export function App({ store, initialStatusLine = '' }) {
   const PROVIDER_PROMPT_ROWS = providerPrompt ? 1 : 0;
   const CHANNEL_PROMPT_ROWS = channelPrompt ? 1 : 0;
   const HOOK_PROMPT_ROWS = hookPrompt ? 1 : 0;
-  const queuedRows = !picker && !slashPaletteOpen && !providerPrompt && !channelPrompt && !hookPrompt && state.queued?.length ? state.queued.length + 1 : 0;
-  const bottomReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + PICKER_ROWS + SLASH_PALETTE_ROWS + PROVIDER_PROMPT_ROWS + CHANNEL_PROMPT_ROWS + HOOK_PROMPT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
+  const SETTINGS_PROMPT_ROWS = settingsPrompt ? 1 : 0;
+  const queuedRows = !picker && !slashPaletteOpen && !providerPrompt && !channelPrompt && !hookPrompt && !settingsPrompt && state.queued?.length ? state.queued.length + 1 : 0;
+  const bottomReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + PICKER_ROWS + SLASH_PALETTE_ROWS + PROVIDER_PROMPT_ROWS + CHANNEL_PROMPT_ROWS + HOOK_PROMPT_ROWS + SETTINGS_PROMPT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
@@ -2319,11 +2365,19 @@ export function App({ store, initialStatusLine = '' }) {
                 : `${hookPrompt.label} · Enter save · Esc cancel`, resizeState.columns)}
             </Text>
           </Box>
+        ) : settingsPrompt ? (
+          <Box flexShrink={0} paddingX={1}>
+            <Text color={theme.inactive}>
+              {fitLine(settingsPrompt.hint
+                ? `${settingsPrompt.label} · ${settingsPrompt.hint} · Enter save · Esc cancel`
+                : `${settingsPrompt.label} · Enter save · Esc cancel`, resizeState.columns)}
+            </Text>
+          </Box>
         ) : !picker ? (
           <QueuedCommands queued={state.queued} columns={resizeState.columns} />
         ) : null}
         <Box
-          marginTop={picker || slashPaletteOpen || providerPrompt || channelPrompt || hookPrompt ? 0 : 1}
+          marginTop={picker || slashPaletteOpen || providerPrompt || channelPrompt || hookPrompt || settingsPrompt ? 0 : 1}
           width="100%"
           borderStyle="round"
           borderColor={state.busy || state.commandBusy || picker ? theme.subtle : theme.promptBorder}
@@ -2334,7 +2388,7 @@ export function App({ store, initialStatusLine = '' }) {
             disabled={exiting || state.commandBusy || !!picker}
             onDraftChange={onPromptDraftChange}
             mask={providerPrompt?.kind === 'api-key' || channelPrompt?.kind === 'discord-token' || channelPrompt?.kind === 'webhook-token'}
-            onEscape={providerPrompt ? cancelProviderPrompt : channelPrompt ? cancelChannelPrompt : hookPrompt ? cancelHookPrompt : undefined}
+            onEscape={providerPrompt ? cancelProviderPrompt : channelPrompt ? cancelChannelPrompt : hookPrompt ? cancelHookPrompt : settingsPrompt ? cancelSettingsPrompt : undefined}
             commandPaletteActive={slashPaletteOpen}
             onCommandPaletteNavigate={(direction) => {
               setSlashIndex((index) => {
