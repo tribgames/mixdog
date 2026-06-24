@@ -2682,7 +2682,7 @@ export function App({ store, initialStatusLine = '' }) {
   //
   // Every sibling outside the viewport must be accounted for here; otherwise
   // the total tree height exceeds the terminal and the input box gets pushed.
-  const WELCOME_ROWS = state.items.length === 0 ? 3 : 0;
+  const WELCOME_ROWS = state.items.length === 0 ? 5 : 0;
   // Independent reservation for each live-status child — the viewport must
   // yield enough space for every bottom sibling. ThinkingMessage: outer
   // marginTop(1) + inner marginTop(1) + "∴ Thinking…" label(1) = 3.
@@ -2733,11 +2733,17 @@ export function App({ store, initialStatusLine = '' }) {
       {/* Empty-transcript header stays outside the bottom-anchored viewport and
           has its own reserved rows, so it cannot steal space from the input. */}
       {state.items.length === 0 ? (
-        <Box flexDirection="column" height={1} flexShrink={0} marginTop={1} marginBottom={1}>
+        <Box flexDirection="column" height={3} flexShrink={0} marginTop={1} marginBottom={1}>
           <Text>
-            <Text color={theme.text}>{TURN_MARKER} </Text>
-            <Text color={theme.text}>mixdog-cli</Text>
-            <Text color={theme.inactive}>{`  ${state.provider}/${state.model}`}</Text>
+            <Text color={theme.claude}>{TURN_MARKER} </Text>
+            <Text color={theme.text} bold>mixdog-cli</Text>
+            <Text color={theme.inactive}>{`  ${state.provider}`}</Text>
+          </Text>
+          <Text color={theme.inactive}>
+            {fitLine(`  ${state.model} · ${(state.effort || 'auto').toUpperCase()} · ${state.toolMode || 'full'} · bridge ${state.bridgeMode || 'sync'}`, resizeState.columns)}
+          </Text>
+          <Text color={theme.subtle}>
+            {fitLine(`  ${state.cwd}`, resizeState.columns)}
           </Text>
         </Box>
       ) : null}
