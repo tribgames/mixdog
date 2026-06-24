@@ -487,15 +487,28 @@ export function App({ store, initialStatusLine = '' }) {
     }
   }, { isActive: isRawModeSupported });
 
-  const modelDescription = (m) => {
-    const meta = [];
-    if (m.contextWindow) meta.push(`${Math.round(Number(m.contextWindow) / 1000)}k ctx`);
-    if (m.supportsVision) meta.push('vision');
-    const efforts = (m.effortOptions || []).map((e) => e.value).filter((v) => v && v !== 'auto');
-    if (efforts.length) meta.push(`effort ${efforts.join('/')}`);
-    if (m.latest) meta.push('latest');
-    return [m.provider, ...meta].join(' · ');
+  const formatContextWindow = (tokens) => {
+    const n = Number(tokens);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    if (n >= 1_000_000) {
+      const m = n / 1_000_000;
+      return `${Number.isInteger(m) ? m.toFixed(0) : m.toFixed(1)}M ctx`;
+    }
+    return `${Math.round(n / 1000)}k ctx`;
   };
+
+  const isVisibleModelOption = (m) => {
+    const provider = String(m?.provider || '').toLowerCase();
+    const id = String(m?.id || '').toLowerCase();
+    if (!provider.includes('anthropic')) return true;
+    if (m?.latest) return true;
+    if (Number(m?.contextWindow) >= 1_000_000) return true;
+    return /^claude-haiku-4-5(?:$|-)/.test(id);
+  };
+
+  const visibleModelOptions = (models) => (Array.isArray(models) ? models.filter(isVisibleModelOption) : []);
+
+  const modelDescription = (m) => [m.provider, formatContextWindow(m.contextWindow)].filter(Boolean).join(' · ');
 
   const routeLabel = (route) => {
     if (!route?.provider || !route?.model) return '(unset)';
@@ -564,7 +577,8 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
 
-    const items = providerModels.map((m) => {
+    const models = visibleModelOptions(providerModels);
+    const items = models.map((m) => {
       return {
         value: `${m.provider}:${m.id}`,
         label: m.display || m.id,
@@ -1168,7 +1182,7 @@ export function App({ store, initialStatusLine = '' }) {
   };
 
   const openOnboardingRoleModelPicker = (slot) => {
-    const models = onboardingRef.current.providerModels || [];
+    const models = visibleModelOptions(onboardingRef.current.providerModels || []);
     const fallbackRoute = onboardingRef.current.defaultRoute || null;
     if (models.length === 0) {
       store.pushNotice('no provider models available; open /providers to authenticate', 'warn');

@@ -55,7 +55,9 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
           />
         ))}
         {commands.length > MAX_VISIBLE ? (
-          <Text color={theme.subtle}>{start + 1}-{Math.min(end, total)} of {commands.length}</Text>
+          <Box justifyContent="flex-end" width="100%">
+            <Text color={theme.subtle}>{start + 1}-{Math.min(end, total)} / {commands.length}</Text>
+          </Box>
         ) : null}
       </Box>
     </Box>

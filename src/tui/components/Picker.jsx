@@ -129,9 +129,9 @@ export function Picker({ items, onSelect, onCancel, title, columns = 80 }) {
           );
         })}
         {total > MAX_VISIBLE ? (
-          <Box>
+          <Box justifyContent="flex-end" width="100%">
             <Text color={theme.subtle}>
-              {start + 1}–{Math.min(end, total)} of {total}
+              {start + 1}-{Math.min(end, total)} / {total}
             </Text>
           </Box>
         ) : null}
