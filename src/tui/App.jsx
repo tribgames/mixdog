@@ -845,10 +845,6 @@ export function App({ store, initialStatusLine = '' }) {
 
   const openSettingsPicker = () => {
     const tools = store.toolsStatus?.() || { activeCount: 0, count: 0 };
-    const mcp = store.mcpStatus?.() || { connectedCount: 0, configuredCount: 0, failedCount: 0 };
-    const hooks = store.hooksStatus?.() || { ruleCount: 0 };
-    const plugins = store.pluginsStatus?.() || { count: 0 };
-    const channelWorker = store.getChannelWorkerStatus?.();
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
@@ -893,6 +889,49 @@ export function App({ store, initialStatusLine = '' }) {
           _action: 'tools',
         },
         {
+          value: 'advanced',
+          label: 'Advanced',
+          description: 'MCP, plugins, hooks, skills, channels, runtime status',
+          _action: 'advanced',
+        },
+      ],
+      onSelect: (_value, item) => {
+        setPicker(null);
+        if (item._action === 'model') openModelPicker();
+        else if (item._action === 'effort') openEffortPicker();
+        else if (item._action === 'providers') void openProviderSetupPicker();
+        else if (item._action === 'cwd') {
+          setSettingsPrompt({
+            kind: 'cwd',
+            label: 'Working directory',
+            hint: state.cwd,
+          });
+        }
+        else if (item._action === 'bridge') openBridgePicker();
+        else if (item._action === 'tools') openToolsPicker();
+        else if (item._action === 'advanced') openAdvancedSettingsPicker();
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
+  const openAdvancedSettingsPicker = () => {
+    const mcp = store.mcpStatus?.() || { connectedCount: 0, configuredCount: 0, failedCount: 0 };
+    const hooks = store.hooksStatus?.() || { ruleCount: 0 };
+    const plugins = store.pluginsStatus?.() || { count: 0 };
+    const skills = store.skillsStatus?.() || { count: 0 };
+    const channelWorker = store.getChannelWorkerStatus?.();
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setPicker({
+      title: 'Advanced Settings',
+      items: [
+        {
           value: 'mcp',
           label: 'MCP servers',
           description: `${mcp.connectedCount || 0}/${mcp.configuredCount || 0} connected${mcp.failedCount ? ` · ${mcp.failedCount} failed` : ''}`,
@@ -911,6 +950,12 @@ export function App({ store, initialStatusLine = '' }) {
           _action: 'hooks',
         },
         {
+          value: 'skills',
+          label: 'Skills',
+          description: `${skills.count || 0} available`,
+          _action: 'skills',
+        },
+        {
           value: 'channels',
           label: 'Channels',
           description: channelWorker?.running ? `worker running · pid ${channelWorker.pid}` : 'worker stopped',
@@ -922,30 +967,26 @@ export function App({ store, initialStatusLine = '' }) {
           description: 'open read-only overview dashboard',
           _action: 'status',
         },
+        {
+          value: 'back',
+          label: 'Back',
+          description: 'return to main settings',
+          _action: 'back',
+        },
       ],
       onSelect: (_value, item) => {
         setPicker(null);
-        if (item._action === 'model') openModelPicker();
-        else if (item._action === 'effort') openEffortPicker();
-        else if (item._action === 'providers') void openProviderSetupPicker();
-        else if (item._action === 'cwd') {
-          setSettingsPrompt({
-            kind: 'cwd',
-            label: 'Working directory',
-            hint: state.cwd,
-          });
-        }
-        else if (item._action === 'bridge') openBridgePicker();
-        else if (item._action === 'tools') openToolsPicker();
-        else if (item._action === 'mcp') openMcpPicker();
+        if (item._action === 'mcp') openMcpPicker();
         else if (item._action === 'plugins') openPluginsPicker();
         else if (item._action === 'hooks') openHooksPicker();
+        else if (item._action === 'skills') openSkillsPicker();
         else if (item._action === 'channels') void openChannelSetupPicker('all');
         else if (item._action === 'status') openStatusPicker();
+        else if (item._action === 'back') openSettingsPicker();
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('canceled', 'info');
+        openSettingsPicker();
       },
     });
   };
