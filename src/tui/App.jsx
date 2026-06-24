@@ -1081,7 +1081,7 @@ export function App({ store, initialStatusLine = '' }) {
       items.push({
         value: `${plugin.source}:${plugin.name}:${plugin.version || ''}`,
         label: plugin.title || plugin.name,
-        description: `${plugin.source}${plugin.marketplace ? ` · ${plugin.marketplace}` : ''}${plugin.version ? ` · ${plugin.version}` : ''} · skills ${plugin.skillCount || 0}${plugin.mcpScript ? ` · mcp ${plugin.mcpScript}` : ''}`,
+        description: `${plugin.source}${plugin.marketplace ? ` · ${plugin.marketplace}` : ''}${plugin.version ? ` · ${plugin.version}` : ''} · skills ${plugin.skillCount || 0}${plugin.mcpScript ? ` · mcp ${plugin.mcpEnabled ? 'enabled' : plugin.mcpScript}` : ''}`,
         _action: 'plugin',
         _plugin: plugin,
       });
@@ -1113,8 +1113,8 @@ export function App({ store, initialStatusLine = '' }) {
             },
             {
               value: 'enable-mcp',
-              label: p.mcpScript ? 'Enable MCP server' : 'No MCP script',
-              description: p.mcpScript || 'plugin does not expose scripts/run-mcp.mjs or mcp/server.mjs',
+              label: p.mcpScript ? (p.mcpEnabled ? 'Refresh MCP server' : 'Enable MCP server') : 'No MCP script',
+              description: p.mcpScript ? `${p.mcpServerName || 'plugin-mcp'} · ${p.mcpEnabled ? 'configured' : p.mcpScript}` : 'plugin does not expose scripts/run-mcp.mjs or mcp/server.mjs',
               _action: p.mcpScript ? 'enable-mcp' : 'noop',
             },
           ],
@@ -1125,7 +1125,7 @@ export function App({ store, initialStatusLine = '' }) {
                 `${p.title || p.name}${p.version ? ` ${p.version}` : ''}`,
                 `source: ${p.source}${p.marketplace ? ` / ${p.marketplace}` : ''}`,
                 `skills: ${p.skillCount || 0}`,
-                `mcp: ${p.mcpScript || '(none)'}`,
+                `mcp: ${p.mcpScript ? `${p.mcpEnabled ? 'enabled' : 'available'} (${p.mcpServerName || 'plugin-mcp'})` : '(none)'}`,
                 `root: ${p.root}`,
                 p.description ? `\n${p.description}` : '',
               ].filter(Boolean).join('\n'), 'info');

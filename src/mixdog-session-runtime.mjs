@@ -893,6 +893,9 @@ export async function createMixdogSessionRuntime({
   function pluginsStatus() {
     const plugins = [];
     const seen = new Set();
+    const configuredMcp = config?.mcpServers && typeof config.mcpServers === 'object'
+      ? config.mcpServers
+      : {};
     const addPlugin = ({ root, source, marketplace, version, fallbackName }) => {
       if (!root || !existsSync(root)) return;
       const manifest = pluginManifest(root);
@@ -900,7 +903,7 @@ export async function createMixdogSessionRuntime({
       const key = `${source}:${marketplace || ''}:${name}:${version || manifest.version || ''}:${root}`;
       if (seen.has(key)) return;
       seen.add(key);
-      plugins.push({
+      const plugin = {
         name,
         title: clean(manifest.title) || clean(manifest.displayName) || name,
         version: clean(version) || clean(manifest.version) || null,
@@ -910,7 +913,10 @@ export async function createMixdogSessionRuntime({
         root,
         skillCount: countSkillFiles(root),
         mcpScript: mcpScriptForPlugin(root),
-      });
+      };
+      plugin.mcpServerName = pluginMcpServerName(plugin);
+      plugin.mcpEnabled = Object.prototype.hasOwnProperty.call(configuredMcp, plugin.mcpServerName);
+      plugins.push(plugin);
     };
 
     const marketplaceBase = join(homedir(), '.claude', 'plugins', 'marketplaces');
