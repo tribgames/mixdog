@@ -2530,18 +2530,26 @@ export function App({ store, initialStatusLine = '' }) {
   const TURNDONE_ROWS = state.lastTurn && !state.spinner?.active ? 2 : 0;
   const SCROLL_HINT_ROWS = scrollOffset > 0 ? 1 : 0;
   const LIVE_STATUS_ROWS = THINKING_ROWS + SPINNER_ROWS + TURNDONE_ROWS;
-  const INPUT_BOX_ROWS = 4;
+  const hasFloatingPanel = !!(picker || slashPaletteOpen || providerPrompt || channelPrompt || hookPrompt || settingsPrompt);
+  const INPUT_BOX_ROWS = hasFloatingPanel ? 3 : 4;
   const STATUSLINE_ROWS = 3;
-  const FLOATING_PANEL_ROWS = 12; // MAX_VISIBLE(8) + header/border/count room.
+  const PANEL_MAX_VISIBLE = 8;
   const PROMPT_HINT_ROWS = 1;
-  const floatingPanelRows = picker || slashPaletteOpen
-    ? FLOATING_PANEL_ROWS
-    : providerPrompt || channelPrompt || hookPrompt || settingsPrompt
-      ? PROMPT_HINT_ROWS
-      : 0;
+  const desiredFloatingPanelRows = picker
+    ? Math.min(picker.items.length, PANEL_MAX_VISIBLE) + 4 + (picker.items.length > PANEL_MAX_VISIBLE ? 1 : 0)
+    : slashPaletteOpen
+      ? Math.min(slashCommands.length, PANEL_MAX_VISIBLE) + 4 + (slashCommands.length > PANEL_MAX_VISIBLE ? 1 : 0)
+      : providerPrompt || channelPrompt || hookPrompt || settingsPrompt
+        ? PROMPT_HINT_ROWS
+        : 0;
   const TOAST_ROWS = state.toasts?.length ? 3 : 0;
-  const queuedRows = !picker && !slashPaletteOpen && !providerPrompt && !channelPrompt && !hookPrompt && !settingsPrompt && state.queued?.length ? state.queued.length + 1 : 0;
-  const bottomReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + floatingPanelRows + TOAST_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
+  const queuedRows = !hasFloatingPanel && state.queued?.length ? state.queued.length + 1 : 0;
+  const baseReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + TOAST_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
+  const maxFloatingPanelRows = Math.max(0, resizeState.rows - baseReserve - 1);
+  const floatingPanelRows = desiredFloatingPanelRows > 0
+    ? Math.min(desiredFloatingPanelRows, maxFloatingPanelRows)
+    : 0;
+  const bottomReserve = baseReserve + floatingPanelRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
@@ -2634,16 +2642,16 @@ export function App({ store, initialStatusLine = '' }) {
         </Box>
       ) : null}
 
-      {/* Bottom bar — pinned to the physical bottom, never moves. A fixed-height
-          floating slot keeps the prompt/status y-position stable while pickers
-          grow/shrink; the active panel is bottom-aligned inside the slot so it
-          still attaches directly above the prompt like Codex/OpenCode. */}
+      {/* Bottom bar — pinned to the physical bottom, never moves. Floating
+          panels use their actual rendered height and shrink before the prompt
+          can move; overflow is clipped from the top while the panel remains
+          bottom-aligned against the prompt. */}
       <Box flexDirection="column" flexShrink={0}>
         {state.toasts?.length ? (
           <ToastNotice toast={state.toasts[state.toasts.length - 1]} columns={resizeState.columns} />
         ) : null}
         {floatingPanelRows > 0 ? (
-          <Box flexDirection="column" flexShrink={0} height={floatingPanelRows} justifyContent="flex-end">
+          <Box flexDirection="column" flexShrink={0} height={floatingPanelRows} overflow="hidden" justifyContent="flex-end">
             {picker ? (
               <Picker
                 items={picker.items}
