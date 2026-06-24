@@ -316,8 +316,6 @@ export function App({ store, initialStatusLine = '' }) {
         store.pushNotice(`📋 copied ${chars} char${chars === 1 ? '' : 's'}${lines > 1 ? ` · ${lines} lines` : ''}`, 'info');
       })
       .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
-    // Clear the highlight a beat after copying so the user sees what was taken.
-    setTimeout(() => { store.setRenderSelection?.(null); }, 120);
   }, [store]);
 
   useEffect(() => {
@@ -353,10 +351,9 @@ export function App({ store, initialStatusLine = '' }) {
   // (press/motion) or `\x1b[<b;col;rowm` (release), 1-based col/row. We watch raw
   // stdin and split it two ways, both additive to ink's keyboard handling:
   //   • wheel (button 64 up / 65 down) → scroll the transcript
-  //   • left-button (0) press → drag → release → in-app text selection + copy,
-  //     OpenCode-style: capture stays on so wheel and drag-select coexist. We
-  //     paint an inverse highlight via the ink fork (store.setRenderSelection)
-  //     and copy the selected cells to the OS clipboard on release.
+  //   • left-button (0) press → drag → release → in-app text selection + copy.
+  //     The highlight stays visible after release so the user can confirm the
+  //     selected region; ESC or a plain click clears it.
   // Because we run a true fullscreen alt-screen, the reported (row,col) maps 1:1
   // to ink's absolute output grid, so the selection rectangle needs no scroll/
   // viewport translation — we highlight exactly the cells the user sees.
@@ -406,7 +403,8 @@ export function App({ store, initialStatusLine = '' }) {
           setSel?.(normalize(dragRef.current.anchor, { x, y }));
         } else if (!press && dragRef.current.active) {
           // Button release while dragging: finalize with the release coordinate
-          // (the SGR release event carries col/row), then copy.
+          // (the SGR release event carries col/row), copy, and keep the
+          // selection visible until ESC or a plain click.
           const { anchor } = dragRef.current;
           dragRef.current.active = false;
           const rect = normalize(anchor, { x, y });
