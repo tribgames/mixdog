@@ -538,6 +538,62 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
+  const openBridgePicker = () => {
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    const mode = state.bridgeMode || 'sync';
+    setPicker({
+      title: `Bridge (current: ${mode})`,
+      items: [
+        {
+          value: 'sync',
+          label: mode === 'sync' ? '● Sync mode' : '○ Sync mode',
+          description: 'worker calls wait for completion',
+          _action: 'mode',
+          _mode: 'sync',
+        },
+        {
+          value: 'async',
+          label: mode === 'async' ? '● Async mode' : '○ Async mode',
+          description: 'worker calls return job handles',
+          _action: 'mode',
+          _mode: 'async',
+        },
+        {
+          value: 'list',
+          label: 'List workers/jobs',
+          description: 'show active bridge sessions and async jobs',
+          _action: 'control',
+          _args: { type: 'list' },
+        },
+        {
+          value: 'cleanup',
+          label: 'Cleanup finished jobs',
+          description: 'remove completed bridge job records',
+          _action: 'control',
+          _args: { type: 'cleanup' },
+        },
+      ],
+      onSelect: (_value, item) => {
+        setPicker(null);
+        if (item._action === 'mode') {
+          const next = store.setBridgeMode?.(item._mode);
+          store.pushNotice(`✓ bridge mode → ${next || item._mode}`, 'info');
+          return;
+        }
+        if (item._action === 'control') {
+          void store.bridgeControl?.(item._args)
+            .catch((e) => store.pushNotice(`bridge failed: ${e?.message || e}`, 'error'));
+        }
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
   const openProviderSetupPicker = async () => {
     let setup;
     try {
@@ -1291,7 +1347,7 @@ export function App({ store, initialStatusLine = '' }) {
       case 'bridge': {
         const mode = arg.trim().toLowerCase();
         if (!mode) {
-          store.toggleBridgeMode?.();
+          openBridgePicker();
           return true;
         }
         const control = parseBridgeControl(arg);
