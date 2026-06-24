@@ -192,7 +192,7 @@ function fitResultLine(line, columns) {
   return text.length > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text;
 }
 
-export function ToolExecution({ name, args, result, isError, expanded, columns = 80 }) {
+export function ToolExecution({ name, args, result, isError, expanded, globalExpanded = false, columns = 80 }) {
   const label = displayToolName(name);
   const summary = summarizeArgs(name, args);
   const resultText = result == null ? null : String(result).replace(/\s+$/, '');
@@ -208,6 +208,8 @@ export function ToolExecution({ name, args, result, isError, expanded, columns =
   // Status dot color mirrors CC's ToolUseLoader: in-progress (no result yet) is
   // plain white, a finished call is success-green, a failed one is error-red.
   const dotColor = result == null ? theme.text : isError ? theme.error : theme.success;
+  const statusText = result == null ? 'running' : isError ? 'error' : '';
+  const statusColor = isError ? theme.error : theme.inactive;
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -220,6 +222,7 @@ export function ToolExecution({ name, args, result, isError, expanded, columns =
           <Text bold color={theme.text}>{label}</Text>
         </Box>
         {summary ? <Text color={theme.text}>{`(${summary})`}</Text> : null}
+        {statusText ? <Text color={statusColor}>{` · ${statusText}`}</Text> : null}
       </Box>
 
       {/* result: single dim `  ⎿  ` gutter + a column body that wraps on its own */}
@@ -240,10 +243,10 @@ export function ToolExecution({ name, args, result, isError, expanded, columns =
               <Text color={theme.subtle}>{`… (${clippedLineCount} long line${clippedLineCount === 1 ? '' : 's'} clipped to terminal width)`}</Text>
             ) : null}
             {!expanded && hiddenCount > 0 ? (
-              <Text color={theme.subtle}>{`… (+${hiddenCount} more line${hiddenCount === 1 ? '' : 's'}) · ctrl+o to expand`}</Text>
+              <Text color={theme.subtle}>{`… (+${hiddenCount} more line${hiddenCount === 1 ? '' : 's'}) · ctrl+o expand all`}</Text>
             ) : null}
             {expanded && expandable ? (
-              <Text color={theme.subtle}>ctrl+o to collapse</Text>
+              <Text color={theme.subtle}>{globalExpanded ? 'ctrl+o collapse all' : 'ctrl+o collapse'}</Text>
             ) : null}
           </Box>
         </Box>

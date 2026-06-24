@@ -30,7 +30,6 @@ import { PromptInput } from './components/PromptInput.jsx';
 import { QueuedCommands } from './components/QueuedCommands.jsx';
 import { Picker } from './components/Picker.jsx';
 import { SlashCommandPalette } from './components/SlashCommandPalette.jsx';
-import { MAX_RESULT_LINES } from './components/ToolExecution.jsx';
 
 const HELP = [
   'Slash commands:',
@@ -241,11 +240,11 @@ function copyToClipboard(text) {
   });
 }
 
-const Item = React.memo(function Item({ item, prevKind, columns }) {
+const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpanded }) {
   switch (item.kind) {
     case 'user': return <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} />;
     case 'assistant': return <AssistantMessage text={item.text} />;
-    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} isError={item.isError} expanded={item.expanded} columns={columns} />;
+    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} isError={item.isError} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} />;
     case 'notice': return <NoticeMessage text={item.text} tone={item.tone} />;
     default: return null;
   }
@@ -253,6 +252,7 @@ const Item = React.memo(function Item({ item, prevKind, columns }) {
 
 export function App({ store, initialStatusLine = '' }) {
   const state = useEngine(store);
+  const [toolOutputExpanded, setToolOutputExpanded] = useState(false);
   const { exit } = useApp();
   // internal_eventEmitter is ink's parsed-input bus. ink 7 consumes stdin via
   // the 'readable' event + stdin.read() (see ink's App.js), draining the buffer
@@ -427,21 +427,11 @@ export function App({ store, initialStatusLine = '' }) {
   // queue). Only active on a real TTY (raw mode); in pipes/CI useInput throws.
   // This handler is registered before PromptInput's, so ESC is caught here while
   // a turn is busy; when idle it falls through (PromptInput may use it later).
-  // Ctrl+O toggles expansion on the latest expandable tool result.
+  // Ctrl+O toggles the global tool-output expansion, matching the Claude/Pi
+  // expectation that this is a view mode rather than a per-card hidden state.
   const toggleExpand = useCallback(() => {
-    const items = state.items;
-    // Walk backwards — the latest tool item with overflow is the target.
-    for (let i = items.length - 1; i >= 0; i--) {
-      const item = items[i];
-      if (item.kind === 'tool' && item.result != null) {
-        const lines = String(item.result).split('\n');
-        if (lines.length > MAX_RESULT_LINES) {
-          store.patchItem(item.id, { expanded: !item.expanded });
-          break;
-        }
-      }
-    }
-  }, [state.items, store]);
+    setToolOutputExpanded((expanded) => !expanded);
+  }, []);
 
   useInput((input, key) => {
     if (key.ctrl && input === 'c') {
@@ -2279,7 +2269,7 @@ export function App({ store, initialStatusLine = '' }) {
             back to 0. */}
         <Box flexDirection="column" width="100%" marginBottom={-scrollOffset}>
           {state.items.map((item, i) => (
-            <Item key={item.id} item={item} prevKind={i > 0 ? state.items[i - 1].kind : null} columns={resizeState.columns} />
+            <Item key={item.id} item={item} prevKind={i > 0 ? state.items[i - 1].kind : null} columns={resizeState.columns} toolOutputExpanded={toolOutputExpanded} />
           ))}
         </Box>
       </Box>
