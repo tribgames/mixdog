@@ -42,6 +42,7 @@ const HELP = [
   '  /model <name>    switch model for subsequent turns (picker if no name)',
   '  /effort [level] set reasoning effort for the current model',
   '  /cwd [path]      show or set the session working directory',
+  '  /tools [query]   inspect or enable deferred tools',
   '  /bridge <mode>   switch bridge default: sync | async',
   '  /bridge spawn <role> <prompt>',
   '  /bridge send <tag> <message>',
@@ -73,6 +74,7 @@ const SLASH_COMMANDS = [
   { name: 'model', usage: '/model', description: 'switch model for subsequent turns' },
   { name: 'effort', usage: '/effort [level]', description: 'set reasoning effort for the current model' },
   { name: 'cwd', usage: '/cwd [path]', description: 'show or set the session working directory' },
+  { name: 'tools', usage: '/tools [query]', description: 'inspect or enable deferred tools' },
   { name: 'bridge', usage: '/bridge [sync|async|spawn|send|list|read]', description: 'control bridge workers' },
   { name: 'mcp', usage: '/mcp', description: 'manage MCP servers and tools' },
   { name: 'skills', usage: '/skills', description: 'list and view available skills' },
@@ -587,6 +589,103 @@ export function App({ store, initialStatusLine = '' }) {
         if (item._action === 'control') {
           void store.bridgeControl?.(item._args)
             .catch((e) => store.pushNotice(`bridge failed: ${e?.message || e}`, 'error'));
+        }
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
+  const openToolsPicker = (query = '') => {
+    let status;
+    try {
+      status = store.toolsStatus?.(query) || { tools: [] };
+    } catch (e) {
+      store.pushNotice(`tools status failed: ${e?.message || e}`, 'error');
+      return;
+    }
+    const tools = status.tools || [];
+    const items = [
+      {
+        value: 'summary',
+        label: 'Tool surface',
+        description: `${status.activeCount || 0}/${status.count || 0} active · mode ${status.mode || state.toolMode}`,
+        _action: 'summary',
+      },
+      ...(tools.length ? tools.map((tool) => ({
+        value: tool.name,
+        label: `${tool.active ? '●' : '○'} ${tool.name}`,
+        description: `${tool.kind || 'tool'} · usage ${tool.usage || 0}${tool.description ? ` · ${tool.description}` : ''}`,
+        _action: tool.active ? 'tool' : 'enable',
+        _tool: tool,
+      })) : [{
+        value: 'empty',
+        label: 'No tools',
+        description: query ? `no matches for "${query}"` : 'tool catalog is empty',
+        _action: 'noop',
+      }]),
+    ];
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setPicker({
+      title: query ? `Tools · ${query}` : 'Tools',
+      items,
+      onSelect: (_value, item) => {
+        setPicker(null);
+        if (item._action === 'summary') {
+          store.pushNotice([
+            `mode: ${status.mode || state.toolMode}`,
+            `active: ${status.activeCount || 0}/${status.count || 0}`,
+            `active tools: ${(status.activeTools || []).join(', ') || '(none)'}`,
+          ].join('\n'), 'info');
+          return;
+        }
+        if (item._action === 'enable') {
+          store.selectTools?.([item._tool.name]);
+          void openToolsPicker(query);
+          return;
+        }
+        if (item._action === 'tool') {
+          const tool = item._tool;
+          setPicker({
+            title: `Tool · ${tool.name}`,
+            items: [
+              {
+                value: 'info',
+                label: 'Tool info',
+                description: `${tool.kind || 'tool'} · ${tool.active ? 'active' : 'deferred'}`,
+                _action: 'info',
+              },
+              {
+                value: 'copy-name',
+                label: 'Copy name',
+                description: tool.name,
+                _action: 'copy-name',
+              },
+            ],
+            onSelect: (_detailValue, detail) => {
+              setPicker(null);
+              if (detail._action === 'info') {
+                store.pushNotice([
+                  tool.name,
+                  `kind: ${tool.kind || 'tool'}`,
+                  `state: ${tool.active ? 'active' : 'deferred'}`,
+                  `usage: ${tool.usage || 0}`,
+                  tool.description || '',
+                ].filter(Boolean).join('\n'), 'info');
+                return;
+              }
+              if (detail._action === 'copy-name') {
+                void copyToClipboard(tool.name)
+                  .then(() => store.pushNotice(`copied tool name: ${tool.name}`, 'info'))
+                  .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
+              }
+            },
+            onCancel: () => openToolsPicker(query),
+          });
         }
       },
       onCancel: () => {
@@ -1506,6 +1605,9 @@ export function App({ store, initialStatusLine = '' }) {
         }
         return true;
       }
+      case 'tools':
+        openToolsPicker(arg.trim());
+        return true;
       case 'bridge': {
         const mode = arg.trim().toLowerCase();
         if (!mode) {

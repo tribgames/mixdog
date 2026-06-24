@@ -375,6 +375,23 @@ export async function createEngineSession({
         set({ commandBusy: false });
       }
     },
+    toolsStatus: (query = '') => {
+      return runtime.toolsStatus?.(query) || { mode: state.toolMode, count: 0, activeCount: 0, tools: [] };
+    },
+    selectTools: (names) => {
+      const result = runtime.selectTools?.(names) || { added: [], already: [], blocked: [], missing: [] };
+      const added = result.added?.length ? `added ${result.added.join(', ')}` : '';
+      const already = result.already?.length ? `already ${result.already.join(', ')}` : '';
+      const blocked = result.blocked?.length ? `blocked ${result.blocked.map((row) => row.name).join(', ')}` : '';
+      const missing = result.missing?.length ? `missing ${result.missing.join(', ')}` : '';
+      pushItem({
+        kind: 'notice',
+        id: nextId(),
+        text: [added, already, blocked, missing].filter(Boolean).join(' · ') || 'no tool changes',
+        tone: result.blocked?.length || result.missing?.length ? 'warn' : 'info',
+      });
+      return result;
+    },
     setCwd: (path) => {
       const next = runtime.setCwd(path);
       set({ cwd: next });

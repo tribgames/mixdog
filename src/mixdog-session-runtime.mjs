@@ -1355,6 +1355,29 @@ export async function createMixdogSessionRuntime({
     bridgeControl(args = {}) {
       return bridge.execute(args, { callerCwd: currentCwd });
     },
+    toolsStatus(query = '') {
+      const catalog = Array.isArray(session?.deferredToolCatalog)
+        ? session.deferredToolCatalog
+        : (Array.isArray(session?.tools) ? session.tools : []);
+      const activeNames = new Set((session?.tools || []).map((tool) => tool?.name).filter(Boolean));
+      const needle = clean(query).toLowerCase();
+      const rows = catalog.map((tool) => toolRow(tool, activeNames)).filter((row) => row.name);
+      const tools = needle
+        ? rows.filter((row) => `${row.name} ${row.kind} ${row.description} ${row.active ? 'active' : 'deferred'}`.toLowerCase().includes(needle))
+        : rows;
+      return {
+        mode,
+        count: rows.length,
+        activeCount: rows.filter((row) => row.active).length,
+        tools,
+        activeTools: sortedNamesByMeasuredUsage(activeNames),
+      };
+    },
+    selectTools(names) {
+      const list = Array.isArray(names) ? names : String(names || '').split(/[,\s]+/);
+      const result = selectDeferredTools(session, list, mode);
+      return { ...result, status: this.toolsStatus() };
+    },
     setCwd(path) {
       currentCwd = resolveCwdPath(currentCwd, path);
       process.env.MIXDOG_SESSION_CWD = currentCwd;
