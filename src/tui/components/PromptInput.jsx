@@ -176,6 +176,7 @@ export function PromptInput({
   onDraftChange,
   commandPaletteActive = false,
   mask = false,
+  hint = '',
   onEscape,
   onCommandPaletteNavigate,
   onCommandPaletteAccept,
@@ -491,6 +492,7 @@ export function PromptInput({
   return (
     <Box ref={boxRef} flexDirection="row" flexGrow={1} flexShrink={1}>
       <Text color={theme.text} wrap="hard">{renderedValue}</Text>
+      {!value && hint ? <Text color={theme.inactive}>{hint}</Text> : null}
     </Box>
   );
 }

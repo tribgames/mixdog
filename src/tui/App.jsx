@@ -295,10 +295,12 @@ export function App({ store, initialStatusLine = '' }) {
   const [hookPrompt, setHookPrompt] = useState(null);
   const [settingsPrompt, setSettingsPrompt] = useState(null);
   const [promptDraft, setPromptDraft] = useState('');
+  const [promptHint, setPromptHint] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedFor, setSlashDismissedFor] = useState('');
   const onboardingStartedRef = useRef(false);
   const onboardingRef = useRef({ defaultRoute: null, workflowRoutes: {}, providerModels: [] });
+  const promptHintTimerRef = useRef(null);
   // dragRef tracks an in-progress mouse text selection (see the mouse handler):
   // anchor = where the drag began, last = the latest cell, active = button held.
   const dragRef = useRef({ anchor: null, last: null, active: false });
@@ -345,6 +347,27 @@ export function App({ store, initialStatusLine = '' }) {
       stdout.off('resize', onResize);
     };
   }, [stdout]);
+
+  const clearPromptHint = useCallback(() => {
+    if (promptHintTimerRef.current) {
+      clearTimeout(promptHintTimerRef.current);
+      promptHintTimerRef.current = null;
+    }
+    setPromptHint('');
+  }, []);
+
+  const showPromptHint = useCallback((text) => {
+    if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
+    setPromptHint(String(text || ''));
+    promptHintTimerRef.current = setTimeout(() => {
+      promptHintTimerRef.current = null;
+      setPromptHint('');
+    }, 2200);
+  }, []);
+
+  useEffect(() => () => {
+    if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
+  }, []);
 
   // Mouse handling. index.jsx enabled SGR mouse tracking (?1000h button + ?1002h
   // drag-motion + ?1006h SGR coords). Every event arrives as `\x1b[<b;col;rowM`
@@ -599,7 +622,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('canceled', 'info');
+        showPromptHint('canceled');
       },
     });
   };
@@ -624,7 +647,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('canceled', 'info');
+        showPromptHint('canceled');
       },
     });
   };
@@ -681,7 +704,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('canceled', 'info');
+        showPromptHint('canceled');
       },
     });
   };
@@ -779,7 +802,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('canceled', 'info');
+        showPromptHint('canceled');
       },
     });
   };
@@ -871,7 +894,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('canceled', 'info');
+        showPromptHint('canceled');
       },
     });
   };
@@ -946,7 +969,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('canceled', 'info');
+        showPromptHint('canceled');
       },
     });
   };
@@ -1165,7 +1188,7 @@ export function App({ store, initialStatusLine = '' }) {
         setPicker(null);
         if (onCancel) onCancel();
         else if (returnTo) returnTo();
-        else store.pushNotice('canceled', 'info');
+        else showPromptHint('canceled');
       },
     });
   };
@@ -1530,7 +1553,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('canceled', 'info');
+        showPromptHint('canceled');
       },
     });
   };
@@ -1657,7 +1680,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('canceled', 'info');
+        showPromptHint('canceled');
       },
     });
   };
@@ -1716,7 +1739,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('canceled', 'info');
+        showPromptHint('canceled');
       },
     });
   };
@@ -1895,7 +1918,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('canceled', 'info');
+        showPromptHint('canceled');
       },
     });
   };
@@ -2063,7 +2086,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('canceled', 'info');
+        showPromptHint('canceled');
       },
     });
   };
@@ -2096,7 +2119,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('canceled', 'info');
+        showPromptHint('canceled');
       },
     });
   };
@@ -2476,30 +2499,31 @@ export function App({ store, initialStatusLine = '' }) {
 
   const onPromptDraftChange = useCallback((value) => {
     setPromptDraft(value);
+    if (value) clearPromptHint();
     setSlashDismissedFor((dismissed) => (dismissed && dismissed !== value ? '' : dismissed));
-  }, []);
+  }, [clearPromptHint]);
 
   const cancelProviderPrompt = useCallback(() => {
     const afterSave = providerPrompt?.afterSave;
     setProviderPrompt(null);
     if (afterSave) afterSave();
-    else store.pushNotice('canceled', 'info');
-  }, [providerPrompt, store]);
+    else showPromptHint('canceled');
+  }, [providerPrompt, showPromptHint]);
 
   const cancelChannelPrompt = useCallback(() => {
     setChannelPrompt(null);
-    store.pushNotice('canceled', 'info');
-  }, [store]);
+    showPromptHint('canceled');
+  }, [showPromptHint]);
 
   const cancelHookPrompt = useCallback(() => {
     setHookPrompt(null);
-    store.pushNotice('canceled', 'info');
-  }, [store]);
+    showPromptHint('canceled');
+  }, [showPromptHint]);
 
   const cancelSettingsPrompt = useCallback(() => {
     setSettingsPrompt(null);
-    store.pushNotice('canceled', 'info');
-  }, [store]);
+    showPromptHint('canceled');
+  }, [showPromptHint]);
 
   const acceptSlashPalette = useCallback(() => {
     const command = slashCommands[slashIndex];
@@ -2727,6 +2751,7 @@ export function App({ store, initialStatusLine = '' }) {
             onSubmit={onSubmit}
             disabled={exiting || state.commandBusy || !!picker}
             onDraftChange={onPromptDraftChange}
+            hint={promptHint}
             mask={providerPrompt?.kind === 'api-key' || channelPrompt?.kind === 'discord-token' || channelPrompt?.kind === 'webhook-token'}
             onEscape={providerPrompt ? cancelProviderPrompt : channelPrompt ? cancelChannelPrompt : hookPrompt ? cancelHookPrompt : settingsPrompt ? cancelSettingsPrompt : undefined}
             commandPaletteActive={slashPaletteOpen}
