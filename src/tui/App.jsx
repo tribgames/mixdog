@@ -39,6 +39,7 @@ const HELP = [
   '  /compact         compact older conversation context',
   '  /new             start a fresh session (closes current)',
   '  /resume [id]     resume a saved session (picker if no id)',
+  '  /status          open session/runtime status dashboard',
   '  /model <name>    switch model for subsequent turns (picker if no name)',
   '  /effort [level] set reasoning effort for the current model',
   '  /cwd [path]      show or set the session working directory',
@@ -71,6 +72,7 @@ const SLASH_COMMANDS = [
   { name: 'compact', usage: '/compact', description: 'compact older conversation context' },
   { name: 'new', usage: '/new', description: 'start a fresh session' },
   { name: 'resume', usage: '/resume', description: 'resume a saved session' },
+  { name: 'status', usage: '/status', description: 'open session/runtime status dashboard' },
   { name: 'model', usage: '/model', description: 'switch model for subsequent turns' },
   { name: 'effort', usage: '/effort [level]', description: 'set reasoning effort for the current model' },
   { name: 'cwd', usage: '/cwd [path]', description: 'show or set the session working directory' },
@@ -687,6 +689,90 @@ export function App({ store, initialStatusLine = '' }) {
             onCancel: () => openToolsPicker(query),
           });
         }
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
+  const openStatusPicker = () => {
+    const tools = store.toolsStatus?.() || { activeCount: 0, count: 0 };
+    const mcp = store.mcpStatus?.() || { connectedCount: 0, configuredCount: 0, failedCount: 0 };
+    const hooks = store.hooksStatus?.() || { ruleCount: 0, recent: [] };
+    const plugins = store.pluginsStatus?.() || { count: 0 };
+    const skills = store.skillsStatus?.() || { count: 0 };
+    const channelWorker = store.getChannelWorkerStatus?.();
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setPicker({
+      title: 'Status',
+      items: [
+        {
+          value: 'overview',
+          label: 'Overview',
+          description: `${state.provider}/${state.model} · ${state.effort || 'auto'} · ${state.cwd}`,
+          _action: 'overview',
+        },
+        {
+          value: 'tools',
+          label: 'Tools',
+          description: `${tools.activeCount || 0}/${tools.count || 0} active · mode ${tools.mode || state.toolMode}`,
+          _action: 'tools',
+        },
+        {
+          value: 'mcp',
+          label: 'MCP',
+          description: `${mcp.connectedCount || 0}/${mcp.configuredCount || 0} connected${mcp.failedCount ? ` · ${mcp.failedCount} failed` : ''}`,
+          _action: 'mcp',
+        },
+        {
+          value: 'hooks',
+          label: 'Hooks',
+          description: `${hooks.ruleCount || 0} rules · ${(hooks.recent || []).length} recent events`,
+          _action: 'hooks',
+        },
+        {
+          value: 'plugins',
+          label: 'Plugins',
+          description: `${plugins.count || 0} detected`,
+          _action: 'plugins',
+        },
+        {
+          value: 'skills',
+          label: 'Skills',
+          description: `${skills.count || 0} available`,
+          _action: 'skills',
+        },
+        {
+          value: 'channels',
+          label: 'Channels',
+          description: channelWorker?.running ? `worker running · pid ${channelWorker.pid}` : 'worker stopped',
+          _action: 'channels',
+        },
+      ],
+      onSelect: (_value, item) => {
+        setPicker(null);
+        if (item._action === 'overview') {
+          store.pushNotice([
+            `session: ${state.sessionId || '(none)'}`,
+            `route: ${state.provider}/${state.model}`,
+            `effort: ${state.effort || 'auto'}`,
+            `cwd: ${state.cwd}`,
+            `tools: ${tools.activeCount || 0}/${tools.count || 0}`,
+            `mcp: ${mcp.connectedCount || 0}/${mcp.configuredCount || 0}${mcp.failedCount ? ` (${mcp.failedCount} failed)` : ''}`,
+            `bridge: ${state.bridgeMode || 'sync'}`,
+          ].join('\n'), 'info');
+          return;
+        }
+        if (item._action === 'tools') openToolsPicker();
+        else if (item._action === 'mcp') openMcpPicker();
+        else if (item._action === 'hooks') openHooksPicker();
+        else if (item._action === 'plugins') openPluginsPicker();
+        else if (item._action === 'skills') openSkillsPicker();
+        else if (item._action === 'channels') void openChannelSetupPicker('all');
       },
       onCancel: () => {
         setPicker(null);
@@ -1751,6 +1837,9 @@ export function App({ store, initialStatusLine = '' }) {
         } else {
           openResumePicker();
         }
+        return true;
+      case 'status':
+        openStatusPicker();
         return true;
       case 'exit':
       case 'quit':
