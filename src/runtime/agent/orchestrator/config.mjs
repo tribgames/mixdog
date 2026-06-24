@@ -250,7 +250,7 @@ export function loadConfig() {
         ...defaults,
         mcpServers: {},
         presets: DEFAULT_PRESETS.map(p => ({ ...p })),
-        default: 'opus-high',
+        default: null,
         maintenance: { ...DEFAULT_MAINTENANCE },
         workflowRoutes: {},
         onboarding: {},

@@ -527,9 +527,9 @@ export function App({ store, initialStatusLine = '' }) {
   };
 
   const chooseRecommendedModel = (models, slot, fallbackRoute) => {
-    if (!Array.isArray(models) || models.length === 0) return fallbackRoute || null;
+    if (!Array.isArray(models) || models.length === 0) return null;
     const sorted = models.slice().sort((a, b) => modelScore(b, slot) - modelScore(a, slot));
-    return routeFromModel(sorted[0]);
+    return sorted[0] ? routeFromModel(sorted[0]) : (fallbackRoute || null);
   };
 
   const buildWorkflowDefaults = (models, defaultRoute) => ({
@@ -554,7 +554,13 @@ export function App({ store, initialStatusLine = '' }) {
     }
 
     if (!providerModels || providerModels.length === 0) {
-      store.pushNotice(`current model: ${state.model} (no provider models available)`, 'info');
+      store.pushNotice('no provider models available; open /providers to authenticate', 'warn');
+      void openProviderSetupPicker({
+        title: 'Providers',
+        continueLabel: 'Back to model setup',
+        continueDescription: 'retry model list after provider auth',
+        onContinue: () => void openModelPicker(),
+      });
       return;
     }
 
@@ -1163,12 +1169,18 @@ export function App({ store, initialStatusLine = '' }) {
 
   const openOnboardingRoleModelPicker = (slot) => {
     const models = onboardingRef.current.providerModels || [];
-    const fallbackRoute = onboardingRef.current.defaultRoute || { provider: state.provider, model: state.model };
+    const fallbackRoute = onboardingRef.current.defaultRoute || null;
+    if (models.length === 0) {
+      store.pushNotice('no provider models available; open /providers to authenticate', 'warn');
+      openOnboardingAuthStep();
+      return;
+    }
+    const recommendedRoute = chooseRecommendedModel(models, slot, fallbackRoute);
     const items = [
       {
         value: 'recommended',
         label: 'Use recommended',
-        description: routeLabel(chooseRecommendedModel(models, slot, fallbackRoute)),
+        description: routeLabel(recommendedRoute),
         _action: 'recommended',
       },
       ...models.map((m) => ({
@@ -1178,12 +1190,12 @@ export function App({ store, initialStatusLine = '' }) {
         _action: 'select-model',
         _model: m,
       })),
-      {
+      ...(fallbackRoute ? [{
         value: 'fallback',
         label: 'Use lead model',
         description: routeLabel(fallbackRoute),
         _action: 'fallback',
-      },
+      }] : []),
     ];
     setPicker({
       title: `First Run · ${slot} model`,
@@ -1192,8 +1204,14 @@ export function App({ store, initialStatusLine = '' }) {
         const next = item._action === 'select-model'
           ? routeFromModel(item._model)
           : item._action === 'recommended'
-            ? chooseRecommendedModel(models, slot, fallbackRoute)
+            ? recommendedRoute
             : fallbackRoute;
+        if (!next) {
+          store.pushNotice('select a provider model first', 'warn');
+          setPicker(null);
+          openOnboardingAuthStep();
+          return;
+        }
         if (slot === 'lead') {
           onboardingRef.current.defaultRoute = next;
         }
@@ -1221,9 +1239,15 @@ export function App({ store, initialStatusLine = '' }) {
       }
     }
     const models = onboardingRef.current.providerModels || [];
-    const fallbackRoute = { provider: state.provider, model: state.model, ...(state.effort ? { effort: state.effort } : {}) };
+    if (models.length === 0) {
+      onboardingRef.current.defaultRoute = null;
+      onboardingRef.current.workflowRoutes = {};
+      store.pushNotice('no provider models available; open /providers to authenticate', 'warn');
+      openOnboardingAuthStep();
+      return;
+    }
     if (!onboardingRef.current.defaultRoute) {
-      onboardingRef.current.defaultRoute = chooseRecommendedModel(models, 'lead', fallbackRoute) || fallbackRoute;
+      onboardingRef.current.defaultRoute = chooseRecommendedModel(models, 'lead', null);
     }
     if (!onboardingRef.current.workflowRoutes || Object.keys(onboardingRef.current.workflowRoutes).length === 0) {
       onboardingRef.current.workflowRoutes = buildWorkflowDefaults(models, onboardingRef.current.defaultRoute);
@@ -1276,7 +1300,12 @@ export function App({ store, initialStatusLine = '' }) {
       onSelect: (_value, item) => {
         setPicker(null);
         if (item._action === 'finish') {
-          const defaultRoute = onboardingRef.current.defaultRoute || { provider: state.provider, model: state.model };
+          const defaultRoute = onboardingRef.current.defaultRoute;
+          if (!defaultRoute) {
+            store.pushNotice('select a provider model before finishing setup', 'warn');
+            openOnboardingAuthStep();
+            return;
+          }
           void store.completeOnboarding?.({
             defaultRoute,
             workflowRoutes: onboardingRef.current.workflowRoutes || {},

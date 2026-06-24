@@ -45,7 +45,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const STANDALONE_ROOT = __dirname;
 
 const DEFAULT_PROVIDER = 'anthropic-oauth';
-const DEFAULT_MODEL = 'claude-opus-4-8';
+const DEFAULT_MODEL = '';
 const TOOL_MODES = new Set(['full', 'readonly', 'lead']);
 const ALL_EFFORT_LEVELS = new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
 const EFFORT_LABELS = {
@@ -479,7 +479,7 @@ function resolveRoute(config, { provider, model, effort } = {}) {
 
   if (!explicitProvider && !explicitModel) {
     const defaultKey = config?.default;
-    const preset = findPreset(config, defaultKey) || findPreset(config, 'opus-high');
+    const preset = findPreset(config, defaultKey);
     if (preset) {
       return {
         provider: clean(preset.provider) || DEFAULT_PROVIDER,
@@ -1232,8 +1232,7 @@ export async function createMixdogSessionRuntime({
       }
 
       for (const slot of WORKFLOW_ROUTE_SLOTS) {
-        const fallback = slot === 'lead' ? defaultRoute : (workflowRoutes.lead || defaultRoute || route);
-        const normalized = normalizeWorkflowRoute(workflowInput[slot], fallback);
+        const normalized = normalizeWorkflowRoute(workflowInput[slot]);
         if (!normalized) continue;
         workflowRoutes[slot] = normalized;
         presets = upsertWorkflowPreset(presets, slot, normalized);
