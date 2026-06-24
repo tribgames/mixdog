@@ -940,14 +940,46 @@ export function App({ store, initialStatusLine = '' }) {
         }
         if (item._action !== 'plugin') return;
         const p = item._plugin;
-        store.pushNotice([
-          `${p.title || p.name}${p.version ? ` ${p.version}` : ''}`,
-          `source: ${p.source}${p.marketplace ? ` / ${p.marketplace}` : ''}`,
-          `skills: ${p.skillCount || 0}`,
-          `mcp: ${p.mcpScript || '(none)'}`,
-          `root: ${p.root}`,
-          p.description ? `\n${p.description}` : '',
-        ].filter(Boolean).join('\n'), 'info');
+        setPicker({
+          title: p.title || p.name,
+          items: [
+            {
+              value: 'info',
+              label: 'Plugin info',
+              description: `${p.source}${p.version ? ` · ${p.version}` : ''} · skills ${p.skillCount || 0}`,
+              _action: 'info',
+            },
+            {
+              value: 'enable-mcp',
+              label: p.mcpScript ? 'Enable MCP server' : 'No MCP script',
+              description: p.mcpScript || 'plugin does not expose scripts/run-mcp.mjs or mcp/server.mjs',
+              _action: p.mcpScript ? 'enable-mcp' : 'noop',
+            },
+          ],
+          onSelect: (_detailValue, detail) => {
+            setPicker(null);
+            if (detail._action === 'info') {
+              store.pushNotice([
+                `${p.title || p.name}${p.version ? ` ${p.version}` : ''}`,
+                `source: ${p.source}${p.marketplace ? ` / ${p.marketplace}` : ''}`,
+                `skills: ${p.skillCount || 0}`,
+                `mcp: ${p.mcpScript || '(none)'}`,
+                `root: ${p.root}`,
+                p.description ? `\n${p.description}` : '',
+              ].filter(Boolean).join('\n'), 'info');
+              return;
+            }
+            if (detail._action === 'enable-mcp') {
+              void store.enablePluginMcp?.(p)
+                .then(() => openMcpPicker())
+                .catch((e) => store.pushNotice(`plugin MCP enable failed: ${e?.message || e}`, 'error'));
+            }
+          },
+          onCancel: () => {
+            setPicker(null);
+            void openPluginsPicker();
+          },
+        });
       },
       onCancel: () => {
         setPicker(null);

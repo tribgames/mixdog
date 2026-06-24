@@ -441,6 +441,24 @@ export async function createEngineSession({
         set({ commandBusy: false });
       }
     },
+    enablePluginMcp: async (plugin) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.enablePluginMcp?.(plugin);
+        resetStats();
+        set({ sessionId: runtime.id, stats: { ...state.stats } });
+        pushItem({
+          kind: 'notice',
+          id: nextId(),
+          text: `plugin MCP enabled: ${result?.serverName || plugin?.name || 'plugin'}`,
+          tone: 'info',
+        });
+        return result;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
     hooksStatus: () => {
       return runtime.hooksStatus?.() || { enabled: false, events: [], recent: [] };
     },

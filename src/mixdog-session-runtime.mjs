@@ -440,6 +440,14 @@ function pluginManifest(root) {
     || {};
 }
 
+function pluginMcpServerName(plugin = {}) {
+  const base = clean(plugin.name || plugin.title || 'plugin')
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return base ? `plugin-${base}` : 'plugin-mcp';
+}
+
 function findPreset(config, key) {
   const wanted = clean(key).toLowerCase();
   if (!wanted) return null;
@@ -1366,6 +1374,33 @@ export async function createMixdogSessionRuntime({
       if (session?.id) mgr.closeSession(session.id, 'cli-plugins-reload');
       await createCurrentSession();
       return pluginsStatus();
+    },
+    async enablePluginMcp(plugin = {}) {
+      const root = clean(plugin.root);
+      const script = clean(plugin.mcpScript);
+      if (!root || !script) throw new Error('plugin has no MCP script');
+      const scriptPath = join(root, script);
+      if (!existsSync(scriptPath)) throw new Error(`plugin MCP script not found: ${scriptPath}`);
+      const serverName = pluginMcpServerName(plugin);
+      const nextConfig = cfgMod.loadConfig();
+      nextConfig.mcpServers = {
+        ...(nextConfig.mcpServers || {}),
+        [serverName]: {
+          command: 'node',
+          args: [scriptPath],
+          cwd: root,
+          env: {
+            CLAUDE_PLUGIN_ROOT: root,
+            CLAUDE_PLUGIN_DATA: join(homedir(), '.claude', 'plugins', 'data', `${clean(plugin.name || serverName)}-${clean(plugin.marketplace || plugin.source || 'local')}`),
+          },
+        },
+      };
+      cfgMod.saveConfig(nextConfig);
+      config = cfgMod.loadConfig();
+      const status = await connectConfiguredMcp({ reset: true });
+      if (session?.id) mgr.closeSession(session.id, 'cli-plugin-mcp-enable');
+      await createCurrentSession();
+      return { serverName, status };
     },
     hooksStatus() {
       return hooks.status();
