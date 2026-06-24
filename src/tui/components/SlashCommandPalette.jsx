@@ -42,7 +42,7 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
         width="100%"
       >
         <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
-          <Text color={theme.claude}>{title}</Text>
+          <Text color={theme.suggestion}>{title}</Text>
           <Text color={theme.subtle}>↑↓ Enter · Tab · Esc</Text>
         </Box>
         {visible.map((item, index) => (
@@ -70,7 +70,7 @@ const CommandRow = React.memo(function CommandRow({ command, isSelected, labelWi
         {label.padEnd(labelWidth)}
       </Text>
       {description ? (
-        <Text color={isSelected ? theme.inactive : theme.subtle}>
+        <Text color={isSelected ? theme.text : theme.inactive}>
           {'  '}
           {description}
         </Text>

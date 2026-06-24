@@ -124,7 +124,7 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, colu
         width="100%"
       >
         <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
-          <Text color={theme.claude}>{title}</Text>
+          <Text color={theme.suggestion}>{title}</Text>
           <Text color={theme.subtle}>↑↓ ←→ Pg Home End · Enter · Esc</Text>
         </Box>
         {visible.map((item, i) => {
@@ -157,7 +157,7 @@ const ItemRow = React.memo(function ItemRow({ label, description, labelWidth, de
         {displayLabel.padEnd(labelWidth)}
       </Text>
       {displayDescription ? (
-        <Text color={isSelected ? theme.inactive : theme.subtle}>
+        <Text color={isSelected ? theme.text : theme.inactive}>
           {'  '}
           {displayDescription}
         </Text>
