@@ -204,8 +204,9 @@ export async function createEngineSession({
   async function runTurn(userText) {
     const turnIndex = state.stats.turns || 0;
     const startedAt = Date.now();
+    const inputBaseline = state.stats.inputTokens;
     const outputBaseline = state.stats.outputTokens;
-    set({ busy: true, lastTurn: null, spinner: { active: true, verb: pickVerb(turnIndex), startedAt, liveTokens: 0, outputTokens: 0 } });
+    set({ busy: true, lastTurn: null, spinner: { active: true, verb: pickVerb(turnIndex), startedAt, liveTokens: 0, inputTokens: 0, outputTokens: 0 } });
 
     const assistantId = nextId();
     let assistantText = '';
@@ -248,9 +249,10 @@ export async function createEngineSession({
         },
         onUsageDelta: (delta) => {
           applyUsageDelta(state.stats, delta);
+          const currentTurnInput = Math.max(0, state.stats.inputTokens - inputBaseline);
           const currentTurnOutput = Math.max(0, state.stats.outputTokens - outputBaseline);
           if (state.spinner) {
-            set({ stats: { ...state.stats }, spinner: { ...state.spinner, outputTokens: currentTurnOutput } });
+            set({ stats: { ...state.stats }, spinner: { ...state.spinner, inputTokens: currentTurnInput, outputTokens: currentTurnOutput } });
           } else {
             set({ stats: { ...state.stats } });
           }

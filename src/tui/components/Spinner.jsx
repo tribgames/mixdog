@@ -86,12 +86,13 @@ const SEP_WIDTH = 3; // stringWidth(' · ')
 const THINKING_WIDTH = 8; // 'thinking'
 const HINT_WIDTH = 16; // 'esc to interrupt'
 
-export function Spinner({ verb = 'Working', startedAt, tokens = 0, thinking = false, mode = 'responding', columns = 80 }) {
+export function Spinner({ verb = 'Working', startedAt, inputTokens = 0, outputTokens = 0, tokens = 0, thinking = false, mode = 'responding', columns = 80 }) {
   const [frame, setFrame] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const lastGrowRef = useRef(now);
   const lastTokensRef = useRef(0);
-  const displayedRef = useRef(0);
+  const displayedInputRef = useRef(0);
+  const displayedOutputRef = useRef(0);
   // Stall smoothing refs (CC useStalledAnimation exponential fade)
   const stallSmoothRef = useRef(0);
   const lastStallTickRef = useRef(0);
@@ -104,15 +105,19 @@ export function Spinner({ verb = 'Working', startedAt, tokens = 0, thinking = fa
     return () => clearInterval(id);
   }, []);
 
-  // Stall detection — track when the token count last grew.
-  if (tokens > lastTokensRef.current) {
-    lastTokensRef.current = tokens;
+  const targetInputTokens = Math.max(0, Number(inputTokens || 0));
+  const targetOutputTokens = Math.max(0, Number(outputTokens || tokens || 0));
+
+  // Stall detection — track output growth, because input usually arrives as one
+  // usage update while the assistant/tool response is what should keep moving.
+  if (targetOutputTokens > lastTokensRef.current) {
+    lastTokensRef.current = targetOutputTokens;
     lastGrowRef.current = now;
   }
 
   const elapsedMs = startedAt ? Math.max(0, now - startedAt) : 0;
   const stallMs = now - lastGrowRef.current;
-  const isStalled = tokens > 0 && stallMs > STALL_TIMEOUT_MS;
+  const isStalled = targetOutputTokens > 0 && stallMs > STALL_TIMEOUT_MS;
   // Stall smoothing: exponential fade toward target (CC useStalledAnimation)
   const rawIntensity = isStalled
     ? Math.min(1, (stallMs - STALL_TIMEOUT_MS) / STALL_FADE_MS)
@@ -196,20 +201,30 @@ export function Spinner({ verb = 'Working', startedAt, tokens = 0, thinking = fa
     verbContent = null;
   }
 
-  // Token counter animation — smooth increment toward token target (CC pattern).
-  // `tokens` is a per-turn value (max of real usage & live text estimate);
-  // shown as "0 tokens" from turn start, then climbs as estimates/usage arrive.
-  if (displayedRef.current > tokens) {
-    displayedRef.current = tokens;
-  } else if (displayedRef.current < tokens) {
-    const gap = tokens - displayedRef.current;
-    let increment;
-    if (gap < 70) increment = 3;
-    else if (gap < 200) increment = Math.max(8, Math.ceil(gap * 0.15));
-    else increment = 50;
-    displayedRef.current = Math.min(displayedRef.current + increment, tokens);
-  }
-  const displayedTokens = Math.round(displayedRef.current);
+  const advanceCounter = (ref, target) => {
+    if (ref.current > target) {
+      ref.current = target;
+    } else if (ref.current < target) {
+      const gap = target - ref.current;
+      let increment;
+      if (gap < 70) increment = 3;
+      else if (gap < 200) increment = Math.max(8, Math.ceil(gap * 0.15));
+      else increment = 50;
+      ref.current = Math.min(ref.current + increment, target);
+    }
+    return Math.round(ref.current);
+  };
+
+  // Token counter animation — smooth increment toward per-turn input/output.
+  // Input is rendered with ↑, output with ↓.
+  const displayedInputTokens = advanceCounter(displayedInputRef, targetInputTokens);
+  const displayedOutputTokens = advanceCounter(displayedOutputRef, targetOutputTokens);
+
+  const tokenSegments = [];
+  if (displayedInputTokens > 0) tokenSegments.push(`${UP_ARROW} ${formatNumber(displayedInputTokens)}`);
+  if (displayedOutputTokens > 0) tokenSegments.push(`${DOWN_ARROW} ${formatNumber(displayedOutputTokens)}`);
+  const tokenText = tokenSegments.length ? `${tokenSegments.join(' ')} tokens` : '';
+  const tokenW = tokenText.length;
 
   // Progressive width gating (CC SpinnerAnimationRow:
   //   show things left→right, each only if it fits after the previous ones).
@@ -219,13 +234,8 @@ export function Spinner({ verb = 'Working', startedAt, tokens = 0, thinking = fa
   const showHintNow = elapsedMs > SHOW_HINT_AFTER_MS;
   const avail = columns - messageLen - 5; // glyph(2) + ' (' + ')'
 
-  // Token delta glyph per mode: ↑ for requesting, ↓ for others (CC SpinnerModeGlyph)
-  const tokenGlyph = mode === 'requesting' ? UP_ARROW : DOWN_ARROW;
-
   const timerText = formatDuration(elapsedMs);
   const timerW = timerText.length;
-  const tokenText = `${formatNumber(displayedTokens)} tokens`;
-  const tokenW = tokenGlyph.length + 1 + tokenText.length;
 
   // Gate left→right; each segment after the first needs a sep.
   let usedW = 0;
@@ -235,7 +245,7 @@ export function Spinner({ verb = 'Working', startedAt, tokens = 0, thinking = fa
   const showTimer = avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + timerW;
   if (showTimer) usedW += (usedW > 0 ? SEP_WIDTH : 0) + timerW;
 
-  const showTokens = displayedTokens > 0 && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + tokenW;
+  const showTokens = tokenText && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + tokenW;
   if (showTokens) usedW += (usedW > 0 ? SEP_WIDTH : 0) + tokenW;
 
   const showHint = showHintNow && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + HINT_WIDTH;
@@ -254,7 +264,7 @@ export function Spinner({ verb = 'Working', startedAt, tokens = 0, thinking = fa
   }
   if (showTokens) {
     segments.push(
-      <Text key="tokens" dimColor>{tokenGlyph} {tokenText}</Text>
+      <Text key="tokens" dimColor>{tokenText}</Text>
     );
   }
   if (showHint) {

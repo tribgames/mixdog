@@ -2308,14 +2308,15 @@ export function App({ store, initialStatusLine = '' }) {
           <Spinner
             verb={state.spinner.verb}
             startedAt={state.spinner.startedAt}
-            tokens={Math.max(state.spinner?.outputTokens ?? 0, state.spinner?.liveTokens ?? 0)}
+            inputTokens={state.spinner?.inputTokens ?? 0}
+            outputTokens={Math.max(state.spinner?.outputTokens ?? 0, state.spinner?.liveTokens ?? 0)}
             thinking={!!state.thinking}
             columns={resizeState.columns}
           />
         </Box>
       ) : state.lastTurn ? (
         <Box flexShrink={0}>
-          <TurnDone elapsedMs={state.lastTurn.elapsedMs} tokens={state.lastTurn.outputTokens} />
+          <TurnDone elapsedMs={state.lastTurn.elapsedMs} />
         </Box>
       ) : null}
 
