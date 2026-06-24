@@ -102,8 +102,13 @@ const PATCHES = [
   // the TUI sets, so interactive runs stay clean while --plain/debug keep logs.
   {
     file: join(RUNTIME, 'agent', 'orchestrator', 'providers', 'anthropic-oauth.mjs'),
-    name: 'quiet provider stderr (D14, anthropic-oauth)',
+    name: 'anthropic-oauth standalone provider patches',
     apply: patchAnthropicOAuthStandalone,
+  },
+  {
+    file: join(RUNTIME, 'agent', 'orchestrator', 'providers', 'anthropic.mjs'),
+    name: 'anthropic 1h message cache fallback',
+    apply: patchAnthropicMessageCacheFallback,
   },
   {
     file: join(RUNTIME, 'agent', 'orchestrator', 'providers', 'grok-oauth.mjs'),
@@ -268,8 +273,22 @@ function patchAnthropicOAuthStandalone(src) {
       throw new Error('[sync] anthropic-oauth auth guidance anchor not found — reconcile standalone wording patch manually.');
     }
   }
+  s = patchAnthropicMessageCacheFallback(s).text;
   return { text: s, already: src === s || (!changed && src.includes('MIXDOG_QUIET_PROVIDER_LOG')) };
 }
+
+function patchAnthropicMessageCacheFallback(src) {
+  let s = src;
+  const from = "messages: pick('messages', CACHE_TTL_VOLATILE),";
+  const to = "messages: pick('messages', CACHE_TTL_STABLE),";
+  if (s.includes(from)) {
+    s = s.replace(from, to);
+  } else if (!s.includes(to)) {
+    throw new Error('[sync] anthropic message cache fallback anchor not found — reconcile BP4 TTL patch manually.');
+  }
+  return { text: s, already: src === s };
+}
+
 
 function patchOpenAIOAuth(src) {
   const quieted = patchProviderLog(src, 'openai-oauth').text;

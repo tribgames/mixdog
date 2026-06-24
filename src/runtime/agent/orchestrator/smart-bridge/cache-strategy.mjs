@@ -5,11 +5,11 @@
  * breakpoints (up to 4 per request) — we use all 4 slots. Non-breakpoint
  * providers rely on server-side automatic prefix matching or observation.
  *
- * Anthropic 4-BP layout (bridge/agent use case — no interactive idle):
+ * Anthropic 4-BP layout (public/CLI):
  *   BP_1  tools      (1h)  — tool schemas, stable per schema profile
  *   BP_2  system     (1h)  — Tier 2 shared rules
  *   BP_3  tier3      (1h)  — role/permission meta (messages[1] system-reminder)
- *   BP_4  messages   (5m)  — last message only; sliding extends prefix loss-free
+ *   BP_4  messages   (1h)  — last message only; sliding extends prefix loss-free
  *
  * Tier 3 gets its own BP because role meta is stable per dispatch, so a
  * dedicated slot gives a reliable hit across the entire tool loop while
@@ -60,13 +60,12 @@ function isOneShotMaintenanceRole(role) {
  *   '5m'   → ephemeral 5m TTL  (1.25x write premium, 0.1x read)
  *   'none' → no breakpoint written on this layer
  *
- * Public bridge workers (any user-workflow.json role) stay resumable for up to
- * 1h (the terminal-reap window) for same-task reuse, so their message tail uses
- * 1h too — a resume within that window reads the conversation from cache instead
- * of re-writing it. Hidden multi-turn roles (explorer / scheduler / webhook) run
- * a single fan-out or entry-driven session that is not resumed for same-task
- * reuse, so their volatile tail stays at the cheaper 5m TTL. (Tail TTL only
- * affects explicit-breakpoint providers — Anthropic; no-op elsewhere.)
+ * Public bridge workers stay resumable for up to 1h (the terminal-reap window)
+ * for same-task reuse, so their message tail uses 1h too. Hidden multi-turn
+ * roles (explorer / scheduler / webhook) run a single fan-out or entry-driven
+ * session that is not resumed for same-task reuse, so their volatile tail stays
+ * at the cheaper 5m TTL. (Tail TTL only affects explicit-breakpoint providers
+ * — Anthropic; no-op elsewhere.)
  *
  * Exception: one-shot LLM-only maintenance roles are asked once on a fresh
  * session and closed, so their volatile per-call message tail is never read
@@ -80,8 +79,6 @@ export function resolveCacheStrategy(role) {
     if (isOneShotMaintenanceRole(role)) {
         return { tools: 'none', system: 'none', tier3: 'none', messages: 'none' };
     }
-    // Hidden multi-turn roles (explorer / scheduler / webhook): single-use
-    // session, not resumed for same-task reuse → keep the cheaper 5m tail.
     if (getHiddenRole(role)) {
         return { tools: '1h', system: '1h', tier3: '1h', messages: '5m' };
     }

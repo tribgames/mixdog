@@ -1,8 +1,7 @@
 /**
  * src/tui/theme.mjs — Claude Code dark palette for the React/ink TUI.
  *
- * Colors follow refs/claude-code/src/utils/theme.ts (darkTheme), with the
- * body marker softened slightly for Windows Terminal rendering.
+ * Colors follow refs/claude-code/src/utils/theme.ts (darkTheme).
  * ink accepts `rgb(r,g,b)` strings directly on the `color`/`backgroundColor`
  * props, so these are plain strings (no escape wrapping needed — ink emits the
  * SGR and honors NO_COLOR/non-TTY itself).
@@ -12,7 +11,7 @@
 export const theme = {
   claude: 'rgb(215,119,87)', // brand orange — turn markers, accents
   claudeShimmer: 'rgb(235,159,127)',
-  text: 'rgb(240,240,240)', // body text — soft white. Pure #fff (truecolor) renders heavy/bold-bright in Windows Terminal; a touch below white reads at normal weight while staying bright. Nudged 230→240 for a slightly brighter look without tripping the bold render.
+  text: 'rgb(255,255,255)', // CC darkTheme text
   inverseText: 'rgb(0,0,0)', // text on an inverted (light) background
   inactive: 'rgb(153,153,153)', // secondary gray
   subtle: 'rgb(80,80,80)', // borders / rules

@@ -333,8 +333,8 @@ const _LOGGED_UNKNOWN_EFFORT = new Set();
 
 // Layered cache TTLs — stable layers get 1h, volatile layers get 5m.
 // Anthropic requires 1h entries to appear before 5m entries in the request.
-const CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };   // tools, system
-const CACHE_TTL_VOLATILE = { type: 'ephemeral' };             // messages (5m default)
+const CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };   // tools, system, tier3, messages
+const CACHE_TTL_VOLATILE = { type: 'ephemeral' };             // explicit 5m override
 
 // --- Credential helpers ---
 
@@ -1186,7 +1186,7 @@ function resolveCacheTtls(opts) {
     //   BP1 baseRules    — 1h (shared across ALL roles)
     //   BP2 roleCatalog  — 1h (shared across ALL roles)
     //   BP3 tier3        — 1h (sessionMarker: role + permission + project)
-    //   BP4 messages     — 5m sliding tail (tool_result cache across iter)
+    //   BP4 messages     — 1h sliding tail (tool_result cache across iter)
     // tools BP is dropped — system BP covers the tools prefix via
     // Anthropic's prompt cache prefix semantics (order: tools → system
     // → messages).
@@ -1201,7 +1201,7 @@ function resolveCacheTtls(opts) {
         tools: pick('tools', CACHE_TTL_STABLE),
         system: pick('system', CACHE_TTL_STABLE),
         tier3: pick('tier3', CACHE_TTL_STABLE),
-        messages: pick('messages', CACHE_TTL_VOLATILE),
+        messages: pick('messages', CACHE_TTL_STABLE),
     };
 }
 

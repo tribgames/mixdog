@@ -40,7 +40,7 @@ function appendCacheControl(content, ttl = CACHE_TTL_VOLATILE) {
 // Mirrors anthropic-oauth.mjs gate: only the explicitly-tagged sessionMarker
 // claims a 1h BP3 slot. composeSystemPrompt prefixes sessionMarker with
 // `<!-- bp3-sentinel -->`; volatileTail (also a `<system-reminder>` user
-// message) deliberately omits the sentinel so it stays on the 5m tail.
+// message) deliberately omits the sentinel so it stays on the message tail.
 const BP3_SENTINEL = '<!-- bp3-sentinel -->';
 
 function findTier3Index(chatMsgs) {
@@ -68,7 +68,7 @@ function resolveCacheTtls(opts) {
         tools: pick('tools', CACHE_TTL_STABLE),
         system: pick('system', CACHE_TTL_STABLE),
         tier3: pick('tier3', CACHE_TTL_STABLE),
-        messages: pick('messages', CACHE_TTL_VOLATILE),
+        messages: pick('messages', CACHE_TTL_STABLE),
     };
 }
 

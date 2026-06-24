@@ -17,6 +17,7 @@ import { Box, Text } from 'ink';
 import { marked } from 'marked';
 import { formatToken } from '../markdown/format-token.mjs';
 import { MarkdownTable } from './MarkdownTable.jsx';
+import { theme } from '../theme.mjs';
 
 let _configured = false;
 function configureMarked() {
@@ -38,10 +39,10 @@ export function Markdown({ children }) {
         if (buffer) {
           // CC trims the coalesced non-table block (MarkdownBody: nonTableContent
           // .trim()) so leading/trailing blank lines from token EOLs don't bleed
-          // into the surrounding gap={1} spacing. Leave the foreground unset
-          // like Claude Code's <Ansi>, so plain body text uses the terminal's
-          // natural weight while inline spans keep their own SGR color.
-          result.push(<Text key={`md_${idx++}`}>{buffer.trim()}</Text>);
+          // into the surrounding gap={1} spacing. color={theme.text} mirrors
+          // Claude Code darkTheme (`rgb(255,255,255)`) instead of relying on
+          // the terminal profile's dimmer default foreground.
+          result.push(<Text key={`md_${idx++}`} color={theme.text}>{buffer.trim()}</Text>);
           buffer = '';
         }
       };
@@ -57,7 +58,7 @@ export function Markdown({ children }) {
       return result;
     } catch {
       // Never throw into the render tree — fall back to raw text.
-      return [<Text key="md_0">{String(children ?? '')}</Text>];
+      return [<Text key="md_0" color={theme.text}>{String(children ?? '')}</Text>];
     }
   }, [children]);
 
