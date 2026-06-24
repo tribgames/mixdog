@@ -24,9 +24,9 @@ import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/mo
 // The live gateway (when up) overrides this with the real route's window. This
 // is only the last resort for unknown local models.
 const FALLBACK_CONTEXT_WINDOW = 200000;
-const statusText = rgb(222, 222, 222);
-const statusSubtle = rgb(188, 188, 188);
-const statusAccent = rgb(255, 138, 86);
+const statusText = rgb(198, 198, 198);
+const statusSubtle = rgb(136, 136, 136);
+const statusAccent = rgb(215, 119, 87);
 
 /** Create a mutable session-usage accumulator. */
 export function createSessionStats() {
@@ -36,6 +36,11 @@ export function createSessionStats() {
     cachedTokens: 0,
     cacheWriteTokens: 0,
     promptTokens: 0,
+    latestInputTokens: 0,
+    latestOutputTokens: 0,
+    latestCachedTokens: 0,
+    latestCacheWriteTokens: 0,
+    latestPromptTokens: 0,
     costUsd: 0,
     turns: 0,
   };
@@ -53,6 +58,11 @@ export function applyUsageDelta(stats, delta = {}) {
   stats.cachedTokens += num(delta.deltaCachedRead);
   stats.cacheWriteTokens += num(delta.deltaCacheWrite);
   stats.promptTokens += num(delta.deltaPrompt);
+  stats.latestInputTokens = num(delta.deltaInput);
+  stats.latestOutputTokens = num(delta.deltaOutput);
+  stats.latestCachedTokens = num(delta.deltaCachedRead);
+  stats.latestCacheWriteTokens = num(delta.deltaCacheWrite);
+  stats.latestPromptTokens = num(delta.deltaPrompt);
   // costUsd from the engine is cumulative-per-call; we sum the per-turn deltas.
   stats.costUsd += num(delta.costUsd);
   return stats;
@@ -84,30 +94,44 @@ function promptFootprintTokens(provider, stats) {
   return input;
 }
 
-function modelContextWindow(provider, model) {
-  const id = String(model || '').toLowerCase();
+function currentContextTokens(provider, stats) {
+  const s = stats || createSessionStats();
+  const explicit = num(s.latestPromptTokens ?? s.contextTokens ?? s.currentContextTokens);
+  if (explicit > 0) return explicit;
+  const latestInput = num(s.latestInputTokens);
+  const latestCacheRead = num(s.latestCachedTokens);
+  const latestCacheWrite = num(s.latestCacheWriteTokens);
+  if (latestInput || latestCacheRead || latestCacheWrite) {
+    return providerInputExcludesCache(provider)
+      ? latestInput + latestCacheRead + latestCacheWrite
+      : latestInput;
+  }
+  return promptFootprintTokens(provider, s);
+}
+
+function modelContextWindow(provider, model, explicitContextWindow = 0) {
+  const explicit = num(explicitContextWindow);
+  if (explicit > 0) return explicit;
   const metaWindow = num(getModelMetadataSync(model, provider)?.contextWindow);
   if (metaWindow > 0) return metaWindow;
-  if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/.test(id)) return 1000000;
-  if (/^claude-haiku-4-5(?:$|-)/.test(id)) return 200000;
-  if (/^gpt-5\.(?:5|4|2)(?:$|-)/.test(id) || /^gpt-5(?:$|-)/.test(id)) return 272000;
-  if (/^gemini-/.test(id)) return 1048576;
   return FALLBACK_CONTEXT_WINDOW;
 }
 
-function buildCcJson({ provider = '', model = '', effort = '', stats, sessionId = 'mixdog-cli-repl' } = {}) {
+function buildCcJson({ provider = '', model = '', effort = '', stats, sessionId = 'mixdog-cli-repl', contextWindow = 0, rawContextWindow = 0 } = {}) {
   const s = stats || createSessionStats();
-  const promptTokens = promptFootprintTokens(provider, s);
-  const used = promptTokens + num(s.outputTokens);
-  const contextWindow = modelContextWindow(provider, model);
-  const pct = clampPct((used / contextWindow) * 100);
+  const promptTokens = currentContextTokens(provider, s);
+  const used = promptTokens;
+  const resolvedContextWindow = modelContextWindow(provider, model, contextWindow);
+  const resolvedRawContextWindow = num(rawContextWindow) || resolvedContextWindow;
+  const pct = clampPct((used / resolvedContextWindow) * 100);
   return {
     session_id: String(sessionId || 'mixdog-cli-repl'),
     display_name: String(model || ''),
     ...(effort ? { effort: { level: String(effort) } } : {}),
     context_window: {
       used_percentage: pct,
-      context_window_size: contextWindow,
+      context_window_size: resolvedContextWindow,
+      raw_context_window_size: resolvedRawContextWindow,
       total_input_tokens: promptTokens,
       total_output_tokens: num(s.outputTokens),
       cache_read_input_tokens: num(s.cachedTokens),
@@ -135,13 +159,13 @@ function buildCcJson({ provider = '', model = '', effort = '', stats, sessionId 
  * @param {string} [opts.sessionId]
  * @returns {Promise<string>}
  */
-export async function renderStatusline({ provider = '', model = '', effort = '', cwd = '', stats, sessionId } = {}) {
+export async function renderStatusline({ provider = '', model = '', effort = '', cwd = '', stats, sessionId, contextWindow = 0, rawContextWindow = 0 } = {}) {
   const prevPluginData = process.env.CLAUDE_PLUGIN_DATA;
   const prevStandalone = process.env.MIXDOG_STANDALONE;
   try {
     process.env.CLAUDE_PLUGIN_DATA = process.env.MIXDOG_DATA_DIR || join(homedir(), '.mixdog', 'data');
     process.env.MIXDOG_STANDALONE = '1';
-    const ccJson = JSON.stringify(buildCcJson({ provider, model, effort, stats, sessionId }));
+    const ccJson = JSON.stringify(buildCcJson({ provider, model, effort, stats, sessionId, contextWindow, rawContextWindow }));
     const out = await renderVendoredStatusLine(ccJson);
     const text = typeof out === 'string' ? out.replace(/\n+$/, '') : '';
     if (text) return text;

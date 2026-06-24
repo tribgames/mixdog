@@ -101,7 +101,14 @@ export async function runTui({ provider: providerName, model, toolMode = 'full' 
   // it renders as the very last line — the L1/L2 footer sits BELOW the input box
   // (Claude-Code layout). Trailing chrome order is therefore [editor, statusText].
   const statusText = new Text(
-    await renderStatusline({ provider: runtime.provider, model: runtime.model, cwd, stats }),
+    await renderStatusline({
+      provider: runtime.provider,
+      model: runtime.model,
+      cwd,
+      stats,
+      contextWindow: runtime.contextWindow,
+      rawContextWindow: runtime.rawContextWindow,
+    }),
     1,
     0,
   );
@@ -116,7 +123,14 @@ export async function runTui({ provider: providerName, model, toolMode = 'full' 
   // Refresh the bottom statusline from the current stats (used by /clear, /model).
   const refreshStatus = async () => {
     try {
-      const line = await renderStatusline({ provider: runtime.provider, model: runtime.model, cwd, stats });
+      const line = await renderStatusline({
+        provider: runtime.provider,
+        model: runtime.model,
+        cwd,
+        stats,
+        contextWindow: runtime.contextWindow,
+        rawContextWindow: runtime.rawContextWindow,
+      });
       statusText.setText(line);
       tui.requestRender();
     } catch {

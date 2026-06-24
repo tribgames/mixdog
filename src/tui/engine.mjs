@@ -10,16 +10,39 @@ import { SPINNER_VERBS } from './spinner-verbs.mjs';
 // Session-usage accumulator - inlined (not imported from ui/statusline.mjs) so
 // engine.mjs has no static dependency on the vendored statusline closure.
 function createSessionStats() {
-  return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, promptTokens: 0, costUsd: 0, turns: 0 };
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedTokens: 0,
+    cacheWriteTokens: 0,
+    promptTokens: 0,
+    latestInputTokens: 0,
+    latestOutputTokens: 0,
+    latestCachedTokens: 0,
+    latestCacheWriteTokens: 0,
+    latestPromptTokens: 0,
+    costUsd: 0,
+    turns: 0,
+  };
 }
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function applyUsageDelta(stats, delta = {}) {
   if (!stats || !delta) return stats;
-  stats.inputTokens += num(delta.deltaInput);
-  stats.outputTokens += num(delta.deltaOutput);
-  stats.cachedTokens += num(delta.deltaCachedRead);
-  stats.cacheWriteTokens += num(delta.deltaCacheWrite);
-  stats.promptTokens += num(delta.deltaPrompt);
+  const inputTokens = num(delta.deltaInput);
+  const outputTokens = num(delta.deltaOutput);
+  const cachedTokens = num(delta.deltaCachedRead);
+  const cacheWriteTokens = num(delta.deltaCacheWrite);
+  const promptTokens = num(delta.deltaPrompt);
+  stats.inputTokens += inputTokens;
+  stats.outputTokens += outputTokens;
+  stats.cachedTokens += cachedTokens;
+  stats.cacheWriteTokens += cacheWriteTokens;
+  stats.promptTokens += promptTokens;
+  stats.latestInputTokens = inputTokens;
+  stats.latestOutputTokens = outputTokens;
+  stats.latestCachedTokens = cachedTokens;
+  stats.latestCacheWriteTokens = cacheWriteTokens;
+  stats.latestPromptTokens = promptTokens;
   stats.costUsd += num(delta.costUsd);
   return stats;
 }
@@ -61,6 +84,14 @@ function toolCallId(call) {
   return call?.id ?? call?.toolCallId ?? call?.tool_call_id ?? call?.call_id;
 }
 
+function toolResultCallId(message) {
+  return message?.toolCallId
+    ?? message?.tool_call_id
+    ?? message?.tool_use_id
+    ?? message?.call_id
+    ?? message?.id;
+}
+
 function toolCallName(call) {
   return call?.name ?? call?.function?.name ?? call?.toolName ?? call?.tool_name ?? 'tool';
 }
@@ -69,8 +100,102 @@ function toolCallArgs(call) {
   return call?.arguments ?? call?.args ?? call?.input ?? call?.function?.arguments;
 }
 
+function normalizeToolName(name) {
+  return String(name || 'tool')
+    .replace(/^mcp__.*__/, '')
+    .replace(/^functions\./, '')
+    .replace(/-/g, '_')
+    .toLowerCase();
+}
+
+function parseToolArgs(args) {
+  if (!args) return {};
+  if (typeof args === 'string') {
+    try {
+      const parsed = JSON.parse(args);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return typeof args === 'object' ? args : {};
+}
+
+function toolGroupKey(name, args) {
+  const normalized = normalizeToolName(name);
+  switch (normalized) {
+    case 'read':
+    case 'view_image':
+    case 'read_mcp_resource':
+      return 'read';
+    case 'write':
+    case 'edit':
+    case 'apply_patch':
+      return 'update';
+    case 'grep':
+    case 'glob':
+    case 'search':
+    case 'tool_search':
+      return 'search';
+    case 'web_fetch':
+    case 'fetch':
+    case 'download_attachment':
+      return 'fetch';
+    case 'bash':
+    case 'bash_session':
+    case 'shell_command':
+    case 'job_wait':
+    case 'trigger_schedule':
+      return 'run';
+    case 'list':
+    case 'ls':
+      return 'list';
+    case 'memory':
+    case 'remember':
+    case 'save_memory':
+    case 'update_memory':
+    case 'recall_memory':
+    case 'recall':
+    case 'search_memories':
+      return 'memory';
+    case 'bridge':
+    case 'agent':
+    case 'task':
+      return 'agent';
+    case 'diagnostics':
+    case 'open_config':
+    case 'provider_status':
+    case 'channel_status':
+    case 'schedule_status':
+    case 'schedule_control':
+    case 'reload_config':
+    case 'list_mcp_resources':
+    case 'list_mcp_resource_templates':
+    case 'cwd':
+      return 'setup';
+    case 'request_user_input':
+      return 'ask_user';
+    case 'update_plan':
+      return 'plan';
+    case 'reply':
+    case 'react':
+    case 'edit_message':
+      return 'channel';
+    case 'code_graph': {
+      const a = parseToolArgs(args);
+      const mode = String(a.mode || a.action || '').toLowerCase();
+      if (mode === 'search' || mode === 'find_symbol' || mode === 'references' || mode === 'callers' || mode === 'callees') return 'search';
+      if (mode === 'prewarm' || mode === 'index' || mode === 'build' || mode === 'refresh') return 'setup';
+      return 'read';
+    }
+    default:
+      return `tool:${normalized}`;
+  }
+}
+
 const BRIDGE_JOB_POLL_MS = 2000;
 const BRIDGE_JOB_MAX_POLL_MS = 10 * 60_000;
+const yieldToRenderer = () => new Promise((resolve) => setImmediate(resolve));
 
 function parseBridgeJob(text) {
   const value = String(text || '');
@@ -93,10 +218,22 @@ export async function createEngineSession({
   process.env.MIXDOG_QUIET_PROVIDER_LOG = '1';
   process.env.MIXDOG_QUIET_SESSION_LOG = '1';
   process.env.MIXDOG_QUIET_MCP_LOG = '1';
+  process.env.MIXDOG_QUIET_MEMORY_LOG = '1';
 
   const { createMixdogSessionRuntime } = await import(SESSION_RUNTIME_MODULE);
   const runtime = await createMixdogSessionRuntime({ provider: providerName, model, toolMode });
   const cwd = runtime.cwd || process.cwd();
+  const routeState = () => ({
+    sessionId: runtime.id,
+    model: runtime.model,
+    provider: runtime.provider,
+    effort: runtime.effort,
+    effortOptions: runtime.effortOptions,
+    contextWindow: runtime.contextWindow,
+    rawContextWindow: runtime.rawContextWindow,
+    effectiveContextWindowPercent: runtime.effectiveContextWindowPercent,
+    cwd: runtime.cwd || process.cwd(),
+  });
 
   let state = {
     items: [],
@@ -108,11 +245,7 @@ export async function createEngineSession({
     thinking: null,
     lastTurn: null,
     stats: createSessionStats(),
-    sessionId: runtime.id,
-    model: runtime.model,
-    provider: runtime.provider,
-    effort: runtime.effort,
-    effortOptions: runtime.effortOptions,
+    ...routeState(),
     toolMode: runtime.toolMode,
     bridgeMode: runtime.bridgeMode,
     cwd,
@@ -213,17 +346,78 @@ export async function createEngineSession({
     monitor.timer.unref?.();
   }
 
-  const flushToolResults = (messages, cardIdsByCallId, done) => {
+  function groupedToolResultText(group) {
+    const completed = Math.min(group.count, group.completed);
+    if (group.count <= 1) return group.results.at(-1)?.text ?? '';
+    if (group.errors > 0) {
+      return `${completed}/${group.count} completed · ${group.errors} error${group.errors === 1 ? '' : 's'}`;
+    }
+    return `${completed}/${group.count} completed`;
+  }
+
+  function patchToolCardResult(card, message, toolGroups, done) {
+    if (!card || card.done) return false;
+    const callId = toolResultCallId(message) || card.callId;
+    if (callId && done.has(callId)) return false;
+    const text = toolResultText(message?.content);
+    const isError = message?.isError === true || /^\s*\[?error/i.test(text);
+    const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, results: [] };
+    group.completed = Math.min(group.count, group.completed + 1);
+    group.errors += isError ? 1 : 0;
+    group.results.push({ text, isError });
+    toolGroups.set(card.itemId, group);
+    const resultText = groupedToolResultText(group);
+    patchItem(card.itemId, {
+      result: resultText,
+      text: resultText,
+      isError: group.errors > 0,
+      count: group.count,
+      completedCount: group.completed,
+    });
+    if (group.count <= 1) updateBridgeJobCard(card.itemId, text, isError);
+    card.done = true;
+    if (callId) done.add(callId);
+    return true;
+  }
+
+  const flushToolResults = (messages, toolCards, cardByCallId, toolGroups, done, { finalize = false } = {}) => {
+    const results = [];
     for (const m of messages || []) {
       if (!m || m.role !== 'tool') continue;
-      const callId = m.toolCallId ?? m.tool_call_id ?? m.id;
+      const callId = toolResultCallId(m);
+      results.push({ message: m, callId, used: false });
       if (!callId || done.has(callId)) continue;
-      const itemId = cardIdsByCallId.get(callId);
-      if (!itemId) continue;
-      const text = toolResultText(m.content);
-      const isError = m.isError === true || /^\s*\[?error/i.test(text);
-      updateBridgeJobCard(itemId, text, isError);
-      done.add(callId);
+      const card = cardByCallId.get(callId);
+      if (patchToolCardResult(card, m, toolGroups, done)) {
+        results[results.length - 1].used = true;
+      }
+    }
+
+    const openCards = (toolCards || []).filter((card) => !card.done);
+    if (openCards.length === 0) return;
+
+    const unusedResults = results.filter((result) => !result.used);
+    const fallbackResults = unusedResults.slice(-openCards.length);
+    for (let i = 0; i < fallbackResults.length; i++) {
+      const card = openCards[i];
+      const result = fallbackResults[i];
+      if (!card || !result || card.done) continue;
+      if (patchToolCardResult(card, result.message, toolGroups, done)) {
+        if (result.callId) done.add(result.callId);
+        result.used = true;
+      }
+    }
+
+    if (!finalize) return;
+    for (const card of toolCards || []) {
+      if (card.done) continue;
+      const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, results: [] };
+      group.completed = Math.min(group.count, group.completed + 1);
+      toolGroups.set(card.itemId, group);
+      const resultText = groupedToolResultText(group);
+      patchItem(card.itemId, { result: resultText, text: resultText, isError: group.errors > 0, count: group.count, completedCount: group.completed });
+      card.done = true;
+      if (card.callId) done.add(card.callId);
     }
   };
 
@@ -238,8 +432,34 @@ export async function createEngineSession({
     let assistantText = '';
     let assistantShown = false;
     let thinkingText = '';
-    const cardIdsByCallId = new Map();
+    let cancelled = false;
+    const cardByCallId = new Map();
+    const toolCards = [];
+    const toolGroups = new Map();
     const resultsDone = new Set();
+    let lastToolGroupCard = null;
+    let lastToolGroupKey = null;
+
+    const clearToolGroupContinuation = () => {
+      lastToolGroupCard = null;
+      lastToolGroupKey = null;
+    };
+
+    const lastVisibleToolGroupCard = (groupKey) => {
+      const previous = state.items[state.items.length - 1];
+      if (!previous || previous.kind !== 'tool' || previous.isError) return null;
+      if (toolGroupKey(previous.name, previous.args) !== groupKey) return null;
+      const group = toolGroups.get(previous.id);
+      if (!group) return null;
+      return {
+        itemId: previous.id,
+        key: groupKey,
+        count: Math.max(0, Number(previous.count || group.count || 0)),
+        names: [previous.name].filter(Boolean),
+        firstName: previous.name,
+        firstArgs: previous.args,
+      };
+    };
 
     const ensureAssistant = () => {
       if (!assistantShown) {
@@ -251,25 +471,90 @@ export async function createEngineSession({
     try {
       const { result, session } = await runtime.ask(userText, {
         onToolCall: async (_iter, calls) => {
-          for (const c of calls || []) {
-            const itemId = nextId();
-            const callId = toolCallId(c);
-            if (callId) cardIdsByCallId.set(callId, itemId);
-            pushItem({ kind: 'tool', id: itemId, name: toolCallName(c), args: toolCallArgs(c), result: null, isError: false, expanded: false });
+          if (thinkingText && state.thinking) {
+            set({ thinking: null, spinner: state.spinner ? { ...state.spinner, thinking: true, mode: 'tool-use' } : state.spinner });
+          } else if (state.spinner) {
+            set({ spinner: { ...state.spinner, mode: 'tool-use' } });
           }
+          const batchCalls = (calls || []).filter(Boolean);
+          if (batchCalls.length === 0) return;
+          let activeGroupKey = null;
+          let activeGroupCard = null;
+          let lastKeyInBatch = null;
+          let lastCardInBatch = null;
+          for (let i = 0; i < batchCalls.length; i++) {
+            const c = batchCalls[i];
+            const name = toolCallName(c);
+            const args = toolCallArgs(c);
+            const groupKey = toolGroupKey(name, args);
+            let groupCard = groupKey === activeGroupKey ? activeGroupCard : null;
+            if (!groupCard) {
+              if (i === 0 && groupKey === lastToolGroupKey && lastToolGroupCard) {
+                groupCard = lastToolGroupCard;
+              } else {
+                groupCard = i === 0 ? lastVisibleToolGroupCard(groupKey) : null;
+                if (!groupCard) {
+                  const itemId = nextId();
+                  groupCard = { itemId, key: groupKey, count: 0, names: [], firstName: name, firstArgs: args };
+                  toolGroups.set(itemId, { count: 0, completed: 0, errors: 0, results: [] });
+                  pushItem({
+                    kind: 'tool',
+                    id: itemId,
+                    name,
+                    args,
+                    result: null,
+                    isError: false,
+                    expanded: false,
+                    count: 0,
+                    completedCount: 0,
+                  });
+                }
+              }
+              activeGroupKey = groupKey;
+              activeGroupCard = groupCard;
+            }
+            if (!groupCard.names.includes(name)) groupCard.names.push(name);
+            const callId = toolCallId(c);
+            groupCard.count += 1;
+            const group = toolGroups.get(groupCard.itemId) || { count: 0, completed: 0, errors: 0, results: [] };
+            group.count = groupCard.count;
+            toolGroups.set(groupCard.itemId, group);
+            const card = { itemId: groupCard.itemId, callId, done: false };
+            if (callId) cardByCallId.set(callId, card);
+            toolCards.push(card);
+            patchItem(groupCard.itemId, {
+              name: groupCard.firstName || name,
+              args: groupCard.firstArgs ?? args,
+              count: groupCard.count,
+              completedCount: group.completed,
+            });
+            lastKeyInBatch = groupKey;
+            lastCardInBatch = groupCard;
+          }
+          if (lastKeyInBatch) {
+            lastToolGroupKey = lastKeyInBatch;
+            lastToolGroupCard = lastCardInBatch;
+          }
+          await yieldToRenderer();
+        },
+        onToolResult: (message) => {
+          flushToolResults([message], toolCards, cardByCallId, toolGroups, resultsDone);
         },
         onTextDelta: (chunk) => {
-          assistantText += String(chunk ?? '');
+          const textChunk = String(chunk ?? '');
+          if (!textChunk) return;
+          if (textChunk.trim()) clearToolGroupContinuation();
+          assistantText += textChunk;
           const estimatedTokens = Math.round(assistantText.length / 4);
           if (state.spinner) {
-            set({ spinner: { ...state.spinner, liveTokens: estimatedTokens } });
+            set({ spinner: { ...state.spinner, liveTokens: estimatedTokens, mode: 'responding' } });
           }
         },
         onReasoningDelta: (chunk) => {
           thinkingText += String(chunk ?? '');
           const estimatedTokens = Math.round((assistantText.length + thinkingText.length) / 4);
           if (state.spinner) {
-            set({ spinner: { ...state.spinner, liveTokens: estimatedTokens } });
+            set({ spinner: { ...state.spinner, liveTokens: estimatedTokens, thinking: true, mode: 'thinking' } });
           }
           set({ thinking: thinkingText });
         },
@@ -285,7 +570,7 @@ export async function createEngineSession({
         },
       });
 
-      flushToolResults(session?.messages || [], cardIdsByCallId, resultsDone);
+      flushToolResults(session?.messages || [], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
 
       const finalText = (result?.content != null && String(result.content)) || assistantText;
       if (finalText) {
@@ -295,8 +580,8 @@ export async function createEngineSession({
       state.stats.turns = (state.stats.turns || 0) + 1;
     } catch (error) {
       if (error?.name === 'SessionClosedError') {
+        cancelled = true;
         if (assistantText.trim()) { ensureAssistant(); patchItem(assistantId, { text: assistantText }); }
-        pushItem({ kind: 'notice', id: nextId(), text: 'Interrupted by user', tone: 'warn' });
       } else {
         pushItem({ kind: 'notice', id: nextId(), text: `[error] ${error?.message || error}`, tone: 'error' });
       }
@@ -305,13 +590,9 @@ export async function createEngineSession({
         busy: false,
         spinner: null,
         thinking: null,
-        lastTurn: { elapsedMs: Date.now() - startedAt, outputTokens: Math.max(0, (state.stats.outputTokens || 0) - outputBaseline) },
+        lastTurn: { status: cancelled ? 'cancelled' : 'done', elapsedMs: Date.now() - startedAt, outputTokens: Math.max(0, (state.stats.outputTokens || 0) - outputBaseline) },
         stats: { ...state.stats },
-        sessionId: runtime.id,
-        provider: runtime.provider,
-        model: runtime.model,
-        effort: runtime.effort,
-        effortOptions: runtime.effortOptions,
+        ...routeState(),
         toolMode: runtime.toolMode,
         bridgeMode: runtime.bridgeMode,
       });
@@ -341,6 +622,14 @@ export async function createEngineSession({
     void drain();
   }
 
+  function restoreQueued(currentText = '') {
+    const queued = pending.splice(0);
+    set({ queued: [] });
+    const queuedText = queued.map((item) => item.text).filter((text) => String(text || '').trim()).join('\n');
+    const combinedText = [queuedText, String(currentText || '')].filter((text) => text.trim()).join('\n');
+    return { count: queued.length, text: combinedText };
+  }
+
   const resetStats = () => {
     const fresh = createSessionStats();
     for (const k of Object.keys(fresh)) state.stats[k] = fresh[k];
@@ -359,13 +648,14 @@ export async function createEngineSession({
       enqueue(t);
       return true;
     },
+    restoreQueued,
     setModel: async (m) => {
       if (state.commandBusy) return false;
       set({ commandBusy: true });
       try {
         await runtime.setRoute({ model: m });
         resetStats();
-        set({ sessionId: runtime.id, provider: runtime.provider, model: runtime.model, effort: runtime.effort, effortOptions: runtime.effortOptions, stats: { ...state.stats } });
+        set({ ...routeState(), stats: { ...state.stats } });
         return true;
       } finally {
         set({ commandBusy: false });
@@ -376,7 +666,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         await runtime.setEffort(value);
-        set({ effort: runtime.effort, effortOptions: runtime.effortOptions });
+        set({ ...routeState() });
         return runtime.effort || 'auto';
       } finally {
         set({ commandBusy: false });
@@ -386,7 +676,7 @@ export async function createEngineSession({
       void runtime.setToolMode(m)
         .then(() => {
           resetStats();
-          set({ sessionId: runtime.id, toolMode: runtime.toolMode, stats: { ...state.stats } });
+          set({ ...routeState(), toolMode: runtime.toolMode, stats: { ...state.stats } });
         })
         .catch((error) => pushNotice(`[error] ${error?.message || error}`, 'error'));
     },
@@ -446,12 +736,25 @@ export async function createEngineSession({
       try {
         const status = await runtime.reconnectMcp?.();
         resetStats();
-        set({ sessionId: runtime.id, stats: { ...state.stats } });
+        set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(
           `mcp reconnect: ${status?.connectedCount || 0}/${status?.configuredCount || 0} connected${status?.failedCount ? ` · ${status.failedCount} failed` : ''}`,
           status?.failedCount ? 'warn' : 'info',
         );
         return status;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    addMcpServer: async (input) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.addMcpServer?.(input);
+        resetStats();
+        set({ ...routeState(), stats: { ...state.stats } });
+        pushNotice(`mcp added: ${result?.name || input?.name || 'server'}`, 'info');
+        return result;
       } finally {
         set({ commandBusy: false });
       }
@@ -462,8 +765,21 @@ export async function createEngineSession({
       try {
         const status = await runtime.removeMcpServer?.(name);
         resetStats();
-        set({ sessionId: runtime.id, stats: { ...state.stats } });
+        set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(`mcp removed: ${name}`, 'info');
+        return status;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    setMcpServerEnabled: async (name, enabled) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const status = await runtime.setMcpServerEnabled?.(name, enabled);
+        resetStats();
+        set({ ...routeState(), stats: { ...state.stats } });
+        pushNotice(`mcp ${enabled ? 'enabled' : 'disabled'}: ${name}`, 'info');
         return status;
       } finally {
         set({ commandBusy: false });
@@ -475,13 +791,26 @@ export async function createEngineSession({
     skillContent: (name) => {
       return runtime.skillContent?.(name);
     },
+    addSkill: async (input) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.addSkill?.(input);
+        resetStats();
+        set({ ...routeState(), stats: { ...state.stats } });
+        pushNotice(`skill added: ${result?.skill?.name || input?.name || 'skill'}`, 'info');
+        return result;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
     reloadSkills: async () => {
       if (state.commandBusy) return null;
       set({ commandBusy: true });
       try {
         const status = await runtime.reloadSkills?.();
         resetStats();
-        set({ sessionId: runtime.id, stats: { ...state.stats } });
+        set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(`skills reload: ${status?.count || 0} available`, 'info');
         return status;
       } finally {
@@ -497,9 +826,48 @@ export async function createEngineSession({
       try {
         const status = await runtime.reloadPlugins?.();
         resetStats();
-        set({ sessionId: runtime.id, stats: { ...state.stats } });
+        set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(`plugins reload: ${status?.count || 0} detected`, 'info');
         return status;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    addPlugin: async (source) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.addPlugin?.(source);
+        resetStats();
+        set({ ...routeState(), stats: { ...state.stats } });
+        pushNotice(`plugin added: ${result?.plugin?.title || result?.plugin?.name || source}`, 'info');
+        return result;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    updatePlugin: async (plugin) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.updatePlugin?.(plugin);
+        resetStats();
+        set({ ...routeState(), stats: { ...state.stats } });
+        pushNotice(`plugin updated: ${result?.plugin?.title || result?.plugin?.name || plugin?.name || plugin}`, 'info');
+        return result;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    removePlugin: async (plugin) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.removePlugin?.(plugin);
+        resetStats();
+        set({ ...routeState(), stats: { ...state.stats } });
+        pushNotice(`plugin uninstalled: ${result?.plugin?.title || result?.plugin?.name || plugin?.name || plugin}`, 'info');
+        return result;
       } finally {
         set({ commandBusy: false });
       }
@@ -510,7 +878,7 @@ export async function createEngineSession({
       try {
         const result = await runtime.enablePluginMcp?.(plugin);
         resetStats();
-        set({ sessionId: runtime.id, stats: { ...state.stats } });
+        set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(`plugin MCP enabled: ${result?.serverName || plugin?.name || 'plugin'}`, 'info');
         return result;
       } finally {
@@ -519,6 +887,9 @@ export async function createEngineSession({
     },
     hooksStatus: () => {
       return runtime.hooksStatus?.() || { enabled: false, events: [], recent: [] };
+    },
+    contextStatus: () => {
+      return runtime.contextStatus?.() || null;
     },
     addHookRule: (rule) => {
       const rules = runtime.addHookRule?.(rule) || [];
@@ -535,12 +906,15 @@ export async function createEngineSession({
       pushNotice(`hook rule ${index + 1} deleted`, 'info');
       return rules;
     },
-    memoryControl: async (args = {}) => {
+    memoryControl: async (args = {}, options = {}) => {
       if (state.commandBusy) return null;
       set({ commandBusy: true });
       try {
         const result = await runtime.memoryControl(args);
-        pushItem({ kind: 'notice', id: nextId(), text: String(result || '').trim() || '(empty memory result)', tone: 'info' });
+        const text = String(result || '').trim() || '(empty memory result)';
+        if (!options.silent) {
+          pushItem({ kind: 'notice', id: nextId(), text, tone: 'info' });
+        }
         return result;
       } finally {
         set({ commandBusy: false });
@@ -591,7 +965,7 @@ export async function createEngineSession({
       try {
         const result = await runtime.completeOnboarding?.(payload);
         resetStats();
-        set({ sessionId: runtime.id, provider: runtime.provider, model: runtime.model, effort: runtime.effort, effortOptions: runtime.effortOptions, stats: { ...state.stats } });
+        set({ ...routeState(), stats: { ...state.stats } });
         pushNotice('first-run setup saved', 'info');
         return result;
       } finally {
@@ -683,6 +1057,11 @@ export async function createEngineSession({
       pushNotice(`schedule deleted: ${name}`, 'info');
       return result;
     },
+    setScheduleEnabled: (name, enabled) => {
+      const result = runtime.setScheduleEnabled(name, enabled);
+      pushNotice(`schedule ${enabled ? 'enabled' : 'disabled'}: ${name}`, 'info');
+      return result;
+    },
     saveWebhook: (entry) => {
       const result = runtime.saveWebhook(entry);
       pushNotice(`webhook saved: ${result.name}`, 'info');
@@ -693,13 +1072,18 @@ export async function createEngineSession({
       pushNotice(`webhook deleted: ${name}`, 'info');
       return result;
     },
+    setWebhookEnabled: (name, enabled) => {
+      const result = runtime.setWebhookEnabled(name, enabled);
+      pushNotice(`webhook ${enabled ? 'enabled' : 'disabled'}: ${name}`, 'info');
+      return result;
+    },
     setRoute: async (opts) => {
       if (state.commandBusy) return false;
       set({ commandBusy: true });
       try {
         await runtime.setRoute(opts);
         resetStats();
-        set({ sessionId: runtime.id, provider: runtime.provider, model: runtime.model, effort: runtime.effort, effortOptions: runtime.effortOptions, stats: { ...state.stats } });
+        set({ ...routeState(), stats: { ...state.stats } });
         return true;
       } finally {
         set({ commandBusy: false });
@@ -712,7 +1096,7 @@ export async function createEngineSession({
       try {
         await runtime.clear();
         resetStats();
-        set({ items: [], toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, sessionId: runtime.id, effort: runtime.effort, effortOptions: runtime.effortOptions, stats: { ...state.stats } });
+        set({ items: [], toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, ...routeState(), stats: { ...state.stats } });
         return true;
       } finally {
         set({ commandBusy: false });
@@ -727,7 +1111,7 @@ export async function createEngineSession({
       try {
         await runtime.newSession();
         resetStats();
-        set({ items: [], toasts: [], queued: [], thinking: null, lastTurn: null, sessionId: runtime.id, stats: { ...state.stats } });
+        set({ items: [], toasts: [], queued: [], thinking: null, lastTurn: null, ...routeState(), stats: { ...state.stats } });
         return true;
       } finally {
         set({ commandBusy: false });
@@ -759,11 +1143,7 @@ export async function createEngineSession({
           thinking: null,
           spinner: null,
           lastTurn: null,
-          sessionId: r.id,
-          provider: r.provider,
-          model: r.model,
-          effort: runtime.effort,
-          effortOptions: runtime.effortOptions,
+          ...routeState(),
           stats: { ...state.stats },
         });
         return true;

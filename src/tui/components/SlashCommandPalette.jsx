@@ -17,7 +17,7 @@ function truncateText(value, width) {
   return text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text;
 }
 
-export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Commands', columns = 80 }) {
+export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Commands', columns = 80, input = null }) {
   const total = commands.length;
   const half = Math.floor(MAX_VISIBLE / 2);
   let start = Math.max(0, selectedIndex - half);
@@ -42,8 +42,8 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
         width="100%"
       >
         <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
-          <Text color={theme.suggestion}>{title}</Text>
-          <Text color={theme.subtle}>↑↓ Enter · Tab · Esc</Text>
+          <Text color={theme.panelTitle}>{title}</Text>
+          <Text color={theme.subtle}>↑↓ · → bottom · Enter · Tab · Esc</Text>
         </Box>
         {visible.map((item, index) => (
           <CommandRow
@@ -54,6 +54,12 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
             descriptionWidth={descriptionWidth}
           />
         ))}
+        {input ? (
+          <Box flexDirection="row" width="100%" marginTop={1}>
+            <Text color={theme.inactive}>{'> '}</Text>
+            {input}
+          </Box>
+        ) : null}
       </Box>
     </Box>
   );

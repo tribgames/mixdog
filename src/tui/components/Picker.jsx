@@ -7,7 +7,8 @@
  *
  * Keyboard:
  *   ↑ / ↓      — move selection (wraps at ends)
- *   ← / →      — optional item-level collapse / expand
+ *   ←          — back to previous picker when available
+ *   →          — proceed with the selected item
  *   Enter       — confirm selection, calls onSelect(value)
  *   Escape      — cancel, calls onCancel()
  *   Ctrl+C      — ignored by the TUI so terminal copy behavior can win
@@ -25,7 +26,7 @@ function truncateText(value, width) {
   return text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text;
 }
 
-export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, columns = 80 }) {
+export function Picker({ items, onSelect, onCancel, onBack, onLeft, onRight, title, columns = 80 }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
@@ -36,11 +37,17 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, colu
     useCallback(
       (input, key) => {
         if (key.upArrow) {
-          setSelectedIndex((i) => (i > 0 ? i - 1 : items.length - 1));
+          setSelectedIndex((i) => {
+            const total = items.length;
+            return total > 0 ? (i - 1 + total) % total : 0;
+          });
           return;
         }
         if (key.downArrow) {
-          setSelectedIndex((i) => (i < items.length - 1 ? i + 1 : 0));
+          setSelectedIndex((i) => {
+            const total = items.length;
+            return total > 0 ? (i + 1) % total : 0;
+          });
           return;
         }
         if (key.pageUp) {
@@ -59,12 +66,14 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, colu
           setSelectedIndex(items.length - 1);
           return;
         }
-        if (key.leftArrow && onLeft) {
-          onLeft(items[selectedIndex], selectedIndex);
+        if (key.leftArrow) {
+          if (onLeft) onLeft(items[selectedIndex], selectedIndex);
+          else if (onBack) onBack(items[selectedIndex], selectedIndex);
           return;
         }
-        if (key.rightArrow && onRight) {
-          onRight(items[selectedIndex], selectedIndex);
+        if (key.rightArrow) {
+          if (onRight) onRight(items[selectedIndex], selectedIndex);
+          else onSelect(items[selectedIndex].value, items[selectedIndex]);
           return;
         }
         if (key.return) {
@@ -76,7 +85,7 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, colu
           return;
         }
       },
-      [items, selectedIndex, onSelect, onCancel, onLeft, onRight],
+      [items, selectedIndex, onSelect, onCancel, onBack, onLeft, onRight],
     ),
   );
 
@@ -92,7 +101,7 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, colu
           height={4}
           width="100%"
         >
-          <Text color={theme.suggestion}>{title || 'Picker'}</Text>
+          <Text color={theme.panelTitle}>{title || 'Picker'}</Text>
           <Text color={theme.inactive}> (empty) </Text>
         </Box>
       </Box>
@@ -124,8 +133,8 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, colu
         width="100%"
       >
         <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
-          <Text color={theme.suggestion}>{title}</Text>
-          <Text color={theme.subtle}>↑↓ ←→ Pg Home End · Enter · Esc</Text>
+          <Text color={theme.panelTitle}>{title}</Text>
+          <Text color={theme.subtle}>↑↓ · ← back · →/Enter open · Esc cancel</Text>
         </Box>
         {visible.map((item, i) => {
           const idx = start + i;

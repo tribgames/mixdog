@@ -15,7 +15,7 @@
  * because it was computed a beat before the final layout. The fork computes it
  * at the exact moment of drawing, so it can never be stale.
  */
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { spawnSync } from 'node:child_process';
 import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import stringWidth from 'string-width';
@@ -83,42 +83,9 @@ function caretPosition(text, offset, width) {
   return { row, col };
 }
 
-function offsetAtPosition(text, targetRow, targetCol, width) {
-  let row = 0;
-  let col = 0;
-
-  for (const { index, segment } of graphemeSegmenter.segment(text)) {
-    if (segment === '\n') {
-      if (row === targetRow) return index;
-      row += 1;
-      col = 0;
-      continue;
-    }
-
-    const segmentWidth = stringWidth(segment);
-    if (segmentWidth === 0) continue;
-
-    if (col > 0 && col + segmentWidth > width) {
-      if (row === targetRow) return index;
-      row += 1;
-      col = 0;
-    }
-
-    if (row === targetRow) {
-      if (targetCol <= col) return index;
-      if (targetCol < col + segmentWidth) return index;
-      if (targetCol === col + segmentWidth) return index + segment.length;
-    }
-
-    col += segmentWidth;
-    if (col >= width) {
-      if (row === targetRow) return index + segment.length;
-      row += Math.floor(col / width);
-      col %= width;
-    }
-  }
-
-  return text.length;
+function hintStyle(tone) {
+  void tone;
+  return { accentColor: theme.inactive, textColor: theme.inactive, prefix: '◇' };
 }
 
 function insertText(draft, input) {
@@ -157,19 +124,6 @@ function readClipboardText() {
   }
 }
 
-function moveVertical(draft, direction, width) {
-  if (!width || width <= 0) return null;
-  const current = caretPosition(draft.value, draft.cursor, width);
-  const last = caretPosition(draft.value, draft.value.length, width);
-  const targetRow = current.row + direction;
-
-  if (targetRow < 0 || targetRow > last.row) return null;
-
-  const cursor = offsetAtPosition(draft.value, targetRow, current.col, width);
-  if (cursor === draft.cursor) return null;
-  return { ...draft, cursor };
-}
-
 export function PromptInput({
   onSubmit,
   disabled = false,
@@ -178,16 +132,20 @@ export function PromptInput({
   mask = false,
   hint = '',
   hintTone = 'info',
+  initialValue = '',
+  draftOverride,
   onEscape,
   onCommandPaletteNavigate,
   onCommandPaletteAccept,
   onCommandPaletteCancel,
   onCommandPaletteComplete,
+  submitPasteImmediately = false,
 }) {
-  const [draft, setDraft] = useState(() => ({ value: '', cursor: 0 }));
+  const [draft, setDraft] = useState(() => {
+    const value = String(initialValue || '');
+    return { value, cursor: value.length };
+  });
   const draftRef = useRef(draft);
-  const history = useRef([]);
-  const histIdx = useRef(-1); // -1 = current (unsubmitted) line
   const { isRawModeSupported } = useStdin();
   // The text box's ink DOM node. We mark it as the cursor anchor (forked ink
   // reads internal_cursorAnchor during render and parks the hardware cursor at
@@ -197,12 +155,6 @@ export function PromptInput({
   const cursorEnabledRef = useRef(false); // latest enabled state, read by the anchor fn at render time
   const { value, cursor } = draft;
   draftRef.current = draft;
-
-  // wrapWidth for the caret column math + up/down line moves. Read from the
-  // node's measured yoga width (available after layout); falls back to undefined
-  // (treated as a single unwrapped line) until measured.
-  const measuredWidth = boxRef.current?.yogaNode?.getComputedWidth?.() ?? 0;
-  const wrapWidth = measuredWidth > 0 ? measuredWidth : undefined;
 
   const commitDraft = (next) => {
     draftRef.current = next;
@@ -214,6 +166,11 @@ export function PromptInput({
     commitDraft(fn(draftRef.current));
   };
 
+  useEffect(() => {
+    if (!draftOverride || typeof draftOverride.value !== 'string') return;
+    commitDraft({ value: draftOverride.value, cursor: draftOverride.value.length });
+  }, [draftOverride?.id]);
+
   const submitDraft = (next) => {
     const text = next.value;
     const accepted = onSubmit?.(text) !== false;
@@ -221,10 +178,6 @@ export function PromptInput({
       commitDraft(next);
       return;
     }
-    if (text.trim()) {
-      history.current.push(text);
-    }
-    histIdx.current = -1;
     commitDraft({ value: '', cursor: 0 });
   };
 
@@ -234,6 +187,10 @@ export function PromptInput({
     if (disabled) return;
     const pasted = normalizePastedText(text);
     if (!pasted) return;
+    if (submitPasteImmediately) {
+      onSubmit?.(pasted);
+      return;
+    }
     updateDraft((d) => insertText(d, pasted));
   }, { isActive: isRawModeSupported && !disabled });
 
@@ -257,10 +214,6 @@ export function PromptInput({
         const accepted = onCommandPaletteAccept?.(draftRef.current.value);
         if (accepted !== false) {
           const text = draftRef.current.value;
-          if (text.trim()) {
-            history.current.push(text);
-          }
-          histIdx.current = -1;
           commitDraft({ value: '', cursor: 0 });
         }
         return;
@@ -282,10 +235,6 @@ export function PromptInput({
         const accepted = onCommandPaletteAccept?.(draftRef.current.value);
         if (accepted !== false) {
           const current = draftRef.current.value;
-          if (current.trim()) {
-            history.current.push(current);
-          }
-          histIdx.current = -1;
           commitDraft({ value: '', cursor: 0 });
         }
         return;
@@ -307,46 +256,13 @@ export function PromptInput({
     if (key.upArrow) {
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.(-1);
-        return;
       }
-
-      const moved = moveVertical(draftRef.current, -1, wrapWidth);
-      if (moved) {
-        commitDraft(moved);
-        return;
-      }
-
-      const h = history.current;
-      if (h.length === 0) return;
-      const next = histIdx.current === -1 ? h.length - 1 : Math.max(0, histIdx.current - 1);
-      histIdx.current = next;
-      const v = h[next] ?? '';
-      commitDraft({ value: v, cursor: v.length });
       return;
     }
 
     if (key.downArrow) {
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.(1);
-        return;
-      }
-
-      const moved = moveVertical(draftRef.current, 1, wrapWidth);
-      if (moved) {
-        commitDraft(moved);
-        return;
-      }
-
-      const h = history.current;
-      if (histIdx.current === -1) return;
-      const next = histIdx.current + 1;
-      if (next >= h.length) {
-        histIdx.current = -1;
-        commitDraft({ value: '', cursor: 0 });
-      } else {
-        histIdx.current = next;
-        const v = h[next] ?? '';
-        commitDraft({ value: v, cursor: v.length });
       }
       return;
     }
@@ -382,6 +298,12 @@ export function PromptInput({
     if (key.escape) {
       if (commandPaletteActive) {
         onCommandPaletteCancel?.(draftRef.current.value);
+        commitDraft({ value: '', cursor: 0 });
+        return;
+      }
+      const currentValue = draftRef.current.value;
+      if (currentValue) {
+        commitDraft({ value: '', cursor: 0 });
         return;
       }
       if (onEscape) {
@@ -393,7 +315,13 @@ export function PromptInput({
 
     if (key.ctrl && (input === 'v' || input === 'V' || rawInput === '\u0016')) {
       const pasted = normalizePastedText(readClipboardText());
-      if (pasted) updateDraft((d) => insertText(d, pasted));
+      if (pasted) {
+        if (submitPasteImmediately) {
+          onSubmit?.(pasted);
+        } else {
+          updateDraft((d) => insertText(d, pasted));
+        }
+      }
       return;
     }
 
@@ -402,6 +330,10 @@ export function PromptInput({
       return;
     }
     if (key.rightArrow) {
+      if (commandPaletteActive) {
+        onCommandPaletteNavigate?.('right');
+        return;
+      }
       updateDraft((d) => ({ ...d, cursor: nextOffset(d.value, d.cursor) }));
       return;
     }
@@ -489,14 +421,17 @@ export function PromptInput({
   // on (kept visually blank — no synthetic underline).
   const displayValue = mask ? value.replace(/[^\n]/g, '*') : value;
   const renderedValue = cursor === value.length ? `${displayValue} ` : displayValue;
-  const hintColor = hintTone === 'error' ? theme.error : hintTone === 'warn' ? theme.warning : theme.inactive;
+  const hintMeta = hintStyle(hintTone);
 
   return (
     <Box ref={boxRef} flexDirection="row" flexGrow={1} flexShrink={1}>
       <Text color={theme.text} wrap="hard">{renderedValue}</Text>
       {!value && hint ? (
         <Box marginLeft={-1}>
-          <Text color={hintColor}>{hint}</Text>
+          <Text>
+            <Text color={hintMeta.accentColor}>{hintMeta.prefix}</Text>
+            <Text color={hintMeta.textColor}> {hint}</Text>
+          </Text>
         </Box>
       ) : null}
     </Box>

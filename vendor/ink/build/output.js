@@ -209,19 +209,29 @@ export default class Output {
                 }
             }
         }
-        // [mixdog fork] Apply the drag-selection highlight. We flip the SGR
-        // inverse attribute (7m / 27m) on every cell inside the selection
-        // rectangle. Cells come from a per-line styledChars cache shared across
-        // frames, so we MUST clone each touched cell and its styles array before
-        // mutating — otherwise the inverse leaks into the cache and stains
-        // unselected frames. styledCharsToString diffs the styles, so simply
-        // appending the inverse code object renders correct open/close runs.
+        // [mixdog fork] Apply the drag-selection highlight. Do not invert the
+        // whole rectangle: in an alt-screen TUI most cells are padded blanks, and
+        // inverse-video turns those blanks into huge white blocks. Instead,
+        // highlight only the content span on each selected row, skipping leading
+        // and trailing padding. Selection uses a fixed foreground/background
+        // pair so links, dim text, and status colors do not bleed through.
         const sel = this.selection;
         let selectedText = null;
         if (sel) {
-            const invCode = { code: '[7m', endCode: '[27m' };
-            const y1 = Math.max(0, sel.y1);
-            const y2 = Math.min(this.height - 1, sel.y2);
+            const selectionStyles = [
+                { code: '[38;2;220;220;220m', endCode: '[39m' },
+                { code: '[48;2;72;72;72m', endCode: '[49m' },
+            ];
+            const linear = sel.mode === 'linear';
+            const start = linear && (sel.y1 > sel.y2 || (sel.y1 === sel.y2 && sel.x1 > sel.x2))
+                ? { x: sel.x2, y: sel.y2 }
+                : { x: sel.x1, y: sel.y1 };
+            const end = linear && (sel.y1 > sel.y2 || (sel.y1 === sel.y2 && sel.x1 > sel.x2))
+                ? { x: sel.x1, y: sel.y1 }
+                : { x: sel.x2, y: sel.y2 };
+            const y1 = Math.max(0, linear ? start.y : Math.min(sel.y1, sel.y2));
+            const y2 = Math.min(this.height - 1, linear ? end.y : Math.max(sel.y1, sel.y2));
+            const lineMode = linear && y1 !== y2;
             const selRows = [];
             for (let y = y1; y <= y2; y++) {
                 const row = output[y];
@@ -229,8 +239,25 @@ export default class Output {
                     selRows.push('');
                     continue;
                 }
-                const x1 = Math.max(0, sel.x1);
-                const x2 = Math.min(row.length - 1, sel.x2);
+                const rawX1 = linear
+                    ? (lineMode ? 0 : (y === start.y ? start.x : 0))
+                    : Math.min(sel.x1, sel.x2);
+                const rawX2 = linear
+                    ? (lineMode ? row.length - 1 : (y === end.y ? end.x : row.length - 1))
+                    : Math.max(sel.x1, sel.x2);
+                const x1 = Math.max(0, Math.min(rawX1, rawX2));
+                const x2 = Math.min(row.length - 1, Math.max(rawX1, rawX2));
+                let contentStart = -1;
+                let contentEnd = -1;
+                for (let x = x1; x <= x2; x++) {
+                    const value = row[x]?.value ?? '';
+                    if (value && !/^\s$/u.test(value)) {
+                        if (contentStart === -1) {
+                            contentStart = x;
+                        }
+                        contentEnd = x;
+                    }
+                }
                 let rowText = '';
                 for (let x = x1; x <= x2; x++) {
                     const cell = row[x];
@@ -240,13 +267,12 @@ export default class Output {
                     // Collect the visible glyph. Wide-char trailing placeholders
                     // carry value '' and contribute nothing, which is correct.
                     rowText += cell.value ?? '';
-                    // Skip if already inverted (defensive; shouldn't happen).
-                    if (cell.styles?.some((s) => s.code === invCode.code)) {
+                    if (contentStart === -1 || x < contentStart || x > contentEnd) {
                         continue;
                     }
                     row[x] = {
                         ...cell,
-                        styles: [...(cell.styles ?? []), invCode],
+                        styles: selectionStyles,
                     };
                 }
                 // Trailing spaces in a selected row are padding, not content.

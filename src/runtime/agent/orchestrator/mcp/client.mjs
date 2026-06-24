@@ -1,11 +1,10 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { readFileSync, existsSync, readdirSync, mkdirSync, writeFileSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { tmpdir, homedir } from 'os';
+import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { DEFAULT_MARKETPLACE } from '../../../shared/plugin-paths.mjs';
 import { smartReadTruncate } from '../tools/builtin/read-formatting.mjs';
 // --- Types ---
 /** Known auto-detect targets: port file path relative to tmpdir.
@@ -42,6 +41,10 @@ function mcpLog(line) {
 export async function connectMcpServers(config) {
     const failures = [];
     for (const [name, cfg] of Object.entries(config)) {
+        if (cfg?.enabled === false) {
+            mcpLog(`[mcp-client] Skipping disabled server "${name}"\n`);
+            continue;
+        }
         try {
             await connectServer(name, cfg);
         }
@@ -78,9 +81,7 @@ export function getMcpServerStatus() {
             name: tool.name,
             description: tool.description || '',
         })),
-        transport: server.cfg?.pluginCache
-            ? 'pluginCache'
-            : server.cfg?.autoDetect
+        transport: server.cfg?.autoDetect
                 ? 'autoDetect'
                 : server.cfg?.transport === 'http' || server.cfg?.url
                     ? 'http'
@@ -268,53 +269,11 @@ export async function disconnectAll() {
  * Supports both `{ mcpServers: { ... } }` and flat `{ name: { ... } }` format.
  */
 
-// --- Internal ---
-function resolvePluginCacheScript(pluginName, script) {
-    const cacheBase = join(homedir(), '.claude', 'plugins', 'cache', DEFAULT_MARKETPLACE, pluginName);
-    if (existsSync(cacheBase)) {
-        const versions = readdirSync(cacheBase).filter(d => /^\d+\.\d+\.\d+/.test(d)).sort((a, b) => {
-            const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
-            return (pa[0] - pb[0]) || (pa[1] - pb[1]) || (pa[2] - pb[2]);
-        });
-        for (let i = versions.length - 1; i >= 0; i--) {
-            const version = versions[i];
-            const dir = join(cacheBase, version);
-            const scriptPath = join(dir, script);
-            if (existsSync(scriptPath)) {
-                return { dir, scriptPath, source: `pluginCache:${pluginName}@${version}` };
-            }
-        }
-    }
-    const marketplaceDir = join(homedir(), '.claude', 'plugins', 'marketplaces', DEFAULT_MARKETPLACE, 'external_plugins', pluginName);
-    const marketplaceScript = join(marketplaceDir, script);
-    if (existsSync(marketplaceScript)) {
-        return { dir: marketplaceDir, scriptPath: marketplaceScript, source: `marketplace:${pluginName}` };
-    }
-    return null;
-}
-
 async function connectServer(name, cfg) {
     const client = new Client({ name: `mixdog-agent/${name}`, version: '1.0.0' });
     let transport;
-    // pluginCache: resolve latest cached plugin version as stdio transport
-    if (cfg.pluginCache) {
-        const script = cfg.script || 'scripts/run-mcp.mjs';
-        const resolved = resolvePluginCacheScript(cfg.pluginCache, script);
-        if (!resolved) throw new Error(`Script not found for pluginCache "${cfg.pluginCache}" (${script})`);
-        transport = new StdioClientTransport({
-            command: 'node',
-            args: [resolved.scriptPath],
-            cwd: resolved.dir,
-            env: {
-                ...process.env,
-                CLAUDE_PLUGIN_ROOT: resolved.dir,
-                CLAUDE_PLUGIN_DATA: join(homedir(), '.claude', 'plugins', 'data', `${cfg.pluginCache}-${DEFAULT_MARKETPLACE}`),
-            },
-        });
-        mcpLog(`[mcp-client] Connecting "${name}" via ${resolved.source}\n`);
-    }
     // Auto-detect: read port from a running service's port file
-    else if (cfg.autoDetect) {
+    if (cfg.autoDetect) {
         const spec = AUTO_DETECT_PORTS[cfg.autoDetect];
         if (!spec)
             throw new Error(`Unknown autoDetect target: "${cfg.autoDetect}"`);
@@ -359,6 +318,10 @@ async function connectServer(name, cfg) {
             args: cfg.args,
             cwd: cfg.cwd,
             env: { ...process.env, ...cfg.env },
+            stderr: cfg.stderr ?? 'pipe',
+        });
+        transport.stderr?.on?.('data', (chunk) => {
+            mcpLog(`[mcp:${name}:stderr] ${String(chunk)}`);
         });
     }
     else {

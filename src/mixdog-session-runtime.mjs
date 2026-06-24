@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -29,8 +29,109 @@ import {
   saveSchedule,
   saveWebhook,
   saveWebhookAuthtoken,
+  setScheduleEnabled,
+  setWebhookEnabled,
   setWebhookConfig,
 } from './standalone/channel-admin.mjs';
+import {
+  addPlugin as registryAddPlugin,
+  listRegisteredPlugins,
+  pluginAdminStatus,
+  removePlugin as registryRemovePlugin,
+  updatePlugin as registryUpdatePlugin,
+} from './standalone/plugin-admin.mjs';
+import {
+  estimateMessagesTokens,
+  estimateRequestReserveTokens,
+  estimateToolSchemaTokens,
+} from './runtime/agent/orchestrator/session/context-utils.mjs';
+
+function sessionMessageText(content) {
+  if (content == null) return '';
+  if (typeof content === 'string') return content;
+  const parts = Array.isArray(content)
+    ? content
+    : (content && typeof content === 'object' && Array.isArray(content.content) ? content.content : null);
+  if (parts) {
+    return parts.map((part) => {
+      if (typeof part === 'string') return part;
+      return part?.text ?? '';
+    }).filter(Boolean).join('\n');
+  }
+  if (typeof content === 'object' && typeof content.text === 'string') return content.text;
+  try { return JSON.stringify(content); } catch { return String(content); }
+}
+
+function roughTokenCount(text) {
+  return Math.ceil(String(text ?? '').length / 4);
+}
+
+function messageContextText(message) {
+  if (!message || typeof message !== 'object') return '';
+  let text = sessionMessageText(message.content);
+  if (message.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
+    try { text += `\n${JSON.stringify(message.toolCalls)}`; }
+    catch { text += `\n[${message.toolCalls.length} tool calls]`; }
+  }
+  if (message.role === 'tool' && message.toolCallId) text += `\n${message.toolCallId}`;
+  return text;
+}
+
+function summarizeContextMessages(messages) {
+  const rows = {
+    system: { count: 0, tokens: 0 },
+    user: { count: 0, tokens: 0 },
+    assistant: { count: 0, tokens: 0 },
+    tool: { count: 0, tokens: 0 },
+    other: { count: 0, tokens: 0 },
+  };
+  let toolCallCount = 0;
+  let toolCallTokens = 0;
+  let toolResultCount = 0;
+  let toolResultTokens = 0;
+  for (const message of messages || []) {
+    const role = rows[message?.role] ? message.role : 'other';
+    const tokens = roughTokenCount(messageContextText(message)) + 4;
+    rows[role].count += 1;
+    rows[role].tokens += tokens;
+    if (message?.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
+      toolCallCount += message.toolCalls.length;
+      try { toolCallTokens += roughTokenCount(JSON.stringify(message.toolCalls)); }
+      catch { toolCallTokens += roughTokenCount(`[${message.toolCalls.length} tool calls]`); }
+    }
+    if (message?.role === 'tool') {
+      toolResultCount += 1;
+      toolResultTokens += tokens;
+    }
+  }
+  return {
+    count: Array.isArray(messages) ? messages.length : 0,
+    estimatedTokens: Array.isArray(messages) ? estimateMessagesTokens(messages) : 0,
+    roles: rows,
+    toolCallCount,
+    toolCallTokens,
+    toolResultCount,
+    toolResultTokens,
+  };
+}
+
+function isSessionPreviewNoise(text) {
+  const value = String(text || '').trim();
+  return !value
+    || value.startsWith('<system-reminder>')
+    || value.startsWith('</system-reminder>')
+    || /^#\s*permission\b/i.test(value)
+    || /^permission:\s*/i.test(value)
+    || /^cwd:\s*/i.test(value);
+}
+
+function cleanSessionPreview(text) {
+  return String(text || '')
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160);
+}
 
 const RUNTIME = './runtime/agent/orchestrator';
 const SEARCH_RUNTIME = './runtime/search/index.mjs';
@@ -160,6 +261,8 @@ const MEASURED_TOOL_USAGE = Object.freeze({
   cwd: 2,
   diagnostics: 2,
   recall: 2,
+  provider_status: 2,
+  channel_status: 2,
 });
 const MEASURED_TOOL_ORDER = Object.freeze(Object.keys(MEASURED_TOOL_USAGE));
 const DEFERRED_ALWAYS_ACTIVE_TOOLS = new Set([
@@ -208,7 +311,11 @@ const DEFERRED_SELECT_ALIASES = {
   memory: ['memory', 'recall'],
   channels: ['reply', 'fetch', 'react', 'edit_message', 'download_attachment', 'schedule_status', 'trigger_schedule', 'schedule_control', 'reload_config'],
   discord: ['reply', 'fetch', 'react', 'edit_message', 'download_attachment'],
+  providers: ['provider_status'],
+  provider: ['provider_status'],
+  status: ['provider_status', 'channel_status', 'schedule_status'],
   schedule: ['schedule_status', 'trigger_schedule', 'schedule_control'],
+  channel: ['channel_status'],
   bridge: ['bridge'],
   graph: ['code_graph'],
   code: ['code_graph'],
@@ -231,6 +338,8 @@ const COMPACT_TOOL_DESCRIPTIONS = Object.freeze({
   web_fetch: 'Fetch full body for a URL.',
   tool_search: 'Search/select deferred tools for the next model iteration.',
   cwd: 'Show or set the standalone session cwd.',
+  provider_status: 'Show provider auth/config status for Anthropic, OpenAI, Grok, Gemini, local endpoints. No secrets.',
+  channel_status: 'Show Discord/channel/schedule/webhook configuration and runtime status. No secrets.',
 });
 const COMPACT_PROPERTY_DESCRIPTIONS = Object.freeze({
   read: {
@@ -397,16 +506,6 @@ function clean(value) {
 
 function readJsonSafe(path) {
   try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
-}
-
-function listDirsSafe(path) {
-  try {
-    return readdirSync(path, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
-  } catch {
-    return [];
-  }
 }
 
 function countSkillFiles(root) {
@@ -705,6 +804,27 @@ function toolRow(tool, activeNames = new Set()) {
   };
 }
 
+function toolSearchTokens(value) {
+  return (clean(value).toLowerCase().match(/[a-z0-9_.-]+/g) || [])
+    .map((token) => token.replace(/[-.]+/g, '_'))
+    .filter(Boolean);
+}
+
+function toolSearchText(row) {
+  const text = `${row.name} ${String(row.name || '').replace(/_/g, ' ')} ${row.kind} ${row.description} ${row.active ? 'active' : 'deferred'}`;
+  return `${text} ${text.replace(/[-.]+/g, '_')}`.toLowerCase();
+}
+
+function toolSearchMatches(row, query) {
+  const raw = clean(query).toLowerCase();
+  if (!raw) return true;
+  const haystack = toolSearchText(row);
+  if (haystack.includes(raw)) return true;
+  const tokens = toolSearchTokens(raw);
+  if (tokens.length === 0) return haystack.includes(raw);
+  return tokens.some((token) => haystack.includes(token));
+}
+
 function expandSelectionNames(names) {
   const out = [];
   for (const raw of names || []) {
@@ -792,7 +912,7 @@ function renderToolSearch(args = {}, session, mode = 'full') {
   const nextActiveNames = new Set((session?.tools || []).map((tool) => tool?.name).filter(Boolean));
   const rows = catalog.map((tool) => toolRow(tool, nextActiveNames)).filter((row) => row.name);
   const matches = query
-    ? rows.filter((row) => `${row.name} ${row.kind} ${row.description} ${row.active ? 'active' : 'deferred'}`.toLowerCase().includes(query))
+    ? rows.filter((row) => toolSearchMatches(row, query))
     : rows;
   return JSON.stringify({
     selected: selection,
@@ -865,7 +985,6 @@ export async function createMixdogSessionRuntime({
   hooks.emit('runtime:start', { cwd: currentCwd, provider: route.provider, model: route.model, toolMode: mode });
 
   function mcpTransportLabel(cfg = {}) {
-    if (cfg.pluginCache) return `pluginCache:${cfg.pluginCache}`;
     if (cfg.autoDetect) return `autoDetect:${cfg.autoDetect}`;
     if (cfg.transport === 'http' || cfg.url) return 'http';
     if (cfg.command) return 'stdio';
@@ -885,8 +1004,9 @@ export async function createMixdogSessionRuntime({
       servers.push({
         name,
         configured: true,
+        enabled: cfg?.enabled !== false,
         connected: Boolean(live),
-        status: live ? 'connected' : fail ? 'failed' : 'disconnected',
+        status: cfg?.enabled === false ? 'disabled' : live ? 'connected' : fail ? 'failed' : 'disconnected',
         transport: mcpTransportLabel(cfg),
         toolCount: live?.toolCount || 0,
         tools: live?.tools || [],
@@ -912,13 +1032,9 @@ export async function createMixdogSessionRuntime({
       : [];
     const norm = (value) => String(value || '').replace(/\\/g, '/').toLowerCase();
     const cwdNorm = norm(currentCwd);
-    const userSkillRoot = norm(join(homedir(), '.claude', 'skills'));
-    const pluginSkillRoot = norm(join(homedir(), '.claude', 'plugins', 'marketplaces'));
     const sourceForSkill = (filePath) => {
       const path = norm(filePath);
       if (cwdNorm && path.startsWith(`${cwdNorm}/.claude/skills/`)) return 'project';
-      if (userSkillRoot && path.startsWith(`${userSkillRoot}/`)) return 'user';
-      if (pluginSkillRoot && path.startsWith(`${pluginSkillRoot}/`)) return 'plugin';
       return 'skill';
     };
     return {
@@ -941,27 +1057,53 @@ export async function createMixdogSessionRuntime({
     return { name, content };
   }
 
+  function addProjectSkill(input = {}) {
+    const name = clean(input.name).replace(/[^a-zA-Z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '');
+    if (!name) throw new Error('skill name is required');
+    const dir = join(currentCwd, '.claude', 'skills', name);
+    const filePath = join(dir, 'SKILL.md');
+    if (existsSync(filePath)) throw new Error(`skill already exists: ${name}`);
+    const description = clean(input.description) || 'Project skill.';
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(filePath, [
+      '---',
+      `name: ${name}`,
+      `description: ${description}`,
+      '---',
+      '',
+      '# Instructions',
+      '',
+      'Describe when and how to use this skill.',
+      '',
+    ].join('\n'), 'utf8');
+    return { name, filePath };
+  }
+
   function pluginsStatus() {
-    const plugins = [];
-    const seen = new Set();
+    const dataDir = cfgMod.getPluginData?.();
     const configuredMcp = config?.mcpServers && typeof config.mcpServers === 'object'
       ? config.mcpServers
       : {};
-    const addPlugin = ({ root, source, marketplace, version, fallbackName }) => {
+    const plugins = [];
+    const addRegisteredPlugin = (entry) => {
+      const root = clean(entry.root);
       if (!root || !existsSync(root)) return;
       const manifest = pluginManifest(root);
-      const name = clean(manifest.name) || clean(manifest.id) || clean(fallbackName) || root.split(/[\\/]/).pop() || root;
-      const key = `${source}:${marketplace || ''}:${name}:${version || manifest.version || ''}:${root}`;
-      if (seen.has(key)) return;
-      seen.add(key);
+      const name = clean(manifest.name) || clean(manifest.id) || clean(entry.name) || root.split(/[\\/]/).pop() || root;
       const plugin = {
+        id: clean(entry.id) || name,
         name,
-        title: clean(manifest.title) || clean(manifest.displayName) || name,
-        version: clean(version) || clean(manifest.version) || null,
-        description: clean(manifest.description),
-        marketplace: marketplace || null,
-        source,
+        title: clean(manifest.title) || clean(manifest.displayName) || clean(entry.title) || name,
+        version: clean(manifest.version) || clean(entry.version) || null,
+        description: clean(manifest.description) || clean(entry.description),
+        marketplace: null,
+        source: clean(entry.sourceType) === 'local' ? 'local' : 'registry',
+        sourceUrl: clean(entry.source),
+        sourceType: clean(entry.sourceType) || 'git',
+        managed: entry.managed !== false,
         root,
+        installedAt: entry.installedAt || null,
+        updatedAt: entry.updatedAt || null,
         skillCount: countSkillFiles(root),
         mcpScript: mcpScriptForPlugin(root),
       };
@@ -970,48 +1112,19 @@ export async function createMixdogSessionRuntime({
       plugins.push(plugin);
     };
 
-    const marketplaceBase = join(homedir(), '.claude', 'plugins', 'marketplaces');
-    for (const marketplace of listDirsSafe(marketplaceBase)) {
-      const external = join(marketplaceBase, marketplace, 'external_plugins');
-      for (const pluginName of listDirsSafe(external)) {
-        addPlugin({ root: join(external, pluginName), source: 'marketplace', marketplace, fallbackName: pluginName });
-      }
-    }
-
-    const cacheBase = join(homedir(), '.claude', 'plugins', 'cache');
-    for (const marketplace of listDirsSafe(cacheBase)) {
-      const marketplaceDir = join(cacheBase, marketplace);
-      for (const pluginName of listDirsSafe(marketplaceDir)) {
-        const pluginDir = join(marketplaceDir, pluginName);
-        for (const version of listDirsSafe(pluginDir)) {
-          addPlugin({ root: join(pluginDir, version), source: 'cache', marketplace, version, fallbackName: pluginName });
-        }
-      }
-    }
-
-    const codexCacheBase = join(homedir(), '.codex', 'plugins', 'cache');
-    for (const marketplace of listDirsSafe(codexCacheBase)) {
-      const marketplaceDir = join(codexCacheBase, marketplace);
-      for (const pluginName of listDirsSafe(marketplaceDir)) {
-        const pluginDir = join(marketplaceDir, pluginName);
-        for (const version of listDirsSafe(pluginDir)) {
-          addPlugin({ root: join(pluginDir, version), source: 'codex-cache', marketplace, version, fallbackName: pluginName });
-        }
-      }
-    }
+    for (const entry of listRegisteredPlugins({ dataDir })) addRegisteredPlugin(entry);
 
     plugins.sort((a, b) => {
       if (a.source !== b.source) return a.source.localeCompare(b.source);
-      if ((a.marketplace || '') !== (b.marketplace || '')) return String(a.marketplace || '').localeCompare(String(b.marketplace || ''));
       return a.name.localeCompare(b.name);
     });
+    const admin = pluginAdminStatus({ dataDir });
     return {
       count: plugins.length,
       plugins,
       roots: {
-        marketplaces: marketplaceBase,
-        cache: cacheBase,
-        codexCache: codexCacheBase,
+        registry: admin.registryPath,
+        installed: admin.installRoot,
       },
     };
   }
@@ -1031,6 +1144,29 @@ export async function createMixdogSessionRuntime({
         : [{ name: 'mcp', msg: error?.message || String(error) }];
     }
     return mcpStatus();
+  }
+
+  function normalizeMcpServerInput(input = {}) {
+    const name = clean(input.name).toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '');
+    if (!name) throw new Error('MCP server name is required');
+    const url = clean(input.url);
+    if (url) {
+      if (!/^https?:\/\//i.test(url)) throw new Error('MCP URL must start with http:// or https://');
+      return { name, config: { transport: 'http', url } };
+    }
+    const command = clean(input.command);
+    if (!command) throw new Error('MCP server command or URL is required');
+    const args = Array.isArray(input.args)
+      ? input.args.map((v) => String(v)).filter(Boolean)
+      : clean(input.args).split(/\s+/).filter(Boolean);
+    const requestedCwd = clean(input.cwd);
+    const cwdForServer = requestedCwd ? resolve(currentCwd, requestedCwd) : currentCwd;
+    const root = resolve(currentCwd);
+    const resolvedCwd = resolve(cwdForServer);
+    if (resolvedCwd !== root && !resolvedCwd.startsWith(`${root}\\`) && !resolvedCwd.startsWith(`${root}/`)) {
+      throw new Error('MCP server cwd must stay under the current project');
+    }
+    return { name, config: { command, args, cwd: resolvedCwd } };
   }
 
   const bridge = createStandaloneBridge({
@@ -1276,6 +1412,15 @@ export async function createMixdogSessionRuntime({
     get effortOptions() {
       return route.effortOptions || [{ value: 'auto', label: 'auto', description: 'provider/model default' }];
     },
+    get contextWindow() {
+      return session?.contextWindow || null;
+    },
+    get rawContextWindow() {
+      return session?.rawContextWindow || session?.contextWindow || null;
+    },
+    get effectiveContextWindowPercent() {
+      return session?.effectiveContextWindowPercent || null;
+    },
     get toolMode() {
       return mode;
     },
@@ -1287,6 +1432,51 @@ export async function createMixdogSessionRuntime({
     },
     get session() {
       return session;
+    },
+    contextStatus() {
+      const messages = Array.isArray(session?.messages) ? session.messages : [];
+      const messageSummary = summarizeContextMessages(messages);
+      const tools = Array.isArray(session?.tools) ? session.tools : [];
+      const toolSchemaTokens = estimateToolSchemaTokens(tools);
+      const requestReserveTokens = estimateRequestReserveTokens(tools);
+      const requestOverheadTokens = Math.max(0, requestReserveTokens - toolSchemaTokens);
+      const rawWindow = Number(session?.rawContextWindow || session?.contextWindow || 0);
+      const effectiveWindow = Number(session?.contextWindow || rawWindow || 0);
+      const lastContextTokens = Number(session?.lastContextTokens || 0);
+      const estimatedContextTokens = messageSummary.estimatedTokens + requestReserveTokens;
+      const usedTokens = lastContextTokens || estimatedContextTokens;
+      const freeTokens = effectiveWindow ? Math.max(0, effectiveWindow - usedTokens) : 0;
+      return {
+        sessionId: session?.id || null,
+        provider: route.provider,
+        model: route.model,
+        cwd: currentCwd,
+        toolMode: mode,
+        bridgeMode: bridge.getDefaultMode(),
+        contextWindow: effectiveWindow || null,
+        rawContextWindow: rawWindow || null,
+        effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
+        usedTokens,
+        usedSource: lastContextTokens ? 'last_api_request' : 'estimated',
+        freeTokens,
+        messages: messageSummary,
+        request: {
+          toolSchemaTokens,
+          requestOverheadTokens,
+          reserveTokens: requestReserveTokens,
+        },
+        usage: {
+          lastInputTokens: Number(session?.lastInputTokens || 0),
+          lastOutputTokens: Number(session?.lastOutputTokens || 0),
+          lastCachedReadTokens: Number(session?.lastCachedReadTokens || 0),
+          lastCacheWriteTokens: Number(session?.lastCacheWriteTokens || 0),
+          lastContextTokens,
+          totalInputTokens: Number(session?.totalInputTokens || 0),
+          totalOutputTokens: Number(session?.totalOutputTokens || 0),
+          totalCachedReadTokens: Number(session?.totalCachedReadTokens || 0),
+          totalCacheWriteTokens: Number(session?.totalCacheWriteTokens || 0),
+        },
+      };
     },
     listProviders() {
       return renderProviderStatus(cfgMod.loadConfig());
@@ -1399,6 +1589,11 @@ export async function createMixdogSessionRuntime({
       reloadChannelsSoon();
       return result;
     },
+    setScheduleEnabled(name, enabled) {
+      const result = setScheduleEnabled(name, enabled);
+      reloadChannelsSoon();
+      return result;
+    },
     saveWebhook(entry) {
       const result = saveWebhook(entry);
       reloadChannelsSoon();
@@ -1406,6 +1601,11 @@ export async function createMixdogSessionRuntime({
     },
     deleteWebhook(name) {
       const result = deleteWebhook(name);
+      reloadChannelsSoon();
+      return result;
+    },
+    setWebhookEnabled(name, enabled) {
+      const result = setWebhookEnabled(name, enabled);
       reloadChannelsSoon();
       return result;
     },
@@ -1470,6 +1670,7 @@ export async function createMixdogSessionRuntime({
             onTextDelta: options.onTextDelta,
             onReasoningDelta: options.onReasoningDelta,
             onUsageDelta: options.onUsageDelta,
+            onToolResult: options.onToolResult,
             onStageChange: options.onStageChange,
             onStreamDelta: options.onStreamDelta,
           },
@@ -1515,7 +1716,7 @@ export async function createMixdogSessionRuntime({
       const needle = clean(query).toLowerCase();
       const rows = catalog.map((tool) => toolRow(tool, activeNames)).filter((row) => row.name);
       const tools = needle
-        ? rows.filter((row) => `${row.name} ${row.kind} ${row.description} ${row.active ? 'active' : 'deferred'}`.toLowerCase().includes(needle))
+        ? rows.filter((row) => toolSearchMatches(row, needle))
         : rows;
       return {
         mode,
@@ -1547,6 +1748,20 @@ export async function createMixdogSessionRuntime({
       await recreateCurrentSessionIfReady();
       return status;
     },
+    async addMcpServer(input = {}) {
+      const { name, config: serverConfig } = normalizeMcpServerInput(input);
+      const nextConfig = cfgMod.loadConfig();
+      nextConfig.mcpServers = {
+        ...(nextConfig.mcpServers || {}),
+        [name]: serverConfig,
+      };
+      cfgMod.saveConfig(nextConfig);
+      config = cfgMod.loadConfig();
+      const status = await connectConfiguredMcp({ reset: true });
+      if (session?.id) mgr.closeSession(session.id, 'cli-mcp-add');
+      await recreateCurrentSessionIfReady();
+      return { name, status };
+    },
     async removeMcpServer(name) {
       const serverName = clean(name);
       if (!serverName) throw new Error('MCP server name is required');
@@ -1565,11 +1780,35 @@ export async function createMixdogSessionRuntime({
       await recreateCurrentSessionIfReady();
       return status;
     },
+    async setMcpServerEnabled(name, enabled) {
+      const serverName = clean(name);
+      if (!serverName) throw new Error('MCP server name is required');
+      const nextConfig = cfgMod.loadConfig();
+      const current = nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object'
+        ? { ...nextConfig.mcpServers }
+        : {};
+      if (!Object.prototype.hasOwnProperty.call(current, serverName)) {
+        throw new Error(`MCP server not configured: ${serverName}`);
+      }
+      current[serverName] = { ...(current[serverName] || {}), enabled: enabled !== false };
+      cfgMod.saveConfig({ ...nextConfig, mcpServers: current });
+      config = cfgMod.loadConfig();
+      const status = await connectConfiguredMcp({ reset: true });
+      if (session?.id) mgr.closeSession(session.id, 'cli-mcp-toggle');
+      await recreateCurrentSessionIfReady();
+      return status;
+    },
     skillsStatus() {
       return skillsStatus();
     },
     skillContent(name) {
       return skillContent(name);
+    },
+    async addSkill(input = {}) {
+      const skill = addProjectSkill(input);
+      if (session?.id) mgr.closeSession(session.id, 'cli-skill-add');
+      await recreateCurrentSessionIfReady();
+      return { skill, status: skillsStatus() };
     },
     async reloadSkills() {
       if (session?.id) mgr.closeSession(session.id, 'cli-skills-reload');
@@ -1583,6 +1822,38 @@ export async function createMixdogSessionRuntime({
       if (session?.id) mgr.closeSession(session.id, 'cli-plugins-reload');
       await recreateCurrentSessionIfReady();
       return pluginsStatus();
+    },
+    async addPlugin(source) {
+      const dataDir = cfgMod.getPluginData?.();
+      const plugin = registryAddPlugin(source, { dataDir });
+      if (session?.id) mgr.closeSession(session.id, 'cli-plugin-add');
+      await recreateCurrentSessionIfReady();
+      return { plugin, status: pluginsStatus() };
+    },
+    async updatePlugin(plugin = {}) {
+      const key = clean(plugin.id || plugin.name || plugin);
+      const dataDir = cfgMod.getPluginData?.();
+      const updated = registryUpdatePlugin(key, { dataDir });
+      if (session?.id) mgr.closeSession(session.id, 'cli-plugin-update');
+      await recreateCurrentSessionIfReady();
+      return { plugin: updated, status: pluginsStatus() };
+    },
+    async removePlugin(plugin = {}) {
+      const key = clean(plugin.id || plugin.name || plugin);
+      const dataDir = cfgMod.getPluginData?.();
+      const removed = registryRemovePlugin(key, { dataDir });
+      const nextConfig = cfgMod.loadConfig();
+      const serverName = pluginMcpServerName(plugin);
+      if (nextConfig.mcpServers && Object.prototype.hasOwnProperty.call(nextConfig.mcpServers, serverName)) {
+        const current = { ...nextConfig.mcpServers };
+        delete current[serverName];
+        cfgMod.saveConfig({ ...nextConfig, mcpServers: current });
+        config = cfgMod.loadConfig();
+        await connectConfiguredMcp({ reset: true });
+      }
+      if (session?.id) mgr.closeSession(session.id, 'cli-plugin-remove');
+      await recreateCurrentSessionIfReady();
+      return { plugin: removed, status: pluginsStatus() };
     },
     async enablePluginMcp(plugin = {}) {
       const root = clean(plugin.root);
@@ -1600,7 +1871,7 @@ export async function createMixdogSessionRuntime({
           cwd: root,
           env: {
             CLAUDE_PLUGIN_ROOT: root,
-            CLAUDE_PLUGIN_DATA: join(homedir(), '.claude', 'plugins', 'data', `${clean(plugin.name || serverName)}-${clean(plugin.marketplace || plugin.source || 'local')}`),
+            CLAUDE_PLUGIN_DATA: join(cfgMod.getPluginData?.() || join(homedir(), '.mixdog', 'data'), 'plugins', 'data', clean(plugin.id || plugin.name || serverName)),
           },
         },
       };
@@ -1681,16 +1952,16 @@ export async function createMixdogSessionRuntime({
     listSessions() {
       return mgr.listSessions({}).map(s => {
         const msgs = s.messages || [];
-        const firstUser = msgs.find(m => m && m.role === 'user');
-        const preview = firstUser
-          ? (typeof firstUser.content === 'string'
-              ? firstUser.content.slice(0, 120)
-              : '(non-text)')
-          : '';
+        const userPreviews = msgs
+          .filter(m => m && m.role === 'user')
+          .map(m => cleanSessionPreview(sessionMessageText(m.content)))
+          .filter(text => !isSessionPreviewNoise(text));
+        const preview = userPreviews[userPreviews.length - 1] || userPreviews[0] || '';
         const userAsst = msgs.filter(m => m && (m.role === 'user' || m.role === 'assistant'));
         return {
           id: s.id,
           updatedAt: s.updatedAt,
+          cwd: s.cwd || '',
           model: s.model,
           provider: s.provider,
           messageCount: userAsst.length,
@@ -1712,14 +1983,18 @@ export async function createMixdogSessionRuntime({
         mgr.closeSession(previousId, 'cli-resume');
       }
       session = resumed;
+      currentCwd = resumed.cwd || currentCwd;
+      writeLastSessionCwd(currentCwd);
       const resumeEffort = hasOwn(route, 'effort') ? route.effort : resumed.effort;
       route = resolveRoute(config, { provider: resumed.provider, model: resumed.model, effort: resumeEffort });
       await refreshRouteEffort();
       session.effort = route.effectiveEffort || null;
+      session.cwd = currentCwd;
       statusRoutes?.writeGatewaySessionRoute?.(session.id, routeForStatusline(route));
       return {
         id: resumed.id,
         messages: resumed.messages || [],
+        cwd: currentCwd,
         provider: resumed.provider,
         model: resumed.model,
       };

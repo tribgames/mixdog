@@ -663,6 +663,13 @@ class WebhookServer {
     // streaming up to MAX_BODY_BYTES of payload. Body-dependent checks
     // (signature verify, JSON parse, dedup) remain inside req.on("end").
     const _endpointPreCheck = loadEndpointConfig(name) || this.config.endpoints?.[name] || null;
+    if (_endpointPreCheck?.enabled === false) {
+      logWebhook(`rejected: disabled endpoint ${name}`);
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "disabled endpoint" }));
+      try { req.destroy(); } catch {}
+      return;
+    }
     const _registeredPre = !!(
       _endpointPreCheck
       || existsSync(join(WEBHOOKS_DIR, name, "instructions.md"))
@@ -726,6 +733,12 @@ class WebhookServer {
       // Secret lookup: per-endpoint (folder config.json) → global (webhook config) → warn+accept.
       // Parser likewise prefers per-endpoint, falls back to global endpoints map.
       const endpoint = loadEndpointConfig(name) || this.config.endpoints?.[name] || null;
+      if (endpoint?.enabled === false) {
+        logWebhook(`rejected: disabled endpoint ${name}`);
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "disabled endpoint" }));
+        return;
+      }
       // Endpoint registration gate. Reject unknown endpoint names
       // before any disk write — appendDelivery's mkdirSync would
       // otherwise create WEBHOOKS_DIR/<name>/ for arbitrary probes

@@ -3,65 +3,63 @@
  *
  * renderStatusline() (src/ui/statusline.mjs) is async (it awaits the vendored
  * statusline-lib that may query the gateway). We recompute it whenever the
- * stats/model change and print the returned ANSI string verbatim — ink's <Text>
- * passes embedded SGR through, so the original L1/L2 look is preserved exactly.
+ * stats/model change and tone-map the vendored ANSI string into the React TUI
+ * palette before printing it through ink's <Text>.
  */
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
+import { theme } from '../theme.mjs';
 
 // Loaded at RUNTIME (not bundled) so its vendored statusline-lib relative
 // imports resolve from the real src/ui location, not the dist/ bundle dir.
 // esbuild leaves dynamic-import string specifiers alone.
 const STATUSLINE_MODULE = '../../ui/statusline.mjs';
 
-function brightenStatusAnsi(text) {
-  return String(text || '').replace(/\x1b\[([0-9;]*)m/g, (match, body) => {
-    const codes = String(body || '0').split(';').filter(Boolean).map((v) => Number(v));
-    if (!codes.length || codes.includes(0)) return match;
-    const isStandaloneDim = (code, index) => code === 2 && codes[index - 1] !== 38 && codes[index - 1] !== 48;
-    const hasDim = codes.some(isStandaloneDim);
-    const withoutDim = codes.filter((code, index) => !isStandaloneDim(code, index));
-    if (codes.includes(90)) return '\x1b[38;2;222;222;222m';
-    if (hasDim) {
-      const hasColor = withoutDim.some((code) => (code >= 30 && code <= 37) || (code >= 90 && code <= 97) || code === 38);
-      return hasColor
-        ? `\x1b[${withoutDim.join(';')}m`
-        : '\x1b[38;2;188;188;188m';
-    }
-    return match;
-  });
+const RESET = '\x1b[0m';
+
+function ansiRgb(value, fallback) {
+  const match = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(String(value || '').replace(/\s+/g, ''));
+  if (!match) return fallback;
+  return `\x1b[38;2;${match[1]};${match[2]};${match[3]}m`;
 }
+
+const STATUS = ansiRgb(theme.statusText, '\x1b[38;2;198;198;198m');
+const SUBTLE = ansiRgb(theme.statusSubtle, '\x1b[38;2;136;136;136m');
+const SUCCESS = ansiRgb(theme.success, '\x1b[38;2;0;200;83m');
+const WARNING = ansiRgb(theme.warning, '\x1b[38;2;255;193;7m');
+const ERROR = ansiRgb(theme.error, '\x1b[38;2;255;82;104m');
 
 export function normalizeStatusLine(text) {
-  return brightenStatusAnsi(text)
+  return String(text || '')
     .replace(/\n+$/, '')
-    .replace(/^(?:\x1b\[[0-9;]*m)*◆(?:\x1b\[[0-9;]*m)*\s?/, '\x1b[97m');
+    .replace(/\x1b\[1m/g, STATUS)
+    .replace(/\x1b\[2m/g, SUBTLE)
+    .replace(/\x1b\[31m/g, ERROR)
+    .replace(/\x1b\[32m/g, SUCCESS)
+    .replace(/\x1b\[33m/g, WARNING)
+    .replace(/\x1b\[36m/g, SUBTLE)
+    .replace(/\x1b\[90m/g, SUBTLE)
+    .replace(/^(?:\x1b\[[0-9;]*m)*◆(?:\x1b\[[0-9;]*m)*\s?/, STATUS)
+    .replace(/(\x1b\[0m )(\d+(?:\.\d+)?%)(?= |$)/g, `$1${STATUS}$2${RESET}`)
+    .replaceAll(`${RESET} ${SUBTLE}│${RESET} `, ` ${SUBTLE}│${RESET} `);
 }
 
-export function StatusLine({ sessionId, provider, model, effort, cwd, stats, resizeEpoch, initialLine = '' }) {
+export function StatusLine({ sessionId, provider, model, effort, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, initialLine = '' }) {
   const [line, setLine] = useState(() => initialLine);
 
   useEffect(() => {
     let alive = true;
     import(STATUSLINE_MODULE)
-      .then((m) => m.renderStatusline({ sessionId, provider, model, effort, cwd, stats }))
+      .then((m) => m.renderStatusline({ sessionId, provider, model, effort, cwd, stats, contextWindow, rawContextWindow }))
       .then((s) => {
         if (!alive) return;
-        // Rework L1's leading segment: the vendored lib emits
-        // `<cyan>◆<reset> <bold>MODEL<reset> …` — the model inherits the cyan.
-        // Drop the `◆` glyph AND its cyan, and recolor the model name white.
-        // We replace the leading `(SGR)*◆(SGR)*` run with a white SGR so the
-        // following space + bold model render white; the rest is untouched.
-        // Strip the leading `◆ ` glyph + its SGR AND the following space — the
-        // 2-cell left pad is provided by the Box paddingLeft instead. Recolor
-        // the model name white.
         setLine(normalizeStatusLine(s));
       })
       .catch(() => {
         if (alive) setLine('');
       });
     return () => { alive = false; };
-  }, [sessionId, provider, model, effort, cwd, stats, resizeEpoch]);
+  }, [sessionId, provider, model, effort, cwd, stats, contextWindow, rawContextWindow, resizeEpoch]);
 
   return (
     <Box flexDirection="column" height={2} paddingLeft={2} marginBottom={1}>

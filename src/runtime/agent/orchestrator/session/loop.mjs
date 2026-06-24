@@ -977,6 +977,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         }
     };
     const sessionRef = opts.session || null;
+    const pushToolResultMessage = (message) => {
+        messages.push(message);
+        try { opts.onToolResult?.(message); } catch {}
+    };
     const maxLoopIterations = Number.isFinite(sessionRef?.maxLoopIterations)
         ? sessionRef.maxLoopIterations
         : MAX_LOOP_ITERATIONS;
@@ -1604,7 +1608,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // consumers can derive multi-tool adoption ratio without scanning
         // every assistant message body.
         recordToolBatch(sessionId, calls.length);
-        onToolCall?.(iterations, calls);
+        await Promise.resolve(onToolCall?.(iterations, calls));
         // Append assistant message with tool calls. reasoningItems is the
         // OpenAI Responses API replay payload (encrypted_content blobs);
         // providers that ignore it just see an extra field and drop it,
@@ -1662,7 +1666,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             if (_duplicateCallIds.has(call.id)) {
                 const _firstId = _dupFirstId.get(call.id);
                 const _stub = `[intra-turn-dedup] identical read-only \`${call.name}\` call was already executed in this same assistant turn as tool_use_id=${_firstId}. The first call's tool_result is in context immediately above; skipping re-execution to save tokens. If you needed a different slice of the file, narrow the next call (different path / offset / limit / pattern) so it has a distinct signature.`;
-                messages.push({
+                pushToolResultMessage({
                     role: 'tool',
                     content: _stub,
                     toolCallId: call.id,
@@ -1681,7 +1685,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             {
                 const _rfg = sessionRef?._repeatFailGuard;
                 if (_rfg && _rfg.sig === _repeatFailSig && _rfg.count >= REPEAT_FAIL_LIMIT) {
-                    messages.push({
+                    pushToolResultMessage({
                         role: 'tool',
                         content: `[repeat-failure-guard] This exact \`${call.name}\` call (identical arguments) has already failed ${_rfg.count} times in a row; not re-executing because the result will not change. Change approach: use different arguments, a different tool, or skip this step.`,
                         toolCallId: call.id,
@@ -2027,7 +2031,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         setReadCached({ sessionId, args: call.arguments, cwd, content: result, toolUseId: call.id });
                     }
                 }
-                messages.push({
+                pushToolResultMessage({
                     role: 'tool',
                     content: result,
                     toolCallId: call.id,
@@ -2047,7 +2051,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 // the cache is written — stale/partial results are never
                 // cached. The next read on the same path/scope re-executes
                 // naturally.
-                messages.push({
+                pushToolResultMessage({
                     role: 'tool',
                     content: _postMsg,
                     toolCallId: call.id,

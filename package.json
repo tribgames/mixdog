@@ -11,7 +11,7 @@
     "start": "node src/cli.mjs",
     "smoke": "node scripts/smoke.mjs",
     "build:tui": "node scripts/build-tui.mjs",
-    "sync": "node scripts/sync-runtime.mjs"
+    "sync": "node scripts/sync-runtime.mjs --check"
   },
   "engines": {
     "node": ">=22.0.0"

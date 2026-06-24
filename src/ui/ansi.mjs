@@ -52,7 +52,7 @@ function sgr(open) {
 
 // --- Styles -----------------------------------------------------------------
 export const bold = sgr('1');
-export const dim = sgr('38;2;188;188;188');
+export const dim = sgr('38;2;136;136;136');
 export const italic = sgr('3');
 export const underline = sgr('4');
 export const inverse = sgr('7');
@@ -60,24 +60,24 @@ export const strike = sgr('9');
 
 // --- Foreground colors ------------------------------------------------------
 export const black = sgr('30');
-export const red = sgr('31');
-export const green = sgr('32');
-export const yellow = sgr('33');
-export const blue = sgr('34');
-export const magenta = sgr('35');
-export const cyan = sgr('36');
-export const white = sgr('37');
-export const gray = sgr('38;2;222;222;222');
+export const red = sgr('38;2;255;82;104');
+export const green = sgr('38;2;0;200;83');
+export const yellow = sgr('38;2;255;193;7');
+export const blue = sgr('38;2;77;159;255');
+export const magenta = sgr('38;2;177;133;219');
+export const cyan = sgr('38;2;136;136;136');
+export const white = sgr('38;2;198;198;198');
+export const gray = sgr('38;2;198;198;198');
 export const grey = gray;
 
 // Bright variants (used sparingly for headings / accents).
-export const brightRed = sgr('91');
-export const brightGreen = sgr('92');
-export const brightYellow = sgr('93');
-export const brightBlue = sgr('94');
-export const brightMagenta = sgr('95');
-export const brightCyan = sgr('96');
-export const brightWhite = sgr('97');
+export const brightRed = sgr('38;2;255;82;104');
+export const brightGreen = sgr('38;2;0;220;100');
+export const brightYellow = sgr('38;2;255;210;80');
+export const brightBlue = sgr('38;2;93;173;255');
+export const brightMagenta = sgr('38;2;190;150;230');
+export const brightCyan = sgr('38;2;168;168;168');
+export const brightWhite = sgr('38;2;220;220;220');
 
 // --- Background colors ------------------------------------------------------
 export const bgGray = sgr('100');

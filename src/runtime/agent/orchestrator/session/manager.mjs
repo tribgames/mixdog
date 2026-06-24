@@ -1780,6 +1780,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         persistIterationMetrics(d).catch(() => {});
                         try { askOpts?.onUsageDelta?.(d); } catch {}
                     },
+                    onToolResult: typeof askOpts?.onToolResult === 'function' ? askOpts.onToolResult : undefined,
                     promptCacheKey: session.promptCacheKey || sessionId,
                     // Provider-scoped cache key (mixdog-codex, mixdog-claude…).
                     // Distinct from sessionId — providers that pool sockets

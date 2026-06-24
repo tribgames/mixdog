@@ -62,16 +62,23 @@ export function ThinkingMessage({ text }) {
   );
 }
 
-export function NoticeMessage({ text, tone }) {
-  const color = tone === 'error' ? theme.error : tone === 'warn' ? theme.warning : theme.inactive;
-  const prefix = tone === 'error' ? 'x' : tone === 'warn' ? '!' : 'i';
+export function NoticeMessage({ text, tone, columns = 80 }) {
+  const accentColor = tone === 'error' ? theme.error : tone === 'warn' ? theme.warning : theme.inactive;
+  const bodyColor = tone === 'info' || tone === 'plain' ? theme.inactive : theme.statusText;
+  const prefix = tone === 'plain' ? '' : tone === 'error' ? '◆' : tone === 'warn' ? '◇' : '◇';
+  const iconWidth = prefix ? 2 : 0;
+  const paddingLeft = 2;
+  const rowWidth = Math.max(1, columns - 1);
+  const bodyWidth = Math.max(1, rowWidth - paddingLeft - iconWidth);
   return (
-    <Box marginTop={1} paddingLeft={2} flexDirection="row">
-      <Box flexShrink={0} width={2}>
-        <Text color={color}>{prefix}</Text>
-      </Box>
-      <Box flexDirection="column" flexGrow={1}>
-        <Text color={color} wrap="wrap">{text}</Text>
+    <Box marginTop={1} paddingLeft={paddingLeft} flexDirection="row" width={rowWidth}>
+      {prefix ? (
+        <Box flexShrink={0} width={iconWidth}>
+          <Text color={accentColor}>{prefix}</Text>
+        </Box>
+      ) : null}
+      <Box flexDirection="column" width={bodyWidth} flexShrink={0}>
+        <Text color={bodyColor} wrap="wrap">{text}</Text>
       </Box>
     </Box>
   );

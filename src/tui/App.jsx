@@ -30,69 +30,54 @@ import { PromptInput } from './components/PromptInput.jsx';
 import { QueuedCommands } from './components/QueuedCommands.jsx';
 import { Picker } from './components/Picker.jsx';
 import { SlashCommandPalette } from './components/SlashCommandPalette.jsx';
+import { ContextPanel } from './components/ContextPanel.jsx';
+import { TextEntryPanel } from './components/TextEntryPanel.jsx';
 
 const HELP = [
   'Slash commands:',
-  '  /help            show this help',
   '  /clear           reset the conversation',
   '  /compact         compact older conversation context',
   '  /new             start a fresh session (closes current)',
   '  /resume [id]     resume a saved session (picker if no id)',
+  '  /context         show current session context surface',
   '  /status          open session/runtime status dashboard',
-  '  /settings        open configuration hub',
-  '  /config          alias for /settings',
   '  /model <name>    switch model for subsequent turns (picker if no name)',
   '  /effort [level] set reasoning effort for the current model',
-  '  /cwd [path]      show or set the session working directory',
-  '  /tools [query]   inspect or enable deferred tools',
-  '  /bridge <mode>   switch bridge default: sync | async',
-  '  /bridge spawn <role> <prompt>',
-  '  /bridge send <tag> <message>',
-  '  /bridge list     show bridge workers and async jobs',
-  '  /bridge read <id> read a finished/running async job snapshot',
   '  /mcp             manage MCP servers and tools',
-  '  /skills          list and view available skills',
+  '  /skills          choose a skill for the next request',
   '  /plugins         manage local plugin integrations',
   '  /hooks           manage before-tool hook rules and events',
   '  /providers       manage provider auth and local endpoints',
   '  /channels        manage Discord, channels, schedules, webhooks',
   '  /schedules       manage schedules',
   '  /webhooks        manage inbound webhooks',
-  '  /auth <p> [key]  login OAuth provider or save API key',
-  '  /auth-forget <p> remove an API-key provider secret',
-  '  /memory [action] show memory status or run a memory action',
-  '  /recall <query>  search stored memory directly',
   '  /exit, /quit     quit',
-  'Picker: ↑/↓ navigate, Enter confirm, Escape cancel (attached above prompt).',
-  'Ctrl+B toggles bridge sync/async. /exit or /quit exits. Ctrl+V/paste inserts text. Terminal drag/select/drop stays native. PageUp/PageDown scroll transcript. ↑/↓ recall history.',
+  'Picker: ↑/↓ navigate, →/Enter open, ← back, Esc cancel.',
+  'Ctrl+B toggles bridge sync/async. /exit or /quit exits. Ctrl+V/paste inserts text. Wheel/PageUp/PageDown scroll transcript.',
 ].join('\n');
 
+const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
+const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
+const MOUSE_MODIFIER_MASK = 4 | 8 | 16;
+const MOUSE_CTRL_MASK = 16;
+
 const SLASH_COMMANDS = [
-  { name: 'help', usage: '/help', description: 'show slash command help' },
   { name: 'clear', usage: '/clear', description: 'reset the conversation' },
   { name: 'compact', usage: '/compact', description: 'compact older conversation context' },
   { name: 'new', usage: '/new', description: 'start a fresh session' },
   { name: 'resume', usage: '/resume', description: 'resume a saved session' },
+  { name: 'context', usage: '/context', description: 'show current session context surface' },
   { name: 'status', usage: '/status', description: 'open session/runtime status dashboard' },
-  { name: 'settings', usage: '/settings', description: 'open configuration hub' },
-  { name: 'config', usage: '/config', description: 'open configuration hub' },
   { name: 'model', usage: '/model', description: 'switch model for subsequent turns' },
   { name: 'effort', usage: '/effort [level]', description: 'set reasoning effort for the current model' },
-  { name: 'cwd', usage: '/cwd [path]', description: 'show or set the session working directory' },
-  { name: 'tools', usage: '/tools [query]', description: 'inspect or enable deferred tools' },
-  { name: 'bridge', usage: '/bridge [sync|async|spawn|send|list|read]', description: 'control bridge workers' },
   { name: 'mcp', usage: '/mcp', description: 'manage MCP servers and tools' },
-  { name: 'skills', usage: '/skills', description: 'list and view available skills' },
+  { name: 'skills', usage: '/skills', description: 'choose a skill for the next request' },
   { name: 'plugins', usage: '/plugins', description: 'manage local plugin integrations' },
   { name: 'hooks', usage: '/hooks', description: 'manage before-tool hook rules and events' },
-  { name: 'providers', usage: '/providers', description: 'manage provider auth and local endpoints' },
+  { name: 'providers', usage: '/providers', description: 'manage auth, API keys, OAuth, and local endpoints' },
   { name: 'channels', usage: '/channels', description: 'manage Discord, channels, schedules, webhooks' },
   { name: 'schedules', usage: '/schedules', description: 'manage schedules' },
   { name: 'webhooks', usage: '/webhooks', description: 'manage inbound webhooks' },
-  { name: 'auth', usage: '/auth', description: 'login OAuth provider or save API key' },
-  { name: 'auth-forget', usage: '/auth-forget', description: 'remove an API-key provider secret' },
-  { name: 'memory', usage: '/memory [status]', description: 'show memory runtime status' },
-  { name: 'recall', usage: '/recall <query>', description: 'search stored memory' },
   { name: 'exit', usage: '/exit', description: 'quit the TUI' },
   { name: 'quit', usage: '/quit', description: 'quit the TUI' },
 ];
@@ -114,6 +99,35 @@ function terminalSize(stdout) {
     columns: stdout?.columns ?? 80,
     rows: stdout?.rows ?? 24,
   };
+}
+
+function formatSessionUpdatedAt(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return '--:--';
+  const date = new Date(n);
+  if (Number.isNaN(date.getTime())) return '--:--';
+  const now = new Date();
+  const pad = (v) => String(v).padStart(2, '0');
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const sameDay = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  return sameDay ? time : `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${time}`;
+}
+
+function compactSessionCwd(cwd) {
+  const text = String(cwd || '').trim();
+  if (!text) return '(no cwd)';
+  const parts = text.split(/[\\/]+/).filter(Boolean);
+  if (parts.length === 0) return text;
+  if (parts.length === 1) return parts[0];
+  return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+}
+
+function shortSessionId(id) {
+  const text = String(id || '');
+  if (!text) return '';
+  return text.length > 18 ? `${text.slice(0, 15)}…` : text;
 }
 
 function parseBridgeControl(text) {
@@ -191,6 +205,28 @@ function parseHookRuleInput(text) {
   return { rule };
 }
 
+function parseMcpServerInput(text) {
+  const parts = String(text || '').split('|').map((part) => part.trim());
+  const [name, commandOrUrl, argsText = '', cwd = ''] = parts;
+  if (!name || !commandOrUrl) return { error: 'usage: name | command-or-url | args(optional) | cwd(optional)' };
+  if (/^https?:\/\//i.test(commandOrUrl)) return { server: { name, url: commandOrUrl } };
+  return {
+    server: {
+      name,
+      command: commandOrUrl,
+      args: argsText.split(/\s+/).filter(Boolean),
+      cwd,
+    },
+  };
+}
+
+function parseSkillInput(text) {
+  const parts = String(text || '').split('|').map((part) => part.trim());
+  const [name, description = 'Project skill.'] = parts;
+  if (!name) return { error: 'usage: name | description(optional)' };
+  return { skill: { name, description } };
+}
+
 function parseMemoryCommand(text) {
   const parts = String(text || '').trim().split(/\s+/).filter(Boolean);
   const action = parts[0] || 'status';
@@ -203,6 +239,57 @@ function parseMemoryCommand(text) {
     out[key] = Number.isFinite(num) && raw.trim() !== '' ? num : raw;
   }
   return out;
+}
+
+function parseMemoryStatusRows(text) {
+  return String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const sep = line.indexOf(':');
+      const label = sep === -1 ? line : line.slice(0, sep);
+      const description = sep === -1 ? '' : line.slice(sep + 1).trim();
+      return {
+        value: `status-${index}`,
+        label,
+        description,
+        _line: line,
+      };
+    });
+}
+
+function parseMemoryCoreRows(text) {
+  return String(text || '')
+    .split('\n')
+    .filter((line) => line.trim())
+    .map((line, index) => {
+      const raw = line.trim();
+      if (raw.endsWith(':') && !raw.includes('id=')) {
+        return {
+          value: `core-group-${index}`,
+          label: raw.slice(0, -1),
+          description: 'core memory pool',
+          _line: raw,
+        };
+      }
+      const match = raw.match(/^id=(\d+)\s+\[([^\]]*)\]\s+(.+?)(?:\s+—\s+(.+))?$/);
+      if (match) {
+        const [, id, category, element, summary = ''] = match;
+        return {
+          value: `core-${id}`,
+          label: `#${id} [${category}] ${element}`,
+          description: summary,
+          _line: raw,
+        };
+      }
+      return {
+        value: `core-${index}`,
+        label: raw,
+        description: '',
+        _line: raw,
+      };
+    });
 }
 
 function fitLine(value, columns, reserve = 4) {
@@ -257,8 +344,8 @@ const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpan
   switch (item.kind) {
     case 'user': return <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} />;
     case 'assistant': return <AssistantMessage text={item.text} />;
-    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} isError={item.isError} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={prevKind === 'tool'} />;
-    case 'notice': return <NoticeMessage text={item.text} tone={item.tone} />;
+    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} isError={item.isError} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} />;
+    case 'notice': return <NoticeMessage text={item.text} tone={item.tone} columns={columns} />;
     default: return null;
   }
 });
@@ -281,35 +368,48 @@ export function App({ store, initialStatusLine = '' }) {
   // (0 = pinned to the latest, showing the newest content). Mouse wheel adjusts
   // it; a new turn / new items snap back to 0 (handled below).
   const [scrollOffset, setScrollOffset] = useState(0);
+  const scrollPositionRef = useRef(0);
+  const scrollTargetRef = useRef(0);
+  const scrollAnimationRef = useRef(null);
   // picker = null | { type, title, items, onSelect }
   // Rendered as an option panel attached directly above the bottom prompt.
   const [picker, setPicker] = useState(null);
+  const [contextPanel, setContextPanel] = useState(null);
   const [providerPrompt, setProviderPrompt] = useState(null);
   const [channelPrompt, setChannelPrompt] = useState(null);
   const [hookPrompt, setHookPrompt] = useState(null);
   const [settingsPrompt, setSettingsPrompt] = useState(null);
   const [promptDraft, setPromptDraft] = useState('');
+  const [promptDraftOverride, setPromptDraftOverride] = useState(null);
   const [promptHint, setPromptHint] = useState('');
+  const [promptHintTone, setPromptHintTone] = useState('info');
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedFor, setSlashDismissedFor] = useState('');
+  const [disabledSkills, setDisabledSkills] = useState(() => new Set());
+  const slashPaletteRef = useRef({ open: false, count: 0 });
   const onboardingStartedRef = useRef(false);
   const onboardingRef = useRef({ defaultRoute: null, workflowRoutes: {}, providerModels: [] });
   const promptHintTimerRef = useRef(null);
+  const mouseZoomPassthroughTimerRef = useRef(null);
   // dragRef tracks an in-progress mouse text selection (see the mouse handler):
   // anchor = where the drag began, last = the latest cell, active = button held.
-  const dragRef = useRef({ anchor: null, last: null, active: false });
+  const dragRef = useRef({ anchor: null, last: null, active: false, rect: null });
 
   // Copy the currently-highlighted selection to the OS clipboard. ink's fork
   // refreshed store.getRenderSelectionText() on the synchronous render that the
   // final setSelection() triggered, so the text under the rect is ready to read.
-  const copySelection = useCallback((rect) => {
+  const copySelection = useCallback((rect, attempt = 0) => {
     const text = store.getRenderSelectionText?.();
+    if ((!text || !text.trim()) && attempt < 4) {
+      setTimeout(() => copySelection(rect, attempt + 1), attempt === 0 ? 0 : 24);
+      return;
+    }
     if (!text || !text.trim()) return;
     copyToClipboard(text)
       .then(() => {
         const lines = text.split('\n').length;
         const chars = text.length;
-        store.pushNotice(`📋 copied ${chars} char${chars === 1 ? '' : 's'}${lines > 1 ? ` · ${lines} lines` : ''}`, 'info');
+        store.pushNotice(`copied ${chars} char${chars === 1 ? '' : 's'}${lines > 1 ? ` · ${lines} lines` : ''}`, 'plain');
       })
       .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
   }, [store]);
@@ -348,19 +448,89 @@ export function App({ store, initialStatusLine = '' }) {
       promptHintTimerRef.current = null;
     }
     setPromptHint('');
+    setPromptHintTone('info');
   }, []);
 
-  const showPromptHint = useCallback((text) => {
+  const showPromptHint = useCallback((text, tone = 'info') => {
     if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
     setPromptHint(String(text || ''));
+    setPromptHintTone(tone);
     promptHintTimerRef.current = setTimeout(() => {
       promptHintTimerRef.current = null;
       setPromptHint('');
+      setPromptHintTone('info');
     }, 2200);
   }, []);
 
+  const stopSmoothScroll = useCallback(() => {
+    if (!scrollAnimationRef.current) return;
+    clearInterval(scrollAnimationRef.current);
+    scrollAnimationRef.current = null;
+  }, []);
+
+  const startSmoothScroll = useCallback(() => {
+    if (scrollAnimationRef.current) return;
+    scrollAnimationRef.current = setInterval(() => {
+      const current = scrollPositionRef.current;
+      const target = scrollTargetRef.current;
+      const next = current + (target - current) * 0.32;
+      if (Math.abs(target - next) < 0.12) {
+        scrollPositionRef.current = target;
+        setScrollOffset(Math.max(0, Math.round(target)));
+        stopSmoothScroll();
+        return;
+      }
+      scrollPositionRef.current = Math.max(0, next);
+      setScrollOffset(Math.max(0, Math.round(scrollPositionRef.current)));
+    }, 16);
+    scrollAnimationRef.current.unref?.();
+  }, [stopSmoothScroll]);
+
+  const resetTranscriptScroll = useCallback(() => {
+    stopSmoothScroll();
+    scrollPositionRef.current = 0;
+    scrollTargetRef.current = 0;
+    setScrollOffset(0);
+  }, [stopSmoothScroll]);
+
+  const scrollTranscriptRows = useCallback((deltaRows, options = {}) => {
+    const target = Math.max(0, scrollTargetRef.current + deltaRows);
+    scrollTargetRef.current = target;
+    if (options.smooth) {
+      startSmoothScroll();
+      return;
+    }
+    stopSmoothScroll();
+    scrollPositionRef.current = target;
+    setScrollOffset(Math.round(target));
+  }, [startSmoothScroll, stopSmoothScroll]);
+
+  const passthroughCtrlWheelZoom = useCallback(() => {
+    if (!stdout?.write) return;
+    try {
+      stdout.write(MOUSE_TRACKING_OFF);
+    } catch {
+      return;
+    }
+    if (mouseZoomPassthroughTimerRef.current) clearTimeout(mouseZoomPassthroughTimerRef.current);
+    mouseZoomPassthroughTimerRef.current = setTimeout(() => {
+      mouseZoomPassthroughTimerRef.current = null;
+      try {
+        stdout.write(MOUSE_TRACKING_ON);
+      } catch {
+        // The terminal may already be closing.
+      }
+    }, 700);
+    mouseZoomPassthroughTimerRef.current.unref?.();
+  }, [stdout]);
+
+  useEffect(() => () => {
+    stopSmoothScroll();
+  }, [stopSmoothScroll]);
+
   useEffect(() => () => {
     if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
+    if (mouseZoomPassthroughTimerRef.current) clearTimeout(mouseZoomPassthroughTimerRef.current);
   }, []);
 
   // Mouse handling. index.jsx enabled SGR mouse tracking (?1000h button + ?1002h
@@ -372,23 +542,20 @@ export function App({ store, initialStatusLine = '' }) {
   //     The highlight stays visible after release so the user can confirm the
   //     selected region; ESC or a plain click clears it.
   // Because we run a true fullscreen alt-screen, the reported (row,col) maps 1:1
-  // to ink's absolute output grid, so the selection rectangle needs no scroll/
-  // viewport translation — we highlight exactly the cells the user sees.
+  // to ink's absolute output grid. We keep anchor/focus points instead of a
+  // rectangular min/max box so multi-line drags behave like normal text
+  // selection, not terminal block selection.
   useEffect(() => {
-    if (!inkInput || !isRawModeSupported || typeof store.setRenderSelection !== 'function') return undefined;
+    if (!inkInput || !isRawModeSupported) return undefined;
     // Match every SGR mouse event: button, col, row, and final M(press)/m(release).
     const MOUSE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
-    const setSel = store.setRenderSelection;
-    const normalize = (a, b) => {
-      // Build an axis-aligned rectangle from the two drag endpoints. x and y MUST
-      // be min/max'd INDEPENDENTLY — ordering by row and copying that point's x
-      // breaks diagonal drags (e.g. dragging up-and-left), producing x1 > x2 so
-      // the selection loop skips every cell and nothing highlights or copies.
+    const linearSelection = (a, b) => {
       return {
-        x1: Math.min(a.x, b.x),
-        y1: Math.min(a.y, b.y),
-        x2: Math.max(a.x, b.x),
-        y2: Math.max(a.y, b.y),
+        mode: 'linear',
+        x1: a.x,
+        y1: a.y,
+        x2: b.x,
+        y2: b.y,
       };
     };
     const onData = (data) => {
@@ -399,32 +566,45 @@ export function App({ store, initialStatusLine = '' }) {
       let up = 0;
       let down = 0;
       let m;
+      const setSel = store.setRenderSelection;
       MOUSE.lastIndex = 0;
       while ((m = MOUSE.exec(s)) !== null) {
         const button = Number(m[1]);
         const x = Number(m[2]) - 1; // SGR is 1-based; grid is 0-based
         const y = Number(m[3]) - 1;
         const press = m[4] === 'M';
-        if (button === 64) { up += 1; continue; }
-        if (button === 65) { down += 1; continue; }
+        const wheelButton = button & ~MOUSE_MODIFIER_MASK;
+        if (wheelButton === 64 || wheelButton === 65) {
+          if ((button & MOUSE_CTRL_MASK) !== 0) {
+            passthroughCtrlWheelZoom();
+            continue;
+          }
+          if (wheelButton === 64) up += 1;
+          else down += 1;
+          continue;
+        }
         // Low 2 bits = button id; bit 5 (32) = motion-while-pressed flag.
         const baseButton = button & 3;
         const isMotion = (button & 32) !== 0;
         if (baseButton === 0 && press && !isMotion) {
           // Left-button press: begin a new selection anchored here.
-          dragRef.current = { anchor: { x, y }, last: { x, y }, active: true };
-          setSel?.({ x1: x, y1: y, x2: x, y2: y });
+          const rect = linearSelection({ x, y }, { x, y });
+          stopSmoothScroll();
+          dragRef.current = { anchor: { x, y }, last: { x, y }, active: true, rect };
+          setSel?.(rect);
         } else if (baseButton === 0 && isMotion && dragRef.current.active) {
           // Drag motion: extend the selection to the current cell.
           dragRef.current.last = { x, y };
-          setSel?.(normalize(dragRef.current.anchor, { x, y }));
+          const rect = linearSelection(dragRef.current.anchor, { x, y });
+          dragRef.current.rect = rect;
+          setSel?.(rect);
         } else if (!press && dragRef.current.active) {
           // Button release while dragging: finalize with the release coordinate
           // (the SGR release event carries col/row), copy, and keep the
           // selection visible until ESC or a plain click.
           const { anchor } = dragRef.current;
           dragRef.current.active = false;
-          const rect = normalize(anchor, { x, y });
+          const rect = linearSelection(anchor, { x, y });
           const empty = rect.x1 === rect.x2 && rect.y1 === rect.y2;
           if (empty) {
             setSel?.(null); // a plain click clears any prior highlight
@@ -434,22 +614,34 @@ export function App({ store, initialStatusLine = '' }) {
             setSel?.(rect);
             copySelection(rect);
           }
+          dragRef.current.rect = rect;
         }
       }
       if (up !== 0 || down !== 0) {
-        const STEP = 3; // rows per wheel notch
-        setScrollOffset((prev) => Math.max(0, prev + (up - down) * STEP));
+        if (dragRef.current.active) return;
+        const palette = slashPaletteRef.current;
+        if (palette.open && palette.count > 0) {
+          const step = down - up;
+          if (step !== 0) {
+            setSlashIndex((index) => Math.max(0, Math.min(palette.count - 1, index + step)));
+          }
+          return;
+        }
+        const STEP = 3; // rows per wheel notch; immediate updates feel steadier in Windows Terminal
+        scrollTranscriptRows((up - down) * STEP);
       }
     };
     inkInput.on('input', onData);
     return () => { inkInput.off('input', onData); };
-  }, [inkInput, isRawModeSupported, store, copySelection]);
+  }, [inkInput, isRawModeSupported, store, copySelection, passthroughCtrlWheelZoom, scrollTranscriptRows]);
 
-  // Snap back to the latest content whenever the transcript grows (new message /
-  // turn) so the user always sees fresh output after sending.
+  // Keep the transcript pinned only while the user is already at the bottom.
+  // If they scroll up to inspect a long answer, later tool/result cards must not
+  // yank the viewport back down.
   useEffect(() => {
-    setScrollOffset(0);
-  }, [state.items.length]);
+    if (dragRef.current.active) return;
+    if (scrollTargetRef.current <= 0) resetTranscriptScroll();
+  }, [state.items.length, resetTranscriptScroll]);
 
   // `exiting` removes the inline caret (PromptInput draws none when disabled) and
   // freezes input for the teardown frame, so the final frame is clean before ink
@@ -469,6 +661,17 @@ export function App({ store, initialStatusLine = '' }) {
     setToolOutputExpanded((expanded) => !expanded);
   }, []);
 
+  const restoreQueuedToPrompt = useCallback(() => {
+    const restored = store.restoreQueued?.(promptDraft);
+    if (!restored || restored.count === 0) {
+      showPromptHint('no queued messages to restore', 'info');
+      return false;
+    }
+    setPromptDraftOverride({ id: Date.now(), value: restored.text });
+    showPromptHint(`restored ${restored.count} queued message${restored.count === 1 ? '' : 's'}`, 'info');
+    return true;
+  }, [store, promptDraft, showPromptHint]);
+
   useInput((input, key) => {
     if (key.ctrl && (input === 'b' || input === 'B')) {
       store.toggleBridgeMode?.();
@@ -478,24 +681,30 @@ export function App({ store, initialStatusLine = '' }) {
       toggleExpand();
       return;
     }
+    if (key.escape && contextPanel && !picker) {
+      setContextPanel(null);
+      return;
+    }
+    if (key.upArrow && !picker && !slashPaletteOpen && state.queued?.length > 0) {
+      restoreQueuedToPrompt();
+      return;
+    }
     if (key.pageUp) {
       const pageRows = Math.max(3, Math.floor((resizeState.rows ?? 24) * 0.6));
-      setScrollOffset((prev) => prev + pageRows);
+      scrollTranscriptRows(pageRows);
       return;
     }
     if (key.pageDown) {
       const pageRows = Math.max(3, Math.floor((resizeState.rows ?? 24) * 0.6));
-      setScrollOffset((prev) => Math.max(0, prev - pageRows));
+      scrollTranscriptRows(-pageRows);
       return;
     }
     if (key.ctrl && key.end) {
-      setScrollOffset(0);
+      resetTranscriptScroll();
       return;
     }
     if (key.escape && state.busy && !picker) {
-      if (store.abort()) {
-        store.pushNotice('⎋ stopped — queued prompts kept (↑ to edit)', 'info');
-      }
+      store.abort();
       return;
     }
     if (key.escape && !picker) {
@@ -722,7 +931,7 @@ export function App({ store, initialStatusLine = '' }) {
     memory: chooseRecommendedModel(models, 'memory', defaultRoute),
   });
 
-  const openModelPicker = async () => {
+  const openModelPicker = async (options = {}) => {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
@@ -776,16 +985,29 @@ export function App({ store, initialStatusLine = '' }) {
             .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
         },
         onLeft: (item) => {
-          toggleProvider(item?._provider, false);
-          renderModelPicker();
+          if (item?._provider && expandedProvider === item._provider) {
+            toggleProvider(item._provider, false);
+            renderModelPicker();
+            return;
+          }
+          setPicker(null);
+          if (options.onBack) options.onBack();
+          else showPromptHint('canceled', 'cancel');
         },
         onRight: (item) => {
+          if (item?._action === 'select-model') {
+            setPicker(null);
+            void store.setRoute({ provider: item._provider, model: item._modelId })
+              .then(ok => store.pushNotice(ok ? `✓ model → ${item._provider}/${item._modelId}` : 'model switch already in progress', ok ? 'info' : 'warn'))
+              .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
+            return;
+          }
           toggleProvider(item?._provider, true);
           renderModelPicker();
         },
         onCancel: () => {
           setPicker(null);
-          showPromptHint('canceled');
+          showPromptHint('canceled', 'cancel');
         },
       });
     };
@@ -813,7 +1035,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled');
+        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -870,7 +1092,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled');
+        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -958,7 +1180,7 @@ export function App({ store, initialStatusLine = '' }) {
               }
               if (detail._action === 'copy-name') {
                 void copyToClipboard(tool.name)
-                  .then(() => store.pushNotice(`copied tool name: ${tool.name}`, 'info'))
+                  .then(() => store.pushNotice(`copied tool name: ${tool.name}`, 'plain'))
                   .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
               }
             },
@@ -968,7 +1190,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled');
+        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -984,84 +1206,171 @@ export function App({ store, initialStatusLine = '' }) {
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
-    setPicker({
+    setPicker(null);
+    setContextPanel({
       title: 'Status',
-      items: [
+      rows: [
         {
-          value: 'overview',
-          label: 'Overview',
-          description: `${state.provider}/${state.model} · ${state.effort || 'auto'} · ${state.cwd}`,
-          _action: 'overview',
+          value: 'route',
+          label: 'Route',
+          description: `${state.provider}/${state.model} · ${state.effort || 'auto'}`,
         },
         {
-          value: 'settings',
-          label: 'Settings',
-          description: 'open configuration hub',
-          _action: 'settings',
+          value: 'session',
+          label: 'Session',
+          description: state.sessionId || '(none)',
+        },
+        {
+          value: 'cwd',
+          label: 'Working dir',
+          description: state.cwd,
+        },
+        {
+          value: 'bridge',
+          label: 'Bridge',
+          description: `default ${state.bridgeMode || 'sync'}`,
         },
         {
           value: 'tools',
           label: 'Tools',
           description: `${tools.activeCount || 0}/${tools.count || 0} active · mode ${tools.mode || state.toolMode}`,
-          _action: 'tools',
+        },
+        {
+          value: 'memory',
+          label: 'Memory',
+          description: 'runtime controls available',
         },
         {
           value: 'mcp',
           label: 'MCP',
           description: `${mcp.connectedCount || 0}/${mcp.configuredCount || 0} connected${mcp.failedCount ? ` · ${mcp.failedCount} failed` : ''}`,
-          _action: 'mcp',
         },
         {
           value: 'hooks',
           label: 'Hooks',
           description: `${hooks.ruleCount || 0} rules · ${(hooks.recent || []).length} recent events`,
-          _action: 'hooks',
         },
         {
           value: 'plugins',
           label: 'Plugins',
           description: `${plugins.count || 0} detected`,
-          _action: 'plugins',
         },
         {
           value: 'skills',
           label: 'Skills',
           description: `${skills.count || 0} available`,
-          _action: 'skills',
         },
         {
           value: 'channels',
           label: 'Channels',
           description: channelWorker?.running ? `worker running · pid ${channelWorker.pid}` : 'worker stopped',
-          _action: 'channels',
         },
       ],
-      onSelect: (_value, item) => {
-        setPicker(null);
-        if (item._action === 'overview') {
-          store.pushNotice([
-            `session: ${state.sessionId || '(none)'}`,
-            `route: ${state.provider}/${state.model}`,
-            `effort: ${state.effort || 'auto'}`,
-            `cwd: ${state.cwd}`,
-            `tools: ${tools.activeCount || 0}/${tools.count || 0}`,
-            `mcp: ${mcp.connectedCount || 0}/${mcp.configuredCount || 0}${mcp.failedCount ? ` (${mcp.failedCount} failed)` : ''}`,
-            `bridge: ${state.bridgeMode || 'sync'}`,
-          ].join('\n'), 'info');
-          return;
-        }
-        if (item._action === 'settings') openSettingsPicker();
-        else if (item._action === 'tools') openToolsPicker();
-        else if (item._action === 'mcp') openMcpPicker();
-        else if (item._action === 'hooks') openHooksPicker();
-        else if (item._action === 'plugins') openPluginsPicker();
-        else if (item._action === 'skills') openSkillsPicker();
-        else if (item._action === 'channels') void openChannelSetupPicker('all');
+    });
+  };
+
+  const openContextPicker = () => {
+    const tools = store.toolsStatus?.() || { activeCount: 0, count: 0, activeTools: [] };
+    const skills = store.skillsStatus?.() || { count: 0 };
+    const plugins = store.pluginsStatus?.() || { count: 0 };
+    const context = store.contextStatus?.() || {};
+    const usage = context.usage || {};
+    const messages = context.messages || {};
+    const roles = messages.roles || {};
+    const request = context.request || {};
+    const windowTokens = Number(context.contextWindow || state.contextWindow || context.rawContextWindow || state.rawContextWindow || 0);
+    const rawWindowTokens = Number(context.rawContextWindow || state.rawContextWindow || windowTokens || 0);
+    const usedTokens = Number(context.usedTokens || usage.lastContextTokens || 0);
+    const freeTokens = windowTokens ? Math.max(0, windowTokens - usedTokens) : Number(context.freeTokens || 0);
+    const pct = (value, total = windowTokens) => {
+      const n = Number(value || 0);
+      const d = Number(total || 0);
+      if (!d) return 'n/a';
+      return `${((n / d) * 100).toFixed(n > 0 && n < d / 100 ? 1 : 0)}%`;
+    };
+    const fmt = (value) => {
+      const n = Number(value || 0);
+      if (!Number.isFinite(n) || n <= 0) return '0';
+      if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}m`;
+      if (n >= 10_000) return `${Math.round(n / 1000)}k`;
+      if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+      return `${Math.round(n)}`;
+    };
+    const bar = (value, total = windowTokens) => {
+      const width = 16;
+      const d = Number(total || 0);
+      const filled = d ? Math.max(0, Math.min(width, Math.round((Number(value || 0) / d) * width))) : 0;
+      return `${'#'.repeat(filled)}${'-'.repeat(width - filled)}`;
+    };
+    const roleLine = (label, key) => {
+      const row = roles[key] || { count: 0, tokens: 0 };
+      return `${label}: ${fmt(row.tokens)} tokens (${pct(row.tokens)}) · ${row.count || 0} messages`;
+    };
+    const contextSource = context.usedSource === 'last_api_request' ? 'last API request' : 'estimated';
+    const contextRows = [
+      {
+        value: 'summary',
+        label: 'Context Usage',
+        description: `${bar(usedTokens)} ${fmt(usedTokens)}/${fmt(windowTokens)} (${pct(usedTokens)}) · ${fmt(freeTokens)} free · ${contextSource}`,
+        _action: 'summary',
       },
-      onCancel: () => {
-        setPicker(null);
-        showPromptHint('canceled');
+      {
+        value: 'messages',
+        label: 'Messages',
+        description: `${fmt(messages.estimatedTokens)} tokens (${pct(messages.estimatedTokens)}) · ${messages.count || 0} messages`,
+        _action: 'messages',
       },
+      {
+        value: 'tools',
+        label: 'Tools',
+        description: `${fmt(request.toolSchemaTokens)} schema tokens (${pct(request.toolSchemaTokens)}) · ${tools.activeCount || 0}/${tools.count || 0} active`,
+        _action: 'tools',
+      },
+      {
+        value: 'tool-io',
+        label: 'Tool calls/results',
+        description: `${messages.toolCallCount || 0} calls (${fmt(messages.toolCallTokens)}) · ${messages.toolResultCount || 0} results (${fmt(messages.toolResultTokens)})`,
+        _action: 'tool-io',
+      },
+      {
+        value: 'request',
+        label: 'Request overhead',
+        description: `${fmt(request.requestOverheadTokens)} framing · ${fmt(request.reserveTokens)} reserve incl. tools`,
+        _action: 'request',
+      },
+      {
+        value: 'last-api',
+        label: 'Last API usage',
+        description: `${fmt(usage.lastContextTokens)} context · ${fmt(usage.lastInputTokens)} input · ${fmt(usage.lastOutputTokens)} output`,
+        _action: 'last-api',
+      },
+      {
+        value: 'cache',
+        label: 'Prompt cache',
+        description: `${fmt(usage.lastCachedReadTokens)} read · ${fmt(usage.lastCacheWriteTokens)} write (last request)`,
+        _action: 'cache',
+      },
+      {
+        value: 'free',
+        label: 'Free space',
+        description: `${fmt(freeTokens)} tokens (${pct(freeTokens)}) · raw window ${fmt(rawWindowTokens)}`,
+        _action: 'free',
+      },
+      {
+        value: 'extensions',
+        label: 'Skills/plugins',
+        description: `${skills.count || 0} skills · ${plugins.count || 0} plugins`,
+        _action: 'extensions',
+      },
+    ];
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setPicker(null);
+    setContextPanel({
+      title: 'Context Usage',
+      rows: contextRows,
     });
   };
 
@@ -1119,7 +1428,7 @@ export function App({ store, initialStatusLine = '' }) {
       ],
       onSelect: (_value, item) => {
         setPicker(null);
-        if (item._action === 'model') openModelPicker();
+        if (item._action === 'model') openModelPicker({ onBack: openSettingsPicker });
         else if (item._action === 'effort') openEffortPicker();
         else if (item._action === 'providers') void openProviderSetupPicker();
         else if (item._action === 'cwd') {
@@ -1135,7 +1444,7 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled');
+        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -1158,6 +1467,12 @@ export function App({ store, initialStatusLine = '' }) {
           label: 'MCP servers',
           description: `${mcp.connectedCount || 0}/${mcp.configuredCount || 0} connected${mcp.failedCount ? ` · ${mcp.failedCount} failed` : ''}`,
           _action: 'mcp',
+        },
+        {
+          value: 'memory',
+          label: 'Memory',
+          description: 'runtime dashboard, cycles, and core entries',
+          _action: 'memory',
         },
         {
           value: 'plugins',
@@ -1199,6 +1514,7 @@ export function App({ store, initialStatusLine = '' }) {
       onSelect: (_value, item) => {
         setPicker(null);
         if (item._action === 'mcp') openMcpPicker();
+        else if (item._action === 'memory') openMemoryPicker();
         else if (item._action === 'plugins') openPluginsPicker();
         else if (item._action === 'hooks') openHooksPicker();
         else if (item._action === 'skills') openSkillsPicker();
@@ -1354,7 +1670,7 @@ export function App({ store, initialStatusLine = '' }) {
         setPicker(null);
         if (onCancel) onCancel();
         else if (returnTo) returnTo();
-        else showPromptHint('canceled');
+        else showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -1563,196 +1879,258 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
 
-    const items = [
+    if (focus === 'schedules') {
+      const schedules = setup.schedules || [];
+      const items = schedules.length ? schedules.map((schedule) => {
+        const enabled = schedule.enabled !== false;
+        return {
+          value: `schedule:${schedule.name}`,
+          label: `${enabled ? '●' : '○'} ${schedule.name}`,
+          description: `${schedule.time || '(no cron)'} · ${schedule.route}${schedule.model ? ` · ${schedule.model}` : ''}`,
+          _action: 'schedule-toggle',
+          _name: schedule.name,
+          _enabled: enabled,
+        };
+      }) : [{
+        value: 'empty',
+        label: 'No schedules',
+        description: 'no schedules configured',
+        _action: 'noop',
+      }];
+      setPicker({
+        title: 'Schedules',
+        items,
+        onSelect: (_value, item) => {
+          setPicker(null);
+          if (item._action !== 'schedule-toggle') return;
+          try {
+            store.setScheduleEnabled?.(item._name, !item._enabled);
+            void openChannelSetupPicker('schedules');
+          } catch (e) {
+            store.pushNotice(`schedule toggle failed: ${e?.message || e}`, 'error');
+          }
+        },
+        onCancel: () => {
+          setPicker(null);
+          showPromptHint('canceled', 'cancel');
+        },
+      });
+      return;
+    }
+
+    if (focus === 'webhooks') {
+      const hooks = setup.webhooks || [];
+      const serverEnabled = setup.webhook.enabled !== false;
+      const items = [
+        {
+          value: 'webhook-server',
+          label: `${serverEnabled ? '●' : '○'} Webhook server`,
+          description: `port ${setup.webhook.port || 3333} · auth ${setup.webhook.status}`,
+          _action: 'server-toggle',
+          _enabled: serverEnabled,
+        },
+        ...(hooks.length ? hooks.map((hook) => {
+          const enabled = hook.enabled !== false;
+          return {
+            value: `webhook:${hook.name}`,
+            label: `${enabled ? '●' : '○'} ${hook.name}`,
+            description: `${hook.parser || 'github'} · ${hook.route} · secret:${hook.secretSet ? 'set' : 'missing'}`,
+            _action: 'webhook-toggle',
+            _name: hook.name,
+            _enabled: enabled,
+          };
+        }) : [{
+          value: 'empty',
+          label: 'No webhooks',
+          description: 'no webhook endpoints configured',
+          _action: 'noop',
+        }]),
+      ];
+      setPicker({
+        title: 'Webhooks',
+        items,
+        onSelect: (_value, item) => {
+          setPicker(null);
+          try {
+            if (item._action === 'server-toggle') {
+              store.setWebhookConfig?.({ enabled: !item._enabled });
+              void openChannelSetupPicker('webhooks');
+              return;
+            }
+            if (item._action === 'webhook-toggle') {
+              store.setWebhookEnabled?.(item._name, !item._enabled);
+              void openChannelSetupPicker('webhooks');
+            }
+          } catch (e) {
+            store.pushNotice(`webhook toggle failed: ${e?.message || e}`, 'error');
+          }
+        },
+        onCancel: () => {
+          setPicker(null);
+          showPromptHint('canceled', 'cancel');
+        },
+      });
+      return;
+    }
+
+    const worker = store.getChannelWorkerStatus?.();
+    const rows = [
       {
         value: 'worker-status',
         label: 'Channel worker',
-        description: (() => {
-          const worker = store.getChannelWorkerStatus?.();
-          return worker?.running ? `running · pid ${worker.pid}` : 'stopped';
-        })(),
-        _action: 'noop',
+        description: worker?.running ? `running · pid ${worker.pid}` : 'stopped',
       },
       {
         value: 'discord-token',
         label: 'Discord token',
         description: `Bot token · ${setup.discord.status}${setup.discord.problem ? ' · invalid' : ''}`,
-        _action: 'discord-token',
       },
       {
         value: 'webhook-token',
         label: 'Webhook auth',
         description: `ngrok/webhook authtoken · ${setup.webhook.status}`,
-        _action: 'webhook-token',
       },
       {
         value: 'webhook-toggle',
         label: 'Webhook server',
         description: `${setup.webhook.enabled === false ? 'disabled' : 'enabled'} · port ${setup.webhook.port || 3333}`,
-        _action: 'webhook-toggle',
       },
-      { value: 'channel-add', label: 'Add channel', description: 'label | Discord channel id | mode', _action: 'channel-add' },
-      { value: 'schedule-add', label: 'Add schedule', description: 'name | cron | instructions | channel | model', _action: 'schedule-add' },
-      { value: 'webhook-add', label: 'Add webhook', description: 'name | instructions | channel | model | parser', _action: 'webhook-add' },
     ];
 
     if (focus !== 'schedules' && focus !== 'webhooks') {
       for (const ch of setup.channels || []) {
-        items.push({
+        rows.push({
           value: `channel:${ch.name}`,
           label: `# ${ch.name}`,
-          description: `${ch.channelId || '(unset)'} · ${ch.mode}${ch.main ? ' · main' : ''} · Enter delete`,
-          _action: 'channel-delete',
-          _name: ch.name,
+          description: `${ch.channelId || '(unset)'} · ${ch.mode}${ch.main ? ' · main' : ''}`,
         });
       }
     }
     if (focus !== 'webhooks') {
       for (const schedule of setup.schedules || []) {
-        items.push({
+        rows.push({
           value: `schedule:${schedule.name}`,
           label: `↻ ${schedule.name}`,
-          description: `${schedule.time || '(no cron)'} · ${schedule.route}${schedule.model ? ` · ${schedule.model}` : ''} · Enter delete`,
-          _action: 'schedule-delete',
-          _name: schedule.name,
+          description: `${schedule.time || '(no cron)'} · ${schedule.route}${schedule.model ? ` · ${schedule.model}` : ''}`,
         });
       }
     }
     if (focus !== 'schedules') {
       for (const hook of setup.webhooks || []) {
-        items.push({
+        rows.push({
           value: `webhook:${hook.name}`,
           label: `⌁ ${hook.name}`,
-          description: `${hook.parser || 'github'} · ${hook.route} · secret:${hook.secretSet ? 'set' : 'missing'} · Enter delete`,
-          _action: 'webhook-delete',
-          _name: hook.name,
+          description: `${hook.parser || 'github'} · ${hook.route} · secret:${hook.secretSet ? 'set' : 'missing'}`,
         });
       }
     }
 
-    setPicker({
+    setPicker(null);
+    setContextPanel({
       title: focus === 'schedules' ? 'Schedules' : focus === 'webhooks' ? 'Webhooks' : 'Channels',
-      items,
-      onSelect: (_value, item) => {
-        setPicker(null);
-        try {
-          switch (item._action) {
-            case 'discord-token':
-              setPicker({
-                title: 'Discord Token',
-                items: [
-                  { value: 'set', label: 'Set token', description: `current: ${setup.discord.status}`, _action: 'set' },
-                  { value: 'forget', label: 'Forget token', description: 'remove stored Discord bot token', _action: 'forget' },
-                ],
-                onSelect: (_detailValue, detail) => {
-                  setPicker(null);
-                  if (detail._action === 'set') {
-                    setChannelPrompt({ kind: 'discord-token', label: 'Discord bot token' });
-                    return;
-                  }
-                  if (detail._action === 'forget') {
-                    store.forgetDiscordToken?.();
-                    void openChannelSetupPicker(focus);
-                  }
-                },
-                onCancel: () => {
-                  setPicker(null);
-                  void openChannelSetupPicker(focus);
-                },
-              });
-              return;
-            case 'webhook-token':
-              setPicker({
-                title: 'Webhook Auth',
-                items: [
-                  { value: 'set', label: 'Set auth token', description: `current: ${setup.webhook.status}`, _action: 'set' },
-                  { value: 'forget', label: 'Forget auth token', description: 'remove stored webhook/ngrok auth token', _action: 'forget' },
-                ],
-                onSelect: (_detailValue, detail) => {
-                  setPicker(null);
-                  if (detail._action === 'set') {
-                    setChannelPrompt({ kind: 'webhook-token', label: 'Webhook/ngrok authtoken' });
-                    return;
-                  }
-                  if (detail._action === 'forget') {
-                    store.forgetWebhookAuthtoken?.();
-                    void openChannelSetupPicker(focus);
-                  }
-                },
-                onCancel: () => {
-                  setPicker(null);
-                  void openChannelSetupPicker(focus);
-                },
-              });
-              return;
-            case 'webhook-toggle':
-              store.setWebhookConfig({ enabled: setup.webhook.enabled === false });
-              void openChannelSetupPicker(focus);
-              return;
-            case 'channel-add':
-              setChannelPrompt({ kind: 'channel-add', label: 'Channel', hint: 'name | channelId | interactive' });
-              return;
-            case 'schedule-add':
-              setChannelPrompt({ kind: 'schedule-add', label: 'Schedule', hint: 'name | cron | instructions | channel(optional) | model(optional)' });
-              return;
-            case 'webhook-add':
-              setChannelPrompt({ kind: 'webhook-add', label: 'Webhook', hint: 'name | instructions | channel(optional) | model(optional) | github' });
-              return;
-            case 'channel-delete':
-              store.deleteChannel(item._name);
-              void openChannelSetupPicker(focus);
-              return;
-            case 'schedule-delete':
-              store.deleteSchedule(item._name);
-              void openChannelSetupPicker(focus);
-              return;
-            case 'webhook-delete':
-              store.deleteWebhook(item._name);
-              void openChannelSetupPicker(focus);
-              return;
-            default:
-              return;
-          }
-        } catch (e) {
-          store.pushNotice(`channels update failed: ${e?.message || e}`, 'error');
-        }
-      },
-      onCancel: () => {
-        setPicker(null);
-        showPromptHint('canceled');
-      },
+      rows,
     });
   };
 
-  const openMcpPicker = () => {
+  const mcpStatus = () => {
     let status;
     try {
       status = store.mcpStatus?.() || { servers: [] };
     } catch (e) {
       store.pushNotice(`mcp status failed: ${e?.message || e}`, 'error');
-      return;
+      return null;
     }
-    const servers = status.servers || [];
+    return { ...status, servers: status.servers || [] };
+  };
+
+  const openMcpToolPicker = (server, tool) => {
+    setPicker({
+      title: tool.name.replace(/^mcp__[^_]+__/, ''),
+      items: [
+        {
+          value: 'info',
+          label: 'Tool info',
+          description: tool.description || tool.name,
+          _action: 'info',
+        },
+        {
+          value: 'copy-name',
+          label: 'Copy full name',
+          description: tool.name,
+          _action: 'copy-name',
+        },
+      ],
+      onSelect: (_detailValue, detail) => {
+        setPicker(null);
+        if (detail._action === 'info') {
+          store.pushNotice([tool.name, tool.description || ''].filter(Boolean).join('\n'), 'info');
+          return;
+        }
+        if (detail._action === 'copy-name') {
+          void copyToClipboard(tool.name)
+            .then(() => store.pushNotice(`copied MCP tool: ${tool.name}`, 'plain'))
+            .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
+        }
+      },
+      onCancel: () => openMcpServerPicker(server),
+    });
+  };
+
+  const openMcpServerPicker = (server) => {
+    if (server?.error) store.pushNotice(`${server.name}: ${server.error}`, 'warn');
+    const enabled = server?.enabled !== false;
     const items = [
       {
+        value: enabled ? 'disable' : 'enable',
+        label: enabled ? 'Disable server' : 'Enable server',
+        description: server?.configured ? `${server?.status || 'unknown'} · ${server?.transport || 'unknown'}` : 'server is not configured',
+        _action: server?.configured ? (enabled ? 'disable' : 'enable') : 'noop',
+      },
+      {
         value: 'reconnect',
-        label: 'Reconnect all',
-        description: `${status.connectedCount || 0}/${status.configuredCount || 0} connected${status.failedCount ? ` · ${status.failedCount} failed` : ''}`,
+        label: 'Reconnect server',
+        description: 'refresh configured MCP servers',
         _action: 'reconnect',
       },
     ];
+    setPicker({
+      title: `MCP · ${server?.name || 'server'}`,
+      items,
+      onSelect: (_toolValue, toolItem) => {
+        setPicker(null);
+        if (toolItem._action === 'enable' || toolItem._action === 'disable') {
+          void store.setMcpServerEnabled?.(server.name, toolItem._action === 'enable')
+            .then(() => openMcpServersPicker())
+            .catch((e) => store.pushNotice(`mcp toggle failed: ${e?.message || e}`, 'error'));
+          return;
+        }
+        if (toolItem._action === 'reconnect') {
+          void store.reconnectMcp?.()
+            .then(() => openMcpServersPicker())
+            .catch((e) => store.pushNotice(`mcp reconnect failed: ${e?.message || e}`, 'error'));
+        }
+      },
+      onCancel: () => openMcpServersPicker(),
+    });
+  };
+
+  const openMcpServersPicker = () => {
+    const status = mcpStatus();
+    if (!status) return;
+    const servers = status.servers || [];
+    const items = [];
     if (servers.length === 0) {
       items.push({
         value: 'empty',
         label: 'No MCP servers',
-        description: 'Configure mcpServers in mixdog-config.json',
+        description: 'no configured MCP servers',
         _action: 'noop',
       });
     }
     for (const server of servers) {
       items.push({
         value: `server:${server.name}`,
-        label: server.name,
+        label: server.enabled === false ? `${server.name} (off)` : server.name,
         description: `${server.status || 'unknown'} · ${server.transport || 'unknown'} · ${server.toolCount || 0} tools${server.error ? ` · ${server.error}` : ''}`,
         _action: 'server',
         _server: server,
@@ -1763,116 +2141,45 @@ export function App({ store, initialStatusLine = '' }) {
     setHookPrompt(null);
     setSettingsPrompt(null);
     setPicker({
-      title: 'MCP',
+      title: 'MCP servers',
       items,
       onSelect: (_value, item) => {
         setPicker(null);
-        if (item._action === 'reconnect') {
-          void store.reconnectMcp?.()
-            .then(() => openMcpPicker())
-            .catch((e) => store.pushNotice(`mcp reconnect failed: ${e?.message || e}`, 'error'));
-          return;
-        }
         if (item._action !== 'server') return;
-        const server = item._server;
-        if (server?.error) {
-          store.pushNotice(`${server.name}: ${server.error}`, 'warn');
-        }
-        const tools = server?.tools || [];
-        const toolItems = [
-          {
-            value: 'remove',
-            label: 'Remove server',
-            description: server?.configured ? 'delete from mcpServers and reconnect' : 'server is not configured',
-            _action: server?.configured ? 'remove' : 'noop',
-          },
-          ...(tools.length
-            ? tools.map((tool) => ({
-                value: tool.name,
-                label: tool.name.replace(/^mcp__[^_]+__/, ''),
-                description: tool.description || tool.name,
-                _action: 'tool',
-                _tool: tool,
-              }))
-            : [{ value: 'empty', label: 'No tools', description: server?.connected ? 'server returned no tools' : 'server is not connected', _action: 'noop' }]),
-        ];
-        setPicker({
-          title: `MCP · ${server?.name || 'server'}`,
-          items: toolItems,
-          onSelect: (_toolValue, toolItem) => {
-            setPicker(null);
-            if (toolItem._action === 'remove') {
-              void store.removeMcpServer?.(server.name)
-                .then(() => openMcpPicker())
-                .catch((e) => store.pushNotice(`mcp remove failed: ${e?.message || e}`, 'error'));
-              return;
-            }
-            if (toolItem._action === 'tool') {
-              const tool = toolItem._tool;
-              setPicker({
-                title: tool.name.replace(/^mcp__[^_]+__/, ''),
-                items: [
-                  {
-                    value: 'info',
-                    label: 'Tool info',
-                    description: tool.description || tool.name,
-                    _action: 'info',
-                  },
-                  {
-                    value: 'copy-name',
-                    label: 'Copy full name',
-                    description: tool.name,
-                    _action: 'copy-name',
-                  },
-                ],
-                onSelect: (_detailValue, detail) => {
-                  setPicker(null);
-                  if (detail._action === 'info') {
-                    store.pushNotice([tool.name, tool.description || ''].filter(Boolean).join('\n'), 'info');
-                    return;
-                  }
-                  if (detail._action === 'copy-name') {
-                    void copyToClipboard(tool.name)
-                      .then(() => store.pushNotice(`copied MCP tool: ${tool.name}`, 'info'))
-                      .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
-                  }
-                },
-                onCancel: () => openMcpPicker(),
-              });
-            }
-          },
-          onCancel: () => openMcpPicker(),
-        });
+        openMcpServerPicker(item._server);
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled');
+        showPromptHint('canceled', 'cancel');
       },
     });
   };
 
-  const openSkillsPicker = () => {
+  const openMcpPicker = () => {
+    openMcpServersPicker();
+  };
+
+  const skillsStatus = () => {
     let status;
     try {
       status = store.skillsStatus?.() || { skills: [] };
     } catch (e) {
       store.pushNotice(`skills status failed: ${e?.message || e}`, 'error');
-      return;
+      return null;
     }
+    return { ...status, skills: status.skills || [] };
+  };
+
+  const openProjectSkillsPicker = () => {
+    const status = skillsStatus();
+    if (!status) return;
     const skills = status.skills || [];
-    const items = [
-      {
-        value: 'reload',
-        label: 'Reload skills',
-        description: `${status.count || 0} available · ${status.cwd || ''}`,
-        _action: 'reload',
-      },
-    ];
+    const items = [];
     if (skills.length === 0) {
       items.push({
         value: 'empty',
-        label: 'No skills',
-        description: 'Add SKILL.md files under user, project, or plugin skills directories',
+        label: 'No project skills',
+        description: 'no project skills available',
         _action: 'noop',
       });
     }
@@ -1890,73 +2197,110 @@ export function App({ store, initialStatusLine = '' }) {
     setHookPrompt(null);
     setSettingsPrompt(null);
     setPicker({
-      title: 'Skills',
+      title: 'Project skills',
       items,
       onSelect: (_value, item) => {
         setPicker(null);
-        if (item._action === 'reload') {
-          void store.reloadSkills?.()
-            .then(() => openSkillsPicker())
-            .catch((e) => store.pushNotice(`skills reload failed: ${e?.message || e}`, 'error'));
-          return;
-        }
         if (item._action !== 'view') return;
         openSkillDetailPicker(item._skill);
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled');
+        void openSkillsPicker();
+      },
+    });
+  };
+
+  const openSkillsPicker = () => {
+    const status = skillsStatus();
+    if (!status) return;
+    const skills = status.skills || [];
+    const items = [];
+    if (skills.length === 0) {
+      items.push({
+        value: 'empty',
+        label: 'No skills',
+        description: 'no project skills available',
+        _action: 'noop',
+      });
+    }
+    for (const skill of skills) {
+      const disabled = disabledSkills.has(skill.name);
+      items.push({
+        value: skill.name,
+        label: disabled ? `${skill.name} (disabled)` : skill.name,
+        description: `${disabled ? 'disabled · ' : ''}${skill.source || 'skill'} · ${skill.description || skill.filePath || ''}`,
+        _action: 'skill',
+        _skill: skill,
+      });
+    }
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setPicker({
+      title: 'Skills',
+      items,
+      onSelect: (_value, item) => {
+        setPicker(null);
+        if (item._action !== 'skill' || !item._skill?.name) return;
+        openSkillDetailPicker(item._skill);
+      },
+      onCancel: () => {
+        setPicker(null);
+        showPromptHint('canceled', 'cancel');
       },
     });
   };
 
   const openSkillDetailPicker = (skill) => {
+    const disabled = disabledSkills.has(skill.name);
     setPicker({
       title: `Skill · ${skill.name}`,
       items: [
         {
-          value: 'view',
-          label: 'View skill',
-          description: skill.description || skill.filePath || 'preview SKILL.md content',
-          _action: 'view',
+          value: 'use',
+          label: 'Use skill',
+          description: disabled ? 'enable this skill first' : 'write a request with this skill',
+          _action: disabled ? 'noop' : 'use',
         },
         {
-          value: 'copy-content',
-          label: 'Copy content',
-          description: 'copy full skill content to clipboard',
-          _action: 'copy-content',
-        },
-        {
-          value: 'copy-path',
-          label: 'Copy path',
-          description: skill.filePath || 'no file path available',
-          _action: skill.filePath ? 'copy-path' : 'noop',
+          value: disabled ? 'enable' : 'disable',
+          label: disabled ? 'Enable skill' : 'Disable skill',
+          description: disabled ? 'show and allow this skill in the TUI' : 'hide use action until re-enabled',
+          _action: disabled ? 'enable' : 'disable',
         },
       ],
       onSelect: (_value, item) => {
         setPicker(null);
-        try {
-          const result = store.skillContent?.(skill.name);
-          const body = String(result?.content || '').trim();
-          if (item._action === 'view') {
-            const max = 2200;
-            const preview = body.length > max ? `${body.slice(0, max)}\n\n... (${body.length - max} more chars)` : body;
-            store.pushNotice(`# ${skill.name}\n${preview || '(empty skill)'}`, 'info');
-            return;
-          }
-          if (item._action === 'copy-content') {
-            void copyToClipboard(body)
-              .then(() => store.pushNotice(`copied skill content: ${skill.name}`, 'info'))
-              .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
-            return;
-          }
-          if (item._action === 'copy-path') {
-            void copyToClipboard(skill.filePath)
-              .then(() => store.pushNotice(`copied skill path: ${skill.name}`, 'info'))
-              .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
-          }
-        } catch (e) {
-          store.pushNotice(`skill action failed: ${e?.message || e}`, 'error');
+        if (item._action === 'enable') {
+          setDisabledSkills((current) => {
+            const next = new Set(current);
+            next.delete(skill.name);
+            return next;
+          });
+          store.pushNotice(`skill enabled: ${skill.name}`, 'info');
+          openSkillsPicker();
+          return;
+        }
+        if (item._action === 'disable') {
+          setDisabledSkills((current) => {
+            const next = new Set(current);
+            next.add(skill.name);
+            return next;
+          });
+          store.pushNotice(`skill disabled: ${skill.name}`, 'info');
+          openSkillsPicker();
+          return;
+        }
+        if (item._action === 'use') {
+          setSettingsPrompt({
+            kind: 'skill-use',
+            label: `Skill · ${skill.name}`,
+            hint: 'Write the request to run with this skill.',
+            skillName: skill.name,
+          });
+          return;
         }
       },
       onCancel: () => {
@@ -1966,36 +2310,131 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
-  const openPluginsPicker = () => {
+  const pluginStatus = () => {
     let status;
     try {
       status = store.pluginsStatus?.() || { plugins: [] };
     } catch (e) {
       store.pushNotice(`plugins status failed: ${e?.message || e}`, 'error');
-      return;
+      return null;
     }
-    const plugins = status.plugins || [];
-    const items = [
-      {
-        value: 'reload',
-        label: 'Reload plugins',
-        description: `${status.count || 0} detected`,
-        _action: 'reload',
+    return { ...status, plugins: status.plugins || [] };
+  };
+
+  const beginAddPlugin = () => {
+    setPicker(null);
+    setSettingsPrompt({ kind: 'plugin-add', label: 'Plugin URL', hint: 'Git URL, owner/repo, or local path' });
+  };
+
+  const openPluginDetailPicker = (p) => {
+    setPicker({
+      title: p.title || p.name,
+      items: [
+        {
+          value: 'info',
+          label: 'Plugin info',
+          description: `${p.sourceType || p.source}${p.version ? ` · ${p.version}` : ''} · skills ${p.skillCount || 0}`,
+          _action: 'info',
+        },
+        {
+          value: 'update',
+          label: p.sourceType === 'local' ? 'Refresh metadata' : 'Update plugin',
+          description: p.sourceType === 'local' ? 'rescan local plugin manifest' : 'pull latest from source URL',
+          _action: 'update',
+        },
+        {
+          value: 'enable-mcp',
+          label: p.mcpScript ? (p.mcpEnabled ? 'Refresh MCP server' : 'Enable MCP server') : 'No MCP script',
+          description: p.mcpScript ? `${p.mcpServerName || 'plugin-mcp'} · ${p.mcpEnabled ? 'configured' : p.mcpScript}` : 'plugin does not expose scripts/run-mcp.mjs or mcp/server.mjs',
+          _action: p.mcpScript ? 'enable-mcp' : 'noop',
+        },
+        {
+          value: 'copy-root',
+          label: 'Copy root path',
+          description: p.root,
+          _action: 'copy-root',
+        },
+        {
+          value: 'copy-mcp-name',
+          label: p.mcpScript ? 'Copy MCP server name' : 'No MCP server name',
+          description: p.mcpServerName || '',
+          _action: p.mcpScript ? 'copy-mcp-name' : 'noop',
+        },
+        {
+          value: 'uninstall',
+          label: 'Uninstall plugin',
+          description: p.managed === false ? 'remove from registry only' : 'remove registry entry and installed files',
+          _action: 'uninstall',
+        },
+      ],
+      onSelect: (_detailValue, detail) => {
+        setPicker(null);
+        if (detail._action === 'info') {
+          store.pushNotice([
+            `${p.title || p.name}${p.version ? ` ${p.version}` : ''}`,
+            `source: ${p.sourceType || p.source}${p.sourceUrl ? ` / ${p.sourceUrl}` : ''}`,
+            `skills: ${p.skillCount || 0}`,
+            `mcp: ${p.mcpScript ? `${p.mcpEnabled ? 'enabled' : 'available'} (${p.mcpServerName || 'plugin-mcp'})` : '(none)'}`,
+            `root: ${p.root}`,
+            p.description ? `\n${p.description}` : '',
+          ].filter(Boolean).join('\n'), 'info');
+          return;
+        }
+        if (detail._action === 'update') {
+          void store.updatePlugin?.(p)
+            .then(() => openInstalledPluginsPicker())
+            .catch((e) => store.pushNotice(`plugin update failed: ${e?.message || e}`, 'error'));
+          return;
+        }
+        if (detail._action === 'enable-mcp') {
+          void store.enablePluginMcp?.(p)
+            .then(() => openMcpPicker())
+            .catch((e) => store.pushNotice(`plugin MCP enable failed: ${e?.message || e}`, 'error'));
+          return;
+        }
+        if (detail._action === 'copy-root') {
+          void copyToClipboard(p.root)
+            .then(() => store.pushNotice(`copied plugin root: ${p.name}`, 'plain'))
+            .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
+          return;
+        }
+        if (detail._action === 'copy-mcp-name') {
+          void copyToClipboard(p.mcpServerName || '')
+            .then(() => store.pushNotice(`copied plugin MCP server: ${p.mcpServerName}`, 'plain'))
+            .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
+          return;
+        }
+        if (detail._action === 'uninstall') {
+          void store.removePlugin?.(p)
+            .then(() => openInstalledPluginsPicker())
+            .catch((e) => store.pushNotice(`plugin uninstall failed: ${e?.message || e}`, 'error'));
+        }
       },
-    ];
+      onCancel: () => {
+        setPicker(null);
+        void openInstalledPluginsPicker();
+      },
+    });
+  };
+
+  const openInstalledPluginsPicker = () => {
+    const status = pluginStatus();
+    if (!status) return;
+    const plugins = status.plugins || [];
+    const items = [];
     if (plugins.length === 0) {
       items.push({
         value: 'empty',
-        label: 'No plugins',
-        description: 'No local marketplace/cache plugins detected',
+        label: 'No installed plugins',
+        description: 'Esc back · add from Plugins > Add plugin',
         _action: 'noop',
       });
     }
     for (const plugin of plugins) {
       items.push({
-        value: `${plugin.source}:${plugin.name}:${plugin.version || ''}`,
+        value: `${plugin.id || plugin.name}:${plugin.version || ''}`,
         label: plugin.title || plugin.name,
-        description: `${plugin.source}${plugin.marketplace ? ` · ${plugin.marketplace}` : ''}${plugin.version ? ` · ${plugin.version}` : ''} · skills ${plugin.skillCount || 0}${plugin.mcpScript ? ` · mcp ${plugin.mcpEnabled ? 'enabled' : plugin.mcpScript}` : ''}`,
+        description: `${plugin.sourceType || plugin.source}${plugin.version ? ` · ${plugin.version}` : ''} · skills ${plugin.skillCount || 0}${plugin.mcpScript ? ` · mcp ${plugin.mcpEnabled ? 'enabled' : plugin.mcpScript}` : ''}`,
         _action: 'plugin',
         _plugin: plugin,
       });
@@ -2005,86 +2444,54 @@ export function App({ store, initialStatusLine = '' }) {
     setHookPrompt(null);
     setSettingsPrompt(null);
     setPicker({
-      title: 'Plugins',
+      title: 'Installed plugins',
       items,
       onSelect: (_value, item) => {
         setPicker(null);
-        if (item._action === 'reload') {
-          void store.reloadPlugins?.()
-            .then(() => openPluginsPicker())
-            .catch((e) => store.pushNotice(`plugins reload failed: ${e?.message || e}`, 'error'));
-          return;
-        }
         if (item._action !== 'plugin') return;
-        const p = item._plugin;
-        setPicker({
-          title: p.title || p.name,
-          items: [
-            {
-              value: 'info',
-              label: 'Plugin info',
-              description: `${p.source}${p.version ? ` · ${p.version}` : ''} · skills ${p.skillCount || 0}`,
-              _action: 'info',
-            },
-            {
-              value: 'enable-mcp',
-              label: p.mcpScript ? (p.mcpEnabled ? 'Refresh MCP server' : 'Enable MCP server') : 'No MCP script',
-              description: p.mcpScript ? `${p.mcpServerName || 'plugin-mcp'} · ${p.mcpEnabled ? 'configured' : p.mcpScript}` : 'plugin does not expose scripts/run-mcp.mjs or mcp/server.mjs',
-              _action: p.mcpScript ? 'enable-mcp' : 'noop',
-            },
-            {
-              value: 'copy-root',
-              label: 'Copy root path',
-              description: p.root,
-              _action: 'copy-root',
-            },
-            {
-              value: 'copy-mcp-name',
-              label: p.mcpScript ? 'Copy MCP server name' : 'No MCP server name',
-              description: p.mcpServerName || '',
-              _action: p.mcpScript ? 'copy-mcp-name' : 'noop',
-            },
-          ],
-          onSelect: (_detailValue, detail) => {
-            setPicker(null);
-            if (detail._action === 'info') {
-              store.pushNotice([
-                `${p.title || p.name}${p.version ? ` ${p.version}` : ''}`,
-                `source: ${p.source}${p.marketplace ? ` / ${p.marketplace}` : ''}`,
-                `skills: ${p.skillCount || 0}`,
-                `mcp: ${p.mcpScript ? `${p.mcpEnabled ? 'enabled' : 'available'} (${p.mcpServerName || 'plugin-mcp'})` : '(none)'}`,
-                `root: ${p.root}`,
-                p.description ? `\n${p.description}` : '',
-              ].filter(Boolean).join('\n'), 'info');
-              return;
-            }
-            if (detail._action === 'enable-mcp') {
-              void store.enablePluginMcp?.(p)
-                .then(() => openMcpPicker())
-                .catch((e) => store.pushNotice(`plugin MCP enable failed: ${e?.message || e}`, 'error'));
-              return;
-            }
-            if (detail._action === 'copy-root') {
-              void copyToClipboard(p.root)
-                .then(() => store.pushNotice(`copied plugin root: ${p.name}`, 'info'))
-                .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
-              return;
-            }
-            if (detail._action === 'copy-mcp-name') {
-              void copyToClipboard(p.mcpServerName || '')
-                .then(() => store.pushNotice(`copied plugin MCP server: ${p.mcpServerName}`, 'info'))
-                .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
-            }
-          },
-          onCancel: () => {
-            setPicker(null);
-            void openPluginsPicker();
-          },
-        });
+        openPluginDetailPicker(item._plugin);
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled');
+        void openPluginsPicker();
+      },
+    });
+  };
+
+  const openPluginsPicker = () => {
+    const status = pluginStatus();
+    if (!status) return;
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setPicker({
+      title: 'Plugins',
+      items: [
+        {
+          value: 'installed',
+          label: 'Installed plugins',
+          description: `${status.count || 0} installed`,
+          _action: 'installed',
+        },
+        {
+          value: 'add',
+          label: 'Add plugin',
+          description: 'Git URL, owner/repo, or local path',
+          _action: 'add',
+        },
+      ],
+      onSelect: (_value, item) => {
+        setPicker(null);
+        if (item._action === 'installed') {
+          openInstalledPluginsPicker();
+          return;
+        }
+        if (item._action === 'add') beginAddPlugin();
+      },
+      onCancel: () => {
+        setPicker(null);
+        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -2131,7 +2538,7 @@ export function App({ store, initialStatusLine = '' }) {
             store.pushNotice(JSON.stringify(rule, null, 2), 'info');
           } else if (item._action === 'copy') {
             void copyToClipboard(JSON.stringify(rule, null, 2))
-              .then(() => store.pushNotice(`copied hook rule ${rule.index + 1}`, 'info'))
+              .then(() => store.pushNotice(`copied hook rule ${rule.index + 1}`, 'plain'))
               .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
           }
         } catch (e) {
@@ -2153,25 +2560,12 @@ export function App({ store, initialStatusLine = '' }) {
       store.pushNotice(`hooks status failed: ${e?.message || e}`, 'error');
       return;
     }
-    const recent = status.recent || [];
     const rules = status.rules || [];
     const items = [
-      {
-        value: 'add',
-        label: 'Add before-tool rule',
-        description: 'tool | action | match | reason | json patch',
-        _action: 'add',
-      },
-      {
-        value: 'summary',
-        label: status.enabled ? 'Hook bus enabled' : 'Hook bus disabled',
-        description: `${status.mode || 'unknown'} · rules ${status.ruleCount || 0} · ${recent.length} recent events`,
-        _action: 'summary',
-      },
       ...(rules.length ? rules.map((rule) => ({
         value: `rule:${rule.index}`,
         label: `${rule.enabled ? '●' : '○'} ${rule.tool} -> ${rule.action}`,
-        description: `${rule.match ? `match ${rule.match} · ` : ''}${rule.reason || 'Enter options'}`,
+        description: `${rule.match ? `match ${rule.match} · ` : ''}${rule.reason || 'Enter toggle'}`,
         _action: 'rule',
         _rule: rule,
       })) : [{
@@ -2180,13 +2574,6 @@ export function App({ store, initialStatusLine = '' }) {
         description: status.rulesPath || 'hooks.json not configured',
         _action: 'noop',
       }]),
-      ...recent.slice(0, 30).map((event, index) => ({
-        value: `event:${index}`,
-        label: event.name,
-        description: `${event.ts || ''}${event.summary ? ` · ${event.summary}` : ''}`,
-        _action: 'event',
-        _event: event,
-      })),
     ];
     setProviderPrompt(null);
     setChannelPrompt(null);
@@ -2197,62 +2584,137 @@ export function App({ store, initialStatusLine = '' }) {
       items,
       onSelect: (_value, item) => {
         setPicker(null);
-        if (item._action === 'add') {
-          setHookPrompt({ kind: 'rule-add', label: 'Hook rule', hint: 'tool | allow|deny|modify | match | reason | {"arg":"value"}' });
-          return;
-        }
-        if (item._action === 'summary') {
-          store.pushNotice([
-            `mode: ${status.mode || 'unknown'}`,
-            `rules path: ${status.rulesPath || '(none)'}`,
-            `rules: ${status.ruleCount || 0}`,
-            `events: ${(status.events || []).join(', ') || '(none)'}`,
-            `counts: ${JSON.stringify(status.counts || {})}`,
-            status.note || '',
-          ].filter(Boolean).join('\n'), 'info');
-          return;
-        }
         if (item._action === 'rule') {
-          openHookRulePicker(item._rule);
-          return;
-        }
-        if (item._action === 'event') {
-          setPicker({
-            title: `Hook event · ${item._event.name}`,
-            items: [
-              {
-                value: 'view',
-                label: 'View event',
-                description: item._event.summary || item._event.ts || '',
-                _action: 'view',
-              },
-              {
-                value: 'copy',
-                label: 'Copy event JSON',
-                description: item._event.ts || '',
-                _action: 'copy',
-              },
-            ],
-            onSelect: (_detailValue, detail) => {
-              setPicker(null);
-              const body = JSON.stringify(item._event, null, 2);
-              if (detail._action === 'view') {
-                store.pushNotice(body, 'info');
-                return;
-              }
-              if (detail._action === 'copy') {
-                void copyToClipboard(body)
-                  .then(() => store.pushNotice(`copied hook event: ${item._event.name}`, 'info'))
-                  .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
-              }
-            },
-            onCancel: () => openHooksPicker(),
-          });
+          try {
+            store.setHookRuleEnabled?.(item._rule.index, !item._rule.enabled);
+            void openHooksPicker();
+          } catch (e) {
+            store.pushNotice(`hook toggle failed: ${e?.message || e}`, 'error');
+          }
         }
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled');
+        showPromptHint('canceled', 'cancel');
+      },
+    });
+  };
+
+  const openMemoryStatusPicker = () => {
+    setPicker({
+      title: 'Memory Status',
+      items: [{ value: 'loading', label: 'Loading memory status', description: 'please wait' }],
+      onSelect: () => {},
+      onCancel: () => openMemoryPicker(),
+    });
+    void store.memoryControl?.({ action: 'status' }, { silent: true })
+      .then((result) => {
+        const rows = parseMemoryStatusRows(result);
+        setPicker({
+          title: 'Memory Status',
+          items: rows.length ? rows : [{ value: 'empty', label: 'Status', description: 'empty' }],
+          onSelect: (_value, item) => {
+            if (item?._line) store.pushNotice(item._line, 'info');
+          },
+          onCancel: () => openMemoryPicker(),
+        });
+      })
+      .catch((e) => {
+        setPicker(null);
+        store.pushNotice(`memory status failed: ${e?.message || e}`, 'error');
+      });
+  };
+
+  const openMemoryCorePicker = () => {
+    setPicker({
+      title: 'Core Memory',
+      items: [{ value: 'loading', label: 'Loading core memory', description: 'please wait' }],
+      onSelect: () => {},
+      onCancel: () => openMemoryPicker(),
+    });
+    void store.memoryControl?.({ action: 'core', op: 'list', project_id: '*' }, { silent: true })
+      .then((result) => {
+        const rows = parseMemoryCoreRows(result);
+        setPicker({
+          title: 'Core Memory',
+          items: rows.length ? rows : [{ value: 'empty', label: 'Core memory', description: 'empty' }],
+          onSelect: (_value, item) => {
+            if (item?._line) store.pushNotice(item._line, 'info');
+          },
+          onCancel: () => openMemoryPicker(),
+        });
+      })
+      .catch((e) => {
+        setPicker(null);
+        store.pushNotice(`core memory failed: ${e?.message || e}`, 'error');
+      });
+  };
+
+  const runMemoryAction = (args, successLabel) => {
+    setPicker(null);
+    void store.memoryControl?.(args)
+      .then(() => {
+        if (successLabel) store.pushNotice(successLabel, 'info');
+      })
+      .catch((e) => store.pushNotice(`memory failed: ${e?.message || e}`, 'error'));
+  };
+
+  const openMemoryPicker = () => {
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setPicker({
+      title: 'Memory',
+      items: [
+        {
+          value: 'status',
+          label: 'Status',
+          description: 'open memory runtime dashboard',
+          _action: 'status',
+        },
+        {
+          value: 'core',
+          label: 'Core memory',
+          description: 'list user-curated core memories',
+          _action: 'core',
+        },
+        {
+          value: 'cycle1',
+          label: 'Run cycle1',
+          description: 'chunk raw transcript leaves',
+          _action: 'cycle1',
+        },
+        {
+          value: 'cycle2',
+          label: 'Run cycle2',
+          description: 'review pending roots',
+          _action: 'cycle2',
+        },
+        {
+          value: 'cycle3',
+          label: 'Run cycle3',
+          description: 'review core memory health',
+          _action: 'cycle3',
+        },
+        {
+          value: 'backfill',
+          label: 'Backfill 7d',
+          description: 'ingest recent transcript window',
+          _action: 'backfill',
+        },
+      ],
+      onSelect: (_value, item) => {
+        if (item._action === 'status') openMemoryStatusPicker();
+        else if (item._action === 'core') openMemoryCorePicker();
+        else if (item._action === 'cycle1') runMemoryAction({ action: 'cycle1' });
+        else if (item._action === 'cycle2') runMemoryAction({ action: 'cycle2' });
+        else if (item._action === 'cycle3') runMemoryAction({ action: 'cycle3' });
+        else if (item._action === 'backfill') runMemoryAction({ action: 'backfill', window: '7d', scope: 'all' });
+      },
+      onCancel: () => {
+        setPicker(null);
+        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -2269,11 +2731,16 @@ export function App({ store, initialStatusLine = '' }) {
       store.pushNotice('no saved sessions', 'warn');
       return;
     }
-    const items = sessions.map((s) => ({
-      value: s.id,
-      label: s.id.length > 28 ? s.id.slice(0, 25) + '…' : s.id,
-      description: `${s.messageCount} msgs${s.preview ? ' · ' + s.preview.slice(0, 50).replace(/\n/g, ' ') : ''}`,
-    }));
+    const items = sessions.map((s) => {
+      const preview = String(s.preview || '').replace(/\n/g, ' ').trim();
+      const count = `${s.messageCount || 0} msgs`;
+      const suffix = [count, shortSessionId(s.id)].filter(Boolean).join(' · ');
+      return {
+        value: s.id,
+        label: `${formatSessionUpdatedAt(s.updatedAt)} · ${compactSessionCwd(s.cwd)}`,
+        description: `${preview || '(no prompt)'} · ${suffix}`,
+      };
+    });
     setPicker({
       title: 'Resume session',
       items,
@@ -2285,14 +2752,14 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled');
+        showPromptHint('canceled', 'cancel');
       },
     });
   };
 
   const runSlashCommand = (cmd, arg = '') => {
+    if (cmd !== 'context' && cmd !== 'status') setContextPanel(null);
     switch (cmd) {
-      case 'help': store.pushNotice(HELP, 'info'); return true;
       case 'clear':
         if (state.busy) {
           store.pushNotice('wait for the current turn to finish before /clear', 'warn');
@@ -2390,30 +2857,10 @@ export function App({ store, initialStatusLine = '' }) {
       case 'webhooks':
         void openChannelSetupPicker('webhooks');
         return true;
-      case 'auth': {
-        const [providerId, ...secretParts] = arg.split(/\s+/).filter(Boolean);
-        if (!providerId) {
-          store.pushNotice('usage: /auth <provider> [api-key]', 'warn');
-          return true;
-        }
-        if (secretParts.length === 0) {
-          void store.loginOAuthProvider(providerId)
-            .catch((e) => {
-              if (/unknown OAuth provider/i.test(String(e?.message || e))) {
-                setProviderPrompt({ kind: 'api-key', providerId, label: providerId });
-              } else {
-                store.pushNotice(`auth failed: ${e?.message || e}`, 'error');
-              }
-            });
-        } else {
-          try {
-            store.saveProviderApiKey(providerId, secretParts.join(' '));
-          } catch (e) {
-            store.pushNotice(`auth failed: ${e?.message || e}`, 'error');
-          }
-        }
+      case 'auth':
+        store.pushNotice('/auth moved to /providers', 'info');
+        void openProviderSetupPicker();
         return true;
-      }
       case 'auth-forget': {
         const providerId = arg.trim();
         if (!providerId) {
@@ -2428,6 +2875,10 @@ export function App({ store, initialStatusLine = '' }) {
         return true;
       }
       case 'memory': {
+        if (!arg.trim()) {
+          openMemoryPicker();
+          return true;
+        }
         void store.memoryControl?.(parseMemoryCommand(arg))
           .catch((e) => store.pushNotice(`memory failed: ${e?.message || e}`, 'error'));
         return true;
@@ -2489,6 +2940,9 @@ export function App({ store, initialStatusLine = '' }) {
       case 'status':
         openStatusPicker();
         return true;
+      case 'context':
+        openContextPicker();
+        return true;
       case 'settings':
       case 'config':
         openSettingsPicker();
@@ -2498,7 +2952,7 @@ export function App({ store, initialStatusLine = '' }) {
         requestExit();
         return true;
       default:
-        store.pushNotice(`unknown command: /${cmd} (try /help)`, 'warn');
+        store.pushNotice(`unknown command: /${cmd}`, 'warn');
         return true;
     }
   };
@@ -2633,6 +3087,52 @@ export function App({ store, initialStatusLine = '' }) {
           void openSettingsPicker();
           return true;
         }
+        if (settingsPrompt.kind === 'plugin-add') {
+          if (!commandText) {
+            store.pushNotice('plugin URL/path is required', 'warn');
+            return false;
+          }
+          void store.addPlugin?.(commandText)
+            .then(() => openPluginsPicker())
+            .catch((e) => store.pushNotice(`plugin add failed: ${e?.message || e}`, 'error'));
+          setSettingsPrompt(null);
+          return true;
+        }
+        if (settingsPrompt.kind === 'mcp-add') {
+          const parsed = parseMcpServerInput(commandText);
+          if (parsed.error) {
+            store.pushNotice(parsed.error, 'warn');
+            return false;
+          }
+          void store.addMcpServer?.(parsed.server)
+            .then(() => openMcpServersPicker())
+            .catch((e) => store.pushNotice(`mcp add failed: ${e?.message || e}`, 'error'));
+          setSettingsPrompt(null);
+          return true;
+        }
+        if (settingsPrompt.kind === 'skill-add') {
+          const parsed = parseSkillInput(commandText);
+          if (parsed.error) {
+            store.pushNotice(parsed.error, 'warn');
+            return false;
+          }
+          void store.addSkill?.(parsed.skill)
+            .then(() => openProjectSkillsPicker())
+            .catch((e) => store.pushNotice(`skill add failed: ${e?.message || e}`, 'error'));
+          setSettingsPrompt(null);
+          return true;
+        }
+        if (settingsPrompt.kind === 'skill-use') {
+          const skillName = String(settingsPrompt.skillName || '').trim();
+          if (!skillName) {
+            store.pushNotice('skill name is missing', 'warn');
+            return false;
+          }
+          const prompt = `$${skillName}${commandText ? ` ${commandText}` : ''}`;
+          setSettingsPrompt(null);
+          resetTranscriptScroll();
+          return store.submit(prompt);
+        }
       } catch (e) {
         store.pushNotice(`settings update failed: ${e?.message || e}`, 'error');
         return false;
@@ -2648,16 +3148,18 @@ export function App({ store, initialStatusLine = '' }) {
       const [cmd, ...rest] = commandText.slice(1).split(/\s+/);
       return runSlashCommand(cmd, rest.join(' ').trim());
     }
+    resetTranscriptScroll();
     return store.submit(text);
   };
 
-  const activeSlashQuery = providerPrompt || channelPrompt || hookPrompt || settingsPrompt ? null : slashQuery(promptDraft);
-  const slashCommands = activeSlashQuery === null || picker || exiting || state.commandBusy
+  const activeSlashQuery = providerPrompt || channelPrompt || hookPrompt || settingsPrompt || contextPanel ? null : slashQuery(promptDraft);
+  const slashCommands = activeSlashQuery === null || picker || contextPanel || exiting || state.commandBusy
     ? []
     : SLASH_COMMANDS.filter((command) => slashCommandMatches(command, activeSlashQuery));
   const slashPaletteOpen = activeSlashQuery !== null
     && slashDismissedFor !== promptDraft
     && slashCommands.length > 0;
+  slashPaletteRef.current = { open: slashPaletteOpen, count: slashCommands.length };
 
   useEffect(() => {
     setSlashIndex((index) => Math.min(index, Math.max(0, slashCommands.length - 1)));
@@ -2665,6 +3167,7 @@ export function App({ store, initialStatusLine = '' }) {
 
   const onPromptDraftChange = useCallback((value) => {
     setPromptDraft(value);
+    setPromptDraftOverride(null);
     if (value) clearPromptHint();
     setSlashDismissedFor((dismissed) => (dismissed && dismissed !== value ? '' : dismissed));
   }, [clearPromptHint]);
@@ -2673,22 +3176,22 @@ export function App({ store, initialStatusLine = '' }) {
     const afterSave = providerPrompt?.afterSave;
     setProviderPrompt(null);
     if (afterSave) afterSave();
-    else showPromptHint('canceled');
+    else showPromptHint('canceled', 'cancel');
   }, [providerPrompt, showPromptHint]);
 
   const cancelChannelPrompt = useCallback(() => {
     setChannelPrompt(null);
-    showPromptHint('canceled');
+    showPromptHint('canceled', 'cancel');
   }, [showPromptHint]);
 
   const cancelHookPrompt = useCallback(() => {
     setHookPrompt(null);
-    showPromptHint('canceled');
+    showPromptHint('canceled', 'cancel');
   }, [showPromptHint]);
 
   const cancelSettingsPrompt = useCallback(() => {
     setSettingsPrompt(null);
-    showPromptHint('canceled');
+    showPromptHint('canceled', 'cancel');
   }, [showPromptHint]);
 
   const acceptSlashPalette = useCallback(() => {
@@ -2701,6 +3204,12 @@ export function App({ store, initialStatusLine = '' }) {
     const command = slashCommands[slashIndex];
     return command ? `/${command.name} ` : undefined;
   }, [slashCommands, slashIndex]);
+
+  const cancelSlashPalette = useCallback((value = '') => {
+    setSlashDismissedFor(String(value || promptDraft || '/'));
+    setPromptDraft('');
+    setPromptDraftOverride({ id: Date.now(), value: '' });
+  }, [promptDraft]);
 
   const resizeEpoch = resizeState.epoch;
 
@@ -2721,7 +3230,10 @@ export function App({ store, initialStatusLine = '' }) {
   //
   // Every sibling outside the viewport must be accounted for here; otherwise
   // the total tree height exceeds the terminal and the input box gets pushed.
-  const WELCOME_ROWS = state.items.length === 0 ? 9 : 0;
+  const textEntryPrompt = providerPrompt || channelPrompt || hookPrompt || settingsPrompt;
+  const hasTextEntryPrompt = !!textEntryPrompt;
+  const hasFloatingPanel = !!(picker || contextPanel || slashPaletteOpen || hasTextEntryPrompt);
+  const WELCOME_ROWS = state.items.length === 0 && !hasFloatingPanel ? 11 : 0;
   // Independent reservation for each live-status child — the viewport must
   // yield enough space for every bottom sibling. ThinkingMessage: outer
   // marginTop(1) + inner marginTop(1) + "∴ Thinking…" label(1) = 3.
@@ -2730,19 +3242,20 @@ export function App({ store, initialStatusLine = '' }) {
   const THINKING_ROWS = state.thinking ? 3 : 0;
   const SPINNER_ROWS = state.spinner?.active ? 2 : 0;
   const TURNDONE_ROWS = state.lastTurn && !state.spinner?.active ? 2 : 0;
-  const SCROLL_HINT_ROWS = scrollOffset > 0 ? 1 : 0;
+  const SCROLL_HINT_ROWS = 0;
   const LIVE_STATUS_ROWS = THINKING_ROWS + SPINNER_ROWS + TURNDONE_ROWS;
-  const hasFloatingPanel = !!(picker || slashPaletteOpen || providerPrompt || channelPrompt || hookPrompt || settingsPrompt);
-  const INPUT_BOX_ROWS = hasFloatingPanel ? 3 : 4;
+  const INPUT_BOX_ROWS = hasFloatingPanel ? 0 : 4;
   const STATUSLINE_ROWS = 3;
   const PANEL_MAX_VISIBLE = 8;
-  const PROMPT_HINT_ROWS = 1;
+  const TEXT_ENTRY_ROWS = 5;
   const desiredFloatingPanelRows = picker
     ? Math.min(picker.items.length, PANEL_MAX_VISIBLE) + 4
+    : contextPanel
+      ? Math.min(contextPanel.rows?.length || 0, PANEL_MAX_VISIBLE + 1) + 4
     : slashPaletteOpen
-      ? Math.min(slashCommands.length, PANEL_MAX_VISIBLE) + 4
-      : providerPrompt || channelPrompt || hookPrompt || settingsPrompt
-        ? PROMPT_HINT_ROWS
+      ? Math.min(slashCommands.length, PANEL_MAX_VISIBLE) + 6
+      : hasTextEntryPrompt
+        ? TEXT_ENTRY_ROWS
         : 0;
   const queuedRows = !hasFloatingPanel && state.queued?.length ? state.queued.length + 1 : 0;
   const baseReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
@@ -2753,10 +3266,13 @@ export function App({ store, initialStatusLine = '' }) {
   const bottomReserve = baseReserve + floatingPanelRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
   const latestToast = state.toasts?.length ? state.toasts[state.toasts.length - 1] : null;
-  const latestToastPrefix = latestToast?.tone === 'error' ? 'x' : latestToast?.tone === 'warn' ? '!' : 'i';
-  const toastHint = latestToast ? `${latestToastPrefix} ${latestToast.text}` : '';
+  const toastHint = latestToast ? latestToast.text : '';
   const inputHint = promptHint || toastHint;
-  const inputHintTone = promptHint ? 'info' : (latestToast?.tone || 'info');
+  const inputHintTone = promptHint ? promptHintTone : (latestToast?.tone || 'info');
+  // Windows Terminal/conhost can scroll the alt-screen when a fullscreen frame
+  // writes the bottom-right cell. Keep the whole app one cell narrower; it is
+  // visually invisible but prevents frame drift and stale overprints.
+  const frameColumns = Math.max(1, resizeState.columns - 1);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
   // is a live column, so the live-frame line count ink relies on is accurate.
@@ -2768,16 +3284,18 @@ export function App({ store, initialStatusLine = '' }) {
     // stack up from just over the input. A top flexGrow spacer sinks the whole
     // stack to the bottom; the transcript itself is a fixed-height clipping
     // viewport (see viewportHeight above).
-    <Box flexDirection="column" width={resizeState.columns} height={resizeState.rows}>
+    <Box flexDirection="column" width={frameColumns} height={resizeState.rows}>
       {/* Empty-transcript header stays outside the bottom-anchored viewport and
           has its own reserved rows, so it cannot steal space from the input. */}
-      {state.items.length === 0 ? (
-        <Box flexDirection="column" height={5} flexShrink={0} marginTop={3} marginBottom={1}>
-          <Text color={theme.text} bold>{centerLine('███╗   ███╗██╗██╗  ██╗██████╗  ██████╗  ██████╗ ', resizeState.columns)}</Text>
-          <Text color={theme.text} bold>{centerLine('████╗ ████║██║╚██╗██╔╝██╔══██╗██╔═══██╗██╔════╝ ', resizeState.columns)}</Text>
-          <Text color={theme.claude} bold>{centerLine('██╔████╔██║██║ ╚███╔╝ ██║  ██║██║   ██║██║  ███╗', resizeState.columns)}</Text>
-          <Text color={theme.claude} bold>{centerLine('██║╚██╔╝██║██║ ██╔██╗ ██║  ██║██║   ██║██║   ██║', resizeState.columns)}</Text>
-          <Text color={theme.claude} bold>{centerLine('██║ ╚═╝ ██║██║██╔╝ ██╗██████╔╝╚██████╔╝╚██████╔╝', resizeState.columns)}</Text>
+      {state.items.length === 0 && !hasFloatingPanel ? (
+        <Box flexDirection="column" height={7} flexShrink={0} marginTop={3} marginBottom={1}>
+          <Text color={theme.text} bold>{centerLine('███╗   ███╗██╗██╗  ██╗██████╗  ██████╗  ██████╗ ', frameColumns)}</Text>
+          <Text color={theme.text} bold>{centerLine('████╗ ████║██║╚██╗██╔╝██╔══██╗██╔═══██╗██╔════╝ ', frameColumns)}</Text>
+          <Text color={theme.claude} bold>{centerLine('██╔████╔██║██║ ╚███╔╝ ██║  ██║██║   ██║██║  ███╗', frameColumns)}</Text>
+          <Text color={theme.claude} bold>{centerLine('██║╚██╔╝██║██║ ██╔██╗ ██║  ██║██║   ██║██║   ██║', frameColumns)}</Text>
+          <Text color={theme.claude} bold>{centerLine('██║ ╚═╝ ██║██║██╔╝ ██╗██████╔╝╚██████╔╝╚██████╔╝', frameColumns)}</Text>
+          <Box height={1} flexShrink={0} />
+          <Text color={theme.inactive}>{centerLine(`mixdog coding agent · ${state.cwd}`, frameColumns, 4)}</Text>
         </Box>
       ) : null}
 
@@ -2805,18 +3323,12 @@ export function App({ store, initialStatusLine = '' }) {
             stays fixed — so the scroll axis here is marginBottom, not marginTop.)
             scrollOffset is clamped ≥ 0 by the wheel handler; a new turn snaps it
             back to 0. */}
-        <Box flexDirection="column" width="100%" marginBottom={-scrollOffset}>
+        <Box flexDirection="column" width="100%" flexShrink={0} marginBottom={-scrollOffset}>
           {state.items.map((item, i) => (
-            <Item key={item.id} item={item} prevKind={i > 0 ? state.items[i - 1].kind : null} columns={resizeState.columns} toolOutputExpanded={toolOutputExpanded} />
+            <Item key={item.id} item={item} prevKind={i > 0 ? state.items[i - 1].kind : null} columns={frameColumns} toolOutputExpanded={toolOutputExpanded} />
           ))}
         </Box>
       </Box>
-
-      {scrollOffset > 0 ? (
-        <Box flexShrink={0} paddingLeft={2}>
-          <Text color={theme.subtle}>{`↑ scrollback ${scrollOffset} rows · wheel/PageDown to latest · Ctrl+End jump`}</Text>
-        </Box>
-      ) : null}
 
       {/* Live reasoning — streams just above the spinner while the turn runs,
           then collapses (engine clears state.thinking at turn end). marginTop
@@ -2838,13 +3350,14 @@ export function App({ store, initialStatusLine = '' }) {
             startedAt={state.spinner.startedAt}
             inputTokens={state.spinner?.inputTokens ?? 0}
             outputTokens={Math.max(state.spinner?.outputTokens ?? 0, state.spinner?.liveTokens ?? 0)}
-            thinking={!!state.thinking}
-            columns={resizeState.columns}
+            thinking={!!(state.thinking || state.spinner?.thinking)}
+            mode={state.spinner?.mode || 'responding'}
+            columns={frameColumns}
           />
         </Box>
       ) : state.lastTurn ? (
         <Box flexShrink={0}>
-          <TurnDone elapsedMs={state.lastTurn.elapsedMs} />
+          <TurnDone elapsedMs={state.lastTurn.elapsedMs} status={state.lastTurn.status} />
         </Box>
       ) : null}
 
@@ -2859,87 +3372,137 @@ export function App({ store, initialStatusLine = '' }) {
               <Picker
                 items={picker.items}
                 onSelect={picker.onSelect}
-                onCancel={picker.onCancel}
+                onBack={picker.onBack || picker.onCancel}
+                onCancel={() => {
+                  setPicker(null);
+                  showPromptHint('canceled', 'cancel');
+                }}
                 onLeft={picker.onLeft}
                 onRight={picker.onRight}
                 title={picker.title}
-                columns={resizeState.columns}
+                columns={frameColumns}
+              />
+            ) : contextPanel ? (
+              <ContextPanel
+                rows={contextPanel.rows}
+                title={contextPanel.title}
+                columns={frameColumns}
               />
             ) : slashPaletteOpen ? (
               <SlashCommandPalette
                 commands={slashCommands}
                 selectedIndex={slashIndex}
                 title="Slash commands"
-                columns={resizeState.columns}
+                columns={frameColumns}
+                input={(
+                  <PromptInput
+                    onSubmit={onSubmit}
+                    disabled={exiting || state.commandBusy}
+                    onDraftChange={onPromptDraftChange}
+                    initialValue={promptDraft}
+                    draftOverride={promptDraftOverride}
+                    hint={inputHint}
+                    hintTone={inputHintTone}
+                    mask={false}
+                    onEscape={undefined}
+                    commandPaletteActive={slashPaletteOpen}
+                    onCommandPaletteNavigate={(direction) => {
+                      setSlashIndex((index) => {
+                        const total = slashCommands.length;
+                        if (total === 0) return 0;
+                        if (direction === 'home') return 0;
+                        if (direction === 'end') return total - 1;
+                        if (direction === 'right') return total - 1;
+                        const step = Number(direction) || 0;
+                        if (step === 1 || step === -1) return (index + step + total) % total;
+                        return Math.max(0, Math.min(total - 1, index + step));
+                      });
+                    }}
+                    onCommandPaletteAccept={acceptSlashPalette}
+                    onCommandPaletteCancel={cancelSlashPalette}
+                    onCommandPaletteComplete={completeSlashPalette}
+                    submitPasteImmediately={state.busy}
+                  />
+                )}
               />
             ) : providerPrompt ? (
-              <Box flexShrink={0} paddingX={1}>
-                <Text color={theme.inactive}>
-                  {fitLine(providerPrompt.kind === 'api-key'
-                    ? `API key for ${providerPrompt.label} · Enter save · Esc cancel`
-                    : `Base URL for ${providerPrompt.label} · Enter enable · Esc cancel · default ${providerPrompt.defaultURL}`, resizeState.columns)}
-                </Text>
-              </Box>
+              <TextEntryPanel
+                title={providerPrompt.kind === 'api-key' ? `API key · ${providerPrompt.label}` : `Base URL · ${providerPrompt.label}`}
+                hint={providerPrompt.kind === 'api-key' ? 'Save or replace the provider key.' : `Default: ${providerPrompt.defaultURL}`}
+                mask={providerPrompt.kind === 'api-key'}
+                columns={frameColumns}
+                onSubmit={onSubmit}
+                onCancel={cancelProviderPrompt}
+              />
             ) : channelPrompt ? (
-              <Box flexShrink={0} paddingX={1}>
-                <Text color={theme.inactive}>
-                  {fitLine(channelPrompt.hint
-                    ? `${channelPrompt.label} · ${channelPrompt.hint} · Enter save · Esc cancel`
-                    : `${channelPrompt.label} · Enter save · Esc cancel`, resizeState.columns)}
-                </Text>
-              </Box>
+              <TextEntryPanel
+                title={channelPrompt.label}
+                hint={channelPrompt.hint || 'Save channel setting.'}
+                mask={channelPrompt.kind === 'discord-token' || channelPrompt.kind === 'webhook-token'}
+                columns={frameColumns}
+                onSubmit={onSubmit}
+                onCancel={cancelChannelPrompt}
+              />
             ) : hookPrompt ? (
-              <Box flexShrink={0} paddingX={1}>
-                <Text color={theme.inactive}>
-                  {fitLine(hookPrompt.hint
-                    ? `${hookPrompt.label} · ${hookPrompt.hint} · Enter save · Esc cancel`
-                    : `${hookPrompt.label} · Enter save · Esc cancel`, resizeState.columns)}
-                </Text>
-              </Box>
+              <TextEntryPanel
+                title={hookPrompt.label}
+                hint={hookPrompt.hint || 'Save hook setting.'}
+                columns={frameColumns}
+                onSubmit={onSubmit}
+                onCancel={cancelHookPrompt}
+              />
             ) : settingsPrompt ? (
-              <Box flexShrink={0} paddingX={1}>
-                <Text color={theme.inactive}>
-                  {fitLine(settingsPrompt.hint
-                    ? `${settingsPrompt.label} · ${settingsPrompt.hint} · Enter save · Esc cancel`
-                    : `${settingsPrompt.label} · Enter save · Esc cancel`, resizeState.columns)}
-                </Text>
-              </Box>
+              <TextEntryPanel
+                title={settingsPrompt.label}
+                hint={settingsPrompt.hint || 'Save setting.'}
+                columns={frameColumns}
+                actionLabel={settingsPrompt.kind === 'skill-use' ? 'run' : 'save'}
+                onSubmit={onSubmit}
+                onCancel={cancelSettingsPrompt}
+              />
             ) : null}
           </Box>
         ) : (
-          <QueuedCommands queued={state.queued} columns={resizeState.columns} />
+          <QueuedCommands queued={state.queued} columns={frameColumns} />
         )}
-        <Box
-          marginTop={picker || slashPaletteOpen || providerPrompt || channelPrompt || hookPrompt || settingsPrompt ? 0 : 1}
-          width="100%"
-          borderStyle="round"
-          borderColor={state.busy || state.commandBusy || picker ? theme.subtle : theme.promptBorder}
-          paddingX={1}
-        >
-          <PromptInput
-            onSubmit={onSubmit}
-            disabled={exiting || state.commandBusy || !!picker}
-            onDraftChange={onPromptDraftChange}
-            hint={inputHint}
-            hintTone={inputHintTone}
-            mask={providerPrompt?.kind === 'api-key' || channelPrompt?.kind === 'discord-token' || channelPrompt?.kind === 'webhook-token'}
-            onEscape={providerPrompt ? cancelProviderPrompt : channelPrompt ? cancelChannelPrompt : hookPrompt ? cancelHookPrompt : settingsPrompt ? cancelSettingsPrompt : undefined}
-            commandPaletteActive={slashPaletteOpen}
-            onCommandPaletteNavigate={(direction) => {
-              setSlashIndex((index) => {
-                const total = slashCommands.length;
-                if (total === 0) return 0;
-                if (direction === 'home') return 0;
-                if (direction === 'end') return total - 1;
-                const step = Number(direction) || 0;
-                return Math.max(0, Math.min(total - 1, index + step));
-              });
-            }}
-            onCommandPaletteAccept={acceptSlashPalette}
-            onCommandPaletteCancel={(value) => setSlashDismissedFor(value)}
-            onCommandPaletteComplete={completeSlashPalette}
-          />
-        </Box>
+        {!hasFloatingPanel ? (
+          <Box
+            marginTop={1}
+            width="100%"
+            borderStyle="round"
+            borderColor={theme.promptBorder}
+            paddingX={1}
+          >
+            <PromptInput
+              onSubmit={onSubmit}
+              disabled={exiting || state.commandBusy || !!picker}
+              onDraftChange={onPromptDraftChange}
+              initialValue={promptDraft}
+              draftOverride={promptDraftOverride}
+              hint={inputHint}
+              hintTone={inputHintTone}
+              mask={false}
+              onEscape={contextPanel ? () => setContextPanel(null) : undefined}
+              commandPaletteActive={slashPaletteOpen}
+              onCommandPaletteNavigate={(direction) => {
+                setSlashIndex((index) => {
+                  const total = slashCommands.length;
+                  if (total === 0) return 0;
+                  if (direction === 'home') return 0;
+                  if (direction === 'end') return total - 1;
+                  if (direction === 'right') return total - 1;
+                  const step = Number(direction) || 0;
+                  if (step === 1 || step === -1) return (index + step + total) % total;
+                  return Math.max(0, Math.min(total - 1, index + step));
+                });
+              }}
+              onCommandPaletteAccept={acceptSlashPalette}
+              onCommandPaletteCancel={cancelSlashPalette}
+              onCommandPaletteComplete={completeSlashPalette}
+              submitPasteImmediately={state.busy}
+            />
+          </Box>
+        ) : null}
         <StatusLine
           sessionId={state.sessionId}
           provider={state.provider}
@@ -2947,6 +3510,8 @@ export function App({ store, initialStatusLine = '' }) {
           effort={state.effort}
           cwd={state.cwd}
           stats={state.stats}
+          contextWindow={state.contextWindow}
+          rawContextWindow={state.rawContextWindow}
           resizeEpoch={resizeEpoch}
           initialLine={initialStatusLine}
         />

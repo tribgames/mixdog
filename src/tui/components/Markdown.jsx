@@ -4,7 +4,7 @@
  * Ported from Claude Code (refs/claude-code/src/components/Markdown.tsx):
  *   - marked.lexer() produces the token stream (same lib + config as CC).
  *   - Non-table tokens are rendered to ANSI strings via formatToken and emitted
- *     as <Text> (CC uses <Ansi>; ink 7's <Text> passes ANSI escapes through).
+ *     through <AnsiText>, matching CC's span-based <Ansi> behavior.
  *   - Tables are rendered by the MarkdownTable component (proper Box layout).
  *   - Adjacent non-table tokens are coalesced into one <Text> (CC's
  *     nonTableContent buffer) so block spacing matches.
@@ -16,6 +16,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { marked } from 'marked';
 import { formatToken } from '../markdown/format-token.mjs';
+import { AnsiText } from './AnsiText.jsx';
 import { MarkdownTable } from './MarkdownTable.jsx';
 import { theme } from '../theme.mjs';
 
@@ -39,10 +40,10 @@ export function Markdown({ children }) {
         if (buffer) {
           // CC trims the coalesced non-table block (MarkdownBody: nonTableContent
           // .trim()) so leading/trailing blank lines from token EOLs don't bleed
-          // into the surrounding gap={1} spacing. color={theme.text} mirrors
-          // Claude Code darkTheme (`rgb(255,255,255)`) instead of relying on
-          // the terminal profile's dimmer default foreground.
-          result.push(<Text key={`md_${idx++}`} color={theme.text}>{buffer.trim()}</Text>);
+          // into the surrounding gap={1} spacing. defaultColor={theme.text}
+          // keeps ANSI resets on the same dark-theme foreground instead of the
+          // terminal profile's default foreground.
+          result.push(<AnsiText key={`md_${idx++}`} defaultColor={theme.text}>{buffer.trim()}</AnsiText>);
           buffer = '';
         }
       };

@@ -100,7 +100,14 @@ export async function runTurn({
 
   const refreshStatus = async () => {
     try {
-      const line = await renderStatusline({ provider: runtime.provider, model: runtime.model, cwd, stats });
+      const line = await renderStatusline({
+        provider: runtime.provider,
+        model: runtime.model,
+        cwd,
+        stats,
+        contextWindow: runtime.contextWindow,
+        rawContextWindow: runtime.rawContextWindow,
+      });
       statusText.setText(line);
       tui.requestRender();
     } catch {

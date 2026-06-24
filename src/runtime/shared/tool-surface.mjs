@@ -127,9 +127,10 @@ export function displayToolName(name, args = {}) {
       return 'Run';
     case 'grep':
     case 'glob':
-    case 'search':
     case 'tool_search':
       return 'Search';
+    case 'search':
+      return 'Web Search';
     case 'web_fetch':
     case 'fetch':
     case 'download_attachment':
@@ -195,6 +196,12 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       return truncateToolText(a.description || a.command || a.cmd || '', max);
     case 'job_wait':
       return compactParts([a.action || a.type || 'job', a.jobId || a.id || '']);
+    case 'list':
+    case 'ls':
+      return compactParts([
+        displayToolPath(a.path ?? a.dir ?? a.cwd ?? ''),
+        a.head_limit || a.limit ? `${a.head_limit ?? a.limit} entries` : '',
+      ]);
     case 'grep':
       if (!a.pattern && !a.query) return '';
       return compactParts([
@@ -209,7 +216,7 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         a.path ? `in ${displayToolPath(a.path)}` : '',
       ]);
     case 'search':
-      return compactParts(['web', quoted(a.query || '', max)]);
+      return quoted(a.query || '', max);
     case 'tool_search':
       return quoted(firstText(a.query, a.q, a.text), max);
     case 'web_fetch':

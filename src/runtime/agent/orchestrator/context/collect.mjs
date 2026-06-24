@@ -89,19 +89,9 @@ export function collectSkills(cwd) {
     // shard key and fragment the cache.
     const projectDir = (typeof cwd === 'string' && cwd.length > 0) ? cwd : null;
     const skills = [];
-    const dirs = [
-        join(homedir(), '.claude', 'skills'),
-    ];
+    const dirs = [];
     if (projectDir) {
         dirs.push(join(projectDir, '.claude', 'skills'));
-    }
-    // Plugin skill directories
-    const pluginBase = join(homedir(), '.claude', 'plugins', 'marketplaces');
-    if (existsSync(pluginBase)) {
-        try {
-            walkForSkills(pluginBase, dirs);
-        }
-        catch { /* ignore */ }
     }
     const seen = new Set();
     for (const dir of dirs) {
@@ -140,13 +130,9 @@ const _MTIME_TTL_MS = 2000;
 export function collectSkillsCached(cwd) {
     const key = cwd ?? '';
     const projectDir = (typeof cwd === 'string' && cwd.length > 0) ? cwd : null;
-    const mtimePaths = [join(homedir(), '.claude', 'skills')];
+    const mtimePaths = [];
     if (projectDir) mtimePaths.push(join(projectDir, '.claude', 'skills'));
-    const pluginBase = join(homedir(), '.claude', 'plugins', 'marketplaces');
     const skillsDirs = [...mtimePaths];
-    if (existsSync(pluginBase)) {
-        try { walkForSkills(pluginBase, skillsDirs); } catch { /* ignore */ }
-    }
     let mtime;
     const mtimeCached = _mtimeCache.get(key);
     if (mtimeCached && Date.now() - mtimeCached.checkedAt < _MTIME_TTL_MS) {

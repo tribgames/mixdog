@@ -520,7 +520,18 @@ export async function renderStatusLine(ccJsonInput) {
     return Number.isFinite(n) ? Math.floor(n) : null;
   }
 
-  const ctxInt    = roundPct(CC_CTX_USED);
+  function contextPct(s) {
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
+  }
+
+  function formatContextPct(pct) {
+    if (pct === null) return '';
+    if (pct > 0 && pct < 1) return String(Math.round(pct * 10) / 10);
+    return String(Math.floor(pct));
+  }
+
+  const ctxPct    = contextPct(CC_CTX_USED);
   const rl5hInt   = roundPct(CC_RL_5H);
   const rl7dInt   = roundPct(CC_RL_7D);
 
@@ -566,18 +577,19 @@ export async function renderStatusLine(ccJsonInput) {
     }
   }
 
-  if (ctxInt !== null) {
-    const fill = ctxInt >= 90 ? RED : ctxInt >= 70 ? YLW : GRN;
+  if (ctxPct !== null) {
+    const fill = ctxPct >= 90 ? RED : ctxPct >= 70 ? YLW : GRN;
+    const ctxLabel = formatContextPct(ctxPct);
     let barOut = '';
-    if      (COLS >= 120) barOut = makeBar(ctxInt, 14);
-    else if (COLS >= 80)  barOut = makeBar(ctxInt, 8);
+    if      (COLS >= 120) barOut = makeBar(ctxPct, 14);
+    else if (COLS >= 80)  barOut = makeBar(ctxPct, 8);
     if (barOut) {
       const filledPart = barOut.replace(/░/g, '');
       const emptyPart  = barOut.replace(/▓/g, '');
       const bar        = `${fill}${filledPart}${R}${D}${emptyPart}${R}`;
-      addL1(`${bar} ${ctxInt}%`);
+      addL1(`${bar} ${ctxLabel}%`);
     } else {
-      addL1(`${fill}${ctxInt}%${R}`);
+      addL1(`${fill}${ctxLabel}%${R}`);
     }
   }
 

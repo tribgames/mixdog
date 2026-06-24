@@ -242,6 +242,16 @@ export function deleteSchedule(name) {
   return { name: id, deleted: true };
 }
 
+export function setScheduleEnabled(name, enabled) {
+  const id = assertName(name, 'schedule name');
+  const dir = join(schedulesDir(), id);
+  const configPath = join(dir, 'config.json');
+  if (!existsSync(configPath)) throw new Error(`schedule "${id}" does not exist`);
+  const config = readJson(configPath, {});
+  writeJsonAtomic(configPath, { ...config, enabled: enabled !== false });
+  return { name: id, enabled: enabled !== false };
+}
+
 export function listWebhooks() {
   return listEntryDirs(webhooksDir()).map((name) => {
     const dir = join(webhooksDir(), name);
@@ -264,6 +274,7 @@ export function saveWebhook({
   secret,
   channel,
   model,
+  enabled,
   instructions,
   overwrite = false,
 } = {}) {
@@ -284,6 +295,7 @@ export function saveWebhook({
   };
   if (channel) config.channel = String(channel).trim();
   if (model) config.model = String(model).trim();
+  if (enabled === false) config.enabled = false;
   writeJsonAtomic(join(dir, 'config.json'), config);
   writeTextAtomic(join(dir, 'instructions.md'), body + '\n');
   return { name: id, ...config, instructions: body };
@@ -293,6 +305,16 @@ export function deleteWebhook(name) {
   const id = assertName(name, 'webhook name');
   rmSync(join(webhooksDir(), id), { recursive: true, force: true });
   return { name: id, deleted: true };
+}
+
+export function setWebhookEnabled(name, enabled) {
+  const id = assertName(name, 'webhook name');
+  const dir = join(webhooksDir(), id);
+  const configPath = join(dir, 'config.json');
+  if (!existsSync(configPath)) throw new Error(`webhook "${id}" does not exist`);
+  const config = readJson(configPath, {});
+  writeJsonAtomic(configPath, { ...config, enabled: enabled !== false });
+  return { name: id, enabled: enabled !== false };
 }
 
 export function channelSetup(config = null) {

@@ -144,7 +144,14 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
       }
 
       // Per-turn statusline footer.
-      stdout.write('\n' + (await renderStatusline({ provider: runtime.provider, model: runtime.model, cwd, stats })) + '\n');
+      stdout.write('\n' + (await renderStatusline({
+        provider: runtime.provider,
+        model: runtime.model,
+        cwd,
+        stats,
+        contextWindow: runtime.contextWindow,
+        rawContextWindow: runtime.rawContextWindow,
+      })) + '\n');
     } catch (error) {
       stdout.write('\n' + red(`[error] ${error?.message || error}`) + '\n');
     }
@@ -215,7 +222,12 @@ async function handleSlash(line, ctx) {
       stdout.write(colorEnabled() ? '\x1b[2J\x1b[3J\x1b[H' : '\n');
       stdout.write(dim('conversation reset.') + '\n');
       stdout.write((await renderStatusline({
-        provider: ctx.runtime.provider, model: ctx.runtime.model, cwd: ctx.cwd, stats: ctx.stats,
+        provider: ctx.runtime.provider,
+        model: ctx.runtime.model,
+        cwd: ctx.cwd,
+        stats: ctx.stats,
+        contextWindow: ctx.runtime.contextWindow,
+        rawContextWindow: ctx.runtime.rawContextWindow,
       })) + '\n');
       return;
 

@@ -31,6 +31,20 @@ const MEMORY_RUNTIME = join(RUNTIME, 'memory');
 const CHANNELS_RUNTIME = join(RUNTIME, 'channels');
 
 const CHECK = process.argv.includes('--check');
+const WRITE_ENABLED = process.env.MIXDOG_ENABLE_RUNTIME_SYNC === '1';
+
+if (!CHECK && !WRITE_ENABLED) {
+  console.error([
+    '[sync] write mode is disabled.',
+    '',
+    'This script rewrites sync-managed runtime files from ../mixdog/src and can clobber local work.',
+    'Use `node scripts/sync-runtime.mjs --check` to inspect drift without writing.',
+    '',
+    'To intentionally re-vendor after coordinating ownership, run:',
+    '  MIXDOG_ENABLE_RUNTIME_SYNC=1 node scripts/sync-runtime.mjs',
+  ].join('\n'));
+  process.exit(2);
+}
 
 // Entry modules whose import closure defines the ported runtime.
 const ENTRIES = [
