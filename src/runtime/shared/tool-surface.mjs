@@ -15,6 +15,19 @@ export function truncateToolText(value, max = DEFAULT_SUMMARY_MAX) {
   return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
+function truncateSingleLine(value, max = DEFAULT_SUMMARY_MAX) {
+  return truncateToolText(String(value ?? '').replace(/\s+/g, ' '), max);
+}
+
+function truncateCommand(value, max = DEFAULT_SUMMARY_MAX) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  const lines = text.split('\n');
+  let out = lines.length > 2 ? `${lines.slice(0, 2).join(' ')}...` : lines.join(' ');
+  out = out.replace(/\s+/g, ' ').trim();
+  return out.length > max ? `${out.slice(0, Math.max(1, max - 3))}...` : out;
+}
+
 export function parseToolArgs(args) {
   if (!args) return {};
   if (typeof args === 'string') {
@@ -206,7 +219,7 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'bash':
     case 'bash_session':
     case 'shell_command':
-      return truncateToolText(a.description || a.command || a.cmd || '', max);
+      return truncateCommand(a.description || a.command || a.cmd || '', max);
     case 'job_wait':
       return compactParts([a.action || a.type || 'job', a.jobId || a.id || '']);
     case 'list':
@@ -218,15 +231,15 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'grep':
       if (!a.pattern && !a.query) return '';
       return compactParts([
-        quoted(a.pattern ?? a.query, max),
-        a.path ? `in ${displayToolPath(a.path)}` : '',
+        `pattern: ${quoted(a.pattern ?? a.query, max)}`,
+        a.path ? `path: ${displayToolPath(a.path)}` : '',
         a.glob ? `glob ${a.glob}` : '',
       ]);
     case 'glob':
       if (!a.pattern && !a.glob) return '';
       return compactParts([
-        quoted(a.pattern ?? a.glob, max),
-        a.path ? `in ${displayToolPath(a.path)}` : '',
+        `pattern: ${quoted(a.pattern ?? a.glob, max)}`,
+        a.path ? `path: ${displayToolPath(a.path)}` : '',
       ]);
     case 'search':
       return quoted(a.query || '', max);
@@ -281,7 +294,7 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       return compactParts([
         a.type || a.action || a.mode || '',
         a.role || a.name || a.subagent_type || a.tag || a.sessionId || a.jobId || '',
-        truncateToolText(firstText(a.description, a.prompt, a.message), Math.min(max, 80)),
+        truncateSingleLine(firstText(a.description, a.prompt, a.message), Math.min(max, 80)),
       ]);
     case 'code_graph':
       return codeGraphSummary(a, max);
@@ -347,6 +360,36 @@ function looksLineOriented(text) {
   return longLines === 0;
 }
 
+function summarizeUpdateResult(text, args) {
+  const changed = [];
+  for (const line of String(text ?? '').split('\n')) {
+    const ok = /^\s*OK\s+(modify|add|delete|create)\s+(.+?)(?:\s+([±+\-]\S+))?\s*$/i.exec(line);
+    if (ok) {
+      changed.push({ action: ok[1].toLowerCase(), path: ok[2].trim(), delta: ok[3] || '' });
+      continue;
+    }
+    const edited = /^\s*(Edited|Created|Updated|Wrote):\s+(.+?)(?:\s+\(([^)]+)\))?\s*$/i.exec(line);
+    if (edited) {
+      changed.push({ action: edited[1].toLowerCase(), path: edited[2].trim(), delta: edited[3] || '' });
+    }
+  }
+  if (changed.length === 1) {
+    const item = changed[0];
+    const action = item.action === 'delete' ? 'Deleted' : item.action === 'add' || item.action === 'create' || item.action === 'created' ? 'Created' : 'Updated';
+    return compactParts([`${action} ${displayToolPath(item.path)}`, item.delta]);
+  }
+  if (changed.length > 1) {
+    const names = changed.slice(0, 2).map((item) => displayToolPath(item.path)).join(', ');
+    const extra = changed.length > 2 ? ` +${changed.length - 2} more` : '';
+    return `Updated ${changed.length} files · ${names}${extra}`;
+  }
+
+  const parsedArgs = parseToolArgs(args);
+  const target = parsedArgs.path ?? parsedArgs.file ?? parsedArgs.file_path ?? '';
+  if (target) return `Updated ${displayToolPath(target)}`;
+  return null;
+}
+
 /**
  * Derive a short semantic one-liner for a completed tool call using only the
  * tool name, parsed args, and the raw result text. Returns null when nothing
@@ -370,6 +413,8 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     case 'write':
     case 'edit':
     case 'apply_patch': {
+      const updateSummary = summarizeUpdateResult(text, args);
+      if (updateSummary) return updateSummary;
       // Prefer explicit additions/removals hints if the result text states them.
       const add = /(\d+)\s+addition/i.exec(text);
       const rem = /(\d+)\s+removal/i.exec(text);

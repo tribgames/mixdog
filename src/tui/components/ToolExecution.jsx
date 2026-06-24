@@ -37,6 +37,17 @@ export const MAX_RESULT_LINES = 8;
 const TOOL_BLINK_MS = 500;
 const TOOL_HINT_DONE_COLOR = theme.subtle;
 
+function formatElapsed(ms) {
+  const n = Math.max(0, Number(ms || 0));
+  if (!Number.isFinite(n) || n <= 0) return '';
+  if (n < 1000) return `${Math.round(n)}ms`;
+  const seconds = n / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return `${minutes}m ${rest}s`;
+}
+
 function plural(count, singular, pluralText = `${singular}s`) {
   return count === 1 ? singular : pluralText;
 }
@@ -117,18 +128,46 @@ function truncateToWidth(text, maxWidth) {
   return `${out}…`;
 }
 
-export function ToolExecution({ name, args, result, isError, expanded, globalExpanded = false, columns = 80, attached = false, count = 1, completedCount = 0 }) {
+function isAgentTool(normalizedName) {
+  return normalizedName === 'bridge' || normalizedName === 'agent' || normalizedName === 'task';
+}
+
+function isOutputDetailTool(normalizedName, label) {
+  const n = String(normalizedName || '').toLowerCase();
+  const l = String(label || '').toLowerCase();
+  return new Set([
+    'bash', 'bash_session', 'shell_command',
+    'read', 'view_image', 'read_mcp_resource',
+    'grep', 'glob', 'search', 'web_fetch', 'fetch', 'crawl',
+    'list', 'ls', 'code_graph',
+    'recall', 'search_memories',
+  ]).has(n) || l === 'read' || l === 'search' || l === 'web search' || l === 'run';
+}
+
+function genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError }) {
+  const n = String(normalizedName || '').toLowerCase();
+  const l = String(label || '').toLowerCase();
+  if (isError) return hasResult ? firstResultLine : 'failed';
+  if (n === 'bash' || n === 'bash_session' || n === 'shell_command') {
+    return hasResult ? firstResultLine : '(no output)';
+  }
+  if (isOutputDetailTool(n, l)) {
+    return hasResult ? firstResultLine : 'completed';
+  }
+  if (l === 'update' || n === 'write' || n === 'edit' || n === 'apply_patch') return 'completed · no summary';
+  return 'completed';
+}
+
+export function ToolExecution({ name, args, result, isError, expanded, globalExpanded = false, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0 }) {
   const [blinkOn, setBlinkOn] = useState(true);
-  const { label, summary, normalizedName } = formatToolSurface(name, args);
+  const { label, summary, normalizedName, args: parsedArgs } = formatToolSurface(name, args);
   const groupCount = Math.max(1, Number(count || 1));
   const doneCount = Math.max(0, Math.min(groupCount, Number(completedCount || (result == null ? 0 : groupCount))));
   const resultText = result == null ? null : String(result).replace(/\s+$/, '');
   const pending = doneCount < groupCount;
-  const grouped = groupCount > 1;
-  const hasResult = result != null && String(resultText || '').trim();
+  const hasResult = result != null && Boolean(String(resultText || '').trim());
   const lines = resultText ? resultText.split('\n') : [];
   const totalLines = lines.length;
-  const shortOneLineResult = totalLines === 1 && String(resultText || '').length <= Math.max(40, Number(columns || 80) - 7);
   // Semantic one-line summary derived purely from name/args/result text.
   // Shown in the collapsed, non-error view in place of the raw result block.
   // Grouped cards ("Searched N files" / "Read N files") get the same treatment
@@ -136,17 +175,33 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
   const resultSummary = !pending && hasResult
     ? surfaceSummarizeToolResult(name, args, resultText, isError)
     : null;
-  const showResultSummary = Boolean(resultSummary) && !expanded && !isError;
-  // Grouped cards ("Searched N files" / "Read N files") still carry full
-  // result text. They must remain expandable: show their lines when expanded
-  // (or on error) and surface the ctrl+o hint while collapsed.
-  const showResult = hasResult && (isError || expanded || showResultSummary || (!grouped && shortOneLineResult));
-  const expandable = totalLines > MAX_RESULT_LINES;
-  const displayedLines = expanded ? lines : lines.slice(0, MAX_RESULT_LINES);
-  const hiddenCount = totalLines - displayedLines.length;
+  // Same fit budget fitResultLine() uses, to detect a line that will be clipped.
   const maxResultChars = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
-  const clippedLineCount = displayedLines.filter((line) => String(line ?? '').length > maxResultChars).length;
   const resultColor = isError ? theme.error : theme.text;
+  const firstResultLine = hasResult ? String(lines[0] ?? '') : '';
+  const firstResultLineClipped = hasResult && firstResultLine.length > maxResultChars;
+  const hasHiddenDetail = !pending && hasResult && (totalLines > 1 || firstResultLineClipped || Boolean(resultSummary));
+
+  const toolArgPath = parsedArgs?.path ?? parsedArgs?.file_path ?? parsedArgs?.file ?? '';
+  const imageDetail = normalizedName === 'view_image' && toolArgPath ? String(toolArgPath) : '';
+  const elapsed = !pending && startedAt && completedAt ? formatElapsed(completedAt - startedAt) : '';
+  const agentDetail = !pending && isAgentTool(normalizedName)
+    ? `${isError ? 'failed' : 'completed'}${elapsed ? ` in ${elapsed}` : ''}`
+    : '';
+  const genericDetail = !pending && !agentDetail && !imageDetail && !resultSummary
+    ? genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError })
+    : '';
+  const collapsedDetail = pending
+    ? (groupCount > 1 ? `pending · ${doneCount}/${groupCount} done` : 'pending')
+    : agentDetail || imageDetail || resultSummary || genericDetail;
+  const showRawResult = expanded && hasResult;
+  const detailLines = showRawResult ? lines : [collapsedDetail];
+  const detailIsSynthetic = pending || agentDetail || resultSummary || imageDetail || (genericDetail && genericDetail !== firstResultLine);
+  const detailColor = detailIsSynthetic
+    ? isError ? theme.error : theme.subtle
+    : hasResult
+      ? resultColor
+      : theme.inactive;
 
   useEffect(() => {
     if (!pending) return undefined;
@@ -156,29 +211,24 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
 
   const dotColor = pending ? theme.subtle : isError ? theme.error : theme.success;
   const dotText = pending && !blinkOn ? ' ' : TURN_MARKER;
-  const labelText = grouped
-    ? statusCopy(normalizedName, label, groupCount, doneCount, pending, isError)
-    : label;
+  const labelText = statusCopy(normalizedName, label, groupCount, doneCount, pending, isError);
   // Show the parenthesized arg summary for grouped cards too, matching single
   // calls so the header carries the same context.
   const summaryText = summary;
-  // When the semantic summary stands in for raw lines, still signal that the
-  // full detail can be expanded with ctrl+o. Grouped cards collapse their raw
-  // result block, so expose the hint whenever they actually carry result text.
-  const groupedHasDetail = grouped && !pending && hasResult && totalLines > 0;
-  const showHeaderExpandHint =
-    !expanded && !globalExpanded && (pending || hiddenCount > 0 || showResultSummary || groupedHasDetail);
+  const showHeaderExpandHint = hasHiddenDetail;
   const expandHintColor = TOOL_HINT_DONE_COLOR;
 
   // Build a single-line header that never wraps: reserve width for the fixed
-  // trailing segments (pending dots + expand hint) plus the dot gutter and a
-  // 1-col Windows last-column safety margin, then truncate label/summary to fit.
+  // trailing expand hint plus the dot gutter and a 1-col Windows last-column
+  // safety margin, then truncate label/summary to fit. Pending state is already
+  // shown by the verb (Running/Reading/etc.), the blinking dot, and the detail
+  // row, so avoid an extra standalone ellipsis between parenthesized segments.
   const gutter = 2;
-  const hintText = showHeaderExpandHint ? ' (ctrl+o to expand)' : '';
-  const pendingMark = pending ? ' …' : '';
+  const hintLabel = showHeaderExpandHint ? `ctrl+o ${expanded ? 'collapse' : 'expand'}` : '';
+  const hintText = hintLabel ? ` · ${hintLabel}` : '';
   const avail = Math.max(
     1,
-    (Number(columns) || 80) - 1 - gutter - stringWidth(pendingMark) - stringWidth(hintText),
+    (Number(columns) || 80) - 1 - gutter - stringWidth(hintText),
   );
   let labelOut;
   let summaryOut;
@@ -191,9 +241,10 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
     // Cap by both the remaining header width and a fixed max so long
     // paths/queries get an ellipsis instead of dominating the line.
     const summaryWidth = Math.max(0, Math.min(summaryBudget, SUMMARY_MAX_CHARS));
-    summaryOut = summaryText
-      ? ` (${truncateToWidth(summaryText, summaryWidth)})`
+    const truncatedSummary = summaryText && summaryWidth > 0
+      ? truncateToWidth(summaryText, summaryWidth)
       : '';
+    summaryOut = truncatedSummary ? ` (${truncatedSummary})` : '';
   }
   return (
     <Box flexDirection="column" marginTop={attached ? 0 : 1}>
@@ -204,38 +255,24 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
         <Text wrap="truncate">
           <Text bold color={theme.text}>{labelOut}</Text>
           {summaryOut ? <Text color={theme.text}>{summaryOut}</Text> : null}
-          {pending ? <Text color={theme.inactive}>{' …'}</Text> : null}
           {showHeaderExpandHint ? <Text color={expandHintColor}>{hintText}</Text> : null}
         </Text>
       </Box>
 
-      {showResult ? (
-        <Box flexDirection="row">
-          <Box flexShrink={0}>
-            <Text color={theme.subtle}>{'  ⎿  '}</Text>
-          </Box>
-          <Box flexDirection="column" flexShrink={1} flexGrow={1}>
-            {showResultSummary ? (
-              <Text color={theme.subtle}>{fitResultLine(resultSummary, columns)}</Text>
-            ) : displayedLines.length === 0 ? (
-              <Text color={theme.inactive}>(no output)</Text>
-            ) : (
-              displayedLines.map((line, i) => (
-                <Text key={i} color={resultColor}>{fitResultLine(line || ' ', columns)}</Text>
-              ))
-            )}
-            {!showResultSummary && clippedLineCount > 0 ? (
-              <Text color={theme.subtle}>{`… (${clippedLineCount} long line${clippedLineCount === 1 ? '' : 's'} clipped to terminal width)`}</Text>
-            ) : null}
-            {!showResultSummary && !expanded && hiddenCount > 0 ? (
-              <Text color={TOOL_HINT_DONE_COLOR}>{`… (+${hiddenCount} more line${hiddenCount === 1 ? '' : 's'}) · ctrl+o expand all`}</Text>
-            ) : null}
-            {expanded && expandable ? (
-              <Text color={TOOL_HINT_DONE_COLOR}>{globalExpanded ? 'ctrl+o collapse all' : 'ctrl+o collapse'}</Text>
-            ) : null}
-          </Box>
+      <Box flexDirection="row">
+        <Box flexShrink={0}>
+          <Text color={theme.subtle}>{'  ⎿  '}</Text>
         </Box>
-      ) : null}
+        <Box flexDirection="column" flexShrink={1} flexGrow={1}>
+          {detailLines.length === 0 ? (
+            <Text color={theme.inactive}>(no output)</Text>
+          ) : (
+            detailLines.map((line, i) => (
+              <Text key={i} color={showRawResult ? resultColor : detailColor}>{fitResultLine(line || ' ', columns)}</Text>
+            ))
+          )}
+        </Box>
+      </Box>
     </Box>
   );
 }

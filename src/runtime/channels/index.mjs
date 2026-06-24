@@ -56,7 +56,7 @@ import {
   cleanupInstanceRuntimeFiles,
   releaseOwnedChannelLocks,
   clearActiveInstance,
-  killAllPreviousServers,
+  notePreviousServerIfAny,
   writeServerPid,
   clearServerPid,
   RUNTIME_ROOT
@@ -307,7 +307,7 @@ function dropTrace(event, fields) {
 ensureRuntimeDirs();
 cleanupStaleRuntimeFiles();
 if (!_isWorkerMode) {
-  killAllPreviousServers();
+  notePreviousServerIfAny();
   writeServerPid();
   // Publish owner identity immediately so the SessionStart shim's
   // owner_lead_alive() sees a live owner and uses the full connect budget

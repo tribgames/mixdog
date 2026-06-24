@@ -9,20 +9,22 @@
  * Dark-fixed for now (terminal background detection can pick light later).
  */
 export const theme = {
+  background: 'rgb(13,13,13)', // opaque TUI surface; masks clipped scrollback behind fixed rows
   claude: 'rgb(215,119,87)', // orange title/header accent
   claudeShimmer: 'rgb(235,159,127)',
   mixdogOrange: 'rgb(215,119,87)',
   mixdogAmber: 'rgb(235,159,127)',
   mixdogIvory: 'rgb(232,226,215)',
   spinnerGlyph: 'rgb(215,119,87)',
-  spinnerText: 'rgb(198,198,198)',
-  spinnerShimmer: 'rgb(235,159,127)',
-  thinkingAccent: 'rgb(215,119,87)',
-  thinkingText: 'rgb(220,220,220)', // completed "Thought for Ns" — quiet near-white
-  thinkingBase: 'rgb(205,128,92)',  // bright orange base — readable while idle
-  thinkingGlow: 'rgb(255,214,186)', // bright highlight — strong, even sweep contrast
+  spinnerText: 'rgb(215,119,87)',
+  spinnerShimmer: 'rgb(255,214,186)',
+  thinkingAccent: 'rgb(168,168,168)',
+  thinkingText: 'rgb(198,198,198)', // live reasoning body text
+  thinkingBase: 'rgb(168,168,168)',  // quiet base; thinking rows should not compete with answers
+  thinkingGlow: 'rgb(220,220,220)', // subtle highlight for the thinking shimmer
   statusText: 'rgb(198,198,198)',
   statusSubtle: 'rgb(168,168,168)',
+  timerText: 'rgb(168,168,168)', // live elapsed timer — metadata weight, no bright accent
   text: 'rgb(198,198,198)', // Claude Code-like primary text
   inverseText: 'rgb(0,0,0)', // text on an inverted (light) background
   inactive: 'rgb(136,136,136)', // secondary text

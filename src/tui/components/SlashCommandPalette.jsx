@@ -41,7 +41,7 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
         paddingX={1}
         width="100%"
       >
-        <Box flexDirection="row" justifyContent="space-between">
+        <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
           <Text color={theme.panelTitle}>{title}</Text>
           <Text color={theme.subtle}>↑↓ · → bottom · Enter · Tab · Esc</Text>
         </Box>

@@ -18,7 +18,9 @@ const VENDOR = join(ROOT, 'vendor', 'ink', 'build');
 const TARGET = join(ROOT, 'node_modules', 'ink', 'build');
 
 // The files that carry the `mixdog fork` patches (cursor + mouse selection).
-const FILES = ['output.js', 'render-node-to-output.js', 'renderer.js', 'ink.js', 'render.js'];
+// Keep cursor-helpers.js and log-update.js together: fullscreen cursor origin
+// fixes need both the helper signature and the caller-side origin calculation.
+const FILES = ['output.js', 'render-node-to-output.js', 'renderer.js', 'ink.js', 'render.js', 'cursor-helpers.js', 'log-update.js'];
 const MARKER = 'mixdog fork';
 
 function main() {

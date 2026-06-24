@@ -237,8 +237,10 @@ export function loadConfig() {
                 default: raw.default || null,
                 maintenance: { ...DEFAULT_MAINTENANCE, ...rawMaint },
                 workflowRoutes: raw.workflowRoutes && typeof raw.workflowRoutes === 'object' ? raw.workflowRoutes : {},
+                fastModels: raw.fastModels && typeof raw.fastModels === 'object' ? raw.fastModels : {},
                 onboarding: raw.onboarding && typeof raw.onboarding === 'object' ? raw.onboarding : {},
                 agentMaintenance: { enabled: true, interval: '1h', ...raw.agentMaintenance },
+                autoClear: { enabled: true, idleMs: 60 * 60 * 1000, ...raw.autoClear },
                 trajectory: { enabled: true, ...raw.trajectory },
                 bridge: raw.bridge && typeof raw.bridge === 'object' ? raw.bridge : {},
             };
@@ -253,8 +255,10 @@ export function loadConfig() {
         default: null,
         maintenance: { ...DEFAULT_MAINTENANCE },
         workflowRoutes: {},
+        fastModels: {},
         onboarding: {},
         agentMaintenance: { enabled: true, interval: '1h' },
+        autoClear: { enabled: true, idleMs: 60 * 60 * 1000 },
         trajectory: { enabled: true },
         bridge: {},
     };
@@ -311,8 +315,10 @@ export function saveConfig(config) {
         default: config.default || null,
         maintenance: config.maintenance || {},
         workflowRoutes: config.workflowRoutes || {},
+        fastModels: config.fastModels || {},
         onboarding: config.onboarding || {},
         agentMaintenance: config.agentMaintenance || {},
+        autoClear: config.autoClear || {},
         trajectory: config.trajectory || {},
         bridge: config.bridge || {},
     }));

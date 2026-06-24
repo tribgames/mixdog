@@ -13,18 +13,18 @@
  * not under the dot (CC's NoSelect minWidth={2} behavior).
  */
 import React from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useAnimation } from 'ink';
 import { theme, TURN_MARKER } from '../theme.mjs';
-import { Markdown } from './Markdown.jsx';
+import { Markdown, StreamingMarkdown } from './Markdown.jsx';
 
-export const AssistantMessage = React.memo(function AssistantMessage({ text }) {
+export const AssistantMessage = React.memo(function AssistantMessage({ text, streaming = false }) {
   return (
     <Box flexDirection="row" marginTop={1}>
       <Box flexShrink={0} minWidth={2}>
         <Text color={theme.text}>{TURN_MARKER}</Text>
       </Box>
       <Box flexDirection="column" flexGrow={1}>
-        <Markdown>{text}</Markdown>
+        {streaming ? <StreamingMarkdown>{text}</StreamingMarkdown> : <Markdown>{text}</Markdown>}
       </Box>
     </Box>
   );
@@ -49,10 +49,24 @@ export const UserMessage = React.memo(function UserMessage({ text, attached = fa
   );
 });
 
-export function ThinkingMessage({ text }) {
+function formatThinkingElapsed(ms) {
+  const totalSec = Math.max(0, Math.round(Number(ms || 0) / 1000));
+  if (totalSec < 60) return `${totalSec}s`;
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+export function ThinkingMessage({ text, elapsedMs = 0, activeSince = 0 }) {
+  useAnimation({ interval: 250 });
+  const liveElapsedMs = Number(elapsedMs || 0) + (activeSince ? Math.max(0, Date.now() - activeSince) : 0);
+  const elapsed = liveElapsedMs > 0 ? formatThinkingElapsed(liveElapsedMs) : '';
   return (
     <Box flexDirection="column" marginTop={1} gap={1} width="100%">
-      <Text color={theme.thinkingAccent} italic>◈ Thinking…</Text>
+      <Text>
+        <Text color={theme.spinnerGlyph}>◈ </Text>
+        <Text color={theme.thinkingAccent}>{`Thinking${elapsed ? ` ${elapsed}` : ''}…`}</Text>
+      </Text>
       {text ? (
         <Box paddingLeft={2}>
           <Text color={theme.thinkingText} italic>{text}</Text>

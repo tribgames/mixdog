@@ -29,13 +29,18 @@ export function QueuedCommands({ queued, columns }) {
         // Content width = bandColumns(columns-1) - paddingLeft(2) - paddingRight(1)
         // = columns-4. When truncating we append '…' (1 cell), so the slice must
         // be columns-5 to keep the total at columns-4 and avoid a wrap to row 2.
+        const prefix = 'pending · ';
         const contentWidth = Math.max(1, columns - 4);
-        const displayText = item.text.length > contentWidth
-          ? item.text.slice(0, Math.max(1, contentWidth - 1)) + '…'
+        const textWidth = Math.max(1, contentWidth - prefix.length);
+        const displayText = item.text.length > textWidth
+          ? item.text.slice(0, Math.max(1, textWidth - 1)) + '…'
           : item.text;
         return (
           <Box key={item.id} width={bandColumns} backgroundColor={theme.userMessageBackground} paddingLeft={2} paddingRight={1}>
-            <Text color={theme.text} wrap="wrap">{displayText}</Text>
+            <Text wrap="wrap">
+              <Text color={theme.statusSubtle}>{prefix}</Text>
+              <Text color={theme.text}>{displayText}</Text>
+            </Text>
           </Box>
         );
       })}

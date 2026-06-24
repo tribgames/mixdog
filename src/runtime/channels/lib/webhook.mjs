@@ -1,7 +1,7 @@
 import * as http from "http";
 import * as crypto from "crypto";
 import { join } from "path";
-import { spawn, spawnSync, execSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import { DATA_DIR, isInQuietWindow } from "./config.mjs";
 import { getWebhookAuthtoken } from "../../shared/config.mjs";
 import { appendFileSync, readFileSync, readdirSync, mkdirSync, writeFileSync, unlinkSync, existsSync, renameSync, watch as fsWatch } from "fs";
@@ -458,11 +458,6 @@ function isProcessAlive(pid) {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-function decidePortReclaimAction({ ownerPid, ownerAlive, ownerIsNgrok }) {
-  if (ownerPid != null && ownerPid > 0 && ownerAlive && !ownerIsNgrok) return "bump";
-  return "reclaim";
-}
-
 // Strict PID extraction: the first non-empty output line must be decimal-only.
 // `123junk` / any non-numeric noise → null, so a malformed shell result can
 // never be coerced into a real PID we might later signal or kill.
@@ -495,75 +490,14 @@ function resolvePortOwnerPid(port) {
   }
 }
 
-async function killNgrokIfLikely(pid) {
-  if (!pid || pid <= 0) return;
-  if (!isLikelyNgrok(pid)) {
-    logWebhook(`skip kill: PID ${pid} is not an ngrok process (recycled-PID guard)`);
-    return;
-  }
-  try {
-    if (process.platform === "win32") {
-      execSync(`taskkill /T /F /PID ${pid}`, { timeout: 3000, windowsHide: true });
-    } else {
-      try { execSync(`kill -KILL -${pid}`, { timeout: 3000, windowsHide: true }); }
-      catch { execSync(`kill -KILL ${pid}`, { timeout: 3000, windowsHide: true }); }
-    }
-    logWebhook(`killed ngrok PID ${pid} during port reclaim`);
-  } catch (e) {
-    logWebhook(`ngrok kill PID ${pid} failed: ${e?.message || e}`);
-  }
-}
-
-async function attemptReclaimWebhookPort(basePort, expectedDomain) {
+async function handleWebhookPortInUse(basePort, expectedDomain) {
   const ownerPid = resolvePortOwnerPid(basePort);
   const ownerAlive = ownerPid != null && isProcessAlive(ownerPid);
   const ownerIsNgrok = ownerAlive && isLikelyNgrok(ownerPid);
-  const action = decidePortReclaimAction({ ownerPid, ownerAlive, ownerIsNgrok });
-  if (action === "bump") {
-    return { ok: false, bump: true, ownerPid };
-  }
-
   logWebhook(
-    `port ${basePort} EADDRINUSE — self-heal reclaim (owner PID ${ownerPid ?? "unknown"}, alive=${ownerAlive}, ngrok=${ownerIsNgrok})`,
+    `port ${basePort} EADDRINUSE — not reclaiming external PID ${ownerPid ?? "unknown"} (alive=${ownerAlive}, ngrok=${ownerIsNgrok}); trying next port`,
   );
-
-  if (ownerAlive && ownerIsNgrok) {
-    await killNgrokIfLikely(ownerPid);
-  }
-
-  // Meta-PID kill is load-bearing: in the inherited-socket zombie case the
-  // port's netstat owner is the DEAD daemon PID while the socket is actually
-  // held by our orphaned ngrok recorded in ngrok-meta.json — killing it is the
-  // only way to free the port. Domain-scope it (our own tunnel for THIS domain)
-  // so an unrelated ngrok is never killed; residual recycled-PID risk matches
-  // existing reclaimOrKillNgrok behavior (isLikelyNgrok + domain match).
-  const meta = readNgrokMeta();
-  if (
-    meta?.pid > 0 &&
-    isLikelyNgrok(meta.pid) &&
-    expectedDomain && meta.domain &&
-    normalizeDomain(meta.domain) === normalizeDomain(expectedDomain) &&
-    (!ownerAlive || meta.pid !== ownerPid)
-  ) {
-    await killNgrokIfLikely(meta.pid);
-  }
-
-  const deadline = Date.now() + 3000;
-  let portFree = false;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 250));
-    const pidNow = resolvePortOwnerPid(basePort);
-    if (pidNow == null) {
-      portFree = true;
-      break;
-    }
-    if (!isProcessAlive(pidNow)) continue;
-    if (isLikelyNgrok(pidNow)) await killNgrokIfLikely(pidNow);
-    else break;
-  }
-  if (!portFree) portFree = resolvePortOwnerPid(basePort) == null;
-  if (portFree) clearNgrokMeta();
-  return { ok: portFree, bump: !portFree, ownerPid };
+  return { ok: false, bump: true, ownerPid };
 }
 
 function checkNgrokHealth(expectedDomain, expectedPort = null) {
@@ -600,6 +534,7 @@ class WebhookServer {
   eventPipeline = null;
   bridgeDispatch = null;
   boundPort = 0;
+  listenInFlight = false;
   noSecretWarned = false;
   ngrokProcess = null;
   quiet = null;
@@ -627,7 +562,7 @@ class WebhookServer {
   }
   // ── HTTP server ───────────────────────────────────────────────────
   start() {
-    if (this.server) return;
+    if (this.server || this.listenInFlight) return;
     this.server = http.createServer((req, res) => this._handleRequest(req, res));
     this._listenWithRetry();
   }
@@ -924,12 +859,15 @@ class WebhookServer {
     return false;
   }
   _listenWithRetry() {
+    if (!this.server || this.listenInFlight) return;
+    this.listenInFlight = true;
     const basePort = this.config.port || 3333;
     const maxPort = basePort + 7;
     let currentPort = basePort;
     let baseReclaimAttempted = false;
     const tryListen = () => {
       this.server.listen(currentPort, () => {
+        this.listenInFlight = false;
         this.boundPort = currentPort;
         logWebhook(`listening on port ${currentPort}`);
         this.startNgrok();
@@ -938,7 +876,7 @@ class WebhookServer {
     this.server.on("error", (err) => {
       if (err.code === "EADDRINUSE" && currentPort === basePort && !baseReclaimAttempted) {
         baseReclaimAttempted = true;
-        void attemptReclaimWebhookPort(basePort, this.config.ngrokDomain || this.config.domain).then((result) => {
+        void handleWebhookPortInUse(basePort, this.config.ngrokDomain || this.config.domain).then((result) => {
           if (result.ok) {
             currentPort = basePort;
             logWebhook(`reclaimed base port ${basePort}, retrying bind`);
@@ -955,6 +893,7 @@ class WebhookServer {
           }
           if (err.code === "EADDRINUSE") {
             logWebhook(`all ports ${basePort}-${maxPort} in use \u2014 webhook server disabled`);
+            this.listenInFlight = false;
             this.server = null;
           }
         });
@@ -966,11 +905,13 @@ class WebhookServer {
         tryListen();
       } else if (err.code === "EADDRINUSE") {
         logWebhook(`all ports ${basePort}-${maxPort} in use \u2014 webhook server disabled`);
+        this.listenInFlight = false;
         this.server = null;
       } else {
         // Non-EADDRINUSE listen error: null the server so a later start()
         // can retry instead of holding a dead server reference.
         logWebhook(`listen error: ${err?.code || ""} ${err?.message || err}`);
+        this.listenInFlight = false;
         this.server = null;
       }
     });
@@ -979,9 +920,10 @@ class WebhookServer {
   /**
    * Check if a previous ngrok process can be reused.
    * Returns true if the existing ngrok is alive, healthy, and serving the right domain.
-   * Returns false (and kills the old process if needed) otherwise.
+   * Returns false otherwise. External processes are never killed; stale or
+   * incompatible metadata is ignored so another terminal's tunnel stays alive.
    */
-  async reclaimOrKillNgrok(domain, expectedPort = null) {
+  async reuseNgrokIfHealthy(domain, expectedPort = null) {
     const meta = readNgrokMeta();
     if (!meta || !(meta.pid > 0)) {
       clearNgrokMeta();
@@ -990,24 +932,17 @@ class WebhookServer {
 
     const { pid } = meta;
 
-    // Metadata domain mismatch — different config, kill (guard recycled PID)
+    // Metadata domain mismatch — different config. Do not kill another terminal's tunnel.
     if (meta.domain && normalizeDomain(meta.domain) !== normalizeDomain(domain)) {
-      logWebhook(`ngrok meta domain mismatch (${meta.domain} vs ${domain}), killing PID ${pid}`);
-      await killNgrokIfLikely(pid);
+      logWebhook(`ngrok meta domain mismatch (${meta.domain} vs ${domain}), ignoring PID ${pid}`);
       clearNgrokMeta();
       return false;
     }
     if (expectedPort && meta.port && Number(meta.port) !== Number(expectedPort)) {
-      // A tunnel forwarding to the OLD local port cannot serve the server
-      // now bound to a DIFFERENT port — reusing it silently desyncs ngrok
-      // from the live listener, so every external delivery hits a dead
-      // port (the exact webhook-down failure this guards against). Always
-      // repoint: kill the stale tunnel and return false so the caller
-      // (startNgrok) spawns a fresh ngrok on the actual boundPort. The
-      // old cross-instance "ping-pong" concern is moot under the
-      // single-mixdog-instance invariant.
-      logWebhook(`ngrok meta port mismatch (${meta.port} vs ${expectedPort}) — repointing tunnel to local:${expectedPort}, killing PID ${pid}`);
-      await killNgrokIfLikely(pid);
+      // A tunnel forwarding to the OLD local port cannot serve this server.
+      // Ignore the metadata and let this process try its own tunnel without
+      // touching the existing process.
+      logWebhook(`ngrok meta port mismatch (${meta.port} vs ${expectedPort}) — ignoring PID ${pid}`);
       clearNgrokMeta();
       return false;
     }
@@ -1016,8 +951,7 @@ class WebhookServer {
     // ngrok free-tier tunnels expire after ~2h but paid/reserved-domain
     // tunnels survive much longer; 24h is a safe conservative ceiling).
     if (meta.startedAt && (Date.now() - new Date(meta.startedAt).getTime()) > NGROK_MAX_AGE_MS) {
-      logWebhook(`ngrok meta stale (started ${meta.startedAt}), killing PID ${pid}`);
-      await killNgrokIfLikely(pid);
+      logWebhook(`ngrok meta stale (started ${meta.startedAt}), ignoring PID ${pid}`);
       clearNgrokMeta();
       return false;
     }
@@ -1039,9 +973,8 @@ class WebhookServer {
       return true;
     }
 
-    // Alive but tunnel unhealthy — kill (guard recycled PID)
-    logWebhook(`ngrok PID ${pid} alive but tunnel unhealthy, killing`);
-    await killNgrokIfLikely(pid);
+    // Alive but tunnel unhealthy. Leave it alone; it may belong to another terminal.
+    logWebhook(`ngrok PID ${pid} alive but tunnel unhealthy, ignoring`);
     clearNgrokMeta();
     return false;
   }
@@ -1068,7 +1001,7 @@ class WebhookServer {
     }
 
     // Try to reuse an existing ngrok process
-    const reused = await this.reclaimOrKillNgrok(domain, this.boundPort);
+    const reused = await this.reuseNgrokIfHealthy(domain, this.boundPort);
     if (reused) {
       return;
     }
@@ -1142,7 +1075,7 @@ class WebhookServer {
   }
   stop() {
     // Intentionally do NOT kill ngrok — let it survive across MCP restarts.
-    // The next start() will reuse it via reclaimOrKillNgrok().
+    // The next start() can reuse it if reuseNgrokIfHealthy() validates it.
     if (this.ngrokProcess) {
       this.ngrokProcess = null;
     }
@@ -1154,6 +1087,7 @@ class WebhookServer {
     if (this.server) {
       const srv = this.server;
       this.server = null;
+      this.listenInFlight = false;
       closed = new Promise((resolve) => {
         try {
           srv.close(() => resolve());
@@ -1327,5 +1261,4 @@ ${payload}
 }
 export {
   WebhookServer,
-  decidePortReclaimAction,
 };

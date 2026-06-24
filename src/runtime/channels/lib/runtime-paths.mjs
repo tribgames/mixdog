@@ -362,77 +362,7 @@ function looksLikeTribChannelsServer(pid) {
     return false;
   }
 }
-function waitForExit(pid, timeoutMs) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return true;
-    }
-    // Use a short synchronous pause via a tiny Atomics spin on a shared buffer
-    // so the event loop is not fully starved. Kept synchronous because callers
-    // (killSinglePid) are sync; 100 ms sleep via Atomics.wait on a 1-element buffer.
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
-  }
-  return false;
-}
-function killSinglePid(pid) {
-  if (process.platform === "win32") {
-    // Capture creation time before kill to guard against PID reuse.
-    let _pidCreation = null;
-    try {
-      const _wmic = execFileSync("wmic", ["process", "where", `ProcessId=${pid}`, "get", "CreationDate", "/VALUE"], { encoding: "utf8", timeout: 3e3, windowsHide: true }).trim();
-      const _m = _wmic.match(/CreationDate=(\S+)/);
-      if (_m) _pidCreation = _m[1];
-    } catch { /* wmic unavailable — skip start_time guard */ }
-    if (_pidCreation !== null) {
-      // Re-verify: if a new process has already taken the PID, abort.
-      try {
-        const _check = execFileSync("wmic", ["process", "where", `ProcessId=${pid}`, "get", "CreationDate", "/VALUE"], { encoding: "utf8", timeout: 3e3, windowsHide: true }).trim();
-        const _cm = _check.match(/CreationDate=(\S+)/);
-        if (!_cm || _cm[1] !== _pidCreation) {
-          console.warn(`[singleton] PID ${pid} creation time changed — aborting kill (PID reuse detected)`);
-          return;
-        }
-      } catch { /* process gone — nothing to kill */ return; }
-    }
-    try {
-      execFileSync("taskkill", ["/F", "/T", "/PID", String(pid)], { encoding: "utf8", timeout: 5e3, windowsHide: true });
-    } catch (err) {
-      console.warn(`[singleton] taskkill failed for PID ${pid}:`, err.message);
-    }
-  } else {
-    // Capture start time before kill to guard against PID reuse.
-    let _pidStart = null;
-    try {
-      _pidStart = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", windowsHide: true }).trim();
-    } catch { /* ps unavailable — skip start_time guard */ }
-    if (_pidStart) {
-      try {
-        const _cs = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", windowsHide: true }).trim();
-        if (_cs !== _pidStart) {
-          console.warn(`[singleton] PID ${pid} start time changed — aborting kill (PID reuse detected)`);
-          return;
-        }
-      } catch { return; }
-    }
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch {
-    }
-    if (!waitForExit(pid, 2e3)) {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {
-      }
-      if (!waitForExit(pid, 1e3)) {
-        console.warn(`[singleton] failed to kill previous server PID ${pid}`);
-      }
-    }
-  }
-}
-function killAllPreviousServers() {
+function notePreviousServerIfAny() {
   try {
     const oldPid = parseInt(readFileSync(SERVER_PID_FILE, "utf8").trim(), 10);
     if (oldPid && oldPid !== process.pid && oldPid !== process.ppid) {
@@ -442,7 +372,7 @@ function killAllPreviousServers() {
         return;
       }
       if (looksLikeTribChannelsServer(oldPid) === true) {
-        killSinglePid(oldPid);
+        console.warn(`[singleton] previous server PID ${oldPid} is still alive; leaving it running`);
       }
     }
   } catch {
@@ -556,7 +486,7 @@ export {
   getStatusPath,
   getStopFlagPath,
   getTurnEndPath,
-  killAllPreviousServers,
+  notePreviousServerIfAny,
   makeInstanceId,
   readActiveInstance,
   refreshActiveInstance,

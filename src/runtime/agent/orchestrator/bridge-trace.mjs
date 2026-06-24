@@ -21,6 +21,7 @@ let _flushInFlight = false;
 let _localTracePath = null;
 let _localTraceBuffer = [];
 let _localTraceTimer = null;
+let _toolFailurePath = null;
 const _LOCAL_TRACE_FLUSH_LINES = 100;
 const _LOCAL_TRACE_FLUSH_MS = 1000;
 const _LOCAL_TRACE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — rotate to .1 above this.
@@ -390,7 +391,76 @@ function summarizeToolArgs(toolName, args) {
     return Object.keys(out).length ? out : null;
 }
 
-function traceBridgeTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, resultKind, model, resultText }) {
+function _resolveToolFailurePath() {
+    if (process.env.MIXDOG_TOOL_FAILURE_LOG_DISABLE === '1') return null;
+    if (_toolFailurePath) return _toolFailurePath;
+    try {
+        _toolFailurePath = process.env.MIXDOG_TOOL_FAILURE_LOG_PATH
+            || join(getPluginData(), 'history', 'tool-failures.jsonl');
+        mkdirSync(dirname(_toolFailurePath), { recursive: true, mode: 0o700 });
+        return _toolFailurePath;
+    } catch {
+        return null;
+    }
+}
+
+function _firstNonEmptyLine(text) {
+    return String(text ?? '').split(/\r?\n/).find((line) => line.trim())?.trim() || '';
+}
+
+function _redactLogText(text) {
+    if (typeof text !== 'string') return '';
+    let out = text;
+    out = out.replace(/(Authorization:\s*Bearer\s+)\S+/gi, '$1[redacted]');
+    out = out.replace(/([?&](?:token|api[-_]?key|access[-_]?token|auth|password|secret)=)[^&\s#]+/gi, '$1[redacted]');
+    out = out.replace(/((?:PASSWORD|SECRET|TOKEN|API_KEY|APIKEY)\s*=\s*)\S+/gi, '$1[redacted]');
+    return out;
+}
+
+function classifyToolFailure(resultText, toolName) {
+    const text = String(resultText ?? '').toLowerCase();
+    if (/requires either|invalid arguments|unknown parameter|must be|schema|expected|required|old_string is .*>=/.test(text)) return 'schema/args';
+    if (/enoent|cannot find|not found at this path|path does not exist|no such file|file not found in graph|unreadable/.test(text)) return 'path/cwd';
+    if (/timed out|timeout|interrupted|aborted/.test(text)) return 'timeout/abort';
+    if (/hunk rejected|patch failed|context mismatch|expected first old\/context|context not found/.test(text)) return 'patch/context';
+    if (/not in allow-list|permission|denied|forbidden|not allowed/.test(text)) return 'permission';
+    if (/unknown tool|tool.*not.*available|missing.*tool/.test(text)) return 'tool-surface';
+    if (String(toolName || '') === 'bash' || /^\s*\[exit code:\s*\d+\]/i.test(String(resultText ?? ''))) return 'command-exit';
+    return 'runtime/failure';
+}
+
+function traceBridgeToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, model, cwd, resultText, resultKind = 'error' }) {
+    if (process.env.MIXDOG_BRIDGE_TRACE_DISABLE === '1') return;
+    const path = _resolveToolFailurePath();
+    if (!path) return;
+    try {
+        const cleanText = _redactLogText(String(resultText ?? ''));
+        const row = {
+            ts: Date.now(),
+            session_id: normalizeSessionId(sessionId),
+            iteration: iteration ?? null,
+            tool_name: toolName || null,
+            tool_kind: toolKind || null,
+            result_kind: resultKind || 'error',
+            category: classifyToolFailure(cleanText, toolName),
+            role: role || null,
+            model: model || null,
+            cwd: cwd || null,
+            tool_ms: Number.isFinite(Number(toolMs)) ? Number(toolMs) : null,
+            tool_args: summarizeToolArgs(toolName, toolArgs),
+            error_first_line: _firstNonEmptyLine(cleanText).slice(0, 300),
+            error_preview: cleanText.slice(0, 1200),
+            result_bytes_est: Buffer.byteLength(cleanText, 'utf8'),
+            result_lines_est: cleanText.length > 0 ? cleanText.split('\n').length : 0,
+        };
+        _rotateLocalTraceIfNeeded(path);
+        appendFileSync(path, `${JSON.stringify(row)}\n`, { encoding: 'utf8', mode: 0o600 });
+    } catch (err) {
+        warnBridgeOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
+    }
+}
+
+function traceBridgeTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, resultKind, model, resultText, cwd }) {
     const nextCallCount = countJsonNextCalls(resultText);
     // Flat shape — fields named exactly as the bridge_calls PG columns so
     // insertBridgeCalls can pick them up by direct property access without
@@ -412,6 +482,9 @@ function traceBridgeTool({ sessionId, iteration, toolName, toolKind, toolMs, too
         result_bytes_est: typeof resultText === 'string' ? Buffer.byteLength(resultText, 'utf8') : 0,
         result_lines_est: typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0,
     });
+    if (resultKind === 'error') {
+        traceBridgeToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, model, cwd, resultText, resultKind });
+    }
 }
 
 // Compression layer trace (result-compression.mjs). One row per tool call
@@ -591,6 +664,7 @@ export {
     traceBridgePreset,
     traceBridgeSse,
     traceBridgeTool,
+    traceBridgeToolFailure,
     traceBridgeCompact,
     traceBridgeUsage,
     traceStreamAborted,

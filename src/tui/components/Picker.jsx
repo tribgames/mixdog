@@ -2,15 +2,14 @@
  * components/Picker.jsx — selectable list picker for slash commands.
  *
  * Renders a bordered, scrollable list of items with up/down navigation,
- * Enter confirm and Escape cancel. Used by /model and /resume to let the
+ * Enter confirm and Escape exits or backs out. Used by /model and /resume to let the
  * user pick from available presets or saved sessions.
  *
  * Keyboard:
  *   ↑ / ↓      — move selection (wraps at ends)
- *   ←          — back to previous picker when available
- *   →          — proceed with the selected item
+ *   ← / →      — optional picker-specific adjustment
  *   Enter       — confirm selection, calls onSelect(value)
- *   Escape      — cancel, calls onCancel()
+ *   Escape      — exit, calls onCancel()
  *   Ctrl+C      — ignored by the TUI so terminal copy behavior can win
  */
 import React, { useState, useCallback, useEffect } from 'react';
@@ -26,7 +25,7 @@ function truncateText(value, width) {
   return text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text;
 }
 
-export function Picker({ items, onSelect, onCancel, onBack, onLeft, onRight, title, columns = 80 }) {
+export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, help, columns = 80 }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
@@ -68,12 +67,10 @@ export function Picker({ items, onSelect, onCancel, onBack, onLeft, onRight, tit
         }
         if (key.leftArrow) {
           if (onLeft) onLeft(items[selectedIndex], selectedIndex);
-          else if (onBack) onBack(items[selectedIndex], selectedIndex);
           return;
         }
         if (key.rightArrow) {
           if (onRight) onRight(items[selectedIndex], selectedIndex);
-          else onSelect(items[selectedIndex].value, items[selectedIndex]);
           return;
         }
         if (key.return) {
@@ -85,7 +82,7 @@ export function Picker({ items, onSelect, onCancel, onBack, onLeft, onRight, tit
           return;
         }
       },
-      [items, selectedIndex, onSelect, onCancel, onBack, onLeft, onRight],
+      [items, selectedIndex, onSelect, onCancel, onLeft, onRight],
     ),
   );
 
@@ -134,7 +131,7 @@ export function Picker({ items, onSelect, onCancel, onBack, onLeft, onRight, tit
       >
         <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
           <Text color={theme.panelTitle}>{title}</Text>
-          <Text color={theme.subtle}>↑↓ · ← back · →/Enter open · Esc cancel</Text>
+          <Text color={theme.subtle}>{help || '↑↓ select · Enter choose · Esc exit'}</Text>
         </Box>
         {visible.map((item, i) => {
           const idx = start + i;

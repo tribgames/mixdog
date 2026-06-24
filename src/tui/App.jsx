@@ -4,7 +4,7 @@
  * Layout (top → bottom):
  *   welcome banner
  *   transcript (finished items, a live column — terminal scrolls older rows off)
- *   live reasoning (∴ Thinking… — only while a turn streams)
+ *   live reasoning (◈ Thinking… — only while a turn streams)
  *   spinner / TurnDone (while a turn runs / just finished)
  *   slash/model pickers (attached above the prompt)
  *   queued steering prompts + rounded prompt input (one cluster)
@@ -37,12 +37,14 @@ const HELP = [
   'Slash commands:',
   '  /clear           reset the conversation',
   '  /compact         compact older conversation context',
+  '  /autoclear       show or set idle auto-clear (on/off/status/1h)',
   '  /new             start a fresh session (closes current)',
   '  /resume [id]     resume a saved session (picker if no id)',
   '  /context         show current session context surface',
   '  /status          open session/runtime status dashboard',
   '  /model <name>    switch model for subsequent turns (picker if no name)',
   '  /effort [level] set reasoning effort for the current model',
+  '  /fast [on|off]   toggle Fast mode for this model (saved per model)',
   '  /mcp             manage MCP servers and tools',
   '  /skills          choose a skill for the next request',
   '  /plugins         manage local plugin integrations',
@@ -52,7 +54,7 @@ const HELP = [
   '  /schedules       manage schedules',
   '  /webhooks        manage inbound webhooks',
   '  /exit, /quit     quit',
-  'Picker: ↑/↓ navigate, →/Enter open, ← back, Esc cancel.',
+  'Picker: ↑/↓ navigate, Enter choose/apply, ←/→ adjust when shown, Esc exit/back.',
   'Ctrl+B toggles bridge sync/async. /exit or /quit exits. Ctrl+V/paste inserts text. PageUp/PageDown scroll transcript.',
 ].join('\n');
 
@@ -64,12 +66,14 @@ const MOUSE_CTRL_MASK = 16;
 const SLASH_COMMANDS = [
   { name: 'clear', usage: '/clear', description: 'reset the conversation' },
   { name: 'compact', usage: '/compact', description: 'compact older conversation context' },
+  { name: 'autoclear', usage: '/autoclear [on|off|status|1h]', description: 'auto-clear after idle' },
   { name: 'new', usage: '/new', description: 'start a fresh session' },
   { name: 'resume', usage: '/resume', description: 'resume a saved session' },
   { name: 'context', usage: '/context', description: 'show current session context surface' },
   { name: 'status', usage: '/status', description: 'open session/runtime status dashboard' },
   { name: 'model', usage: '/model', description: 'switch model for subsequent turns' },
   { name: 'effort', usage: '/effort [level]', description: 'set reasoning effort for the current model' },
+  { name: 'fast', usage: '/fast [on|off]', description: 'toggle Fast mode for the current model' },
   { name: 'mcp', usage: '/mcp', description: 'manage MCP servers and tools' },
   { name: 'skills', usage: '/skills', description: 'choose a skill for the next request' },
   { name: 'plugins', usage: '/plugins', description: 'manage local plugin integrations' },
@@ -99,6 +103,13 @@ function terminalSize(stdout) {
     columns: stdout?.columns ?? 80,
     rows: stdout?.rows ?? 24,
   };
+}
+
+function formatDuration(ms) {
+  const value = Math.max(0, Number(ms) || 0);
+  if (value >= 3_600_000 && value % 3_600_000 === 0) return `${value / 3_600_000}h`;
+  if (value >= 60_000) return `${Math.round(value / 60_000)}m`;
+  return `${Math.round(value / 1000)}s`;
 }
 
 function formatSessionUpdatedAt(value) {
@@ -343,10 +354,10 @@ function copyToClipboard(text) {
 const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpanded }) {
   switch (item.kind) {
     case 'user': return <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} />;
-    case 'assistant': return <AssistantMessage text={item.text} />;
-    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} isError={item.isError} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} />;
+    case 'assistant': return <AssistantMessage text={item.text} streaming={item.streaming} />;
+    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} isError={item.isError} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} />;
     case 'notice': return <NoticeMessage text={item.text} tone={item.tone} columns={columns} />;
-    case 'turndone': return <TurnDone elapsedMs={item.elapsedMs} status={item.status} />;
+    case 'turndone': return <TurnDone elapsedMs={item.elapsedMs} status={item.status} outputTokens={item.outputTokens} thinkingElapsedMs={item.thinkingElapsedMs} verb={item.verb} />;
     default: return null;
   }
 });
@@ -396,7 +407,8 @@ export function App({ store, initialStatusLine = '' }) {
   const mouseZoomPassthroughTimerRef = useRef(null);
   // dragRef tracks an in-progress mouse text selection (see the mouse handler):
   // anchor = where the drag began, last = the latest cell, active = button held.
-  const dragRef = useRef({ anchor: null, last: null, active: false, rect: null });
+  const dragRef = useRef({ anchor: null, anchorScroll: 0, last: null, active: false, rect: null });
+  const transcriptViewportRef = useRef({ top: 0, bottom: 0 });
   const selectionTextRef = useRef('');
   // lastClickRef tracks the previous left-press cell + time so the mouse handler
   // can detect a double-click (same cell within 400ms) for word selection.
@@ -508,30 +520,57 @@ export function App({ store, initialStatusLine = '' }) {
     }, 0);
   }, [store]);
 
+  const selectionClip = useCallback(() => ({
+    y1: Math.max(0, Number(transcriptViewportRef.current?.top) || 0),
+    y2: Math.max(0, Number(transcriptViewportRef.current?.bottom) || 0),
+  }), []);
+
+  const withSelectionClip = useCallback((rect) => {
+    if (!rect) return null;
+    const clip = selectionClip();
+    return {
+      ...rect,
+      clipY1: clip.y1,
+      clipY2: Math.max(clip.y1, clip.y2),
+    };
+  }, [selectionClip]);
+
   const applySelectionRect = useCallback((rect) => {
-    dragRef.current.rect = rect || null;
-    if (!rect) selectionTextRef.current = '';
-    store.setRenderSelection?.(rect || null);
-    if (rect) rememberSelectionTextSoon();
-  }, [store, rememberSelectionTextSoon]);
+    const clippedRect = withSelectionClip(rect);
+    dragRef.current.rect = clippedRect || null;
+    if (!clippedRect) selectionTextRef.current = '';
+    store.setRenderSelection?.(clippedRect || null);
+    if (clippedRect) rememberSelectionTextSoon();
+  }, [store, rememberSelectionTextSoon, withSelectionClip]);
+
+  const selectionPointAtCurrentScroll = useCallback((point, pointScroll = 0) => {
+    if (!point) return null;
+    return {
+      x: point.x,
+      y: point.y + (Number(scrollTargetRef.current) || 0) - (Number(pointScroll) || 0),
+    };
+  }, []);
 
   const scrollTranscriptRows = useCallback((deltaRows, options = {}) => {
     const target = Math.max(0, scrollTargetRef.current + deltaRows);
     const appliedDelta = target - scrollTargetRef.current;
     scrollTargetRef.current = target;
     if (appliedDelta !== 0 && dragRef.current.rect) {
-      const shift = (p) => (p ? { ...p, y: p.y + appliedDelta } : p);
-      dragRef.current = {
-        ...dragRef.current,
-        anchor: shift(dragRef.current.anchor),
-        last: shift(dragRef.current.last),
-        rect: {
+      let rect;
+      if (dragRef.current.active) {
+        const { anchor, anchorScroll, last } = dragRef.current;
+        const currentAnchor = selectionPointAtCurrentScroll(anchor, anchorScroll);
+        rect = currentAnchor && last ? { mode: 'linear', x1: currentAnchor.x, y1: currentAnchor.y, x2: last.x, y2: last.y } : null;
+      } else {
+        rect = {
           ...dragRef.current.rect,
           y1: dragRef.current.rect.y1 + appliedDelta,
           y2: dragRef.current.rect.y2 + appliedDelta,
-        },
-      };
-      store.setRenderSelection?.(dragRef.current.rect);
+        };
+      }
+      const clippedRect = withSelectionClip(rect);
+      dragRef.current = { ...dragRef.current, rect: clippedRect };
+      store.setRenderSelection?.(clippedRect);
     }
     if (options.smooth) {
       startSmoothScroll();
@@ -540,7 +579,7 @@ export function App({ store, initialStatusLine = '' }) {
     stopSmoothScroll();
     scrollPositionRef.current = target;
     setScrollOffset(Math.round(target));
-  }, [startSmoothScroll, stopSmoothScroll, store]);
+  }, [startSmoothScroll, stopSmoothScroll, store, selectionPointAtCurrentScroll, withSelectionClip]);
 
   const passthroughCtrlWheelZoom = useCallback(() => {
     if (!stdout?.write) return;
@@ -596,6 +635,19 @@ export function App({ store, initialStatusLine = '' }) {
         y2: b.y,
       };
     };
+    const transcriptViewport = () => {
+      const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
+      const bottom = Math.max(top, Number(transcriptViewportRef.current?.bottom) || top);
+      return { top, bottom };
+    };
+    const isInTranscriptViewport = (row) => {
+      const { top, bottom } = transcriptViewport();
+      return row >= top && row <= bottom;
+    };
+    const clampToTranscriptViewport = (row) => {
+      const { top, bottom } = transcriptViewport();
+      return Math.max(top, Math.min(bottom, row));
+    };
     const onData = (data) => {
       // ink emits each parsed input event as a string; a mouse SGR sequence
       // arrives whole. Guard so non-mouse keystrokes fall through untouched.
@@ -624,6 +676,12 @@ export function App({ store, initialStatusLine = '' }) {
         const baseButton = button & 3;
         const isMotion = (button & 32) !== 0;
         if (baseButton === 0 && press && !isMotion) {
+          if (!isInTranscriptViewport(y)) {
+            lastClickRef.current = { x: -1, y: -1, t: 0 };
+            dragRef.current.active = false;
+            applySelectionRect(null);
+            continue;
+          }
           // Double-click on a word: select just that word and copy it, reusing
           // the existing selection/copy pipeline, then advance to the next event.
           const now = Date.now();
@@ -643,7 +701,7 @@ export function App({ store, initialStatusLine = '' }) {
             if (wr) {
               const rect = linearSelection({ x: wr.x1, y: wr.y1 }, { x: wr.x2, y: wr.y2 });
               stopSmoothScroll();
-              dragRef.current = { anchor: null, last: null, active: false, rect };
+              dragRef.current = { anchor: null, anchorScroll: 0, last: null, active: false, rect };
               applySelectionRect(rect);
               // Selection only — copy happens on Ctrl+C (see useInput), not here.
               continue;
@@ -655,11 +713,13 @@ export function App({ store, initialStatusLine = '' }) {
           // single click should not flash a one-cell highlight. The selection is
           // only rendered once a drag actually extends past the anchor.
           stopSmoothScroll();
-          dragRef.current = { anchor: { x, y }, last: { x, y }, active: true, rect: null };
+          dragRef.current = { anchor: { x, y }, anchorScroll: scrollTargetRef.current, last: { x, y }, active: true, rect: null };
         } else if (baseButton === 0 && isMotion && dragRef.current.active) {
           // Drag motion: extend the selection to the current cell.
-          dragRef.current.last = { x, y };
-          const rect = linearSelection(dragRef.current.anchor, { x, y });
+          const selectionY = clampToTranscriptViewport(y);
+          dragRef.current.last = { x, y: selectionY };
+          const anchor = selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
+          const rect = linearSelection(anchor, { x, y: selectionY });
           applySelectionRect(rect);
           const rows = Math.max(1, Number(resizeState.rows) || 24);
           if (y <= 1) {
@@ -672,9 +732,9 @@ export function App({ store, initialStatusLine = '' }) {
           // (the SGR release event carries col/row) and keep the selection
           // visible. Copy is NOT automatic — the user presses Ctrl+C to copy
           // (see useInput). The highlight stays until ESC or a plain click.
-          const { anchor } = dragRef.current;
+          const anchor = selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
           dragRef.current.active = false;
-          const rect = linearSelection(anchor, { x, y });
+          const rect = linearSelection(anchor, { x, y: clampToTranscriptViewport(y) });
           const empty = rect.x1 === rect.x2 && rect.y1 === rect.y2;
           if (empty) {
             applySelectionRect(null); // a plain click clears any prior highlight
@@ -701,7 +761,7 @@ export function App({ store, initialStatusLine = '' }) {
     };
     inkInput.on('input', onData);
     return () => { inkInput.off('input', onData); };
-  }, [inkInput, isRawModeSupported, store, copySelection, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect]);
+  }, [inkInput, isRawModeSupported, store, copySelection, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect, selectionPointAtCurrentScroll]);
 
   // Keep the transcript pinned only while the user is already at the bottom.
   // If they scroll up to inspect a long answer, later tool/result cards must not
@@ -732,26 +792,44 @@ export function App({ store, initialStatusLine = '' }) {
     }, 60);
   }, [store, exit]);
 
-  // ESC → interrupt the running turn (keeps the steering queue). Only active
-  // on a real TTY (raw mode); in pipes/CI useInput throws.
-  // This handler is registered before PromptInput's, so ESC is caught here while
-  // a turn is busy; when idle it falls through (PromptInput may use it later).
+  // ESC handling is split:
+  // - draft text: PromptInput clears the draft before calling onEscape.
+  // - queued steering: Up restores it to the prompt.
+  // - running turn: Esc interrupts the active assistant turn and keeps queued
+  //   steering intact so it becomes the next user turn.
   // Ctrl+O toggles the global tool-output expansion, matching the Claude/Pi
   // expectation that this is a view mode rather than a per-card hidden state.
   const toggleExpand = useCallback(() => {
     setToolOutputExpanded((expanded) => !expanded);
   }, []);
 
-  const restoreQueuedToPrompt = useCallback(() => {
+  const restoreQueuedToPrompt = useCallback((options = {}) => {
+    const restoreDraft = options.restoreDraft !== false;
+    const showHint = options.showHint !== false;
     const restored = store.restoreQueued?.(promptValueRef.current || promptDraft);
     if (!restored || restored.count === 0) {
-      showPromptHint('no queued messages to restore', 'info');
+      if (showHint) showPromptHint('no queued messages to restore', 'info');
       return false;
     }
-    setPromptDraftOverride({ id: Date.now(), value: restored.text });
-    showPromptHint(`restored ${restored.count} queued message${restored.count === 1 ? '' : 's'}`, 'info');
+    if (restoreDraft) {
+      setPromptDraftOverride({ id: Date.now(), value: restored.text });
+    }
+    if (showHint) {
+      showPromptHint(`restored ${restored.count} queued message${restored.count === 1 ? '' : 's'}`, 'info');
+    } else {
+      clearPromptHint();
+    }
     return true;
-  }, [store, promptDraft, showPromptHint]);
+  }, [store, promptDraft, showPromptHint, clearPromptHint]);
+
+  const handlePromptEscape = useCallback(() => {
+    if (contextPanel) {
+      setContextPanel(null);
+      return;
+    }
+    if (!state.busy) return;
+    if (store.abort()) showPromptHint('interrupted', 'cancel');
+  }, [contextPanel, showPromptHint, state.busy, store]);
 
   useInput((input, key) => {
     if (key.ctrl && (input === 'b' || input === 'B')) {
@@ -772,6 +850,10 @@ export function App({ store, initialStatusLine = '' }) {
       toggleExpand();
       return;
     }
+    if (key.upArrow && !picker && !contextPanel && !providerPrompt && !channelPrompt && !hookPrompt && !settingsPrompt && !slashPaletteOpen && state.queued?.length > 0) {
+      restoreQueuedToPrompt({ restoreDraft: true, showHint: false });
+      return;
+    }
     if (key.escape && contextPanel && !picker) {
       setContextPanel(null);
       return;
@@ -788,10 +870,6 @@ export function App({ store, initialStatusLine = '' }) {
     }
     if (key.ctrl && key.end) {
       resetTranscriptScroll();
-      return;
-    }
-    if (key.escape && state.busy && !picker) {
-      store.abort();
       return;
     }
     if (key.escape && !picker) {
@@ -931,7 +1009,7 @@ export function App({ store, initialStatusLine = '' }) {
     return normalized;
   };
 
-  const modelDescription = (m) => [m.provider, formatContextWindow(modelContextWindow(m))].filter(Boolean).join(' · ');
+  const modelDescription = (m) => [m.provider, formatContextWindow(modelContextWindow(m)), m.fastPreferred ? 'fast' : ''].filter(Boolean).join(' · ');
 
   const buildModelPickerItems = (models, expandedProvider) => {
     const providers = new Map();
@@ -963,9 +1041,7 @@ export function App({ store, initialStatusLine = '' }) {
         items.push({
           value: `model:${model.provider}:${model.id}`,
           label: `    ${model.display || model.id}`,
-          description: formatContextWindow(modelContextWindow(model))
-            ? `    ${formatContextWindow(modelContextWindow(model))}`
-            : '',
+          description: modelDescription(model) ? `    ${modelDescription(model)}` : '',
           _action: 'select-model',
           _provider: model.provider,
           _modelId: model.id,
@@ -977,7 +1053,7 @@ export function App({ store, initialStatusLine = '' }) {
 
   const routeLabel = (route) => {
     if (!route?.provider || !route?.model) return '(unset)';
-    return `${route.provider}/${route.model}${route.effort ? ` · ${route.effort}` : ''}`;
+    return `${route.provider}/${route.model}${route.effort ? ` · ${route.effort}` : ''}${route.fast ? ' · fast' : ''}`;
   };
 
   const routeFromModel = (model, effort = null) => ({
@@ -1057,8 +1133,103 @@ export function App({ store, initialStatusLine = '' }) {
       expandedProvider = expandedProvider === provider ? null : provider;
     };
     const renderModelPicker = () => {
+      const openModelOptionsPicker = (model) => {
+        if (!model?._provider || !model?._modelId) return;
+        const selected = models.find((m) => m.provider === model._provider && m.id === model._modelId) || {
+          provider: model._provider,
+          id: model._modelId,
+          display: model._modelId,
+          effortOptions: [{ value: 'auto', label: 'auto', description: 'provider/model default' }],
+          fastCapable: false,
+          fastPreferred: false,
+        };
+        let selectedEffort = (selected.provider === state.provider && selected.id === state.model)
+          ? (state.effort || 'auto')
+          : 'auto';
+        let selectedFast = selected.fastPreferred === true
+          || (selected.provider === state.provider && selected.id === state.model && state.fast === true);
+        const effortItems = Array.isArray(selected.effortOptions) && selected.effortOptions.length > 0
+          ? selected.effortOptions
+          : [{ value: 'auto', label: 'auto', description: 'provider/model default' }];
+        const effortLabel = (value) => {
+          const found = effortItems.find((effort) => effort.value === value);
+          return found?.label || value || 'auto';
+        };
+        const cycleEffort = (direction = 1) => {
+          const values = effortItems.map((effort) => effort.value).filter(Boolean);
+          if (values.length === 0) return;
+          const current = values.includes(selectedEffort) ? values.indexOf(selectedEffort) : 0;
+          selectedEffort = values[(current + direction + values.length) % values.length] || 'auto';
+          renderOptions();
+        };
+        const toggleFast = () => {
+          if (!selected.fastCapable) return;
+          selectedFast = !selectedFast;
+          renderOptions();
+        };
+        const applyModelOptions = () => {
+          setPicker(null);
+          void store.setRoute({
+            provider: selected.provider,
+            model: selected.id,
+            effort: selectedEffort,
+            fast: selected.fastCapable ? selectedFast : false,
+            persistFast: true,
+          })
+            .then(ok => store.pushNotice(
+              ok
+                ? `✓ model → ${selected.provider}/${selected.id} · effort ${selectedEffort} · fast ${selectedFast && selected.fastCapable ? 'on' : 'off'}`
+                : 'model switch already in progress',
+              ok ? 'info' : 'warn',
+            ))
+            .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
+        };
+        const renderOptions = () => {
+          const fastDesc = selected.fastCapable
+            ? (selectedFast ? 'saved for this model' : 'default off')
+            : 'not supported by this provider';
+          const effortDesc = effortItems.map((effort) =>
+            effort.value === selectedEffort ? `[${effort.label || effort.value}]` : (effort.label || effort.value)
+          ).join(' / ');
+          setPicker({
+            title: `Model Settings · ${selected.display || selected.id}`,
+            help: '↑↓ select · ←/→ adjust · Enter apply · Esc back',
+            items: [
+              {
+                value: 'effort',
+                label: `Effort: ${effortLabel(selectedEffort)}`,
+                description: effortDesc,
+                _action: 'cycle-effort',
+              },
+              {
+                value: 'fast',
+                label: `Fast: ${selectedFast && selected.fastCapable ? 'on' : 'off'}`,
+                description: selected.fastCapable ? `${fastDesc} · ←/→ toggle` : fastDesc,
+                _action: 'toggle-fast',
+                disabled: !selected.fastCapable,
+              },
+            ],
+            onSelect: () => {
+              applyModelOptions();
+            },
+            onLeft: (item) => {
+              if (item?._action === 'cycle-effort') cycleEffort(-1);
+              else if (item?._action === 'toggle-fast') toggleFast();
+            },
+            onRight: (item) => {
+              if (item?._action === 'cycle-effort') cycleEffort(1);
+              else if (item?._action === 'toggle-fast') toggleFast();
+            },
+            onCancel: () => {
+              renderModelPicker();
+            },
+          });
+        };
+        renderOptions();
+      };
       setPicker({
         title: `Model (current: ${state.model})`,
+        help: '↑↓ select · ←/→ collapse/expand provider · Enter open · Esc exit/back',
         items: buildModelPickerItems(models, expandedProvider),
         onSelect: (_value, item) => {
           if (item?._action === 'toggle-provider') {
@@ -1067,34 +1238,22 @@ export function App({ store, initialStatusLine = '' }) {
             return;
           }
           setPicker(null);
-          void store.setRoute({ provider: item._provider, model: item._modelId })
-            .then(ok => store.pushNotice(ok ? `✓ model → ${item._provider}/${item._modelId}` : 'model switch already in progress', ok ? 'info' : 'warn'))
-            .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
+          openModelOptionsPicker(item);
         },
         onLeft: (item) => {
           if (item?._provider && expandedProvider === item._provider) {
             toggleProvider(item._provider, false);
             renderModelPicker();
-            return;
           }
-          setPicker(null);
-          if (options.onBack) options.onBack();
-          else showPromptHint('canceled', 'cancel');
         },
         onRight: (item) => {
-          if (item?._action === 'select-model') {
-            setPicker(null);
-            void store.setRoute({ provider: item._provider, model: item._modelId })
-              .then(ok => store.pushNotice(ok ? `✓ model → ${item._provider}/${item._modelId}` : 'model switch already in progress', ok ? 'info' : 'warn'))
-              .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
-            return;
+          if (item?._action === 'toggle-provider') {
+            toggleProvider(item?._provider, true);
+            renderModelPicker();
           }
-          toggleProvider(item?._provider, true);
-          renderModelPicker();
         },
         onCancel: () => {
           setPicker(null);
-          showPromptHint('canceled', 'cancel');
         },
       });
     };
@@ -1122,7 +1281,6 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -1179,7 +1337,6 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -1277,7 +1434,6 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -1300,7 +1456,7 @@ export function App({ store, initialStatusLine = '' }) {
         {
           value: 'route',
           label: 'Route',
-          description: `${state.provider}/${state.model} · ${state.effort || 'auto'}`,
+          description: `${state.provider}/${state.model} · ${state.effort || 'auto'}${state.fast ? ' · fast' : ''}`,
         },
         {
           value: 'session',
@@ -1365,9 +1521,10 @@ export function App({ store, initialStatusLine = '' }) {
     const messages = context.messages || {};
     const roles = messages.roles || {};
     const request = context.request || {};
+    const compaction = context.compaction || {};
     const windowTokens = Number(context.contextWindow || state.contextWindow || context.rawContextWindow || state.rawContextWindow || 0);
     const rawWindowTokens = Number(context.rawContextWindow || state.rawContextWindow || windowTokens || 0);
-    const usedTokens = Number(context.usedTokens || usage.lastContextTokens || 0);
+    const usedTokens = Number(context.usedTokens || context.currentEstimatedTokens || usage.lastContextTokens || 0);
     const freeTokens = windowTokens ? Math.max(0, windowTokens - usedTokens) : Number(context.freeTokens || 0);
     const pct = (value, total = windowTokens) => {
       const n = Number(value || 0);
@@ -1394,12 +1551,25 @@ export function App({ store, initialStatusLine = '' }) {
       return `${label}: ${fmt(row.tokens)} tokens (${pct(row.tokens)}) · ${row.count || 0} messages`;
     };
     const contextSource = context.usedSource === 'last_api_request' ? 'last API request' : 'estimated';
+    const lastApiLabel = context.lastApiRequestStale ? 'last API request (pre-compact)' : 'last API request';
+    const compactBoundary = Number(compaction.boundaryTokens || windowTokens || 0);
+    const compactTrigger = Number(compaction.triggerTokens || 0);
+    const compactTarget = compactTrigger || compactBoundary;
+    const compactState = compaction.lastChanged
+      ? `compacted ${fmt(compaction.lastBeforeTokens)}→${fmt(compaction.lastAfterTokens)}`
+      : `checked ${fmt(compaction.lastPressureTokens || usedTokens)}/${fmt(compactTarget)}`;
     const contextRows = [
       {
         value: 'summary',
         label: 'Context Usage',
         description: `${fmt(usedTokens)}/${fmt(windowTokens)} (${pct(usedTokens)}) · ${fmt(freeTokens)} free · ${contextSource}`,
         _action: 'summary',
+      },
+      {
+        value: 'compaction',
+        label: 'Compaction',
+        description: `${compactState} · ${compaction.lastStage || 'pending'}${compactTarget ? ` · trigger ${fmt(compactTarget)}` : ''}`,
+        _action: 'compaction',
       },
       {
         value: 'messages',
@@ -1428,7 +1598,7 @@ export function App({ store, initialStatusLine = '' }) {
       {
         value: 'last-api',
         label: 'Last API usage',
-        description: `${fmt(usage.lastContextTokens)} context · ${fmt(usage.lastInputTokens)} input · ${fmt(usage.lastOutputTokens)} output`,
+        description: `${fmt(usage.lastContextTokens)} context · ${fmt(usage.lastInputTokens)} input · ${fmt(usage.lastOutputTokens)} output · ${lastApiLabel}`,
         _action: 'last-api',
       },
       {
@@ -1483,6 +1653,12 @@ export function App({ store, initialStatusLine = '' }) {
           _action: 'effort',
         },
         {
+          value: 'fast',
+          label: 'Fast mode',
+          description: state.fastCapable ? (state.fast ? 'on · saved for this model' : 'off · default') : 'not supported',
+          _action: 'fast',
+        },
+        {
           value: 'providers',
           label: 'Providers',
           description: 'API keys, OAuth, local endpoints',
@@ -1515,8 +1691,9 @@ export function App({ store, initialStatusLine = '' }) {
       ],
       onSelect: (_value, item) => {
         setPicker(null);
-        if (item._action === 'model') openModelPicker({ onBack: openSettingsPicker });
+        if (item._action === 'model') openModelPicker();
         else if (item._action === 'effort') openEffortPicker();
+        else if (item._action === 'fast') runSlashCommand('fast');
         else if (item._action === 'providers') void openProviderSetupPicker();
         else if (item._action === 'cwd') {
           setSettingsPrompt({
@@ -1531,7 +1708,6 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -1757,7 +1933,6 @@ export function App({ store, initialStatusLine = '' }) {
         setPicker(null);
         if (onCancel) onCancel();
         else if (returnTo) returnTo();
-        else showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -1999,7 +2174,6 @@ export function App({ store, initialStatusLine = '' }) {
         },
         onCancel: () => {
           setPicker(null);
-          showPromptHint('canceled', 'cancel');
         },
       });
       return;
@@ -2054,7 +2228,6 @@ export function App({ store, initialStatusLine = '' }) {
         },
         onCancel: () => {
           setPicker(null);
-          showPromptHint('canceled', 'cancel');
         },
       });
       return;
@@ -2237,7 +2410,6 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -2335,7 +2507,6 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -2578,7 +2749,6 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -2682,7 +2852,6 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -2801,7 +2970,6 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -2839,7 +3007,6 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
-        showPromptHint('canceled', 'cancel');
       },
     });
   };
@@ -2880,6 +3047,35 @@ export function App({ store, initialStatusLine = '' }) {
           .then(result => store.pushNotice(result ? `✓ effort → ${result}` : 'effort switch already in progress', result ? 'info' : 'warn'))
           .catch((e) => store.pushNotice(`effort switch failed: ${e?.message || e}`, 'error'));
         return true;
+      case 'fast': {
+        if (state.busy) {
+          store.pushNotice('wait for the current turn to finish before /fast', 'warn');
+          return false;
+        }
+        const value = String(arg || '').trim().toLowerCase();
+        const setTo = value
+          ? ['1', 'true', 'yes', 'on', 'enable', 'enabled'].includes(value)
+            ? true
+            : ['0', 'false', 'no', 'off', 'disable', 'disabled'].includes(value)
+              ? false
+              : null
+          : undefined;
+        if (setTo === null) {
+          store.pushNotice('usage: /fast [on|off]', 'warn');
+          return true;
+        }
+        const action = setTo === undefined ? store.toggleFast?.() : store.setFast?.(setTo);
+        void Promise.resolve(action)
+          .then((enabled) => {
+            if (enabled === null || enabled === undefined) {
+              store.pushNotice('fast switch already in progress', 'warn');
+              return;
+            }
+            store.pushNotice(`✓ fast mode ${enabled ? 'on' : 'off'} for ${state.provider}/${state.model}`, 'info');
+          })
+          .catch((e) => store.pushNotice(`fast failed: ${e?.message || e}`, 'error'));
+        return true;
+      }
       case 'cwd': {
         const nextPath = arg.trim();
         if (!nextPath) {
@@ -2980,6 +3176,29 @@ export function App({ store, initialStatusLine = '' }) {
           .catch((e) => store.pushNotice(`recall failed: ${e?.message || e}`, 'error'));
         return true;
       }
+      case 'autoclear': {
+        const value = arg.trim().toLowerCase();
+        try {
+          let next;
+          if (!value || value === 'status') {
+            next = store.getAutoClear?.();
+          } else if (value === 'on' || value === 'enable' || value === 'enabled') {
+            next = store.setAutoClear?.({ enabled: true });
+          } else if (value === 'off' || value === 'disable' || value === 'disabled') {
+            next = store.setAutoClear?.({ enabled: false });
+          } else {
+            next = store.setAutoClear?.({ duration: value });
+          }
+          if (!next) {
+            store.pushNotice('autoclear unavailable', 'warn');
+            return true;
+          }
+          store.pushNotice(`autoclear ${next.enabled ? 'on' : 'off'} · idle ${formatDuration(next.idleMs)}`, 'info');
+        } catch (e) {
+          store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error');
+        }
+        return true;
+      }
       case 'compact':
         if (state.busy) {
           store.pushNotice('wait for the current turn to finish before /compact', 'warn');
@@ -2995,9 +3214,16 @@ export function App({ store, initialStatusLine = '' }) {
               store.pushNotice(r.reason, 'warn');
               return;
             }
+            if (r.changed === false) {
+              store.pushNotice(
+                `compact made no changes: ${r.beforeMessages} messages, ${r.beforeTokens} est tokens`,
+                'warn',
+              );
+              return;
+            }
             store.pushNotice(
               `✓ compacted context: ${r.beforeMessages}→${r.afterMessages} messages, ${r.beforeTokens}→${r.afterTokens} est tokens`,
-              r.changed ? 'info' : 'warn',
+              'info',
             );
           })
           .catch((e) => store.pushNotice(`compact failed: ${e?.message || e}`, 'error'));
@@ -3269,22 +3495,18 @@ export function App({ store, initialStatusLine = '' }) {
     const afterSave = providerPrompt?.afterSave;
     setProviderPrompt(null);
     if (afterSave) afterSave();
-    else showPromptHint('canceled', 'cancel');
   }, [providerPrompt, showPromptHint]);
 
   const cancelChannelPrompt = useCallback(() => {
     setChannelPrompt(null);
-    showPromptHint('canceled', 'cancel');
   }, [showPromptHint]);
 
   const cancelHookPrompt = useCallback(() => {
     setHookPrompt(null);
-    showPromptHint('canceled', 'cancel');
   }, [showPromptHint]);
 
   const cancelSettingsPrompt = useCallback(() => {
     setSettingsPrompt(null);
-    showPromptHint('canceled', 'cancel');
   }, [showPromptHint]);
 
   const acceptSlashPalette = useCallback(() => {
@@ -3333,7 +3555,7 @@ export function App({ store, initialStatusLine = '' }) {
   const WELCOME_ROWS = state.items.length === 0 && !hasFloatingPanel ? 11 : 0;
   // Independent reservation for each live-status child — the viewport must
   // yield enough space for every bottom sibling. ThinkingMessage: outer
-  // marginTop(1) + inner marginTop(1) + "∴ Thinking…" label(1) = 3.
+  // marginTop(1) + inner marginTop(1) + "◈ Thinking…" label(1) = 3.
   // Spinner occupies marginTop(1) + content(1) = 2. TurnDone is no longer a
   // bottom sibling — it's a transcript item pinned after the turn's output, so
   // it lives inside the viewport and needs no separate reservation here.
@@ -3350,7 +3572,7 @@ export function App({ store, initialStatusLine = '' }) {
     : contextPanel
       ? Math.min(contextPanel.rows?.length || 0, PANEL_MAX_VISIBLE + 1) + 4
     : slashPaletteOpen
-      ? Math.min(slashCommands.length, PANEL_MAX_VISIBLE) + 3
+      ? Math.min(slashCommands.length, PANEL_MAX_VISIBLE) + 4
       : hasTextEntryPrompt
         ? TEXT_ENTRY_ROWS
         : 0;
@@ -3362,13 +3584,19 @@ export function App({ store, initialStatusLine = '' }) {
     : 0;
   const bottomReserve = baseReserve + floatingPanelRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
+  transcriptViewportRef.current = {
+    top: WELCOME_ROWS,
+    bottom: Math.max(WELCOME_ROWS, WELCOME_ROWS + viewportHeight - 1),
+  };
   const latestToast = state.toasts?.length ? state.toasts[state.toasts.length - 1] : null;
   const toastHint = latestToast ? latestToast.text : '';
   const inputHint = promptHint || toastHint;
   const inputHintTone = promptHint ? promptHintTone : (latestToast?.tone || 'info');
   // Windows Terminal/conhost can scroll the alt-screen when a fullscreen frame
   // writes the bottom-right cell. Keep the whole app one cell narrower; it is
-  // visually invisible but prevents frame drift and stale overprints.
+  // visually invisible but prevents frame drift and stale overprints. The root
+  // and fixed rows paint an opaque background so clipped transcript rows cannot
+  // show through the bottom input/status area while wheel-scrolling.
   const frameColumns = Math.max(1, resizeState.columns - 1);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
@@ -3381,11 +3609,11 @@ export function App({ store, initialStatusLine = '' }) {
     // stack up from just over the input. A top flexGrow spacer sinks the whole
     // stack to the bottom; the transcript itself is a fixed-height clipping
     // viewport (see viewportHeight above).
-    <Box flexDirection="column" width={frameColumns} height={resizeState.rows}>
+    <Box flexDirection="column" width={frameColumns} height={resizeState.rows} backgroundColor={theme.background}>
       {/* Empty-transcript header stays outside the bottom-anchored viewport and
           has its own reserved rows, so it cannot steal space from the input. */}
       {state.items.length === 0 && !hasFloatingPanel ? (
-        <Box flexDirection="column" height={7} flexShrink={0} marginTop={3} marginBottom={1}>
+        <Box flexDirection="column" height={7} flexShrink={0} marginTop={3} marginBottom={1} backgroundColor={theme.background}>
           <Text color={theme.text} bold>{centerLine('███╗   ███╗██╗██╗  ██╗██████╗  ██████╗  ██████╗ ', frameColumns)}</Text>
           <Text color={theme.text} bold>{centerLine('████╗ ████║██║╚██╗██╔╝██╔══██╗██╔═══██╗██╔════╝ ', frameColumns)}</Text>
           <Text color={theme.claude} bold>{centerLine('██╔████╔██║██║ ╚███╔╝ ██║  ██║██║   ██║██║  ███╗', frameColumns)}</Text>
@@ -3432,8 +3660,12 @@ export function App({ store, initialStatusLine = '' }) {
           keeps it off the last transcript row. Sits BELOW the viewport so it is
           never clipped. */}
       {state.thinking ? (
-        <Box marginTop={1} flexShrink={0}>
-          <ThinkingMessage text={state.thinking} />
+        <Box marginTop={1} flexShrink={0} width="100%" backgroundColor={theme.background}>
+          <ThinkingMessage
+            text={state.thinking}
+            elapsedMs={state.spinner?.thinkingAccumulatedMs ?? state.spinner?.thinkingElapsedMs ?? 0}
+            activeSince={state.spinner?.thinkingSegmentStartedAt ?? 0}
+          />
         </Box>
       ) : null}
 
@@ -3442,12 +3674,15 @@ export function App({ store, initialStatusLine = '' }) {
           Spinner doesn't set flexShrink itself. TurnDone is now a transcript
           item (pinned after the turn's output), not a bottom-fixed slot. */}
       {state.spinner?.active ? (
-        <Box flexShrink={0}>
+        <Box flexShrink={0} width="100%" backgroundColor={theme.background}>
           <Spinner
             verb={state.spinner.verb}
             startedAt={state.spinner.startedAt}
             outputTokens={Math.max(state.spinner?.outputTokens ?? 0, state.spinner?.liveTokens ?? 0)}
             thinking={!!(state.thinking || state.spinner?.thinking)}
+            thinkingElapsedMs={state.spinner?.thinkingElapsedMs ?? state.spinner?.thinkingAccumulatedMs ?? 0}
+            thinkingActiveSince={state.spinner?.thinkingSegmentStartedAt ?? 0}
+            thinkingLastEndedAt={state.spinner?.thinkingLastEndedAt ?? 0}
             mode={state.spinner?.mode || 'responding'}
             columns={frameColumns}
           />
@@ -3458,21 +3693,24 @@ export function App({ store, initialStatusLine = '' }) {
           panels use their actual rendered height and shrink before the prompt
           can move; overflow is clipped from the top while the panel remains
           bottom-aligned against the prompt. */}
-      <Box flexDirection="column" flexShrink={0}>
+      <Box flexDirection="column" flexShrink={0} width="100%" backgroundColor={theme.background}>
         {floatingPanelRows > 0 ? (
-          <Box flexDirection="column" flexShrink={0} height={floatingPanelRows} overflow="hidden" justifyContent="flex-end">
+          <Box flexDirection="column" flexShrink={0} height={floatingPanelRows} overflow="hidden" justifyContent="flex-end" backgroundColor={theme.background}>
             {picker ? (
               <Picker
                 items={picker.items}
                 onSelect={picker.onSelect}
-                onBack={picker.onBack || picker.onCancel}
                 onCancel={() => {
-                  setPicker(null);
-                  showPromptHint('canceled', 'cancel');
+                  if (picker.onCancel) picker.onCancel();
+                  else {
+                    setPicker(null);
+                    clearPromptHint();
+                  }
                 }}
                 onLeft={picker.onLeft}
                 onRight={picker.onRight}
                 title={picker.title}
+                help={picker.help}
                 columns={frameColumns}
               />
             ) : contextPanel ? (
@@ -3530,10 +3768,11 @@ export function App({ store, initialStatusLine = '' }) {
         )}
         {!inputBoxHidden ? (
           <Box
-            marginTop={hasFloatingPanel ? 0 : 1}
+            marginTop={1}
             width="100%"
             borderStyle="round"
             borderColor={theme.promptBorder}
+            backgroundColor={theme.background}
             paddingX={1}
           >
             <PromptInput
@@ -3546,7 +3785,7 @@ export function App({ store, initialStatusLine = '' }) {
               hint={inputHint}
               hintTone={inputHintTone}
               mask={false}
-              onEscape={contextPanel ? () => setContextPanel(null) : undefined}
+              onEscape={handlePromptEscape}
               commandPaletteActive={slashPaletteOpen}
               onCommandPaletteNavigate={(direction) => {
                 setSlashIndex((index) => {
@@ -3563,7 +3802,6 @@ export function App({ store, initialStatusLine = '' }) {
               onCommandPaletteAccept={acceptSlashPalette}
               onCommandPaletteCancel={cancelSlashPalette}
               onCommandPaletteComplete={completeSlashPalette}
-              submitPasteImmediately={state.busy}
             />
           </Box>
         ) : null}
@@ -3572,6 +3810,7 @@ export function App({ store, initialStatusLine = '' }) {
           provider={state.provider}
           model={state.model}
           effort={state.effort}
+          fast={state.fast}
           cwd={state.cwd}
           stats={state.stats}
           contextWindow={state.contextWindow}

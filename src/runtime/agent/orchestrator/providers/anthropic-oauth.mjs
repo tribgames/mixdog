@@ -1248,7 +1248,7 @@ function resolveCacheTtls(opts) {
     // BP budget (4 total):
     //   BP1 baseRules    — 1h (shared across ALL roles)
     //   BP2 roleCatalog  — 1h (shared across ALL roles)
-    //   BP3 tier3        — 1h (sessionMarker: role + permission + project)
+    //   BP3 tier3        — 1h (sessionMarker: mixdog.md + stable role body)
     //   BP4 messages     — 1h sliding tail (tool_result cache across iter)
     // tools BP is dropped — system BP covers the tools prefix via
     // Anthropic's prompt cache prefix semantics (order: tools → system
@@ -1271,7 +1271,7 @@ function resolveCacheTtls(opts) {
 // Tier 3 is injected by session/manager as a user message wrapped in
 // `<system-reminder>` whose body starts with the explicit sentinel
 // `<!-- bp3-sentinel -->` (emitted by collect.mjs:composeSystemPrompt only
-// when a stable projectContext is present). The sentinel is mandatory:
+// when stable mixdog.md/role-specific context is present). The sentinel is mandatory:
 // volatileTail (role/permission/taskBrief/memoryRecap) is also wrapped in
 // `<system-reminder>` but varies per-call, so a plain prefix match would
 // pin per-call data to the 1h BP3 slot and explode the cache.

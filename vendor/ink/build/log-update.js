@@ -4,6 +4,9 @@ import { cursorPositionChanged, buildCursorSuffix, buildCursorOnlySequence, buil
 // Count visible lines in a string, ignoring the trailing empty element
 // that `split('\n')` produces when the string ends with '\n'.
 const visibleLineCount = (lines, str) => str.endsWith('\n') ? lines.length - 1 : lines.length;
+// [mixdog fork] Cursor movement must use the terminal's real post-write origin
+// line. Fullscreen frames omit the trailing newline to avoid Windows Terminal
+// scrolling, so their origin is the last visible line instead of the line after it.
 const createStandard = (stream, { showCursor = false } = {}) => {
     let previousLineCount = 0;
     let previousOutput = '';
@@ -32,13 +35,15 @@ const createStandard = (stream, { showCursor = false } = {}) => {
         }
         const lines = str.split('\n');
         const visibleCount = visibleLineCount(lines, str);
-        const cursorSuffix = buildCursorSuffix(visibleCount, activeCursor);
+        const cursorOriginLine = Math.max(0, lines.length - 1);
+        const cursorSuffix = buildCursorSuffix(visibleCount, activeCursor, cursorOriginLine);
         if (str === previousOutput && cursorChanged) {
             stream.write(buildCursorOnlySequence({
                 cursorWasShown,
                 previousLineCount,
                 previousCursorPosition,
                 visibleLineCount: visibleCount,
+                cursorOriginLine,
                 cursorPosition: activeCursor,
             }));
         }
@@ -89,7 +94,7 @@ const createStandard = (stream, { showCursor = false } = {}) => {
             stream.write(hideCursorEscape);
         }
         if (activeCursor) {
-            stream.write(buildCursorSuffix(visibleLineCount(lines, str), activeCursor));
+            stream.write(buildCursorSuffix(visibleLineCount(lines, str), activeCursor, Math.max(0, lines.length - 1)));
         }
         previousCursorPosition = activeCursor ? { ...activeCursor } : undefined;
         cursorWasShown = activeCursor !== undefined;
@@ -130,6 +135,7 @@ const createIncremental = (stream, { showCursor = false } = {}) => {
         }
         const nextLines = str.split('\n');
         const visibleCount = visibleLineCount(nextLines, str);
+        const cursorOriginLine = Math.max(0, nextLines.length - 1);
         const previousVisible = visibleLineCount(previousLines, previousOutput);
         if (str === previousOutput && cursorChanged) {
             stream.write(buildCursorOnlySequence({
@@ -137,6 +143,7 @@ const createIncremental = (stream, { showCursor = false } = {}) => {
                 previousLineCount: previousLines.length,
                 previousCursorPosition,
                 visibleLineCount: visibleCount,
+                cursorOriginLine,
                 cursorPosition: activeCursor,
             }));
             previousCursorPosition = activeCursor ? { ...activeCursor } : undefined;
@@ -145,7 +152,7 @@ const createIncremental = (stream, { showCursor = false } = {}) => {
         }
         const returnPrefix = buildReturnToBottomPrefix(cursorWasShown, previousLines.length, previousCursorPosition);
         if (str === '\n' || previousOutput.length === 0) {
-            const cursorSuffix = buildCursorSuffix(visibleCount, activeCursor);
+            const cursorSuffix = buildCursorSuffix(visibleCount, activeCursor, cursorOriginLine);
             stream.write(returnPrefix +
                 ansiEscapes.eraseLines(previousLines.length) +
                 str +
@@ -187,7 +194,7 @@ const createIncremental = (stream, { showCursor = false } = {}) => {
                 // has no trailing newline (fullscreen mode).
                 (isLastLine && !hasTrailingNewline ? '' : '\n'));
         }
-        const cursorSuffix = buildCursorSuffix(visibleCount, activeCursor);
+        const cursorSuffix = buildCursorSuffix(visibleCount, activeCursor, cursorOriginLine);
         buffer.push(cursorSuffix);
         stream.write(buffer.join(''));
         cursorWasShown = activeCursor !== undefined;
@@ -230,7 +237,7 @@ const createIncremental = (stream, { showCursor = false } = {}) => {
             stream.write(hideCursorEscape);
         }
         if (activeCursor) {
-            stream.write(buildCursorSuffix(visibleLineCount(lines, str), activeCursor));
+            stream.write(buildCursorSuffix(visibleLineCount(lines, str), activeCursor, Math.max(0, lines.length - 1)));
         }
         previousCursorPosition = activeCursor ? { ...activeCursor } : undefined;
         cursorWasShown = activeCursor !== undefined;

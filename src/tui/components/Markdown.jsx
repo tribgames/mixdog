@@ -9,10 +9,10 @@
  *   - Adjacent non-table tokens are coalesced into one <Text> (CC's
  *     nonTableContent buffer) so block spacing matches.
  *
- * Syntax-highlight + token cache + streaming-split from CC are dropped: we emit
- * whole messages at once (no streaming) and have no highlighter dependency.
+ * Syntax highlighting from CC is dropped, but token cache + streaming-split are
+ * kept so partial markdown does not repaint stable text on every delta.
  */
-import React from 'react';
+import React, { useRef } from 'react';
 import { Box, Text } from 'ink';
 import { marked } from 'marked';
 import { formatToken } from '../markdown/format-token.mjs';
@@ -28,35 +28,73 @@ function configureMarked() {
   marked.use({ tokenizer: { del() { return undefined; } } });
 }
 
+const TOKEN_CACHE_MAX = 500;
+const tokenCache = new Map();
+const MD_SYNTAX_RE = /[#*`|[>\-_~]|\n\n|^\d+\. |\n\d+\. /;
+
+function hasMarkdownSyntax(text) {
+  const sample = text.length > 500 ? text.slice(0, 500) : text;
+  return MD_SYNTAX_RE.test(sample);
+}
+
+function cachedLexer(content) {
+  const text = String(content ?? '');
+  if (!hasMarkdownSyntax(text)) {
+    return [{
+      type: 'paragraph',
+      raw: text,
+      text,
+      tokens: [{ type: 'text', raw: text, text }],
+    }];
+  }
+  const hit = tokenCache.get(text);
+  if (hit) {
+    tokenCache.delete(text);
+    tokenCache.set(text, hit);
+    return hit;
+  }
+  const tokens = marked.lexer(text);
+  if (tokenCache.size >= TOKEN_CACHE_MAX) {
+    const first = tokenCache.keys().next().value;
+    if (first !== undefined) tokenCache.delete(first);
+  }
+  tokenCache.set(text, tokens);
+  return tokens;
+}
+
+function renderMarkdownElements(content) {
+  configureMarked();
+  const tokens = cachedLexer(String(content ?? ''));
+  const result = [];
+  let buffer = '';
+  let idx = 0;
+  const flush = () => {
+    if (buffer) {
+      // CC trims the coalesced non-table block (MarkdownBody: nonTableContent
+      // .trim()) so leading/trailing blank lines from token EOLs don't bleed
+      // into the surrounding gap={1} spacing. defaultColor={theme.text}
+      // keeps ANSI resets on the same dark-theme foreground instead of the
+      // terminal profile's default foreground.
+      result.push(<AnsiText key={`md_${idx++}`} defaultColor={theme.text}>{buffer.trim()}</AnsiText>);
+      buffer = '';
+    }
+  };
+  for (const token of tokens) {
+    if (token.type === 'table') {
+      flush();
+      result.push(<MarkdownTable key={`md_${idx++}`} token={token} />);
+    } else {
+      buffer += formatToken(token);
+    }
+  }
+  flush();
+  return result;
+}
+
 export function Markdown({ children }) {
   const elements = React.useMemo(() => {
     try {
-      configureMarked();
-      const tokens = marked.lexer(String(children ?? ''));
-      const result = [];
-      let buffer = '';
-      let idx = 0;
-      const flush = () => {
-        if (buffer) {
-          // CC trims the coalesced non-table block (MarkdownBody: nonTableContent
-          // .trim()) so leading/trailing blank lines from token EOLs don't bleed
-          // into the surrounding gap={1} spacing. defaultColor={theme.text}
-          // keeps ANSI resets on the same dark-theme foreground instead of the
-          // terminal profile's default foreground.
-          result.push(<AnsiText key={`md_${idx++}`} defaultColor={theme.text}>{buffer.trim()}</AnsiText>);
-          buffer = '';
-        }
-      };
-      for (const token of tokens) {
-        if (token.type === 'table') {
-          flush();
-          result.push(<MarkdownTable key={`md_${idx++}`} token={token} />);
-        } else {
-          buffer += formatToken(token);
-        }
-      }
-      flush();
-      return result;
+      return renderMarkdownElements(children);
     } catch {
       // Never throw into the render tree — fall back to raw text.
       return [<Text key="md_0" color={theme.text}>{String(children ?? '')}</Text>];
@@ -66,6 +104,43 @@ export function Markdown({ children }) {
   return (
     <Box flexDirection="column" gap={1}>
       {elements}
+    </Box>
+  );
+}
+
+export function StreamingMarkdown({ children }) {
+  const stablePrefixRef = useRef('');
+  const text = String(children ?? '');
+
+  if (!text.startsWith(stablePrefixRef.current)) {
+    stablePrefixRef.current = '';
+  }
+
+  let stablePrefix = stablePrefixRef.current;
+  try {
+    configureMarked();
+    const boundary = stablePrefix.length;
+    const tokens = marked.lexer(text.substring(boundary));
+    let lastContentIdx = tokens.length - 1;
+    while (lastContentIdx >= 0 && tokens[lastContentIdx]?.type === 'space') lastContentIdx--;
+    let advance = 0;
+    for (let i = 0; i < lastContentIdx; i++) {
+      advance += tokens[i]?.raw?.length ?? 0;
+    }
+    if (advance > 0) {
+      stablePrefixRef.current = text.substring(0, boundary + advance);
+      stablePrefix = stablePrefixRef.current;
+    }
+  } catch {
+    stablePrefix = '';
+    stablePrefixRef.current = '';
+  }
+
+  const unstableSuffix = text.substring(stablePrefix.length);
+  return (
+    <Box flexDirection="column" gap={1}>
+      {stablePrefix ? <Markdown>{stablePrefix}</Markdown> : null}
+      {unstableSuffix ? <Markdown>{unstableSuffix}</Markdown> : null}
     </Box>
   );
 }

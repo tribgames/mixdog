@@ -1,17 +1,18 @@
 import { readFileSync, existsSync, readdirSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
+import { dirname, join, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import { maxMtime, maxMtimeRecursive } from '../cache-mtime.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 
 // --- mixdog asset roots (standalone CLI owns its own paths; never .claude) ---
 // Project-local:  <cwd>/.mixdog/<kind>
-// User-global:    <pluginData>/<kind>   (e.g. ~/.mixdog/data/<kind>)
+// Data-local:     <pluginData>/<kind>   (standalone default: <project-root>/.mixdog/data/<kind>)
+const STANDALONE_PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', '..');
 function mixdogGlobalDir(kind) {
     try {
         return join(resolvePluginData(), kind);
     } catch {
-        return join(homedir(), '.mixdog', 'data', kind);
+        return join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data', kind);
     }
 }
 function mixdogProjectDir(projectDir, kind) {
@@ -225,30 +226,77 @@ export function buildSkillToolDefs(skills, { ownerIsBridge = false } = {}) {
     ];
     return _skillToolDefsCache;
 }
-// --- Collect project MD (Phase B §5) ---
+// --- Collect mixdog.md user/project context ---
 /**
- * Read <cwd>/PROJECT.md if present. Used to inject project-scoped guidance
- * into Tier 3 `# project-context` without polluting Tier 2 (Pool B prefix).
+ * Read Mixdog-owned user context files in broad-to-specific order:
+ *   1. <pluginData>/mixdog.md        (standalone default: <project-root>/.mixdog/data/mixdog.md)
+ *   2. <ancestor>/.mixdog/mixdog.md  (from filesystem root down to cwd)
+ *
+ * This mirrors Claude Code's "memory files are context, not system prompt"
+ * model while keeping Mixdog's internal rules in code/rules-builder.
  */
-// PROJECT.md lookup per cwd — mtime-invalidated so edits are visible
-// on the very next createSession call.
-const _projectMdCache = new Map();
-export function collectProjectMd(cwd) {
+const _mixdogMdCache = new Map();
+function uniquePaths(paths) {
+    const seen = new Set();
+    const out = [];
+    for (const p of paths) {
+        if (!p || seen.has(p)) continue;
+        seen.add(p);
+        out.push(p);
+    }
+    return out;
+}
+function mixdogGlobalContextPaths() {
+    let dataRoot;
+    try {
+        dataRoot = resolvePluginData();
+    } catch {
+        dataRoot = join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data');
+    }
+    return uniquePaths([
+        join(dataRoot, 'mixdog.md'),
+    ]);
+}
+function mixdogProjectContextPaths(cwd) {
+    const projectDir = (typeof cwd === 'string' && cwd.length > 0) ? resolve(cwd) : null;
+    if (!projectDir) return [];
+    const paths = [];
+    let cur = projectDir;
+    while (true) {
+        paths.unshift(join(cur, '.mixdog', 'mixdog.md'));
+        const parent = dirname(cur);
+        if (parent === cur) break;
+        cur = parent;
+    }
+    return uniquePaths(paths);
+}
+export function collectMixdogMd(cwd) {
     // When cwd is null/missing (bridge maintenance calls deliberately pass
     // cwd:null so provider-cache shards don't fork per caller workspace),
-    // return empty — DO NOT fall back to process.cwd(). This path feeds
-    // manager.mjs BP3 / sessionMarker, so leaking process.cwd() project
-    // context into bridge maintenance sessions would fragment shards per
-    // MCP launch dir.
-    const projectDir = (typeof cwd === 'string' && cwd.length > 0) ? cwd : null;
-    if (!projectDir) return '';
-    const filePath = join(projectDir, 'PROJECT.md');
-    const mtime = maxMtime([filePath]);
-    const cached = _projectMdCache.get(projectDir);
+    // include only user-global context and never fall back to process.cwd().
+    const key = (typeof cwd === 'string' && cwd.length > 0) ? resolve(cwd) : '__global__';
+    const searchPaths = uniquePaths([
+        ...mixdogGlobalContextPaths(),
+        ...mixdogProjectContextPaths(cwd),
+    ]);
+    const mtimePaths = uniquePaths([
+        ...searchPaths,
+        ...searchPaths.map(p => dirname(p)),
+    ]);
+    const mtime = maxMtime(mtimePaths);
+    const cached = _mixdogMdCache.get(key);
     if (cached && mtime <= cached.mtime) return cached.value;
-    const content = readSafe(filePath) || '';
-    _projectMdCache.set(projectDir, { mtime, value: content });
-    return content;
+
+    const sections = [];
+    for (const filePath of searchPaths) {
+        const content = readSafe(filePath);
+        if (content) {
+            sections.push(`<mixdog_instructions path="${filePath}">\n${content}\n</mixdog_instructions>`);
+        }
+    }
+    const value = sections.join('\n\n');
+    _mixdogMdCache.set(key, { mtime, value });
+    return value;
 }
 
 // --- Role template loading (Phase B §4 — UI-managed) ---
@@ -512,17 +560,17 @@ export function loadScopedRoleCatalog(role, provider = null) {
 // Returns { baseRules, roleCatalog, sessionMarker, volatileTail } mapping
 // directly to the breakpoint plan:
 //   BP1 (1h, system block #1) = baseRules      — bridge common rules, filtered
-//   BP2 (1h, system block #2) = roleCatalog    — scoped role catalog + project context
-//   BP3 (1h, first <system-reminder> user)     = sessionMarker (role-specific task body)
+//   BP2 (1h, system block #2) = roleCatalog    — scoped role catalog
+//   BP3 (1h, first <system-reminder> user)     = sessionMarker (mixdog.md + stable role body)
 //   BP4 (5m, messages tail)                    = volatileTail (role + permission + task-brief)
 //
 // Design note — why role/permission sit in BP4, not BP3:
-//   BP3 is reserved for role-specific task bodies that are stable within the
-//   bridge session (webhook/schedule/hidden retrieval details). A cross-role
-//   burst within the same project should still share BP1+BP2, while BP4 picks
-//   up the per-call role / permission / task variance. Tool-routing hints are
-//   static cross-role, so they live in shared bridge rules rather than being
-//   regenerated per call.
+//   BP3 is reserved for user-authored mixdog.md context and role-specific task
+//   bodies that are stable within the bridge session (webhook/schedule/hidden
+//   retrieval details). A cross-role burst within the same project should
+//   still share BP1+BP2, while BP4 picks up the per-call role / permission /
+//   task variance. Tool-routing hints are static cross-role, so they live in
+//   shared bridge rules rather than being regenerated per call.
 //
 // BP1 inputs:
 //   - opts.bridgeRules    : rules-builder buildBridgeInjectionContent output
@@ -531,9 +579,9 @@ export function loadScopedRoleCatalog(role, provider = null) {
 //
 // BP2 inputs:
 //   - loadScopedRoleCatalog(opts.role, opts.provider)
-//   - opts.projectContext : cwd's PROJECT.md content, when present
 //
 // BP3/BP4 inputs:
+//   - opts.projectContext : mixdog.md user/project context, when present
 //   - opts.role           : role name from user-workflow.json or hidden-role registry
 //   - opts.agentTemplate  : agents/<role>.md body when authored
 //   - opts.taskBrief      : Lead-issued task description (Sub only)
@@ -556,30 +604,32 @@ export function composeSystemPrompt(opts) {
     const baseRules = baseParts.join('\n\n---\n\n');
 
     // ── BP2: roleCatalog (system block #2, 1h cache) ────────────────────
-    // Cross-role-stable layer: scoped agents/<role>.md catalog + project
-    // context. Role / permission markers are emitted in BP4 instead so a
-    // cross-role burst within the same project shares BP1+BP2+BP3 entirely
-    // (matches the design note above). Without this split, a worker→reviewer
-    // hand-off on the same project would churn BP2 every time the role line
-    // changed even though the catalog and project context were identical.
+    // Cross-role-stable layer: scoped agents/<role>.md catalog. User-authored
+    // mixdog.md context rides in BP3 as a user context message, matching
+    // Claude Code's "memory files are context, not system prompt" behavior.
+    // Role / permission markers are emitted in BP4 instead so a cross-role
+    // burst within the same project shares the stable prefix.
     const roleCatalogScoped = opts.skipRoleCatalog
         ? ''
         : loadScopedRoleCatalog(opts.role || null, opts.provider || null);
     const catalogParts = [];
     if (roleCatalogScoped) catalogParts.push(roleCatalogScoped);
-    if (opts.projectContext) {
-        catalogParts.push('# project-context\n' + opts.projectContext);
-    }
     const roleCatalog = catalogParts.join('\n\n');
 
     // ── BP3: sessionMarker (first <system-reminder> user msg, 1h cache) ─
-    // Role-specific task instructions only — webhook event body, schedule
-    // task body, hidden retrieval tool detail. The <!-- bp3-sentinel --> tag
-    // is what Anthropic's findTier3Index() matches on to claim a 1h BP3
-    // slot; without role-specific content, sessionMarker stays empty so the
-    // sentinel doesn't pin an empty user message into the 1h shard.
-    const sessionMarker = opts.roleSpecific
-        ? '<!-- bp3-sentinel -->\n' + opts.roleSpecific
+    // Claude Code-style user-authored context (mixdog.md) plus stable
+    // role-specific task instructions — webhook event body, schedule task
+    // body, hidden retrieval tool detail. The <!-- bp3-sentinel --> tag is
+    // what Anthropic's findTier3Index() matches on to claim a 1h BP3 slot.
+    const sessionMarkerParts = [];
+    if (opts.projectContext) {
+        sessionMarkerParts.push('# mixdog-project-context\n' + opts.projectContext);
+    }
+    if (opts.roleSpecific) {
+        sessionMarkerParts.push(opts.roleSpecific);
+    }
+    const sessionMarker = sessionMarkerParts.length
+        ? '<!-- bp3-sentinel -->\n' + sessionMarkerParts.join('\n\n')
         : '';
 
     // ── BP4-adjacent: volatileTail (second user <system-reminder>, 5m) ──

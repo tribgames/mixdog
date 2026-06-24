@@ -230,8 +230,10 @@ export default class Output {
             const end = linear && (sel.y1 > sel.y2 || (sel.y1 === sel.y2 && sel.x1 > sel.x2))
                 ? { x: sel.x1, y: sel.y1 }
                 : { x: sel.x2, y: sel.y2 };
-            const y1 = Math.max(0, linear ? start.y : Math.min(sel.y1, sel.y2));
-            const y2 = Math.min(this.height - 1, linear ? end.y : Math.max(sel.y1, sel.y2));
+            const clipY1 = typeof sel.clipY1 === 'number' ? sel.clipY1 : 0;
+            const clipY2 = typeof sel.clipY2 === 'number' ? sel.clipY2 : this.height - 1;
+            const y1 = Math.max(0, clipY1, linear ? start.y : Math.min(sel.y1, sel.y2));
+            const y2 = Math.min(this.height - 1, clipY2, linear ? end.y : Math.max(sel.y1, sel.y2));
             const lineMode = linear && y1 !== y2;
             const selRows = [];
             for (let y = y1; y <= y2; y++) {

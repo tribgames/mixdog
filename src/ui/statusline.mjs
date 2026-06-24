@@ -14,8 +14,8 @@
  * effort / 5H-7D from the live gateway; our adapter only supplies sane
  * fallbacks (model name + a context% from this session's token usage).
  */
-import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { bold, green, rgb } from './ansi.mjs';
 import { renderStatusLine as renderVendoredStatusLine } from '../vendor/statusline/bin/statusline-lib.mjs';
 import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
@@ -27,6 +27,8 @@ const FALLBACK_CONTEXT_WINDOW = 200000;
 const statusText = rgb(198, 198, 198);
 const statusSubtle = rgb(136, 136, 136);
 const statusAccent = rgb(215, 119, 87);
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const DEFAULT_STANDALONE_DATA_DIR = join(PROJECT_ROOT, '.mixdog', 'data');
 
 /** Create a mutable session-usage accumulator. */
 export function createSessionStats() {
@@ -96,7 +98,7 @@ function promptFootprintTokens(provider, stats) {
 
 function currentContextTokens(provider, stats) {
   const s = stats || createSessionStats();
-  const explicit = num(s.latestPromptTokens ?? s.contextTokens ?? s.currentContextTokens);
+  const explicit = num(s.currentContextTokens ?? s.contextTokens ?? s.latestPromptTokens);
   if (explicit > 0) return explicit;
   const latestInput = num(s.latestInputTokens);
   const latestCacheRead = num(s.latestCachedTokens);
@@ -117,7 +119,7 @@ function modelContextWindow(provider, model, explicitContextWindow = 0) {
   return FALLBACK_CONTEXT_WINDOW;
 }
 
-function buildCcJson({ provider = '', model = '', effort = '', stats, sessionId = 'mixdog-cli-repl', contextWindow = 0, rawContextWindow = 0 } = {}) {
+function buildCcJson({ provider = '', model = '', effort = '', fast = false, stats, sessionId = 'mixdog-cli-repl', contextWindow = 0, rawContextWindow = 0 } = {}) {
   const s = stats || createSessionStats();
   const promptTokens = currentContextTokens(provider, s);
   const used = promptTokens;
@@ -128,6 +130,7 @@ function buildCcJson({ provider = '', model = '', effort = '', stats, sessionId 
     session_id: String(sessionId || 'mixdog-cli-repl'),
     display_name: String(model || ''),
     ...(effort ? { effort: { level: String(effort) } } : {}),
+    ...(fast === true ? { fast: true, fast_mode: true } : {}),
     context_window: {
       used_percentage: pct,
       context_window_size: resolvedContextWindow,
@@ -159,19 +162,19 @@ function buildCcJson({ provider = '', model = '', effort = '', stats, sessionId 
  * @param {string} [opts.sessionId]
  * @returns {Promise<string>}
  */
-export async function renderStatusline({ provider = '', model = '', effort = '', cwd = '', stats, sessionId, contextWindow = 0, rawContextWindow = 0 } = {}) {
+export async function renderStatusline({ provider = '', model = '', effort = '', fast = false, cwd = '', stats, sessionId, contextWindow = 0, rawContextWindow = 0 } = {}) {
   const prevPluginData = process.env.CLAUDE_PLUGIN_DATA;
   const prevStandalone = process.env.MIXDOG_STANDALONE;
   try {
-    process.env.CLAUDE_PLUGIN_DATA = process.env.MIXDOG_DATA_DIR || join(homedir(), '.mixdog', 'data');
+    process.env.CLAUDE_PLUGIN_DATA = process.env.MIXDOG_DATA_DIR || DEFAULT_STANDALONE_DATA_DIR;
     process.env.MIXDOG_STANDALONE = '1';
-    const ccJson = JSON.stringify(buildCcJson({ provider, model, effort, stats, sessionId, contextWindow, rawContextWindow }));
+    const ccJson = JSON.stringify(buildCcJson({ provider, model, effort, fast, stats, sessionId, contextWindow, rawContextWindow }));
     const out = await renderVendoredStatusLine(ccJson);
     const text = typeof out === 'string' ? out.replace(/\n+$/, '') : '';
     if (text) return text;
-    return fallbackLine({ provider, model, cwd, stats });
+    return fallbackLine({ provider, model, fast, cwd, stats });
   } catch {
-    return fallbackLine({ provider, model, cwd, stats });
+    return fallbackLine({ provider, model, fast, cwd, stats });
   } finally {
     if (prevPluginData == null) delete process.env.CLAUDE_PLUGIN_DATA;
     else process.env.CLAUDE_PLUGIN_DATA = prevPluginData;
@@ -183,10 +186,10 @@ export async function renderStatusline({ provider = '', model = '', effort = '',
 // --- helpers -----------------------------------------------------------------
 
 /** Minimal one-line footer used when the vendored renderer is unavailable. */
-function fallbackLine({ provider = '', model = '', cwd = '', stats } = {}) {
+function fallbackLine({ provider = '', model = '', fast = false, cwd = '', stats } = {}) {
   const s = stats || createSessionStats();
   const sep = statusSubtle(' · ');
-  const id = statusAccent(`${provider}/${model}`);
+  const id = statusAccent(`${provider}/${model}${fast === true ? ' · FAST' : ''}`);
   const tokens = statusText(
     `${fmt(s.inputTokens)} in / ${fmt(s.outputTokens)} out` +
       (s.cachedTokens ? ` / ${fmt(s.cachedTokens)} read` : '') +

@@ -41,13 +41,11 @@ export const OPENAI_COMPAT_PRESETS = {
         baseURL: 'https://api.x.ai/v1',
         defaultModel: 'grok-4.3',
     },
-    // OpenCode Go — low-cost coding-model subscription gateway. The Go
-    // gateway exposes a unified OpenAI-compatible /chat/completions surface
-    // that transparently fronts every Go model (GLM / Kimi / DeepSeek / MiMo
-    // and the anthropic-native MiniMax / Qwen), including tool-calling and
-    // server-side prefix caching (cached_tokens), so no separate Anthropic
-    // transport is needed. Auth is a single OPENCODE_API_KEY (Bearer).
-    // listModels() pulls the live roster from {baseURL}/models.
+    // OpenCode Go — low-cost coding-model subscription gateway. GLM / Kimi /
+    // DeepSeek / MiMo use the OpenAI-compatible chat surface; MiniMax / Qwen
+    // use the Anthropic-compatible messages surface. opencode-go.mjs provides
+    // the dual transport while this preset remains the shared base URL/key
+    // source. Auth is a single OPENCODE_API_KEY (Bearer).
     'opencode-go': {
         baseURL: 'https://opencode.ai/zen/go/v1',
         defaultModel: 'glm-5.2',
@@ -681,7 +679,7 @@ function xaiSanitizedRequestSansInput(params) {
     return out;
 }
 
-function xaiResponsesFingerprintPayload({ model, opts, params, rawTools, response, cacheRouting, previousResponseId, inputStartIndex, transport, cacheLane }) {
+function xaiResponsesFingerprintPayload({ model, opts, params, rawTools, response, cacheRouting, previousResponseId, inputStartIndex, continuationResetReason, transport, cacheLane }) {
     const usage = response?.usage || {};
     const { inputTokens, outputTokens, cachedTokens, hitRate } = xaiUsageStats(usage);
     const toolShape = summarizeTraceTools(rawTools);
@@ -718,6 +716,7 @@ function xaiResponsesFingerprintPayload({ model, opts, params, rawTools, respons
         response_id_hash: response?.id ? traceHash(response.id) : null,
         previous_response_id_hash: previousResponseId ? traceHash(previousResponseId) : null,
         previous_response_used: previousResponseUsed,
+        continuation_reset_reason: continuationResetReason || null,
         input_start_index: inputStartIndex,
         input_count: Array.isArray(params?.input) ? params.input.length : 0,
         input_hash: traceHash(stableTraceStringify(params?.input || [])),
@@ -779,7 +778,7 @@ function traceXaiResponsesCacheContext(args) {
     }
 }
 
-function writeXaiResponsesCacheTrace({ model, opts, params, rawTools, response, cacheRouting, previousResponseId, inputStartIndex, transport, cacheLane }) {
+function writeXaiResponsesCacheTrace({ model, opts, params, rawTools, response, cacheRouting, previousResponseId, inputStartIndex, continuationResetReason, transport, cacheLane }) {
     if (!compatCacheTraceEnabled('xai')) return;
     try {
         const usage = response?.usage || {};
@@ -792,6 +791,7 @@ function writeXaiResponsesCacheTrace({ model, opts, params, rawTools, response, 
             cacheRouting,
             previousResponseId,
             inputStartIndex,
+            continuationResetReason,
             transport,
             cacheLane,
         });
@@ -1009,9 +1009,20 @@ function toXaiResponsesInput(messages, providerState, options = {}) {
     const includeSystem = options.includeSystem !== false;
     const state = providerState?.xaiResponses || null;
     let startIndex = 0;
-    const previousResponseId = typeof state?.previousResponseId === 'string' ? state.previousResponseId : null;
+    let resetReason = null;
+    let previousResponseId = typeof state?.previousResponseId === 'string' ? state.previousResponseId : null;
+    const expectedModel = options.model ? String(options.model) : '';
+    const stateModel = state?.model ? String(state.model) : '';
+    const seen = Number.isInteger(state?.seenMessageCount) ? state.seenMessageCount : null;
+    if (previousResponseId && expectedModel && stateModel && stateModel !== expectedModel) {
+        previousResponseId = null;
+        resetReason = 'model_changed';
+    }
+    if (previousResponseId && (seen == null || seen < 0 || seen > messages.length)) {
+        previousResponseId = null;
+        resetReason = seen == null ? 'missing_seen_message_count' : 'seen_message_count_out_of_range';
+    }
     if (previousResponseId) {
-        const seen = Number.isInteger(state?.seenMessageCount) ? state.seenMessageCount : messages.length;
         startIndex = Math.max(0, Math.min(seen, messages.length));
         if (messages[startIndex]?.role === 'assistant') startIndex += 1;
     }
@@ -1029,7 +1040,7 @@ function toXaiResponsesInput(messages, providerState, options = {}) {
         else input.push(converted);
     }
     flushToolMedia();
-    return { input, previousResponseId, startIndex };
+    return { input, previousResponseId, startIndex, continuationResetReason: resetReason };
 }
 export class OpenAICompatProvider {
     // Chat Completions prompt_tokens is already the total (includes cached).
@@ -1287,7 +1298,11 @@ export class OpenAICompatProvider {
         }
         const chatMessagesForTrace = toOpenAIMessages(messages, this.name);
         const cacheRouting = xaiResponsesCacheRouting(opts, { messages: chatMessagesForTrace }, tools || [], useModel);
-        const { input, previousResponseId, startIndex } = toXaiResponsesInput(messages, opts.providerState);
+        const { input, previousResponseId, startIndex, continuationResetReason } = toXaiResponsesInput(
+            messages,
+            opts.providerState,
+            { model: useModel },
+        );
         const params = {
             model: useModel,
             input,
@@ -1371,6 +1386,7 @@ export class OpenAICompatProvider {
             cacheRouting,
             previousResponseId,
             inputStartIndex: startIndex,
+            continuationResetReason,
             transport: 'http',
             cacheLane,
         });
@@ -1383,6 +1399,7 @@ export class OpenAICompatProvider {
             cacheRouting,
             previousResponseId,
             inputStartIndex: startIndex,
+            continuationResetReason,
             transport: 'http',
             cacheLane,
         });
@@ -1446,7 +1463,11 @@ export class OpenAICompatProvider {
         if (!apiKey) throw new Error('xAI API key not configured');
         const chatMessagesForTrace = toOpenAIMessages(messages, this.name);
         const cacheRouting = xaiResponsesCacheRouting(opts, { messages: chatMessagesForTrace }, tools || [], useModel);
-        const { input, previousResponseId, startIndex } = toXaiResponsesInput(messages, opts.providerState, { includeSystem: false });
+        const { input, previousResponseId, startIndex, continuationResetReason } = toXaiResponsesInput(
+            messages,
+            opts.providerState,
+            { includeSystem: false, model: useModel },
+        );
         const params = {
             model: useModel,
             input,
@@ -1527,6 +1548,7 @@ export class OpenAICompatProvider {
             cacheRouting,
             previousResponseId,
             inputStartIndex: startIndex,
+            continuationResetReason,
             transport: 'websocket',
             cacheLane,
         });
@@ -1544,6 +1566,7 @@ export class OpenAICompatProvider {
             cacheRouting,
             previousResponseId,
             inputStartIndex: startIndex,
+            continuationResetReason,
             transport: 'websocket',
             cacheLane,
         });

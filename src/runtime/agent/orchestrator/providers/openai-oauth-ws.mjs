@@ -100,7 +100,8 @@ const MAX_POOLED_SOCKETS_PER_KEY = 8;
 
 // poolKey -> Entry[]
 // Entry: { socket, busy, idleTimer, lastResponseId, lastRequestSansInput,
-//          lastInputLen, turnState, closing, ephemeral }
+//          lastRequestInput, lastResponseItems, lastInputLen, turnState,
+//          closing, ephemeral }
 const _wsPool = new Map();
 
 // Final prompt_cache_key/session_id lane guard for OpenAI/Codex transports.
@@ -640,6 +641,8 @@ async function acquireWebSocket({ auth, poolKey, cacheKey, forceFresh, externalS
             // to null so the first delta check reads a deterministic value
             // (and falls back to full-create instead of silently passing).
             if (idle.lastInputPrefixHash === undefined) idle.lastInputPrefixHash = null;
+            if (idle.lastRequestInput === undefined) idle.lastRequestInput = null;
+            if (idle.lastResponseItems === undefined) idle.lastResponseItems = null;
             if (process.env.MIXDOG_DEBUG_BRIDGE) {
                 process.stderr.write(`[bridge-trace] acquire-reuse poolKey=${poolKey} openSockets=${arr.length} elapsed=${Date.now() - _acqStart}ms\n`);
             }
@@ -665,6 +668,8 @@ async function acquireWebSocket({ auth, poolKey, cacheKey, forceFresh, externalS
                 idleTimer: null,
                 lastResponseId: null,
                 lastRequestSansInput: null,
+                lastRequestInput: null,
+                lastResponseItems: null,
                 lastInputLen: 0,
                 lastInputPrefixHash: null,
                 turnState: turnState || null,
@@ -691,6 +696,8 @@ async function acquireWebSocket({ auth, poolKey, cacheKey, forceFresh, externalS
         idleTimer: null,
         lastResponseId: null,
         lastRequestSansInput: null,
+        lastRequestInput: null,
+        lastResponseItems: null,
         lastInputLen: 0,
         lastInputPrefixHash: null,
         turnState: turnState || null,
@@ -721,7 +728,7 @@ function releaseWebSocket({ entry, poolKey, keep }) {
 // matches the current one and the current input starts with the cached input,
 // return only the tail. Otherwise return the full input (fresh turn).
 function _sansInput(body) {
-    const { input: _ignored, ...rest } = body;
+    const { input: _ignored, previous_response_id: _prevIgnored, ...rest } = body;
     return rest;
 }
 
@@ -736,47 +743,159 @@ function _stableStringify(obj) {
     return '{' + parts.join(',') + '}';
 }
 
+function _cloneJson(value) {
+    if (value == null) return value;
+    try { return JSON.parse(JSON.stringify(value)); } catch { return value; }
+}
+
+function _responseItemKey(item, fallbackIndex = 0) {
+    if (!item || typeof item !== 'object') return `primitive:${fallbackIndex}`;
+    if (item.id) return `${item.type || 'item'}:id:${item.id}`;
+    if (item.call_id) return `${item.type || 'item'}:call:${item.call_id}`;
+    try { return `${item.type || 'item'}:json:${_stableStringify(item)}`; } catch {}
+    return `${item.type || 'item'}:${fallbackIndex}`;
+}
+
+function _normalizeArguments(value) {
+    if (value == null) return '';
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        try { return _stableStringify(JSON.parse(trimmed || '{}')); } catch { return trimmed; }
+    }
+    return _stableStringify(value);
+}
+
+function _normalizeContentPart(part) {
+    if (!part || typeof part !== 'object') return part;
+    const type = part.type === 'input_text' ? 'output_text' : part.type;
+    if (type === 'output_text') return { type, text: part.text || '' };
+    return part;
+}
+
+function _contentPartsEqual(a, b) {
+    const aa = Array.isArray(a) ? a.map(_normalizeContentPart) : [];
+    const bb = Array.isArray(b) ? b.map(_normalizeContentPart) : [];
+    return _stableStringify(aa) === _stableStringify(bb);
+}
+
+function _logicalResponseItemMatch(inputItem, responseItem) {
+    if (!inputItem || !responseItem) return false;
+    const inputType = inputItem.type || (inputItem.role === 'assistant' ? 'message' : '');
+    const responseType = responseItem.type || '';
+    if (responseType === 'function_call') {
+        return inputType === 'function_call'
+            && String(inputItem.call_id || '') === String(responseItem.call_id || '')
+            && String(inputItem.name || '') === String(responseItem.name || '')
+            && _normalizeArguments(inputItem.arguments) === _normalizeArguments(responseItem.arguments);
+    }
+    if (responseType === 'message') {
+        const inputRole = inputItem.role || (inputType === 'message' ? 'assistant' : '');
+        const responseRole = responseItem.role || 'assistant';
+        return inputType === 'message'
+            && inputRole === responseRole
+            && _contentPartsEqual(inputItem.content, responseItem.content);
+    }
+    if (responseType === 'reasoning') {
+        return inputType === 'reasoning'
+            && (!!responseItem.id ? inputItem.id === responseItem.id : true)
+            && (!!responseItem.encrypted_content
+                ? inputItem.encrypted_content === responseItem.encrypted_content
+                : true);
+    }
+    if (responseType === 'web_search_call') {
+        return inputType === 'web_search_call'
+            && (!!responseItem.id ? inputItem.id === responseItem.id : true)
+            && _stableStringify(inputItem.action || null) === _stableStringify(responseItem.action || null);
+    }
+    if (inputType !== responseType) return false;
+    const stripVolatile = (item) => {
+        if (!item || typeof item !== 'object') return item;
+        const { id: _id, status: _status, ...rest } = item;
+        return rest;
+    };
+    return _stableStringify(stripVolatile(inputItem)) === _stableStringify(stripVolatile(responseItem));
+}
+
+function _requestInputItemsMatch(a, b) {
+    return _stableStringify(a) === _stableStringify(b);
+}
+
+function _stripRequestPrefix(curInput, prevInput) {
+    const current = Array.isArray(curInput) ? curInput : [];
+    const previous = Array.isArray(prevInput) ? prevInput : [];
+    if (current.length < previous.length) return null;
+    for (let i = 0; i < previous.length; i += 1) {
+        if (!_requestInputItemsMatch(current[i], previous[i])) return null;
+    }
+    return current.slice(previous.length);
+}
+
+function _isReplayLikeHead(item, responseItem) {
+    if (!item || !responseItem) return false;
+    const inputType = item.type || (item.role === 'assistant' ? 'message' : '');
+    const responseType = responseItem.type || '';
+    if (responseType === 'message') return inputType === 'message';
+    if (responseType === 'function_call') return inputType === 'function_call';
+    return inputType === responseType;
+}
+
+function _stripResponseItemsFromHead(items, responseItems) {
+    const tail = Array.isArray(items) ? items : [];
+    const outputs = Array.isArray(responseItems) ? responseItems : [];
+    let cursor = 0;
+    let stripped = 0;
+    let skipped = 0;
+    for (const output of outputs) {
+        if (cursor >= tail.length) break;
+        if (_logicalResponseItemMatch(tail[cursor], output)) {
+            cursor += 1;
+            stripped += 1;
+            continue;
+        }
+        if (_isReplayLikeHead(tail[cursor], output)) {
+            return {
+                ok: false,
+                reason: `response_output_mismatch:${output?.type || 'unknown'}`,
+                tail,
+                stripped,
+                skipped,
+            };
+        }
+        skipped += 1;
+    }
+    return { ok: true, reason: null, tail: tail.slice(cursor), stripped, skipped };
+}
+
 function _computeDelta({ entry, body }) {
     if (!entry || !entry.lastRequestSansInput || !entry.lastResponseId) {
-        return { mode: 'full', frame: { type: 'response.create', ...body } };
+        return { mode: 'full', reason: 'no_anchor', frame: { type: 'response.create', ...body } };
+    }
+    if (!Array.isArray(entry.lastRequestInput)) {
+        return { mode: 'full', reason: 'no_input_snapshot', frame: { type: 'response.create', ...body } };
     }
     const curSans = _stableStringify(_sansInput(body));
     if (curSans !== entry.lastRequestSansInput) {
-        return { mode: 'full', frame: { type: 'response.create', ...body } };
+        return { mode: 'full', reason: 'request_properties_changed', frame: { type: 'response.create', ...body } };
     }
-    const prevLen = entry.lastInputLen | 0;
     const curInput = Array.isArray(body.input) ? body.input : [];
-    if (curInput.length < prevLen) {
-        return { mode: 'full', frame: { type: 'response.create', ...body } };
+    const afterPreviousInput = _stripRequestPrefix(curInput, entry.lastRequestInput);
+    if (!afterPreviousInput) {
+        return { mode: 'full', reason: 'input_prefix_mismatch', frame: { type: 'response.create', ...body } };
     }
-    // Prefix integrity guard: the cached state on `entry` only stays valid
-    // if the current request's first `prevLen` items are byte-identical to
-    // the prior full input. If anything in the prefix mutated (a tool result
-    // got rewritten, a reasoning item dropped, a system note rotated) the
-    // server would mis-anchor the delta. Compare a sha256 of the serialized
-    // prefix against the hash captured on the previous success. Mismatch →
-    // fall back to a full create for this turn only; the entry itself stays
-    // in the pool so the next turn can retry the delta path after
-    // sendViaWebSocket refreshes the cache state.
-    // Without a hash baseline prefix integrity is unprovable — force full
-    // so sendViaWebSocket can seed the hash on success.
-    if (entry.lastInputPrefixHash == null) {
-        return { mode: 'full', frame: { type: 'response.create', ...body } };
+    const stripped = _stripResponseItemsFromHead(afterPreviousInput, entry.lastResponseItems);
+    if (!stripped.ok) {
+        return { mode: 'full', reason: stripped.reason, frame: { type: 'response.create', ...body } };
     }
-    const curPrefixHash = createHash('sha256')
-        .update(JSON.stringify(curInput.slice(0, prevLen)))
-        .digest('hex');
-    if (curPrefixHash !== entry.lastInputPrefixHash) {
-        return { mode: 'full', frame: { type: 'response.create', ...body } };
-    }
-    const tail = curInput.slice(prevLen);
     return {
         mode: 'delta',
+        reason: null,
+        strippedResponseItems: stripped.stripped,
+        skippedResponseItems: stripped.skipped,
         frame: {
             ...body,
             type: 'response.create',
             previous_response_id: entry.lastResponseId,
-            input: tail,
+            input: stripped.tail,
         },
     };
 }
@@ -876,6 +995,8 @@ export async function _streamResponse({
     const webSearchCalls = [];
     const webSearchCallKeys = new Set();
     const compactionItems = [];
+    const responseItemsAdded = [];
+    const responseItemKeys = new Set();
     const citations = [];
     const citationKeys = new Set();
     const pendingCalls = new Map();
@@ -902,6 +1023,13 @@ export async function _streamResponse({
             encrypted_content: item.encrypted_content,
             summary: Array.isArray(item.summary) ? item.summary : [],
         });
+    };
+    const pushResponseItem = (item) => {
+        if (!item || typeof item !== 'object') return;
+        const key = _responseItemKey(item, responseItemsAdded.length);
+        if (responseItemKeys.has(key)) return;
+        responseItemKeys.add(key);
+        responseItemsAdded.push(_cloneJson(item));
     };
     const pushCitation = (raw, fallbackTitle = '') => {
         const url = raw?.url || raw?.uri || raw?.href || '';
@@ -1125,6 +1253,7 @@ export async function _streamResponse({
                 content,
                 model,
                 reasoningItems: reasoningItems.length ? reasoningItems : undefined,
+                responseItems: responseItemsAdded.length ? responseItemsAdded : undefined,
                 compactionItem: compactionItems.length === 1 ? compactionItems[0] : undefined,
                 compactionItems: compactionItems.length ? compactionItems : undefined,
                 toolCalls: toolCalls.length ? toolCalls : undefined,
@@ -1254,6 +1383,7 @@ export async function _streamResponse({
                     break;
                 }
                 case 'response.output_item.done':
+                    pushResponseItem(event.item);
                     // function_call / output_text already captured via their
                     // dedicated streaming events. The one shape we still need
                     // here is `reasoning` — carries encrypted_content that
@@ -1291,6 +1421,7 @@ export async function _streamResponse({
                     if (!responseId && event.response?.id) responseId = event.response.id;
                     if (event.response?.output) {
                         for (const item of event.response.output) {
+                            pushResponseItem(item);
                             if (!content && item.type === 'message') {
                                 for (const c of item.content || []) {
                                     if (c.type === 'output_text') {
@@ -2039,6 +2170,8 @@ export async function sendViaWebSocket({
             entry.lastInputPrefixHash = carryForwardCache.lastInputPrefixHash;
             entry.lastInputLen = carryForwardCache.lastInputLen;
             entry.lastRequestSansInput = carryForwardCache.lastRequestSansInput;
+            entry.lastRequestInput = carryForwardCache.lastRequestInput;
+            entry.lastResponseItems = carryForwardCache.lastResponseItems;
         }
         traceBridgeFetch({
             sessionId: poolKey,
@@ -2082,6 +2215,9 @@ export async function sendViaWebSocket({
         let mode = 'full';
         let frame = null;
         let deltaTokens = 0;
+        let deltaReason = null;
+        let strippedResponseItems = 0;
+        let skippedResponseItems = 0;
         let result;
         const streamTimeouts = sendOpts?.expectCompaction === true
             ? {
@@ -2126,6 +2262,8 @@ export async function sendViaWebSocket({
                 entry.lastResponseId = warmupResult.responseId;
                 entry.lastRequestSansInput = _stableStringify(_sansInput(warmupBody));
                 const warmupInputArr = Array.isArray(warmupBody.input) ? warmupBody.input : [];
+                entry.lastRequestInput = _cloneJson(warmupInputArr);
+                entry.lastResponseItems = _cloneJson(Array.isArray(warmupResult.responseItems) ? warmupResult.responseItems : []);
                 entry.lastInputLen = warmupInputArr.length;
                 entry.lastInputPrefixHash = createHash('sha256')
                     .update(JSON.stringify(warmupInputArr))
@@ -2153,9 +2291,17 @@ export async function sendViaWebSocket({
                 requestBody = { ...body, previous_response_id: warmupResult.responseId };
                 delete requestBody.instructions;
                 delete requestBody.generate;
+                entry.lastRequestSansInput = _stableStringify(_sansInput({
+                    ...requestBody,
+                    input: warmupInputArr,
+                }));
             }
 
-            ({ mode, frame } = _computeDelta({ entry, body: requestBody }));
+            const delta = _computeDelta({ entry, body: requestBody });
+            ({ mode, frame } = delta);
+            deltaReason = delta.reason || null;
+            strippedResponseItems = delta.strippedResponseItems || 0;
+            skippedResponseItems = delta.skippedResponseItems || 0;
             deltaTokens = _estimateFrameTokens(frame);
 
             // Re-check abort after acquire/warmup — narrow window where
@@ -2198,6 +2344,8 @@ export async function sendViaWebSocket({
                     lastInputPrefixHash: entry.lastInputPrefixHash,
                     lastInputLen: entry.lastInputLen,
                     lastRequestSansInput: entry.lastRequestSansInput,
+                    lastRequestInput: entry.lastRequestInput,
+                    lastResponseItems: entry.lastResponseItems,
                 };
             }
             releaseWebSocket({ entry, poolKey, keep: false });
@@ -2264,32 +2412,31 @@ export async function sendViaWebSocket({
         });
 
         const resultToolCallCount = Array.isArray(result.toolCalls) ? result.toolCalls.length : 0;
-        const keepResponseChain = resultToolCallCount === 0 && !result.incompleteReason;
+        const keepResponseChain = !!result.responseId && !result.incompleteReason;
         const keepSocket = true;
 
-        // Update cache state for the next iteration in this session. When the
-        // model emitted tool calls, do not keep a previous_response_id chain:
-        // Codex WS expects the next continuation to provide every matching
-        // function_call_output, while Claude Code may not dispatch a gateway
-        // tool_use that arrives from an old/aborted turn. Keep the transport
-        // socket warm, but clear the response-chain anchor so the next request
-        // sends a full response.create over the reused WS instead of a risky
-        // previous_response_id delta.
+        // Update cache state for the next iteration in this session. Codex
+        // keeps the previous response anchor even when the model emitted tool
+        // calls: the next request is previous input + server output items
+        // + tool results, and _computeDelta strips the first two parts so the
+        // WebSocket frame only sends the true new tail.
         if (result.responseId && keepResponseChain) {
             entry.lastResponseId = result.responseId;
             entry.lastRequestSansInput = _stableStringify(_sansInput(requestBody));
             const inputArr = Array.isArray(requestBody.input) ? requestBody.input : [];
+            entry.lastRequestInput = _cloneJson(inputArr);
+            entry.lastResponseItems = _cloneJson(Array.isArray(result.responseItems) ? result.responseItems : []);
             entry.lastInputLen = inputArr.length;
-            // Capture the prefix hash for the next turn's delta integrity
-            // check. Serialize the full input (matching what _computeDelta
-            // will hash on the next turn's first prevLen items, where
-            // prevLen === inputArr.length).
+            // Kept for diagnostics / xAI retry carry-forward. The canonical
+            // prefix guard is lastRequestInput above, not this hash.
             entry.lastInputPrefixHash = createHash('sha256')
                 .update(JSON.stringify(inputArr))
                 .digest('hex');
         } else if (!keepResponseChain) {
             entry.lastResponseId = null;
             entry.lastRequestSansInput = null;
+            entry.lastRequestInput = null;
+            entry.lastResponseItems = null;
             entry.lastInputLen = 0;
             entry.lastInputPrefixHash = null;
         }
@@ -2345,6 +2492,10 @@ export async function sendViaWebSocket({
                 cache_lane_active: Number.isFinite(Number(promptCacheLane?.activeAfterAcquire)) ? Number(promptCacheLane.activeAfterAcquire) : null,
                 cache_lane_queue_depth: Number.isFinite(Number(promptCacheLane?.queueDepthAfterAcquire)) ? Number(promptCacheLane.queueDepthAfterAcquire) : null,
                 request_has_previous_response_id: typeof frame.previous_response_id === 'string' && frame.previous_response_id.length > 0,
+                chain_delta_reason: mode === 'delta' ? null : deltaReason,
+                chain_stripped_response_items: strippedResponseItems,
+                chain_skipped_response_items: skippedResponseItems,
+                chain_response_items: Array.isArray(result.responseItems) ? result.responseItems.length : 0,
                 body_input_items: Array.isArray(requestBody.input) ? requestBody.input.length : null,
                 frame_input_items: Array.isArray(frame.input) ? frame.input.length : null,
                 frame_has_instructions: typeof frame.instructions === 'string' && frame.instructions.length > 0,
@@ -2364,7 +2515,7 @@ export async function sendViaWebSocket({
         } catch {}
 
         releaseWebSocket({ entry, poolKey, keep: keepSocket });
-        const { responseId: _ignored, ...out } = result;
+        const { responseId: _ignored, responseItems: _responseItemsIgnored, ...out } = result;
         if (includeResponseId && result.responseId) out.responseId = result.responseId;
         if (warmupResult) {
             try {

@@ -6,7 +6,7 @@ import { executePatchTool } from '../tools/patch.mjs';
 import { executeCodeGraphTool, isCodeGraphTool } from '../tools/code-graph.mjs';
 import { executeInternalTool, isInternalTool } from '../internal-tools.mjs';
 import { collectSkillsCached, loadSkillContent } from '../context/collect.mjs';
-import { traceBridgeLoop, traceBridgeTool, traceBridgeCompact, estimateProviderPayloadBytes, messagePrefixHash } from '../bridge-trace.mjs';
+import { traceBridgeLoop, traceBridgeTool, traceBridgeToolFailure, traceBridgeCompact, estimateProviderPayloadBytes, messagePrefixHash } from '../bridge-trace.mjs';
 import { markSessionToolCall, updateSessionStage, SessionClosedError, getSessionAbortSignal } from './manager.mjs';
 import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';
 import {
@@ -582,10 +582,37 @@ function resolveWorkerCompactPolicy(sessionRef, tools) {
         configuredReserveTokens: configuredReserve,
     };
 }
-function shouldCompactForPolicy(messageTokensEst, policy) {
+function latestProviderContextTokens(sessionRef) {
+    const tokens = positiveTokenInt(sessionRef?.lastContextTokens);
+    if (!tokens) return 0;
+    const compactAt = positiveTokenInt(sessionRef?.compaction?.lastChangedAt ?? sessionRef?.compaction?.lastCompactAt) || 0;
+    const usageAt = positiveTokenInt(sessionRef?.lastContextTokensUpdatedAt) || 0;
+    // Legacy sessions did not stamp usage. Treat that usage as usable until a
+    // new compaction boundary appears; after compaction, only post-compaction
+    // provider usage may pressure the next auto-compact decision.
+    if (compactAt > 0 && usageAt > 0 && usageAt <= compactAt) return 0;
+    if (compactAt > 0 && usageAt === 0) return 0;
+    return tokens;
+}
+function compactPressureTokens(messageTokensEst, policy, sessionRef) {
+    const estimated = messageTokensEst === null
+        ? null
+        : Math.max(0, messageTokensEst + (policy?.reserveTokens || 0));
+    const providerReported = latestProviderContextTokens(sessionRef);
+    return Math.max(estimated ?? 0, providerReported || 0);
+}
+function compactTargetBudget(policy, sourceTokens, ratio = 0.45) {
+    const boundary = positiveTokenInt(policy?.boundaryTokens);
+    if (!boundary) return null;
+    const reserve = Math.max(0, Number(policy?.reserveTokens) || 0);
+    const source = Math.max(0, Number(sourceTokens) || 0);
+    const targetEffective = Math.max(32_000, Math.floor(source * ratio));
+    return Math.max(1, Math.min(boundary, targetEffective + reserve));
+}
+function shouldCompactForSession(messageTokensEst, policy, sessionRef) {
     if (!policy?.auto || !policy.boundaryTokens) return false;
     if (messageTokensEst === null) return true;
-    return messageTokensEst + (policy.reserveTokens || 0) >= (policy.triggerTokens || policy.boundaryTokens);
+    return compactPressureTokens(messageTokensEst, policy, sessionRef) >= (policy.triggerTokens || policy.boundaryTokens);
 }
 function countPrunedToolOutputs(before, after) {
     if (!Array.isArray(before) || !Array.isArray(after)) return 0;
@@ -626,6 +653,7 @@ function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         lastCheckedAt: Date.now(),
         lastBeforeTokens: meta.beforeTokens ?? null,
         lastAfterTokens: meta.afterTokens ?? null,
+        lastPressureTokens: meta.pressureTokens ?? null,
         lastStage: meta.stage || prev.lastStage || null,
         lastChanged: changed,
         lastRemote: meta.remoteCompact === true,
@@ -634,6 +662,12 @@ function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         lastPruneCount: meta.pruneCount || 0,
         compactCount: (prev.compactCount || 0) + (changed ? 1 : 0),
     };
+    if (changed) {
+        const changedAt = Date.now();
+        sessionRef.compaction.lastChangedAt = changedAt;
+        sessionRef.compaction.lastCompactAt = changedAt;
+        sessionRef.lastContextTokensStaleAfterCompact = true;
+    }
     sessionRef.contextWindow = policy.contextWindow || sessionRef.contextWindow;
     sessionRef.rawContextWindow = policy.rawContextWindow || sessionRef.rawContextWindow;
     sessionRef.autoCompactTokenLimit = policy.autoCompactTokenLimit || sessionRef.autoCompactTokenLimit || null;
@@ -1005,12 +1039,17 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             let beforeBytes = null;
             try { beforeBytes = Buffer.byteLength(JSON.stringify(messages), 'utf8'); } catch { beforeBytes = null; }
             const messageTokensEst = estimateMessagesTokensSafe(messages);
-            const shouldCompact = shouldCompactForPolicy(messageTokensEst, compactPolicy);
+            const pressureTokens = compactPressureTokens(messageTokensEst, compactPolicy, sessionRef);
+            const shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, sessionRef);
+            const compactBudgetTokens = shouldCompact
+                ? (compactTargetBudget(compactPolicy, pressureTokens) || compactPolicy.boundaryTokens)
+                : compactPolicy.boundaryTokens;
             if (!shouldCompact) {
                 rememberCompactTelemetry(sessionRef, compactPolicy, {
                     stage: 'pre_send_check',
                     beforeTokens: messageTokensEst,
                     afterTokens: messageTokensEst,
+                    pressureTokens,
                 });
             } else {
                 let compacted;
@@ -1039,7 +1078,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                                 provider,
                                 compactInputMessages,
                                 model,
-                                compactPolicy.boundaryTokens,
+                                compactBudgetTokens,
                                 {
                                     reserveTokens: compactPolicy.reserveTokens,
                                     providerName: sessionRef.provider || provider?.name || null,
@@ -1085,8 +1124,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     }
                     if (!compacted) {
                         try {
-                            compacted = compactMessages(compactInputMessages, compactPolicy.boundaryTokens, {
+                            compacted = compactMessages(compactInputMessages, compactBudgetTokens, {
                                 reserveTokens: compactPolicy.reserveTokens,
+                                force: true,
                             });
                         } catch (deterministicErr) {
                             // Deterministic (and any prior semantic) compaction
@@ -1100,7 +1140,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                             // surface overflow below) when even that floor cannot
                             // fit, so overflow/cancellation behavior is preserved.
                             if (!compactPolicy.activeTurnFallback) throw deterministicErr;
-                            compacted = compactActiveTurn(compactInputMessages, compactPolicy.boundaryTokens, {
+                            compacted = compactActiveTurn(compactInputMessages, compactBudgetTokens, {
                                 reserveTokens: compactPolicy.reserveTokens,
                             });
                             try {
@@ -1174,6 +1214,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                                     after_bytes: beforeBytes,
                                     context_window: compactPolicy.contextWindow,
                                     budget_tokens: compactPolicy.boundaryTokens,
+                                    target_budget_tokens: compactBudgetTokens,
                                     reserve_tokens: compactPolicy.reserveTokens,
                                     message_tokens_est: messageTokensEst,
                                     provider: sessionRef.provider,
@@ -1198,6 +1239,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         after_bytes: beforeBytes,
                         context_window: compactPolicy.contextWindow,
                         budget_tokens: compactPolicy.boundaryTokens,
+                        target_budget_tokens: compactBudgetTokens,
                         reserve_tokens: compactPolicy.reserveTokens,
                         message_tokens_est: messageTokensEst,
                         provider: sessionRef.provider,
@@ -1210,7 +1252,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         sessionId,
                         sessionRef,
                         model,
-                        budgetTokens: compactPolicy.boundaryTokens,
+                        budgetTokens: compactBudgetTokens,
                         reserveTokens: compactPolicy.reserveTokens,
                         messageTokensEst,
                     }, compactErr);
@@ -1241,6 +1283,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     stage: 'pre_send',
                     beforeTokens: messageTokensEst,
                     afterTokens,
+                    pressureTokens,
                     compactChanged,
                     remoteCompact: remoteCompactResult?.providerState !== undefined,
                     semanticCompact: semanticCompactResult?.semantic === true,
@@ -1262,6 +1305,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     after_bytes: afterBytes,
                     context_window: compactPolicy.contextWindow,
                     budget_tokens: compactPolicy.boundaryTokens,
+                    target_budget_tokens: compactBudgetTokens,
                     reserve_tokens: compactPolicy.reserveTokens,
                     message_tokens_est: messageTokensEst,
                     provider: sessionRef.provider,
@@ -2004,6 +2048,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     model: sessionRef?.model || null,
                     resultKind: _resultKind,
                     resultText: result,
+                    cwd,
                 });
                 // Cache stores run AFTER compress+trim+offload+hint AND after all other
                 // post-processing (trace) so stored content == history content. Placing
@@ -2044,6 +2089,19 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 // too for a clean retry (mirrors the failed-exec path above).
                 if (call?.id) restoreToolCallBodyForId(_assistantTurnMsg, calls, call.id);
                 const _postMsg = `Error: tool result post-processing failed for "${call.name}": ${postErr instanceof Error ? postErr.message : String(postErr)}`;
+                traceBridgeToolFailure({
+                    sessionId,
+                    iteration: iterations,
+                    toolName: call.name,
+                    toolKind,
+                    toolMs: toolEndedAt && toolStartedAt ? toolEndedAt - toolStartedAt : null,
+                    toolArgs: call.arguments,
+                    role: sessionRef?.role || null,
+                    model: sessionRef?.model || null,
+                    cwd,
+                    resultText: _postMsg,
+                    resultKind: 'error',
+                });
                 // Always emit a matching tool result so the assistant
                 // tool_use isn't orphaned. Cache writes are placed at the
                 // end of the try block (immediately before messages.push),

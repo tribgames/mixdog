@@ -1313,26 +1313,36 @@ function patchPluginPaths(src, kind) {
   const staleDoc = ` * Throws if neither env var is present — the plugin always runs under
  * Claude Code, which sets one of them. Callers must not silently fall
  * back to a hardcoded path.`;
-  const standaloneDoc = ` * In standalone mixdog-cli, falls back to MIXDOG_DATA_DIR or ~/.mixdog/data
- * when the host plugin env is absent. Plugin-host runs still prefer the
- * host-provided env vars above.`;
+  const standaloneDoc = ` * In standalone mixdog-cli, falls back to MIXDOG_DATA_DIR or
+ * <project-root>/.mixdog/data when the host plugin env is absent.
+ * Plugin-host runs still prefer the host-provided env vars above.`;
   if (s.includes(staleDoc)) {
     s = s.replace(staleDoc, standaloneDoc);
     changed = true;
   }
-  if (s.includes('return process.env.MIXDOG_DATA_DIR')) return { text: s, already: !changed };
+  if (s.includes('STANDALONE_PROJECT_ROOT')) return { text: s, already: !changed };
   const throwLine =
     "throw new Error('[plugin-paths] CLAUDE_PLUGIN_DATA and CLAUDE_PLUGIN_ROOT are both unset — cannot resolve plugin data dir outside of Claude Code.');";
   if (!s.includes(throwLine)) {
     throw new Error(`[sync] plugin-paths(${kind}) throw anchor not found — reconcile patch manually.`);
   }
-  const fallback =
-    kind === 'mjs'
-      ? `// Standalone mixdog-cli: own a private data dir (override with MIXDOG_DATA_DIR).
-  return process.env.MIXDOG_DATA_DIR || join(homedir(), '.mixdog', 'data');`
-      : `// Standalone mixdog-cli: own a private data dir (override with MIXDOG_DATA_DIR).
-  return process.env.MIXDOG_DATA_DIR || path.join(require('os').homedir(), '.mixdog', 'data');`;
-  return { text: s.replace(throwLine, fallback), already: false };
+  let next = s;
+  if (kind === 'mjs') {
+    next = next.replace("import { join, basename } from 'path';", "import { join, basename, dirname, resolve } from 'path';");
+    next = next.replace("import { readFileSync } from 'fs';", "import { readFileSync } from 'fs';\nimport { fileURLToPath } from 'url';");
+    next = next.replace(
+      "export const DEFAULT_MARKETPLACE = 'trib-plugin';",
+      "export const DEFAULT_MARKETPLACE = 'trib-plugin';\nconst STANDALONE_PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');",
+    );
+  } else {
+    next = next.replace(
+      "const DEFAULT_MARKETPLACE = 'trib-plugin';",
+      "const DEFAULT_MARKETPLACE = 'trib-plugin';\nconst STANDALONE_PROJECT_ROOT = path.resolve(__dirname, '..', '..');",
+    );
+  }
+  const fallback = `// Standalone mixdog-cli: own a project-local data dir (override with MIXDOG_DATA_DIR).
+  return process.env.MIXDOG_DATA_DIR || ${kind === 'mjs' ? "join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data')" : "path.join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data')"};`;
+  return { text: next.replace(throwLine, fallback), already: false };
 }
 
 function isMemoryRuntimeModule(to) {

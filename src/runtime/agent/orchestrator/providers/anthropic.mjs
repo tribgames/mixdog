@@ -314,20 +314,26 @@ export class AnthropicProvider {
     fastModeBetaHeaderLatched = false;
     constructor(config) {
         this.config = config;
+        this.name = config.name || 'anthropic';
+        const betaHeaders = config.disableBetaHeaders ? null : buildAnthropicBetaHeaders();
         this.client = new Anthropic({
             apiKey: config.apiKey || process.env.ANTHROPIC_API_KEY,
-            defaultHeaders: { 'anthropic-beta': buildAnthropicBetaHeaders() },
+            ...(config.baseURL ? { baseURL: config.baseURL } : {}),
+            defaultHeaders: { ...(betaHeaders ? { 'anthropic-beta': betaHeaders } : {}), ...(config.extraHeaders || {}) },
         });
     }
     reloadApiKey() {
         try {
             const freshConfig = loadConfig();
-            const cfg = freshConfig.providers?.anthropic;
-            const newKey = cfg?.apiKey || process.env.ANTHROPIC_API_KEY;
+            const cfg = freshConfig.providers?.[this.name] || freshConfig.providers?.anthropic;
+            const newKey = cfg?.apiKey || this.config.apiKey || (this.name === 'anthropic' ? process.env.ANTHROPIC_API_KEY : null);
             if (newKey) {
+                this.config = { ...(this.config || {}), ...(cfg || {}), apiKey: newKey };
+                const betaHeaders = this.config.disableBetaHeaders ? null : buildAnthropicBetaHeaders();
                 this.client = new Anthropic({
                     apiKey: newKey,
-                    defaultHeaders: { 'anthropic-beta': buildAnthropicBetaHeaders() },
+                    ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
+                    defaultHeaders: { ...(betaHeaders ? { 'anthropic-beta': betaHeaders } : {}), ...(this.config.extraHeaders || {}) },
                 });
             }
         } catch { /* best effort */ }
@@ -351,7 +357,7 @@ export class AnthropicProvider {
         }
     }
     async _doSend(messages, model, tools, sendOpts) {
-        if (!model) throw new Error('[anthropic] model is required — pass it from the caller preset');
+        if (!model) throw new Error(`[${this.name}] model is required — pass it from the caller preset`);
         const useModel = model;
         const maxTokens = resolveMaxTokens(useModel);
         const opts = sendOpts || {};
@@ -479,7 +485,7 @@ export class AnthropicProvider {
                     modelDisplay: liveModel,
                     responseId: null,
                     rawUsage: usageRaw,
-                    provider: 'anthropic',
+                    provider: this.name,
                     requestKind: opts.requestKind || null,
                 });
             }
@@ -562,13 +568,13 @@ export class AnthropicProvider {
                         {
                             signal: totalSignal,
                             perAttemptTimeoutMs: PROVIDER_FIRST_BYTE_TIMEOUT_MS,
-                            perAttemptLabel: 'Anthropic streaming response',
+                            perAttemptLabel: `${this.name} Anthropic streaming response`,
                             onRetry: ({ attempt, lastErr, delayMs, delayReason }) => {
                                 const delayLabel = Number.isFinite(Number(delayMs))
                                     ? `, delay ${delayMs}ms${delayReason ? ` (${delayReason})` : ''}`
                                     : '';
                                 process.stderr.write(
-                                    `[anthropic] retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`,
+                                    `[${this.name}] retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`,
                                 );
                             },
                         },
@@ -648,7 +654,7 @@ export class AnthropicProvider {
                         try { streamController.abort?.(err); } catch {}
                         try {
                             process.stderr.write(
-                                `[anthropic] empty stream (no message_start) — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES}\n`,
+                                `[${this.name}] empty stream (no message_start) — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES}\n`,
                             );
                         } catch {}
                         continue;
@@ -662,7 +668,7 @@ export class AnthropicProvider {
                         try { streamController.abort?.(err); } catch {}
                         try {
                             process.stderr.write(
-                                `[anthropic] truncated stream — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES}\n`,
+                                `[${this.name}] truncated stream — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES}\n`,
                             );
                         } catch {}
                         continue;
@@ -674,7 +680,7 @@ export class AnthropicProvider {
                         try { streamController.abort?.(err); } catch {}
                         try {
                             process.stderr.write(
-                                `[anthropic] mid-stream recovered: retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES} (cause: ${classifier})\n`,
+                                `[${this.name}] mid-stream recovered: retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES} (cause: ${classifier})\n`,
                             );
                         } catch {}
                         continue;

@@ -40,8 +40,11 @@ export function ensureStandaloneEnvironment({ rootDir, dataDir }) {
   if (!rootDir) throw new Error('standalone rootDir is required');
   if (!dataDir) throw new Error('standalone dataDir is required');
 
-  process.env.CLAUDE_PLUGIN_ROOT ??= rootDir;
-  process.env.CLAUDE_PLUGIN_DATA ??= dataDir;
+  // Standalone owns its roots. Do not inherit Claude Code/plugin env from the
+  // launching shell; all default state is scoped to the mixdog-cli project root
+  // regardless of install location.
+  process.env.CLAUDE_PLUGIN_ROOT = rootDir;
+  process.env.CLAUDE_PLUGIN_DATA = dataDir;
   process.env.MIXDOG_STANDALONE ??= '1';
   process.env.MIXDOG_EMBED_WARMUP ??= '0';
   process.env.MIXDOG_QUIET_MEMORY_LOG ??= '1';

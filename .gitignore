@@ -9,6 +9,9 @@ src/tui/dist/
 *.log
 npm-debug.log*
 
+# Local Mixdog runtime state
+.mixdog/
+
 # Environment / secrets
 .env
 .env.*

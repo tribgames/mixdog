@@ -36,6 +36,7 @@ function createSessionStats() {
     latestCachedTokens: 0,
     latestCacheWriteTokens: 0,
     latestPromptTokens: 0,
+    currentContextTokens: 0,
     costUsd: 0,
     turns: 0,
   };
@@ -73,6 +74,28 @@ const nextId = () => `it_${++_idSeq}`;
 
 function pickVerb(turn) {
   return SPINNER_VERBS[(turn * 7 + 3) % SPINNER_VERBS.length];
+}
+
+const TURN_DONE_VERBS = [
+  'Thought',
+  'Reasoned',
+  'Mapped',
+  'Checked',
+  'Solved',
+  'Composed',
+  'Synthesized',
+  'Wrapped',
+];
+
+function pickDoneVerb(turn) {
+  return TURN_DONE_VERBS[(turn * 5 + 2) % TURN_DONE_VERBS.length];
+}
+
+function formatIdleDuration(ms) {
+  const value = Math.max(0, Number(ms) || 0);
+  if (value >= 3_600_000 && value % 3_600_000 === 0) return `${value / 3_600_000}h`;
+  if (value >= 60_000) return `${Math.round(value / 60_000)}m`;
+  return `${Math.round(value / 1000)}s`;
 }
 
 function toolResultText(content) {
@@ -258,16 +281,20 @@ export async function createEngineSession({
   const runtime = await createMixdogSessionRuntime({ provider: providerName, model, toolMode });
   bootProfile('engine:create:runtime-ready', { ms: (performance.now() - startedAt).toFixed(1) });
   const cwd = runtime.cwd || process.cwd();
+  const autoClearState = () => runtime.getAutoClear?.() || runtime.autoClear || { enabled: true, idleMs: 60 * 60 * 1000 };
   const routeState = () => ({
     sessionId: runtime.id,
     model: runtime.model,
     provider: runtime.provider,
     effort: runtime.effort,
     effortOptions: runtime.effortOptions,
+    fast: runtime.fast,
+    fastCapable: runtime.fastCapable,
     contextWindow: runtime.contextWindow,
     rawContextWindow: runtime.rawContextWindow,
     effectiveContextWindowPercent: runtime.effectiveContextWindowPercent,
     cwd: runtime.cwd || process.cwd(),
+    autoClear: autoClearState(),
   });
 
   let state = {
@@ -285,6 +312,17 @@ export async function createEngineSession({
     bridgeMode: runtime.bridgeMode,
     cwd,
   };
+  const syncContextStats = ({ allowEstimated = false } = {}) => {
+    const ctx = runtime.contextStatus?.() || null;
+    const hasProviderUsage = Number(state.stats.latestPromptTokens || state.stats.latestInputTokens || state.stats.inputTokens || 0) > 0;
+    const used = Number(ctx?.usedTokens || ctx?.currentEstimatedTokens || 0);
+    if (!allowEstimated && !hasProviderUsage && ctx?.usedSource !== 'last_api_request') return ctx;
+    if (Number.isFinite(used) && used > 0) state.stats.currentContextTokens = used;
+    state.stats.currentContextSource = ctx?.usedSource || null;
+    state.stats.currentContextUpdatedAt = Date.now();
+    return ctx;
+  };
+  syncContextStats();
   const listeners = new Set();
   const emit = () => { for (const l of listeners) l(); };
   const set = (patch) => { state = { ...state, ...patch }; emit(); };
@@ -320,6 +358,8 @@ export async function createEngineSession({
   const bridgeJobMonitors = new Map();
   const injectedBridgeJobs = new Set();
   let disposed = false;
+  let lastUserActivityAt = Date.now();
+  let autoClearRunning = false;
 
   function clearBridgeJobMonitor(jobId) {
     const monitor = bridgeJobMonitors.get(jobId);
@@ -401,7 +441,7 @@ export async function createEngineSession({
     const callId = toolResultCallId(message) || card.callId;
     if (callId && done.has(callId)) return false;
     const text = toolResultText(message?.content);
-    const isError = message?.isError === true || /^\s*\[?error/i.test(text);
+    const isError = message?.isError === true || message?.toolKind === 'error' || /^\s*\[?error/i.test(text);
     const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, results: [] };
     group.completed = Math.min(group.count, group.completed + 1);
     group.errors += isError ? 1 : 0;
@@ -414,6 +454,7 @@ export async function createEngineSession({
       isError: group.errors > 0,
       count: group.count,
       completedCount: group.completed,
+      completedAt: Date.now(),
     });
     if (group.count <= 1) updateBridgeJobCard(card.itemId, text, isError);
     card.done = true;
@@ -456,7 +497,7 @@ export async function createEngineSession({
       group.completed = Math.min(group.count, group.completed + 1);
       toolGroups.set(card.itemId, group);
       const resultText = groupedToolResultText(group);
-      patchItem(card.itemId, { result: resultText, text: resultText, isError: group.errors > 0, count: group.count, completedCount: group.completed });
+      patchItem(card.itemId, { result: resultText, text: resultText, isError: group.errors > 0, count: group.count, completedCount: group.completed, completedAt: Date.now() });
       card.done = true;
       if (card.callId) done.add(card.callId);
     }
@@ -467,12 +508,15 @@ export async function createEngineSession({
     const startedAt = Date.now();
     const inputBaseline = state.stats.inputTokens;
     const outputBaseline = state.stats.outputTokens;
-    set({ busy: true, lastTurn: null, spinner: { active: true, verb: pickVerb(turnIndex), startedAt, liveTokens: 0, inputTokens: 0, outputTokens: 0 } });
+    set({ busy: true, lastTurn: null, spinner: { active: true, verb: pickVerb(turnIndex), startedAt, liveTokens: 0, inputTokens: 0, outputTokens: 0, mode: 'requesting' } });
 
     let assistantText = '';
     let currentAssistantId = null;
     let currentAssistantText = '';
     let thinkingText = '';
+    let thinkingStartedAt = 0;
+    let thinkingSegmentStartedAt = 0;
+    let accumulatedThinkingMs = 0;
     let cancelled = false;
     const cardByCallId = new Map();
     const toolCards = [];
@@ -506,7 +550,7 @@ export async function createEngineSession({
       if (!currentAssistantId) {
         currentAssistantId = nextId();
         currentAssistantText = '';
-        pushItem({ kind: 'assistant', id: currentAssistantId, text: '' });
+        pushItem({ kind: 'assistant', id: currentAssistantId, text: '', streaming: true });
       }
       return currentAssistantId;
     };
@@ -516,11 +560,32 @@ export async function createEngineSession({
       currentAssistantText = '';
     };
 
+    const startThinkingSegment = () => {
+      const now = Date.now();
+      if (!thinkingStartedAt) thinkingStartedAt = now;
+      if (!thinkingSegmentStartedAt) thinkingSegmentStartedAt = now;
+      return now;
+    };
+
+    const closeThinkingSegment = () => {
+      if (!thinkingSegmentStartedAt) return;
+      const now = Date.now();
+      accumulatedThinkingMs += Math.max(0, now - thinkingSegmentStartedAt);
+      thinkingSegmentStartedAt = 0;
+      return now;
+    };
+
     try {
       const { result, session } = await runtime.ask(userText, {
+        drainSteering: () => drainPendingSteering(),
+        onSteerMessage: (text) => {
+          const value = String(text || '').trim();
+          if (value) pushItem({ kind: 'user', id: nextId(), text: value });
+        },
         onToolCall: async (_iter, calls) => {
           if (thinkingText && state.thinking) {
-            set({ thinking: null, spinner: state.spinner ? { ...state.spinner, thinking: true, mode: 'tool-use' } : state.spinner });
+            const thinkingLastEndedAt = closeThinkingSegment();
+            set({ thinking: null, spinner: state.spinner ? { ...state.spinner, thinking: false, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingLastEndedAt, mode: 'tool-use' } : state.spinner });
           } else if (state.spinner) {
             set({ spinner: { ...state.spinner, mode: 'tool-use' } });
           }
@@ -556,6 +621,7 @@ export async function createEngineSession({
                     expanded: false,
                     count: 0,
                     completedCount: 0,
+                    startedAt: Date.now(),
                   });
                 }
               }
@@ -592,26 +658,31 @@ export async function createEngineSession({
         onTextDelta: (chunk) => {
           const textChunk = String(chunk ?? '');
           if (!textChunk) return;
+          const thinkingLastEndedAt = closeThinkingSegment();
+          if (state.thinking) set({ thinking: null });
           if (textChunk.trim()) clearToolGroupContinuation();
           assistantText += textChunk;
           const id = ensureAssistant();
           currentAssistantText += textChunk;
-          patchItem(id, { text: currentAssistantText });
+          patchItem(id, { text: currentAssistantText, streaming: true });
           const estimatedTokens = Math.round(assistantText.length / 4);
           if (state.spinner) {
-            set({ spinner: { ...state.spinner, liveTokens: estimatedTokens, mode: 'responding' } });
+            set({ spinner: { ...state.spinner, liveTokens: estimatedTokens, thinking: false, thinkingLastEndedAt: thinkingLastEndedAt || state.spinner.thinkingLastEndedAt, mode: 'responding' } });
           }
         },
         onReasoningDelta: (chunk) => {
+          startThinkingSegment();
           thinkingText += String(chunk ?? '');
           const estimatedTokens = Math.round((assistantText.length + thinkingText.length) / 4);
+          const thinkingElapsedMs = accumulatedThinkingMs + (thinkingSegmentStartedAt ? Math.max(0, Date.now() - thinkingSegmentStartedAt) : 0);
           if (state.spinner) {
-            set({ spinner: { ...state.spinner, liveTokens: estimatedTokens, thinking: true, mode: 'thinking' } });
+            set({ spinner: { ...state.spinner, liveTokens: estimatedTokens, thinking: true, thinkingStartedAt, thinkingSegmentStartedAt, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingElapsedMs, thinkingLastEndedAt: 0, mode: 'thinking' } });
           }
           set({ thinking: thinkingText });
         },
         onUsageDelta: (delta) => {
           applyUsageDelta(state.stats, delta);
+          syncContextStats();
           const currentTurnInput = Math.max(0, state.stats.inputTokens - inputBaseline);
           const currentTurnOutput = Math.max(0, state.stats.outputTokens - outputBaseline);
           if (state.spinner) {
@@ -623,31 +694,38 @@ export async function createEngineSession({
       });
 
       flushToolResults(session?.messages || [], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
+      syncContextStats();
 
       const finalText = (result?.content != null && String(result.content)) || assistantText;
+      if (assistantText.trim() && currentAssistantId) {
+        patchItem(currentAssistantId, { text: currentAssistantText || assistantText, streaming: false });
+      }
       if (finalText && !assistantText.trim()) {
         const id = ensureAssistant();
         currentAssistantText = finalText;
-        patchItem(id, { text: finalText });
+        patchItem(id, { text: finalText, streaming: false });
       }
       state.stats.turns = (state.stats.turns || 0) + 1;
     } catch (error) {
       if (error?.name === 'SessionClosedError') {
         cancelled = true;
         if (assistantText.trim() && currentAssistantId) {
-          patchItem(currentAssistantId, { text: currentAssistantText || assistantText });
+          patchItem(currentAssistantId, { text: currentAssistantText || assistantText, streaming: false });
         }
       } else {
         pushItem({ kind: 'notice', id: nextId(), text: `[error] ${error?.message || error}`, tone: 'error' });
       }
     } finally {
+      closeThinkingSegment();
       const elapsedMs = Date.now() - startedAt;
+      const thinkingElapsedMs = thinkingStartedAt ? accumulatedThinkingMs : 0;
+      const finalOutputTokens = Math.max(0, Number(state.spinner?.outputTokens || 0), Number(state.spinner?.liveTokens || 0));
       const turnStatus = cancelled ? 'cancelled' : 'done';
       // Pin the post-think summary into the transcript right after this turn's
       // output so it scrolls up with the answer and stays in the scrollback,
       // mirroring Claude Code. (Previously TurnDone rendered only in the
       // bottom-fixed live-status slot and vanished on the next turn.)
-      pushItem({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus });
+      pushItem({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus, outputTokens: finalOutputTokens, thinkingElapsedMs, verb: pickDoneVerb(turnIndex) });
       set({
         busy: false,
         spinner: null,
@@ -695,6 +773,55 @@ export async function createEngineSession({
     void drain();
   }
 
+  function drainPendingSteering() {
+    if (pending.length === 0) return [];
+    const batch = pending.splice(0);
+    const ids = new Set(batch.map((entry) => entry.id));
+    set({ queued: state.queued.filter((q) => !ids.has(q.id)) });
+    return batch
+      .map((entry) => String(entry.text || '').trim())
+      .filter(Boolean);
+  }
+
+  async function autoClearBeforeSubmit() {
+    const cfg = autoClearState();
+    const now = Date.now();
+    const idleMs = now - lastUserActivityAt;
+    if (!cfg.enabled || state.busy || pending.length > 0 || autoClearRunning || idleMs < cfg.idleMs) {
+      lastUserActivityAt = now;
+      return false;
+    }
+    autoClearRunning = true;
+    try {
+      await runtime.clear();
+      resetStats();
+      const idleLabel = formatIdleDuration(idleMs);
+      const thresholdLabel = formatIdleDuration(cfg.idleMs);
+      set({
+        items: [],
+        toasts: [],
+        queued: [],
+        thinking: null,
+        spinner: null,
+        lastTurn: null,
+        ...routeState(),
+        stats: { ...state.stats },
+      });
+      pushNotice(
+        `auto-cleared after ${idleLabel} idle (threshold ${thresholdLabel}). Use /recall <topic> if you need older context.`,
+        'info',
+        { transcript: true },
+      );
+      return true;
+    } catch (error) {
+      pushNotice(`auto-clear failed: ${error?.message || error}`, 'error');
+      return false;
+    } finally {
+      lastUserActivityAt = Date.now();
+      autoClearRunning = false;
+    }
+  }
+
   function restoreQueued(currentText = '') {
     const queued = pending.splice(0);
     set({ queued: [] });
@@ -718,7 +845,11 @@ export async function createEngineSession({
     submit: (text) => {
       const t = String(text ?? '').trim();
       if (!t || state.commandBusy) return false;
-      enqueue(t);
+      if (state.busy) {
+        enqueue(t);
+        return true;
+      }
+      void autoClearBeforeSubmit().then(() => enqueue(t));
       return true;
     },
     restoreQueued,
@@ -745,6 +876,28 @@ export async function createEngineSession({
         set({ commandBusy: false });
       }
     },
+    setFast: async (value) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const enabled = await runtime.setFast(value);
+        set({ ...routeState() });
+        return enabled;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    toggleFast: async () => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const enabled = await runtime.toggleFast();
+        set({ ...routeState() });
+        return enabled;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
     setToolMode: (m) => {
       void runtime.setToolMode(m)
         .then(() => {
@@ -762,6 +915,12 @@ export async function createEngineSession({
     setBridgeMode: (mode) => {
       const next = runtime.setBridgeMode(mode);
       set({ bridgeMode: runtime.bridgeMode });
+      return next;
+    },
+    getAutoClear: () => autoClearState(),
+    setAutoClear: (input = {}) => {
+      const next = runtime.setAutoClear?.(input) || autoClearState();
+      set({ autoClear: next });
       return next;
     },
     bridgeControl: async (args = {}) => {
@@ -1170,6 +1329,7 @@ export async function createEngineSession({
         await runtime.clear();
         resetStats();
         set({ items: [], toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, ...routeState(), stats: { ...state.stats } });
+        lastUserActivityAt = Date.now();
         return true;
       } finally {
         set({ commandBusy: false });
@@ -1225,6 +1385,7 @@ export async function createEngineSession({
       }
     },
     dispose: async () => {
+      if (disposed) return;
       disposed = true;
       clearBridgeJobMonitors();
       await runtime.close('cli-react-exit');

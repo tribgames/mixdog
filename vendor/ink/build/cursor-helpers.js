@@ -7,14 +7,20 @@ Compare two cursor positions. Returns true if they differ.
 */
 export const cursorPositionChanged = (a, b) => a?.x !== b?.x || a?.y !== b?.y;
 /**
-Build escape sequence to move cursor from bottom of output to the target position and show it.
-Assumes cursor is at (col 0, line visibleLineCount) — i.e. just after the last output line.
+Build escape sequence to move cursor from the output cursor-origin line to the target position and show it.
+
+[mixdog fork] Most Ink frames end with a trailing newline, so the terminal cursor
+rests just after the last visible output line (origin line = visibleLineCount).
+Fullscreen frames intentionally omit that trailing newline to avoid scrolling
+Windows Terminal/conhost, so the cursor rests on the last visible output line
+(origin line = visibleLineCount - 1). Keep the origin explicit to avoid parking
+the hardware cursor one row too high in fullscreen input bars.
 */
-export const buildCursorSuffix = (visibleLineCount, cursorPosition) => {
+export const buildCursorSuffix = (visibleLineCount, cursorPosition, cursorOriginLine = visibleLineCount) => {
     if (!cursorPosition) {
         return '';
     }
-    const moveUp = visibleLineCount - cursorPosition.y;
+    const moveUp = Math.max(0, cursorOriginLine - cursorPosition.y);
     return ((moveUp > 0 ? ansiEscapes.cursorUp(moveUp) : '') +
         ansiEscapes.cursorTo(cursorPosition.x) +
         showCursorEscape);
@@ -39,7 +45,7 @@ Hides cursor if it was previously shown, returns to bottom, then repositions.
 export const buildCursorOnlySequence = (input) => {
     const hidePrefix = input.cursorWasShown ? hideCursorEscape : '';
     const returnToBottom = buildReturnToBottom(input.previousLineCount, input.previousCursorPosition);
-    const cursorSuffix = buildCursorSuffix(input.visibleLineCount, input.cursorPosition);
+    const cursorSuffix = buildCursorSuffix(input.visibleLineCount, input.cursorPosition, input.cursorOriginLine);
     return hidePrefix + returnToBottom + cursorSuffix;
 };
 /**

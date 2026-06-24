@@ -1,7 +1,7 @@
 /**
  * components/TurnDone.jsx — the turn finished/cancelled line.
  *
- *   ◈ Thought for 12s
+ *   ◈ Thought for 12s / Reasoned for 12s / Mapped for 12s
  *   ◈ Cancelled
  *
  * Pinned into the transcript right after a turn's output (an `item.kind ===
@@ -13,14 +13,17 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.mjs';
 
-export function TurnDone({ elapsedMs = 0, status = 'done' }) {
+export function TurnDone({ elapsedMs = 0, status = 'done', verb = 'Thought' }) {
   const secs = Math.max(0, Math.round(elapsedMs / 1000));
   const cancelled = status === 'cancelled';
+  const doneVerb = String(verb || 'Thought').trim() || 'Thought';
 
   return (
     <Box marginTop={1} flexDirection="row">
-      <Text color={theme.thinkingAccent}>◈ </Text>
-      <Text color={theme.thinkingText}>{cancelled ? 'Cancelled' : `Thought for ${secs}s`}</Text>
+      <Text>
+        <Text color={theme.spinnerGlyph}>◈ </Text>
+        <Text color={theme.thinkingAccent}>{cancelled ? `Cancelled after ${secs}s` : `${doneVerb} for ${secs}s`}</Text>
+      </Text>
     </Box>
   );
 }

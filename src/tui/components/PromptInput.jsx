@@ -149,7 +149,6 @@ export function PromptInput({
   onCommandPaletteAccept,
   onCommandPaletteCancel,
   onCommandPaletteComplete,
-  submitPasteImmediately = false,
   valueRef,
 }) {
   const [draft, setDraft] = useState(() => {
@@ -219,10 +218,6 @@ export function PromptInput({
     if (disabled) return;
     const pasted = normalizePastedText(text);
     if (!pasted) return;
-    if (submitPasteImmediately) {
-      onSubmit?.(pasted);
-      return;
-    }
     updateDraft((d) => insertText(d, pasted));
   }, { isActive: isRawModeSupported && !disabled });
 
@@ -237,6 +232,13 @@ export function PromptInput({
     // garbage like `[<64;55;22M` into the prompt. Match with or without the
     // leading ESC (terminals/ink may strip it): CSI '<' … final 'M'/'m'.
     if (/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/.test(rawInput) || /^\[?<\d+;\d+;\d+[Mm]?$/.test(rawInput)) {
+      return;
+    }
+
+    const pasteFallback = /[\r\n]/.test(rawInput) && (rawInput.length > 1 || !key.return);
+    if (pasteFallback) {
+      const pasted = normalizePastedText(rawInput);
+      if (pasted) updateDraft((d) => insertText(d, pasted));
       return;
     }
 
@@ -348,11 +350,7 @@ export function PromptInput({
     if (key.ctrl && (input === 'v' || input === 'V' || rawInput === '\u0016')) {
       const pasted = normalizePastedText(readClipboardText());
       if (pasted) {
-        if (submitPasteImmediately) {
-          onSubmit?.(pasted);
-        } else {
-          updateDraft((d) => insertText(d, pasted));
-        }
+        updateDraft((d) => insertText(d, pasted));
       }
       return;
     }
@@ -456,7 +454,7 @@ export function PromptInput({
   const hintMeta = hintStyle(hintTone);
 
   return (
-    <Box ref={boxRef} flexDirection="row" flexGrow={1} flexShrink={1}>
+    <Box ref={boxRef} flexDirection="row" flexGrow={1} flexShrink={1} backgroundColor={theme.background}>
       <Text color={theme.text} wrap="hard">{renderedValue}</Text>
       {!value && hint ? (
         <Box marginLeft={-1}>

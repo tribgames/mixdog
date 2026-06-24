@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { ensureStandaloneEnvironment } from './standalone/seeds.mjs';
@@ -146,7 +145,13 @@ const CODE_GRAPH_TOOL_DEFS = './runtime/agent/orchestrator/tools/code-graph-tool
 const CODE_GRAPH_RUNTIME = './runtime/agent/orchestrator/tools/code-graph.mjs';
 const STATUSLINE_SESSION_ROUTES = './vendor/statusline/src/gateway/session-routes.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STANDALONE_ROOT = __dirname;
+const STANDALONE_SOURCE_ROOT = __dirname;
+const STANDALONE_PROJECT_ROOT = resolve(__dirname, '..');
+// Resource root stays at src/ because defaults/, rules/, runtime/, vendor/ live
+// there. User-owned standalone state is scoped to the project/package root so
+// installs do not fall back to ~/.mixdog by default.
+const STANDALONE_ROOT = STANDALONE_SOURCE_ROOT;
+const STANDALONE_DATA_DIR = process.env.MIXDOG_DATA_DIR || join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data');
 
 const DEFAULT_PROVIDER = 'anthropic-oauth';
 const DEFAULT_MODEL = '';
@@ -305,6 +310,7 @@ const DEFERRED_DEFAULT_FULL_LIMIT = 6;
 const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
   'read',
   'grep',
+  'explore',
   'code_graph',
   'list',
   'tool_search',
@@ -312,6 +318,7 @@ const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
 const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   'read',
   'grep',
+  'explore',
   'bridge',
   'apply_patch',
   'recall',
@@ -349,6 +356,8 @@ const DEFERRED_SELECT_ALIASES = {
   status: ['provider_status', 'channel_status', 'schedule_status'],
   schedule: ['schedule_status', 'trigger_schedule', 'schedule_control'],
   channel: ['channel_status'],
+  explore: ['explore'],
+  discovery: ['explore'],
   bridge: ['bridge'],
   graph: ['code_graph'],
   code: ['code_graph'],
@@ -363,7 +372,8 @@ const COMPACT_TOOL_DESCRIPTIONS = Object.freeze({
   edit: 'Small exact replacements only. Prefer apply_patch for structural or multi-file edits.',
   apply_patch: 'First-class file patch editor. Use v4a; read target first; base_path should be the repo root.',
   code_graph: 'Code structure lookup: symbols, callers/callees, references, imports, dependents, impact.',
-  bridge: 'Spawn/send/list/read/close worker agents. Use sync for immediate result or async for jobs.',
+  explore: 'Broad/open-ended codebase discovery when no concrete file/symbol anchor is known. Returns file:line leads only; no verdicts or implementation.',
+  bridge: 'Delegate actual scoped work to a workflow role: implementation, debugging, review, verification, or bounded investigation.',
   bash: 'Run shell commands for git/build/test. Set shell explicitly on Windows.',
   list: 'List/find directory entries. Use mode=list/tree/find; fuzzy ranks partial names.',
   recall: 'Retrieve stored memory or prior work. Use query and optional filters.',
@@ -419,6 +429,11 @@ const COMPACT_PROPERTY_DESCRIPTIONS = Object.freeze({
     depth: 'Caller/callee depth.',
     page: 'Paged graph results.',
     cwd: 'Project root.',
+  },
+  explore: {
+    query: 'One-line location/inventory question, or array of independent questions.',
+    cwd: 'Repo root or search cwd.',
+    background: 'Accepted for compatibility; standalone returns sync.',
   },
   bridge: {
     type: 'spawn/send/list/status/read/cleanup/cancel/close.',
@@ -591,20 +606,25 @@ function findPreset(config, key) {
   }) || null;
 }
 
-function resolveRoute(config, { provider, model, effort } = {}) {
+function resolveRoute(config, { provider, model, effort, fast } = {}) {
   const explicitProvider = clean(provider);
   const explicitModel = clean(model);
   const hasExplicitEffort = effort !== undefined;
   const explicitEffort = hasExplicitEffort ? normalizeEffortInput(effort) : undefined;
+  const hasExplicitFast = fast !== undefined;
+  const explicitFast = fast === true;
 
   if (explicitModel && !explicitProvider) {
     const preset = findPreset(config, explicitModel);
     if (preset) {
+      const p = clean(preset.provider) || DEFAULT_PROVIDER;
+      const m = clean(preset.model) || DEFAULT_MODEL;
       return {
-        provider: clean(preset.provider) || DEFAULT_PROVIDER,
-        model: clean(preset.model) || DEFAULT_MODEL,
+        provider: p,
+        model: m,
         preset,
         ...(hasExplicitEffort ? { effort: explicitEffort } : {}),
+        fast: hasExplicitFast ? explicitFast : (preset.fast === true || fastPreferenceFor(config, p, m)),
       };
     }
   }
@@ -613,20 +633,26 @@ function resolveRoute(config, { provider, model, effort } = {}) {
     const defaultKey = config?.default;
     const preset = findPreset(config, defaultKey);
     if (preset) {
+      const p = clean(preset.provider) || DEFAULT_PROVIDER;
+      const m = clean(preset.model) || DEFAULT_MODEL;
       return {
-        provider: clean(preset.provider) || DEFAULT_PROVIDER,
-        model: clean(preset.model) || DEFAULT_MODEL,
+        provider: p,
+        model: m,
         preset,
         ...(hasExplicitEffort ? { effort: explicitEffort } : {}),
+        fast: hasExplicitFast ? explicitFast : (preset.fast === true || fastPreferenceFor(config, p, m)),
       };
     }
   }
 
+  const p = explicitProvider || DEFAULT_PROVIDER;
+  const m = explicitModel || DEFAULT_MODEL;
   return {
-    provider: explicitProvider || DEFAULT_PROVIDER,
-    model: explicitModel || DEFAULT_MODEL,
+    provider: p,
+    model: m,
     preset: null,
     ...(hasExplicitEffort ? { effort: explicitEffort } : {}),
+    fast: hasExplicitFast ? explicitFast : fastPreferenceFor(config, p, m),
   };
 }
 
@@ -634,6 +660,53 @@ function ensureProviderEnabled(config, provider) {
   const providers = { ...(config?.providers || {}) };
   providers[provider] = { ...(providers[provider] || {}), enabled: true };
   return providers;
+}
+
+const AUTO_CLEAR_DEFAULT_IDLE_MS = 60 * 60 * 1000;
+
+function normalizeAutoClearConfig(value = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const idleMs = Number(raw.idleMs ?? raw.thresholdMs ?? raw.idleMillis);
+  return {
+    enabled: raw.enabled !== false,
+    idleMs: Number.isFinite(idleMs) && idleMs > 0 ? Math.max(60_000, Math.round(idleMs)) : AUTO_CLEAR_DEFAULT_IDLE_MS,
+  };
+}
+
+function formatDurationMs(ms) {
+  const value = Math.max(0, Number(ms) || 0);
+  if (value % 3_600_000 === 0) return `${value / 3_600_000}h`;
+  if (value % 60_000 === 0) return `${value / 60_000}m`;
+  return `${Math.round(value / 1000)}s`;
+}
+
+function parseDurationMs(input) {
+  const text = clean(input).toLowerCase();
+  if (!text) return null;
+  const match = /^(\d+(?:\.\d+)?)(ms|s|m|h)?$/.exec(text);
+  if (!match) return null;
+  const n = Number(match[1]);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const unit = match[2] || 'm';
+  const mult = unit === 'h' ? 3_600_000 : unit === 'm' ? 60_000 : unit === 's' ? 1000 : 1;
+  return Math.max(60_000, Math.round(n * mult));
+}
+
+const FAST_CAPABLE_PROVIDERS = new Set(['anthropic', 'anthropic-oauth', 'openai', 'openai-oauth']);
+
+function routeFastKey(provider, model) {
+  const p = clean(provider);
+  const m = clean(model);
+  return p && m ? `${p}/${m}` : '';
+}
+
+function fastCapableFor(provider, _model) {
+  return FAST_CAPABLE_PROVIDERS.has(clean(provider));
+}
+
+function fastPreferenceFor(config, provider, model) {
+  const key = routeFastKey(provider, model);
+  return key ? config?.fastModels?.[key] === true : false;
 }
 
 function routeForStatusline(route) {
@@ -646,7 +719,8 @@ function routeForStatusline(route) {
   if (preset.id) out.presetId = preset.id;
   if (preset.name) out.presetName = preset.name;
   if (preset.modelDisplay) out.modelDisplay = preset.modelDisplay;
-  if (preset.fast === true || preset.fast === false) out.fast = preset.fast;
+  if (route.fast === true || route.fast === false) out.fast = route.fast;
+  else if (preset.fast === true || preset.fast === false) out.fast = preset.fast;
   if (route.effectiveEffort) {
     out.effort = route.effectiveEffort;
     out.displayEffort = route.effectiveEffort;
@@ -673,10 +747,12 @@ function normalizeWorkflowRoute(routeLike, fallback = {}) {
   const model = clean(routeLike?.model) || clean(fallback.model);
   if (!provider || !model) return null;
   const effort = normalizeEffortInput(routeLike?.effort ?? fallback.effort);
+  const fast = routeLike?.fast ?? fallback.fast;
   return {
     provider,
     model,
     ...(effort ? { effort } : {}),
+    ...(fast === true ? { fast: true } : {}),
   };
 }
 
@@ -691,6 +767,7 @@ function upsertWorkflowPreset(presets, slot, routeLike) {
     provider: route.provider,
     model: route.model,
     ...(route.effort ? { effort: route.effort } : {}),
+    ...(route.fast === true ? { fast: true } : {}),
     tools: 'full',
   };
   const next = (Array.isArray(presets) ? presets : []).filter((p) => clean(p?.id) !== id && clean(p?.name) !== preset.name);
@@ -976,7 +1053,7 @@ export async function createMixdogSessionRuntime({
   const standaloneStartedAt = performance.now();
   ensureStandaloneEnvironment({
     rootDir: STANDALONE_ROOT,
-    dataDir: process.env.MIXDOG_DATA_DIR || join(process.env.USERPROFILE || process.env.HOME || process.cwd(), '.mixdog', 'data'),
+    dataDir: STANDALONE_DATA_DIR,
   });
   bootProfile('standalone-env:ready', { ms: (performance.now() - standaloneStartedAt).toFixed(1) });
 
@@ -1468,6 +1545,8 @@ export async function createMixdogSessionRuntime({
               supportsPromptCaching: m.supportsPromptCaching === true,
               reasoningLevels: Array.isArray(m.reasoningLevels) ? m.reasoningLevels : [],
               effortOptions: effortItemsFor(name, m, null),
+              fastCapable: fastCapableFor(name, m.id),
+              fastPreferred: fastPreferenceFor(config, name, m.id),
             });
           }
         }
@@ -1544,6 +1623,7 @@ export async function createMixdogSessionRuntime({
       disallowedTools: ['diagnostics', 'open_config'],
       cwd: currentCwd,
       coreMemoryContext,
+      fast: route.fast === true,
     };
     if (hasOwn(route, 'effort') || route.effectiveEffort) {
       sessionOpts.effort = route.effectiveEffort || null;
@@ -1609,6 +1689,12 @@ export async function createMixdogSessionRuntime({
     get effort() {
       return route.effectiveEffort || null;
     },
+    get fast() {
+      return route.fast === true;
+    },
+    get fastCapable() {
+      return fastCapableFor(route.provider, route.model);
+    },
     get effortOptions() {
       return route.effortOptions || [{ value: 'auto', label: 'auto', description: 'provider/model default' }];
     },
@@ -1627,6 +1713,9 @@ export async function createMixdogSessionRuntime({
     get bridgeMode() {
       return bridge.getDefaultMode();
     },
+    get autoClear() {
+      return normalizeAutoClearConfig(config.autoClear);
+    },
     get cwd() {
       return currentCwd;
     },
@@ -1644,8 +1733,19 @@ export async function createMixdogSessionRuntime({
       const effectiveWindow = Number(session?.contextWindow || rawWindow || 0);
       const lastContextTokens = Number(session?.lastContextTokens || 0);
       const estimatedContextTokens = messageSummary.estimatedTokens + requestReserveTokens;
-      const usedTokens = lastContextTokens || estimatedContextTokens;
+      const compactAt = Number(session?.compaction?.lastChangedAt || session?.compaction?.lastCompactAt || 0);
+      const usageAt = Number(session?.lastContextTokensUpdatedAt || 0);
+      const lastUsageStale = !!lastContextTokens && (
+        session?.lastContextTokensStaleAfterCompact === true
+        || (compactAt > 0 && usageAt > 0 && usageAt <= compactAt)
+        || (compactAt > 0 && usageAt <= 0)
+      );
+      const usedTokens = lastUsageStale
+        ? estimatedContextTokens
+        : Math.max(estimatedContextTokens, lastContextTokens || 0);
       const freeTokens = effectiveWindow ? Math.max(0, effectiveWindow - usedTokens) : 0;
+      const compactBoundaryTokens = Number(session?.compactBoundaryTokens || session?.compaction?.boundaryTokens || 0);
+      const compactTriggerTokens = Number(session?.compaction?.triggerTokens || 0);
       return {
         sessionId: session?.id || null,
         provider: route.provider,
@@ -1657,8 +1757,21 @@ export async function createMixdogSessionRuntime({
         rawContextWindow: rawWindow || null,
         effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
         usedTokens,
-        usedSource: lastContextTokens ? 'last_api_request' : 'estimated',
+        usedSource: lastContextTokens && !lastUsageStale && lastContextTokens >= estimatedContextTokens
+          ? 'last_api_request'
+          : 'estimated',
+        currentEstimatedTokens: estimatedContextTokens,
+        lastApiRequestTokens: lastContextTokens || 0,
+        lastApiRequestStale: lastUsageStale,
         freeTokens,
+        compaction: {
+          ...(session?.compaction || {}),
+          boundaryTokens: compactBoundaryTokens || null,
+          triggerTokens: compactTriggerTokens || null,
+          currentEstimatedTokens: estimatedContextTokens,
+          lastApiRequestTokens: lastContextTokens || 0,
+          lastApiRequestStale: lastUsageStale,
+        },
         messages: messageSummary,
         request: {
           toolSchemaTokens,
@@ -1692,6 +1805,29 @@ export async function createMixdogSessionRuntime({
         default: nextConfig?.default || null,
         workflowRoutes: summarizeWorkflowRoutes(nextConfig),
       };
+    },
+    getAutoClear() {
+      return normalizeAutoClearConfig(config.autoClear);
+    },
+    setAutoClear(input = {}) {
+      const current = normalizeAutoClearConfig(config.autoClear);
+      const next = { ...current };
+      if (hasOwn(input, 'enabled')) next.enabled = input.enabled !== false;
+      if (hasOwn(input, 'idleMs')) {
+        const idleMs = Number(input.idleMs);
+        if (!Number.isFinite(idleMs) || idleMs <= 0) throw new Error('autoclear idleMs must be a positive number');
+        next.idleMs = Math.max(60_000, Math.round(idleMs));
+      }
+      if (hasOwn(input, 'duration')) {
+        const idleMs = parseDurationMs(input.duration);
+        if (!idleMs) throw new Error('usage: /autoclear [on|off|status|<minutes|1h|90m>]');
+        next.idleMs = idleMs;
+        if (!hasOwn(input, 'enabled')) next.enabled = true;
+      }
+      const nextConfig = cfgMod.loadConfig();
+      cfgMod.saveConfig({ ...nextConfig, autoClear: next });
+      config = cfgMod.loadConfig();
+      return { ...normalizeAutoClearConfig(config.autoClear), label: formatDurationMs(normalizeAutoClearConfig(config.autoClear).idleMs) };
     },
     async completeOnboarding(payload = {}) {
       const defaultRoute = normalizeWorkflowRoute(payload.defaultRoute, route);
@@ -1873,6 +2009,8 @@ export async function createMixdogSessionRuntime({
             onToolResult: options.onToolResult,
             onStageChange: options.onStageChange,
             onStreamDelta: options.onStreamDelta,
+            drainSteering: options.drainSteering,
+            onSteerMessage: options.onSteerMessage,
           },
         );
         session = mgr.getSession(session.id) || session;
@@ -2075,7 +2213,7 @@ export async function createMixdogSessionRuntime({
           cwd: root,
           env: {
             CLAUDE_PLUGIN_ROOT: root,
-            CLAUDE_PLUGIN_DATA: join(cfgMod.getPluginData?.() || join(homedir(), '.mixdog', 'data'), 'plugins', 'data', clean(plugin.id || plugin.name || serverName)),
+            CLAUDE_PLUGIN_DATA: join(cfgMod.getPluginData?.() || STANDALONE_DATA_DIR, 'plugins', 'data', clean(plugin.id || plugin.name || serverName)),
           },
         },
       };
@@ -2121,6 +2259,17 @@ export async function createMixdogSessionRuntime({
         requested.provider = route.provider;
       }
       const selectedRoute = resolveRoute(config, requested);
+      if (requested.persistFast === true || hasOwn(requested, 'fast')) {
+        const key = routeFastKey(selectedRoute.provider, selectedRoute.model);
+        if (key) {
+          const nextConfig = cfgMod.loadConfig();
+          const fastModels = { ...(nextConfig.fastModels || {}) };
+          if (selectedRoute.fast === true) fastModels[key] = true;
+          else delete fastModels[key];
+          cfgMod.saveConfig({ ...nextConfig, fastModels });
+          config = cfgMod.loadConfig();
+        }
+      }
       const leadRoute = persistLeadRoute(selectedRoute);
       route = resolveRoute(config, leadRoute
         ? { model: workflowPresetId('lead') }
@@ -2128,6 +2277,34 @@ export async function createMixdogSessionRuntime({
       if (session?.id) mgr.closeSession(session.id, 'cli-model-switch');
       await recreateCurrentSessionIfReady();
       return route;
+    },
+
+    async setFast(value) {
+      const enabled = value === true;
+      if (enabled && !fastCapableFor(route.provider, route.model)) {
+        throw new Error(`fast mode is not available for ${route.provider}/${route.model}`);
+      }
+      const key = routeFastKey(route.provider, route.model);
+      if (key) {
+        const nextConfig = cfgMod.loadConfig();
+        const fastModels = { ...(nextConfig.fastModels || {}) };
+        if (enabled) fastModels[key] = true;
+        else delete fastModels[key];
+        cfgMod.saveConfig({ ...nextConfig, fastModels });
+        config = cfgMod.loadConfig();
+      }
+      route = resolveRoute(config, { provider: route.provider, model: route.model, effort: route.effort, fast: enabled });
+      const leadRoute = persistLeadRoute(route);
+      if (leadRoute) route = resolveRoute(config, { model: workflowPresetId('lead') });
+      if (session) {
+        session.fast = route.fast === true;
+        statusRoutes?.writeGatewaySessionRoute?.(session.id, routeForStatusline(route));
+      }
+      return route.fast === true;
+    },
+
+    async toggleFast() {
+      return await this.setFast(!(route.fast === true));
     },
 
     async setEffort(value) {
@@ -2169,10 +2346,7 @@ export async function createMixdogSessionRuntime({
     },
     abort(reason = 'cli-abort') {
       if (!session?.id) return false;
-      statusRoutes?.clearGatewaySessionRoute?.(session.id);
-      const ok = mgr.closeSession(session.id, reason);
-      session = null;
-      return ok;
+      return mgr.abortSessionTurn(session.id, reason);
     },
     listSessions() {
       return mgr.listSessions({}).map(s => {

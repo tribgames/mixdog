@@ -36,7 +36,7 @@ export const BUILTIN_TOOLS = [
         name: 'edit',
         title: 'Mixdog Edit',
         annotations: { title: 'Mixdog Edit', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-        description: 'Exact-string editor for small known substitutions; for large or structural changes prefer apply_patch. operation: replace (default) | notebook | rename.',
+        description: 'Exact-string editor for small known substitutions; for large or structural changes prefer apply_patch. operation: replace (default) | notebook | rename. Use either single old_string/new_string or edits[]; when using edits[], do not include top-level old_string/new_string.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -59,7 +59,7 @@ export const BUILTIN_TOOLS = [
                         additionalProperties: false,
                     },
                     minItems: 1,
-                    description: 'Batch replacements (operation:"replace").',
+                    description: 'Batch replacements (operation:"replace"). Each item may carry its own path, or use the top-level path as the default.',
                 },
                 notebook_path: { type: 'string', description: 'operation:"notebook" — path to the .ipynb notebook to edit.' },
                 cell_id: { type: 'string', description: 'operation:"notebook" — target cell: a real cell.id or a cell-N index. For insert, the new cell is placed after this cell (or at the start if omitted).' },

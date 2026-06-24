@@ -5,7 +5,7 @@ import { dirname, join } from 'path';
 import { getProvider, providerInputExcludesCache } from '../providers/registry.mjs';
 import { fetchOAuthUsageSnapshot } from '../providers/oauth-usage.mjs';
 import { agentLoop } from './loop.mjs';
-import { compactActiveTurn, compactMessages } from './compact.mjs';
+import { compactActiveTurn, compactMessages, DEFAULT_COMPACTION_BUFFER_TOKENS } from './compact.mjs';
 import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';
 import { getMcpTools } from '../mcp/client.mjs';
 import { getInternalTools, executeInternalTool } from '../internal-tools.mjs';
@@ -14,7 +14,7 @@ import { PATCH_TOOL_DEFS } from '../tools/patch-tool-defs.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../tools/code-graph-tool-defs.mjs';
 import { executeCodeGraphTool } from '../tools/code-graph.mjs';
 import { closeBashSession } from '../tools/bash-session.mjs';
-import { collectSkillsCached, buildSkillToolDefs, loadAgentTemplate, loadRoleTemplate, composeSystemPrompt, collectProjectMd } from '../context/collect.mjs';
+import { collectSkillsCached, buildSkillToolDefs, loadAgentTemplate, loadRoleTemplate, composeSystemPrompt, collectMixdogMd } from '../context/collect.mjs';
 import { saveSession, saveSessionAsync, loadSession, deleteSession, listStoredSessions, getStoredSessionsRaw, sweepStaleSessions, markSessionClosed, publishHeartbeat, deleteHeartbeat, setLiveSession } from './store.mjs';
 import { clearReadDedupSession, tryPrefetchCached, setPrefetchCached } from './read-dedup.mjs';
 import { clearOffloadSession } from './tool-result-offload.mjs';
@@ -477,6 +477,125 @@ function resolveSessionContextMeta(provider, model, seed = {}) {
         compactBoundaryTokens,
     };
 }
+function compactTriggerForSession(session, boundaryTokens) {
+    const boundary = positiveContextWindow(boundaryTokens);
+    if (!boundary) return null;
+    const configured = positiveContextWindow(session?.compaction?.bufferTokens ?? session?.compaction?.buffer)
+        || DEFAULT_COMPACTION_BUFFER_TOKENS;
+    const cap = Math.max(0, Math.floor(boundary * 0.25));
+    const buffer = Math.max(0, Math.min(configured, cap));
+    return Math.max(1, boundary - buffer);
+}
+function compactTargetBudget(boundaryTokens, reserveTokens, sourceTokens, ratio = 0.45) {
+    const boundary = positiveContextWindow(boundaryTokens);
+    if (!boundary) return null;
+    const reserve = Math.max(0, Number(reserveTokens) || 0);
+    const source = Math.max(0, Number(sourceTokens) || 0);
+    const targetEffective = Math.max(32_000, Math.floor(source * ratio));
+    return Math.max(1, Math.min(boundary, targetEffective + reserve));
+}
+function autoCompactSessionAfterTurn(session) {
+    if (!session || session.closed === true) return null;
+    if (session.compaction?.auto === false) return null;
+    const messages = Array.isArray(session.messages) ? session.messages : [];
+    if (messages.length < 3) return null;
+    const boundary = positiveContextWindow(session.compactBoundaryTokens)
+        || positiveContextWindow(session.autoCompactTokenLimit)
+        || positiveContextWindow(session.contextWindow);
+    if (!boundary) return null;
+    const reserveTokens = estimateRequestReserveTokens(session.tools || []);
+    const beforeTokens = estimateMessagesTokens(messages);
+    const lastContextTokens = positiveContextWindow(session.lastContextTokens) || 0;
+    const triggerTokens = positiveContextWindow(session.compaction?.triggerTokens)
+        || compactTriggerForSession(session, boundary)
+        || boundary;
+    const pressureTokens = Math.max(beforeTokens + reserveTokens, lastContextTokens);
+    if (pressureTokens < triggerTokens) return {
+        changed: false,
+        reason: 'below threshold',
+        beforeTokens,
+        afterTokens: beforeTokens,
+        pressureTokens,
+        triggerTokens,
+        boundaryTokens: boundary,
+        reserveTokens,
+    };
+    let compacted;
+    let compactError = null;
+    const compactBudget = compactTargetBudget(boundary, reserveTokens, pressureTokens);
+    try {
+        compacted = compactMessages(messages, compactBudget || boundary, { reserveTokens, force: true });
+    } catch (err) {
+        try {
+            process.stderr.write(`[session] auto compact fallback (sess=${session.id || 'unknown'}): ${err?.message || err}\n`);
+        } catch { /* best-effort */ }
+        try {
+            compacted = compactActiveTurn(messages, compactBudget || boundary, { reserveTokens });
+        } catch (fallbackErr) {
+            compactError = fallbackErr;
+        }
+    }
+    if (!compacted) {
+        const now = Date.now();
+        session.compaction = {
+            ...(session.compaction || {}),
+            auto: true,
+            boundaryTokens: boundary,
+            triggerTokens,
+            reserveTokens,
+            lastStage: 'post_turn_failed',
+            lastBeforeTokens: beforeTokens,
+            lastAfterTokens: beforeTokens,
+            lastPressureTokens: pressureTokens,
+            lastCheckedAt: now,
+            lastChanged: false,
+            lastError: compactError?.message || String(compactError || 'compact failed'),
+        };
+        return {
+            changed: false,
+            error: session.compaction.lastError,
+            beforeTokens,
+            afterTokens: beforeTokens,
+            pressureTokens,
+            triggerTokens,
+            boundaryTokens: boundary,
+            reserveTokens,
+        };
+    }
+    const beforeEncoded = JSON.stringify(messages);
+    const afterEncoded = JSON.stringify(compacted);
+    const afterTokens = estimateMessagesTokens(compacted);
+    const changed = beforeEncoded !== afterEncoded;
+    const now = Date.now();
+    session.messages = compacted;
+    session.providerState = undefined;
+    session.compaction = {
+        ...(session.compaction || {}),
+        auto: true,
+        boundaryTokens: boundary,
+        triggerTokens,
+        reserveTokens,
+        lastStage: 'post_turn',
+        lastBeforeTokens: beforeTokens,
+        lastAfterTokens: afterTokens,
+        lastPressureTokens: pressureTokens,
+        lastCheckedAt: now,
+        lastChanged: changed,
+        lastChangedAt: changed ? now : session.compaction?.lastChangedAt || null,
+        lastCompactAt: changed ? now : session.compaction?.lastCompactAt || null,
+        compactCount: (session.compaction?.compactCount || 0) + (changed ? 1 : 0),
+    };
+    if (changed) session.lastContextTokensStaleAfterCompact = true;
+    return {
+        changed,
+        beforeTokens,
+        afterTokens,
+        pressureTokens,
+        triggerTokens,
+        boundaryTokens: boundary,
+        reserveTokens,
+    };
+}
 // Provider-scoped unified cache key. Goal: all orchestrator-internal
 // dispatches (bridge/maintenance/mcp/scheduler/webhook) targeting the
 // same provider land in a single server-side cache shard, so the
@@ -830,8 +949,8 @@ export function createSession(opts) {
     const bridgeRulesRole = opts.role || profile?.taskType || null;
     const injectedRules = opts.skipBridgeRules ? '' : (opts.owner === 'bridge' ? _buildBridgeRules() : _buildLeadRules());
     const roleSpecific = opts.owner === 'bridge' && !opts.skipBridgeRules ? _buildRoleSpecific(bridgeRulesRole) : '';
-    // Project MD (cwd-based, Tier 3 slot).
-    const projectContext = collectProjectMd(opts.cwd);
+    // mixdog.md user/project context (global + cwd ancestors, broad-to-specific).
+    const projectContext = collectMixdogMd(opts.cwd);
 
     // Role template (Phase B §4 — UI-managed). Reads <DATA_DIR>/roles/<role>.md
     // and parses frontmatter (description, permission). The template is
@@ -921,8 +1040,8 @@ export function createSession(opts) {
     });
     // 4-BP layout (see composeSystemPrompt docs):
     //   system block #1 = baseRules    — BP1 (1h) shared across ALL roles
-    //   system block #2 = roleCatalog  — BP2 (1h) scoped role catalog + project
-    //   first <system-reminder> user   = sessionMarker — BP3 (1h) role-specific task body
+    //   system block #2 = roleCatalog  — BP2 (1h) scoped role catalog
+    //   first <system-reminder> user   = sessionMarker — BP3 (1h) mixdog.md + stable role body
     //   second <system-reminder> user  = volatileTail  — rides near BP4 (5m)
     // Anthropic multi-block system pins each block with cache_control.
     // OpenAI gets a stable provider cache key/session prefix. Gemini relies
@@ -1256,6 +1375,21 @@ export function markSessionError(id, msg) {
     entry.updatedAt = errTs;
     deleteHeartbeat(id);
 }
+export function markSessionCancelled(id) {
+    if (!id) return;
+    const entry = _touchRuntime(id);
+    entry.stage = 'done';
+    entry.lastError = null;
+    entry.askStartedAt = null;
+    entry.toolStartedAt = null;
+    entry.emptyFinal = false;
+    entry.emptyFinalAt = null;
+    const doneTs = Date.now();
+    entry.doneAt = doneTs;
+    entry.lastProgressAt = doneTs;
+    entry.updatedAt = doneTs;
+    deleteHeartbeat(id);
+}
 export function getSessionRuntime(id) {
     return id ? (_runtimeState.get(id) || null) : null;
 }
@@ -1317,6 +1451,8 @@ export async function persistIterationMetrics(delta) {
         session.lastContextTokens = _inputExcludesCache
             ? (deltaInput || 0) + (deltaCachedRead || 0)
             : (deltaInput || 0);
+        session.lastContextTokensUpdatedAt = ts || Date.now();
+        session.lastContextTokensStaleAfterCompact = false;
     }
     session.lastIterationIndex = iterationIndex;
     session.updatedAt = ts || Date.now();
@@ -1675,8 +1811,10 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         // Preprocessing is inside try so provider-not-available / trim failures
         // fall into the catch and mark the session as errored rather than
         // leaving stage='connecting' forever.
+        let activeSession = preSession;
+        let cancelledUserTurnContent = '';
         try {
-            const session = preSession;
+            const session = activeSession;
             const provider = getProvider(session.provider);
             // Register the live session object into runtime so closeSession()
             // can read allBashSessionIds that loop.mjs appends mid-turn.
@@ -1742,6 +1880,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             const _userTurnContent = _contextBlock
                 ? `${_contextBlock}# Task\n${prompt}`
                 : prompt;
+            cancelledUserTurnContent = _userTurnContent;
             const outgoing = [...session.messages, { role: 'user', content: _userTurnContent }];
             // Per-turn injected-context trace row (complements kind:"usage").
             // Cheap byte-length accounting — no hashing, no payload bodies.
@@ -1792,8 +1931,16 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     // below still handles "followUp" input that lands after the
                     // agent would otherwise stop. Same queue, two drain points.
                     drainSteering: (sid) => {
-                        try { return drainPendingMessages(sid || sessionId); }
-                        catch { return []; }
+                        const out = [];
+                        if (typeof askOpts?.drainSteering === 'function') {
+                            try {
+                                const drained = askOpts.drainSteering(sid || sessionId);
+                                if (Array.isArray(drained)) out.push(...drained);
+                            } catch { /* best-effort steering drain */ }
+                        }
+                        try { out.push(...drainPendingMessages(sid || sessionId)); }
+                        catch { /* best-effort pending drain */ }
+                        return out;
                     },
                     onSteerMessage: typeof askOpts?.onSteerMessage === 'function' ? askOpts.onSteerMessage : undefined,
                     promptCacheKey: session.promptCacheKey || sessionId,
@@ -1913,6 +2060,8 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 session.lastContextTokens = _inputExcludesCache
                     ? (_lastTurn.inputTokens || 0) + (_lastTurn.cachedTokens || 0)
                     : (_lastTurn.inputTokens || 0);
+                session.lastContextTokensUpdatedAt = Date.now();
+                session.lastContextTokensStaleAfterCompact = false;
             }
             // Smart Bridge cache stats — record hit/miss after every successful
             // ask so the registry reflects all bridge traffic, not just
@@ -1995,6 +2144,16 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             if (result.providerState !== undefined) {
                 session.providerState = result.providerState;
             }
+            const postTurnCompact = autoCompactSessionAfterTurn(session);
+            if (postTurnCompact?.changed) {
+                try {
+                    process.stderr.write(
+                        `[session] auto compacted after turn sessionId=${sessionId} ` +
+                        `${postTurnCompact.beforeTokens}->${postTurnCompact.afterTokens} ` +
+                        `pressure=${postTurnCompact.pressureTokens} trigger=${postTurnCompact.triggerTokens}\n`,
+                    );
+                } catch { /* best-effort */ }
+            }
             await saveSessionAsync(session, { expectedGeneration: askGeneration });
             // Tag empty-synthesis BEFORE markSessionDone so the watchdog
             // (which inspects entry.emptyFinal first) classifies the
@@ -2011,6 +2170,25 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             };
         } catch (err) {
             if (err instanceof SessionClosedError) {
+                const currentRuntime = _runtimeState.get(sessionId);
+                if (!currentRuntime?.closed && activeSession && cancelledUserTurnContent) {
+                    activeSession.messages = [
+                        ...(Array.isArray(activeSession.messages) ? activeSession.messages : []),
+                        { role: 'user', content: cancelledUserTurnContent },
+                        {
+                            role: 'assistant',
+                            content: '[cancelled] This turn was interrupted before completion. Preserve the user request above as the active task context if the user asks to continue.',
+                            cancelled: true,
+                            ts: Date.now(),
+                        },
+                    ];
+                    activeSession.updatedAt = Date.now();
+                    activeSession.lastUsedAt = Date.now();
+                    try {
+                        await saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
+                    } catch { /* cancellation persistence is best-effort */ }
+                    markSessionCancelled(sessionId);
+                }
                 // Cancellation is not an error; propagate silently so callers
                 // can render it as "cancelled" rather than a red failure.
                 throw err;
@@ -2117,7 +2295,30 @@ export async function clearSessionMessages(sessionId) {
         return false;
     // Don't resurrect a closed session just to clear its messages.
     if (session.closed === true) return false;
-    session.messages = (session.messages || []).filter(m => m && m.role === 'system');
+    const keep = [];
+    const messages = Array.isArray(session.messages) ? session.messages : [];
+    for (let i = 0; i < messages.length; i += 1) {
+        const m = messages[i];
+        if (!m) continue;
+        if (m.role === 'system') {
+            keep.push(m);
+            continue;
+        }
+        const stableContext =
+            m.role === 'user'
+            && typeof m.content === 'string'
+            && m.content.startsWith('<system-reminder>')
+            && m.content.includes('<!-- bp3-sentinel -->');
+        if (stableContext) {
+            keep.push(m);
+            const next = messages[i + 1];
+            if (next?.role === 'assistant' && String(next.content || '').trim() === '.') {
+                keep.push(next);
+                i += 1;
+            }
+        }
+    }
+    session.messages = keep;
     session.totalInputTokens = 0;
     session.totalOutputTokens = 0;
     session.updatedAt = Date.now();
@@ -2145,28 +2346,19 @@ export async function compactSessionMessages(sessionId) {
         throw new Error('compact: no context window is available for this session');
     }
     const reserveTokens = estimateRequestReserveTokens(session.tools || []);
-    if (currentTurnStart <= 0) {
-        return {
-            changed: false,
-            reason: 'nothing to compact',
-            beforeMessages: beforeMessages.length,
-            afterMessages: beforeMessages.length,
-            beforeTokens,
-            afterTokens: beforeTokens,
-            budgetTokens: boundary,
-            reserveTokens,
-        };
-    }
+    const compactBudget = compactTargetBudget(boundary, reserveTokens, beforeTokens);
     let beforeEncoded = '';
     try { beforeEncoded = JSON.stringify(beforeMessages); } catch { beforeEncoded = ''; }
     let compacted;
     try {
-        compacted = compactMessages(beforeMessages, boundary, { reserveTokens, force: true });
+        compacted = currentTurnStart <= 0
+            ? compactActiveTurn(beforeMessages, compactBudget || boundary, { reserveTokens })
+            : compactMessages(beforeMessages, compactBudget || boundary, { reserveTokens, force: true });
     } catch (err) {
         try {
             process.stderr.write(`[session] manual compact fallback (sess=${sessionId}): ${err?.message || err}\n`);
         } catch { /* best-effort */ }
-        compacted = compactActiveTurn(beforeMessages, boundary, { reserveTokens });
+        compacted = compactActiveTurn(beforeMessages, compactBudget || boundary, { reserveTokens });
     }
     const afterTokens = estimateMessagesTokens(compacted);
     let afterEncoded = '';
@@ -2175,6 +2367,23 @@ export async function compactSessionMessages(sessionId) {
         ? beforeEncoded !== afterEncoded
         : (compacted.length !== beforeMessages.length || afterTokens !== beforeTokens);
     session.messages = compacted;
+    const now = Date.now();
+    session.compaction = {
+        ...(session.compaction || {}),
+        auto: session.compaction?.auto !== false,
+        boundaryTokens: boundary,
+        reserveTokens,
+        lastStage: 'manual',
+        lastBeforeTokens: beforeTokens,
+        lastAfterTokens: afterTokens,
+        lastPressureTokens: beforeTokens + reserveTokens,
+        lastCheckedAt: now,
+        lastChanged: changed,
+        lastChangedAt: changed ? now : session.compaction?.lastChangedAt || null,
+        lastCompactAt: changed ? now : session.compaction?.lastCompactAt || null,
+        compactCount: (session.compaction?.compactCount || 0) + (changed ? 1 : 0),
+    };
+    if (changed) session.lastContextTokensStaleAfterCompact = true;
     session.updatedAt = Date.now();
     await saveSessionAsync(session, { expectedGeneration: session.generation });
     return {
@@ -2184,6 +2393,7 @@ export async function compactSessionMessages(sessionId) {
         beforeTokens,
         afterTokens,
         budgetTokens: boundary,
+        targetBudgetTokens: compactBudget || boundary,
         reserveTokens,
     };
 }
@@ -2269,6 +2479,18 @@ export function closeSession(id, reason = 'manual') {
     setImmediate(() => {
         _clearSessionRuntime(id);
     });
+    return true;
+}
+export function abortSessionTurn(id, reason = 'turn-abort') {
+    if (!id) return false;
+    const entry = _runtimeState.get(id);
+    if (!entry || entry.closed) return false;
+    entry.stage = 'cancelling';
+    entry.closedReason = reason;
+    entry.updatedAt = Date.now();
+    try {
+        entry.controller?.abort(new SessionClosedError(id, `abortSessionTurn (reason=${reason})`, reason));
+    } catch { /* ignore */ }
     return true;
 }
 

@@ -94,7 +94,15 @@ export function TextEntryPanel({
       onCancel?.();
       return;
     }
-    if (key.return || rawInput.includes('\n')) {
+    const pasteFallback = rawInput.includes('\n') && (rawInput.length > 1 || !key.return);
+    if (pasteFallback) {
+      updateDraft((d) => ({
+        value: d.value.slice(0, d.cursor) + rawInput + d.value.slice(d.cursor),
+        cursor: d.cursor + rawInput.length,
+      }));
+      return;
+    }
+    if (key.return || rawInput === '\n') {
       submit();
       return;
     }
@@ -155,7 +163,7 @@ export function TextEntryPanel({
       <Box borderStyle="round" borderColor={theme.promptBorder} paddingX={1} width="100%" flexDirection="column">
         <Box flexDirection="row" justifyContent="space-between">
           <Text color={theme.panelTitle}>{title}</Text>
-          <Text color={theme.subtle}>Enter {actionLabel} · Esc back</Text>
+          <Text color={theme.subtle}>Enter {actionLabel} · Esc exit/back</Text>
         </Box>
         {hint ? <Text color={theme.inactive}>{hint}</Text> : <Text color={theme.inactive}> </Text>}
         <Text>

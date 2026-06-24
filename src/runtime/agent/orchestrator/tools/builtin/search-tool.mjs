@@ -514,7 +514,9 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             totalKnown = streamed.complete;
             if (streamed.partial) {
                 totalKnown = false;
-                rgPartialSuffix = streamed.rgStderr
+                rgPartialSuffix = streamed.timeout
+                    ? '\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.'
+                    : streamed.rgStderr
                     ? `\n[warning] rg exit 2 (partial results): ${String(streamed.rgStderr).trim().slice(0, 300)}`
                     : '\n[warning] rg exit 2 (partial results)';
             }
@@ -529,7 +531,9 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             if (typeof stdout === 'object' && stdout.truncated) totalKnown = false;
             if (typeof stdout === 'object' && stdout.partial) {
                 totalKnown = false;
-                rgPartialSuffix = stdout.rgStderr
+                rgPartialSuffix = stdout.timeout
+                    ? '\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.'
+                    : stdout.rgStderr
                     ? `\n[warning] rg exit 2 (partial results): ${String(stdout.rgStderr).trim().slice(0, 300)}`
                     : '\n[warning] rg exit 2 (partial results)';
             }

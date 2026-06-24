@@ -44,13 +44,13 @@ export function normalizeStatusLine(text) {
     .replaceAll(`${RESET} ${SUBTLE}│${RESET} `, ` ${SUBTLE}│${RESET} `);
 }
 
-export function StatusLine({ sessionId, provider, model, effort, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, initialLine = '' }) {
+export function StatusLine({ sessionId, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, initialLine = '' }) {
   const [line, setLine] = useState(() => initialLine);
 
   useEffect(() => {
     let alive = true;
     import(STATUSLINE_MODULE)
-      .then((m) => m.renderStatusline({ sessionId, provider, model, effort, cwd, stats, contextWindow, rawContextWindow }))
+      .then((m) => m.renderStatusline({ sessionId, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow }))
       .then((s) => {
         if (!alive) return;
         setLine(normalizeStatusLine(s));
@@ -59,10 +59,10 @@ export function StatusLine({ sessionId, provider, model, effort, cwd, stats, con
         if (alive) setLine('');
       });
     return () => { alive = false; };
-  }, [sessionId, provider, model, effort, cwd, stats, contextWindow, rawContextWindow, resizeEpoch]);
+  }, [sessionId, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch]);
 
   return (
-    <Box flexDirection="column" height={2} paddingLeft={2} marginBottom={1}>
+    <Box flexDirection="column" width="100%" height={2} paddingLeft={2} marginBottom={1} backgroundColor={theme.background}>
       {line ? line.split('\n').slice(0, 2).map((l, i) => (
         <Text key={i}>{l}</Text>
       )) : null}

@@ -139,6 +139,16 @@ function _clearRgTimers(timers) {
     }
 }
 
+function _boxPartialRgString(s, rgStderrText = '') {
+    const boxed = new String(s);
+    try {
+        boxed.partial = true;
+        boxed.timeout = true;
+        boxed.rgStderr = rgStderrText;
+    } catch { /* ignore */ }
+    return boxed;
+}
+
 function _armRgForceSettle({ timeoutMs, isSettled, timers, proc, onForceSettle }) {
     if (timers.forceSettle) clearTimeout(timers.forceSettle);
     timers.forceSettle = setTimeout(() => {
@@ -235,6 +245,9 @@ function spawnRg(argsList, execOptions) {
             settled = true;
             _clearRgTimers(timers);
             if (timedOut && killReason === 'timeout') {
+                if (stdout.length > 0) {
+                    return resolve(_boxPartialRgString(stdout, stderr.trim()));
+                }
                 const e = new Error(`rg timed out after ${timeoutMs} ms`);
                 e.code = 'ETIMEDOUT';
                 return reject(e);
@@ -321,6 +334,20 @@ function spawnRgWindowedLines(argsList, execOptions, opts = {}) {
             onForceSettle: () => {
                 timedOut = true;
                 killReason = 'timeout';
+                if (lines.length > 0) {
+                    if (settled) return;
+                    settled = true;
+                    _clearRgTimers(timers);
+                    resolve({
+                        lines,
+                        complete: false,
+                        totalSeen: seenAfterOffset,
+                        partial: true,
+                        timeout: true,
+                        rgStderr: stderr.trim(),
+                    });
+                    return;
+                }
                 const e = new Error(`rg timed out after ${timeoutMs} ms`);
                 e.code = 'ETIMEDOUT';
                 if (settled) return;
@@ -379,12 +406,25 @@ function spawnRgWindowedLines(argsList, execOptions, opts = {}) {
             if (settled) return;
             settled = true;
             _clearRgTimers(timers);
+            if (!stoppedEarly && buffer.length > 0) {
+                pushLine(buffer);
+                buffer = '';
+            }
             if (timedOut && killReason === 'timeout') {
+                if (lines.length > 0) {
+                    return resolve({
+                        lines,
+                        complete: false,
+                        totalSeen: seenAfterOffset,
+                        partial: true,
+                        timeout: true,
+                        rgStderr: stderr.trim(),
+                    });
+                }
                 const e = new Error(`rg timed out after ${timeoutMs} ms`);
                 e.code = 'ETIMEDOUT';
                 return reject(e);
             }
-            if (!stoppedEarly && buffer.length > 0) pushLine(buffer);
             if (stoppedEarly) {
                 return resolve({ lines, complete: false, totalSeen: seenAfterOffset });
             }

@@ -76,6 +76,9 @@ export function createStandaloneChannelWorker({
 
   function start() {
     if (!useProcessWorker) return startInProcess();
+    if (stopPromise) {
+      return stopPromise.then(() => start());
+    }
     if (child && child.exitCode == null && !child.killed) return readyPromise || Promise.resolve(status());
     readyPromise = new Promise((resolve, reject) => {
       readyResolve = resolve;
@@ -152,8 +155,8 @@ export function createStandaloneChannelWorker({
     if (inProcessMod) return status();
     if (inProcessStartPromise) return inProcessStartPromise;
     inProcessStartPromise = (async () => {
-      process.env.CLAUDE_PLUGIN_ROOT ??= rootDir;
-      process.env.CLAUDE_PLUGIN_DATA ??= dataDir;
+      process.env.CLAUDE_PLUGIN_ROOT = rootDir;
+      process.env.CLAUDE_PLUGIN_DATA = dataDir;
       process.env.MIXDOG_STANDALONE ??= '1';
       process.env.MIXDOG_CHANNEL_FLAG ??= '1';
       process.env.MIXDOG_CHANNELS_AUTO_BOOT = '0';

@@ -1,5 +1,6 @@
 import { OpenAICompatProvider, OPENAI_COMPAT_PRESETS } from './openai-compat.mjs';
 import { AnthropicProvider } from './anthropic.mjs';
+import { OpenCodeGoProvider } from './opencode-go.mjs';
 import { GeminiProvider } from './gemini.mjs';
 import { OpenAIOAuthProvider, hasOpenAIOAuthCredentials } from './openai-oauth.mjs';
 import { AnthropicOAuthProvider, hasAnthropicOAuthCredentials } from './anthropic-oauth.mjs';
@@ -81,6 +82,9 @@ export async function initProviders(config) {
             }
             else if (name === 'openai') {
                 inst = new OpenAIDirectProvider(cfg);
+            }
+            else if (name === 'opencode-go') {
+                inst = new OpenCodeGoProvider(cfg);
             }
             else if (Object.prototype.hasOwnProperty.call(OPENAI_COMPAT_PRESETS, name)) {
                 inst = new OpenAICompatProvider(name, cfg);

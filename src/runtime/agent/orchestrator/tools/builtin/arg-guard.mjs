@@ -248,10 +248,17 @@ function guardEdit(a) {
     if (Array.isArray(a.edits)) {
         a.edits = a.edits.filter((e) => !isInertEditEntry(e));
     }
-    const hasSingle = hasMeaningfulEditSingle(a);
+    let hasSingle = hasMeaningfulEditSingle(a);
     const hasBatch = Array.isArray(a.edits) && a.edits.length > 0;
     if (hasSingle && hasBatch) {
-        return 'Error: edit requires either (old_string + new_string) OR edits[], not both';
+        // Models sometimes include stale top-level single-edit fields while
+        // sending the real replacement set in edits[]. The executor already
+        // treats a non-empty edits[] as authoritative; mirror that here so a
+        // harmless shape collision does not cost a retry turn.
+        delete a.old_string;
+        delete a.new_string;
+        delete a.replace_all;
+        hasSingle = false;
     }
     if (!hasSingle && !hasBatch) {
         if (hasOwn(a, 'edits') && !hasBatch) {

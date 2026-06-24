@@ -13,8 +13,7 @@
  *     ThinkingShimmerText, inlined from useAnimationFrame).
  *   - progressive width gating: timer/tokens/hint shown left→right only if
  *     they fit after the previous segments (CC SpinnerAnimationRow).
- *   - progressive width gating: elapsed shown as soon as columns allow, tokens
- *     after 30s to avoid noisy short-turn counters.
+ *   - progressive width gating: elapsed/tokens shown as soon as columns allow.
  *   - token counter animation: smooth increment toward the current turn's
  *     output token count, shown Claude Code style as a single "<glyph> N
  *     tokens" segment (CC SpinnerAnimationRow + SpinnerModeGlyph). The glyph
@@ -27,7 +26,7 @@ import React, { useRef } from 'react';
 import { Box, Text, useAnimation } from 'ink';
 import { theme } from '../theme.mjs';
 import { SPINNER_FRAMES } from '../spinner-verbs.mjs';
-import { UP_ARROW, DOWN_ARROW } from '../figures.mjs';
+import { DOWN_ARROW, UP_ARROW } from '../figures.mjs';
 
 const FRAME_MS = 130;
 // CC plays the frames forward, then in reverse — a smooth there-and-back sweep.
@@ -36,10 +35,8 @@ const FRAMES = [...SPINNER_FRAMES, ...[...SPINNER_FRAMES].reverse()];
 // Stall: response must grow within this window or the glyph reddens.
 const STALL_TIMEOUT_MS = 3000;
 const STALL_FADE_MS = 2000; // CC fades red over 2s
-// Hint ("esc to interrupt") shown after this threshold.
-const SHOW_HINT_AFTER_MS = 30000;
-// CC gates the elapsed timer + token count behind this (SHOW_TOKENS_AFTER_MS).
-const SHOW_TOKENS_AFTER_MS = 30000;
+// Hint ("esc to interrupt") is shown immediately when space allows.
+const SHOW_HINT_AFTER_MS = 0;
 // Thinking shimmer starts after this delay (CC THINKING_DELAY_MS).
 const THINKING_DELAY_MS = 3000;
 
@@ -48,6 +45,17 @@ const GLIMMER_SPEED_MS = { requesting: 70, 'tool-use': 120, responding: 120, thi
 const GLIMMER_TRAIL = 4;
 const THINKING_GLIMMER_SPEED_MS = 120;
 const THINKING_GLIMMER_TRAIL = 4;
+const VERB_ROTATE_MIN_MS = 10000;
+const VERB_ROTATE_SPREAD_MS = 10000;
+const VERB_CHANGE_PROBABILITY = 0.65;
+
+const MODE_VERBS = {
+  requesting: ['Requesting', 'Preparing', 'Routing'],
+  thinking: ['Thinking', 'Reasoning', 'Mapping'],
+  'tool-use': ['Using tools', 'Checking files', 'Running tools', 'Reading output'],
+  'tool-input': ['Using tools', 'Checking files', 'Running tools', 'Reading output'],
+  responding: ['Responding', 'Composing', 'Writing', 'Wrapping up'],
+};
 
 const ERROR_RED = { r: 171, g: 43, b: 63 };
 
@@ -104,11 +112,8 @@ const THINKING_INACTIVE = parseRgb(theme.thinkingBase) ?? parseRgb(theme.thinkin
 const THINKING_SHIMMER = parseRgb(theme.thinkingGlow) ?? { r: 255, g: 205, b: 175 };
 
 function formatDuration(ms) {
-  const totalSec = Math.round(ms / 1000);
-  if (totalSec < 60) return `${totalSec}s`;
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
+  const totalSec = Math.max(0, Math.round(ms / 1000));
+  return `${totalSec}s`;
 }
 
 const compactNumberFormatter = new Intl.NumberFormat('en-US', {
@@ -123,11 +128,29 @@ function formatNumber(n) {
   return String(Math.round(value));
 }
 
-const SEP_WIDTH = 3; // stringWidth(' · ')
-const THINKING_WIDTH = 8; // 'thinking'
+const STATUS_SEP = ' · ';
+const SEP_WIDTH = STATUS_SEP.length;
 const HINT_WIDTH = 16; // 'esc to interrupt'
+const THINKING_TIME_AFTERGLOW_MS = 3000;
 
-export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens = 0, thinking = false, mode = 'responding', columns = 80 }) {
+function stableModeVerb(mode, fallback) {
+  const phrases = MODE_VERBS[mode] || [fallback || 'Working'];
+  return phrases[0] || fallback || 'Working';
+}
+
+function nextVerbCheckAt(now) {
+  return now + VERB_ROTATE_MIN_MS + Math.floor(Math.random() * VERB_ROTATE_SPREAD_MS);
+}
+
+function chooseNextVerb(mode, fallback, current) {
+  const phrases = MODE_VERBS[mode] || [fallback || 'Working'];
+  if (phrases.length <= 1 || Math.random() > VERB_CHANGE_PROBABILITY) return current || phrases[0];
+  const candidates = phrases.filter((phrase) => phrase && phrase !== current);
+  if (!candidates.length) return current || phrases[0];
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens = 0, thinking = false, thinkingElapsedMs = 0, thinkingActiveSince = 0, thinkingLastEndedAt = 0, mode = 'responding', columns = 80 }) {
   useAnimation({ interval: FRAME_MS });
   const now = Date.now();
   const elapsedMs = startedAt ? Math.max(0, now - startedAt) : 0;
@@ -135,6 +158,9 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   const lastGrowRef = useRef(now);
   const lastTokensRef = useRef(0);
   const displayedOutputRef = useRef(0);
+  const displayVerbRef = useRef('');
+  const displayVerbModeRef = useRef('');
+  const nextVerbCheckRef = useRef(0);
   // Stall smoothing refs (CC useStalledAnimation exponential fade)
   const stallSmoothRef = useRef(0);
   const lastStallTickRef = useRef(0);
@@ -181,7 +207,16 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
     : theme.spinnerGlyph;
 
   // --- Verb shimmer (CC GlimmerMessage traveling highlight) ---
-  const messageText = `${verb}…`;
+  if (displayVerbModeRef.current !== mode || !displayVerbRef.current) {
+    displayVerbModeRef.current = mode;
+    displayVerbRef.current = stableModeVerb(mode, verb);
+    nextVerbCheckRef.current = nextVerbCheckAt(now);
+  } else if (now >= nextVerbCheckRef.current) {
+    displayVerbRef.current = chooseNextVerb(mode, verb, displayVerbRef.current);
+    nextVerbCheckRef.current = nextVerbCheckAt(now);
+  }
+  const displayVerb = displayVerbRef.current;
+  const messageText = `${displayVerb}...`;
   const messageLen = messageText.length;
 
   // Glimmer speed per mode.
@@ -213,7 +248,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   // Token counter animation — Claude Code shows a single "<glyph> N tokens"
   // segment (SpinnerAnimationRow + SpinnerModeGlyph). N is the output/response
   // token count, smoothly incremented toward the current turn's value. The
-  // glyph is mode-driven: '↑' while requesting, '↓' otherwise (responding,
+  // glyph is mode-driven: up while requesting, down otherwise (responding,
   // thinking, tool-use, tool-input). Input token totals are not shown.
   const displayedOutputTokens = advanceCounter(displayedOutputRef, targetOutputTokens);
 
@@ -223,46 +258,49 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
 
   // Progressive width gating (CC SpinnerAnimationRow:
   //   show things left→right, each only if it fits after the previous ones).
-  // Timer and token count are both gated behind SHOW_TOKENS_AFTER_MS (CC
-  // wantsTimerAndTokens); the hint ("esc to interrupt") is gated behind
-  // SHOW_HINT_AFTER_MS so it doesn't crowd the line early.
+  // Mixdog shows elapsed and token count immediately when they fit, matching the
+  // original compact live status instead of hiding short-turn token counters.
   const showHintNow = elapsedMs > SHOW_HINT_AFTER_MS;
-  // Claude Code gates BOTH the elapsed timer and the token count behind
-  // SHOW_TOKENS_AFTER_MS (wantsTimerAndTokens). Short turns show neither.
-  const wantsTimerAndTokens = elapsedMs > SHOW_TOKENS_AFTER_MS;
   const avail = columns - messageLen - 5; // glyph(2) + ' (' + ')'
 
   const timerText = formatDuration(elapsedMs);
-  const timerW = timerText.length;
+  const timerLabel = timerText;
+  const timerW = timerLabel.length;
+  const liveThinkingElapsedMs = Number(thinkingElapsedMs || 0) + (thinkingActiveSince ? Math.max(0, now - thinkingActiveSince) : 0);
+  const thinkingActive = Boolean(thinking || thinkingActiveSince);
+  const showThoughtAfterglow = !thinkingActive && thinkingLastEndedAt ? (now - thinkingLastEndedAt) < THINKING_TIME_AFTERGLOW_MS : false;
+  const thinkingStatusText = thinkingActive
+    ? 'thinking'
+    : (liveThinkingElapsedMs > 0 && showThoughtAfterglow ? `thought for ${formatDuration(liveThinkingElapsedMs)}` : '');
+  const thinkingStatusW = thinkingStatusText.length;
 
   // Gate left→right; each segment after the first needs a sep.
   let usedW = 0;
-  const showThinking = thinking && elapsedMs > THINKING_DELAY_MS && avail > usedW + THINKING_WIDTH;
-  if (showThinking) usedW += THINKING_WIDTH;
-
-  const showTimer = wantsTimerAndTokens && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + timerW;
+  const showTimer = avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + timerW;
   if (showTimer) usedW += (usedW > 0 ? SEP_WIDTH : 0) + timerW;
 
-  const showTokens = wantsTimerAndTokens && tokenText && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + tokenW;
+  const showThinkingStatus = Boolean(thinkingStatusText) && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + thinkingStatusW;
+  if (showThinkingStatus) usedW += (usedW > 0 ? SEP_WIDTH : 0) + thinkingStatusW;
+
+  const showTokens = tokenText && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + tokenW;
   if (showTokens) usedW += (usedW > 0 ? SEP_WIDTH : 0) + tokenW;
 
   const showHint = showHintNow && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + HINT_WIDTH;
 
-  // Build meta line segments — order matches CC: thinking, elapsed, tokens, hint.
+  // Build meta line segments — elapsed, thinking status, tokens, hint.
   const segments = [];
-  if (showThinking) {
-    const thinkingText = 'thinking';
-    const thinkingSpan = Math.max(1, thinkingText.length + THINKING_GLIMMER_TRAIL);
-    const thinkingHead = Math.floor((elapsedMs - THINKING_DELAY_MS) / THINKING_GLIMMER_SPEED_MS) % thinkingSpan;
-    segments.push(
-      <Text key="thinking">
-        {renderShimmerText(thinkingText, thinkingHead, THINKING_GLIMMER_TRAIL, THINKING_INACTIVE, THINKING_SHIMMER, theme.thinkingBase, 'thinking', thinkingSpan)}
-      </Text>
-    );
-  }
   if (showTimer) {
     segments.push(
-      <Text key="elapsed" color={theme.statusSubtle}>{timerText}</Text>
+      <Text key="elapsed" color={theme.timerText}>{timerLabel}</Text>
+    );
+  }
+  if (showThinkingStatus) {
+    const thinkingSpan = Math.max(1, thinkingStatusText.length + THINKING_GLIMMER_TRAIL);
+    const thinkingHead = Math.floor(Math.max(0, elapsedMs - THINKING_DELAY_MS) / THINKING_GLIMMER_SPEED_MS) % thinkingSpan;
+    segments.push(
+      thinkingActive
+        ? <Text key="thinking-status">{renderShimmerText(thinkingStatusText, thinkingHead, THINKING_GLIMMER_TRAIL, THINKING_INACTIVE, THINKING_SHIMMER, theme.thinkingBase, 'thinking-status', thinkingSpan)}</Text>
+        : <Text key="thinking-status" color={theme.statusSubtle}>{thinkingStatusText}</Text>
     );
   }
   if (showTokens) {
@@ -286,7 +324,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
         <Text color={theme.inactive}>
           {' ('}
           {segments.reduce((acc, el, i) => (
-            i === 0 ? [el] : [...acc, <Text key={`s${i}`} color={theme.statusSubtle}> · </Text>, el]
+            i === 0 ? [el] : [...acc, <Text key={`s${i}`} color={theme.statusSubtle}>{STATUS_SEP}</Text>, el]
           ), [])}
           {')'}
         </Text>

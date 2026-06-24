@@ -13,7 +13,7 @@ export declare const cursorPositionChanged: (a: CursorPosition | undefined, b: C
 Build escape sequence to move cursor from bottom of output to the target position and show it.
 Assumes cursor is at (col 0, line visibleLineCount) — i.e. just after the last output line.
 */
-export declare const buildCursorSuffix: (visibleLineCount: number, cursorPosition: CursorPosition | undefined) => string;
+export declare const buildCursorSuffix: (visibleLineCount: number, cursorPosition: CursorPosition | undefined, cursorOriginLine?: number) => string;
 /**
 Build escape sequence to move cursor from previousCursorPosition back to the bottom of output.
 This must be done before eraseLines or any operation that assumes cursor is at the bottom.
@@ -24,6 +24,7 @@ export type CursorOnlyInput = {
     previousLineCount: number;
     previousCursorPosition: CursorPosition | undefined;
     visibleLineCount: number;
+    cursorOriginLine?: number;
     cursorPosition: CursorPosition | undefined;
 };
 /**
