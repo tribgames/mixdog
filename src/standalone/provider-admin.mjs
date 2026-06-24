@@ -21,7 +21,7 @@ export const API_PROVIDERS = Object.freeze([
 
 export const OAUTH_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'openai-oauth', name: 'Codex', desc: '~/.codex/auth.json', has: hasOpenAIOAuthCredentials, login: loginOpenAIOAuth }),
-  Object.freeze({ id: 'anthropic-oauth', name: 'Claude Code', desc: '~/.claude/.credentials.json', has: hasAnthropicOAuthCredentials, login: loginAnthropicOAuth }),
+  Object.freeze({ id: 'anthropic-oauth', name: 'Anthropic OAuth', desc: 'OAuth credentials (~/.claude/.credentials.json)', has: hasAnthropicOAuthCredentials, login: loginAnthropicOAuth }),
   Object.freeze({ id: 'grok-oauth', name: 'Grok', desc: '~/.grok/auth.json or browser OAuth (Grok Build)', has: hasGrokOAuthCredentials, login: loginGrokOAuth }),
 ]);
 

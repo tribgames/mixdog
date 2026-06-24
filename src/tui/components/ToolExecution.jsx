@@ -49,7 +49,7 @@ function titleizeToolName(name) {
     .join(' ') || 'Tool';
 }
 
-function displayToolName(name) {
+export function displayToolName(name) {
   switch (normalizeName(name)) {
     case 'read':
       return 'Read';
@@ -100,7 +100,7 @@ function summarizePatch(patch, basePath) {
 }
 
 /** Claude Code-style one-line renderToolUseMessage summary. */
-function summarizeArgs(name, args) {
+export function summarizeArgs(name, args) {
   if (!args || typeof args !== 'object') return '';
   const a = args;
   switch (normalizeName(name)) {

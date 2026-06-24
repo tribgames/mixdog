@@ -22,7 +22,7 @@ export function normalizeStatusLine(text) {
     .replace(/^(?:\x1b\[[0-9;]*m)*◆(?:\x1b\[[0-9;]*m)*\s?/, '\x1b[97m');
 }
 
-export function StatusLine({ sessionId, provider, model, cwd, stats, resizeEpoch, initialLine = '' }) {
+export function StatusLine({ sessionId, provider, model, effort, cwd, stats, resizeEpoch, initialLine = '' }) {
   const [line, setLine] = useState(() => initialLine);
   const [refreshTick, setRefreshTick] = useState(0);
 
@@ -34,7 +34,7 @@ export function StatusLine({ sessionId, provider, model, cwd, stats, resizeEpoch
   useEffect(() => {
     let alive = true;
     import(STATUSLINE_MODULE)
-      .then((m) => m.renderStatusline({ sessionId, provider, model, cwd, stats }))
+      .then((m) => m.renderStatusline({ sessionId, provider, model, effort, cwd, stats }))
       .then((s) => {
         if (!alive) return;
         // Rework L1's leading segment: the vendored lib emits
@@ -51,7 +51,7 @@ export function StatusLine({ sessionId, provider, model, cwd, stats, resizeEpoch
         if (alive) setLine('');
       });
     return () => { alive = false; };
-  }, [sessionId, provider, model, cwd, stats, resizeEpoch, refreshTick]);
+  }, [sessionId, provider, model, effort, cwd, stats, resizeEpoch, refreshTick]);
 
   return (
     <Box flexDirection="column" height={2} paddingLeft={2} marginBottom={1}>

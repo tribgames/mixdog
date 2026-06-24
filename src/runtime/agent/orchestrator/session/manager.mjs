@@ -76,6 +76,35 @@ function _buildBridgeRules() {
     }
 }
 
+let _leadRulesCache = null;
+let _leadRulesMtime = 0;
+function _buildLeadRules() {
+    if (!_rulesBuilder || typeof _rulesBuilder.buildInjectionContent !== 'function') return '';
+    const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT
+        || join(homedir(), '.claude', 'plugins', 'marketplaces', DEFAULT_MARKETPLACE, 'external_plugins', DEFAULT_PLUGIN);
+    const DATA_DIR = resolvePluginData();
+    const RULES_DIR = join(PLUGIN_ROOT, 'rules');
+    const mtime = maxMtimeRecursive([
+        join(RULES_DIR, 'shared'),
+        join(RULES_DIR, 'lead'),
+        join(DATA_DIR, 'history'),
+        join(DATA_DIR, 'mixdog-config.json'),
+        join(DATA_DIR, 'user-workflow.json'),
+        join(DATA_DIR, 'user-workflow.md'),
+    ]);
+    if (_leadRulesCache !== null && mtime <= _leadRulesMtime) {
+        return _leadRulesCache;
+    }
+    try {
+        const built = _rulesBuilder.buildInjectionContent({ PLUGIN_ROOT, DATA_DIR });
+        _leadRulesCache = built;
+        _leadRulesMtime = mtime;
+        return built;
+    } catch (e) {
+        throw new Error(`[session] lead rules build failed: ${e.message}`);
+    }
+}
+
 // BP3 role-specific cache — keyed by role. webhook / schedule / hidden
 // retrieval roles each have their own scoped instruction set; other roles
 // return ''.
@@ -773,7 +802,9 @@ export function createSession(opts) {
     // shadow Pool C's explicit readonly request, leaking write tools and
     // bash into a read-only agent.
     const toolPreset = opts.tools || presetObj?.tools || (typeof opts.preset === 'string' ? opts.preset : null) || 'full';
-    const effort = presetObj?.effort || opts.effort || null;
+    const effort = Object.prototype.hasOwnProperty.call(opts, 'effort')
+        ? (opts.effort || null)
+        : (presetObj?.effort || null);
     const fast = presetObj?.fast === true || opts.fast === true;
     if (!providerName)
         throw new Error('createSession: provider is required');
@@ -794,8 +825,8 @@ export function createSession(opts) {
     // one cache shard. A user edit invalidates BP1 once and the new prefix
     // re-warms across all roles together.
     const bridgeRulesRole = opts.role || profile?.taskType || null;
-    const bridgeRules = opts.skipBridgeRules ? '' : _buildBridgeRules();
-    const roleSpecific = opts.skipBridgeRules ? '' : _buildRoleSpecific(bridgeRulesRole);
+    const injectedRules = opts.skipBridgeRules ? '' : (opts.owner === 'bridge' ? _buildBridgeRules() : _buildLeadRules());
+    const roleSpecific = opts.owner === 'bridge' && !opts.skipBridgeRules ? _buildRoleSpecific(bridgeRulesRole) : '';
     // Project MD (cwd-based, Tier 3 slot).
     const projectContext = collectProjectMd(opts.cwd);
 
@@ -862,8 +893,9 @@ export function createSession(opts) {
 
     const { baseRules, roleCatalog, sessionMarker, volatileTail } = composeSystemPrompt({
         userPrompt: opts.systemPrompt,
-        bridgeRules: bridgeRules || undefined,
+        bridgeRules: injectedRules || undefined,
         roleSpecific: roleSpecific || undefined,
+        skipRoleCatalog: opts.owner !== 'bridge',
         agentTemplate: agentTemplate || undefined,
         roleTemplate: roleTemplate || undefined,
         hasSkills: skills.length > 0,
@@ -900,18 +932,18 @@ export function createSession(opts) {
     }
     if (sessionMarker) {
         messages.push({ role: 'user', content: `<system-reminder>\n${sessionMarker}\n</system-reminder>` });
-        messages.push({ role: 'assistant', content: 'Session context noted.' });
+        messages.push({ role: 'assistant', content: '.' });
     }
     if (volatileTail) {
         messages.push({ role: 'user', content: `<system-reminder>\n${volatileTail}\n</system-reminder>` });
-        messages.push({ role: 'assistant', content: 'Understood.' });
+        messages.push({ role: 'assistant', content: '.' });
     }
     if (opts.files?.length) {
         const fileContext = opts.files
             .map(f => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``)
             .join('\n\n');
         messages.push({ role: 'user', content: `Reference files:\n\n${fileContext}` });
-        messages.push({ role: 'assistant', content: 'Understood. I have the files in context.' });
+        messages.push({ role: 'assistant', content: '.' });
     }
     let tools = toolsForRouting;
 

@@ -51,6 +51,14 @@ function stringifyFallback(value) {
     try { return JSON.stringify(value); } catch { return String(value); }
 }
 
+function contentParts(content) {
+    if (Array.isArray(content)) return content;
+    if (content && typeof content === 'object' && Array.isArray(content.content)) {
+        return content.content;
+    }
+    return null;
+}
+
 function jsonFallbackFromPart(block) {
     const text = textFromPart(block);
     if (text) return text;
@@ -60,20 +68,23 @@ function jsonFallbackFromPart(block) {
 }
 
 export function contentHasImage(content) {
-    if (!Array.isArray(content)) return false;
-    return content.some((part) => !!imageUrlFromPart(part));
+    const parts = contentParts(content);
+    if (!parts) return false;
+    return parts.some((part) => !!imageUrlFromPart(part));
 }
 
 export function contentToText(content, fallback = '') {
     if (typeof content === 'string') return content;
-    if (!Array.isArray(content)) return content == null ? fallback : stringifyFallback(content);
-    const text = content.map(jsonFallbackFromPart).filter(Boolean).join('\n');
+    const parts = contentParts(content);
+    if (!parts) return content == null ? fallback : stringifyFallback(content);
+    const text = parts.map(jsonFallbackFromPart).filter(Boolean).join('\n');
     return text || fallback;
 }
 
 export function normalizeContentForAnthropic(content) {
-    if (!Array.isArray(content)) return content;
-    return content.map((part) => {
+    const parts = contentParts(content);
+    if (!parts) return content;
+    return parts.map((part) => {
         const info = imageInfo(part);
         if (info) {
             const out = {
@@ -109,9 +120,10 @@ export function normalizeContentForAnthropic(content) {
 }
 
 export function normalizeContentForOpenAIChat(content, { role = 'user' } = {}) {
-    if (!Array.isArray(content)) return content;
+    const parts = contentParts(content);
+    if (!parts) return content;
     const out = [];
-    for (const part of content) {
+    for (const part of parts) {
         const url = imageUrlFromPart(part);
         if (url) {
             out.push({ type: 'image_url', image_url: { url } });
@@ -127,12 +139,13 @@ export function normalizeContentForOpenAIChat(content, { role = 'user' } = {}) {
 export function normalizeContentForOpenAIResponses(content, { role = 'user' } = {}) {
     const textType = role === 'assistant' ? 'output_text' : 'input_text';
     if (typeof content === 'string') return content ? [{ type: textType, text: content }] : [];
-    if (!Array.isArray(content)) {
+    const parts = contentParts(content);
+    if (!parts) {
         const text = content == null ? '' : stringifyFallback(content);
         return text ? [{ type: textType, text }] : [];
     }
     const out = [];
-    for (const part of content) {
+    for (const part of parts) {
         const url = imageUrlFromPart(part);
         if (url) {
             out.push({ type: 'input_image', image_url: url });
@@ -146,12 +159,13 @@ export function normalizeContentForOpenAIResponses(content, { role = 'user' } = 
 
 export function normalizeContentForGeminiParts(content) {
     if (typeof content === 'string') return content ? [{ text: content }] : [];
-    if (!Array.isArray(content)) {
+    const parts = contentParts(content);
+    if (!parts) {
         const text = content == null ? '' : stringifyFallback(content);
         return text ? [{ text }] : [];
     }
     const out = [];
-    for (const part of content) {
+    for (const part of parts) {
         const info = imageInfo(part);
         if (info) {
             out.push({ inlineData: { mimeType: info.mimeType, data: info.data } });

@@ -16,7 +16,7 @@
  * at the exact moment of drawing, so it can never be stale.
  */
 import React, { useState, useRef } from 'react';
-import { Box, Text, useInput, useStdin } from 'ink';
+import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
 
@@ -128,6 +128,13 @@ function insertText(draft, input) {
   };
 }
 
+function normalizePastedText(text) {
+  return String(text ?? '')
+    .replace(/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+}
+
 function moveVertical(draft, direction, width) {
   if (!width || width <= 0) return null;
   const current = caretPosition(draft.value, draft.cursor, width);
@@ -199,6 +206,13 @@ export function PromptInput({
 
   // Input capture is only active on a real TTY (raw mode). In pipes/CI the input
   // is inert — useInput with isActive:false won't throw.
+  usePaste((text) => {
+    if (disabled) return;
+    const pasted = normalizePastedText(text);
+    if (!pasted) return;
+    updateDraft((d) => insertText(d, pasted));
+  }, { isActive: isRawModeSupported && !disabled });
+
   useInput((input, key) => {
     if (disabled) return;
 
@@ -339,6 +353,14 @@ export function PromptInput({
     }
     if (key.rightArrow) {
       updateDraft((d) => ({ ...d, cursor: nextOffset(d.value, d.cursor) }));
+      return;
+    }
+    if (key.home) {
+      updateDraft((d) => ({ ...d, cursor: lineStart(d.value, d.cursor) }));
+      return;
+    }
+    if (key.end) {
+      updateDraft((d) => ({ ...d, cursor: lineEnd(d.value, d.cursor) }));
       return;
     }
 

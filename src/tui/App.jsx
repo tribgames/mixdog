@@ -40,13 +40,27 @@ const HELP = [
   '  /new             start a fresh session (closes current)',
   '  /resume [id]     resume a saved session (picker if no id)',
   '  /model <name>    switch model for subsequent turns (picker if no name)',
-  '  /mode <name>     switch tool surface: full | readonly',
+  '  /effort [level] set reasoning effort for the current model',
+  '  /bridge <mode>   switch bridge default: sync | async',
+  '  /bridge spawn <role> <prompt>',
+  '  /bridge send <tag> <message>',
+  '  /bridge list     show bridge workers and async jobs',
+  '  /bridge read <id> read a finished/running async job snapshot',
+  '  /mcp             manage MCP servers and tools',
+  '  /skills          list and view available skills',
+  '  /plugins         inspect local plugins',
+  '  /hooks           inspect standalone hook events',
   '  /providers       manage provider auth and local endpoints',
+  '  /channels        manage Discord, channels, schedules, webhooks',
+  '  /schedules       manage schedules',
+  '  /webhooks        manage inbound webhooks',
   '  /auth <p> [key]  login OAuth provider or save API key',
   '  /auth-forget <p> remove an API-key provider secret',
+  '  /memory [action] show memory status or run a memory action',
+  '  /recall <query>  search stored memory directly',
   '  /exit, /quit     quit',
   'Picker: ↑/↓ navigate, Enter confirm, Escape cancel (attached above prompt).',
-  'Ctrl+C exits. Drag with the mouse to select & auto-copy. ↑/↓ recall history.',
+  'Ctrl+B toggles bridge sync/async. Ctrl+C exits. Drag selects & auto-copies, paste inserts as-is. Wheel/PageUp/PageDown scroll transcript. ↑/↓ recall history.',
 ].join('\n');
 
 const SLASH_COMMANDS = [
@@ -56,10 +70,20 @@ const SLASH_COMMANDS = [
   { name: 'new', usage: '/new', description: 'start a fresh session' },
   { name: 'resume', usage: '/resume', description: 'resume a saved session' },
   { name: 'model', usage: '/model', description: 'switch model for subsequent turns' },
-  { name: 'mode', usage: '/mode', description: 'switch tool surface' },
+  { name: 'effort', usage: '/effort [level]', description: 'set reasoning effort for the current model' },
+  { name: 'bridge', usage: '/bridge [sync|async|spawn|send|list|read]', description: 'control bridge workers' },
+  { name: 'mcp', usage: '/mcp', description: 'manage MCP servers and tools' },
+  { name: 'skills', usage: '/skills', description: 'list and view available skills' },
+  { name: 'plugins', usage: '/plugins', description: 'inspect local plugins' },
+  { name: 'hooks', usage: '/hooks', description: 'inspect standalone hook events' },
   { name: 'providers', usage: '/providers', description: 'manage provider auth and local endpoints' },
+  { name: 'channels', usage: '/channels', description: 'manage Discord, channels, schedules, webhooks' },
+  { name: 'schedules', usage: '/schedules', description: 'manage schedules' },
+  { name: 'webhooks', usage: '/webhooks', description: 'manage inbound webhooks' },
   { name: 'auth', usage: '/auth', description: 'login OAuth provider or save API key' },
   { name: 'auth-forget', usage: '/auth-forget', description: 'remove an API-key provider secret' },
+  { name: 'memory', usage: '/memory [status]', description: 'show memory runtime status' },
+  { name: 'recall', usage: '/recall <query>', description: 'search stored memory' },
   { name: 'exit', usage: '/exit', description: 'quit the TUI' },
   { name: 'quit', usage: '/quit', description: 'quit the TUI' },
 ];
@@ -75,6 +99,69 @@ function terminalSize(stdout) {
     columns: stdout?.columns ?? 80,
     rows: stdout?.rows ?? 24,
   };
+}
+
+function parseBridgeControl(text) {
+  const parts = String(text || '').trim().split(/\s+/).filter(Boolean);
+  const action = (parts[0] || '').toLowerCase();
+  if (!['spawn', 'send', 'list', 'status', 'read', 'cleanup', 'cancel', 'close'].includes(action)) return null;
+  const value = parts[1] || '';
+  if (action === 'list' || action === 'cleanup') return { type: action };
+  if (action === 'spawn') {
+    const role = value;
+    if (!role) return { error: 'usage: /bridge spawn <role> [sync|async] <prompt>' };
+    const parsed = parseBridgeFreeform(parts.slice(2));
+    if (!parsed.message) return { error: 'usage: /bridge spawn <role> [sync|async] <prompt>' };
+    return { type: 'spawn', role, ...parsed };
+  }
+  if (action === 'send') {
+    if (!value) return { error: 'usage: /bridge send <tag|sessionId> [sync|async] <message>' };
+    const parsed = parseBridgeFreeform(parts.slice(2));
+    if (!parsed.message) return { error: 'usage: /bridge send <tag|sessionId> [sync|async] <message>' };
+    return value.startsWith('sess_')
+      ? { type: 'send', sessionId: value, ...parsed }
+      : { type: 'send', tag: value, ...parsed };
+  }
+  if (!value) return { error: `usage: /bridge ${action} <jobId|tag|sessionId>` };
+  if (action === 'status' || action === 'read') return { type: action, jobId: value };
+  if (value.startsWith('job_')) return { type: action, jobId: value };
+  if (value.startsWith('sess_')) return { type: action, sessionId: value };
+  return { type: action, tag: value };
+}
+
+function parseBridgeFreeform(parts) {
+  const out = {};
+  let i = 0;
+  for (; i < parts.length; i += 1) {
+    const token = parts[i];
+    const lower = token.toLowerCase();
+    if (lower === 'sync' || lower === 'async') {
+      out.mode = lower;
+      continue;
+    }
+    const kv = /^([a-zA-Z][\w-]*)=(.+)$/.exec(token);
+    if (kv && ['tag', 'preset', 'provider', 'model', 'effort', 'cwd'].includes(kv[1])) {
+      out[kv[1]] = kv[2];
+      continue;
+    }
+    break;
+  }
+  out.message = parts.slice(i).join(' ').trim();
+  return out;
+}
+
+function parseMemoryCommand(text) {
+  const parts = String(text || '').trim().split(/\s+/).filter(Boolean);
+  const action = parts[0] || 'status';
+  const out = { action };
+  for (const part of parts.slice(1)) {
+    const [key, ...rest] = part.split('=');
+    if (!key || rest.length === 0) continue;
+    const raw = rest.join('=');
+    const num = Number(raw);
+    out[key] = Number.isFinite(num) && raw.trim() !== '' ? num : raw;
+  }
+  return out;
 }
 
 // Copy text to the OS clipboard via the platform's native command. We avoid
@@ -143,6 +230,7 @@ export function App({ store, initialStatusLine = '' }) {
   // Rendered as an option panel attached directly above the bottom prompt.
   const [picker, setPicker] = useState(null);
   const [providerPrompt, setProviderPrompt] = useState(null);
+  const [channelPrompt, setChannelPrompt] = useState(null);
   const [promptDraft, setPromptDraft] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedFor, setSlashDismissedFor] = useState('');
@@ -316,14 +404,37 @@ export function App({ store, initialStatusLine = '' }) {
       requestExit();
       return;
     }
+    if (key.ctrl && (input === 'b' || input === 'B')) {
+      store.toggleBridgeMode?.();
+      return;
+    }
     if (key.ctrl && (input === 'o' || input === 'O')) {
       toggleExpand();
+      return;
+    }
+    if (key.pageUp) {
+      const pageRows = Math.max(3, Math.floor((resizeState.rows ?? 24) * 0.6));
+      setScrollOffset((prev) => prev + pageRows);
+      return;
+    }
+    if (key.pageDown) {
+      const pageRows = Math.max(3, Math.floor((resizeState.rows ?? 24) * 0.6));
+      setScrollOffset((prev) => Math.max(0, prev - pageRows));
+      return;
+    }
+    if (key.ctrl && key.end) {
+      setScrollOffset(0);
       return;
     }
     if (key.escape && state.busy && !picker) {
       if (store.abort()) {
         store.pushNotice('⎋ stopped — queued prompts kept (↑ to edit)', 'info');
       }
+      return;
+    }
+    if (key.escape && !picker) {
+      dragRef.current.active = false;
+      store.setRenderSelection?.(null);
     }
   }, { isActive: isRawModeSupported });
 
@@ -341,13 +452,21 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
 
-    const items = providerModels.map((m) => ({
-      value: `${m.provider}:${m.id}`,
-      label: m.display || m.id,
-      description: m.provider,
-      _provider: m.provider,
-      _modelId: m.id,
-    }));
+    const items = providerModels.map((m) => {
+      const meta = [];
+      if (m.contextWindow) meta.push(`${Math.round(Number(m.contextWindow) / 1000)}k ctx`);
+      if (m.supportsVision) meta.push('vision');
+      const efforts = (m.effortOptions || []).map((e) => e.value).filter((v) => v && v !== 'auto');
+      if (efforts.length) meta.push(`effort ${efforts.join('/')}`);
+      if (m.latest) meta.push('latest');
+      return {
+        value: `${m.provider}:${m.id}`,
+        label: m.display || m.id,
+        description: [m.provider, ...meta].join(' · '),
+        _provider: m.provider,
+        _modelId: m.id,
+      };
+    });
 
     setPicker({
       title: `Model (current: ${state.model})`,
@@ -365,18 +484,19 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
-  const openModePicker = () => {
-    const modes = [
-      { value: 'full', label: 'full', description: 'all configured tools' },
-      { value: 'readonly', label: 'readonly', description: 'read-only tool surface' },
-    ];
+  const openEffortPicker = () => {
+    const current = state.effort || 'auto';
+    const items = Array.isArray(state.effortOptions) && state.effortOptions.length > 0
+      ? state.effortOptions
+      : [{ value: 'auto', label: 'auto', description: 'provider/model default' }];
     setPicker({
-      title: `Mode (current: ${state.toolMode || 'full'})`,
-      items: modes,
+      title: `Effort (current: ${current})`,
+      items,
       onSelect: (value) => {
         setPicker(null);
-        store.setToolMode(value);
-        store.pushNotice(`✓ mode → ${value}`, 'info');
+        void store.setEffort(value)
+          .then(result => store.pushNotice(result ? `✓ effort → ${result}` : 'effort switch already in progress', result ? 'info' : 'warn'))
+          .catch((e) => store.pushNotice(`effort switch failed: ${e?.message || e}`, 'error'));
       },
       onCancel: () => {
         setPicker(null);
@@ -474,6 +594,392 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
+  const openChannelSetupPicker = async (focus = 'all') => {
+    let setup;
+    try {
+      setup = store.getChannelSetup();
+    } catch (e) {
+      store.pushNotice(`channels failed: ${e?.message || e}`, 'error');
+      return;
+    }
+
+    const items = [
+      {
+        value: 'worker-status',
+        label: 'Channel worker',
+        description: (() => {
+          const worker = store.getChannelWorkerStatus?.();
+          return worker?.running ? `running · pid ${worker.pid}` : 'stopped';
+        })(),
+        _action: 'noop',
+      },
+      {
+        value: 'discord-token',
+        label: 'Discord token',
+        description: `Bot token · ${setup.discord.status}${setup.discord.problem ? ' · invalid' : ''}`,
+        _action: 'discord-token',
+      },
+      {
+        value: 'webhook-token',
+        label: 'Webhook auth',
+        description: `ngrok/webhook authtoken · ${setup.webhook.status}`,
+        _action: 'webhook-token',
+      },
+      {
+        value: 'webhook-toggle',
+        label: 'Webhook server',
+        description: `${setup.webhook.enabled === false ? 'disabled' : 'enabled'} · port ${setup.webhook.port || 3333}`,
+        _action: 'webhook-toggle',
+      },
+      { value: 'channel-add', label: 'Add channel', description: 'label | Discord channel id | mode', _action: 'channel-add' },
+      { value: 'schedule-add', label: 'Add schedule', description: 'name | cron | instructions | channel | model', _action: 'schedule-add' },
+      { value: 'webhook-add', label: 'Add webhook', description: 'name | instructions | channel | model | parser', _action: 'webhook-add' },
+    ];
+
+    if (focus !== 'schedules' && focus !== 'webhooks') {
+      for (const ch of setup.channels || []) {
+        items.push({
+          value: `channel:${ch.name}`,
+          label: `# ${ch.name}`,
+          description: `${ch.channelId || '(unset)'} · ${ch.mode}${ch.main ? ' · main' : ''} · Enter delete`,
+          _action: 'channel-delete',
+          _name: ch.name,
+        });
+      }
+    }
+    if (focus !== 'webhooks') {
+      for (const schedule of setup.schedules || []) {
+        items.push({
+          value: `schedule:${schedule.name}`,
+          label: `↻ ${schedule.name}`,
+          description: `${schedule.time || '(no cron)'} · ${schedule.route}${schedule.model ? ` · ${schedule.model}` : ''} · Enter delete`,
+          _action: 'schedule-delete',
+          _name: schedule.name,
+        });
+      }
+    }
+    if (focus !== 'schedules') {
+      for (const hook of setup.webhooks || []) {
+        items.push({
+          value: `webhook:${hook.name}`,
+          label: `⌁ ${hook.name}`,
+          description: `${hook.parser || 'github'} · ${hook.route} · secret:${hook.secretSet ? 'set' : 'missing'} · Enter delete`,
+          _action: 'webhook-delete',
+          _name: hook.name,
+        });
+      }
+    }
+
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setPicker({
+      title: focus === 'schedules' ? 'Schedules' : focus === 'webhooks' ? 'Webhooks' : 'Channels',
+      items,
+      onSelect: (_value, item) => {
+        setPicker(null);
+        try {
+          switch (item._action) {
+            case 'discord-token':
+              setChannelPrompt({ kind: 'discord-token', label: 'Discord bot token' });
+              return;
+            case 'webhook-token':
+              setChannelPrompt({ kind: 'webhook-token', label: 'Webhook/ngrok authtoken' });
+              return;
+            case 'webhook-toggle':
+              store.setWebhookConfig({ enabled: setup.webhook.enabled === false });
+              void openChannelSetupPicker(focus);
+              return;
+            case 'channel-add':
+              setChannelPrompt({ kind: 'channel-add', label: 'Channel', hint: 'name | channelId | interactive' });
+              return;
+            case 'schedule-add':
+              setChannelPrompt({ kind: 'schedule-add', label: 'Schedule', hint: 'name | cron | instructions | channel(optional) | model(optional)' });
+              return;
+            case 'webhook-add':
+              setChannelPrompt({ kind: 'webhook-add', label: 'Webhook', hint: 'name | instructions | channel(optional) | model(optional) | github' });
+              return;
+            case 'channel-delete':
+              store.deleteChannel(item._name);
+              void openChannelSetupPicker(focus);
+              return;
+            case 'schedule-delete':
+              store.deleteSchedule(item._name);
+              void openChannelSetupPicker(focus);
+              return;
+            case 'webhook-delete':
+              store.deleteWebhook(item._name);
+              void openChannelSetupPicker(focus);
+              return;
+            default:
+              return;
+          }
+        } catch (e) {
+          store.pushNotice(`channels update failed: ${e?.message || e}`, 'error');
+        }
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
+  const openMcpPicker = () => {
+    let status;
+    try {
+      status = store.mcpStatus?.() || { servers: [] };
+    } catch (e) {
+      store.pushNotice(`mcp status failed: ${e?.message || e}`, 'error');
+      return;
+    }
+    const servers = status.servers || [];
+    const items = [
+      {
+        value: 'reconnect',
+        label: 'Reconnect all',
+        description: `${status.connectedCount || 0}/${status.configuredCount || 0} connected${status.failedCount ? ` · ${status.failedCount} failed` : ''}`,
+        _action: 'reconnect',
+      },
+    ];
+    if (servers.length === 0) {
+      items.push({
+        value: 'empty',
+        label: 'No MCP servers',
+        description: 'Configure mcpServers in mixdog-config.json',
+        _action: 'noop',
+      });
+    }
+    for (const server of servers) {
+      items.push({
+        value: `server:${server.name}`,
+        label: server.name,
+        description: `${server.status || 'unknown'} · ${server.transport || 'unknown'} · ${server.toolCount || 0} tools${server.error ? ` · ${server.error}` : ''}`,
+        _action: 'server',
+        _server: server,
+      });
+    }
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setPicker({
+      title: 'MCP',
+      items,
+      onSelect: (_value, item) => {
+        setPicker(null);
+        if (item._action === 'reconnect') {
+          void store.reconnectMcp?.()
+            .then(() => openMcpPicker())
+            .catch((e) => store.pushNotice(`mcp reconnect failed: ${e?.message || e}`, 'error'));
+          return;
+        }
+        if (item._action !== 'server') return;
+        const server = item._server;
+        if (server?.error) {
+          store.pushNotice(`${server.name}: ${server.error}`, 'warn');
+        }
+        const tools = server?.tools || [];
+        const toolItems = tools.length
+          ? tools.map((tool) => ({
+              value: tool.name,
+              label: tool.name.replace(/^mcp__[^_]+__/, ''),
+              description: tool.description || tool.name,
+              _action: 'noop',
+            }))
+          : [{ value: 'empty', label: 'No tools', description: server?.connected ? 'server returned no tools' : 'server is not connected', _action: 'noop' }];
+        setPicker({
+          title: `MCP · ${server?.name || 'server'}`,
+          items: toolItems,
+          onSelect: () => {},
+          onCancel: () => openMcpPicker(),
+        });
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
+  const openSkillsPicker = () => {
+    let status;
+    try {
+      status = store.skillsStatus?.() || { skills: [] };
+    } catch (e) {
+      store.pushNotice(`skills status failed: ${e?.message || e}`, 'error');
+      return;
+    }
+    const skills = status.skills || [];
+    const items = [
+      {
+        value: 'reload',
+        label: 'Reload skills',
+        description: `${status.count || 0} available · ${status.cwd || ''}`,
+        _action: 'reload',
+      },
+    ];
+    if (skills.length === 0) {
+      items.push({
+        value: 'empty',
+        label: 'No skills',
+        description: 'Add SKILL.md files under user, project, or plugin skills directories',
+        _action: 'noop',
+      });
+    }
+    for (const skill of skills) {
+      items.push({
+        value: skill.name,
+        label: skill.name,
+        description: `${skill.source || 'skill'} · ${skill.description || skill.filePath || ''}`,
+        _action: 'view',
+        _skill: skill,
+      });
+    }
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setPicker({
+      title: 'Skills',
+      items,
+      onSelect: (_value, item) => {
+        setPicker(null);
+        if (item._action === 'reload') {
+          void store.reloadSkills?.()
+            .then(() => openSkillsPicker())
+            .catch((e) => store.pushNotice(`skills reload failed: ${e?.message || e}`, 'error'));
+          return;
+        }
+        if (item._action !== 'view') return;
+        try {
+          const result = store.skillContent?.(item._skill.name);
+          const body = String(result?.content || '').trim();
+          const max = 2200;
+          const preview = body.length > max ? `${body.slice(0, max)}\n\n... (${body.length - max} more chars)` : body;
+          store.pushNotice(`# ${item._skill.name}\n${preview || '(empty skill)'}`, 'info');
+        } catch (e) {
+          store.pushNotice(`skill view failed: ${e?.message || e}`, 'error');
+        }
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
+  const openPluginsPicker = () => {
+    let status;
+    try {
+      status = store.pluginsStatus?.() || { plugins: [] };
+    } catch (e) {
+      store.pushNotice(`plugins status failed: ${e?.message || e}`, 'error');
+      return;
+    }
+    const plugins = status.plugins || [];
+    const items = [
+      {
+        value: 'reload',
+        label: 'Reload plugins',
+        description: `${status.count || 0} detected`,
+        _action: 'reload',
+      },
+    ];
+    if (plugins.length === 0) {
+      items.push({
+        value: 'empty',
+        label: 'No plugins',
+        description: 'No local marketplace/cache plugins detected',
+        _action: 'noop',
+      });
+    }
+    for (const plugin of plugins) {
+      items.push({
+        value: `${plugin.source}:${plugin.name}:${plugin.version || ''}`,
+        label: plugin.title || plugin.name,
+        description: `${plugin.source}${plugin.marketplace ? ` · ${plugin.marketplace}` : ''}${plugin.version ? ` · ${plugin.version}` : ''} · skills ${plugin.skillCount || 0}${plugin.mcpScript ? ` · mcp ${plugin.mcpScript}` : ''}`,
+        _action: 'plugin',
+        _plugin: plugin,
+      });
+    }
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setPicker({
+      title: 'Plugins',
+      items,
+      onSelect: (_value, item) => {
+        setPicker(null);
+        if (item._action === 'reload') {
+          void store.reloadPlugins?.()
+            .then(() => openPluginsPicker())
+            .catch((e) => store.pushNotice(`plugins reload failed: ${e?.message || e}`, 'error'));
+          return;
+        }
+        if (item._action !== 'plugin') return;
+        const p = item._plugin;
+        store.pushNotice([
+          `${p.title || p.name}${p.version ? ` ${p.version}` : ''}`,
+          `source: ${p.source}${p.marketplace ? ` / ${p.marketplace}` : ''}`,
+          `skills: ${p.skillCount || 0}`,
+          `mcp: ${p.mcpScript || '(none)'}`,
+          `root: ${p.root}`,
+          p.description ? `\n${p.description}` : '',
+        ].filter(Boolean).join('\n'), 'info');
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
+  const openHooksPicker = () => {
+    let status;
+    try {
+      status = store.hooksStatus?.() || { events: [], recent: [] };
+    } catch (e) {
+      store.pushNotice(`hooks status failed: ${e?.message || e}`, 'error');
+      return;
+    }
+    const recent = status.recent || [];
+    const items = [
+      {
+        value: 'summary',
+        label: status.enabled ? 'Hook bus enabled' : 'Hook bus disabled',
+        description: `${status.mode || 'unknown'} · ${recent.length} recent events`,
+        _action: 'summary',
+      },
+      ...recent.slice(0, 30).map((event, index) => ({
+        value: `event:${index}`,
+        label: event.name,
+        description: `${event.ts || ''}${event.summary ? ` · ${event.summary}` : ''}`,
+        _action: 'event',
+        _event: event,
+      })),
+    ];
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setPicker({
+      title: 'Hooks',
+      items,
+      onSelect: (_value, item) => {
+        setPicker(null);
+        if (item._action === 'summary') {
+          store.pushNotice([
+            `mode: ${status.mode || 'unknown'}`,
+            `events: ${(status.events || []).join(', ') || '(none)'}`,
+            `counts: ${JSON.stringify(status.counts || {})}`,
+            status.note || '',
+          ].filter(Boolean).join('\n'), 'info');
+          return;
+        }
+        if (item._action === 'event') {
+          store.pushNotice(JSON.stringify(item._event, null, 2), 'info');
+        }
+      },
+      onCancel: () => {
+        setPicker(null);
+        store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
   const openResumePicker = () => {
     let sessions;
     try {
@@ -530,16 +1036,66 @@ export function App({ store, initialStatusLine = '' }) {
           .then(ok => store.pushNotice(ok ? `✓ model → ${arg}` : 'model switch already in progress', ok ? 'info' : 'warn'))
           .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
         return true;
-      case 'mode':
+      case 'effort':
+        if (state.busy) {
+          store.pushNotice('wait for the current turn to finish before /effort', 'warn');
+          return false;
+        }
         if (!arg) {
-          openModePicker();
+          openEffortPicker();
           return true;
         }
-        store.setToolMode(arg);
-        store.pushNotice(`✓ mode → ${arg}`, 'info');
+        void store.setEffort(arg)
+          .then(result => store.pushNotice(result ? `✓ effort → ${result}` : 'effort switch already in progress', result ? 'info' : 'warn'))
+          .catch((e) => store.pushNotice(`effort switch failed: ${e?.message || e}`, 'error'));
+        return true;
+      case 'bridge': {
+        const mode = arg.trim().toLowerCase();
+        if (!mode) {
+          store.toggleBridgeMode?.();
+          return true;
+        }
+        const control = parseBridgeControl(arg);
+        if (control?.error) {
+          store.pushNotice(control.error, 'warn');
+          return true;
+        }
+        if (control) {
+          void store.bridgeControl?.(control)
+            .catch((e) => store.pushNotice(`bridge failed: ${e?.message || e}`, 'error'));
+          return true;
+        }
+        if (mode !== 'sync' && mode !== 'async') {
+          store.pushNotice('usage: /bridge [sync|async|list|status|read|cleanup|cancel|close]', 'warn');
+          return true;
+        }
+        const next = store.setBridgeMode?.(mode);
+        store.pushNotice(`✓ bridge mode → ${next || mode}`, 'info');
+        return true;
+      }
+      case 'mcp':
+        openMcpPicker();
+        return true;
+      case 'skills':
+        openSkillsPicker();
+        return true;
+      case 'plugins':
+        openPluginsPicker();
+        return true;
+      case 'hooks':
+        openHooksPicker();
         return true;
       case 'providers':
         void openProviderSetupPicker();
+        return true;
+      case 'channels':
+        void openChannelSetupPicker('all');
+        return true;
+      case 'schedules':
+        void openChannelSetupPicker('schedules');
+        return true;
+      case 'webhooks':
+        void openChannelSetupPicker('webhooks');
         return true;
       case 'auth': {
         const [providerId, ...secretParts] = arg.split(/\s+/).filter(Boolean);
@@ -576,6 +1132,21 @@ export function App({ store, initialStatusLine = '' }) {
         } catch (e) {
           store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
         }
+        return true;
+      }
+      case 'memory': {
+        void store.memoryControl?.(parseMemoryCommand(arg))
+          .catch((e) => store.pushNotice(`memory failed: ${e?.message || e}`, 'error'));
+        return true;
+      }
+      case 'recall': {
+        const query = arg.trim();
+        if (!query) {
+          store.pushNotice('usage: /recall <query>', 'warn');
+          return true;
+        }
+        void store.recall?.(query)
+          .catch((e) => store.pushNotice(`recall failed: ${e?.message || e}`, 'error'));
         return true;
       }
       case 'compact':
@@ -670,6 +1241,56 @@ export function App({ store, initialStatusLine = '' }) {
         }
       }
     }
+    if (channelPrompt) {
+      if (state.commandBusy) {
+        store.pushNotice('wait for the current command to finish', 'warn');
+        return false;
+      }
+      try {
+        if (channelPrompt.kind === 'discord-token') {
+          if (!commandText) return false;
+          store.saveDiscordToken(commandText);
+          setChannelPrompt(null);
+          void openChannelSetupPicker('all');
+          return true;
+        }
+        if (channelPrompt.kind === 'webhook-token') {
+          if (!commandText) return false;
+          store.saveWebhookAuthtoken(commandText);
+          setChannelPrompt(null);
+          void openChannelSetupPicker('all');
+          return true;
+        }
+        const parts = commandText.split('|').map((part) => part.trim());
+        if (channelPrompt.kind === 'channel-add') {
+          const [name, channelId, mode] = parts;
+          store.saveChannel({ name, channelId, mode });
+          setChannelPrompt(null);
+          void openChannelSetupPicker('all');
+          return true;
+        }
+        if (channelPrompt.kind === 'schedule-add') {
+          const [name, time, instructions, channel, model] = parts;
+          store.saveSchedule({ name, time, instructions, channel, model });
+          setChannelPrompt(null);
+          void openChannelSetupPicker('schedules');
+          return true;
+        }
+        if (channelPrompt.kind === 'webhook-add') {
+          const [name, instructions, channel, model, parser] = parts;
+          const result = store.saveWebhook({ name, instructions, channel, model, parser });
+          if (result?.secret) {
+            store.pushNotice(`webhook secret for ${result.name}: ${result.secret}`, 'info');
+          }
+          setChannelPrompt(null);
+          void openChannelSetupPicker('webhooks');
+          return true;
+        }
+      } catch (e) {
+        store.pushNotice(`channels update failed: ${e?.message || e}`, 'error');
+        return false;
+      }
+    }
     if (!commandText) return false;
     if (state.commandBusy) {
       store.pushNotice('wait for the current command to finish', 'warn');
@@ -683,7 +1304,7 @@ export function App({ store, initialStatusLine = '' }) {
     return store.submit(text);
   };
 
-  const activeSlashQuery = providerPrompt ? null : slashQuery(promptDraft);
+  const activeSlashQuery = providerPrompt || channelPrompt ? null : slashQuery(promptDraft);
   const slashCommands = activeSlashQuery === null || picker || exiting || state.commandBusy
     ? []
     : SLASH_COMMANDS.filter((command) => {
@@ -705,6 +1326,11 @@ export function App({ store, initialStatusLine = '' }) {
 
   const cancelProviderPrompt = useCallback(() => {
     setProviderPrompt(null);
+    store.pushNotice('canceled', 'info');
+  }, [store]);
+
+  const cancelChannelPrompt = useCallback(() => {
+    setChannelPrompt(null);
     store.pushNotice('canceled', 'info');
   }, [store]);
 
@@ -747,6 +1373,7 @@ export function App({ store, initialStatusLine = '' }) {
   const THINKING_ROWS = state.thinking ? 3 : 0;
   const SPINNER_ROWS = state.spinner?.active ? 2 : 0;
   const TURNDONE_ROWS = state.lastTurn && !state.spinner?.active ? 2 : 0;
+  const SCROLL_HINT_ROWS = scrollOffset > 0 ? 1 : 0;
   const LIVE_STATUS_ROWS = THINKING_ROWS + SPINNER_ROWS + TURNDONE_ROWS;
   const INPUT_BOX_ROWS = 4;
   const STATUSLINE_ROWS = 3;
@@ -755,8 +1382,9 @@ export function App({ store, initialStatusLine = '' }) {
   const PICKER_ROWS = picker ? Math.min(picker.items.length, PICKER_MAX_VISIBLE) + 4 : 0;
   const SLASH_PALETTE_ROWS = slashPaletteOpen ? Math.min(slashCommands.length, SLASH_PALETTE_MAX_VISIBLE) + 4 : 0;
   const PROVIDER_PROMPT_ROWS = providerPrompt ? 1 : 0;
-  const queuedRows = !picker && !slashPaletteOpen && !providerPrompt && state.queued?.length ? state.queued.length + 1 : 0;
-  const bottomReserve = WELCOME_ROWS + PICKER_ROWS + SLASH_PALETTE_ROWS + PROVIDER_PROMPT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
+  const CHANNEL_PROMPT_ROWS = channelPrompt ? 1 : 0;
+  const queuedRows = !picker && !slashPaletteOpen && !providerPrompt && !channelPrompt && state.queued?.length ? state.queued.length + 1 : 0;
+  const bottomReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + PICKER_ROWS + SLASH_PALETTE_ROWS + PROVIDER_PROMPT_ROWS + CHANNEL_PROMPT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
@@ -812,6 +1440,12 @@ export function App({ store, initialStatusLine = '' }) {
           ))}
         </Box>
       </Box>
+
+      {scrollOffset > 0 ? (
+        <Box flexShrink={0} paddingLeft={2}>
+          <Text color={theme.subtle}>{`↑ scrollback ${scrollOffset} rows · wheel/PageDown to latest · Ctrl+End jump`}</Text>
+        </Box>
+      ) : null}
 
       {/* Live reasoning — streams just above the spinner while the turn runs,
           then collapses (engine clears state.thinking at turn end). marginTop
@@ -872,11 +1506,19 @@ export function App({ store, initialStatusLine = '' }) {
                 : `Base URL for ${providerPrompt.label} · Enter enable · Esc cancel · default ${providerPrompt.defaultURL}`}
             </Text>
           </Box>
+        ) : channelPrompt ? (
+          <Box flexShrink={0} paddingX={1}>
+            <Text color={theme.inactive}>
+              {channelPrompt.hint
+                ? `${channelPrompt.label} · ${channelPrompt.hint} · Enter save · Esc cancel`
+                : `${channelPrompt.label} · Enter save · Esc cancel`}
+            </Text>
+          </Box>
         ) : !picker ? (
           <QueuedCommands queued={state.queued} columns={resizeState.columns} />
         ) : null}
         <Box
-          marginTop={picker || slashPaletteOpen || providerPrompt ? 0 : 1}
+          marginTop={picker || slashPaletteOpen || providerPrompt || channelPrompt ? 0 : 1}
           width="100%"
           borderStyle="round"
           borderColor={state.busy || state.commandBusy || picker ? theme.subtle : theme.promptBorder}
@@ -886,8 +1528,8 @@ export function App({ store, initialStatusLine = '' }) {
             onSubmit={onSubmit}
             disabled={exiting || state.commandBusy || !!picker}
             onDraftChange={onPromptDraftChange}
-            mask={providerPrompt?.kind === 'api-key'}
-            onEscape={providerPrompt ? cancelProviderPrompt : undefined}
+            mask={providerPrompt?.kind === 'api-key' || channelPrompt?.kind === 'discord-token' || channelPrompt?.kind === 'webhook-token'}
+            onEscape={providerPrompt ? cancelProviderPrompt : channelPrompt ? cancelChannelPrompt : undefined}
             commandPaletteActive={slashPaletteOpen}
             onCommandPaletteNavigate={(direction) => {
               setSlashIndex((index) => {
@@ -905,6 +1547,7 @@ export function App({ store, initialStatusLine = '' }) {
           sessionId={state.sessionId}
           provider={state.provider}
           model={state.model}
+          effort={state.effort}
           cwd={state.cwd}
           stats={state.stats}
           resizeEpoch={resizeEpoch}

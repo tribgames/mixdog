@@ -578,7 +578,9 @@ export function composeSystemPrompt(opts) {
     // (matches the design note above). Without this split, a worker→reviewer
     // hand-off on the same project would churn BP2 every time the role line
     // changed even though the catalog and project context were identical.
-    const roleCatalogScoped = loadScopedRoleCatalog(opts.role || null, opts.provider || null);
+    const roleCatalogScoped = opts.skipRoleCatalog
+        ? ''
+        : loadScopedRoleCatalog(opts.role || null, opts.provider || null);
     const catalogParts = [];
     if (roleCatalogScoped) catalogParts.push(roleCatalogScoped);
     if (opts.projectContext) {
@@ -607,7 +609,10 @@ export function composeSystemPrompt(opts) {
         volatileParts.push('# role\n' + opts.role);
     }
     const permission = opts.permission || opts.roleTemplate?.permission || null;
-    if (permission) {
+    const permissionName = typeof permission === 'string'
+        ? permission.trim().toLowerCase()
+        : '';
+    if (permission && permissionName !== 'full') {
         let permissionLabel = String(permission);
         let allow =
             permission === 'read'
@@ -636,7 +641,7 @@ export function composeSystemPrompt(opts) {
                     ? 'listed tools are rejected'
                     : 'custom allow/deny policy';
         }
-        volatileParts.push(`# permission\n${permissionLabel} — ${allow}.`);
+        volatileParts.push(`permission: ${permissionLabel} — ${allow}.`);
     }
     // Role identity — the role template body (DATA_DIR/roles/<role>.md, edited
     // in the config UI's Custom Workflow panel) is injected immediately ABOVE
@@ -664,7 +669,7 @@ export function composeSystemPrompt(opts) {
     }
     if (opts.taskBrief) volatileParts.push('# task-brief\n' + opts.taskBrief);
     if (opts.cwd && typeof opts.cwd === 'string' && opts.cwd.trim()) {
-        volatileParts.push(`# cwd\n${opts.cwd.trim()}`);
+        volatileParts.push(`cwd: ${opts.cwd.trim()}`);
     }
     const volatileTail = volatileParts.length > 0
         ? volatileParts.join('\n\n')
