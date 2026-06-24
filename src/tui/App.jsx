@@ -381,7 +381,7 @@ export function App({ store, initialStatusLine = '' }) {
   // to ink's absolute output grid, so the selection rectangle needs no scroll/
   // viewport translation — we highlight exactly the cells the user sees.
   useEffect(() => {
-    if (!inkInput || !isRawModeSupported) return undefined;
+    if (!inkInput || !isRawModeSupported || typeof store.setRenderSelection !== 'function') return undefined;
     // Match every SGR mouse event: button, col, row, and final M(press)/m(release).
     const MOUSE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
     const setSel = store.setRenderSelection;
@@ -523,6 +523,10 @@ export function App({ store, initialStatusLine = '' }) {
       const t = Date.parse(m.releaseDate);
       if (Number.isFinite(t)) return t;
     }
+    const created = Number(m?.created);
+    if (Number.isFinite(created) && created > 0) {
+      return created < 1_000_000_000_000 ? created * 1000 : created;
+    }
     const dated = String(m?.id || '').match(/(?:^|-)(\d{4})(\d{2})(\d{2})(?:$|-)/);
     if (!dated) return 0;
     return Date.parse(`${dated[1]}-${dated[2]}-${dated[3]}`) || 0;
@@ -560,6 +564,9 @@ export function App({ store, initialStatusLine = '' }) {
     if (provider.includes('anthropic') && /^claude-[a-z]+-/.test(id)) {
       if ((version[0] || 0) >= 5) return Math.max(n, 1_000_000);
       if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/.test(id)) return Math.max(n, 1_000_000);
+    }
+    if (provider.includes('grok') && /^grok-4(?:\.|-)/.test(id) && n > 1_000_000) {
+      return 1_000_000;
     }
     return n;
   };

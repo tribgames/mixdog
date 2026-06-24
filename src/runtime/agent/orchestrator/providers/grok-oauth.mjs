@@ -412,6 +412,16 @@ async function refreshTokensWithFallback(tokens) {
 // --- Model catalog cache (24h disk TTL) ---
 const _modelCache = makeModelCache({ fileName: 'grok-oauth-models.json', ttlMs: MODEL_CACHE_TTL_MS });
 
+function _normalizeGrokContextWindow(id, value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    const model = String(id || '');
+    if (/^grok-4(?:\.|-)/i.test(model) && !isProxyOnlyModel(model)) {
+        return Math.min(n, 1000000);
+    }
+    return n;
+}
+
 function _normalizeGrokModel(m) {
     const id = m?.id;
     if (!id) return null;
@@ -423,9 +433,23 @@ function _normalizeGrokModel(m) {
         family: 'grok',
         tier: 'version',
         latest: false,
-        contextWindow: m?.context_window || 0,
+        contextWindow: _normalizeGrokContextWindow(id, m?.context_window),
         created: typeof m?.created === 'number' ? m.created : null,
     };
+}
+
+function _sanitizeGrokModels(models) {
+    if (!Array.isArray(models)) return models;
+    let changed = false;
+    const next = models.map((m) => {
+        const contextWindow = _normalizeGrokContextWindow(m?.id, m?.contextWindow ?? m?.context_window);
+        if (contextWindow && contextWindow !== m?.contextWindow) {
+            changed = true;
+            return { ...m, contextWindow };
+        }
+        return m;
+    });
+    return changed ? next : models;
 }
 
 // Image/video generation ids — excluded from "latest chat model" resolution.
@@ -642,14 +666,18 @@ export class GrokOAuthProvider {
 
     async listModels() {
         const cached = _modelCache.loadSync();
-        if (cached) return cached;
+        if (cached) {
+            const sanitized = _sanitizeGrokModels(cached);
+            if (sanitized !== cached) _modelCache.save(sanitized);
+            return sanitized;
+        }
         // No swallow-to-[] fallback. Catalog/auth failures propagate to the
         // caller (registry warmup + setup model listing), both of which already
         // wrap this in their own catch.
         const items = await this._fetchAllModelItems();
         const normalized = items.map(_normalizeGrokModel).filter(Boolean);
         _markLatestGrok(normalized);
-        const enriched = await enrichModels(normalized);
+        const enriched = _sanitizeGrokModels(await enrichModels(normalized));
         _modelCache.save(enriched);
         return enriched;
     }
@@ -661,7 +689,7 @@ export class GrokOAuthProvider {
                 const items = await this._fetchAllModelItems();
                 const normalized = items.map(_normalizeGrokModel).filter(Boolean);
                 _markLatestGrok(normalized);
-                const enriched = await enrichModels(normalized);
+                const enriched = _sanitizeGrokModels(await enrichModels(normalized));
                 _modelCache.save(enriched);
                 if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[grok-oauth] catalog refreshed (${enriched.length} models)\n`);
                 return enriched;

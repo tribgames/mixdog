@@ -82,10 +82,10 @@ export async function runTui({ provider, model, toolMode } = {}) {
   // that ink paints as an inverse highlight. render() returns synchronously
   // after the first mount, while the mouse handler only fires on user drag, so
   // wiring it here (post-render) is in time.
-  if (typeof instance.setSelection === 'function') {
+  if (mouseTracking && typeof instance.setSelection === 'function') {
     store.setRenderSelection = instance.setSelection;
   }
-  if (typeof instance.getSelectionText === 'function') {
+  if (mouseTracking && typeof instance.getSelectionText === 'function') {
     store.getRenderSelectionText = instance.getSelectionText;
   }
   try {
