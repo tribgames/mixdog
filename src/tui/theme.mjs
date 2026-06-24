@@ -13,18 +13,18 @@ export const theme = {
   claudeShimmer: 'rgb(235,159,127)',
   text: 'rgb(255,255,255)', // CC darkTheme text
   inverseText: 'rgb(0,0,0)', // text on an inverted (light) background
-  inactive: 'rgb(190,190,190)', // secondary gray
-  subtle: 'rgb(122,122,122)', // borders / rules
-  promptBorder: 'rgb(156,156,156)', // input border / prompt
-  success: 'rgb(78,186,101)', // green
-  error: 'rgb(255,107,128)', // red
-  warning: 'rgb(255,193,7)', // amber
+  inactive: 'rgb(210,210,210)', // secondary gray
+  subtle: 'rgb(150,150,150)', // borders / rules
+  promptBorder: 'rgb(178,178,178)', // input border / prompt
+  success: 'rgb(92,214,118)', // green
+  error: 'rgb(255,92,122)', // red
+  warning: 'rgb(255,210,64)', // amber
   suggestion: 'rgb(177,185,249)', // CC darkTheme suggestion (light blue-purple)
   permission: 'rgb(177,185,249)', // CC darkTheme permission
   code: 'rgb(177,185,249)', // inline code accent = CC permission
   codeBlock: 'rgb(56,166,96)', // code block body (medium green)
-  userMessageBackground: 'rgb(55,55,55)', // user bubble background (CC darkTheme)
-  userMessageBackgroundHover: 'rgb(70,70,70)', // hover variant (CC darkTheme)
+  userMessageBackground: 'rgb(72,72,72)', // selected row / user bubble background
+  userMessageBackgroundHover: 'rgb(88,88,88)', // hover variant
   fastMode: 'rgb(255,120,20)',
 };
 

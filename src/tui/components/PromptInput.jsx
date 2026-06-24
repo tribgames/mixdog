@@ -177,6 +177,7 @@ export function PromptInput({
   commandPaletteActive = false,
   mask = false,
   hint = '',
+  hintTone = 'info',
   onEscape,
   onCommandPaletteNavigate,
   onCommandPaletteAccept,
@@ -488,11 +489,16 @@ export function PromptInput({
   // on (kept visually blank — no synthetic underline).
   const displayValue = mask ? value.replace(/[^\n]/g, '*') : value;
   const renderedValue = cursor === value.length ? `${displayValue} ` : displayValue;
+  const hintColor = hintTone === 'error' ? theme.error : hintTone === 'warn' ? theme.warning : theme.inactive;
 
   return (
     <Box ref={boxRef} flexDirection="row" flexGrow={1} flexShrink={1}>
       <Text color={theme.text} wrap="hard">{renderedValue}</Text>
-      {!value && hint ? <Text color={theme.inactive}>{hint}</Text> : null}
+      {!value && hint ? (
+        <Box marginLeft={-1}>
+          <Text color={hintColor}>{hint}</Text>
+        </Box>
+      ) : null}
     </Box>
   );
 }

@@ -256,19 +256,6 @@ const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpan
   }
 });
 
-function ToastNotice({ toast, columns }) {
-  if (!toast) return null;
-  const color = toast.tone === 'error' ? theme.error : toast.tone === 'warn' ? theme.warning : theme.inactive;
-  const prefix = toast.tone === 'error' ? 'x' : toast.tone === 'warn' ? '!' : 'i';
-  return (
-    <Box flexShrink={0} paddingX={1}>
-      <Box borderStyle="round" borderColor={color} paddingX={1} width="100%">
-        <Text color={color}>{fitLine(`${prefix} ${toast.text}`, columns, 6)}</Text>
-      </Box>
-    </Box>
-  );
-}
-
 export function App({ store, initialStatusLine = '' }) {
   const state = useEngine(store);
   const [toolOutputExpanded, setToolOutputExpanded] = useState(false);
@@ -2718,15 +2705,19 @@ export function App({ store, initialStatusLine = '' }) {
       : providerPrompt || channelPrompt || hookPrompt || settingsPrompt
         ? PROMPT_HINT_ROWS
         : 0;
-  const TOAST_ROWS = state.toasts?.length ? 3 : 0;
   const queuedRows = !hasFloatingPanel && state.queued?.length ? state.queued.length + 1 : 0;
-  const baseReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + TOAST_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
+  const baseReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const maxFloatingPanelRows = Math.max(0, resizeState.rows - baseReserve - 1);
   const floatingPanelRows = desiredFloatingPanelRows > 0
     ? Math.min(desiredFloatingPanelRows, maxFloatingPanelRows)
     : 0;
   const bottomReserve = baseReserve + floatingPanelRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
+  const latestToast = state.toasts?.length ? state.toasts[state.toasts.length - 1] : null;
+  const latestToastPrefix = latestToast?.tone === 'error' ? 'x' : latestToast?.tone === 'warn' ? '!' : 'i';
+  const toastHint = latestToast ? `${latestToastPrefix} ${latestToast.text}` : '';
+  const inputHint = promptHint || toastHint;
+  const inputHintTone = promptHint ? 'info' : (latestToast?.tone || 'info');
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
   // is a live column, so the live-frame line count ink relies on is accurate.
@@ -2823,9 +2814,6 @@ export function App({ store, initialStatusLine = '' }) {
           can move; overflow is clipped from the top while the panel remains
           bottom-aligned against the prompt. */}
       <Box flexDirection="column" flexShrink={0}>
-        {state.toasts?.length ? (
-          <ToastNotice toast={state.toasts[state.toasts.length - 1]} columns={resizeState.columns} />
-        ) : null}
         {floatingPanelRows > 0 ? (
           <Box flexDirection="column" flexShrink={0} height={floatingPanelRows} overflow="hidden" justifyContent="flex-end">
             {picker ? (
@@ -2893,7 +2881,8 @@ export function App({ store, initialStatusLine = '' }) {
             onSubmit={onSubmit}
             disabled={exiting || state.commandBusy || !!picker}
             onDraftChange={onPromptDraftChange}
-            hint={promptHint}
+            hint={inputHint}
+            hintTone={inputHintTone}
             mask={providerPrompt?.kind === 'api-key' || channelPrompt?.kind === 'discord-token' || channelPrompt?.kind === 'webhook-token'}
             onEscape={providerPrompt ? cancelProviderPrompt : channelPrompt ? cancelChannelPrompt : hookPrompt ? cancelHookPrompt : settingsPrompt ? cancelSettingsPrompt : undefined}
             commandPaletteActive={slashPaletteOpen}
