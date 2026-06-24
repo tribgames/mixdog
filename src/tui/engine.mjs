@@ -444,6 +444,21 @@ export async function createEngineSession({
     hooksStatus: () => {
       return runtime.hooksStatus?.() || { enabled: false, events: [], recent: [] };
     },
+    addHookRule: (rule) => {
+      const rules = runtime.addHookRule?.(rule) || [];
+      pushItem({ kind: 'notice', id: nextId(), text: `hook rule added (${rules.length} total)`, tone: 'info' });
+      return rules;
+    },
+    setHookRuleEnabled: (index, enabled) => {
+      const rules = runtime.setHookRuleEnabled?.(index, enabled) || [];
+      pushItem({ kind: 'notice', id: nextId(), text: `hook rule ${index + 1} ${enabled ? 'enabled' : 'disabled'}`, tone: 'info' });
+      return rules;
+    },
+    deleteHookRule: (index) => {
+      const rules = runtime.deleteHookRule?.(index) || [];
+      pushItem({ kind: 'notice', id: nextId(), text: `hook rule ${index + 1} deleted`, tone: 'info' });
+      return rules;
+    },
     memoryControl: async (args = {}) => {
       if (state.commandBusy) return null;
       set({ commandBusy: true });

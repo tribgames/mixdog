@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
 const DEFAULT_EVENTS = Object.freeze([
   'runtime:start',
@@ -98,6 +98,19 @@ function decisionFromRule(rule, input) {
   return { action: 'allow', reason: rule.reason || rule.message || null };
 }
 
+function summarizeRule(rule, index) {
+  return {
+    index,
+    enabled: rule.enabled !== false,
+    tool: rule.tool ?? rule.name ?? rule.tools ?? '*',
+    action: rule.action || rule.decision || 'allow',
+    match: rule.match ?? rule.contains ?? null,
+    cwd: rule.cwd || null,
+    reason: rule.reason || rule.message || null,
+    patch: compactValue(rule.patch || rule.args || null),
+  };
+}
+
 export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {}) {
   const recent = [];
   const counts = new Map(DEFAULT_EVENTS.map((name) => [name, 0]));
@@ -134,6 +147,53 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
     return rulesCache.rules;
   }
 
+  function saveRules(rules) {
+    if (!rulesPath) throw new Error('hooks rules path is not configured');
+    mkdirSync(dirname(rulesPath), { recursive: true });
+    const cleanRules = Array.isArray(rules) ? rules.filter((rule) => rule && typeof rule === 'object') : [];
+    writeFileSync(rulesPath, `${JSON.stringify({ toolBefore: cleanRules }, null, 2)}\n`, 'utf8');
+    const stat = statSync(rulesPath);
+    rulesCache = { mtimeMs: stat.mtimeMs, rules: cleanRules };
+    return listRules();
+  }
+
+  function listRules() {
+    return loadRules().map((rule, index) => summarizeRule(rule, index));
+  }
+
+  function addRule(rule = {}) {
+    const action = String(rule.action || rule.decision || '').trim().toLowerCase();
+    if (!action || !['allow', 'deny', 'block', 'modify', 'rewrite'].includes(action)) {
+      throw new Error('hook rule action must be allow, deny, block, modify, or rewrite');
+    }
+    const next = {
+      tool: rule.tool || rule.name || '*',
+      action,
+      enabled: rule.enabled !== false,
+    };
+    if (rule.match != null && String(rule.match).trim()) next.match = String(rule.match).trim();
+    if (rule.cwd != null && String(rule.cwd).trim()) next.cwd = String(rule.cwd).trim();
+    if (rule.reason != null && String(rule.reason).trim()) next.reason = String(rule.reason).trim();
+    if (rule.patch && typeof rule.patch === 'object' && !Array.isArray(rule.patch)) next.patch = rule.patch;
+    if (rule.args && typeof rule.args === 'object' && !Array.isArray(rule.args)) next.args = rule.args;
+    const rules = [...loadRules(), next];
+    return saveRules(rules);
+  }
+
+  function setRuleEnabled(index, enabled) {
+    const rules = [...loadRules()];
+    if (!Number.isInteger(index) || index < 0 || index >= rules.length) throw new Error(`hook rule not found: ${index}`);
+    rules[index] = { ...rules[index], enabled: enabled !== false };
+    return saveRules(rules);
+  }
+
+  function deleteRule(index) {
+    const rules = [...loadRules()];
+    if (!Number.isInteger(index) || index < 0 || index >= rules.length) throw new Error(`hook rule not found: ${index}`);
+    rules.splice(index, 1);
+    return saveRules(rules);
+  }
+
   async function beforeTool(input = {}) {
     emit('tool:before', {
       sessionId: input.sessionId || null,
@@ -160,8 +220,10 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
 
   function status() {
     let ruleCount = rulesCache.rules.length;
+    let rules = [];
     try {
-      ruleCount = loadRules().length;
+      rules = listRules();
+      ruleCount = rules.length;
     } catch (error) {
       emit('hook:error', { error: error?.message || String(error) });
     }
@@ -170,6 +232,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
       mode: 'standalone-executable',
       rulesPath,
       ruleCount,
+      rules,
       events: [...new Set([...DEFAULT_EVENTS, ...counts.keys()])],
       counts: Object.fromEntries([...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))),
       recent: [...recent].reverse(),
@@ -179,5 +242,5 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
     };
   }
 
-  return { beforeTool, emit, status };
+  return { addRule, beforeTool, deleteRule, emit, listRules, setRuleEnabled, status };
 }

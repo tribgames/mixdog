@@ -150,6 +150,32 @@ function parseBridgeFreeform(parts) {
   return out;
 }
 
+function parseHookRuleInput(text) {
+  const parts = String(text || '').split('|').map((part) => part.trim());
+  const [tool, actionRaw, match, reason, patchText] = parts;
+  const action = String(actionRaw || '').toLowerCase();
+  if (!tool || !action) return { error: 'usage: tool | allow|deny|modify | match(optional) | reason(optional) | json patch(optional)' };
+  if (!['allow', 'deny', 'block', 'modify', 'rewrite'].includes(action)) {
+    return { error: 'hook action must be allow, deny, block, modify, or rewrite' };
+  }
+  const rule = { tool, action };
+  if (match) rule.match = match;
+  if (reason) rule.reason = reason;
+  if (patchText) {
+    try {
+      const patch = JSON.parse(patchText);
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { error: 'json patch must be an object' };
+      rule.patch = patch;
+    } catch (e) {
+      return { error: `invalid json patch: ${e?.message || e}` };
+    }
+  }
+  if ((action === 'modify' || action === 'rewrite') && !rule.patch) {
+    return { error: 'modify/rewrite needs a json patch object in the last field' };
+  }
+  return { rule };
+}
+
 function parseMemoryCommand(text) {
   const parts = String(text || '').trim().split(/\s+/).filter(Boolean);
   const action = parts[0] || 'status';
@@ -231,6 +257,7 @@ export function App({ store, initialStatusLine = '' }) {
   const [picker, setPicker] = useState(null);
   const [providerPrompt, setProviderPrompt] = useState(null);
   const [channelPrompt, setChannelPrompt] = useState(null);
+  const [hookPrompt, setHookPrompt] = useState(null);
   const [promptDraft, setPromptDraft] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedFor, setSlashDismissedFor] = useState('');
@@ -929,6 +956,52 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
+  const openHookRulePicker = (rule) => {
+    setPicker({
+      title: `Hook rule ${rule.index + 1}`,
+      items: [
+        {
+          value: 'toggle',
+          label: rule.enabled ? 'Disable rule' : 'Enable rule',
+          description: `${rule.tool} -> ${rule.action}`,
+          _action: 'toggle',
+        },
+        {
+          value: 'delete',
+          label: 'Delete rule',
+          description: rule.reason || rule.match || `${rule.tool} -> ${rule.action}`,
+          _action: 'delete',
+        },
+        {
+          value: 'view',
+          label: 'View rule',
+          description: 'show normalized rule details',
+          _action: 'view',
+        },
+      ],
+      onSelect: (_value, item) => {
+        setPicker(null);
+        try {
+          if (item._action === 'toggle') {
+            store.setHookRuleEnabled?.(rule.index, !rule.enabled);
+            void openHooksPicker();
+          } else if (item._action === 'delete') {
+            store.deleteHookRule?.(rule.index);
+            void openHooksPicker();
+          } else if (item._action === 'view') {
+            store.pushNotice(JSON.stringify(rule, null, 2), 'info');
+          }
+        } catch (e) {
+          store.pushNotice(`hook rule update failed: ${e?.message || e}`, 'error');
+        }
+      },
+      onCancel: () => {
+        setPicker(null);
+        void openHooksPicker();
+      },
+    });
+  };
+
   const openHooksPicker = () => {
     let status;
     try {
@@ -938,13 +1011,32 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
     const recent = status.recent || [];
+    const rules = status.rules || [];
     const items = [
+      {
+        value: 'add',
+        label: 'Add before-tool rule',
+        description: 'tool | action | match | reason | json patch',
+        _action: 'add',
+      },
       {
         value: 'summary',
         label: status.enabled ? 'Hook bus enabled' : 'Hook bus disabled',
-        description: `${status.mode || 'unknown'} · ${recent.length} recent events`,
+        description: `${status.mode || 'unknown'} · rules ${status.ruleCount || 0} · ${recent.length} recent events`,
         _action: 'summary',
       },
+      ...(rules.length ? rules.map((rule) => ({
+        value: `rule:${rule.index}`,
+        label: `${rule.enabled ? '●' : '○'} ${rule.tool} -> ${rule.action}`,
+        description: `${rule.match ? `match ${rule.match} · ` : ''}${rule.reason || 'Enter options'}`,
+        _action: 'rule',
+        _rule: rule,
+      })) : [{
+        value: 'rules:none',
+        label: 'No rules',
+        description: status.rulesPath || 'hooks.json not configured',
+        _action: 'noop',
+      }]),
       ...recent.slice(0, 30).map((event, index) => ({
         value: `event:${index}`,
         label: event.name,
@@ -955,18 +1047,29 @@ export function App({ store, initialStatusLine = '' }) {
     ];
     setProviderPrompt(null);
     setChannelPrompt(null);
+    setHookPrompt(null);
     setPicker({
       title: 'Hooks',
       items,
       onSelect: (_value, item) => {
         setPicker(null);
+        if (item._action === 'add') {
+          setHookPrompt({ kind: 'rule-add', label: 'Hook rule', hint: 'tool | allow|deny|modify | match | reason | {"arg":"value"}' });
+          return;
+        }
         if (item._action === 'summary') {
           store.pushNotice([
             `mode: ${status.mode || 'unknown'}`,
+            `rules path: ${status.rulesPath || '(none)'}`,
+            `rules: ${status.ruleCount || 0}`,
             `events: ${(status.events || []).join(', ') || '(none)'}`,
             `counts: ${JSON.stringify(status.counts || {})}`,
             status.note || '',
           ].filter(Boolean).join('\n'), 'info');
+          return;
+        }
+        if (item._action === 'rule') {
+          openHookRulePicker(item._rule);
           return;
         }
         if (item._action === 'event') {
@@ -1291,6 +1394,28 @@ export function App({ store, initialStatusLine = '' }) {
         return false;
       }
     }
+    if (hookPrompt) {
+      if (state.commandBusy) {
+        store.pushNotice('wait for the current command to finish', 'warn');
+        return false;
+      }
+      try {
+        if (hookPrompt.kind === 'rule-add') {
+          const parsed = parseHookRuleInput(commandText);
+          if (parsed.error) {
+            store.pushNotice(parsed.error, 'warn');
+            return false;
+          }
+          store.addHookRule?.(parsed.rule);
+          setHookPrompt(null);
+          void openHooksPicker();
+          return true;
+        }
+      } catch (e) {
+        store.pushNotice(`hook update failed: ${e?.message || e}`, 'error');
+        return false;
+      }
+    }
     if (!commandText) return false;
     if (state.commandBusy) {
       store.pushNotice('wait for the current command to finish', 'warn');
@@ -1304,7 +1429,7 @@ export function App({ store, initialStatusLine = '' }) {
     return store.submit(text);
   };
 
-  const activeSlashQuery = providerPrompt || channelPrompt ? null : slashQuery(promptDraft);
+  const activeSlashQuery = providerPrompt || channelPrompt || hookPrompt ? null : slashQuery(promptDraft);
   const slashCommands = activeSlashQuery === null || picker || exiting || state.commandBusy
     ? []
     : SLASH_COMMANDS.filter((command) => {
@@ -1331,6 +1456,11 @@ export function App({ store, initialStatusLine = '' }) {
 
   const cancelChannelPrompt = useCallback(() => {
     setChannelPrompt(null);
+    store.pushNotice('canceled', 'info');
+  }, [store]);
+
+  const cancelHookPrompt = useCallback(() => {
+    setHookPrompt(null);
     store.pushNotice('canceled', 'info');
   }, [store]);
 
@@ -1383,8 +1513,9 @@ export function App({ store, initialStatusLine = '' }) {
   const SLASH_PALETTE_ROWS = slashPaletteOpen ? Math.min(slashCommands.length, SLASH_PALETTE_MAX_VISIBLE) + 4 : 0;
   const PROVIDER_PROMPT_ROWS = providerPrompt ? 1 : 0;
   const CHANNEL_PROMPT_ROWS = channelPrompt ? 1 : 0;
-  const queuedRows = !picker && !slashPaletteOpen && !providerPrompt && !channelPrompt && state.queued?.length ? state.queued.length + 1 : 0;
-  const bottomReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + PICKER_ROWS + SLASH_PALETTE_ROWS + PROVIDER_PROMPT_ROWS + CHANNEL_PROMPT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
+  const HOOK_PROMPT_ROWS = hookPrompt ? 1 : 0;
+  const queuedRows = !picker && !slashPaletteOpen && !providerPrompt && !channelPrompt && !hookPrompt && state.queued?.length ? state.queued.length + 1 : 0;
+  const bottomReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + PICKER_ROWS + SLASH_PALETTE_ROWS + PROVIDER_PROMPT_ROWS + CHANNEL_PROMPT_ROWS + HOOK_PROMPT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
@@ -1514,11 +1645,19 @@ export function App({ store, initialStatusLine = '' }) {
                 : `${channelPrompt.label} · Enter save · Esc cancel`}
             </Text>
           </Box>
+        ) : hookPrompt ? (
+          <Box flexShrink={0} paddingX={1}>
+            <Text color={theme.inactive}>
+              {hookPrompt.hint
+                ? `${hookPrompt.label} · ${hookPrompt.hint} · Enter save · Esc cancel`
+                : `${hookPrompt.label} · Enter save · Esc cancel`}
+            </Text>
+          </Box>
         ) : !picker ? (
           <QueuedCommands queued={state.queued} columns={resizeState.columns} />
         ) : null}
         <Box
-          marginTop={picker || slashPaletteOpen || providerPrompt || channelPrompt ? 0 : 1}
+          marginTop={picker || slashPaletteOpen || providerPrompt || channelPrompt || hookPrompt ? 0 : 1}
           width="100%"
           borderStyle="round"
           borderColor={state.busy || state.commandBusy || picker ? theme.subtle : theme.promptBorder}
@@ -1529,7 +1668,7 @@ export function App({ store, initialStatusLine = '' }) {
             disabled={exiting || state.commandBusy || !!picker}
             onDraftChange={onPromptDraftChange}
             mask={providerPrompt?.kind === 'api-key' || channelPrompt?.kind === 'discord-token' || channelPrompt?.kind === 'webhook-token'}
-            onEscape={providerPrompt ? cancelProviderPrompt : channelPrompt ? cancelChannelPrompt : undefined}
+            onEscape={providerPrompt ? cancelProviderPrompt : channelPrompt ? cancelChannelPrompt : hookPrompt ? cancelHookPrompt : undefined}
             commandPaletteActive={slashPaletteOpen}
             onCommandPaletteNavigate={(direction) => {
               setSlashIndex((index) => {

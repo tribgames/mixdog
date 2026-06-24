@@ -1370,6 +1370,15 @@ export async function createMixdogSessionRuntime({
     hooksStatus() {
       return hooks.status();
     },
+    addHookRule(rule) {
+      return hooks.addRule(rule);
+    },
+    setHookRuleEnabled(index, enabled) {
+      return hooks.setRuleEnabled(index, enabled);
+    },
+    deleteHookRule(index) {
+      return hooks.deleteRule(index);
+    },
     async memoryControl(args = {}) {
       const memoryMod = await getMemoryModule();
       if (!memoryMod?.handleToolCall) throw new Error('memory runtime is not available');
