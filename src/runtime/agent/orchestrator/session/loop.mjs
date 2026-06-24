@@ -822,6 +822,30 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
     const toolOpts = scopedCacheOutcome
         ? { ...executeOpts, scopedCacheOutcome }
         : executeOpts;
+    const beforeToolHook = typeof executeOpts.beforeToolHook === 'function'
+        ? executeOpts.beforeToolHook
+        : sessionRef?.beforeToolHook;
+    if (beforeToolHook) {
+        try {
+            const decision = await beforeToolHook({
+                name,
+                args,
+                cwd,
+                sessionId: callerSessionId,
+                toolCallId: executeOpts.toolCallId || null,
+            });
+            const action = String(decision?.action || decision?.decision || '').toLowerCase();
+            if (action === 'deny' || action === 'block') {
+                const reason = decision?.reason ? `: ${decision.reason}` : '';
+                return `Error: tool "${name}" denied by hook${reason}`;
+            }
+            if ((action === 'modify' || action === 'rewrite') && decision?.args && typeof decision.args === 'object' && !Array.isArray(decision.args)) {
+                args = decision.args;
+            }
+        } catch {
+            // Hooks are policy extensions. A broken hook must not wedge the agent loop.
+        }
+    }
     if (name === 'skills_list') {
         return buildSkillsListResponse(cwd);
     }
@@ -1523,6 +1547,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     iterationIndex: iterations,
                     deltaInput: response.usage.inputTokens || 0,
                     deltaOutput: response.usage.outputTokens || 0,
+                    deltaPrompt: response.usage.promptTokens || 0,
                     // Cache delta carried alongside input/output so live metrics
                     // reflect the same token classes the terminal aggregate adds;
                     // additive — callers that ignore these fields keep working.

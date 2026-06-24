@@ -1,8 +1,8 @@
 {
   "channels": {
     "promptInjection": {
-      "mode": "claude_md",
-      "targetPath": "~/.claude/CLAUDE.md"
+      "mode": "hook",
+      "targetPath": ""
     }
   },
   "memory": {

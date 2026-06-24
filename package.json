@@ -19,14 +19,23 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
     "@google/generative-ai": "^0.24.1",
+    "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@mozilla/readability": "^0.6.0",
     "diff": "^9.0.0",
+    "discord.js": "^14.26.4",
     "ink": "^7.1.0",
+    "jsdom": "^26.1.0",
     "marked": "^14.1.4",
+    "node-cron": "^4.5.0",
     "openai": "^6.44.0",
+    "pg": "^8.22.0",
+    "puppeteer-core": "^25.2.0",
     "react": "^19.2.7",
     "undici": "^8.5.0",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "esbuild": "^0.28.1"

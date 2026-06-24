@@ -17,8 +17,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const VENDOR = join(ROOT, 'vendor', 'ink', 'build');
 const TARGET = join(ROOT, 'node_modules', 'ink', 'build');
 
-// The four files that carry the `mixdog fork` cursor patch.
-const FILES = ['output.js', 'render-node-to-output.js', 'renderer.js', 'ink.js'];
+// The files that carry the `mixdog fork` patches (cursor + mouse selection).
+const FILES = ['output.js', 'render-node-to-output.js', 'renderer.js', 'ink.js', 'render.js'];
 const MARKER = 'mixdog fork';
 
 function main() {

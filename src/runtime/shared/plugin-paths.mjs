@@ -10,9 +10,9 @@
  *                      marketplace dir; plugin name comes from
  *                      .claude-plugin/plugin.json or DEFAULT_PLUGIN)
  *
- * Throws if neither env var is present — the plugin always runs under
- * Claude Code, which sets one of them. Callers must not silently fall
- * back to a hardcoded path.
+ * In standalone mixdog-cli, falls back to MIXDOG_DATA_DIR or ~/.mixdog/data
+ * when the host plugin env is absent. Plugin-host runs still prefer the
+ * host-provided env vars above.
  *
  * DEFAULT_PLUGIN / DEFAULT_MARKETPLACE are exported so a handful of
  * callers (MCP client spawning sibling plugins, session-manager building

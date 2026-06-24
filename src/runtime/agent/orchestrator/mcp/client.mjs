@@ -30,6 +30,10 @@ const _mcpToolFieldMemo = new Map();
 function _invalidateMcpToolFieldMemo() {
     _mcpToolFieldMemo.clear();
 }
+function mcpLog(line) {
+    if (process.env.MIXDOG_QUIET_MCP_LOG) return;
+    process.stderr.write(line);
+}
 // --- Public API ---
 /**
  * Connect to MCP servers defined in config.
@@ -43,13 +47,15 @@ export async function connectMcpServers(config) {
         }
         catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            process.stderr.write(`[mcp-client] Failed to connect "${name}": ${msg}\n`);
+            mcpLog(`[mcp-client] Failed to connect "${name}": ${msg}\n`);
             failures.push({ name, msg });
         }
     }
     if (failures.length > 0) {
         const detail = failures.map(f => `${f.name}: ${f.msg}`).join('; ');
-        throw new Error(`[mcp-client] ${failures.length} MCP server(s) failed to connect — ${detail}`);
+        const err = new Error(`[mcp-client] ${failures.length} MCP server(s) failed to connect — ${detail}`);
+        err.failures = failures;
+        throw err;
     }
 }
 /**
@@ -62,6 +68,24 @@ export function getMcpTools() {
         tools.push(...server.tools);
     }
     return tools;
+}
+export function getMcpServerStatus() {
+    return [...servers.values()].map((server) => ({
+        name: server.name,
+        connected: true,
+        toolCount: Array.isArray(server.tools) ? server.tools.length : 0,
+        tools: (server.tools || []).map((tool) => ({
+            name: tool.name,
+            description: tool.description || '',
+        })),
+        transport: server.cfg?.pluginCache
+            ? 'pluginCache'
+            : server.cfg?.autoDetect
+                ? 'autoDetect'
+                : server.cfg?.transport === 'http' || server.cfg?.url
+                    ? 'http'
+                    : 'stdio',
+    }));
 }
 /**
  * Execute an MCP tool call.
@@ -82,10 +106,10 @@ export async function executeMcpTool(name, args) {
     } catch (firstErr) {
         const firstMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
         if (isMcpToolCallTimeoutError(firstErr)) {
-            process.stderr.write(`[mcp-client] Tool call timed out; skipping reconnect retry for "${serverName}/${toolName}".\n`);
+            mcpLog(`[mcp-client] Tool call timed out; skipping reconnect retry for "${serverName}/${toolName}".\n`);
             throw firstErr;
         }
-        process.stderr.write(`[mcp-client] Tool call failed, attempting reconnect...\n`);
+        mcpLog(`[mcp-client] Tool call failed, attempting reconnect...\n`);
         await new Promise(r => setTimeout(r, 500));
         try {
             await server.client.close();
@@ -287,7 +311,7 @@ async function connectServer(name, cfg) {
                 CLAUDE_PLUGIN_DATA: join(homedir(), '.claude', 'plugins', 'data', `${cfg.pluginCache}-${DEFAULT_MARKETPLACE}`),
             },
         });
-        process.stderr.write(`[mcp-client] Connecting "${name}" via ${resolved.source}\n`);
+        mcpLog(`[mcp-client] Connecting "${name}" via ${resolved.source}\n`);
     }
     // Auto-detect: read port from a running service's port file
     else if (cfg.autoDetect) {
@@ -323,11 +347,11 @@ async function connectServer(name, cfg) {
         }
         const url = `http://127.0.0.1:${port}${spec.endpoint}`;
         transport = new StreamableHTTPClientTransport(new URL(url));
-        process.stderr.write(`[mcp-client] Connecting "${name}" via autoDetect HTTP: ${url}\n`);
+        mcpLog(`[mcp-client] Connecting "${name}" via autoDetect HTTP: ${url}\n`);
     }
     else if (cfg.transport === 'http' && cfg.url) {
         transport = new StreamableHTTPClientTransport(new URL(cfg.url));
-        process.stderr.write(`[mcp-client] Connecting "${name}" via HTTP: ${cfg.url}\n`);
+        mcpLog(`[mcp-client] Connecting "${name}" via HTTP: ${cfg.url}\n`);
     }
     else if (cfg.command) {
         transport = new StdioClientTransport({
@@ -354,5 +378,5 @@ async function connectServer(name, cfg) {
     const toolNames = tools.map(t => t.name);
     servers.set(name, { name, client, transport, tools, cfg });
     _invalidateMcpToolFieldMemo();
-    process.stderr.write(`[mcp] connected: ${tools.length} tools — ${toolNames.join(', ')}\n`);
+    mcpLog(`[mcp] connected: ${tools.length} tools — ${toolNames.join(', ')}\n`);
 }

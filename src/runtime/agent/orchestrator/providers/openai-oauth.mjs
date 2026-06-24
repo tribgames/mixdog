@@ -37,6 +37,7 @@ import {
 import { populateHttpStatusFromMessage } from './retry-classifier.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import {
+    contentHasImage,
     normalizeContentForOpenAIResponses,
     splitToolContentForOpenAIResponses,
 } from './media-normalization.mjs';
@@ -476,7 +477,21 @@ function _isRemoteCompactFallbackMessage(m) {
 }
 
 function _contentTextParts(content, type = 'input_text') {
-    return normalizeContentForOpenAIResponses(content, { role: type === 'output_text' ? 'assistant' : 'user' });
+    if (typeof content === 'string') return content ? [{ type, text: content }] : [];
+    if (!Array.isArray(content)) {
+        const text = content == null ? '' : JSON.stringify(content);
+        return text ? [{ type, text }] : [];
+    }
+    const out = [];
+    for (const item of content) {
+        if (!item || typeof item !== 'object') continue;
+        if (typeof item.text === 'string') {
+            out.push({ type: item.type === 'output_text' ? 'output_text' : type, text: item.text });
+        } else if (typeof item.content === 'string') {
+            out.push({ type, text: item.content });
+        }
+    }
+    return out;
 }
 
 function _messageToNativeRetainedItem(m) {
@@ -635,6 +650,11 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
     flushToolMedia();
     return out;
 }
+
+function messagesHaveImageContent(messages) {
+    return (messages || []).some((m) => contentHasImage(m?.content));
+}
+
 export function buildRequestBody(messages, model, tools, sendOpts) {
     // Extract system/instructions
     const systemMsgs = messages.filter(m => m.role === 'system');
@@ -1515,6 +1535,7 @@ export class OpenAIOAuthProvider {
         const _authP = this.ensureAuth();
         let auth = await _authP;
         const body = await _bodyP;
+        const hasImageContent = messagesHaveImageContent(messages);
         // poolKey ≠ cacheKey by design (see openai-oauth-ws.mjs header note).
         // poolKey is per-session so parallel reviewer/worker callers each
         // get their own socket bucket — a sibling cannot grab a mid-turn
@@ -1599,8 +1620,9 @@ export class OpenAIOAuthProvider {
         });
         if (opts.forceHttpFallback === true
             || this._forceHttpFallback
+            || hasImageContent
             || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)) {
-            return dispatchHttp('forced');
+            return dispatchHttp(hasImageContent ? 'image_content' : 'forced');
         }
 
         // Prefer WebSocket for hot cache/delta transport; fall back to HTTP/SSE

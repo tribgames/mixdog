@@ -48,6 +48,38 @@ function readOptional(filePath) {
 }
 
 /**
+ * Resolve the DATA_DIR subdir whose *.md instruction tree folds into a hidden
+ * role's BP3 role-specific block, from the role's `instructionDir` metadata in
+ * defaults/hidden-roles.json. Returns null when the role declares none.
+ *
+ * Mirrors internal-roles.mjs getRoleInstructionDir — rules-builder is CommonJS
+ * and cannot import the ESM module, so it reads the same source of truth
+ * directly. Keeps the webhook-handler→webhooks / scheduler-task→schedules
+ * mapping declarative instead of a hard-coded role-name ternary.
+ *
+ * @param {string} pluginRoot
+ * @param {string} role
+ * @returns {string|null}
+ */
+function resolveRoleInstructionDir(pluginRoot, role) {
+  if (!pluginRoot || !role) return null;
+  const metaPath = path.join(pluginRoot, 'defaults', 'hidden-roles.json');
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+  } catch (e) {
+    throw new Error(`[rules-builder] failed to read/parse hidden-roles.json at ${metaPath}: ${e.message}`);
+  }
+  for (const entry of (raw.roles || [])) {
+    if (entry && entry.name === role) {
+      const dir = typeof entry.instructionDir === 'string' ? entry.instructionDir.trim() : '';
+      return dir || null;
+    }
+  }
+  return null;
+}
+
+/**
  * Recursively collect all `.md` files under `dir`. Returns absolute paths
  * in stack-DFS order (callers sort before use). Missing/unreadable `dir`
  * yields an empty array — matches the previous inline `try {} catch {}`
@@ -206,19 +238,20 @@ function buildBridgeInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
  * instructions still bake into webhook-handler BP3 for now.
  *
  * @param {object} opts
+ * @param {string} opts.PLUGIN_ROOT
  * @param {string} opts.DATA_DIR
  * @param {string|null} opts.currentRole
  * @returns {string}
  */
-function buildBridgeRoleSpecificContent({ DATA_DIR, currentRole }) {
+function buildBridgeRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentRole }) {
   if (!currentRole) return '';
   const parts = [];
 
-  // webhook-handler / scheduler-task — pull their respective instruction trees.
-  const subdirForRole =
-    currentRole === 'webhook-handler' ? 'webhooks'
-    : currentRole === 'scheduler-task' ? 'schedules'
-    : null;
+  // The role's instruction subdir (webhook-handler → webhooks, scheduler-task
+  // → schedules) is declared via `instructionDir` in defaults/hidden-roles.json
+  // rather than hard-coded here, so adding a new inbound-event role needs only
+  // a metadata entry.
+  const subdirForRole = resolveRoleInstructionDir(PLUGIN_ROOT, currentRole);
   if (subdirForRole) {
     const dir = path.join(DATA_DIR, subdirForRole);
     const collected = collectMarkdownFilesRecursive(dir);

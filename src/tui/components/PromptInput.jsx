@@ -16,7 +16,7 @@
  * at the exact moment of drawing, so it can never be stale.
  */
 import React, { useState, useRef } from 'react';
-import { Box, Text, useInput, useStdin } from 'ink';
+import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
 
@@ -128,6 +128,13 @@ function insertText(draft, input) {
   };
 }
 
+function normalizePastedText(text) {
+  return String(text ?? '')
+    .replace(/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+}
+
 function moveVertical(draft, direction, width) {
   if (!width || width <= 0) return null;
   const current = caretPosition(draft.value, draft.cursor, width);
@@ -141,7 +148,18 @@ function moveVertical(draft, direction, width) {
   return { ...draft, cursor };
 }
 
-export function PromptInput({ onSubmit, disabled = false }) {
+export function PromptInput({
+  onSubmit,
+  disabled = false,
+  onDraftChange,
+  commandPaletteActive = false,
+  mask = false,
+  onEscape,
+  onCommandPaletteNavigate,
+  onCommandPaletteAccept,
+  onCommandPaletteCancel,
+  onCommandPaletteComplete,
+}) {
   const [draft, setDraft] = useState(() => ({ value: '', cursor: 0 }));
   const draftRef = useRef(draft);
   const history = useRef([]);
@@ -165,6 +183,7 @@ export function PromptInput({ onSubmit, disabled = false }) {
   const commitDraft = (next) => {
     draftRef.current = next;
     setDraft(next);
+    onDraftChange?.(next.value);
   };
 
   const updateDraft = (fn) => {
@@ -187,6 +206,13 @@ export function PromptInput({ onSubmit, disabled = false }) {
 
   // Input capture is only active on a real TTY (raw mode). In pipes/CI the input
   // is inert — useInput with isActive:false won't throw.
+  usePaste((text) => {
+    if (disabled) return;
+    const pasted = normalizePastedText(text);
+    if (!pasted) return;
+    updateDraft((d) => insertText(d, pasted));
+  }, { isActive: isRawModeSupported && !disabled });
+
   useInput((input, key) => {
     if (disabled) return;
 
@@ -203,6 +229,18 @@ export function PromptInput({ onSubmit, disabled = false }) {
 
     const returnIndex = rawInput.indexOf('\r');
     if (returnIndex !== -1 && !key.shift && !key.meta) {
+      if (commandPaletteActive) {
+        const accepted = onCommandPaletteAccept?.(draftRef.current.value);
+        if (accepted !== false) {
+          const text = draftRef.current.value;
+          if (text.trim()) {
+            history.current.push(text);
+          }
+          histIdx.current = -1;
+          commitDraft({ value: '', cursor: 0 });
+        }
+        return;
+      }
       submitDraft(insertText(draftRef.current, rawInput.slice(0, returnIndex)));
       return;
     }
@@ -213,6 +251,19 @@ export function PromptInput({ onSubmit, disabled = false }) {
           value: `${d.value.slice(0, d.cursor)}\n${d.value.slice(d.cursor)}`,
           cursor: d.cursor + 1,
         }));
+        return;
+      }
+
+      if (commandPaletteActive) {
+        const accepted = onCommandPaletteAccept?.(draftRef.current.value);
+        if (accepted !== false) {
+          const current = draftRef.current.value;
+          if (current.trim()) {
+            history.current.push(current);
+          }
+          histIdx.current = -1;
+          commitDraft({ value: '', cursor: 0 });
+        }
         return;
       }
 
@@ -230,6 +281,11 @@ export function PromptInput({ onSubmit, disabled = false }) {
     }
 
     if (key.upArrow) {
+      if (commandPaletteActive) {
+        onCommandPaletteNavigate?.(-1);
+        return;
+      }
+
       const moved = moveVertical(draftRef.current, -1, wrapWidth);
       if (moved) {
         commitDraft(moved);
@@ -246,6 +302,11 @@ export function PromptInput({ onSubmit, disabled = false }) {
     }
 
     if (key.downArrow) {
+      if (commandPaletteActive) {
+        onCommandPaletteNavigate?.(1);
+        return;
+      }
+
       const moved = moveVertical(draftRef.current, 1, wrapWidth);
       if (moved) {
         commitDraft(moved);
@@ -266,12 +327,40 @@ export function PromptInput({ onSubmit, disabled = false }) {
       return;
     }
 
+    if (key.tab && commandPaletteActive) {
+      const completed = onCommandPaletteComplete?.(draftRef.current.value);
+      if (typeof completed === 'string') {
+        commitDraft({ value: completed, cursor: completed.length });
+      }
+      return;
+    }
+
+    if (key.escape) {
+      if (commandPaletteActive) {
+        onCommandPaletteCancel?.(draftRef.current.value);
+        return;
+      }
+      if (onEscape) {
+        onEscape(draftRef.current.value);
+        commitDraft({ value: '', cursor: 0 });
+      }
+      return;
+    }
+
     if (key.leftArrow) {
       updateDraft((d) => ({ ...d, cursor: previousOffset(d.value, d.cursor) }));
       return;
     }
     if (key.rightArrow) {
       updateDraft((d) => ({ ...d, cursor: nextOffset(d.value, d.cursor) }));
+      return;
+    }
+    if (key.home) {
+      updateDraft((d) => ({ ...d, cursor: lineStart(d.value, d.cursor) }));
+      return;
+    }
+    if (key.end) {
+      updateDraft((d) => ({ ...d, cursor: lineEnd(d.value, d.cursor) }));
       return;
     }
 
@@ -348,7 +437,8 @@ export function PromptInput({ onSubmit, disabled = false }) {
 
   // Trailing space cell so the caret at end-of-input has a rendered cell to sit
   // on (kept visually blank — no synthetic underline).
-  const renderedValue = cursor === value.length ? `${value} ` : value;
+  const displayValue = mask ? value.replace(/[^\n]/g, '*') : value;
+  const renderedValue = cursor === value.length ? `${displayValue} ` : displayValue;
 
   return (
     <Box ref={boxRef} flexDirection="row" flexGrow={1} flexShrink={1}>

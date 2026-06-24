@@ -339,12 +339,8 @@ function normalizePreset(preset) {
     const out = { id, name, type: 'bridge', provider, model };
     if (preset.effort)
         out.effort = String(preset.effort).trim();
-    if (preset.displayEffort)
-        out.displayEffort = String(preset.displayEffort).trim();
-    if (preset.modelDisplay)
-        out.modelDisplay = String(preset.modelDisplay).trim();
-    if ((preset.fast === true || preset.fast === false) && FAST_CAPABLE_PRESET_PROVIDERS.has(provider))
-        out.fast = preset.fast;
+    if (preset.fast === true && FAST_CAPABLE_PRESET_PROVIDERS.has(provider))
+        out.fast = true;
     out.tools = ['full', 'readonly', 'mcp'].includes(preset.tools) ? preset.tools : 'full';
     return out;
 }

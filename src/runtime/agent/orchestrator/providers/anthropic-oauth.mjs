@@ -440,7 +440,7 @@ function _scrubTokens(text) {
 
 async function refreshOAuthCredentials(creds) {
     if (!creds?.refreshToken) {
-        throw new Error('Anthropic OAuth refresh token not available. Run "claude login" to re-authenticate.');
+        throw new Error('Anthropic OAuth refresh token not available. Run /auth anthropic-oauth or /providers in mixdog-cli to re-authenticate.');
     }
 
     const controller = new AbortController();
@@ -1314,7 +1314,7 @@ export class AnthropicOAuthProvider {
             this.credentials = loadCredentials();
         }
         if (!this.credentials) {
-            throw new Error('Anthropic OAuth credentials not found. Run "claude login" to authenticate.');
+            throw new Error('Anthropic OAuth credentials not found. Run /auth anthropic-oauth or /providers in mixdog-cli to authenticate.');
         }
 
         // Pick up host-rotated tokens the moment the credentials file is
@@ -1371,11 +1371,11 @@ export class AnthropicOAuthProvider {
                     process.stderr.write(`[anthropic-oauth] WARNING: token expiring but no refresh token; using current token until expiry\n`);
                     return latest;
                 }
-                throw new Error('Anthropic OAuth refresh token not available. Run "claude login" to re-authenticate.');
+                throw new Error('Anthropic OAuth refresh token not available. Run /auth anthropic-oauth or /providers in mixdog-cli to re-authenticate.');
             }
 
             try {
-                process.stderr.write(`[anthropic-oauth] Token ${reason}, refreshing...\n`);
+                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] Token ${reason}, refreshing...\n`);
                 const refreshed = await refreshOAuthCredentials(latest);
                 process.stderr.write(`[anthropic-oauth] Token refreshed, expires in ${Math.round(((refreshed.expiresAt || Date.now()) - Date.now()) / 1000)}s\n`);
                 return refreshed;
@@ -1828,7 +1828,7 @@ export class AnthropicOAuthProvider {
             await _saveModelCache(enriched);
             return enriched;
         } catch (err) {
-            process.stderr.write(`[anthropic-oauth] listModels fetch failed (${err.message})\n`);
+            if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] listModels fetch failed (${err.message})\n`);
             // Fallback with full API model IDs. Short family tokens leaked
             // through here would be accepted by setup and reintroduce the
             // legacy shape. Env var override keeps this tracking defaults.

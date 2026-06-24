@@ -5,6 +5,8 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { getProvider, providerInputExcludesCache } from '../providers/registry.mjs';
 import { agentLoop } from './loop.mjs';
+import { compactActiveTurn, compactMessages } from './compact.mjs';
+import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';
 import { getMcpTools } from '../mcp/client.mjs';
 import { getInternalTools, executeInternalTool } from '../internal-tools.mjs';
 import { BUILTIN_TOOLS } from '../tools/builtin.mjs';
@@ -23,6 +25,7 @@ import { resolvePluginData, DEFAULT_PLUGIN, DEFAULT_MARKETPLACE } from '../../..
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { appendBridgeTrace } from '../bridge-trace.mjs';
 import { maxMtimeRecursive } from '../cache-mtime.mjs';
+import { getRoleInstructionDir } from '../internal-roles.mjs';
 // Phase B: Pool B Tier 2 content builder (common rules only).
 // Loaded once per process via createRequire so the CJS module reaches us.
 const _require = createRequire(import.meta.url);
@@ -73,6 +76,35 @@ function _buildBridgeRules() {
     }
 }
 
+let _leadRulesCache = null;
+let _leadRulesMtime = 0;
+function _buildLeadRules() {
+    if (!_rulesBuilder || typeof _rulesBuilder.buildInjectionContent !== 'function') return '';
+    const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT
+        || join(homedir(), '.claude', 'plugins', 'marketplaces', DEFAULT_MARKETPLACE, 'external_plugins', DEFAULT_PLUGIN);
+    const DATA_DIR = resolvePluginData();
+    const RULES_DIR = join(PLUGIN_ROOT, 'rules');
+    const mtime = maxMtimeRecursive([
+        join(RULES_DIR, 'shared'),
+        join(RULES_DIR, 'lead'),
+        join(DATA_DIR, 'history'),
+        join(DATA_DIR, 'mixdog-config.json'),
+        join(DATA_DIR, 'user-workflow.json'),
+        join(DATA_DIR, 'user-workflow.md'),
+    ]);
+    if (_leadRulesCache !== null && mtime <= _leadRulesMtime) {
+        return _leadRulesCache;
+    }
+    try {
+        const built = _rulesBuilder.buildInjectionContent({ PLUGIN_ROOT, DATA_DIR });
+        _leadRulesCache = built;
+        _leadRulesMtime = mtime;
+        return built;
+    } catch (e) {
+        throw new Error(`[session] lead rules build failed: ${e.message}`);
+    }
+}
+
 // BP3 role-specific cache — keyed by role. webhook / schedule / hidden
 // retrieval roles each have their own scoped instruction set; other roles
 // return ''.
@@ -84,11 +116,14 @@ function _buildRoleSpecific(currentRole) {
         || join(homedir(), '.claude', 'plugins', 'marketplaces', DEFAULT_MARKETPLACE, 'external_plugins', DEFAULT_PLUGIN);
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
+    const roleInstructionDir = getRoleInstructionDir(currentRole);
     const mtime = maxMtimeRecursive([
         join(RULES_DIR, 'shared'),
         join(DATA_DIR, 'mixdog-config.json'),
         join(DATA_DIR, 'webhooks'),
         join(DATA_DIR, 'schedules'),
+        ...(roleInstructionDir ? [join(DATA_DIR, roleInstructionDir)] : []),
+        join(PLUGIN_ROOT, 'defaults', 'hidden-roles.json'),
     ]);
     const entry = _roleSpecificCache.get(currentRole);
     if (entry && mtime <= entry.mtime) {
@@ -767,7 +802,9 @@ export function createSession(opts) {
     // shadow Pool C's explicit readonly request, leaking write tools and
     // bash into a read-only agent.
     const toolPreset = opts.tools || presetObj?.tools || (typeof opts.preset === 'string' ? opts.preset : null) || 'full';
-    const effort = presetObj?.effort || opts.effort || null;
+    const effort = Object.prototype.hasOwnProperty.call(opts, 'effort')
+        ? (opts.effort || null)
+        : (presetObj?.effort || null);
     const fast = presetObj?.fast === true || opts.fast === true;
     if (!providerName)
         throw new Error('createSession: provider is required');
@@ -788,8 +825,8 @@ export function createSession(opts) {
     // one cache shard. A user edit invalidates BP1 once and the new prefix
     // re-warms across all roles together.
     const bridgeRulesRole = opts.role || profile?.taskType || null;
-    const bridgeRules = opts.skipBridgeRules ? '' : _buildBridgeRules();
-    const roleSpecific = opts.skipBridgeRules ? '' : _buildRoleSpecific(bridgeRulesRole);
+    const injectedRules = opts.skipBridgeRules ? '' : (opts.owner === 'bridge' ? _buildBridgeRules() : _buildLeadRules());
+    const roleSpecific = opts.owner === 'bridge' && !opts.skipBridgeRules ? _buildRoleSpecific(bridgeRulesRole) : '';
     // Project MD (cwd-based, Tier 3 slot).
     const projectContext = collectProjectMd(opts.cwd);
 
@@ -856,8 +893,9 @@ export function createSession(opts) {
 
     const { baseRules, roleCatalog, sessionMarker, volatileTail } = composeSystemPrompt({
         userPrompt: opts.systemPrompt,
-        bridgeRules: bridgeRules || undefined,
+        bridgeRules: injectedRules || undefined,
         roleSpecific: roleSpecific || undefined,
+        skipRoleCatalog: opts.owner !== 'bridge',
         agentTemplate: agentTemplate || undefined,
         roleTemplate: roleTemplate || undefined,
         hasSkills: skills.length > 0,
@@ -894,18 +932,18 @@ export function createSession(opts) {
     }
     if (sessionMarker) {
         messages.push({ role: 'user', content: `<system-reminder>\n${sessionMarker}\n</system-reminder>` });
-        messages.push({ role: 'assistant', content: 'Session context noted.' });
+        messages.push({ role: 'assistant', content: '.' });
     }
     if (volatileTail) {
         messages.push({ role: 'user', content: `<system-reminder>\n${volatileTail}\n</system-reminder>` });
-        messages.push({ role: 'assistant', content: 'Understood.' });
+        messages.push({ role: 'assistant', content: '.' });
     }
     if (opts.files?.length) {
         const fileContext = opts.files
             .map(f => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``)
             .join('\n\n');
         messages.push({ role: 'user', content: `Reference files:\n\n${fileContext}` });
-        messages.push({ role: 'assistant', content: 'Understood. I have the files in context.' });
+        messages.push({ role: 'assistant', content: '.' });
     }
     let tools = toolsForRouting;
 
@@ -2001,6 +2039,69 @@ export async function clearSessionMessages(sessionId) {
     session.updatedAt = Date.now();
     await saveSessionAsync(session, { expectedGeneration: session.generation });
     return true;
+}
+export async function compactSessionMessages(sessionId) {
+    const session = loadSession(sessionId);
+    if (!session) return null;
+    if (session.closed === true) return null;
+    const beforeMessages = Array.isArray(session.messages) ? session.messages : [];
+    const beforeTokens = estimateMessagesTokens(beforeMessages);
+    const nonSystem = beforeMessages.filter(m => m?.role !== 'system');
+    let currentTurnStart = -1;
+    for (let i = nonSystem.length - 1; i >= 0; i -= 1) {
+        if (nonSystem[i]?.role === 'user') {
+            currentTurnStart = i;
+            break;
+        }
+    }
+    const boundary = positiveContextWindow(session.compactBoundaryTokens)
+        || positiveContextWindow(session.autoCompactTokenLimit)
+        || positiveContextWindow(session.contextWindow);
+    if (!boundary) {
+        throw new Error('compact: no context window is available for this session');
+    }
+    const reserveTokens = estimateRequestReserveTokens(session.tools || []);
+    if (currentTurnStart <= 0) {
+        return {
+            changed: false,
+            reason: 'nothing to compact',
+            beforeMessages: beforeMessages.length,
+            afterMessages: beforeMessages.length,
+            beforeTokens,
+            afterTokens: beforeTokens,
+            budgetTokens: boundary,
+            reserveTokens,
+        };
+    }
+    let beforeEncoded = '';
+    try { beforeEncoded = JSON.stringify(beforeMessages); } catch { beforeEncoded = ''; }
+    let compacted;
+    try {
+        compacted = compactMessages(beforeMessages, boundary, { reserveTokens, force: true });
+    } catch (err) {
+        try {
+            process.stderr.write(`[session] manual compact fallback (sess=${sessionId}): ${err?.message || err}\n`);
+        } catch { /* best-effort */ }
+        compacted = compactActiveTurn(beforeMessages, boundary, { reserveTokens });
+    }
+    const afterTokens = estimateMessagesTokens(compacted);
+    let afterEncoded = '';
+    try { afterEncoded = JSON.stringify(compacted); } catch { afterEncoded = ''; }
+    const changed = beforeEncoded && afterEncoded
+        ? beforeEncoded !== afterEncoded
+        : (compacted.length !== beforeMessages.length || afterTokens !== beforeTokens);
+    session.messages = compacted;
+    session.updatedAt = Date.now();
+    await saveSessionAsync(session, { expectedGeneration: session.generation });
+    return {
+        changed,
+        beforeMessages: beforeMessages.length,
+        afterMessages: compacted.length,
+        beforeTokens,
+        afterTokens,
+        budgetTokens: boundary,
+        reserveTokens,
+    };
 }
 export async function updateSessionStatus(id, status) {
     const session = loadSession(id);

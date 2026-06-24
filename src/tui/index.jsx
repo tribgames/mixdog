@@ -61,12 +61,16 @@ export async function runTui({ provider, model, toolMode } = {}) {
 
   // Enable mouse tracking so we receive wheel events in the alt screen (where
   // the terminal's own scrollback is unavailable). \x1b[?1000h = button events,
-  // \x1b[?1006h = SGR extended coordinates. The App parses wheel up/down (SGR
-  // button 64/65) to scroll the transcript. Disabled again on exit.
-  process.stdout.write('\x1b[?1000h\x1b[?1006h');
+  // \x1b[?1002h = button-press drag motion, \x1b[?1006h = SGR extended coords.
+  // The App parses wheel up/down (SGR button 64/65) to scroll the transcript and
+  // button-0 press+drag+release to drive an in-app text selection + copy (like
+  // OpenCode: capture stays on, so wheel and drag-select coexist). Disabled on
+  // exit. ?1002h (not ?1003h) reports motion only while a button is held, so
+  // idle mouse movement doesn't flood stdin.
+  process.stdout.write('\x1b[?1000h\x1b[?1002h\x1b[?1006h');
 
   const restoreTerminal = () => {
-    try { process.stdout.write('\x1b[?1006l\x1b[?1000l\x1b[0 q\x1b[?1049l'); } catch { /* ignore */ }
+    try { process.stdout.write('\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[0 q\x1b[?1049l'); } catch { /* ignore */ }
   };
   process.on('exit', restoreTerminal);
 
@@ -74,7 +78,19 @@ export async function runTui({ provider, model, toolMode } = {}) {
   // useInput handler runs, so our cursor-return-to-bottom teardown frame would
   // never render and the shell prompt would overlap our frame. We take over
   // Ctrl+C in App (requestExit) to draw the teardown frame first, then exit.
-  const { waitUntilExit } = render(<App store={store} initialStatusLine={initialStatusLine} />, { exitOnCtrlC: false, maxFps: 60 });
+  const instance = render(<App store={store} initialStatusLine={initialStatusLine} />, { exitOnCtrlC: false, maxFps: 60 });
+  const { waitUntilExit } = instance;
+  // [mixdog fork] Hand the ink renderer's drag-selection setter to the store so
+  // App's mouse handler can push selection rectangles (absolute terminal cells)
+  // that ink paints as an inverse highlight. render() returns synchronously
+  // after the first mount, while the mouse handler only fires on user drag, so
+  // wiring it here (post-render) is in time.
+  if (typeof instance.setSelection === 'function') {
+    store.setRenderSelection = instance.setSelection;
+  }
+  if (typeof instance.getSelectionText === 'function') {
+    store.getRenderSelectionText = instance.getSelectionText;
+  }
   try {
     await waitUntilExit();
   } finally {

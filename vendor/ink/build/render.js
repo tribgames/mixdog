@@ -32,6 +32,13 @@ const render = (node, options) => {
             instance.unmount();
         },
         clear: instance.clear,
+        // [mixdog fork] expose the mouse drag-selection setter so the app entry
+        // (index.jsx) can wire it into the engine store; the App's mouse handler
+        // pushes selection rectangles through it to drive the inverse highlight.
+        setSelection: instance.setSelection,
+        // [mixdog fork] read the text under the current selection rect (the cells
+        // the highlight covers), used to copy to the clipboard on drag-release.
+        getSelectionText: () => instance.selectedText,
     };
 };
 export default render;
