@@ -961,7 +961,8 @@ export function App({ store, initialStatusLine = '' }) {
                 value: tool.name,
                 label: tool.name.replace(/^mcp__[^_]+__/, ''),
                 description: tool.description || tool.name,
-                _action: 'noop',
+                _action: 'tool',
+                _tool: tool,
               }))
             : [{ value: 'empty', label: 'No tools', description: server?.connected ? 'server returned no tools' : 'server is not connected', _action: 'noop' }]),
         ];
@@ -974,6 +975,40 @@ export function App({ store, initialStatusLine = '' }) {
               void store.removeMcpServer?.(server.name)
                 .then(() => openMcpPicker())
                 .catch((e) => store.pushNotice(`mcp remove failed: ${e?.message || e}`, 'error'));
+              return;
+            }
+            if (toolItem._action === 'tool') {
+              const tool = toolItem._tool;
+              setPicker({
+                title: tool.name.replace(/^mcp__[^_]+__/, ''),
+                items: [
+                  {
+                    value: 'info',
+                    label: 'Tool info',
+                    description: tool.description || tool.name,
+                    _action: 'info',
+                  },
+                  {
+                    value: 'copy-name',
+                    label: 'Copy full name',
+                    description: tool.name,
+                    _action: 'copy-name',
+                  },
+                ],
+                onSelect: (_detailValue, detail) => {
+                  setPicker(null);
+                  if (detail._action === 'info') {
+                    store.pushNotice([tool.name, tool.description || ''].filter(Boolean).join('\n'), 'info');
+                    return;
+                  }
+                  if (detail._action === 'copy-name') {
+                    void copyToClipboard(tool.name)
+                      .then(() => store.pushNotice(`copied MCP tool: ${tool.name}`, 'info'))
+                      .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
+                  }
+                },
+                onCancel: () => openMcpPicker(),
+              });
             }
           },
           onCancel: () => openMcpPicker(),
@@ -1035,19 +1070,67 @@ export function App({ store, initialStatusLine = '' }) {
           return;
         }
         if (item._action !== 'view') return;
-        try {
-          const result = store.skillContent?.(item._skill.name);
-          const body = String(result?.content || '').trim();
-          const max = 2200;
-          const preview = body.length > max ? `${body.slice(0, max)}\n\n... (${body.length - max} more chars)` : body;
-          store.pushNotice(`# ${item._skill.name}\n${preview || '(empty skill)'}`, 'info');
-        } catch (e) {
-          store.pushNotice(`skill view failed: ${e?.message || e}`, 'error');
-        }
+        openSkillDetailPicker(item._skill);
       },
       onCancel: () => {
         setPicker(null);
         store.pushNotice('canceled', 'info');
+      },
+    });
+  };
+
+  const openSkillDetailPicker = (skill) => {
+    setPicker({
+      title: `Skill · ${skill.name}`,
+      items: [
+        {
+          value: 'view',
+          label: 'View skill',
+          description: skill.description || skill.filePath || 'preview SKILL.md content',
+          _action: 'view',
+        },
+        {
+          value: 'copy-content',
+          label: 'Copy content',
+          description: 'copy full skill content to clipboard',
+          _action: 'copy-content',
+        },
+        {
+          value: 'copy-path',
+          label: 'Copy path',
+          description: skill.filePath || 'no file path available',
+          _action: skill.filePath ? 'copy-path' : 'noop',
+        },
+      ],
+      onSelect: (_value, item) => {
+        setPicker(null);
+        try {
+          const result = store.skillContent?.(skill.name);
+          const body = String(result?.content || '').trim();
+          if (item._action === 'view') {
+            const max = 2200;
+            const preview = body.length > max ? `${body.slice(0, max)}\n\n... (${body.length - max} more chars)` : body;
+            store.pushNotice(`# ${skill.name}\n${preview || '(empty skill)'}`, 'info');
+            return;
+          }
+          if (item._action === 'copy-content') {
+            void copyToClipboard(body)
+              .then(() => store.pushNotice(`copied skill content: ${skill.name}`, 'info'))
+              .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
+            return;
+          }
+          if (item._action === 'copy-path') {
+            void copyToClipboard(skill.filePath)
+              .then(() => store.pushNotice(`copied skill path: ${skill.name}`, 'info'))
+              .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
+          }
+        } catch (e) {
+          store.pushNotice(`skill action failed: ${e?.message || e}`, 'error');
+        }
+      },
+      onCancel: () => {
+        setPicker(null);
+        void openSkillsPicker();
       },
     });
   };
@@ -1117,6 +1200,18 @@ export function App({ store, initialStatusLine = '' }) {
               description: p.mcpScript ? `${p.mcpServerName || 'plugin-mcp'} · ${p.mcpEnabled ? 'configured' : p.mcpScript}` : 'plugin does not expose scripts/run-mcp.mjs or mcp/server.mjs',
               _action: p.mcpScript ? 'enable-mcp' : 'noop',
             },
+            {
+              value: 'copy-root',
+              label: 'Copy root path',
+              description: p.root,
+              _action: 'copy-root',
+            },
+            {
+              value: 'copy-mcp-name',
+              label: p.mcpScript ? 'Copy MCP server name' : 'No MCP server name',
+              description: p.mcpServerName || '',
+              _action: p.mcpScript ? 'copy-mcp-name' : 'noop',
+            },
           ],
           onSelect: (_detailValue, detail) => {
             setPicker(null);
@@ -1135,6 +1230,18 @@ export function App({ store, initialStatusLine = '' }) {
               void store.enablePluginMcp?.(p)
                 .then(() => openMcpPicker())
                 .catch((e) => store.pushNotice(`plugin MCP enable failed: ${e?.message || e}`, 'error'));
+              return;
+            }
+            if (detail._action === 'copy-root') {
+              void copyToClipboard(p.root)
+                .then(() => store.pushNotice(`copied plugin root: ${p.name}`, 'info'))
+                .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
+              return;
+            }
+            if (detail._action === 'copy-mcp-name') {
+              void copyToClipboard(p.mcpServerName || '')
+                .then(() => store.pushNotice(`copied plugin MCP server: ${p.mcpServerName}`, 'info'))
+                .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
             }
           },
           onCancel: () => {
@@ -1172,6 +1279,12 @@ export function App({ store, initialStatusLine = '' }) {
           description: 'show normalized rule details',
           _action: 'view',
         },
+        {
+          value: 'copy',
+          label: 'Copy rule JSON',
+          description: 'copy normalized rule details',
+          _action: 'copy',
+        },
       ],
       onSelect: (_value, item) => {
         setPicker(null);
@@ -1184,6 +1297,10 @@ export function App({ store, initialStatusLine = '' }) {
             void openHooksPicker();
           } else if (item._action === 'view') {
             store.pushNotice(JSON.stringify(rule, null, 2), 'info');
+          } else if (item._action === 'copy') {
+            void copyToClipboard(JSON.stringify(rule, null, 2))
+              .then(() => store.pushNotice(`copied hook rule ${rule.index + 1}`, 'info'))
+              .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
           }
         } catch (e) {
           store.pushNotice(`hook rule update failed: ${e?.message || e}`, 'error');
@@ -1267,7 +1384,37 @@ export function App({ store, initialStatusLine = '' }) {
           return;
         }
         if (item._action === 'event') {
-          store.pushNotice(JSON.stringify(item._event, null, 2), 'info');
+          setPicker({
+            title: `Hook event · ${item._event.name}`,
+            items: [
+              {
+                value: 'view',
+                label: 'View event',
+                description: item._event.summary || item._event.ts || '',
+                _action: 'view',
+              },
+              {
+                value: 'copy',
+                label: 'Copy event JSON',
+                description: item._event.ts || '',
+                _action: 'copy',
+              },
+            ],
+            onSelect: (_detailValue, detail) => {
+              setPicker(null);
+              const body = JSON.stringify(item._event, null, 2);
+              if (detail._action === 'view') {
+                store.pushNotice(body, 'info');
+                return;
+              }
+              if (detail._action === 'copy') {
+                void copyToClipboard(body)
+                  .then(() => store.pushNotice(`copied hook event: ${item._event.name}`, 'info'))
+                  .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
+              }
+            },
+            onCancel: () => openHooksPicker(),
+          });
         }
       },
       onCancel: () => {
