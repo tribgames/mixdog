@@ -245,7 +245,7 @@ const Item = React.memo(function Item({ item, prevKind, columns }) {
   switch (item.kind) {
     case 'user': return <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} />;
     case 'assistant': return <AssistantMessage text={item.text} />;
-    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} isError={item.isError} expanded={item.expanded} />;
+    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} isError={item.isError} expanded={item.expanded} columns={columns} />;
     case 'notice': return <NoticeMessage text={item.text} tone={item.tone} />;
     default: return null;
   }
@@ -2315,7 +2315,7 @@ export function App({ store, initialStatusLine = '' }) {
         </Box>
       ) : state.lastTurn ? (
         <Box flexShrink={0}>
-          <TurnDone elapsedMs={state.lastTurn.elapsedMs} />
+          <TurnDone elapsedMs={state.lastTurn.elapsedMs} tokens={state.lastTurn.outputTokens} />
         </Box>
       ) : null}
 

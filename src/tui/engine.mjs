@@ -57,6 +57,18 @@ function toolResultText(content) {
   try { return JSON.stringify(content); } catch { return String(content); }
 }
 
+function toolCallId(call) {
+  return call?.id ?? call?.toolCallId ?? call?.tool_call_id ?? call?.call_id;
+}
+
+function toolCallName(call) {
+  return call?.name ?? call?.function?.name ?? call?.toolName ?? call?.tool_name ?? 'tool';
+}
+
+function toolCallArgs(call) {
+  return call?.arguments ?? call?.args ?? call?.input ?? call?.function?.arguments;
+}
+
 const BRIDGE_JOB_POLL_MS = 2000;
 const BRIDGE_JOB_MAX_POLL_MS = 10 * 60_000;
 
@@ -214,8 +226,9 @@ export async function createEngineSession({
         onToolCall: async (_iter, calls) => {
           for (const c of calls || []) {
             const itemId = nextId();
-            if (c?.id) cardIdsByCallId.set(c.id, itemId);
-            pushItem({ kind: 'tool', id: itemId, name: c?.name || 'tool', args: c?.arguments, result: null, isError: false, expanded: false });
+            const callId = toolCallId(c);
+            if (callId) cardIdsByCallId.set(callId, itemId);
+            pushItem({ kind: 'tool', id: itemId, name: toolCallName(c), args: toolCallArgs(c), result: null, isError: false, expanded: false });
           }
         },
         onTextDelta: (chunk) => {
@@ -264,7 +277,7 @@ export async function createEngineSession({
         busy: false,
         spinner: null,
         thinking: null,
-        lastTurn: { elapsedMs: Date.now() - startedAt, outputTokens: state.stats.outputTokens || 0 },
+        lastTurn: { elapsedMs: Date.now() - startedAt, outputTokens: Math.max(0, (state.stats.outputTokens || 0) - outputBaseline) },
         stats: { ...state.stats },
         sessionId: runtime.id,
         provider: runtime.provider,

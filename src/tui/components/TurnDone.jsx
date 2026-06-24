@@ -11,13 +11,20 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.mjs';
 
-export function TurnDone({ elapsedMs = 0 }) {
+function formatNumber(n) {
+  return Number(n || 0).toLocaleString('en-US');
+}
+
+export function TurnDone({ elapsedMs = 0, tokens = 0 }) {
   const secs = Math.max(0, Math.round(elapsedMs / 1000));
+  const tokenCount = Math.max(0, Math.round(Number(tokens || 0)));
 
   return (
     <Box marginTop={1} flexDirection="row">
       <Text color={theme.text}>✻ </Text>
-      <Text color={theme.inactive}>Thought for {secs}s</Text>
+      <Text color={theme.inactive}>
+        Thought for {secs}s{tokenCount > 0 ? ` · ${formatNumber(tokenCount)} tokens` : ''}
+      </Text>
     </Box>
   );
 }

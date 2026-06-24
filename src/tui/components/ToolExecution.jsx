@@ -14,6 +14,7 @@ import { Box, Text } from 'ink';
 import { theme, TURN_MARKER } from '../theme.mjs';
 
 const MAX_SUMMARY_CHARS = 160;
+const MIN_RESULT_LINE_CHARS = 24;
 
 function stripToolPrefix(name) {
   return String(name || 'tool')
@@ -22,12 +23,29 @@ function stripToolPrefix(name) {
 }
 
 function normalizeName(name) {
-  return stripToolPrefix(name).replace(/-/g, '_');
+  return stripToolPrefix(name).replace(/-/g, '_').toLowerCase();
 }
 
 function truncate(value, max = MAX_SUMMARY_CHARS) {
   const text = String(value ?? '').trim();
   return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function parseArgs(args) {
+  if (!args) return {};
+  if (typeof args === 'string') {
+    try {
+      const parsed = JSON.parse(args);
+      return parsed && typeof parsed === 'object' ? parsed : { value: args };
+    } catch {
+      return { value: args };
+    }
+  }
+  if (typeof args === 'object') {
+    if (args.input && typeof args.input === 'object') return args.input;
+    return args;
+  }
+  return { value: args };
 }
 
 function displayPath(path) {
@@ -66,6 +84,7 @@ export function displayToolName(name) {
       return 'Edit';
     case 'bash':
     case 'bash_session':
+    case 'shell_command':
       return 'Bash';
     case 'grep':
     case 'glob':
@@ -77,6 +96,17 @@ export function displayToolName(name) {
     case 'web_fetch':
     case 'fetch':
       return 'Fetch';
+    case 'view_image':
+      return 'View Image';
+    case 'read_mcp_resource':
+      return 'Read Resource';
+    case 'list_mcp_resources':
+    case 'list_mcp_resource_templates':
+      return 'List Resources';
+    case 'request_user_input':
+      return 'Ask User';
+    case 'update_plan':
+      return 'Plan';
     case 'bridge':
       return 'Agent';
     case 'code_graph':
@@ -101,8 +131,8 @@ function summarizePatch(patch, basePath) {
 
 /** Claude Code-style one-line renderToolUseMessage summary. */
 export function summarizeArgs(name, args) {
-  if (!args || typeof args !== 'object') return '';
-  const a = args;
+  const a = parseArgs(args);
+  if (!a || typeof a !== 'object') return '';
   switch (normalizeName(name)) {
     case 'read':
       if (!a.path && !a.file_path) return '';
@@ -115,6 +145,7 @@ export function summarizeArgs(name, args) {
       return summarizePatch(a.patch, a.base_path);
     case 'bash':
     case 'bash_session':
+    case 'shell_command':
       return truncate(a.description || a.command || a.cmd || '');
     case 'grep':
       if (!a.pattern) return '';
@@ -131,6 +162,13 @@ export function summarizeArgs(name, args) {
     case 'web_fetch':
     case 'fetch':
       return truncate(a.url || a.uri || '');
+    case 'view_image':
+      return displayPath(a.path || '');
+    case 'read_mcp_resource':
+      return truncate(a.uri || '');
+    case 'list_mcp_resources':
+    case 'list_mcp_resource_templates':
+      return truncate(a.server || 'all');
     case 'bridge':
       return truncate(a.description || a.prompt || a.message || a.role || '');
     case 'code_graph':
@@ -148,7 +186,13 @@ export function summarizeArgs(name, args) {
 
 export const MAX_RESULT_LINES = 8;
 
-export function ToolExecution({ name, args, result, isError, expanded }) {
+function fitResultLine(line, columns) {
+  const max = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
+  const text = String(line ?? '');
+  return text.length > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text;
+}
+
+export function ToolExecution({ name, args, result, isError, expanded, columns = 80 }) {
   const label = displayToolName(name);
   const summary = summarizeArgs(name, args);
   const resultText = result == null ? null : String(result).replace(/\s+$/, '');
@@ -157,6 +201,8 @@ export function ToolExecution({ name, args, result, isError, expanded }) {
   const expandable = totalLines > MAX_RESULT_LINES;
   const displayedLines = expanded ? lines : lines.slice(0, MAX_RESULT_LINES);
   const hiddenCount = totalLines - displayedLines.length;
+  const maxResultChars = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
+  const clippedLineCount = displayedLines.filter((line) => String(line ?? '').length > maxResultChars).length;
   const resultColor = isError ? theme.error : theme.inactive;
 
   // Status dot color mirrors CC's ToolUseLoader: in-progress (no result yet) is
@@ -187,9 +233,12 @@ export function ToolExecution({ name, args, result, isError, expanded }) {
               <Text color={theme.inactive}>(no output)</Text>
             ) : (
               displayedLines.map((line, i) => (
-                <Text key={i} color={resultColor}>{line || ' '}</Text>
+                <Text key={i} color={resultColor}>{fitResultLine(line || ' ', columns)}</Text>
               ))
             )}
+            {clippedLineCount > 0 ? (
+              <Text color={theme.subtle}>{`… (${clippedLineCount} long line${clippedLineCount === 1 ? '' : 's'} clipped to terminal width)`}</Text>
+            ) : null}
             {!expanded && hiddenCount > 0 ? (
               <Text color={theme.subtle}>{`… (+${hiddenCount} more line${hiddenCount === 1 ? '' : 's'}) · ctrl+o to expand`}</Text>
             ) : null}
