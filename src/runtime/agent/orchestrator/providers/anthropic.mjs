@@ -281,7 +281,7 @@ function applyAnthropicCacheMarkers(sanitizedMessages, { messageTtl = CACHE_TTL_
     if (messageTtl !== null) {
         const slots = Math.max(0, Math.min(4, Number(messageSlots) || 0));
         const marked = new Set(tier3MsgIdx >= 0 ? [tier3MsgIdx] : []);
-        const candidates = [previousUserTextAnchorIdx(), sanitizedMessages.length - 1];
+        const candidates = [previousUserTextAnchorIdx()];
         for (const idx of candidates) {
             if (slots <= 0) break;
             if (idx < 0 || marked.has(idx) || !canMarkMessageIdx(idx, tier3MsgIdx)) continue;

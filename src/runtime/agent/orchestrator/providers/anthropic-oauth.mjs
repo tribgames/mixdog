@@ -684,10 +684,10 @@ function toAnthropicMessages(messages) {
 //   tier3:        the user message whose first text block / string content
 //                 startsWith '<system-reminder>' AND includes BP3_SENTINEL —
 //                 mark its last content block with tier3Ttl.
-//   message-anchor: prefer the previous real user text turn, then fill the tail
-//                   if more marker slots remain. Synthetic <system-reminder>
-//                   messages are excluded from the stable user-turn anchor so
-//                   per-call volatileTail content never becomes a 1h prefix key.
+//   message-anchor: mark only a previous real user text turn. Synthetic
+//                   <system-reminder> messages and the current user tail are
+//                   excluded so first-turn prompts do not create a fresh BP4
+//                   write on every new session.
 // messageTtl === null disables the tail; tier3Ttl === null disables tier3.
 // ANTHROPIC_MSG_SLOTS=0 is honoured upstream by passing messageTtl = null.
 function applyAnthropicCacheMarkers(sanitizedMessages, { messageTtl = CACHE_TTL_VOLATILE, messageSlots = 1, tier3Ttl = null } = {}) {
@@ -765,7 +765,7 @@ function applyAnthropicCacheMarkers(sanitizedMessages, { messageTtl = CACHE_TTL_
     if (messageTtl !== null) {
         const slots = Math.max(0, Math.min(4, Number(messageSlots) || 0));
         const marked = new Set(tier3MsgIdx >= 0 ? [tier3MsgIdx] : []);
-        const candidates = [previousUserTextAnchorIdx(), sanitizedMessages.length - 1];
+        const candidates = [previousUserTextAnchorIdx()];
         for (const idx of candidates) {
             if (slots <= 0) break;
             if (idx < 0 || marked.has(idx) || !canMarkMessageIdx(idx, tier3MsgIdx)) continue;

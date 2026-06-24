@@ -286,6 +286,13 @@ function patchAnthropicMessageCacheFallback(src) {
   } else if (!s.includes(to)) {
     throw new Error('[sync] anthropic message cache fallback anchor not found — reconcile BP4 TTL patch manually.');
   }
+  const tailFrom = 'const candidates = [previousUserTextAnchorIdx(), sanitizedMessages.length - 1];';
+  const tailTo = 'const candidates = [previousUserTextAnchorIdx()];';
+  if (s.includes(tailFrom)) {
+    s = s.replace(tailFrom, tailTo);
+  } else if (!s.includes(tailTo)) {
+    throw new Error('[sync] anthropic message cache anchor not found — reconcile current-turn BP4 patch manually.');
+  }
   return { text: s, already: src === s };
 }
 
