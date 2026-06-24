@@ -4,9 +4,10 @@
  *   ◈ Thought for 12s
  *   ◈ Cancelled
  *
- * Shown once a turn completes (the spinner is gone). Without it the spinner just
- * vanishes and the screen feels empty — this leaves a quiet, dim record of how
- * long the turn took, mirroring Claude Code's post-think summary line.
+ * Pinned into the transcript right after a turn's output (an `item.kind ===
+ * 'turndone'` entry), so it scrolls up with the answer and stays in the
+ * scrollback — mirroring Claude Code's post-think summary line. It leaves a
+ * quiet, dim record of how long the turn took next to the answer it belongs to.
  */
 import React from 'react';
 import { Box, Text } from 'ink';

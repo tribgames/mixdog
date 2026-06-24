@@ -45,6 +45,7 @@ export function ensureStandaloneEnvironment({ rootDir, dataDir }) {
   process.env.MIXDOG_STANDALONE ??= '1';
   process.env.MIXDOG_EMBED_WARMUP ??= '0';
   process.env.MIXDOG_QUIET_MEMORY_LOG ??= '1';
+  process.env.MIXDOG_PATCH_NATIVE_PREWARM ??= '0';
 
   mkdirSync(dataDir, { recursive: true });
   for (const file of DEFAULT_DATA_FILES) {

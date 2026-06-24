@@ -18,8 +18,9 @@ export const theme = {
   spinnerText: 'rgb(198,198,198)',
   spinnerShimmer: 'rgb(235,159,127)',
   thinkingAccent: 'rgb(215,119,87)',
-  thinkingText: 'rgb(215,119,87)',
-  thinkingGlow: 'rgb(235,159,127)',
+  thinkingText: 'rgb(220,220,220)', // completed "Thought for Ns" — quiet near-white
+  thinkingBase: 'rgb(205,128,92)',  // bright orange base — readable while idle
+  thinkingGlow: 'rgb(255,214,186)', // bright highlight — strong, even sweep contrast
   statusText: 'rgb(198,198,198)',
   statusSubtle: 'rgb(168,168,168)',
   text: 'rgb(198,198,198)', // Claude Code-like primary text

@@ -2062,6 +2062,38 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // discard the rest of the batch and skip the next provider.send.
             throwIfAborted();
         }
+        // ── Mid-turn steering (Claude Code / pi agent-loop parity) ──
+        // Before re-sending with the tool results, drain any user / `bridge
+        // type=send` messages that arrived WHILE this tool batch was in
+        // flight and inject them as user turns. This is the difference
+        // between "steer" (interrupt now) and "followUp" (wait for the turn
+        // to finish): previously every injected message was held until the
+        // entire askSession turn completed (manager.mjs _pendingTail drain),
+        // so a user typing mid-task only got picked up after the agent had
+        // already run to completion. Mirrors pi/agent-loop.ts:253 +
+        // 182-190 — steering messages land right before the next assistant
+        // response so the model sees them on its very next iteration.
+        if (typeof opts.drainSteering === 'function') {
+            let _steerMsgs = [];
+            try { _steerMsgs = opts.drainSteering(sessionId) || []; }
+            catch { _steerMsgs = []; }
+            // Merge the whole batch into ONE user turn (same rule as the TUI
+            // engine.mjs drain(): multiple steering messages that landed
+            // before this boundary are joined with "\n" and delivered as a
+            // single turn, not N isolated user messages). Keeps both the
+            // user-input path and the bridge/backend path on identical
+            // merge-then-deliver semantics.
+            const _merged = _steerMsgs
+                .filter((m) => typeof m === 'string' && m.length > 0)
+                .join('\n');
+            if (_merged.length > 0) {
+                messages.push({ role: 'user', content: _merged });
+                try { opts.onSteerMessage?.(_merged); } catch {}
+                if (sessionId) {
+                    try { process.stderr.write(`[steer] sess=${sessionId} injected mid-turn user message (merged=${_steerMsgs.length} len=${_merged.length})\n`); } catch {}
+                }
+            }
+        }
         // About to re-send with tool results — transition back to connecting for the next turn.
         if (sessionId) updateSessionStage(sessionId, 'connecting');
     }

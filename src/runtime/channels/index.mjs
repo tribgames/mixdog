@@ -10,6 +10,7 @@ import * as fs from "fs";
 import * as http from "http";
 import * as os from "os";
 import * as path from "path";
+import { performance } from "perf_hooks";
 import { pathToFileURL } from "url";
 import { createRequire } from "module";
 const _require = createRequire(import.meta.url);
@@ -67,6 +68,18 @@ const {
   ingestTranscript: memoryIngestTranscript,
 } = await import(memoryClientModulePath);
 const DEFAULT_PLUGIN_VERSION = "0.0.1";
+const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ""));
+const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
+function bootProfile(event, fields = {}) {
+  if (!BOOT_PROFILE_ENABLED) return;
+  const elapsedMs = performance.now() - BOOT_PROFILE_START;
+  const parts = [`[mixdog-boot] +${elapsedMs.toFixed(1)}ms`, `channels:${event}`];
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (value === undefined || value === null || value === "") continue;
+    parts.push(`${key}=${String(value).replace(/\s+/g, "_")}`);
+  }
+  try { process.stderr.write(`${parts.join(" ")}\n`); } catch {}
+}
 function localTimestamp() {
   return (/* @__PURE__ */ new Date()).toLocaleString("sv-SE", { hour12: false });
 }
@@ -157,6 +170,7 @@ if (process.env.MIXDOG_CHANNELS_NO_CONNECT) {
   process.exit(0);
 }
 const _isWorkerMode = process.env.MIXDOG_WORKER_MODE === '1'
+const _isCliOwnedMode = process.env.MIXDOG_CLI_OWNED === '1'
 const _bootLogEarly = path.join(
   process.env.CLAUDE_PLUGIN_DATA || path.join(os.tmpdir(), "mixdog"),
   "boot.log"
@@ -1335,9 +1349,9 @@ function ensureWebhookServerRuntime() {
   wireWebhookHandlers();
   return webhookServer;
 }
-function stopWebhookAndEventRuntime() {
+async function stopWebhookAndEventRuntime() {
   if (webhookServer) {
-    webhookServer.stop();
+    await webhookServer.stop();
     webhookServer = null;
   }
   if (eventPipeline) {
@@ -1469,6 +1483,58 @@ async function startOwnedRuntime(options = {}) {
     bridgeRuntimeStarting = false;
   }
 }
+async function startCliOwnedRuntime(options = {}) {
+  if (bridgeRuntimeConnected) return;
+  if (bridgeRuntimeStarting) return;
+  if (!channelBridgeActive) return;
+  const startedAt = performance.now();
+  bootProfile("cli-owned:start");
+  bridgeRuntimeStarting = true;
+  _ownedRuntimeStopRequested = false;
+  try {
+    const backendStartedAt = performance.now();
+    await backend.connect();
+    bootProfile("backend:connected", { ms: (performance.now() - backendStartedAt).toFixed(1), backend: backend.name });
+    if (_ownedRuntimeStopRequested) {
+      try { await backend.disconnect(); } catch {}
+      bridgeRuntimeConnected = false;
+      _ownedRuntimeStopRequested = false;
+      return;
+    }
+    bridgeRuntimeConnected = true;
+    proxyMode = false;
+    ownerHttpPort = 0;
+    try {
+      const providersStartedAt = performance.now();
+      const agentCfg = loadAgentConfig();
+      await initProviders(agentCfg.providers || {});
+      bootProfile("providers:ready", { ms: (performance.now() - providersStartedAt).toFixed(1) });
+    } catch (e) {
+      bootProfile("providers:failed", { error: e instanceof Error ? e.message : String(e) });
+      process.stderr.write(`mixdog: initProviders failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
+    }
+    if (_ownedRuntimeStopRequested) {
+      await stopOwnedRuntime("cli-owned start cancelled");
+      return;
+    }
+    scheduler.start();
+    startSnapshotWriter(scheduler);
+    bootProfile("scheduler:started");
+    syncOwnedWebhookAndEventRuntime();
+    bootProfile("webhook-event:ready");
+    if (options.restoreBinding !== false) bindPersistedTranscriptIfAny().catch((e) => {
+      process.stderr.write(`mixdog: bindPersistedTranscriptIfAny failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
+    });
+    bootProfile("cli-owned:ready", { ms: (performance.now() - startedAt).toFixed(1) });
+    process.stderr.write(`mixdog: running with ${backend.name} backend (cli-owned)\n`);
+  } catch (e) {
+    bootProfile("cli-owned:failed", { ms: (performance.now() - startedAt).toFixed(1), error: e instanceof Error ? e.message : String(e) });
+    process.stderr.write(`mixdog: backend connect failed (non-fatal, cli-owned): ${e instanceof Error ? e.message : String(e)}\n`);
+    try { await stopOwnedRuntime("cli-owned start failed"); } catch {}
+  } finally {
+    bridgeRuntimeStarting = false;
+  }
+}
 async function stopOwnedRuntime(reason) {
   // startOwnedRuntime() advertises owner HTTP/heartbeat/active-instance and
   // claims channel locks BEFORE awaiting backend.connect(). If shutdown lands
@@ -1492,7 +1558,7 @@ async function stopOwnedRuntime(reason) {
   stopOwnerHeartbeat();
   scheduler.stop();
   stopSnapshotWriter();
-  stopWebhookAndEventRuntime();
+  await stopWebhookAndEventRuntime();
   releaseOwnedChannelLocks(INSTANCE_ID);
   clearActiveInstance(INSTANCE_ID);
   try {
@@ -1655,7 +1721,7 @@ async function reloadRuntimeConfig() {
   if (bridgeRuntimeConnected) {
     syncOwnedWebhookAndEventRuntime({ reload: true });
   } else {
-    stopWebhookAndEventRuntime();
+    await stopWebhookAndEventRuntime();
   }
 }
 function injectAndRecord(channelId, name, content, options) {
@@ -2612,6 +2678,15 @@ async function handleToolCallWithBridgeRetry(toolName, args, signal) {
     await forwarder.forwardNewText();
   }
   if (BACKEND_TOOLS.has(toolName) && !bridgeRuntimeConnected && !proxyMode) {
+    if (_isCliOwnedMode) {
+      await startCliOwnedRuntime({ restoreBinding: true });
+      if (!bridgeRuntimeConnected) {
+        return {
+          content: [{ type: "text", text: `Channel runtime is not connected. Check token and network.` }],
+          isError: true
+        };
+      }
+    } else {
     // Do NOT pre-claim ownership here. claimBridgeOwnership() overwrites the
     // active-instance advert immediately, which kicks a live owner offline if
     // refreshBridgeOwnership() would have otherwise discovered them via
@@ -2630,6 +2705,7 @@ async function handleToolCallWithBridgeRetry(toolName, args, signal) {
         content: [{ type: "text", text: `Discord auto-connect failed after retries. Check token and network.` }],
         isError: true
       };
+    }
     }
   }
   const result = await handleToolCall(toolName, args, signal);
@@ -2916,7 +2992,11 @@ async function init(_sharedMcp) {
 async function start() {
   channelBridgeActive = true;
   writeBridgeState(true);
+  if (_isCliOwnedMode) {
+    await startCliOwnedRuntime({ restoreBinding: true });
+  } else {
   await refreshBridgeOwnership({ restoreBinding: true });
+  }
   // Pre-warm the whisper-server manager once at owner startup so the first
   // voice transcription does not pay cold-start cost. Non-blocking: failures
   // (e.g. runtime not installed) are swallowed; per-request ensureReady retries.
@@ -3203,7 +3283,18 @@ if (_isWorkerMode && process.send) {
       process.send({ type: 'result', callId: msg.callId, error: e.message })
     }
   })
-  process.send({ type: 'ready', channelFlag: _channelFlagDetected })
+  void (async () => {
+    const startedAt = performance.now()
+    try {
+      await start()
+      bootProfile("worker:ready", { ms: (performance.now() - startedAt).toFixed(1) })
+      process.send({ type: 'ready', channelFlag: _channelFlagDetected })
+    } catch (e) {
+      bootProfile("worker:failed", { ms: (performance.now() - startedAt).toFixed(1), error: e?.message || String(e) })
+      process.stderr.write(`[channels-worker] start() failed: ${e && (e.message || e)}\n`)
+      process.send({ type: 'ready', channelFlag: _channelFlagDetected, degraded: true, error: e?.message || String(e) })
+    }
+  })()
 }
 
 export {

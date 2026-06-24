@@ -300,11 +300,46 @@ function patchAnthropicMessageCacheFallback(src) {
   } else if (!s.includes(to)) {
     throw new Error('[sync] anthropic message cache fallback anchor not found — reconcile BP4 TTL patch manually.');
   }
-  const tailFrom = 'const candidates = [previousUserTextAnchorIdx(), sanitizedMessages.length - 1];';
-  const tailTo = 'const candidates = [previousUserTextAnchorIdx()];';
-  if (s.includes(tailFrom)) {
-    s = s.replace(tailFrom, tailTo);
-  } else if (!s.includes(tailTo)) {
+  if (!s.includes('const latestToolResultTailIdx = () =>')) {
+    const helperAnchor = [
+      '    };',
+      '',
+      '    // tier3 — locate the sentinel-tagged system-reminder user message.',
+    ].join('\n');
+    const helperReplacement = [
+      '    };',
+      '    const latestToolResultTailIdx = () => {',
+      '        // Claude/pi refs allow cache_control on tool_result blocks. Keep this',
+      '        // narrower than "last message" so a fresh user prompt or steering text',
+      '        // never becomes a 1h breakpoint.',
+      '        for (let i = sanitizedMessages.length - 1; i >= 0; i--) {',
+      '            const msg = sanitizedMessages[i];',
+      "            if (msg?.role !== 'user' || !Array.isArray(msg.content) || msg.content.length === 0) continue;",
+      '            const lastBlock = msg.content[msg.content.length - 1];',
+      "            if (lastBlock?.type === 'tool_result') return i;",
+      '        }',
+      '        return -1;',
+      '    };',
+      '',
+      '    // tier3 — locate the sentinel-tagged system-reminder user message.',
+    ].join('\n');
+    if (s.includes(helperAnchor)) {
+      s = s.replace(helperAnchor, helperReplacement);
+    } else {
+      throw new Error('[sync] anthropic message cache helper anchor not found — reconcile tool_result BP4 patch manually.');
+    }
+  }
+  const legacyTailFrom = 'const candidates = [previousUserTextAnchorIdx(), sanitizedMessages.length - 1];';
+  const previousOnlyTailFrom = 'const candidates = [previousUserTextAnchorIdx()];';
+  const safeTailFirst = 'const candidates = [latestToolResultTailIdx(), previousUserTextAnchorIdx()];';
+  const previousThenTail = 'const candidates = [previousUserTextAnchorIdx(), latestToolResultTailIdx()];';
+  if (s.includes(legacyTailFrom)) {
+    s = s.replace(legacyTailFrom, safeTailFirst);
+  } else if (s.includes(previousOnlyTailFrom)) {
+    s = s.replace(previousOnlyTailFrom, safeTailFirst);
+  } else if (s.includes(previousThenTail)) {
+    s = s.replace(previousThenTail, safeTailFirst);
+  } else if (!s.includes(safeTailFirst)) {
     throw new Error('[sync] anthropic message cache anchor not found — reconcile current-turn BP4 patch manually.');
   }
   return { text: s, already: src === s };

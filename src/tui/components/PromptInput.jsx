@@ -105,20 +105,30 @@ function normalizePastedText(text) {
 
 function readClipboardText() {
   const timeout = 1500;
-  const opts = { encoding: 'utf8', timeout, windowsHide: true, maxBuffer: 4 * 1024 * 1024 };
+  const opts = { timeout, windowsHide: true, maxBuffer: 4 * 1024 * 1024 };
+  const decodeUtf8 = (value) => Buffer.isBuffer(value) ? value.toString('utf8') : String(value || '');
   try {
     if (process.platform === 'win32') {
-      const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', 'Get-Clipboard -Raw'], opts);
-      return r.status === 0 ? String(r.stdout || '') : '';
+      const script = [
+        '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)',
+        '$OutputEncoding = [Console]::OutputEncoding',
+        '$text = Get-Clipboard -Raw',
+        'if ($null -ne $text) { [Console]::Out.Write($text) }',
+      ].join('; ');
+      for (const exe of ['pwsh.exe', 'powershell.exe']) {
+        const r = spawnSync(exe, ['-NoProfile', '-NonInteractive', '-Command', script], opts);
+        if (r.status === 0) return decodeUtf8(r.stdout);
+      }
+      return '';
     }
     if (process.platform === 'darwin') {
       const r = spawnSync('pbpaste', [], opts);
-      return r.status === 0 ? String(r.stdout || '') : '';
+      return r.status === 0 ? decodeUtf8(r.stdout) : '';
     }
     const wl = spawnSync('wl-paste', ['--no-newline'], opts);
-    if (wl.status === 0) return String(wl.stdout || '');
+    if (wl.status === 0) return decodeUtf8(wl.stdout);
     const xclip = spawnSync('xclip', ['-selection', 'clipboard', '-out'], opts);
-    return xclip.status === 0 ? String(xclip.stdout || '') : '';
+    return xclip.status === 0 ? decodeUtf8(xclip.stdout) : '';
   } catch {
     return '';
   }

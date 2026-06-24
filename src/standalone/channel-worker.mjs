@@ -47,7 +47,7 @@ export function createStandaloneChannelWorker({
   let nextCallId = 1;
   const pending = new Map();
   const logPath = join(dataDir, 'channels-worker-standalone.log');
-  const useProcessWorker = process.env.MIXDOG_CHANNEL_WORKER_PROCESS === '1';
+  const useProcessWorker = process.env.MIXDOG_CHANNEL_WORKER_PROCESS !== '0';
 
   function status() {
     if (!useProcessWorker) {
@@ -92,6 +92,8 @@ export function createStandaloneChannelWorker({
         CLAUDE_PLUGIN_DATA: dataDir,
         MIXDOG_STANDALONE: '1',
         MIXDOG_WORKER_MODE: '1',
+        MIXDOG_CLI_OWNED: '1',
+        MIXDOG_CHANNELS_AUTO_BOOT: '0',
         MIXDOG_CHANNEL_FLAG: '1',
         MIXDOG_QUIET_SESSION_LOG: process.env.MIXDOG_QUIET_SESSION_LOG ?? '1',
       },
@@ -155,6 +157,7 @@ export function createStandaloneChannelWorker({
       process.env.MIXDOG_STANDALONE ??= '1';
       process.env.MIXDOG_CHANNEL_FLAG ??= '1';
       process.env.MIXDOG_CHANNELS_AUTO_BOOT = '0';
+      process.env.MIXDOG_CLI_OWNED = '1';
       const mod = await import(pathToFileURL(entry).href);
       if (typeof mod?.start !== 'function') throw new Error('channels runtime does not export start()');
       await mod.start();
@@ -170,11 +173,12 @@ export function createStandaloneChannelWorker({
     if (!CHANNEL_TOOLS.has(name)) throw new Error(`unknown channel tool: ${name}`);
     await start();
     if (!useProcessWorker) {
-      if (!inProcessMod?.handleToolCall) throw new Error('channels runtime is not running');
+      const call = inProcessMod?.handleToolCallWithBridgeRetry || inProcessMod?.handleToolCall;
+      if (typeof call !== 'function') throw new Error('channels runtime is not running');
       let timer = null;
       try {
         return await Promise.race([
-          inProcessMod.handleToolCall(name, args || {}),
+          call(name, args || {}),
           new Promise((_, reject) => {
             timer = setTimeout(() => reject(new Error(`channels tool timed out: ${name}`)), timeoutMs);
           }),

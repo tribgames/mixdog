@@ -20,6 +20,9 @@ import {
 } from '../../runtime/shared/tool-surface.mjs';
 
 const MIN_RESULT_LINE_CHARS = 24;
+// Hard cap for the parenthesized header arg summary so a long path/query does
+// not eat the whole header line; anything longer is truncated with an ellipsis.
+const SUMMARY_MAX_CHARS = 48;
 
 export function displayToolName(name, args) {
   return surfaceDisplayToolName(name, args);
@@ -128,10 +131,15 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
   const shortOneLineResult = totalLines === 1 && String(resultText || '').length <= Math.max(40, Number(columns || 80) - 7);
   // Semantic one-line summary derived purely from name/args/result text.
   // Shown in the collapsed, non-error view in place of the raw result block.
-  const resultSummary = !pending && !grouped && hasResult
+  // Grouped cards ("Searched N files" / "Read N files") get the same treatment
+  // as single calls: a one-line semantic summary stands in for the raw block.
+  const resultSummary = !pending && hasResult
     ? surfaceSummarizeToolResult(name, args, resultText, isError)
     : null;
   const showResultSummary = Boolean(resultSummary) && !expanded && !isError;
+  // Grouped cards ("Searched N files" / "Read N files") still carry full
+  // result text. They must remain expandable: show their lines when expanded
+  // (or on error) and surface the ctrl+o hint while collapsed.
   const showResult = hasResult && (isError || expanded || showResultSummary || (!grouped && shortOneLineResult));
   const expandable = totalLines > MAX_RESULT_LINES;
   const displayedLines = expanded ? lines : lines.slice(0, MAX_RESULT_LINES);
@@ -151,10 +159,15 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
   const labelText = grouped
     ? statusCopy(normalizedName, label, groupCount, doneCount, pending, isError)
     : label;
-  const summaryText = grouped ? '' : summary;
+  // Show the parenthesized arg summary for grouped cards too, matching single
+  // calls so the header carries the same context.
+  const summaryText = summary;
   // When the semantic summary stands in for raw lines, still signal that the
-  // full detail can be expanded with ctrl+o.
-  const showHeaderExpandHint = !expanded && !globalExpanded && (pending || hiddenCount > 0 || showResultSummary);
+  // full detail can be expanded with ctrl+o. Grouped cards collapse their raw
+  // result block, so expose the hint whenever they actually carry result text.
+  const groupedHasDetail = grouped && !pending && hasResult && totalLines > 0;
+  const showHeaderExpandHint =
+    !expanded && !globalExpanded && (pending || hiddenCount > 0 || showResultSummary || groupedHasDetail);
   const expandHintColor = TOOL_HINT_DONE_COLOR;
 
   // Build a single-line header that never wraps: reserve width for the fixed
@@ -175,8 +188,11 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
   } else {
     labelOut = labelText;
     const summaryBudget = avail - stringWidth(labelText) - (summaryText ? stringWidth(' ()') : 0);
+    // Cap by both the remaining header width and a fixed max so long
+    // paths/queries get an ellipsis instead of dominating the line.
+    const summaryWidth = Math.max(0, Math.min(summaryBudget, SUMMARY_MAX_CHARS));
     summaryOut = summaryText
-      ? ` (${truncateToWidth(summaryText, Math.max(0, summaryBudget))})`
+      ? ` (${truncateToWidth(summaryText, summaryWidth)})`
       : '';
   }
   return (

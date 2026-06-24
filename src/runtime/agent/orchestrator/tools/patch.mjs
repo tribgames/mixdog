@@ -72,6 +72,10 @@ let _nativePatchServer = null;
 let _nativePatchPrewarmTimer = null;
 let _nativeEditServer = null;
 
+function markNativePatchRuntimeTouched() {
+  try { globalThis.__mixdogNativePatchRuntimeTouched = true; } catch {}
+}
+
 function nativePatchMode() {
   return String(process.env.MIXDOG_PATCH_NATIVE || 'auto').toLowerCase();
 }
@@ -379,6 +383,7 @@ class NativePatchServer {
 }
 
 function getNativePatchServer() {
+  markNativePatchRuntimeTouched();
   const binPath = nativePatchBinPath();
   if (!existsSync(binPath)) {
     throw new Error(`native patch binary not found: ${binPath}`);
@@ -390,6 +395,7 @@ function getNativePatchServer() {
 }
 
 function getNativeEditServer() {
+  markNativePatchRuntimeTouched();
   // Honor MIXDOG_EDIT_NATIVE_BIN (the same override the edit gating checks) so
   // the gated binary and the spawned server binary cannot diverge.
   const binPath = process.env.MIXDOG_EDIT_NATIVE_BIN || nativePatchBinPath();
@@ -466,6 +472,8 @@ export async function closeNativePatchServerForTests() {
   await server?.close();
   await editServer?.close();
 }
+
+try { globalThis.__mixdogCloseNativePatchServers = closeNativePatchServerForTests; } catch {}
 
 // Strip the leading `a/` or `b/` prefix that `diff -u` / git emit by
 // default, plus timestamp suffixes (`\t2024-...`) that some tools append

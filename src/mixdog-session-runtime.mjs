@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { performance } from 'node:perf_hooks';
 import { ensureStandaloneEnvironment } from './standalone/seeds.mjs';
 import { createStandaloneBridge } from './standalone/bridge-tool.mjs';
 import { EXPLORE_TOOL, runExplore } from './standalone/explore-tool.mjs';
@@ -136,6 +137,7 @@ function cleanSessionPreview(text) {
 
 const RUNTIME = './runtime/agent/orchestrator';
 const SEARCH_RUNTIME = './runtime/search/index.mjs';
+const SEARCH_TOOL_DEFS = './runtime/search/tool-defs.mjs';
 const MEMORY_TOOL_DEFS = './runtime/memory/tool-defs.mjs';
 const MEMORY_RUNTIME = './runtime/memory/index.mjs';
 const CHANNEL_TOOL_DEFS = './runtime/channels/tool-defs.mjs';
@@ -158,6 +160,36 @@ const EFFORT_LABELS = {
   xhigh: 'Extra High',
   max: 'Max',
 };
+
+const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
+const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
+
+function bootProfile(event, fields = {}) {
+  if (!BOOT_PROFILE_ENABLED) return;
+  const elapsedMs = performance.now() - BOOT_PROFILE_START;
+  const parts = [`[mixdog-boot] +${elapsedMs.toFixed(1)}ms`, event];
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (value === undefined || value === null || value === '') continue;
+    parts.push(`${key}=${String(value).replace(/\s+/g, '_')}`);
+  }
+  try { process.stderr.write(`${parts.join(' ')}\n`); } catch {}
+}
+
+async function profiledImport(label, spec, { optional = false } = {}) {
+  const startedAt = performance.now();
+  try {
+    const mod = await import(spec);
+    bootProfile(`import:${label}`, { ms: (performance.now() - startedAt).toFixed(1) });
+    return mod;
+  } catch (error) {
+    bootProfile(`import:${label}:failed`, {
+      ms: (performance.now() - startedAt).toFixed(1),
+      error: error?.message || String(error),
+    });
+    if (optional) return null;
+    throw error;
+  }
+}
 const EFFORT_OPTIONS_BY_PROVIDER = {
   openai: ['none', 'low', 'medium', 'high', 'xhigh'],
   'openai-oauth': ['none', 'low', 'medium', 'high', 'xhigh'],
@@ -939,41 +971,106 @@ export async function createMixdogSessionRuntime({
   cwd = process.cwd(),
   toolMode = 'full',
 } = {}) {
+  bootProfile('session-runtime:start', { provider, model, toolMode, cwd });
   process.env.MIXDOG_QUIET_SESSION_LOG ??= '1';
+  const standaloneStartedAt = performance.now();
   ensureStandaloneEnvironment({
     rootDir: STANDALONE_ROOT,
     dataDir: process.env.MIXDOG_DATA_DIR || join(process.env.USERPROFILE || process.env.HOME || process.cwd(), '.mixdog', 'data'),
   });
+  bootProfile('standalone-env:ready', { ms: (performance.now() - standaloneStartedAt).toFixed(1) });
 
-  const cfgMod = await import(`${RUNTIME}/config.mjs`);
-  const sharedCfgMod = await import(`${RUNTIME}/../../shared/config.mjs`);
-  const reg = await import(`${RUNTIME}/providers/registry.mjs`);
-  const mcpClient = await import(`${RUNTIME}/mcp/client.mjs`);
-  const mgr = await import(`${RUNTIME}/session/manager.mjs`);
-  const contextMod = await import(`${RUNTIME}/context/collect.mjs`);
-  const internalTools = await import(`${RUNTIME}/internal-tools.mjs`);
-  const statusRoutes = await import(STATUSLINE_SESSION_ROUTES).catch(() => null);
-  const searchMod = await import(SEARCH_RUNTIME).catch(() => null);
-  const memoryToolDefs = await import(MEMORY_TOOL_DEFS).catch(() => null);
-  const channelToolDefs = await import(CHANNEL_TOOL_DEFS).catch(() => null);
-  const codeGraphToolDefs = await import(CODE_GRAPH_TOOL_DEFS).catch(() => null);
+  const importsStartedAt = performance.now();
+  const [
+    cfgMod,
+    sharedCfgMod,
+    reg,
+    mcpClient,
+    mgr,
+    contextMod,
+    internalTools,
+    statusRoutes,
+    searchToolDefs,
+    memoryToolDefs,
+    channelToolDefs,
+    codeGraphToolDefs,
+  ] = await Promise.all([
+    profiledImport('config', `${RUNTIME}/config.mjs`),
+    profiledImport('shared-config', `${RUNTIME}/../../shared/config.mjs`),
+    profiledImport('providers-registry', `${RUNTIME}/providers/registry.mjs`),
+    profiledImport('mcp-client', `${RUNTIME}/mcp/client.mjs`),
+    profiledImport('session-manager', `${RUNTIME}/session/manager.mjs`),
+    profiledImport('context-collect', `${RUNTIME}/context/collect.mjs`),
+    profiledImport('internal-tools', `${RUNTIME}/internal-tools.mjs`),
+    profiledImport('status-routes', STATUSLINE_SESSION_ROUTES, { optional: true }),
+    profiledImport('search-tool-defs', SEARCH_TOOL_DEFS, { optional: true }),
+    profiledImport('memory-tool-defs', MEMORY_TOOL_DEFS, { optional: true }),
+    profiledImport('channel-tool-defs', CHANNEL_TOOL_DEFS, { optional: true }),
+    profiledImport('code-graph-tool-defs', CODE_GRAPH_TOOL_DEFS, { optional: true }),
+  ]);
+  bootProfile('imports:ready', { ms: (performance.now() - importsStartedAt).toFixed(1) });
   let memoryModPromise = null;
   let memoryInitPromise = null;
+  let searchModPromise = null;
   let codeGraphModPromise = null;
 
   async function getMemoryModule() {
+    const startedAt = performance.now();
     memoryModPromise ??= import(MEMORY_RUNTIME);
     const mod = await memoryModPromise;
     if (typeof mod?.init === 'function') {
       memoryInitPromise ??= mod.init();
       await memoryInitPromise;
     }
+    bootProfile('memory-runtime:ready', { ms: (performance.now() - startedAt).toFixed(1) });
+    return mod;
+  }
+
+  async function getSearchModule() {
+    const startedAt = performance.now();
+    searchModPromise ??= import(SEARCH_RUNTIME);
+    const mod = await searchModPromise;
+    bootProfile('search-runtime:ready', { ms: (performance.now() - startedAt).toFixed(1) });
     return mod;
   }
 
   async function getCodeGraphModule() {
+    const startedAt = performance.now();
     codeGraphModPromise ??= import(CODE_GRAPH_RUNTIME);
-    return await codeGraphModPromise;
+    const mod = await codeGraphModPromise;
+    bootProfile('code-graph-runtime:ready', { ms: (performance.now() - startedAt).toFixed(1) });
+    return mod;
+  }
+
+  function persistLeadRoute(routeLike) {
+    const leadRoute = normalizeWorkflowRoute(routeLike);
+    if (!leadRoute) return null;
+
+    const nextConfig = cfgMod.loadConfig();
+    nextConfig.presets = upsertWorkflowPreset(nextConfig.presets, 'lead', leadRoute);
+    nextConfig.workflowRoutes = {
+      ...(nextConfig.workflowRoutes || {}),
+      lead: leadRoute,
+    };
+    nextConfig.default = workflowPresetId('lead');
+
+    cfgMod.saveConfig(nextConfig);
+    config = cfgMod.loadConfig();
+    return leadRoute;
+  }
+
+  async function closePatchRuntimeIfLoaded() {
+    const closer = globalThis.__mixdogCloseNativePatchServers;
+    if (typeof closer !== 'function' || globalThis.__mixdogNativePatchRuntimeTouched !== true) return;
+    bootProfile('patch-runtime:close:start');
+    const startedAt = performance.now();
+    try {
+      await closer();
+    } catch {
+      // Best-effort shutdown only; terminal restore must continue.
+    } finally {
+      bootProfile('patch-runtime:close:done', { ms: (performance.now() - startedAt).toFixed(1) });
+    }
   }
 
   function formatCoreMemoryLines(payload = {}) {
@@ -999,7 +1096,11 @@ export async function createMixdogSessionRuntime({
   async function loadCoreMemoryContext() {
     // Boot should not pay for memory/PG startup unless explicitly requested.
     // Recall and memory tools still initialize the memory service on first use.
-    if (process.env.MIXDOG_BOOT_CORE_MEMORY !== '1') return '';
+    if (process.env.MIXDOG_BOOT_CORE_MEMORY !== '1') {
+      bootProfile('core-memory:skipped');
+      return '';
+    }
+    const startedAt = performance.now();
     let timer = null;
     const timeout = new Promise((resolve) => {
       timer = setTimeout(() => resolve(''), 2000);
@@ -1018,6 +1119,7 @@ export async function createMixdogSessionRuntime({
       return '';
     } finally {
       if (timer) clearTimeout(timer);
+      bootProfile('core-memory:done', { ms: (performance.now() - startedAt).toFixed(1) });
     }
   }
 
@@ -1239,7 +1341,7 @@ export async function createMixdogSessionRuntime({
     TOOL_SEARCH_TOOL,
     CWD_TOOL,
     EXPLORE_TOOL,
-    ...(searchMod?.TOOL_DEFS || []).filter((tool) => tool?.name === 'search' || tool?.name === 'web_fetch'),
+    ...(searchToolDefs?.TOOL_DEFS || []).filter((tool) => tool?.name === 'search' || tool?.name === 'web_fetch'),
     ...(memoryToolDefs?.TOOL_DEFS || []).filter((tool) => tool?.name === 'recall' || tool?.name === 'memory'),
     ...(channelToolDefs?.TOOL_DEFS || []).filter((tool) => channels.isChannelTool(tool?.name)),
     ...(codeGraphToolDefs?.CODE_GRAPH_TOOL_DEFS || []).filter((tool) => tool?.name === 'code_graph'),
@@ -1251,7 +1353,9 @@ export async function createMixdogSessionRuntime({
     tools: standaloneTools,
     executor: async (name, args, callerCtx = {}) => {
       const callerCwd = callerCtx?.callerCwd || currentCwd;
-      if ((name === 'search' || name === 'web_fetch') && searchMod?.handleToolCall) {
+      if (name === 'search' || name === 'web_fetch') {
+        const searchMod = await getSearchModule();
+        if (!searchMod?.handleToolCall) throw new Error('search runtime is not available');
         return await searchMod.handleToolCall(name, args || {});
       }
       if (name === 'recall' || name === 'memory' || name === 'search_memories') {
@@ -1418,6 +1522,8 @@ export async function createMixdogSessionRuntime({
   }
 
   async function createCurrentSession() {
+    const startedAt = performance.now();
+    bootProfile('session:create:start', { mode });
     await resolveMissingRouteModelForFirstTurn();
     requireModelRoute();
     await refreshRouteEffort();
@@ -1452,6 +1558,11 @@ export async function createMixdogSessionRuntime({
     applyDeferredToolSurface(session, mode, standaloneTools);
     statusRoutes?.writeGatewaySessionRoute?.(session.id, routeForStatusline(route));
     hooks.emit('session:create', { sessionId: session.id, provider: route.provider, model: route.model, toolMode: mode, cwd: currentCwd });
+    bootProfile('session:create:ready', {
+      ms: (performance.now() - startedAt).toFixed(1),
+      tools: Array.isArray(session.tools) ? session.tools.length : 0,
+      catalog: Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog.length : 0,
+    });
     return session;
   }
 
@@ -1467,11 +1578,21 @@ export async function createMixdogSessionRuntime({
     });
   }
 
+  const recreateStartedAt = performance.now();
   await recreateCurrentSessionIfReady();
+  bootProfile('session-runtime:ready', { ms: (performance.now() - recreateStartedAt).toFixed(1) });
+  bootProfile('channels:start-scheduled', { delayMs: 500 });
   channelStartTimer = setTimeout(() => {
     channelStartTimer = null;
     if (closeRequested) return;
-    channels.start().catch(() => {});
+    const startedAt = performance.now();
+    bootProfile('channels:start:begin');
+    channels.start()
+      .then(() => bootProfile('channels:start:ready', { ms: (performance.now() - startedAt).toFixed(1) }))
+      .catch((error) => bootProfile('channels:start:failed', {
+        ms: (performance.now() - startedAt).toFixed(1),
+        error: error?.message || String(error),
+      }));
   }, 500);
   channelStartTimer.unref?.();
 
@@ -1999,7 +2120,11 @@ export async function createMixdogSessionRuntime({
       if (!requested.provider && requested.model && !findPreset(config, requested.model)) {
         requested.provider = route.provider;
       }
-      route = resolveRoute(config, requested);
+      const selectedRoute = resolveRoute(config, requested);
+      const leadRoute = persistLeadRoute(selectedRoute);
+      route = resolveRoute(config, leadRoute
+        ? { model: workflowPresetId('lead') }
+        : selectedRoute);
       if (session?.id) mgr.closeSession(session.id, 'cli-model-switch');
       await recreateCurrentSessionIfReady();
       return route;
@@ -2008,6 +2133,10 @@ export async function createMixdogSessionRuntime({
     async setEffort(value) {
       const normalized = normalizeEffortInput(value);
       route = { ...route, effort: normalized };
+      const leadRoute = persistLeadRoute(route);
+      if (leadRoute) {
+        route = resolveRoute(config, { model: workflowPresetId('lead') });
+      }
       await refreshRouteEffort();
       if (session) {
         session.effort = route.effectiveEffort || null;
@@ -2034,6 +2163,7 @@ export async function createMixdogSessionRuntime({
       await Promise.allSettled([
         withTeardownDeadline(channelStop, 5500, false),
         withTeardownDeadline(mcpStop, 1500, false),
+        withTeardownDeadline(closePatchRuntimeIfLoaded(), 1500, false),
       ]);
       return ok;
     },

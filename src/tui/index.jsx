@@ -9,6 +9,7 @@ import { render } from 'ink';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { App } from './App.jsx';
 import { normalizeStatusLine } from './components/StatusLine.jsx';
 import { createEngineSession } from './engine.mjs';
@@ -19,6 +20,19 @@ const STATUSLINE_MODULE = import.meta.url.replace(/\\/g, '/').includes('/tui/dis
 
 const TERMINAL_MODE_RESET = '\x1b[?1006l\x1b[?1005l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[?25h';
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
+const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
+const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
+
+function bootProfile(event, fields = {}) {
+  if (!BOOT_PROFILE_ENABLED) return;
+  const elapsedMs = performance.now() - BOOT_PROFILE_START;
+  const parts = [`[mixdog-boot] +${elapsedMs.toFixed(1)}ms`, `tui:${event}`];
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (value === undefined || value === null || value === '') continue;
+    parts.push(`${key}=${String(value).replace(/\s+/g, '_')}`);
+  }
+  try { process.stderr.write(`${parts.join(' ')}\n`); } catch {}
+}
 
 function resolveTuiStderrLogPath() {
   return process.env.MIXDOG_TUI_STDERR_LOG
@@ -53,6 +67,8 @@ function installTuiStderrGuard() {
 }
 
 export async function runTui({ provider, model, toolMode } = {}) {
+  const startedAt = performance.now();
+  bootProfile('run:start', { provider, model, toolMode });
   // The React/ink TUI needs a raw-mode-capable TTY (interactive input). In a
   // pipe/redirect/CI, ink's input hooks throw — bail with a clear hint instead.
   if (!process.stdin.isTTY) {
@@ -67,6 +83,7 @@ export async function runTui({ provider, model, toolMode } = {}) {
   let store;
   try {
     store = await createEngineSession({ provider, model, toolMode });
+    bootProfile('store:ready', { ms: (performance.now() - startedAt).toFixed(1) });
   } catch (error) {
     restoreStderr();
     process.stderr.write(`mixdog-cli: ${error?.message || error}\n`);
@@ -86,6 +103,7 @@ export async function runTui({ provider, model, toolMode } = {}) {
       contextWindow: state.contextWindow,
       rawContextWindow: state.rawContextWindow,
     }));
+    bootProfile('statusline:ready');
   } catch {
     initialStatusLine = '';
   }
@@ -101,10 +119,10 @@ export async function runTui({ provider, model, toolMode } = {}) {
   // useCursor; the terminal also anchors IME composition to it.
   process.stdout.write('\x1b[5 q'); // blinking bar
 
-  // Mouse tracking is required for wheel scrolling inside the fullscreen
-  // alternate-screen viewport. Keep an escape hatch for terminals/users that
-  // prefer native selection over app-managed wheel/drag handling.
-  const mouseTracking = process.env.MIXDOG_TUI_MOUSE !== '0';
+  // Mouse tracking lets the app handle wheel scrolling and edge-drag transcript
+  // scrolling. It routes drag selection through our Ink overlay; opt out with
+  // MIXDOG_TUI_MOUSE=0 when native terminal selection is preferred.
+  const mouseTracking = !/^(0|false|no|off)$/i.test(String(process.env.MIXDOG_TUI_MOUSE || '1'));
   if (mouseTracking) {
     process.stdout.write(MOUSE_TRACKING_ON);
   }
@@ -130,6 +148,7 @@ export async function runTui({ provider, model, toolMode } = {}) {
   // cursor, mouse mode, and alternate screen cleanly.
   try {
     const instance = render(<App store={store} initialStatusLine={initialStatusLine} />, { exitOnCtrlC: false, maxFps: 120 });
+    bootProfile('render:mounted', { ms: (performance.now() - startedAt).toFixed(1) });
     const { waitUntilExit } = instance;
     // [mixdog fork] Hand the ink renderer's drag-selection setter to the store so
     // App's mouse handler can push selection rectangles (absolute terminal cells)

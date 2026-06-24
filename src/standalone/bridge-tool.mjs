@@ -174,7 +174,7 @@ function renderResult(value) {
       if (value.result !== undefined) {
         const result = value.result;
         const content = typeof result === 'string' ? result : result?.content;
-        if (content) lines.push('', oneLine(content, 1200));
+        if (content) lines.push('', String(content).trim());
         else lines.push('', JSON.stringify(result, null, 2));
       }
       return lines.join('\n');

@@ -214,13 +214,14 @@ export default class Output {
         // inverse-video turns those blanks into huge white blocks. Instead,
         // highlight only the content span on each selected row, skipping leading
         // and trailing padding. Selection uses a fixed foreground/background
-        // pair so links, dim text, and status colors do not bleed through.
+        // pair close to Windows Terminal's default light selection so links,
+        // dim text, and status colors do not bleed through.
         const sel = this.selection;
         let selectedText = null;
         if (sel) {
             const selectionStyles = [
-                { code: '[38;2;220;220;220m', endCode: '[39m' },
-                { code: '[48;2;72;72;72m', endCode: '[49m' },
+                { code: '[38;2;0;0;0m', endCode: '[39m' },
+                { code: '[48;2;245;245;245m', endCode: '[49m' },
             ];
             const linear = sel.mode === 'linear';
             const start = linear && (sel.y1 > sel.y2 || (sel.y1 === sel.y2 && sel.x1 > sel.x2))

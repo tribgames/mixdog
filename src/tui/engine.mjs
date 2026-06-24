@@ -5,7 +5,22 @@
  * store. The React/ink layer consumes it via useSyncExternalStore
  * (see hooks/useEngine.mjs).
  */
+import { performance } from 'node:perf_hooks';
 import { SPINNER_VERBS } from './spinner-verbs.mjs';
+
+const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
+const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
+
+function bootProfile(event, fields = {}) {
+  if (!BOOT_PROFILE_ENABLED) return;
+  const elapsedMs = performance.now() - BOOT_PROFILE_START;
+  const parts = [`[mixdog-boot] +${elapsedMs.toFixed(1)}ms`, `tui:${event}`];
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (value === undefined || value === null || value === '') continue;
+    parts.push(`${key}=${String(value).replace(/\s+/g, '_')}`);
+  }
+  try { process.stderr.write(`${parts.join(' ')}\n`); } catch {}
+}
 
 // Session-usage accumulator - inlined (not imported from ui/statusline.mjs) so
 // engine.mjs has no static dependency on the vendored statusline closure.
@@ -212,20 +227,36 @@ function parseBridgeJob(text) {
   };
 }
 
+function extractBridgeJobReport(text) {
+  const value = String(text || '').trim();
+  if (!value) return '';
+  const parsed = parseBridgeJob(value);
+  if (!parsed || parsed.status !== 'done') return '';
+  const split = /\n\s*\n/.exec(value);
+  if (!split) return '';
+  return value.slice(split.index + split[0].length).trim();
+}
+
 export async function createEngineSession({
   provider: providerName,
   model,
   toolMode = 'full',
 } = {}) {
+  const startedAt = performance.now();
+  bootProfile('engine:create:start', { provider: providerName, model, toolMode });
   // Silence provider/session diagnostics so they cannot tear through the
   // alternate-screen React/ink render.
   process.env.MIXDOG_QUIET_PROVIDER_LOG = '1';
   process.env.MIXDOG_QUIET_SESSION_LOG = '1';
   process.env.MIXDOG_QUIET_MCP_LOG = '1';
   process.env.MIXDOG_QUIET_MEMORY_LOG = '1';
+  process.env.MIXDOG_PATCH_NATIVE_PREWARM ??= '0';
 
+  const importStartedAt = performance.now();
   const { createMixdogSessionRuntime } = await import(SESSION_RUNTIME_MODULE);
+  bootProfile('session-runtime:imported', { ms: (performance.now() - importStartedAt).toFixed(1) });
   const runtime = await createMixdogSessionRuntime({ provider: providerName, model, toolMode });
+  bootProfile('engine:create:runtime-ready', { ms: (performance.now() - startedAt).toFixed(1) });
   const cwd = runtime.cwd || process.cwd();
   const routeState = () => ({
     sessionId: runtime.id,
@@ -287,6 +318,7 @@ export async function createEngineSession({
   const patchItem = (id, patch) =>
     set({ items: state.items.map((it) => (it.id === id ? { ...it, ...patch } : it)) });
   const bridgeJobMonitors = new Map();
+  const injectedBridgeJobs = new Set();
   let disposed = false;
 
   function clearBridgeJobMonitor(jobId) {
@@ -334,6 +366,11 @@ export async function createEngineSession({
         patchItem(monitor.itemId, { result: nextText, text: nextText, isError: /^error:/i.test(text) });
         if (!parsed || parsed.status !== 'running') {
           clearBridgeJobMonitor(jobId);
+          const report = extractBridgeJobReport(text);
+          if (report && !injectedBridgeJobs.has(jobId)) {
+            injectedBridgeJobs.add(jobId);
+            enqueue(report);
+          }
           return;
         }
       } catch (error) {
@@ -432,9 +469,9 @@ export async function createEngineSession({
     const outputBaseline = state.stats.outputTokens;
     set({ busy: true, lastTurn: null, spinner: { active: true, verb: pickVerb(turnIndex), startedAt, liveTokens: 0, inputTokens: 0, outputTokens: 0 } });
 
-    const assistantId = nextId();
     let assistantText = '';
-    let assistantShown = false;
+    let currentAssistantId = null;
+    let currentAssistantText = '';
     let thinkingText = '';
     let cancelled = false;
     const cardByCallId = new Map();
@@ -466,10 +503,17 @@ export async function createEngineSession({
     };
 
     const ensureAssistant = () => {
-      if (!assistantShown) {
-        assistantShown = true;
-        pushItem({ kind: 'assistant', id: assistantId, text: '' });
+      if (!currentAssistantId) {
+        currentAssistantId = nextId();
+        currentAssistantText = '';
+        pushItem({ kind: 'assistant', id: currentAssistantId, text: '' });
       }
+      return currentAssistantId;
+    };
+
+    const closeAssistantSegment = () => {
+      currentAssistantId = null;
+      currentAssistantText = '';
     };
 
     try {
@@ -482,6 +526,7 @@ export async function createEngineSession({
           }
           const batchCalls = (calls || []).filter(Boolean);
           if (batchCalls.length === 0) return;
+          closeAssistantSegment();
           let activeGroupKey = null;
           let activeGroupCard = null;
           let lastKeyInBatch = null;
@@ -549,6 +594,9 @@ export async function createEngineSession({
           if (!textChunk) return;
           if (textChunk.trim()) clearToolGroupContinuation();
           assistantText += textChunk;
+          const id = ensureAssistant();
+          currentAssistantText += textChunk;
+          patchItem(id, { text: currentAssistantText });
           const estimatedTokens = Math.round(assistantText.length / 4);
           if (state.spinner) {
             set({ spinner: { ...state.spinner, liveTokens: estimatedTokens, mode: 'responding' } });
@@ -577,24 +625,34 @@ export async function createEngineSession({
       flushToolResults(session?.messages || [], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
 
       const finalText = (result?.content != null && String(result.content)) || assistantText;
-      if (finalText) {
-        ensureAssistant();
-        patchItem(assistantId, { text: finalText });
+      if (finalText && !assistantText.trim()) {
+        const id = ensureAssistant();
+        currentAssistantText = finalText;
+        patchItem(id, { text: finalText });
       }
       state.stats.turns = (state.stats.turns || 0) + 1;
     } catch (error) {
       if (error?.name === 'SessionClosedError') {
         cancelled = true;
-        if (assistantText.trim()) { ensureAssistant(); patchItem(assistantId, { text: assistantText }); }
+        if (assistantText.trim() && currentAssistantId) {
+          patchItem(currentAssistantId, { text: currentAssistantText || assistantText });
+        }
       } else {
         pushItem({ kind: 'notice', id: nextId(), text: `[error] ${error?.message || error}`, tone: 'error' });
       }
     } finally {
+      const elapsedMs = Date.now() - startedAt;
+      const turnStatus = cancelled ? 'cancelled' : 'done';
+      // Pin the post-think summary into the transcript right after this turn's
+      // output so it scrolls up with the answer and stays in the scrollback,
+      // mirroring Claude Code. (Previously TurnDone rendered only in the
+      // bottom-fixed live-status slot and vanished on the next turn.)
+      pushItem({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus });
       set({
         busy: false,
         spinner: null,
         thinking: null,
-        lastTurn: { status: cancelled ? 'cancelled' : 'done', elapsedMs: Date.now() - startedAt, outputTokens: Math.max(0, (state.stats.outputTokens || 0) - outputBaseline) },
+        lastTurn: null,
         stats: { ...state.stats },
         ...routeState(),
         toolMode: runtime.toolMode,

@@ -734,10 +734,11 @@ function toAnthropicMessages(messages) {
 //   tier3:        the user message whose first text block / string content
 //                 startsWith '<system-reminder>' AND includes BP3_SENTINEL —
 //                 mark its last content block with tier3Ttl.
-//   message-anchor: mark only a previous real user text turn. Synthetic
-//                   <system-reminder> messages and the current user tail are
-//                   excluded so first-turn prompts do not create a fresh BP4
-//                   write on every new session.
+//   message-anchor: prefer a safe tool_result tail, then a previous real user
+//                   text turn if another slot remains. Synthetic
+//                   <system-reminder> messages and current pure-text prompts
+//                   are excluded so first-turn prompts do not create a fresh
+//                   BP4 write on every new session.
 // messageTtl === null disables the tail; tier3Ttl === null disables tier3.
 // ANTHROPIC_MSG_SLOTS=0 is honoured upstream by passing messageTtl = null.
 function applyAnthropicCacheMarkers(sanitizedMessages, { messageTtl = CACHE_TTL_VOLATILE, messageSlots = 1, tier3Ttl = null } = {}) {
@@ -798,6 +799,18 @@ function applyAnthropicCacheMarkers(sanitizedMessages, { messageTtl = CACHE_TTL_
         }
         return -1;
     };
+    const latestToolResultTailIdx = () => {
+        // Claude/pi refs allow cache_control on tool_result blocks. Keep this
+        // narrower than "last message" so a fresh user prompt or steering text
+        // never becomes a 1h breakpoint.
+        for (let i = sanitizedMessages.length - 1; i >= 0; i--) {
+            const msg = sanitizedMessages[i];
+            if (msg?.role !== 'user' || !Array.isArray(msg.content) || msg.content.length === 0) continue;
+            const lastBlock = msg.content[msg.content.length - 1];
+            if (lastBlock?.type === 'tool_result') return i;
+        }
+        return -1;
+    };
 
     // tier3 — locate the sentinel-tagged system-reminder user message.
     let tier3MsgIdx = -1;
@@ -815,7 +828,7 @@ function applyAnthropicCacheMarkers(sanitizedMessages, { messageTtl = CACHE_TTL_
     if (messageTtl !== null) {
         const slots = Math.max(0, Math.min(4, Number(messageSlots) || 0));
         const marked = new Set(tier3MsgIdx >= 0 ? [tier3MsgIdx] : []);
-        const candidates = [previousUserTextAnchorIdx()];
+        const candidates = [latestToolResultTailIdx(), previousUserTextAnchorIdx()];
         for (const idx of candidates) {
             if (slots <= 0) break;
             if (idx < 0 || marked.has(idx) || !canMarkMessageIdx(idx, tier3MsgIdx)) continue;

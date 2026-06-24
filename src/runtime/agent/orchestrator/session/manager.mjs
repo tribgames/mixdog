@@ -1782,6 +1782,20 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         try { askOpts?.onUsageDelta?.(d); } catch {}
                     },
                     onToolResult: typeof askOpts?.onToolResult === 'function' ? askOpts.onToolResult : undefined,
+                    // Mid-turn steering drain. agentLoop calls this at every
+                    // tool-batch boundary (before the next provider.send) and
+                    // injects any returned strings as user turns — so input
+                    // (user typing, `bridge type=send`) that arrives WHILE a
+                    // long multi-tool turn is in flight is picked up on the
+                    // model's very next iteration instead of waiting for the
+                    // whole task to finish. The post-turn _pendingTail drain
+                    // below still handles "followUp" input that lands after the
+                    // agent would otherwise stop. Same queue, two drain points.
+                    drainSteering: (sid) => {
+                        try { return drainPendingMessages(sid || sessionId); }
+                        catch { return []; }
+                    },
+                    onSteerMessage: typeof askOpts?.onSteerMessage === 'function' ? askOpts.onSteerMessage : undefined,
                     promptCacheKey: session.promptCacheKey || sessionId,
                     // Provider-scoped cache key (mixdog-codex, mixdog-claude…).
                     // Distinct from sessionId — providers that pool sockets
@@ -2012,8 +2026,19 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         //    queue is empty we return the latest turn's result. ──
         const _drained = drainPendingMessages(sessionId);
         if (_drained.length > 0) {
-            _pendingTail.push(..._drained);
-            continue;
+            // Same merge rule as the mid-turn steering drain (loop.mjs) and
+            // the TUI engine.mjs drain(): a single drain batch is joined with
+            // "\n" and delivered as ONE follow-up turn, not N isolated turns.
+            // Keeps every steering/follow-up path on identical
+            // merge-then-deliver semantics. Anything that arrives AFTER this
+            // drain enqueues for the next loop pass and is merged there.
+            const _mergedTail = _drained
+                .filter((m) => typeof m === 'string' && m.length > 0)
+                .join('\n');
+            if (_mergedTail.length > 0) {
+                _pendingTail.push(_mergedTail);
+                continue;
+            }
         }
         return _result;
       }

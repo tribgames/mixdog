@@ -68,14 +68,23 @@ function parseRgb(str) {
   return m ? { r: +m[1], g: +m[2], b: +m[3] } : null;
 }
 
-function renderShimmerText(text, head, trail, baseRgb, shimmerRgb, baseColor, keyPrefix) {
+function renderShimmerText(text, head, trail, baseRgb, shimmerRgb, baseColor, keyPrefix, span) {
   if (!text) return null;
   if (!baseRgb || !shimmerRgb) return <Text color={baseColor}>{text}</Text>;
 
+  // Wrap distance so the highlight flows continuously and at a constant cadence
+  // regardless of text length. Without wrapping, longer text leaves a long dark
+  // gap between sweeps (head exits past the end before resetting), which reads
+  // as a stuttering, uneven glow. With a fixed span the rhythm stays uniform
+  // from start to finish.
+  const cycle = span || text.length + trail;
   return (
     <>
       {Array.from(text).map((char, index) => {
-        const distance = head - index;
+        let distance = head - index;
+        // Treat the sweep as a loop: when head wraps past the end, the tail of
+        // the previous pass is the same as the head of the next one.
+        if (distance < 0) distance += cycle;
         const intensity = distance >= 0 && distance < trail
           ? 1 - distance / trail
           : 0;
@@ -91,8 +100,8 @@ function renderShimmerText(text, head, trail, baseRgb, shimmerRgb, baseColor, ke
 const TEXT_RGB = parseRgb(theme.spinnerText) ?? parseRgb(theme.text);
 const SHIMMER_RGB = parseRgb(theme.spinnerShimmer) ?? parseRgb(theme.claudeShimmer);
 const SPINNER_GLYPH_RGB = parseRgb(theme.spinnerGlyph) ?? { r: 240, g: 240, b: 240 };
-const THINKING_INACTIVE = parseRgb(theme.thinkingAccent) ?? { r: 153, g: 153, b: 153 };
-const THINKING_SHIMMER = parseRgb(theme.thinkingGlow) ?? { r: 185, g: 185, b: 185 };
+const THINKING_INACTIVE = parseRgb(theme.thinkingBase) ?? parseRgb(theme.thinkingAccent) ?? { r: 153, g: 153, b: 153 };
+const THINKING_SHIMMER = parseRgb(theme.thinkingGlow) ?? { r: 255, g: 205, b: 175 };
 
 function formatDuration(ms) {
   const totalSec = Math.round(ms / 1000);
@@ -184,7 +193,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   // limited to the glyph; tinting the whole verb made the sweep disappear after
   // a few seconds and read as a stuck dark label.
   const verbContent = messageLen > 0 && TEXT_RGB && SHIMMER_RGB
-    ? renderShimmerText(messageText, shimmerHead, GLIMMER_TRAIL, TEXT_RGB, SHIMMER_RGB, theme.spinnerText, 'verb')
+    ? renderShimmerText(messageText, shimmerHead, GLIMMER_TRAIL, TEXT_RGB, SHIMMER_RGB, theme.spinnerText, 'verb', shimmerSpan)
     : null;
 
   const advanceCounter = (ref, target) => {
@@ -247,7 +256,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
     const thinkingHead = Math.floor((elapsedMs - THINKING_DELAY_MS) / THINKING_GLIMMER_SPEED_MS) % thinkingSpan;
     segments.push(
       <Text key="thinking">
-        {renderShimmerText(thinkingText, thinkingHead, THINKING_GLIMMER_TRAIL, THINKING_INACTIVE, THINKING_SHIMMER, theme.thinkingAccent, 'thinking')}
+        {renderShimmerText(thinkingText, thinkingHead, THINKING_GLIMMER_TRAIL, THINKING_INACTIVE, THINKING_SHIMMER, theme.thinkingBase, 'thinking', thinkingSpan)}
       </Text>
     );
   }

@@ -53,7 +53,7 @@ const HELP = [
   '  /webhooks        manage inbound webhooks',
   '  /exit, /quit     quit',
   'Picker: ↑/↓ navigate, →/Enter open, ← back, Esc cancel.',
-  'Ctrl+B toggles bridge sync/async. /exit or /quit exits. Ctrl+V/paste inserts text. Wheel/PageUp/PageDown scroll transcript.',
+  'Ctrl+B toggles bridge sync/async. /exit or /quit exits. Ctrl+V/paste inserts text. PageUp/PageDown scroll transcript.',
 ].join('\n');
 
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
@@ -346,6 +346,7 @@ const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpan
     case 'assistant': return <AssistantMessage text={item.text} />;
     case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} isError={item.isError} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} />;
     case 'notice': return <NoticeMessage text={item.text} tone={item.tone} columns={columns} />;
+    case 'turndone': return <TurnDone elapsedMs={item.elapsedMs} status={item.status} />;
     default: return null;
   }
 });
@@ -396,6 +397,7 @@ export function App({ store, initialStatusLine = '' }) {
   // dragRef tracks an in-progress mouse text selection (see the mouse handler):
   // anchor = where the drag began, last = the latest cell, active = button held.
   const dragRef = useRef({ anchor: null, last: null, active: false, rect: null });
+  const selectionTextRef = useRef('');
   // lastClickRef tracks the previous left-press cell + time so the mouse handler
   // can detect a double-click (same cell within 400ms) for word selection.
   const lastClickRef = useRef({ x: -1, y: -1, t: 0 });
@@ -404,12 +406,13 @@ export function App({ store, initialStatusLine = '' }) {
   // refreshed store.getRenderSelectionText() on the synchronous render that the
   // final setSelection() triggered, so the text under the rect is ready to read.
   const copySelection = useCallback((rect, attempt = 0) => {
-    const text = store.getRenderSelectionText?.();
+    const text = store.getRenderSelectionText?.() || selectionTextRef.current;
     if ((!text || !text.trim()) && attempt < 4) {
       setTimeout(() => copySelection(rect, attempt + 1), attempt === 0 ? 0 : 24);
       return;
     }
     if (!text || !text.trim()) return;
+    selectionTextRef.current = text;
     copyToClipboard(text)
       .then(() => {
         const lines = text.split('\n').length;
@@ -498,9 +501,38 @@ export function App({ store, initialStatusLine = '' }) {
     setScrollOffset(0);
   }, [stopSmoothScroll]);
 
+  const rememberSelectionTextSoon = useCallback(() => {
+    setTimeout(() => {
+      const text = store.getRenderSelectionText?.();
+      if (text && text.trim()) selectionTextRef.current = text;
+    }, 0);
+  }, [store]);
+
+  const applySelectionRect = useCallback((rect) => {
+    dragRef.current.rect = rect || null;
+    if (!rect) selectionTextRef.current = '';
+    store.setRenderSelection?.(rect || null);
+    if (rect) rememberSelectionTextSoon();
+  }, [store, rememberSelectionTextSoon]);
+
   const scrollTranscriptRows = useCallback((deltaRows, options = {}) => {
     const target = Math.max(0, scrollTargetRef.current + deltaRows);
+    const appliedDelta = target - scrollTargetRef.current;
     scrollTargetRef.current = target;
+    if (appliedDelta !== 0 && dragRef.current.rect) {
+      const shift = (p) => (p ? { ...p, y: p.y + appliedDelta } : p);
+      dragRef.current = {
+        ...dragRef.current,
+        anchor: shift(dragRef.current.anchor),
+        last: shift(dragRef.current.last),
+        rect: {
+          ...dragRef.current.rect,
+          y1: dragRef.current.rect.y1 + appliedDelta,
+          y2: dragRef.current.rect.y2 + appliedDelta,
+        },
+      };
+      store.setRenderSelection?.(dragRef.current.rect);
+    }
     if (options.smooth) {
       startSmoothScroll();
       return;
@@ -508,7 +540,7 @@ export function App({ store, initialStatusLine = '' }) {
     stopSmoothScroll();
     scrollPositionRef.current = target;
     setScrollOffset(Math.round(target));
-  }, [startSmoothScroll, stopSmoothScroll]);
+  }, [startSmoothScroll, stopSmoothScroll, store]);
 
   const passthroughCtrlWheelZoom = useCallback(() => {
     if (!stdout?.write) return;
@@ -543,7 +575,8 @@ export function App({ store, initialStatusLine = '' }) {
   // (press/motion) or `\x1b[<b;col;rowm` (release), 1-based col/row. We watch raw
   // stdin and split it two ways, both additive to ink's keyboard handling:
   //   • wheel (button 64 up / 65 down) → scroll the transcript
-  //   • left-button (0) press → drag → release → in-app text selection + copy.
+  //   • left-button (0) press → drag → release → in-app text selection; dragging
+  //     against the top/bottom edge scrolls the transcript while selecting.
   //     The highlight stays visible after release so the user can confirm the
   //     selected region; ESC or a plain click clears it.
   // Because we run a true fullscreen alt-screen, the reported (row,col) maps 1:1
@@ -571,7 +604,6 @@ export function App({ store, initialStatusLine = '' }) {
       let up = 0;
       let down = 0;
       let m;
-      const setSel = store.setRenderSelection;
       MOUSE.lastIndex = 0;
       while ((m = MOUSE.exec(s)) !== null) {
         const button = Number(m[1]);
@@ -612,8 +644,8 @@ export function App({ store, initialStatusLine = '' }) {
               const rect = linearSelection({ x: wr.x1, y: wr.y1 }, { x: wr.x2, y: wr.y2 });
               stopSmoothScroll();
               dragRef.current = { anchor: null, last: null, active: false, rect };
-              setSel?.(rect);
-              copySelection(rect);
+              applySelectionRect(rect);
+              // Selection only — copy happens on Ctrl+C (see useInput), not here.
               continue;
             }
           }
@@ -628,25 +660,29 @@ export function App({ store, initialStatusLine = '' }) {
           // Drag motion: extend the selection to the current cell.
           dragRef.current.last = { x, y };
           const rect = linearSelection(dragRef.current.anchor, { x, y });
-          dragRef.current.rect = rect;
-          setSel?.(rect);
+          applySelectionRect(rect);
+          const rows = Math.max(1, Number(resizeState.rows) || 24);
+          if (y <= 1) {
+            scrollTranscriptRows(3);
+          } else if (y >= rows - 5) {
+            scrollTranscriptRows(-3);
+          }
         } else if (!press && dragRef.current.active) {
           // Button release while dragging: finalize with the release coordinate
-          // (the SGR release event carries col/row), copy, and keep the
-          // selection visible until ESC or a plain click.
+          // (the SGR release event carries col/row) and keep the selection
+          // visible. Copy is NOT automatic — the user presses Ctrl+C to copy
+          // (see useInput). The highlight stays until ESC or a plain click.
           const { anchor } = dragRef.current;
           dragRef.current.active = false;
           const rect = linearSelection(anchor, { x, y });
           const empty = rect.x1 === rect.x2 && rect.y1 === rect.y2;
           if (empty) {
-            setSel?.(null); // a plain click clears any prior highlight
+            applySelectionRect(null); // a plain click clears any prior highlight
           } else {
             // Push the final rect so ink re-renders and refreshes the selection
-            // text synchronously, then read it back inside copySelection.
-            setSel?.(rect);
-            copySelection(rect);
+            // text synchronously; it is read back by copySelection on Ctrl+C.
+            applySelectionRect(rect);
           }
-          dragRef.current.rect = rect;
         }
       }
       if (up !== 0 || down !== 0) {
@@ -665,7 +701,7 @@ export function App({ store, initialStatusLine = '' }) {
     };
     inkInput.on('input', onData);
     return () => { inkInput.off('input', onData); };
-  }, [inkInput, isRawModeSupported, store, copySelection, passthroughCtrlWheelZoom, scrollTranscriptRows]);
+  }, [inkInput, isRawModeSupported, store, copySelection, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect]);
 
   // Keep the transcript pinned only while the user is already at the bottom.
   // If they scroll up to inspect a long answer, later tool/result cards must not
@@ -722,16 +758,22 @@ export function App({ store, initialStatusLine = '' }) {
       store.toggleBridgeMode?.();
       return;
     }
+    if (key.ctrl && (input === 'c' || input === 'C')) {
+      // Ctrl+C copies the current drag/double-click selection (if any) to the
+      // OS clipboard. The highlight is intentionally kept visible after copy.
+      // With no active selection this is a no-op (exitOnCtrlC:false in
+      // index.jsx already prevents Ctrl+C from terminating the app).
+      const rect = dragRef.current.rect;
+      const hasSelection = rect && !(rect.x1 === rect.x2 && rect.y1 === rect.y2);
+      if (hasSelection) copySelection(rect);
+      return;
+    }
     if (key.ctrl && (input === 'o' || input === 'O')) {
       toggleExpand();
       return;
     }
     if (key.escape && contextPanel && !picker) {
       setContextPanel(null);
-      return;
-    }
-    if (key.upArrow && !picker && !slashPaletteOpen && state.queued?.length > 0) {
-      restoreQueuedToPrompt();
       return;
     }
     if (key.pageUp) {
@@ -754,7 +796,7 @@ export function App({ store, initialStatusLine = '' }) {
     }
     if (key.escape && !picker) {
       dragRef.current.active = false;
-      store.setRenderSelection?.(null);
+      applySelectionRect(null);
     }
   }, { isActive: isRawModeSupported });
 
@@ -3292,13 +3334,13 @@ export function App({ store, initialStatusLine = '' }) {
   // Independent reservation for each live-status child — the viewport must
   // yield enough space for every bottom sibling. ThinkingMessage: outer
   // marginTop(1) + inner marginTop(1) + "∴ Thinking…" label(1) = 3.
-  // Spinner / TurnDone each occupy marginTop(1) + content(1) = 2 and are
-  // mutually exclusive in rendering (spinner wins when both are set).
+  // Spinner occupies marginTop(1) + content(1) = 2. TurnDone is no longer a
+  // bottom sibling — it's a transcript item pinned after the turn's output, so
+  // it lives inside the viewport and needs no separate reservation here.
   const THINKING_ROWS = state.thinking ? 3 : 0;
   const SPINNER_ROWS = state.spinner?.active ? 2 : 0;
-  const TURNDONE_ROWS = state.lastTurn && !state.spinner?.active ? 2 : 0;
   const SCROLL_HINT_ROWS = 0;
-  const LIVE_STATUS_ROWS = THINKING_ROWS + SPINNER_ROWS + TURNDONE_ROWS;
+  const LIVE_STATUS_ROWS = THINKING_ROWS + SPINNER_ROWS;
   const INPUT_BOX_ROWS = inputBoxHidden ? 0 : 4;
   const STATUSLINE_ROWS = 3;
   const PANEL_MAX_VISIBLE = 8;
@@ -3397,7 +3439,8 @@ export function App({ store, initialStatusLine = '' }) {
 
       {/* Wrapped flexShrink:0 so the live status keeps its full height and the
           viewport (flexShrink:1) yields rows to it, never the other way around —
-          Spinner/TurnDone don't set flexShrink themselves. */}
+          Spinner doesn't set flexShrink itself. TurnDone is now a transcript
+          item (pinned after the turn's output), not a bottom-fixed slot. */}
       {state.spinner?.active ? (
         <Box flexShrink={0}>
           <Spinner
@@ -3408,10 +3451,6 @@ export function App({ store, initialStatusLine = '' }) {
             mode={state.spinner?.mode || 'responding'}
             columns={frameColumns}
           />
-        </Box>
-      ) : state.lastTurn ? (
-        <Box flexShrink={0}>
-          <TurnDone elapsedMs={state.lastTurn.elapsedMs} status={state.lastTurn.status} />
         </Box>
       ) : null}
 
