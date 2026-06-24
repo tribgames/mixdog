@@ -16,6 +16,7 @@
  * at the exact moment of drawing, so it can never be stale.
  */
 import React, { useState, useRef } from 'react';
+import { spawnSync } from 'node:child_process';
 import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
@@ -133,6 +134,27 @@ function normalizePastedText(text) {
     .replace(/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/g, '')
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n');
+}
+
+function readClipboardText() {
+  const timeout = 1500;
+  const opts = { encoding: 'utf8', timeout, windowsHide: true, maxBuffer: 4 * 1024 * 1024 };
+  try {
+    if (process.platform === 'win32') {
+      const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', 'Get-Clipboard -Raw'], opts);
+      return r.status === 0 ? String(r.stdout || '') : '';
+    }
+    if (process.platform === 'darwin') {
+      const r = spawnSync('pbpaste', [], opts);
+      return r.status === 0 ? String(r.stdout || '') : '';
+    }
+    const wl = spawnSync('wl-paste', ['--no-newline'], opts);
+    if (wl.status === 0) return String(wl.stdout || '');
+    const xclip = spawnSync('xclip', ['-selection', 'clipboard', '-out'], opts);
+    return xclip.status === 0 ? String(xclip.stdout || '') : '';
+  } catch {
+    return '';
+  }
 }
 
 function moveVertical(draft, direction, width) {
@@ -364,6 +386,12 @@ export function PromptInput({
         onEscape(draftRef.current.value);
         commitDraft({ value: '', cursor: 0 });
       }
+      return;
+    }
+
+    if (key.ctrl && (input === 'v' || input === 'V' || rawInput === '\u0016')) {
+      const pasted = normalizePastedText(readClipboardText());
+      if (pasted) updateDraft((d) => insertText(d, pasted));
       return;
     }
 

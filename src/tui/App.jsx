@@ -64,7 +64,7 @@ const HELP = [
   '  /recall <query>  search stored memory directly',
   '  /exit, /quit     quit',
   'Picker: ↑/↓ navigate, Enter confirm, Escape cancel (attached above prompt).',
-  'Ctrl+B toggles bridge sync/async. Ctrl+C exits. Drag selects & auto-copies, paste inserts as-is. Wheel/PageUp/PageDown scroll transcript. ↑/↓ recall history.',
+  'Ctrl+B toggles bridge sync/async. Ctrl+C exits. Ctrl+V/paste inserts text. Terminal drag/select/drop stays native. PageUp/PageDown scroll transcript. ↑/↓ recall history.',
 ].join('\n');
 
 const SLASH_COMMANDS = [

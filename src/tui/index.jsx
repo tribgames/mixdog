@@ -59,15 +59,13 @@ export async function runTui({ provider, model, toolMode } = {}) {
   // useCursor; the terminal also anchors IME composition to it.
   process.stdout.write('\x1b[5 q'); // blinking bar
 
-  // Enable mouse tracking so we receive wheel events in the alt screen (where
-  // the terminal's own scrollback is unavailable). \x1b[?1000h = button events,
-  // \x1b[?1002h = button-press drag motion, \x1b[?1006h = SGR extended coords.
-  // The App parses wheel up/down (SGR button 64/65) to scroll the transcript and
-  // button-0 press+drag+release to drive an in-app text selection + copy (like
-  // OpenCode: capture stays on, so wheel and drag-select coexist). Disabled on
-  // exit. ?1002h (not ?1003h) reports motion only while a button is held, so
-  // idle mouse movement doesn't flood stdin.
-  process.stdout.write('\x1b[?1000h\x1b[?1002h\x1b[?1006h');
+  // Mouse tracking captures the terminal's pointer stream, which breaks native
+  // Windows Terminal selection, drag/drop paths, and terminal-managed copy. Keep
+  // it opt-in for debugging; default to the terminal's own mouse UX.
+  const mouseTracking = process.env.MIXDOG_TUI_MOUSE === '1';
+  if (mouseTracking) {
+    process.stdout.write('\x1b[?1000h\x1b[?1002h\x1b[?1006h');
+  }
 
   const restoreTerminal = () => {
     try { process.stdout.write('\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[0 q\x1b[?1049l'); } catch { /* ignore */ }
