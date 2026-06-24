@@ -244,7 +244,7 @@ const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpan
   switch (item.kind) {
     case 'user': return <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} />;
     case 'assistant': return <AssistantMessage text={item.text} />;
-    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} isError={item.isError} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} />;
+    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} isError={item.isError} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={prevKind === 'tool'} />;
     case 'notice': return <NoticeMessage text={item.text} tone={item.tone} />;
     default: return null;
   }

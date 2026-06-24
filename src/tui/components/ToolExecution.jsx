@@ -53,6 +53,36 @@ function displayPath(path) {
   return text.replace(/\\/g, '/').split('/').filter(Boolean).at(-1) || text;
 }
 
+function compactParts(parts) {
+  return parts.filter((part) => part != null && String(part).trim()).map((part) => String(part).trim()).join(' · ');
+}
+
+function quoted(value) {
+  const text = truncate(value || '');
+  return text ? `"${text}"` : '';
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    if (value != null && String(value).trim()) return String(value).trim();
+  }
+  return '';
+}
+
+function summarizeLineWindow(a) {
+  const offset = a.offset ?? a.start_line ?? a.startLine ?? a.line;
+  const limit = a.limit ?? a.line_count ?? a.lineCount ?? a.lines;
+  if (offset == null && limit == null) return '';
+  const start = Number(offset);
+  const count = Number(limit);
+  if (Number.isFinite(start) && Number.isFinite(count) && count > 0) {
+    return `lines ${start}-${Math.max(start, start + count - 1)}`;
+  }
+  if (Number.isFinite(start)) return `from line ${start}`;
+  if (Number.isFinite(count)) return `${count} lines`;
+  return '';
+}
+
 function titleizeToolName(name) {
   return stripToolPrefix(name)
     .split(/[_\s-]+/)
@@ -81,7 +111,7 @@ export function displayToolName(name) {
       return 'Background Job Control';
     case 'edit':
     case 'apply_patch':
-      return 'Edit';
+      return 'Update';
     case 'bash':
     case 'bash_session':
     case 'shell_command':
@@ -107,6 +137,15 @@ export function displayToolName(name) {
       return 'Ask User';
     case 'update_plan':
       return 'Plan';
+    case 'memory':
+      return 'Memory';
+    case 'recall':
+    case 'search_memories':
+      return 'Recall';
+    case 'tool_search':
+      return 'Tool Search';
+    case 'cwd':
+      return 'Working Directory';
     case 'bridge':
       return 'Agent';
     case 'code_graph':
@@ -136,8 +175,10 @@ export function summarizeArgs(name, args) {
   switch (normalizeName(name)) {
     case 'read':
       if (!a.path && !a.file_path) return '';
-      if (a.pages) return `${displayPath(a.path ?? a.file_path)} · pages ${a.pages}`;
-      return displayPath(a.path ?? a.file_path);
+      return compactParts([
+        displayPath(a.path ?? a.file_path),
+        a.pages ? `pages ${a.pages}` : summarizeLineWindow(a),
+      ]);
     case 'write':
     case 'edit':
       return displayPath(a.path ?? a.file ?? a.file_path ?? '');
@@ -148,17 +189,22 @@ export function summarizeArgs(name, args) {
     case 'shell_command':
       return truncate(a.description || a.command || a.cmd || '');
     case 'grep':
-      if (!a.pattern) return '';
-      return a.path
-        ? `pattern: "${truncate(a.pattern)}", path: "${displayPath(a.path)}"`
-        : `pattern: "${truncate(a.pattern)}"`;
+      if (!a.pattern && !a.query) return '';
+      return compactParts([
+        quoted(a.pattern ?? a.query),
+        a.path ? `in ${displayPath(a.path)}` : '',
+        a.glob ? `glob ${a.glob}` : '',
+      ]);
     case 'glob':
       if (!a.pattern && !a.glob) return '';
-      return `pattern: "${truncate(a.pattern ?? a.glob)}"`;
+      return compactParts([
+        quoted(a.pattern ?? a.glob),
+        a.path ? `in ${displayPath(a.path)}` : '',
+      ]);
     case 'list':
       return displayPath(a.path ?? a.dir ?? '.') || '.';
     case 'search':
-      return truncate(a.query || '');
+      return quoted(a.query || '');
     case 'web_fetch':
     case 'fetch':
       return truncate(a.url || a.uri || '');
@@ -169,10 +215,32 @@ export function summarizeArgs(name, args) {
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
       return truncate(a.server || 'all');
+    case 'memory':
+      return compactParts([
+        a.action || a.type || a.operation || 'status',
+        truncate(firstText(a.query, a.key, a.name, a.text, a.value), 80),
+      ]);
+    case 'recall':
+    case 'search_memories':
+      return compactParts([
+        quoted(firstText(a.query, a.text, a.input)),
+        a.limit || a.topK ? `top ${a.limit ?? a.topK}` : '',
+      ]);
+    case 'tool_search':
+      return quoted(firstText(a.query, a.q, a.text));
     case 'bridge':
-      return truncate(a.description || a.prompt || a.message || a.role || '');
+      return compactParts([
+        a.type || a.action || a.mode || '',
+        a.role || a.tag || a.sessionId || a.jobId || '',
+        truncate(firstText(a.description, a.prompt, a.message), 80),
+      ]);
     case 'code_graph':
-      return truncate(a.symbol || a.file || a.mode || '');
+      return compactParts([
+        a.mode || a.action || '',
+        truncate(firstText(a.symbol, a.file, a.path, a.query), 80),
+      ]);
+    case 'cwd':
+      return truncate(firstText(a.path, a.cwd, a.dir));
     default: {
       try {
         const s = JSON.stringify(a);
@@ -193,7 +261,7 @@ function fitResultLine(line, columns) {
   return text.length > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text;
 }
 
-export function ToolExecution({ name, args, result, isError, expanded, globalExpanded = false, columns = 80 }) {
+export function ToolExecution({ name, args, result, isError, expanded, globalExpanded = false, columns = 80, attached = false }) {
   const [blinkOn, setBlinkOn] = useState(true);
   const label = displayToolName(name);
   const summary = summarizeArgs(name, args);
@@ -219,7 +287,7 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
   const dotText = result == null && !blinkOn ? ' ' : TURN_MARKER;
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={attached ? 0 : 1}>
       {/* call line: ● Tool Name(args) — dot signals status, label bold white, args plain */}
       <Box flexDirection="row">
         <Box flexShrink={0} minWidth={2}>
