@@ -396,6 +396,24 @@ export async function createEngineSession({
         set({ commandBusy: false });
       }
     },
+    removeMcpServer: async (name) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const status = await runtime.removeMcpServer?.(name);
+        resetStats();
+        set({ sessionId: runtime.id, stats: { ...state.stats } });
+        pushItem({
+          kind: 'notice',
+          id: nextId(),
+          text: `mcp removed: ${name}`,
+          tone: 'info',
+        });
+        return status;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
     skillsStatus: () => {
       return runtime.skillsStatus?.() || { cwd: state.cwd, count: 0, skills: [] };
     },

@@ -11,12 +11,19 @@ import { theme } from '../theme.mjs';
 
 const MAX_VISIBLE = 8;
 
+function truncateText(value, width) {
+  const text = String(value || '');
+  if (!(width > 0)) return '';
+  return text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text;
+}
+
 export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Commands', columns = 80 }) {
   const visible = commands.slice(0, MAX_VISIBLE);
   const labelWidth = Math.min(
     visible.reduce((w, item) => Math.max(w, item.usage.length), 0),
     Math.max(12, Math.floor(columns * 0.28)),
   );
+  const descriptionWidth = Math.max(0, columns - labelWidth - 10);
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%">
@@ -37,6 +44,7 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
             command={item}
             isSelected={index === selectedIndex}
             labelWidth={labelWidth}
+            descriptionWidth={descriptionWidth}
           />
         ))}
         {commands.length > MAX_VISIBLE ? (
@@ -47,10 +55,9 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
   );
 }
 
-const CommandRow = React.memo(function CommandRow({ command, isSelected, labelWidth }) {
-  const label = command.usage.length > labelWidth
-    ? `${command.usage.slice(0, Math.max(1, labelWidth - 1))}…`
-    : command.usage;
+const CommandRow = React.memo(function CommandRow({ command, isSelected, labelWidth, descriptionWidth }) {
+  const label = truncateText(command.usage, labelWidth);
+  const description = truncateText(command.description, descriptionWidth);
 
   return (
     <Box flexDirection="row">
@@ -58,10 +65,12 @@ const CommandRow = React.memo(function CommandRow({ command, isSelected, labelWi
         {isSelected ? '→ ' : '  '}
         {label.padEnd(labelWidth)}
       </Text>
-      <Text color={isSelected ? theme.inactive : theme.subtle}>
-        {'  '}
-        {command.description}
-      </Text>
+      {description ? (
+        <Text color={isSelected ? theme.inactive : theme.subtle}>
+          {'  '}
+          {description}
+        </Text>
+      ) : null}
     </Box>
   );
 });

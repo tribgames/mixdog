@@ -48,8 +48,8 @@ const HELP = [
   '  /bridge read <id> read a finished/running async job snapshot',
   '  /mcp             manage MCP servers and tools',
   '  /skills          list and view available skills',
-  '  /plugins         inspect local plugins',
-  '  /hooks           inspect standalone hook events',
+  '  /plugins         manage local plugin integrations',
+  '  /hooks           manage before-tool hook rules and events',
   '  /providers       manage provider auth and local endpoints',
   '  /channels        manage Discord, channels, schedules, webhooks',
   '  /schedules       manage schedules',
@@ -74,8 +74,8 @@ const SLASH_COMMANDS = [
   { name: 'bridge', usage: '/bridge [sync|async|spawn|send|list|read]', description: 'control bridge workers' },
   { name: 'mcp', usage: '/mcp', description: 'manage MCP servers and tools' },
   { name: 'skills', usage: '/skills', description: 'list and view available skills' },
-  { name: 'plugins', usage: '/plugins', description: 'inspect local plugins' },
-  { name: 'hooks', usage: '/hooks', description: 'inspect standalone hook events' },
+  { name: 'plugins', usage: '/plugins', description: 'manage local plugin integrations' },
+  { name: 'hooks', usage: '/hooks', description: 'manage before-tool hook rules and events' },
   { name: 'providers', usage: '/providers', description: 'manage provider auth and local endpoints' },
   { name: 'channels', usage: '/channels', description: 'manage Discord, channels, schedules, webhooks' },
   { name: 'schedules', usage: '/schedules', description: 'manage schedules' },
@@ -466,6 +466,9 @@ export function App({ store, initialStatusLine = '' }) {
   }, { isActive: isRawModeSupported });
 
   const openModelPicker = async () => {
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
     let providerModels = [];
     try {
       providerModels = await store.listProviderModels();
@@ -512,6 +515,9 @@ export function App({ store, initialStatusLine = '' }) {
   };
 
   const openEffortPicker = () => {
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
     const current = state.effort || 'auto';
     const items = Array.isArray(state.effortOptions) && state.effortOptions.length > 0
       ? state.effortOptions
@@ -577,6 +583,8 @@ export function App({ store, initialStatusLine = '' }) {
     }
 
     setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
     setPicker({
       title: 'Providers',
       items,
@@ -622,6 +630,9 @@ export function App({ store, initialStatusLine = '' }) {
   };
 
   const openChannelSetupPicker = async (focus = 'all') => {
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
     let setup;
     try {
       setup = store.getChannelSetup();
@@ -697,8 +708,6 @@ export function App({ store, initialStatusLine = '' }) {
       }
     }
 
-    setProviderPrompt(null);
-    setChannelPrompt(null);
     setPicker({
       title: focus === 'schedules' ? 'Schedules' : focus === 'webhooks' ? 'Webhooks' : 'Channels',
       items,
@@ -787,6 +796,7 @@ export function App({ store, initialStatusLine = '' }) {
     }
     setProviderPrompt(null);
     setChannelPrompt(null);
+    setHookPrompt(null);
     setPicker({
       title: 'MCP',
       items,
@@ -804,18 +814,33 @@ export function App({ store, initialStatusLine = '' }) {
           store.pushNotice(`${server.name}: ${server.error}`, 'warn');
         }
         const tools = server?.tools || [];
-        const toolItems = tools.length
-          ? tools.map((tool) => ({
-              value: tool.name,
-              label: tool.name.replace(/^mcp__[^_]+__/, ''),
-              description: tool.description || tool.name,
-              _action: 'noop',
-            }))
-          : [{ value: 'empty', label: 'No tools', description: server?.connected ? 'server returned no tools' : 'server is not connected', _action: 'noop' }];
+        const toolItems = [
+          {
+            value: 'remove',
+            label: 'Remove server',
+            description: server?.configured ? 'delete from mcpServers and reconnect' : 'server is not configured',
+            _action: server?.configured ? 'remove' : 'noop',
+          },
+          ...(tools.length
+            ? tools.map((tool) => ({
+                value: tool.name,
+                label: tool.name.replace(/^mcp__[^_]+__/, ''),
+                description: tool.description || tool.name,
+                _action: 'noop',
+              }))
+            : [{ value: 'empty', label: 'No tools', description: server?.connected ? 'server returned no tools' : 'server is not connected', _action: 'noop' }]),
+        ];
         setPicker({
           title: `MCP · ${server?.name || 'server'}`,
           items: toolItems,
-          onSelect: () => {},
+          onSelect: (_toolValue, toolItem) => {
+            setPicker(null);
+            if (toolItem._action === 'remove') {
+              void store.removeMcpServer?.(server.name)
+                .then(() => openMcpPicker())
+                .catch((e) => store.pushNotice(`mcp remove failed: ${e?.message || e}`, 'error'));
+            }
+          },
           onCancel: () => openMcpPicker(),
         });
       },
@@ -862,6 +887,7 @@ export function App({ store, initialStatusLine = '' }) {
     }
     setProviderPrompt(null);
     setChannelPrompt(null);
+    setHookPrompt(null);
     setPicker({
       title: 'Skills',
       items,
@@ -927,6 +953,7 @@ export function App({ store, initialStatusLine = '' }) {
     }
     setProviderPrompt(null);
     setChannelPrompt(null);
+    setHookPrompt(null);
     setPicker({
       title: 'Plugins',
       items,

@@ -1356,6 +1356,24 @@ export async function createMixdogSessionRuntime({
       await createCurrentSession();
       return status;
     },
+    async removeMcpServer(name) {
+      const serverName = clean(name);
+      if (!serverName) throw new Error('MCP server name is required');
+      const nextConfig = cfgMod.loadConfig();
+      const current = nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object'
+        ? { ...nextConfig.mcpServers }
+        : {};
+      if (!Object.prototype.hasOwnProperty.call(current, serverName)) {
+        throw new Error(`MCP server not configured: ${serverName}`);
+      }
+      delete current[serverName];
+      cfgMod.saveConfig({ ...nextConfig, mcpServers: current });
+      config = cfgMod.loadConfig();
+      const status = await connectConfiguredMcp({ reset: true });
+      if (session?.id) mgr.closeSession(session.id, 'cli-mcp-remove');
+      await createCurrentSession();
+      return status;
+    },
     skillsStatus() {
       return skillsStatus();
     },

@@ -18,6 +18,12 @@ import { theme } from '../theme.mjs';
 /** Max items visible at once before scrolling kicks in. */
 const MAX_VISIBLE = 8;
 
+function truncateText(value, width) {
+  const text = String(value || '');
+  if (!(width > 0)) return '';
+  return text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text;
+}
+
 export function Picker({ items, onSelect, onCancel, title, columns = 80 }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -74,6 +80,8 @@ export function Picker({ items, onSelect, onCancel, title, columns = 80 }) {
 
   // Compute max label width for alignment.
   const maxLabelWidth = visible.reduce((w, item) => Math.max(w, item.label.length), 0);
+  const labelWidth = Math.min(maxLabelWidth, Math.max(12, Math.floor(columns * 0.32)));
+  const descriptionWidth = Math.max(0, columns - labelWidth - 10);
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%">
@@ -96,7 +104,8 @@ export function Picker({ items, onSelect, onCancel, title, columns = 80 }) {
               key={item.value}
               label={item.label}
               description={item.description}
-              labelWidth={Math.min(maxLabelWidth, Math.max(12, Math.floor(columns * 0.32)))}
+              labelWidth={labelWidth}
+              descriptionWidth={descriptionWidth}
               isSelected={isSelected}
             />
           );
@@ -113,10 +122,9 @@ export function Picker({ items, onSelect, onCancel, title, columns = 80 }) {
   );
 }
 
-const ItemRow = React.memo(function ItemRow({ label, description, labelWidth, isSelected }) {
-  const displayLabel = label.length > labelWidth
-    ? label.slice(0, Math.max(1, labelWidth - 1)) + '…'
-    : label;
+const ItemRow = React.memo(function ItemRow({ label, description, labelWidth, descriptionWidth, isSelected }) {
+  const displayLabel = truncateText(label, labelWidth);
+  const displayDescription = truncateText(description, descriptionWidth);
 
   return (
     <Box flexDirection="row">
@@ -124,10 +132,10 @@ const ItemRow = React.memo(function ItemRow({ label, description, labelWidth, is
         {isSelected ? '→ ' : '  '}
         {displayLabel.padEnd(labelWidth)}
       </Text>
-      {description ? (
+      {displayDescription ? (
         <Text color={isSelected ? theme.inactive : theme.subtle}>
           {'  '}
-          {description}
+          {displayDescription}
         </Text>
       ) : null}
     </Box>
