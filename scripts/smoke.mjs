@@ -15,7 +15,7 @@ if (child.status !== 0) {
   process.exit(child.status || 1);
 }
 
-if (!child.stdout.includes('pi-based CLI/TUI')) {
+if (!child.stdout.includes('standalone mixdog CLI/TUI coding agent')) {
   process.stderr.write(`unexpected help output:\n${child.stdout}`);
   process.exit(1);
 }

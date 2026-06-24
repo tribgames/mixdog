@@ -2945,7 +2945,7 @@ async function stop() {
     turnEndWatcher = null;
   }
 }
-{
+if (process.env.MIXDOG_CHANNELS_AUTO_BOOT !== '0') {
   let detectChannelFlag = function() {
     const isWin = process.platform === "win32";
     const flagRe = /--channels\b|--dangerously-load-development-channels\b/;
@@ -3052,6 +3052,7 @@ if (_isWorkerMode && process.send) {
   // SIGTERM/SIGINT/IPC shutdown handler — mirrors src/memory/index.mjs pattern.
   // Cleans up in-progress webhook/scheduler state, removes runtime files, then exits.
   let _channelsStopInFlight = false
+  let _channelsForceExitTimer = null
   const _channelsShutdownHandler = async (sig) => {
     if (_channelsStopInFlight) {
       process.stderr.write(`[channels-worker] ${sig} — shutdown already in flight, ignoring\n`)
@@ -3059,12 +3060,17 @@ if (_isWorkerMode && process.send) {
     }
     _channelsStopInFlight = true
     process.stderr.write(`[channels-worker] received ${sig} — shutting down cleanly\n`)
+    _channelsForceExitTimer = setTimeout(() => {
+      process.stderr.write(`[channels-worker] stop() timed out after 6000ms — forcing exit(2)\n`)
+      process.exit(2)
+    }, 6000)
     try { await stopVoiceWhisperServer() } catch (e) {
       process.stderr.write(`[channels-worker] stopVoiceWhisperServer() error on ${sig}: ${e && (e.message || e)}\n`)
     }
     try { await stop() } catch (e) {
       process.stderr.write(`[channels-worker] stop() error on ${sig}: ${e && (e.message || e)}\n`)
     }
+    if (_channelsForceExitTimer) clearTimeout(_channelsForceExitTimer)
     try { cleanupInstanceRuntimeFiles(INSTANCE_ID) } catch {}
     try { clearServerPid() } catch {}
     process.exit(0)
@@ -3203,6 +3209,7 @@ if (_isWorkerMode && process.send) {
 export {
   TOOL_DEFS,
   handleToolCall,
+  handleToolCallWithBridgeRetry,
   init,
   INSTRUCTIONS as instructions,
   isChannelBridgeActive,

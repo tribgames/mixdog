@@ -112,8 +112,8 @@ const PATCHES = [
     apply: (s) => patchPluginPaths(s, 'cjs'),
   },
   // D14 — providers write catalog-refresh diagnostics straight to stderr, which
-  // tears through the pi-tui raw-mode screen. Gate them behind an env var that
-  // the TUI sets, so interactive runs stay clean while --plain/debug keep logs.
+  // tears through the full-screen TUI. Gate them behind an env var that the TUI
+  // sets, so interactive runs stay clean while --plain/debug keep logs.
   {
     file: join(RUNTIME, 'agent', 'orchestrator', 'providers', 'anthropic-oauth.mjs'),
     name: 'anthropic-oauth standalone provider patches',

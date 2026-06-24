@@ -61,6 +61,7 @@ const PG_LOG_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 const SPAWN_LOCK_NAME  = 'pg-spawn.lock';
 const LOCK_WAIT_MS     = 30_000;
 const LOCK_POLL_MS     = 100;
+const LOCK_WARN_MS     = 5_000;
 const LOCK_WAIT_CODES  = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
 
 // ── File lock (O_EXCL pattern from dispatch-persist.mjs / run-mcp.mjs) ───────
@@ -72,19 +73,26 @@ const LOCK_WAIT_CODES  = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
  * but the second will fail pg_ctl start gracefully and healthcheck will
  * converge on the first's port).
  */
-async function acquireSpawnLock(dataDir) {
+async function acquireSpawnLock(dataDir, blockedProbe = null) {
   const lp       = join(dataDir, SPAWN_LOCK_NAME);
   const deadline = Date.now() + LOCK_WAIT_MS;
   const body     = JSON.stringify({ pid: process.pid, startedAt: Date.now() });
+  let warned = false;
   for (;;) {
     try {
       // 'wx' = O_CREAT | O_EXCL — atomic, fails with EEXIST if held.
       writeFileSync(lp, body, { flag: 'wx' });
-      return lp;
+      return { lockPath: lp, reuse: null };
     } catch (err) {
       if (!LOCK_WAIT_CODES.has(err?.code)) {
         __mixdogMemoryLog(`[supervisor-pg] spawn lock error: ${err?.code || err?.message}\n`);
-        return null;
+        return { lockPath: null, reuse: null };
+      }
+      if (blockedProbe) {
+        try {
+          const reuse = await blockedProbe();
+          if (reuse) return { lockPath: null, reuse };
+        } catch {}
       }
       // Dead-holder detection: same as run-mcp.mjs acquireLock().
       try {
@@ -98,8 +106,19 @@ async function acquireSpawnLock(dataDir) {
             }
           }
         }
+        const ageMs = Date.now() - Number(holder?.startedAt || 0);
+        if (!warned && ageMs >= LOCK_WARN_MS) {
+          warned = true;
+          __mixdogMemoryLog(`[supervisor-pg] waiting for spawn lock holder pid=${holder?.pid || 'unknown'} ageMs=${ageMs}\n`);
+        }
       } catch { /* unreadable — fall through and wait */ }
       if (Date.now() >= deadline) {
+        if (blockedProbe) {
+          try {
+            const reuse = await blockedProbe();
+            if (reuse) return { lockPath: null, reuse };
+          } catch {}
+        }
         throw new Error(`[supervisor-pg] spawn-lock acquire timeout (concurrent supervisor risk)`);
       }
       await new Promise(r => setTimeout(r, LOCK_POLL_MS));
@@ -175,11 +194,20 @@ function patchActiveInstance(fields) {
 // ── postmaster.pid helpers ───────────────────────────────────────────────────
 
 function readPostmasterPid(pgdata) {
+  return readPostmasterInfo(pgdata).pid;
+}
+
+function readPostmasterInfo(pgdata) {
   try {
     const raw = readFileSync(join(pgdata, 'postmaster.pid'), 'utf8');
-    const pid = parseInt(raw.split('\n')[0], 10);
-    return Number.isFinite(pid) && pid > 0 ? pid : null;
-  } catch { return null; }
+    const lines = raw.split('\n');
+    const pid = parseInt(lines[0], 10);
+    const port = parseInt(lines[3], 10);
+    return {
+      pid: Number.isFinite(pid) && pid > 0 ? pid : null,
+      port: Number.isFinite(port) && port > 0 ? port : null,
+    };
+  } catch { return { pid: null, port: null }; }
 }
 
 function isPidAlive(pid) {
@@ -244,6 +272,48 @@ async function _startFresh(dataDir, pgdata, port, runtimeDir) {
   return { host: '127.0.0.1', port: actualPort, runtimeDir, pgdataDir };
 }
 
+async function tryReusePgInstance({ pgdata, runtimeDir, healthcheckPg, source = 'reuse' }) {
+  let ai = null;
+  let existingPort = null;
+  let existingRtDir = runtimeDir;
+  try {
+    ai = JSON.parse(readFileSync(_ACTIVE_FILE, 'utf8'));
+    if (ai?.pg_port && ai?.pg_pgdata && resolve(ai.pg_pgdata) === resolve(pgdata)) {
+      existingPort = ai.pg_port;
+      existingRtDir = ai?.pg_runtime_dir ?? runtimeDir;
+    }
+  } catch {}
+
+  if (existingPort) {
+    try {
+      if (await healthcheckPg({ port: existingPort })) {
+        __mixdogMemoryLog(`[supervisor-pg] reusing PG on port ${existingPort} (${source}:active-instance)\n`);
+        _live = { port: existingPort, pgdata, runtimeDir: existingRtDir, proc: null };
+        return { host: '127.0.0.1', port: existingPort, runtimeDir: existingRtDir, pgdataDir: pgdata };
+      }
+    } catch {}
+  }
+
+  const pm = readPostmasterInfo(pgdata);
+  if (pm.pid && pm.port && await isPostmasterAlive(pm.pid)) {
+    try {
+      if (await healthcheckPg({ port: pm.port })) {
+        __mixdogMemoryLog(`[supervisor-pg] attaching to PG pid=${pm.pid} port=${pm.port} (${source}:postmaster.pid)\n`);
+        _live = { port: pm.port, pgdata, runtimeDir, proc: null };
+        patchActiveInstance({
+          pg_port: pm.port,
+          pg_started_at: ai?.pg_started_at ?? Date.now(),
+          pg_pgdata: pgdata,
+          pg_runtime_dir: runtimeDir,
+        });
+        return { host: '127.0.0.1', port: pm.port, runtimeDir, pgdataDir: pgdata };
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
 // ── Internal: full ensure logic (runs exclusively via _ensureInFlight) ────────
 
 async function _doEnsure(dataDir) {
@@ -279,10 +349,33 @@ async function _doEnsure(dataDir) {
     _live = null;
   }
 
+  const prelockReuse = await tryReusePgInstance({
+    pgdata,
+    runtimeDir,
+    healthcheckPg,
+    source: 'prelock',
+  });
+  if (prelockReuse) return prelockReuse;
+
   // ── Acquire spawn lock to serialize initdb races ─────────────────────────
-  const lp = await acquireSpawnLock(dataDir);
+  const acquired = await acquireSpawnLock(dataDir, () => tryReusePgInstance({
+    pgdata,
+    runtimeDir,
+    healthcheckPg,
+    source: 'lock-wait',
+  }));
+  if (acquired?.reuse) return acquired.reuse;
+  const lp = acquired?.lockPath ?? null;
   try {
     // ── Reuse path: another supervisor already started PG ─────────────────
+    const lockedReuse = await tryReusePgInstance({
+      pgdata,
+      runtimeDir,
+      healthcheckPg,
+      source: 'locked',
+    });
+    if (lockedReuse) return lockedReuse;
+
     let existingPort = null;
     let ai = null;
     try {

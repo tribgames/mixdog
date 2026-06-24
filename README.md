@@ -1,6 +1,6 @@
 # mixdog-cli
 
-Standalone coding-agent CLI/TUI workspace for turning **mixdog** into a [pi](https://github.com/badlogic/pi-mono)-based terminal app.
+Standalone coding-agent CLI/TUI workspace for **mixdog**.
 
 An Ink (React) terminal UI front-end driving multi-provider LLM agents (Anthropic, OpenAI, Google) over MCP, with a forked Ink renderer (`vendor/ink`) for full-screen alt-screen rendering, cursor handling, and scroll support.
 
@@ -39,7 +39,6 @@ src/
   repl.mjs       # REPL loop
   runtime/       # agent runtime
   tui/           # canonical Ink (React) TUI (bundled to dist/)
-  tui-pi/        # legacy pi-tui fallback implementation (not an entry route)
   lib/ ui/ hooks/ defaults/ vendor/
 scripts/
   build-tui.mjs  # esbuild bundle of the React TUI
@@ -48,10 +47,12 @@ scripts/
   sync-runtime.mjs
 vendor/
   ink/           # forked Ink renderer (alt-screen / cursor / scroll fixes)
-  pi/            # pi monorepo packages
+refs/
+  pi/            # reference-only pi source snapshot; not imported or executed
 ```
 
 ## Notes
 
 - `vendor/ink` is a forked Ink build; `scripts/patch-ink.mjs` reapplies the fork to `node_modules/ink` at build time so `npm install`/sync won't clobber it.
+- `refs/pi` is retained only as a reference snapshot. The CLI does not import or execute it.
 - The TUI uses alt-screen mode with mouse-wheel scroll tracking.

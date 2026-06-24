@@ -3136,7 +3136,7 @@ const httpServer = http.createServer(async (req, res) => {
   }
 })
 
-export { TOOL_DEFS, handleToolCall }
+export { TOOL_DEFS, handleToolCall, buildSessionCoreMemoryPayload }
 export { MEMORY_INSTRUCTIONS_TEXT as instructions }
 export { acquireLock, releaseLock }
 export { cwdFromTranscriptPath }

@@ -116,9 +116,12 @@ export function displayToolName(name, args = {}) {
     case 'read_mcp_resource':
       return 'Read';
     case 'write':
+      return 'Write';
     case 'edit':
-    case 'apply_patch':
-      return 'Update';
+    case 'apply_patch': {
+      const parsed = parseToolArgs(args);
+      return parsed && parsed.old_string === '' ? 'Create' : 'Update';
+    }
     case 'bash':
     case 'bash_session':
     case 'shell_command':
@@ -134,6 +137,7 @@ export function displayToolName(name, args = {}) {
     case 'web_fetch':
     case 'fetch':
     case 'download_attachment':
+    case 'crawl':
       return 'Fetch';
     case 'diagnostics':
     case 'open_config':
@@ -145,6 +149,7 @@ export function displayToolName(name, args = {}) {
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
     case 'cwd':
+    case 'setup':
       return 'Setup';
     case 'request_user_input':
       return 'Ask User';
@@ -158,6 +163,12 @@ export function displayToolName(name, args = {}) {
     case 'recall':
     case 'search_memories':
       return 'Memory';
+    case 'skill':
+    case 'skill_execute':
+    case 'skill_view':
+    case 'skills_list':
+    case 'use_skill':
+      return 'Skill';
     case 'bridge':
     case 'agent':
     case 'task':
@@ -167,6 +178,8 @@ export function displayToolName(name, args = {}) {
     case 'reply':
     case 'react':
     case 'edit_message':
+    case 'activate_channel_bridge':
+    case 'inject_command':
       return 'Channel';
     default:
       return titleizeToolName(name);
@@ -222,13 +235,15 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'web_fetch':
     case 'fetch':
       return truncateToolText(a.url || a.uri || '', max);
+    case 'crawl':
+      return truncateToolText(firstText(a.url, a.start_url, a.startUrl, a.uri), max);
     case 'download_attachment':
       return displayToolPath(a.filename || a.name || a.url || '');
     case 'read_mcp_resource':
       return truncateToolText(a.uri || '', max);
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
-      return truncateToolText(a.server || 'all', max);
+      return a.server ? `server "${truncateToolText(a.server, max)}"` : 'all servers';
     case 'diagnostics':
       return truncateToolText(a.scope || a.mode || 'runtime', max);
     case 'open_config':
@@ -274,13 +289,31 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'react':
     case 'edit_message':
       return truncateToolText(a.channel || a.channelId || a.messageId || a.emoji || '', max);
+    case 'activate_channel_bridge':
+      return a.active === false ? 'deactivate' : 'activate';
+    case 'inject_command':
+      return truncateToolText(firstText(a.command, a.text, a.name), max);
+    case 'skill':
+    case 'skill_execute':
+    case 'skill_view':
+    case 'skills_list':
+    case 'use_skill':
+      return truncateToolText(firstText(a.name, a.skill, a.skill_name), max);
     default: {
-      try {
-        const s = JSON.stringify(a);
-        return truncateToolText(s, Math.min(max, 80));
-      } catch {
-        return '';
-      }
+      const primary = firstText(a.name, a.skill, a.query, a.title, a.path, a.file, a.target, a.id, a.action);
+      if (primary) return truncateToolText(primary, Math.min(max, 80));
+      // Last resort: compact key=value of at most the first 2 own keys.
+      // Never JSON.stringify the whole object.
+      const keys = Object.keys(a).slice(0, 2);
+      const pairs = keys
+        .map((key) => {
+          const value = a[key];
+          if (value == null || typeof value === 'object') return '';
+          const text = truncateToolText(value, 40);
+          return text ? `${key}=${text}` : '';
+        })
+        .filter(Boolean);
+      return compactParts(pairs);
     }
   }
 }
@@ -293,6 +326,115 @@ export function formatToolSurface(name, args, opts = {}) {
     normalizedName: normalizeToolName(name),
     args: parsed,
   };
+}
+
+function pluralize(count, singular, pluralText = `${singular}s`) {
+  return count === 1 ? singular : pluralText;
+}
+
+function countNonEmptyLines(text) {
+  return String(text ?? '')
+    .split('\n')
+    .filter((line) => line.trim()).length;
+}
+
+/** Heuristic: does the text look like a line-oriented listing rather than prose? */
+function looksLineOriented(text) {
+  const lines = String(text ?? '').split('\n').filter((line) => line.trim());
+  if (lines.length === 0) return false;
+  // Prose tends to be a few long sentences; listings are many shorter rows.
+  const longLines = lines.filter((line) => line.trim().length > 200).length;
+  return longLines === 0;
+}
+
+/**
+ * Derive a short semantic one-liner for a completed tool call using only the
+ * tool name, parsed args, and the raw result text. Returns null when nothing
+ * reliable can be derived, so the caller falls back to the raw result block.
+ */
+export function summarizeToolResult(name, args, resultText, isError = false) {
+  if (isError) return null;
+  const text = String(resultText ?? '');
+  const trimmed = text.trim();
+  const normalized = normalizeToolName(name);
+
+  switch (normalized) {
+    case 'read':
+    case 'view_image':
+    case 'read_mcp_resource': {
+      if (/^\[image:/i.test(trimmed)) return 'Read image';
+      if (!trimmed) return null;
+      const n = text.split('\n').length;
+      return `Read ${n} ${pluralize(n, 'line')}`;
+    }
+    case 'write':
+    case 'edit':
+    case 'apply_patch': {
+      // Prefer explicit additions/removals hints if the result text states them.
+      const add = /(\d+)\s+addition/i.exec(text);
+      const rem = /(\d+)\s+removal/i.exec(text);
+      if (add || rem) {
+        const a = add ? Number(add[1]) : 0;
+        const r = rem ? Number(rem[1]) : 0;
+        return `Updated · +${a} -${r}`;
+      }
+      // Else count unified-diff style +/- lines (ignore +++/--- file headers).
+      let a = 0;
+      let r = 0;
+      for (const line of text.split('\n')) {
+        if (/^\+\+\+|^---/.test(line)) continue;
+        if (/^\+/.test(line)) a += 1;
+        else if (/^-/.test(line)) r += 1;
+      }
+      if (a > 0 || r > 0) return `Updated · +${a} -${r}`;
+      return null;
+    }
+    case 'grep': {
+      if (!trimmed || !looksLineOriented(text)) return null;
+      const n = countNonEmptyLines(text);
+      if (n === 0) return null;
+      return `Found ${n} ${pluralize(n, 'match', 'matches')}`;
+    }
+    case 'glob': {
+      if (!trimmed || !looksLineOriented(text)) return null;
+      const n = countNonEmptyLines(text);
+      if (n === 0) return null;
+      return `Found ${n} ${pluralize(n, 'file')}`;
+    }
+    case 'bash':
+    case 'bash_session':
+    case 'shell_command': {
+      if (!trimmed) return '(no output)';
+      return null;
+    }
+    case 'code_graph': {
+      const match = /(\d+)\s+(references|definitions|symbols|callers|callees|results|matches)/i.exec(text);
+      if (match) return `Found ${match[1]} ${match[2].toLowerCase()}`;
+      return null;
+    }
+    case 'web_fetch':
+    case 'fetch': {
+      // Status: require a status-like context (HTTP NNN, "Status: NNN",
+      // or "NNN OK"/"NNN Not Found") rather than any bare 3-digit number.
+      const status = /(?:HTTP[\s/]*\d?\.?\d?\s*|status[:\s]+)([1-5]\d{2})\b/i.exec(text)
+        || /\b([1-5]\d{2})\s+(?:OK|Not\s+Found|Forbidden|Moved|Found|Created|No\s+Content|Bad\s+Request|Unauthorized|Internal)/.exec(text);
+      const size = /\b(\d+(?:\.\d+)?\s?(?:[KMGT]?B|bytes))\b/i.exec(text);
+      if (size && status) return `Received ${size[1]} (${status[1]})`;
+      if (size) return `Received ${size[1]}`;
+      if (status) return `Received (${status[1]})`;
+      return null;
+    }
+    case 'search': {
+      const match = /(\d+)\s+results?/i.exec(text);
+      if (match) {
+        const n = Number(match[1]);
+        return `Found ${n} ${pluralize(n, 'result')}`;
+      }
+      return null;
+    }
+    default:
+      return null;
+  }
 }
 
 export function isExplorerSurface(label) {

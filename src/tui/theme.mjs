@@ -21,11 +21,11 @@ export const theme = {
   thinkingText: 'rgb(215,119,87)',
   thinkingGlow: 'rgb(235,159,127)',
   statusText: 'rgb(198,198,198)',
-  statusSubtle: 'rgb(136,136,136)',
+  statusSubtle: 'rgb(168,168,168)',
   text: 'rgb(198,198,198)', // Claude Code-like primary text
   inverseText: 'rgb(0,0,0)', // text on an inverted (light) background
   inactive: 'rgb(136,136,136)', // secondary text
-  subtle: 'rgb(104,104,104)', // helper text / quiet rules
+  subtle: 'rgb(140,140,140)', // helper text / quiet rules
   promptBorder: 'rgb(158,158,158)', // input border / prompt
   success: 'rgb(36,173,91)', // dense Claude-like green accent
   error: 'rgb(239,68,88)', // dense Claude-like red accent

@@ -39,6 +39,8 @@ const render = (node, options) => {
         // [mixdog fork] read the text under the current selection rect (the cells
         // the highlight covers), used to copy to the clipboard on drag-release.
         getSelectionText: () => instance.selectedText,
+        // [mixdog fork] resolve the word rect at a cell for double-click select.
+        getWordRectAt: (x, y) => instance.getWordRectAt(x, y),
     };
 };
 export default render;

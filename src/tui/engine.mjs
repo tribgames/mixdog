@@ -140,6 +140,7 @@ function toolGroupKey(name, args) {
     case 'web_fetch':
     case 'fetch':
     case 'download_attachment':
+    case 'crawl':
       return 'fetch';
     case 'bash':
     case 'bash_session':
@@ -172,6 +173,7 @@ function toolGroupKey(name, args) {
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
     case 'cwd':
+    case 'setup':
       return 'setup';
     case 'request_user_input':
       return 'ask_user';
@@ -180,6 +182,8 @@ function toolGroupKey(name, args) {
     case 'reply':
     case 'react':
     case 'edit_message':
+    case 'activate_channel_bridge':
+    case 'inject_command':
       return 'channel';
     case 'code_graph': {
       const a = parseToolArgs(args);
@@ -606,10 +610,21 @@ export async function createEngineSession({
     draining = true;
     try {
       while (pending.length > 0) {
-        const next = pending.shift();
-        set({ queued: state.queued.filter((q) => q.id !== next.id) });
-        pushItem({ kind: 'user', id: next.id, text: next.text });
-        await runTurn(next.text);
+        // Drain the WHOLE queue at once and merge into a single turn, so
+        // multiple steering messages (including duplicates) are sent together
+        // instead of running one isolated turn each. Anything enqueued while
+        // this turn runs is picked up — again merged — on the next loop pass.
+        const batch = pending.splice(0);
+        const ids = new Set(batch.map((e) => e.id));
+        set({ queued: state.queued.filter((q) => !ids.has(q.id)) });
+        for (const entry of batch) {
+          pushItem({ kind: 'user', id: entry.id, text: entry.text });
+        }
+        const merged = batch
+          .map((entry) => entry.text)
+          .filter((text) => String(text || '').trim())
+          .join('\n');
+        await runTurn(merged);
       }
     } finally {
       draining = false;
@@ -1151,10 +1166,10 @@ export async function createEngineSession({
         set({ commandBusy: false });
       }
     },
-    dispose: () => {
+    dispose: async () => {
       disposed = true;
       clearBridgeJobMonitors();
-      runtime.close('cli-react-exit');
+      await runtime.close('cli-react-exit');
       listeners.clear();
     },
   };

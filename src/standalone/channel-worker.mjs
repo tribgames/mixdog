@@ -1,7 +1,7 @@
-import { fork } from 'node:child_process';
+import { execFile, fork } from 'node:child_process';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const CHANNEL_TOOLS = new Set([
   'reply',
@@ -41,15 +41,28 @@ export function createStandaloneChannelWorker({
   let readyPromise = null;
   let readyResolve = null;
   let readyReject = null;
+  let stopPromise = null;
+  let inProcessMod = null;
+  let inProcessStartPromise = null;
   let nextCallId = 1;
   const pending = new Map();
   const logPath = join(dataDir, 'channels-worker-standalone.log');
+  const useProcessWorker = process.env.MIXDOG_CHANNEL_WORKER_PROCESS === '1';
 
   function status() {
+    if (!useProcessWorker) {
+      return {
+        running: Boolean(inProcessMod),
+        pid: inProcessMod ? process.pid : null,
+        pending: 0,
+        mode: 'in-process',
+      };
+    }
     return {
       running: Boolean(child && child.exitCode == null && !child.killed),
       pid: child?.pid || null,
       pending: pending.size,
+      mode: 'worker',
     };
   }
 
@@ -62,6 +75,7 @@ export function createStandaloneChannelWorker({
   }
 
   function start() {
+    if (!useProcessWorker) return startInProcess();
     if (child && child.exitCode == null && !child.killed) return readyPromise || Promise.resolve(status());
     readyPromise = new Promise((resolve, reject) => {
       readyResolve = resolve;
@@ -132,9 +146,43 @@ export function createStandaloneChannelWorker({
     return readyPromise;
   }
 
+  async function startInProcess() {
+    if (inProcessMod) return status();
+    if (inProcessStartPromise) return inProcessStartPromise;
+    inProcessStartPromise = (async () => {
+      process.env.CLAUDE_PLUGIN_ROOT ??= rootDir;
+      process.env.CLAUDE_PLUGIN_DATA ??= dataDir;
+      process.env.MIXDOG_STANDALONE ??= '1';
+      process.env.MIXDOG_CHANNEL_FLAG ??= '1';
+      process.env.MIXDOG_CHANNELS_AUTO_BOOT = '0';
+      const mod = await import(pathToFileURL(entry).href);
+      if (typeof mod?.start !== 'function') throw new Error('channels runtime does not export start()');
+      await mod.start();
+      inProcessMod = mod;
+      return status();
+    })().finally(() => {
+      inProcessStartPromise = null;
+    });
+    return inProcessStartPromise;
+  }
+
   async function execute(name, args = {}, { timeoutMs = 120_000 } = {}) {
     if (!CHANNEL_TOOLS.has(name)) throw new Error(`unknown channel tool: ${name}`);
     await start();
+    if (!useProcessWorker) {
+      if (!inProcessMod?.handleToolCall) throw new Error('channels runtime is not running');
+      let timer = null;
+      try {
+        return await Promise.race([
+          inProcessMod.handleToolCall(name, args || {}),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`channels tool timed out: ${name}`)), timeoutMs);
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
     if (!child || !child.send) throw new Error('channels worker is not running');
     const callId = `ch_${nextCallId++}`;
     return await new Promise((resolve, reject) => {
@@ -152,16 +200,70 @@ export function createStandaloneChannelWorker({
     });
   }
 
+  function forceKillTree(pid) {
+    if (!pid) return;
+    if (process.platform === 'win32') {
+      execFile('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, () => {});
+      return;
+    }
+    try { process.kill(pid, 'SIGKILL'); } catch {}
+  }
+
   function stop(reason = 'standalone shutdown') {
-    if (!child) return;
+    if (stopPromise) return stopPromise;
+    if (!useProcessWorker) {
+      if (!inProcessMod && !inProcessStartPromise) return Promise.resolve(false);
+      stopPromise = Promise.resolve(inProcessStartPromise)
+        .catch(() => null)
+        .then(async () => {
+          try { await inProcessMod?.stop?.(reason); } catch {}
+          inProcessMod = null;
+          return true;
+        })
+        .finally(() => {
+          stopPromise = null;
+        });
+      return stopPromise;
+    }
+    if (!child) return Promise.resolve(false);
     const target = child;
+    const targetPid = target.pid;
     child = null;
-    try { target.send?.({ type: 'shutdown', reason }); } catch {}
-    setTimeout(() => {
+    stopPromise = new Promise((resolve) => {
+      let settled = false;
+      const finish = (ok) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(termTimer);
+        clearTimeout(killTimer);
+        stopPromise = null;
+        resolve(ok);
+      };
+      const termTimer = setTimeout(() => {
+        try {
+          if (target.exitCode == null && !target.killed) target.kill('SIGTERM');
+        } catch {}
+      }, 1500);
+      const killTimer = setTimeout(() => {
+        try {
+          if (target.exitCode == null) forceKillTree(targetPid);
+        } catch {}
+        try {
+          if (target.exitCode == null && !target.killed) target.kill('SIGKILL');
+        } catch {}
+        finish(false);
+      }, 5000);
+      target.once('exit', () => finish(true));
+      target.once('error', () => finish(false));
       try {
-        if (target.exitCode == null && !target.killed) target.kill('SIGTERM');
-      } catch {}
-    }, 1500).unref?.();
+        target.send?.({ type: 'shutdown', reason }, () => {
+          try { target.disconnect?.(); } catch {}
+        });
+      } catch {
+        try { target.disconnect?.(); } catch {}
+      }
+    });
+    return stopPromise;
   }
 
   return {

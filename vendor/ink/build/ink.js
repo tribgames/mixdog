@@ -184,6 +184,9 @@ export default class Ink {
     // [mixdog fork] text under the current selection rect, refreshed every render
     // from the output grid. Read back via getSelectionText() on drag-release.
     selectedText = null;
+    // [mixdog fork] column-indexed cell values per grid row from the last frame,
+    // used by getWordRectAt() to compute word boundaries for double-click select.
+    lastPlainRows = null;
     constructor(options) {
         autoBind(this);
         this.options = options;
@@ -326,8 +329,32 @@ export default class Ink {
         }
         this.selectionRect = rect ?? null;
         if (!this.isUnmounted) {
-            this.onRender();
+            // Route drag-selection repaints through the throttled wrapper so
+            // per-cell mouse-motion events coalesce to maxFps instead of
+            // forcing an unthrottled full repaint per event (input lag fix).
+            this.rootNode.onRender();
         }
+    };
+    // [mixdog fork] Given a 0-based cell (x, y), return the inclusive rect of the
+    // word (maximal run of non-whitespace cells) on that single row, or null if
+    // the cell is whitespace/empty or out of range. Reuses the cached cell-value
+    // rows from the last render so it works without retaining the Output instance.
+    getWordRectAt = (x, y) => {
+        const rows = this.lastPlainRows;
+        if (!rows)
+            return null;
+        const cells = rows[y];
+        if (!Array.isArray(cells))
+            return null;
+        const isWordChar = (v) => !!v && !/^\s$/u.test(v);
+        if (!isWordChar(cells[x]))
+            return null;
+        let x1 = x, x2 = x;
+        while (x1 - 1 >= 0 && isWordChar(cells[x1 - 1]))
+            x1--;
+        while (x2 + 1 < cells.length && isWordChar(cells[x2 + 1]))
+            x2++;
+        return { x1, y1: y, x2, y2: y };
     };
     restoreLastOutput = () => {
         if (!this.interactive) {
@@ -367,10 +394,12 @@ export default class Ink {
             this.nextRenderCommit = undefined;
         }
         const startTime = performance.now();
-        const { output, outputHeight, staticOutput, cursor, selectedText } = render(this.rootNode, this.isScreenReaderEnabled, this.selectionRect);
+        const { output, outputHeight, staticOutput, cursor, selectedText, plainRows } = render(this.rootNode, this.isScreenReaderEnabled, this.selectionRect);
         // [mixdog fork] Cache the text under the current selection rect so the App
         // can read it back on drag-release to copy it to the OS clipboard.
         this.selectedText = selectedText ?? null;
+        // [mixdog fork] Cache per-row cell values for double-click word lookup.
+        this.lastPlainRows = plainRows ?? null;
         this.options.onRender?.({ renderTime: performance.now() - startTime });
         // [mixdog fork] Drive the hardware cursor from the anchored input node's
         // real render-time position, computed fresh every frame. This replaces

@@ -2,6 +2,29 @@ import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { maxMtime, maxMtimeRecursive } from '../cache-mtime.mjs';
+import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
+
+// --- mixdog asset roots (standalone CLI owns its own paths; never .claude) ---
+// Project-local:  <cwd>/.mixdog/<kind>
+// User-global:    <pluginData>/<kind>   (e.g. ~/.mixdog/data/<kind>)
+function mixdogGlobalDir(kind) {
+    try {
+        return join(resolvePluginData(), kind);
+    } catch {
+        return join(homedir(), '.mixdog', 'data', kind);
+    }
+}
+function mixdogProjectDir(projectDir, kind) {
+    return projectDir ? join(projectDir, '.mixdog', kind) : null;
+}
+/** Ordered asset search dirs for a kind: project-local first, then global. */
+function mixdogAssetDirs(projectDir, kind) {
+    const dirs = [];
+    const local = mixdogProjectDir(projectDir, kind);
+    if (local) dirs.push(local);
+    dirs.push(mixdogGlobalDir(kind));
+    return dirs;
+}
 // Built-in role-identity defaults for the well-known PUBLIC bridge roles.
 // Mirrors setup.html's WF_DEFAULT_ROLE_IDENTITY so the role-identity feature
 // works on a fresh install (no roles/<role>.md on disk) without forcing the
@@ -29,39 +52,15 @@ export function loadAgentTemplate(name, cwd) {
     // directory into the cache key and fragment the shard per caller workspace.
     const projectDir = (typeof cwd === 'string' && cwd.length > 0) ? cwd : null;
     const key = `${name}|${projectDir ?? '__noproject__'}`;
-    // Search paths for agent files. Drop the <projectDir>/.claude/agents
-    // entry when cwd is missing; home-level + plugin walk still apply so the
-    // function's "no template found → null" contract is preserved via the
-    // normal readSafe loop below.
-    const searchPaths = [];
-    if (projectDir) {
-        searchPaths.push(join(projectDir, '.claude', 'agents', `${name}.md`));
-    }
-    searchPaths.push(join(homedir(), '.claude', 'agents', `${name}.md`));
-    // Derive the set of directories that gate freshness. Include both the
-    // containing agents/ dirs and the plugin marketplaces root so any
-    // addition/removal of nested agent files is detected.
-    const mtimePaths = [];
-    if (projectDir) mtimePaths.push(join(projectDir, '.claude', 'agents'));
-    mtimePaths.push(join(homedir(), '.claude', 'agents'));
-    // Also search plugin agent directories — precise sentinels only, no
-    // full marketplaces tree walk.
-    const pluginAgentDirs = [];
-    // 1. Cache layout: CLAUDE_PLUGIN_ROOT points to the live versioned dir.
-    const _pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
-    if (_pluginRoot) {
-        const cacheAgentsDir = join(_pluginRoot, 'agents');
-        searchPaths.push(join(cacheAgentsDir, `${name}.md`));
-        pluginAgentDirs.push(cacheAgentsDir);
-    }
-    // 2. Dev-sync / source layout: marketplaces/trib-plugin/agents.
-    const devSyncAgentsDir = join(homedir(), '.claude', 'plugins', 'marketplaces', 'trib-plugin', 'agents');
-    searchPaths.push(join(devSyncAgentsDir, `${name}.md`));
-    pluginAgentDirs.push(devSyncAgentsDir);
-    // maxMtimeRecursive only over the two precise agents/ sentinel dirs.
-    const mtime = pluginAgentDirs.length > 0
-        ? Math.max(maxMtimeRecursive(mtimePaths), maxMtimeRecursive(pluginAgentDirs))
-        : maxMtimeRecursive(mtimePaths);
+    // Search paths for agent files (mixdog-owned only; never .claude).
+    // Project-local <cwd>/.mixdog/agents first, then user-global. When cwd is
+    // missing the project entry is skipped; the global dir still applies so the
+    // "no template found → null" contract is preserved via the readSafe loop.
+    const agentDirs = mixdogAssetDirs(projectDir, 'agents');
+    const searchPaths = agentDirs.map((dir) => join(dir, `${name}.md`));
+    // Freshness gate: the same agents/ dirs that hold the files.
+    const mtimePaths = [...agentDirs];
+    const mtime = maxMtimeRecursive(mtimePaths);
     const cached = _agentTemplateCache.get(key);
     if (cached && mtime <= cached.mtime) return cached.value;
     for (const p of searchPaths) {
@@ -89,10 +88,10 @@ export function collectSkills(cwd) {
     // shard key and fragment the cache.
     const projectDir = (typeof cwd === 'string' && cwd.length > 0) ? cwd : null;
     const skills = [];
-    const dirs = [];
-    if (projectDir) {
-        dirs.push(join(projectDir, '.claude', 'skills'));
-    }
+    // mixdog-owned only (never .claude): project-local <cwd>/.mixdog/skills
+    // first, then user-global. When cwd is missing, only the global dir is
+    // searched.
+    const dirs = mixdogAssetDirs(projectDir, 'skills');
     const seen = new Set();
     for (const dir of dirs) {
         if (!existsSync(dir))
@@ -130,9 +129,8 @@ const _MTIME_TTL_MS = 2000;
 export function collectSkillsCached(cwd) {
     const key = cwd ?? '';
     const projectDir = (typeof cwd === 'string' && cwd.length > 0) ? cwd : null;
-    const mtimePaths = [];
-    if (projectDir) mtimePaths.push(join(projectDir, '.claude', 'skills'));
-    const skillsDirs = [...mtimePaths];
+    // Same mixdog-owned dirs collectSkills() reads, used as the freshness gate.
+    const skillsDirs = mixdogAssetDirs(projectDir, 'skills');
     let mtime;
     const mtimeCached = _mtimeCache.get(key);
     if (mtimeCached && Date.now() - mtimeCached.checkedAt < _MTIME_TTL_MS) {
@@ -540,7 +538,7 @@ export function loadScopedRoleCatalog(role, provider = null) {
 //   - opts.agentTemplate  : agents/<role>.md body when authored
 //   - opts.taskBrief      : Lead-issued task description (Sub only)
 //   - opts.hasSkills      : true → skills_list hint
-//   - opts.memoryContext  : recap / history context
+//   - opts.coreMemoryContext : compact core memory context
 //
 // `profile.skip` still filters specific buckets (claudemd, skills, memory)
 // for backward compatibility with existing profiles.
@@ -585,11 +583,10 @@ export function composeSystemPrompt(opts) {
         : '';
 
     // ── BP4-adjacent: volatileTail (second user <system-reminder>, 5m) ──
-    // Per-call variance: role marker, permission, task brief. memoryContext
-    // is Lead-only (injected by hooks/session-start.cjs); bridge sessions
-    // never carry it. Keeping role/permission here (rather than in BP2)
-    // means cross-role bursts on the same project share BP1+BP2+BP3
-    // entirely — only this 5m volatile tail picks up the per-call variance.
+    // Per-call variance: role marker, permission, task brief, and compact
+    // core memory. Keeping role/permission here (rather than in BP2) means
+    // cross-role bursts on the same project share BP1+BP2+BP3 entirely —
+    // only this 5m volatile tail picks up the per-call variance.
     const volatileParts = [];
     if (opts.role && !opts.skipRoleReminder) {
         volatileParts.push('# role\n' + opts.role);
@@ -654,6 +651,9 @@ export function composeSystemPrompt(opts) {
         volatileParts.push('# role-identity\n' + roleIdentity);
     }
     if (opts.taskBrief) volatileParts.push('# task-brief\n' + opts.taskBrief);
+    if (opts.coreMemoryContext && typeof opts.coreMemoryContext === 'string' && opts.coreMemoryContext.trim()) {
+        volatileParts.push('# Core Memory\n' + opts.coreMemoryContext.trim());
+    }
     if (opts.cwd && typeof opts.cwd === 'string' && opts.cwd.trim()) {
         volatileParts.push(`cwd: ${opts.cwd.trim()}`);
     }

@@ -212,7 +212,7 @@ function renderResult(value) {
   return JSON.stringify(value, null, 2);
 }
 
-export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: defaultCwd }) {
+export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: defaultCwd, defaultMode: initialMode }) {
   const tags = new Map();
   const tagRoles = new Map();
   const tagCwds = new Map();
@@ -220,7 +220,9 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
   const reapTimers = new Map();
   let tagSeq = 0;
   let jobSeq = 0;
-  let defaultMode = 'sync';
+  // Inline normalization here (normalizeMode is defined below — avoid
+  // use-before-def). When nothing is injected, the Lead defaults to async.
+  let defaultMode = (String(initialMode ?? 'async').toLowerCase() === 'async') ? 'async' : 'sync';
 
   function normalizeMode(value) {
     const mode = clean(value).toLowerCase();

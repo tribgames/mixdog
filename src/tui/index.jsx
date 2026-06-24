@@ -129,7 +129,7 @@ export async function runTui({ provider, model, toolMode } = {}) {
   // Explicit exits go through /exit or /quit so teardown still restores the
   // cursor, mouse mode, and alternate screen cleanly.
   try {
-    const instance = render(<App store={store} initialStatusLine={initialStatusLine} />, { exitOnCtrlC: false, maxFps: 60 });
+    const instance = render(<App store={store} initialStatusLine={initialStatusLine} />, { exitOnCtrlC: false, maxFps: 120 });
     const { waitUntilExit } = instance;
     // [mixdog fork] Hand the ink renderer's drag-selection setter to the store so
     // App's mouse handler can push selection rectangles (absolute terminal cells)
@@ -141,6 +141,9 @@ export async function runTui({ provider, model, toolMode } = {}) {
     }
     if (mouseTracking && typeof instance.getSelectionText === 'function') {
       store.getRenderSelectionText = instance.getSelectionText;
+    }
+    if (mouseTracking && typeof instance.getWordRectAt === 'function') {
+      store.getWordRectAt = instance.getWordRectAt;
     }
     await waitUntilExit();
   } finally {

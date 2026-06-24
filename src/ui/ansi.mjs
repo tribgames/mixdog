@@ -1,7 +1,7 @@
 /**
  * src/ui/ansi.mjs — tiny ANSI color/style helpers (zero deps).
  *
- * Philosophy: pi-minimal. We write raw SGR escape sequences directly rather
+ * Philosophy: minimal. We write raw SGR escape sequences directly rather
  * than pull in chalk/kleur. Every helper is a `(text) => string` that wraps the
  * text in an escape pair and resets afterwards.
  *

@@ -140,12 +140,14 @@ export function PromptInput({
   onCommandPaletteCancel,
   onCommandPaletteComplete,
   submitPasteImmediately = false,
+  valueRef,
 }) {
   const [draft, setDraft] = useState(() => {
     const value = String(initialValue || '');
     return { value, cursor: value.length };
   });
   const draftRef = useRef(draft);
+  if (valueRef) valueRef.current = draftRef.current.value;
   const { isRawModeSupported } = useStdin();
   // The text box's ink DOM node. We mark it as the cursor anchor (forked ink
   // reads internal_cursorAnchor during render and parks the hardware cursor at
@@ -156,10 +158,30 @@ export function PromptInput({
   const { value, cursor } = draft;
   draftRef.current = draft;
 
+  // Bypass ink's render throttle for keystroke echo. ink coalesces renders to
+  // maxFps (leading+trailing throttle), so when typing faster than one frame the
+  // last chars land on the trailing timer — felt as input lag ("a beat behind").
+  // ink exposes an UNthrottled `onImmediateRender` on the ink-root node; walking
+  // the parent chain from our box and firing it flushes the new draft in the same
+  // tick. Guarded so a structure change in the ink fork degrades to throttled
+  // (slower) rendering, never a crash.
+  const flushImmediate = () => {
+    let node = boxRef.current;
+    for (let i = 0; node && i < 64; i++) {
+      if (node.nodeName === 'ink-root') {
+        if (typeof node.onImmediateRender === 'function') node.onImmediateRender();
+        return;
+      }
+      node = node.parentNode;
+    }
+  };
+
   const commitDraft = (next) => {
     draftRef.current = next;
     setDraft(next);
     onDraftChange?.(next.value);
+    if (valueRef) valueRef.current = next.value;
+    flushImmediate();
   };
 
   const updateDraft = (fn) => {

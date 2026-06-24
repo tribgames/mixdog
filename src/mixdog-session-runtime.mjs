@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { ensureStandaloneEnvironment } from './standalone/seeds.mjs';
 import { createStandaloneBridge } from './standalone/bridge-tool.mjs';
+import { EXPLORE_TOOL, runExplore } from './standalone/explore-tool.mjs';
 import { createStandaloneChannelWorker } from './standalone/channel-worker.mjs';
 import { createStandaloneHookBus } from './standalone/hook-bus.mjs';
 import { writeLastSessionCwd } from './runtime/shared/user-cwd.mjs';
@@ -945,6 +946,7 @@ export async function createMixdogSessionRuntime({
   });
 
   const cfgMod = await import(`${RUNTIME}/config.mjs`);
+  const sharedCfgMod = await import(`${RUNTIME}/../../shared/config.mjs`);
   const reg = await import(`${RUNTIME}/providers/registry.mjs`);
   const mcpClient = await import(`${RUNTIME}/mcp/client.mjs`);
   const mgr = await import(`${RUNTIME}/session/manager.mjs`);
@@ -974,11 +976,58 @@ export async function createMixdogSessionRuntime({
     return await codeGraphModPromise;
   }
 
+  function formatCoreMemoryLines(payload = {}) {
+    const seen = new Set();
+    const lines = [];
+    for (const value of [
+      ...(Array.isArray(payload.userLines) ? payload.userLines : []),
+      ...(Array.isArray(payload.dbLines) ? payload.dbLines : []),
+    ]) {
+      const text = clean(value).replace(/\s+/g, ' ');
+      if (!text) continue;
+      const key = text.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      lines.push(`- ${text}`);
+      if (lines.length >= 40) break;
+    }
+    const out = lines.join('\n');
+    const maxChars = 6000;
+    return out.length > maxChars ? `${out.slice(0, maxChars).replace(/\s+\S*$/, '')}\n- ...` : out;
+  }
+
+  async function loadCoreMemoryContext() {
+    // Boot should not pay for memory/PG startup unless explicitly requested.
+    // Recall and memory tools still initialize the memory service on first use.
+    if (process.env.MIXDOG_BOOT_CORE_MEMORY !== '1') return '';
+    let timer = null;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(''), 2000);
+      timer.unref?.();
+    });
+    try {
+      return await Promise.race([
+        (async () => {
+          const memoryMod = await getMemoryModule();
+          if (typeof memoryMod?.buildSessionCoreMemoryPayload !== 'function') return '';
+          return formatCoreMemoryLines(await memoryMod.buildSessionCoreMemoryPayload(currentCwd));
+        })(),
+        timeout,
+      ]);
+    } catch {
+      return '';
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   let config = cfgMod.loadConfig();
   let route = resolveRoute(config, { provider, model });
   let mode = normalizeToolMode(toolMode);
   let session = null;
   let currentCwd = cwd;
+  let closeRequested = false;
+  let channelStartTimer = null;
   const modelMetaByRoute = new Map();
   let mcpFailures = [];
   const hooks = createStandaloneHookBus({ dataDir: cfgMod.getPluginData() });
@@ -1034,7 +1083,7 @@ export async function createMixdogSessionRuntime({
     const cwdNorm = norm(currentCwd);
     const sourceForSkill = (filePath) => {
       const path = norm(filePath);
-      if (cwdNorm && path.startsWith(`${cwdNorm}/.claude/skills/`)) return 'project';
+      if (cwdNorm && path.startsWith(`${cwdNorm}/.mixdog/skills/`)) return 'project';
       return 'skill';
     };
     return {
@@ -1060,7 +1109,7 @@ export async function createMixdogSessionRuntime({
   function addProjectSkill(input = {}) {
     const name = clean(input.name).replace(/[^a-zA-Z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '');
     if (!name) throw new Error('skill name is required');
-    const dir = join(currentCwd, '.claude', 'skills', name);
+    const dir = join(currentCwd, '.mixdog', 'skills', name);
     const filePath = join(dir, 'SKILL.md');
     if (existsSync(filePath)) throw new Error(`skill already exists: ${name}`);
     const description = clean(input.description) || 'Project skill.';
@@ -1169,12 +1218,16 @@ export async function createMixdogSessionRuntime({
     return { name, config: { command, args, cwd: resolvedCwd } };
   }
 
+  const persistedBridgeMode = (() => {
+    try { return (sharedCfgMod.readSection('agent') || {}).bridgeMode; } catch { return undefined; }
+  })();
   const bridge = createStandaloneBridge({
     cfgMod,
     reg,
     mgr,
     dataDir: cfgMod.getPluginData(),
     cwd,
+    defaultMode: persistedBridgeMode ?? 'async',
   });
   const channels = createStandaloneChannelWorker({
     entry: join(STANDALONE_ROOT, CHANNEL_WORKER_ENTRY.replace(/^\.\//, '')),
@@ -1185,6 +1238,7 @@ export async function createMixdogSessionRuntime({
   const standaloneTools = [
     TOOL_SEARCH_TOOL,
     CWD_TOOL,
+    EXPLORE_TOOL,
     ...(searchMod?.TOOL_DEFS || []).filter((tool) => tool?.name === 'search' || tool?.name === 'web_fetch'),
     ...(memoryToolDefs?.TOOL_DEFS || []).filter((tool) => tool?.name === 'recall' || tool?.name === 'memory'),
     ...(channelToolDefs?.TOOL_DEFS || []).filter((tool) => channels.isChannelTool(tool?.name)),
@@ -1211,6 +1265,12 @@ export async function createMixdogSessionRuntime({
         return await codeGraphMod.executeCodeGraphTool(name, args || {}, args?.cwd || callerCwd);
       }
       if (name === 'tool_search') return renderToolSearch(args, session, mode);
+      if (name === 'explore') {
+        return await runExplore(args || {}, {
+          callerCwd: args?.cwd ? resolveCwdPath(currentCwd, args.cwd) : callerCwd,
+          callerSessionId: callerCtx?.callerSessionId || session?.id || null,
+        });
+      }
       if (name === 'cwd') {
         const action = clean(args?.action || (args?.path ? 'set' : 'get')).toLowerCase();
         if (action === 'set') {
@@ -1232,7 +1292,6 @@ export async function createMixdogSessionRuntime({
   });
   internalTools.markBootReady?.();
   await connectConfiguredMcp();
-  channels.start().catch(() => {});
 
   function reloadChannelsSoon() {
     channels.execute('reload_config', {}).catch(() => {});
@@ -1366,6 +1425,7 @@ export async function createMixdogSessionRuntime({
     if (!providerImpl) {
       throw new Error(`Provider "${route.provider}" is not configured.`);
     }
+    const coreMemoryContext = await loadCoreMemoryContext();
     const sessionOpts = {
       provider: route.provider,
       model: route.model,
@@ -1377,6 +1437,7 @@ export async function createMixdogSessionRuntime({
       sourceName: 'main',
       disallowedTools: ['diagnostics', 'open_config'],
       cwd: currentCwd,
+      coreMemoryContext,
     };
     if (hasOwn(route, 'effort') || route.effectiveEffort) {
       sessionOpts.effort = route.effectiveEffort || null;
@@ -1394,7 +1455,25 @@ export async function createMixdogSessionRuntime({
     return session;
   }
 
+  function withTeardownDeadline(promise, ms, fallback = false) {
+    let timer = null;
+    return Promise.race([
+      Promise.resolve(promise),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+      }),
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+  }
+
   await recreateCurrentSessionIfReady();
+  channelStartTimer = setTimeout(() => {
+    channelStartTimer = null;
+    if (closeRequested) return;
+    channels.start().catch(() => {});
+  }, 500);
+  channelStartTimer.unref?.();
 
   return {
     get id() {
@@ -1700,10 +1779,14 @@ export async function createMixdogSessionRuntime({
       return mode;
     },
     setBridgeMode(nextMode) {
-      return bridge.setDefaultMode(nextMode);
+      const applied = bridge.setDefaultMode(nextMode);
+      try { sharedCfgMod.updateSection('agent', (s) => ({ ...(s || {}), bridgeMode: applied })); } catch {}
+      return applied;
     },
     toggleBridgeMode() {
-      return bridge.toggleDefaultMode();
+      const applied = bridge.toggleDefaultMode();
+      try { sharedCfgMod.updateSection('agent', (s) => ({ ...(s || {}), bridgeMode: applied })); } catch {}
+      return applied;
     },
     bridgeControl(args = {}) {
       return bridge.execute(args, { callerCwd: currentCwd });
@@ -1932,14 +2015,26 @@ export async function createMixdogSessionRuntime({
       }
       return route;
     },
-    close(reason = 'cli-exit') {
-      channels.stop(reason);
-      bridge.closeAll(reason);
-      mcpClient.disconnectAll?.().catch(() => {});
-      if (!session?.id) return false;
-      statusRoutes?.clearGatewaySessionRoute?.(session.id);
-      const ok = mgr.closeSession(session.id, reason);
-      session = null;
+    async close(reason = 'cli-exit') {
+      closeRequested = true;
+      if (channelStartTimer) {
+        clearTimeout(channelStartTimer);
+        channelStartTimer = null;
+      }
+      const channelStop = channels.stop(reason);
+      try { bridge.closeAll(reason); } catch {}
+      let mcpStop = null;
+      try { mcpStop = mcpClient.disconnectAll?.(); } catch {}
+      let ok = false;
+      if (session?.id) {
+        statusRoutes?.clearGatewaySessionRoute?.(session.id);
+        ok = mgr.closeSession(session.id, reason);
+        session = null;
+      }
+      await Promise.allSettled([
+        withTeardownDeadline(channelStop, 5500, false),
+        withTeardownDeadline(mcpStop, 1500, false),
+      ]);
       return ok;
     },
     abort(reason = 'cli-abort') {

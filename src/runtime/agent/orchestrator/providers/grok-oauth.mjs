@@ -22,7 +22,7 @@
  */
 import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
-import { readFileSync, existsSync, mkdirSync, statSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { getPluginData } from '../config.mjs';
@@ -294,6 +294,57 @@ export function hasGrokOAuthCredentials() {
         const tokens = loadTokens();
         return !!(tokens?.access_token && tokens?.refresh_token);
     } catch { return false; }
+}
+
+export function describeGrokOAuthCredentials() {
+    try {
+        const tokens = loadTokens();
+        if (!tokens?.access_token) {
+            return { authenticated: false, status: 'Not Set', detail: '~/.grok/auth.json or mixdog token store' };
+        }
+        const hasRefresh = Boolean(tokens.refresh_token);
+        const expiresAt = _normalizeExpiresAt(tokens.expires_at);
+        const expiring = expiresAt > 0 && expiresAt < Date.now() + TOKEN_REFRESH_SKEW_MS;
+        const expired = expiresAt > 0 && expiresAt <= Date.now();
+        const detail = tokens.source || 'oauth';
+        if (!hasRefresh) {
+            return {
+                authenticated: expiresAt === 0 || !expired,
+                status: expired ? 'Reauth Required' : 'Access Only',
+                detail: `${detail}; no refresh token`,
+                expiresAt,
+            };
+        }
+        if (expired) return { authenticated: true, status: 'Refresh Required', detail, expiresAt };
+        if (expiring) return { authenticated: true, status: 'Refresh Soon', detail, expiresAt };
+        return { authenticated: true, status: 'Valid', detail, expiresAt };
+    } catch (err) {
+        return { authenticated: false, status: 'Error', detail: String(err?.message || err).slice(0, 200) };
+    }
+}
+
+export function forgetGrokOAuthCredentials() {
+    let removed = false;
+    const ownPath = getOwnTokenPath();
+    if (existsSync(ownPath)) {
+        unlinkSync(ownPath);
+        removed = true;
+    }
+    const cliPath = grokCliAuthPath();
+    if (existsSync(cliPath)) {
+        try {
+            const raw = JSON.parse(readFileSync(cliPath, 'utf-8'));
+            const key = `${ISSUER}::${CLIENT_ID}`;
+            if (raw?.[key]) {
+                delete raw[key];
+                writeJsonAtomicSync(cliPath, raw, { lock: true, fsyncDir: true });
+                removed = true;
+            }
+        } catch (err) {
+            throw new Error(`Grok OAuth reset failed for ${cliPath}: ${err?.message || err}`);
+        }
+    }
+    return { removed };
 }
 
 // Write rotated tokens back to the Grok CLI store (~/.grok/auth.json) so the
@@ -728,12 +779,18 @@ export async function loginOAuth() {
     url.searchParams.set('code_challenge_method', 'S256');
     url.searchParams.set('plan', 'generic');
     url.searchParams.set('referrer', 'mixdog');
-    process.stderr.write(`\n[grok-oauth] Open this URL to log in (consent shows as "Grok Build"):\n${url.toString()}\n\n`);
-        const { openInBrowser } = await import('../../../shared/open-url.mjs');
-        openInBrowser(url.toString());
 
-    return new Promise((resolve) => {
-        const timeout = setTimeout(() => { server.close(); resolve(null); }, LOGIN_TIMEOUT_MS);
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        let timeout = null;
+        const settle = (value, error = null) => {
+            if (settled) return;
+            settled = true;
+            if (timeout) clearTimeout(timeout);
+            try { server.close(); } catch { /* already closed */ }
+            if (error) reject(error);
+            else resolve(value);
+        };
         const server = createServer(async (req, res) => {
             const u = new URL(req.url || '/', `http://${CALLBACK_HOST}:${CALLBACK_PORT}`);
             if (u.pathname !== CALLBACK_PATH) {
@@ -745,15 +802,11 @@ export async function loginOAuth() {
             if (!code || u.searchParams.get('state') !== state) {
                 res.writeHead(400);
                 res.end('Invalid');
-                clearTimeout(timeout);
-                server.close();
-                resolve(null);
+                settle(null);
                 return;
             }
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end('<html><body><h2>Grok login successful! You can close this tab.</h2></body></html>');
-            clearTimeout(timeout);
-            server.close();
             try {
                 const tokenRes = await fetch(discovery.token_endpoint, {
                     method: 'POST',
@@ -775,9 +828,16 @@ export async function loginOAuth() {
                     redirect: 'error',
                     signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
                 });
-                if (!tokenRes.ok) { resolve(null); return; }
+                if (!tokenRes.ok) {
+                    const text = await tokenRes.text().catch(() => '');
+                    settle(null, new Error(`[grok-oauth] token exchange ${tokenRes.status}: ${_scrubTokens(text).slice(0, 500)}`));
+                    return;
+                }
                 const json = await tokenRes.json();
-                if (!json.access_token || !json.refresh_token) { resolve(null); return; }
+                if (!json.access_token || !json.refresh_token) {
+                    settle(null, new Error('[grok-oauth] token exchange response missing access_token or refresh_token'));
+                    return;
+                }
                 const tokens = {
                     access_token: json.access_token,
                     refresh_token: json.refresh_token,
@@ -787,12 +847,21 @@ export async function loginOAuth() {
                     token_endpoint: discovery.token_endpoint,
                 };
                 saveTokens(tokens);
-                resolve(tokens);
-            } catch {
-                resolve(null);
+                settle(tokens);
+            } catch (err) {
+                settle(null, err instanceof Error ? err : new Error(String(err)));
             }
         });
-        server.listen(CALLBACK_PORT, CALLBACK_HOST);
-        server.on('error', () => { clearTimeout(timeout); resolve(null); });
+        timeout = setTimeout(() => settle(null), LOGIN_TIMEOUT_MS);
+        server.listen(CALLBACK_PORT, CALLBACK_HOST, async () => {
+            process.stderr.write(`\n[grok-oauth] Open this URL to log in (consent shows as "Grok Build"):\n${url.toString()}\n\n`);
+            try {
+                const { openInBrowser } = await import('../../../shared/open-url.mjs');
+                openInBrowser(url.toString());
+            } catch (err) {
+                process.stderr.write(`[grok-oauth] browser open failed: ${String(err?.message || err).slice(0, 200)}\n`);
+            }
+        });
+        server.on('error', (err) => settle(null, new Error(`[grok-oauth] callback server failed on ${CALLBACK_HOST}:${CALLBACK_PORT}: ${err?.message || err}`)));
     });
 }

@@ -907,6 +907,7 @@ export function createSession(opts) {
         skipRoleReminder: opts.skipRoleReminder || false,
         permission,
         taskBrief: opts.taskBrief || null,
+        coreMemoryContext: opts.coreMemoryContext || null,
         projectContext: projectContext || null,
         tools: toolsForRouting,
         bashIsPersistent: opts.owner === 'bridge' && toolsForRouting.some(t => t?.name === 'bash'),

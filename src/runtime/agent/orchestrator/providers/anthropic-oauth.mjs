@@ -443,6 +443,55 @@ export function hasAnthropicOAuthCredentials() {
     return Array.isArray(creds.scopes) && creds.scopes.includes('user:inference');
 }
 
+export function describeAnthropicOAuthCredentials() {
+    try {
+        const creds = loadCredentials();
+        if (!creds?.accessToken) {
+            return { authenticated: false, status: 'Not Set', detail: '~/.claude/.credentials.json' };
+        }
+        const hasInferenceScope = Array.isArray(creds.scopes) && creds.scopes.includes('user:inference');
+        const hasRefresh = Boolean(creds.refreshToken);
+        const expiresAt = _normalizeExpiresAt(creds.expiresAt);
+        const expiring = expiresAt > 0 && expiresAt < Date.now() + TOKEN_REFRESH_SKEW_MS;
+        const expired = expiresAt > 0 && expiresAt <= Date.now();
+        const detail = creds.path || '~/.claude/.credentials.json';
+        if (!hasInferenceScope) {
+            return { authenticated: false, status: 'Missing Scope', detail, expiresAt };
+        }
+        if (!hasRefresh) {
+            return {
+                authenticated: expiresAt === 0 || !expired,
+                status: expired ? 'Reauth Required' : 'Access Only',
+                detail: `${detail}; no refresh token`,
+                expiresAt,
+            };
+        }
+        if (expired) return { authenticated: true, status: 'Refresh Required', detail, expiresAt };
+        if (expiring) return { authenticated: true, status: 'Refresh Soon', detail, expiresAt };
+        return { authenticated: true, status: 'Valid', detail, expiresAt };
+    } catch (err) {
+        return { authenticated: false, status: 'Error', detail: String(err?.message || err).slice(0, 200) };
+    }
+}
+
+export function forgetAnthropicOAuthCredentials() {
+    let removed = false;
+    for (const path of credentialCandidates()) {
+        if (!existsSync(path)) continue;
+        try {
+            const raw = JSON.parse(readFileSync(path, 'utf-8'));
+            if (raw?.claudeAiOauth) {
+                delete raw.claudeAiOauth;
+                _saveCredentialsFile(path, raw);
+                removed = true;
+            }
+        } catch (err) {
+            throw new Error(`Anthropic OAuth reset failed for ${path}: ${err?.message || err}`);
+        }
+    }
+    return { removed };
+}
+
 function _normalizeExpiresAt(value) {
     if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0;
     return value < 1e12 ? value * 1000 : value;
@@ -1946,12 +1995,18 @@ export async function loginOAuth() {
     url.searchParams.set('code_challenge', pkce.challenge);
     url.searchParams.set('code_challenge_method', 'S256');
     url.searchParams.set('state', state);
-    process.stderr.write(`\n[anthropic-oauth] Open this URL to log in with Claude:\n${url.toString()}\n\n`);
-    const { openInBrowser } = await import('../../../shared/open-url.mjs');
-    openInBrowser(url.toString());
 
-    return new Promise((resolve) => {
-        const timeout = setTimeout(() => { server.close(); resolve(null); }, OAUTH_LOGIN_TIMEOUT_MS);
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        let timeout = null;
+        const settle = (value, error = null) => {
+            if (settled) return;
+            settled = true;
+            if (timeout) clearTimeout(timeout);
+            try { server.close(); } catch { /* already closed */ }
+            if (error) reject(error);
+            else resolve(value);
+        };
         const server = createServer(async (req, res) => {
             const u = new URL(req.url || '/', `http://${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}`);
             if (u.pathname !== OAUTH_CALLBACK_PATH) {
@@ -1963,15 +2018,11 @@ export async function loginOAuth() {
             if (!code || u.searchParams.get('state') !== state) {
                 res.writeHead(400);
                 res.end('Invalid');
-                clearTimeout(timeout);
-                server.close();
-                resolve(null);
+                settle(null);
                 return;
             }
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end('<html><body><h2>Claude login successful! You can close this tab.</h2></body></html>');
-            clearTimeout(timeout);
-            server.close();
             try {
                 const tokenRes = await fetch(TOKEN_URL, {
                     method: 'POST',
@@ -1992,11 +2043,18 @@ export async function loginOAuth() {
                     signal: AbortSignal.timeout(OAUTH_TOKEN_TIMEOUT_MS),
                     dispatcher: getLlmDispatcher(),
                 });
-                if (!tokenRes.ok) { resolve(null); return; }
+                if (!tokenRes.ok) {
+                    const text = await tokenRes.text().catch(() => '');
+                    settle(null, new Error(`[anthropic-oauth] token exchange ${tokenRes.status}: ${_scrubTokens(text).slice(0, 500)}`));
+                    return;
+                }
                 const json = await tokenRes.json();
                 const accessToken = json?.access_token || json?.accessToken;
                 const refreshToken = json?.refresh_token || json?.refreshToken;
-                if (!accessToken || !refreshToken) { resolve(null); return; }
+                if (!accessToken || !refreshToken) {
+                    settle(null, new Error('[anthropic-oauth] token exchange response missing access_token or refresh_token'));
+                    return;
+                }
                 const expiresAt = _normalizeExpiresAt(json?.expires_at ?? json?.expiresAt)
                     || (typeof json?.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0);
                 const scopes = _oauthParseScopeField(json?.scope);
@@ -2023,12 +2081,21 @@ export async function loginOAuth() {
                     scopes,
                     subscriptionType: raw.claudeAiOauth.subscriptionType,
                 });
-            } catch {
-                resolve(null);
+            } catch (err) {
+                settle(null, err instanceof Error ? err : new Error(String(err)));
             }
         });
-        server.listen(OAUTH_CALLBACK_PORT, OAUTH_CALLBACK_HOST);
-        server.on('error', () => { clearTimeout(timeout); resolve(null); });
+        timeout = setTimeout(() => settle(null), OAUTH_LOGIN_TIMEOUT_MS);
+        server.listen(OAUTH_CALLBACK_PORT, OAUTH_CALLBACK_HOST, async () => {
+            process.stderr.write(`\n[anthropic-oauth] Open this URL to log in with Claude:\n${url.toString()}\n\n`);
+            try {
+                const { openInBrowser } = await import('../../../shared/open-url.mjs');
+                openInBrowser(url.toString());
+            } catch (err) {
+                process.stderr.write(`[anthropic-oauth] browser open failed: ${String(err?.message || err).slice(0, 200)}\n`);
+            }
+        });
+        server.on('error', (err) => settle(null, new Error(`[anthropic-oauth] callback server failed on ${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}: ${err?.message || err}`)));
     });
 }
 

@@ -15,8 +15,10 @@
  *     they fit after the previous segments (CC SpinnerAnimationRow).
  *   - progressive width gating: elapsed shown as soon as columns allow, tokens
  *     after 30s to avoid noisy short-turn counters.
- *   - token counter animation: smooth increment toward the current request's
- *     input/context token count. Output tokens are intentionally not shown.
+ *   - token counter animation: smooth increment toward the current turn's
+ *     output token count, shown Claude Code style as a single "<glyph> N
+ *     tokens" segment (CC SpinnerAnimationRow + SpinnerModeGlyph). The glyph
+ *     is mode-driven: up while requesting, down otherwise. Input totals hidden.
  *   - elided duration formatting (CC formatDuration: "0:25" after 60s).
  *   - mode prop: 'responding' | 'thinking' | 'tool-use' | 'tool-input' |
  *     'requesting' (default 'responding').
@@ -25,7 +27,7 @@ import React, { useRef } from 'react';
 import { Box, Text, useAnimation } from 'ink';
 import { theme } from '../theme.mjs';
 import { SPINNER_FRAMES } from '../spinner-verbs.mjs';
-import { UP_ARROW } from '../figures.mjs';
+import { UP_ARROW, DOWN_ARROW } from '../figures.mjs';
 
 const FRAME_MS = 130;
 // CC plays the frames forward, then in reverse — a smooth there-and-back sweep.
@@ -36,6 +38,8 @@ const STALL_TIMEOUT_MS = 3000;
 const STALL_FADE_MS = 2000; // CC fades red over 2s
 // Hint ("esc to interrupt") shown after this threshold.
 const SHOW_HINT_AFTER_MS = 30000;
+// CC gates the elapsed timer + token count behind this (SHOW_TOKENS_AFTER_MS).
+const SHOW_TOKENS_AFTER_MS = 30000;
 // Thinking shimmer starts after this delay (CC THINKING_DELAY_MS).
 const THINKING_DELAY_MS = 3000;
 
@@ -114,14 +118,14 @@ const SEP_WIDTH = 3; // stringWidth(' · ')
 const THINKING_WIDTH = 8; // 'thinking'
 const HINT_WIDTH = 16; // 'esc to interrupt'
 
-export function Spinner({ verb = 'Working', startedAt, inputTokens = 0, outputTokens = 0, tokens = 0, thinking = false, mode = 'responding', columns = 80 }) {
+export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens = 0, thinking = false, mode = 'responding', columns = 80 }) {
   useAnimation({ interval: FRAME_MS });
   const now = Date.now();
   const elapsedMs = startedAt ? Math.max(0, now - startedAt) : 0;
   const frame = Math.floor(elapsedMs / FRAME_MS);
   const lastGrowRef = useRef(now);
   const lastTokensRef = useRef(0);
-  const displayedInputRef = useRef(0);
+  const displayedOutputRef = useRef(0);
   // Stall smoothing refs (CC useStalledAnimation exponential fade)
   const stallSmoothRef = useRef(0);
   const lastStallTickRef = useRef(0);
@@ -197,19 +201,26 @@ export function Spinner({ verb = 'Working', startedAt, inputTokens = 0, outputTo
     return Math.round(ref.current);
   };
 
-  // Token counter animation — smooth increment toward the current request's
-  // input/context tokens. Do not display output tokens in the spinner meta.
-  const displayedInputTokens = advanceCounter(displayedInputRef, inputTokens);
+  // Token counter animation — Claude Code shows a single "<glyph> N tokens"
+  // segment (SpinnerAnimationRow + SpinnerModeGlyph). N is the output/response
+  // token count, smoothly incremented toward the current turn's value. The
+  // glyph is mode-driven: '↑' while requesting, '↓' otherwise (responding,
+  // thinking, tool-use, tool-input). Input token totals are not shown.
+  const displayedOutputTokens = advanceCounter(displayedOutputRef, targetOutputTokens);
 
-  const tokenText = displayedInputTokens > 0 ? `${UP_ARROW} ${formatNumber(displayedInputTokens)} tokens` : '';
+  const tokenGlyph = mode === 'requesting' ? UP_ARROW : DOWN_ARROW;
+  const tokenText = displayedOutputTokens > 0 ? `${tokenGlyph} ${formatNumber(displayedOutputTokens)} tokens` : '';
   const tokenW = tokenText.length;
 
   // Progressive width gating (CC SpinnerAnimationRow:
   //   show things left→right, each only if it fits after the previous ones).
-  // Timer shows immediately as columns allow; input tokens appear as soon as
-  // the provider reports usage; hint ("esc to interrupt") is gated behind
+  // Timer and token count are both gated behind SHOW_TOKENS_AFTER_MS (CC
+  // wantsTimerAndTokens); the hint ("esc to interrupt") is gated behind
   // SHOW_HINT_AFTER_MS so it doesn't crowd the line early.
   const showHintNow = elapsedMs > SHOW_HINT_AFTER_MS;
+  // Claude Code gates BOTH the elapsed timer and the token count behind
+  // SHOW_TOKENS_AFTER_MS (wantsTimerAndTokens). Short turns show neither.
+  const wantsTimerAndTokens = elapsedMs > SHOW_TOKENS_AFTER_MS;
   const avail = columns - messageLen - 5; // glyph(2) + ' (' + ')'
 
   const timerText = formatDuration(elapsedMs);
@@ -220,10 +231,10 @@ export function Spinner({ verb = 'Working', startedAt, inputTokens = 0, outputTo
   const showThinking = thinking && elapsedMs > THINKING_DELAY_MS && avail > usedW + THINKING_WIDTH;
   if (showThinking) usedW += THINKING_WIDTH;
 
-  const showTimer = avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + timerW;
+  const showTimer = wantsTimerAndTokens && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + timerW;
   if (showTimer) usedW += (usedW > 0 ? SEP_WIDTH : 0) + timerW;
 
-  const showTokens = tokenText && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + tokenW;
+  const showTokens = wantsTimerAndTokens && tokenText && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + tokenW;
   if (showTokens) usedW += (usedW > 0 ? SEP_WIDTH : 0) + tokenW;
 
   const showHint = showHintNow && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + HINT_WIDTH;

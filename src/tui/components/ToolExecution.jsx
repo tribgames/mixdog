@@ -10,11 +10,13 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
+import stringWidth from 'string-width';
 import { theme, TURN_MARKER } from '../theme.mjs';
 import {
   displayToolName as surfaceDisplayToolName,
   formatToolSurface,
   summarizeToolArgs as surfaceSummarizeToolArgs,
+  summarizeToolResult as surfaceSummarizeToolResult,
 } from '../../runtime/shared/tool-surface.mjs';
 
 const MIN_RESULT_LINE_CHARS = 24;
@@ -59,7 +61,9 @@ function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
       return copy('Editing', 'Edited', 'file');
     case 'grep':
     case 'glob':
+      return copy('Searching', 'Searched', 'file');
     case 'search':
+      return copy('Searching', 'Searched', 'search', 'searches');
     case 'tool_search':
       return copy('Searching', 'Searched', 'tool');
     case 'bash':
@@ -96,6 +100,20 @@ function fitResultLine(line, columns) {
   return text.length > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text;
 }
 
+/** Trim text from the end (by display width) so it fits maxWidth, appending '…'. */
+function truncateToWidth(text, maxWidth) {
+  const str = String(text ?? '');
+  if (maxWidth < 1) return '';
+  if (stringWidth(str) <= maxWidth) return str;
+  const chars = Array.from(str);
+  let out = '';
+  for (const ch of chars) {
+    if (stringWidth(out + ch + '…') > maxWidth) break;
+    out += ch;
+  }
+  return `${out}…`;
+}
+
 export function ToolExecution({ name, args, result, isError, expanded, globalExpanded = false, columns = 80, attached = false, count = 1, completedCount = 0 }) {
   const [blinkOn, setBlinkOn] = useState(true);
   const { label, summary, normalizedName } = formatToolSurface(name, args);
@@ -108,7 +126,13 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
   const lines = resultText ? resultText.split('\n') : [];
   const totalLines = lines.length;
   const shortOneLineResult = totalLines === 1 && String(resultText || '').length <= Math.max(40, Number(columns || 80) - 7);
-  const showResult = hasResult && (isError || expanded || (!grouped && shortOneLineResult));
+  // Semantic one-line summary derived purely from name/args/result text.
+  // Shown in the collapsed, non-error view in place of the raw result block.
+  const resultSummary = !pending && !grouped && hasResult
+    ? surfaceSummarizeToolResult(name, args, resultText, isError)
+    : null;
+  const showResultSummary = Boolean(resultSummary) && !expanded && !isError;
+  const showResult = hasResult && (isError || expanded || showResultSummary || (!grouped && shortOneLineResult));
   const expandable = totalLines > MAX_RESULT_LINES;
   const displayedLines = expanded ? lines : lines.slice(0, MAX_RESULT_LINES);
   const hiddenCount = totalLines - displayedLines.length;
@@ -128,21 +152,45 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
     ? statusCopy(normalizedName, label, groupCount, doneCount, pending, isError)
     : label;
   const summaryText = grouped ? '' : summary;
-  const showHeaderExpandHint = !expanded && !globalExpanded && (pending || hiddenCount > 0);
-  const expandHintColor = pending ? theme.thinkingText : TOOL_HINT_DONE_COLOR;
+  // When the semantic summary stands in for raw lines, still signal that the
+  // full detail can be expanded with ctrl+o.
+  const showHeaderExpandHint = !expanded && !globalExpanded && (pending || hiddenCount > 0 || showResultSummary);
+  const expandHintColor = TOOL_HINT_DONE_COLOR;
+
+  // Build a single-line header that never wraps: reserve width for the fixed
+  // trailing segments (pending dots + expand hint) plus the dot gutter and a
+  // 1-col Windows last-column safety margin, then truncate label/summary to fit.
+  const gutter = 2;
+  const hintText = showHeaderExpandHint ? ' (ctrl+o to expand)' : '';
+  const pendingMark = pending ? ' …' : '';
+  const avail = Math.max(
+    1,
+    (Number(columns) || 80) - 1 - gutter - stringWidth(pendingMark) - stringWidth(hintText),
+  );
+  let labelOut;
+  let summaryOut;
+  if (stringWidth(labelText) >= avail) {
+    labelOut = truncateToWidth(labelText, avail);
+    summaryOut = '';
+  } else {
+    labelOut = labelText;
+    const summaryBudget = avail - stringWidth(labelText) - (summaryText ? stringWidth(' ()') : 0);
+    summaryOut = summaryText
+      ? ` (${truncateToWidth(summaryText, Math.max(0, summaryBudget))})`
+      : '';
+  }
   return (
     <Box flexDirection="column" marginTop={attached ? 0 : 1}>
       <Box flexDirection="row">
         <Box flexShrink={0} minWidth={2}>
           <Text color={dotColor}>{dotText}</Text>
         </Box>
-        <Box flexShrink={0}>
-          <Text bold color={theme.text}>{labelText}</Text>
-        </Box>
-        {summaryText ? <Text color={theme.text}>{`(${summaryText})`}</Text> : null}
-        {pending ? <Text color={theme.inactive}>…</Text> : null}
-        {showHeaderExpandHint && !pending ? <Text color={theme.inactive}> </Text> : null}
-        {showHeaderExpandHint ? <Text color={expandHintColor}> {'(ctrl+o to expand)'}</Text> : null}
+        <Text wrap="truncate">
+          <Text bold color={theme.text}>{labelOut}</Text>
+          {summaryOut ? <Text color={theme.text}>{summaryOut}</Text> : null}
+          {pending ? <Text color={theme.inactive}>{' …'}</Text> : null}
+          {showHeaderExpandHint ? <Text color={expandHintColor}>{hintText}</Text> : null}
+        </Text>
       </Box>
 
       {showResult ? (
@@ -151,17 +199,19 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
             <Text color={theme.subtle}>{'  ⎿  '}</Text>
           </Box>
           <Box flexDirection="column" flexShrink={1} flexGrow={1}>
-            {displayedLines.length === 0 ? (
+            {showResultSummary ? (
+              <Text color={theme.subtle}>{fitResultLine(resultSummary, columns)}</Text>
+            ) : displayedLines.length === 0 ? (
               <Text color={theme.inactive}>(no output)</Text>
             ) : (
               displayedLines.map((line, i) => (
                 <Text key={i} color={resultColor}>{fitResultLine(line || ' ', columns)}</Text>
               ))
             )}
-            {clippedLineCount > 0 ? (
+            {!showResultSummary && clippedLineCount > 0 ? (
               <Text color={theme.subtle}>{`… (${clippedLineCount} long line${clippedLineCount === 1 ? '' : 's'} clipped to terminal width)`}</Text>
             ) : null}
-            {!expanded && hiddenCount > 0 ? (
+            {!showResultSummary && !expanded && hiddenCount > 0 ? (
               <Text color={TOOL_HINT_DONE_COLOR}>{`… (+${hiddenCount} more line${hiddenCount === 1 ? '' : 's'}) · ctrl+o expand all`}</Text>
             ) : null}
             {expanded && expandable ? (

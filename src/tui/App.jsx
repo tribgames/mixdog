@@ -363,6 +363,7 @@ export function App({ store, initialStatusLine = '' }) {
   const { isRawModeSupported, stdin, internal_eventEmitter: inkInput } = useStdin();
   const { stdout } = useStdout();
   const [exiting, setExiting] = useState(false);
+  const exitRequestedRef = useRef(false);
   const [resizeState, setResizeState] = useState(() => ({ ...terminalSize(stdout), epoch: 0 }));
   // scrollOffset = how many transcript ROWS we've scrolled UP from the bottom
   // (0 = pinned to the latest, showing the newest content). Mouse wheel adjusts
@@ -381,6 +382,7 @@ export function App({ store, initialStatusLine = '' }) {
   const [settingsPrompt, setSettingsPrompt] = useState(null);
   const [promptDraft, setPromptDraft] = useState('');
   const [promptDraftOverride, setPromptDraftOverride] = useState(null);
+  const promptValueRef = useRef('');
   const [promptHint, setPromptHint] = useState('');
   const [promptHintTone, setPromptHintTone] = useState('info');
   const [slashIndex, setSlashIndex] = useState(0);
@@ -394,6 +396,9 @@ export function App({ store, initialStatusLine = '' }) {
   // dragRef tracks an in-progress mouse text selection (see the mouse handler):
   // anchor = where the drag began, last = the latest cell, active = button held.
   const dragRef = useRef({ anchor: null, last: null, active: false, rect: null });
+  // lastClickRef tracks the previous left-press cell + time so the mouse handler
+  // can detect a double-click (same cell within 400ms) for word selection.
+  const lastClickRef = useRef({ x: -1, y: -1, t: 0 });
 
   // Copy the currently-highlighted selection to the OS clipboard. ink's fork
   // refreshed store.getRenderSelectionText() on the synchronous render that the
@@ -587,11 +592,38 @@ export function App({ store, initialStatusLine = '' }) {
         const baseButton = button & 3;
         const isMotion = (button & 32) !== 0;
         if (baseButton === 0 && press && !isMotion) {
+          // Double-click on a word: select just that word and copy it, reusing
+          // the existing selection/copy pipeline, then advance to the next event.
+          const now = Date.now();
+          const lc = lastClickRef.current;
+          // Treat a second press as a double-click when it lands on the same row
+          // within ~1 cell of the first press (terminals often report a slightly
+          // shifted column on the second click). Exact-cell matching made
+          // double-click word selection unreliable.
+          const isDouble = (now - lc.t) < 450
+            && lc.y === y
+            && Math.abs(lc.x - x) <= 1;
+          if (isDouble) {
+            // Consume this click so a following press is not mistaken for another
+            // double-click (avoids a stray single-cell selection flicker).
+            lastClickRef.current = { x: -1, y: -1, t: 0 };
+            const wr = store.getWordRectAt?.(x, y);
+            if (wr) {
+              const rect = linearSelection({ x: wr.x1, y: wr.y1 }, { x: wr.x2, y: wr.y2 });
+              stopSmoothScroll();
+              dragRef.current = { anchor: null, last: null, active: false, rect };
+              setSel?.(rect);
+              copySelection(rect);
+              continue;
+            }
+          }
+          lastClickRef.current = { x, y, t: now };
           // Left-button press: begin a new selection anchored here.
-          const rect = linearSelection({ x, y }, { x, y });
+          // Anchor the drag but do NOT paint a zero-width selection yet; a plain
+          // single click should not flash a one-cell highlight. The selection is
+          // only rendered once a drag actually extends past the anchor.
           stopSmoothScroll();
-          dragRef.current = { anchor: { x, y }, last: { x, y }, active: true, rect };
-          setSel?.(rect);
+          dragRef.current = { anchor: { x, y }, last: { x, y }, active: true, rect: null };
         } else if (baseButton === 0 && isMotion && dragRef.current.active) {
           // Drag motion: extend the selection to the current cell.
           dragRef.current.last = { x, y };
@@ -647,8 +679,21 @@ export function App({ store, initialStatusLine = '' }) {
   // freezes input for the teardown frame, so the final frame is clean before ink
   // unmounts. Exit just past the render throttle window so that frame flushes.
   const requestExit = useCallback(() => {
+    if (exitRequestedRef.current) return;
+    exitRequestedRef.current = true;
     setExiting(true);
-    setTimeout(() => { store.dispose?.(); exit(); }, 60);
+    setTimeout(() => {
+      let timer = null;
+      Promise.race([
+        Promise.resolve(store.dispose?.()),
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, 6500);
+        }),
+      ]).finally(() => {
+        if (timer) clearTimeout(timer);
+        exit();
+      });
+    }, 60);
   }, [store, exit]);
 
   // ESC → interrupt the running turn (keeps the steering queue). Only active
@@ -662,7 +707,7 @@ export function App({ store, initialStatusLine = '' }) {
   }, []);
 
   const restoreQueuedToPrompt = useCallback(() => {
-    const restored = store.restoreQueued?.(promptDraft);
+    const restored = store.restoreQueued?.(promptValueRef.current || promptDraft);
     if (!restored || restored.count === 0) {
       showPromptHint('no queued messages to restore', 'info');
       return false;
@@ -1296,12 +1341,12 @@ export function App({ store, initialStatusLine = '' }) {
       if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
       return `${Math.round(n)}`;
     };
-    const bar = (value, total = windowTokens) => {
-      const width = 16;
-      const d = Number(total || 0);
-      const filled = d ? Math.max(0, Math.min(width, Math.round((Number(value || 0) / d) * width))) : 0;
-      return `${'#'.repeat(filled)}${'-'.repeat(width - filled)}`;
-    };
+    const cachedRead = Number(usage.lastCachedReadTokens || 0);
+    const freshInput = Number(usage.lastInputTokens || 0);
+    const cacheDenom = cachedRead + freshInput;
+    const cacheHitRate = cacheDenom > 0
+      ? `${((cachedRead / cacheDenom) * 100).toFixed(0)}%`
+      : 'n/a';
     const roleLine = (label, key) => {
       const row = roles[key] || { count: 0, tokens: 0 };
       return `${label}: ${fmt(row.tokens)} tokens (${pct(row.tokens)}) · ${row.count || 0} messages`;
@@ -1311,7 +1356,7 @@ export function App({ store, initialStatusLine = '' }) {
       {
         value: 'summary',
         label: 'Context Usage',
-        description: `${bar(usedTokens)} ${fmt(usedTokens)}/${fmt(windowTokens)} (${pct(usedTokens)}) · ${fmt(freeTokens)} free · ${contextSource}`,
+        description: `${fmt(usedTokens)}/${fmt(windowTokens)} (${pct(usedTokens)}) · ${fmt(freeTokens)} free · ${contextSource}`,
         _action: 'summary',
       },
       {
@@ -1347,7 +1392,7 @@ export function App({ store, initialStatusLine = '' }) {
       {
         value: 'cache',
         label: 'Prompt cache',
-        description: `${fmt(usage.lastCachedReadTokens)} read · ${fmt(usage.lastCacheWriteTokens)} write (last request)`,
+        description: `${cacheHitRate} hit · ${fmt(usage.lastCachedReadTokens)} read · ${fmt(usage.lastInputTokens)} new (last request)`,
         _action: 'cache',
       },
       {
@@ -3166,7 +3211,13 @@ export function App({ store, initialStatusLine = '' }) {
   }, [slashCommands.length, activeSlashQuery]);
 
   const onPromptDraftChange = useCallback((value) => {
-    setPromptDraft(value);
+    // Only lift the draft into App state when it can affect the slash palette
+    // (a single "/token"). Prose typing renders entirely inside PromptInput's
+    // own state, so App need not re-render — and relayout the full fullscreen
+    // frame — on every keystroke (input lag fix). Entering slash mode and
+    // leaving it both still sync because either prev or next is a slash token.
+    setPromptDraft((prev) =>
+      slashQuery(value) !== null || slashQuery(prev) !== null ? value : prev);
     setPromptDraftOverride(null);
     if (value) clearPromptHint();
     setSlashDismissedFor((dismissed) => (dismissed && dismissed !== value ? '' : dismissed));
@@ -3233,6 +3284,10 @@ export function App({ store, initialStatusLine = '' }) {
   const textEntryPrompt = providerPrompt || channelPrompt || hookPrompt || settingsPrompt;
   const hasTextEntryPrompt = !!textEntryPrompt;
   const hasFloatingPanel = !!(picker || contextPanel || slashPaletteOpen || hasTextEntryPrompt);
+  // The bottom input box is hidden only by panels that REPLACE the prompt
+  // (picker / context panel / text-entry prompts). The slash palette floats
+  // above the prompt instead of merging into it, so the input box stays.
+  const inputBoxHidden = !!(picker || contextPanel || hasTextEntryPrompt);
   const WELCOME_ROWS = state.items.length === 0 && !hasFloatingPanel ? 11 : 0;
   // Independent reservation for each live-status child — the viewport must
   // yield enough space for every bottom sibling. ThinkingMessage: outer
@@ -3244,7 +3299,7 @@ export function App({ store, initialStatusLine = '' }) {
   const TURNDONE_ROWS = state.lastTurn && !state.spinner?.active ? 2 : 0;
   const SCROLL_HINT_ROWS = 0;
   const LIVE_STATUS_ROWS = THINKING_ROWS + SPINNER_ROWS + TURNDONE_ROWS;
-  const INPUT_BOX_ROWS = hasFloatingPanel ? 0 : 4;
+  const INPUT_BOX_ROWS = inputBoxHidden ? 0 : 4;
   const STATUSLINE_ROWS = 3;
   const PANEL_MAX_VISIBLE = 8;
   const TEXT_ENTRY_ROWS = 5;
@@ -3253,7 +3308,7 @@ export function App({ store, initialStatusLine = '' }) {
     : contextPanel
       ? Math.min(contextPanel.rows?.length || 0, PANEL_MAX_VISIBLE + 1) + 4
     : slashPaletteOpen
-      ? Math.min(slashCommands.length, PANEL_MAX_VISIBLE) + 6
+      ? Math.min(slashCommands.length, PANEL_MAX_VISIBLE) + 3
       : hasTextEntryPrompt
         ? TEXT_ENTRY_ROWS
         : 0;
@@ -3348,7 +3403,6 @@ export function App({ store, initialStatusLine = '' }) {
           <Spinner
             verb={state.spinner.verb}
             startedAt={state.spinner.startedAt}
-            inputTokens={state.spinner?.inputTokens ?? 0}
             outputTokens={Math.max(state.spinner?.outputTokens ?? 0, state.spinner?.liveTokens ?? 0)}
             thinking={!!(state.thinking || state.spinner?.thinking)}
             mode={state.spinner?.mode || 'responding'}
@@ -3394,36 +3448,6 @@ export function App({ store, initialStatusLine = '' }) {
                 selectedIndex={slashIndex}
                 title="Slash commands"
                 columns={frameColumns}
-                input={(
-                  <PromptInput
-                    onSubmit={onSubmit}
-                    disabled={exiting || state.commandBusy}
-                    onDraftChange={onPromptDraftChange}
-                    initialValue={promptDraft}
-                    draftOverride={promptDraftOverride}
-                    hint={inputHint}
-                    hintTone={inputHintTone}
-                    mask={false}
-                    onEscape={undefined}
-                    commandPaletteActive={slashPaletteOpen}
-                    onCommandPaletteNavigate={(direction) => {
-                      setSlashIndex((index) => {
-                        const total = slashCommands.length;
-                        if (total === 0) return 0;
-                        if (direction === 'home') return 0;
-                        if (direction === 'end') return total - 1;
-                        if (direction === 'right') return total - 1;
-                        const step = Number(direction) || 0;
-                        if (step === 1 || step === -1) return (index + step + total) % total;
-                        return Math.max(0, Math.min(total - 1, index + step));
-                      });
-                    }}
-                    onCommandPaletteAccept={acceptSlashPalette}
-                    onCommandPaletteCancel={cancelSlashPalette}
-                    onCommandPaletteComplete={completeSlashPalette}
-                    submitPasteImmediately={state.busy}
-                  />
-                )}
               />
             ) : providerPrompt ? (
               <TextEntryPanel
@@ -3465,9 +3489,9 @@ export function App({ store, initialStatusLine = '' }) {
         ) : (
           <QueuedCommands queued={state.queued} columns={frameColumns} />
         )}
-        {!hasFloatingPanel ? (
+        {!inputBoxHidden ? (
           <Box
-            marginTop={1}
+            marginTop={hasFloatingPanel ? 0 : 1}
             width="100%"
             borderStyle="round"
             borderColor={theme.promptBorder}
@@ -3479,6 +3503,7 @@ export function App({ store, initialStatusLine = '' }) {
               onDraftChange={onPromptDraftChange}
               initialValue={promptDraft}
               draftOverride={promptDraftOverride}
+              valueRef={promptValueRef}
               hint={inputHint}
               hintTone={inputHintTone}
               mask={false}

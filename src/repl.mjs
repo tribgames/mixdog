@@ -32,12 +32,11 @@ import { createMixdogSessionRuntime } from './mixdog-session-runtime.mjs';
 
 /** Help text shared by `--help` and the `/help` slash command. */
 const HELP_LINES = [
-  'mixdog-cli — a pi-based CLI/TUI coding agent (standalone mixdog brain).',
+  'mixdog-cli — standalone mixdog CLI/TUI coding agent.',
   '',
   'Usage:',
   '  mixdog-cli [--provider <name>] [--model <name>] [--readonly]',
   '  mixdog-cli --help',
-  '  mixdog-cli --pi            (temporary: boot the vendored pi reference)',
   '',
   'Slash commands (inside the REPL):',
   '  /help              show this help',

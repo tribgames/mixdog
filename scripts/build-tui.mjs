@@ -8,8 +8,8 @@
  *
  * What is bundled vs external:
  *   - bundled: our JSX + ink + react (+ their deps) — a self-contained UI layer.
- *   - external: the vendored mixdog runtime (src/runtime/**) and pi vendor tree.
- *     Those are sync-managed copies; bundling them would fork the source and
+ *   - external: the vendored mixdog runtime (src/runtime/**) and reference vendor tree.
+ *     The runtime is a sync-managed copy; bundling it would fork the source and
  *     break `node scripts/sync-runtime.mjs --check`. They are imported at
  *     runtime via dynamic import from the engine bridge, never from JSX, so
  *     esbuild never needs to resolve them here.
@@ -39,7 +39,7 @@ await build({
   // their deps incl. the optional react-devtools-core) external — Node resolves
   // them at runtime from node_modules, so the bundle stays small and we avoid
   // bundling optional/native deps. Also keep the sync-managed mixdog runtime and
-  // pi vendor tree external (bundling them would fork the source).
+  // reference vendor tree external.
   packages: 'external',
   external: ['../runtime/*', '../../runtime/*', '../vendor/*', '../../vendor/*'],
   logLevel: 'info',

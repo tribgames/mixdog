@@ -127,7 +127,7 @@ Each stage opens with **🔍 Compare** (the pi/CC files to read first) before an
 
 ### 🟢 Stage 0 — vendor pi whole, make it live
 - 🔍 Compare: `refs/pi/packages/coding-agent/src/{cli.ts,main.ts}`, `tui/src/tui.ts` vs current `mixdog-cli/src/{cli,app}.mjs`.
-- Copy pi `coding-agent` + `tui` into `mixdog-cli/vendor/pi` (per §5: **not** `ai`).
+- Keep pi `coding-agent` + `tui` under `mixdog-cli/refs/pi` as reference-only source (per §5: **not** `ai`).
 - **Change nothing** behaviorally — confirm pi TUI boots under the `mixdog-cli` name and completes one turn.
 - First excision: drop bedrock register + packages we'll never use.
 - ✅ Done when: pure pi runs as `mixdog-cli`, one turn of chat works.
@@ -139,11 +139,7 @@ Each stage opens with **🔍 Compare** (the pi/CC files to read first) before an
 - DELETE orphaned pi provider adapters / auth branches.
 - ✅ Done when: replies come via our route; pi's original provider code is gone.
 
-**Status: brain wired ✅ (verified).** `mixdog-cli -p` printed a real `pong` routed through the gateway to `deepseek/deepseek-v4-flash`. Wiring done with minimal-incision env overrides (no provider rewrite yet — pi's stream/normalization KEEPS per D4):
-- `anthropic-messages.ts createClient()` — when `MIXDOG_ANTHROPIC_BASE_URL` set and `model.provider === "anthropic"`, redirect `model.baseUrl` to the gateway. Must be here (not provider def) because per-model `baseUrl` in `anthropic.models.ts` overrides the provider default.
-- `anthropic-messages.ts buildParams()` — clamp `max_tokens` to a gateway-safe ceiling (D5).
-- `app.mjs gatewayEnv()` — inject `MIXDOG_ANTHROPIC_BASE_URL` + dummy `ANTHROPIC_API_KEY` (skips pi's blocked OAuth path; gateway does real auth/spoof).
-- Remaining for full Stage 1: surface gateway provider list in `/model`; trim ai's 39 unused providers; decide whether to drop pi-ai OAuth code now or at the final ai-removal step.
+**Status: brain wired ✅ (verified).** The earlier pi gateway override path was removed from the executable CLI. The product path now uses the native mixdog runtime/provider implementation; pi remains only under `refs/pi` for comparison.
 
 ### 🟡 Stage 2 — gut footer → graft statusline
 - 🔍 Compare: pi `core/footer-data-provider.ts` + interactive footer render vs mixdog statusline + Claude Code statusline UX.
@@ -212,7 +208,7 @@ The current mixdog code assumes Claude Code provides host behavior. Standalone m
 
 Execute **Stage 0** on approval:
 
-1. vendor pi `coding-agent` + `tui` into `mixdog-cli/vendor/pi`,
+1. keep pi `coding-agent` + `tui` as reference source under `mixdog-cli/refs/pi`,
 2. boot it unchanged as `mixdog-cli`, confirm one turn,
 3. first excision (bedrock + unused packages),
 4. smoke test that launch succeeds without touching `C:\Project\mixdog`.
@@ -233,6 +229,6 @@ One line per comparison-gate verdict (§3.5). Append as stages execute.
 | D8 | agent loop ownership | adapt pi's agent loop + 12-event adapter vs port mixdog's own `agentLoop` whole | mixdog's `agentLoop` (session/loop.mjs) is the engine that already runs bridge workers host-independently. Full closure = 144 files (110 new on top of the 34-file provider port), and of those only **3 touch-points** needed adapting (http-agent undici, keychain, permission-evaluator dynamic path). MCP client is a standard `@modelcontextprotocol/sdk` client, not host coupling — ported whole. | 🟩 **PORT THE WHOLE LOOP.** Verified: `agentLoop(provider, ...)` returns `content:"pong"` via ported anthropic-oauth. mixdog brain (loop→provider→tools→session/compact/store→MCP→permissions) now loads & runs inside mixdog-cli. pi is reduced to TUI rendering. |
 | D9 | TUI junction | wrap pi AgentSession vs drive our agentLoop from a native REPL | our engine is the owner; pi's AgentSession engine is bypassed entirely. Built `src/repl.mjs`: stdin line → `agentLoop(provider, messages, ...)` → `onTextDelta` streams tokens to stdout live. | 🟩 **native REPL owns the loop.** Verified: `mixdog-cli --repl` streams `pong` from our agentLoop+anthropic-oauth, no pi engine in path. Next: layer pi `tui` widgets (input/render) as presentation; wire builtin tools into the loop's tool list. |
 | D10 | tool wiring | connect ported builtin tools to the REPL loop | `BUILTIN_TOOLS` (read/edit/write/bash/grep/glob/list, minus host-only diagnostics/open_config) passed as the loop's `tools` arg; loop runs them via ported `executeBuiltinTool`. | 🟩 **tools live.** Verified: `mixdog-cli --repl` given "read ./tooltest.txt" emits `[tool: read]` and correctly answers `42` — real file read, full multi-turn tool loop. mixdog-cli is now a working standalone coding agent. |
-| D11 | default entrypoint | keep pi TUI as default vs make our engine default | our engine is the product; pi is being consumed (strangler). | 🟩 **canonical TUI is DEFAULT.** `mixdog-cli` (no args) now runs the Ink/React TUI in `src/tui` over the mixdog session runtime. The old `--react` route is removed; `src/tui-pi` remains only as an unrouted legacy fallback while the port stabilizes. |
+| D11 | default entrypoint | keep pi TUI as default vs make our engine default | our engine is the product; pi is reference-only. | 🟩 **canonical TUI is DEFAULT.** `mixdog-cli` (no args) now runs the Ink/React TUI in `src/tui` over the mixdog session runtime. The old `--react` and pi TUI routes are removed. |
 | D12 | host-env assumptions | ported runtime assumes Claude Code env (the "delayed host-coupling" predicted earlier) | clean env (no `CLAUDE_PLUGIN_DATA/ROOT`) surfaced two: `plugin-paths` threw without the host env; `internal-roles` couldn't find `defaults/hidden-roles.json` (data file, not caught by import-closure tracing). | 🟩 **standalone fallbacks added.** `resolvePluginData()` (both `.mjs` + `.cjs`) falls back to `MIXDOG_DATA_DIR ?? ~/.mixdog/data`; copied mixdog `defaults/` (hidden-roles, user-workflow, templates) into `src/defaults/`. Verified: `mixdog-cli` runs with Claude Code vars unset — picked `grep`, answered `999`. Truly host-independent now. |
 | D13 | upstream sync strategy | how to track mixdog changes (the runtime is copied, not a package) | of 141 ported `.mjs`, **137 are pure copies** of mixdog/src — this is vendored-dependency shaped, not a fork. Only 3 standalone patches survive (http-agent undici D7, plugin-paths ×2 D12); the baseUrl "patches" were pi-side scaffolding our raw provider never needed. Upstream also kept evolving (anthropic cache-marker fix landed after our copy). | 🟩 **vendored + sync script (option B).** `scripts/sync-runtime.mjs`: recomputes the agentLoop import closure live from upstream → re-copies all 144 files + lib/hooks cjs + defaults → re-applies the 3 anchor-based, idempotent, fail-loud patches. `--check` reports drift. One command (`node scripts/sync-runtime.mjs`) absorbs any upstream change. Long-term: declare a fork point once the port stabilizes and graduate from sync. |

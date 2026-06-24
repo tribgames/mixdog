@@ -35,7 +35,7 @@ export function QueuedCommands({ queued, columns }) {
           : item.text;
         return (
           <Box key={item.id} width={bandColumns} backgroundColor={theme.userMessageBackground} paddingLeft={2} paddingRight={1}>
-            <Text color={theme.inactive} wrap="wrap">{displayText}</Text>
+            <Text color={theme.text} wrap="wrap">{displayText}</Text>
           </Box>
         );
       })}

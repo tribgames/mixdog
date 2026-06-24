@@ -280,6 +280,10 @@ export default class Output {
             }
             selectedText = selRows.join('\n');
         }
+        // [mixdog fork] Snapshot per-row, column-indexed cell values so the App
+        // can compute word boundaries (double-click select) without retaining
+        // this Output instance, which is created fresh per render and discarded.
+        const plainRows = output.map((row) => (row || []).map((cell) => (cell?.value ?? '')));
         const generatedOutput = output
             .map(line => {
             // See https://github.com/vadimdemedes/ink/pull/564#issuecomment-1637022742
@@ -292,6 +296,7 @@ export default class Output {
             height: output.length,
             cursor: this.cursor, // [mixdog fork] absolute cursor cell or null
             selectedText, // [mixdog fork] text inside the selection rect, or null
+            plainRows, // [mixdog fork] column-indexed cell values per row for word lookup
         };
     }
 }

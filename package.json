@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Temporary standalone coding-agent CLI/TUI workspace for turning mixdog into a pi-based terminal app.",
+  "description": "Standalone mixdog coding-agent CLI/TUI workspace.",
   "bin": {
     "mixdog-cli": "./src/cli.mjs"
   },
