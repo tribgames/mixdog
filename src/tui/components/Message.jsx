@@ -15,7 +15,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { theme, TURN_MARKER } from '../theme.mjs';
-import { THEREFORE } from '../figures.mjs';
 import { Markdown } from './Markdown.jsx';
 
 export const AssistantMessage = React.memo(function AssistantMessage({ text }) {
@@ -53,10 +52,10 @@ export const UserMessage = React.memo(function UserMessage({ text, attached = fa
 export function ThinkingMessage({ text }) {
   return (
     <Box flexDirection="column" marginTop={1} gap={1} width="100%">
-      <Text color={theme.inactive} italic>{THEREFORE} Thinking…</Text>
+      <Text color={theme.thinkingAccent} italic>◈ Thinking…</Text>
       {text ? (
         <Box paddingLeft={2}>
-          <Text color={theme.inactive} italic>{text}</Text>
+          <Text color={theme.thinkingText} italic>{text}</Text>
         </Box>
       ) : null}
     </Box>

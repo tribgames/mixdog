@@ -14,8 +14,26 @@ import { Box, Text } from 'ink';
 // esbuild leaves dynamic-import string specifiers alone.
 const STATUSLINE_MODULE = '../../ui/statusline.mjs';
 
+function brightenStatusAnsi(text) {
+  return String(text || '').replace(/\x1b\[([0-9;]*)m/g, (match, body) => {
+    const codes = String(body || '0').split(';').filter(Boolean).map((v) => Number(v));
+    if (!codes.length || codes.includes(0)) return match;
+    const isStandaloneDim = (code, index) => code === 2 && codes[index - 1] !== 38 && codes[index - 1] !== 48;
+    const hasDim = codes.some(isStandaloneDim);
+    const withoutDim = codes.filter((code, index) => !isStandaloneDim(code, index));
+    if (codes.includes(90)) return '\x1b[38;2;222;222;222m';
+    if (hasDim) {
+      const hasColor = withoutDim.some((code) => (code >= 30 && code <= 37) || (code >= 90 && code <= 97) || code === 38);
+      return hasColor
+        ? `\x1b[${withoutDim.join(';')}m`
+        : '\x1b[38;2;188;188;188m';
+    }
+    return match;
+  });
+}
+
 export function normalizeStatusLine(text) {
-  return String(text || '')
+  return brightenStatusAnsi(text)
     .replace(/\n+$/, '')
     .replace(/^(?:\x1b\[[0-9;]*m)*◆(?:\x1b\[[0-9;]*m)*\s?/, '\x1b[97m');
 }

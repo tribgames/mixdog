@@ -1,7 +1,7 @@
 /**
  * components/TurnDone.jsx — the "reasoning finished" line.
  *
- *   ✻ Thought for 12s
+ *   ◈ Thought for 12s
  *
  * Shown once a turn completes (the spinner is gone). Without it the spinner just
  * vanishes and the screen feels empty — this leaves a quiet, dim record of how
@@ -16,8 +16,8 @@ export function TurnDone({ elapsedMs = 0 }) {
 
   return (
     <Box marginTop={1} flexDirection="row">
-      <Text color={theme.text}>✻ </Text>
-      <Text color={theme.inactive}>Thought for {secs}s</Text>
+      <Text color={theme.thinkingAccent}>◈ </Text>
+      <Text color={theme.thinkingText}>Thought for {secs}s</Text>
     </Box>
   );
 }

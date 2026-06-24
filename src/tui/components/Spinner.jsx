@@ -29,7 +29,7 @@ import { theme } from '../theme.mjs';
 import { SPINNER_FRAMES } from '../spinner-verbs.mjs';
 import { DOWN_ARROW, UP_ARROW } from '../figures.mjs';
 
-const FRAME_MS = 50;
+const FRAME_MS = 90;
 // CC plays the frames forward, then in reverse — a smooth there-and-back sweep.
 const FRAMES = [...SPINNER_FRAMES, ...[...SPINNER_FRAMES].reverse()];
 
@@ -42,12 +42,10 @@ const SHOW_HINT_AFTER_MS = 30000;
 const THINKING_DELAY_MS = 3000;
 const THINKING_GLOW_PERIOD_S = 2;
 
-// CC SpinnerAnimationRow: requesting glimmer advances every tick, others are slower.
-const GLIMMER_SPEED_MS = { requesting: 50, 'tool-use': 200, responding: 200, thinking: 200, 'tool-input': 200 };
+// One-way shimmer. The tail runs past the final character before restarting.
+const GLIMMER_SPEED_MS = { requesting: 70, 'tool-use': 120, responding: 120, thinking: 120, 'tool-input': 120 };
+const GLIMMER_TRAIL = 4;
 
-// Color constants matching CC's THINKING_INACTIVE / THINKING_INACTIVE_SHIMMER
-const THINKING_INACTIVE = { r: 153, g: 153, b: 153 };
-const THINKING_SHIMMER = { r: 185, g: 185, b: 185 };
 const ERROR_RED = { r: 171, g: 43, b: 63 };
 
 function interpolateColor(a, b, t) {
@@ -67,8 +65,11 @@ function parseRgb(str) {
   return m ? { r: +m[1], g: +m[2], b: +m[3] } : null;
 }
 
-const TEXT_RGB = parseRgb(theme.text);
-const SHIMMER_RGB = parseRgb(theme.claudeShimmer);
+const TEXT_RGB = parseRgb(theme.spinnerText) ?? parseRgb(theme.text);
+const SHIMMER_RGB = parseRgb(theme.spinnerShimmer) ?? parseRgb(theme.claudeShimmer);
+const SPINNER_GLYPH_RGB = parseRgb(theme.spinnerGlyph) ?? { r: 240, g: 240, b: 240 };
+const THINKING_INACTIVE = parseRgb(theme.thinkingAccent) ?? { r: 153, g: 153, b: 153 };
+const THINKING_SHIMMER = parseRgb(theme.thinkingGlow) ?? { r: 185, g: 185, b: 185 };
 
 function formatDuration(ms) {
   const totalSec = Math.round(ms / 1000);
@@ -137,19 +138,16 @@ export function Spinner({ verb = 'Working', startedAt, inputTokens = 0, outputTo
   lastStallTickRef.current = frame;
   const stalledIntensity = stallSmoothRef.current;
 
-  // Monotonic animation clock (CC SpinnerAnimationRow uses useAnimationFrame's `time`)
-  const time = frame * FRAME_MS;
-
   const glyph = FRAMES[frame % FRAMES.length];
 
   // Glyph color — interpolate toward red when stalled (CC SpinnerGlyph).
   const glyphColor = stalledIntensity > 0
     ? toRgbString(interpolateColor(
-        { r: 240, g: 240, b: 240 }, // ~theme.text RGB
+        SPINNER_GLYPH_RGB,
         ERROR_RED,
         stalledIntensity
       ))
-    : theme.text;
+    : theme.spinnerGlyph;
 
   // Thinking shimmer (CC thinkingShimmerColor from shared clock).
   const thinkingSec = (elapsedMs - THINKING_DELAY_MS) / 1000;
@@ -164,37 +162,29 @@ export function Spinner({ verb = 'Working', startedAt, inputTokens = 0, outputTo
   const messageText = `${verb}…`;
   const messageLen = messageText.length;
 
-  // Glimmer speed per mode (CC: requesting=50, others=200)
+  // Glimmer speed per mode.
   const glimmerSpeed = GLIMMER_SPEED_MS[mode] ?? 200;
-  // Glimmer sweeps forward then backward across the message
-  const glimmerPeriod = Math.max(1, messageLen * 2 - 2);
-  const glimmerStep = Math.floor(time / glimmerSpeed);
-  const glimmerRaw = glimmerStep % glimmerPeriod;
-  const glimmerIndex = glimmerRaw < messageLen ? glimmerRaw : glimmerPeriod - glimmerRaw;
-
-  // Pulsing shimmer intensity (same period as thinking glow)
-  const glimmerOpacity = (Math.sin(elapsedMs / 1000 * Math.PI * 2 / THINKING_GLOW_PERIOD_S) + 1) / 2;
-  const glimmerColor = TEXT_RGB && SHIMMER_RGB
-    ? toRgbString(interpolateColor(TEXT_RGB, SHIMMER_RGB, glimmerOpacity))
-    : theme.claudeShimmer;
+  const shimmerSpan = Math.max(1, messageLen + GLIMMER_TRAIL);
+  const shimmerHead = Math.floor(elapsedMs / glimmerSpeed) % shimmerSpan;
 
   // Build shimmer-aware verb content
   let verbContent;
   if (stalledIntensity > 0 && TEXT_RGB) {
     const stalledColor = toRgbString(interpolateColor(TEXT_RGB, ERROR_RED, stalledIntensity));
     verbContent = <Text color={stalledColor}>{messageText}</Text>;
-  } else if (messageLen > 0) {
-    const windowR = 1;
-    const shimmerStart = Math.max(0, glimmerIndex - windowR);
-    const shimmerEnd = Math.min(messageLen, glimmerIndex + windowR + 1);
-    const before = messageText.slice(0, shimmerStart);
-    const shimmer = messageText.slice(shimmerStart, shimmerEnd);
-    const after = messageText.slice(shimmerEnd);
+  } else if (messageLen > 0 && TEXT_RGB && SHIMMER_RGB) {
     verbContent = (
       <>
-        {before ? <Text color={theme.text}>{before}</Text> : null}
-        {shimmer ? <Text color={glimmerColor}>{shimmer}</Text> : null}
-        {after ? <Text color={theme.text}>{after}</Text> : null}
+        {Array.from(messageText).map((char, index) => {
+          const distance = shimmerHead - index;
+          const intensity = distance >= 0 && distance < GLIMMER_TRAIL
+            ? 1 - distance / GLIMMER_TRAIL
+            : 0;
+          const color = intensity > 0
+            ? toRgbString(interpolateColor(TEXT_RGB, SHIMMER_RGB, 0.35 + intensity * 0.65))
+            : theme.spinnerText;
+          return <Text key={`${char}-${index}`} color={color}>{char}</Text>;
+        })}
       </>
     );
   } else {
@@ -259,17 +249,17 @@ export function Spinner({ verb = 'Working', startedAt, inputTokens = 0, outputTo
   }
   if (showTimer) {
     segments.push(
-      <Text key="elapsed" dimColor>{timerText}</Text>
+      <Text key="elapsed" color={theme.statusSubtle}>{timerText}</Text>
     );
   }
   if (showTokens) {
     segments.push(
-      <Text key="tokens" dimColor>{tokenText}</Text>
+      <Text key="tokens" color={theme.statusText}>{tokenText}</Text>
     );
   }
   if (showHint) {
     segments.push(
-      <Text key="hint" dimColor>esc to interrupt</Text>
+      <Text key="hint" color={theme.statusSubtle}>esc to interrupt</Text>
     );
   }
 
@@ -283,7 +273,7 @@ export function Spinner({ verb = 'Working', startedAt, inputTokens = 0, outputTo
         <Text color={theme.inactive}>
           {' ('}
           {segments.reduce((acc, el, i) => (
-            i === 0 ? [el] : [...acc, <Text key={`s${i}`} dimColor> · </Text>, el]
+            i === 0 ? [el] : [...acc, <Text key={`s${i}`} color={theme.statusSubtle}> · </Text>, el]
           ), [])}
           {')'}
         </Text>

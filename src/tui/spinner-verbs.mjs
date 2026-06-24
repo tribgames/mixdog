@@ -41,8 +41,5 @@ export const SPINNER_VERBS = [
   'Zesting', 'Zigzagging',
 ];
 
-/** Spinner glyph frames (figures.ts getDefaultCharacters; Windows variant). */
-export const SPINNER_FRAMES =
-  process.platform === 'darwin'
-    ? ['·', '✢', '✳', '✶', '✻', '✽']
-    : ['·', '✢', '*', '✶', '✻', '✽'];
+/** Spinner glyph frames — mixdog diamond pulse. */
+export const SPINNER_FRAMES = ['◇', '◆', '◈', '◆', '◇'];

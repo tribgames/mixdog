@@ -15,7 +15,7 @@
  * fallbacks (model name + a context% from this session's token usage).
  */
 import { basename } from 'node:path';
-import { dim, gray, cyan, bold, green } from './ansi.mjs';
+import { bold, green, rgb } from './ansi.mjs';
 import { renderStatusLine as renderVendoredStatusLine } from '../vendor/statusline/bin/statusline-lib.mjs';
 import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
 
@@ -23,6 +23,9 @@ import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/mo
 // The live gateway (when up) overrides this with the real route's window. This
 // is only the last resort for unknown local models.
 const FALLBACK_CONTEXT_WINDOW = 200000;
+const statusText = rgb(222, 222, 222);
+const statusSubtle = rgb(188, 188, 188);
+const statusAccent = rgb(255, 138, 86);
 
 /** Create a mutable session-usage accumulator. */
 export function createSessionStats() {
@@ -165,7 +168,7 @@ function usageLine({ provider = '', stats } = {}) {
   if (read > 0) parts.push(`${fmt(read)} read`);
   if (write > 0) parts.push(`${fmt(write)} write`);
   if (cost > 0) parts.push('$' + cost.toFixed(4));
-  return gray(parts.join(dim(' · ')));
+  return statusText(parts.join(statusSubtle(' · ')));
 }
 
 function appendUsageLine(text, opts) {
@@ -179,16 +182,16 @@ function appendUsageLine(text, opts) {
 /** Minimal one-line footer used when the vendored renderer is unavailable. */
 function fallbackLine({ provider = '', model = '', cwd = '', stats } = {}) {
   const s = stats || createSessionStats();
-  const sep = dim(' · ');
-  const id = cyan(`${provider}/${model}`);
-  const tokens = gray(
+  const sep = statusSubtle(' · ');
+  const id = statusAccent(`${provider}/${model}`);
+  const tokens = statusText(
     `${fmt(s.inputTokens)} in / ${fmt(s.outputTokens)} out` +
       (s.cachedTokens ? ` / ${fmt(s.cachedTokens)} read` : '') +
       (s.cacheWriteTokens ? ` / ${fmt(s.cacheWriteTokens)} write` : ''),
   );
-  const cost = s.costUsd > 0 ? green('$' + s.costUsd.toFixed(4)) : dim('$0.0000');
+  const cost = s.costUsd > 0 ? green('$' + s.costUsd.toFixed(4)) : statusSubtle('$0.0000');
   const dir = bold(basename(cwd || process.cwd()) || cwd);
-  return dim('▸ ') + [id, tokens, cost, dir].join(sep);
+  return statusSubtle('▸ ') + [id, tokens, cost, dir].join(sep);
 }
 
 function num(v) {

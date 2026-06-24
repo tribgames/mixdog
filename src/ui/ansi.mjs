@@ -52,7 +52,7 @@ function sgr(open) {
 
 // --- Styles -----------------------------------------------------------------
 export const bold = sgr('1');
-export const dim = sgr('2');
+export const dim = sgr('38;2;188;188;188');
 export const italic = sgr('3');
 export const underline = sgr('4');
 export const inverse = sgr('7');
@@ -67,7 +67,7 @@ export const blue = sgr('34');
 export const magenta = sgr('35');
 export const cyan = sgr('36');
 export const white = sgr('37');
-export const gray = sgr('90');
+export const gray = sgr('38;2;222;222;222');
 export const grey = gray;
 
 // Bright variants (used sparingly for headings / accents).

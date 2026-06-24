@@ -35,7 +35,7 @@ function rgbColor(str) {
 }
 
 const accent = rgbColor(theme.code); // inline code / codespan accent (CC permission)
-const dim = (s) => chalk.dim(s);
+const dim = rgbColor(theme.subtle);
 
 // marked 14 HTML-encodes token.text / codespan.text (`"` → `&quot;`, `&` →
 // `&amp;`, `<`→`&lt;`, `>`→`&gt;`, `'`→`&#39;`), but we render to a terminal,

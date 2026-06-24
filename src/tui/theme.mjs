@@ -11,15 +11,26 @@
 export const theme = {
   claude: 'rgb(255,138,86)', // warm brand accent
   claudeShimmer: 'rgb(255,190,142)',
-  text: 'rgb(240,240,240)', // primary text
+  mixdogOrange: 'rgb(255,128,68)',
+  mixdogAmber: 'rgb(255,174,105)',
+  mixdogIvory: 'rgb(250,248,240)',
+  spinnerGlyph: 'rgb(255,138,86)',
+  spinnerText: 'rgb(246,246,246)',
+  spinnerShimmer: 'rgb(255,190,142)',
+  thinkingAccent: 'rgb(255,138,86)',
+  thinkingText: 'rgb(255,190,142)',
+  thinkingGlow: 'rgb(255,224,190)',
+  statusText: 'rgb(222,222,222)',
+  statusSubtle: 'rgb(188,188,188)',
+  text: 'rgb(246,246,246)', // primary text
   inverseText: 'rgb(0,0,0)', // text on an inverted (light) background
-  inactive: 'rgb(212,212,212)', // secondary text
-  subtle: 'rgb(154,154,154)', // helper text / quiet rules
-  promptBorder: 'rgb(200,200,200)', // input border / prompt
+  inactive: 'rgb(224,224,224)', // secondary text
+  subtle: 'rgb(188,188,188)', // helper text / quiet rules
+  promptBorder: 'rgb(220,220,220)', // input border / prompt
   success: 'rgb(126,231,135)', // green
   error: 'rgb(255,92,115)', // red
   warning: 'rgb(255,216,74)', // amber
-  suggestion: 'rgb(95,135,255)', // selector/title blue
+  suggestion: 'rgb(255,138,86)', // selector/title accent
   permission: 'rgb(177,185,249)', // CC darkTheme permission
   code: 'rgb(177,185,249)', // inline code accent = CC permission
   codeBlock: 'rgb(126,231,135)', // code block body
