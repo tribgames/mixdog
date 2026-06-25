@@ -11,8 +11,8 @@
  *                                        and marketplace layout
  *                                        (.../marketplaces/{marketplace}/).
  *
- * In standalone mixdog, falls back to MIXDOG_DATA_DIR or ~/.mixdog/data
- * when the host plugin env is absent.
+ * In standalone mixdog, falls back to MIXDOG_DATA_DIR or
+ * <MIXDOG_HOME|~/.mixdog>/data when the host plugin env is absent.
  * Plugin-host runs still prefer the host-provided env vars above.
  *
  * DEFAULT_PLUGIN / DEFAULT_MARKETPLACE are exported so a handful of
@@ -28,6 +28,10 @@ const fs = require('fs');
 
 const DEFAULT_PLUGIN = 'mixdog';
 const DEFAULT_MARKETPLACE = 'trib-plugin';
+
+function mixdogHome() {
+  return process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog');
+}
 
 // Claude config base — honours CLAUDE_CONFIG_DIR when set, otherwise the
 // real Claude Code default of ~/.claude (matches settings-loader.cjs,
@@ -63,8 +67,9 @@ function resolvePluginData() {
     const pluginName = readPluginManifestName(root);
     return path.join(claudeConfigBase(), 'plugins', 'data', `${pluginName}-${marketplace}`);
   }
-  // Standalone mixdog: own user-global data like Claude Code's ~/.claude.
-  return process.env.MIXDOG_DATA_DIR || path.join(os.homedir(), '.mixdog', 'data');
+  // Standalone mixdog: own user-global data under MIXDOG_HOME (~/.mixdog),
+  // mirroring Claude Code's ~/.claude root.
+  return process.env.MIXDOG_DATA_DIR || path.join(mixdogHome(), 'data');
 }
 
-module.exports = { resolvePluginData, DEFAULT_PLUGIN, DEFAULT_MARKETPLACE };
+module.exports = { resolvePluginData, mixdogHome, DEFAULT_PLUGIN, DEFAULT_MARKETPLACE };

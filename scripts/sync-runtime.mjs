@@ -1321,7 +1321,7 @@ function patchStatuslineStandaloneDataDir(src) {
     changed = true;
   }
   const from = "return process.env.CLAUDE_PLUGIN_DATA || path.join(claudeConfigDir(), 'plugins', 'data', 'mixdog-trib-plugin');";
-  const to = "return process.env.CLAUDE_PLUGIN_DATA || process.env.MIXDOG_DATA_DIR || path.join(os.homedir(), '.mixdog', 'data');";
+  const to = "return process.env.CLAUDE_PLUGIN_DATA || process.env.MIXDOG_DATA_DIR || path.join(process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog'), 'data');";
   if (s.includes(from)) {
     s = s.replace(from, to);
     changed = true;
@@ -1462,8 +1462,8 @@ function patchPluginPaths(src, kind) {
   const staleDoc = ` * Throws if neither env var is present — the plugin always runs under
  * Claude Code, which sets one of them. Callers must not silently fall
  * back to a hardcoded path.`;
-  const standaloneDoc = ` * In standalone mixdog, falls back to MIXDOG_DATA_DIR or ~/.mixdog/data
- * when the host plugin env is absent.
+  const standaloneDoc = ` * In standalone mixdog, falls back to MIXDOG_DATA_DIR or
+ * <MIXDOG_HOME|~/.mixdog>/data when the host plugin env is absent.
  * Plugin-host runs still prefer the host-provided env vars above.`;
   if (s.includes(staleDoc)) {
     s = s.replace(staleDoc, standaloneDoc);
@@ -1482,13 +1482,14 @@ function patchPluginPaths(src, kind) {
   return process.env.MIXDOG_DATA_DIR || join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data');`;
   const staleCjsFallback = `// Standalone mixdog: own a project-local data dir (override with MIXDOG_DATA_DIR).
   return process.env.MIXDOG_DATA_DIR || path.join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data');`;
-  const fallback = `// Standalone mixdog: own user-global data like Claude Code's ~/.claude.
-  return process.env.MIXDOG_DATA_DIR || ${kind === 'mjs' ? "join(homedir(), '.mixdog', 'data')" : "path.join(os.homedir(), '.mixdog', 'data')"};`;
+  const fallback = `// Standalone mixdog: own user-global data under MIXDOG_HOME (~/.mixdog),
+  // mirroring Claude Code's ~/.claude root.
+  return process.env.MIXDOG_DATA_DIR || ${kind === 'mjs' ? "join(mixdogHome(), 'data')" : "path.join(mixdogHome(), 'data')"};`;
   if (s.includes(staleMjsFallback) || s.includes(staleCjsFallback)) {
     s = s.replace(staleMjsFallback, fallback).replace(staleCjsFallback, fallback);
     changed = true;
   }
-  if (s.includes("join(homedir(), '.mixdog', 'data')") || s.includes("path.join(os.homedir(), '.mixdog', 'data')")) {
+  if (s.includes("join(mixdogHome(), 'data')") || s.includes("path.join(mixdogHome(), 'data')")) {
     return { text: s, already: !changed };
   }
   const throwLine =
@@ -1501,15 +1502,19 @@ function patchPluginPaths(src, kind) {
     if (!next.includes("import { homedir } from 'os';")) {
       next = next.replace("import { join, basename } from 'path';", "import { homedir } from 'os';\nimport { join, basename } from 'path';");
     }
-    next = next.replace(
-      "export const DEFAULT_MARKETPLACE = 'trib-plugin';",
-      "export const DEFAULT_MARKETPLACE = 'trib-plugin';",
-    );
+    if (!next.includes('export function mixdogHome()')) {
+      next = next.replace(
+        "export const DEFAULT_MARKETPLACE = 'trib-plugin';",
+        "export const DEFAULT_MARKETPLACE = 'trib-plugin';\n\nexport function mixdogHome() {\n  return process.env.MIXDOG_HOME || join(homedir(), '.mixdog');\n}",
+      );
+    }
   } else {
-    next = next.replace(
-      "const DEFAULT_MARKETPLACE = 'trib-plugin';",
-      "const DEFAULT_MARKETPLACE = 'trib-plugin';",
-    );
+    if (!next.includes('function mixdogHome()')) {
+      next = next.replace(
+        "const DEFAULT_MARKETPLACE = 'trib-plugin';",
+        "const DEFAULT_MARKETPLACE = 'trib-plugin';\n\nfunction mixdogHome() {\n  return process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog');\n}",
+      );
+    }
   }
   return { text: next.replace(throwLine, fallback), already: false };
 }

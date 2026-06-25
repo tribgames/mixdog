@@ -59,6 +59,6 @@ vendor/
 ## Notes
 
 - `vendor/ink` is a forked Ink build; `scripts/patch-ink.mjs` reapplies the fork to `node_modules/ink` at build time so `npm install`/sync won't clobber it.
-- Standalone Mixdog stores user data in `~/.mixdog/data` by default. Set `MIXDOG_DATA_DIR` to override it.
+- Standalone Mixdog uses `~/.mixdog` as its home root, matching Claude Code's `~/.claude` style. Runtime data lives in `~/.mixdog/data` by default. Set `MIXDOG_HOME` to move the root, or `MIXDOG_DATA_DIR` to override only the data directory.
 - Pi/Codex/OpenCode reference snapshots live outside this package under `C:\Project\refs`.
 - The TUI uses alt-screen mode with mouse-wheel scroll tracking.

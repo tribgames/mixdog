@@ -39,7 +39,7 @@ function claudeConfigDir() {
 }
 
 function pluginDataDir() {
-  return process.env.CLAUDE_PLUGIN_DATA || process.env.MIXDOG_DATA_DIR || path.join(os.homedir(), '.mixdog', 'data');
+  return process.env.CLAUDE_PLUGIN_DATA || process.env.MIXDOG_DATA_DIR || path.join(process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog'), 'data');
 }
 
 function readJson(file) {

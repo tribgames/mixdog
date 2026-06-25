@@ -27,7 +27,8 @@ const FALLBACK_CONTEXT_WINDOW = 200000;
 const statusText = rgb(198, 198, 198);
 const statusSubtle = rgb(136, 136, 136);
 const statusAccent = rgb(215, 119, 87);
-const DEFAULT_STANDALONE_DATA_DIR = join(homedir(), '.mixdog', 'data');
+const DEFAULT_MIXDOG_HOME = process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
+const DEFAULT_STANDALONE_DATA_DIR = join(DEFAULT_MIXDOG_HOME, 'data');
 
 function sgr(code) {
   return colorEnabled() ? `\x1b[${code}m` : '';

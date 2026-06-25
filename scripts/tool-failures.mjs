@@ -13,6 +13,8 @@ function argValue(name, fallback = null) {
 
 const limit = Math.max(1, Number.parseInt(argValue('--limit', '40'), 10) || 40);
 const dataDir = argValue('--data-dir', null);
+const mixdogHome = process.env.MIXDOG_HOME || resolve(homedir(), '.mixdog');
+const mixdogDataDir = process.env.MIXDOG_DATA_DIR || resolve(mixdogHome, 'data');
 const sinceArg = argValue('--since', null);
 const toolFilter = argValue('--tool', null);
 const roleFilter = argValue('--role', null);
@@ -20,9 +22,9 @@ const categoryFilter = argValue('--category', null);
 const jsonMode = process.argv.includes('--json');
 const files = dataDir
   ? [resolve(dataDir, 'history', 'tool-failures.jsonl')]
-  : [
+    : [
       resolve(process.cwd(), '.mixdog', 'data', 'history', 'tool-failures.jsonl'),
-      resolve(homedir(), '.mixdog', 'data', 'history', 'tool-failures.jsonl'),
+      resolve(mixdogDataDir, 'history', 'tool-failures.jsonl'),
     ];
 
 function readRows(file) {

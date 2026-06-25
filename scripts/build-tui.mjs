@@ -23,6 +23,16 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src', 'tui');
 
+const emptyInkDevtoolsPlugin = {
+  name: 'empty-ink-devtools',
+  setup(build) {
+    build.onLoad({ filter: /[\\/]node_modules[\\/]ink[\\/]build[\\/]devtools\.js$/ }, () => ({
+      contents: 'export {};\n',
+      loader: 'js',
+    }));
+  },
+};
+
 // Re-apply the ink cursor fork (idempotent) before bundling, so a fresh
 // npm install that overwrote node_modules/ink can't silently revert it.
 await import('./patch-ink.mjs');
@@ -34,14 +44,16 @@ await build({
   format: 'esm',
   platform: 'node',
   target: 'node22',
+  banner: {
+    js: "import { createRequire as __mixdogCreateRequire } from 'node:module';\nconst require = __mixdogCreateRequire(import.meta.url);",
+  },
   jsx: 'automatic',
-  // Only OUR JSX needs transpiling. Keep node_modules packages (ink, react,
-  // their deps incl. the optional react-devtools-core) external — Node resolves
-  // them at runtime from node_modules, so the bundle stays small and we avoid
-  // bundling optional/native deps. Also keep the sync-managed mixdog runtime and
-  // reference vendor tree external.
-  packages: 'external',
+  // Bundle Ink/React after patch-ink has applied the cursor fork. Published npm
+  // installs then run the exact UI runtime captured in dist/ without relying on
+  // a postinstall mutation of node_modules. Keep only Mixdog's runtime/vendor
+  // tree external so sync-managed code is still loaded from source files.
   external: ['../runtime/*', '../../runtime/*', '../vendor/*', '../../vendor/*'],
+  plugins: [emptyInkDevtoolsPlugin],
   logLevel: 'info',
 });
 

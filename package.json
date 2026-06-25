@@ -4,8 +4,24 @@
   "private": false,
   "type": "module",
   "description": "Standalone mixdog coding-agent CLI/TUI workspace.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tribgames/mixdog.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tribgames/mixdog/issues"
+  },
+  "homepage": "https://github.com/tribgames/mixdog#readme",
+  "keywords": [
+    "agent",
+    "cli",
+    "tui",
+    "coding-agent",
+    "mcp"
+  ],
   "bin": {
-    "mixdog": "./src/cli.mjs"
+    "mixdog": "src/cli.mjs"
   },
   "files": [
     "README.md",
@@ -51,6 +67,14 @@
     "ws": "^8.21.0",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.25.2"
+  },
+  "overrides": {
+    "discord.js": {
+      "undici": "6.27.0"
+    },
+    "@discordjs/rest": {
+      "undici": "6.27.0"
+    }
   },
   "devDependencies": {
     "esbuild": "^0.28.1"

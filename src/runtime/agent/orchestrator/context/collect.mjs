@@ -7,11 +7,15 @@ import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 // --- mixdog asset roots (standalone CLI owns its own paths; never .claude) ---
 // Project-local:  <cwd>/.mixdog/<kind>
 // Data-local:     <pluginData>/<kind>   (standalone default: ~/.mixdog/data/<kind>)
+function mixdogHome() {
+    return process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
+}
+
 function mixdogGlobalDir(kind) {
     try {
         return join(resolvePluginData(), kind);
     } catch {
-        return join(process.env.MIXDOG_DATA_DIR || join(homedir(), '.mixdog', 'data'), kind);
+        return join(process.env.MIXDOG_DATA_DIR || join(mixdogHome(), 'data'), kind);
     }
 }
 function mixdogProjectDir(projectDir, kind) {
@@ -269,7 +273,7 @@ function mixdogGlobalContextPaths() {
     try {
         dataRoot = resolvePluginData();
     } catch {
-        dataRoot = process.env.MIXDOG_DATA_DIR || join(homedir(), '.mixdog', 'data');
+        dataRoot = process.env.MIXDOG_DATA_DIR || join(mixdogHome(), 'data');
     }
     return uniquePaths([
         join(dataRoot, 'mixdog.md'),

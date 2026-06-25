@@ -149,10 +149,11 @@ const STATUSLINE_SESSION_ROUTES = './vendor/statusline/src/gateway/session-route
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STANDALONE_SOURCE_ROOT = __dirname;
 // Resource root stays at src/ because defaults/, rules/, runtime/, vendor/ live
-// there. User-owned standalone state lives under ~/.mixdog by default, matching
-// Claude Code's split between install location and user data (~/.claude).
+// there. User-owned standalone state lives under MIXDOG_HOME (~/.mixdog) by
+// default, matching Claude Code's split between install location and ~/.claude.
 const STANDALONE_ROOT = STANDALONE_SOURCE_ROOT;
-const STANDALONE_DATA_DIR = process.env.MIXDOG_DATA_DIR || join(homedir(), '.mixdog', 'data');
+const MIXDOG_HOME = process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
+const STANDALONE_DATA_DIR = process.env.MIXDOG_DATA_DIR || join(MIXDOG_HOME, 'data');
 
 const DEFAULT_PROVIDER = 'anthropic-oauth';
 const DEFAULT_MODEL = '';
