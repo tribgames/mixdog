@@ -51,12 +51,13 @@ import {
   EFFORT_MEDIUM,
   EFFORT_HIGH,
   EFFORT_MAX,
+  RESULT_GUTTER_GLYPH,
 } from './figures.mjs';
 
 /** Turn marker — CC BLACK_CIRCLE (`⏺` on macOS; `●` elsewhere). */
 export const TURN_MARKER = BLACK_CIRCLE;
-/** Result-tree gutter. ASCII on Windows keeps terminal copy stable. */
-export const RESULT_GUTTER = '  >  ';
+/** Result-tree gutter — CC MessageResponse style `⎿`, ASCII only when requested. */
+export const RESULT_GUTTER = `  ${RESULT_GUTTER_GLYPH}  `;
 /** Continuation indent aligning under the result content. */
 export const RESULT_INDENT = '     ';
 /** Prompt prefix glyph before the input — CC figures.pointer `❯`. */

@@ -10,7 +10,7 @@ import { asciiUiEnabled } from './safe-text.mjs';
 
 const ASCII_UI = asciiUiEnabled();
 
-export const BLACK_CIRCLE = ASCII_UI ? '*' : process.platform === 'darwin' ? '⏺' : '●';
+export const BLACK_CIRCLE = ASCII_UI ? 'o' : process.platform === 'darwin' ? '⏺' : '●';
 export const BULLET_OPERATOR = ASCII_UI ? '.' : '∙';
 export const TEARDROP_ASTERISK = ASCII_UI ? '*' : '✻';
 export const UP_ARROW = ASCII_UI ? '^' : '↑';
@@ -24,6 +24,9 @@ export const EFFORT_MAX = ASCII_UI ? 'X' : '◉';
 // Media/trigger status indicators
 export const PLAY_ICON = ASCII_UI ? '>' : '▶';
 export const PAUSE_ICON = ASCII_UI ? '|' : '⏸';
+
+// Tool-result tree gutter.
+export const RESULT_GUTTER_GLYPH = ASCII_UI ? '>' : '⎿';
 
 // MCP subscription indicators
 export const REFRESH_ARROW = ASCII_UI ? '~' : '↻';

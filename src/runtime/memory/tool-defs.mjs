@@ -39,7 +39,7 @@ export const TOOL_DEFS = [
       type: 'object',
       properties: {
         query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }] },
-        id: { anyOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' }, minItems: 1 }] },
+        id: { anyOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' }, minItems: 1 }], description: 'Only use exact #ids from a prior recall result. Do not invent ids, and do not combine id with query.' },
         period: { type: 'string' },
         limit: { type: 'number' },
         offset: { type: 'number' },

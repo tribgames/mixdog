@@ -325,6 +325,7 @@ function bridgeSummary(call) {
     tag: input?.tag || null,
     mode: input?.mode || null,
     wait: input?.wait ?? null,
+    input: compact(input, 500),
   };
 }
 

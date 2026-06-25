@@ -11,9 +11,10 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
-import { theme } from '../theme.mjs';
+import { theme, TURN_MARKER, RESULT_GUTTER } from '../theme.mjs';
 import { formatElapsed } from '../time-format.mjs';
 import { terminalSafeText } from '../safe-text.mjs';
+import { BULLET_OPERATOR } from '../figures.mjs';
 import {
   displayToolName as surfaceDisplayToolName,
   formatToolSurface,
@@ -225,7 +226,7 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
   }, [pending]);
 
   const dotColor = pending ? theme.subtle : isError ? theme.error : theme.success;
-  const dotText = pending && !blinkOn ? ' ' : isError ? 'x' : '*';
+  const dotText = pending && !blinkOn ? ' ' : isError ? 'x' : TURN_MARKER;
   const labelText = statusCopy(normalizedName, label, groupCount, doneCount, pending, isError);
   // Show the parenthesized arg summary for grouped cards too, matching single
   // calls so the header carries the same context.
@@ -240,7 +241,7 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
   // row, so avoid an extra standalone ellipsis between parenthesized segments.
   const gutter = 2;
   const hintLabel = showHeaderExpandHint ? `ctrl+o ${expanded ? 'collapse' : 'expand'}` : '';
-  const hintText = hintLabel ? ` - ${hintLabel}` : '';
+  const hintText = hintLabel ? ` ${BULLET_OPERATOR} ${hintLabel}` : '';
   const avail = Math.max(
     1,
     (Number(columns) || 80) - 1 - gutter - stringWidth(hintText),
@@ -276,7 +277,7 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
 
       <Box flexDirection="row">
         <Box flexShrink={0}>
-          <Text color={theme.subtle}>{'  >  '}</Text>
+          <Text color={theme.subtle}>{RESULT_GUTTER}</Text>
         </Box>
         <Box flexDirection="column" flexShrink={1} flexGrow={1}>
           {detailLines.length === 0 ? (
