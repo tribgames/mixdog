@@ -300,12 +300,17 @@ const MEASURED_TOOL_USAGE = Object.freeze({
   cwd: 2,
   diagnostics: 2,
   recall: 2,
+  search: 2,
+  web_fetch: 2,
   provider_status: 2,
   channel_status: 2,
 });
 const MEASURED_TOOL_ORDER = Object.freeze(Object.keys(MEASURED_TOOL_USAGE));
 const DEFERRED_ALWAYS_ACTIVE_TOOLS = new Set([
   'tool_search',
+  'recall',
+  'search',
+  'web_fetch',
 ]);
 const DEFERRED_DEFAULT_FULL_LIMIT = 8;
 const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
@@ -1574,6 +1579,7 @@ export async function createMixdogSessionRuntime({
       lane: 'cli',
       sourceType: 'cli',
       sourceName: 'main',
+      clientHostPid: process.pid,
       disallowedTools: ['diagnostics', 'open_config'],
       cwd: currentCwd,
       coreMemoryContext,

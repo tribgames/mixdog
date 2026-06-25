@@ -9,7 +9,6 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.mjs';
-import { terminalSafeText } from '../safe-text.mjs';
 
 // Loaded at RUNTIME (not bundled) so its vendored statusline-lib relative
 // imports resolve from the real src/ui location, not the dist/ bundle dir.
@@ -31,7 +30,7 @@ const WARNING = ansiRgb(theme.warning, '\x1b[38;2;255;193;7m');
 const ERROR = ansiRgb(theme.error, '\x1b[38;2;255;82;104m');
 
 export function normalizeStatusLine(text) {
-  return terminalSafeText(String(text || '')
+  return String(text || '')
     .replace(/\n+$/, '')
     .replace(/\x1b\[1m/g, STATUS)
     .replace(/\x1b\[2m/g, SUBTLE)
@@ -42,16 +41,16 @@ export function normalizeStatusLine(text) {
     .replace(/\x1b\[90m/g, SUBTLE)
     .replace(/^(?:\x1b\[[0-9;]*m)*◆(?:\x1b\[[0-9;]*m)*\s?/, STATUS)
     .replace(/(\x1b\[0m )(\d+(?:\.\d+)?%)(?= |$)/g, `$1${STATUS}$2${RESET}`)
-    .replaceAll(`${RESET} ${SUBTLE}│${RESET} `, ` ${SUBTLE}│${RESET} `));
+    .replaceAll(`${RESET} ${SUBTLE}│${RESET} `, ` ${SUBTLE}│${RESET} `);
 }
 
-export function StatusLine({ sessionId, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision = '', initialLine = '' }) {
+export function StatusLine({ sessionId, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision = '', bridgeWorkers = [], bridgeJobs = [], initialLine = '' }) {
   const [line, setLine] = useState(() => normalizeStatusLine(initialLine));
 
   useEffect(() => {
     let alive = true;
     import(STATUSLINE_MODULE)
-      .then((m) => m.renderStatusline({ sessionId, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow }))
+      .then((m) => m.renderStatusline({ sessionId, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, bridgeWorkers, bridgeJobs }))
       .then((s) => {
         if (!alive) return;
         setLine(normalizeStatusLine(s));

@@ -28,7 +28,6 @@ import { theme } from '../theme.mjs';
 import { SPINNER_FRAMES } from '../spinner-verbs.mjs';
 import { DOWN_ARROW, UP_ARROW } from '../figures.mjs';
 import { formatDuration } from '../time-format.mjs';
-import { asciiUiEnabled } from '../safe-text.mjs';
 
 const FRAME_MS = 130;
 // CC plays the frames forward, then in reverse — a smooth there-and-back sweep.
@@ -125,7 +124,7 @@ function formatNumber(n) {
   return String(Math.round(value));
 }
 
-const STATUS_SEP = asciiUiEnabled() ? ' - ' : ' · ';
+const STATUS_SEP = ' · ';
 const SEP_WIDTH = STATUS_SEP.length;
 const HINT_WIDTH = 16; // 'esc to interrupt'
 const THINKING_TIME_AFTERGLOW_MS = 3000;
@@ -213,7 +212,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
     nextVerbCheckRef.current = nextVerbCheckAt(now);
   }
   const displayVerb = displayVerbRef.current;
-  const messageText = `${displayVerb}...`;
+  const messageText = `${displayVerb}…`;
   const messageLen = messageText.length;
 
   // Glimmer speed per mode.

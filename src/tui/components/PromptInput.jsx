@@ -16,11 +16,10 @@
  * at the exact moment of drawing, so it can never be stale.
  */
 import React, { useEffect, useState, useRef } from 'react';
-import { spawnSync } from 'node:child_process';
 import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
-import { terminalSafeText } from '../safe-text.mjs';
+import { normalizeLineEndings } from '../safe-text.mjs';
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
@@ -98,41 +97,7 @@ function insertText(draft, input) {
 }
 
 function normalizePastedText(text) {
-  return String(text ?? '')
-    .replace(/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/g, '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n');
-}
-
-function readClipboardText() {
-  const timeout = 1500;
-  const opts = { timeout, windowsHide: true, maxBuffer: 4 * 1024 * 1024 };
-  const decodeUtf8 = (value) => Buffer.isBuffer(value) ? value.toString('utf8') : String(value || '');
-  try {
-    if (process.platform === 'win32') {
-      const script = [
-        '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)',
-        '$OutputEncoding = [Console]::OutputEncoding',
-        '$text = Get-Clipboard -Raw',
-        'if ($null -ne $text) { [Console]::Out.Write($text) }',
-      ].join('; ');
-      for (const exe of ['pwsh.exe', 'powershell.exe']) {
-        const r = spawnSync(exe, ['-NoProfile', '-NonInteractive', '-Command', script], opts);
-        if (r.status === 0) return decodeUtf8(r.stdout);
-      }
-      return '';
-    }
-    if (process.platform === 'darwin') {
-      const r = spawnSync('pbpaste', [], opts);
-      return r.status === 0 ? decodeUtf8(r.stdout) : '';
-    }
-    const wl = spawnSync('wl-paste', ['--no-newline'], opts);
-    if (wl.status === 0) return decodeUtf8(wl.stdout);
-    const xclip = spawnSync('xclip', ['-selection', 'clipboard', '-out'], opts);
-    return xclip.status === 0 ? decodeUtf8(xclip.stdout) : '';
-  } catch {
-    return '';
-  }
+  return normalizeLineEndings(text);
 }
 
 export function PromptInput({
@@ -352,14 +317,6 @@ export function PromptInput({
       return;
     }
 
-    if (key.ctrl && (input === 'v' || input === 'V' || rawInput === '\u0016')) {
-      const pasted = normalizePastedText(readClipboardText());
-      if (pasted) {
-        updateDraft((d) => insertText(d, pasted));
-      }
-      return;
-    }
-
     if (key.leftArrow) {
       updateDraft((d) => ({ ...d, cursor: previousOffset(d.value, d.cursor) }));
       return;
@@ -465,7 +422,7 @@ export function PromptInput({
         <Box marginLeft={-1}>
           <Text>
             <Text color={hintMeta.accentColor}>{hintMeta.prefix}</Text>
-            <Text color={hintMeta.textColor}> {terminalSafeText(hint)}</Text>
+            <Text color={hintMeta.textColor}> {hint}</Text>
           </Text>
         </Box>
       ) : null}

@@ -13,6 +13,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.mjs';
 import { formatDuration } from '../time-format.mjs';
+import { TURN_DONE_MARKER } from '../figures.mjs';
 
 export function TurnDone({ elapsedMs = 0, status = 'done', verb = 'Thought' }) {
   const elapsed = formatDuration(elapsedMs);
@@ -22,7 +23,7 @@ export function TurnDone({ elapsedMs = 0, status = 'done', verb = 'Thought' }) {
   return (
     <Box marginTop={1} flexDirection="row">
       <Text>
-        <Text color={theme.spinnerGlyph}>* </Text>
+        <Text color={theme.spinnerGlyph}>{TURN_DONE_MARKER} </Text>
         <Text color={theme.thinkingAccent}>{cancelled ? `Cancelled after ${elapsed}` : `${doneVerb} for ${elapsed}`}</Text>
       </Text>
     </Box>

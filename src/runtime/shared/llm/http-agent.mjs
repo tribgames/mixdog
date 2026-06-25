@@ -83,7 +83,7 @@ export function getLlmDispatcher() {
       connections: envInt('MIXDOG_LLM_CONNECTIONS', 16),
     })
   }
-  // mixdog-cli standalone: separate undici instance from Node's fetch undici, so
+  // mixdog standalone: separate undici instance from Node's fetch undici, so
   // a per-request dispatcher throws UND_ERR_INVALID_ARG. Install globally once
   // and omit the per-request dispatcher. See port-plan D7.
   if (!_globalInstalled) {

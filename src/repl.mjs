@@ -1,5 +1,5 @@
 /**
- * mixdog-cli REPL — styled inline terminal loop over the ported mixdog brain.
+ * mixdog REPL — styled inline terminal loop over the ported mixdog brain.
  *
  * Drives the *ported mixdog brain* through mixdog-session-runtime.mjs:
  * createSession + askSession own agentLoop/provider/tools/compaction, while
@@ -32,11 +32,11 @@ import { createMixdogSessionRuntime } from './mixdog-session-runtime.mjs';
 
 /** Help text shared by `--help` and the `/help` slash command. */
 const HELP_LINES = [
-  'mixdog-cli — standalone mixdog CLI/TUI coding agent.',
+  'mixdog — standalone mixdog CLI/TUI coding agent.',
   '',
   'Usage:',
-  '  mixdog-cli [--provider <name>] [--model <name>] [--readonly]',
-  '  mixdog-cli --help',
+  '  mixdog [--provider <name>] [--model <name>] [--readonly]',
+  '  mixdog --help',
   '',
   'Slash commands (inside the REPL):',
   '  /help              show this help',
@@ -171,7 +171,7 @@ function promptText() {
 }
 
 function printBanner(providerName, model, cwd, toolMode) {
-  const title = bold('mixdog-cli');
+  const title = bold('mixdog');
   const id = cyan(`${providerName}/${model}`);
   stdout.write(`${title} ${dim('—')} ${id} ${dim('·')} ${dim(toolMode)} ${dim('·')} ${dim(basename(cwd))}\n`);
   stdout.write(dim('Type a message, or /help for commands. Ctrl+C to exit.') + '\n\n');

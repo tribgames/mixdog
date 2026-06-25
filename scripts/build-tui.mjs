@@ -2,7 +2,7 @@
 /**
  * scripts/build-tui.mjs — bundle the React/ink TUI (JSX) to plain ESM.
  *
- * mixdog-cli is otherwise zero-build (plain .mjs), but the React/ink render
+ * mixdog is otherwise zero-build (plain .mjs), but the React/ink render
  * layer needs JSX transpilation. esbuild compiles src/tui/*.jsx into a single
  * ESM bundle at src/tui/dist/index.mjs.
  *

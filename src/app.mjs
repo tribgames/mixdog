@@ -34,7 +34,7 @@ function unknownOption(argv) {
 }
 
 /**
- * mixdog-cli launcher.
+ * mixdog launcher.
  *
  * The product path is the native mixdog runtime: session runtime, providers,
  * tools, and the canonical Ink TUI. Vendored reference code is not executable
@@ -44,7 +44,7 @@ export async function run(argv = []) {
   bootProfile('run:start', { argv: argv.join(',') });
   const badOption = unknownOption(argv);
   if (badOption) {
-    process.stderr.write(`mixdog-cli: unknown option ${badOption}\n`);
+    process.stderr.write(`mixdog: unknown option ${badOption}\n`);
     return 1;
   }
 
@@ -72,7 +72,7 @@ export async function run(argv = []) {
   }
 
   if (argv.includes('--react')) {
-    process.stderr.write('mixdog-cli: --react was removed; run `mixdog-cli` for the canonical TUI.\n');
+    process.stderr.write('mixdog: --react was removed; run `mixdog` for the canonical TUI.\n');
     return 1;
   }
 
@@ -80,7 +80,7 @@ export async function run(argv = []) {
   const bundle = join(__dirname, 'tui', 'dist', 'index.mjs');
   if (!existsSync(bundle)) {
     process.stderr.write(
-      'mixdog-cli: TUI bundle not found. Build it with:\n  npm run build:tui\n',
+      'mixdog: TUI bundle not found. Build it with:\n  npm run build:tui\n',
     );
     return 1;
   }

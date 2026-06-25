@@ -138,6 +138,69 @@ function toolCallArgs(call) {
   return call?.arguments ?? call?.args ?? call?.input ?? call?.function?.arguments;
 }
 
+function textBetweenTag(text, tag) {
+  const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
+  const match = re.exec(String(text ?? ''));
+  return match ? match[1].trim() : '';
+}
+
+function stripSyntheticAgentTags(text) {
+  const value = String(text ?? '').trim();
+  const finalAnswer = textBetweenTag(value, 'final-answer');
+  if (finalAnswer) return finalAnswer;
+  const taskResult = textBetweenTag(value, 'result');
+  if (taskResult) return taskResult;
+  return value
+    .replace(/<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>/gi, '')
+    .trim();
+}
+
+function bracketField(text, name) {
+  const re = new RegExp(`^\\[${name}:\\s*([^\\]]*)\\]`, 'mi');
+  return re.exec(String(text ?? ''))?.[1]?.trim() || '';
+}
+
+function parseSyntheticAgentMessage(text) {
+  const value = String(text ?? '').trim();
+  if (!value) return null;
+  const finalAnswer = textBetweenTag(value, 'final-answer');
+  if (finalAnswer) {
+    return {
+      name: 'bridge',
+      label: 'final',
+      args: { type: 'read', description: 'worker result' },
+      result: finalAnswer,
+    };
+  }
+  const shellJobId = bracketField(value, 'job');
+  if (shellJobId) {
+    const status = bracketField(value, 'status') || 'done';
+    const exit = bracketField(value, 'exit');
+    const command = bracketField(value, 'command');
+    return {
+      name: 'bash',
+      label: status,
+      args: { type: 'result', jobId: shellJobId, command },
+      result: value,
+      isError: /^(failed|error|timeout|cancelled|killed)$/i.test(status) || (exit && exit !== '0' && exit !== 'n/a'),
+    };
+  }
+  if (/^<task-notification\b/i.test(value)) {
+    const status = textBetweenTag(value, 'status') || 'completed';
+    const summary = textBetweenTag(value, 'summary') || `Agent ${status}`;
+    const taskId = textBetweenTag(value, 'task-id');
+    const result = stripSyntheticAgentTags(value);
+    return {
+      name: 'bridge',
+      label: status,
+      taskId,
+      summary,
+      result: result || summary,
+    };
+  }
+  return null;
+}
+
 function normalizeToolName(name) {
   return String(name || 'tool')
     .replace(/^mcp__.*__/, '')
@@ -244,10 +307,43 @@ function parseBridgeJob(text) {
   const idMatch = /^bridge job:\s*(job_[^\s]+)/m.exec(value);
   if (!idMatch) return null;
   const statusMatch = /^status:\s*([^\s(]+)/m.exec(value);
+  const typeMatch = /^type:\s*(.+)$/m.exec(value);
+  const targetMatch = /^target:\s*(.+)$/m.exec(value);
+  const roleMatch = /^role:\s*(.+)$/m.exec(value);
+  const presetMatch = /^preset:\s*(.+)$/m.exec(value);
+  const modelMatch = /^model:\s*([^/\s]+)\/(.+)$/m.exec(value);
+  const effortMatch = /^effort:\s*(.+)$/m.exec(value);
+  const fastMatch = /^fast:\s*(on|off|true|false)$/m.exec(value);
   return {
     jobId: idMatch[1],
     status: (statusMatch?.[1] || '').toLowerCase(),
+    type: (typeMatch?.[1] || '').trim(),
+    target: (targetMatch?.[1] || '').trim(),
+    role: (roleMatch?.[1] || '').trim(),
+    preset: (presetMatch?.[1] || '').trim(),
+    provider: (modelMatch?.[1] || '').trim(),
+    model: (modelMatch?.[2] || '').trim(),
+    effort: (effortMatch?.[1] || '').trim(),
+    fast: fastMatch ? /^(on|true)$/i.test(fastMatch[1]) : undefined,
   };
+}
+
+function bridgeArgsWithResultMetadata(args, parsed) {
+  if (!parsed) return args;
+  const next = { ...(args && typeof args === 'object' ? args : {}) };
+  if (parsed.type) next.type = parsed.type;
+  if (parsed.jobId) next.jobId = parsed.jobId;
+  if (parsed.role) next.role = parsed.role;
+  if (parsed.preset) next.preset = parsed.preset;
+  if (parsed.provider) next.provider = parsed.provider;
+  if (parsed.model) next.model = parsed.model;
+  if (parsed.effort) next.effort = parsed.effort;
+  if (parsed.fast !== undefined) next.fast = parsed.fast;
+  if (!next.tag && parsed.target) {
+    const target = parsed.target.split(/\s+/)[0];
+    if (target && !target.startsWith('sess_')) next.tag = target;
+  }
+  return next;
 }
 
 function extractBridgeJobReport(text) {
@@ -336,6 +432,31 @@ export async function createEngineSession({
   const set = (patch) => { state = { ...state, ...patch }; emit(); };
 
   const pushItem = (item) => set({ items: [...state.items, item] });
+  const pushUserOrSyntheticItem = (text, id = nextId()) => {
+    const synthetic = parseSyntheticAgentMessage(text);
+    if (!synthetic) {
+      pushItem({ kind: 'user', id, text });
+      return;
+    }
+    const label = synthetic.label || 'notification';
+    pushItem({
+      kind: 'tool',
+      id,
+      name: synthetic.name || 'bridge',
+      args: synthetic.args || {
+        type: label,
+        jobId: synthetic.taskId || undefined,
+        description: synthetic.summary || 'worker notification',
+      },
+      result: synthetic.result,
+      isError: synthetic.isError ?? /^(failed|error|killed|cancelled)$/i.test(label),
+      expanded: false,
+      count: 1,
+      completedCount: 1,
+      startedAt: Date.now(),
+      completedAt: Date.now(),
+    });
+  };
   const pushToast = (text, tone = 'info', ttlMs = 3200) => {
     const id = nextId();
     const value = String(text ?? '').trim();
@@ -396,8 +517,15 @@ export async function createEngineSession({
   }
 
   function updateBridgeJobCard(itemId, text, isError = false) {
-    patchItem(itemId, { result: text, text, isError });
     const parsed = parseBridgeJob(text);
+    const current = state.items.find((it) => it.id === itemId);
+    const displayText = stripSyntheticAgentTags(text) || String(text || '').trim();
+    patchItem(itemId, {
+      result: displayText,
+      text: displayText,
+      isError,
+      ...(parsed ? { args: bridgeArgsWithResultMetadata(current?.args, parsed) } : {}),
+    });
     if (!parsed?.jobId) return;
     if (parsed.status && parsed.status !== 'running') {
       clearBridgeJobMonitor(parsed.jobId);
@@ -426,7 +554,14 @@ export async function createEngineSession({
         const text = String(await runtime.bridgeControl({ type: 'read', jobId }) || '').trim();
         const parsed = parseBridgeJob(text);
         const nextText = text || '(empty bridge result)';
-        patchItem(monitor.itemId, { result: nextText, text: nextText, isError: /^error:/i.test(text) });
+        const displayText = stripSyntheticAgentTags(nextText) || nextText;
+        const current = state.items.find((it) => it.id === monitor.itemId);
+        patchItem(monitor.itemId, {
+          result: displayText,
+          text: displayText,
+          isError: /^error:/i.test(text),
+          ...(parsed ? { args: bridgeArgsWithResultMetadata(current?.args, parsed) } : {}),
+        });
         set(bridgeStatusState());
         if (!parsed || parsed.status !== 'running') {
           clearBridgeJobMonitor(jobId);
@@ -457,9 +592,26 @@ export async function createEngineSession({
     if (group.count <= 1) return group.results.at(-1)?.text ?? '';
     if (group.errors > 0) {
       const succeeded = Math.max(0, completed - group.errors);
-      return `${succeeded} succeeded - ${group.errors} failed`;
+      const reasons = group.results
+        .filter((result) => result?.isError)
+        .map((result) => firstErrorLine(result?.text))
+        .filter(Boolean);
+      const uniqueReasons = [...new Set(reasons)].slice(0, 2);
+      return [
+        `${succeeded} succeeded - ${group.errors} failed${uniqueReasons[0] ? `: ${uniqueReasons[0]}` : ''}`,
+        ...uniqueReasons.slice(1),
+      ].join('\n');
     }
     return `${completed}/${group.count} completed`;
+  }
+
+  function firstErrorLine(text) {
+    for (const line of String(text || '').split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (/^(Error|\[?error|FAIL\b)/i.test(trimmed)) return trimmed;
+    }
+    return String(text || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
   }
 
   function patchToolCardResult(card, message, toolGroups, done) {
@@ -474,14 +626,19 @@ export async function createEngineSession({
     group.results.push({ text, isError });
     toolGroups.set(card.itemId, group);
     const resultText = groupedToolResultText(group);
-    patchItem(card.itemId, {
+    const patch = {
       result: resultText,
       text: resultText,
       isError: group.errors > 0,
       count: group.count,
       completedCount: group.completed,
       completedAt: Date.now(),
-    });
+    };
+    if (group.count <= 1) {
+      const parsedBridge = parseBridgeJob(text);
+      if (parsedBridge) patch.args = bridgeArgsWithResultMetadata(state.items.find((it) => it.id === card.itemId)?.args, parsedBridge);
+    }
+    patchItem(card.itemId, patch);
     if (group.count <= 1) updateBridgeJobCard(card.itemId, text, isError);
     card.done = true;
     if (callId) done.add(callId);
@@ -663,7 +820,7 @@ export async function createEngineSession({
         drainSteering: () => drainPendingSteering(),
         onSteerMessage: (text) => {
           const value = String(text || '').trim();
-          if (value) pushItem({ kind: 'user', id: nextId(), text: value });
+          if (value) pushUserOrSyntheticItem(value);
         },
         onToolCall: async (_iter, calls) => {
           if (thinkingText && state.thinking) {
@@ -853,6 +1010,7 @@ export async function createEngineSession({
 
   const pending = [];
   let draining = false;
+
   async function drain() {
     if (draining) return;
     draining = true;
@@ -865,13 +1023,13 @@ export async function createEngineSession({
         const batch = pending.splice(0);
         const ids = new Set(batch.map((e) => e.id));
         set({ queued: state.queued.filter((q) => !ids.has(q.id)) });
-        for (const entry of batch) {
-          pushItem({ kind: 'user', id: entry.id, text: entry.text });
-        }
         const merged = batch
           .map((entry) => entry.text)
           .filter((text) => String(text || '').trim())
           .join('\n');
+        for (const entry of batch) {
+          pushUserOrSyntheticItem(entry.text, entry.id);
+        }
         await runTurn(merged);
       }
     } finally {
@@ -1042,7 +1200,18 @@ export async function createEngineSession({
         const result = await runtime.bridgeControl(args);
         const text = String(result || '').trim() || '(empty bridge result)';
         const itemId = nextId();
-        pushItem({ kind: 'notice', id: itemId, text, tone: 'info' });
+        pushItem({
+          kind: 'tool',
+          id: itemId,
+          name: 'bridge',
+          args,
+          result: null,
+          isError: false,
+          expanded: false,
+          count: 1,
+          completedCount: 0,
+          startedAt: Date.now(),
+        });
         updateBridgeJobCard(itemId, text, /^error:/i.test(text));
         set(bridgeStatusState());
         return result;
@@ -1484,7 +1653,31 @@ export async function createEngineSession({
             // interleaving) — toolResultText coerces both to readable text so
             // array-content messages aren't silently dropped.
             const text = (typeof m.content === 'string' ? m.content : toolResultText(m.content)).trim();
-            if (text) items.push({ kind: 'user', id: nextId(), text });
+            if (text) {
+              const synthetic = parseSyntheticAgentMessage(text);
+              if (synthetic) {
+                const label = synthetic.label || 'notification';
+                items.push({
+                  kind: 'tool',
+                  id: nextId(),
+                  name: synthetic.name || 'bridge',
+                  args: synthetic.args || {
+                    type: label,
+                    jobId: synthetic.taskId || undefined,
+                    description: synthetic.summary || 'worker notification',
+                  },
+                  result: synthetic.result,
+                  isError: synthetic.isError ?? /^(failed|error|killed|cancelled)$/i.test(label),
+                  expanded: false,
+                  count: 1,
+                  completedCount: 1,
+                  startedAt: Date.now(),
+                  completedAt: Date.now(),
+                });
+              } else {
+                items.push({ kind: 'user', id: nextId(), text });
+              }
+            }
           } else if (m.role === 'assistant') {
             const text = (typeof m.content === 'string' ? m.content : toolResultText(m.content)).trim();
             if (text) items.push({ kind: 'assistant', id: nextId(), text });

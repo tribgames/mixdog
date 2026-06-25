@@ -44,12 +44,12 @@ if (/refs[\\/]/i.test(String(implicitRefsGlobOut))) {
   throw new Error(`glob default search must exclude refs unless explicitly targeted:\n${implicitRefsGlobOut}`);
 }
 
-const explicitRefsGlobOut = await executeBuiltinTool('glob', {
-  pattern: '**/agent-session.ts',
-  path: 'refs',
+const explicitSrcGlobOut = await executeBuiltinTool('glob', {
+  pattern: '**/engine.mjs',
+  path: 'src',
   head_limit: 20,
 }, root);
-assertOk('glob explicit refs', explicitRefsGlobOut, /refs[\\/].*agent-session\.ts/i);
+assertOk('glob explicit src', explicitSrcGlobOut, /src[\\/].*engine\.mjs/i);
 
 const readOut = await executeBuiltinTool('read', {
   path: 'scripts/smoke.mjs',
@@ -150,14 +150,14 @@ if (literalBackslashPipeArray) {
 
 const invalidGrepPath = validateBuiltinArgs('grep', {
   pattern: 'providerStatus',
-  path: 'C:\\Project\\mixdog-cli\\src\\tui C:\\Project\\mixdog-cli\\src\\mixdog-session-runtime.mjs',
+  path: 'C:\\Project\\mixdog\\src\\tui C:\\Project\\mixdog\\src\\mixdog-session-runtime.mjs',
 });
 if (!/multiple absolute paths/i.test(invalidGrepPath || '')) {
   throw new Error(`grep multi-path guard failed: ${invalidGrepPath}`);
 }
 
 const invalidGrepLookaround = validateBuiltinArgs('grep', {
-  pattern: 'C:\\\\Project(?!\\\\mixdog-cli)',
+  pattern: 'C:\\\\Project(?!\\\\mixdog)',
   path: root,
 });
 if (!/lookaround\/backrefs/i.test(invalidGrepLookaround || '')) {
@@ -165,7 +165,7 @@ if (!/lookaround\/backrefs/i.test(invalidGrepLookaround || '')) {
 }
 
 const invalidShellPath = validateBuiltinArgs('bash', {
-  command: 'cd C:\\Project\\mixdog-cli && node scripts/build-tui.mjs',
+  command: 'cd C:\\Project\\mixdog && node scripts/build-tui.mjs',
 });
 if (process.platform === 'win32' && !/shell:'powershell'/i.test(invalidShellPath || '')) {
   throw new Error(`bash Windows-path shell guard failed: ${invalidShellPath}`);
@@ -243,10 +243,10 @@ const smokeCatalog = [
 ].filter(Boolean);
 
 const fullDefaults = defaultDeferredToolNames(smokeCatalog, 'full');
-if (fullDefaults.size !== 9) {
-  throw new Error(`full default surface should stay 9 tools, got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`);
+if (fullDefaults.size !== 12) {
+  throw new Error(`full default surface should stay 12 tools, got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'glob', 'list', 'apply_patch', 'explore', 'bridge', 'tool_search']) {
+for (const name of ['read', 'code_graph', 'grep', 'glob', 'list', 'apply_patch', 'explore', 'bridge', 'recall', 'search', 'web_fetch', 'tool_search']) {
   assertHas(fullDefaults, name);
 }
 for (const name of ['bash', 'edit', 'write']) {

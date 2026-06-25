@@ -509,7 +509,7 @@ function _scrubTokens(text) {
 
 async function refreshOAuthCredentials(creds) {
     if (!creds?.refreshToken) {
-        throw new Error('Anthropic OAuth refresh token not available. Run /auth anthropic-oauth or /providers in mixdog-cli to re-authenticate.');
+        throw new Error('Anthropic OAuth refresh token not available. Run /auth anthropic-oauth or /providers in mixdog to re-authenticate.');
     }
 
     const controller = new AbortController();
@@ -1396,7 +1396,7 @@ export class AnthropicOAuthProvider {
             this.credentials = loadCredentials();
         }
         if (!this.credentials) {
-            throw new Error('Anthropic OAuth credentials not found. Run /auth anthropic-oauth or /providers in mixdog-cli to authenticate.');
+            throw new Error('Anthropic OAuth credentials not found. Run /auth anthropic-oauth or /providers in mixdog to authenticate.');
         }
 
         // Pick up host-rotated tokens the moment the credentials file is
@@ -1453,7 +1453,7 @@ export class AnthropicOAuthProvider {
                     process.stderr.write(`[anthropic-oauth] WARNING: token expiring but no refresh token; using current token until expiry\n`);
                     return latest;
                 }
-                throw new Error('Anthropic OAuth refresh token not available. Run /auth anthropic-oauth or /providers in mixdog-cli to re-authenticate.');
+                throw new Error('Anthropic OAuth refresh token not available. Run /auth anthropic-oauth or /providers in mixdog to re-authenticate.');
             }
 
             try {

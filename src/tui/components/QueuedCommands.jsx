@@ -27,11 +27,11 @@ export function QueuedCommands({ queued, columns }) {
         // Truncate to 1 line so the row reservation (queued.length in App.jsx)
         // stays accurate — wrapped text would push the input box off-screen.
         // Content width = bandColumns(columns-1) - paddingLeft(2) - paddingRight(1)
-        // = columns-4. When truncating we append '...' (3 cells), so the slice
+        // = columns-4. When truncating we append '…' (1 cell), so the slice
         // must leave room for that suffix and avoid a wrap to row 2.
         const contentWidth = Math.max(1, columns - 4);
         const displayText = item.text.length > contentWidth
-          ? (contentWidth <= 3 ? '.'.repeat(contentWidth) : item.text.slice(0, Math.max(1, contentWidth - 3)) + '...')
+          ? (contentWidth <= 1 ? '…'.repeat(contentWidth) : item.text.slice(0, Math.max(1, contentWidth - 1)) + '…')
           : item.text;
         return (
           <Box key={item.id} width={bandColumns} backgroundColor={theme.userMessageBackground} paddingLeft={2} paddingRight={1}>

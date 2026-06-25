@@ -4,7 +4,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import { theme } from '../theme.mjs';
-import { terminalSafeText } from '../safe-text.mjs';
+import { normalizeLineEndings } from '../safe-text.mjs';
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
@@ -30,17 +30,14 @@ function nextOffset(text, offset) {
 }
 
 function normalizeInput(text) {
-  return String(text ?? '')
-    .replace(/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/g, '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n');
+  return normalizeLineEndings(text);
 }
 
 function truncateMiddle(text, width) {
   const value = String(text || '');
   if (value.length <= width) return value;
-  if (width <= 3) return '.'.repeat(Math.max(0, width));
-  return `...${value.slice(-(width - 3))}`;
+  if (width <= 1) return '…'.repeat(Math.max(0, width));
+  return `…${value.slice(-(width - 1))}`;
 }
 
 export function TextEntryPanel({
@@ -163,10 +160,10 @@ export function TextEntryPanel({
     <Box flexDirection="column" flexShrink={0} width="100%">
       <Box borderStyle="round" borderColor={theme.promptBorder} paddingX={1} width="100%" flexDirection="column">
         <Box flexDirection="row" justifyContent="space-between">
-          <Text color={theme.panelTitle}>{terminalSafeText(title)}</Text>
-          <Text color={theme.subtle}>Enter {terminalSafeText(actionLabel)} - Esc exit/back</Text>
+          <Text color={theme.panelTitle}>{title}</Text>
+          <Text color={theme.subtle}>Enter {actionLabel} - Esc exit/back</Text>
         </Box>
-        {hint ? <Text color={theme.inactive}>{terminalSafeText(hint)}</Text> : <Text color={theme.inactive}> </Text>}
+        {hint ? <Text color={theme.inactive}>{hint}</Text> : <Text color={theme.inactive}> </Text>}
         <Text>
           <Text color={theme.inactive}>{'> '}</Text>
           <Text color={theme.text}>{shownBefore}</Text>

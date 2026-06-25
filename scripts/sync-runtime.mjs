@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * sync-runtime.mjs — re-vendor the mixdog brain into mixdog-cli.
+ * sync-runtime.mjs — re-vendor the mixdog brain into mixdog.
  *
- * mixdog-cli treats the mixdog source like a vendored dependency (option B in
+ * mixdog treats the mixdog source like a vendored dependency (option B in
  * the port-plan discussion): 137 of 141 ported files are PURE copies of
  * mixdog/src, so we re-copy the whole agentLoop closure from upstream and then
  * re-apply a tiny set of standalone patches on top.
@@ -282,11 +282,11 @@ function patchAnthropicOAuthStandalone(src) {
   const replacements = [
     [
       'Anthropic OAuth refresh token not available. Run "claude login" to re-authenticate.',
-      'Anthropic OAuth refresh token not available. Run /auth anthropic-oauth or /providers in mixdog-cli to re-authenticate.',
+      'Anthropic OAuth refresh token not available. Run /auth anthropic-oauth or /providers in mixdog to re-authenticate.',
     ],
     [
       'Anthropic OAuth credentials not found. Run "claude login" to authenticate.',
-      'Anthropic OAuth credentials not found. Run /auth anthropic-oauth or /providers in mixdog-cli to authenticate.',
+      'Anthropic OAuth credentials not found. Run /auth anthropic-oauth or /providers in mixdog to authenticate.',
     ],
   ];
   let changed = false;
@@ -1060,6 +1060,13 @@ safe work; delegate bounded implementation/research to \`bridge\`.
 
 Before repo-anchored work, ensure \`cwd\` points at the repo root. After \`cwd set\`,
 omit repeated cwd arguments unless a tool needs an override.
+If the user references current/prior/session context ("지금", "아까", "방금",
+"이 세션", "계속", "remember", "previous") and the needed anchor is not visible
+in the current transcript, use \`recall\` once before repo/file exploration.
+If the task is about Mixdog CLI/TUI/agent/bridge/workers/tool routing,
+recall/search, statusline, terminal rendering, or model/settings UX, treat
+the \`mixdog\` repo as the first repo anchor. Do not scan sibling repos
+from a workspace super-root before anchoring there.
 
 ## Bridge
 
@@ -1091,12 +1098,12 @@ needed. Common selections: \`edit\`, \`bash\`, \`glob\`, \`provider_status\`,
 }
 
 function patchLeadTeamRule(src) {
-  if (src.includes('main mixdog-cli session') && src.includes('worker dispatcher for one scoped task')) {
+  if (src.includes('main mixdog session') && src.includes('worker dispatcher for one scoped task')) {
     return { text: src, already: true };
   }
   let s = src;
   const replacements = [
-    ['- **Lead**: main Claude Code session.', '- **Lead**: main mixdog-cli session.'],
+    ['- **Lead**: main Claude Code session.', '- **Lead**: main mixdog session.'],
     ['- **bridge tool**: MCP dispatcher for one scoped task.', '- **bridge tool**: worker dispatcher for one scoped task.'],
     [
       '- Workers cannot use `Agent`, `TaskCreate`, `TeamCreate`, or `bridge`.\n- Exception: `claude-code-guide` via `Agent` for Claude Code docs only.',
@@ -1264,7 +1271,7 @@ function patchHttpAgent(src) {
       connections: envInt('MIXDOG_LLM_CONNECTIONS', 16),
     })
   }
-  // mixdog-cli standalone: separate undici instance from Node's fetch undici, so
+  // mixdog standalone: separate undici instance from Node's fetch undici, so
   // a per-request dispatcher throws UND_ERR_INVALID_ARG. Install globally once
   // and omit the per-request dispatcher. See port-plan D7.
   if (!_globalInstalled) {
@@ -1463,7 +1470,7 @@ function patchPluginPaths(src, kind) {
   const staleDoc = ` * Throws if neither env var is present — the plugin always runs under
  * Claude Code, which sets one of them. Callers must not silently fall
  * back to a hardcoded path.`;
-  const standaloneDoc = ` * In standalone mixdog-cli, falls back to MIXDOG_DATA_DIR or
+  const standaloneDoc = ` * In standalone mixdog, falls back to MIXDOG_DATA_DIR or
  * <project-root>/.mixdog/data when the host plugin env is absent.
  * Plugin-host runs still prefer the host-provided env vars above.`;
   if (s.includes(staleDoc)) {
@@ -1490,7 +1497,7 @@ function patchPluginPaths(src, kind) {
       "const DEFAULT_MARKETPLACE = 'trib-plugin';\nconst STANDALONE_PROJECT_ROOT = path.resolve(__dirname, '..', '..');",
     );
   }
-  const fallback = `// Standalone mixdog-cli: own a project-local data dir (override with MIXDOG_DATA_DIR).
+  const fallback = `// Standalone mixdog: own a project-local data dir (override with MIXDOG_DATA_DIR).
   return process.env.MIXDOG_DATA_DIR || ${kind === 'mjs' ? "join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data')" : "path.join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data')"};`;
   return { text: next.replace(throwLine, fallback), already: false };
 }

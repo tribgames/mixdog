@@ -15,16 +15,15 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { theme } from '../theme.mjs';
-import { terminalSafeText } from '../safe-text.mjs';
 
 /** Max items visible at once before scrolling kicks in. */
 const MAX_VISIBLE = 8;
 
 function truncateText(value, width) {
-  const text = terminalSafeText(value || '');
+  const text = String(value || '');
   if (!(width > 0)) return '';
   if (text.length <= width) return text;
-  return width <= 3 ? '.'.repeat(Math.max(0, width)) : `${text.slice(0, Math.max(1, width - 3))}...`;
+  return width <= 1 ? '…'.repeat(Math.max(0, width)) : `${text.slice(0, Math.max(1, width - 1))}…`;
 }
 
 export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, help, columns = 80 }) {
@@ -100,7 +99,7 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, help
           height={4}
           width="100%"
         >
-          <Text color={theme.panelTitle}>{terminalSafeText(title || 'Picker')}</Text>
+          <Text color={theme.panelTitle}>{title || 'Picker'}</Text>
           <Text color={theme.inactive}> (empty) </Text>
         </Box>
       </Box>
@@ -132,8 +131,8 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, help
         width="100%"
       >
         <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
-          <Text color={theme.panelTitle}>{terminalSafeText(title)}</Text>
-          <Text color={theme.subtle}>{terminalSafeText(help || '^/v select - Enter choose - Esc exit')}</Text>
+          <Text color={theme.panelTitle}>{title}</Text>
+          <Text color={theme.subtle}>{help || '^/v select - Enter choose - Esc exit'}</Text>
         </Box>
         {visible.map((item, i) => {
           const idx = start + i;

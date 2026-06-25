@@ -916,9 +916,12 @@ export function App({ store, initialStatusLine = '' }) {
       setContextPanel(null);
       return;
     }
+    if (state.queued?.length > 0 && restoreQueuedToPrompt({ restoreDraft: true, showHint: false })) {
+      return;
+    }
     if (!state.busy) return;
     if (store.abort()) showPromptHint('interrupted', 'cancel');
-  }, [contextPanel, usagePanel, showPromptHint, state.busy, store]);
+  }, [contextPanel, usagePanel, state.queued, restoreQueuedToPrompt, state.busy, store, showPromptHint]);
 
   useInput((input, key) => {
     if (key.ctrl && (input === 'b' || input === 'B')) {
@@ -3989,6 +3992,8 @@ export function App({ store, initialStatusLine = '' }) {
           rawContextWindow={state.rawContextWindow}
           resizeEpoch={resizeEpoch}
           bridgeRevision={bridgeRevision}
+          bridgeWorkers={state.bridgeWorkers}
+          bridgeJobs={state.bridgeJobs}
           initialLine={initialStatusLine}
         />
       </Box>

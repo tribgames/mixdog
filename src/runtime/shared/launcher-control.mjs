@@ -2,7 +2,7 @@
 //
 // Replaces the Windows-only AttachConsole + WriteConsoleInputW front-injection
 // path. A `mixdog`-launched Claude Code session can be "managed": the launcher
-// (setup/mixdog-cli.mjs) owns the child process and exposes a file-based
+// (setup/mixdog.mjs) owns the child process and exposes a file-based
 // command queue under the runtime root. Internal commands (/clear,
 // /reload-plugins) are enqueued by the MCP server (inject_command / inject_input)
 // and the launcher delivers them to the child's stdin — no terminal keystroke

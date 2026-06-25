@@ -4,7 +4,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.mjs';
-import { terminalSafeText } from '../safe-text.mjs';
 
 function money(value) {
   const n = Number(value);
@@ -16,10 +15,10 @@ function money(value) {
 }
 
 function truncate(value, width) {
-  const text = terminalSafeText(value || '');
+  const text = String(value || '');
   if (!(width > 0)) return '';
   if (text.length <= width) return text;
-  return width <= 3 ? '.'.repeat(Math.max(0, width)) : `${text.slice(0, Math.max(1, width - 3))}...`;
+  return width <= 1 ? '…'.repeat(Math.max(0, width)) : `${text.slice(0, Math.max(1, width - 1))}…`;
 }
 
 function age(value) {
@@ -85,11 +84,11 @@ export function UsagePanel({ dashboard, loading = false, columns = 80 }) {
       >
         <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
           <Text color={theme.panelTitle}>Usage - Total Provider Quota</Text>
-          <Text color={theme.subtle}>{isLoading ? 'checking...' : 'Esc close - /usage refresh'}</Text>
+          <Text color={theme.subtle}>{isLoading ? 'checking…' : 'Esc close - /usage refresh'}</Text>
         </Box>
 
         {isLoading ? (
-          <Box marginBottom={1}><Text color={theme.statusSubtle}>Checking configured providers...</Text></Box>
+          <Box marginBottom={1}><Text color={theme.statusSubtle}>Checking configured providers…</Text></Box>
         ) : (
           <>
             <Box flexDirection="row" marginBottom={1} flexWrap="wrap">

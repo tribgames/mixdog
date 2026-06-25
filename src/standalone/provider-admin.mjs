@@ -287,6 +287,6 @@ export const PROVIDER_STATUS_TOOL = {
     openWorldHint: false,
     bridgeHidden: true,
   },
-  description: 'List mixdog-cli provider authentication/configuration status. This never returns secret values.',
+  description: 'List mixdog provider authentication/configuration status. This never returns secret values.',
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 };

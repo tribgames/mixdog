@@ -1,13 +1,21 @@
 {
-  "name": "mixdog-cli",
-  "version": "0.0.0",
-  "private": true,
+  "name": "mixdog",
+  "version": "0.8.0",
+  "private": false,
   "type": "module",
   "description": "Standalone mixdog coding-agent CLI/TUI workspace.",
   "bin": {
-    "mixdog-cli": "./src/cli.mjs"
+    "mixdog": "./src/cli.mjs"
   },
+  "files": [
+    "README.md",
+    "docs/",
+    "scripts/",
+    "src/",
+    "vendor/"
+  ],
   "scripts": {
+    "prepack": "npm run build:tui",
     "start": "node src/cli.mjs",
     "smoke": "node scripts/smoke.mjs",
     "smoke:all": "npm run smoke && npm run smoke:boot && npm run smoke:tools",

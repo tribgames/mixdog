@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 vendor/pi/node_modules/
+refs/
 
 # Build output
 src/tui/dist/

@@ -465,6 +465,14 @@ export async function renderStatusLine(ccJsonInput) {
     });
   }
   if (!bridgeJson.startsWith('{')) bridgeJson = '';
+  if (CC_JSON) {
+    try {
+      const fallbackBridge = JSON.parse(CC_JSON)?._mixdog_bridge;
+      if (fallbackBridge && typeof fallbackBridge === 'object' && Array.isArray(fallbackBridge.workers) && fallbackBridge.workers.length) {
+        bridgeJson = JSON.stringify(fallbackBridge);
+      }
+    } catch {}
+  }
 
   if (!bridgeJson && process.env.MIXDOG_STATUSLINE_TRACE) {
     try {

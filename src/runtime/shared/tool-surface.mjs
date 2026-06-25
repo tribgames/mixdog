@@ -1,4 +1,7 @@
 const DEFAULT_SUMMARY_MAX = 160;
+const STATUS_SEPARATOR = String(process.env.MIXDOG_ASCII_UI || '').trim().toLowerCase().match(/^(1|true|yes|on)$/)
+  ? ' - '
+  : ' · ';
 
 export function stripToolPrefix(name) {
   return String(name || 'tool')
@@ -51,7 +54,7 @@ export function displayToolPath(path) {
 }
 
 function compactParts(parts) {
-  return parts.filter((part) => part != null && String(part).trim()).map((part) => String(part).trim()).join(' - ');
+  return parts.filter((part) => part != null && String(part).trim()).map((part) => String(part).trim()).join(STATUS_SEPARATOR);
 }
 
 function compactSlash(left, right) {
@@ -296,16 +299,20 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       ]);
     case 'bridge':
     case 'agent':
-    case 'task':
+    case 'task': {
+      const bridgeAction = a.type || a.action || a.mode || '';
+      const showTarget = !/^(status|read)$/i.test(String(bridgeAction || ''));
       return compactParts([
-        a.type || a.action || a.mode || '',
-        a.role || a.name || a.subagent_type || a.tag || a.sessionId || a.jobId || '',
-        a.preset ? `preset ${a.preset}` : '',
+        a.role || a.name || a.subagent_type || '',
         compactSlash(a.provider, a.model),
+        a.preset ? `preset ${a.preset}` : '',
         a.effort ? `effort ${a.effort}` : '',
         a.fast === true ? 'fast' : '',
+        bridgeAction,
+        showTarget ? (a.tag || a.sessionId || '') : '',
         truncateSingleLine(firstText(a.description, a.prompt, a.message), Math.min(max, 80)),
       ]);
+    }
     case 'code_graph':
       return codeGraphSummary(a, max);
     case 'reply':
@@ -460,6 +467,16 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     case 'bash_session':
     case 'shell_command': {
       if (!trimmed) return '(no output)';
+      const job = /^\[job:\s*([^\]]+)\]/mi.exec(text);
+      const status = /^\[status:\s*([^\]]+)\]/mi.exec(text);
+      const exit = /^\[exit:\s*([^\]]+)\]/mi.exec(text);
+      if (job || status || exit) {
+        return compactParts([
+          job ? job[1] : '',
+          status ? status[1] : '',
+          exit ? `exit ${exit[1]}` : '',
+        ]);
+      }
       return null;
     }
     case 'code_graph': {

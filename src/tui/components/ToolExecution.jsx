@@ -13,7 +13,6 @@ import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
 import { theme, TURN_MARKER, RESULT_GUTTER } from '../theme.mjs';
 import { formatElapsed } from '../time-format.mjs';
-import { terminalSafeText } from '../safe-text.mjs';
 import { BULLET_OPERATOR } from '../figures.mjs';
 import {
   displayToolName as surfaceDisplayToolName,
@@ -108,10 +107,10 @@ function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
 function fitResultLine(line, columns) {
   const max = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
   const text = String(line ?? '');
-  return text.length > max ? `${text.slice(0, Math.max(1, max - 3))}...` : text;
+  return text.length > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text;
 }
 
-/** Trim text from the end (by display width) so it fits maxWidth, appending '...'. */
+/** Trim text from the end (by display width) so it fits maxWidth, appending '…'. */
 function truncateToWidth(text, maxWidth) {
   const str = String(text ?? '');
   if (maxWidth < 1) return '';
@@ -119,10 +118,10 @@ function truncateToWidth(text, maxWidth) {
   const chars = Array.from(str);
   let out = '';
   for (const ch of chars) {
-    if (stringWidth(out + ch + '...') > maxWidth) break;
+    if (stringWidth(out + ch + '…') > maxWidth) break;
     out += ch;
   }
-  return `${out}...`;
+  return `${out}…`;
 }
 
 function isAgentTool(normalizedName) {
@@ -269,9 +268,9 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
           <Text color={dotColor}>{dotText}</Text>
         </Box>
         <Text wrap="truncate">
-          <Text bold color={theme.text}>{terminalSafeText(labelOut)}</Text>
-          {summaryOut ? <Text color={theme.text}>{terminalSafeText(summaryOut)}</Text> : null}
-          {showHeaderExpandHint ? <Text color={expandHintColor}>{terminalSafeText(hintText)}</Text> : null}
+          <Text bold color={theme.text}>{labelOut}</Text>
+          {summaryOut ? <Text color={theme.text}>{summaryOut}</Text> : null}
+          {showHeaderExpandHint ? <Text color={expandHintColor}>{hintText}</Text> : null}
         </Text>
       </Box>
 
@@ -285,7 +284,7 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
           ) : (
             detailLines.map((line, i) => (
               <Text key={i} color={showRawResult ? resultColor : detailColor}>
-                {fitResultLine(showRawResult ? (line || ' ') : terminalSafeText(line || ' '), columns)}
+                {fitResultLine(line || ' ', columns)}
               </Text>
             ))
           )}

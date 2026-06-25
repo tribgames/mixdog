@@ -1,4 +1,4 @@
-# mixdog-cli
+# mixdog
 
 Standalone coding-agent CLI/TUI workspace for **mixdog**.
 
@@ -34,7 +34,7 @@ npm run sync
 
 ```
 src/
-  cli.mjs        # entry point (bin: mixdog-cli)
+  cli.mjs        # entry point (bin: mixdog)
   app.mjs        # app wiring
   repl.mjs       # REPL loop
   runtime/       # agent runtime
@@ -47,12 +47,10 @@ scripts/
   sync-runtime.mjs
 vendor/
   ink/           # forked Ink renderer (alt-screen / cursor / scroll fixes)
-refs/
-  pi/            # reference-only pi source snapshot; not imported or executed
 ```
 
 ## Notes
 
 - `vendor/ink` is a forked Ink build; `scripts/patch-ink.mjs` reapplies the fork to `node_modules/ink` at build time so `npm install`/sync won't clobber it.
-- `refs/pi` is retained only as a reference snapshot. The CLI does not import or execute it.
+- Pi/Codex/OpenCode reference snapshots live outside this package under `C:\Project\refs`.
 - The TUI uses alt-screen mode with mouse-wheel scroll tracking.

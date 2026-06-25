@@ -11,7 +11,7 @@
  *                                        and marketplace layout
  *                                        (.../marketplaces/{marketplace}/external_plugins/{plugin}/).
  *
- * In standalone mixdog-cli, falls back to MIXDOG_DATA_DIR or
+ * In standalone mixdog, falls back to MIXDOG_DATA_DIR or
  * <project-root>/.mixdog/data when the host plugin env is absent.
  * Plugin-host runs still prefer the host-provided env vars above.
  *
@@ -64,7 +64,7 @@ function resolvePluginData() {
     const pluginName = readPluginManifestName(root);
     return path.join(claudeConfigBase(), 'plugins', 'data', `${pluginName}-${marketplace}`);
   }
-  // Standalone mixdog-cli: own a project-local data dir (override with MIXDOG_DATA_DIR).
+  // Standalone mixdog: own a project-local data dir (override with MIXDOG_DATA_DIR).
   return process.env.MIXDOG_DATA_DIR || path.join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data');
 }
 

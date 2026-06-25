@@ -152,7 +152,7 @@ function scheduleHardExit(code = 0) {
 
 function resolveTuiStderrLogPath() {
   return process.env.MIXDOG_TUI_STDERR_LOG
-    || join(process.env.MIXDOG_RUNTIME_ROOT || join(tmpdir(), 'mixdog'), 'mixdog-cli-tui.stderr.log');
+    || join(process.env.MIXDOG_RUNTIME_ROOT || join(tmpdir(), 'mixdog'), 'mixdog-tui.stderr.log');
 }
 
 function installTuiStderrGuard() {
@@ -189,7 +189,7 @@ export async function runTui({ provider, model, toolMode } = {}) {
   // pipe/redirect/CI, ink's input hooks throw — bail with a clear hint instead.
   if (!process.stdin.isTTY) {
     process.stderr.write(
-      'mixdog-cli: the TUI needs an interactive terminal (TTY).\n' +
+      'mixdog: the TUI needs an interactive terminal (TTY).\n' +
         'Run it directly in a terminal, or use --plain for the readline REPL.\n',
     );
     return 1;
@@ -210,7 +210,7 @@ export async function runTui({ provider, model, toolMode } = {}) {
   } catch (error) {
     restoreStderr();
     restoreConsoleEncodingOnce();
-    process.stderr.write(`mixdog-cli: ${error?.message || error}\n`);
+    process.stderr.write(`mixdog: ${error?.message || error}\n`);
     return 1;
   }
 

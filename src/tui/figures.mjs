@@ -1,53 +1,50 @@
 /**
  * figures.mjs — TUI glyph constants.
  *
- * Claude Code uses Unicode markers heavily. Modern terminals render these well;
- * set MIXDOG_ASCII_UI=1 to downgrade structural UI markers for legacy/codepage
- * terminals. Content text remains Unicode-capable elsewhere.
+ * Claude Code uses Unicode markers heavily. Keep those markers intact so UI
+ * styling does not change under environment-dependent ASCII conversion.
  */
 
-import { asciiUiEnabled } from './safe-text.mjs';
-
-const ASCII_UI = asciiUiEnabled();
-
-export const BLACK_CIRCLE = ASCII_UI ? 'o' : process.platform === 'darwin' ? '⏺' : '●';
-export const BULLET_OPERATOR = ASCII_UI ? '.' : '∙';
-export const TEARDROP_ASTERISK = ASCII_UI ? '*' : '✻';
-export const UP_ARROW = ASCII_UI ? '^' : '↑';
-export const DOWN_ARROW = ASCII_UI ? 'v' : '↓';
-export const LIGHTNING_BOLT = ASCII_UI ? '!' : '↯';
-export const EFFORT_LOW = ASCII_UI ? 'L' : '○';
-export const EFFORT_MEDIUM = ASCII_UI ? 'M' : '◐';
-export const EFFORT_HIGH = ASCII_UI ? 'H' : '●';
-export const EFFORT_MAX = ASCII_UI ? 'X' : '◉';
+export const BLACK_CIRCLE = process.platform === 'darwin' ? '⏺' : '●';
+export const BULLET_OPERATOR = '·';
+export const TEARDROP_ASTERISK = '✻';
+export const UP_ARROW = '↑';
+export const DOWN_ARROW = '↓';
+export const LIGHTNING_BOLT = '↯';
+export const EFFORT_LOW = '○';
+export const EFFORT_MEDIUM = '◐';
+export const EFFORT_HIGH = '●';
+export const EFFORT_MAX = '◉';
 
 // Media/trigger status indicators
-export const PLAY_ICON = ASCII_UI ? '>' : '▶';
-export const PAUSE_ICON = ASCII_UI ? '|' : '⏸';
+export const PLAY_ICON = '▶';
+export const PAUSE_ICON = '⏸';
 
 // Tool-result tree gutter.
-export const RESULT_GUTTER_GLYPH = ASCII_UI ? '>' : '⎿';
+export const RESULT_GUTTER_GLYPH = '⎿';
 
 // MCP subscription indicators
-export const REFRESH_ARROW = ASCII_UI ? '~' : '↻';
-export const CHANNEL_ARROW = ASCII_UI ? '<' : '←';
-export const INJECTED_ARROW = ASCII_UI ? '>' : '→';
-export const FORK_GLYPH = ASCII_UI ? 'Y' : '⑂';
+export const REFRESH_ARROW = '↻';
+export const CHANNEL_ARROW = '←';
+export const INJECTED_ARROW = '→';
+export const FORK_GLYPH = '⑂';
 
 // Review status indicators
-export const DIAMOND_OPEN = ASCII_UI ? '*' : '◇';
-export const DIAMOND_FILLED = ASCII_UI ? '*' : '◆';
-export const REFERENCE_MARK = ASCII_UI ? '*' : '※';
+export const DIAMOND_OPEN = '◇';
+export const DIAMOND_FILLED = '◆';
+export const REFERENCE_MARK = '※';
 
 // Issue flag indicator
-export const FLAG_ICON = ASCII_UI ? '!' : '⚑';
+export const FLAG_ICON = '⚑';
 
 // Blockquote indicator
-export const BLOCKQUOTE_BAR = ASCII_UI ? '|' : '▎';
-export const HEAVY_HORIZONTAL = ASCII_UI ? '-' : '━';
+export const BLOCKQUOTE_BAR = '▎';
+export const HEAVY_HORIZONTAL = '━';
 
 // The "therefore" sign — Claude Code's collapsed-thinking prefix (∴ Thinking).
-export const THEREFORE = ASCII_UI ? '*' : '∴';
+export const THEREFORE = '∴';
+// Turn-complete marker — kept distinct from live-thinking's therefore sign.
+export const TURN_DONE_MARKER = '◈';
 
 // Prompt pointer (CC uses figures.pointer ❯ for the input glyph).
-export const POINTER = ASCII_UI ? '>' : '❯';
+export const POINTER = '❯';

@@ -2,7 +2,7 @@
  * src/tui/spinner-verbs.mjs — playful "thinking" verbs for the spinner.
  *
  * Ported verbatim from Claude Code (refs/claude-code/src/constants/spinnerVerbs.ts
- * SPINNER_VERBS). Shown as `<Verb>... (Ns - ^ N tokens)` while a turn runs.
+ * SPINNER_VERBS). Shown as `<Verb>… (Ns · ↑ N tokens)` while a turn runs.
  */
 export const SPINNER_VERBS = [
   'Accomplishing', 'Actioning', 'Actualizing', 'Architecting', 'Baking', 'Beaming',
@@ -41,9 +41,5 @@ export const SPINNER_VERBS = [
   'Zesting', 'Zigzagging',
 ];
 
-import { asciiUiEnabled } from './safe-text.mjs';
-
-/** Spinner glyph frames. Set MIXDOG_ASCII_UI=1 for legacy ASCII-safe frames. */
-export const SPINNER_FRAMES = asciiUiEnabled()
-  ? ['-', '\\', '|', '/']
-  : ['◇', '◆', '◈', '◆', '◇'];
+/** Spinner glyph frames. */
+export const SPINNER_FRAMES = ['◇', '◆', '◈', '◆', '◇'];

@@ -25,7 +25,7 @@ export const BRIDGE_TOOL = {
     openWorldHint: true,
     bridgeHidden: true,
   },
-  description: 'Worker agent control: spawn/send/list/close/cancel/status/read/cleanup. LLM tool calls are always async: spawn/send returns a job handle; keep working, then status/read. Spawn distinct tags early for independent reviewer/debugger/worker tasks. Do not bridge only to run a simple test after a tiny lead-owned edit.',
+  description: 'Always async worker control: spawn/send return job handles. After ownership handoff, Lead only orchestrates/status/read/send; no same-scope edits until done/cancel/takeover. Spawn distinct tags for independent roles.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -187,6 +187,12 @@ function compactIso(value) {
   return text.replace('T', ' ').replace(/\.\d+Z$/, 'Z');
 }
 
+function stripFinalAnswerWrapper(value) {
+  const text = String(value ?? '').trim();
+  const match = /^<final-answer\b[^>]*>([\s\S]*?)<\/final-answer>\s*$/i.exec(text);
+  return match ? match[1].trim() : text;
+}
+
 function renderResult(value) {
   if (typeof value === 'string') return value;
   if (value && typeof value === 'object') {
@@ -235,7 +241,7 @@ function renderResult(value) {
       if (value.result !== undefined) {
         const result = value.result;
         const content = typeof result === 'string' ? result : result?.content;
-        if (content) lines.push('', String(content).trim());
+        if (content) lines.push('', stripFinalAnswerWrapper(content));
         else lines.push('', JSON.stringify(result, null, 2));
       }
       return lines.join('\n');
@@ -267,7 +273,7 @@ function renderResult(value) {
         value.role ? `role=${value.role}` : null,
         value.provider && value.model ? `${value.provider}/${value.model}` : null,
       ].filter(Boolean).join(' ');
-      return `${header}\n${String(value.content || '').trim()}`;
+      return `${header}\n${stripFinalAnswerWrapper(value.content)}`;
     }
   }
   return JSON.stringify(value, null, 2);

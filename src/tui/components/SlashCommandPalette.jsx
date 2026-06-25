@@ -8,15 +8,14 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.mjs';
-import { terminalSafeText } from '../safe-text.mjs';
 
 const MAX_VISIBLE = 8;
 
 function truncateText(value, width) {
-  const text = terminalSafeText(value || '');
+  const text = String(value || '');
   if (!(width > 0)) return '';
   if (text.length <= width) return text;
-  return width <= 3 ? '.'.repeat(Math.max(0, width)) : `${text.slice(0, Math.max(1, width - 3))}...`;
+  return width <= 1 ? '…'.repeat(Math.max(0, width)) : `${text.slice(0, Math.max(1, width - 1))}…`;
 }
 
 export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Commands', columns = 80 }) {
@@ -44,7 +43,7 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
         width="100%"
       >
         <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
-          <Text color={theme.panelTitle}>{terminalSafeText(title)}</Text>
+          <Text color={theme.panelTitle}>{title}</Text>
           <Text color={theme.subtle}>{'^/v - > bottom - Enter - Tab - Esc'}</Text>
         </Box>
         {visible.map((item, index) => (
