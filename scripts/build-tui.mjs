@@ -7,9 +7,9 @@
  * ESM bundle at src/tui/dist/index.mjs.
  *
  * What is bundled vs external:
- *   - bundled: our JSX + vendor/ink + react (+ their deps) — a self-contained UI layer.
- *   - external: the Mixdog runtime (src/runtime/**) and non-UI vendor tree.
- *     They are imported at runtime via the engine bridge, never from JSX.
+ *   - bundled: our JSX only.
+ *   - external: React, Mixdog runtime, and Mixdog's checked-in Ink renderer.
+ *     Ink is loaded from vendor/ink directly, never by rewriting node_modules.
  *
  * Run:  node scripts/build-tui.mjs   (or `npm run build:tui`)
  */
@@ -19,23 +19,14 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src', 'tui');
-const INK_ENTRY = join(ROOT, 'vendor', 'ink', 'build', 'index.js');
+const DIST_TO_VENDOR_INK = '../../../vendor/ink/build/index.js';
 
 const mixdogInkAliasPlugin = {
   name: 'mixdog-ink-alias',
   setup(build) {
     build.onResolve({ filter: /^ink$/ }, () => ({
-      path: INK_ENTRY,
-    }));
-  },
-};
-
-const emptyInkDevtoolsPlugin = {
-  name: 'empty-ink-devtools',
-  setup(build) {
-    build.onLoad({ filter: /[\\/]vendor[\\/]ink[\\/]build[\\/]devtools\.js$/ }, () => ({
-      contents: 'export {};\n',
-      loader: 'js',
+      path: DIST_TO_VENDOR_INK,
+      external: true,
     }));
   },
 };
@@ -47,14 +38,12 @@ await build({
   format: 'esm',
   platform: 'node',
   target: 'node22',
-  banner: {
-    js: "import { createRequire as __mixdogCreateRequire } from 'node:module';\nconst require = __mixdogCreateRequire(import.meta.url);",
-  },
   jsx: 'automatic',
-  // Bundle the checked-in Mixdog Ink fork directly. Published npm installs run
-  // the exact UI runtime captured in dist/ without mutating node_modules.
+  // Keep runtime packages external like the original CLI flow. Only `ink` is
+  // redirected to Mixdog's checked-in renderer instead of node_modules/ink.
+  packages: 'external',
   external: ['../runtime/*', '../../runtime/*', '../vendor/*', '../../vendor/*'],
-  plugins: [mixdogInkAliasPlugin, emptyInkDevtoolsPlugin],
+  plugins: [mixdogInkAliasPlugin],
   logLevel: 'info',
 });
 
