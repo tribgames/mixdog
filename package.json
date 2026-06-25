@@ -41,8 +41,7 @@
     "smoke:loop:report": "node scripts/smoke-loop-report.mjs",
     "smoke:tools": "node scripts/tool-smoke.mjs",
     "failures": "node scripts/tool-failures.mjs",
-    "build:tui": "node scripts/build-tui.mjs",
-    "sync": "node scripts/sync-runtime.mjs --check"
+    "build:tui": "node scripts/build-tui.mjs"
   },
   "engines": {
     "node": ">=22.0.0"
