@@ -224,7 +224,17 @@ const PATCHES = [
   {
     file: join(STATUS_VENDOR, 'bin', 'statusline-lib.mjs'),
     name: 'statusline standalone skips gateway override',
-    apply: patchStatuslineStandaloneGatewayOverride,
+    apply: patchStatuslineLibStandalone,
+  },
+  {
+    file: join(STATUS_VENDOR, 'bin', 'statusline-route.mjs'),
+    name: 'statusline route standalone data dir',
+    apply: patchStatuslineRouteStandalone,
+  },
+  {
+    file: join(STATUS_VENDOR, 'src', 'gateway', 'claude-current.mjs'),
+    name: 'statusline claude-current standalone data dir',
+    apply: (s) => patchStatuslineStandaloneDataDir(s, "'..', '..', '..', '..', '..'"),
   },
 ];
 
@@ -265,8 +275,9 @@ function patchAnthropicOAuthStandalone(src) {
     ],
   ];
   for (const [from, to] of quietReplacements) {
+    if (s.includes(to)) continue;
     if (s.includes(from)) s = s.replace(from, to);
-    else if (!s.includes(to)) throw new Error('[sync] anthropic-oauth quiet log anchor not found — reconcile standalone wording patch manually.');
+    else throw new Error('[sync] anthropic-oauth quiet log anchor not found — reconcile standalone wording patch manually.');
   }
   const replacements = [
     [
@@ -541,6 +552,14 @@ export function getMcpServerStatus() {
 
 function patchSessionManagerUiCallbacks(src) {
   src = src
+    .replace(
+      "import { fetchOAuthUsageSnapshot } from '../../../gateway/oauth-usage.mjs';",
+      "import { fetchOAuthUsageSnapshot } from '../providers/oauth-usage.mjs';",
+    )
+    .replace(
+      "} from '../../../gateway/route-meta.mjs';",
+      "} from '../../../../vendor/statusline/src/gateway/route-meta.mjs';",
+    )
     .replace("messages.push({ role: 'assistant', content: 'Session context noted.' });", "messages.push({ role: 'assistant', content: '.' });")
     .replace("messages.push({ role: 'assistant', content: 'Understood.' });", "messages.push({ role: 'assistant', content: '.' });")
     .replace("messages.push({ role: 'assistant', content: 'Understood. I have the files in context.' });", "messages.push({ role: 'assistant', content: '.' });");
@@ -1016,6 +1035,12 @@ function patchLoopUsageDeltaPrompt(src) {
 }
 
 function patchLeadToolSearchRule(src) {
+  if (
+    src.includes('Lead owns orientation, routing, approvals, and final judgment.') &&
+    src.includes('Use `bridge` to delegate actual scoped work')
+  ) {
+    return { text: src, already: true };
+  }
   const compact = `# Lead Tool Use
 
 Lead owns orientation, routing, and final judgment. Use direct tools for small
@@ -1088,6 +1113,12 @@ function patchLeadTeamRule(src) {
 }
 
 function patchLeadGeneralRule(src) {
+  if (
+    src.includes('For long tool chains, do not stay silent indefinitely.') &&
+    src.includes('roughly 4-6 tool calls')
+  ) {
+    return { text: src, already: true };
+  }
   const nextSection = `## User-facing replies (HARD)
 
 - Reply in the user's language unless asked otherwise.
@@ -1106,52 +1137,33 @@ function patchLeadGeneralRule(src) {
 }
 
 function patchSharedToolRule(src) {
+  if (
+    src.includes('Route by the active tool descriptions and schemas.') &&
+    src.includes('A successful mutation result is confirmation')
+  ) {
+    return { text: src, already: true };
+  }
   const compact = `# Tool Routing
 
-Use Mixdog tools for repository work. Shell is for git/build/test/run, not for
-file IO. Do not use native host read/grep/glob/edit/write/web tools when a
-Mixdog tool exists.
+Use Mixdog tools for repository work. Shell is only for git/build/test/run.
+Never use shell for file IO when a Mixdog tool exists.
 
-## Default Ladder
+Route by the active tool descriptions and schemas. They are first-class and
+carry the current shortest path for \`code_graph\`, \`grep\`, \`list\`/\`glob\`,
+\`read\`, \`apply_patch\`, \`explore\`, \`recall\`, \`search\`, \`web_fetch\`, and
+\`bridge\`.
 
-Pick the first matching route:
-
-1. Current external info/docs: \`search\`, then \`web_fetch\` for selected pages.
-2. Prior decisions/session history: \`recall\`.
-3. Code structure, symbols, callers, references, imports, impact: \`code_graph\`.
-4. File/content search: \`grep\`.
-5. Directory/file inventory: \`list\`; use \`glob\` only when explicitly selected or
-   a pattern search is the shortest path.
-6. Known file region/body: \`read\`.
-7. File changes: \`apply_patch\` first. Use \`edit\` only for tiny exact
-   substitutions; use \`write\` only for new files or deliberate full rewrites.
-8. Worker delegation/state-changing subtask: \`bridge\`.
-9. Git/build/test/run: \`bash\`.
-
-If a needed tool is not active, call \`tool_search\` once with \`select\`.
-
-## Editing
-
-- Prefer one multi-file \`apply_patch\` over many small edits.
-- Read the target region before patching stale or ambiguous context.
-- Delete files with \`apply_patch\`, not shell remove commands.
-- A successful mutation tool result is confirmation; do not immediately re-read
-  the same file just to verify the write landed.
-
-## Efficiency
-
-- Batch independent read-only probes in one tool turn.
-- Batch related reads from the same file in one \`read\` call when possible.
-- Use \`code_graph\` for identifiers before text grep.
-- Stop searching once the task is correctly answerable.
-- Do not blind-retry the same failed call more than twice; inspect the error and
-  change strategy.
-
-## Shell
-
-Use \`bash\` only for commands whose purpose is execution: git, build, test,
-lint, start, or other CLI programs. Do not use it for \`cat\`, \`touch\`, \`mkdir\`,
-\`rm\`, ad-hoc file editing, or web fetching.
+Batch independent read-only probes in one tool turn. Stop searching once the
+task is correctly answerable. A successful mutation result is confirmation; do
+not re-read solely to verify that the write landed.
+Use \`recall\` before repo/file tools when the user asks about prior decisions,
+memory, remembered preferences, earlier work, or resuming context.
+Use \`search\`/\`web_fetch\` for current external facts, releases, docs, prices,
+or anything likely to have changed outside the repo.
+For locator questions ("where", "file candidates", "where to start",
+"어디부터", "파일 후보만"), stop at file:line candidates; do not \`read\` or
+prove root cause unless asked. Use one read-only batch unless it finds no
+usable candidates.
 `;
   return { text: compact, already: src === compact };
 }
@@ -1290,21 +1302,159 @@ function patchStatuslineGatewayRuntimeImports(src) {
   return { text, already: false };
 }
 
+function patchStatuslineStandaloneDataDir(src, levelsExpr) {
+  let s = src;
+  let changed = false;
+  if (!s.includes("fileURLToPath")) {
+    const importAnchor = "import path from 'path';";
+    if (!s.includes(importAnchor)) {
+      throw new Error('[sync] statusline data-dir path import anchor not found — reconcile standalone statusline patch manually.');
+    }
+    s = s.replace(importAnchor, `${importAnchor}\nimport { fileURLToPath } from 'node:url';`);
+    changed = true;
+  }
+  if (!s.includes('STANDALONE_PROJECT_ROOT')) {
+    const anchor = 'function pluginDataDir() {';
+    if (!s.includes(anchor)) {
+      throw new Error('[sync] statusline pluginDataDir anchor not found — reconcile standalone statusline patch manually.');
+    }
+    s = s.replace(anchor, `const STANDALONE_PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ${levelsExpr});\n\n${anchor}`);
+    changed = true;
+  }
+  const from = "return process.env.CLAUDE_PLUGIN_DATA || path.join(claudeConfigDir(), 'plugins', 'data', 'mixdog-trib-plugin');";
+  const to = "return process.env.CLAUDE_PLUGIN_DATA || path.join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data');";
+  if (s.includes(from)) {
+    s = s.replace(from, to);
+    changed = true;
+  } else if (!s.includes(to)) {
+    throw new Error('[sync] statusline pluginDataDir fallback anchor not found — reconcile standalone statusline patch manually.');
+  }
+  return { text: s, already: !changed };
+}
+
 function patchStatuslineStandaloneGatewayOverride(src) {
-  if (src.includes("MIXDOG_STATUSLINE_STANDALONE === '1'")) {
-    return { text: src, already: true };
+  let s = src;
+  let changed = false;
+  if (s.includes("MIXDOG_STATUSLINE_STANDALONE === '1'") && s.includes("MIXDOG_STANDALONE === '1'")) {
+    return { text: s, already: true };
   }
   const anchor = `function shouldLoadGatewayStatus(currentRoute, sessionId, clientHostPid) {
   if (!isClaudeNativeModelSelection(currentRoute)) return true;`;
-  if (!src.includes(anchor)) {
+  if (!s.includes(anchor)) {
     throw new Error('[sync] statusline gateway override anchor not found — reconcile standalone statusline patch manually.');
   }
-  return {
-    text: src.replace(anchor, `function shouldLoadGatewayStatus(currentRoute, sessionId, clientHostPid) {
+  s = s.replace(anchor, `function shouldLoadGatewayStatus(currentRoute, sessionId, clientHostPid) {
   if (process.env.MIXDOG_STATUSLINE_STANDALONE === '1') return false;
+  if (process.env.MIXDOG_STANDALONE === '1') return true;
   if (!isClaudeNativeModelSelection(currentRoute)) return true;`),
-    already: false,
-  };
+  changed = true;
+  return { text: s, already: !changed };
+}
+
+function patchStatuslineContextPercent(src) {
+  if (src.includes('function contextPct(s)')) return { text: src, already: true };
+  let s = src;
+  const from = `  function roundPct(s) {
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? Math.floor(n) : null;
+  }
+
+  const ctxInt    = roundPct(CC_CTX_USED);
+  const rl5hInt   = roundPct(CC_RL_5H);
+  const rl7dInt   = roundPct(CC_RL_7D);`;
+  const to = `  function roundPct(s) {
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? Math.floor(n) : null;
+  }
+  function contextPct(s) {
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
+  }
+  function formatContextPct(pct) {
+    if (pct === null) return '';
+    if (pct > 0 && pct < 1) return String(Math.round(pct * 10) / 10);
+    return String(Math.floor(pct));
+  }
+
+  const ctxPct    = contextPct(CC_CTX_USED);
+  const rl5hInt   = roundPct(CC_RL_5H);
+  const rl7dInt   = roundPct(CC_RL_7D);`;
+  if (!s.includes(from)) {
+    throw new Error('[sync] statusline context percent anchor not found — reconcile standalone statusline patch manually.');
+  }
+  s = s.replace(from, to)
+    .replaceAll('ctxInt !== null', 'ctxPct !== null')
+    .replaceAll('ctxInt >= 90', 'ctxPct >= 90')
+    .replaceAll('ctxInt >= 70', 'ctxPct >= 70')
+    .replaceAll('makeBar(ctxInt, 14)', 'makeBar(ctxPct, 14)')
+    .replaceAll('makeBar(ctxInt, 8)', 'makeBar(ctxPct, 8)')
+    .replace('const fill = ctxPct >= 90 ? RED : ctxPct >= 70 ? YLW : GRN;', 'const fill = ctxPct >= 90 ? RED : ctxPct >= 70 ? YLW : GRN;\n    const ctxLabel = formatContextPct(ctxPct);')
+    .replaceAll('${ctxInt}%', '${ctxLabel}%');
+  return { text: s, already: false };
+}
+
+function patchStatuslineBashSegment(src) {
+  const from = 'return `bash:${count}${overflow}${elapsed}`;';
+  const to = 'return `${GREY}⚙  bash:${count}${overflow}${elapsed}${R}`;';
+  if (src.includes(to)) return { text: src, already: true };
+  if (!src.includes(from)) {
+    throw new Error('[sync] statusline bash segment anchor not found — reconcile standalone statusline patch manually.');
+  }
+  return { text: src.replace(from, to), already: false };
+}
+
+function patchStatuslineLibStandalone(src) {
+  let changed = false;
+  let res = patchStatuslineStandaloneDataDir(src, "'..', '..', '..', '..'");
+  let s = res.text; changed ||= !res.already;
+  res = patchStatuslineStandaloneGatewayOverride(s);
+  s = res.text; changed ||= !res.already;
+  res = patchStatuslineContextPercent(s);
+  s = res.text; changed ||= !res.already;
+  res = patchStatuslineBashSegment(s);
+  s = res.text; changed ||= !res.already;
+  return { text: s, already: !changed };
+}
+
+function patchStatuslineRouteStandalone(src) {
+  let changed = false;
+  let res = patchStatuslineStandaloneDataDir(src, "'..', '..', '..', '..'");
+  let s = res.text; changed ||= !res.already;
+  const from = `  const activeStatus = {
+    provider: configured?.provider || active.gateway_provider,`;
+  const to = `  const activeQuotaWindows = metricsMatch && Array.isArray(active.gateway_quota_windows)
+    ? active.gateway_quota_windows
+    : [];
+  const activeStatus = {
+    provider: configured?.provider || active.gateway_provider,`;
+  if (!s.includes('const activeQuotaWindows =')) {
+    if (!s.includes(from)) throw new Error('[sync] statusline route quota anchor not found — reconcile standalone statusline patch manually.');
+    s = s.replace(from, to);
+    changed = true;
+  }
+  const replacements = [
+    [
+      'quotaWindows: metricsMatch && Array.isArray(active.gateway_quota_windows) ? active.gateway_quota_windows : [],',
+      'quotaWindows: activeQuotaWindows.length ? activeQuotaWindows : (configuredStatus?.quotaWindows || []),',
+    ],
+    [
+      "balance: metricsMatch && active.gateway_balance && typeof active.gateway_balance === 'object' ? active.gateway_balance : null,",
+      "balance: metricsMatch && active.gateway_balance && typeof active.gateway_balance === 'object' ? active.gateway_balance : (configuredStatus?.balance || null),",
+    ],
+    [
+      "routeSpend: metricsMatch && active.gateway_route_spend && typeof active.gateway_route_spend === 'object' ? active.gateway_route_spend : null,",
+      "routeSpend: metricsMatch && active.gateway_route_spend && typeof active.gateway_route_spend === 'object' ? active.gateway_route_spend : (configuredStatus?.routeSpend || null),",
+    ],
+  ];
+  for (const [a, b] of replacements) {
+    if (s.includes(a)) {
+      s = s.replace(a, b);
+      changed = true;
+    } else if (!s.includes(b)) {
+      throw new Error('[sync] statusline route fallback anchor not found — reconcile standalone statusline patch manually.');
+    }
+  }
+  return { text: s, already: !changed };
 }
 
 function patchPluginPaths(src, kind) {
@@ -1443,8 +1593,15 @@ function patchGeneratedVendoredFile(src, to) {
 
 Delegation:
 - Lead handles small edits, config, git, and final integration directly.
+- Lead handles tiny one-file edits and simple verification directly.
+- If a task has two or more independent files/concerns, spawn useful bridge
+  workers early as one batch, then poll/read and integrate the results.
+- For named independent multi-file implementation, delegate at least one
+  implementation/debug lane before Lead mutates files. Verification-only
+  workers do not count as implementation delegation.
 - Use bridge workers for scoped implementation, review, or debugging when it
   reduces risk or parallelizes useful work.
+- Do not spawn a worker only to run a simple test after a tiny Lead-owned edit.
 - Review high-risk or cross-file changes before reporting done.
 - If review changes the plan or scope, pause and ask the user.
 `;
@@ -1492,6 +1649,12 @@ function expectedBytes(from, to) {
   }
 }
 
+function sameVendoredText(a, b) {
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  return String(a).replace(/\r\n/g, '\n') === String(b).replace(/\r\n/g, '\n');
+}
+
 function copyInto(relFiles, srcBase, dstBase, label) {
   let copied = 0;
   for (const rel of relFiles) {
@@ -1502,7 +1665,7 @@ function copyInto(relFiles, srcBase, dstBase, label) {
       const want = expectedBytes(from, to);
       const have = existsSync(to) ? readFileSync(to, 'utf8') : null;
       if (want === null) { console.log(`  drift (patch anchor lost): ${label}/${rel}`); copied++; continue; }
-      if (want !== have) { console.log(`  drift: ${label}/${rel}`); copied++; }
+      if (!sameVendoredText(want, have)) { console.log(`  drift: ${label}/${rel}`); copied++; }
       continue;
     }
     mkdirSync(dirname(to), { recursive: true });

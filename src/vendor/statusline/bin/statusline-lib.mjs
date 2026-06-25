@@ -9,6 +9,7 @@ import fs from 'fs';
 import os from 'os';
 import http from 'node:http';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import { formatGatewayLimitSegments, loadGatewayStatus } from './statusline-route.mjs';
 import {
   isClaudeNativeModelSelection,
@@ -29,8 +30,10 @@ function claudeConfigDir() {
   return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 }
 
+const STANDALONE_PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+
 function pluginDataDir() {
-  return process.env.CLAUDE_PLUGIN_DATA || path.join(claudeConfigDir(), 'plugins', 'data', 'mixdog-trib-plugin');
+  return process.env.CLAUDE_PLUGIN_DATA || path.join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data');
 }
 
 function gatewayPort() {
@@ -519,12 +522,10 @@ export async function renderStatusLine(ccJsonInput) {
     const n = parseFloat(s);
     return Number.isFinite(n) ? Math.floor(n) : null;
   }
-
   function contextPct(s) {
     const n = parseFloat(s);
     return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
   }
-
   function formatContextPct(pct) {
     if (pct === null) return '';
     if (pct > 0 && pct < 1) return String(Math.round(pct * 10) / 10);

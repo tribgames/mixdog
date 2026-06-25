@@ -91,6 +91,60 @@ function renderMarkdownElements(content) {
   return result;
 }
 
+function hasOpenFence(text) {
+  let ticks = 0;
+  let tildes = 0;
+  for (const line of String(text ?? '').split('\n')) {
+    if (/^\s*```/.test(line)) ticks += 1;
+    if (/^\s*~~~/.test(line)) tildes += 1;
+  }
+  return ticks % 2 === 1 || tildes % 2 === 1;
+}
+
+function hasOpenInlineCode(text) {
+  let count = 0;
+  const value = String(text ?? '');
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === '\\') {
+      i += 1;
+      continue;
+    }
+    if (ch !== '`') continue;
+    let run = 1;
+    while (value[i + run] === '`') run += 1;
+    if (run === 1) count += 1;
+    i += run - 1;
+  }
+  return count % 2 === 1;
+}
+
+function hasUnclosedDelimiter(text, marker) {
+  let count = 0;
+  const value = String(text ?? '');
+  for (let i = 0; i < value.length; i++) {
+    if (value[i] === '\\') {
+      i += 1;
+      continue;
+    }
+    if (value.startsWith(marker, i)) {
+      count += 1;
+      i += marker.length - 1;
+    }
+  }
+  return count % 2 === 1;
+}
+
+function balanceStreamingMarkdown(text) {
+  const value = String(text ?? '');
+  if (!value || hasOpenFence(value)) return value;
+  if (hasOpenInlineCode(value)) return `${value}\``;
+  let rendered = value;
+  if (hasUnclosedDelimiter(rendered, '**')) rendered += '**';
+  if (hasUnclosedDelimiter(rendered, '__')) rendered += '__';
+  return rendered;
+}
+
 export function Markdown({ children }) {
   const elements = React.useMemo(() => {
     try {
@@ -140,7 +194,7 @@ export function StreamingMarkdown({ children }) {
   return (
     <Box flexDirection="column" gap={1}>
       {stablePrefix ? <Markdown>{stablePrefix}</Markdown> : null}
-      {unstableSuffix ? <Markdown>{unstableSuffix}</Markdown> : null}
+      {unstableSuffix ? <Markdown>{balanceStreamingMarkdown(unstableSuffix)}</Markdown> : null}
     </Box>
   );
 }

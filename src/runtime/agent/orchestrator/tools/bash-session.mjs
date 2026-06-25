@@ -603,11 +603,8 @@ async function bash_session(args, cwd = process.cwd(), opts = {}) {
     const largeProbe = await preflightShellLargeFileProbe(command, baseCwd);
     if (largeProbe) return `Error: ${largeProbe.message}`;
     const rawTimeout = typeof args?.timeout === 'number' ? args.timeout : DEFAULT_TIMEOUT_MS;
-    // Accept seconds OR milliseconds for ergonomics: values ≤ 600 are
-    // treated as seconds (matches the spec's "max 600s"); larger values
-    // are taken as ms. Cap either way.
-    const timeoutMs = rawTimeout <= 600 ? rawTimeout * 1000 : rawTimeout;
-    const effectiveTimeout = Math.min(Math.max(timeoutMs, 1000), wmicRewrite?.timeoutMs || MAX_TIMEOUT_MS);
+    const timeoutMs = rawTimeout;
+    const effectiveTimeout = Math.min(Math.max(timeoutMs, 1), wmicRewrite?.timeoutMs || MAX_TIMEOUT_MS);
     const resolved = _getOrCreate(requestedSessionId || args?.session_id, baseCwd, { create: args?.create === true });
     if (resolved.error) return resolved.error;
     const { id, entry } = resolved;

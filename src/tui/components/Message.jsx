@@ -16,6 +16,7 @@ import React from 'react';
 import { Box, Text, useAnimation } from 'ink';
 import { theme, TURN_MARKER } from '../theme.mjs';
 import { Markdown, StreamingMarkdown } from './Markdown.jsx';
+import { terminalSafeText } from '../safe-text.mjs';
 
 export const AssistantMessage = React.memo(function AssistantMessage({ text, streaming = false }) {
   return (
@@ -64,8 +65,8 @@ export function ThinkingMessage({ text, elapsedMs = 0, activeSince = 0 }) {
   return (
     <Box flexDirection="column" marginTop={1} gap={1} width="100%">
       <Text>
-        <Text color={theme.spinnerGlyph}>◈ </Text>
-        <Text color={theme.thinkingAccent}>{`Thinking${elapsed ? ` ${elapsed}` : ''}…`}</Text>
+        <Text color={theme.spinnerGlyph}>* </Text>
+        <Text color={theme.thinkingAccent}>{`Thinking${elapsed ? ` ${elapsed}` : ''}...`}</Text>
       </Text>
       {text ? (
         <Box paddingLeft={2}>
@@ -79,7 +80,7 @@ export function ThinkingMessage({ text, elapsedMs = 0, activeSince = 0 }) {
 export function NoticeMessage({ text, tone, columns = 80 }) {
   const accentColor = tone === 'error' ? theme.error : tone === 'warn' ? theme.warning : theme.inactive;
   const bodyColor = tone === 'info' || tone === 'plain' ? theme.inactive : theme.statusText;
-  const prefix = tone === 'plain' ? '' : tone === 'error' ? '◆' : tone === 'warn' ? '◇' : '◇';
+  const prefix = tone === 'plain' ? '' : tone === 'error' ? 'x' : '*';
   const iconWidth = prefix ? 2 : 0;
   const paddingLeft = 2;
   const rowWidth = Math.max(1, columns - 1);
@@ -92,7 +93,7 @@ export function NoticeMessage({ text, tone, columns = 80 }) {
         </Box>
       ) : null}
       <Box flexDirection="column" width={bodyWidth} flexShrink={0}>
-        <Text color={bodyColor} wrap="wrap">{text}</Text>
+        <Text color={bodyColor} wrap="wrap">{terminalSafeText(text)}</Text>
       </Box>
     </Box>
   );

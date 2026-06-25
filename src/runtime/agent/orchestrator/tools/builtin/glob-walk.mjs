@@ -123,6 +123,7 @@ export const NOISE_DIR_NAMES = new Set([
     '.cache', '.parcel-cache', '.turbo',
     'venv', '.venv', '__pycache__', '.pytest_cache',
     '.gradle', 'coverage',
+    'refs',
 ]);
 
 export const MAX_WALK_ENTRIES = 200_000;

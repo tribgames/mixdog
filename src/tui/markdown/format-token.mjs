@@ -16,6 +16,7 @@
 import { Chalk } from 'chalk';
 import stripAnsi from 'strip-ansi';
 import { theme } from '../theme.mjs';
+import { BLOCKQUOTE_BAR } from '../figures.mjs';
 
 // Force truecolor so chalk emits 24-bit SGR even when the ambient level is 0.
 // ink's <Text> passes these escapes through verbatim.
@@ -23,9 +24,6 @@ const chalk = new Chalk({ level: 3 });
 
 // Use \n unconditionally (CC note: os.EOL's \r breaks segment mapping).
 const EOL = '\n';
-
-// ▎ left one-quarter block — CC's BLOCKQUOTE_BAR (constants/figures.ts).
-const BLOCKQUOTE_BAR = '▎';
 
 /** Parse an `rgb(r,g,b)` theme string into a chalk colorizer. */
 function rgbColor(str) {

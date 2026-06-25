@@ -55,8 +55,8 @@ import {
 
 /** Turn marker — CC BLACK_CIRCLE (`⏺` on macOS; `●` elsewhere). */
 export const TURN_MARKER = BLACK_CIRCLE;
-/** Result-tree gutter, exactly Claude Code's `  ⎿  `. */
-export const RESULT_GUTTER = '  ⎿  ';
+/** Result-tree gutter. ASCII on Windows keeps terminal copy stable. */
+export const RESULT_GUTTER = '  >  ';
 /** Continuation indent aligning under the result content. */
 export const RESULT_INDENT = '     ';
 /** Prompt prefix glyph before the input — CC figures.pointer `❯`. */

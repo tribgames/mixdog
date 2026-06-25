@@ -38,6 +38,25 @@ export const DEFAULT_ROLE_IDENTITY = {
     'reviewer': 'You are a correctness reviewer. Your job is to decide whether the change is ship-ready. Report only blocking correctness issues, or return SHIP-READY. Do not perform style review, broad refactors, or extra implementation.',
     'debugger': 'You are a debugging specialist. Your job is to diagnose root cause, minimal repro, and the smallest safe fix direction. Do not implement. Return evidence-backed cause and proposed fix scope, or clearly state what remains unknown.',
 };
+
+function shellEnvironmentReminder() {
+    const platform = process.platform || 'unknown';
+    const arch = process.arch || 'unknown';
+    if (platform === 'win32') {
+        return [
+            '# environment',
+            `os: Windows (${platform}/${arch})`,
+            'default_shell: PowerShell',
+            'bash tool: PowerShell syntax is the default. Use shell:"powershell" for PowerShell commands, or shell:"bash" only when intentionally using Git Bash/POSIX syntax.',
+        ].join('\n');
+    }
+    return [
+        '# environment',
+        `os: ${platform}/${arch}`,
+        'default_shell: POSIX /bin/sh',
+        'bash tool: POSIX shell syntax is the default. Use shell:"bash" for POSIX commands; use shell:"powershell" only when pwsh syntax is intentional and installed.',
+    ].join('\n');
+}
 // --- Agent template loading ---
 /**
  * Load an agent MD file (Worker.md, Reviewer.md, etc.) as session instructions.
@@ -707,6 +726,7 @@ export function composeSystemPrompt(opts) {
     if (opts.cwd && typeof opts.cwd === 'string' && opts.cwd.trim()) {
         volatileParts.push(`cwd: ${opts.cwd.trim()}`);
     }
+    volatileParts.push(shellEnvironmentReminder());
     const volatileTail = volatileParts.length > 0
         ? volatileParts.join('\n\n')
         : '';

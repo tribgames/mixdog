@@ -63,6 +63,7 @@ export function buildGrepRgArgs(parts) {
         multilineMode,
         fileType,
         onlyMatching,
+        fixedStrings = false,
     } = parts;
     // `--hidden` (CC parity): search dotfiles/dot-dirs (.github, .claude) that
     // rg skips by default. The DEFAULT_IGNORE_GLOBS below still exclude .git and
@@ -82,6 +83,7 @@ export function buildGrepRgArgs(parts) {
         if (onlyMatching) rgArgs.push('--only-matching');
     }
     if (caseInsensitive) rgArgs.push('-i');
+    if (fixedStrings) rgArgs.push('-F');
     if (multilineMode) rgArgs.push('-U', '--multiline-dotall');
     if (Array.isArray(fileType)) {
         for (const t of fileType) if (t) rgArgs.push('--type', t);

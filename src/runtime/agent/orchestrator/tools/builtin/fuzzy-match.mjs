@@ -32,7 +32,9 @@ function isHump(prevCh, ch) {
  */
 export function fuzzyScore(query, str) {
     if (!query) return 0;
-    const q = query.toLowerCase();
+    const normalizedQuery = String(query).replace(/[\/\\_.\-\s]+/g, '');
+    if (!normalizedQuery) return 0;
+    const q = normalizedQuery.toLowerCase();
     const s = str.toLowerCase();
     const qlen = q.length;
     const slen = s.length;
@@ -64,7 +66,7 @@ export function fuzzyScore(query, str) {
             score += 8; // word-boundary start
         }
 
-        if (str[found] === query[qi]) score += 1; // exact-case tie-break
+        if (str[found] === normalizedQuery[qi]) score += 1; // exact-case tie-break
 
         prevMatch = found;
         si = found + 1;
@@ -91,8 +93,11 @@ export function fuzzyScore(query, str) {
 export function fuzzyRank(query, items, limit = 0) {
     const scored = [];
     for (const item of items) {
-        const sc = fuzzyScore(query, item.path);
-        if (sc !== null) scored.push({ item, score: sc });
+        const pathScore = fuzzyScore(query, item.path);
+        const base = String(item.path || '').split(/[\\/]/).pop() || '';
+        const baseScore = fuzzyScore(query, base);
+        const sc = Math.max(pathScore ?? -Infinity, baseScore === null ? -Infinity : baseScore + 40);
+        if (Number.isFinite(sc)) scored.push({ item, score: sc });
     }
     scored.sort((a, b) => (b.score - a.score) || (a.item.path < b.item.path ? -1 : a.item.path > b.item.path ? 1 : 0));
     return limit > 0 ? scored.slice(0, limit) : scored;

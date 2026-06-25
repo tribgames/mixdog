@@ -1,4 +1,4 @@
-import { execFile, fork } from 'node:child_process';
+import { execFile, fork, spawnSync } from 'node:child_process';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -45,7 +45,9 @@ export function createStandaloneChannelWorker({
   let inProcessMod = null;
   let inProcessStartPromise = null;
   let nextCallId = 1;
+  let parentExitHookInstalled = false;
   const pending = new Map();
+  const ownedChildPids = new Set();
   const logPath = join(dataDir, 'channels-worker-standalone.log');
   const useProcessWorker = process.env.MIXDOG_CHANNEL_WORKER_PROCESS !== '0';
 
@@ -102,6 +104,9 @@ export function createStandaloneChannelWorker({
       },
       windowsHide: true,
     });
+    const spawnedPid = child.pid;
+    if (spawnedPid) ownedChildPids.add(spawnedPid);
+    installParentExitHook();
 
     child.stderr?.on('data', (chunk) => {
       const text = String(chunk || '').trimEnd();
@@ -131,6 +136,7 @@ export function createStandaloneChannelWorker({
     });
 
     child.on('exit', (code, signal) => {
+      if (spawnedPid) ownedChildPids.delete(spawnedPid);
       const error = new Error(`channels worker exited (${signal || (code ?? 'unknown')})`);
       if (readyReject) readyReject(error);
       readyResolve = null;
@@ -214,6 +220,31 @@ export function createStandaloneChannelWorker({
       return;
     }
     try { process.kill(pid, 'SIGKILL'); } catch {}
+  }
+
+  function forceKillTreeSync(pid) {
+    if (!pid) return;
+    if (process.platform === 'win32') {
+      try {
+        spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+      } catch {}
+      return;
+    }
+    try { process.kill(pid, 'SIGKILL'); } catch {}
+  }
+
+  function installParentExitHook() {
+    if (parentExitHookInstalled) return;
+    parentExitHookInstalled = true;
+    process.once('exit', () => {
+      for (const pid of Array.from(ownedChildPids)) {
+        forceKillTreeSync(pid);
+      }
+      ownedChildPids.clear();
+    });
   }
 
   function stop(reason = 'standalone shutdown') {

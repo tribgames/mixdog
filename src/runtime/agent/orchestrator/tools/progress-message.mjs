@@ -69,8 +69,10 @@ export function formatToolStartProgress(name, args = {}) {
             return `exploring ${_plural(n, 'query', 'queries')}`;
         }
         case 'bridge': {
-            if (a.role) return `dispatching ${_t(a.role)}`;
-            if (a.tag) return `messaging ${_t(a.tag)}`;
+            const route = [a.preset, [a.provider, a.model].filter(Boolean).join('/')].filter(Boolean).join(' ');
+            const suffix = route ? ` (${_t(route, 32)})` : '';
+            if (a.role) return `dispatching ${_t(a.role)}${suffix}`;
+            if (a.tag) return `messaging ${_t(a.tag)}${suffix}`;
             return 'dispatching agent';
         }
         case 'list_models':

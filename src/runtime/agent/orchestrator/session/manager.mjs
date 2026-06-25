@@ -30,7 +30,7 @@ import {
     buildGatewayLimits,
     recordGatewayUsageEvent,
     summarizeGatewayUsage,
-} from '../../../../vendor/statusline/src/gateway/route-meta.mjs';
+} from '../providers/statusline-route-meta.mjs';
 // Phase B: Pool B Tier 2 content builder (common rules only).
 // Loaded once per process via createRequire so the CJS module reaches us.
 const _require = createRequire(import.meta.url);

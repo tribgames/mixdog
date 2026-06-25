@@ -313,17 +313,17 @@ function traceBridgeCompact({
 }
 
 const TOOL_ARG_KEYS = {
-    read: ['path', 'mode', 'n', 'offset', 'limit', 'full'],
-    grep: ['pattern', 'path', 'glob', 'output_mode', 'head_limit', 'offset', 'type', '-i', '-n', '-A', '-B', '-C', 'context', 'multiline'],
+    read: ['path', 'offset', 'limit', 'line', 'context', 'symbol'],
+    grep: ['pattern', 'path', 'glob', 'output_mode', 'head_limit', 'offset'],
     glob: ['pattern', 'path', 'head_limit', 'offset'],
-    list: ['path', 'mode', 'depth', 'hidden', 'sort', 'type', 'head_limit', 'offset', 'name', 'min_size', 'max_size', 'modified_after', 'modified_before'],
-    code_graph: ['mode', 'file', 'symbol', 'language', 'limit'],
+    list: ['path', 'head_limit', 'offset', 'fuzzy'],
+    code_graph: ['mode', 'file', 'symbol', 'symbols', 'body', 'language', 'limit', 'depth', 'page', 'cwd'],
     bash: ['command', 'cwd', 'timeout', 'run_in_background', 'persistent', 'session_id'],
     job_wait: ['job_id', 'timeout_ms', 'poll_ms'],
     edit: ['path', 'replace_all', 'edits'],
     edit_many: ['edits'],
-    write: ['path', 'writes'],
-    apply_patch: ['base_path', 'dry_run', 'reject_partial'],
+    write: ['path'],
+    apply_patch: ['base_path', 'dry_run'],
 };
 
 const REDACT_KEY_RE = /token|secret|password|passwd|credential|authorization|api[_-]?key/i;

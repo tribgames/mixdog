@@ -11,11 +11,11 @@ export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: 'Read-only codebase EXPLORATION for open-ended/unknown scope — locates and describes code, does not judge it (findings are UNVERIFIED leads; verify before acting). Shape each query as a location question (where/which/what implements X), not a verdict question. Fan-out runs items in parallel. Prefer it over a long grep/code_graph storm; a bounded/known-anchor lookup stays a direct code_graph/grep call.',
+  description: 'Broad-scope locator only; returns unverified leads. Use code_graph/grep/glob first when any symbol, term, file kind, or config clue exists. Use explore only after direct narrowing fails or topics are unrelated. One short location question.',
   inputSchema: {
     type: 'object',
     properties: {
-      query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Array of independent ONE-LINE questions: each item is ONE short question on ONE topic — do NOT pass a whole brief/context dump as one item; DECOMPOSE a multi-part task into several one-line per-topic questions here. Split by topic; never one broad query. Each item must be location/inventory-shaped (where/which/what), never verdict-shaped (is-it-correct / are-there-problems).' },
+      query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'One short location question, or an array only for unrelated topics. Do not use for a known symbol/term/config key; use code_graph/grep first. Never pass a whole brief/context dump.' },
       cwd: { type: 'string' },
       background: { type: 'boolean', description: 'Lead default true (answer pushed via channel, avoids the 120s sync cap); bridge workers run sync.' },
     },
@@ -30,7 +30,10 @@ export const EXPLORE_TOOL = {
 export const EXPLORE_OUTPUT_CHAR_CAP = 24_000;
 const EXPLORE_TRUNCATION_MARKER = '\n\n[explore: output truncated; narrow cwd or split queries to see more]';
 // Bound fan-out so a hostile/poisoned query array cannot spawn unbounded subs.
-const MAX_FANOUT_QUERIES = 8;
+export const MAX_FANOUT_QUERIES = 8;
+// Explore is a locator, not a worker. Cap each hidden explorer so ambiguous
+// prompts return bounded leads instead of turning into multi-minute debugging.
+export const EXPLORE_MAX_LOOP_ITERATIONS = 8;
 
 function escapeXml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -40,11 +43,11 @@ function escapeXml(str) {
 // explorer receives ONLY its own query, with a trailing descriptive-only
 // reminder. The full no-verdict contract lives at system level
 // (rules/bridge/30-explorer.md).
-function buildExplorerPrompt(query) {
+export function buildExplorerPrompt(query) {
   return `<query>${escapeXml(query)}</query>\nReminder: describe with file:line evidence; no verdicts, ratings, or recommendations.`;
 }
 
-function normalizeQueries(rawQuery) {
+export function normalizeExploreQueries(rawQuery) {
   let raw = rawQuery;
   // Some clients JSON-stringify arrays when the schema field is loosely typed.
   if (typeof raw === 'string') {
@@ -132,7 +135,7 @@ function fail(msg) {
  * @param {object} ctx          — { callerCwd, callerSessionId }.
  */
 export async function runExplore(args = {}, ctx = {}) {
-  const queries = normalizeQueries(args.query);
+  const queries = normalizeExploreQueries(args.query);
   if (queries.length === 0) return fail('query is required (one or more non-empty strings)');
 
   let working = queries;
@@ -150,6 +153,7 @@ export async function runExplore(args = {}, ctx = {}) {
       cwd: resolvedCwd,
       brief: true,
       parentSessionId: ctx.callerSessionId || null,
+      maxLoopIterations: EXPLORE_MAX_LOOP_ITERATIONS,
     });
     return llm({ prompt: buildExplorerPrompt(q) });
   }));

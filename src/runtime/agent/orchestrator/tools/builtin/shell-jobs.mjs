@@ -539,11 +539,8 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
         ? notifyCtx
         : (jobId ? jobNotifyCtxByJobId.get(jobId) : null);
     if (!jobId || !ctx || typeof ctx.notifyFn !== 'function') {
-        // Mirror pushDispatchResult's no-notify-fn diagnostic rather than
-        // failing the spawn — the job still runs and is pollable via job_wait.
-        try {
-            process.stderr.write(`[shell-jobs] watchBackgroundShellJob: no notifyFn — completion of ${jobId} will not be pushed (reason: no-notify-fn)\n`);
-        } catch { /* ignore */ }
+        // Direct/non-dispatch callers have no push target; the job still runs
+        // and remains pollable via job_wait, so this is not a failure.
         return;
     }
     // Idempotent arm: if a watcher is already registered for this jobId, leave

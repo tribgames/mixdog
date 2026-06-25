@@ -1,4 +1,4 @@
-import { closeSync, lstatSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'fs';
+import { closeSync, lstatSync, openSync, readFileSync, readSync, realpathSync, readdirSync, statSync } from 'fs';
 import * as fsPromises from 'fs/promises';
 import { readFile } from 'fs/promises';
 import { extname } from 'path';
@@ -174,6 +174,16 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         _statErr = err;
     }
     if (st) {
+        if (st.isDirectory()) {
+            let entries = [];
+            try {
+                entries = readdirSync(fullPath, { withFileTypes: true })
+                    .slice(0, 20)
+                    .map((entry) => `${entry.name}${entry.isDirectory() ? '/' : ''}`);
+            } catch { /* best-effort preview */ }
+            const preview = entries.length ? `\nentries:\n${entries.map((entry) => `- ${entry}`).join('\n')}` : '';
+            return `Error: Directory: ${normalizeOutputPath(filePath)}. Use list/glob to inspect directories; read expects a file.${preview}`;
+        }
         // R2: special-file reject AFTER stat. FIFOs, char devices, block
         // devices, and sockets pass a normal stat but reading them either
         // hangs (FIFO with no writer, socket) or produces unbounded output

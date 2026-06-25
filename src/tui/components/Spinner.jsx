@@ -27,6 +27,8 @@ import { Box, Text, useAnimation } from 'ink';
 import { theme } from '../theme.mjs';
 import { SPINNER_FRAMES } from '../spinner-verbs.mjs';
 import { DOWN_ARROW, UP_ARROW } from '../figures.mjs';
+import { formatDuration } from '../time-format.mjs';
+import { asciiUiEnabled } from '../safe-text.mjs';
 
 const FRAME_MS = 130;
 // CC plays the frames forward, then in reverse — a smooth there-and-back sweep.
@@ -111,11 +113,6 @@ const SPINNER_GLYPH_RGB = parseRgb(theme.spinnerGlyph) ?? { r: 240, g: 240, b: 2
 const THINKING_INACTIVE = parseRgb(theme.thinkingBase) ?? parseRgb(theme.thinkingAccent) ?? { r: 153, g: 153, b: 153 };
 const THINKING_SHIMMER = parseRgb(theme.thinkingGlow) ?? { r: 255, g: 205, b: 175 };
 
-function formatDuration(ms) {
-  const totalSec = Math.max(0, Math.round(ms / 1000));
-  return `${totalSec}s`;
-}
-
 const compactNumberFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 1,
@@ -128,7 +125,7 @@ function formatNumber(n) {
   return String(Math.round(value));
 }
 
-const STATUS_SEP = ' · ';
+const STATUS_SEP = asciiUiEnabled() ? ' - ' : ' · ';
 const SEP_WIDTH = STATUS_SEP.length;
 const HINT_WIDTH = 16; // 'esc to interrupt'
 const THINKING_TIME_AFTERGLOW_MS = 3000;

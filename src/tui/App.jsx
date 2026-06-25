@@ -31,7 +31,9 @@ import { QueuedCommands } from './components/QueuedCommands.jsx';
 import { Picker } from './components/Picker.jsx';
 import { SlashCommandPalette } from './components/SlashCommandPalette.jsx';
 import { ContextPanel } from './components/ContextPanel.jsx';
+import { UsagePanel } from './components/UsagePanel.jsx';
 import { TextEntryPanel } from './components/TextEntryPanel.jsx';
+import { formatDuration } from './time-format.mjs';
 
 const HELP = [
   'Slash commands:',
@@ -42,6 +44,7 @@ const HELP = [
   '  /resume [id]     resume a saved session (picker if no id)',
   '  /context         show current session context surface',
   '  /status          open session/runtime status dashboard',
+  '  /usage           open global provider quota / balance dashboard',
   '  /model <name>    switch model for subsequent turns (picker if no name)',
   '  /effort [level] set reasoning effort for the current model',
   '  /fast [on|off]   toggle Fast mode for this model (saved per model)',
@@ -71,6 +74,7 @@ const SLASH_COMMANDS = [
   { name: 'resume', usage: '/resume', description: 'resume a saved session' },
   { name: 'context', usage: '/context', description: 'show current session context surface' },
   { name: 'status', usage: '/status', description: 'open session/runtime status dashboard' },
+  { name: 'usage', usage: '/usage [refresh]', description: 'show total provider quota / balance' },
   { name: 'model', usage: '/model', description: 'switch model for subsequent turns' },
   { name: 'effort', usage: '/effort [level]', description: 'set reasoning effort for the current model' },
   { name: 'fast', usage: '/fast [on|off]', description: 'toggle Fast mode for the current model' },
@@ -103,13 +107,6 @@ function terminalSize(stdout) {
     columns: stdout?.columns ?? 80,
     rows: stdout?.rows ?? 24,
   };
-}
-
-function formatDuration(ms) {
-  const value = Math.max(0, Number(ms) || 0);
-  if (value >= 3_600_000 && value % 3_600_000 === 0) return `${value / 3_600_000}h`;
-  if (value >= 60_000) return `${Math.round(value / 60_000)}m`;
-  return `${Math.round(value / 1000)}s`;
 }
 
 function formatSessionUpdatedAt(value) {
@@ -362,6 +359,72 @@ const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpan
   }
 });
 
+const TRANSCRIPT_WINDOW_MIN_ITEMS = 80;
+const TRANSCRIPT_WINDOW_OVERSCAN_ROWS = 24;
+
+function positiveIntEnv(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+const TRANSCRIPT_WINDOW_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS', 180);
+
+function estimateWrappedRows(text, columns, reserve = 4) {
+  const width = Math.max(8, Number(columns || 80) - reserve);
+  const lines = String(text ?? '').split('\n');
+  return Math.max(1, lines.reduce((sum, line) => sum + Math.max(1, Math.ceil(String(line).length / width)), 0));
+}
+
+function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
+  if (!item) return 1;
+  switch (item.kind) {
+    case 'user':
+      return 1 + estimateWrappedRows(item.text, columns, 4);
+    case 'assistant':
+      // Keep this intentionally low-biased: underestimating renders extra older
+      // rows, while overestimating can hide rows when the user scrolls upward.
+      return 1 + estimateWrappedRows(item.text, columns, 6);
+    case 'tool': {
+      const resultRows = item.result
+        ? (toolOutputExpanded || item.expanded ? estimateWrappedRows(item.result, columns, 8) : Math.min(8, estimateWrappedRows(item.result, columns, 8)))
+        : 0;
+      return 2 + resultRows;
+    }
+    case 'notice':
+      return 1 + estimateWrappedRows(item.text, columns, 6);
+    case 'turndone':
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+function transcriptRenderWindow(items, { scrollOffset = 0, viewportHeight = 24, columns = 80, toolOutputExpanded = false } = {}) {
+  const allItems = Array.isArray(items) ? items : [];
+  if (allItems.length <= TRANSCRIPT_WINDOW_MIN_ITEMS) {
+    return { startIndex: 0, items: allItems };
+  }
+
+  const targetRows = Math.max(1, Number(viewportHeight) || 24)
+    + Math.max(0, Math.ceil(Number(scrollOffset) || 0))
+    + TRANSCRIPT_WINDOW_OVERSCAN_ROWS;
+  const minItems = Math.min(TRANSCRIPT_WINDOW_MIN_ITEMS, allItems.length);
+  const maxItems = Math.max(minItems, TRANSCRIPT_WINDOW_MAX_ITEMS);
+  let rows = 0;
+  let startIndex = allItems.length;
+
+  while (startIndex > 0) {
+    const nextIndex = startIndex - 1;
+    rows += estimateTranscriptItemRows(allItems[nextIndex], columns, toolOutputExpanded);
+    startIndex = nextIndex;
+    const count = allItems.length - startIndex;
+    if (count >= minItems && rows >= targetRows) break;
+    if (count >= maxItems && rows >= targetRows) break;
+  }
+
+  return { startIndex, items: allItems.slice(startIndex) };
+}
+
 export function App({ store, initialStatusLine = '' }) {
   const state = useEngine(store);
   const [toolOutputExpanded, setToolOutputExpanded] = useState(false);
@@ -388,6 +451,7 @@ export function App({ store, initialStatusLine = '' }) {
   // Rendered as an option panel attached directly above the bottom prompt.
   const [picker, setPicker] = useState(null);
   const [contextPanel, setContextPanel] = useState(null);
+  const [usagePanel, setUsagePanel] = useState(null);
   const [providerPrompt, setProviderPrompt] = useState(null);
   const [channelPrompt, setChannelPrompt] = useState(null);
   const [hookPrompt, setHookPrompt] = useState(null);
@@ -404,10 +468,12 @@ export function App({ store, initialStatusLine = '' }) {
   const onboardingStartedRef = useRef(false);
   const onboardingRef = useRef({ defaultRoute: null, workflowRoutes: {}, providerModels: [] });
   const promptHintTimerRef = useRef(null);
+  const promptHintActiveRef = useRef(false);
   const mouseZoomPassthroughTimerRef = useRef(null);
   // dragRef tracks an in-progress mouse text selection (see the mouse handler):
   // anchor = where the drag began, last = the latest cell, active = button held.
   const dragRef = useRef({ anchor: null, anchorScroll: 0, last: null, active: false, rect: null });
+  const selectionPaintRef = useRef({ t: 0 });
   const transcriptViewportRef = useRef({ top: 0, bottom: 0 });
   const selectionTextRef = useRef('');
   // lastClickRef tracks the previous left-press cell + time so the mouse handler
@@ -463,20 +529,24 @@ export function App({ store, initialStatusLine = '' }) {
   }, [stdout]);
 
   const clearPromptHint = useCallback(() => {
+    if (!promptHintActiveRef.current && !promptHintTimerRef.current) return;
     if (promptHintTimerRef.current) {
       clearTimeout(promptHintTimerRef.current);
       promptHintTimerRef.current = null;
     }
+    promptHintActiveRef.current = false;
     setPromptHint('');
     setPromptHintTone('info');
   }, []);
 
   const showPromptHint = useCallback((text, tone = 'info') => {
     if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
+    promptHintActiveRef.current = true;
     setPromptHint(String(text || ''));
     setPromptHintTone(tone);
     promptHintTimerRef.current = setTimeout(() => {
       promptHintTimerRef.current = null;
+      promptHintActiveRef.current = false;
       setPromptHint('');
       setPromptHintTone('info');
     }, 2200);
@@ -539,6 +609,16 @@ export function App({ store, initialStatusLine = '' }) {
     const clippedRect = withSelectionClip(rect);
     dragRef.current.rect = clippedRect || null;
     if (!clippedRect) selectionTextRef.current = '';
+    store.setRenderSelection?.(clippedRect || null);
+    if (clippedRect) rememberSelectionTextSoon();
+  }, [store, rememberSelectionTextSoon, withSelectionClip]);
+
+  const applySelectionRectThrottled = useCallback((rect) => {
+    const clippedRect = withSelectionClip(rect);
+    dragRef.current.rect = clippedRect || null;
+    const now = Date.now();
+    if (now - selectionPaintRef.current.t < 16) return;
+    selectionPaintRef.current.t = now;
     store.setRenderSelection?.(clippedRect || null);
     if (clippedRect) rememberSelectionTextSoon();
   }, [store, rememberSelectionTextSoon, withSelectionClip]);
@@ -720,7 +800,7 @@ export function App({ store, initialStatusLine = '' }) {
           dragRef.current.last = { x, y: selectionY };
           const anchor = selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
           const rect = linearSelection(anchor, { x, y: selectionY });
-          applySelectionRect(rect);
+          applySelectionRectThrottled(rect);
           const rows = Math.max(1, Number(resizeState.rows) || 24);
           if (y <= 1) {
             scrollTranscriptRows(3);
@@ -761,7 +841,7 @@ export function App({ store, initialStatusLine = '' }) {
     };
     inkInput.on('input', onData);
     return () => { inkInput.off('input', onData); };
-  }, [inkInput, isRawModeSupported, store, copySelection, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect, selectionPointAtCurrentScroll]);
+  }, [inkInput, isRawModeSupported, store, copySelection, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll]);
 
   // Keep the transcript pinned only while the user is already at the bottom.
   // If they scroll up to inspect a long answer, later tool/result cards must not
@@ -778,6 +858,11 @@ export function App({ store, initialStatusLine = '' }) {
     if (exitRequestedRef.current) return;
     exitRequestedRef.current = true;
     setExiting(true);
+    const hardExitTimer = setTimeout(() => {
+      try { process.stdout.write('\x1b[?25h\x1b[0m'); } catch {}
+      process.exit(0);
+    }, 8000);
+    hardExitTimer.unref?.();
     setTimeout(() => {
       let timer = null;
       Promise.race([
@@ -823,13 +908,17 @@ export function App({ store, initialStatusLine = '' }) {
   }, [store, promptDraft, showPromptHint, clearPromptHint]);
 
   const handlePromptEscape = useCallback(() => {
+    if (usagePanel) {
+      setUsagePanel(null);
+      return;
+    }
     if (contextPanel) {
       setContextPanel(null);
       return;
     }
     if (!state.busy) return;
     if (store.abort()) showPromptHint('interrupted', 'cancel');
-  }, [contextPanel, showPromptHint, state.busy, store]);
+  }, [contextPanel, usagePanel, showPromptHint, state.busy, store]);
 
   useInput((input, key) => {
     if (key.ctrl && (input === 'b' || input === 'B')) {
@@ -850,8 +939,12 @@ export function App({ store, initialStatusLine = '' }) {
       toggleExpand();
       return;
     }
-    if (key.upArrow && !picker && !contextPanel && !providerPrompt && !channelPrompt && !hookPrompt && !settingsPrompt && !slashPaletteOpen && state.queued?.length > 0) {
+    if (key.upArrow && !picker && !contextPanel && !usagePanel && !providerPrompt && !channelPrompt && !hookPrompt && !settingsPrompt && !slashPaletteOpen && state.queued?.length > 0) {
       restoreQueuedToPrompt({ restoreDraft: true, showHint: false });
+      return;
+    }
+    if (key.escape && usagePanel && !picker) {
+      setUsagePanel(null);
       return;
     }
     if (key.escape && contextPanel && !picker) {
@@ -1144,10 +1237,13 @@ export function App({ store, initialStatusLine = '' }) {
           fastPreferred: false,
         };
         let selectedEffort = (selected.provider === state.provider && selected.id === state.model)
-          ? (state.effort || 'auto')
-          : 'auto';
-        let selectedFast = selected.fastPreferred === true
-          || (selected.provider === state.provider && selected.id === state.model && state.fast === true);
+          ? (state.effort || selected.savedEffort || 'auto')
+          : (selected.savedEffort || 'auto');
+        let selectedFast = selected.fastCapable === true && (
+          (selected.provider === state.provider && selected.id === state.model)
+            ? state.fast === true
+            : (selected.savedFast === true || selected.fastPreferred === true)
+        );
         const effortItems = Array.isArray(selected.effortOptions) && selected.effortOptions.length > 0
           ? selected.effortOptions
           : [{ value: 'auto', label: 'auto', description: 'provider/model default' }];
@@ -1174,7 +1270,6 @@ export function App({ store, initialStatusLine = '' }) {
             model: selected.id,
             effort: selectedEffort,
             fast: selected.fastCapable ? selectedFast : false,
-            persistFast: true,
           })
             .then(ok => store.pushNotice(
               ok
@@ -1290,7 +1385,7 @@ export function App({ store, initialStatusLine = '' }) {
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
-    const mode = state.bridgeMode || 'sync';
+    const mode = state.bridgeMode || 'async';
     setPicker({
       title: `Bridge (current: ${mode})`,
       items: [
@@ -1471,7 +1566,7 @@ export function App({ store, initialStatusLine = '' }) {
         {
           value: 'bridge',
           label: 'Bridge',
-          description: `default ${state.bridgeMode || 'sync'}`,
+          description: `default ${state.bridgeMode || 'async'}`,
         },
         {
           value: 'tools',
@@ -1510,6 +1605,30 @@ export function App({ store, initialStatusLine = '' }) {
         },
       ],
     });
+  };
+
+  const openUsagePanel = (arg = '') => {
+    const refresh = /(?:^|\s)(?:refresh|--refresh|-r|true)(?:\s|$)/i.test(String(arg || ''));
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setPicker(null);
+    setContextPanel(null);
+    setUsagePanel({ loading: true, refresh, rows: [], total: null });
+    void store.getUsageDashboard?.({ refresh })
+      .then((dashboard) => {
+        if (!dashboard) {
+          setUsagePanel(null);
+          store.pushNotice('usage dashboard unavailable', 'warn');
+          return;
+        }
+        setUsagePanel(dashboard);
+      })
+      .catch((e) => {
+        setUsagePanel(null);
+        store.pushNotice(`usage failed: ${e?.message || e}`, 'error');
+      });
   };
 
   const openContextPicker = () => {
@@ -1673,7 +1792,7 @@ export function App({ store, initialStatusLine = '' }) {
         {
           value: 'bridge',
           label: 'Bridge',
-          description: `default ${state.bridgeMode || 'sync'}`,
+          description: `default ${state.bridgeMode || 'async'}`,
           _action: 'bridge',
         },
         {
@@ -3013,6 +3132,7 @@ export function App({ store, initialStatusLine = '' }) {
 
   const runSlashCommand = (cmd, arg = '') => {
     if (cmd !== 'context' && cmd !== 'status') setContextPanel(null);
+    if (cmd !== 'usage') setUsagePanel(null);
     switch (cmd) {
       case 'clear':
         if (state.busy) {
@@ -3253,6 +3373,9 @@ export function App({ store, initialStatusLine = '' }) {
       case 'status':
         openStatusPicker();
         return true;
+      case 'usage':
+        openUsagePanel(arg);
+        return true;
       case 'context':
         openContextPicker();
         return true;
@@ -3465,8 +3588,8 @@ export function App({ store, initialStatusLine = '' }) {
     return store.submit(text);
   };
 
-  const activeSlashQuery = providerPrompt || channelPrompt || hookPrompt || settingsPrompt || contextPanel ? null : slashQuery(promptDraft);
-  const slashCommands = activeSlashQuery === null || picker || contextPanel || exiting || state.commandBusy
+  const activeSlashQuery = providerPrompt || channelPrompt || hookPrompt || settingsPrompt || contextPanel || usagePanel ? null : slashQuery(promptDraft);
+  const slashCommands = activeSlashQuery === null || picker || contextPanel || usagePanel || exiting || state.commandBusy
     ? []
     : SLASH_COMMANDS.filter((command) => slashCommandMatches(command, activeSlashQuery));
   const slashPaletteOpen = activeSlashQuery !== null
@@ -3484,12 +3607,14 @@ export function App({ store, initialStatusLine = '' }) {
     // own state, so App need not re-render — and relayout the full fullscreen
     // frame — on every keystroke (input lag fix). Entering slash mode and
     // leaving it both still sync because either prev or next is a slash token.
-    setPromptDraft((prev) =>
-      slashQuery(value) !== null || slashQuery(prev) !== null ? value : prev);
-    setPromptDraftOverride(null);
+    const nextSlash = slashQuery(value);
+    setPromptDraft((prev) => (nextSlash !== null || slashQuery(prev) !== null ? value : prev));
+    setPromptDraftOverride((prev) => (prev === null ? prev : null));
     if (value) clearPromptHint();
-    setSlashDismissedFor((dismissed) => (dismissed && dismissed !== value ? '' : dismissed));
-  }, [clearPromptHint]);
+    if (slashDismissedFor) {
+      setSlashDismissedFor((dismissed) => (dismissed && dismissed !== value ? '' : dismissed));
+    }
+  }, [clearPromptHint, slashDismissedFor]);
 
   const cancelProviderPrompt = useCallback(() => {
     const afterSave = providerPrompt?.afterSave;
@@ -3527,6 +3652,11 @@ export function App({ store, initialStatusLine = '' }) {
   }, [promptDraft]);
 
   const resizeEpoch = resizeState.epoch;
+  const bridgeRevision = JSON.stringify({
+    mode: state.bridgeMode || '',
+    workers: (state.bridgeWorkers || []).map((w) => [w.tag, w.status, w.stage, w.sessionId]).slice(0, 20),
+    jobs: (state.bridgeJobs || []).map((j) => [j.jobId, j.status, j.tag, j.sessionId]).slice(0, 20),
+  });
 
   // ── Transcript viewport height ──────────────────────────────────────────
   // ROOT-CAUSE FIX: the transcript must live in a box with an EXPLICIT numeric
@@ -3547,7 +3677,7 @@ export function App({ store, initialStatusLine = '' }) {
   // the total tree height exceeds the terminal and the input box gets pushed.
   const textEntryPrompt = providerPrompt || channelPrompt || hookPrompt || settingsPrompt;
   const hasTextEntryPrompt = !!textEntryPrompt;
-  const hasFloatingPanel = !!(picker || contextPanel || slashPaletteOpen || hasTextEntryPrompt);
+  const hasFloatingPanel = !!(picker || contextPanel || usagePanel || slashPaletteOpen || hasTextEntryPrompt);
   // The bottom input box is hidden only by panels that REPLACE the prompt
   // (picker / context panel / text-entry prompts). The slash palette floats
   // above the prompt instead of merging into it, so the input box stays.
@@ -3620,7 +3750,7 @@ export function App({ store, initialStatusLine = '' }) {
           <Text color={theme.claude} bold>{centerLine('██║╚██╔╝██║██║ ██╔██╗ ██║  ██║██║   ██║██║   ██║', frameColumns)}</Text>
           <Text color={theme.claude} bold>{centerLine('██║ ╚═╝ ██║██║██╔╝ ██╗██████╔╝╚██████╔╝╚██████╔╝', frameColumns)}</Text>
           <Box height={1} flexShrink={0} />
-          <Text color={theme.inactive}>{centerLine(`mixdog coding agent · ${state.cwd}`, frameColumns, 4)}</Text>
+          <Text color={theme.inactive}>{centerLine(`mixdog coding agent - ${state.cwd}`, frameColumns, 4)}</Text>
         </Box>
       ) : null}
 
@@ -3649,9 +3779,46 @@ export function App({ store, initialStatusLine = '' }) {
             scrollOffset is clamped ≥ 0 by the wheel handler; a new turn snaps it
             back to 0. */}
         <Box flexDirection="column" width="100%" flexShrink={0} marginBottom={-scrollOffset}>
-          {state.items.map((item, i) => (
-            <Item key={item.id} item={item} prevKind={i > 0 ? state.items[i - 1].kind : null} columns={frameColumns} toolOutputExpanded={toolOutputExpanded} />
-          ))}
+           {/*
+             * Transcript windowing: only render a recent tail of items rather than
+             * the full state.items list. transcriptRenderWindow computes a startIndex
+             * from the bottom that covers the visible viewport + scrollOffset + overscan.
+             * Falls back to full render when:
+             *   - a mouse drag/selection is active (dragged items may be above the window)
+             *   - global tool output is expanded (items taller, harder to estimate)
+             * This keeps bottom-pinned behaviour and scrollOffset semantics intact;
+             * items above startIndex are simply not rendered (they are off-screen and
+             * clipped by the overflow:hidden viewport anyway).
+             * MAX cap: TRANSCRIPT_WINDOW_MAX_ITEMS items (env MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS).
+             * OVERSCAN: TRANSCRIPT_WINDOW_OVERSCAN_ROWS extra rows above the viewport so
+             * fast wheel scrolls don't show a blank gap before re-render.
+             */}
+           {(() => {
+             // Disable windowing while any selection highlight exists (active or
+             // retained after release) because the selected rows may be above the
+             // current window start, and during global tool-output expansion where
+             // row estimates are less reliable.
+             const selectionActive = dragRef.current.active || !!dragRef.current.rect;
+             const windowed = (!selectionActive && !toolOutputExpanded)
+               ? transcriptRenderWindow(state.items, {
+                   scrollOffset,
+                   viewportHeight,
+                   columns: frameColumns,
+                   toolOutputExpanded,
+                 }).items
+               : state.items;
+             const startIndex = windowed === state.items ? 0 : Math.max(0, state.items.length - windowed.length);
+             const renderItems = windowed;
+             return renderItems.map((item, i, arr) => (
+               <Item
+                 key={item.id}
+                 item={item}
+                 prevKind={i > 0 ? arr[i - 1].kind : state.items[startIndex - 1]?.kind ?? null}
+                 columns={frameColumns}
+                 toolOutputExpanded={toolOutputExpanded}
+               />
+             ));
+           })()}
         </Box>
       </Box>
 
@@ -3717,6 +3884,11 @@ export function App({ store, initialStatusLine = '' }) {
               <ContextPanel
                 rows={contextPanel.rows}
                 title={contextPanel.title}
+                columns={frameColumns}
+              />
+            ) : usagePanel ? (
+              <UsagePanel
+                dashboard={usagePanel}
                 columns={frameColumns}
               />
             ) : slashPaletteOpen ? (
@@ -3816,6 +3988,7 @@ export function App({ store, initialStatusLine = '' }) {
           contextWindow={state.contextWindow}
           rawContextWindow={state.rawContextWindow}
           resizeEpoch={resizeEpoch}
+          bridgeRevision={bridgeRevision}
           initialLine={initialStatusLine}
         />
       </Box>

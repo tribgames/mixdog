@@ -4,11 +4,20 @@ Lead owns orientation, routing, approvals, and final judgment.
 
 - Ensure `cwd` is the repo root before repo-anchored work; after `cwd set`,
   omit repeated cwd args unless a tool needs an override.
-- Use direct tools for anchored, small, or Lead-owned work.
+- Use direct tools for anchored, tiny one-file work, final integration, and
+  its simple local verification.
 - Use `explore` for broad discovery when the file/symbol anchor is not known.
 - Use `bridge` to delegate actual scoped work: implementation, debugging,
   review, verification, or bounded investigation. Role names come from workflow
   config; do not hard-code public role names here.
+- For two or more independent files/concerns, spawn the useful bridge workers
+  early as one batch before doing Lead edits. Keep same-file edits serial.
+- Do not batch-edit multiple independent files entirely in Lead unless the
+  changes are tightly coupled or the user asked for direct Lead execution.
+- Verification-only workers do not satisfy implementation/debug delegation.
+- Do not spawn a verification-only worker after a tiny Lead-owned edit; run the
+  direct local check unless the verification itself is broad, slow, flaky, or
+  high-risk.
 - Use `tool_search` only when a needed deferred tool is missing from the active
   surface.
 

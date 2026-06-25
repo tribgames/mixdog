@@ -51,7 +51,13 @@ export function displayToolPath(path) {
 }
 
 function compactParts(parts) {
-  return parts.filter((part) => part != null && String(part).trim()).map((part) => String(part).trim()).join(' · ');
+  return parts.filter((part) => part != null && String(part).trim()).map((part) => String(part).trim()).join(' - ');
+}
+
+function compactSlash(left, right) {
+  const a = String(left ?? '').trim();
+  const b = String(right ?? '').trim();
+  return a && b ? `${a}/${b}` : a || b;
 }
 
 function quoted(value, max) {
@@ -294,6 +300,10 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       return compactParts([
         a.type || a.action || a.mode || '',
         a.role || a.name || a.subagent_type || a.tag || a.sessionId || a.jobId || '',
+        a.preset ? `preset ${a.preset}` : '',
+        compactSlash(a.provider, a.model),
+        a.effort ? `effort ${a.effort}` : '',
+        a.fast === true ? 'fast' : '',
         truncateSingleLine(firstText(a.description, a.prompt, a.message), Math.min(max, 80)),
       ]);
     case 'code_graph':
@@ -381,7 +391,7 @@ function summarizeUpdateResult(text, args) {
   if (changed.length > 1) {
     const names = changed.slice(0, 2).map((item) => displayToolPath(item.path)).join(', ');
     const extra = changed.length > 2 ? ` +${changed.length - 2} more` : '';
-    return `Updated ${changed.length} files · ${names}${extra}`;
+    return `Updated ${changed.length} files - ${names}${extra}`;
   }
 
   const parsedArgs = parseToolArgs(args);
@@ -421,7 +431,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       if (add || rem) {
         const a = add ? Number(add[1]) : 0;
         const r = rem ? Number(rem[1]) : 0;
-        return `Updated · +${a} -${r}`;
+        return `Updated - +${a} -${r}`;
       }
       // Else count unified-diff style +/- lines (ignore +++/--- file headers).
       let a = 0;
@@ -431,7 +441,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
         if (/^\+/.test(line)) a += 1;
         else if (/^-/.test(line)) r += 1;
       }
-      if (a > 0 || r > 0) return `Updated · +${a} -${r}`;
+      if (a > 0 || r > 0) return `Updated - +${a} -${r}`;
       return null;
     }
     case 'grep': {
@@ -475,6 +485,26 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
         const n = Number(match[1]);
         return `Found ${n} ${pluralize(n, 'result')}`;
       }
+      return null;
+    }
+    case 'bridge':
+    case 'agent':
+    case 'task': {
+      const job = /^bridge job:\s*(job_[^\s]+)/mi.exec(text);
+      const status = /^status:\s*([^\s(]+)/mi.exec(text);
+      const role = /^role:\s*(.+)$/mi.exec(text);
+      const preset = /^preset:\s*(.+)$/mi.exec(text);
+      const model = /^model:\s*(.+)$/mi.exec(text);
+      const limits = /^limits:\s*(.+)$/mi.exec(text);
+      const parts = [
+        role ? role[1] : '',
+        preset ? preset[1] : '',
+        model ? model[1] : '',
+        status ? status[1] : '',
+        limits ? limits[1] : '',
+      ].filter(Boolean);
+      if (parts.length) return compactParts(parts);
+      if (job) return status ? `${job[1]} ${status[1]}` : job[1];
       return null;
     }
     default:

@@ -35,6 +35,12 @@ import {
 import { recordReadSnapshot } from './read-snapshot-runtime.mjs';
 import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX } from './arg-guard.mjs';
 
+function expandLegacyEscapedAlternationPattern(rawPattern) {
+    if (typeof rawPattern !== 'string' || !rawPattern.includes('\\|')) return null;
+    const parts = rawPattern.split('\\|').map((part) => part.trim()).filter(Boolean);
+    return parts.length > 1 ? parts : null;
+}
+
 // Deterministic ENOENT recovery: when a grep path does not exist, surface
 // indexed files that share the missing path's basename, turning a guessed or
 // misplaced path (e.g. session/result-compression.mjs vs the real
@@ -109,6 +115,26 @@ function relativeSearchResultPath(path, workDir) {
 
 function uniqueStrings(values) {
     return Array.from(new Set(values.filter((value) => typeof value === 'string' && value)));
+}
+
+function isRgRegexParseError(err) {
+    const msg = `${err?.stderr || ''}\n${err?.message || err || ''}`;
+    return /regex parse error/i.test(msg);
+}
+
+function regexPatternToFixedTerms(pattern) {
+    const raw = String(pattern || '');
+    if (!raw) return [];
+    return raw
+        .split(/\\?\|/g)
+        .map((part) => part.trim())
+        .map((part) => part
+            .replace(/\\[bB]/g, '')
+            .replace(/^\^/, '')
+            .replace(/\$$/, '')
+            .replace(/\\([\\.^$*+?()[\]{}|/-])/g, '$1')
+            .trim())
+        .filter((part) => part.length > 0);
 }
 
 function coerceNonNegInt(value) {
@@ -281,9 +307,10 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     args.pattern = coerceShapeFlex(args.pattern);
     args.glob = coerceShapeFlex(args.glob);
     const rawPattern = args.pattern;
-    const patterns = uniqueStrings((Array.isArray(rawPattern)
+    const rawPatterns = Array.isArray(rawPattern)
         ? rawPattern.filter(p => typeof p === 'string' && p)
-        : (rawPattern ? [String(rawPattern)] : [])).map(normalizeSearchPattern));
+        : (rawPattern ? (expandLegacyEscapedAlternationPattern(String(rawPattern)) || [String(rawPattern)]) : []);
+    const patterns = uniqueStrings(rawPatterns.map(normalizeSearchPattern));
     if (patterns.length === 0) {
         if (args.glob || hasGlobMagic(args.path)) {
             const globArgs = {
@@ -478,8 +505,8 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         if (grepStat.isDirectory()) rgSpawnCwd = searchPath;
     }
 
+    const GREP_CONTENT_HARD_CAP = 300;
     try {
-        const GREP_CONTENT_HARD_CAP = 300;
         const callerExplicitUnlimited = headLimitCoerced === 0;
         const effectiveHeadLimit = headLimit === Infinity
             ? (callerExplicitUnlimited ? Infinity : (outputMode === 'content' ? GREP_CONTENT_HARD_CAP : Infinity))
@@ -636,6 +663,88 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         return out;
     }
     catch (err) {
+        if (isRgRegexParseError(err) && !multilineMode) {
+            const fixedPatterns = uniqueStrings(patterns.flatMap(regexPatternToFixedTerms));
+            if (fixedPatterns.length > 0) {
+                try {
+                    const fallbackArgs = buildGrepRgArgs({
+                        patterns: fixedPatterns,
+                        searchPath,
+                        globPatterns: normalizedGlobPatterns,
+                        outputMode,
+                        caseInsensitive,
+                        showLineNumbers,
+                        beforeN,
+                        afterN,
+                        contextN,
+                        multilineMode: false,
+                        fileType,
+                        onlyMatching: args['-o'] === true,
+                        fixedStrings: true,
+                    });
+                    const effectiveHeadLimit = headLimit === Infinity
+                        ? (outputMode === 'content' ? GREP_CONTENT_HARD_CAP : Infinity)
+                        : headLimit;
+                    let windowed;
+                    let totalWindowed = 0;
+                    let totalKnown = true;
+                    let rgPartialSuffix = '';
+                    if (effectiveHeadLimit !== Infinity) {
+                        const streamed = await runRgWindowedLines(fallbackArgs, { cwd: rgSpawnCwd }, {
+                            offset,
+                            limit: effectiveHeadLimit,
+                            summaryLimit: outputMode === 'content' ? 120 : 0,
+                        });
+                        windowed = streamed.lines;
+                        totalWindowed = streamed.totalSeen;
+                        totalKnown = streamed.complete;
+                        if (streamed.partial) {
+                            totalKnown = false;
+                            rgPartialSuffix = streamed.timeout
+                                ? '\n[warning] rg timed out; partial fixed-string fallback results shown.'
+                                : streamed.rgStderr
+                                ? `\n[warning] rg exit 2 (partial fixed-string fallback results): ${String(streamed.rgStderr).trim().slice(0, 300)}`
+                                : '\n[warning] rg exit 2 (partial fixed-string fallback results)';
+                        }
+                    } else {
+                        const stdout = await runRg(fallbackArgs, { cwd: rgSpawnCwd });
+                        const allLines = String(stdout).split('\n').filter(Boolean);
+                        windowed = offset > 0 ? allLines.slice(offset) : allLines;
+                        totalWindowed = windowed.length;
+                        if (typeof stdout === 'object' && stdout.truncated) totalKnown = false;
+                        if (typeof stdout === 'object' && stdout.partial) {
+                            totalKnown = false;
+                            rgPartialSuffix = stdout.timeout
+                                ? '\n[warning] rg timed out; partial fixed-string fallback results shown.'
+                                : stdout.rgStderr
+                                ? `\n[warning] rg exit 2 (partial fixed-string fallback results): ${String(stdout.rgStderr).trim().slice(0, 300)}`
+                                : '\n[warning] rg exit 2 (partial fixed-string fallback results)';
+                        }
+                    }
+                    const body = formatGrepOutput({
+                        windowed,
+                        totalWindowed,
+                        totalKnown,
+                        headLimit,
+                        offset,
+                        outputMode,
+                        patterns: fixedPatterns,
+                        beforeN,
+                        afterN,
+                        contextN,
+                        searchPath,
+                        grepResolvedPath,
+                        workDir,
+                        globPatterns: normalizedGlobPatterns,
+                        fileType,
+                        filenameOmitted,
+                        prefix: '[regex parse fallback: fixed-string terms]\n',
+                    }) || `(no matches) fixed_terms=${JSON.stringify(fixedPatterns)} path=${searchPath}`;
+                    recordGrepReadSnapshot(grepStat);
+                    return body + rgPartialSuffix;
+                } catch { /* fall through to the original rg error */ }
+            }
+        }
         const stderr = err?.stderr ? String(err.stderr).trim() : '';
         const msg = stderr || err?.message || String(err);
         return `Error: ${msg.slice(0, 500)}`;

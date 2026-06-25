@@ -11,7 +11,9 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
-import { theme, TURN_MARKER } from '../theme.mjs';
+import { theme } from '../theme.mjs';
+import { formatElapsed } from '../time-format.mjs';
+import { terminalSafeText } from '../safe-text.mjs';
 import {
   displayToolName as surfaceDisplayToolName,
   formatToolSurface,
@@ -37,17 +39,6 @@ export const MAX_RESULT_LINES = 8;
 const TOOL_BLINK_MS = 500;
 const TOOL_HINT_DONE_COLOR = theme.subtle;
 
-function formatElapsed(ms) {
-  const n = Math.max(0, Number(ms || 0));
-  if (!Number.isFinite(n) || n <= 0) return '';
-  if (n < 1000) return `${Math.round(n)}ms`;
-  const seconds = n / 1000;
-  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const rest = Math.round(seconds % 60);
-  return `${minutes}m ${rest}s`;
-}
-
 function plural(count, singular, pluralText = `${singular}s`) {
   return count === 1 ? singular : pluralText;
 }
@@ -56,7 +47,7 @@ function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
   const completed = Math.max(0, Number(doneCount || 0));
-  const suffix = pending && completed > 0 ? ` · ${completed}/${count} done` : '';
+  const suffix = pending && completed > 0 ? ` - ${completed}/${count} done` : '';
 
   const copy = (active, done, noun, pluralNoun = `${noun}s`) => {
     const object = `${count} ${plural(count, noun, pluralNoun)}`;
@@ -85,6 +76,11 @@ function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
     case 'shell_command':
     case 'job_wait':
       return copy('Running', 'Ran', 'command');
+    case 'bridge':
+    case 'agent':
+    case 'task':
+      if (count === 1) return 'Agent';
+      return pending ? `Agent - ${completed}/${count} done` : `Agent - ${count} ${plural(count, 'call')}`;
     case 'list':
     case 'ls':
       return copy('Listing', 'Listed', 'directory', 'directories');
@@ -103,7 +99,7 @@ function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
       if (l === 'run') return copy('Running', 'Ran', 'command');
       if (l === 'setup') return copy('Setting up', 'Set up', 'item');
       if (l === 'memory') return copy('Using', 'Used', 'memory', 'memories');
-      if (l === 'agent') return copy('Running', 'Ran', 'agent');
+      if (l === 'agent') return count === 1 ? 'Agent' : pending ? `Agent - ${completed}/${count} done` : `Agent - ${count} ${plural(count, 'call')}`;
       return copy('Calling', 'Called', 'tool');
   }
 }
@@ -111,10 +107,10 @@ function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
 function fitResultLine(line, columns) {
   const max = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
   const text = String(line ?? '');
-  return text.length > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text;
+  return text.length > max ? `${text.slice(0, Math.max(1, max - 3))}...` : text;
 }
 
-/** Trim text from the end (by display width) so it fits maxWidth, appending '…'. */
+/** Trim text from the end (by display width) so it fits maxWidth, appending '...'. */
 function truncateToWidth(text, maxWidth) {
   const str = String(text ?? '');
   if (maxWidth < 1) return '';
@@ -122,10 +118,10 @@ function truncateToWidth(text, maxWidth) {
   const chars = Array.from(str);
   let out = '';
   for (const ch of chars) {
-    if (stringWidth(out + ch + '…') > maxWidth) break;
+    if (stringWidth(out + ch + '...') > maxWidth) break;
     out += ch;
   }
-  return `${out}…`;
+  return `${out}...`;
 }
 
 function isAgentTool(normalizedName) {
@@ -144,6 +140,21 @@ function isOutputDetailTool(normalizedName, label) {
   ]).has(n) || l === 'read' || l === 'search' || l === 'web search' || l === 'run';
 }
 
+function progressDetail({ normalizedName, label, doneCount, groupCount, elapsed }) {
+  const n = String(normalizedName || '').toLowerCase();
+  const l = String(label || '').toLowerCase();
+  const suffix = elapsed ? ` - ${elapsed}` : '';
+  const progress = groupCount > 1 ? ` - ${doneCount}/${groupCount} done` : '';
+  if (isAgentTool(n)) return `running${progress}${suffix}`;
+  if (n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait' || l === 'run') return `running${progress}${suffix}`;
+  if (n === 'grep' || n === 'glob' || n === 'search' || l === 'search' || l === 'web search') return `searching${progress}${suffix}`;
+  if (n === 'read' || n === 'view_image' || n === 'read_mcp_resource' || l === 'read') return `reading${progress}${suffix}`;
+  if (n === 'write' || n === 'edit' || n === 'apply_patch' || l === 'update') return `editing${progress}${suffix}`;
+  if (n === 'list' || n === 'ls') return `listing${progress}${suffix}`;
+  if (l === 'setup') return `setting up${progress}${suffix}`;
+  return `working${progress}${suffix}`;
+}
+
 function genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError }) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
@@ -154,7 +165,7 @@ function genericCompletedDetail({ normalizedName, label, hasResult, firstResultL
   if (isOutputDetailTool(n, l)) {
     return hasResult ? firstResultLine : 'completed';
   }
-  if (l === 'update' || n === 'write' || n === 'edit' || n === 'apply_patch') return 'completed · no summary';
+  if (l === 'update' || n === 'write' || n === 'edit' || n === 'apply_patch') return 'completed - no summary';
   return 'completed';
 }
 
@@ -184,16 +195,20 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
 
   const toolArgPath = parsedArgs?.path ?? parsedArgs?.file_path ?? parsedArgs?.file ?? '';
   const imageDetail = normalizedName === 'view_image' && toolArgPath ? String(toolArgPath) : '';
-  const elapsed = !pending && startedAt && completedAt ? formatElapsed(completedAt - startedAt) : '';
+  const elapsedMs = startedAt ? ((pending ? Date.now() : completedAt) - startedAt) : 0;
+  const elapsed = elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
   const agentDetail = !pending && isAgentTool(normalizedName)
     ? `${isError ? 'failed' : 'completed'}${elapsed ? ` in ${elapsed}` : ''}`
+    : '';
+  const pendingDetail = pending
+    ? progressDetail({ normalizedName, label, doneCount, groupCount, elapsed })
     : '';
   const genericDetail = !pending && !agentDetail && !imageDetail && !resultSummary
     ? genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError })
     : '';
   const collapsedDetail = pending
-    ? (groupCount > 1 ? `pending · ${doneCount}/${groupCount} done` : 'pending')
-    : agentDetail || imageDetail || resultSummary || genericDetail;
+    ? pendingDetail
+    : resultSummary || agentDetail || imageDetail || genericDetail;
   const showRawResult = expanded && hasResult;
   const detailLines = showRawResult ? lines : [collapsedDetail];
   const detailIsSynthetic = pending || agentDetail || resultSummary || imageDetail || (genericDetail && genericDetail !== firstResultLine);
@@ -210,7 +225,7 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
   }, [pending]);
 
   const dotColor = pending ? theme.subtle : isError ? theme.error : theme.success;
-  const dotText = pending && !blinkOn ? ' ' : TURN_MARKER;
+  const dotText = pending && !blinkOn ? ' ' : isError ? 'x' : '*';
   const labelText = statusCopy(normalizedName, label, groupCount, doneCount, pending, isError);
   // Show the parenthesized arg summary for grouped cards too, matching single
   // calls so the header carries the same context.
@@ -225,7 +240,7 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
   // row, so avoid an extra standalone ellipsis between parenthesized segments.
   const gutter = 2;
   const hintLabel = showHeaderExpandHint ? `ctrl+o ${expanded ? 'collapse' : 'expand'}` : '';
-  const hintText = hintLabel ? ` · ${hintLabel}` : '';
+  const hintText = hintLabel ? ` - ${hintLabel}` : '';
   const avail = Math.max(
     1,
     (Number(columns) || 80) - 1 - gutter - stringWidth(hintText),
@@ -253,22 +268,24 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
           <Text color={dotColor}>{dotText}</Text>
         </Box>
         <Text wrap="truncate">
-          <Text bold color={theme.text}>{labelOut}</Text>
-          {summaryOut ? <Text color={theme.text}>{summaryOut}</Text> : null}
-          {showHeaderExpandHint ? <Text color={expandHintColor}>{hintText}</Text> : null}
+          <Text bold color={theme.text}>{terminalSafeText(labelOut)}</Text>
+          {summaryOut ? <Text color={theme.text}>{terminalSafeText(summaryOut)}</Text> : null}
+          {showHeaderExpandHint ? <Text color={expandHintColor}>{terminalSafeText(hintText)}</Text> : null}
         </Text>
       </Box>
 
       <Box flexDirection="row">
         <Box flexShrink={0}>
-          <Text color={theme.subtle}>{'  ⎿  '}</Text>
+          <Text color={theme.subtle}>{'  >  '}</Text>
         </Box>
         <Box flexDirection="column" flexShrink={1} flexGrow={1}>
           {detailLines.length === 0 ? (
             <Text color={theme.inactive}>(no output)</Text>
           ) : (
             detailLines.map((line, i) => (
-              <Text key={i} color={showRawResult ? resultColor : detailColor}>{fitResultLine(line || ' ', columns)}</Text>
+              <Text key={i} color={showRawResult ? resultColor : detailColor}>
+                {fitResultLine(showRawResult ? (line || ' ') : terminalSafeText(line || ' '), columns)}
+              </Text>
             ))
           )}
         </Box>

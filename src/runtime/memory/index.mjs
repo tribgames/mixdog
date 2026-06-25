@@ -1254,6 +1254,77 @@ function formatTs(tsMs) {
   return String(tsMs ?? '').slice(0, 16)
 }
 
+const CORE_RECALL_STOPWORDS = new Set([
+  'about', 'after', 'again', 'before', 'check', 'color', 'decision', 'decided',
+  'earlier', 'memory', 'previous', 'routing', 'stored', 'tell', 'what',
+])
+
+function coreRecallTerms(query) {
+  return [...new Set(String(query || '').toLowerCase().match(/[\p{L}\p{N}_-]{4,}/gu) || [])]
+    .filter((term) => !CORE_RECALL_STOPWORDS.has(term))
+    .slice(0, 8)
+}
+
+function normalizeRecallProjectScope(projectScope) {
+  const raw = String(projectScope || 'common').trim()
+  if (!raw || raw.toLowerCase() === 'common') return null
+  if (raw.toLowerCase() === 'all') return '*'
+  return raw
+}
+
+async function recallCoreRows(query, { projectScope, category, limit } = {}) {
+  const terms = coreRecallTerms(query)
+  if (terms.length === 0) return []
+
+  const params = []
+  const where = []
+  const scope = normalizeRecallProjectScope(projectScope)
+  if (scope === null) {
+    where.push('project_id IS NULL')
+  } else if (scope !== '*') {
+    params.push(scope)
+    where.push(`(project_id IS NULL OR project_id = $${params.length})`)
+  }
+  if (category != null) {
+    const cats = (Array.isArray(category) ? category : [category])
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean)
+    if (cats.length > 0) {
+      const placeholders = cats.map((cat) => {
+        params.push(cat)
+        return `$${params.length}`
+      })
+      where.push(`category IN (${placeholders.join(', ')})`)
+    }
+  }
+
+  const textExpr = `lower(coalesce(element, '') || ' ' || coalesce(summary, ''))`
+  const termClauses = terms.map((term) => {
+    params.push(`%${term}%`)
+    return `${textExpr} LIKE $${params.length}`
+  })
+  where.push(`(${termClauses.join(' OR ')})`)
+  const hitExpr = termClauses.map((clause) => `CASE WHEN ${clause} THEN 1 ELSE 0 END`).join(' + ')
+  const rowLimit = Math.max(1, Math.min(10, Number(limit) || 5))
+  params.push(rowLimit)
+
+  const rows = (await db.query(`
+    SELECT id, element, summary, category, project_id, created_at, updated_at,
+           (${hitExpr}) AS hit_count
+    FROM core_entries
+    WHERE ${where.join(' AND ')}
+    ORDER BY hit_count DESC, updated_at DESC, id ASC
+    LIMIT $${params.length}
+  `, params)).rows
+
+  return rows.map((row) => ({
+    ...row,
+    id: `core:${row.id}`,
+    ts: row.updated_at || row.created_at || Date.now(),
+    is_root: 1,
+  }))
+}
+
 async function handleSearch(args, signal) {
   // Cooperative abort check: throw early if the caller already aborted
   // (IPC cancel handler signals the AbortController before re-entry).
@@ -1513,6 +1584,10 @@ async function handleSearch(args, signal) {
         // out). Proper includeRaw paging fix deferred (needs fetching extra rows / paging redesign).
         for (const r of newRaw) filtered.push(r)
       }
+    }
+    const coreRows = await recallCoreRows(query, { projectScope, category, limit })
+    if (coreRows.length > 0) {
+      filtered = [...coreRows, ...filtered]
     }
     const sliced = filtered.slice(offset, offset + limit)
     const _t2 = Date.now()

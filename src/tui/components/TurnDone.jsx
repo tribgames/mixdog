@@ -12,17 +12,18 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.mjs';
+import { formatDuration } from '../time-format.mjs';
 
 export function TurnDone({ elapsedMs = 0, status = 'done', verb = 'Thought' }) {
-  const secs = Math.max(0, Math.round(elapsedMs / 1000));
+  const elapsed = formatDuration(elapsedMs);
   const cancelled = status === 'cancelled';
   const doneVerb = String(verb || 'Thought').trim() || 'Thought';
 
   return (
     <Box marginTop={1} flexDirection="row">
       <Text>
-        <Text color={theme.spinnerGlyph}>◈ </Text>
-        <Text color={theme.thinkingAccent}>{cancelled ? `Cancelled after ${secs}s` : `${doneVerb} for ${secs}s`}</Text>
+        <Text color={theme.spinnerGlyph}>* </Text>
+        <Text color={theme.thinkingAccent}>{cancelled ? `Cancelled after ${elapsed}` : `${doneVerb} for ${elapsed}`}</Text>
       </Text>
     </Box>
   );

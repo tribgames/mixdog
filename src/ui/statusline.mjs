@@ -188,8 +188,8 @@ export async function renderStatusline({ provider = '', model = '', effort = '',
 /** Minimal one-line footer used when the vendored renderer is unavailable. */
 function fallbackLine({ provider = '', model = '', fast = false, cwd = '', stats } = {}) {
   const s = stats || createSessionStats();
-  const sep = statusSubtle(' · ');
-  const id = statusAccent(`${provider}/${model}${fast === true ? ' · FAST' : ''}`);
+  const sep = statusSubtle(' | ');
+  const id = statusAccent(`${provider}/${model}${fast === true ? ' | FAST' : ''}`);
   const tokens = statusText(
     `${fmt(s.inputTokens)} in / ${fmt(s.outputTokens)} out` +
       (s.cachedTokens ? ` / ${fmt(s.cachedTokens)} read` : '') +
@@ -197,7 +197,7 @@ function fallbackLine({ provider = '', model = '', fast = false, cwd = '', stats
   );
   const cost = s.costUsd > 0 ? green('$' + s.costUsd.toFixed(4)) : statusSubtle('$0.0000');
   const dir = bold(basename(cwd || process.cwd()) || cwd);
-  return statusSubtle('▸ ') + [id, tokens, cost, dir].join(sep);
+  return statusSubtle('> ') + [id, tokens, cost, dir].join(sep);
 }
 
 function num(v) {

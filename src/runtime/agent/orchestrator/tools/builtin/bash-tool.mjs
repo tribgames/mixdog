@@ -142,7 +142,8 @@ function _prependDestructiveWarning(command, text) {
 }
 
 export async function executeBashTool(args, workDir, options = {}) {
-    const cwdResult = resolveOptionalCwd(args.cwd, workDir);
+    const requestedCwd = args.cwd ?? args.workdir;
+    const cwdResult = resolveOptionalCwd(requestedCwd, workDir);
     if (cwdResult.error) return cwdResult.error;
     const bashWorkDir = cwdResult.cwd;
     const _readStateScope = options?.readStateScope ?? options?.sessionId ?? null;
@@ -242,7 +243,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         : DEFAULT_BASH_TIMEOUT_MS;
     const rawTimeout = (typeof args.timeout === 'number' && args.timeout > 0)
         ? args.timeout : defaultTimeoutMs;
-    const timeoutMs = rawTimeout <= 600 ? rawTimeout * 1000 : rawTimeout;
+    const timeoutMs = rawTimeout;
     const timeout = Math.min(timeoutMs, wmicRewrite?.timeoutMs || MAX_BASH_TIMEOUT_MS);
     const mergeStderr = args.merge_stderr === true;
     const longForegroundHint = foregroundLongCommandHint(command, timeout, args);
@@ -378,6 +379,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             : (signal
                 ? `[signal: ${signal}]`
                 : (isReallyErrored ? `[exit code: ${exitCode}]` : ''));
+        const errorPrefix = isReallyErrored ? 'Error: ' : '';
         if (mergeStderr) {
             // Post-exit concatenation. True chunk-level interleaving would
             // require shell-level `2>&1` redirection (bash) or `*>&1`
@@ -387,7 +389,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             // cross-stream interleaving. Acceptable for most diagnostic
             // outputs; flag in shell-command if exact interleaving is required.
             const merged = stdout + stderr;
-            if (statusMarker) return _prependDestructiveWarning(command, smartMiddleTruncate(`${statusMarker}\n\n${merged || '(no output)'}`) + _driftNote);
+            if (statusMarker) return _prependDestructiveWarning(command, errorPrefix + smartMiddleTruncate(`${statusMarker}\n\n${merged || '(no output)'}`) + _driftNote);
             return _prependDestructiveWarning(command, smartMiddleTruncate(merged || '(no output)') + _driftNote);
         }
         const truncatedStdout = smartMiddleTruncate(stdout);
@@ -407,7 +409,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             wmicRewrite?.note || '',
         ].filter(Boolean).join('\n');
         const payload = `${body}${stderrBlock}${spillBlock}${_driftNote}`;
-        if (statusMarker) return _prependDestructiveWarning(command, `${warningBlock ? `${warningBlock}\n` : ''}${statusMarker}\n\n${payload}`);
+        if (statusMarker) return _prependDestructiveWarning(command, `${errorPrefix}${warningBlock ? `${warningBlock}\n` : ''}${statusMarker}\n\n${payload}`);
         return _prependDestructiveWarning(command, warningBlock ? `${warningBlock}\n${payload}` : payload);
     }
     finally {

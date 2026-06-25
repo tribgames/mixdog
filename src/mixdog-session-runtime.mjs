@@ -17,6 +17,7 @@ import {
   saveProviderApiKey,
   setLocalProvider,
 } from './standalone/provider-admin.mjs';
+import { createUsageDashboard } from './standalone/usage-dashboard.mjs';
 import {
   channelSetup,
   deleteChannel,
@@ -286,16 +287,16 @@ const CWD_TOOL = {
 
 const MEASURED_TOOL_USAGE = Object.freeze({
   read: 710,
-  grep: 349,
+  code_graph: 520,
+  grep: 500,
+  glob: 460,
+  list: 430,
+  apply_patch: 400,
+  explore: 360,
   bridge: 330,
-  edit: 322,
-  apply_patch: 300,
-  code_graph: 83,
   bash: 81,
-  glob: 55,
+  edit: 40,
   write: 38,
-  list: 37,
-  explore: 10,
   cwd: 2,
   diagnostics: 2,
   recall: 2,
@@ -306,27 +307,29 @@ const MEASURED_TOOL_ORDER = Object.freeze(Object.keys(MEASURED_TOOL_USAGE));
 const DEFERRED_ALWAYS_ACTIVE_TOOLS = new Set([
   'tool_search',
 ]);
-const DEFERRED_DEFAULT_FULL_LIMIT = 6;
+const DEFERRED_DEFAULT_FULL_LIMIT = 8;
 const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
   'read',
-  'grep',
-  'explore',
   'code_graph',
+  'grep',
+  'glob',
   'list',
+  'explore',
   'tool_search',
 ]);
 const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   'read',
+  'code_graph',
   'grep',
+  'glob',
+  'list',
   'explore',
-  'bridge',
   'apply_patch',
+  'bridge',
   'recall',
   'search',
   'web_fetch',
-  'code_graph',
   'cwd',
-  'list',
   'tool_search',
 ]);
 const READONLY_TOOL_NAMES = new Set([
@@ -361,129 +364,11 @@ const DEFERRED_SELECT_ALIASES = {
   bridge: ['bridge'],
   graph: ['code_graph'],
   code: ['code_graph'],
-  write: ['edit', 'write', 'apply_patch'],
-  edit: ['edit'],
+  write: ['apply_patch', 'write'],
+  edit: ['apply_patch'],
   shell: ['bash', 'job_wait'],
   bash: ['bash', 'job_wait'],
 };
-const COMPACT_TOOL_DESCRIPTIONS = Object.freeze({
-  read: 'Read files. Use path; offset/limit or line/context for windows; symbol for definitions.',
-  grep: 'Ripgrep content search. Use pattern plus optional path/glob; output_mode controls result shape.',
-  edit: 'Small exact replacements only. Prefer apply_patch for structural or multi-file edits.',
-  apply_patch: 'First-class file patch editor. Use v4a; read target first; base_path should be the repo root.',
-  code_graph: 'Code structure lookup: symbols, callers/callees, references, imports, dependents, impact.',
-  explore: 'Broad/open-ended codebase discovery when no concrete file/symbol anchor is known. Returns file:line leads only; no verdicts or implementation.',
-  bridge: 'Delegate actual scoped work to a workflow role: implementation, debugging, review, verification, or bounded investigation.',
-  bash: 'Run shell commands for git/build/test. Set shell explicitly on Windows.',
-  list: 'List/find directory entries. Use mode=list/tree/find; fuzzy ranks partial names.',
-  recall: 'Retrieve stored memory or prior work. Use query and optional filters.',
-  search: 'Web search for current/external info. Use web_fetch for page bodies.',
-  web_fetch: 'Fetch full body for a URL.',
-  tool_search: 'Search/select deferred tools for the next model iteration.',
-  cwd: 'Show or set the standalone session cwd.',
-  provider_status: 'Show provider auth/config status for Anthropic, OpenAI, Grok, Gemini, local endpoints. No secrets.',
-  channel_status: 'Show Discord/channel/schedule/webhook configuration and runtime status. No secrets.',
-});
-const COMPACT_PROPERTY_DESCRIPTIONS = Object.freeze({
-  read: {
-    path: 'File path.',
-    offset: 'Start line, 1-based.',
-    limit: 'Max lines.',
-    line: 'Line number.',
-    context: 'Lines around line.',
-    symbol: 'Definition name.',
-    mode: 'Whole-file glance.',
-    full: 'Return whole file when safe.',
-  },
-  grep: {
-    pattern: 'Regex string or array.',
-    path: 'File/dir scope.',
-    glob: 'Glob filter.',
-    output_mode: 'content, files_with_matches, or count.',
-    head_limit: 'Max result lines.',
-    offset: 'Skip result lines.',
-  },
-  edit: {
-    operation: 'replace, notebook, or rename.',
-    path: 'Target path.',
-    old_string: 'Exact current text.',
-    new_string: 'Replacement text.',
-    replace_all: 'Replace every match.',
-    edits: 'Batch replacements.',
-  },
-  apply_patch: {
-    patch: 'Patch text. Prefer v4a: *** Begin Patch / *** Update File / context lines starting space, - deletes, + adds / *** End Patch. Use unique context copied from current file.',
-    format: 'v4a or unified. Prefer v4a.',
-    base_path: 'Repo root.',
-    dry_run: 'Validate only.',
-    reject_partial: 'All-or-nothing by default.',
-    fuzzy: 'Allow minor context drift.',
-  },
-  code_graph: {
-    mode: 'overview/imports/dependents/related/impact/symbols/find_symbol/search/references/callers/callees/prewarm.',
-    file: 'Target file or scope.',
-    symbol: 'Identifier or keyword.',
-    symbols: 'Batch names.',
-    body: 'Include declaration body for find_symbol.',
-    limit: 'Max results.',
-    depth: 'Caller/callee depth.',
-    page: 'Paged graph results.',
-    cwd: 'Project root.',
-  },
-  explore: {
-    query: 'One-line location/inventory question, or array of independent questions.',
-    cwd: 'Repo root or search cwd.',
-    background: 'Accepted for compatibility; standalone returns sync.',
-  },
-  bridge: {
-    type: 'spawn/send/list/status/read/cleanup/cancel/close.',
-    mode: 'sync or async.',
-    wait: 'true waits; false returns a job.',
-    jobId: 'Async job id.',
-    role: 'Worker role.',
-    tag: 'Stable worker handle.',
-    sessionId: 'Raw session id.',
-    prompt: 'Worker task brief.',
-    message: 'Follow-up message.',
-    file: 'Prompt file.',
-    cwd: 'Worker cwd.',
-  },
-  list: {
-    path: 'Directory path.',
-    mode: 'list/tree/find.',
-    depth: 'Tree depth.',
-    hidden: 'Include hidden.',
-    sort: 'name/mtime/size.',
-    type: 'file/dir/any.',
-    head_limit: 'Max entries.',
-    offset: 'Skip entries.',
-    fuzzy: 'Partial-name ranking.',
-  },
-  recall: {
-    query: 'Search text.',
-    period: 'last/24h/3d/7d/30d/all/date/range.',
-    sort: 'date or importance.',
-    category: 'Memory category filter.',
-    projectScope: 'Project pool.',
-    cwd: 'Workspace path.',
-  },
-  search: {
-    query: 'Search text or array.',
-    limit: 'Max results.',
-  },
-  web_fetch: {
-    url: 'URL to fetch.',
-  },
-  tool_search: {
-    query: 'Search text.',
-    select: 'Tool names or aliases.',
-    limit: 'Max matches.',
-  },
-  cwd: {
-    action: 'get or set.',
-    path: 'Directory for set.',
-  },
-});
 
 function normalizeToolMode(mode) {
   const value = String(mode || '').trim().toLowerCase();
@@ -529,6 +414,20 @@ function coerceEffortFor(provider, model, effort) {
 
 function hasOwn(obj, key) {
   return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
+function modelSettingsFor(config, provider, model) {
+  const key = routeFastKey(provider, model);
+  const value = key ? config?.modelSettings?.[key] : null;
+  return value && typeof value === 'object' ? value : {};
+}
+
+function normalizeSavedEffort(value) {
+  try {
+    return normalizeEffortInput(value);
+  } catch {
+    return null;
+  }
 }
 
 function effortItemsFor(provider, model, activeEffort) {
@@ -619,12 +518,13 @@ function resolveRoute(config, { provider, model, effort, fast } = {}) {
     if (preset) {
       const p = clean(preset.provider) || DEFAULT_PROVIDER;
       const m = clean(preset.model) || DEFAULT_MODEL;
+      const saved = modelSettingsFor(config, p, m);
       return {
         provider: p,
         model: m,
         preset,
-        ...(hasExplicitEffort ? { effort: explicitEffort } : {}),
-        fast: hasExplicitFast ? explicitFast : (preset.fast === true || fastPreferenceFor(config, p, m)),
+        effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort ?? preset.effort),
+        fast: hasExplicitFast ? explicitFast : (hasOwn(saved, 'fast') ? saved.fast === true : (preset.fast === true || fastPreferenceFor(config, p, m))),
       };
     }
   }
@@ -635,24 +535,26 @@ function resolveRoute(config, { provider, model, effort, fast } = {}) {
     if (preset) {
       const p = clean(preset.provider) || DEFAULT_PROVIDER;
       const m = clean(preset.model) || DEFAULT_MODEL;
+      const saved = modelSettingsFor(config, p, m);
       return {
         provider: p,
         model: m,
         preset,
-        ...(hasExplicitEffort ? { effort: explicitEffort } : {}),
-        fast: hasExplicitFast ? explicitFast : (preset.fast === true || fastPreferenceFor(config, p, m)),
+        effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort ?? preset.effort),
+        fast: hasExplicitFast ? explicitFast : (hasOwn(saved, 'fast') ? saved.fast === true : (preset.fast === true || fastPreferenceFor(config, p, m))),
       };
     }
   }
 
   const p = explicitProvider || DEFAULT_PROVIDER;
   const m = explicitModel || DEFAULT_MODEL;
+  const saved = modelSettingsFor(config, p, m);
   return {
     provider: p,
     model: m,
     preset: null,
-    ...(hasExplicitEffort ? { effort: explicitEffort } : {}),
-    fast: hasExplicitFast ? explicitFast : fastPreferenceFor(config, p, m),
+    effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort),
+    fast: hasExplicitFast ? explicitFast : (hasOwn(saved, 'fast') ? saved.fast === true : fastPreferenceFor(config, p, m)),
   };
 }
 
@@ -700,13 +602,68 @@ function routeFastKey(provider, model) {
   return p && m ? `${p}/${m}` : '';
 }
 
-function fastCapableFor(provider, _model) {
-  return FAST_CAPABLE_PROVIDERS.has(clean(provider));
+function openAiModelMetaSupportsFast(model) {
+  const tiers = Array.isArray(model?.serviceTiers) ? model.serviceTiers : [];
+  const speedTiers = Array.isArray(model?.additionalSpeedTiers) ? model.additionalSpeedTiers : [];
+  if (tiers.length || speedTiers.length || model?.defaultServiceTier) {
+    return tiers.some((tier) => tier?.id === 'priority')
+      || speedTiers.includes('priority')
+      || model?.defaultServiceTier === 'priority';
+  }
+  const id = clean(model?.id || model).toLowerCase();
+  if (id.includes('mini') || id.includes('nano') || id.includes('codex')) return false;
+  return /^gpt-5(\.|-|$)/.test(id);
+}
+
+function openAiDirectModelSupportsFast(model) {
+  const id = clean(model?.id || model);
+  return /^gpt-5\.5(?:-\d{4}|$)/.test(id)
+    || /^gpt-5\.4(?:-\d{4}|$)/.test(id)
+    || /^gpt-5\.4-mini(?:-\d{4}|$)/.test(id);
+}
+
+function anthropicModelMetaSupportsFast(model) {
+  const id = clean(model?.id || model).toLowerCase();
+  return /^claude-(opus|sonnet)/.test(id);
+}
+
+function fastCapableFor(provider, model) {
+  const p = clean(provider);
+  if (!FAST_CAPABLE_PROVIDERS.has(p)) return false;
+  if (p === 'openai') return openAiDirectModelSupportsFast(model);
+  if (p === 'openai-oauth') return openAiModelMetaSupportsFast(model);
+  if (p === 'anthropic' || p === 'anthropic-oauth') return anthropicModelMetaSupportsFast(model);
+  return false;
 }
 
 function fastPreferenceFor(config, provider, model) {
   const key = routeFastKey(provider, model);
-  return key ? config?.fastModels?.[key] === true : false;
+  if (!key) return false;
+  const saved = config?.modelSettings?.[key];
+  if (saved && typeof saved === 'object' && hasOwn(saved, 'fast')) return saved.fast === true;
+  return config?.fastModels?.[key] === true;
+}
+
+function saveModelSettings(cfgMod, route, { fastCapable = true } = {}) {
+  const key = routeFastKey(route?.provider, route?.model);
+  if (!key) return cfgMod.loadConfig();
+  const nextConfig = cfgMod.loadConfig();
+  const modelSettings = { ...(nextConfig.modelSettings || {}) };
+  const nextSetting = { ...(modelSettings[key] || {}) };
+  if (hasOwn(route, 'effort') && route.effort) nextSetting.effort = route.effort;
+  else delete nextSetting.effort;
+  if (fastCapable) nextSetting.fast = route.fast === true;
+  else nextSetting.fast = false;
+  modelSettings[key] = nextSetting;
+
+  // Legacy compatibility: keep fastModels true entries for old readers, but
+  // let modelSettings.fast=false override them in new readers.
+  const fastModels = { ...(nextConfig.fastModels || {}) };
+  if (nextSetting.fast === true) fastModels[key] = true;
+  else delete fastModels[key];
+
+  cfgMod.saveConfig({ ...nextConfig, modelSettings, fastModels });
+  return cfgMod.loadConfig();
 }
 
 function routeForStatusline(route) {
@@ -836,38 +793,9 @@ function sortedCatalogByMeasuredUsage(catalog) {
     .map((entry) => entry.tool);
 }
 
-function compactSchemaDescriptions(toolName, node) {
-  if (!node || typeof node !== 'object') return node;
-  if (Array.isArray(node)) return node.map((item) => compactSchemaDescriptions(toolName, item));
-  const out = {};
-  for (const [key, value] of Object.entries(node)) {
-    if (key === 'description') continue;
-    if (key === 'properties' && value && typeof value === 'object' && !Array.isArray(value)) {
-      out.properties = {};
-      for (const [propName, propSchema] of Object.entries(value)) {
-        const nextProp = compactSchemaDescriptions(toolName, propSchema);
-        const desc = COMPACT_PROPERTY_DESCRIPTIONS[toolName]?.[propName];
-        if (desc) nextProp.description = desc;
-        out.properties[propName] = nextProp;
-      }
-      continue;
-    }
-    out[key] = compactSchemaDescriptions(toolName, value);
-  }
-  return out;
-}
-
-function compactToolForSurface(tool) {
+function activeToolForSurface(tool) {
   if (!tool || typeof tool !== 'object') return tool;
-  const name = clean(tool.name);
-  const next = {
-    ...tool,
-    description: COMPACT_TOOL_DESCRIPTIONS[name] || clean(tool.description),
-  };
-  if (tool.inputSchema && typeof tool.inputSchema === 'object') {
-    next.inputSchema = compactSchemaDescriptions(name, tool.inputSchema);
-  }
-  return next;
+  return JSON.parse(JSON.stringify(tool));
 }
 
 function sortedNamesByMeasuredUsage(names) {
@@ -882,7 +810,7 @@ function sortedNamesByMeasuredUsage(names) {
   });
 }
 
-function defaultDeferredToolNames(catalog, mode) {
+export function defaultDeferredToolNames(catalog, mode) {
   if (mode === 'lead') {
     const available = new Set((catalog || []).map((tool) => clean(tool?.name)).filter(Boolean));
     return new Set(DEFERRED_DEFAULT_LEAD_TOOLS.filter((name) => available.has(name)));
@@ -903,6 +831,11 @@ function defaultDeferredToolNames(catalog, mode) {
   return names;
 }
 
+export function compactToolSearchDescription(value, max = 220) {
+  const text = clean(value).replace(/\s+/g, ' ');
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 function toolRow(tool, activeNames = new Set()) {
   const name = clean(tool?.name);
   return {
@@ -910,7 +843,7 @@ function toolRow(tool, activeNames = new Set()) {
     kind: toolKind(tool),
     usage: measuredToolUsage(name),
     active: activeNames.has(name),
-    description: clean(tool?.description),
+    description: compactToolSearchDescription(tool?.description),
   };
 }
 
@@ -962,7 +895,7 @@ function applyDeferredToolSurface(session, mode, extraTools = []) {
   for (const tool of [...session.tools, ...(extraTools || [])]) {
     const name = clean(tool?.name);
     if (!name || byName.has(name)) continue;
-    byName.set(name, compactToolForSurface(tool));
+    byName.set(name, activeToolForSurface(tool));
   }
   const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
   const defaultNames = defaultDeferredToolNames(catalog, mode);
@@ -1026,9 +959,9 @@ function renderToolSearch(args = {}, session, mode = 'full') {
     : rows;
   return JSON.stringify({
     selected: selection,
+    totalMatches: matches.length,
     matches: matches.slice(0, limit),
     activeTools: sortedNamesByMeasuredUsage(nextActiveNames),
-    measuredUsage: MEASURED_TOOL_USAGE,
     note: 'standalone: tool_search adds deferred tools to the current session schema for the next model iteration.',
   }, null, 2);
 }
@@ -1408,6 +1341,18 @@ export async function createMixdogSessionRuntime({
     cwd,
     defaultMode: persistedBridgeMode ?? 'async',
   });
+  const bridgeStatusState = () => {
+    try {
+      const status = bridge.getStatus?.() || {};
+      return {
+        bridgeMode: bridge.getDefaultMode?.() || status.bridgeMode || 'async',
+        bridgeWorkers: Array.isArray(status.workers) ? status.workers : [],
+        bridgeJobs: Array.isArray(status.jobs) ? status.jobs : [],
+      };
+    } catch {
+      return { bridgeMode: bridge.getDefaultMode?.() || 'async', bridgeWorkers: [], bridgeJobs: [] };
+    }
+  };
   const channels = createStandaloneChannelWorker({
     entry: join(STANDALONE_ROOT, CHANNEL_WORKER_ENTRY.replace(/^\.\//, '')),
     rootDir: STANDALONE_ROOT,
@@ -1464,7 +1409,7 @@ export async function createMixdogSessionRuntime({
         }
         return JSON.stringify({ cwd: currentCwd, sessionId: session?.id || null }, null, 2);
       }
-      if (name === 'bridge') return await bridge.execute(args, { callerCwd });
+      if (name === 'bridge') return await bridge.execute(args, { callerCwd, invocationSource: 'model-tool' });
       if (name === 'provider_status') return renderProviderStatus(cfgMod.loadConfig());
       if (name === 'channel_status') return renderChannelStatus();
       if (channels.isChannelTool(name)) return await channels.execute(name, args || {});
@@ -1545,8 +1490,10 @@ export async function createMixdogSessionRuntime({
               supportsPromptCaching: m.supportsPromptCaching === true,
               reasoningLevels: Array.isArray(m.reasoningLevels) ? m.reasoningLevels : [],
               effortOptions: effortItemsFor(name, m, null),
-              fastCapable: fastCapableFor(name, m.id),
+              fastCapable: fastCapableFor(name, m),
               fastPreferred: fastPreferenceFor(config, name, m.id),
+              savedEffort: modelSettingsFor(config, name, m.id).effort || null,
+              savedFast: modelSettingsFor(config, name, m.id).fast === true,
             });
           }
         }
@@ -1579,7 +1526,14 @@ export async function createMixdogSessionRuntime({
     const modelMeta = await lookupModelMeta(route.provider, route.model);
     const requested = hasOwn(route, 'effort') ? route.effort : (route.preset?.effort || null);
     const effectiveEffort = coerceEffortFor(route.provider, modelMeta, requested);
-    route = { ...route, effectiveEffort, effortOptions: effortItemsFor(route.provider, modelMeta, effectiveEffort) };
+    const fastCapable = fastCapableFor(route.provider, modelMeta);
+    route = {
+      ...route,
+      fast: fastCapable ? route.fast === true : false,
+      fastCapable,
+      effectiveEffort,
+      effortOptions: effortItemsFor(route.provider, modelMeta, effectiveEffort),
+    };
     return route;
   }
 
@@ -1693,7 +1647,7 @@ export async function createMixdogSessionRuntime({
       return route.fast === true;
     },
     get fastCapable() {
-      return fastCapableFor(route.provider, route.model);
+      return route.fastCapable === true;
     },
     get effortOptions() {
       return route.effortOptions || [{ value: 'auto', label: 'auto', description: 'provider/model default' }];
@@ -1796,6 +1750,19 @@ export async function createMixdogSessionRuntime({
     },
     async getProviderSetup() {
       return await providerSetup(cfgMod.loadConfig());
+    },
+    async getUsageDashboard(options = {}) {
+      const nextConfig = cfgMod.loadConfig();
+      return await createUsageDashboard(nextConfig, {
+        ...(options || {}),
+        setup: await providerSetup(nextConfig),
+        getProvider: (providerId) => reg.getProvider(providerId),
+        log: (message) => {
+          if (process.env.MIXDOG_USAGE_TRACE) {
+            try { process.stderr.write(`[usage] ${message}\n`); } catch {}
+          }
+        },
+      });
     },
     getOnboardingStatus() {
       const nextConfig = cfgMod.loadConfig();
@@ -2047,8 +2014,11 @@ export async function createMixdogSessionRuntime({
       try { sharedCfgMod.updateSection('agent', (s) => ({ ...(s || {}), bridgeMode: applied })); } catch {}
       return applied;
     },
+    bridgeStatus() {
+      return bridgeStatusState();
+    },
     bridgeControl(args = {}) {
-      return bridge.execute(args, { callerCwd: currentCwd });
+      return bridge.execute(args, { callerCwd: currentCwd, invocationSource: 'user-command' });
     },
     toolsStatus(query = '') {
       const catalog = Array.isArray(session?.deferredToolCatalog)
@@ -2252,24 +2222,18 @@ export async function createMixdogSessionRuntime({
     },
     async setRoute(next) {
       const requested = { ...(next || {}) };
-      if (requested.effort === undefined && hasOwn(route, 'effort')) {
+      if (requested.effort === undefined && !requested.provider && !requested.model && hasOwn(route, 'effort')) {
         requested.effort = route.effort;
       }
       if (!requested.provider && requested.model && !findPreset(config, requested.model)) {
         requested.provider = route.provider;
       }
-      const selectedRoute = resolveRoute(config, requested);
-      if (requested.persistFast === true || hasOwn(requested, 'fast')) {
-        const key = routeFastKey(selectedRoute.provider, selectedRoute.model);
-        if (key) {
-          const nextConfig = cfgMod.loadConfig();
-          const fastModels = { ...(nextConfig.fastModels || {}) };
-          if (selectedRoute.fast === true) fastModels[key] = true;
-          else delete fastModels[key];
-          cfgMod.saveConfig({ ...nextConfig, fastModels });
-          config = cfgMod.loadConfig();
-        }
-      }
+      let selectedRoute = resolveRoute(config, requested);
+      await reg.initProviders(ensureProviderEnabled(config, selectedRoute.provider));
+      const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
+      const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta);
+      selectedRoute = { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false };
+      config = saveModelSettings(cfgMod, selectedRoute, { fastCapable });
       const leadRoute = persistLeadRoute(selectedRoute);
       route = resolveRoute(config, leadRoute
         ? { model: workflowPresetId('lead') }
@@ -2281,19 +2245,13 @@ export async function createMixdogSessionRuntime({
 
     async setFast(value) {
       const enabled = value === true;
-      if (enabled && !fastCapableFor(route.provider, route.model)) {
+      const modelMeta = await lookupModelMeta(route.provider, route.model);
+      const fastCapable = fastCapableFor(route.provider, modelMeta);
+      if (enabled && !fastCapable) {
         throw new Error(`fast mode is not available for ${route.provider}/${route.model}`);
       }
-      const key = routeFastKey(route.provider, route.model);
-      if (key) {
-        const nextConfig = cfgMod.loadConfig();
-        const fastModels = { ...(nextConfig.fastModels || {}) };
-        if (enabled) fastModels[key] = true;
-        else delete fastModels[key];
-        cfgMod.saveConfig({ ...nextConfig, fastModels });
-        config = cfgMod.loadConfig();
-      }
-      route = resolveRoute(config, { provider: route.provider, model: route.model, effort: route.effort, fast: enabled });
+      route = resolveRoute(config, { provider: route.provider, model: route.model, effort: route.effort, fast: fastCapable ? enabled : false });
+      config = saveModelSettings(cfgMod, route, { fastCapable });
       const leadRoute = persistLeadRoute(route);
       if (leadRoute) route = resolveRoute(config, { model: workflowPresetId('lead') });
       if (session) {
@@ -2310,6 +2268,7 @@ export async function createMixdogSessionRuntime({
     async setEffort(value) {
       const normalized = normalizeEffortInput(value);
       route = { ...route, effort: normalized };
+      config = saveModelSettings(cfgMod, route, { fastCapable: route.fastCapable !== false });
       const leadRoute = persistLeadRoute(route);
       if (leadRoute) {
         route = resolveRoute(config, { model: workflowPresetId('lead') });
@@ -2331,6 +2290,9 @@ export async function createMixdogSessionRuntime({
       try { bridge.closeAll(reason); } catch {}
       let mcpStop = null;
       try { mcpStop = mcpClient.disconnectAll?.(); } catch {}
+      const openaiWsStop = import('./runtime/agent/orchestrator/providers/openai-oauth-ws.mjs')
+        .then((mod) => mod?.drainOpenaiWsPool?.(reason))
+        .catch(() => {});
       let ok = false;
       if (session?.id) {
         statusRoutes?.clearGatewaySessionRoute?.(session.id);
@@ -2340,6 +2302,7 @@ export async function createMixdogSessionRuntime({
       await Promise.allSettled([
         withTeardownDeadline(channelStop, 5500, false),
         withTeardownDeadline(mcpStop, 1500, false),
+        withTeardownDeadline(openaiWsStop, 1500, false),
         withTeardownDeadline(closePatchRuntimeIfLoaded(), 1500, false),
       ]);
       return ok;

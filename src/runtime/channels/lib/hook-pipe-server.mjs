@@ -18,10 +18,11 @@
 import { createServer, createConnection } from 'node:net'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync, readFileSync } from 'node:fs'
 import { join, resolve as pathResolve } from 'node:path'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { randomBytes } from 'node:crypto'
 import { request as httpsRequest } from 'node:https'
 import { createRequire } from 'node:module'
+import { resolvePluginData } from '../../shared/plugin-paths.mjs'
 
 const moduleRequire = createRequire(import.meta.url)
 const {
@@ -102,8 +103,7 @@ function traceSessionStart(message) {
   const line = `[${new Date().toISOString()}] [hook-pipe][session-start] ${message}\n`
   try { process.stderr.write(line) } catch {}
   try {
-    const dataDir = process.env.CLAUDE_PLUGIN_DATA ||
-      join(homedir(), '.claude', 'plugins', 'data', 'mixdog-trib-plugin')
+    const dataDir = process.env.CLAUDE_PLUGIN_DATA || resolvePluginData()
     mkdirSync(dataDir, { recursive: true })
     if (!_hookPipeLogsPruned) {
       _hookPipeLogsPruned = true

@@ -8,9 +8,9 @@ import { classifyResultKind } from '../result-classification.mjs';
 import { _normalizeAbs, _normalizeCacheKey, _statTuple, _statEqual } from './util.mjs';
 import { readFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
+import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 
 // I: cap is configurable via MIXDOG_PREFETCH_CACHE_MAX env var; default 200.
 const _envCap = Number(process.env.MIXDOG_PREFETCH_CACHE_MAX);
@@ -23,7 +23,7 @@ const _prefetchCache = new Map();
 const _pendingDiskWrites = new Map();
 let _diskWriteTimer = null;
 
-const DISK_CACHE_DIR = join(homedir(), '.claude', 'plugins', 'data', 'mixdog-trib-plugin', 'cache', 'prefetch');
+const DISK_CACHE_DIR = join(resolvePluginData(), 'cache', 'prefetch');
 function _diskPath(absPath) {
     const hash = createHash('sha256').update(absPath).digest('hex').slice(0, 16);
     return join(DISK_CACHE_DIR, `${hash}.json`);

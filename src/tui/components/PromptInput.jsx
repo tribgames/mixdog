@@ -20,6 +20,7 @@ import { spawnSync } from 'node:child_process';
 import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
+import { terminalSafeText } from '../safe-text.mjs';
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
@@ -85,7 +86,7 @@ function caretPosition(text, offset, width) {
 
 function hintStyle(tone) {
   void tone;
-  return { accentColor: theme.inactive, textColor: theme.inactive, prefix: '◇' };
+  return { accentColor: theme.inactive, textColor: theme.inactive, prefix: '*' };
 }
 
 function insertText(draft, input) {
@@ -156,6 +157,7 @@ export function PromptInput({
     return { value, cursor: value.length };
   });
   const draftRef = useRef(draft);
+  const lastReportedValueRef = useRef(draft.value);
   if (valueRef) valueRef.current = draftRef.current.value;
   const { isRawModeSupported } = useStdin();
   // The text box's ink DOM node. We mark it as the cursor anchor (forked ink
@@ -188,9 +190,12 @@ export function PromptInput({
   const commitDraft = (next) => {
     draftRef.current = next;
     setDraft(next);
-    onDraftChange?.(next.value);
+    if (next.value !== lastReportedValueRef.current) {
+      lastReportedValueRef.current = next.value;
+      onDraftChange?.(next.value);
+    }
     if (valueRef) valueRef.current = next.value;
-    flushImmediate();
+    queueMicrotask(flushImmediate);
   };
 
   const updateDraft = (fn) => {
@@ -460,7 +465,7 @@ export function PromptInput({
         <Box marginLeft={-1}>
           <Text>
             <Text color={hintMeta.accentColor}>{hintMeta.prefix}</Text>
-            <Text color={hintMeta.textColor}> {hint}</Text>
+            <Text color={hintMeta.textColor}> {terminalSafeText(hint)}</Text>
           </Text>
         </Box>
       ) : null}

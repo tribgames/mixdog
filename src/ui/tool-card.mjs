@@ -39,7 +39,7 @@ export function renderToolCard(call) {
   if (!args || typeof args !== 'object') args = {};
 
   const summary = safeSummary(name, args);
-  const bullet = cyan('▸');
+  const bullet = cyan('>');
   const label = bold(name);
   if (!summary) return `  ${bullet} ${label}`;
   return `  ${bullet} ${label} ${gray(truncate(summary, MAX_SUMMARY))}`;
@@ -52,7 +52,7 @@ export function renderToolCards(calls) {
 
 /** A small "done" marker line for a completed tool (optional nicety). */
 export function renderToolResult(name, { ok = true, note = '' } = {}) {
-  const mark = ok ? green('✓') : yellow('✗');
+  const mark = ok ? green('ok') : yellow('x');
   const tail = note ? ' ' + dim(truncate(String(note), 48)) : '';
   return `  ${mark} ${dim(String(name ?? 'tool'))}${tail}`;
 }
@@ -97,5 +97,5 @@ function collapse(s) {
 function truncate(s, max) {
   const str = String(s);
   if (str.length <= max) return str;
-  return str.slice(0, Math.max(0, max - 1)) + '…';
+  return max <= 3 ? '.'.repeat(Math.max(0, max)) : str.slice(0, Math.max(0, max - 3)) + '...';
 }

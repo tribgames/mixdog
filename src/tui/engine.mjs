@@ -282,6 +282,14 @@ export async function createEngineSession({
   bootProfile('engine:create:runtime-ready', { ms: (performance.now() - startedAt).toFixed(1) });
   const cwd = runtime.cwd || process.cwd();
   const autoClearState = () => runtime.getAutoClear?.() || runtime.autoClear || { enabled: true, idleMs: 60 * 60 * 1000 };
+  const bridgeStatusState = () => {
+    const status = runtime.bridgeStatus?.() || {};
+    return {
+      bridgeMode: runtime.bridgeMode || status.bridgeMode || 'async',
+      bridgeWorkers: Array.isArray(status.bridgeWorkers) ? status.bridgeWorkers : [],
+      bridgeJobs: Array.isArray(status.bridgeJobs) ? status.bridgeJobs : [],
+    };
+  };
   const routeState = () => ({
     sessionId: runtime.id,
     model: runtime.model,
@@ -308,8 +316,8 @@ export async function createEngineSession({
     lastTurn: null,
     stats: createSessionStats(),
     ...routeState(),
+    ...bridgeStatusState(),
     toolMode: runtime.toolMode,
-    bridgeMode: runtime.bridgeMode,
     cwd,
   };
   const syncContextStats = ({ allowEstimated = false } = {}) => {
@@ -353,8 +361,23 @@ export async function createEngineSession({
     pushItem({ kind: 'notice', id, text: value, tone });
     return id;
   };
-  const patchItem = (id, patch) =>
-    set({ items: state.items.map((it) => (it.id === id ? { ...it, ...patch } : it)) });
+  const patchItem = (id, patch) => {
+    const index = state.items.findIndex((it) => it.id === id);
+    if (index < 0) return false;
+    const current = state.items[index];
+    let changed = false;
+    for (const [key, value] of Object.entries(patch || {})) {
+      if (!Object.is(current[key], value)) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) return false;
+    const items = state.items.slice();
+    items[index] = { ...current, ...patch };
+    set({ items });
+    return true;
+  };
   const bridgeJobMonitors = new Map();
   const injectedBridgeJobs = new Set();
   let disposed = false;
@@ -404,6 +427,7 @@ export async function createEngineSession({
         const parsed = parseBridgeJob(text);
         const nextText = text || '(empty bridge result)';
         patchItem(monitor.itemId, { result: nextText, text: nextText, isError: /^error:/i.test(text) });
+        set(bridgeStatusState());
         if (!parsed || parsed.status !== 'running') {
           clearBridgeJobMonitor(jobId);
           const report = extractBridgeJobReport(text);
@@ -416,6 +440,7 @@ export async function createEngineSession({
       } catch (error) {
         const errorText = `[error] ${error?.message || error}`;
         patchItem(monitor.itemId, { result: errorText, text: errorText, isError: true });
+        set(bridgeStatusState());
         clearBridgeJobMonitor(jobId);
         return;
       }
@@ -431,7 +456,8 @@ export async function createEngineSession({
     const completed = Math.min(group.count, group.completed);
     if (group.count <= 1) return group.results.at(-1)?.text ?? '';
     if (group.errors > 0) {
-      return `${completed}/${group.count} completed · ${group.errors} error${group.errors === 1 ? '' : 's'}`;
+      const succeeded = Math.max(0, completed - group.errors);
+      return `${succeeded} succeeded - ${group.errors} failed`;
     }
     return `${completed}/${group.count} completed`;
   }
@@ -575,6 +601,63 @@ export async function createEngineSession({
       return now;
     };
 
+    // --- Streaming-delta batcher ---
+    // onTextDelta and onReasoningDelta fire on every tiny chunk (often <10 chars).
+    // Each call previously called set() → emit() → full React reconcile. We
+    // batch accumulated text and flush at most once per STREAM_BATCH_INTERVAL_MS
+    // (≈16ms / 60fps cap). A forced flush happens before any tool call,
+    // finalization, or error so those code paths see the correct text state.
+    const STREAM_BATCH_INTERVAL_MS = 16;
+    let _batchTimer = null;
+    let _pendingTextFlush = false;   // true when a text/spinner update is queued
+    let _pendingThinkFlush = false;  // true when a thinking update is queued
+    let _pendingThinkingLastEndedAt = 0;
+
+    const flushStreamBatch = () => {
+      if (_batchTimer !== null) {
+        clearTimeout(_batchTimer);
+        _batchTimer = null;
+      }
+      if (_pendingTextFlush) {
+        _pendingTextFlush = false;
+        const id = ensureAssistant();
+        // Emit the accumulated assistant text and spinner update together so a
+        // streaming batch costs one set() → one emit() → one React reconcile.
+        const patch = {};
+        const index = state.items.findIndex((it) => it.id === id);
+        if (index >= 0) {
+          const current = state.items[index];
+          if (!Object.is(current.text, currentAssistantText) || current.streaming !== true) {
+            const items = state.items.slice();
+            items[index] = { ...current, text: currentAssistantText, streaming: true };
+            patch.items = items;
+          }
+        }
+        const estimatedTokens = Math.round(assistantText.length / 4);
+        if (state.spinner) {
+          patch.spinner = { ...state.spinner, liveTokens: estimatedTokens, thinking: false, thinkingLastEndedAt: _pendingThinkingLastEndedAt || state.spinner.thinkingLastEndedAt, mode: 'responding' };
+        }
+        if (Object.keys(patch).length > 0) set(patch);
+        _pendingThinkingLastEndedAt = 0;
+      }
+      if (_pendingThinkFlush) {
+        _pendingThinkFlush = false;
+        const estimatedTokens = Math.round((assistantText.length + thinkingText.length) / 4);
+        const thinkingElapsedMs = accumulatedThinkingMs + (thinkingSegmentStartedAt ? Math.max(0, Date.now() - thinkingSegmentStartedAt) : 0);
+        const patch = { thinking: thinkingText };
+        if (state.spinner) {
+          patch.spinner = { ...state.spinner, liveTokens: estimatedTokens, thinking: true, thinkingStartedAt, thinkingSegmentStartedAt, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingElapsedMs, thinkingLastEndedAt: 0, mode: 'thinking' };
+        }
+        set(patch);
+      }
+    };
+
+    const scheduleStreamFlush = () => {
+      if (_batchTimer !== null) return; // already scheduled; do not re-arm
+      _batchTimer = setTimeout(flushStreamBatch, STREAM_BATCH_INTERVAL_MS);
+      if (_batchTimer?.unref) _batchTimer.unref(); // don't prevent process exit
+    };
+
     try {
       const { result, session } = await runtime.ask(userText, {
         drainSteering: () => drainPendingSteering(),
@@ -585,8 +668,10 @@ export async function createEngineSession({
         onToolCall: async (_iter, calls) => {
           if (thinkingText && state.thinking) {
             const thinkingLastEndedAt = closeThinkingSegment();
+            flushStreamBatch(); // flush any buffered text/thinking before the tool card appears
             set({ thinking: null, spinner: state.spinner ? { ...state.spinner, thinking: false, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingLastEndedAt, mode: 'tool-use' } : state.spinner });
           } else if (state.spinner) {
+            flushStreamBatch(); // flush any buffered text before the tool card appears
             set({ spinner: { ...state.spinner, mode: 'tool-use' } });
           }
           const batchCalls = (calls || []).filter(Boolean);
@@ -655,30 +740,55 @@ export async function createEngineSession({
         onToolResult: (message) => {
           flushToolResults([message], toolCards, cardByCallId, toolGroups, resultsDone);
         },
+        onStageChange: (stage) => {
+          if (!state.spinner) return;
+          const value = String(stage || '');
+          const mode = value === 'requesting'
+            ? 'requesting'
+            : value === 'streaming'
+              ? (state.spinner.thinking ? 'thinking' : 'responding')
+              : null;
+          if (!mode || state.spinner.mode === mode) return;
+          set({ spinner: { ...state.spinner, mode } });
+        },
+        onStreamDelta: () => {
+          if (!state.spinner) return;
+          if (assistantText.trim() || state.spinner.mode === 'tool-use' || state.spinner.mode === 'tool-input') return;
+          const now = startThinkingSegment();
+          const thinkingElapsedMs = accumulatedThinkingMs + Math.max(0, now - thinkingSegmentStartedAt);
+          set({
+            spinner: {
+              ...state.spinner,
+              thinking: true,
+              thinkingStartedAt,
+              thinkingSegmentStartedAt,
+              thinkingAccumulatedMs: accumulatedThinkingMs,
+              thinkingElapsedMs,
+              thinkingLastEndedAt: 0,
+              mode: 'thinking',
+            },
+          });
+        },
         onTextDelta: (chunk) => {
           const textChunk = String(chunk ?? '');
           if (!textChunk) return;
           const thinkingLastEndedAt = closeThinkingSegment();
-          if (state.thinking) set({ thinking: null });
+          if (state.thinking) set({ thinking: null }); // collapse thinking panel immediately, no batch delay
           if (textChunk.trim()) clearToolGroupContinuation();
           assistantText += textChunk;
-          const id = ensureAssistant();
+          ensureAssistant(); // create the assistant item in state immediately so the slot exists
           currentAssistantText += textChunk;
-          patchItem(id, { text: currentAssistantText, streaming: true });
-          const estimatedTokens = Math.round(assistantText.length / 4);
-          if (state.spinner) {
-            set({ spinner: { ...state.spinner, liveTokens: estimatedTokens, thinking: false, thinkingLastEndedAt: thinkingLastEndedAt || state.spinner.thinkingLastEndedAt, mode: 'responding' } });
-          }
+          // Accumulate text; fire at most one render per STREAM_BATCH_INTERVAL_MS.
+          _pendingTextFlush = true;
+          if (thinkingLastEndedAt) _pendingThinkingLastEndedAt = thinkingLastEndedAt;
+          scheduleStreamFlush();
         },
         onReasoningDelta: (chunk) => {
           startThinkingSegment();
           thinkingText += String(chunk ?? '');
-          const estimatedTokens = Math.round((assistantText.length + thinkingText.length) / 4);
-          const thinkingElapsedMs = accumulatedThinkingMs + (thinkingSegmentStartedAt ? Math.max(0, Date.now() - thinkingSegmentStartedAt) : 0);
-          if (state.spinner) {
-            set({ spinner: { ...state.spinner, liveTokens: estimatedTokens, thinking: true, thinkingStartedAt, thinkingSegmentStartedAt, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingElapsedMs, thinkingLastEndedAt: 0, mode: 'thinking' } });
-          }
-          set({ thinking: thinkingText });
+          // Accumulate reasoning text; fire at most one render per STREAM_BATCH_INTERVAL_MS.
+          _pendingThinkFlush = true;
+          scheduleStreamFlush();
         },
         onUsageDelta: (delta) => {
           applyUsageDelta(state.stats, delta);
@@ -694,6 +804,7 @@ export async function createEngineSession({
       });
 
       flushToolResults(session?.messages || [], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
+      flushStreamBatch(); // force-flush any batched streaming text before finalization writes
       syncContextStats();
 
       const finalText = (result?.content != null && String(result.content)) || assistantText;
@@ -707,6 +818,7 @@ export async function createEngineSession({
       }
       state.stats.turns = (state.stats.turns || 0) + 1;
     } catch (error) {
+      flushStreamBatch(); // ensure any batched text lands before the error notice
       if (error?.name === 'SessionClosedError') {
         cancelled = true;
         if (assistantText.trim() && currentAssistantId) {
@@ -734,7 +846,7 @@ export async function createEngineSession({
         stats: { ...state.stats },
         ...routeState(),
         toolMode: runtime.toolMode,
-        bridgeMode: runtime.bridgeMode,
+        ...bridgeStatusState(),
       });
     }
   }
@@ -908,13 +1020,13 @@ export async function createEngineSession({
     },
     toggleBridgeMode: () => {
       const mode = runtime.toggleBridgeMode();
-      set({ bridgeMode: runtime.bridgeMode });
-      pushNotice(`bridge mode → ${mode}`, 'info');
+      set(bridgeStatusState());
+      pushNotice(`bridge mode -> ${mode}`, 'info');
       return mode;
     },
     setBridgeMode: (mode) => {
       const next = runtime.setBridgeMode(mode);
-      set({ bridgeMode: runtime.bridgeMode });
+      set(bridgeStatusState());
       return next;
     },
     getAutoClear: () => autoClearState(),
@@ -932,7 +1044,7 @@ export async function createEngineSession({
         const itemId = nextId();
         pushItem({ kind: 'notice', id: itemId, text, tone: 'info' });
         updateBridgeJobCard(itemId, text, /^error:/i.test(text));
-        set({ bridgeMode: runtime.bridgeMode });
+        set(bridgeStatusState());
         return result;
       } finally {
         set({ commandBusy: false });
@@ -948,7 +1060,7 @@ export async function createEngineSession({
       const blocked = result.blocked?.length ? `blocked ${result.blocked.map((row) => row.name).join(', ')}` : '';
       const missing = result.missing?.length ? `missing ${result.missing.join(', ')}` : '';
       pushNotice(
-        [added, already, blocked, missing].filter(Boolean).join(' · ') || 'no tool changes',
+        [added, already, blocked, missing].filter(Boolean).join(' - ') || 'no tool changes',
         result.blocked?.length || result.missing?.length ? 'warn' : 'info',
       );
       return result;
@@ -956,7 +1068,7 @@ export async function createEngineSession({
     setCwd: (path) => {
       const next = runtime.setCwd(path);
       set({ cwd: next });
-      pushNotice(`cwd → ${next}`, 'info');
+      pushNotice(`cwd -> ${next}`, 'info');
       return next;
     },
     mcpStatus: () => {
@@ -970,7 +1082,7 @@ export async function createEngineSession({
         resetStats();
         set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(
-          `mcp reconnect: ${status?.connectedCount || 0}/${status?.configuredCount || 0} connected${status?.failedCount ? ` · ${status.failedCount} failed` : ''}`,
+          `mcp reconnect: ${status?.connectedCount || 0}/${status?.configuredCount || 0} connected${status?.failedCount ? ` - ${status.failedCount} failed` : ''}`,
           status?.failedCount ? 'warn' : 'info',
         );
         return status;
@@ -1187,6 +1299,15 @@ export async function createEngineSession({
     },
     getProviderSetup: () => {
       return runtime.getProviderSetup();
+    },
+    getUsageDashboard: async (options = {}) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        return await runtime.getUsageDashboard?.(options);
+      } finally {
+        set({ commandBusy: false });
+      }
     },
     getOnboardingStatus: () => {
       return runtime.getOnboardingStatus?.() || { completed: true, workflowRoutes: {} };

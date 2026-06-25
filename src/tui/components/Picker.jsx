@@ -15,14 +15,16 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { theme } from '../theme.mjs';
+import { terminalSafeText } from '../safe-text.mjs';
 
 /** Max items visible at once before scrolling kicks in. */
 const MAX_VISIBLE = 8;
 
 function truncateText(value, width) {
-  const text = String(value || '');
+  const text = terminalSafeText(value || '');
   if (!(width > 0)) return '';
-  return text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text;
+  if (text.length <= width) return text;
+  return width <= 3 ? '.'.repeat(Math.max(0, width)) : `${text.slice(0, Math.max(1, width - 3))}...`;
 }
 
 export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, help, columns = 80 }) {
@@ -98,7 +100,7 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, help
           height={4}
           width="100%"
         >
-          <Text color={theme.panelTitle}>{title || 'Picker'}</Text>
+          <Text color={theme.panelTitle}>{terminalSafeText(title || 'Picker')}</Text>
           <Text color={theme.inactive}> (empty) </Text>
         </Box>
       </Box>
@@ -130,8 +132,8 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, help
         width="100%"
       >
         <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
-          <Text color={theme.panelTitle}>{title}</Text>
-          <Text color={theme.subtle}>{help || '↑↓ select · Enter choose · Esc exit'}</Text>
+          <Text color={theme.panelTitle}>{terminalSafeText(title)}</Text>
+          <Text color={theme.subtle}>{terminalSafeText(help || '^/v select - Enter choose - Esc exit')}</Text>
         </Box>
         {visible.map((item, i) => {
           const idx = start + i;
@@ -159,7 +161,7 @@ const ItemRow = React.memo(function ItemRow({ label, description, labelWidth, de
   return (
     <Box flexDirection="row" width="100%" backgroundColor={isSelected ? theme.userMessageBackground : undefined}>
       <Text color={isSelected ? theme.text : theme.inactive}>
-        {isSelected ? '→ ' : '  '}
+        {isSelected ? '> ' : '  '}
         {displayLabel.padEnd(labelWidth)}
       </Text>
       {displayDescription ? (

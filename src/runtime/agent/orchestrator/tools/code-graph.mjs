@@ -1638,14 +1638,14 @@ async function _prewarmReferenceSourceText(graph, symbol, language) {
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
 }
 
-function _cheapReferenceSearch(graph, symbol, cwd, { language = null, limit = null, fileRel = null } = {}) {
+function _cheapReferenceSearch(graph, symbol, cwd, { language = null, limit = null, fileRel = null, scopeRelPrefix = null } = {}) {
   const escaped = String(symbol || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (!escaped) return '(no references)';
   // Include the effective cap + file scope in the cache key so a follow-up
   // call with a larger limit or a different file filter doesn't get served
   // the previously-trimmed/wide result.
   // Default `d` marks the env-default cap (REFERENCE_HIT_CAP).
-  const cacheKey = `${language || '*'}|${symbol}|${Number.isFinite(limit) && limit > 0 ? String(Math.floor(limit)) : 'd'}|${fileRel || '*'}`;
+  const cacheKey = `${language || '*'}|${symbol}|${Number.isFinite(limit) && limit > 0 ? String(Math.floor(limit)) : 'd'}|${fileRel || '*'}|${scopeRelPrefix || '*'}`;
   const cached = graph?._referenceSearchCache?.get(cacheKey);
   if (typeof cached === 'string') {
     return cached;
@@ -1653,6 +1653,7 @@ function _cheapReferenceSearch(graph, symbol, cwd, { language = null, limit = nu
   const lines = [];
   let candidateNodes = _lookupCandidateNodes(graph, symbol, language);
   if (fileRel) candidateNodes = candidateNodes.filter((node) => node.rel === fileRel);
+  if (scopeRelPrefix) candidateNodes = candidateNodes.filter((node) => node.rel === scopeRelPrefix.slice(0, -1) || node.rel.startsWith(scopeRelPrefix));
   // Output cap. Default raised from 40 to 200 (HS-A5 retry showed the
   // formatter-layer cap raise was masked because the SEARCH-layer cap
   // here caps `lines` at 40 before the formatter sees them). 80 chars
@@ -3504,7 +3505,17 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
   }
   const normFile = normalizeInputPath(args?.file);
   const abs = normFile ? (isAbsolute(normFile) ? pathResolve(normFile) : pathResolve(cwd, normFile)) : null;
-  const rel = abs ? _graphRel(abs, cwd) : null;
+  let fileIsDirectory = false;
+  if (abs) {
+    try { fileIsDirectory = statSync(abs).isDirectory(); } catch { fileIsDirectory = false; }
+  }
+  const rel = abs && !fileIsDirectory ? _graphRel(abs, cwd) : null;
+  const scopeRelPrefix = abs && fileIsDirectory
+    ? (() => {
+        const r = _graphRel(abs, cwd).replace(/\\/g, '/').replace(/\/+$/, '');
+        return (!r || r === '.') ? null : `${r}/`;
+      })()
+    : null;
   const node = rel ? graph.nodes.get(rel) : null;
 
   if (mode === 'overview') {
@@ -3666,7 +3677,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
         throw new Error(`code_graph references: language '${explicitLanguage}' has no adapter topLevelTypes and is not in supportedRegexLangs for this project`);
       }
     }
-    const narrowedByCaller = Boolean(rel || explicitLanguage);
+    const narrowedByCaller = Boolean(rel || scopeRelPrefix || explicitLanguage);
     const resolved = _resolveReferenceLanguageNode(graph, symbol, rel, cwd, explicitLanguage);
     // Distinguish "file path was never indexed" from "file is indexed but the
     // symbol never appears in it". The former is a path/scope problem (typo,
@@ -3704,7 +3715,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     // SCOPE ISOLATION: when `file` is set, restrict reference search to
     // that single file so a caller asking "refs in foo.mjs" doesn't get
     // hits from every other file that happens to share the identifier.
-    const refResult = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, limit: userLimit, fileRel: rel });
+    const refResult = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, limit: userLimit, fileRel: rel, scopeRelPrefix });
     return narrowedByCaller ? refResult : _augmentNoHitDiagnostic(refResult, '(no references)', graph, cwd, symbol);
   }
 
@@ -3721,7 +3732,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
         throw new Error(`code_graph callers: language '${explicitLanguage}' has no adapter topLevelTypes and is not in supportedRegexLangs for this project`);
       }
     }
-    const narrowedByCaller = Boolean(rel || explicitLanguage);
+    const narrowedByCaller = Boolean(rel || scopeRelPrefix || explicitLanguage);
     const resolved = _resolveReferenceLanguageNode(graph, symbol, rel, cwd, explicitLanguage);
     if (rel && resolved.kind === 'file-not-found') {
       return `Error: code_graph callers: file not found in graph: ${normFile || '(missing file)'}`;
@@ -3752,7 +3763,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
       return _formatTransitiveCallers(graph, symbol, cwd, { language: lang, depth, page: args?.page });
     }
     // SCOPE ISOLATION: file-narrowed callers stays within that file too.
-    const refs = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, limit: userLimit, fileRel: rel });
+    const refs = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, limit: userLimit, fileRel: rel, scopeRelPrefix });
     const callerResult = _formatCallerReferences(graph, symbol, refs, userLimit ? { limit: userLimit } : undefined);
     return narrowedByCaller ? callerResult : _augmentNoHitDiagnostic(callerResult, '(no callers)', graph, cwd, symbol);
   }

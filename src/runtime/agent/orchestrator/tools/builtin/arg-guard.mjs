@@ -105,6 +105,29 @@ function isStringOrStringArray(v) {
     return true;
 }
 
+function hasBackslashPipe(value) {
+    if (typeof value === 'string') return false;
+    return false;
+}
+
+function hasUnsupportedRipgrepRegex(value) {
+    const values = Array.isArray(value) ? value : [value];
+    return values.some((item) => {
+        if (typeof item !== 'string') return false;
+        return /\(\?(?:[=!]|<[=!])/.test(item) || /\\[1-9]/.test(item);
+    });
+}
+
+function hasMultipleAbsoluteWindowsPaths(value) {
+    if (typeof value !== 'string') return false;
+    const matches = value.match(/[A-Za-z]:[\\/]/g);
+    return Array.isArray(matches) && matches.length > 1;
+}
+
+function hasWindowsDrivePath(value) {
+    return typeof value === 'string' && /[A-Za-z]:[\\/]/.test(value);
+}
+
 function isFiniteInt(v) {
     return typeof v === 'number' && Number.isFinite(v) && Math.floor(v) === v;
 }
@@ -150,6 +173,12 @@ function guardGrep(a) {
         if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
             return `Error: grep arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
         }
+        if (hasOwn(a, k) && hasBackslashPipe(a[k])) {
+            return `Error: grep arg "${k}" contains \\|. Use pattern:["a","b"] for OR terms, or unescaped | for regex alternation.`;
+        }
+        if (hasOwn(a, k) && hasUnsupportedRipgrepRegex(a[k])) {
+            return `Error: grep arg "${k}" uses regex syntax ripgrep does not support here (lookaround/backrefs). Use plain pattern arrays or simpler regex.`;
+        }
     }
     for (const k of globKeys) {
         if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
@@ -160,6 +189,9 @@ function guardGrep(a) {
     for (const k of ['path', 'root']) {
         if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
             return `Error: grep arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
+        }
+        if (hasOwn(a, k) && hasMultipleAbsoluteWindowsPaths(a[k])) {
+            return `Error: grep arg "${k}" contains multiple absolute paths in one string. Use one common parent path plus glob, or separate grep calls.`;
         }
     }
     // numeric clamps (grep context 0..12, mirrors read line-context tightening)
@@ -200,6 +232,9 @@ function guardRead(a) {
     }
     if (hasOwn(a, 'file_path') && !isNonEmptyString(a.file_path)) {
         return `Error: read arg "file_path" must be a non-empty string (got ${describeType(a.file_path)})`;
+    }
+    if (hasOwn(a, 'line') && (hasOwn(a, 'offset') || hasOwn(a, 'limit'))) {
+        return 'Error: read window args conflict — use exactly one window family: line+context OR offset+limit OR symbol.';
     }
     // offset >=0
     {
@@ -251,14 +286,7 @@ function guardEdit(a) {
     let hasSingle = hasMeaningfulEditSingle(a);
     const hasBatch = Array.isArray(a.edits) && a.edits.length > 0;
     if (hasSingle && hasBatch) {
-        // Models sometimes include stale top-level single-edit fields while
-        // sending the real replacement set in edits[]. The executor already
-        // treats a non-empty edits[] as authoritative; mirror that here so a
-        // harmless shape collision does not cost a retry turn.
-        delete a.old_string;
-        delete a.new_string;
-        delete a.replace_all;
-        hasSingle = false;
+        return 'Error: edit requires either single old_string/new_string OR edits[], not both';
     }
     if (!hasSingle && !hasBatch) {
         if (hasOwn(a, 'edits') && !hasBatch) {
@@ -404,6 +432,24 @@ function guardBash(a) {
     }
     if (a.command.length === 0) {
         return 'Error: bash arg "command" must be a non-empty string';
+    }
+    if (process.platform === 'win32' && !hasOwn(a, 'shell') && hasWindowsDrivePath(a.command)) {
+        return "Error: bash command contains a Windows drive path; set shell:'powershell' or convert paths for shell:'bash'.";
+    }
+    for (const k of ['cwd', 'workdir']) {
+        if (hasOwn(a, k) && (a[k] === undefined || a[k] === null || a[k] === '')) {
+            delete a[k];
+            continue;
+        }
+        if (hasOwn(a, k) && !isNonEmptyString(a[k])) {
+            return `Error: bash arg "${k}" must be a non-empty string (got ${describeType(a[k])})`;
+        }
+    }
+    if (hasOwn(a, 'cwd') && hasOwn(a, 'workdir') && a.cwd !== a.workdir) {
+        return 'Error: bash args "cwd" and "workdir" conflict; use one working directory.';
+    }
+    if (hasOwn(a, 'shell') && a.shell !== undefined && a.shell !== null && a.shell !== 'bash' && a.shell !== 'powershell') {
+        return `Error: bash arg "shell" must be bash or powershell (got ${JSON.stringify(a.shell)})`;
     }
     return null;
 }

@@ -2726,7 +2726,12 @@ export async function executePatchTool(name, args, cwd, options = {}) {
   const effectiveCwd = cwd || process.cwd();
   switch (name) {
     case 'apply_patch': {
-      const result = await apply_patch(args || {}, effectiveCwd, options);
+      let result;
+      try {
+        result = await apply_patch(args || {}, effectiveCwd, options);
+      } catch (err) {
+        return `Error: ${err?.message || String(err)}`;
+      }
       // ② completion progress (claude "Found N" parity). Best-effort, no-op
       // when onProgress is absent (no progressToken). Never throws — only
       // emits on success (an "Error:" body is left to the tool result alone).

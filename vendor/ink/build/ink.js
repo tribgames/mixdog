@@ -329,10 +329,10 @@ export default class Ink {
         }
         this.selectionRect = rect ?? null;
         if (!this.isUnmounted) {
-            // Route drag-selection repaints through the throttled wrapper so
-            // per-cell mouse-motion events coalesce to maxFps instead of
-            // forcing an unthrottled full repaint per event (input lag fix).
-            this.rootNode.onRender();
+            // Drag selection is a direct manipulation gesture. Route it through
+            // the unthrottled renderer so the highlight tracks the pointer
+            // instead of trailing behind at maxFps.
+            this.rootNode.onImmediateRender();
         }
     };
     // [mixdog fork] Given a 0-based cell (x, y), return the inclusive rect of the

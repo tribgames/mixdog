@@ -16,7 +16,7 @@ import { theme } from '../theme.mjs';
 export function QueuedCommands({ queued, columns }) {
   if (!queued || queued.length === 0) return null;
   // Each queued line reads as a full-width band like a user message (same
-  // background, 2-col gutter), but dimmed text marks it as "waiting, not sent".
+  // background, 2-col gutter), but stays readable while it waits to be sent.
   // Explicit numeric width guarantees the band fills the row.
   // One cell short of the edge: writing the last terminal column triggers
   // Windows auto-wrap/scroll that drifts the alt-screen frame (see UserMessage).
@@ -27,19 +27,16 @@ export function QueuedCommands({ queued, columns }) {
         // Truncate to 1 line so the row reservation (queued.length in App.jsx)
         // stays accurate — wrapped text would push the input box off-screen.
         // Content width = bandColumns(columns-1) - paddingLeft(2) - paddingRight(1)
-        // = columns-4. When truncating we append '…' (1 cell), so the slice must
-        // be columns-5 to keep the total at columns-4 and avoid a wrap to row 2.
-        const prefix = 'pending · ';
+        // = columns-4. When truncating we append '...' (3 cells), so the slice
+        // must leave room for that suffix and avoid a wrap to row 2.
         const contentWidth = Math.max(1, columns - 4);
-        const textWidth = Math.max(1, contentWidth - prefix.length);
-        const displayText = item.text.length > textWidth
-          ? item.text.slice(0, Math.max(1, textWidth - 1)) + '…'
+        const displayText = item.text.length > contentWidth
+          ? (contentWidth <= 3 ? '.'.repeat(contentWidth) : item.text.slice(0, Math.max(1, contentWidth - 3)) + '...')
           : item.text;
         return (
           <Box key={item.id} width={bandColumns} backgroundColor={theme.userMessageBackground} paddingLeft={2} paddingRight={1}>
             <Text wrap="wrap">
-              <Text color={theme.statusSubtle}>{prefix}</Text>
-              <Text color={theme.text}>{displayText}</Text>
+              <Text color={theme.mixdogIvory}>{displayText}</Text>
             </Text>
           </Box>
         );

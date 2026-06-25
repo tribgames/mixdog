@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import {
   CLAUDE_CURRENT_MODE,
   isMixdogModelSelection,
@@ -38,8 +39,10 @@ function claudeConfigDir() {
   return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 }
 
+const STANDALONE_PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+
 function pluginDataDir() {
-  return process.env.CLAUDE_PLUGIN_DATA || path.join(claudeConfigDir(), 'plugins', 'data', 'mixdog-trib-plugin');
+  return process.env.CLAUDE_PLUGIN_DATA || path.join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data');
 }
 
 function readJson(file) {

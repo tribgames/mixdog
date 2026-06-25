@@ -1027,9 +1027,27 @@ export async function _streamResponse({
     const pushResponseItem = (item) => {
         if (!item || typeof item !== 'object') return;
         const key = _responseItemKey(item, responseItemsAdded.length);
-        if (responseItemKeys.has(key)) return;
+        if (responseItemKeys.has(key)) {
+            const existing = responseItemsAdded.find((candidate, index) => _responseItemKey(candidate, index) === key);
+            if (existing?.type === 'function_call' && item.type === 'function_call') {
+                if (!existing.call_id && item.call_id) existing.call_id = item.call_id;
+                if (!existing.name && item.name) existing.name = item.name;
+                if ((existing.arguments == null || existing.arguments === '') && item.arguments != null) existing.arguments = item.arguments;
+            }
+            return;
+        }
         responseItemKeys.add(key);
         responseItemsAdded.push(_cloneJson(item));
+    };
+    const enrichFunctionCallResponseItem = ({ itemId = '', callId = '', name = '', argumentsText = '' } = {}) => {
+        for (const item of responseItemsAdded) {
+            if (item?.type !== 'function_call') continue;
+            if (itemId && item.id && item.id !== itemId) continue;
+            if (callId && item.call_id && item.call_id !== callId) continue;
+            if (!item.call_id && callId) item.call_id = callId;
+            if (!item.name && name) item.name = name;
+            if ((item.arguments == null || item.arguments === '') && argumentsText) item.arguments = argumentsText;
+        }
     };
     const pushCitation = (raw, fallbackTitle = '') => {
         const url = raw?.url || raw?.uri || raw?.href || '';
@@ -1355,6 +1373,12 @@ export async function _streamResponse({
                     const pending = pendingCalls.get(itemId);
                     let args = {};
                     try { args = JSON.parse(event.arguments || '{}'); } catch {}
+                    enrichFunctionCallResponseItem({
+                        itemId,
+                        callId: pending?.callId || event.call_id || '',
+                        name: pending?.name || event.name || '',
+                        argumentsText: event.arguments || JSON.stringify(args),
+                    });
                     if (pending?.callId && pending?.name) {
                         const call = { id: pending.callId, name: pending.name, arguments: args };
                         toolCalls.push(call);
