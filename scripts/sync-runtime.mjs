@@ -1309,27 +1309,19 @@ function patchStatuslineGatewayRuntimeImports(src) {
   return { text, already: false };
 }
 
-function patchStatuslineStandaloneDataDir(src, levelsExpr) {
+function patchStatuslineStandaloneDataDir(src) {
   let s = src;
   let changed = false;
-  if (!s.includes("fileURLToPath")) {
-    const importAnchor = "import path from 'path';";
+  if (!s.includes("import os from 'os';")) {
+    const importAnchor = "import fs from 'fs';";
     if (!s.includes(importAnchor)) {
-      throw new Error('[sync] statusline data-dir path import anchor not found — reconcile standalone statusline patch manually.');
+      throw new Error('[sync] statusline os import anchor not found — reconcile standalone statusline patch manually.');
     }
-    s = s.replace(importAnchor, `${importAnchor}\nimport { fileURLToPath } from 'node:url';`);
-    changed = true;
-  }
-  if (!s.includes('STANDALONE_PROJECT_ROOT')) {
-    const anchor = 'function pluginDataDir() {';
-    if (!s.includes(anchor)) {
-      throw new Error('[sync] statusline pluginDataDir anchor not found — reconcile standalone statusline patch manually.');
-    }
-    s = s.replace(anchor, `const STANDALONE_PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ${levelsExpr});\n\n${anchor}`);
+    s = s.replace(importAnchor, `${importAnchor}\nimport os from 'os';`);
     changed = true;
   }
   const from = "return process.env.CLAUDE_PLUGIN_DATA || path.join(claudeConfigDir(), 'plugins', 'data', 'mixdog-trib-plugin');";
-  const to = "return process.env.CLAUDE_PLUGIN_DATA || path.join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data');";
+  const to = "return process.env.CLAUDE_PLUGIN_DATA || process.env.MIXDOG_DATA_DIR || path.join(os.homedir(), '.mixdog', 'data');";
   if (s.includes(from)) {
     s = s.replace(from, to);
     changed = true;
@@ -1412,7 +1404,7 @@ function patchStatuslineBashSegment(src) {
 
 function patchStatuslineLibStandalone(src) {
   let changed = false;
-  let res = patchStatuslineStandaloneDataDir(src, "'..', '..', '..', '..'");
+  let res = patchStatuslineStandaloneDataDir(src);
   let s = res.text; changed ||= !res.already;
   res = patchStatuslineStandaloneGatewayOverride(s);
   s = res.text; changed ||= !res.already;
@@ -1425,7 +1417,7 @@ function patchStatuslineLibStandalone(src) {
 
 function patchStatuslineRouteStandalone(src) {
   let changed = false;
-  let res = patchStatuslineStandaloneDataDir(src, "'..', '..', '..', '..'");
+  let res = patchStatuslineStandaloneDataDir(src);
   let s = res.text; changed ||= !res.already;
   const from = `  const activeStatus = {
     provider: configured?.provider || active.gateway_provider,`;
@@ -1470,14 +1462,35 @@ function patchPluginPaths(src, kind) {
   const staleDoc = ` * Throws if neither env var is present — the plugin always runs under
  * Claude Code, which sets one of them. Callers must not silently fall
  * back to a hardcoded path.`;
-  const standaloneDoc = ` * In standalone mixdog, falls back to MIXDOG_DATA_DIR or
- * <project-root>/.mixdog/data when the host plugin env is absent.
+  const standaloneDoc = ` * In standalone mixdog, falls back to MIXDOG_DATA_DIR or ~/.mixdog/data
+ * when the host plugin env is absent.
  * Plugin-host runs still prefer the host-provided env vars above.`;
   if (s.includes(staleDoc)) {
     s = s.replace(staleDoc, standaloneDoc);
     changed = true;
   }
-  if (s.includes('STANDALONE_PROJECT_ROOT')) return { text: s, already: !changed };
+  const cleaned = s
+    .replace(/\nconst STANDALONE_PROJECT_ROOT = resolve\(dirname\(fileURLToPath\(import\.meta\.url\)\), '\.\.', '\.\.', '\.\.'\);/g, '')
+    .replace(/\nconst STANDALONE_PROJECT_ROOT = path\.resolve\(__dirname, '\.\.', '\.\.'\);/g, '')
+    .replace("import { join, basename, dirname, resolve } from 'path';", "import { join, basename } from 'path';")
+    .replace("import { readFileSync } from 'fs';\nimport { fileURLToPath } from 'url';", "import { readFileSync } from 'fs';");
+  if (cleaned !== s) {
+    s = cleaned;
+    changed = true;
+  }
+  const staleMjsFallback = `// Standalone mixdog: own a project-local data dir (override with MIXDOG_DATA_DIR).
+  return process.env.MIXDOG_DATA_DIR || join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data');`;
+  const staleCjsFallback = `// Standalone mixdog: own a project-local data dir (override with MIXDOG_DATA_DIR).
+  return process.env.MIXDOG_DATA_DIR || path.join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data');`;
+  const fallback = `// Standalone mixdog: own user-global data like Claude Code's ~/.claude.
+  return process.env.MIXDOG_DATA_DIR || ${kind === 'mjs' ? "join(homedir(), '.mixdog', 'data')" : "path.join(os.homedir(), '.mixdog', 'data')"};`;
+  if (s.includes(staleMjsFallback) || s.includes(staleCjsFallback)) {
+    s = s.replace(staleMjsFallback, fallback).replace(staleCjsFallback, fallback);
+    changed = true;
+  }
+  if (s.includes("join(homedir(), '.mixdog', 'data')") || s.includes("path.join(os.homedir(), '.mixdog', 'data')")) {
+    return { text: s, already: !changed };
+  }
   const throwLine =
     "throw new Error('[plugin-paths] CLAUDE_PLUGIN_DATA and CLAUDE_PLUGIN_ROOT are both unset — cannot resolve plugin data dir outside of Claude Code.');";
   if (!s.includes(throwLine)) {
@@ -1485,20 +1498,19 @@ function patchPluginPaths(src, kind) {
   }
   let next = s;
   if (kind === 'mjs') {
-    next = next.replace("import { join, basename } from 'path';", "import { join, basename, dirname, resolve } from 'path';");
-    next = next.replace("import { readFileSync } from 'fs';", "import { readFileSync } from 'fs';\nimport { fileURLToPath } from 'url';");
+    if (!next.includes("import { homedir } from 'os';")) {
+      next = next.replace("import { join, basename } from 'path';", "import { homedir } from 'os';\nimport { join, basename } from 'path';");
+    }
     next = next.replace(
       "export const DEFAULT_MARKETPLACE = 'trib-plugin';",
-      "export const DEFAULT_MARKETPLACE = 'trib-plugin';\nconst STANDALONE_PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');",
+      "export const DEFAULT_MARKETPLACE = 'trib-plugin';",
     );
   } else {
     next = next.replace(
       "const DEFAULT_MARKETPLACE = 'trib-plugin';",
-      "const DEFAULT_MARKETPLACE = 'trib-plugin';\nconst STANDALONE_PROJECT_ROOT = path.resolve(__dirname, '..', '..');",
+      "const DEFAULT_MARKETPLACE = 'trib-plugin';",
     );
   }
-  const fallback = `// Standalone mixdog: own a project-local data dir (override with MIXDOG_DATA_DIR).
-  return process.env.MIXDOG_DATA_DIR || ${kind === 'mjs' ? "join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data')" : "path.join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data')"};`;
   return { text: next.replace(throwLine, fallback), already: false };
 }
 

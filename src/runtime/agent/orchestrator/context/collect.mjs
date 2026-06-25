@@ -1,18 +1,17 @@
 import { readFileSync, existsSync, readdirSync } from 'fs';
+import { homedir } from 'os';
 import { dirname, join, resolve } from 'path';
-import { fileURLToPath } from 'url';
 import { maxMtime, maxMtimeRecursive } from '../cache-mtime.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 
 // --- mixdog asset roots (standalone CLI owns its own paths; never .claude) ---
 // Project-local:  <cwd>/.mixdog/<kind>
-// Data-local:     <pluginData>/<kind>   (standalone default: <project-root>/.mixdog/data/<kind>)
-const STANDALONE_PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', '..');
+// Data-local:     <pluginData>/<kind>   (standalone default: ~/.mixdog/data/<kind>)
 function mixdogGlobalDir(kind) {
     try {
         return join(resolvePluginData(), kind);
     } catch {
-        return join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data', kind);
+        return join(process.env.MIXDOG_DATA_DIR || join(homedir(), '.mixdog', 'data'), kind);
     }
 }
 function mixdogProjectDir(projectDir, kind) {
@@ -248,7 +247,7 @@ export function buildSkillToolDefs(skills, { ownerIsBridge = false } = {}) {
 // --- Collect mixdog.md user/project context ---
 /**
  * Read Mixdog-owned user context files in broad-to-specific order:
- *   1. <pluginData>/mixdog.md        (standalone default: <project-root>/.mixdog/data/mixdog.md)
+ *   1. <pluginData>/mixdog.md        (standalone default: ~/.mixdog/data/mixdog.md)
  *   2. <ancestor>/.mixdog/mixdog.md  (from filesystem root down to cwd)
  *
  * This mirrors Claude Code's "memory files are context, not system prompt"
@@ -270,7 +269,7 @@ function mixdogGlobalContextPaths() {
     try {
         dataRoot = resolvePluginData();
     } catch {
-        dataRoot = join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data');
+        dataRoot = process.env.MIXDOG_DATA_DIR || join(homedir(), '.mixdog', 'data');
     }
     return uniquePaths([
         join(dataRoot, 'mixdog.md'),

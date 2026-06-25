@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
@@ -147,12 +148,11 @@ const CODE_GRAPH_RUNTIME = './runtime/agent/orchestrator/tools/code-graph.mjs';
 const STATUSLINE_SESSION_ROUTES = './vendor/statusline/src/gateway/session-routes.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STANDALONE_SOURCE_ROOT = __dirname;
-const STANDALONE_PROJECT_ROOT = resolve(__dirname, '..');
 // Resource root stays at src/ because defaults/, rules/, runtime/, vendor/ live
-// there. User-owned standalone state is scoped to the project/package root so
-// installs do not fall back to ~/.mixdog by default.
+// there. User-owned standalone state lives under ~/.mixdog by default, matching
+// Claude Code's split between install location and user data (~/.claude).
 const STANDALONE_ROOT = STANDALONE_SOURCE_ROOT;
-const STANDALONE_DATA_DIR = process.env.MIXDOG_DATA_DIR || join(STANDALONE_PROJECT_ROOT, '.mixdog', 'data');
+const STANDALONE_DATA_DIR = process.env.MIXDOG_DATA_DIR || join(homedir(), '.mixdog', 'data');
 
 const DEFAULT_PROVIDER = 'anthropic-oauth';
 const DEFAULT_MODEL = '';

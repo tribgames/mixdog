@@ -14,8 +14,8 @@
  * CLI route passed here.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
+import { basename, join } from 'node:path';
 import { bold, colorEnabled, green, rgb } from './ansi.mjs';
 import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
 import { formatGatewayLimitSegments, loadGatewayStatus } from '../vendor/statusline/bin/statusline-route.mjs';
@@ -27,8 +27,7 @@ const FALLBACK_CONTEXT_WINDOW = 200000;
 const statusText = rgb(198, 198, 198);
 const statusSubtle = rgb(136, 136, 136);
 const statusAccent = rgb(215, 119, 87);
-const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const DEFAULT_STANDALONE_DATA_DIR = join(PROJECT_ROOT, '.mixdog', 'data');
+const DEFAULT_STANDALONE_DATA_DIR = join(homedir(), '.mixdog', 'data');
 
 function sgr(code) {
   return colorEnabled() ? `\x1b[${code}m` : '';
@@ -255,7 +254,7 @@ function terminalColumns() {
 }
 
 function dataDir() {
-  return process.env.MIXDOG_DATA_DIR || process.env.CLAUDE_PLUGIN_DATA || DEFAULT_STANDALONE_DATA_DIR;
+  return process.env.CLAUDE_PLUGIN_DATA || process.env.MIXDOG_DATA_DIR || DEFAULT_STANDALONE_DATA_DIR;
 }
 
 function loadGatewayQuotaStatus({ provider, sessionId, activeContextTokens, clientHostPid } = {}) {
