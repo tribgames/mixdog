@@ -82,8 +82,6 @@ function envTimeoutMs(name, fallback) {
 const DEFAULT_FIRST_RESPONSE_TIMEOUT_MS = envTimeoutMs('MIXDOG_BRIDGE_FIRST_RESPONSE_TIMEOUT_MS', 120_000);
 const DEFAULT_STALE_TIMEOUT_MS = envTimeoutMs('MIXDOG_BRIDGE_STALE_TIMEOUT_MS', 30 * 60_000);
 const ACTIVE_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'running', 'cancelling']);
-const statuslineRouteOps = new Map();
-let statuslineRouteFlushScheduled = false;
 
 function clean(value) {
   return String(value ?? '').trim();
@@ -171,35 +169,15 @@ function bridgeRouteForStatusline(preset = {}) {
   return out;
 }
 
-function scheduleBridgeStatuslineRoute(sessionId, route) {
-  if (!sessionId) return false;
-  statuslineRouteOps.set(sessionId, route ? { op: 'write', route } : { op: 'clear' });
-  if (!statuslineRouteFlushScheduled) {
-    statuslineRouteFlushScheduled = true;
-    const handle = setImmediate(() => {
-      statuslineRouteFlushScheduled = false;
-      const batch = [...statuslineRouteOps.entries()];
-      statuslineRouteOps.clear();
-      for (const [sid, item] of batch) {
-        try {
-          if (item.op === 'write') writeGatewaySessionRoute(sid, item.route);
-          else clearGatewaySessionRoute(sid);
-        } catch { /* best-effort statusline route */ }
-      }
-    });
-    handle.unref?.();
-  }
-  return true;
-}
-
-function scheduleBridgeStatuslineWrite(sessionId, preset) {
+function writeBridgeStatuslineRoute(sessionId, preset) {
   const route = bridgeRouteForStatusline(preset);
   if (!sessionId || !route) return false;
-  return scheduleBridgeStatuslineRoute(sessionId, route);
+  try { return writeGatewaySessionRoute(sessionId, route); } catch { return false; }
 }
 
-function scheduleBridgeStatuslineClear(sessionId) {
-  return scheduleBridgeStatuslineRoute(sessionId, null);
+function clearBridgeStatuslineRoute(sessionId) {
+  if (!sessionId) return false;
+  try { return clearGatewaySessionRoute(sessionId); } catch { return false; }
 }
 
 function findPreset(config, key) {
@@ -521,7 +499,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       try { mgr.hideSessionFromList?.(sessionId); } catch {}
       const tag = tagForSession(sessionId);
       if (tag) forgetTag(tag);
-      scheduleBridgeStatuslineClear(sessionId);
+      clearBridgeStatuslineRoute(sessionId);
       try { mgr.closeSession(sessionId, 'terminal-reap'); } catch {}
     }, TERMINAL_REAP_MS);
     handle.unref?.();
@@ -767,7 +745,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
   function closePreparedSpawn(prepared, reason = 'bridge-task-cancel') {
     if (!prepared?.session?.id) return;
     try { mgr.closeSession(prepared.session.id, reason); } catch {}
-    try { scheduleBridgeStatuslineClear(prepared.session.id); } catch {}
+    try { clearBridgeStatuslineRoute(prepared.session.id); } catch {}
     if (prepared.tag) forgetTag(prepared.tag);
   }
 
@@ -895,7 +873,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     // Lead sessions write a gateway-session route when created; bridge agents
     // are built through prepareBridgeSession(), so mirror that registration here
     // or the vendored L1/L2 statusline cannot resolve the agent route/model.
-    scheduleBridgeStatuslineWrite(session.id, preset);
+    writeBridgeStatuslineRoute(session.id, preset);
     bindTag(tag, session);
     cancelReap(session.id);
     return { args, tag, session, role, preset, presetName, workerCwd: effectiveCwd || workerCwd, prompt, maxLoopIterations, idleTimeoutMs, firstResponseTimeoutMs };
@@ -994,7 +972,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     cancelReap(sessionId);
     const tag = tagForSession(sessionId);
     if (tag) forgetTag(tag);
-    scheduleBridgeStatuslineClear(sessionId);
+    clearBridgeStatuslineRoute(sessionId);
     const ok = mgr.closeSession(sessionId, 'cli-bridge-close');
     if (task?.taskId) cancelBackgroundTask(task.taskId, 'cancelled by bridge close');
     return { closed: ok, tag, sessionId, task_id: task?.taskId || null };
@@ -1121,7 +1099,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       const pid = terminalPidForContext(scopedContext);
       return {
         bridgeMode: defaultMode,
-        workers: list({ scanSessions: false, context: scopedContext }),
+        workers: list({ scanSessions: true, context: scopedContext }),
         jobs: listJobs(scopedContext),
         scope: pid ? { clientHostPid: pid } : { allTerminals: true },
       };

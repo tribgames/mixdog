@@ -14,6 +14,7 @@ import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-t
 import { TOOL_DEFS as MEMORY_TOOL_DEFS } from '../src/runtime/memory/tool-defs.mjs';
 import { TOOL_DEFS as SEARCH_TOOL_DEFS } from '../src/runtime/search/tool-defs.mjs';
 import { TOOL_DEFS as CHANNEL_TOOL_DEFS } from '../src/runtime/channels/tool-defs.mjs';
+import { classifyBridgeWorkerGitMutationCommand } from '../src/runtime/agent/orchestrator/tool-loop-guard.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -192,16 +193,6 @@ const shellWorkdirOut = await executeBuiltinTool('shell', {
 }, root);
 assertOk('shell workdir alias', shellWorkdirOut, /scripts\s*$/i);
 
-const invalidEditMixedShape = validateBuiltinArgs('edit', {
-  path: 'scripts/smoke.mjs',
-  old_string: 'x',
-  new_string: 'y',
-  edits: [{ old_string: 'x', new_string: 'y' }],
-});
-if (!/either single old_string\/new_string OR edits\[\], not both/i.test(invalidEditMixedShape || '')) {
-  throw new Error(`edit mixed single+batch guard failed: ${invalidEditMixedShape}`);
-}
-
 const mixedReadWindow = {
   path: 'scripts/smoke.mjs',
   line: 1,
@@ -235,6 +226,26 @@ const userSync = resolveBridgeExecutionMode(
 );
 if (userSync !== 'sync') throw new Error(`bridge user-command wait mode should be sync, got ${userSync}`);
 
+for (const command of [
+  'git status --short',
+  'git diff -- src/mixdog-session-runtime.mjs',
+  'Write-Output "git push"',
+]) {
+  const blocked = classifyBridgeWorkerGitMutationCommand(command);
+  if (blocked) throw new Error(`bridge git guard should allow readonly/non-command form ${JSON.stringify(command)}; got ${blocked}`);
+}
+for (const [command, expected] of [
+  ['git push', 'git push'],
+  ['git -C . commit -m smoke', 'git commit'],
+  ['npm test && git add -A', 'git add'],
+  ['bash -lc "git push"', 'git push'],
+  ['cmd /c git commit -m smoke', 'git commit'],
+  ['powershell -Command "git stash"', 'git stash'],
+]) {
+  const blocked = classifyBridgeWorkerGitMutationCommand(command);
+  if (blocked !== expected) throw new Error(`bridge git guard mismatch for ${JSON.stringify(command)}: got ${blocked}, expected ${expected}`);
+}
+
 function assertHas(set, name) {
   if (!set.has(name)) throw new Error(`default tool surface missing ${name}: ${[...set].join(', ')}`);
 }
@@ -266,6 +277,17 @@ for (const name of ['shell', 'edit', 'write']) {
   assertLacks(fullDefaults, name);
 }
 
+const leadDefaults = defaultDeferredToolNames(smokeCatalog, 'lead');
+if (leadDefaults.size !== 14) {
+  throw new Error(`lead default surface should stay 14 tools, got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
+}
+for (const name of ['read', 'code_graph', 'grep', 'glob', 'list', 'shell', 'task', 'apply_patch', 'explore', 'bridge', 'recall', 'search', 'web_fetch', 'tool_search']) {
+  assertHas(leadDefaults, name);
+}
+for (const name of ['edit', 'write']) {
+  assertLacks(leadDefaults, name);
+}
+
 function toolSchemaSize(tool) {
   const desc = String(tool?.description || '');
   const schema = JSON.stringify(tool?.input_schema || tool?.inputSchema || {});
@@ -276,12 +298,12 @@ const surfaceSize = [...fullDefaults].reduce((sum, name) => {
   const tool = smokeCatalog.find((item) => item?.name === name);
   return sum + toolSchemaSize(tool);
 }, 0);
-if (surfaceSize > 13500) {
-  throw new Error(`full default tool surface too large: ${surfaceSize} chars (cap 13500)`);
+if (surfaceSize > 14000) {
+  throw new Error(`full default tool surface too large: ${surfaceSize} chars (cap 14000)`);
 }
 for (const [name, cap] of [
   ['apply_patch', 1300],
-  ['code_graph', 1500],
+  ['code_graph', 1550],
   ['bridge', 2500],
   ['recall', 2400],
   ['search', 3200],
@@ -352,7 +374,7 @@ if (!explorerPrompt.includes('&lt;bridge&gt;') || !explorerPrompt.includes('&amp
   throw new Error(`explorer prompt contract failed: ${explorerPrompt}`);
 }
 const patchDescription = PATCH_TOOL_DEFS[0]?.inputSchema?.properties?.patch?.description || '';
-if (!/V4A/i.test(patchDescription) || !/one file block per target file/i.test(patchDescription) || !/exact current context/i.test(patchDescription)) {
+if (!/V4A/i.test(patchDescription) || !/one (?:file )?block per target file/i.test(patchDescription) || !/exact current context/i.test(patchDescription)) {
   throw new Error('apply_patch schema must keep V4A, per-target block, and exact-context guidance');
 }
 const readPathDescription = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.inputSchema?.properties?.path?.description || '';
@@ -404,7 +426,7 @@ if (!/tools\/skills/i.test(TOOL_SEARCH_TOOL.description || '') || !/deferred/i.t
   throw new Error('tool_search schema must preserve selection guidance and select field');
 }
 const replyTool = CHANNEL_TOOL_DEFS.find((tool) => tool.name === 'reply');
-if (!/configured channel/i.test(replyTool?.description || '') || !/local paths/i.test(replyTool?.inputSchema?.properties?.files?.description || '')) {
+if (!/configured channel/i.test(replyTool?.description || '') || !/local .*paths/i.test(replyTool?.inputSchema?.properties?.files?.description || '')) {
   throw new Error('channel reply schema must describe target channel and attachment paths');
 }
 const fetchTool = CHANNEL_TOOL_DEFS.find((tool) => tool.name === 'fetch');

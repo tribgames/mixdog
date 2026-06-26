@@ -146,6 +146,10 @@ function isAgentTool(normalizedName) {
   return normalizedName === 'bridge' || normalizedName === 'agent' || normalizedName === 'task';
 }
 
+function isBackgroundTaskTool(normalizedName) {
+  return new Set(['explore', 'search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']).has(String(normalizedName || '').toLowerCase());
+}
+
 const AGENT_DISPLAY_NAMES = new Map([
   ['explore', 'Explore'],
   ['web-researcher', 'Web Researcher'],
@@ -181,6 +185,7 @@ function agentActionTitle(args) {
   const status = String(args?.status || '').toLowerCase();
   if (action === 'spawn') return /^(running|pending|queued)$/i.test(status) ? `Spawning ${agent}` : `Spawned ${agent}`;
   if (action === 'send') return /^(running|pending|queued)$/i.test(status) ? `Sending to ${agent}` : `Sent to ${agent}`;
+  if (action === 'read' || action === 'status') return `${agent} status`;
   return '';
 }
 
@@ -200,15 +205,86 @@ function hasAgentResponseResult(value) {
   const isBridgeEnvelope = /^(?:bridge task:|bridge job:|background task\b|bridge mode:|bridge message queued\b|bridge close:)/i.test(text)
     || (/^task_id:\s*\S+/mi.test(text) && /^(?:surface|operation|status):\s*/mi.test(text));
   if (!isBridgeEnvelope) return true;
+  let sawBlank = false;
   for (const line of text.split('\n')) {
     const trimmed = line.trim();
-    if (!trimmed) continue;
+    if (!trimmed) {
+      sawBlank = true;
+      continue;
+    }
     if (/^bridge result\b/i.test(trimmed)) continue;
     if (/^<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
-    if (/^(?:bridge job|bridge task|background task|task_id|surface|operation|label|status|type|target|role|agent|preset|model|effort|fast|limits|started|finished|error|notification|queueDepth):\s*/i.test(trimmed)) continue;
+    if (!sawBlank && /^(?:bridge job|bridge task|background task|bridge message queued\b|bridge close:|task_id|surface|operation|label|status|type|target|role|agent|preset|model|effort|fast|limits|started|finished|error|notification|queueDepth):?\s*/i.test(trimmed)) continue;
+    if (!sawBlank && /^(?:bridge mode|agents|tasks):\s*/i.test(trimmed)) continue;
+    if (!sawBlank && /^-\s+\S+/i.test(trimmed)) continue;
     return true;
   }
   return false;
+}
+
+function parseBackgroundTaskResult(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const allLines = text.split('\n');
+  const start = allLines.findIndex((line) => line.trim() === 'background task');
+  if (start < 0) return null;
+  const rest = allLines.slice(start + 1);
+  const blank = rest.findIndex((line) => !line.trim());
+  const headLines = blank >= 0 ? rest.slice(0, blank) : rest;
+  const body = blank >= 0 ? rest.slice(blank + 1).join('\n').trim() : '';
+  const fields = {};
+  for (const line of headLines) {
+    const match = /^([a-zA-Z][\w-]*):\s*(.*)$/.exec(line.trim());
+    if (match) fields[match[1].toLowerCase()] = match[2].trim();
+  }
+  const status = String(fields.status || '').toLowerCase();
+  return {
+    taskId: fields.task_id || fields.taskid || '',
+    surface: fields.surface || '',
+    operation: fields.operation || '',
+    label: fields.label || '',
+    status,
+    body,
+    hasResponse: Boolean(body) && !/^(running|pending|queued)$/i.test(status),
+  };
+}
+
+function backgroundTaskDisplayName(normalizedName, meta = {}) {
+  const surface = String(meta.surface || normalizedName || '').toLowerCase();
+  if (surface === 'explore') return 'Explore';
+  if (surface === 'search') return 'Search';
+  if (surface === 'shell' || surface === 'bash' || surface === 'bash_session' || surface === 'shell_command' || surface === 'task') return 'Shell';
+  return titleizeAgentName(surface || normalizedName || 'Task');
+}
+
+function backgroundTaskResultTitle(normalizedName, meta = {}) {
+  const display = backgroundTaskDisplayName(normalizedName, meta);
+  if (display === 'Shell') return 'Shell output';
+  if (display === 'Search') return 'Search results';
+  return `${display} response`;
+}
+
+function backgroundTaskActionTitle(normalizedName, meta = {}) {
+  const display = backgroundTaskDisplayName(normalizedName, meta);
+  if (/^(running|pending|queued)$/i.test(meta.status || '')) return `Started ${display}`;
+  if (meta.hasResponse) return backgroundTaskResultTitle(normalizedName, meta);
+  return `${display} status`;
+}
+
+function backgroundTaskDetail(meta = {}) {
+  const parts = [];
+  if (meta.status) parts.push(`status: ${meta.status}`);
+  if (meta.taskId) parts.push(`task_id: ${meta.taskId}`);
+  const firstBodyLine = String(meta.body || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
+  if (firstBodyLine && /^(running|pending|queued)$/i.test(meta.status || '')) parts.push(firstBodyLine);
+  return parts.join(' · ');
+}
+
+function isBackgroundTaskResponseArgs(normalizedName, args = {}) {
+  if (!isBackgroundTaskTool(normalizedName)) return false;
+  const type = String(args?.type || args?.action || '').toLowerCase();
+  const status = String(args?.status || '').toLowerCase();
+  return type === 'result' || type === 'completion' || (/^(completed|failed|cancelled|canceled)$/i.test(status) && Boolean(args?.task_id));
 }
 
 function isOutputDetailTool(normalizedName, label) {
@@ -360,14 +436,19 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
 
   // ── Normal (non-aggregate) tool card ────────────────────────────
   const { label, summary, normalizedName, args: parsedArgs } = formatToolSurface(name, args);
-  const lines = rt ? rt.split('\n') : [];
+  const backgroundMeta = !pending && hasResult && isBackgroundTaskTool(normalizedName)
+    ? parseBackgroundTaskResult(rt)
+    : null;
+  const backgroundResultText = backgroundMeta?.hasResponse ? backgroundMeta.body : '';
+  const displayedResultText = backgroundResultText || rt;
+  const lines = displayedResultText ? displayedResultText.split('\n') : [];
   const totalLines = lines.length;
   // Semantic one-line summary derived purely from name/args/result text.
   // Shown in the collapsed, non-error view in place of the raw result block.
   // Grouped cards ("Searched N files" / "Read N files") get the same treatment
   // as single calls: a one-line semantic summary stands in for the raw block.
   const resultSummary = !pending && hasResult
-    ? surfaceSummarizeToolResult(name, args, rt, isError)
+    ? surfaceSummarizeToolResult(name, args, displayedResultText, isError)
     : null;
   // Same fit budget fitResultLine() uses, to detect a line that will be clipped.
   const maxResultChars = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
@@ -390,26 +471,34 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const genericDetail = !pending && !agentDetail && !imageDetail && !resultSummary
     ? genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError })
     : '';
+  const isBackgroundResult = !pending && hasResult && isBackgroundTaskTool(normalizedName);
+  const isBackgroundResponse = isBackgroundResult && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgs(normalizedName, parsedArgs));
+  const isBackgroundMetadataResult = isBackgroundResult && !isBackgroundResponse && Boolean(backgroundMeta);
+  const backgroundMetadataDetail = isBackgroundMetadataResult ? backgroundTaskDetail(backgroundMeta) : '';
   const collapsedDetail = pending
     ? pendingDetail
-    : (/^(Cancelled|Failed|Finished)$/i.test(resultSummary || '') && agentCompletionDetail
+    : backgroundMetadataDetail || (/^(Cancelled|Failed|Finished)$/i.test(resultSummary || '') && agentCompletionDetail
       ? agentCompletionDetail
       : resultSummary) || agentDetail || imageDetail || genericDetail;
-  const showRawResult = expanded && hasResult;
+  const showRawResult = expanded && hasResult && !isBackgroundMetadataResult;
   const detailLines = showRawResult ? lines : (collapsedDetail ? [collapsedDetail] : []);
-  const detailIsSynthetic = pending || agentDetail || resultSummary || imageDetail || (genericDetail && genericDetail !== firstResultLine);
+  const detailIsSynthetic = pending || agentDetail || resultSummary || imageDetail || backgroundMetadataDetail || (genericDetail && genericDetail !== firstResultLine);
   const detailColor = theme.text;
 
-  const isAgentResponse = !pending && isAgentTool(normalizedName) && hasResult && hasAgentResponseResult(rt);
+  const isAgentResult = !isBackgroundResult && !pending && isAgentTool(normalizedName) && hasResult;
+  const isAgentResponse = isAgentResult && hasAgentResponseResult(rt);
+  const isAgentMetadataResult = isAgentResult && !isAgentResponse;
   const dotColor = statusColor;
   const dotText = pending && !blinkOn ? ' ' : TURN_MARKER;
-  const labelText = isAgentResponse
-    ? agentResponseTitle(parsedArgs)
-    : (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs) : '') || statusCopy(normalizedName, label, groupCount, doneCount, headerPending, isError);
+  let labelText;
+  if (isAgentResponse) labelText = agentResponseTitle(parsedArgs);
+  else if (isBackgroundResponse) labelText = backgroundTaskResultTitle(normalizedName, backgroundMeta || parsedArgs);
+  else if (isBackgroundMetadataResult) labelText = backgroundTaskActionTitle(normalizedName, backgroundMeta);
+  else labelText = (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs) : '') || statusCopy(normalizedName, label, groupCount, doneCount, headerPending, isError);
   // Show the parenthesized arg summary for grouped cards too, matching single
   // calls so the header carries the same context.
-  const summaryText = isAgentResponse ? '' : (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary);
-  const showHeaderExpandHint = hasHiddenDetail;
+  const summaryText = isAgentResponse || isBackgroundResponse ? '' : (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary);
+  const showHeaderExpandHint = hasHiddenDetail && !isAgentMetadataResult && !isBackgroundMetadataResult;
   const expandHintColor = TOOL_HINT_DONE_COLOR;
 
   // Build a single-line header that never wraps: reserve width for the fixed

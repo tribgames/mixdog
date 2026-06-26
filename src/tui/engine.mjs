@@ -319,6 +319,38 @@ function bridgeJobResultText(text, parsed = parseBridgeJob(text)) {
   return stripSyntheticAgentTags(value) || value;
 }
 
+function parseBackgroundTaskEnvelope(text) {
+  const value = String(text ?? '').trim();
+  if (!/^background task\b/i.test(value)) return null;
+  const allLines = value.split('\n');
+  const rest = allLines.slice(1);
+  const blank = rest.findIndex((line) => !line.trim());
+  const headLines = blank >= 0 ? rest.slice(0, blank) : rest;
+  const body = blank >= 0 ? rest.slice(blank + 1).join('\n').trim() : '';
+  const fields = {};
+  for (const line of headLines) {
+    const match = /^([a-zA-Z][\w-]*):\s*(.*)$/.exec(line.trim());
+    if (match) fields[match[1].toLowerCase()] = match[2].trim();
+  }
+  const surface = String(fields.surface || fields.operation || 'task').toLowerCase();
+  const name = surface === 'explore' || surface === 'search' || surface === 'shell' ? surface : 'task';
+  const status = String(fields.status || '').toLowerCase();
+  const taskId = fields.task_id || fields.taskid || '';
+  return {
+    name,
+    label: status || 'notification',
+    args: {
+      type: body ? 'result' : (fields.operation || 'status'),
+      status,
+      task_id: taskId || undefined,
+      surface,
+      label: fields.label || undefined,
+    },
+    result: body || [status ? `status: ${status}` : '', taskId ? `task_id: ${taskId}` : ''].filter(Boolean).join(' · ') || 'background task',
+    isError: /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status) || /^error:/i.test(body),
+  };
+}
+
 function bracketField(text, name) {
   const re = new RegExp(`^\\[${name}:\\s*([^\\]]*)\\]`, 'mi');
   return re.exec(String(text ?? ''))?.[1]?.trim() || '';
@@ -336,6 +368,8 @@ function parseSyntheticAgentMessage(text) {
       result: finalAnswer,
     };
   }
+  const backgroundTask = parseBackgroundTaskEnvelope(value);
+  if (backgroundTask) return backgroundTask;
   const shellTaskId = bracketField(value, 'task_id');
   if (shellTaskId) {
     const status = bracketField(value, 'status') || 'done';
@@ -398,8 +432,7 @@ function parseToolArgs(args) {
   return typeof args === 'object' ? args : {};
 }
 
-const BRIDGE_JOB_POLL_MS = 10000;
-const BRIDGE_JOB_FIRST_POLL_MS = 2500;
+const BRIDGE_JOB_POLL_MS = 2000;
 const BRIDGE_JOB_MAX_POLL_MS = 10 * 60_000;
 const yieldToRenderer = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -561,7 +594,7 @@ export async function createEngineSession({
   const cwd = runtime.cwd || process.cwd();
   const stateStartedAt = performance.now();
   const autoClearState = () => runtime.getAutoClear?.() || runtime.autoClear || { enabled: true, idleMs: 60 * 60 * 1000 };
-  const BRIDGE_STATUS_CACHE_MS = 1000;
+  const BRIDGE_STATUS_CACHE_MS = 250;
   let bridgeStatusCache = null;
   let bridgeStatusCacheAt = 0;
   const bridgeStatusState = ({ force = false } = {}) => {
@@ -828,7 +861,7 @@ export async function createEngineSession({
       monitor.timer.unref?.();
     };
 
-    monitor.timer = setTimeout(poll, BRIDGE_JOB_FIRST_POLL_MS);
+    monitor.timer = setTimeout(poll, 0);
     monitor.timer.unref?.();
   }
 

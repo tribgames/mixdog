@@ -333,6 +333,8 @@ const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   'grep',
   'glob',
   'list',
+  'shell',
+  'task',
   'explore',
   'apply_patch',
   'bridge',

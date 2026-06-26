@@ -18,7 +18,6 @@ const _FLUSH_INTERVAL_MS = 5000;
 const _FLUSH_BATCH_SIZE = 500;
 let _flushTimer = null;
 let _serviceUrl = null;
-let _serviceUrlMissUntil = 0;
 let _flushInFlight = false;
 let _localTracePath = null;
 let _localTraceBuffer = [];
@@ -60,7 +59,6 @@ function _rotateLocalTraceIfNeeded(path) {
 
 function _resolveLocalTracePath() {
     if (process.env.MIXDOG_BRIDGE_TRACE_LOCAL_DISABLE === '1') return null;
-    if (!process.env.MIXDOG_BRIDGE_TRACE_PATH && process.env.MIXDOG_BRIDGE_TRACE_LOCAL !== '1') return null;
     if (_localTracePath) return _localTracePath;
     try {
         _localTracePath = process.env.MIXDOG_BRIDGE_TRACE_PATH
@@ -169,25 +167,19 @@ try {
 
 function _resolveServiceUrl() {
     if (_serviceUrl) return _serviceUrl;
-    const now = Date.now();
-    if (_serviceUrlMissUntil && now < _serviceUrlMissUntil) return null;
-    const miss = () => {
-        _serviceUrlMissUntil = Date.now() + 30_000;
-        return null;
-    };
     try {
         const runtimeRoot = process.env.MIXDOG_RUNTIME_ROOT
             ? join(process.env.MIXDOG_RUNTIME_ROOT)
             : join(os.tmpdir(), 'mixdog');
         const activeFile = join(runtimeRoot, 'active-instance.json');
-        if (!existsSync(activeFile)) return miss();
+        if (!existsSync(activeFile)) return null;
         const active = JSON.parse(readFileSync(activeFile, 'utf-8'));
         const port = Number(active && active.memory_port);
-        if (!Number.isFinite(port) || port <= 0) return miss();
+        if (!Number.isFinite(port) || port <= 0) return null;
         _serviceUrl = `http://127.0.0.1:${port}`;
         return _serviceUrl;
     } catch {
-        return miss();
+        return null;
     }
 }
 
@@ -195,10 +187,7 @@ async function _flush() {
     _flushTimer = null;
     if (_buffer.length === 0) return;
     if (_flushInFlight) {
-        if (!_flushTimer) {
-            _flushTimer = setTimeout(_flush, _FLUSH_INTERVAL_MS);
-            _flushTimer.unref?.();
-        }
+        if (!_flushTimer) _flushTimer = setTimeout(_flush, _FLUSH_INTERVAL_MS);
         return;
     }
     _flushInFlight = true;
@@ -206,10 +195,7 @@ async function _flush() {
         const url = _resolveServiceUrl();
         if (!url) {
             // Service not up yet — keep buffer, retry next timer tick
-            if (!_flushTimer) {
-                _flushTimer = setTimeout(_flush, _FLUSH_INTERVAL_MS);
-                _flushTimer.unref?.();
-            }
+            if (!_flushTimer) _flushTimer = setTimeout(_flush, _FLUSH_INTERVAL_MS);
             return;
         }
         const batch = _buffer.splice(0, _FLUSH_BATCH_SIZE);
@@ -242,7 +228,6 @@ function _scheduleFlush(immediate = false) {
         setImmediate(_flush);
     } else if (!_flushTimer) {
         _flushTimer = setTimeout(_flush, _FLUSH_INTERVAL_MS);
-        _flushTimer.unref?.();
     }
 }
 

@@ -7,6 +7,8 @@
  *   • classifyBashFileLookupCommand — detects a `bash` call whose first token is
  *     a file-lookup that has a dedicated in-process tool (read/grep/glob/list).
  *     Used by the bridge-worker permission gate to block the shell route.
+ *   • classifyBridgeWorkerGitMutationCommand — detects bridge-worker shell
+ *     calls that try to run git operations reserved for Lead.
  *   • stripSoftWarns — strips legacy soft-warn marker blocks from outbound
  *     bodies so older transcripts that still carry them stay clean.
  */
@@ -62,6 +64,164 @@ function _classifyBashFileLookup(command) {
 
 export function classifyBashFileLookupCommand(command) {
     return _classifyBashFileLookup(command);
+}
+
+const SHELL_WRAPPER_COMMANDS = new Set([
+    'bash', 'sh', 'zsh', 'fish', 'dash',
+    'cmd', 'cmd.exe',
+    'pwsh', 'pwsh.exe', 'powershell', 'powershell.exe',
+]);
+const POSIX_SHELL_WRAPPER_COMMANDS = new Set(['bash', 'sh', 'zsh', 'fish', 'dash']);
+const CMD_SHELL_WRAPPER_COMMANDS = new Set(['cmd', 'cmd.exe']);
+const POWERSHELL_WRAPPER_COMMANDS = new Set(['pwsh', 'pwsh.exe', 'powershell', 'powershell.exe']);
+const SHELL_SEPARATORS = new Set([';', '\n', '&&', '||', '|', '&']);
+const READONLY_GIT_SUBCOMMANDS = new Set([
+    'status', 'diff', 'show', 'log', 'rev-parse', 'ls-files', 'grep', 'blame', 'describe', 'merge-base',
+]);
+
+function shellTokenizeLoose(command) {
+    const tokens = [];
+    let current = '';
+    let quote = null;
+    let escape = false;
+    const push = () => {
+        if (current !== '') tokens.push(current);
+        current = '';
+    };
+    const pushSep = (sep) => {
+        push();
+        tokens.push(sep);
+    };
+    for (let i = 0; i < command.length; i += 1) {
+        const ch = command[i];
+        if (escape) {
+            current += ch;
+            escape = false;
+            continue;
+        }
+        if (ch === '\\') {
+            escape = true;
+            continue;
+        }
+        if (quote) {
+            if (ch === quote) quote = null;
+            else current += ch;
+            continue;
+        }
+        if (ch === '\'' || ch === '"') {
+            quote = ch;
+            continue;
+        }
+        if (ch === '\n') {
+            pushSep('\n');
+            continue;
+        }
+        if (ch === ';') {
+            pushSep(';');
+            continue;
+        }
+        if ((ch === '&' || ch === '|') && command[i + 1] === ch) {
+            pushSep(`${ch}${ch}`);
+            i += 1;
+            continue;
+        }
+        if (ch === '|' || ch === '&') {
+            pushSep(ch);
+            continue;
+        }
+        if (/\s/.test(ch)) {
+            push();
+            continue;
+        }
+        current += ch;
+    }
+    push();
+    return tokens;
+}
+
+function isCommandPosition(tokens, index) {
+    for (let i = index - 1; i >= 0; i -= 1) {
+        if (!tokens[i]) continue;
+        return SHELL_SEPARATORS.has(tokens[i]);
+    }
+    return true;
+}
+
+function skipGitGlobalOptions(tokens, index) {
+    let i = index;
+    while (i < tokens.length) {
+        const token = String(tokens[i] || '');
+        const lower = token.toLowerCase();
+        if (!token || SHELL_SEPARATORS.has(token)) return i;
+        if (lower === '-c' || lower === '-C' || lower === '--git-dir' || lower === '--work-tree' || lower === '--namespace') {
+            i += 2;
+            continue;
+        }
+        if (/^(?:--git-dir|--work-tree|--namespace)=/i.test(token)) {
+            i += 1;
+            continue;
+        }
+        if (lower === '--no-pager' || lower === '-p' || lower === '--literal-pathspecs' || lower === '--glob-pathspecs' || lower === '--noglob-pathspecs' || lower === '--icase-pathspecs') {
+            i += 1;
+            continue;
+        }
+        if (/^-/.test(token)) {
+            i += 1;
+            continue;
+        }
+        return i;
+    }
+    return i;
+}
+
+function readonlyGitInvocation(tokens, subIndex) {
+    const sub = String(tokens[subIndex] || '').toLowerCase();
+    if (!READONLY_GIT_SUBCOMMANDS.has(sub)) return false;
+    if (sub === 'remote') {
+        const next = String(tokens[subIndex + 1] || '').toLowerCase();
+        return !next || next === '-v' || next === '--verbose' || next === 'show';
+    }
+    if (sub === 'branch') {
+        const rest = tokens.slice(subIndex + 1).filter((token) => token && !SHELL_SEPARATORS.has(token));
+        return rest.length === 0 || rest.every((token) => ['--show-current', '-a', '-r', '-v', '-vv', '--all', '--remotes', '--verbose', '--contains', '--merged', '--no-merged'].includes(String(token).toLowerCase()));
+    }
+    return true;
+}
+
+function isShellCommandArgFlag(wrapper, flag) {
+    const lower = String(flag || '').toLowerCase();
+    if (POSIX_SHELL_WRAPPER_COMMANDS.has(wrapper)) return /^-\w*c\w*$/.test(lower);
+    if (CMD_SHELL_WRAPPER_COMMANDS.has(wrapper)) return lower === '/c';
+    if (POWERSHELL_WRAPPER_COMMANDS.has(wrapper)) return lower === '-command' || lower === '/command' || lower === '-c';
+    return false;
+}
+
+export function classifyBridgeWorkerGitMutationCommand(command) {
+    if (typeof command !== 'string' || !command.trim()) return null;
+    const tokens = shellTokenizeLoose(command);
+    for (let i = 0; i < tokens.length; i += 1) {
+        const token = String(tokens[i] || '').toLowerCase();
+        if (!token || SHELL_SEPARATORS.has(token) || !isCommandPosition(tokens, i)) continue;
+        if (SHELL_WRAPPER_COMMANDS.has(token)) {
+            for (let j = i + 1; j < tokens.length; j += 1) {
+                const flag = String(tokens[j] || '').toLowerCase();
+                if (SHELL_SEPARATORS.has(flag)) break;
+                if (!isShellCommandArgFlag(token, flag)) continue;
+                const nested = tokens.slice(j + 1).join(' ');
+                const nestedHit = classifyBridgeWorkerGitMutationCommand(nested || '');
+                if (nestedHit) return nestedHit;
+                break;
+            }
+            continue;
+        }
+        if (token !== 'git' && token !== 'git.exe') continue;
+        const subIndex = skipGitGlobalOptions(tokens, i + 1);
+        const sub = String(tokens[subIndex] || '').toLowerCase();
+        if (!sub || SHELL_SEPARATORS.has(sub)) return 'git';
+        if (readonlyGitInvocation(tokens, subIndex)) continue;
+        return `git ${sub}`;
+    }
+    return null;
 }
 
 // Strip soft-warn marker blocks (header ⚠ <label> through next blank line / EOF)

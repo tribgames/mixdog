@@ -22,7 +22,7 @@ import {
     normalizeCompactionBufferRatio,
 } from './compact.mjs';
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
-import { classifyBashFileLookupCommand, stripSoftWarns } from '../tool-loop-guard.mjs';
+import { classifyBashFileLookupCommand, classifyBridgeWorkerGitMutationCommand, stripSoftWarns } from '../tool-loop-guard.mjs';
 import { maybeOffloadToolResult } from './tool-result-offload.mjs';
 import { tryReadCached, setReadCached, invalidatePathForSession, markPostEdit, consumePostEditMark, clearReadDedupSession, extractTouchedPathsFromPatch, tryScopedToolCached, setScopedToolCached, clearScopedToolsForSession, clearScopedToolsForSessionPaths, invalidatePrefetchCache } from './read-dedup.mjs';
 import { createScopedCacheOutcome } from './cache/scoped-cache-outcome.mjs';
@@ -415,6 +415,10 @@ function _checkWorkerPermission(toolName, toolInput, sessionRef) {
         const cmdClass = classifyBashFileLookupCommand(toolInput?.command);
         if (cmdClass) {
             return `Error: bridge worker shell file lookup blocked (${cmdClass}). Use Mixdog MCP read/grep/glob/list directly; shell is only for build/test/run/git-style commands.`;
+        }
+        const gitClass = classifyBridgeWorkerGitMutationCommand(toolInput?.command);
+        if (gitClass) {
+            return `Error: bridge worker git operation blocked (${gitClass}). Git operations are deferred to Lead.`;
         }
     }
     // Even when no explicit permissionMode is propagated to the worker, run
