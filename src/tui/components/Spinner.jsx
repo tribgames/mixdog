@@ -43,7 +43,7 @@ const SHOW_TOKENS_AFTER_MS = 30_000;
 const THINKING_DELAY_MS = 3000;
 
 // One-way shimmer. The tail runs past the final character before restarting.
-const GLIMMER_SPEED_MS = { requesting: 70, compacting: 120, resuming: 120, 'tool-use': 120, responding: 120, thinking: 120, 'tool-input': 120 };
+const GLIMMER_SPEED_MS = { requesting: 70, compacting: 120, 'auto-clear': 120, resuming: 120, 'tool-use': 120, responding: 120, thinking: 120, 'tool-input': 120 };
 const GLIMMER_TRAIL = 4;
 const THINKING_GLIMMER_SPEED_MS = 120;
 const THINKING_GLIMMER_TRAIL = 4;
@@ -54,6 +54,7 @@ const VERB_CHANGE_PROBABILITY = 0.65;
 const MODE_VERBS = {
   requesting: ['Requesting', 'Preparing', 'Routing'],
   compacting: ['Compacting conversation'],
+  'auto-clear': ['Auto-clearing conversation'],
   resuming: ['Resuming conversation'],
   thinking: ['Thinking', 'Reasoning', 'Mapping'],
   'tool-use': ['Using tools', 'Checking files', 'Running tools', 'Reading output'],

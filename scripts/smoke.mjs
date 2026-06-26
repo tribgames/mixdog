@@ -80,6 +80,18 @@ runNode(['--input-type=module', '-e', `
     provider: 'openai',
     model: 'gpt-5.5',
     contextWindow: 950000,
+    stats: { currentContextTokens: 360000, currentContextSource: 'post_compact_estimate' },
+  });
+  if (!line.includes('37%')) throw new Error('statusline must show post-compact estimated context after stale API usage: ' + JSON.stringify(line));
+`], 'statusline post-compact context smoke', { env: isolatedStatuslineEnv });
+
+runNode(['--input-type=module', '-e', `
+  process.stdout.columns = 120;
+  const { renderStatusline } = await import('./src/ui/statusline.mjs');
+  const line = await renderStatusline({
+    provider: 'openai',
+    model: 'gpt-5.5',
+    contextWindow: 950000,
     stats: { currentContextTokens: 0 },
     bridgeJobs: [{ task_id: 'task_statusline_smoke', status: 'running', tag: 'bench-agent', startedAt: new Date().toISOString() }],
   });

@@ -279,6 +279,34 @@ const COMPACTION_INPUT_MAX_CHARS = 2_000;
 const COMPACTION_PROMPT_HEADROOM = 0.85;
 const PRESERVED_FACTS_MAX_CHARS = 600;
 
+export const COMPACT_TYPE_SEMANTIC = 'semantic';
+export const COMPACT_TYPE_RECALL_FASTTRACK = 'recall-fasttrack';
+export const DEFAULT_COMPACT_TYPE = COMPACT_TYPE_SEMANTIC;
+export const COMPACT_TYPES = Object.freeze([
+    COMPACT_TYPE_SEMANTIC,
+    COMPACT_TYPE_RECALL_FASTTRACK,
+]);
+
+export function normalizeCompactType(value, fallback = DEFAULT_COMPACT_TYPE) {
+    const raw = String(value ?? '').trim().toLowerCase().replace(/_/g, '-');
+    if (!raw) return fallback;
+    if (raw === '1' || raw === 'type1' || raw === 'type-1' || raw === 'bench1' || raw === 'bench-1' || raw === 'semantic' || raw === 'summary') {
+        return COMPACT_TYPE_SEMANTIC;
+    }
+    if (raw === '2' || raw === 'type2' || raw === 'type-2' || raw === 'recall' || raw === 'recall-fast' || raw === 'recall-fasttrack' || raw === 'recall-fast-track' || raw === 'fasttrack') {
+        return COMPACT_TYPE_RECALL_FASTTRACK;
+    }
+    return fallback;
+}
+
+export function compactTypeIsSemantic(value) {
+    return normalizeCompactType(value) === COMPACT_TYPE_SEMANTIC;
+}
+
+export function compactTypeIsRecallFastTrack(value) {
+    return normalizeCompactType(value) === COMPACT_TYPE_RECALL_FASTTRACK;
+}
+
 function preservedFactHints() {
     return String(process.env.MIXDOG_COMPACT_FACT_HINTS || '')
         .split(/[\n,;]+/u)
@@ -623,6 +651,7 @@ function extractResponseText(response) {
 
 function makeSemanticSummaryMessage(oldHistory, summary, semanticMeta = {}, preservedFacts = '') {
     const header = compactHeader(oldHistory);
+    header.push(`compact_type=${COMPACT_TYPE_SEMANTIC}`);
     header.push(`semantic=true provider=${semanticMeta.provider || 'unknown'} model=${semanticMeta.model || 'unknown'}`);
     const facts = String(preservedFacts || '').trim();
     const body = String(summary || '').trim();
@@ -630,6 +659,28 @@ function makeSemanticSummaryMessage(oldHistory, summary, semanticMeta = {}, pres
     if (facts) parts.push(facts);
     if (body) parts.push(body);
     return makeSummaryMessage(parts.join('\n\n'));
+}
+
+export function buildRecallFastTrackQuery(messages, opts = {}) {
+    const maxChars = Math.max(200, Number(opts.maxChars) || 2_000);
+    const hints = String(opts.hints || 'current task decisions constraints file paths changed files verification failures next steps').trim();
+    let latestUser = '';
+    const recent = [];
+    const input = Array.isArray(messages) ? messages : [];
+    for (let i = input.length - 1; i >= 0; i -= 1) {
+        const m = input[i];
+        const text = extractText(m).trim();
+        if (!text) continue;
+        if (recent.length < 6) recent.unshift(text);
+        if (!latestUser && m?.role === 'user' && !isProtectedContextUserMessage(m)) {
+            latestUser = text;
+        }
+        if (latestUser && recent.length >= 6) break;
+    }
+    const parts = [latestUser, hints, recent.join('\n')]
+        .map((s) => String(s || '').trim())
+        .filter(Boolean);
+    return truncateMiddle([...new Set(parts)].join('\n'), maxChars);
 }
 
 function fitSemanticSummaryMessage(oldHistory, summary, remainingTokens, semanticMeta, preservedFacts = '') {
@@ -644,6 +695,48 @@ function fitSemanticSummaryMessage(oldHistory, summary, remainingTokens, semanti
         while (lo <= hi) {
             const mid = Math.floor((lo + hi) / 2);
             const candidate = makeSemanticSummaryMessage(oldHistory, text.slice(0, mid), semanticMeta, factsText);
+            if (estimateMessagesTokens([candidate]) <= remainingTokens) {
+                best = candidate;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        return best;
+    };
+    if (preservedFacts) {
+        const withFacts = tryFit(preservedFacts);
+        if (withFacts) return withFacts;
+    }
+    return tryFit('');
+}
+
+function makeRecallFastTrackSummaryMessage(oldHistory, recallText, recallMeta = {}, preservedFacts = '') {
+    const header = compactHeader(oldHistory);
+    header.push(`compact_type=${COMPACT_TYPE_RECALL_FASTTRACK} source=recall-fasttrack query_sha=${recallMeta.querySha || 'none'}`);
+    const facts = String(preservedFacts || '').trim();
+    const recall = String(recallText || '').trim();
+    const parts = [header.join('\n')];
+    if (facts) parts.push(facts);
+    parts.push([
+        '## Recall Fast-Track Context',
+        recall || '(no recall hits)',
+    ].join('\n'));
+    return makeSummaryMessage(parts.join('\n\n'));
+}
+
+function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remainingTokens, recallMeta = {}, preservedFacts = '') {
+    const tryFit = (factsText) => {
+        const minimal = makeRecallFastTrackSummaryMessage(oldHistory, '', recallMeta, factsText);
+        if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
+        const text = String(recallText || '').trim();
+        if (!text) return minimal;
+        let lo = 0;
+        let hi = text.length;
+        let best = minimal;
+        while (lo <= hi) {
+            const mid = Math.floor((lo + hi) / 2);
+            const candidate = makeRecallFastTrackSummaryMessage(oldHistory, text.slice(0, mid), recallMeta, factsText);
             if (estimateMessagesTokens([candidate]) <= remainingTokens) {
                 best = candidate;
                 lo = mid + 1;
@@ -705,8 +798,14 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
         maxOutputTokens: opts.maxOutputTokens || SUMMARY_OUTPUT_TOKENS,
         providerState: undefined,
         onToolCall: undefined,
+        onToolResult: undefined,
+        onTextDelta: undefined,
+        onReasoningDelta: undefined,
+        onUsageDelta: undefined,
         onStreamDelta: undefined,
         onStageChange: undefined,
+        drainSteering: undefined,
+        onSteerMessage: undefined,
         remoteCompact: false,
         signal: combinedSignal(opts.signal || opts.sendOpts?.signal || null, opts.timeoutMs || 30_000),
     };
@@ -746,7 +845,53 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
         usage: response?.usage || null,
         providerState: response?.providerState,
         semantic: true,
+        compactType: COMPACT_TYPE_SEMANTIC,
         summary,
+    };
+}
+
+export function recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
+    const budget = effectiveBudget(budgetTokens, opts);
+    const sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
+    if (estimateMessagesTokens(sanitized) <= budget && opts.force !== true) {
+        return { messages: sanitized, recallFastTrack: false };
+    }
+
+    const selected = selectCompactionWindow(sanitized, budget, opts);
+    if (selected.head.length === 0 && !selected.previousSummary) {
+        throw new Error('recallFastTrackCompactMessages: no compactable prior history before preserved tail');
+    }
+
+    const mandatory = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs([...selected.system, ...selected.tail])));
+    const mandatoryCost = estimateMessagesTokens(mandatory);
+    if (mandatoryCost > budget) {
+        throw new Error(`recallFastTrackCompactMessages: system+preserved tail exceeds budget=${budget} (base=${mandatoryCost})`);
+    }
+
+    const recallText = String(opts.recallText || '').trim();
+    if (!recallText && opts.allowEmptyRecall !== true) {
+        throw new Error('recallFastTrackCompactMessages: recall text is empty');
+    }
+    const oldHistory = selected.originalHead;
+    const recallMeta = {
+        querySha: opts.querySha || null,
+    };
+    const summaryMessage = fitRecallFastTrackSummaryMessage(oldHistory, recallText, budget - mandatoryCost, recallMeta, selected.preservedFacts);
+    if (!summaryMessage) {
+        throw new Error(`recallFastTrackCompactMessages: summary cannot fit remaining budget=${budget - mandatoryCost}`);
+    }
+
+    let result = sanitizeToolPairs([...selected.system, summaryMessage, ...selected.tail]);
+    result = reconcileDedupStubs(dedupToolResultBodies(result));
+    const finalTokens = estimateMessagesTokens(result);
+    if (finalTokens > budget) {
+        throw new Error(`recallFastTrackCompactMessages: compacted result exceeds budget=${budget} (result=${finalTokens})`);
+    }
+    return {
+        messages: result,
+        recallFastTrack: true,
+        compactType: COMPACT_TYPE_RECALL_FASTTRACK,
+        query: opts.query || '',
     };
 }
 

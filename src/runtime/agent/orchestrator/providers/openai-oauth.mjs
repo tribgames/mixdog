@@ -1857,7 +1857,64 @@ function _scrubOAuthLoginBody(text) {
         .replace(/[A-Za-z0-9_-]{32,}\.[A-Za-z0-9._-]+/g, '[REDACTED]');
 }
 
-export async function loginOAuth() {
+function _parseOAuthCodeInput(input) {
+    const value = String(input || '').trim();
+    if (!value) return { code: '', state: '' };
+    try {
+        const url = new URL(value);
+        const code = url.searchParams.get('code') || '';
+        const state = url.searchParams.get('state') || '';
+        if (code || state) return { code, state };
+    } catch { /* not a URL */ }
+    if (value.includes('#')) {
+        const [code, state] = value.split('#', 2);
+        return { code: String(code || '').trim(), state: String(state || '').trim() };
+    }
+    if (value.includes('code=')) {
+        const params = new URLSearchParams(value.startsWith('?') ? value.slice(1) : value);
+        return { code: params.get('code') || '', state: params.get('state') || '' };
+    }
+    return { code: value, state: '' };
+}
+
+async function exchangeAuthorizationCode({ pkce, code }) {
+    const cleanCode = String(code || '').trim();
+    if (!cleanCode) throw new Error('[openai-oauth] authorization code is required');
+    const tokenRes = await fetch(TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            code: cleanCode,
+            redirect_uri: REDIRECT_URI,
+            client_id: CLIENT_ID,
+            code_verifier: pkce.verifier,
+        }),
+        redirect: 'error',
+        signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+    });
+    if (!tokenRes.ok) {
+        const text = await tokenRes.text().catch(() => '');
+        throw new Error(`[openai-oauth] token exchange ${tokenRes.status}: ${_scrubOAuthLoginBody(text).slice(0, 500)}`);
+    }
+    const json = await tokenRes.json();
+    if (!json.access_token || !json.refresh_token) {
+        throw new Error('[openai-oauth] token exchange response missing access_token or refresh_token');
+    }
+    const expiresAt = (typeof json.expires_in === 'number'
+        ? Date.now() + json.expires_in * 1000
+        : 0) || _expiryFromAccessToken(json.access_token);
+    const tokens = {
+        access_token: json.access_token,
+        refresh_token: json.refresh_token,
+        expires_at: expiresAt,
+        account_id: extractAccountId(json.access_token),
+    };
+    saveTokens(tokens);
+    return tokens;
+}
+
+export async function beginOAuthLogin() {
     const pkce = generatePKCE();
     const state = randomBytes(16).toString('hex');
     const url = new URL(AUTHORIZE_URL);
@@ -1872,18 +1929,20 @@ export async function loginOAuth() {
     url.searchParams.set('state', state);
     url.searchParams.set('originator', CODEX_OAUTH_ORIGINATOR);
 
-    return new Promise((resolve, reject) => {
+    let server = null;
+    let timeout = null;
+    let finish = null;
+    const waitForCallback = new Promise((resolve, reject) => {
         let settled = false;
-        let timeout = null;
-        const settle = (value, error = null) => {
+        finish = (value, error = null) => {
             if (settled) return;
             settled = true;
             if (timeout) clearTimeout(timeout);
-            try { server.close(); } catch { /* already closed */ }
+            try { server?.close(); } catch { /* already closed */ }
             if (error) reject(error);
             else resolve(value);
         };
-        const server = createServer(async (req, res) => {
+        server = createServer(async (req, res) => {
             const u = new URL(req.url || '/', `http://${CALLBACK_HOST}:${CALLBACK_PORT}`);
             if (u.pathname !== CALLBACK_PATH) {
                 res.writeHead(404);
@@ -1894,51 +1953,19 @@ export async function loginOAuth() {
             if (!code || u.searchParams.get('state') !== state) {
                 res.writeHead(400);
                 res.end('Invalid');
-                settle(null);
+                finish(null);
                 return;
             }
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end('<html><body><h2>Codex login successful! You can close this tab.</h2></body></html>');
             try {
-                const tokenRes = await fetch(TOKEN_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({
-                        grant_type: 'authorization_code',
-                        code,
-                        redirect_uri: REDIRECT_URI,
-                        client_id: CLIENT_ID,
-                        code_verifier: pkce.verifier,
-                    }),
-                    redirect: 'error',
-                    signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
-                });
-                if (!tokenRes.ok) {
-                    const text = await tokenRes.text().catch(() => '');
-                    settle(null, new Error(`[openai-oauth] token exchange ${tokenRes.status}: ${_scrubOAuthLoginBody(text).slice(0, 500)}`));
-                    return;
-                }
-                const json = await tokenRes.json();
-                if (!json.access_token || !json.refresh_token) {
-                    settle(null, new Error('[openai-oauth] token exchange response missing access_token or refresh_token'));
-                    return;
-                }
-                const expiresAt = (typeof json.expires_in === 'number'
-                    ? Date.now() + json.expires_in * 1000
-                    : 0) || _expiryFromAccessToken(json.access_token);
-                const tokens = {
-                    access_token: json.access_token,
-                    refresh_token: json.refresh_token,
-                    expires_at: expiresAt,
-                    account_id: extractAccountId(json.access_token),
-                };
-                saveTokens(tokens);
-                settle(tokens);
+                const tokens = await exchangeAuthorizationCode({ pkce, code });
+                finish(tokens);
             } catch (err) {
-                settle(null, err instanceof Error ? err : new Error(String(err)));
+                finish(null, err instanceof Error ? err : new Error(String(err)));
             }
         });
-        timeout = setTimeout(() => settle(null), LOGIN_TIMEOUT_MS);
+        timeout = setTimeout(() => finish(null), LOGIN_TIMEOUT_MS);
         server.listen(CALLBACK_PORT, CALLBACK_HOST, async () => {
             process.stderr.write(`\n[openai-oauth] Open this URL to log in to ChatGPT (Codex):\n${url.toString()}\n\n`);
             try {
@@ -1948,6 +1975,27 @@ export async function loginOAuth() {
                 process.stderr.write(`[openai-oauth] browser open failed: ${String(err?.message || err).slice(0, 200)}\n`);
             }
         });
-        server.on('error', (err) => settle(null, new Error(`[openai-oauth] callback server failed on ${CALLBACK_HOST}:${CALLBACK_PORT}: ${err?.message || err}`)));
+        server.on('error', (err) => finish(null, new Error(`[openai-oauth] callback server failed on ${CALLBACK_HOST}:${CALLBACK_PORT}: ${err?.message || err}`)));
     });
+
+    return {
+        provider: 'openai-oauth',
+        url: url.toString(),
+        waitForCallback,
+        completeCode: async (input) => {
+            const parsed = _parseOAuthCodeInput(input);
+            if (parsed.state && parsed.state !== state) throw new Error('[openai-oauth] OAuth state mismatch');
+            const tokens = await exchangeAuthorizationCode({ pkce, code: parsed.code });
+            finish?.(tokens);
+            return tokens;
+        },
+        cancel: () => {
+            finish?.(null);
+        },
+    };
+}
+
+export async function loginOAuth() {
+    const login = await beginOAuthLogin();
+    return await login.waitForCallback;
 }

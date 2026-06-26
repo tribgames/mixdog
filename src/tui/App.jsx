@@ -34,6 +34,7 @@ import { SlashCommandPalette } from './components/SlashCommandPalette.jsx';
 import { ContextPanel } from './components/ContextPanel.jsx';
 import { UsagePanel } from './components/UsagePanel.jsx';
 import { TextEntryPanel } from './components/TextEntryPanel.jsx';
+import { openInBrowser } from '../runtime/shared/open-url.mjs';
 import {
   buildPromptContentWithImages,
   formatImageRef,
@@ -156,6 +157,30 @@ function systemShellDescription(shell = {}) {
   const effective = clean(shell.effective);
   if (effective) return `${effective} · ${shell.source || 'env'}`;
   return 'auto';
+}
+
+function providerStatusLabel(provider = {}) {
+  const status = clean(provider.status);
+  if (status) return status;
+  if (provider.enabled || provider.authenticated) return 'Set';
+  if (provider.detected) return 'Detected';
+  return 'Off';
+}
+
+function providerDetailText(provider = {}) {
+  const detail = clean(provider.detail);
+  if (detail) return detail;
+  if (provider.env && provider.envName) return `env: ${provider.envName}`;
+  if (provider.envName) return provider.envName;
+  if (provider.baseURL) return provider.baseURL;
+  if (provider.desc) return provider.desc;
+  return '';
+}
+
+function providerKindLabel(provider = {}) {
+  if (provider.type === 'oauth') return 'OAuth';
+  if (provider.type === 'local') return 'Local endpoint';
+  return 'API key';
 }
 
 function summarizeTags(tags, limit = 3) {
@@ -664,6 +689,7 @@ export function App({ store, initialStatusLine = '' }) {
     setUsagePanel(null);
   }, []);
   const [providerPrompt, setProviderPrompt] = useState(null);
+  const oauthSubmitRef = useRef(false);
   const [channelPrompt, setChannelPrompt] = useState(null);
   const [hookPrompt, setHookPrompt] = useState(null);
   const [settingsPrompt, setSettingsPrompt] = useState(null);
@@ -2003,7 +2029,8 @@ export function App({ store, initialStatusLine = '' }) {
     }
     const items = workflows.map((workflow) => ({
       value: workflow.id,
-      label: workflow.active ? `${workflow.name} ✓` : workflow.name,
+      label: workflow.name,
+      labelSuffix: workflow.active ? '✓' : '',
       description: workflow.description || `${workflow.source || 'workflow'} workflow`,
       _workflow: workflow,
     }));
@@ -2062,7 +2089,8 @@ export function App({ store, initialStatusLine = '' }) {
     const currentId = status?.current?.id || 'default';
     const items = styles.map((style) => ({
       value: style.id,
-      label: `${style.label || style.id}${style.id === currentId ? ' ✓' : ''}`,
+      label: style.label || style.id,
+      labelSuffix: style.id === currentId ? '✓' : '',
       description: style.description || style.source || 'output style',
       _style: style,
     }));
@@ -2111,9 +2139,14 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
     const current = state.effort || items[0]?.value || '';
+    const pickerItems = items.map((item) => ({
+      ...item,
+      labelSuffix: item?.value === current ? '✓' : '',
+      description: clean(item?.description).toLowerCase() === 'current' ? '' : item?.description,
+    }));
     setPicker({
-      title: `Effort (current: ${current})`,
-      items,
+      title: 'Effort',
+      items: pickerItems,
       onSelect: (value) => {
         setPicker(null);
         void store.setEffort(value)
@@ -2308,6 +2341,7 @@ export function App({ store, initialStatusLine = '' }) {
     setSettingsPrompt(null);
     setPicker(null);
     setContextPanel({
+      kind: 'status',
       title: 'Status',
       rows: [
         {
@@ -2530,6 +2564,7 @@ export function App({ store, initialStatusLine = '' }) {
     setSettingsPrompt(null);
     setPicker(null);
     setContextPanel({
+      kind: 'context',
       title: 'Context Usage',
       detail: {
         type: 'context',
@@ -2588,6 +2623,30 @@ export function App({ store, initialStatusLine = '' }) {
       rows: contextRows,
     });
   };
+
+  useEffect(() => {
+    if (contextPanel?.kind === 'context') {
+      openContextPicker();
+      return;
+    }
+    if (contextPanel?.kind === 'status') openStatusPicker();
+  }, [
+    contextPanel?.kind,
+    state.stats,
+    state.contextWindow,
+    state.rawContextWindow,
+    state.sessionId,
+    state.toolMode,
+    state.bridgeMode,
+    state.bridgeWorkers,
+    state.bridgeJobs,
+    state.provider,
+    state.model,
+    state.effort,
+    state.fast,
+    state.cwd,
+    state.clientHostPid,
+  ]);
 
   const openSettingsPicker = () => {
     const tools = store.toolsStatus?.() || { activeCount: 0, count: 0 };
@@ -2816,37 +2875,55 @@ export function App({ store, initialStatusLine = '' }) {
         _type: 'continue',
       });
     }
-    const providerEnabledLabel = (p) => (p.enabled || p.authenticated ? 'Enabled' : 'Disabled');
+    const providerFooter = (item) => {
+      const provider = item?._provider;
+      if (!provider) return '';
+      const active = provider.enabled || provider.authenticated || provider.detected;
+      return [{
+        glyph: active ? '●' : '○',
+        color: active ? theme.success : theme.inactive,
+        text: [providerKindLabel(provider), providerStatusLabel(provider), providerDetailText(provider)].filter(Boolean).join(' · '),
+      }];
+    };
     const providerItemRank = (item) => providerDisplayRank(item._providerId || item.value);
     const providerItems = [];
     for (const p of setup.api || []) {
       providerItems.push({
         value: `api:${p.id}`,
         label: p.name,
-        meta: providerEnabledLabel(p),
+        meta: providerStatusLabel(p),
+        description: '',
         _type: 'api-key',
         _providerId: p.id,
         _providerName: p.name,
+        _provider: p,
+        _authenticated: p.authenticated,
+        _url: p.url,
       });
     }
     for (const p of setup.oauth || []) {
       providerItems.push({
         value: `oauth:${p.id}`,
         label: p.name,
-        meta: providerEnabledLabel(p),
+        meta: providerStatusLabel(p),
+        description: '',
         _type: 'oauth',
         _providerId: p.id,
         _providerName: p.name,
+        _provider: p,
+        _authenticated: p.authenticated,
       });
     }
     for (const p of setup.local || []) {
       providerItems.push({
         value: `local:${p.id}`,
         label: p.name,
-        meta: providerEnabledLabel(p),
+        meta: providerStatusLabel(p),
+        description: '',
         _type: 'local',
         _providerId: p.id,
         _providerName: p.name,
+        _provider: p,
         _enabled: p.enabled,
         _baseURL: p.baseURL,
         _defaultURL: p.defaultURL,
@@ -2859,11 +2936,367 @@ export function App({ store, initialStatusLine = '' }) {
     });
     items.push(...providerItems);
 
+    const reopenProviders = () => {
+      void openProviderSetupPicker(options);
+    };
+    const openProviderUrl = (url, label = 'provider page') => {
+      const target = clean(url);
+      if (!target) {
+        store.pushNotice('no provider URL configured', 'warn');
+        return;
+      }
+      try {
+        openInBrowser(target);
+        store.pushNotice(`opened ${label}`, 'info');
+      } catch (e) {
+        store.pushNotice(`could not open ${label}: ${e?.message || e}`, 'error');
+      }
+    };
+    const providerActionFooter = (provider) => provider ? [{
+      glyph: provider.enabled || provider.authenticated || provider.detected ? '●' : '○',
+      color: provider.enabled || provider.authenticated || provider.detected ? theme.success : theme.inactive,
+      text: [providerKindLabel(provider), providerStatusLabel(provider), providerDetailText(provider)].filter(Boolean).join(' · '),
+    }] : '';
+    const setApiKeyPrompt = (providerItem) => {
+      setProviderPrompt({
+        kind: 'api-key',
+        providerId: providerItem._providerId,
+        label: providerItem._providerName,
+        mode: providerItem._authenticated ? 'replace' : 'set',
+        envName: providerItem._provider?.envName || '',
+        source: providerDetailText(providerItem._provider),
+        afterSave: returnTo,
+      });
+    };
+    const openApiProviderActions = (providerItem) => {
+      const provider = providerItem._provider || {};
+      const hasAuth = providerItem._authenticated || provider.authenticated;
+      const hasStoredKey = provider.stored || (!provider.env && hasAuth);
+      const apiActions = [];
+      if (hasAuth) {
+        apiActions.push({
+          value: 'keep-key',
+          label: 'Keep current key',
+          description: 'return without changing this provider',
+          _action: 'keep-key',
+        });
+      }
+      apiActions.push({
+        value: 'set-key',
+        label: hasAuth ? 'Replace API key' : 'Set API key',
+        description: provider.envName ? `masked input · ${provider.envName}` : 'masked input · stored in OS keychain',
+        _action: 'set-key',
+      });
+      if (providerItem._url) {
+        apiActions.push({
+          value: 'open-key-page',
+          label: 'Open key page',
+          description: providerItem._url,
+          _action: 'open-key-page',
+        });
+      }
+      if (providerItem._providerId === 'openai') {
+        apiActions.push({
+          value: 'set-usage-auth',
+          label: 'Set Usage Auth',
+          description: 'save dashboard/session key for credit lookup',
+          _action: 'set-usage-auth',
+        });
+      }
+      if (providerItem._providerId === 'opencode-go') {
+        apiActions.push({
+          value: 'set-usage-auth',
+          label: 'Set Usage Auth',
+          description: 'save web auth cookie for real usage lookup',
+          _action: 'set-usage-auth',
+        });
+      }
+      if (hasStoredKey) {
+        apiActions.push({
+          value: 'forget-key',
+          label: 'Clear stored API key',
+          description: provider.env ? 'remove keychain key; env key remains active' : 'remove stored key for this provider',
+          _action: 'forget-key',
+        });
+      }
+      setPicker({
+        title: `Provider · ${providerItem._providerName}`,
+        description: 'Choose an API-key action.',
+        footer: () => providerActionFooter(provider),
+        help: '↑/↓ Select · Enter Choose · Esc Providers',
+        indexMode: 'always',
+        labelWidth: 22,
+        items: apiActions,
+        onSelect: (_detailValue, detail) => {
+          setPicker(null);
+          if (detail._action === 'keep-key') {
+            reopenProviders();
+            return;
+          }
+          if (detail._action === 'set-key') {
+            setApiKeyPrompt(providerItem);
+            return;
+          }
+          if (detail._action === 'open-key-page') {
+            openProviderUrl(providerItem._url, `${providerItem._providerName} key page`);
+            openApiProviderActions(providerItem);
+            return;
+          }
+          if (detail._action === 'set-usage-auth') {
+            setProviderPrompt({
+              kind: providerItem._providerId === 'openai' ? 'openai-usage-session' : 'opencode-go-cookie',
+              providerId: providerItem._providerId,
+              label: providerItem._providerName,
+              workspaceId: null,
+              afterSave: returnTo,
+            });
+            return;
+          }
+          if (detail._action === 'forget-key') {
+            try {
+              store.forgetProviderAuth(providerItem._providerId);
+              reopenProviders();
+            } catch (e) {
+              store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
+            }
+          }
+        },
+        onCancel: reopenProviders,
+      });
+    };
+
+    const startOAuthLogin = (providerItem) => {
+      const provider = providerItem._provider || {};
+      const showOAuthProgress = (message = 'Opening login flow. Complete it in the browser if prompted.', opts = {}) => {
+        const onBack = typeof opts.onBack === 'function' ? opts.onBack : () => openOAuthProviderActions(providerItem);
+        const actions = [
+          {
+            value: 'waiting',
+            label: opts.waitLabel || 'Waiting for login',
+            meta: 'Running',
+            description: opts.waitDescription || 'finish the browser/OAuth prompt',
+            _action: 'waiting',
+          },
+          {
+            value: 'back',
+            label: 'Back',
+            meta: '',
+            description: 'return to provider actions',
+            _action: 'back',
+          },
+        ];
+        setPicker({
+          title: `Provider · ${providerItem._providerName}`,
+          description: message,
+          footer: () => providerActionFooter(provider),
+          help: '↑/↓ Select · Enter Choose · Esc Providers',
+          indexMode: 'never',
+          labelWidth: 22,
+          metaWidth: 12,
+          items: actions,
+          onSelect: (_value, item) => {
+            if (item?._action === 'back') onBack();
+          },
+          onCancel: onBack,
+        });
+      };
+      const showOAuthResult = (ok, message = '') => {
+        setProviderPrompt(null);
+        setPicker({
+          title: `Provider · ${providerItem._providerName}`,
+          description: message || (ok ? 'Login complete.' : 'Login did not complete.'),
+          footer: () => providerActionFooter(provider),
+          help: ok ? 'Enter Refresh Providers · Esc Providers' : 'Enter Back · Esc Providers',
+          indexMode: 'never',
+          labelWidth: 22,
+          metaWidth: 12,
+          items: [{
+            value: ok ? 'success' : 'back',
+            label: ok ? 'Success' : 'Back',
+            meta: ok ? 'Done' : 'Ready',
+            description: ok ? 'refresh provider status' : 'return to provider actions',
+            _action: ok ? 'success' : 'back',
+          }],
+          onSelect: () => {
+            if (ok) reopenProviders();
+            else openOAuthProviderActions(providerItem);
+          },
+          onCancel: () => {
+            if (ok) reopenProviders();
+            else openOAuthProviderActions(providerItem);
+          },
+        });
+      };
+      let backedOut = false;
+      showOAuthProgress('Opening login flow. Complete it in the browser if prompted.', {
+        onBack: () => {
+          backedOut = true;
+          openOAuthProviderActions(providerItem);
+        },
+      });
+      if (typeof store.beginOAuthProviderLogin === 'function') {
+        let handled = false;
+        const providerName = providerItem._providerName || providerItem._providerId || 'OAuth';
+        const finish = (ok, message = '') => {
+          if (handled) return;
+          handled = true;
+          if (backedOut) {
+            if (message) store.pushNotice(message, ok ? 'info' : 'error');
+            return;
+          }
+          showOAuthResult(ok, message || (ok ? `${providerName} login complete.` : `${providerName} login failed.`));
+        };
+        void store.beginOAuthProviderLogin(providerItem._providerId)
+          .then((login) => {
+            setPicker(null);
+            const manualUrl = login?.manualUrl || '';
+            setProviderPrompt({
+              kind: 'oauth-code',
+              providerId: providerItem._providerId,
+              providerName,
+              label: `${providerName} OAuth code`,
+              hint: manualUrl
+                ? `If browser callback does not finish, open manual URL and paste code#state. ${manualUrl}`
+                : `Paste the authorization code or full redirect URL for ${providerName}.`,
+              login,
+              afterSave: returnTo,
+              successReturn: () => showOAuthResult(true, `${providerName} login complete.`),
+              failureReturn: (e) => showOAuthResult(false, `${providerName} code failed: ${e?.message || e}`),
+              cancelReturn: () => openOAuthProviderActions(providerItem),
+            });
+            store.pushNotice(`browser opened for ${providerName}; paste code/redirect here if callback does not finish`, 'info');
+            login.waitForCallback
+              ?.then((result) => {
+                if (result && !oauthSubmitRef.current) finish(true, `${providerName} login complete`);
+              })
+              .catch((e) => finish(false, `oauth login failed: ${e?.message || e}`));
+          })
+          .catch((e) => {
+            store.pushNotice(`oauth login failed: ${e?.message || e}`, 'error');
+            openOAuthProviderActions(providerItem);
+          });
+        return;
+      }
+      void store.loginOAuthProvider(providerItem._providerId)
+        .then(() => {
+          if (backedOut) {
+            store.pushNotice(`${providerItem._providerName} login complete`, 'info');
+            return;
+          }
+          showOAuthResult(true, `${providerItem._providerName} login complete.`);
+        })
+        .catch((e) => {
+          if (backedOut) {
+            store.pushNotice(`oauth login failed: ${e?.message || e}`, 'error');
+            return;
+          }
+          showOAuthResult(false, `OAuth login failed: ${e?.message || e}`);
+        });
+    };
+    const openOAuthProviderActions = (providerItem) => {
+      const provider = providerItem._provider || {};
+      const hasAuth = providerItem._authenticated || provider.authenticated;
+      const oauthActions = [];
+      oauthActions.push({
+        value: 'login-oauth',
+        label: hasAuth ? 'Re-login' : 'Login',
+        description: providerDetailText(provider) || 'open browser or OAuth flow',
+        _action: 'login-oauth',
+      });
+      if (hasAuth) {
+        oauthActions.push({
+          value: 'forget-oauth',
+          label: 'Forget login',
+          description: 'remove stored OAuth credentials',
+          _action: 'forget-oauth',
+        });
+      }
+      setPicker({
+        title: `Provider · ${providerItem._providerName}`,
+        description: 'Choose an OAuth login action.',
+        footer: () => providerActionFooter(provider),
+        help: '↑/↓ Select · Enter Choose · Esc Providers',
+        indexMode: 'always',
+        labelWidth: 22,
+        items: oauthActions,
+        onSelect: (_detailValue, detail) => {
+          if (detail._action === 'login-oauth') {
+            startOAuthLogin(providerItem);
+            return;
+          }
+          if (detail._action === 'forget-oauth') {
+            try {
+              store.forgetProviderAuth(providerItem._providerId);
+              reopenProviders();
+            } catch (e) {
+              store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
+            }
+          }
+        },
+        onCancel: reopenProviders,
+      });
+    };
+
+    const openLocalProviderActions = (providerItem) => {
+      const provider = providerItem._provider || {};
+      const localActions = [
+        {
+          value: 'set-local-url',
+          label: providerItem._enabled ? 'Update Base URL' : 'Enable / Set URL',
+          description: providerDetailText(provider) || providerItem._defaultURL,
+          _action: 'set-local-url',
+        },
+      ];
+      if (providerItem._enabled) {
+        localActions.push({
+          value: 'disable-local',
+          label: 'Disable provider',
+          description: 'keep URL but stop using this local provider',
+          _action: 'disable-local',
+        });
+      }
+      setPicker({
+        title: `Provider · ${providerItem._providerName}`,
+        description: 'Choose a local endpoint action.',
+        footer: () => providerActionFooter(provider),
+        help: '↑/↓ Select · Enter Choose · Esc Providers',
+        indexMode: 'always',
+        labelWidth: 22,
+        items: localActions,
+        onSelect: (_detailValue, detail) => {
+          setPicker(null);
+          if (detail._action === 'set-local-url') {
+            setProviderPrompt({
+              kind: 'local-url',
+              providerId: providerItem._providerId,
+              label: providerItem._providerName,
+              defaultURL: providerItem._baseURL || providerItem._defaultURL,
+              afterSave: returnTo,
+            });
+            return;
+          }
+          if (detail._action === 'disable-local') {
+            try {
+              store.setLocalProvider(providerItem._providerId, { enabled: false, baseURL: providerItem._baseURL });
+              reopenProviders();
+            } catch (e) {
+              store.pushNotice(`local provider update failed: ${e?.message || e}`, 'error');
+            }
+          }
+        },
+        onCancel: reopenProviders,
+      });
+    };
+
     setPicker({
       title: options.title || 'Providers',
-      description: options.description || 'Choose a provider to configure.',
+      description: options.description || 'Choose a provider. Enter opens provider actions.',
+      footer: providerFooter,
+      footerGapRows: 0,
+      help: '↑/↓ Select · Enter Open · Esc Back',
+      indexMode: 'always',
       labelWidth: 18,
-      metaWidth: 10,
+      metaWidth: 12,
       items,
       onSelect: (_value, item) => {
         setPicker(null);
@@ -2872,128 +3305,15 @@ export function App({ store, initialStatusLine = '' }) {
           return;
         }
         if (item._type === 'api-key') {
-          const apiActions = [
-            {
-              value: 'set-key',
-              label: 'Set API key',
-              description: 'save or replace key in the OS keychain',
-              _action: 'set-key',
-            },
-          ];
-          if (item._providerId === 'openai') {
-            apiActions.push({
-              value: 'set-usage-auth',
-              label: 'Set Usage Auth',
-              description: 'save dashboard/session key for credit lookup',
-              _action: 'set-usage-auth',
-            });
-          }
-          if (item._providerId === 'opencode-go') {
-            apiActions.push({
-              value: 'set-usage-auth',
-              label: 'Set Usage Auth',
-              description: 'save web auth cookie for real usage lookup',
-              _action: 'set-usage-auth',
-            });
-          }
-          apiActions.push({
-            value: 'forget-key',
-            label: 'Forget API key',
-            description: 'remove stored key for this provider',
-            _action: 'forget-key',
-          });
-          setPicker({
-            title: `Provider · ${item._providerName}`,
-            items: apiActions,
-            onSelect: (_detailValue, detail) => {
-              setPicker(null);
-              if (detail._action === 'set-key') {
-                setProviderPrompt({
-                  kind: 'api-key',
-                  providerId: item._providerId,
-                  label: item._providerName,
-                  afterSave: returnTo,
-                });
-                return;
-              }
-              if (detail._action === 'set-usage-auth') {
-                setProviderPrompt({
-                  kind: item._providerId === 'openai' ? 'openai-usage-session' : 'opencode-go-cookie',
-                  providerId: item._providerId,
-                  label: item._providerName,
-                  workspaceId: null,
-                  afterSave: returnTo,
-                });
-                return;
-              }
-              if (detail._action === 'forget-key') {
-                try {
-                  store.forgetProviderAuth(item._providerId);
-                  void openProviderSetupPicker(options);
-                } catch (e) {
-                  store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
-                }
-              }
-            },
-            onCancel: () => {
-              setPicker(null);
-              void openProviderSetupPicker(options);
-            },
-          });
+          openApiProviderActions(item);
           return;
         }
         if (item._type === 'oauth') {
-          if (item._providerId === 'grok-oauth' && typeof store.beginOAuthProviderLogin === 'function') {
-            let handled = false;
-            const finish = (ok, message = '') => {
-              if (handled) return;
-              handled = true;
-              setProviderPrompt(null);
-              if (message) store.pushNotice(message, ok ? 'info' : 'error');
-              void openProviderSetupPicker(options);
-            };
-            void store.beginOAuthProviderLogin(item._providerId)
-              .then((login) => {
-                setProviderPrompt({
-                  kind: 'oauth-code',
-                  providerId: item._providerId,
-                  label: 'Grok OAuth code',
-                  hint: 'Paste the code shown on the xAI page.',
-                  login,
-                  afterSave: returnTo,
-                });
-                store.pushNotice('paste the xAI code into the prompt to finish Grok login', 'info');
-                login.waitForCallback
-                  ?.then((result) => {
-                    if (result) finish(true, 'Grok OAuth login complete');
-                  })
-                  .catch((e) => finish(false, `oauth login failed: ${e?.message || e}`));
-              })
-              .catch((e) => store.pushNotice(`oauth login failed: ${e?.message || e}`, 'error'));
-            return;
-          }
-          void store.loginOAuthProvider(item._providerId)
-            .then(() => openProviderSetupPicker(options))
-            .catch((e) => store.pushNotice(`oauth login failed: ${e?.message || e}`, 'error'));
+          openOAuthProviderActions(item);
           return;
         }
         if (item._type === 'local') {
-          if (item._enabled) {
-            try {
-              store.setLocalProvider(item._providerId, { enabled: false, baseURL: item._baseURL });
-              void openProviderSetupPicker(options);
-            } catch (e) {
-              store.pushNotice(`local provider update failed: ${e?.message || e}`, 'error');
-            }
-            return;
-          }
-          setProviderPrompt({
-            kind: 'local-url',
-            providerId: item._providerId,
-            label: item._providerName,
-            defaultURL: item._defaultURL,
-            afterSave: returnTo,
-          });
+          openLocalProviderActions(item);
         }
       },
       onCancel: () => {
@@ -4242,6 +4562,7 @@ export function App({ store, initialStatusLine = '' }) {
         store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error');
       }
     };
+    const autoClearEnabled = current?.enabled === true;
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
@@ -4256,13 +4577,15 @@ export function App({ store, initialStatusLine = '' }) {
         {
           value: 'on',
           label: 'On',
-          description: current?.enabled ? 'Enabled' : 'Enable idle auto-clear',
+          labelSuffix: autoClearEnabled ? '✓' : '',
+          description: autoClearEnabled ? `idle ${idleLabel}` : 'Enable idle auto-clear',
           _enabled: true,
         },
         {
           value: 'off',
           label: 'Off',
-          description: current?.enabled ? 'Disable idle auto-clear' : 'Disabled',
+          labelSuffix: autoClearEnabled ? '' : '✓',
+          description: autoClearEnabled ? 'Disable idle auto-clear' : 'idle auto-clear disabled',
           _enabled: false,
         },
       ],
@@ -4667,15 +4990,29 @@ export function App({ store, initialStatusLine = '' }) {
           store.pushNotice('OAuth code is required', 'warn');
           return false;
         }
+        if (oauthSubmitRef.current || providerPrompt.submitting) {
+          store.pushNotice('OAuth code is already being submitted', 'warn');
+          return false;
+        }
+        oauthSubmitRef.current = true;
+        setProviderPrompt((prompt) => prompt === providerPrompt ? { ...prompt, submitting: true } : prompt);
         void providerPrompt.login?.completeCode(commandText)
           .then(() => {
+            const successReturn = providerPrompt.successReturn;
             const afterSave = providerPrompt.afterSave;
+            oauthSubmitRef.current = false;
             setProviderPrompt(null);
-            store.pushNotice('Grok OAuth login complete', 'info');
-            if (afterSave) afterSave();
+            store.pushNotice(`${providerPrompt.providerName || 'OAuth'} login complete`, 'info');
+            if (successReturn) successReturn();
+            else if (afterSave) afterSave();
             else void openProviderSetupPicker();
           })
-          .catch((e) => store.pushNotice(`oauth code failed: ${e?.message || e}`, 'error'));
+          .catch((e) => {
+            oauthSubmitRef.current = false;
+            store.pushNotice(`oauth code failed: ${e?.message || e}`, 'error');
+            setProviderPrompt(null);
+            providerPrompt.failureReturn?.(e);
+          });
         return true;
       }
     }
@@ -4897,9 +5234,12 @@ export function App({ store, initialStatusLine = '' }) {
 
   const cancelProviderPrompt = useCallback(() => {
     try { providerPrompt?.login?.cancel?.(); } catch {}
+    oauthSubmitRef.current = false;
+    const onCancel = providerPrompt?.cancelReturn || providerPrompt?.onCancel;
     const afterSave = providerPrompt?.afterSave;
     setProviderPrompt(null);
-    if (afterSave) afterSave();
+    if (onCancel) onCancel();
+    else if (afterSave) afterSave();
   }, [providerPrompt, showPromptHint]);
 
   const cancelChannelPrompt = useCallback(() => {
@@ -5274,6 +5614,7 @@ export function App({ store, initialStatusLine = '' }) {
                 title={picker.title}
                 description={picker.description}
                 footer={picker.footer}
+                footerGapRows={picker.footerGapRows}
                 help={picker.help}
                 columns={frameColumns}
                 labelWidth={picker.labelWidth}
@@ -5309,7 +5650,7 @@ export function App({ store, initialStatusLine = '' }) {
             ) : providerPrompt ? (
               <TextEntryPanel
                 title={providerPrompt.kind === 'api-key'
-                  ? `API key · ${providerPrompt.label}`
+                  ? `${providerPrompt.mode === 'replace' ? 'Replace' : 'Set'} API key · ${providerPrompt.label}`
                   : providerPrompt.kind === 'oauth-code'
                     ? providerPrompt.label
                     : providerPrompt.kind === 'openai-usage-session'
@@ -5318,7 +5659,11 @@ export function App({ store, initialStatusLine = '' }) {
                       ? 'OpenCode Go Usage · Auth Cookie'
                       : `Base URL · ${providerPrompt.label}`}
                 hint={providerPrompt.kind === 'api-key'
-                  ? 'Save or replace the provider key.'
+                  ? [
+                    providerPrompt.envName ? `Env: ${providerPrompt.envName}` : '',
+                    providerPrompt.source ? `Current: ${providerPrompt.source}` : '',
+                    'Stored in the OS keychain.',
+                  ].filter(Boolean).join(' · ')
                   : providerPrompt.kind === 'oauth-code'
                     ? (providerPrompt.hint || 'Paste the browser code.')
                     : providerPrompt.kind === 'openai-usage-session'

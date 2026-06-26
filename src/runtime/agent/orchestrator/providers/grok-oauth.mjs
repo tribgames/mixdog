@@ -872,6 +872,26 @@ async function exchangeAuthorizationCode({ discovery, pkce, code }) {
     return tokens;
 }
 
+function parseOAuthCodeInput(input) {
+    const value = String(input || '').trim();
+    if (!value) return { code: '', state: '' };
+    try {
+        const url = new URL(value);
+        const code = url.searchParams.get('code') || '';
+        const state = url.searchParams.get('state') || '';
+        if (code || state) return { code, state };
+    } catch { /* not a URL */ }
+    if (value.includes('#')) {
+        const [code, state] = value.split('#', 2);
+        return { code: String(code || '').trim(), state: String(state || '').trim() };
+    }
+    if (value.includes('code=')) {
+        const params = new URLSearchParams(value.startsWith('?') ? value.slice(1) : value);
+        return { code: params.get('code') || '', state: params.get('state') || '' };
+    }
+    return { code: value, state: '' };
+}
+
 export async function beginOAuthLogin() {
     const discovery = await fetchDiscovery();
     const pkce = generatePKCE();
@@ -942,8 +962,10 @@ export async function beginOAuthLogin() {
         provider: 'grok-oauth',
         url: url.toString(),
         waitForCallback,
-        completeCode: async (code) => {
-            const tokens = await exchangeAuthorizationCode({ discovery, pkce, code });
+        completeCode: async (input) => {
+            const parsed = parseOAuthCodeInput(input);
+            if (parsed.state && parsed.state !== state) throw new Error('[grok-oauth] OAuth state mismatch');
+            const tokens = await exchangeAuthorizationCode({ discovery, pkce, code: parsed.code });
             finish?.(tokens);
             return tokens;
         },

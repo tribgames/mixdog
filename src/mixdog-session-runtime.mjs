@@ -831,9 +831,11 @@ function normalizeSystemShellCommand(value) {
 function normalizeAutoClearConfig(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const idleMs = Number(raw.idleMs ?? raw.thresholdMs ?? raw.idleMillis);
+  const compactType = clean(raw.compactType ?? raw.compact_type ?? raw.type);
   return {
     enabled: raw.enabled !== false,
     idleMs: Number.isFinite(idleMs) && idleMs > 0 ? Math.max(60_000, Math.round(idleMs)) : AUTO_CLEAR_DEFAULT_IDLE_MS,
+    ...(compactType ? { compactType } : {}),
   };
 }
 
@@ -1246,6 +1248,7 @@ function parseToolSelection(value) {
 function toolKind(tool) {
   const name = clean(tool?.name);
   if (name.startsWith('mcp__')) return 'mcp';
+  if (name.startsWith('skill:') || tool?.annotations?.mixdogKind === 'skill') return 'skill';
   if (name.startsWith('skill_') || name === 'skills_list') return 'skill';
   if (tool?.annotations?.bridgeHidden) return 'control';
   if (['apply_patch', 'shell'].includes(name)) return 'mutation';
@@ -1364,6 +1367,69 @@ function toolRow(tool, activeNames = new Set()) {
   };
 }
 
+function skillSearchRows(skills = [], activeNames = new Set()) {
+  const rows = [];
+  const seen = new Set();
+  for (const skill of Array.isArray(skills) ? skills : []) {
+    const skillName = clean(skill?.name);
+    if (!skillName || seen.has(skillName)) continue;
+    seen.add(skillName);
+    rows.push({
+      name: `skill:${skillName}`,
+      skillName,
+      kind: 'skill',
+      usage: 0,
+      active: activeNames.has(skillName),
+      description: compactToolSearchDescription(skill?.description),
+      filePath: skill?.filePath || null,
+    });
+  }
+  return rows;
+}
+
+function matchSkillSelection(raw, skillRows, toolNames = new Set()) {
+  const value = clean(raw);
+  if (!value) return null;
+  const lower = value.toLowerCase();
+  const byPseudo = new Map(skillRows.map((row) => [String(row.name).toLowerCase(), row]));
+  const byName = new Map(skillRows.map((row) => [String(row.skillName).toLowerCase(), row]));
+  if (lower.startsWith('skill:')) return byPseudo.get(lower) || { missingSkill: value.slice('skill:'.length) };
+  if (!toolNames.has(value) && !toolNames.has(lower)) return byName.get(lower) || null;
+  return null;
+}
+
+function selectToolSearchSkills(session, selectedNames, skillRows, { loadSkillContent } = {}, toolNames = new Set()) {
+  const claimed = new Set();
+  const loaded = [];
+  const already = [];
+  const missing = [];
+  const active = new Set(Array.isArray(session?.deferredLoadedSkills) ? session.deferredLoadedSkills : []);
+  for (const raw of selectedNames || []) {
+    const match = matchSkillSelection(raw, skillRows, toolNames);
+    if (!match) continue;
+    claimed.add(raw);
+    if (match.missingSkill) {
+      missing.push(match.missingSkill);
+      continue;
+    }
+    const skillName = match.skillName;
+    if (!skillName) continue;
+    if (active.has(skillName)) {
+      already.push(skillName);
+      continue;
+    }
+    const content = typeof loadSkillContent === 'function' ? loadSkillContent(skillName) : null;
+    if (!content) {
+      missing.push(skillName);
+      continue;
+    }
+    active.add(skillName);
+    loaded.push({ name: skillName, content });
+  }
+  if (session) session.deferredLoadedSkills = [...active].sort((a, b) => String(a).localeCompare(String(b)));
+  return { claimed, loaded, already, missing, active };
+}
+
 function toolSearchTokens(value) {
   return (clean(value).toLowerCase().match(/[a-z0-9_.-]+/g) || [])
     .map((token) => token.replace(/[-.]+/g, '_'))
@@ -1460,7 +1526,7 @@ function selectDeferredTools(session, names, mode) {
   return { added, already, blocked, missing };
 }
 
-function renderToolSearch(args = {}, session, mode = 'full') {
+function renderToolSearch(args = {}, session, mode = 'full', options = {}) {
   const catalog = Array.isArray(session?.deferredToolCatalog)
     ? session.deferredToolCatalog
     : (Array.isArray(session?.tools) ? session.tools : []);
@@ -1468,18 +1534,42 @@ function renderToolSearch(args = {}, session, mode = 'full') {
   const query = clean(args.query).toLowerCase();
   const selectedNames = parseToolSelection(args.select);
   const limit = Math.max(1, Math.min(50, Number(args.limit) || 20));
-  const selection = selectedNames.length ? selectDeferredTools(session, selectedNames, mode) : null;
+  const toolNames = new Set(catalog.map((tool) => clean(tool?.name)).filter(Boolean));
+  for (const name of [...toolNames]) toolNames.add(String(name).toLowerCase());
+  const initialLoadedSkills = new Set(Array.isArray(session?.deferredLoadedSkills) ? session.deferredLoadedSkills : []);
+  const initialSkillRows = skillSearchRows(options.skills, initialLoadedSkills);
+  const skillSelection = selectedNames.length
+    ? selectToolSearchSkills(session, selectedNames, initialSkillRows, options, toolNames)
+    : { claimed: new Set(), loaded: [], already: [], missing: [], active: initialLoadedSkills };
+  const toolSelectedNames = selectedNames.filter((name) => !skillSelection.claimed.has(name));
+  const toolSelection = toolSelectedNames.length ? selectDeferredTools(session, toolSelectedNames, mode) : null;
   const nextActiveNames = new Set((session?.tools || []).map((tool) => tool?.name).filter(Boolean));
-  const rows = catalog.map((tool) => toolRow(tool, nextActiveNames)).filter((row) => row.name);
+  const nextLoadedSkills = new Set(Array.isArray(session?.deferredLoadedSkills) ? session.deferredLoadedSkills : [...skillSelection.active]);
+  const rows = [
+    ...catalog.map((tool) => toolRow(tool, nextActiveNames)),
+    ...skillSearchRows(options.skills, nextLoadedSkills),
+  ].filter((row) => row.name);
   const matches = query
     ? rows.filter((row) => toolSearchMatches(row, query))
     : rows;
+  const selected = (toolSelection || skillSelection.loaded.length || skillSelection.already.length || skillSelection.missing.length)
+    ? {
+        tools: toolSelection,
+        skills: {
+          loaded: skillSelection.loaded.map((skill) => skill.name),
+          already: skillSelection.already,
+          missing: skillSelection.missing,
+        },
+      }
+    : null;
   return JSON.stringify({
-    selected: selection,
+    selected,
     totalMatches: matches.length,
     matches: matches.slice(0, limit),
+    loadedSkills: skillSelection.loaded,
     activeTools: sortedNamesByMeasuredUsage(nextActiveNames),
-    note: 'standalone: tool_search adds deferred tools to the current session schema for the next model iteration.',
+    activeSkills: [...nextLoadedSkills].sort((a, b) => String(a).localeCompare(String(b))),
+    note: 'standalone: tool_search loads deferred tool/MCP schemas for the next model iteration; skill:* selections return SKILL.md content in loadedSkills.',
   }, null, 2);
 }
 
@@ -2041,6 +2131,15 @@ export async function createMixdogSessionRuntime({
     rootDir: STANDALONE_ROOT,
     dataDir: cfgMod.getPluginData(),
     cwd,
+    onNotify: (msg) => {
+      if (msg?.method !== 'notifications/claude/channel') return;
+      const params = msg?.params && typeof msg.params === 'object' ? msg.params : {};
+      const meta = params.meta && typeof params.meta === 'object' ? params.meta : {};
+      if (meta.silent_to_agent === true || meta.silent_to_agent === 'true') return;
+      const instruction = typeof meta.instruction === 'string' ? meta.instruction.trim() : '';
+      const content = instruction || String(params.content || '').trim();
+      emitRuntimeNotification(content, meta);
+    },
   });
   bootProfile('channels:worker-ready', { ms: (performance.now() - channelsStartedAt).toFixed(1) });
   const toolsStartedAt = performance.now();
@@ -2146,7 +2245,16 @@ export async function createMixdogSessionRuntime({
         if (!codeGraphMod?.executeCodeGraphTool) throw new Error('code_graph runtime is not available');
         return await codeGraphMod.executeCodeGraphTool(name, args || {}, args?.cwd || callerCwd);
       }
-      if (name === 'tool_search') return renderToolSearch(args, session, mode);
+      if (name === 'tool_search') {
+        return renderToolSearch(args, activeToolSurface(), mode, {
+          skills: typeof contextMod.collectSkillsCached === 'function'
+            ? contextMod.collectSkillsCached(currentCwd)
+            : [],
+          loadSkillContent: (skillName) => (typeof contextMod.loadSkillContent === 'function'
+            ? contextMod.loadSkillContent(skillName, currentCwd)
+            : null),
+        });
+      }
       if (name === 'explore') {
         const callerSessionId = callerCtx?.callerSessionId || session?.id || null;
         return await runExplore(args || {}, {
@@ -2569,6 +2677,7 @@ function parsedProviderModelVersion(id) {
         workflowContext,
         workspaceContext,
         fast: route.fast === true,
+        compaction: config.compaction && typeof config.compaction === 'object' ? config.compaction : undefined,
       };
       if (hasOwn(route, 'effort') || route.effectiveEffort) {
         sessionOpts.effort = route.effectiveEffort || null;
@@ -3113,6 +3222,14 @@ function parsedProviderModelVersion(id) {
       config = cfgMod.loadConfig();
       return {
         ...result,
+        waitForCallback: result.waitForCallback?.then((completed) => {
+          config = cfgMod.loadConfig();
+          if (completed) {
+            invalidateProviderCaches();
+            warmProviderModelCache();
+          }
+          return completed;
+        }),
         completeCode: async (code) => {
           const completed = await result.completeCode(code);
           config = cfgMod.loadConfig();
@@ -3149,7 +3266,7 @@ function parsedProviderModelVersion(id) {
       return result;
     },
     forgetProviderAuth(providerId) {
-      const result = forgetProviderAuth(providerId);
+      const result = forgetProviderAuth(cfgMod, providerId);
       config = cfgMod.loadConfig();
       invalidateProviderCaches();
       warmProviderModelCache();
@@ -3325,7 +3442,7 @@ function parsedProviderModelVersion(id) {
     },
     async clear(options = {}) {
       if (!session?.id) return false;
-      const cleared = await mgr.clearSessionMessages(session.id);
+      const cleared = await mgr.clearSessionMessages(session.id, options);
       if (!cleared) return false;
       session = typeof cleared === 'object' ? cleared : (mgr.getSession(session.id) || session);
       if (options.recoverBridge === true) {
@@ -3742,8 +3859,20 @@ function parsedProviderModelVersion(id) {
         ok = mgr.closeSession(session.id, reason);
         session = null;
       }
+      const shellJobsStop = globalThis.__mixdogShellJobsRuntimeLoaded === true
+        ? import('./runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs')
+          .then((mod) => mod?.shutdownShellJobs?.(reason, { sync: !detach }))
+          .catch(() => {})
+        : null;
+      const bashSessionsStop = globalThis.__mixdogBashSessionRuntimeLoaded === true
+        ? import('./runtime/agent/orchestrator/tools/bash-session.mjs')
+          .then((mod) => mod?.shutdownBashSessions?.(reason))
+          .catch(() => {})
+        : null;
       if (detach) {
         try { await withTeardownDeadline(channelStop, 300, false); } catch {}
+        try { await withTeardownDeadline(shellJobsStop, 300, false); } catch {}
+        try { await withTeardownDeadline(bashSessionsStop, 300, false); } catch {}
         try { await withTeardownDeadline(memoryStop, 1500, false); } catch {}
         for (const stop of [mcpStop, openaiWsStop, patchStop]) {
           Promise.resolve(stop).catch(() => {});
@@ -3756,6 +3885,8 @@ function parsedProviderModelVersion(id) {
         withTeardownDeadline(openaiWsStop, 1500, false),
         withTeardownDeadline(patchStop, 1500, false),
         withTeardownDeadline(memoryStop, 5500, false),
+        withTeardownDeadline(shellJobsStop, 1500, false),
+        withTeardownDeadline(bashSessionsStop, 1500, false),
       ]);
       return ok;
     },

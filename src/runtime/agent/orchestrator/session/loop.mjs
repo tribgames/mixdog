@@ -11,9 +11,14 @@ import { markSessionToolCall, updateSessionStage, SessionClosedError, getSession
 import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';
 import {
     compactMessages,
+    recallFastTrackCompactMessages,
     pruneToolOutputs,
     semanticCompactMessages,
     compactActiveTurn,
+    compactTypeIsRecallFastTrack,
+    compactTypeIsSemantic,
+    normalizeCompactType,
+    DEFAULT_COMPACT_TYPE,
     SUMMARY_PREFIX,
     DEFAULT_COMPACTION_BUFFER_TOKENS,
     DEFAULT_COMPACTION_BUFFER_RATIO,
@@ -576,6 +581,81 @@ function resolveSemanticCompactSetting(sessionRef, cfg = {}) {
     // narrow tests do not pay an extra provider call unless they opt in.
     return sessionRef?.owner === 'bridge';
 }
+
+function resolveCompactTypeSetting(_sessionRef, cfg = {}) {
+    const configured = process.env.MIXDOG_BRIDGE_COMPACT_TYPE
+        ?? process.env.MIXDOG_COMPACT_TYPE
+        ?? cfg.type
+        ?? cfg.compactType
+        ?? cfg.compact_type;
+    return normalizeCompactType(configured, DEFAULT_COMPACT_TYPE);
+}
+
+async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTokens, compactPolicy, sessionId, signal }) {
+    if (!sessionId) throw new Error('recall-fasttrack requires a session id');
+    const query = `session:${sessionId}:all-chunks`;
+    const querySha = createHash('sha256').update(query).digest('hex').slice(0, 16);
+    const callerCtx = {
+        callerSessionId: sessionId || null,
+        callerCwd: sessionRef?.cwd || undefined,
+        routingSessionId: sessionId || null,
+        clientHostPid: sessionRef?.clientHostPid,
+        signal: signal || null,
+    };
+    const hydrateLimit = positiveTokenInt(sessionRef?.compaction?.recallIngestLimit)
+        || Math.max(500, Math.min(5000, messages.length || 0));
+    try {
+        await executeInternalTool('memory', {
+            action: 'ingest_session',
+            sessionId,
+            messages,
+            cwd: sessionRef?.cwd,
+            limit: hydrateLimit,
+        }, callerCtx);
+    } catch (err) {
+        try { process.stderr.write(`[loop] recall-fasttrack ingest skipped (sess=${sessionId || 'unknown'}): ${err?.message || err}\n`); } catch {}
+    }
+    const dumpArgs = {
+        action: 'dump_session_roots',
+        sessionId,
+        includeRaw: true,
+        limit: positiveTokenInt(sessionRef?.compaction?.recallChunkLimit ?? sessionRef?.compaction?.recallLimit) || hydrateLimit,
+    };
+    let recallText = await executeInternalTool('memory', dumpArgs, callerCtx);
+    let cycle1Text = '';
+    const hasRawRows = /(?:^|\n)# raw_pending\s+\d+\s+id=/i.test(String(recallText || ''));
+    if (hasRawRows) {
+        try {
+            cycle1Text = await executeInternalTool('memory', {
+                action: 'cycle1',
+                sessionId,
+                min_batch: 1,
+                session_cap: 1,
+                batch_size: positiveTokenInt(sessionRef?.compaction?.recallCycle1BatchSize) || 100,
+                rows_per_session: positiveTokenInt(sessionRef?.compaction?.recallRowsPerSession) || 100,
+                window_size: positiveTokenInt(sessionRef?.compaction?.recallWindowSize) || 20,
+                concurrency: positiveTokenInt(sessionRef?.compaction?.recallConcurrency) || 5,
+                _callerDeadlineMs: positiveTokenInt(sessionRef?.compaction?.recallCycle1DeadlineMs) || 120_000,
+            }, callerCtx);
+            recallText = await executeInternalTool('memory', dumpArgs, callerCtx);
+        } catch (err) {
+            try { process.stderr.write(`[loop] recall-fasttrack cycle1 skipped (sess=${sessionId || 'unknown'}): ${err?.message || err}\n`); } catch {}
+        }
+    } else {
+        cycle1Text = 'cycle1: skipped (session chunks already hydrated)';
+    }
+    return recallFastTrackCompactMessages(messages, compactBudgetTokens, {
+        reserveTokens: compactPolicy.reserveTokens,
+        force: true,
+        recallText: [`session_id=${sessionId}`, cycle1Text, recallText].map(v => String(v || '').trim()).filter(Boolean).join('\n\n'),
+        query,
+        querySha,
+        allowEmptyRecall: true,
+        tailTurns: compactPolicy.tailTurns,
+        keepTokens: compactPolicy.keepTokens,
+        preserveRecentTokens: compactPolicy.preserveRecentTokens,
+    });
+}
 function resolveCompactBufferRatio(cfg = {}) {
     return normalizeCompactionBufferRatio(
         cfg.bufferPercent
@@ -661,8 +741,11 @@ function resolveWorkerCompactPolicy(sessionRef, tools) {
         || 0;
     const requestReserve = estimateRequestReserveTokens(tools);
     const keepTokens = resolveCompactKeepTokens(cfg);
+    const compactType = resolveCompactTypeSetting(sessionRef, cfg);
     return {
         auto: true,
+        type: compactType,
+        compactType,
         prune: cfg.prune === true || envFlag('MIXDOG_BRIDGE_COMPACT_PRUNE', false),
         // Narrow active-turn fallback (bridge/worker only). When system +
         // current turn alone overflow the budget, shrink older same-turn tool
@@ -682,7 +765,8 @@ function resolveWorkerCompactPolicy(sessionRef, tools) {
             ? Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent)
             : null,
         autoCompactTokenLimit: positiveTokenInt(sessionRef.autoCompactTokenLimit ?? cfg.autoCompactTokenLimit),
-        semantic: resolveSemanticCompactSetting(sessionRef, cfg),
+        semantic: compactTypeIsSemantic(compactType) && resolveSemanticCompactSetting(sessionRef, cfg),
+        recallFastTrack: compactTypeIsRecallFastTrack(compactType),
         semanticTimeoutMs: positiveTokenInt(cfg.timeoutMs) || envTokenInt('MIXDOG_BRIDGE_COMPACT_TIMEOUT_MS') || 30_000,
         tailTurns: positiveTokenInt(cfg.tailTurns) || envTokenInt('MIXDOG_BRIDGE_COMPACT_TAIL_TURNS') || 2,
         keepTokens,
@@ -754,7 +838,10 @@ function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         rawContextWindow: policy.rawContextWindow || null,
         effectiveContextWindowPercent: policy.effectiveContextWindowPercent ?? null,
         autoCompactTokenLimit: policy.autoCompactTokenLimit || null,
+        type: policy.compactType || policy.type || DEFAULT_COMPACT_TYPE,
+        compactType: policy.compactType || policy.type || DEFAULT_COMPACT_TYPE,
         semantic: policy.semantic === true ? 'auto' : false,
+        recallFastTrack: policy.recallFastTrack === true,
         semanticModel: policy.semanticModel || null,
         semanticTimeoutMs: policy.semanticTimeoutMs || null,
         tailTurns: policy.tailTurns || null,
@@ -769,6 +856,8 @@ function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         lastRemote: meta.remoteCompact === true,
         lastSemantic: meta.semanticCompact === true,
         lastSemanticError: meta.semanticError || null,
+        lastRecallFastTrack: meta.recallFastTrack === true,
+        lastRecallFastTrackError: meta.recallFastTrackError || null,
         lastPruneCount: meta.pruneCount || 0,
         compactCount: (prev.compactCount || 0) + (changed ? 1 : 0),
     };
@@ -1208,6 +1297,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 let summaryChanged = false;
                 let semanticCompactResult = null;
                 let semanticCompactError = null;
+                let recallFastTrackResult = null;
+                let recallFastTrackError = null;
                 try {
                     let compactInputMessages = messages;
                     if (compactPolicy.prune) {
@@ -1222,7 +1313,33 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     // The current turn and tool pairing stay intact; if those
                     // mandatory parts cannot fit, compactMessages throws instead
                     // of silently discarding user-visible context.
-                    if (compactPolicy.semantic) {
+                    if (compactPolicy.recallFastTrack) {
+                        try {
+                            recallFastTrackResult = await runRecallFastTrackCompact({
+                                sessionRef,
+                                messages: compactInputMessages,
+                                compactBudgetTokens,
+                                compactPolicy,
+                                sessionId,
+                                signal,
+                            });
+                            const recallMessages = Array.isArray(recallFastTrackResult?.messages)
+                                ? recallFastTrackResult.messages
+                                : null;
+                            if (recallMessages && (recallFastTrackResult?.recallFastTrack === true
+                                || messagesArrayChanged(compactInputMessages, recallMessages))) {
+                                compacted = recallMessages;
+                            }
+                        } catch (recallErr) {
+                            recallFastTrackError = recallErr;
+                            try {
+                                process.stderr.write(
+                                    `[loop] recall-fasttrack compact failed (sess=${sessionId || 'unknown'}): ` +
+                                    `${recallErr?.message || recallErr}; falling back to deterministic compact\n`,
+                                );
+                            } catch { /* best-effort */ }
+                        }
+                    } else if (compactPolicy.semantic) {
                         try {
                             semanticCompactResult = await semanticCompactMessages(
                                 provider,
@@ -1310,7 +1427,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         }
                     }
                     summaryChanged = messagesArrayChanged(compactInputMessages, compacted);
-                    if (summaryChanged && providerRemoteCompactEnabled(provider, opts)) {
+                    if (summaryChanged && !compactPolicy.recallFastTrack && providerRemoteCompactEnabled(provider, opts)) {
                         const compactInput = splitMessagesForRemoteCompact(messages);
                         if (compactInput) {
                             try {
@@ -1447,6 +1564,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     remoteCompact: remoteCompactResult?.providerState !== undefined,
                     semanticCompact: semanticCompactResult?.semantic === true,
                     semanticError: semanticCompactError?.message || null,
+                    recallFastTrack: recallFastTrackResult?.recallFastTrack === true,
+                    recallFastTrackError: recallFastTrackError?.message || null,
                     pruneCount,
                 });
                 let afterBytes = null;
@@ -2242,18 +2361,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // discard the rest of the batch and skip the next provider.send.
             throwIfAborted();
         }
-        // ── Mid-turn steering (Claude Code / pi agent-loop parity) ──
-        // Before re-sending with the tool results, drain any user / `bridge
-        // type=send` messages that arrived WHILE this tool batch was in
-        // flight and inject them as user turns. This is the difference
-        // between "steer" (interrupt now) and "followUp" (wait for the turn
-        // to finish): previously every injected message was held until the
-        // entire askSession turn completed (manager.mjs _pendingTail drain),
-        // so a user typing mid-task only got picked up after the agent had
-        // already run to completion. Mirrors pi/agent-loop.ts:253 +
-        // 182-190 — steering messages land right before the next assistant
-        // response so the model sees them on its very next iteration.
-        drainSteeringIntoMessages('mid-turn');
+        // Mid-turn steering is drained at the next loop's pre-send point,
+        // AFTER any auto-compact pass. Draining here would put the steering
+        // user turn after the fresh tool results before compaction runs; then
+        // compactMessages() would treat those fresh tool results as prior
+        // history and could summarize/drop them before the model sees them.
         // About to re-send with tool results — transition back to connecting for the next turn.
         if (sessionId) updateSessionStage(sessionId, 'connecting');
     }

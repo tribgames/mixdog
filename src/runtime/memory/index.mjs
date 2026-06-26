@@ -99,7 +99,9 @@ import { resolveProjectId, resolveProjectScope } from './lib/project-id-resolver
 import { openTraceDatabase, closeTraceDatabase, insertTraceEvents, enqueueTraceEvents, insertBridgeCalls, registerTraceExitDrain } from './lib/trace-store.mjs'
 import { updateJsonAtomicSync, writeJsonAtomicSync } from '../shared/atomic-file.mjs'
 import { resolvePluginData } from '../shared/plugin-paths.mjs'
-const DATA_DIR = process.argv[2] || resolvePluginData()
+const IS_MEMORY_ENTRY = !!process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+const USE_ARG_DATA_DIR = IS_MEMORY_ENTRY || process.env.MIXDOG_WORKER_MODE === '1'
+const DATA_DIR = process.env.MIXDOG_DATA_DIR || (USE_ARG_DATA_DIR ? process.argv[2] : '') || resolvePluginData()
 if (!DATA_DIR) {
   __mixdogMemoryLog('[memory-service] memory data dir not set and no explicit data dir provided\n')
   process.exit(1)
@@ -594,7 +596,7 @@ async function recallSessionRows(args = {}) {
     where.push(`(${clauses.join(' OR ')})`)
   }
   params.push(limit)
-  const rows = (await db.query(`
+  let rows = (await db.query(`
     SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
            element, category, summary, status, score, last_seen_at, project_id
     FROM entries
@@ -602,13 +604,55 @@ async function recallSessionRows(args = {}) {
     ORDER BY ts DESC, id DESC
     LIMIT $${params.length}
   `, params)).rows
+  if (rows.length < limit) {
+    const seen = new Set(rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id)))
+    const fillLimit = Math.max(0, limit - rows.length)
+    const fillRows = fillLimit > 0
+      ? (await db.query(`
+          SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
+                 element, category, summary, status, score, last_seen_at, project_id
+          FROM entries
+          WHERE session_id = $1
+            AND id <> ALL($2::bigint[])
+          ORDER BY ts DESC, id DESC
+          LIMIT $3
+        `, [sessionId, [...seen], fillLimit])).rows
+      : []
+    if (fillRows.length > 0) rows = [...rows, ...fillRows]
+  }
+  if (args.includeMembers === true) {
+    const rootIds = rows
+      .filter((row) => Number(row.is_root) === 1)
+      .map((row) => Number(row.id))
+      .filter((id) => Number.isFinite(id))
+    if (rootIds.length > 0) {
+      const members = (await db.query(`
+        SELECT id, ts, role, content, session_id, source_turn, project_id, chunk_root
+        FROM entries
+        WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
+        ORDER BY chunk_root ASC, COALESCE(source_turn, 2147483647) ASC, ts ASC, id ASC
+      `, [rootIds])).rows
+      const byRoot = new Map(rootIds.map((id) => [id, []]))
+      for (const member of members) {
+        const root = Number(member.chunk_root)
+        if (byRoot.has(root)) byRoot.get(root).push(member)
+      }
+      for (const row of rows) {
+        const id = Number(row.id)
+        if (byRoot.has(id)) row.members = byRoot.get(id)
+      }
+    }
+  }
   return { text: renderEntryLines(rows) }
 }
 
 async function ingestSessionMessages(args = {}) {
   const sessionId = String(args.sessionId || args.session_id || `session-${Date.now()}`).trim()
   const messages = Array.isArray(args.messages) ? args.messages : []
-  const limit = Math.max(1, Math.min(500, Number(args.limit) || 200))
+  // Recall fast-track hydrates the current session before compaction; allow
+  // callers to ingest the full in-memory transcript instead of silently
+  // clipping long sessions at 500 turns. Default remains conservative.
+  const limit = Math.max(1, Math.min(5000, Number(args.limit) || 200))
   const start = Math.max(0, messages.length - limit)
   const projectId = resolveProjectScope(typeof args.cwd === 'string' && args.cwd ? args.cwd : null)
   let considered = 0
@@ -1941,6 +1985,7 @@ async function dumpSessionRootChunks(args = {}) {
     chunks.push({
       id: Number(raw.id),
       kind: 'raw',
+      chunkRoot: raw.chunk_root ?? null,
       ts: Number(raw.ts) || 0,
       sourceTurn: raw.source_turn ?? null,
       category: null,
@@ -1958,7 +2003,7 @@ async function dumpSessionRootChunks(args = {}) {
     ? chunks.map((chunk, idx) => {
         const label = chunk.kind === 'root'
           ? `# chunk ${idx + 1} root=${chunk.id}${chunk.category ? ` category=${chunk.category}` : ''}`
-          : `# raw ${idx + 1} id=${chunk.id}`
+          : `${chunk.chunkRoot == null ? '# raw_pending' : '# raw_terminal'} ${idx + 1} id=${chunk.id}`
         const summary = chunk.summary ? `summary: ${chunk.summary}\n` : ''
         return `${label}\n${summary}${chunk.text}`.trim()
       }).join('\n\n')
@@ -2001,7 +2046,10 @@ async function _handleMemCycle1(args, config, signal) {
   const minBatchOverride = Number(args?.min_batch)
   const sessionCapOverride = Number(args?.session_cap)
   const batchSizeOverride = Number(args?.batch_size)
+  const windowSizeOverride = Number(args?.window_size ?? args?.windowSize)
+  const rowsPerSessionOverride = Number(args?.rows_per_session ?? args?.rowsPerSession ?? args?.max_rows_per_session ?? args?.maxRowsPerSession)
   const concurrencyOverride = Number(args?.concurrency)
+  const sessionIdOverride = String(args?.sessionId ?? args?.session_id ?? '').trim()
   const baseCycle1 = config?.cycle1 || {}
   let cycle1Config = baseCycle1
   // _runCycle1Impl reads `config?.min_batch ?? config?.cycle1?.min_batch ??
@@ -2015,12 +2063,24 @@ async function _handleMemCycle1(args, config, signal) {
   if (Number.isFinite(batchSizeOverride) && batchSizeOverride > 0) {
     cycle1Config = { ...cycle1Config, batch_size: batchSizeOverride }
   }
+  if (Number.isFinite(windowSizeOverride) && windowSizeOverride > 0) {
+    cycle1Config = { ...cycle1Config, window_size: windowSizeOverride }
+  }
+  if (Number.isFinite(rowsPerSessionOverride) && rowsPerSessionOverride > 0) {
+    cycle1Config = { ...cycle1Config, rows_per_session: rowsPerSessionOverride }
+  }
+  if (sessionIdOverride) {
+    cycle1Config = { ...cycle1Config, session_id: sessionIdOverride }
+  }
   if (Number.isFinite(concurrencyOverride) && concurrencyOverride > 0) {
     cycle1Config = { ...cycle1Config, concurrency: Math.min(8, Math.floor(concurrencyOverride)) }
   }
   const callerDeadlineMs = Number(args?._callerDeadlineMs) || 0
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')
   const cycle1Options = callerDeadlineMs > 0 ? { callerDeadlineMs, signal } : { signal }
+  if (typeof args?._callLlm === 'function') {
+    cycle1Options.callLlm = args._callLlm
+  }
   const result = await _awaitCycle1Run(
     cycle1Config,
     cycle1Options,
@@ -2034,6 +2094,7 @@ async function _handleMemCycle1(args, config, signal) {
   const failedRows = Array.isArray(result?.failed_row_ids) ? result.failed_row_ids.length : Number(result?.quality?.failed_rows || 0)
   const invalidChunks = Array.isArray(result?.invalid_chunks) ? result.invalid_chunks.length : Number(result?.quality?.invalid_chunks || 0)
   return {
+    ...result,
     text: `cycle1: chunks=${result.chunks} processed=${result.processed} skipped_chunks=${result.skipped}` +
       ` omitted=${omitted} prefiltered=${prefiltered} failed_rows=${failedRows} invalid_chunks=${invalidChunks}` +
       ` pending=${pendingStr} inFlight=${inFlightStr}${timedOutPart}`,
@@ -2680,7 +2741,7 @@ async function handleToolCall(name, args, signal) {
   try {
     if (name === 'search_memories') {
       const result = await handleSearch(args || {}, signal)
-      return { content: [{ type: 'text', text: result.text }], isError: result.isError || false }
+      return { ...result, content: [{ type: 'text', text: result.text }], isError: result.isError || false }
     }
     if (name === 'recall') {
       // recall is aiWrapped in the unified build; in standalone mode map it to
@@ -2714,11 +2775,11 @@ async function handleToolCall(name, args, signal) {
         ...(a.currentSession !== undefined ? { currentSession: a.currentSession } : {}),
       }
       const result = await handleSearch(searchArgs, signal)
-      return { content: [{ type: 'text', text: result.text }], isError: result.isError || false }
+      return { ...result, content: [{ type: 'text', text: result.text }], isError: result.isError || false }
     }
     if (name === 'memory') {
       const result = await handleMemoryAction(args || {}, signal)
-      return { content: [{ type: 'text', text: result.text }], isError: result.isError || false }
+      return { ...result, content: [{ type: 'text', text: result.text }], isError: result.isError || false }
     }
     return { content: [{ type: 'text', text: `unknown tool: ${name}` }], isError: true }
   } catch (err) {
@@ -3744,7 +3805,7 @@ if (process.env.MIXDOG_WORKER_MODE === '1' && process.send) {
 // server with acquireLock + StdioServerTransport. Server-main spawnWorker
 // also forks this file with MIXDOG_WORKER_MODE='1'; that path uses the IPC
 // handler block above and acquireLock/init() as the single memory owner.
-if (import.meta.url === pathToFileURL(process.argv[1] || '').href && process.env.MIXDOG_WORKER_MODE !== '1') {
+if (IS_MEMORY_ENTRY && process.env.MIXDOG_WORKER_MODE !== '1') {
   ;(async () => {
     acquireLock()
     process.on('exit', releaseLock)

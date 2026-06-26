@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, watch as fsWatch, writeFileSync } from 'fs';
 import * as fsPromises from 'fs/promises';
 import { basename, join } from 'path';
@@ -14,6 +14,8 @@ import {
     notifyBackgroundTaskProgress,
 } from '../../../../shared/background-tasks.mjs';
 import { startChildGuardian } from '../../../../shared/child-guardian.mjs';
+
+globalThis.__mixdogShellJobsRuntimeLoaded = true;
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -220,29 +222,62 @@ function killProcessTree(pid, signal = 'SIGTERM') {
 // owned children. Async jobs are intentionally CLI-owned; no restart replay or
 // daemon handoff is attempted.
 const _liveJobPids = new Set();
+const _liveJobIdsByPid = new Map();
 let _shellJobsExitHookInstalled = false;
-function _registerLiveJobPid(pid) {
-    if (Number.isFinite(pid) && pid > 0) _liveJobPids.add(pid);
+function _registerLiveJobPid(pid, jobId = null) {
+    if (Number.isFinite(pid) && pid > 0) {
+        _liveJobPids.add(pid);
+        if (jobId) _liveJobIdsByPid.set(pid, jobId);
+    }
 }
 function _unregisterLiveJobPid(pid) {
-    if (Number.isFinite(pid) && pid > 0) _liveJobPids.delete(pid);
+    if (Number.isFinite(pid) && pid > 0) {
+        _liveJobPids.delete(pid);
+        _liveJobIdsByPid.delete(pid);
+    }
+}
+function _killLiveJobPid(pid, { sync = false } = {}) {
+    try {
+        if (process.platform === 'win32') {
+            if (sync) {
+                spawnSync('taskkill.exe', ['/pid', String(pid), '/t', '/f'], {
+                    windowsHide: true,
+                    stdio: 'ignore',
+                    timeout: 1500,
+                });
+            } else {
+                spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
+            }
+        } else {
+            try { process.kill(-pid, 'SIGKILL'); }
+            catch { try { process.kill(pid, 'SIGKILL'); } catch { /* ignore */ } }
+        }
+        return true;
+    } catch {
+        return false;
+    }
 }
 function _sweepLiveJobsSync() {
     for (const pid of _liveJobPids) {
-        try {
-            if (process.platform === 'win32') {
-                spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
-            } else {
-                try { process.kill(-pid, 'SIGKILL'); }
-                catch { try { process.kill(pid, 'SIGKILL'); } catch { /* ignore */ } }
-            }
-        } catch { /* ignore */ }
+        _killLiveJobPid(pid, { sync: true });
     }
     _liveJobPids.clear();
+    _liveJobIdsByPid.clear();
+}
+function _ensureProcessListenerHeadroom(events, extra = 1) {
+    try {
+        if (typeof process.getMaxListeners !== 'function' || typeof process.setMaxListeners !== 'function') return;
+        const current = process.getMaxListeners();
+        if (current === 0) return;
+        let needed = current;
+        for (const event of events) needed = Math.max(needed, process.listenerCount(event) + extra);
+        if (needed > current) process.setMaxListeners(needed);
+    } catch { /* ignore */ }
 }
 function _installShellJobsExitHook() {
     if (_shellJobsExitHookInstalled) return;
     _shellJobsExitHookInstalled = true;
+    _ensureProcessListenerHeadroom(['exit', 'SIGTERM', 'SIGINT', 'SIGHUP'], 1);
     try { process.on('exit', _sweepLiveJobsSync); } catch { /* ignore */ }
     try { process.on('SIGTERM', _sweepLiveJobsSync); } catch { /* ignore */ }
     try { process.on('SIGINT', _sweepLiveJobsSync); } catch { /* ignore */ }
@@ -572,6 +607,20 @@ const jobNotifyCtxByJobId = new Map();
 // consuming the outcome, so the watcher must stay cancelled; the last waiter to
 // leave (count===0) owns the decision to re-arm a still-running job.
 const jobWaitWaiterCountByJobId = new Map();
+function markShellJobCancelledByShutdown(jobId, reason = 'shutdown') {
+    const detail = readShellJobDetail(jobId);
+    if (!detail || detail.status !== 'running') return false;
+    detail.status = 'cancelled';
+    detail.exitCode = 137;
+    detail.killed = true;
+    detail.error = `cancelled by runtime shutdown (${reason})`;
+    detail.finishedAt = new Date().toISOString();
+    try { writeFileSync(detail.exitPath || shellJobExitPath(jobId), '137'); } catch { /* ignore */ }
+    try { writeFileSync(detail.donePath || shellJobDonePath(jobId), ''); } catch { /* ignore */ }
+    writeShellJobDetail(detail);
+    _unregisterLiveJobPid(detail.pid);
+    return true;
+}
 // Register a synchronous task waiter. Paired with endShellJobWait in a
 // finally so the count can't leak on throw.
 export function beginShellJobWait(jobId) {
@@ -589,6 +638,26 @@ export function endShellJobWait(jobId) {
 // cancel so a killed-but-never-fired entry can't leak its ctx.
 export function clearShellJobNotifyCtx(jobId) {
     jobNotifyCtxByJobId.delete(jobId);
+}
+export function shutdownShellJobs(reason = 'runtime-close', { sync = false } = {}) {
+    const livePids = [..._liveJobPids];
+    const jobIds = new Set([..._liveJobIdsByPid.values()].filter(Boolean));
+    const watcherJobIds = [...backgroundShellJobWatchers.keys()];
+    for (const jobId of watcherJobIds) {
+        jobIds.add(jobId);
+        try { cancelBackgroundShellJobWatch(jobId); } catch { /* ignore */ }
+    }
+    for (const pid of livePids) _killLiveJobPid(pid, { sync });
+    _liveJobPids.clear();
+    _liveJobIdsByPid.clear();
+    let marked = 0;
+    for (const jobId of jobIds) {
+        try { if (markShellJobCancelledByShutdown(jobId, reason)) marked += 1; } catch { /* ignore */ }
+    }
+    backgroundShellJobWatchers.clear();
+    jobNotifyCtxByJobId.clear();
+    jobWaitWaiterCountByJobId.clear();
+    return { killed: livePids.length, cancelledJobs: marked, cancelledWatchers: watcherJobIds.length };
 }
 // Cancel (and unregister) an armed watcher without notifying. Idempotent: a
 // no-op when no watcher is armed, and the per-watcher cancel respects the
@@ -824,7 +893,7 @@ export function adoptForegroundShellJob({ command, cwd, pid, timeoutMs, mergeStd
     writeShellJobDetail(detail);
     if (Number.isFinite(pid) && pid > 0) {
         _installShellJobsExitHook();
-        _registerLiveJobPid(pid);
+        _registerLiveJobPid(pid, jobId);
     }
     return { ...detail, exitPath, donePath };
 }
@@ -919,7 +988,7 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
         label: 'shell-job',
     });
     _installShellJobsExitHook();
-    _registerLiveJobPid(child.pid);
+    _registerLiveJobPid(child.pid, jobId);
     const detail = {
         jobId,
         kind: 'bash',
@@ -1056,7 +1125,7 @@ function startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr
         return { jobId, kind: 'bash', status: 'failed', error: 'PowerShell background task spawn returned no pid' };
     }
     _installShellJobsExitHook();
-    _registerLiveJobPid(childPid);
+    _registerLiveJobPid(childPid, jobId);
     const detail = {
         jobId,
         kind: 'bash',

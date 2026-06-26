@@ -2,9 +2,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import {
   TOOL_ASYNC_EXECUTION_CONTRACT,
-  TOOL_SYNC_EXECUTION_CONTRACT,
   cancelBackgroundTask,
-  executionModeSchemaDescription,
   getBackgroundTask,
   renderBackgroundTask,
   renderBackgroundTaskList,
@@ -13,6 +11,7 @@ import {
   taskIdFromArgs,
 } from '../runtime/shared/background-tasks.mjs';
 import { makeBridgeLlm } from '../runtime/agent/orchestrator/smart-bridge/bridge-llm.mjs';
+import { presentErrorText } from '../runtime/shared/err-text.mjs';
 
 // Ported from the original mixdog tool-defs.mjs `explore` entry.
 // `aiWrapped` is dropped: in the standalone build there is no aiWrapped
@@ -23,13 +22,13 @@ export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: `Broad-scope locator only; returns unverified leads. Prefer mode=async for broad exploration that can continue in parallel; use sync only when the next step must block on this locator result. ${TOOL_SYNC_EXECUTION_CONTRACT} ${TOOL_ASYNC_EXECUTION_CONTRACT} Use code_graph/grep/glob first when any symbol, term, file kind, or config clue exists. Use explore only after direct narrowing fails or topics are unrelated. One short location question.`,
+  description: `분석용이 아니라 특정 파일, 함수, 심볼, 라인 등 관련 위치를 파악하기 위한 짧은 위치 탐색기로 사용하세요. First-choice tool for broad or unclear repo/code location questions. Use explore when you need to find where a feature, behavior, file group, or implementation area lives before reading exact files. Always use mode:"async"; never use mode:"sync". If the result is needed before continuing, pause the dependent path and wait for the async completion notification. Do not poll status/read; those controls are for manual recovery only. ${TOOL_ASYNC_EXECUTION_CONTRACT} Use code_graph/grep/glob instead only when you already have a specific symbol, term, file kind, or config key. One short location question.`,
   inputSchema: {
     type: 'object',
     properties: {
       query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'One short location question, or an array only for unrelated topics. Do not use for a known symbol/term/config key; use code_graph/grep first. Never pass a whole brief/context dump.' },
       cwd: { type: 'string', description: 'Project/root directory to explore; narrow to the relevant repo or subtree.' },
-      mode: { type: 'string', enum: ['async', 'sync'], description: `${executionModeSchemaDescription('sync')} Prefer async for non-trivial exploration; choose sync only for an explicit blocking lookup.` },
+      mode: { type: 'string', enum: ['async'], description: `Always use mode:"async". ${TOOL_ASYNC_EXECUTION_CONTRACT}` },
       action: { type: 'string', enum: ['run', 'list', 'status', 'read', 'cancel'], description: 'Default run. list/status/read/cancel are manual recovery controls for async explore tasks.' },
       task_id: { type: 'string', description: 'Shared background task id for manual status/read/cancel recovery.' },
       background: { type: 'boolean', description: 'Legacy alias for mode=async.' },
@@ -56,7 +55,7 @@ function escapeXml(str) {
 // reminder. The full no-verdict contract lives at system level
 // (rules/bridge/30-explorer.md).
 export function buildExplorerPrompt(query) {
-  return `<query>${escapeXml(query)}</query>\nReminder: describe with file:line evidence; no verdicts, ratings, or recommendations.`;
+  return `<query>${escapeXml(query)}</query>\nReminder: output only anchor lines formatted as path:line — symbol/name — short reason, or EXPLORATION_FAILED. No preamble, bullets, numbering, headings, summary, code quotes, analysis, or verdicts.`;
 }
 
 export function normalizeExploreQueries(rawQuery) {
@@ -91,9 +90,26 @@ function settledExplorerResult(result) {
   if (result?.status !== 'fulfilled') {
     return { ok: false, text: `[explorer error] ${result?.reason?.message || String(result?.reason)}` };
   }
-  const text = typeof result.value === 'string' ? result.value.trim() : responseText(result.value).trim();
+  const text = cleanExplorerText(typeof result.value === 'string' ? result.value : responseText(result.value));
   if (!text) return { ok: false, text: '[explorer error] empty response' };
   return { ok: true, text };
+}
+
+function isFatalExploreError(error) {
+  if (!error) return false;
+  const status = Number(error.httpStatus || error.status || error.response?.status || 0) || 0;
+  if (status === 401 || status === 403 || status === 429) return true;
+  if (error.providerQuota === true || error.quotaExceeded === true) return true;
+  const code = String(error.code || '').toUpperCase();
+  if (code === 'PROVIDER_QUOTA' || code === 'EACCES' || code === 'EAUTH') return true;
+  const name = String(error.name || '');
+  if (/ProviderQuotaError|Auth|Authentication|Permission/i.test(name)) return true;
+  const text = String(error.message || error.reason || error || '');
+  return /\b(?:quota|rate ?limit|unauthorized|authentication|forbidden|permission denied|invalid api key|token expired)\b/i.test(text);
+}
+
+function fatalExploreError(settled) {
+  return (settled || []).find((r) => r?.status === 'rejected' && isFatalExploreError(r.reason))?.reason || null;
 }
 
 function mergeSettled(settled, queries) {
@@ -109,7 +125,7 @@ function mergeSettled(settled, queries) {
   const sep = '\n\n';
   let truncated = false;
   for (let i = 0; i < settled.length; i++) {
-    const header = `## Q${i + 1}: ${String(queries[i] ?? '').replace(/\s+/g, ' ').slice(0, 60)}`;
+    const header = `Q${i + 1}: ${String(queries[i] ?? '').replace(/\s+/g, ' ').slice(0, 60)}`;
     const { text: body } = settledExplorerResult(settled[i]);
     const piece = `${header}\n${body}`;
     const addLen = (parts.length === 0 ? 0 : sep.length) + piece.length;
@@ -148,6 +164,35 @@ function responseText(response) {
   return text || JSON.stringify(response, null, 2);
 }
 
+const ANCHOR_LINE_RE = /(?:^|\s)(?:[A-Za-z]:[\\/][^:\n]+|\.{0,2}[\\/][^:\n]+|src[\\/][^:\n]+|[\w.-]+[\\/][^:\n]+):\d+\b/;
+const FAILED_RE = /\b(?:EXPLORATION_FAILED|exploration failed|no credible (?:anchor|location)|no relevant (?:anchor|location)|not found|could(?: not|n't) find)\b/i;
+
+function normalizeExplorerLine(line) {
+  return String(line || '')
+    .trim()
+    .replace(/^[-*•]\s+/, '')
+    .replace(/^\d+[.)]\s+/, '')
+    .replace(/^>\s*/, '')
+    .replace(/`/g, '')
+    .replace(/\*\*/g, '')
+    .trim();
+}
+
+function cleanExplorerText(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return '';
+  const anchors = [];
+  for (const sourceLine of raw.split(/\r?\n/)) {
+    const line = normalizeExplorerLine(sourceLine);
+    if (!line || /^-{3,}$/.test(line) || /^#+\s+/.test(line)) continue;
+    if (/^EXPLORATION_FAILED\b/i.test(line)) return 'EXPLORATION_FAILED';
+    if (ANCHOR_LINE_RE.test(line)) anchors.push(line);
+  }
+  if (anchors.length) return anchors.join('\n');
+  if (FAILED_RE.test(raw)) return 'EXPLORATION_FAILED';
+  return raw;
+}
+
 function controlExploreTask(action, args, ctx = {}) {
   if (action === 'list') return ok(renderBackgroundTaskList({ surface: 'explore', context: ctx }));
   const taskId = taskIdFromArgs(args);
@@ -169,8 +214,8 @@ function controlExploreTask(action, args, ctx = {}) {
  * hidden roles use. Runs query items concurrently (Promise.allSettled), then
  * aggregates the findings into one bounded text result.
  *
- * Runs synchronously by default. With mode=async/background:true, registers a
- * shared background task and delivers completion to the owner session.
+ * Runs asynchronously by default: registers a shared background task and
+ * delivers completion to the owner session.
  *
  * @param {object} args         — tool args ({ query, cwd, background }).
  * @param {object} ctx          — { callerCwd, callerSessionId }.
@@ -179,7 +224,7 @@ export async function runExplore(args = {}, ctx = {}) {
   const action = clean(args.action || 'run').toLowerCase();
   if (['list', 'status', 'read', 'cancel'].includes(action)) return controlExploreTask(action, args, ctx);
 
-  const mode = resolveExecutionMode(args, 'sync');
+  const mode = resolveExecutionMode(args, 'async');
   if (mode === 'async') {
     const queries = normalizeExploreQueries(args.query);
     if (queries.length === 0) return fail('query is required (one or more non-empty strings)');
@@ -225,6 +270,9 @@ async function runExploreSync(args = {}, ctx = {}) {
     });
     return llm({ prompt: buildExplorerPrompt(q) });
   }));
+
+  const fatal = fatalExploreError(settled);
+  if (fatal) return fail(presentErrorText(fatal, { surface: 'explore' }));
 
   const merged = mergeSettled(settled, working);
   const allFailed = settled.every((r) => !settledExplorerResult(r).ok);

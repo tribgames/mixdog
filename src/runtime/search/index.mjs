@@ -859,7 +859,7 @@ async function handleToolCall(name, rawArgs, options = {}) {
           return { content: [{ type: 'text', text: `Search failed: ${_cleanErr}` }], isError: true }
         }
       }
-      if (resolveExecutionMode(args, 'sync') === 'async') {
+      if (resolveExecutionMode(args, 'async') === 'async') {
         const label = Array.isArray(args.keywords)
           ? args.keywords.join(' | ')
           : String(args.keywords || '')

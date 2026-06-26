@@ -78,6 +78,16 @@ function singleTrailingLineBreakPrefix(text) {
   return prefix.includes('\n') ? null : prefix;
 }
 
+function isCtrlEnterSequence(input) {
+  const text = String(input ?? '');
+  const body = text.startsWith('\x1b[') ? text.slice(2) : text.startsWith('[') ? text.slice(1) : '';
+  if (!body) return false;
+  const kitty = /^13;(\d+)(?::\d+)?(?:;[\d:]+)?u$/.exec(body);
+  if (kitty) return ((Number(kitty[1]) - 1) & 4) !== 0;
+  const modifyOtherKeys = /^27;(\d+);13~$/.exec(body);
+  return Boolean(modifyOtherKeys && (((Number(modifyOtherKeys[1]) - 1) & 4) !== 0));
+}
+
 export function PromptInput({
   onSubmit,
   disabled = false,
@@ -285,6 +295,8 @@ export function PromptInput({
     const lineBreakIndex = rawInput.search(/[\r\n]/);
     const rawEnter = rawInput === '\r' || rawInput === '\n' || rawInput === '\r\n';
     const trailingEnterPrefix = singleTrailingLineBreakPrefix(rawInput);
+    const rawCtrlEnter = isCtrlEnterSequence(rawInput);
+    const modifiedLineBreak = key.shift || key.meta || key.ctrl || rawCtrlEnter;
 
     const pasteFallback = lineBreakIndex !== -1 && trailingEnterPrefix === null && !rawEnter && (rawInput.length > 1 || !key.return);
     if (pasteFallback) {
@@ -293,11 +305,16 @@ export function PromptInput({
     }
 
     if (trailingEnterPrefix !== null) {
-      if (key.shift || key.meta) {
+      if (modifiedLineBreak) {
         updateDraft((d) => insertText(d, `${trailingEnterPrefix}\n`));
         return;
       }
       submitEnterChunk(trailingEnterPrefix);
+      return;
+    }
+
+    if (rawCtrlEnter) {
+      updateDraft((d) => replaceSelection(d, '\n'));
       return;
     }
 
@@ -307,7 +324,7 @@ export function PromptInput({
     }
 
     if (key.return) {
-      if (key.shift || key.meta) {
+      if (modifiedLineBreak) {
         updateDraft((d) => replaceSelection(d, '\n'));
         return;
       }

@@ -2,9 +2,24 @@ const DEFAULT_SUMMARY_MAX = 160;
 const STATUS_SEPARATOR = ' · ';
 
 export function stripToolPrefix(name) {
-  return String(name || 'tool')
-    .replace(/^mcp__.*__/, '')
-    .replace(/^functions\./, '');
+  const text = rawToolName(name);
+  const mcp = parseMcpToolName(text);
+  return mcp ? mcp.tool : text;
+}
+
+function rawToolName(name) {
+  return String(name || 'tool').replace(/^functions\./, '');
+}
+
+export function parseMcpToolName(name) {
+  const text = rawToolName(name);
+  const match = /^mcp__(.+?)__(.+)$/.exec(text);
+  if (!match) return null;
+  return { server: match[1], tool: match[2] };
+}
+
+export function isMcpToolName(name) {
+  return Boolean(parseMcpToolName(name));
 }
 
 export function normalizeToolName(name) {
@@ -61,6 +76,12 @@ function compactSlash(left, right) {
   return a && b ? `${a}/${b}` : a || b;
 }
 
+function mcpToolTarget(name, max = DEFAULT_SUMMARY_MAX) {
+  const mcp = parseMcpToolName(name);
+  if (!mcp) return '';
+  return truncateToolText(compactSlash(mcp.server, mcp.tool), max);
+}
+
 function quoted(value, max) {
   const text = truncateToolText(value || '', max);
   return text ? `"${text}"` : '';
@@ -71,6 +92,52 @@ function firstText(...values) {
     if (value != null && String(value).trim()) return String(value).trim();
   }
   return '';
+}
+
+function splitToolSearchSelection(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean);
+  return String(value || '')
+    .split(/[,\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function toolSearchTargetKind(value) {
+  const lower = String(value || '').trim().toLowerCase();
+  if (!lower) return '';
+  if (lower.startsWith('mcp__') || lower.includes('_mcp_') || lower.includes('mcp')) return 'MCP';
+  if (lower === 'skill' || lower.startsWith('skill:') || lower.startsWith('skill_') || lower.startsWith('skills_') || lower.includes('skill')) return 'Skills';
+  return 'Tools';
+}
+
+function orderedToolSearchKinds(kinds) {
+  const set = new Set((kinds || []).filter(Boolean));
+  const order = ['Tools', 'MCP', 'Skills'];
+  const out = order.filter((kind) => set.has(kind));
+  return out.length ? out : ['Tools'];
+}
+
+function inferToolSearchKinds(args = {}) {
+  const selected = splitToolSearchSelection(args.select);
+  if (selected.length) return orderedToolSearchKinds(selected.map(toolSearchTargetKind));
+
+  const query = firstText(args.query, args.q, args.text).toLowerCase();
+  const kinds = [];
+  if (/\bmcp\b|mcp__|mcp[-_\s]?server/.test(query)) kinds.push('MCP');
+  if (/\bskills?\b|skill_|use[-_\s]?skill/.test(query)) kinds.push('Skills');
+  return orderedToolSearchKinds(kinds);
+}
+
+function toolSearchDisplayLabel(args = {}) {
+  return `Load ${inferToolSearchKinds(args).join('/')}`;
+}
+
+function displayToolSearchTarget(value) {
+  const text = String(value || '').trim();
+  if (/^skill:/i.test(text)) return text.slice('skill:'.length);
+  const mcp = /^mcp__(.*?)__(.+)$/.exec(text);
+  if (mcp) return `${mcp[1]}.${mcp[2]}`;
+  return stripToolPrefix(text);
 }
 
 function titleizeToolName(name) {
@@ -201,6 +268,7 @@ function codeGraphSummary(args, max) {
 }
 
 export function displayToolName(name, args = {}) {
+  if (isMcpToolName(name)) return 'MCP';
   const normalized = normalizeToolName(name);
   switch (normalized) {
     case 'read':
@@ -219,8 +287,9 @@ export function displayToolName(name, args = {}) {
       return 'Run';
     case 'grep':
     case 'glob':
-    case 'tool_search':
       return 'Search';
+    case 'tool_search':
+      return toolSearchDisplayLabel(parseToolArgs(args));
     case 'search':
     case 'search_query':
     case 'image_query':
@@ -282,7 +351,15 @@ export function displayToolName(name, args = {}) {
 export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}) {
   const a = parseToolArgs(args);
   if (!a || typeof a !== 'object') return '';
-  switch (normalizeToolName(name)) {
+  const normalized = normalizeToolName(name);
+  const mcpTarget = mcpToolTarget(name, max);
+  if (mcpTarget) {
+    return compactParts([
+      mcpTarget,
+      truncateToolText(firstText(a.query, a.q, a.text, a.prompt, a.path, a.uri, a.name, a.id, a.action), Math.min(max, 80)),
+    ]);
+  }
+  switch (normalized) {
     case 'read':
       if (!a.path && !a.file_path) return '';
       return compactParts([
@@ -328,7 +405,11 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'explore':
       return truncateSingleLine(firstText(a.query, a.prompt, a.task, a.goal, a.path), Math.min(max, 80));
     case 'tool_search':
-      return quoted(firstText(a.query, a.q, a.text), max);
+      {
+        const selected = splitToolSearchSelection(a.select);
+        if (selected.length) return truncateToolText(selected.map(displayToolSearchTarget).join(', '), max);
+        return quoted(firstText(a.query, a.q, a.text), max);
+      }
     case 'web_fetch':
     case 'fetch':
       return truncateToolText(a.url || a.uri || '', max);
@@ -396,7 +477,7 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'skill_view':
     case 'skills_list':
     case 'use_skill':
-      return truncateToolText(firstText(a.name, a.skill, a.skill_name), max);
+      return truncateToolText(firstText(a.name, a.skill, a.skill_name, a.query, a.q, normalized === 'skills_list' ? 'all skills' : ''), max);
     default: {
       const primary = firstText(a.name, a.skill, a.query, a.title, a.path, a.file, a.target, a.id, a.action);
       if (primary) return truncateToolText(primary, Math.min(max, 80));
@@ -576,6 +657,8 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
   if (isError) return null;
   const text = String(resultText ?? '');
   const trimmed = text.trim();
+  if (/^(?:undefined|null)$/i.test(trimmed)) return null;
+  if (isMcpToolName(name)) return trimmed ? firstAgentResultLine(text) || null : null;
   const normalized = normalizeToolName(name);
 
   switch (normalized) {
@@ -677,6 +760,25 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     case 'explore': {
       return trimmed ? firstAgentResultLine(text) || null : null;
     }
+    case 'skill':
+    case 'skill_execute':
+    case 'skill_view':
+    case 'skills_list':
+    case 'use_skill': {
+      const parsedArgs = parseToolArgs(args);
+      const target = firstText(parsedArgs.name, parsedArgs.skill, parsedArgs.skill_name);
+      if (normalized === 'skills_list') {
+        const count = /(\d+)\s+skills?/i.exec(text);
+        if (count) return `${Number(count[1]) || count[1]} ${pluralize(Number(count[1]) || 0, 'Skill')}`;
+        const lines = countNonEmptyLines(text);
+        return lines > 0 ? `${lines} ${pluralize(lines, 'Skill')}` : null;
+      }
+      if (target) {
+        const verb = normalized === 'skill_view' ? 'Loaded' : 'Used';
+        return `${verb} ${truncateToolText(target, 80)}`;
+      }
+      return trimmed ? firstAgentResultLine(text) || null : null;
+    }
     case 'bridge':
     case 'agent':
     case 'task': {
@@ -720,7 +822,7 @@ export function isMemorySurface(label) {
 // ── Aggregate tool-card classification & formatting ──────────────
 
 export const CATEGORY_ORDER = [
-  'Read', 'Search', 'Web Research', 'Memory', 'Explore',
+  'Read', 'Search', 'Load', 'MCP', 'Skill', 'Web Research', 'Memory', 'Explore',
   'Patch', 'Shell', 'Agent', 'Channel', 'Setup', 'Other',
 ];
 
@@ -732,7 +834,7 @@ const TOOL_CATEGORY = new Map([
   ['glob', 'Search'],
   ['list', 'Search'],
   ['ls', 'Search'],
-  ['tool_search', 'Search'],
+  ['tool_search', 'Load'],
   ['search', 'Web Research'],
   ['web_search', 'Web Research'],
   ['search_query', 'Web Research'],
@@ -777,15 +879,16 @@ const TOOL_CATEGORY = new Map([
   ['request_user_input', 'Setup'],
   ['update_plan', 'Setup'],
   ['trigger_schedule', 'Setup'],
-  ['skill', 'Setup'],
-  ['skill_execute', 'Setup'],
-  ['skill_view', 'Setup'],
-  ['skills_list', 'Setup'],
-  ['use_skill', 'Setup'],
+  ['skill', 'Skill'],
+  ['skill_execute', 'Skill'],
+  ['skill_view', 'Skill'],
+  ['skills_list', 'Skill'],
+  ['use_skill', 'Skill'],
 ]);
 
 /** Return the aggregate category for a tool name + args. */
 export function classifyToolCategory(name, args = {}) {
+  if (isMcpToolName(name)) return 'MCP';
   const normalized = normalizeToolName(name);
   if (normalized === 'code_graph') {
     const mode = String(args.mode || args.action || '').toLowerCase();
@@ -798,6 +901,9 @@ export function classifyToolCategory(name, args = {}) {
 const CATEGORY_COPY = new Map([
   ['Read', { active: 'Reading', done: 'Read', noun: 'item' }],
   ['Search', { active: 'Searching', done: 'Searched', noun: 'item' }],
+  ['Load', { active: 'Loading', done: 'Loaded', noun: 'tool' }],
+  ['MCP', { active: 'Using MCP', done: 'Used', noun: 'MCP tool' }],
+  ['Skill', { active: 'Loading Skill', done: 'Loaded', noun: 'skill' }],
   ['Web Research', { active: 'Researching', done: 'Researched', noun: 'web item' }],
   ['Memory', { active: 'Checking', done: 'Checked', noun: 'memory item' }],
   ['Explore', { active: 'Exploring', done: 'Explored', noun: 'item' }],

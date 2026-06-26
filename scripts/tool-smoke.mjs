@@ -332,7 +332,7 @@ for (const name of ['apply_patch', 'bridge', 'shell']) {
 
 const bridgeProps = BRIDGE_TOOL.inputSchema?.properties || {};
 if (!bridgeProps.mode || bridgeProps.wait) throw new Error('bridge schema should expose mode but not legacy wait');
-if (!/Prefer async by default/i.test(BRIDGE_TOOL.description || '') || !/distinct tags/i.test(BRIDGE_TOOL.description || '') || !/completion notification/i.test(BRIDGE_TOOL.description || '') || !/do not call status\/read/i.test(BRIDGE_TOOL.description || '')) {
+if (!/(?:Prefer async by default|Always use mode:"async")/i.test(BRIDGE_TOOL.description || '') || !/distinct tags/i.test(BRIDGE_TOOL.description || '') || !/completion notification/i.test(BRIDGE_TOOL.description || '') || !/do not (?:call|poll) status\/read/i.test(BRIDGE_TOOL.description || '')) {
   throw new Error('bridge description must preserve async tagged delegation contract');
 }
 const bridgeSmoke = createStandaloneBridge({
@@ -362,7 +362,7 @@ if (EXPLORE_TOOL.annotations?.readOnlyHint !== true || EXPLORE_TOOL.annotations?
   throw new Error('explore must stay read-only so readonly surfaces can use it');
 }
 const exploreProps = EXPLORE_TOOL.inputSchema?.properties || {};
-if (!/Broad-scope locator only/i.test(EXPLORE_TOOL.description || '') || !/code_graph\/grep\/glob first/i.test(EXPLORE_TOOL.description || '')) {
+if (!/(?:Broad-scope locator only|First-choice tool for broad or unclear repo\/code location questions)/i.test(EXPLORE_TOOL.description || '') || !/(?:code_graph\/grep\/glob first|Use code_graph\/grep\/glob instead only when)/i.test(EXPLORE_TOOL.description || '')) {
   throw new Error('explore description must preserve broad-locator and direct-tool-first guidance');
 }
 if (!/Never pass a whole brief/i.test(exploreProps.query?.description || '') || !/relevant repo or subtree/i.test(exploreProps.cwd?.description || '')) {
@@ -412,7 +412,7 @@ if (!/explicit mutation/i.test(memoryTool?.description || '') || !/Destructive j
 }
 const searchTool = SEARCH_TOOL_DEFS.find((tool) => tool.name === 'search');
 const searchProps = searchTool?.inputSchema?.properties || {};
-if (!/Prefer mode=async/i.test(searchTool?.description || '') || !searchProps.query?.anyOf || !/array for fan-out/i.test(searchProps.query?.description || '')) {
+if (!/(?:Prefer mode=async|Always use mode:"async")/i.test(searchTool?.description || '') || !searchProps.query?.anyOf || !/array for fan-out/i.test(searchProps.query?.description || '')) {
   throw new Error('search schema must preserve async guidance and string/array query shape');
 }
 if (!/Default web/i.test(searchProps.type?.description || '') || !/locale hint/i.test(searchProps.locale?.description || '') || !/Default low/i.test(searchProps.contextSize?.description || '')) {

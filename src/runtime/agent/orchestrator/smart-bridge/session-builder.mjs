@@ -23,6 +23,7 @@
 import { createSession } from '../session/manager.mjs';
 import { traceBridgePreset } from '../bridge-trace.mjs';
 import { resolveBridgeSessionPermission } from '../internal-roles.mjs';
+import { loadConfig } from '../config.mjs';
 
 /**
  * @param {object} opts
@@ -74,6 +75,16 @@ export function prepareBridgeSession({
     const effectiveOwnerSessionId = ownerSessionId === undefined
         ? (process.env.MIXDOG_OWNER_SESSION_ID || null)
         : ownerSessionId;
+    let compaction = null;
+    try {
+        const cfg = loadConfig({ secrets: false });
+        // Bridge worker sessions should keep the higher-quality semantic compact
+        // path even when the Lead session uses recall-fasttrack for cheap
+        // auto-clear/auto-compact. Cycle maintenance prompts are small enough
+        // that this normally only matters for long-lived worker conversations.
+        const base = cfg?.compaction && typeof cfg.compaction === 'object' ? cfg.compaction : {};
+        compaction = { ...base, type: '1', compactType: '1' };
+    } catch { /* config is best-effort for bridge compaction policy */ }
     const sessionOpts = {
         preset,
         owner,
@@ -87,6 +98,7 @@ export function prepareBridgeSession({
         sourceName: sourceName || undefined,
         ownerSessionId: effectiveOwnerSessionId || null,
         clientHostPid: clientHostPid || null,
+        compaction: compaction || undefined,
     };
     if (bridgeTag) sessionOpts.bridgeTag = bridgeTag;
     if (effectivePermission) sessionOpts.permission = effectivePermission;

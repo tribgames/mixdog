@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { compactActiveTurn, compactMessages, semanticCompactMessages, SUMMARY_PREFIX } from '../src/runtime/agent/orchestrator/session/compact.mjs';
+import { compactActiveTurn, compactMessages, semanticCompactMessages, recallFastTrackCompactMessages, SUMMARY_PREFIX, COMPACT_TYPE_SEMANTIC, COMPACT_TYPE_RECALL_FASTTRACK, normalizeCompactType } from '../src/runtime/agent/orchestrator/session/compact.mjs';
 import { agentLoop } from '../src/runtime/agent/orchestrator/session/loop.mjs';
 import { estimateMessagesTokens } from '../src/runtime/agent/orchestrator/session/context-utils.mjs';
 import { autoCompactWindowForRoute, summarizeGatewayUsage } from '../src/vendor/statusline/src/gateway/route-meta.mjs';
@@ -188,7 +188,21 @@ const semanticNoop = await semanticCompactMessages(semanticProvider, semanticMes
 assert(semanticNoop.semantic === false && semanticCalls === 0, 'semantic compact should still no-op below budget unless forced');
 const semanticForced = await semanticCompactMessages(semanticProvider, semanticMessages, 'fake-model', 5_000, { tailTurns: 1, force: true });
 assert(semanticForced.semantic === true && semanticCalls === 1, 'forced semantic compact should run even when the local estimate fits');
+assert(semanticForced.compactType === COMPACT_TYPE_SEMANTIC, 'semantic compact should report compact type 1');
 assert(findSummary(semanticForced.messages), 'forced semantic compact should insert an anchored summary');
+
+assert(normalizeCompactType('type1') === COMPACT_TYPE_SEMANTIC, 'type1 should resolve to semantic compact');
+assert(normalizeCompactType('recall-fasttrack') === COMPACT_TYPE_RECALL_FASTTRACK, 'type2 should resolve to recall fast-track compact');
+const recallFastTrackForced = recallFastTrackCompactMessages(semanticMessages, 5_000, {
+  tailTurns: 1,
+  force: true,
+  recallText: 'recall hit: src/runtime/agent/orchestrator/session/compact.mjs and next steps preserved',
+  query: 'compact smoke recall fast-track',
+  querySha: 'smoketest',
+});
+assert(recallFastTrackForced.recallFastTrack === true, 'recall fast-track compact should mark type2 result');
+assert(recallFastTrackForced.compactType === COMPACT_TYPE_RECALL_FASTTRACK, 'recall fast-track compact should report compact type 2');
+assert(findSummary(recallFastTrackForced.messages), 'recall fast-track compact should insert an anchored summary');
 
 const overflowRetryMessages = [{ role: 'system', content: 'system rules stay mandatory' }];
 let overflowIndex = 0;

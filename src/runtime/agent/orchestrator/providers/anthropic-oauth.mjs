@@ -45,6 +45,33 @@ const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
 // SSE progress emits (per-request "Response …" and "Done:" lines). Off by default.
 const SSE_VERBOSE = process.env.MIXDOG_SSE_VERBOSE === '1';
 
+function formatRetryAfter(ms) {
+    const n = Number(ms);
+    if (!Number.isFinite(n) || n < 0) return '';
+    if (n >= 60_000 && n % 60_000 === 0) return `${Math.round(n / 60_000)}m`;
+    if (n >= 1000) return `${Math.ceil(n / 1000)}s`;
+    return `${Math.ceil(n)}ms`;
+}
+
+function anthropicQuotaError(status, headers, bodyText = '') {
+    const retryAfterMs = retryAfterMsFromError({ headers, response: { headers } });
+    const retryAfter = formatRetryAfter(retryAfterMs);
+    const detail = bodyText ? `: ${String(bodyText).slice(0, 200)}` : '';
+    const retry = retryAfter ? ` retryAfter=${retryAfter}` : '';
+    const err = new Error(`Anthropic OAuth API ${status} quota/rate limit${retry}${detail}`);
+    err.name = 'ProviderQuotaError';
+    err.code = 'PROVIDER_QUOTA';
+    err.httpStatus = status;
+    err.status = status;
+    err.headers = headers;
+    err.response = { status, headers };
+    err.retryAfterMs = retryAfterMs;
+    err.providerQuota = true;
+    err.quotaExceeded = true;
+    err.unsafeToRetry = true;
+    return err;
+}
+
 const _modelCache = makeModelCache({
     fileName: 'anthropic-oauth-models.json',
     ttlMs: MODEL_CACHE_TTL_MS,
@@ -215,7 +242,7 @@ function assertSafeTokenURL(rawURL) {
     }
     return rawURL;
 }
-const TOKEN_URL = assertSafeTokenURL(process.env.ANTHROPIC_OAUTH_TOKEN_URL || 'https://console.anthropic.com/v1/oauth/token');
+const TOKEN_URL = assertSafeTokenURL(process.env.ANTHROPIC_OAUTH_TOKEN_URL || 'https://platform.claude.com/v1/oauth/token');
 const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_CREDENTIALS_PATH = join(resolvePluginData(), 'anthropic-oauth-credentials.json');
 const CLAUDE_CODE_CREDENTIALS_PATH = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), '.credentials.json');
@@ -235,6 +262,8 @@ const OAUTH_CALLBACK_HOST = 'localhost';
 const OAUTH_CALLBACK_PORT = 54545;
 const OAUTH_CALLBACK_PATH = '/callback';
 const OAUTH_REDIRECT_URI = `http://${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}${OAUTH_CALLBACK_PATH}`;
+const OAUTH_MANUAL_REDIRECT_URI = process.env.ANTHROPIC_OAUTH_MANUAL_REDIRECT_URI || 'https://platform.claude.com/oauth/code/callback';
+const OAUTH_SUCCESS_REDIRECT_URL = process.env.ANTHROPIC_OAUTH_SUCCESS_REDIRECT_URL || 'https://platform.claude.com/oauth/code/success?app=claude-code';
 const OAUTH_LOGIN_TIMEOUT_MS = 5 * 60_000;
 const OAUTH_TOKEN_TIMEOUT_MS = 30_000;
 
@@ -1611,6 +1640,12 @@ export class AnthropicOAuthProvider {
             const status = Number(result?.response?.status || 0);
             const transientStatus = classifyError({ httpStatus: status }) === 'transient';
             if (transientStatus || status === 429) {
+                if (status === 429) {
+                    const quotaText = await result.response.text().catch(() => '');
+                    cleanupCancelHandler(result.cancelHandler);
+                    try { result.controller?.abort?.(); } catch {}
+                    throw anthropicQuotaError(status, result?.response?.headers, this.scrubTokens(quotaText));
+                }
                 const err = new Error(`Anthropic OAuth API ${status}`);
                 err.httpStatus = status;
                 err.status = status;
@@ -1668,6 +1703,10 @@ export class AnthropicOAuthProvider {
                 const text = await response.text().catch(() => '');
                 const safeText = this.scrubTokens(text).slice(0, 200);
                 process.stderr.write(`[anthropic-oauth] API error ${response.status}: ${safeText}\n`);
+
+                if (response.status === 429) {
+                    throw anthropicQuotaError(response.status, response.headers, safeText);
+                }
 
                 // Phase I: on unknown/404 model errors, force a catalog refresh and
                 // retry once. Protects against a silently-rotated model id.
@@ -1982,31 +2021,118 @@ function _oauthParseScopeField(scope) {
     return String(scope || '').split(' ').filter(Boolean);
 }
 
-export async function loginOAuth() {
+function _parseOAuthCodeInput(input) {
+    const value = String(input || '').trim();
+    if (!value) return { code: '', state: '' };
+    try {
+        const url = new URL(value);
+        const code = url.searchParams.get('code') || '';
+        const state = url.searchParams.get('state') || '';
+        if (code || state) return { code, state, redirectUri: `${url.origin}${url.pathname}` };
+    } catch { /* not a URL */ }
+    if (value.includes('#')) {
+        const [code, state] = value.split('#', 2);
+        return { code: String(code || '').trim(), state: String(state || '').trim() };
+    }
+    if (value.includes('code=')) {
+        const params = new URLSearchParams(value.startsWith('?') ? value.slice(1) : value);
+        return { code: params.get('code') || '', state: params.get('state') || '' };
+    }
+    return { code: value, state: '' };
+}
+
+async function exchangeAuthorizationCode({ pkce, code, state, redirectUri }) {
+    const cleanCode = String(code || '').trim();
+    if (!cleanCode) throw new Error('[anthropic-oauth] authorization code is required');
+    const tokenRes = await fetch(TOKEN_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'anthropic-dangerous-direct-browser-access': 'true',
+            'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
+        },
+        body: JSON.stringify({
+            grant_type: 'authorization_code',
+            code: cleanCode,
+            redirect_uri: redirectUri,
+            client_id: CLAUDE_CODE_CLIENT_ID,
+            code_verifier: pkce.verifier,
+            state,
+        }),
+        redirect: 'error',
+        signal: AbortSignal.timeout(OAUTH_TOKEN_TIMEOUT_MS),
+        dispatcher: getLlmDispatcher(),
+    });
+    if (!tokenRes.ok) {
+        const text = await tokenRes.text().catch(() => '');
+        throw new Error(`[anthropic-oauth] token exchange ${tokenRes.status}: ${_scrubTokens(text).slice(0, 500)}`);
+    }
+    const json = await tokenRes.json();
+    const accessToken = json?.access_token || json?.accessToken;
+    const refreshToken = json?.refresh_token || json?.refreshToken;
+    if (!accessToken || !refreshToken) {
+        throw new Error('[anthropic-oauth] token exchange response missing access_token or refresh_token');
+    }
+    const expiresAt = _normalizeExpiresAt(json?.expires_at ?? json?.expiresAt)
+        || (typeof json?.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0);
+    const scopes = _oauthParseScopeField(json?.scope);
+    const credPath = _oauthCredentialsWritePath();
+    let raw = {};
+    if (existsSync(credPath)) {
+        raw = JSON.parse(readFileSync(credPath, 'utf-8'));
+    }
+    const existingOauth = raw.claudeAiOauth || {};
+    raw.claudeAiOauth = {
+        ...existingOauth,
+        accessToken,
+        refreshToken,
+        expiresAt,
+        scopes,
+        subscriptionType: existingOauth.subscriptionType ?? null,
+    };
+    _saveCredentialsFile(credPath, raw);
+    return {
+        path: credPath,
+        accessToken,
+        refreshToken,
+        expiresAt,
+        scopes,
+        subscriptionType: raw.claudeAiOauth.subscriptionType,
+    };
+}
+
+export async function beginOAuthLogin() {
     const pkce = _oauthGeneratePKCE();
     const state = randomBytes(32).toString('base64url');
-    const url = new URL(CLAUDE_AI_AUTHORIZE_URL);
-    url.searchParams.set('code', 'true');
-    url.searchParams.set('client_id', CLAUDE_CODE_CLIENT_ID);
-    url.searchParams.set('response_type', 'code');
-    url.searchParams.set('redirect_uri', OAUTH_REDIRECT_URI);
-    url.searchParams.set('scope', OAUTH_LOGIN_SCOPE);
-    url.searchParams.set('code_challenge', pkce.challenge);
-    url.searchParams.set('code_challenge_method', 'S256');
-    url.searchParams.set('state', state);
+    const buildUrl = (redirectUri) => {
+        const url = new URL(CLAUDE_AI_AUTHORIZE_URL);
+        url.searchParams.set('code', 'true');
+        url.searchParams.set('client_id', CLAUDE_CODE_CLIENT_ID);
+        url.searchParams.set('response_type', 'code');
+        url.searchParams.set('redirect_uri', redirectUri);
+        url.searchParams.set('scope', OAUTH_LOGIN_SCOPE);
+        url.searchParams.set('code_challenge', pkce.challenge);
+        url.searchParams.set('code_challenge_method', 'S256');
+        url.searchParams.set('state', state);
+        return url;
+    };
+    const url = buildUrl(OAUTH_REDIRECT_URI);
+    const manualUrl = buildUrl(OAUTH_MANUAL_REDIRECT_URI);
 
-    return new Promise((resolve, reject) => {
+    let server = null;
+    let timeout = null;
+    let finish = null;
+    const waitForCallback = new Promise((resolve, reject) => {
         let settled = false;
-        let timeout = null;
-        const settle = (value, error = null) => {
+        finish = (value, error = null) => {
             if (settled) return;
             settled = true;
             if (timeout) clearTimeout(timeout);
-            try { server.close(); } catch { /* already closed */ }
+            try { server?.close(); } catch { /* already closed */ }
             if (error) reject(error);
             else resolve(value);
         };
-        const server = createServer(async (req, res) => {
+        server = createServer(async (req, res) => {
             const u = new URL(req.url || '/', `http://${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}`);
             if (u.pathname !== OAUTH_CALLBACK_PATH) {
                 res.writeHead(404);
@@ -2017,76 +2143,24 @@ export async function loginOAuth() {
             if (!code || u.searchParams.get('state') !== state) {
                 res.writeHead(400);
                 res.end('Invalid');
-                settle(null);
+                finish(null);
                 return;
             }
-            res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end('<html><body><h2>Claude login successful! You can close this tab.</h2></body></html>');
             try {
-                const tokenRes = await fetch(TOKEN_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'anthropic-dangerous-direct-browser-access': 'true',
-                        'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
-                    },
-                    body: JSON.stringify({
-                        grant_type: 'authorization_code',
-                        code,
-                        redirect_uri: OAUTH_REDIRECT_URI,
-                        client_id: CLAUDE_CODE_CLIENT_ID,
-                        code_verifier: pkce.verifier,
-                        state,
-                    }),
-                    redirect: 'error',
-                    signal: AbortSignal.timeout(OAUTH_TOKEN_TIMEOUT_MS),
-                    dispatcher: getLlmDispatcher(),
-                });
-                if (!tokenRes.ok) {
-                    const text = await tokenRes.text().catch(() => '');
-                    settle(null, new Error(`[anthropic-oauth] token exchange ${tokenRes.status}: ${_scrubTokens(text).slice(0, 500)}`));
-                    return;
-                }
-                const json = await tokenRes.json();
-                const accessToken = json?.access_token || json?.accessToken;
-                const refreshToken = json?.refresh_token || json?.refreshToken;
-                if (!accessToken || !refreshToken) {
-                    settle(null, new Error('[anthropic-oauth] token exchange response missing access_token or refresh_token'));
-                    return;
-                }
-                const expiresAt = _normalizeExpiresAt(json?.expires_at ?? json?.expiresAt)
-                    || (typeof json?.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0);
-                const scopes = _oauthParseScopeField(json?.scope);
-                const credPath = _oauthCredentialsWritePath();
-                let raw = {};
-                if (existsSync(credPath)) {
-                    raw = JSON.parse(readFileSync(credPath, 'utf-8'));
-                }
-                const existingOauth = raw.claudeAiOauth || {};
-                raw.claudeAiOauth = {
-                    ...existingOauth,
-                    accessToken,
-                    refreshToken,
-                    expiresAt,
-                    scopes,
-                    subscriptionType: existingOauth.subscriptionType ?? null,
-                };
-                _saveCredentialsFile(credPath, raw);
-                resolve({
-                    path: credPath,
-                    accessToken,
-                    refreshToken,
-                    expiresAt,
-                    scopes,
-                    subscriptionType: raw.claudeAiOauth.subscriptionType,
-                });
+                const tokens = await exchangeAuthorizationCode({ pkce, code, state, redirectUri: OAUTH_REDIRECT_URI });
+                res.writeHead(302, { Location: OAUTH_SUCCESS_REDIRECT_URL });
+                res.end();
+                finish(tokens);
             } catch (err) {
-                settle(null, err instanceof Error ? err : new Error(String(err)));
+                const error = err instanceof Error ? err : new Error(String(err));
+                res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+                res.end(`Claude login failed: ${error.message}`);
+                finish(null, error);
             }
         });
-        timeout = setTimeout(() => settle(null), OAUTH_LOGIN_TIMEOUT_MS);
+        timeout = setTimeout(() => finish(null), OAUTH_LOGIN_TIMEOUT_MS);
         server.listen(OAUTH_CALLBACK_PORT, OAUTH_CALLBACK_HOST, async () => {
-            process.stderr.write(`\n[anthropic-oauth] Open this URL to log in with Claude:\n${url.toString()}\n\n`);
+            process.stderr.write(`\n[anthropic-oauth] Open this URL to log in with Claude:\n${url.toString()}\n\nIf the localhost callback cannot complete, open this manual URL and paste the shown code#state:\n${manualUrl.toString()}\n\n`);
             try {
                 const { openInBrowser } = await import('../../../shared/open-url.mjs');
                 openInBrowser(url.toString());
@@ -2094,8 +2168,31 @@ export async function loginOAuth() {
                 process.stderr.write(`[anthropic-oauth] browser open failed: ${String(err?.message || err).slice(0, 200)}\n`);
             }
         });
-        server.on('error', (err) => settle(null, new Error(`[anthropic-oauth] callback server failed on ${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}: ${err?.message || err}`)));
+        server.on('error', (err) => finish(null, new Error(`[anthropic-oauth] callback server failed on ${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}: ${err?.message || err}`)));
     });
+
+    return {
+        provider: 'anthropic-oauth',
+        url: url.toString(),
+        manualUrl: manualUrl.toString(),
+        waitForCallback,
+        completeCode: async (input) => {
+            const parsed = _parseOAuthCodeInput(input);
+            if (parsed.state && parsed.state !== state) throw new Error('[anthropic-oauth] OAuth state mismatch');
+            const redirectUri = parsed.redirectUri || (parsed.state ? OAUTH_MANUAL_REDIRECT_URI : OAUTH_REDIRECT_URI);
+            const tokens = await exchangeAuthorizationCode({ pkce, code: parsed.code, state, redirectUri });
+            finish?.(tokens);
+            return tokens;
+        },
+        cancel: () => {
+            finish?.(null);
+        },
+    };
+}
+
+export async function loginOAuth() {
+    const login = await beginOAuthLogin();
+    return await login.waitForCallback;
 }
 
 // Additive exports for test harnesses.

@@ -299,6 +299,10 @@ export async function withRetry(fn, opts = {}) {
       const retryAfterMs = retryAfterMsFromError(caught)
       const status = Number(caught?.httpStatus || caught?.status || caught?.response?.status || 0)
       const kind = classifyError(caught)
+      const unsafeToRetry = caught?.unsafeToRetry === true
+        || caught?.providerQuota === true
+        || caught?.quotaExceeded === true
+      if (unsafeToRetry) throw caught
       const retryableRateLimit = status === 429 && retryAfterMs != null
       if (kind !== 'transient' && !retryableRateLimit) throw caught
       // Last attempt failed transiently — propagate to caller.
@@ -316,7 +320,7 @@ export async function withRetry(fn, opts = {}) {
 }
 
 function _sleepWithAbort(ms, signal) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let onAbort = null
     const t = setTimeout(() => {
       if (signal && onAbort) {
@@ -325,8 +329,17 @@ function _sleepWithAbort(ms, signal) {
       resolve()
     }, ms)
     if (!signal) return
-    if (signal.aborted) { clearTimeout(t); resolve(); return }
-    onAbort = () => { clearTimeout(t); resolve() }
+    if (signal.aborted) {
+      clearTimeout(t)
+      const reason = signal.reason
+      reject(reason instanceof Error ? reason : new Error('sleep aborted'))
+      return
+    }
+    onAbort = () => {
+      clearTimeout(t)
+      const reason = signal.reason
+      reject(reason instanceof Error ? reason : new Error('sleep aborted'))
+    }
     signal.addEventListener('abort', onAbort, { once: true })
   })
 }

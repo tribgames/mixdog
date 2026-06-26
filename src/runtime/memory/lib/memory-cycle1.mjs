@@ -380,9 +380,21 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
   const pendingRowsAtStart = await countPendingRows(db)
   throwIfAborted(signal)
   const batchSize = Math.max(1, Number(config.batch_size ?? 100))
+  const windowSize = Math.max(1, Number(config.window_size ?? config.windowSize ?? batchSize))
+  const rowsPerSession = Math.max(windowSize, Number(
+    config.rows_per_session
+      ?? config.rowsPerSession
+      ?? config.max_rows_per_session
+      ?? config.maxRowsPerSession
+      ?? batchSize,
+  ) || batchSize)
   // Fallback chain handles flat config + nested cycle1 wrap shapes.
   const minBatch = Math.max(1, Number(config?.min_batch ?? config?.cycle1?.min_batch ?? CYCLE1_MIN_BATCH))
   const sessionCap = Math.max(1, Number(config?.session_cap ?? config?.cycle1?.session_cap ?? CYCLE1_SESSION_CAP))
+  const onlySessionId = String(config.session_id ?? config.sessionId ?? '').trim()
+  const sessionFilterSql = onlySessionId ? 'AND session_id = $4' : ''
+  const queryParams = [sessionCap, Date.now() - CYCLE1_OMITTED_COOLDOWN_MS, rowsPerSession]
+  if (onlySessionId) queryParams.push(onlySessionId)
   const preset = options.preset || resolveMaintenancePreset('memory')
   // Inner LLM timeout aligns to caller deadline -1s so the channel side can ack gracefully.
   const callerDeadlineMs = Number(options.callerDeadlineMs ?? 0)
@@ -400,6 +412,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
        WHERE chunk_root IS NULL
          AND NULLIF(btrim(session_id), '') IS NOT NULL
          AND (reviewed_at IS NULL OR reviewed_at < $2)
+         ${sessionFilterSql}
        GROUP BY session_id
        ORDER BY latest_ts DESC, latest_id DESC
        LIMIT $1
@@ -416,7 +429,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
      FROM ranked
      WHERE rn <= $3
      ORDER BY latest_ts DESC, latest_id DESC, session_id, ts DESC, id DESC`,
-    [sessionCap, Date.now() - CYCLE1_OMITTED_COOLDOWN_MS, batchSize],
+    queryParams,
   )
   throwIfAborted(signal)
   const rowsDesc = fetchResult.rows
@@ -463,9 +476,9 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
   const windows = []
   for (const sessionRowsDesc of rowsBySession.values()) {
     const rowsAsc = sessionRowsDesc.slice().reverse()
-    for (let offset = 0; offset < rowsAsc.length; offset += batchSize) {
+    for (let offset = 0; offset < rowsAsc.length; offset += windowSize) {
       throwIfAborted(signal)
-      windows.push(rowsAsc.slice(offset, offset + batchSize))
+      windows.push(rowsAsc.slice(offset, offset + windowSize))
     }
   }
 

@@ -82,6 +82,11 @@ export function presentErrorText(error, options = {}) {
     return 'Compact failed.';
   }
 
+  const quotaRetry = /retryAfter=([^\s:]+)/i.exec(text);
+  if (/Anthropic OAuth.*(?:429|rate ?limit|quota)|(?:rate ?limit|quota).*\b429\b/i.test(text)) {
+    return `Anthropic quota/rate limit hit${quotaRetry?.[1] ? `; retry after ${quotaRetry[1]}` : ''}.`;
+  }
+
   const firstResponse = /(?:bridge\s+)?first response stale\s*\((\d+)ms\)/i.exec(text);
   if (firstResponse) {
     return `No first response from the ${subject} within ${formatDurationMs(firstResponse[1])}.`;

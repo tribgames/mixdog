@@ -345,7 +345,10 @@ function parseBackgroundTaskEnvelope(text) {
       status,
       task_id: taskId || undefined,
       surface,
+      operation: fields.operation || undefined,
       label: fields.label || undefined,
+      startedAt: fields.started || fields.startedat || undefined,
+      finishedAt: fields.finished || fields.finishedat || undefined,
     },
     result: body || [status ? `status: ${status}` : '', taskId ? `task_id: ${taskId}` : ''].filter(Boolean).join(' · ') || 'background task',
     isError: /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status) || /^error:/i.test(body),
@@ -656,14 +659,19 @@ export async function createEngineSession({
   const syncContextStats = ({ allowEstimated = false } = {}) => {
     const ctx = runtime.contextStatus?.() || null;
     const hasProviderUsage = Number(state.stats.latestPromptTokens || state.stats.latestInputTokens || state.stats.inputTokens || 0) > 0;
-    const lastApiTokens = Number(ctx?.lastApiRequestStale ? 0 : (ctx?.lastApiRequestTokens || ctx?.usage?.lastContextTokens || 0));
+    const lastApiRequestStale = ctx?.lastApiRequestStale === true;
+    const lastApiTokens = Number(lastApiRequestStale ? 0 : (ctx?.lastApiRequestTokens || ctx?.usage?.lastContextTokens || 0));
     const estimatedTokens = Number(ctx?.currentEstimatedTokens || 0);
-    const used = lastApiTokens;
+    const postCompactEstimatedTokens = Number(ctx?.usedTokens || estimatedTokens || 0);
+    const usePostCompactEstimate = lastApiRequestStale && postCompactEstimatedTokens > 0;
+    const used = lastApiTokens || (usePostCompactEstimate ? postCompactEstimatedTokens : 0);
     if (!allowEstimated && !hasProviderUsage && ctx?.usedSource !== 'last_api_request') return ctx;
     if (Number.isFinite(used) && used > 0) state.stats.currentContextTokens = Math.max(0, used);
     else state.stats.currentContextTokens = 0;
     state.stats.currentEstimatedContextTokens = Number.isFinite(estimatedTokens) ? Math.max(0, estimatedTokens) : 0;
-    state.stats.currentContextSource = used > 0 ? 'last_api_request' : (estimatedTokens > 0 ? 'estimated' : null);
+    state.stats.currentContextSource = lastApiTokens > 0
+      ? 'last_api_request'
+      : (usePostCompactEstimate ? 'post_compact_estimate' : (estimatedTokens > 0 ? 'estimated' : null));
     state.stats.currentContextUpdatedAt = Date.now();
     return ctx;
   };
@@ -798,7 +806,7 @@ export async function createEngineSession({
   function updateBridgeJobCard(itemId, text, isError = false) {
     const parsed = parseBridgeJob(text);
     const current = state.items.find((it) => it.id === itemId);
-    const rawDisplayText = bridgeJobResultText(text, parsed) || String(text || '').trim();
+    const rawDisplayText = bridgeJobResultText(text, parsed) || String(text ?? '').trim();
     const displayText = isError ? toolErrorDisplay(rawDisplayText, 'bridge') : rawDisplayText;
     patchItem(itemId, {
       result: displayText,
@@ -1600,6 +1608,7 @@ export async function createEngineSession({
       }
     } finally {
       draining = false;
+      if (pending.length > 0) void drain();
     }
   }
   function enqueue(text, options = {}) {
@@ -1641,9 +1650,11 @@ export async function createEngineSession({
       return false;
     }
     autoClearRunning = true;
+    const startedAt = Date.now();
+    set({ commandStatus: { active: true, verb: 'Auto-clearing conversation', startedAt, mode: 'auto-clear' } });
     try {
       const beforeContext = runtime.contextStatus?.() || null;
-      await runtime.clear();
+      await runtime.clear({ compactType: cfg.compactType || null });
       resetStats();
       const afterContext = syncContextStats({ allowEstimated: true }) || runtime.contextStatus?.() || null;
       const idleLabel = formatIdleDuration(idleMs);
@@ -1663,11 +1674,12 @@ export async function createEngineSession({
         ...routeState(),
         stats: { ...state.stats },
       });
+      const compactLabel = cfg.compactType ? `compact type ${cfg.compactType}` : '';
       pushItem({
         kind: 'statusdone',
         id: nextId(),
         label: 'Auto-clear complete',
-        detail: [idleLabel ? `idle ${idleLabel}` : '', contextDetail, thresholdLabel ? `threshold ${thresholdLabel}` : '']
+        detail: [idleLabel ? `idle ${idleLabel}` : '', contextDetail, compactLabel, thresholdLabel ? `threshold ${thresholdLabel}` : '']
           .filter(Boolean)
           .join(' · '),
       });
@@ -1678,6 +1690,7 @@ export async function createEngineSession({
     } finally {
       lastUserActivityAt = Date.now();
       autoClearRunning = false;
+      set({ commandStatus: null });
     }
   }
 
@@ -1813,7 +1826,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const result = await runtime.bridgeControl(args);
-        const text = String(result || '').trim() || '(empty bridge result)';
+        const text = String(result ?? '').trim();
         const itemId = nextId();
         pushItem({
           kind: 'tool',
@@ -2187,6 +2200,17 @@ export async function createEngineSession({
         const result = await runtime.loginOAuthProvider(provider);
         pushNotice(`provider oauth ok: ${result.provider}`, 'info');
         return true;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    beginOAuthProviderLogin: async (provider) => {
+      if (state.commandBusy) throw new Error('command busy');
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.beginOAuthProviderLogin(provider);
+        pushNotice(`provider oauth started: ${result.provider}`, 'info');
+        return result;
       } finally {
         set({ commandBusy: false });
       }

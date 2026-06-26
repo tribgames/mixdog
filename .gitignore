@@ -12,6 +12,7 @@ npm-debug.log*
 
 # Local Mixdog runtime state
 .mixdog/
+.mixdog-bench/
 
 # Environment / secrets
 .env

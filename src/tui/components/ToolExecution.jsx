@@ -229,6 +229,44 @@ function plural(count, singular, pluralText = `${singular}s`) {
   return count === 1 ? singular : pluralText;
 }
 
+function isShellTool(normalizedName, label = '') {
+  const n = String(normalizedName || '').toLowerCase();
+  const l = String(label || '').toLowerCase();
+  return n === 'shell' || n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait' || l === 'run';
+}
+
+function shellResultStatus(value) {
+  const match = String(value || '').match(/(?:^|\b)status:\s*(running|pending|queued|completed|failed|cancelled|canceled)\b/im);
+  return match ? String(match[1] || '').toLowerCase() : '';
+}
+
+function shellDisplayStatus({ pending = false, failedCount = 0, isError = false, result = '' } = {}) {
+  const status = shellResultStatus(result);
+  if (pending || /^(running|pending|queued)$/.test(status)) return 'running';
+  if (/^cancel/.test(status)) return 'cancelled';
+  if (/^(failed|error|killed|timeout)$/.test(status) || isError || failedCount > 0) return 'failed';
+  return 'completed';
+}
+
+function shellHeader(status, count = 1) {
+  const noun = plural(Number(count) || 1, 'command');
+  if (status === 'running') return `Running ${noun}`;
+  if (status === 'failed') return `Failed ${noun}`;
+  if (status === 'cancelled') return `Cancelled ${noun}`;
+  return `Ran ${noun}`;
+}
+
+function shellDetail(status, elapsed = '') {
+  return elapsed ? `${elapsed} · ${status}` : status;
+}
+
+function shellResultElapsed(value) {
+  const match = String(value || '').match(/^\[elapsed:\s*(\d+)\s*ms\]/mi);
+  if (!match) return '';
+  const elapsedMs = Number(match[1]);
+  return Number.isFinite(elapsedMs) && elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
+}
+
 function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
@@ -244,6 +282,8 @@ function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
     const singularTarget = pluralTarget === 'web items' ? 'web item' : target;
     return `${done} ${count} ${plural(count, singularTarget, pluralTarget)}`;
   };
+
+  if (l === 'mcp') return copy('Using MCP', 'Used', 'MCP tool', 'MCP tools');
 
   switch (n) {
     case 'read':
@@ -268,16 +308,23 @@ function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
     case 'fetch':
     case 'download_attachment':
       return copyTarget('Researching', 'Researched', 'web', 'web items');
-    case 'tool_search':
-      return copy('Searching', 'Searched', 'tool');
+    case 'tool_search': {
+      const target = String(label || '').replace(/^load\s+/i, '').trim();
+      const lowerTarget = target.toLowerCase();
+      if (pending) return target ? `Loading ${target}` : 'Loading Tools';
+      if (lowerTarget === 'mcp') return copy('Loading MCP', 'Loaded', 'MCP tool', 'MCP tools');
+      if (lowerTarget === 'skills') return copy('Loading Skills', 'Loaded', 'skill');
+      if (lowerTarget === 'tools') return copy('Loading Tools', 'Loaded', 'tool');
+      return copy('Loading', 'Loaded', 'item');
+    }
     case 'explore':
-      return pending ? 'Exploring' : 'Explored';
+      return copy('Exploring', 'Explored', 'item');
     case 'shell':
     case 'bash':
     case 'bash_session':
     case 'shell_command':
     case 'job_wait':
-      return copy('Running', 'Ran', 'command');
+      return shellHeader(pending ? 'running' : (isError ? 'failed' : 'completed'), count);
     case 'bridge':
     case 'agent':
     case 'task':
@@ -290,16 +337,49 @@ function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
     case 'save_memory':
     case 'update_memory':
       return copyTarget('Writing', 'Wrote', 'memory', 'memories');
+    case 'skill_view':
+    case 'skills_list':
+      return copy('Loading Skill', 'Loaded', 'skill');
+    case 'skill':
+    case 'skill_execute':
+    case 'use_skill':
+      return copy('Using Skill', 'Used', 'skill');
+    case 'reply':
+    case 'react':
+    case 'edit_message':
+    case 'activate_channel_bridge':
+    case 'inject_command':
+      return copyTarget('Sending', 'Sent', 'message');
+    case 'request_user_input':
+      return pending ? 'Asking User' : 'Asked User';
+    case 'update_plan':
+      return pending ? 'Updating Plan' : 'Updated Plan';
+    case 'diagnostics':
+    case 'open_config':
+    case 'provider_status':
+    case 'channel_status':
+    case 'schedule_status':
+    case 'schedule_control':
+    case 'reload_config':
+    case 'list_mcp_resources':
+    case 'list_mcp_resource_templates':
+    case 'cwd':
+    case 'trigger_schedule':
+      return copy('Setting Up', 'Set Up', 'item');
     default:
+      if (l === 'skill') return copy('Loading Skill', 'Loaded', 'skill');
       if (l === 'web search') return copyTarget('Researching', 'Researched', 'web', 'web items');
       if (l === 'search') return copy('Searching', 'Searched', 'tool');
-      if (l === 'explore') return pending ? 'Exploring' : 'Explored';
+      if (l === 'explore') return copy('Exploring', 'Explored', 'item');
       if (l === 'update') return copy('Editing', 'Edited', 'file');
       if (l === 'read') return copy('Reading', 'Read', 'file');
-      if (l === 'run') return copy('Running', 'Ran', 'command');
+      if (l === 'run') return shellHeader(pending ? 'running' : (isError ? 'failed' : 'completed'), count);
       if (l === 'setup') return copy('Setting Up', 'Set Up', 'item');
       if (l === 'memory') return copyTarget('Checking', 'Checked', 'memory', 'memories');
       if (l === 'agent') return copyTarget('Calling', 'Called', 'agent');
+      if (l === 'channel') return copyTarget('Sending', 'Sent', 'message');
+      if (l === 'ask user') return pending ? 'Asking User' : 'Asked User';
+      if (l === 'plan') return pending ? 'Updating Plan' : 'Updated Plan';
       return copy('Calling', 'Called', 'tool');
   }
 }
@@ -367,6 +447,10 @@ function agentActionTitle(args) {
   const status = String(args?.status || '').toLowerCase();
   if (action === 'spawn') return /^(running|pending|queued)$/i.test(status) ? `Spawning ${agent}` : `Spawned ${agent}`;
   if (action === 'send') return /^(running|pending|queued)$/i.test(status) ? `Sending to ${agent}` : `Sent to ${agent}`;
+  if (action === 'list') return 'Agent status';
+  if (action === 'cancel') return status && !/unknown/i.test(status) ? 'Cancelled Agent' : 'Cancel Agent';
+  if (action === 'close') return status && !/unknown/i.test(status) ? 'Closed Agent' : 'Close Agent';
+  if (action === 'cleanup') return 'Cleaned Agent State';
   if (action === 'read' || action === 'status') return `${agent} status`;
   return '';
 }
@@ -383,6 +467,7 @@ function agentActionSummary(args, summary) {
 function hasAgentResponseResult(value) {
   const text = String(value || '').trim();
   if (!text) return false;
+  if (/^(?:undefined|null)$/i.test(text)) return false;
   if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(text)) return false;
   const isBridgeEnvelope = /^(?:bridge task:|bridge job:|background task\b|bridge mode:|bridge message queued\b|bridge close:)/i.test(text)
     || (/^task_id:\s*\S+/mi.test(text) && /^(?:surface|operation|status):\s*/mi.test(text));
@@ -395,9 +480,11 @@ function hasAgentResponseResult(value) {
       continue;
     }
     if (/^bridge result\b/i.test(trimmed)) continue;
+    if (/^(?:undefined|null)$/i.test(trimmed)) continue;
     if (/^<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
     if (!sawBlank && /^(?:bridge job|bridge task|background task|bridge message queued\b|bridge close:|task_id|surface|operation|label|status|type|target|role|agent|preset|model|effort|fast|limits|started|finished|error|notification|queueDepth):?\s*/i.test(trimmed)) continue;
     if (!sawBlank && /^(?:bridge mode|agents|tasks):\s*/i.test(trimmed)) continue;
+    if (/^\(no bridge agents or tasks\)$/i.test(trimmed)) continue;
     if (!sawBlank && /^-\s+\S+/i.test(trimmed)) continue;
     return true;
   }
@@ -426,9 +513,34 @@ function parseBackgroundTaskResult(value) {
     operation: fields.operation || '',
     label: fields.label || '',
     status,
+    startedAt: fields.started || fields.startedat || '',
+    finishedAt: fields.finished || fields.finishedat || '',
     body,
     hasResponse: Boolean(body) && !/^(running|pending|queued)$/i.test(status),
   };
+}
+
+function backgroundTaskElapsed(meta = {}, fallback = '') {
+  const startedMs = Date.parse(meta.startedAt || '');
+  const finishedMs = Date.parse(meta.finishedAt || '');
+  if (Number.isFinite(startedMs) && Number.isFinite(finishedMs) && finishedMs >= startedMs) {
+    const elapsedMs = finishedMs - startedMs;
+    return elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
+  }
+  return fallback || '';
+}
+
+function prefixElapsed(detail, elapsed = '') {
+  const text = String(detail || '').trim();
+  const time = String(elapsed || '').trim();
+  if (!time) return text;
+  return text ? `${time} · ${text}` : time;
+}
+
+function shouldPrefixSyncElapsed(normalizedName, label) {
+  const n = String(normalizedName || '').toLowerCase();
+  const l = String(label || '').toLowerCase();
+  return n === 'explore' || l === 'explore' || n === 'search' || l === 'search' || l === 'web search';
 }
 
 function backgroundTaskDisplayName(normalizedName, meta = {}) {
@@ -453,13 +565,13 @@ function backgroundTaskActionTitle(normalizedName, meta = {}) {
   return `${display} status`;
 }
 
-function backgroundTaskDetail(meta = {}) {
+function backgroundTaskDetail(meta = {}, elapsed = '') {
   const parts = [];
   if (meta.status) parts.push(`status: ${meta.status}`);
   if (meta.taskId) parts.push(`task_id: ${meta.taskId}`);
   const firstBodyLine = String(meta.body || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
   if (firstBodyLine && /^(running|pending|queued)$/i.test(meta.status || '')) parts.push(firstBodyLine);
-  return parts.join(' · ');
+  return prefixElapsed(parts.join(' · '), elapsed);
 }
 
 function isBackgroundTaskResponseArgs(normalizedName, args = {}) {
@@ -485,6 +597,13 @@ function progressDetail({ normalizedName, label, elapsed }) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
   const suffix = elapsed ? ` - ${elapsed}` : '';
+  if (l === 'mcp') return `Using MCP${suffix}`;
+  if (n === 'skill_view' || n === 'skills_list') return `Loading Skill${suffix}`;
+  if (n === 'skill' || n === 'skill_execute' || n === 'use_skill' || l === 'skill') return `Using Skill${suffix}`;
+  if (n === 'tool_search') {
+    const target = String(label || '').replace(/^load\s+/i, '').trim();
+    return `Loading ${target || 'Tools'}${suffix}`;
+  }
   if (isAgentTool(n) || l === 'agent') return `Calling Agent${suffix}`;
   if (n === 'shell' || n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait' || l === 'run') return `Running${suffix}`;
   if (n === 'search' || n === 'search_query' || n === 'image_query' || n === 'web_search' || n === 'web_search_call' || n === 'firecrawl_search' || n === 'web_fetch' || n === 'fetch' || n === 'download_attachment' || l === 'web search') return `Researching Web${suffix}`;
@@ -493,6 +612,9 @@ function progressDetail({ normalizedName, label, elapsed }) {
   if (n === 'read' || n === 'view_image' || n === 'read_mcp_resource' || l === 'read') return `Reading${suffix}`;
   if (n === 'apply_patch' || l === 'update') return `Editing${suffix}`;
   if (n === 'recall' || n === 'recall_memory' || n === 'search_memories' || l === 'memory') return `Checking Memory${suffix}`;
+  if (n === 'reply' || n === 'react' || n === 'edit_message' || n === 'activate_channel_bridge' || n === 'inject_command' || l === 'channel') return `Sending${suffix}`;
+  if (n === 'request_user_input' || l === 'ask user') return `Asking User${suffix}`;
+  if (n === 'update_plan' || l === 'plan') return `Updating Plan${suffix}`;
   if (l === 'setup') return `Setting Up${suffix}`;
   return `Working${suffix}`;
 }
@@ -502,7 +624,7 @@ function genericCompletedDetail({ normalizedName, label, hasResult, firstResultL
   const l = String(label || '').toLowerCase();
   if (isError) return hasResult ? firstResultLine : 'Failed';
   if (n === 'shell' || n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait') {
-    return hasResult ? firstResultLine : '';
+    return '';
   }
   if (isOutputDetailTool(n, l)) {
     return hasResult ? firstResultLine : '';
@@ -666,6 +788,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
 
   // ── Normal (non-aggregate) tool card ────────────────────────────
   const { label, summary, normalizedName, args: parsedArgs } = formatToolSurface(name, args);
+  const isShellSurface = isShellTool(normalizedName, label);
   const backgroundMeta = !pending && hasResult && isBackgroundTaskTool(normalizedName)
     ? parseBackgroundTaskResult(rt)
     : null;
@@ -677,7 +800,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // Shown in the collapsed, non-error view in place of the raw result block.
   // Grouped cards ("Searched N files" / "Read N files") get the same treatment
   // as single calls: a one-line semantic summary stands in for the raw block.
-  const resultSummary = !pending && hasResult
+  const resultSummary = !isShellSurface && !pending && hasResult
     ? surfaceSummarizeToolResult(name, args, displayedResultText, isError)
     : null;
   // Same fit budget fitResultLine() uses, to detect a line that will be clipped.
@@ -686,6 +809,12 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const firstResultLine = hasResult ? String(lines[0] ?? '') : '';
   const firstResultLineClipped = hasResult && firstResultLine.length > maxResultChars;
   const hasHiddenDetail = !pending && hasResult && (totalLines > 1 || firstResultLineClipped || Boolean(resultSummary));
+  const shellStatus = isShellSurface ? shellDisplayStatus({ pending, failedCount, isError, result: displayedResultText }) : '';
+  const shellElapsed = isShellSurface ? (shellResultElapsed(displayedResultText) || elapsed) : '';
+  const shellStatusDetail = isShellSurface ? shellDetail(shellStatus, shellElapsed) : '';
+  const backgroundElapsed = backgroundMeta
+    ? backgroundTaskElapsed(backgroundMeta, elapsed)
+    : (isBackgroundTaskTool(normalizedName) ? backgroundTaskElapsed(parsedArgs, elapsed) : '');
 
   const toolArgPath = parsedArgs?.path ?? parsedArgs?.file_path ?? parsedArgs?.file ?? '';
   const imageDetail = normalizedName === 'view_image' && toolArgPath ? String(toolArgPath) : '';
@@ -696,39 +825,48 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     ? agentCompletionDetail
     : '';
   const pendingDetail = pending
-    ? progressDetail({ normalizedName, label, elapsed })
+    ? (isShellSurface ? shellStatusDetail : progressDetail({ normalizedName, label, elapsed }))
     : '';
-  const genericDetail = !pending && !agentDetail && !imageDetail && !resultSummary
+  const genericDetail = !pending && !isShellSurface && !agentDetail && !imageDetail && !resultSummary
     ? genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError })
     : '';
   const isBackgroundResult = !pending && hasResult && isBackgroundTaskTool(normalizedName);
   const isBackgroundResponse = isBackgroundResult && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgs(normalizedName, parsedArgs));
   const isBackgroundMetadataResult = isBackgroundResult && !isBackgroundResponse && Boolean(backgroundMeta);
-  const backgroundMetadataDetail = isBackgroundMetadataResult ? backgroundTaskDetail(backgroundMeta) : '';
-  const collapsedDetail = pending
-    ? pendingDetail
-    : backgroundMetadataDetail || (/^(Cancelled|Failed|Finished)$/i.test(resultSummary || '') && agentCompletionDetail
+  const backgroundMetadataDetail = isBackgroundMetadataResult ? backgroundTaskDetail(backgroundMeta, backgroundElapsed) : '';
+  const backgroundResponseDetail = isBackgroundResponse && resultSummary
+    ? prefixElapsed(resultSummary, backgroundElapsed)
+    : resultSummary;
+  const syncElapsedDetail = !isBackgroundResponse && shouldPrefixSyncElapsed(normalizedName, label)
+    ? prefixElapsed(backgroundResponseDetail, elapsed)
+    : backgroundResponseDetail;
+  const collapsedDetail = isShellSurface
+    ? shellStatusDetail
+    : pending
+      ? pendingDetail
+      : backgroundMetadataDetail || (/^(Cancelled|Failed|Finished)$/i.test(resultSummary || '') && agentCompletionDetail
       ? agentCompletionDetail
-      : resultSummary) || agentDetail || imageDetail || genericDetail;
+      : syncElapsedDetail) || agentDetail || imageDetail || genericDetail;
   const showRawResult = expanded && hasResult && !isBackgroundMetadataResult;
   const detailLines = showRawResult ? lines : (collapsedDetail ? [collapsedDetail] : []);
-  const detailIsSynthetic = pending || agentDetail || resultSummary || imageDetail || backgroundMetadataDetail || (genericDetail && genericDetail !== firstResultLine);
   const detailColor = theme.text;
 
   const isAgentResult = !isBackgroundResult && !pending && isAgentTool(normalizedName) && hasResult;
   const isAgentResponse = isAgentResult && hasAgentResponseResult(rt);
   const isAgentMetadataResult = isAgentResult && !isAgentResponse;
-  const dotColor = statusColor;
+  const visibleDetailLines = isAgentMetadataResult ? [] : detailLines;
+  const dotColor = isShellSurface && shellStatus === 'running' ? theme.subtle : statusColor;
   const dotText = pending && !blinkExpired && !blinkOn ? ' ' : TURN_MARKER;
   let labelText;
   if (isAgentResponse) labelText = agentResponseTitle(parsedArgs);
   else if (isBackgroundResponse) labelText = backgroundTaskResultTitle(normalizedName, backgroundMeta || parsedArgs);
   else if (isBackgroundMetadataResult) labelText = backgroundTaskActionTitle(normalizedName, backgroundMeta);
+  else if (isShellSurface) labelText = shellHeader(shellStatus, displayGroupCount);
   else labelText = (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs) : '') || statusCopy(normalizedName, label, displayGroupCount, doneCount, headerPending, isError);
   // Show the parenthesized arg summary for grouped cards too, matching single
   // calls so the header carries the same context.
-  const summaryText = isAgentResponse || isBackgroundResponse ? '' : (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary);
-  const showHeaderExpandHint = hasHiddenDetail && !isAgentMetadataResult && !isBackgroundMetadataResult;
+  const summaryText = isShellSurface || isAgentResponse || isBackgroundResponse ? '' : (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary);
+  const showHeaderExpandHint = hasHiddenDetail && !isShellSurface && !isAgentMetadataResult && !isBackgroundMetadataResult;
   const expandHintColor = TOOL_HINT_DONE_COLOR;
 
   // Build a single-line header that never wraps: reserve width for the fixed
@@ -772,13 +910,13 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
         </Text>
       </Box>
 
-      {detailLines.length > 0 ? (
+      {visibleDetailLines.length > 0 ? (
         <Box flexDirection="row">
           <Box flexShrink={0}>
             <Text color={theme.subtle}>{RESULT_GUTTER}</Text>
           </Box>
           <Box flexDirection="column" flexShrink={1} flexGrow={1}>
-            {detailLines.map((line, i) => (
+            {visibleDetailLines.map((line, i) => (
               <Text key={i} color={showRawResult ? resultColor : detailColor}>
                 {renderDeltaText(fitResultLine(line || ' ', columns))}
               </Text>

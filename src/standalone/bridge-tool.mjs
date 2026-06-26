@@ -4,7 +4,6 @@ import {
   TOOL_ASYNC_EXECUTION_CONTRACT,
   cancelBackgroundTask,
   cleanupBackgroundTasks,
-  executionModeSchemaDescription,
   getBackgroundTask,
   listBackgroundTasks,
   resolveExecutionMode,
@@ -48,12 +47,12 @@ export const BRIDGE_TOOL = {
     openWorldHint: true,
     bridgeHidden: true,
   },
-  description: 'Delegate scoped work to workflow agents. Prefer async by default: spawn independent agents in parallel with distinct tags, then keep doing Lead-side work that does not need their result. After async spawn, do not call status/read, do not interfere, and do not poll; wait for the completion notification only when the next step depends on that result. status/read are manual recovery or explicit user-requested controls only. Use sync only when the next step must block.',
+  description: `Delegate scoped work to workflow agents. Always use mode:"async" for model handoffs; never use mode:"sync". Spawn independent agents in parallel with distinct tags, then keep doing Lead-side work that does not need their result. If the result is needed before continuing, pause the dependent path and wait for the async completion notification. Do not poll status/read or interfere after spawn; status/read are manual recovery or explicit user-requested controls only. ${TOOL_ASYNC_EXECUTION_CONTRACT}`,
   inputSchema: {
     type: 'object',
     properties: {
       type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: 'Action. Default spawn; send follows up to an existing tag/session. status/read are manual recovery controls, not normal polling.' },
-      mode: { type: 'string', enum: ['async', 'sync'], description: `${executionModeSchemaDescription('async')} Prefer async for model handoffs; use sync only for an explicit blocking handoff.` },
+      mode: { type: 'string', enum: ['async'], description: `Always use mode:"async". ${TOOL_ASYNC_EXECUTION_CONTRACT}` },
       task_id: { type: 'string', description: 'Manual status/read/cancel recovery task id; not needed for normal async completion.' },
       agent: { type: 'string', description: 'Workflow agent id to run.' },
       tag: { type: 'string', description: 'Stable agent handle; distinct tag per parallel agent.' },
@@ -283,6 +282,7 @@ function stripFinalAnswerWrapper(value) {
 }
 
 function renderResult(value) {
+  if (value === undefined || value === null) return '';
   if (typeof value === 'string') return value;
   if (value && typeof value === 'object') {
     const lines = [];

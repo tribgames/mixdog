@@ -85,6 +85,7 @@ export function Picker({
   columns = 80,
   labelWidth: labelWidthOverride = null,
   metaWidth: metaWidthOverride = null,
+  footerGapRows = 1,
   initialIndex = 0,
   indexMode = 'auto',
   fillHeight = false,
@@ -103,7 +104,8 @@ export function Picker({
 
   const activeFooter = typeof footer === 'function' ? footer(items[selectedIndex], selectedIndex) : footer;
   const footerLines = normalizeFooterLines(activeFooter, columns);
-  const footerReserveRows = footerLines.length > 0 ? footerLines.length + 1 : 0;
+  const footerGap = footerLines.length > 0 ? Math.max(0, Math.floor(Number(footerGapRows) || 0)) : 0;
+  const footerReserveRows = footerLines.length > 0 ? footerLines.length + footerGap : 0;
   const effectiveVisibleLimit = Math.max(1, visibleLimit - footerReserveRows);
   const helpText = help || (onLeft || onRight || onTab ? ADJUST_HELP : SELECT_HELP);
 
@@ -255,6 +257,8 @@ export function Picker({
               indexText={showIndex ? `${idx + 1}.` : ''}
               indexWidth={indexWidth}
               label={item.label}
+              labelSuffix={item.labelSuffix}
+              labelSuffixColor={item.labelSuffixColor}
               meta={item.meta || item.modelProfile || ''}
               metaParts={item.metaParts}
               description={item.description}
@@ -282,8 +286,13 @@ export function Picker({
   );
 }
 
-const ItemRow = React.memo(function ItemRow({ indexText, indexWidth, label, meta, metaParts, description, labelWidth, metaWidth, descriptionWidth, showMeta, isSelected }) {
-  const displayLabel = truncateText(label, labelWidth);
+const ItemRow = React.memo(function ItemRow({ indexText, indexWidth, label, labelSuffix, labelSuffixColor, meta, metaParts, description, labelWidth, metaWidth, descriptionWidth, showMeta, isSelected }) {
+  const rawSuffix = String(labelSuffix || '');
+  const suffix = rawSuffix ? truncateText(rawSuffix, labelWidth) : '';
+  const suffixGap = suffix && stringWidth(suffix) < labelWidth ? ' ' : '';
+  const suffixWidth = suffix ? stringWidth(suffixGap) + stringWidth(suffix) : 0;
+  const displayLabel = truncateText(label, Math.max(0, labelWidth - suffixWidth));
+  const labelPadding = ' '.repeat(Math.max(0, labelWidth - stringWidth(displayLabel) - suffixWidth));
   const displayMeta = truncateText(meta, metaWidth);
   const displayDescription = truncateText(description, descriptionWidth);
   const parts = Array.isArray(metaParts) ? metaParts : null;
@@ -295,9 +304,9 @@ const ItemRow = React.memo(function ItemRow({ indexText, indexWidth, label, meta
           {padCells(indexText, indexWidth)}{' '}
         </Text>
       ) : null}
-      <Text color={theme.text}>
-        {padCells(displayLabel, labelWidth)}
-      </Text>
+      <Text color={theme.text}>{displayLabel}</Text>
+      {suffix ? <Text color={labelSuffixColor || theme.success}>{suffixGap}{suffix}</Text> : null}
+      <Text color={theme.text}>{labelPadding}</Text>
       {showMeta ? (
         <Text color={theme.text}>
           {'  '}

@@ -9,7 +9,13 @@ import { agentLoop } from './loop.mjs';
 import {
     compactActiveTurn,
     compactMessages,
+    recallFastTrackCompactMessages,
     semanticCompactMessages,
+    compactTypeIsRecallFastTrack,
+    compactTypeIsSemantic,
+    normalizeCompactType,
+    DEFAULT_COMPACT_TYPE,
+    SUMMARY_PREFIX,
     DEFAULT_COMPACTION_BUFFER_RATIO,
     compactionBufferTokensForBoundary,
     normalizeCompactionBufferRatio,
@@ -569,6 +575,15 @@ function semanticCompactionEnabledForSession(session) {
     if (cfg.semantic === true || cfg.semantic === 'true' || cfg.semantic === 'on' || cfg.semantic === 'auto') return true;
     return true;
 }
+function compactTypeForSession(session) {
+    const cfg = session?.compaction || {};
+    const configured = process.env.MIXDOG_COMPACT_TYPE
+        ?? process.env.MIXDOG_BRIDGE_COMPACT_TYPE
+        ?? cfg.type
+        ?? cfg.compactType
+        ?? cfg.compact_type;
+    return normalizeCompactType(configured, DEFAULT_COMPACT_TYPE);
+}
 function addCompactUsageToSession(session, usage) {
     if (!session || !usage) return;
     const inputTokens = usage.inputTokens || 0;
@@ -583,6 +598,62 @@ function addCompactUsageToSession(session, usage) {
 }
 function isExpectedCompactFallbackError(err) {
     return /(?:no compactable prior history before (?:preserved tail|current turn)|no (?:current )?user turn to preserve)/i.test(String(err?.message || err || ''));
+}
+async function runRecallFastTrackForSession(session, messages, opts = {}) {
+    const sessionId = opts.sessionId || session?.id || null;
+    if (!sessionId) throw new Error('recall-fasttrack requires a session id');
+    const query = `session:${sessionId}:all-chunks`;
+    const querySha = createHash('sha256').update(query).digest('hex').slice(0, 16);
+    const callerCtx = {
+        callerSessionId: sessionId,
+        callerCwd: session?.cwd || undefined,
+        routingSessionId: sessionId,
+        clientHostPid: session?.clientHostPid,
+        signal: opts.signal || null,
+    };
+    const hydrateLimit = positiveContextWindow(session?.compaction?.recallIngestLimit)
+        || Math.max(500, Math.min(5000, messages.length || 0));
+    try {
+        await executeInternalTool('memory', {
+            action: 'ingest_session',
+            sessionId,
+            messages,
+            cwd: session?.cwd,
+            limit: hydrateLimit,
+        }, callerCtx);
+    } catch (err) {
+        try { process.stderr.write(`[session] recall-fasttrack ingest skipped (sess=${sessionId}): ${err?.message || err}\n`); } catch {}
+    }
+    const dumpArgs = {
+        action: 'dump_session_roots',
+        sessionId,
+        includeRaw: true,
+        limit: positiveContextWindow(session?.compaction?.recallChunkLimit ?? session?.compaction?.recallLimit) || hydrateLimit,
+    };
+    let recallText = await executeInternalTool('memory', dumpArgs, callerCtx);
+    let cycle1Text = '';
+    const hasRawRows = /(?:^|\n)# raw_pending\s+\d+\s+id=/i.test(String(recallText || ''));
+    if (hasRawRows) {
+        try {
+            cycle1Text = await executeInternalTool('memory', {
+                action: 'cycle1',
+                sessionId,
+                min_batch: 1,
+                session_cap: 1,
+                batch_size: positiveContextWindow(session?.compaction?.recallCycle1BatchSize) || 100,
+                rows_per_session: positiveContextWindow(session?.compaction?.recallRowsPerSession) || 100,
+                window_size: positiveContextWindow(session?.compaction?.recallWindowSize) || 20,
+                concurrency: positiveContextWindow(session?.compaction?.recallConcurrency) || 5,
+                _callerDeadlineMs: positiveContextWindow(session?.compaction?.recallCycle1DeadlineMs) || 120_000,
+            }, callerCtx);
+            recallText = await executeInternalTool('memory', dumpArgs, callerCtx);
+        } catch (err) {
+            try { process.stderr.write(`[session] recall-fasttrack cycle1 skipped (sess=${sessionId}): ${err?.message || err}\n`); } catch {}
+        }
+    } else {
+        cycle1Text = 'cycle1: skipped (session chunks already hydrated)';
+    }
+    return { query, querySha, recallText: [`session_id=${sessionId}`, cycle1Text, recallText].map(v => String(v || '').trim()).filter(Boolean).join('\n\n') };
 }
 async function runSessionCompaction(session, opts = {}) {
     if (!session || session.closed === true) return null;
@@ -608,9 +679,11 @@ async function runSessionCompaction(session, opts = {}) {
     const bufferRatio = boundary ? (bufferTokens / boundary) : compactBufferRatioForSession(session);
     const pressureTokens = Math.max(beforeMessageTokens + reserveTokens, lastContextTokens);
     const beforeTokens = pressureTokens;
+    const compactType = compactTypeForSession(session);
     if (!force && pressureTokens < triggerTokens) return {
         changed: false,
         reason: 'below threshold',
+        compactType,
         beforeMessages: messages.length,
         afterMessages: messages.length,
         beforeTokens,
@@ -630,12 +703,40 @@ async function runSessionCompaction(session, opts = {}) {
     const budgetSourceTokens = force ? Math.max(pressureTokens, triggerTokens) : pressureTokens;
     const compactBudget = compactTargetBudget(boundary, reserveTokens, budgetSourceTokens);
     const budget = compactBudget || boundary;
+    try { opts.onStageChange?.('compacting'); } catch { /* best-effort */ }
     const provider = opts.provider || getProvider(session.provider) || null;
     let compacted;
     let compactError = null;
     let semanticCompactResult = null;
     let semanticCompactError = null;
-    if (semanticCompactionEnabledForSession(session)) {
+    let recallFastTrackResult = null;
+    let recallFastTrackError = null;
+    if (compactTypeIsRecallFastTrack(compactType)) {
+        try {
+            const recallPayload = await runRecallFastTrackForSession(session, messages, opts);
+            recallFastTrackResult = recallFastTrackCompactMessages(messages, budget, {
+                reserveTokens,
+                force: true,
+                recallText: recallPayload.recallText,
+                query: recallPayload.query,
+                querySha: recallPayload.querySha,
+                allowEmptyRecall: true,
+                tailTurns: positiveContextWindow(session.compaction?.tailTurns) || 2,
+                keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
+                preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
+            });
+            if (Array.isArray(recallFastTrackResult?.messages)) {
+                compacted = recallFastTrackResult.messages;
+            }
+        } catch (err) {
+            recallFastTrackError = err;
+            if (!isExpectedCompactFallbackError(err)) {
+                try {
+                    process.stderr.write(`[session] recall-fasttrack ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}; falling back to deterministic compact\n`);
+                } catch { /* best-effort */ }
+            }
+        }
+    } else if (compactTypeIsSemantic(compactType) && semanticCompactionEnabledForSession(session)) {
         try {
             if (!provider || typeof provider.send !== 'function') {
                 throw new Error(`semantic compact provider unavailable: ${session.provider || 'unknown'}`);
@@ -704,13 +805,19 @@ async function runSessionCompaction(session, opts = {}) {
             lastPressureTokens: pressureTokens,
             lastCheckedAt: now,
             lastChanged: false,
+            type: compactType,
+            compactType,
+            lastCompactType: compactType,
             lastSemantic: false,
             lastSemanticError: semanticCompactError?.message || null,
-            lastError: compactError?.message || semanticCompactError?.message || String(compactError || semanticCompactError || 'compact failed'),
+            lastRecallFastTrack: false,
+            lastRecallFastTrackError: recallFastTrackError?.message || null,
+            lastError: compactError?.message || semanticCompactError?.message || recallFastTrackError?.message || String(compactError || semanticCompactError || recallFastTrackError || 'compact failed'),
         };
         return {
             changed: false,
             error: session.compaction.lastError,
+            compactType,
             beforeMessages: messages.length,
             afterMessages: messages.length,
             beforeTokens,
@@ -727,6 +834,8 @@ async function runSessionCompaction(session, opts = {}) {
             reserveTokens,
             semanticCompact: false,
             semanticError: semanticCompactError?.message || null,
+            recallFastTrack: false,
+            recallFastTrackError: recallFastTrackError?.message || null,
         };
     }
     let beforeEncoded = '';
@@ -750,6 +859,9 @@ async function runSessionCompaction(session, opts = {}) {
         bufferTokens,
         bufferRatio,
         reserveTokens,
+        type: compactType,
+        compactType,
+        lastCompactType: compactType,
         lastStage: mode === 'auto' ? 'post_turn' : 'manual',
         lastBeforeTokens: beforeTokens,
         lastAfterTokens: afterTokens,
@@ -762,6 +874,9 @@ async function runSessionCompaction(session, opts = {}) {
         lastCompactAt: changed ? now : session.compaction?.lastCompactAt || null,
         lastSemantic: semanticCompactResult?.semantic === true,
         lastSemanticError: semanticCompactError?.message || null,
+        lastRecallFastTrack: recallFastTrackResult?.recallFastTrack === true,
+        lastRecallFastTrackError: recallFastTrackError?.message || null,
+        lastRecallFastTrackQuerySha: recallFastTrackResult?.query ? createHash('sha256').update(recallFastTrackResult.query).digest('hex').slice(0, 16) : null,
         lastSemanticUsage: semanticCompactResult?.usage ? {
             inputTokens: semanticCompactResult.usage.inputTokens || 0,
             outputTokens: semanticCompactResult.usage.outputTokens || 0,
@@ -774,6 +889,7 @@ async function runSessionCompaction(session, opts = {}) {
     return {
         changed,
         reason: unchangedReason,
+        compactType,
         beforeMessages: messages.length,
         afterMessages: compacted.length,
         beforeTokens,
@@ -790,6 +906,8 @@ async function runSessionCompaction(session, opts = {}) {
         reserveTokens,
         semanticCompact: semanticCompactResult?.semantic === true,
         semanticError: semanticCompactError?.message || null,
+        recallFastTrack: recallFastTrackResult?.recallFastTrack === true,
+        recallFastTrackError: recallFastTrackError?.message || null,
         usage: semanticCompactResult?.usage || null,
     };
 }
@@ -1336,6 +1454,8 @@ export function createSession(opts) {
             auto: opts.compaction?.auto !== false,
             prune: opts.compaction?.prune === true,
             semantic: opts.compaction?.semantic ?? 'auto',
+            type: normalizeCompactType(opts.compaction?.type ?? opts.compaction?.compactType ?? opts.compaction?.compact_type, DEFAULT_COMPACT_TYPE),
+            compactType: normalizeCompactType(opts.compaction?.type ?? opts.compaction?.compactType ?? opts.compaction?.compact_type, DEFAULT_COMPACT_TYPE),
             model: opts.compaction?.model || null,
             timeoutMs: positiveContextWindow(opts.compaction?.timeoutMs),
             tailTurns: positiveContextWindow(opts.compaction?.tailTurns),
@@ -1343,6 +1463,13 @@ export function createSession(opts) {
             keepTokens: positiveContextWindow(opts.compaction?.keepTokens ?? opts.compaction?.keep?.tokens),
             preserveRecentTokens: positiveContextWindow(opts.compaction?.preserveRecentTokens),
             reservedTokens: positiveContextWindow(opts.compaction?.reservedTokens),
+            recallIngestLimit: positiveContextWindow(opts.compaction?.recallIngestLimit),
+            recallChunkLimit: positiveContextWindow(opts.compaction?.recallChunkLimit ?? opts.compaction?.recallLimit),
+            recallCycle1BatchSize: positiveContextWindow(opts.compaction?.recallCycle1BatchSize),
+            recallRowsPerSession: positiveContextWindow(opts.compaction?.recallRowsPerSession),
+            recallWindowSize: positiveContextWindow(opts.compaction?.recallWindowSize),
+            recallConcurrency: positiveContextWindow(opts.compaction?.recallConcurrency),
+            recallCycle1DeadlineMs: positiveContextWindow(opts.compaction?.recallCycle1DeadlineMs),
             boundaryTokens: contextMeta.compactBoundaryTokens,
         },
         tools,
@@ -2162,6 +2289,8 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 ...(session.compaction || {}),
                 auto: session.compaction?.auto !== false,
                 semantic: session.compaction?.semantic ?? 'auto',
+                type: normalizeCompactType(session.compaction?.type ?? session.compaction?.compactType ?? session.compaction?.compact_type, DEFAULT_COMPACT_TYPE),
+                compactType: normalizeCompactType(session.compaction?.type ?? session.compaction?.compactType ?? session.compaction?.compact_type, DEFAULT_COMPACT_TYPE),
                 boundaryTokens: contextMeta.compactBoundaryTokens,
                 bufferTokens: positiveContextWindow(session.compaction?.bufferTokens ?? session.compaction?.buffer) || session.compaction?.bufferTokens || null,
                 keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens) || session.compaction?.keepTokens || null,
@@ -2474,21 +2603,10 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             if (result.providerState !== undefined) {
                 session.providerState = result.providerState;
             }
-            const postTurnCompact = await autoCompactSessionAfterTurn(session, {
-                provider,
-                model: session.model,
-                sessionId,
-                signal: getSessionAbortSignal(sessionId),
-            });
-            if (postTurnCompact?.changed) {
-                try {
-                    process.stderr.write(
-                        `[session] auto compacted after turn sessionId=${sessionId} ` +
-                        `${postTurnCompact.beforeTokens}->${postTurnCompact.afterTokens} ` +
-                        `pressure=${postTurnCompact.pressureTokens} trigger=${postTurnCompact.triggerTokens}\n`,
-                    );
-                } catch { /* best-effort */ }
-            }
+            // Claude Code parity: auto-compact runs at the start of the next
+            // query/provider send (agentLoop pre-send), not after the previous
+            // answer. This lets queued follow-up prompts resume immediately;
+            // if they need compaction, their own spinner shows compacting first.
             await saveSessionAsync(session, { expectedGeneration: askGeneration });
             activeSession = session;
             runtime.session = session;
@@ -2504,7 +2622,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 ...result,
                 trimmed: messagesDropped > 0,
                 messagesDropped,
-                postTurnCompact: postTurnCompact?.changed ? postTurnCompact : null,
+                postTurnCompact: null,
             };
         } catch (err) {
             if (err instanceof SessionClosedError) {
@@ -2633,15 +2751,36 @@ export function listSessions(opts = {}) {
     return sessions.filter(s => !hiddenIds.has(s.id) && (includeClosed || s.closed !== true));
 }
 // --- Clear messages (keep system prompt + provider/model/cwd) ---
-export async function clearSessionMessages(sessionId) {
+export async function clearSessionMessages(sessionId, options = {}) {
     const session = loadSession(sessionId);
     if (!session)
         return false;
     // Don't resurrect a closed session just to clear its messages.
     if (session.closed === true) return false;
+    const clearOptions = options && typeof options === 'object' ? options : {};
+    const requestedCompactType = clearOptions.compactType ?? clearOptions.compact_type ?? clearOptions.type;
+    const compactBeforeClear = requestedCompactType != null && requestedCompactType !== false && String(requestedCompactType).trim() !== '';
     const keep = [];
-    const messages = Array.isArray(session.messages) ? session.messages : [];
+    let messages = Array.isArray(session.messages) ? session.messages : [];
     const beforeMessageTokens = estimateMessagesTokens(messages);
+    let clearCompactType = null;
+    let clearCompactError = null;
+    if (compactBeforeClear && messages.length >= 3) {
+        clearCompactType = normalizeCompactType(requestedCompactType, DEFAULT_COMPACT_TYPE);
+        session.compaction = {
+            ...(session.compaction || {}),
+            type: clearCompactType,
+            compactType: clearCompactType,
+        };
+        try {
+            await runSessionCompaction(session, { mode: 'manual', force: true, sessionId });
+        } catch (err) {
+            clearCompactError = err;
+            try { process.stderr.write(`[session] auto-clear pre-compact failed (sess=${sessionId}): ${err?.message || err}\n`); } catch { /* best-effort */ }
+        }
+        messages = Array.isArray(session.messages) ? session.messages : [];
+    }
+    const preserveCompactSummary = compactBeforeClear && clearOptions.keepCompactSummary !== false;
     for (let i = 0; i < messages.length; i += 1) {
         const m = messages[i];
         if (!m) continue;
@@ -2661,6 +2800,13 @@ export async function clearSessionMessages(sessionId) {
                 keep.push(next);
                 i += 1;
             }
+            continue;
+        }
+        if (preserveCompactSummary
+            && m.role === 'user'
+            && typeof m.content === 'string'
+            && m.content.startsWith(SUMMARY_PREFIX)) {
+            keep.push(m);
         }
     }
     const afterMessageTokens = estimateMessagesTokens(keep);
@@ -2696,6 +2842,8 @@ export async function clearSessionMessages(sessionId) {
         lastClearAfterTokens: afterTokens,
         lastClearBeforeMessageTokens: beforeMessageTokens,
         lastClearAfterMessageTokens: afterMessageTokens,
+        lastClearCompactType: clearCompactType || session.compaction?.compactType || null,
+        lastClearCompactError: clearCompactError?.message || null,
     };
     session.updatedAt = now;
     await saveSessionAsync(session, { expectedGeneration: session.generation });

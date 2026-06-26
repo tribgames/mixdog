@@ -49,6 +49,8 @@ import { scrubLoaderVars, scrubProviderSecrets } from './env-scrub.mjs';
 import { checkExecPolicyMessage } from './bash-policy-scan.mjs';
 import { startChildGuardian } from '../../../shared/child-guardian.mjs';
 
+globalThis.__mixdogBashSessionRuntimeLoaded = true;
+
 // Default 600 s (10 min), max 1800 s. Aligned with the one-shot bash tool's
 // 600 s default (builtin/bash-tool.mjs); the persistent shell carries
 // longer-running pipelines (build/test/install) than one-shot calls, so a
@@ -171,13 +173,16 @@ function _startReaper() {
                 _killSession(id, 'idle-timeout');
             }
         }
-        if (_sessions.size === 0) {
-            clearInterval(_reaperTimer);
-            _reaperTimer = null;
-        }
+        _clearReaperIfIdle();
     }, 30_000);
     // Don't keep the event loop alive just for the reaper.
     if (typeof _reaperTimer.unref === 'function') _reaperTimer.unref();
+}
+
+function _clearReaperIfIdle() {
+    if (_sessions.size !== 0 || !_reaperTimer) return;
+    clearInterval(_reaperTimer);
+    _reaperTimer = null;
 }
 
 // Kill a spawned shell along with any child processes it forked. Posix path
@@ -239,6 +244,17 @@ async function _killSession(id, _reason) {
     try { s.proc.stdin?.end(); } catch { /* ignore */ }
     _killProcessTree(s.proc);
     await Promise.race([exited, new Promise((r) => setTimeout(r, 3000))]);
+    _clearReaperIfIdle();
+}
+
+function _killSessionNow(id, _reason) {
+    const s = _sessions.get(id);
+    if (!s) return false;
+    _sessions.delete(id);
+    try { s.proc.stdin?.end(); } catch { /* ignore */ }
+    _killProcessTree(s.proc);
+    _clearReaperIfIdle();
+    return true;
 }
 
 function shellQuoteSingle(s) {
@@ -713,10 +729,21 @@ export function closeBashSession(sessionId, reason = 'external-close') {
     return true;
 }
 
+export async function shutdownBashSessions(reason = 'runtime-close') {
+    const ids = [..._sessions.keys()];
+    await Promise.allSettled(ids.map((id) => _killSession(id, reason)));
+    _clearReaperIfIdle();
+    return { closed: ids.length };
+}
+
 // Best-effort cleanup on process exit so orphan bash children don't linger
 // when the plugin host shuts down. Self-registered exit drain; bare 'exit' hook stays as idempotent backup.
-export function drainBashSessions() {
-    for (const id of [..._sessions.keys()]) _killSession(id, 'process-exit');
+export function drainBashSessions(reason = 'process-exit') {
+    let closed = 0;
+    for (const id of [..._sessions.keys()]) {
+        if (_killSessionNow(id, reason)) closed += 1;
+    }
+    return { closed };
 }
 if (typeof process?.on === 'function') {
     process.on('exit', drainBashSessions);

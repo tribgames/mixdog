@@ -7,12 +7,14 @@ import {
   saveSecret,
 } from '../runtime/shared/config.mjs';
 import {
+  beginOAuthLogin as beginAnthropicOAuthLogin,
   describeAnthropicOAuthCredentials,
   forgetAnthropicOAuthCredentials,
   hasAnthropicOAuthCredentials,
   loginOAuth as loginAnthropicOAuth,
 } from '../runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import {
+  beginOAuthLogin as beginOpenAIOAuthLogin,
   describeOpenAIOAuthCredentials,
   forgetOpenAIOAuthCredentials,
   hasOpenAIOAuthCredentials,
@@ -36,8 +38,8 @@ export const API_PROVIDERS = Object.freeze([
 ]);
 
 export const OAUTH_PROVIDERS = Object.freeze([
-  Object.freeze({ id: 'openai-oauth', name: 'Codex', desc: '~/.codex/auth.json', has: hasOpenAIOAuthCredentials, describe: describeOpenAIOAuthCredentials, forget: forgetOpenAIOAuthCredentials, login: loginOpenAIOAuth }),
-  Object.freeze({ id: 'anthropic-oauth', name: 'Claude Code', desc: 'Mixdog OAuth credentials', has: hasAnthropicOAuthCredentials, describe: describeAnthropicOAuthCredentials, forget: forgetAnthropicOAuthCredentials, login: loginAnthropicOAuth }),
+  Object.freeze({ id: 'openai-oauth', name: 'Codex', desc: '~/.codex/auth.json', has: hasOpenAIOAuthCredentials, describe: describeOpenAIOAuthCredentials, forget: forgetOpenAIOAuthCredentials, begin: beginOpenAIOAuthLogin, login: loginOpenAIOAuth }),
+  Object.freeze({ id: 'anthropic-oauth', name: 'Claude Code', desc: 'Mixdog OAuth credentials', has: hasAnthropicOAuthCredentials, describe: describeAnthropicOAuthCredentials, forget: forgetAnthropicOAuthCredentials, begin: beginAnthropicOAuthLogin, login: loginAnthropicOAuth }),
   Object.freeze({ id: 'grok-oauth', name: 'Grok', desc: '~/.grok/auth.json or browser OAuth (Grok Build)', has: hasGrokOAuthCredentials, describe: describeGrokOAuthCredentials, forget: forgetGrokOAuthCredentials, begin: beginGrokOAuthLogin, login: loginGrokOAuth }),
 ]);
 
@@ -79,8 +81,8 @@ export async function providerSetup(config = {}) {
     const envName = AGENT_PROVIDER_ENV[p.id] || p.env;
     const env = Boolean(envName && process.env[envName]);
     const configuredEnabled = configured.enabled === true;
-    const authenticated = configuredEnabled || env || Boolean(getAgentApiKey(p.id));
-    const stored = configuredEnabled && !env ? true : authenticated && !env;
+    const stored = hasStoredSecret(SECRET_ACCOUNTS.agentApiKey(p.id));
+    const authenticated = env || stored || Boolean(getAgentApiKey(p.id));
     return {
       ...p,
       group: 'api',
@@ -90,8 +92,8 @@ export async function providerSetup(config = {}) {
       stored,
       env,
       envName,
-      status: stored ? 'Set' : env ? 'Env' : 'Off',
-      detail: stored ? 'stored in keychain' : env ? envName : p.env,
+      status: stored ? 'Set' : env ? 'Env' : authenticated ? 'Set' : configuredEnabled ? 'No Key' : 'Off',
+      detail: stored ? 'stored in keychain' : env ? envName : authenticated ? 'runtime credential' : envName,
     };
   });
 
@@ -247,19 +249,23 @@ export async function beginOAuthProviderLogin(cfgMod, provider) {
   if (!oauth) throw new Error(`unknown OAuth provider "${id}"`);
   if (typeof oauth.begin !== 'function') throw new Error(`${id} does not support interactive code login`);
   const started = await oauth.begin();
+  const finish = async (result) => {
+    if (!result) return result;
+    const auth = typeof oauth.describe === 'function'
+      ? oauth.describe()
+      : { authenticated: Boolean(oauth.has()), status: Boolean(oauth.has()) ? 'Set' : 'Not Set' };
+    updateConfigProvider(cfgMod, id, { enabled: Boolean(auth.authenticated) });
+    return { provider: id, type: 'oauth', authenticated: Boolean(auth.authenticated), status: auth.status || null, result };
+  };
   return {
     provider: id,
     type: 'oauth',
     url: started.url,
-    waitForCallback: started.waitForCallback,
+    manualUrl: started.manualUrl || null,
+    waitForCallback: started.waitForCallback?.then(finish),
     cancel: started.cancel,
     completeCode: async (code) => {
-      const result = await started.completeCode(code);
-      const auth = typeof oauth.describe === 'function'
-        ? oauth.describe()
-        : { authenticated: Boolean(oauth.has()), status: Boolean(oauth.has()) ? 'Set' : 'Not Set' };
-      updateConfigProvider(cfgMod, id, { enabled: Boolean(auth.authenticated) });
-      return { provider: id, type: 'oauth', authenticated: Boolean(auth.authenticated), status: auth.status || null, result };
+      return await finish(await started.completeCode(code));
     },
   };
 }
@@ -307,18 +313,21 @@ export function setLocalProvider(cfgMod, provider, { enabled, baseURL } = {}) {
   return { provider: id, type: 'local', enabled: enabled === true, baseURL: nextBaseURL };
 }
 
-export function forgetProviderAuth(provider) {
-  const id = String(provider || '').trim();
+export function forgetProviderAuth(cfgModOrProvider, maybeProvider) {
+  const cfgMod = maybeProvider === undefined ? null : cfgModOrProvider;
+  const id = String(maybeProvider === undefined ? cfgModOrProvider : maybeProvider || '').trim();
   const oauth = OAUTH_BY_ID.get(id);
   if (oauth) {
     if (typeof oauth.forget !== 'function') throw new Error(`forget is not supported for OAuth provider ${id}`);
     const result = oauth.forget();
+    if (cfgMod) updateConfigProvider(cfgMod, id, { enabled: false });
     return { provider: id, type: 'oauth', forgotten: true, removed: Boolean(result?.removed) };
   }
   if (!API_PROVIDER_IDS.has(id)) {
     throw new Error(`unknown provider "${id}"`);
   }
   deleteSecret(SECRET_ACCOUNTS.agentApiKey(id));
+  if (cfgMod) updateConfigProvider(cfgMod, id, { enabled: false });
   return { provider: id, type: 'api-key', forgotten: true };
 }
 
