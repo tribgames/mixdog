@@ -3,7 +3,7 @@
 //
 // Returns a short human-readable warning string when the command matches
 // a known data-loss / hard-to-reverse pattern. Purely informational —
-// the caller (case 'bash' in builtin.mjs) prepends the warning to the result
+// the caller (case 'shell' in builtin.mjs) prepends the warning to the result
 // envelope so the agent sees the risk inline. Does NOT block execution;
 // hard blocks remain in BLOCKED_PATTERNS in builtin.mjs / bash-session.mjs.
 

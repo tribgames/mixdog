@@ -23,8 +23,9 @@ export function maxMtime(paths) {
 
 /**
  * Return the maximum mtimeMs across all given paths, recursing into
- * directories up to `depth` levels.  Only .md and .json files inside
- * directories contribute their own mtime (not the parent dir entry).
+ * directories up to `depth` levels. Directory entries contribute their own
+ * mtime so child add/remove events invalidate caches. Only .md and .json files
+ * inside directories contribute file mtimes.
  * Plain file paths are stat'd directly regardless of extension.
  * Missing / unreadable paths are silently skipped.
  *
@@ -38,6 +39,7 @@ export function maxMtimeRecursive(paths, depth = 3) {
         let st;
         try { st = statSync(p); } catch { return; }
         if (st.isDirectory()) {
+            if (st.mtimeMs > max) max = st.mtimeMs;
             if (d <= 0) return;
             let entries;
             try { entries = readdirSync(p, { withFileTypes: true }); } catch { return; }

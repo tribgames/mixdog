@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
+import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 
 // Mixdog read/write/edit share a scoped snapshot store. Value stores the
 // mtime + size at read-time. A missing scope is fail-closed: snapshots without
@@ -15,7 +16,7 @@ const readFilesByScope = new Map(); // scope → Map(fullPath → { mtimeMs, siz
 // flush is debounced and drained synchronously on process exit.
 const SNAPSHOT_DIR = (() => {
     try {
-        const dataDir = process.env.CLAUDE_PLUGIN_DATA;
+        const dataDir = resolvePluginData();
         if (!dataDir) return null;
         const dir = join(dataDir, 'read-snapshots');
         // R4 data-at-rest: snapshot entries reveal which files an actor

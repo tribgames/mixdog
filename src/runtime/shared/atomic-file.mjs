@@ -386,8 +386,7 @@ export function writeFileAtomicSync(filePath, data, opts = {}) {
         // `_enforceOwnerOnlyAclWin32` runs `icacls /inheritance:r /grant:r
         // user:(F)` which is NOT the POSIX-0o700 analogue it looks like —
         // on a directory it breaks inheritance and cascade-strips inherited
-        // ACEs from EVERY descendant, leaving the whole tree (e.g. ~/.claude
-        // when writing ~/.claude/.credentials.json) with empty DACLs and
+        // ACEs from EVERY descendant, leaving the whole tree with empty DACLs and
         // access-denied for everyone, owner included. The file ACL above
         // already protects the secret's contents regardless of dir listing.
         _enforceOwnerOnlyAclWin32(filePath);

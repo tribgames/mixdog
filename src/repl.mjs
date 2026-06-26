@@ -29,6 +29,7 @@ import { renderMarkdown } from './ui/markdown.mjs';
 import { renderToolCard } from './ui/tool-card.mjs';
 import { createSessionStats, applyUsageDelta, renderStatusline } from './ui/statusline.mjs';
 import { createMixdogSessionRuntime } from './mixdog-session-runtime.mjs';
+import { installProcessSignalCleanup } from './runtime/shared/process-shutdown.mjs';
 
 /** Help text shared by `--help` and the `/help` slash command. */
 const HELP_LINES = [
@@ -66,101 +67,122 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
   const runtime = await createMixdogSessionRuntime({ provider: providerName, model, toolMode });
   const stats = createSessionStats();
   const cwd = process.cwd();
+  let rl = null;
+  let closed = false;
+  const closeRuntime = async (reason = 'cli-exit') => {
+    if (closed) return;
+    closed = true;
+    try { rl?.close(); } catch {}
+    await runtime.close(reason);
+  };
 
   printBanner(runtime.provider, runtime.model, cwd, runtime.toolMode);
 
-  const rl = createInterface({
+  rl = createInterface({
     input: stdin,
     output: stdout,
     prompt: promptText(),
     // historySize > 0 enables readline's built-in ↑/↓ recall of prior inputs.
     historySize: 200,
   });
+  const signalCleanup = installProcessSignalCleanup({
+    name: 'mixdog-repl',
+    timeoutMs: 6500,
+    beforeCleanup: () => { try { stdout.write('\n'); } catch {} },
+    cleanup: closeRuntime,
+  });
+  rl.on('SIGINT', () => {
+    void signalCleanup.run('SIGINT', { code: 130, shouldExit: true });
+  });
 
-  rl.prompt();
+  try {
+    rl.prompt();
 
-  for await (const rawLine of rl) {
-    const line = rawLine.trim();
-    if (!line) {
-      rl.prompt();
-      continue;
-    }
-
-    // --- Slash commands -----------------------------------------------------
-    if (line.startsWith('/')) {
-      const handled = await handleSlash(line, {
-        rl,
-        runtime,
-        stats,
-        cwd,
-      });
-      if (handled === 'exit') {
-        rl.close();
-        return 0;
+    for await (const rawLine of rl) {
+      const line = rawLine.trim();
+      if (!line) {
+        rl.prompt();
+        continue;
       }
+
+      // --- Slash commands ---------------------------------------------------
+      if (line.startsWith('/')) {
+        const handled = await handleSlash(line, {
+          rl,
+          runtime,
+          stats,
+          cwd,
+          closeRuntime,
+        });
+        if (handled === 'exit') {
+          return 0;
+        }
+        rl.setPrompt(promptText());
+        rl.prompt();
+        continue;
+      }
+
+      stdout.write('\n');
+
+      let streamedText = '';
+      let printedAny = false;
+      try {
+        const { result } = await runtime.ask(
+          line,
+          {
+            onToolCall: async (_iter, calls) => {
+            for (const c of calls || []) stdout.write('\n' + renderToolCard(c) + '\n');
+          },
+            onTextDelta: (chunk) => {
+              printedAny = true;
+              streamedText += chunk;
+              stdout.write(chunk);
+            },
+            onUsageDelta: (delta) => applyUsageDelta(stats, delta),
+          },
+        );
+
+        const finalText = (result?.content != null && String(result.content)) || streamedText;
+
+        // Approach (a): clear the raw streamed block and re-print as markdown.
+        // Only when we're on a TTY and actually streamed something — otherwise the
+        // raw text already on screen is fine (and we must not emit cursor escapes
+        // into a pipe).
+        if (finalText) {
+          if (printedAny && colorEnabled()) {
+            eraseStreamedBlock(streamedText);
+            stdout.write(renderMarkdown(finalText) + '\n');
+          } else if (!printedAny) {
+            // Nothing streamed live (provider without onTextDelta) — render once.
+            stdout.write(renderMarkdown(finalText) + '\n');
+          } else {
+            // Non-TTY / NO_COLOR: leave the raw stream, just terminate the line.
+            stdout.write('\n');
+          }
+        }
+
+        // Per-turn statusline footer.
+        stdout.write('\n' + (await renderStatusline({
+          provider: runtime.provider,
+          model: runtime.model,
+          cwd,
+          stats,
+          contextWindow: runtime.contextWindow,
+          rawContextWindow: runtime.rawContextWindow,
+        })) + '\n');
+      } catch (error) {
+        stdout.write('\n' + red(`[error] ${error?.message || error}`) + '\n');
+      }
+
+      stdout.write('\n');
       rl.setPrompt(promptText());
       rl.prompt();
-      continue;
     }
-
-    stdout.write('\n');
-
-    let streamedText = '';
-    let printedAny = false;
-    try {
-      const { result } = await runtime.ask(
-        line,
-        {
-          onToolCall: async (_iter, calls) => {
-          for (const c of calls || []) stdout.write('\n' + renderToolCard(c) + '\n');
-        },
-          onTextDelta: (chunk) => {
-            printedAny = true;
-            streamedText += chunk;
-            stdout.write(chunk);
-          },
-          onUsageDelta: (delta) => applyUsageDelta(stats, delta),
-        },
-      );
-
-      const finalText = (result?.content != null && String(result.content)) || streamedText;
-
-      // Approach (a): clear the raw streamed block and re-print as markdown.
-      // Only when we're on a TTY and actually streamed something — otherwise the
-      // raw text already on screen is fine (and we must not emit cursor escapes
-      // into a pipe).
-      if (finalText) {
-        if (printedAny && colorEnabled()) {
-          eraseStreamedBlock(streamedText);
-          stdout.write(renderMarkdown(finalText) + '\n');
-        } else if (!printedAny) {
-          // Nothing streamed live (provider without onTextDelta) — render once.
-          stdout.write(renderMarkdown(finalText) + '\n');
-        } else {
-          // Non-TTY / NO_COLOR: leave the raw stream, just terminate the line.
-          stdout.write('\n');
-        }
-      }
-
-      // Per-turn statusline footer.
-      stdout.write('\n' + (await renderStatusline({
-        provider: runtime.provider,
-        model: runtime.model,
-        cwd,
-        stats,
-        contextWindow: runtime.contextWindow,
-        rawContextWindow: runtime.rawContextWindow,
-      })) + '\n');
-    } catch (error) {
-      stdout.write('\n' + red(`[error] ${error?.message || error}`) + '\n');
-    }
-
-    stdout.write('\n');
-    rl.setPrompt(promptText());
-    rl.prompt();
+  } finally {
+    signalCleanup.uninstall();
+    await closeRuntime('cli-eof');
   }
 
-  runtime.close('cli-eof');
   return 0;
 }
 
@@ -267,7 +289,7 @@ async function handleSlash(line, ctx) {
 
     case 'exit':
     case 'quit':
-      ctx.runtime.close('cli-exit');
+      await ctx.closeRuntime?.('cli-exit');
       stdout.write(dim('bye.') + '\n');
       return 'exit';
 

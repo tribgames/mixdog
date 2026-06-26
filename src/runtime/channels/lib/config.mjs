@@ -3,15 +3,9 @@ import { join } from "path";
 import { DiscordBackend } from "../backends/discord.mjs";
 import { readSection, updateSection, CONFIG_PATH as MIXDOG_CONFIG_PATH, getDiscordToken, diagnoseDiscordTokenValue } from "../../shared/config.mjs";
 import { listSchedules } from "../../shared/schedules-store.mjs";
+import { resolvePluginData } from "../../shared/plugin-paths.mjs";
 import { isHolidaySync } from "./holidays.mjs";
-if (!process.env.CLAUDE_PLUGIN_DATA) {
-  process.stderr.write(
-    "mixdog: CLAUDE_PLUGIN_DATA not set.\n  This plugin must be run through Claude Code.\n"
-  );
-  process.exit(1);
-}
-const DATA_DIR = process.env.CLAUDE_PLUGIN_DATA;
-const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT ?? new URL("..", import.meta.url).pathname;
+const DATA_DIR = resolvePluginData();
 const CONFIG_FILE = MIXDOG_CONFIG_PATH;
 const DEFAULT_ACCESS = {
   dmPolicy: "allowlist",
@@ -169,7 +163,7 @@ function loadConfig() {
   try {
     let raw = readSection("channels");
     raw = raw && typeof raw === "object" ? raw : {};
-    // Schedules live in `${CLAUDE_PLUGIN_DATA}/schedules/<name>/` (single
+    // Schedules live in the Mixdog data dir under `schedules/<name>/` (single
     // source of truth). The legacy `raw.schedules.items` / `raw.nonInteractive`
     // / `raw.interactive` arrays in mixdog-config.json are no longer read.
     const scheduleEntries = listSchedules().filter((s) => s.enabled !== false);
@@ -256,7 +250,7 @@ function createBackend(config) {
     process.stderr.write(`mixdog: discord token ignored: ${discordTokenProblem}\n`);
   }
   if (config.backend !== "discord" || !discordToken || discordTokenProblem) {
-    process.stderr.write("mixdog: discord bot not configured; channel worker running in headless mode\n");
+    process.stderr.write("mixdog: discord bot not configured; channel runtime running in headless mode\n");
     return HEADLESS_BACKEND;
   }
   const stateDir = config.discord.stateDir ?? join(DATA_DIR, "discord");
@@ -282,7 +276,6 @@ function loadProfileConfig() {
 export {
   DATA_DIR,
   DEFAULT_HOLIDAY_COUNTRY,
-  PLUGIN_ROOT,
   applyDefaults,
   createBackend,
   getDiscordToken,

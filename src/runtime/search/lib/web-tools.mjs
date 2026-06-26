@@ -7,6 +7,7 @@ import { JSDOM } from 'jsdom'
 import puppeteer from 'puppeteer-core'
 import { Readability } from '@mozilla/readability'
 import { isWSL } from '../../shared/wsl.mjs'
+import { startChildGuardian } from '../../shared/child-guardian.mjs'
 
 
 const PKG_VERSION = (() => { try { return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version } catch { return '0.0.1' } })()
@@ -848,6 +849,10 @@ async function _getPoolBrowser() {
       args: buildPuppeteerLaunchArgs(),
     }).then((browser) => {
       _poolBrowser = browser
+      try {
+        const proc = browser.process?.()
+        startChildGuardian({ childPid: proc?.pid, label: 'puppeteer-browser' })
+      } catch {}
       browser.on('disconnected', () => {
         if (_poolBrowser === browser) _poolBrowser = null
       })

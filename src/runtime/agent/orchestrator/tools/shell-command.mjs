@@ -1,7 +1,7 @@
 'use strict';
 // Async one-shot shell runner.
 //
-// Replaces the legacy spawnSync path in builtin.mjs case 'bash'. The
+// Replaces the legacy spawnSync path in builtin.mjs shell execution. The
 // improvements over spawnSync are:
 //   - tree-kill on timeout / abort (Windows taskkill /T /F, POSIX process
 //     group SIGTERM->SIGKILL escalation) so forked children come down with
@@ -32,6 +32,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import * as nodeUtil from 'node:util';
 import { getPluginData } from '../config.mjs';
+import { startChildGuardian } from '../../../shared/child-guardian.mjs';
 // Runtime-only import (used inside execShellCommand's auto-background
 // transition). shell-jobs.mjs imports stripAnsi from this module, so this is
 // a static cycle — safe because neither binding is touched at module-eval
@@ -56,6 +57,17 @@ const SHELL_OUTPUT_DISK_CAP = 100 * 1024 * 1024;
 // upstream cadence — short enough that a runaway loop is caught within a
 // few seconds, long enough that the stat overhead is negligible.
 const SIZE_WATCHDOG_INTERVAL_MS = 1_000;
+
+// fsync throttle for spilled output reads. getStdout/getStderr call
+// fsyncSync before reading to ensure the caller sees the latest bytes.
+// On Windows every fsyncSync is a noticeable I/O syscall, so throttle
+// consecutive calls to at most one per this interval. Tune via env
+// MIXDOG_SHELL_FSYNC_THROTTLE_MS (default 1000 ms, positive integer).
+function positiveIntEnv(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+const MIXDOG_SHELL_FSYNC_THROTTLE_MS = positiveIntEnv('MIXDOG_SHELL_FSYNC_THROTTLE_MS', 1000);
 
 // ANSI / VT control sequence stripper. Falls back to a regex sweep when
 // node:util's stripVTControlCharacters isn't available (older Node).
@@ -182,11 +194,12 @@ class TaskOutput {
     this.stdoutFileSize = 0;
     this.stderrFileSize = 0;
     this.writeError = null;
-    // fsync throttle: job_wait + tail-read polling can call getStdout/
+    // fsync throttle: task wait/read + tail-read polling can call getStdout/
     // getStderr many times per second. Every call used to fsyncSync(fd),
     // a noticeable I/O tax on Windows. Skip if a recent fsync landed
-    // within 200ms — the next read still picks up writes via the kernel's
-    // normal write-back. Final settle (closeFds) flushes via close anyway.
+    // within MIXDOG_SHELL_FSYNC_THROTTLE_MS — the next read still picks up
+    // writes via the kernel's normal write-back. Final settle (closeFds)
+    // flushes via close anyway.
     this._lastStdoutFsyncMs = 0;
     this._lastStderrFsyncMs = 0;
   }
@@ -252,9 +265,9 @@ class TaskOutput {
 
   // Force the in-memory buffers onto disk-backed files regardless of the
   // SHELL_OUTPUT_INLINE_CAP*4 threshold. Used by the auto-background
-  // transition: once a foreground command is detached into a tracked job,
+  // transition: once a foreground command is adopted into a tracked job,
   // every subsequent stdout/stderr chunk must land in the spill files so
-  // job_wait/peek can read it (the caller has already settled and will no
+  // task wait/read can read it (the caller has already settled and will no
   // longer drain the in-memory buffers). No-op once already spilled.
   forceSpill() {
     if (this.spilled) return;
@@ -306,7 +319,7 @@ class TaskOutput {
   async getStdout() {
     if (this.spilled) {
       const now = Date.now();
-      if (now - this._lastStdoutFsyncMs >= 200) {
+      if (now - this._lastStdoutFsyncMs >= MIXDOG_SHELL_FSYNC_THROTTLE_MS) {
         try { fsyncSync(this.stdoutFd); } catch {}
         this._lastStdoutFsyncMs = now;
       }
@@ -322,7 +335,7 @@ class TaskOutput {
   async getStderr() {
     if (this.spilled) {
       const now = Date.now();
-      if (now - this._lastStderrFsyncMs >= 200) {
+      if (now - this._lastStderrFsyncMs >= MIXDOG_SHELL_FSYNC_THROTTLE_MS) {
         try { fsyncSync(this.stderrFd); } catch {}
         this._lastStderrFsyncMs = now;
       }
@@ -375,7 +388,7 @@ class TaskOutput {
 export { TaskOutput };
 
 // Result envelope. Status markers ([exit code: N], [signal: SIGTERM]) are
-// the caller's responsibility — case 'bash' in builtin.mjs owns that
+// the caller's responsibility — shell execution owns that
 // rendering convention.
 export class ExecResult {
   constructor(opts) {
@@ -394,9 +407,9 @@ export class ExecResult {
     this.outputCaptureError = opts.outputCaptureError || null;
     // Auto-background transition (CC startBackgrounding analogue). When a
     // foreground command outlives autoBackgroundMs the call settles with
-    // backgrounded:true + the jobId the model can poll via job_wait. The
-    // child keeps running detached; stdout/stderr keep flowing to the spill
-    // files now adopted by the shell-jobs registry.
+    // backgrounded:true + the jobId for manual task control. The
+    // child stays owned by the CLI process; stdout/stderr keep flowing to
+    // the spill files now adopted by the shell-jobs registry.
     this.backgrounded = opts.backgrounded === true;
     this.jobId = opts.jobId || null;
     this.backgroundMessage = opts.backgroundMessage || null;
@@ -498,7 +511,7 @@ export function execShellCommand({
   clientHostPid,
 }) {
   return new Promise(async (resolve) => {
-    const taskId = `bash_${randomUUID().slice(0, 8)}`;
+    const taskId = `shell_${randomUUID().slice(0, 8)}`;
     const taskOutput = new TaskOutput(taskId);
     let timedOut = false;
     let killed = false;
@@ -515,7 +528,7 @@ export function execShellCommand({
       if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
     };
     // Auto-background transition flag. Set the moment the autoBackgroundMs
-    // timer fires and successfully detaches the still-running child. Once
+    // timer fires and adopts the still-running child. Once
     // true the normal settle()/close/exit/treeKill paths are inert for this
     // run — the call has already resolved with a 'backgrounded' result and
     // the child's lifecycle is owned by the shell-jobs registry. Mutually
@@ -572,11 +585,16 @@ export function execShellCommand({
         cwd,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
-        // POSIX: detached gives the child its own process group so
-        // treeKill can signal the whole group. Windows detached has
-        // different semantics (no console attached, used for daemonization)
-        // so it stays off there.
+        // POSIX: detached gives the child its own process group so treeKill can
+        // signal the whole group. The child is still CLI-owned because we do
+        // not unref it after adoption. Windows detached has different console
+        // semantics, so it stays off there.
         detached: process.platform !== 'win32',
+      });
+      startChildGuardian({
+        childPid: child.pid,
+        childGroupPid: child.pid,
+        label: 'shell-command',
       });
     } catch (err) {
       resolve(
@@ -710,13 +728,12 @@ export function execShellCommand({
     // Auto-background transition (CC ASSISTANT_BLOCKING_BUDGET_MS +
     // startBackgrounding analogue). Fires once, autoBackgroundMs after spawn,
     // IFF the child is still running and the run has not already settled /
-    // been killed / timed out. Detaches the child (keeps it running, stops
-    // blocking host exit), hands its live spill files to the shell-jobs
-    // registry, and resolves the call immediately with a 'backgrounded'
-    // result so the tool stops hanging. The 600 s timeoutMs upper bound is
-    // carried into the adopted job detail so refreshShellJob still enforces
-    // it. Mutually exclusive with settle() via the autoBackgrounded flag set
-    // synchronously at the top before any await.
+    // been killed / timed out. It adopts the child into the shell-jobs
+    // registry while keeping it owned by this CLI process, then resolves the
+    // call immediately with a 'backgrounded' result so the tool stops hanging.
+    // The 600 s timeoutMs upper bound is carried into the adopted job detail
+    // so refreshShellJob still enforces it. Mutually exclusive with settle()
+    // via the autoBackgrounded flag set synchronously at the top before any await.
     const _autoBackground = async () => {
       // Win the race: bail if a terminal transition already happened, and
       // claim the transition synchronously so a concurrently-queued settle()
@@ -725,7 +742,7 @@ export function execShellCommand({
       if (child.exitCode != null || child.signalCode != null) return;
       autoBackgrounded = true;
       // The foreground capture is over; stop the local watchdogs/timers so
-      // they cannot treeKill the now-detached child. The 600 s bound lives
+      // they cannot treeKill the now-adopted child. The 600 s bound lives
       // on in the adopted job detail (timeoutMs) for refreshShellJob.
       if (timer) { clearTimeout(timer); timer = null; }
       _clearProgressTimer();
@@ -735,8 +752,6 @@ export function execShellCommand({
         try { abortSignal.removeEventListener('abort', abortHandler); } catch {}
         abortHandler = null;
       }
-      // Keep running without holding the host event loop open.
-      try { child.unref(); } catch {}
       // Every subsequent stdout/stderr chunk must hit disk — the call is
       // about to resolve and nobody will drain the in-memory buffers again.
       try { taskOutput.forceSpill(); } catch {}
@@ -796,7 +811,7 @@ export function execShellCommand({
           backgrounded: true,
           jobId,
           backgroundMessage: jobId
-            ? `auto-backgrounded after ${secs}s; still running — use job_wait with job_id:${jobId}`
+            ? `auto-backgrounded after ${secs}s; still running — completion will be delivered as a background task notification. Use task with task_id:${jobId} only for manual wait/status/read/cancel.`
             : `auto-backgrounded after ${secs}s; still running`,
         }),
       );

@@ -4,7 +4,7 @@ Webhook event analysis agent. Processes an inbound webhook delivery, extracts ac
 
 Stateless: each webhook event is processed independently. No context from prior webhooks.
 
-Per-entry config lives in `${CLAUDE_PLUGIN_DATA}/webhooks/<name>/{config.json, instructions.md}` — `instructions.md` is the per-delivery brief, `config.json` holds parser/secret/channel/model.
+Per-entry config lives in the Mixdog data dir at `webhooks/<name>/{config.json, instructions.md}` — `instructions.md` is the per-delivery brief, `config.json` holds parser/secret/channel/model.
 
 ## Routing (by channel presence)
 

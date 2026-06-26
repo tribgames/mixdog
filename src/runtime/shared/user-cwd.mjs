@@ -1,8 +1,8 @@
 /**
  * IMPORTANT — cwd model role:
  * pwd() resolves the user's working directory for RELATIVE PATH RESOLUTION only.
- * It is NOT a sandbox boundary. Sandbox decisions are governed by Claude Code's
- * settings.json permissions govern sandbox decisions.
+ * It is NOT a sandbox boundary. Sandbox decisions are governed by the active
+ * Mixdog permission policy.
  */
 
 /**
@@ -28,11 +28,16 @@ import { AsyncLocalStorage } from 'async_hooks'
 import { readFileSync, statSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
 import { homedir } from 'os'
+import { resolvePluginData, mixdogRoot } from './plugin-paths.mjs'
 
 const _cwdOverride = new AsyncLocalStorage()
 
-// process.cwd() is the server's LAUNCH directory. In daemon mode that IS
-// CLAUDE_PLUGIN_ROOT (the plugin install/cache root), so using it as a
+function _dataFile(name) {
+  return join(resolvePluginData(), name)
+}
+
+// process.cwd() is the server's LAUNCH directory. In daemon mode that can be
+// MIXDOG_ROOT (the install/resource root), so using it as a
 // relative-path base silently resolves into the DEPLOYED plugin copy instead
 // of the user's working tree — the exact cause of stale reads in a worker that
 // inherited no explicit cwd. Treat that one case as "no usable cwd" and fall
@@ -41,10 +46,7 @@ const _cwdOverride = new AsyncLocalStorage()
 // (exact path equality with the known root), not a path-substring heuristic.
 export function _safeProcessCwd() {
   const cwd = process.cwd()
-  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT
-  if (pluginRoot) {
-    try { if (resolve(cwd) === resolve(pluginRoot)) return homedir() } catch { /* fall through to cwd */ }
-  }
+  try { if (resolve(cwd) === resolve(mixdogRoot())) return homedir() } catch { /* fall through to cwd */ }
   return cwd
 }
 
@@ -76,7 +78,7 @@ function _normalizePlatformCwd(p) {
  *   1. process.env.MIXDOG_SESSION_CWD — session-level override set via
  *      the `cwd` MCP tool. Honoured only when non-empty AND the resolved
  *      directory actually exists.
- *   2. user-cwd.txt — single source of truth maintained by claude-code
+ *   2. user-cwd.txt — single source of truth maintained by Mixdog
  *      (rewritten at every session start).
  * Returns null when neither is available.
  *
@@ -98,7 +100,7 @@ export function explicitSessionCwd() {
     }
   }
   try {
-    const txt = readFileSync(join(process.env.CLAUDE_PLUGIN_DATA || '', 'user-cwd.txt'), 'utf8').trim()
+    const txt = readFileSync(_dataFile('user-cwd.txt'), 'utf8').trim()
     return (txt && _normalizePlatformCwd(txt)) || null
   } catch {
     return null
@@ -106,16 +108,10 @@ export function explicitSessionCwd() {
 }
 
 /**
- * Resolve the Claude Code SESSION ENTRY root from CLAUDE_PROJECT_DIR — the
- * directory the user launched Claude Code in, injected by the host on every
- * run. This is an explicit host-provided invariant (not a heuristic guess),
- * so it is the correct relative-path base when no session cwd has been set
- * yet AND user-cwd.txt is unwritten (e.g. a hook fired with an empty
- * _event.cwd). Returns null when the var is absent or not a live directory,
- * so callers chain it ahead of the process.cwd() last resort.
+ * Resolve the session entry root from an explicit project dir.
  */
 function startRootCwd() {
-  const dir = process.env.CLAUDE_PROJECT_DIR
+  const dir = process.env.MIXDOG_PROJECT_DIR
   if (typeof dir === 'string' && dir.length > 0) {
     const normalized = _normalizePlatformCwd(dir)
     if (normalized) {
@@ -130,7 +126,7 @@ function startRootCwd() {
 /**
  * Resolve the user's current working directory for RELATIVE PATH
  * RESOLUTION. Same explicit precedence as explicitSessionCwd(), then the
- * session-entry root (CLAUDE_PROJECT_DIR), with process.cwd() as the final
+ * session-entry root (MIXDOG_PROJECT_DIR), with process.cwd() as the final
  * fallback when no explicit session cwd exists.
  *
  * Read fresh on every call: hot lookups inside a worker are short-
@@ -149,7 +145,7 @@ export function captureOriginalUserCwd() {
  */
 export function rawUserCwd() {
   try {
-    const txt = readFileSync(join(process.env.CLAUDE_PLUGIN_DATA || '', 'user-cwd.txt'), 'utf8').trim()
+    const txt = readFileSync(_dataFile('user-cwd.txt'), 'utf8').trim()
     return _normalizePlatformCwd(txt) || startRootCwd() || _safeProcessCwd()
   } catch {
     return startRootCwd() ?? _safeProcessCwd()
@@ -176,7 +172,7 @@ function _lastSessionCwdFile(keyPid) {
   // leadPid is what keeps one terminal's `cwd set` out of another's sentinel.
   const raw = (keyPid != null && keyPid !== '') ? String(keyPid) : process.env.MIXDOG_SUPERVISOR_PID
   const key = (typeof raw === 'string' && /^\d+$/.test(raw)) ? raw : 'solo'
-  return join(process.env.CLAUDE_PLUGIN_DATA || '', `session-cwd-${key}.txt`)
+  return _dataFile(`session-cwd-${key}.txt`)
 }
 
 /**

@@ -7,21 +7,15 @@ import fs from 'fs'
 import path from 'path'
 import {
   ensureDataDir,
-  getFirecrawlApiKey,
   getRequestTimeoutMs,
-  getRawSearchMaxResults,
-  getRawProviderCredentialSource,
-  getRawProviderApiKey,
   loadConfig,
-  PLUGIN_ROOT,
 } from './lib/config.mjs'
 import { normalizeErrorMessage } from '../agent/orchestrator/tools/builtin/path-diagnostics.mjs'
-import { getAgentApiKey } from '../shared/config.mjs'
+import { presentErrorText } from '../shared/err-text.mjs'
 
 function readPluginVersion() {
   try {
-    const manifestPath = path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json')
-    return JSON.parse(fs.readFileSync(manifestPath, 'utf8')).version || '0.0.1'
+    return JSON.parse(fs.readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')).version || '0.0.1'
   } catch { return '0.0.1' }
 }
 const PLUGIN_VERSION = readPluginVersion()
@@ -33,7 +27,6 @@ import {
   loadCacheState,
   setCachedEntry,
 } from './lib/cache.mjs'
-import { fetchProviderUsageSnapshot } from './lib/provider-usage.mjs'
 import {
   flushUsageState,
   loadUsageState,
@@ -43,21 +36,28 @@ import {
   saveUsageState,
   updateProviderState,
 } from './lib/state.mjs'
-import {
-  getProvidersWithApiKeys,
-  RAW_PROVIDER_CAPABILITIES,
-} from './lib/providers.mjs'
-import { dispatchSearchBackend, PROVIDER_CAPS } from './lib/backends/index.mjs'
-import { normalizeSearchIntent } from './lib/search-intent.mjs'
 import { assertPublicUrl, crawlSite, getScrapeCapabilities, pinnedFetch, scrapeUrls } from './lib/web-tools.mjs'
 import { formatResponse } from './lib/formatter.mjs'
-import { handleSetup } from './lib/setup-handler.mjs'
+import {
+  cancelBackgroundTask,
+  getBackgroundTask,
+  renderBackgroundTask,
+  renderBackgroundTaskList,
+  resolveExecutionMode,
+  startBackgroundTask,
+  taskIdFromArgs,
+} from '../shared/background-tasks.mjs'
 
 
 ensureDataDir()
 
 const searchArgsSchema = z.object({
   keywords: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).describe('Search query string or array of queries.'),
+  mode: z.enum(['sync', 'async']).optional(),
+  action: z.enum(['run', 'list', 'status', 'read', 'cancel']).optional(),
+  task_id: z.string().optional(),
+  firstResponseTimeoutMs: z.number().int().min(0).optional(),
+  idleTimeoutMs: z.number().int().min(0).optional(),
   site: z.string().optional().describe('Restrict results to a specific domain.'),
   type: z.enum(['web', 'news', 'images']).optional().describe('Search type. Default: web.'),
   maxResults: z.number().int().min(1).max(20).optional().describe('Maximum number of results to return (1-20).'),
@@ -71,7 +71,7 @@ const searchArgsSchema = z.object({
       timezone: z.string().optional(),
     }),
   ]).optional().describe('Explicit search locale. String such as "ko-KR" or object with country/language/city/region/timezone.'),
-  contextSize: z.enum(['low', 'medium', 'high']).optional().describe('Search context size for providers that support it. Default: low.'),
+  contextSize: z.enum(['low', 'medium', 'high']).optional().describe('Search context size hint. Default: low.'),
 })
 
 const searchUrlArgsSchema = z.object({
@@ -81,7 +81,7 @@ const searchUrlArgsSchema = z.object({
   cwd: z.string().optional(),
 })
 
-const SEARCH_EMPTY_STRING_FIELDS = ['keywords', 'site', 'type', 'locale', 'contextSize']
+const SEARCH_EMPTY_STRING_FIELDS = ['keywords', 'site', 'type', 'locale', 'contextSize', 'mode', 'action', 'task_id', 'firstResponseTimeoutMs', 'idleTimeoutMs']
 
 function normalizeSearchArgs(rawArgs) {
   if (!rawArgs || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) return rawArgs
@@ -118,29 +118,38 @@ function normalizeSearchUrlArgs(rawArgs) {
   return args
 }
 
-const crawlArgsSchema = z.object({
-  url: z.string().url().describe('Starting URL to begin crawling from.'),
-  maxPages: z.number().int().min(1).max(200).optional().describe('Maximum number of pages to visit (1-200).'),
-  maxDepth: z.number().int().min(0).max(5).optional().describe('Maximum link depth to follow (0-5).'),
-  sameDomainOnly: z.boolean().optional().describe('If true, only follow links on the same domain.'),
-})
-
-function jsonText(payload) {
-  return {
-    content: [
-      {
-        type: 'text',
-        text: JSON.stringify(payload, null, 2),
-      },
-    ],
-  }
-}
-
 function formattedText(tool, payload) {
   const text = formatResponse(tool, tool === 'search' ? dropInvalidSearchResults(payload) : payload)
   return {
     content: [{ type: 'text', text }],
   }
+}
+
+function toolText(response) {
+  if (typeof response === 'string') return response
+  const parts = Array.isArray(response?.content) ? response.content : []
+  const text = parts
+    .filter(part => part?.type === 'text')
+    .map(part => part.text)
+    .join('\n')
+  return text || JSON.stringify(response, null, 2)
+}
+
+function okText(text) {
+  return { content: [{ type: 'text', text }], isError: false }
+}
+
+function searchTaskControl(action, args = {}, options = {}) {
+  if (action === 'list') return okText(renderBackgroundTaskList({ surface: 'search', context: options }))
+  const taskId = taskIdFromArgs(args)
+  if (!taskId) return { ...okText('Error: task_id is required'), isError: true }
+  const task = getBackgroundTask(taskId, { surface: 'search', context: options })
+  if (!task) return { ...okText(`Error: search task not found: ${taskId}`), isError: true }
+  if (action === 'cancel') {
+    cancelBackgroundTask(taskId, 'cancelled by search control')
+    return okText(renderBackgroundTask(task, { includeResult: true }))
+  }
+  return okText(renderBackgroundTask(task, { includeResult: action === 'read' }))
 }
 
 function isInvalidSearchResult(result) {
@@ -178,28 +187,6 @@ function getSearchCacheTtlMs(type = 'web') {
 
 function getScrapeCacheTtlMs(isXRoute = false) {
   return isXRoute ? 10 * 60 * 1000 : 60 * 60 * 1000
-}
-
-function buildRuntimeEnv(config) {
-  return {
-    ...process.env,
-    ...(getFirecrawlApiKey(config)
-      ? { FIRECRAWL_API_KEY: getFirecrawlApiKey(config) }
-      : {}),
-    ...(getRawProviderApiKey(config, 'tavily')
-      ? { TAVILY_API_KEY: getRawProviderApiKey(config, 'tavily') }
-      : {}),
-    ...(getRawProviderApiKey(config, 'exa')
-      ? { EXA_API_KEY: getRawProviderApiKey(config, 'exa') }
-      : {}),
-    // xAI search runs through the xai-api backend, which reads the Agent xAI
-    // credential (getAgentApiKey('xai')) — not a separate raw search key. Mirror
-    // that source here so the startup snapshot discovers 'xai-api' iff the agent
-    // key is present.
-    ...(getAgentApiKey('xai')
-      ? { XAI_API_KEY: process.env.XAI_API_KEY || getAgentApiKey('xai') }
-      : {}),
-  }
 }
 
 function normalizeCacheUrl(url) {
@@ -325,34 +312,6 @@ function docIndexAbortSignal(timeoutMs, parentSignal) {
     parentSignal.addEventListener('abort', onParentAbort, { once: true })
   }
   return controller.signal
-}
-
-function searchArgsForCacheKey(args, config) {
-  const caps = PROVIDER_CAPS[config.provider] || { searchTypes: ['web'], localeMode: 'tool' }
-  let keywords = args.keywords
-  if (Array.isArray(keywords)) {
-    const items = keywords.map(k => String(k || '').trim()).filter(Boolean)
-    keywords = items.length === 1 ? items[0] : items
-  }
-  const intent = normalizeSearchIntent(
-    {
-      keywords,
-      site: args.site,
-      type: args.type,
-      maxResults: args.maxResults,
-      locale: args.locale,
-      contextSize: args.contextSize,
-    },
-    { caps, defaultMaxResults: getRawSearchMaxResults(config) },
-  )
-  return {
-    keywords: intent.rawQuery,
-    site: intent.site || null,
-    type: intent.type,
-    locale: intent.locale,
-    contextSize: intent.contextSize,
-    maxResults: intent.maxResults,
-  }
 }
 
 async function fetchDocIndex(url, timeoutMs, parentSignal) {
@@ -598,28 +557,9 @@ async function augmentSearchPayloadWithDocsIndex(payload, args, timeoutMs, paren
 }
 
 async function writeStartupSnapshot() {
-  const config = loadConfig()
+  loadConfig()
   const usageState = loadUsageState()
-  const runtimeEnv = buildRuntimeEnv(config)
-  const rawProviders = getProvidersWithApiKeys(runtimeEnv)
   const scrapeCapabilities = getScrapeCapabilities()
-
-  for (const provider of rawProviders) {
-    let usagePatch = null
-    try {
-      usagePatch = await fetchProviderUsageSnapshot(provider, runtimeEnv)
-    } catch {
-      usagePatch = null
-    }
-
-    updateProviderState(usageState, provider, {
-      available: true,
-      connection: 'api',
-      source: getRawProviderCredentialSource(config, provider, process.env) || 'env',
-      usageSupport: RAW_PROVIDER_CAPABILITIES[provider]?.usageSupport || null,
-      ...(usagePatch || {}),
-    })
-  }
 
   updateProviderState(usageState, 'readability', {
     available: scrapeCapabilities.readability,
@@ -632,152 +572,96 @@ async function writeStartupSnapshot() {
     connection: 'local-browser',
     source: 'local',
   })
-
-  updateProviderState(usageState, 'firecrawl', {
-    readability: scrapeCapabilities.readability,
-    puppeteer: scrapeCapabilities.puppeteer,
-    connection: 'api',
-    source: getRawProviderCredentialSource(config, 'firecrawl', process.env) || 'env',
-  })
 }
 
 // ── Core action implementations (shared by individual and batch handlers) ──
 
 const _searchInFlight = new Map()
 
-function backendResultToSearchResponse(result) {
-  const maxResults = Math.max(1, Math.min(20, Number(result?.maxResults) || 10))
-  const citations = Array.isArray(result?.citations) ? result.citations : []
-  const results = citations.slice(0, maxResults).map((item) => ({
-    title: item?.title || '',
-    url: item?.url || '',
-    snippet: item?.snippet || '',
-    source: item?.source || result?.backend || '',
-    provider: result?.backend || '',
-    publishedDate: item?.publishedDate || item?.published_date || null,
-  }))
+function searchArgsForCacheKey(args) {
+  const keywords = Array.isArray(args.keywords)
+    ? [...new Set(args.keywords.map(v => String(v || '').trim()).filter(Boolean))]
+    : String(args.keywords || '').trim()
   return {
-    usedProvider: result?.backend || '',
-    query: result?.rawQuery || result?.query || '',
-    rawQuery: result?.rawQuery || result?.query || '',
-    answer: result?.answer || '',
-    model: result?.model || null,
-    durationMs: result?.durationMs || 0,
-    usage: result?.usage || null,
-    results,
-    warnings: Array.isArray(result?.warnings) ? result.warnings : [],
-    type: result?.type || 'web',
-    site: result?.site || null,
-    locale: result?.locale || null,
-    webSearchCalls: result?.webSearchCalls || [],
+    keywords,
+    site: args.site || null,
+    type: args.type || 'web',
+    locale: args.locale || null,
+    contextSize: args.contextSize || 'low',
+    maxResults: Math.max(1, Math.min(20, Number(args.maxResults) || 10)),
   }
 }
 
-async function _searchCore(args, { config, usageState, cacheState, timeoutMs, signal }) {
-  // Hoisted so the outer finally can reference it even on early throw.
-  let searchCacheKey
-  // Only the owner of the in-flight entry may delete it in the outer finally.
-  // Coalesced callers that early-return `existing` must leave the entry intact
-  // so a third identical caller still hits coalescing.
-  let ownsInFlight = false
-  try {
-  const provider = config.provider
-  if (!provider) {
-    throw new Error('No search provider configured. Set search.provider in mixdog-config.json.')
-  }
+function buildAgentSearchPrompt(args) {
+  const query = Array.isArray(args.keywords) ? args.keywords.join('\n') : String(args.keywords || '')
+  const lines = [
+    'Perform a concise web research task for Mixdog search.',
+    '',
+    `Query: ${query}`,
+    args.site ? `Site/domain restriction: ${args.site}` : null,
+    args.type ? `Search type: ${args.type}` : null,
+    args.locale ? `Locale: ${typeof args.locale === 'string' ? args.locale : JSON.stringify(args.locale)}` : null,
+    `Max results: ${Math.max(1, Math.min(20, Number(args.maxResults) || 10))}`,
+    '',
+    'Return a short answer first, then cite useful results as title + URL + one-line snippet.',
+    'Do not edit files.',
+  ].filter(Boolean)
+  return lines.join('\n')
+}
 
-  const cacheArgs = searchArgsForCacheKey(args, config)
-  searchCacheKey = buildCacheKey('search', {
-    keywords: cacheArgs.keywords,
-    provider,
-    site: cacheArgs.site,
-    type: cacheArgs.type,
-    locale: cacheArgs.locale,
-    contextSize: cacheArgs.contextSize,
-    docs_index: cacheArgs.site && cacheArgs.type === 'web' ? 4 : null,
-    maxResults: cacheArgs.maxResults,
+async function _searchCore(args, { cacheState, agentSearch, signal }) {
+  const cacheArgs = searchArgsForCacheKey(args)
+  const searchCacheKey = buildCacheKey('search', {
+    provider: 'web-researcher',
+    ...cacheArgs,
   })
   const cachedSearch = getCachedEntry(cacheState, searchCacheKey)
-  if (cachedSearch) {
-    // Cache hit: skip docs-index network discovery. The cached payload
-    // already includes any docs-index augmentation captured at insert
-    // time, so re-running the network probe here would burn external I/O
-    // on every cached search.
-    return { ...cachedSearch.payload, cache: buildCacheMeta(cachedSearch, true) }
-  }
+  if (cachedSearch) return { ...cachedSearch.payload, cache: buildCacheMeta(cachedSearch, true) }
 
-  // Coalesce identical concurrent requests to the same cache key
   const existing = _searchInFlight.get(searchCacheKey)
   if (existing) return existing
-  let resolveCoalesce, rejectCoalesce
-  const coalescePromise = new Promise((res, rej) => { resolveCoalesce = res; rejectCoalesce = rej })
-  // The first caller owns the real await path; duplicate callers may await this.
-  // Mark it handled so a first-call failure does not leak as unhandledRejection.
-  coalescePromise.catch(() => {})
-  _searchInFlight.set(searchCacheKey, coalescePromise)
-  // Only the owner of the in-flight entry may delete it. Coalesced callers
-  // return `existing` above, but `return` still runs the outer finally; without
-  // this flag a coalesced caller would delete the owner's in-flight entry mid-
-  // flight and a third identical caller would miss coalescing.
-  ownsInFlight = true
 
-  try {
-    const backendResult = await dispatchSearchBackend({
-      provider,
-      query: args.keywords,
-      site: args.site,
-      type: args.type,
-      locale: args.locale,
-      contextSize: args.contextSize,
-      maxResults: args.maxResults || getRawSearchMaxResults(config),
-      config,
-      signal,
-    })
-    const response = backendResultToSearchResponse(backendResult)
-
-    noteProviderSuccess(usageState, response.usedProvider, {
-      lastCostUsdTicks: response.usage?.cost_in_usd_ticks || null,
-    })
-
-    const payload = await augmentSearchPayloadWithDocsIndex(
-      { tool: 'search', provider, response },
-      { ...args, ...cacheArgs, keywords: cacheArgs.keywords },
-      timeoutMs,
-      signal,
-    )
-    const cachedEntry = setCachedEntry(
-      cacheState,
-      searchCacheKey,
-      payload,
-      getSearchCacheTtlMs(args.type || 'web'),
-    )
-    flushCacheState()
-    flushUsageState()
-    const result = { ...payload, cache: buildCacheMeta(cachedEntry, false) }
-    if (ownsInFlight) _searchInFlight.delete(searchCacheKey)
-    resolveCoalesce(result)
-    return result
-  } catch (error) {
-    if (ownsInFlight) _searchInFlight.delete(searchCacheKey)
-    rejectCoalesce(error)
-    noteProviderFailure(
-      usageState,
-      provider,
-      error instanceof Error ? error.message : String(error),
-      classifyProviderError(error),
-    )
-
-    const err = error instanceof Error ? error : new Error(String(error))
-    err.details = { tool: 'search', provider }
-    throw err
-  }
-  } finally {
-    // Resolve coalesce waiters if not already rejected. Only the owner may
-    // delete the in-flight entry — a coalesced caller that returned `existing`
-    // earlier must not evict the still-running owner's coalesce target.
-    if (ownsInFlight && _searchInFlight.has(searchCacheKey)) {
-      _searchInFlight.delete(searchCacheKey)
+  const run = (async () => {
+    if (signal?.aborted) throw signal.reason || new Error('search aborted')
+    if (typeof agentSearch !== 'function') {
+      throw new Error('search provider unavailable: Web Researcher agent bridge is not attached')
     }
+    const startedAt = Date.now()
+    const content = await agentSearch({
+      ...args,
+      ...cacheArgs,
+      prompt: buildAgentSearchPrompt({ ...args, ...cacheArgs }),
+    })
+    const answer = String(content || '').trim()
+    const payload = {
+      tool: 'search',
+      provider: 'web-researcher',
+      response: {
+        usedProvider: 'web-researcher',
+        query: Array.isArray(cacheArgs.keywords) ? cacheArgs.keywords.join('\n') : cacheArgs.keywords,
+        rawQuery: Array.isArray(cacheArgs.keywords) ? cacheArgs.keywords.join('\n') : cacheArgs.keywords,
+        answer,
+        model: null,
+        durationMs: Date.now() - startedAt,
+        usage: null,
+        results: [],
+        warnings: [],
+        type: cacheArgs.type,
+        site: cacheArgs.site,
+        locale: cacheArgs.locale,
+      },
+    }
+    const cachedEntry = setCachedEntry(cacheState, searchCacheKey, payload, getSearchCacheTtlMs(cacheArgs.type))
+    flushCacheState()
+    return { ...payload, cache: buildCacheMeta(cachedEntry, false) }
+  })()
+
+  run.catch(() => {})
+  _searchInFlight.set(searchCacheKey, run)
+  try {
+    return await run
+  } finally {
+    if (_searchInFlight.get(searchCacheKey) === run) _searchInFlight.delete(searchCacheKey)
   }
 }
 
@@ -899,18 +783,16 @@ async function _fetchCore(args, { usageState, cacheState, timeoutMs, signal }) {
   return { tool: 'web_fetch', results, urlsTruncated: allUrls.length > urls.length ? allUrls.length : 0 }
 }
 
-// `search` and `web_fetch` are the public surface. `crawl` / `setup`
-// remain `public: false`: still reachable via the module's
-// handleToolCall and advertised when this module runs as a standalone
-// MCP server, but excluded from the unified build-tools-manifest output
-// so the Lead only sees the high-level entry points.
+// Only `web_fetch` remains in the direct web module. Web search is routed
+// through the Web Researcher agent, so there is no standalone search provider
+// configuration or search backend selection surface.
 import { TOOL_DEFS as toolDefinitions } from './tool-defs.mjs'
 
 const SEARCH_INSTRUCTIONS = '';
 
 const server = new Server(
   {
-    name: 'mixdog-search',
+    name: 'mixdog-web',
     version: PLUGIN_VERSION,
   },
   {
@@ -925,13 +807,80 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: toolDefinitions.filter(t => t.public !== false),
 }))
 
-async function handleToolCall(name, rawArgs, { signal } = {}) {
+async function handleToolCall(name, rawArgs, options = {}) {
+  const { signal, agentSearch } = options || {}
   const config = loadConfig()
   const usageState = loadUsageState()
   const cacheState = loadCacheState()
   const timeoutMs = getRequestTimeoutMs(config)
 
   switch (name) {
+    case 'search': {
+      let args
+      const rawAction = String(rawArgs?.action || 'run').trim().toLowerCase()
+      if (['list', 'status', 'read', 'cancel'].includes(rawAction)) {
+        return searchTaskControl(rawAction, rawArgs || {}, options)
+      }
+      if (rawArgs && rawArgs.pattern !== undefined && rawArgs.query === undefined && rawArgs.keywords === undefined) {
+        return { content: [{ type: 'text', text: 'Error: web search requires query; use glob(pattern=...) for file paths.' }], isError: true }
+      }
+      if (rawArgs && rawArgs.query !== undefined && rawArgs.keywords === undefined) {
+        rawArgs = { ...rawArgs, keywords: rawArgs.query }
+        delete rawArgs.query
+      }
+      try {
+        args = searchArgsSchema.parse(normalizeSearchArgs(rawArgs || {}))
+      } catch (e) {
+        if (e instanceof z.ZodError) {
+          return { content: [{ type: 'text', text: JSON.stringify({ error: 'Invalid arguments', details: e.errors }) }], isError: true }
+        }
+        throw e
+      }
+      const runSearchNow = async () => {
+        if (Array.isArray(args.keywords) && args.keywords.length > 1) {
+          const SEARCH_FANOUT_CAP = Math.max(1, Number(process.env.SEARCH_FANOUT_CAP) || 10)
+          const keywords = [...new Set(args.keywords.map(kw => String(kw || '').trim()).filter(Boolean))].slice(0, SEARCH_FANOUT_CAP)
+          const sections = await Promise.all(keywords.map(async (kw) => {
+            const sub = await handleToolCall('search', { ...rawArgs, keywords: kw, mode: 'sync', action: 'run' }, { signal, agentSearch })
+            const text = (sub.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n')
+            return `### Query: ${kw}\n\n${text}`
+          }))
+          return { content: [{ type: 'text', text: sections.join('\n\n---\n\n') }] }
+        }
+        try {
+          const result = await _searchCore(args, { cacheState, agentSearch, signal })
+          flushUsageState()
+          return formattedText('search', result)
+        } catch (error) {
+          flushUsageState()
+          const _rawErr = normalizeErrorMessage(error instanceof Error ? error.message : String(error))
+          const _cleanErr = presentErrorText(_rawErr, { surface: 'search' })
+          return { content: [{ type: 'text', text: `Search failed: ${_cleanErr}` }], isError: true }
+        }
+      }
+      if (resolveExecutionMode(args, 'sync') === 'async') {
+        const label = Array.isArray(args.keywords)
+          ? args.keywords.join(' | ')
+          : String(args.keywords || '')
+        const task = startBackgroundTask({
+          surface: 'search',
+          operation: 'search',
+          label: label.replace(/\s+/g, ' ').slice(0, 120),
+          input: { keywords: args.keywords, site: args.site || null, type: args.type || 'web' },
+          context: options,
+          resultType: 'search_task_result',
+          renderResult: (text) => String(text || ''),
+          run: async () => {
+            const response = await runSearchNow()
+            const text = toolText(response)
+            if (response?.isError) throw new Error(text)
+            return text
+          },
+        })
+        return okText(renderBackgroundTask(task))
+      }
+      return runSearchNow()
+    }
     case 'web_fetch': {
       let urlArgs
       try {
@@ -952,201 +901,10 @@ async function handleToolCall(name, rawArgs, { signal } = {}) {
         }
       } catch (error) {
         flushUsageState()
-        const _rawErr = error instanceof Error ? error.message : String(error)
-        return { ...jsonText({ tool: 'web_fetch', url: urlArgs.url, error: normalizeErrorMessage(_rawErr) }), isError: true }
+        const _rawErr = normalizeErrorMessage(error instanceof Error ? error.message : String(error))
+        const _cleanErr = presentErrorText(_rawErr, { surface: 'web_fetch' })
+        return { content: [{ type: 'text', text: `Fetch failed: ${_cleanErr}` }], isError: true }
       }
-    }
-    case 'search': {
-      let args
-      if (rawArgs && rawArgs.pattern !== undefined && rawArgs.query === undefined && rawArgs.keywords === undefined) {
-        return { content: [{ type: 'text', text: 'Error: web search requires query; use glob(pattern=...) for file paths.' }], isError: true }
-      }
-      // The public aiWrapped schema uses `query` (to match recall/explore style).
-      // The direct zod schema expects `keywords`. Normalize so standalone callers
-      // using the advertised schema don't get a validation error.
-      if (rawArgs && rawArgs.query !== undefined && rawArgs.keywords === undefined) {
-        rawArgs = { ...rawArgs, keywords: rawArgs.query }
-        delete rawArgs.query
-      }
-      try {
-        args = searchArgsSchema.parse(normalizeSearchArgs(rawArgs || {}))
-      } catch (e) {
-        if (e instanceof z.ZodError) {
-          return { content: [{ type: 'text', text: JSON.stringify({ error: 'Invalid arguments', details: e.errors }) }], isError: true }
-        }
-        throw e
-      }
-      // Fan-out: array `keywords` -> N parallel single-keyword calls,
-      // grouped per-query with `### Query:` headers (mirrors recall fan-out).
-      if (Array.isArray(args.keywords) && args.keywords.length > 1) {
-        // Cap fan-out breadth: bounds both the parallel provider calls and the
-        // aggregate result size. Env-overridable; extras dropped with a note.
-        const SEARCH_FANOUT_CAP = Math.max(1, Number(process.env.SEARCH_FANOUT_CAP) || 10)
-        const allKeywords = [...new Set(args.keywords.map(kw => String(kw || '').trim()).filter(Boolean))]
-        const dedupedKeywords = allKeywords.slice(0, SEARCH_FANOUT_CAP)
-        const FANOUT_CONCURRENCY = Math.max(1, Number(process.env.SEARCH_FANOUT_CONCURRENCY) || 10)
-        const fanOutAbort = new AbortController()
-        const deadlineSec = Math.max(1, Number(process.env.SEARCH_FANOUT_DEADLINE_S) || 180)
-        const deadlineMs = deadlineSec * 1000
-        let deadlineTimer
-        let onToolCallAbort
-        if (signal) {
-          const abortFanoutFromToolCall = () => {
-            fanOutAbort.abort(signal.reason ?? new Error('search aborted'))
-          }
-          if (signal.aborted) {
-            abortFanoutFromToolCall()
-          } else {
-            onToolCallAbort = abortFanoutFromToolCall
-            signal.addEventListener('abort', onToolCallAbort, { once: true })
-          }
-        }
-        const deadlineRace = new Promise((_res, rej) => {
-          deadlineTimer = setTimeout(() => {
-            fanOutAbort.abort(new Error(`fan-out deadline exceeded (${deadlineSec}s)`))
-            rej(Object.assign(new Error(`fan-out deadline exceeded (${deadlineSec}s)`), { _deadline: true }))
-          }, deadlineMs)
-        })
-        // Track per-query results as they settle so a deadline hit preserves
-        // anything that already completed (Promise.allSettled would otherwise
-        // only assign `settled` after the whole batch finishes).
-        const partial = new Array(dedupedKeywords.length)
-        let fanoutActive = 0
-        const fanoutPending = []
-        const acquireFanoutSlot = () => {
-          if (fanOutAbort.signal.aborted) return Promise.reject(fanOutAbort.signal.reason)
-          if (fanoutActive < FANOUT_CONCURRENCY) {
-            fanoutActive++
-            return Promise.resolve()
-          }
-          return new Promise((resolve, reject) => {
-            const waiter = { resolve, reject }
-            const onAbort = () => {
-              const idx = fanoutPending.indexOf(waiter)
-              if (idx !== -1) fanoutPending.splice(idx, 1)
-              reject(fanOutAbort.signal.reason)
-            }
-            waiter.onAbort = onAbort
-            fanoutPending.push(waiter)
-            fanOutAbort.signal.addEventListener('abort', onAbort, { once: true })
-          })
-        }
-        const releaseFanoutSlot = () => {
-          while (fanoutPending.length > 0) {
-            const waiter = fanoutPending.shift()
-            if (fanOutAbort.signal.aborted) {
-              if (waiter.onAbort) fanOutAbort.signal.removeEventListener('abort', waiter.onAbort)
-              waiter.reject(fanOutAbort.signal.reason)
-              continue
-            }
-            if (waiter.onAbort) fanOutAbort.signal.removeEventListener('abort', waiter.onAbort)
-            waiter.resolve()   // slot transferred; do NOT change fanoutActive
-            return
-          }
-          fanoutActive--
-        }
-        const queryPromises = dedupedKeywords.map((kw, i) => (async () => {
-          await acquireFanoutSlot()
-          try {
-            const sub = await handleToolCall('search', { ...rawArgs, keywords: kw }, { signal: fanOutAbort.signal })
-            if (fanOutAbort.signal.aborted) throw fanOutAbort.signal.reason
-            const text = (sub.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n')
-            if (sub.isError) {
-              throw Object.assign(new Error(text || 'sub-search failed'), { _subError: true })
-            }
-            return `### Query: ${kw}\n\n${text}`
-          } finally {
-            releaseFanoutSlot()
-          }
-        })().then(
-          (value) => { partial[i] = { status: 'fulfilled', value }; return value },
-          (reason) => { partial[i] = { status: 'rejected', reason }; throw reason },
-        ))
-        let settled
-        try {
-          settled = await Promise.race([
-            Promise.allSettled(queryPromises),
-            deadlineRace,
-          ])
-        } catch (err) {
-          if (!err._deadline) throw err
-          // Deadline hit — preserve any completed partial results; mark the
-          // rest as rejected with the abort reason.
-          settled = dedupedKeywords.map((_kw, i) =>
-            partial[i] ?? { status: 'rejected', reason: fanOutAbort.signal.reason }
-          )
-        } finally {
-          clearTimeout(deadlineTimer)
-          if (signal && onToolCallAbort) {
-            signal.removeEventListener('abort', onToolCallAbort)
-          }
-        }
-        const anyFulfilled = settled.some(r => r.status === 'fulfilled')
-        const sections = settled.map((r, i) =>
-          r.status === 'fulfilled'
-            ? r.value
-            : `### Query: ${dedupedKeywords[i]}\n\n[error] ${normalizeErrorMessage(String(r.reason?.message || r.reason))}`
-        )
-        const fanoutNote = allKeywords.length > dedupedKeywords.length
-          ? `[fan-out capped at ${SEARCH_FANOUT_CAP} of ${allKeywords.length} keywords; raise SEARCH_FANOUT_CAP for more]\n\n`
-          : ''
-        return {
-          content: [{ type: 'text', text: fanoutNote + sections.join('\n\n---\n\n') }],
-          ...(anyFulfilled ? {} : { isError: true }),
-        }
-      }
-      try {
-        const result = await _searchCore(args, { config, usageState, cacheState, timeoutMs, signal })
-        flushUsageState()
-        return formattedText('search', result)
-      } catch (error) {
-        flushUsageState()
-        const details = error.details || { tool: 'search' }
-        const _rawErr = error instanceof Error ? error.message : String(error)
-        return { ...jsonText({ ...details, error: normalizeErrorMessage(_rawErr) }), isError: true }
-      }
-    }
-
-    case 'crawl': {
-      let args
-      try {
-        args = crawlArgsSchema.parse(rawArgs || {})
-      } catch (e) {
-        if (e instanceof z.ZodError) {
-          return { content: [{ type: 'text', text: JSON.stringify({ error: 'Invalid arguments', details: e.errors }) }], isError: true }
-        }
-        throw e
-      }
-      try {
-        const pages = await crawlSite(
-          args.url,
-          {
-            maxPages: args.maxPages || config.crawl?.maxPages || 10,
-            maxDepth: args.maxDepth ?? config.crawl?.maxDepth ?? 1,
-            sameDomainOnly: args.sameDomainOnly ?? config.crawl?.sameDomainOnly ?? true,
-          },
-          timeoutMs,
-          usageState,
-          signal,
-        )
-        saveUsageState(usageState)
-        return formattedText('crawl', {
-          tool: 'crawl',
-          pages,
-        })
-      } catch (error) {
-        saveUsageState(usageState)
-        const _rawErr = error instanceof Error ? error.message : String(error)
-        return { ...jsonText({
-          tool: 'crawl',
-          url: args.url,
-          error: normalizeErrorMessage(_rawErr),
-        }), isError: true }
-      }
-    }
-
-    case 'setup': {
-      return await handleSetup(server)
     }
     default:
       throw new Error(`Unknown tool: ${name}`)

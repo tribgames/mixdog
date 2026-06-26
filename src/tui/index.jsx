@@ -6,20 +6,16 @@
  */
 import React from 'react';
 import { render } from 'ink';
-import { spawnSync } from 'node:child_process';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { App } from './App.jsx';
-import { normalizeStatusLine } from './components/StatusLine.jsx';
 import { createEngineSession } from './engine.mjs';
-
-const STATUSLINE_MODULE = import.meta.url.replace(/\\/g, '/').includes('/tui/dist/')
-  ? '../../ui/statusline.mjs'
-  : '../ui/statusline.mjs';
+import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
 
 const TERMINAL_MODE_RESET = '\x1b[?1006l\x1b[?1005l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[?25h';
+const TERMINAL_MODE_RESET_HIDDEN_CURSOR = TERMINAL_MODE_RESET.replace('\x1b[?25h', '\x1b[?25l');
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
 const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
@@ -31,54 +27,6 @@ const EXIT_DEBUG_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_T
 function positiveIntEnv(name, fallback) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
-}
-
-function readWindowsCodePage() {
-  if (process.platform !== 'win32') return null;
-  try {
-    const result = spawnSync('chcp.com', [], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-      windowsHide: true,
-      timeout: 1000,
-    });
-    const text = Buffer.isBuffer(result.stdout)
-      ? result.stdout.toString('latin1')
-      : String(result.stdout || '');
-    const match = text.match(/(\d+)/);
-    const page = match ? Number(match[1]) : 0;
-    return Number.isFinite(page) && page > 0 ? page : null;
-  } catch {
-    return null;
-  }
-}
-
-function setWindowsCodePage(page) {
-  if (process.platform !== 'win32' || !page) return false;
-  try {
-    const result = spawnSync('chcp.com', [String(page)], {
-      stdio: 'ignore',
-      windowsHide: true,
-      timeout: 1000,
-    });
-    return result.status === 0;
-  } catch {
-    return false;
-  }
-}
-
-function installWindowsUtf8Console() {
-  if (process.platform !== 'win32') return () => {};
-  if (/^(0|false|no|off)$/i.test(String(process.env.MIXDOG_TUI_FORCE_UTF8_CONSOLE || '1'))) {
-    return () => {};
-  }
-  const restoreCodePage = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_TUI_RESTORE_CODEPAGE || ''));
-  try { process.stdout.setDefaultEncoding?.('utf8'); } catch {}
-  try { process.stderr.setDefaultEncoding?.('utf8'); } catch {}
-  const previousCodePage = readWindowsCodePage();
-  if (previousCodePage && previousCodePage !== 65001) setWindowsCodePage(65001);
-  return () => {
-    if (restoreCodePage && previousCodePage && previousCodePage !== 65001) setWindowsCodePage(previousCodePage);
-  };
 }
 
 function bootProfile(event, fields = {}) {
@@ -163,8 +111,7 @@ function installTuiStderrGuard() {
 
   process.stderr.write = ((chunk, encoding, callback) => {
     try {
-      const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk ?? '');
-      appendFileSync(logPath, text, 'utf8');
+      appendFileSync(logPath, Buffer.isBuffer(chunk) ? chunk : String(chunk ?? ''));
     } catch {
       // Last-resort fallback: if the log file is unavailable, drop diagnostics
       // while the fullscreen TUI owns the terminal.
@@ -195,13 +142,6 @@ export async function runTui({ provider, model, toolMode } = {}) {
     return 1;
   }
 
-  const restoreConsoleEncoding = installWindowsUtf8Console();
-  let consoleEncodingRestored = false;
-  const restoreConsoleEncodingOnce = () => {
-    if (consoleEncodingRestored) return;
-    consoleEncodingRestored = true;
-    try { restoreConsoleEncoding(); } catch { /* ignore */ }
-  };
   const restoreStderr = installTuiStderrGuard();
   let store;
   try {
@@ -209,36 +149,15 @@ export async function runTui({ provider, model, toolMode } = {}) {
     bootProfile('store:ready', { ms: (performance.now() - startedAt).toFixed(1) });
   } catch (error) {
     restoreStderr();
-    restoreConsoleEncodingOnce();
     process.stderr.write(`mixdog: ${error?.message || error}\n`);
     return 1;
-  }
-
-  let initialStatusLine = '';
-  try {
-    const state = store.getState();
-    const { renderStatusline } = await import(STATUSLINE_MODULE);
-    initialStatusLine = normalizeStatusLine(await renderStatusline({
-      sessionId: state.sessionId,
-      provider: state.provider,
-      model: state.model,
-      effort: state.effort,
-      fast: state.fast,
-      cwd: state.cwd,
-      stats: state.stats,
-      contextWindow: state.contextWindow,
-      rawContextWindow: state.rawContextWindow,
-    }));
-    bootProfile('statusline:ready');
-  } catch {
-    initialStatusLine = '';
   }
 
   // Enter the alternate screen buffer for a true fullscreen UI: the input bar
   // pins to the physical bottom (App uses height={rows}) and, on exit, the
   // shell's original screen is restored untouched. \x1b[?1049h enters alt
   // screen; then clear it and home the cursor so we start from a clean top.
-  process.stdout.write(`${TERMINAL_MODE_RESET}\x1b[?1049h${TERMINAL_MODE_RESET}\x1b[2J\x1b[H`);
+  process.stdout.write(`${TERMINAL_MODE_RESET_HIDDEN_CURSOR}\x1b[?1049h${TERMINAL_MODE_RESET_HIDDEN_CURSOR}\x1b[2J\x1b[H`);
 
   // Use a blinking BAR cursor (DECSCUSR 5) — a thin caret behind the text, not a
   // fat block. PromptInput parks this hardware cursor at the insertion point via
@@ -252,29 +171,40 @@ export async function runTui({ provider, model, toolMode } = {}) {
   if (mouseTracking) {
     process.stdout.write(MOUSE_TRACKING_ON);
   }
+  const restorePrimedInput = () => {}; // stdin raw mode is owned by Ink's useInput effects
 
   let restored = false;
   const restoreTerminal = () => {
     if (restored) return;
     restored = true;
+    restorePrimedInput();
     try { process.stdout.write(`${TERMINAL_MODE_RESET}\x1b[0 q\x1b[?1049l${TERMINAL_MODE_RESET}`); } catch { /* ignore */ }
-    restoreConsoleEncodingOnce();
   };
   process.on('exit', restoreTerminal);
-  const restoreAndSignal = (signal) => {
-    restoreTerminal();
-    process.removeListener('SIGINT', restoreAndSignal);
-    process.removeListener('SIGTERM', restoreAndSignal);
-    process.kill(process.pid, signal);
+  let storeDisposed = false;
+  const disposeStoreOnce = async (reason = 'cli-react-exit') => {
+    if (storeDisposed) return;
+    storeDisposed = true;
+    await waitWithTimeout(store.dispose?.(reason), EXIT_WAIT_TIMEOUT_MS);
   };
-  process.once('SIGINT', restoreAndSignal);
-  process.once('SIGTERM', restoreAndSignal);
+  const signalCleanup = installProcessSignalCleanup({
+    name: 'mixdog-tui',
+    signals: ['SIGINT', 'SIGTERM', 'SIGHUP'],
+    timeoutMs: EXIT_WAIT_TIMEOUT_MS + 1000,
+    beforeCleanup: restoreTerminal,
+    cleanup: disposeStoreOnce,
+    afterCleanup: (reason) => {
+      restoreTerminal();
+      dumpActiveHandles(`after-${reason}`);
+      restoreStderr();
+    },
+  });
 
   // exitOnCtrlC:false — keep Ctrl+C available for terminal copy behavior.
   // Explicit exits go through /exit or /quit so teardown still restores the
   // cursor, mouse mode, and alternate screen cleanly.
   try {
-    const instance = render(<App store={store} initialStatusLine={initialStatusLine} />, { exitOnCtrlC: false, maxFps: 120 });
+    const instance = render(<App store={store} />, { exitOnCtrlC: false, maxFps: 120 });
     bootProfile('render:mounted', { ms: (performance.now() - startedAt).toFixed(1) });
     const { waitUntilExit } = instance;
     // [mixdog fork] Hand the ink renderer's drag-selection setter to the store so
@@ -293,17 +223,15 @@ export async function runTui({ provider, model, toolMode } = {}) {
     }
     await waitUntilExit();
   } finally {
+    signalCleanup.uninstall();
     try {
-      await waitWithTimeout(store.dispose?.(), EXIT_WAIT_TIMEOUT_MS);
+      await disposeStoreOnce('cli-react-exit');
     } catch (error) {
       tuiExitDebug('store:dispose:failed', { error: error?.message || String(error) });
     }
-    process.removeListener('SIGINT', restoreAndSignal);
-    process.removeListener('SIGTERM', restoreAndSignal);
     restoreTerminal();
     dumpActiveHandles('after-restore');
     restoreStderr();
-    restoreConsoleEncodingOnce();
   }
   scheduleHardExit(0);
   return 0;

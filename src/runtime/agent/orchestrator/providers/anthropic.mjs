@@ -12,6 +12,8 @@ import { createAbortController } from '../../../shared/abort-controller.mjs';
 import { parseSSEStream, _classifyMidstreamError } from './anthropic-oauth.mjs';
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
 import { normalizeContentForAnthropic } from './media-normalization.mjs';
+import { enrichModels } from './model-catalog.mjs';
+import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 
 // 4-BP cache policy aligned with anthropic-oauth — tools + system + tier3
 // + messages-tail. 1h TTL requires the extended-cache-ttl beta header,
@@ -79,6 +81,41 @@ const MODELS = [
     { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'anthropic', contextWindow: 1000000 },
     { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', provider: 'anthropic', contextWindow: 200000 },
 ];
+const ANTHROPIC_VERSION = '2023-06-01';
+
+function _prettyName(id, family) {
+    const v = String(id || '').match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i);
+    const base = family ? family[0].toUpperCase() + family.slice(1) : 'Claude';
+    return v ? `${base} ${v[1]}${v[2] ? `.${v[2]}` : ''}` : base;
+}
+
+function _defaultContextForModel(id, family) {
+    const text = String(id || '');
+    const version = text.match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i);
+    if (Number(version?.[1] || 0) >= 5) return 1000000;
+    if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/i.test(text)) return 1000000;
+    if (family && family !== 'other') return 200000;
+    return 200000;
+}
+
+function _normalizeAnthropicModel(raw, provider = 'anthropic') {
+    const id = raw?.id || raw?.name || raw?.model;
+    if (!id) return null;
+    const familyMatch = String(id).match(/^claude-([a-z]+)/i);
+    const family = familyMatch ? familyMatch[1].toLowerCase() : 'other';
+    const dated = /-\d{8}$/.test(String(id));
+    const versioned = !dated && /^claude-[a-z]+-\d+(?:-\d+)?$/i.test(String(id));
+    return {
+        id,
+        display: raw?.display_name || raw?.displayName || raw?.display || _prettyName(id, family),
+        family,
+        provider,
+        contextWindow: raw?.context_window || raw?.max_context_window || raw?.input_token_limit || raw?.inputTokenLimit || _defaultContextForModel(id, family),
+        outputTokens: raw?.max_output_tokens || raw?.output_token_limit || raw?.outputTokenLimit || null,
+        tier: dated ? 'dated' : versioned ? 'version' : 'family',
+        latest: false,
+    };
+}
 // Family-based heuristic so new model ids (including custom user-configured
 // ones) resolve a sensible max_tokens without requiring a code change.
 function resolveMaxTokens(model) {
@@ -703,7 +740,33 @@ export class AnthropicProvider {
         }
     }
     async listModels() {
-        return MODELS;
+        const apiKey = this.config?.apiKey || (this.name === 'anthropic' ? process.env.ANTHROPIC_API_KEY : null);
+        if (!apiKey) return MODELS;
+        try {
+            const base = String(this.config?.baseURL || 'https://api.anthropic.com').replace(/\/+$/, '');
+            const res = await fetch(`${base}/v1/models`, {
+                signal: AbortSignal.timeout(10_000),
+                method: 'GET',
+                headers: {
+                    'x-api-key': apiKey,
+                    'anthropic-version': ANTHROPIC_VERSION,
+                    ...(this.config?.extraHeaders || {}),
+                },
+                dispatcher: getLlmDispatcher(),
+            });
+            if (!res.ok) throw new Error(`list_models ${res.status}`);
+            const data = await res.json();
+            const items = Array.isArray(data?.data) ? data.data : [];
+            const normalized = items
+                .map((m) => _normalizeAnthropicModel(m, this.name))
+                .filter(Boolean);
+            const enriched = await enrichModels(normalized);
+            return enriched.length ? enriched : MODELS;
+        }
+        catch (err) {
+            if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[${this.name}] listModels fetch failed (${err.message})\n`);
+            return MODELS;
+        }
     }
     async isAvailable() {
         try {

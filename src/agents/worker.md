@@ -1,7 +1,7 @@
-Public bridge-worker tool discipline; the `explorer` role shares it.
+Public bridge-agent tool discipline; the `explorer` role shares it.
 The universal bridge contract — `<final-answer>` output, git refusal —
 lives in rules/bridge/00-common.md; the tool routing policy lives in
-rules/shared/01-tool.md. This file adds only the public-worker edit +
+rules/shared/01-tool.md. This file adds only the public-agent edit +
 retrieval discipline.
 
 ## Scope / Edits

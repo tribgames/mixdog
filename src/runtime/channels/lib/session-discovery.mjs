@@ -12,8 +12,7 @@ function getParentPid(pid) {
       // windowsHide + stdio:['ignore','pipe','ignore'] suppresses the
       // conhost flash that otherwise appears on every call. This routine
       // runs inside the parent-PID walk of discoverCurrentClaudeSession,
-      // which fires per transcript watchDebounce tick (every Claude Code
-      // message updates the transcript), so without these flags users
+      // which fires per transcript watchDebounce tick, so without these flags users
       // see a powershell.exe console window pop in/out repeatedly during
       // any chat activity — including while the config UI is loading.
       const out2 = execFileSync("powershell.exe", [
@@ -42,7 +41,7 @@ function getParentPid(pid) {
   }
 }
 function readSessionRecord(pid) {
-  const sessionFile = join(homedir(), ".claude", "sessions", `${pid}.json`);
+  const sessionFile = join(homedir(), ".mixdog", "sessions", `${pid}.json`);
   try {
     const sessionFileStat = statSync(sessionFile);
     const session = JSON.parse(readFileSync(sessionFile, "utf8"));
@@ -78,7 +77,7 @@ function discoverCurrentClaudeSession() {
   return null;
 }
 function listInteractiveClaudeSessions() {
-  const sessionsDir = join(homedir(), ".claude", "sessions");
+  const sessionsDir = join(homedir(), ".mixdog", "sessions");
   try {
     return readdirSync(sessionsDir).filter((file) => file.endsWith(".json")).map((file) => parseInt(basename(file, ".json"), 10)).filter((pid) => Number.isFinite(pid)).map((pid) => readSessionRecord(pid)).filter(isInteractiveSession).sort((a, b) => {
       if (b.startedAt !== a.startedAt) return b.startedAt - a.startedAt;

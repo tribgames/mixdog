@@ -1,0 +1,6 @@
+{
+  "id": "heavy-worker",
+  "name": "Heavy Worker",
+  "description": "Broad or multi-file implementation.",
+  "entry": "AGENT.md"
+}

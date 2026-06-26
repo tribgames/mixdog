@@ -1,12 +1,8 @@
 /**
  * src/ui/statusline.mjs — per-turn footer status line.
  *
- * The bottom statusline is rendered from CLI-native state. Older builds routed
- * this through the vendored Claude/plugin statusline renderer by fabricating a
- * Claude-Code-shaped JSON payload; that made CLI-only state (bridge workers,
- * selected model/effort, shell-job ownership) depend on plugin-era side
- * channels. This module is now the normalizing boundary: TUI/REPL state comes
- * in, L1/L2 text comes out.
+ * The bottom statusline is rendered from CLI-native state. This module is the
+ * normalizing boundary: TUI/REPL state comes in, L1/L2 text comes out.
  *
  * `createSessionStats()` returns a small accumulator the REPL feeds from the
  * engine's `onUsageDelta` callback. Gateway quota/balance helpers are still
@@ -18,6 +14,9 @@ import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { bold, colorEnabled, green, rgb } from './ansi.mjs';
 import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
+import { readCachedOAuthUsageSnapshot } from '../runtime/agent/orchestrator/providers/oauth-usage.mjs';
+import { readCachedOpenCodeGoUsageSnapshot } from '../runtime/agent/orchestrator/providers/opencode-go-usage.mjs';
+import { buildGatewayLimits } from '../runtime/agent/orchestrator/providers/statusline-route-meta.mjs';
 import { formatGatewayLimitSegments, loadGatewayStatus } from '../vendor/statusline/bin/statusline-route.mjs';
 
 // Token window used to compute a fallback context% from our own session usage.
@@ -37,11 +36,19 @@ function sgr(code) {
 const R = sgr('0');
 const B = sgr('1');
 const D = sgr('38;2;136;136;136');
-const GRN = sgr('38;2;0;200;83');
+const GRN = sgr('38;2;0;170;75');
 const YLW = sgr('38;2;255;193;7');
-const RED = sgr('38;2;255;82;104');
+const RED = sgr('38;2;220;70;88');
 const CYN = sgr('38;2;136;136;136');
 const GREY = sgr('38;2;136;136;136');
+
+function summarizeWorkerTags(tags, limit = 3) {
+  const cleanTags = [...new Set((Array.isArray(tags) ? tags : [])
+    .map((tag) => String(tag || '').trim())
+    .filter(Boolean))];
+  if (cleanTags.length <= limit) return cleanTags.join(', ');
+  return `${cleanTags.slice(0, limit).join(', ')}, +${cleanTags.length - limit}`;
+}
 
 /** Create a mutable session-usage accumulator. */
 export function createSessionStats() {
@@ -228,8 +235,9 @@ function renderNativeStatusline({ provider = '', model = '', effort = '', fast =
   addL1(formatModelSegment({ provider, model, effort, fast, cols }));
   addL1(formatContextSegment(ctxPct, cols));
 
-  const quotaSegments = gatewayStatus
-    ? formatGatewayLimitSegments(gatewayStatus, { COLS: cols, D, R, GRN, YLW, RED, colourPct, epochMsToHHMM })
+  const quotaStatus = gatewayStatus || fallbackQuotaStatus({ provider, model });
+  const quotaSegments = quotaStatus
+    ? formatGatewayLimitSegments(quotaStatus, { COLS: cols, D, R, GRN, YLW, RED, colourPct, epochMsToHHMM })
     : [];
   for (const seg of quotaSegments) addL1(seg);
 
@@ -238,10 +246,10 @@ function renderNativeStatusline({ provider = '', model = '', effort = '', fast =
   addL1(formatShellJobsSegment({ clientHostPid }));
 
   if (runningWorkers.length) {
-    addL2(`${GRN}●${R} ${B}${runningWorkers.length} Running${R} ${D}(${R}${CYN}${runningWorkers.join(', ')}${R}${D})${R}`);
+    addL2(`${GRN}●${R} ${B}${runningWorkers.length} Running${R} ${D}(${R}${B}${summarizeWorkerTags(runningWorkers)}${R}${D})${R}`);
   }
   if (idleWorkers.length) {
-    addL2(`${GREY}● ${idleWorkers.length} idle (${idleWorkers.join(', ')})${R}`);
+    addL2(`${GREY}● ${idleWorkers.length} idle (${summarizeWorkerTags(idleWorkers)})${R}`);
   }
 
   const l1 = l1Parts.join(sep) || 'mixdog';
@@ -255,7 +263,7 @@ function terminalColumns() {
 }
 
 function dataDir() {
-  return process.env.CLAUDE_PLUGIN_DATA || process.env.MIXDOG_DATA_DIR || DEFAULT_STANDALONE_DATA_DIR;
+  return process.env.MIXDOG_DATA_DIR || DEFAULT_STANDALONE_DATA_DIR;
 }
 
 function loadGatewayQuotaStatus({ provider, sessionId, activeContextTokens, clientHostPid } = {}) {
@@ -271,6 +279,45 @@ function loadGatewayQuotaStatus({ provider, sessionId, activeContextTokens, clie
   }
 }
 
+function fallbackQuotaStatus({ provider, model } = {}) {
+  const normalizedProvider = String(provider || '').trim().toLowerCase();
+  if (!normalizedProvider) return null;
+  const routeInfo = {
+    provider: normalizedProvider,
+    model: String(model || '').trim(),
+    providerKind: providerKindForQuota(normalizedProvider),
+  };
+  let usageSnapshot = null;
+  if (normalizedProvider === 'opencode-go') {
+    usageSnapshot = readCachedOpenCodeGoUsageSnapshot();
+    if (!usageSnapshot) return null;
+  } else if (normalizedProvider.includes('oauth')) {
+    try {
+      usageSnapshot = readCachedOAuthUsageSnapshot(routeInfo);
+    } catch {}
+  }
+  try {
+    const limits = buildGatewayLimits(routeInfo, null, usageSnapshot);
+    if (!limits?.quotaWindows?.length && !limits?.balance && !limits?.routeSpend) return null;
+    return {
+      ...routeInfo,
+      quotaWindows: limits.quotaWindows || [],
+      balance: limits.balance || null,
+      routeSpend: limits.routeSpend || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function providerKindForQuota(provider) {
+  const p = String(provider || '').toLowerCase();
+  if (p === 'opencode-go') return 'quota-api';
+  if (p.includes('oauth')) return 'oauth';
+  if (p === 'ollama' || p === 'lmstudio') return 'local';
+  return 'api';
+}
+
 function formatModelSegment({ provider, model, effort, fast, cols }) {
   const modelName = shortenModelName(displayModelName(provider, model), cols);
   const bits = [`${CYN}◆${R} ${B}${modelName}${R}`];
@@ -282,8 +329,53 @@ function formatModelSegment({ provider, model, effort, fast, cols }) {
 function displayModelName(provider, model) {
   const raw = String(model || '').trim();
   const meta = getModelMetadataSync(raw, provider) || {};
-  const display = String(meta.display || meta.name || meta.displayName || raw || 'model').trim();
-  return display || raw || 'model';
+  const display = String(meta.displayName || meta.display || meta.name || '').trim();
+  return display || canonicalModelDisplay(raw, provider) || raw || 'model';
+}
+
+function titleModelPart(part) {
+  const text = String(part || '').trim();
+  if (!text) return '';
+  const lower = text.toLowerCase();
+  if (lower === 'gpt') return 'GPT';
+  if (lower === 'api') return 'API';
+  if (lower === 'v4') return 'V4';
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
+function canonicalModelDisplay(model, provider) {
+  const raw = String(model || '').trim().replace(/-\d{4}-\d{2}-\d{2}$/, '');
+  if (!raw) return '';
+
+  const gpt = raw.match(/^gpt-(\d+(?:\.\d+)?)(?:-(.+))?$/i);
+  if (gpt) {
+    const suffix = gpt[2]
+      ? '-' + gpt[2].split('-').map(titleModelPart).filter(Boolean).join('-')
+      : '';
+    return `GPT-${gpt[1]}${suffix}`;
+  }
+
+  const codex = raw.match(/^codex-(.+)$/i);
+  if (codex) {
+    return `Codex ${codex[1].split('-').map(titleModelPart).filter(Boolean).join(' ')}`;
+  }
+
+  const deepseek = raw.match(/^deepseek-(.+)$/i);
+  if (deepseek) {
+    return `DeepSeek ${deepseek[1].split('-').map(titleModelPart).filter(Boolean).join(' ')}`;
+  }
+
+  const grok = raw.match(/^grok-(.+)$/i);
+  if (grok) {
+    return `Grok ${grok[1].split('-').map(titleModelPart).filter(Boolean).join(' ')}`;
+  }
+
+  const claude = raw.match(/^claude-(opus|sonnet|haiku)-(.+)$/i);
+  if (claude) {
+    return `Claude ${titleModelPart(claude[1])} ${claude[2].replace(/-/g, '.')}`;
+  }
+
+  return raw;
 }
 
 function shortenModelName(name, cols) {
@@ -393,8 +485,9 @@ function formatShellJobsSegment({ clientHostPid } = {}) {
       } catch {}
     }
     if (!count) return '';
-    const elapsed = Number.isFinite(oldestMs) ? ` ${formatElapsed(Date.now() - oldestMs)}` : '';
-    return `${GREY}⚙ bash:${count}${elapsed}${R}`;
+    const elapsedLabel = Number.isFinite(oldestMs) ? formatElapsed(Date.now() - oldestMs) : '';
+    const elapsed = elapsedLabel ? ` ${elapsedLabel}` : '';
+    return `${GREY}⚙ shell:${count}${elapsed}${R}`;
   } catch {
     return '';
   }
@@ -433,6 +526,7 @@ function positiveInt(value) {
 
 function formatElapsed(ms) {
   const secs = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+  if (secs < 1) return '';
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
   if (mins < 60) return `${mins}m`;

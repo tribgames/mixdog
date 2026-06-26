@@ -3,7 +3,7 @@
  *
  * Populated by agent/index.mjs.handleToolCall when the server injects a
  * context carrying { toolExecutor, internalTools }. The executor dispatches
- * to the plugin's existing module router (worker IPC for memory/channels,
+ * to Mixdog's existing module router (worker IPC for memory/channels,
  * in-process loadModule for search). No MCP loopback, no HTTP hop.
  *
  * Orchestrator modules (session/manager.mjs, session/loop.mjs) import from

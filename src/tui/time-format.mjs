@@ -8,31 +8,17 @@
  *   1d 3h 20m
  */
 export function formatDuration(ms, options = {}) {
-  if (!Number.isFinite(Number(ms))) return '0s';
+  if (!Number.isFinite(Number(ms))) return '';
   const value = Math.max(0, Number(ms) || 0);
   if (value < 60_000) {
-    if (value === 0) return '0s';
-    if (value < 1_000) return `${(value / 1000).toFixed(1)}s`;
+    if (value < 1_000) return '';
     return `${Math.floor(value / 1000)}s`;
   }
 
   let days = Math.floor(value / 86_400_000);
   let hours = Math.floor((value % 86_400_000) / 3_600_000);
   let minutes = Math.floor((value % 3_600_000) / 60_000);
-  let seconds = Math.round((value % 60_000) / 1000);
-
-  if (seconds === 60) {
-    seconds = 0;
-    minutes++;
-  }
-  if (minutes === 60) {
-    minutes = 0;
-    hours++;
-  }
-  if (hours === 24) {
-    hours = 0;
-    days++;
-  }
+  const seconds = Math.floor((value % 60_000) / 1000);
 
   if (options.mostSignificantOnly) {
     if (days > 0) return `${days}d`;
@@ -62,7 +48,6 @@ export function formatDuration(ms, options = {}) {
 export function formatElapsed(ms) {
   const n = Math.max(0, Number(ms || 0));
   if (!Number.isFinite(n) || n <= 0) return '';
-  if (n < 1000) return `${Math.round(n)}ms`;
-  if (n < 10_000) return `${(n / 1000).toFixed(1)}s`;
+  if (n < 1000) return '';
   return formatDuration(n);
 }

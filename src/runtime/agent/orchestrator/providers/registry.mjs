@@ -6,7 +6,7 @@ import { OpenAIOAuthProvider, hasOpenAIOAuthCredentials } from './openai-oauth.m
 import { AnthropicOAuthProvider, hasAnthropicOAuthCredentials } from './anthropic-oauth.mjs';
 import { GrokOAuthProvider, hasGrokOAuthCredentials } from './grok-oauth.mjs';
 import { OpenAIDirectProvider } from './openai-ws.mjs';
-import { refreshCatalog as refreshMetadataCatalog } from './model-catalog.mjs';
+import { refreshCatalog as refreshMetadataCatalog, warmModelMetadataCatalogs } from './model-catalog.mjs';
 // OpenAI-compat provider names are self-declared by openai-compat.mjs via
 // OPENAI_COMPAT_PRESETS. No parallel list maintained here.
 const providers = new Map();
@@ -177,9 +177,17 @@ export function getAllProviders() {
 // (e.g. cycle1 on session start) does not pay the catalog refresh latency
 // inline. Fire-and-forget: failures are logged inside each provider.
 export function warmupCatalogs() {
+    const metadataReady = Promise.resolve()
+        .then(() => warmModelMetadataCatalogs())
+        .catch((err) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            process.stderr.write(`[model-catalog] metadata warm-up failed: ${msg}\n`);
+            return null;
+        });
     for (const [name, provider] of providers) {
         if (typeof provider?.listModels !== 'function') continue;
         Promise.resolve()
+            .then(() => metadataReady)
             .then(() => provider.listModels())
             .catch((err) => {
                 const msg = err instanceof Error ? err.message : String(err);

@@ -8,7 +8,7 @@ import { DATA_DIR } from "./config.mjs";
 function cacheFile() {
   return join(DATA_DIR, "holidays-cache.json");
 }
-const FALLBACK_FILE = join(homedir(), ".claude", "schedules", "holidays.json");
+const FALLBACK_FILE = join(homedir(), ".mixdog", "schedules", "holidays.json");
 const CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1e3;
 // In-memory, pre-warmed holiday cache for SYNC reads (isHolidaySync).
 // Keyed by `${year}:${countryCode}` -> Set<dateStr>. Absent key == cold

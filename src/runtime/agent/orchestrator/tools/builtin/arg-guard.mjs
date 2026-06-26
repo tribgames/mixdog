@@ -423,18 +423,18 @@ function guardRename(a) {
     return null;
 }
 
-function guardBash(a) {
+function guardShell(a) {
     if (!hasOwn(a, 'command')) {
-        return 'Error: bash requires "command"';
+        return 'Error: shell requires "command"';
     }
     if (typeof a.command !== 'string') {
-        return `Error: bash arg "command" must be a string (got ${describeType(a.command)})`;
+        return `Error: shell arg "command" must be a string (got ${describeType(a.command)})`;
     }
     if (a.command.length === 0) {
-        return 'Error: bash arg "command" must be a non-empty string';
+        return 'Error: shell arg "command" must be a non-empty string';
     }
     if (process.platform === 'win32' && !hasOwn(a, 'shell') && hasWindowsDrivePath(a.command)) {
-        return "Error: bash command contains a Windows drive path; set shell:'powershell' or convert paths for shell:'bash'.";
+        return "Error: shell command contains a Windows drive path; set shell:'powershell' or convert paths for shell:'bash'.";
     }
     for (const k of ['cwd', 'workdir']) {
         if (hasOwn(a, k) && (a[k] === undefined || a[k] === null || a[k] === '')) {
@@ -442,24 +442,29 @@ function guardBash(a) {
             continue;
         }
         if (hasOwn(a, k) && !isNonEmptyString(a[k])) {
-            return `Error: bash arg "${k}" must be a non-empty string (got ${describeType(a[k])})`;
+            return `Error: shell arg "${k}" must be a non-empty string (got ${describeType(a[k])})`;
         }
     }
     if (hasOwn(a, 'cwd') && hasOwn(a, 'workdir') && a.cwd !== a.workdir) {
-        return 'Error: bash args "cwd" and "workdir" conflict; use one working directory.';
+        return 'Error: shell args "cwd" and "workdir" conflict; use one working directory.';
     }
     if (hasOwn(a, 'shell') && a.shell !== undefined && a.shell !== null && a.shell !== 'bash' && a.shell !== 'powershell') {
-        return `Error: bash arg "shell" must be bash or powershell (got ${JSON.stringify(a.shell)})`;
+        return `Error: shell arg "shell" must be bash or powershell (got ${JSON.stringify(a.shell)})`;
     }
     return null;
 }
 
-function guardJobWait(a) {
-    if (!hasOwn(a, 'job_id')) {
-        return 'Error: job_wait requires "job_id"';
+function guardTask(a) {
+    const action = typeof a.action === 'string' ? a.action.trim().toLowerCase() : (hasOwn(a, 'action') ? a.action : '');
+    if (hasOwn(a, 'action') && !['list', 'status', 'read', 'wait', 'cancel'].includes(action)) {
+        return `Error: task arg "action" must be one of list|status|read|wait|cancel (got ${JSON.stringify(a.action)})`;
     }
-    if (typeof a.job_id !== 'string') {
-        return `Error: job_wait arg "job_id" must be a string (got ${describeType(a.job_id)})`;
+    if (action === 'list') return null;
+    if (!hasOwn(a, 'task_id')) {
+        return 'Error: task requires "task_id"';
+    }
+    if (typeof a.task_id !== 'string' || a.task_id.trim().length === 0) {
+        return `Error: task arg "task_id" must be a non-empty string (got ${describeType(a.task_id)})`;
     }
     return null;
 }
@@ -537,8 +542,8 @@ const GUARDS = {
     edit: guardEdit,
     write: guardWrite,
     diagnostics: guardDiagnostics,
-    bash: guardBash,
-    job_wait: guardJobWait,
+    shell: guardShell,
+    task: guardTask,
     list: guardList,
     glob: guardGlob,
     code_graph: guardCodeGraph,

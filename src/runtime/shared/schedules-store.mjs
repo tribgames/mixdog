@@ -1,7 +1,7 @@
 /**
  * Canonical reader for registered schedules.
  *
- * `${CLAUDE_PLUGIN_DATA}/schedules/<name>/` is the single source of truth.
+ * `<Mixdog data dir>/schedules/<name>/` is the single source of truth.
  * Each schedule directory contains `config.json` (metadata) and
  * `instructions.md` (prompt body). Both the setup UI (POST /schedules)
  * and the `schedule-add` skill write the same two files; every reader —

@@ -1,4 +1,5 @@
 {
+  "outputStyle": "compact",
   "channels": {
     "promptInjection": {
       "mode": "hook",
@@ -10,18 +11,5 @@
     "user": { "title": "" },
     "cycle1": { "interval": "10m" },
     "cycle2": { "interval": "1h" }
-  },
-  "search": {
-    "enabled": true,
-    "rawSearch": {
-      "maxResults": 10,
-      "credentials": {
-        "firecrawl": { "apiKey": "" },
-        "tavily": { "apiKey": "" },
-        "exa": { "apiKey": "" }
-      }
-    },
-    "requestTimeoutMs": 120000,
-    "crawl": { "maxPages": 10, "maxDepth": 2, "sameDomainOnly": true }
   }
 }

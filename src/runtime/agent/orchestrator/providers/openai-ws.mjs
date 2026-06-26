@@ -14,6 +14,7 @@
  */
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import { buildRequestBody } from './openai-oauth.mjs';
+import { enrichModels } from './model-catalog.mjs';
 import {
     resolveProviderCacheKey,
     resolveProviderPromptCacheLane,
@@ -114,16 +115,17 @@ export class OpenAIDirectProvider {
             });
             if (!res.ok) return [];
             const j = await res.json();
-            return (j.data || []).map((m) => ({
+            const models = (j.data || []).map((m) => ({
                 id: m.id,
                 name: m.id,
                 provider: 'openai',
-                contextWindow: 200000,
+                contextWindow: 0,
                 // Preserve release timestamp from OpenAI so downstream
                 // freshness filters (e.g. setup UI's 6-month coding-model
                 // cutoff) can drop deprecated generations.
                 created: typeof m.created === 'number' ? m.created : null,
             }));
+            return await enrichModels(models);
         } catch {
             return [];
         }

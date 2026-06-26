@@ -2,7 +2,7 @@ import { statSync, renameSync, createWriteStream } from "fs";
 import { join } from "path";
 import { resolvePluginData } from "../../shared/plugin-paths.mjs";
 // ── drop-trace (output-forwarder) ───────────────────────────────────────────
-const _dtDataDir = process.env.CLAUDE_PLUGIN_DATA || resolvePluginData();
+const _dtDataDir = resolvePluginData();
 const _dtLog = join(_dtDataDir, "drop-trace.log");
 const DROP_TRACE_ENABLED =
   process.env.MIXDOG_DROP_TRACE === "1" ||

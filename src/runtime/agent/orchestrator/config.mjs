@@ -66,7 +66,8 @@ export const DEFAULT_PRESETS = Object.freeze([
     Object.freeze({ id: 'opus-mid', name: 'OPUS MID', type: 'bridge', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('opus'), effort: 'medium', tools: 'full' }),
     Object.freeze({ id: 'opus-high', name: 'OPUS HIGH', type: 'bridge', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('opus'), effort: 'high', tools: 'full' }),
 ]);
-function buildDefaultConfig() {
+function buildDefaultConfig(options = {}) {
+    const detectCredentials = options.detectCredentials !== false;
     const providers = {};
     // API providers — enabled if env key exists
     for (const [name, envKey] of Object.entries(AGENT_PROVIDER_ENV)) {
@@ -82,17 +83,17 @@ function buildDefaultConfig() {
     // measured ~96% cross-session cache hit with delta payloads. Users who
     // need to force SSE (e.g. a corporate proxy blocking WSS) can set
     // `websocket: false` in mixdog-config.json (agent.providers.openai-oauth).
-    providers['openai-oauth'] = { enabled: hasOpenAIOAuthCredentials(), websocket: true };
-    providers['anthropic-oauth'] = { enabled: hasAnthropicOAuthCredentials() };
+    providers['openai-oauth'] = { enabled: detectCredentials ? hasOpenAIOAuthCredentials() : false, websocket: true };
+    providers['anthropic-oauth'] = { enabled: detectCredentials ? hasAnthropicOAuthCredentials() : false };
     // Grok CLI OAuth ("Grok Build"). Like the other OAuth entries it is not
     // stored in mixdog-config.json — enabled at runtime from the presence of
     // either token source (own store or ~/.grok/auth.json) via
     // hasGrokOAuthCredentials().
-    providers['grok-oauth'] = { enabled: hasGrokOAuthCredentials() };
+    providers['grok-oauth'] = { enabled: detectCredentials ? hasGrokOAuthCredentials() : false };
     // Local providers — opt-in via setup UI after HTTP ping confirms server is running
     providers.ollama = { enabled: false, baseURL: 'http://localhost:11434/v1' };
     providers.lmstudio = { enabled: false, baseURL: 'http://localhost:1234/v1' };
-    return { providers };
+    return { providers, workflow: { active: 'default' } };
 }
 
 function hasKeys(value) {
@@ -109,7 +110,8 @@ function persistAgentConfig(build) {
     updateSection('agent', (current) => build(hasKeys(current) ? current : {}));
 }
 
-export function loadConfig() {
+export function loadConfig(options = {}) {
+    const includeSecrets = options.secrets !== false;
     const sectionRaw = readSection('agent');
     if (hasKeys(sectionRaw)) {
         try {
@@ -117,7 +119,7 @@ export function loadConfig() {
             if (raw.agent && raw.agent.providers) {
                 raw = raw.agent;
             }
-            const defaults = buildDefaultConfig();
+            const defaults = buildDefaultConfig({ detectCredentials: includeSecrets });
             // Deep-merge provider subkeys: unknown per-provider values are
             // preserved through save/load so future fields round-trip
             // without schema updates here.
@@ -138,9 +140,11 @@ export function loadConfig() {
             // covers compat providers (opencode-go, …) whose key also lives in
             // the keychain. Without the union, a compat provider with a valid
             // stored key still ships 'no-key' → 401.
-            for (const name of new Set([...Object.keys(AGENT_PROVIDER_ENV), ...Object.keys(OPENAI_COMPAT_PRESETS)])) {
-                const kc = getAgentApiKey(name);
-                if (kc) mergedProviders[name] = { ...(mergedProviders[name] || {}), apiKey: kc, enabled: true };
+            if (includeSecrets) {
+                for (const name of new Set([...Object.keys(AGENT_PROVIDER_ENV), ...Object.keys(OPENAI_COMPAT_PRESETS)])) {
+                    const kc = getAgentApiKey(name);
+                    if (kc) mergedProviders[name] = { ...(mergedProviders[name] || {}), apiKey: kc, enabled: true };
+                }
             }
             // Drop unknown maintenance keys (e.g. truly legacy slot names from
             // pre-removal installs). Every valid slot — incl. scheduler/webhook —
@@ -229,17 +233,24 @@ export function loadConfig() {
                 }
             }
             const rawPresets = Array.isArray(raw.presets) ? raw.presets : [];
-            const normalizedPresets = rawPresets.map(p => normalizePreset(p)).filter(Boolean);
+            const normalizedPresets = rawPresets
+                .map(p => normalizePreset(p))
+                .filter(Boolean)
+                .filter(p => p.id !== 'workflow-search');
+            const workflowRoutes = raw.workflowRoutes && typeof raw.workflowRoutes === 'object' ? { ...raw.workflowRoutes } : {};
+            delete workflowRoutes.search;
             return {
                 providers: mergedProviders,
                 mcpServers,
                 presets: normalizedPresets,
                 default: raw.default || null,
                 maintenance: { ...DEFAULT_MAINTENANCE, ...rawMaint },
-                workflowRoutes: raw.workflowRoutes && typeof raw.workflowRoutes === 'object' ? raw.workflowRoutes : {},
+                workflowRoutes,
                 fastModels: raw.fastModels && typeof raw.fastModels === 'object' ? raw.fastModels : {},
                 modelSettings: raw.modelSettings && typeof raw.modelSettings === 'object' ? raw.modelSettings : {},
                 onboarding: raw.onboarding && typeof raw.onboarding === 'object' ? raw.onboarding : {},
+                agents: raw.agents && typeof raw.agents === 'object' ? raw.agents : {},
+                workflow: raw.workflow && typeof raw.workflow === 'object' ? { active: String(raw.workflow.active || 'default') } : { active: 'default' },
                 agentMaintenance: { enabled: true, interval: '1h', ...raw.agentMaintenance },
                 autoClear: { enabled: true, idleMs: 60 * 60 * 1000, ...raw.autoClear },
                 trajectory: { enabled: true, ...raw.trajectory },
@@ -248,7 +259,7 @@ export function loadConfig() {
         }
         catch { /* fall through */ }
     }
-    const defaults = buildDefaultConfig();
+    const defaults = buildDefaultConfig({ detectCredentials: includeSecrets });
     return {
         ...defaults,
         mcpServers: {},
@@ -259,6 +270,8 @@ export function loadConfig() {
         fastModels: {},
         modelSettings: {},
         onboarding: {},
+        agents: {},
+        workflow: { active: 'default' },
         agentMaintenance: { enabled: true, interval: '1h' },
         autoClear: { enabled: true, idleMs: 60 * 60 * 1000 },
         trajectory: { enabled: true },
@@ -305,6 +318,13 @@ export function saveConfig(config) {
                 persistedProviders[name] = slim;
         }
     }
+    const workflowRoutes = config.workflowRoutes && typeof config.workflowRoutes === 'object'
+        ? { ...config.workflowRoutes }
+        : {};
+    delete workflowRoutes.search;
+    const presets = Array.isArray(config.presets)
+        ? config.presets.filter(p => p?.id !== 'workflow-search')
+        : [];
     // Build the replacement from `existingRaw` — the section read INSIDE the
     // file lock — not a snapshot taken before it, so unmanaged keys written by
     // a concurrent instance survive the save (lost-update guard).
@@ -313,13 +333,15 @@ export function saveConfig(config) {
         guide: config.guide || existingRaw.guide || undefined,
         providers: persistedProviders,
         mcpServers: config.mcpServers || {},
-        presets: Array.isArray(config.presets) ? config.presets : [],
+        presets,
         default: config.default || null,
         maintenance: config.maintenance || {},
-        workflowRoutes: config.workflowRoutes || {},
+        workflowRoutes,
         fastModels: config.fastModels || {},
         modelSettings: config.modelSettings || {},
         onboarding: config.onboarding || {},
+        agents: config.agents || {},
+        workflow: config.workflow || { active: 'default' },
         agentMaintenance: config.agentMaintenance || {},
         autoClear: config.autoClear || {},
         trajectory: config.trajectory || {},

@@ -42,7 +42,7 @@ import { renameWithRetrySync, writeFileAtomicSync } from '../../shared/atomic-fi
 import { windowsProgramRoots, windowsSystemRoot } from '../../agent/orchestrator/tools/builtin/windows-roots.mjs'
 
 const BUNDLED_MANIFEST_PATH = fileURLToPath(new URL('../data/voice-runtime-manifest.json', import.meta.url))
-const MANIFEST_URL = 'https://raw.githubusercontent.com/trib-plugin/mixdog/main/src/channels/data/voice-runtime-manifest.json'
+const MANIFEST_URL = 'https://raw.githubusercontent.com/tribgames/mixdog/main/src/runtime/channels/data/voice-runtime-manifest.json'
 const LOCK_WAIT_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY'])
 // Hard ceiling on how long _withInstallLock will defer to an existing
 // lock holder before reclaiming. Installs download + unpack runtime

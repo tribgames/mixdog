@@ -100,7 +100,7 @@
         {
           "id": "metal",
           "requires": null,
-          "url": "https://github.com/trib-plugin/mixdog/releases/download/voice-runtime-v1.8.4/whisper-darwin-arm64-metal.zip",
+          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.8.4/whisper-darwin-arm64-metal.zip",
           "sha256": "6bfbe8e06c07b87c2d7cd9a6541128781752bd2827d9f97ea9605d06c53835d7",
           "size": 3147446,
           "format": "zip",
@@ -113,7 +113,7 @@
         {
           "id": "cpu",
           "requires": null,
-          "url": "https://github.com/trib-plugin/mixdog/releases/download/voice-runtime-v1.8.4/whisper-darwin-x64-cpu.zip",
+          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.8.4/whisper-darwin-x64-cpu.zip",
           "sha256": "eed4606e4333dacaafa3ed5a982856db98dcf7d7300200b831c71bedd6fe05e1",
           "size": 3041846,
           "format": "zip",
@@ -126,7 +126,7 @@
         {
           "id": "vulkan",
           "requires": null,
-          "url": "https://github.com/trib-plugin/mixdog/releases/download/voice-runtime-v1.8.4/whisper-linux-x64-vulkan.zip",
+          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.8.4/whisper-linux-x64-vulkan.zip",
           "sha256": "f378ad30db89b8bb710210b057539f9b18f4cdecceac093ff189ce7e904fe6de",
           "size": 54510528,
           "format": "zip",

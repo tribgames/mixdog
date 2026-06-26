@@ -34,7 +34,7 @@ function isRecallMemory(name) {
 function isMemoryFile(filePath) {
   if (!filePath) return false;
   const normalized = filePath.replace(/\\/g, "/");
-  if (normalized.includes(".claude/projects/") && normalized.includes("/memory/")) return true;
+  if (normalized.includes(".mixdog/projects/") && normalized.includes("/memory/")) return true;
   if (basename(normalized) === "MEMORY.md") return true;
   return false;
 }

@@ -15,7 +15,7 @@ export const TOOL_RESULT_OFFLOAD_PREFIX = '[tool output offloaded:';
 // Per-tool persistence limits mirror Claude Code's per-tool maxResultSizeChars
 // rather than a single global value: Grep persists at 20k (CC GrepTool), Glob
 // and list/find_* at the 50k system default (CC DEFAULT_MAX_RESULT_SIZE_CHARS;
-// tighter than CC Glob's 100k by design), and Bash/bash_session/job_wait at 30k
+// tighter than CC Glob's 100k by design), and shell/bash_session/task at 30k
 // (CC BASH_MAX_OUTPUT_LENGTH default). Read/head/tail/diff stay inline
 // (Infinity) — they are self-bound by FileRead semantics and the upstream
 // READ_MAX_SIZE_BYTES cap, so persisting to a sidecar to be re-read would be
@@ -32,9 +32,9 @@ const INLINE_THRESHOLD_BY_TOOL = new Map([
     ['tree', TOOL_RESULT_SEARCH_THRESHOLD_CHARS],
     ['find_files', TOOL_RESULT_SEARCH_THRESHOLD_CHARS],
     ['code_graph', TOOL_RESULT_SEARCH_THRESHOLD_CHARS],
-    ['bash', TOOL_RESULT_SHELL_THRESHOLD_CHARS],
+    ['shell', TOOL_RESULT_SHELL_THRESHOLD_CHARS],
     ['bash_session', TOOL_RESULT_SHELL_THRESHOLD_CHARS],
-    ['job_wait', TOOL_RESULT_SHELL_THRESHOLD_CHARS],
+    ['task', TOOL_RESULT_SHELL_THRESHOLD_CHARS],
 ]);
 
 function getOffloadThreshold(toolName) {

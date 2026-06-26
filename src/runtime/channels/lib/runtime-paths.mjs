@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { basename, join, resolve } from "path";
 import { ensureDir, readJsonFile, removeFileIfExists, writeJsonFile } from "./state-file.mjs";
 import { updateJsonAtomicSync, withFileLockSync } from "../../shared/atomic-file.mjs";
+import { resolvePluginData, mixdogRoot } from "../../shared/plugin-paths.mjs";
 const RUNTIME_ROOT = process.env.MIXDOG_RUNTIME_ROOT
   ? resolve(process.env.MIXDOG_RUNTIME_ROOT)
   : join(tmpdir(), "mixdog");
@@ -337,7 +338,7 @@ function refreshActiveInstance(instanceId, meta) {
 }
 const SERVER_PID_FILE = join(
   RUNTIME_ROOT,
-  `server-${sanitize(process.env.CLAUDE_PLUGIN_DATA ?? "default")}.pid`
+  `server-${sanitize(resolvePluginData() ?? "default")}.pid`
 );
 function looksLikeTribChannelsServer(pid) {
   const pidStr = String(pid);
@@ -355,9 +356,9 @@ function looksLikeTribChannelsServer(pid) {
   try {
     const cmd = execFileSync("ps", ["-o", "command=", "-p", pidStr], { encoding: "utf8", windowsHide: true }).trim();
     if (!cmd) return false;
-    const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "";
     if (!cmd.includes("server.ts")) return false;
-    return cmd.includes("mixdog") || pluginRoot && cmd.includes(pluginRoot) || cmd.includes("tsx server.ts") || cmd.includes("node") && cmd.includes("server");
+    const root = mixdogRoot();
+    return cmd.includes("mixdog") || root && cmd.includes(root) || cmd.includes("tsx server.ts") || cmd.includes("node") && cmd.includes("server");
   } catch {
     return false;
   }

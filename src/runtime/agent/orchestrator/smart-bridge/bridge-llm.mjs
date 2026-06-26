@@ -27,6 +27,7 @@ import { loadConfig } from '../config.mjs';
 import { resolveRuntimeSpec } from '../config.mjs';
 import { getHiddenRole, resolveBridgeSessionPermission } from '../internal-roles.mjs';
 import { prepareBridgeSession } from './session-builder.mjs';
+import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import {
     askSession,
     updateSessionStatus,
@@ -39,6 +40,14 @@ import {
 // turn; the cap keeps those outliers bounded without touching the 95%+ of
 // answers already under the threshold.
 const BRIEF_CAP_BYTES = 12 * 1024;
+function envTimeoutMs(name, fallback) {
+    const raw = process.env[name];
+    if (raw === undefined || raw === '') return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+}
+const DEFAULT_FIRST_RESPONSE_TIMEOUT_MS = envTimeoutMs('MIXDOG_BRIDGE_FIRST_RESPONSE_TIMEOUT_MS', 120_000);
+const DEFAULT_STALE_TIMEOUT_MS = envTimeoutMs('MIXDOG_BRIDGE_STALE_TIMEOUT_MS', 30 * 60_000);
 function applyBriefCap(text) {
     if (typeof text !== 'string') return text;
     if (text.length <= BRIEF_CAP_BYTES) return text;
@@ -90,7 +99,7 @@ export function resolveHiddenRoleSchemaAllowedTools(hidden) {
  * Resolve a preset name from (preset arg | opts.preset | hidden-role | user-workflow).
  *
  * Hidden roles (explorer, cycle1/cycle2, scheduler-task, etc.) are
- * plugin-managed and take precedence over user-workflow.json — users cannot
+ * Mixdog-managed and take precedence over user-workflow.json — users cannot
  * override them by redefining the same name.
  */
 export function resolvePresetName({ preset, optsPreset, role, config: cfgIn = null }) {
@@ -114,7 +123,7 @@ export function resolvePresetName({ preset, optsPreset, role, config: cfgIn = nu
         } catch { return null; }
     }
     try {
-        const pluginData = process.env.CLAUDE_PLUGIN_DATA;
+        const pluginData = resolvePluginData();
         if (!pluginData) return null;
         const wf = JSON.parse(readFileSync(join(pluginData, 'user-workflow.json'), 'utf8'));
         if (!Array.isArray(wf.roles)) return null;
@@ -241,6 +250,7 @@ export function makeBridgeLlm(opts = {}) {
         // if the session/manager import is unavailable we fall back silently.
         const _managerMod = await import('../session/manager.mjs').catch(() => null);
         const _linkSignal = _managerMod?.linkParentSignalToSession;
+        const _getProgressSnapshot = _managerMod?.getSessionProgressSnapshot;
         const _getLastProgressAt = _managerMod?.getSessionLastProgressAt;
         if (_linkSignal) {
             if (opts.parentSignal instanceof AbortSignal) {
@@ -250,29 +260,42 @@ export function makeBridgeLlm(opts = {}) {
                 try { _linkSignal(session.id, callParentSignal); } catch { /* ignore */ }
             }
         }
-        // Idle-progress watchdog. A "session that's actually doing work"
-        // refreshes one of three runtime fields every chunk/tool-call.
-        // If none of those advance for `idleMs`, we treat the provider call
-        // as stuck (network black-hole, nested-spawn deadlock, etc.) and
-        // abort the sub-session controller. Routine long runs — multi-tool
-        // chains, slow streams — stay untouched because at least one of
-        // the three fields keeps ticking. `0` or negative disables the
-        // watchdog entirely; default is 120s.
-        const _idleMs = Number.isFinite(callIdleTimeoutMs)
+        // Watchdog policy is split:
+        // - firstResponseTimeoutMs cuts quickly only when the model produces no
+        //   first stream/tool activity at all.
+        // - idleTimeoutMs is a stale watchdog after work has started.
+        //   0 disables that stale abort; default is 30 minutes.
+        const _staleMs = Number.isFinite(callIdleTimeoutMs)
             ? callIdleTimeoutMs
-            : (Number.isFinite(opts.idleTimeoutMs) ? opts.idleTimeoutMs : 120_000);
-        const _idleController = (_idleMs > 0 && _linkSignal) ? new AbortController() : null;
+            : (Number.isFinite(opts.idleTimeoutMs) ? opts.idleTimeoutMs : DEFAULT_STALE_TIMEOUT_MS);
+        const _firstMs = Number.isFinite(opts.firstResponseTimeoutMs)
+            ? opts.firstResponseTimeoutMs
+            : DEFAULT_FIRST_RESPONSE_TIMEOUT_MS;
+        const _idleController = ((_staleMs > 0 || _firstMs > 0) && _linkSignal) ? new AbortController() : null;
         if (_idleController) {
             try { _linkSignal(session.id, _idleController.signal); } catch { /* ignore */ }
         }
-        const _idleTimer = (_idleController && typeof _getLastProgressAt === 'function')
+        const _idleTimer = (_idleController && (typeof _getProgressSnapshot === 'function' || typeof _getLastProgressAt === 'function'))
             ? setInterval(() => {
-                const last = _getLastProgressAt(session.id);
-                if (!last) return; // ask hasn't started writing progress yet
-                if (Date.now() - last > _idleMs) {
-                    try {
-                        _idleController.abort(new Error(`idle timeout exceeded (${_idleMs}ms)`));
-                    } catch { /* ignore */ }
+                const now = Date.now();
+                const snapshot = typeof _getProgressSnapshot === 'function' ? _getProgressSnapshot(session.id) : null;
+                if (snapshot) {
+                    if (snapshot.waitingForFirstActivity) {
+                        const startedAt = snapshot.modelRequestStartedAt || snapshot.askStartedAt;
+                        if (_firstMs > 0 && startedAt && now - startedAt > _firstMs) {
+                            try { _idleController.abort(new Error(`first response stale (${_firstMs}ms)`)); } catch { /* ignore */ }
+                        }
+                        return;
+                    }
+                    const last = snapshot.lastProgressAt || snapshot.firstActivityAt;
+                    if (_staleMs > 0 && last && now - last > _staleMs) {
+                        try { _idleController.abort(new Error(`bridge task stale (${_staleMs}ms without stream/tool progress)`)); } catch { /* ignore */ }
+                    }
+                    return;
+                }
+                const last = _getLastProgressAt?.(session.id);
+                if (_staleMs > 0 && last && now - last > _staleMs) {
+                    try { _idleController.abort(new Error(`bridge task stale (${_staleMs}ms without progress)`)); } catch { /* ignore */ }
                 }
             }, 1000)
             : null;

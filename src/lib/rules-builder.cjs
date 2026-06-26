@@ -4,7 +4,7 @@
  * mixdog rules builder.
  *
  * Three surfaces:
- *   - buildInjectionContent              — Lead (Claude Code main session)
+ *   - buildInjectionContent              — Lead session
  *   - buildBridgeInjectionContent        — bridge session BP1 (true cross-role common)
  *   - buildBridgeRoleSpecificContent     — bridge session BP3 (role-specific instructions)
  *
@@ -18,6 +18,7 @@
  *   - shared/01-tool.md              — universal tool policy (Lead + bridge BP1, identical full set)
  *   - lead/00-tool-lead.md           — Lead-specific control-tower / delegation / ToolSearch guidance
  *   - lead/01-04                     — Lead workflow / channels / team / general
+ *   - output-styles/<name>.md        — Lead output style, selected by config outputStyle
  *   - bridge/00-common.md            — bridge common behavior + universal worker contract (BP1)
  *   - bridge/10..50-*.md             — per-hidden-role bodies (consumed by loadScopedRoleCatalog)
  *
@@ -47,6 +48,49 @@ function readOptional(filePath) {
   try { return fs.readFileSync(filePath, 'utf8').trim(); } catch { return ''; }
 }
 
+function readUnifiedConfig(dataDir) {
+  try {
+    const unified = JSON.parse(fs.readFileSync(path.join(dataDir, 'mixdog-config.json'), 'utf8'));
+    return unified && typeof unified === 'object' ? unified : {};
+  } catch {}
+  return {};
+}
+
+function stripFrontmatter(markdown) {
+  return String(markdown || '').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n*/, '').trim();
+}
+
+function normalizeOutputStyleName(value) {
+  const name = String(value || 'compact').trim();
+  return /^[A-Za-z0-9_.-]+$/.test(name) ? name : 'compact';
+}
+
+function loadOutputStyle({ PLUGIN_ROOT, DATA_DIR }) {
+  const config = readUnifiedConfig(DATA_DIR);
+  const configured = config.outputStyle || (config.agent && config.agent.outputStyle);
+  const styleName = normalizeOutputStyleName(configured);
+  const candidates = [
+    path.join(DATA_DIR, 'output-styles', `${styleName}.md`),
+    path.join(PLUGIN_ROOT, 'output-styles', `${styleName}.md`),
+  ];
+  for (const candidate of candidates) {
+    const body = stripFrontmatter(readOptional(candidate));
+    if (body) return body;
+  }
+  // Configured style valid but missing on disk — fall back to compact
+  if (styleName !== 'compact') {
+    const fallback = [
+      path.join(DATA_DIR, 'output-styles', 'compact.md'),
+      path.join(PLUGIN_ROOT, 'output-styles', 'compact.md'),
+    ];
+    for (const candidate of fallback) {
+      const body = stripFrontmatter(readOptional(candidate));
+      if (body) return body;
+    }
+  }
+  return '';
+}
+
 /**
  * Resolve the DATA_DIR subdir whose *.md instruction tree folds into a hidden
  * role's BP3 role-specific block, from the role's `instructionDir` metadata in
@@ -57,13 +101,13 @@ function readOptional(filePath) {
  * directly. Keeps the webhook-handler→webhooks / scheduler-task→schedules
  * mapping declarative instead of a hard-coded role-name ternary.
  *
- * @param {string} pluginRoot
+ * @param {string} mixdogRoot
  * @param {string} role
  * @returns {string|null}
  */
-function resolveRoleInstructionDir(pluginRoot, role) {
-  if (!pluginRoot || !role) return null;
-  const metaPath = path.join(pluginRoot, 'defaults', 'hidden-roles.json');
+function resolveRoleInstructionDir(mixdogRoot, role) {
+  if (!mixdogRoot || !role) return null;
+  const metaPath = path.join(mixdogRoot, 'defaults', 'hidden-roles.json');
   let raw;
   try {
     raw = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
@@ -124,7 +168,7 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
   const parts = [];
 
   // Language policy injects first — global default, applied to every Lead reply
-  // and to plugin-internal communication regardless of locale.
+  // and to internal role communication regardless of locale.
   const language = readOptional(path.join(SHARED_DIR, '00-language.md'));
   if (language) parts.push(language);
 
@@ -149,33 +193,32 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
   const workflow = readOptional(path.join(LEAD_DIR, '04-workflow.md'));
   if (workflow) parts.push(workflow);
 
-  const userWorkflowJsonPath = path.join(DATA_DIR, 'user-workflow.json');
-  let userWorkflow = { roles: [] };
-  try {
-    if (fs.existsSync(userWorkflowJsonPath)) {
-      userWorkflow = JSON.parse(fs.readFileSync(userWorkflowJsonPath, 'utf8'));
-    }
-  } catch {}
-  if (Array.isArray(userWorkflow.roles) && userWorkflow.roles.length > 0) {
-    const roleLines = ['# Roles', ''];
-    for (const role of userWorkflow.roles) {
-      roleLines.push(`- ${role.name}: ${role.preset}`);
-    }
-    parts.push(roleLines.join('\n'));
-  }
-
-  const userWorkflowMdPath = path.join(DATA_DIR, 'user-workflow.md');
-  const userWorkflowMd = readOptional(userWorkflowMdPath);
-  if (userWorkflowMd) {
-    const startsWithHeader = /^#\s+User Workflow/i.test(userWorkflowMd);
-    parts.push(startsWithHeader ? userWorkflowMd : `# User Workflow\n\n${userWorkflowMd}`);
-  }
+  const outputStyle = loadOutputStyle({ PLUGIN_ROOT, DATA_DIR });
+  if (outputStyle) parts.push(outputStyle);
 
   const userProfile = readOptional(path.join(HISTORY_DIR, 'user.md'));
   if (userProfile) parts.push(`# User Profile\n\n${userProfile}`);
 
   const botPersona = readOptional(path.join(HISTORY_DIR, 'bot.md'));
   if (botPersona) parts.push(`# Bot Persona\n\n${botPersona}`);
+
+  // User workflow context — low-token, optional
+  const userWorkflowMd = readOptional(path.join(DATA_DIR, 'user-workflow.md'));
+  if (userWorkflowMd) parts.push(`# User Workflow\n\n${userWorkflowMd}`);
+
+  const userWorkflowJsonPath = path.join(DATA_DIR, 'user-workflow.json');
+  try {
+    const json = JSON.parse(fs.readFileSync(userWorkflowJsonPath, 'utf8'));
+    if (json && Array.isArray(json.roles) && json.roles.length > 0) {
+      const lines = json.roles.map(r => {
+        const name = r.name || '';
+        const preset = r.preset || '';
+        const permission = r.permission || '';
+        return `- ${name}${preset ? ` (preset: ${preset})` : ''}${permission ? ` [${permission}]` : ''}`;
+      });
+      parts.push(`# User Workflow Roles\n\n${lines.join('\n')}`);
+    }
+  } catch { /* absent or invalid — skip */ }
 
   return parts.join('\n\n');
 }

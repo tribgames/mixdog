@@ -233,7 +233,7 @@ class DiscordBackend {
         // Replace each guild's command set with just /stop. set() overwrites,
         // so the desired set is the only one that survives.
         const desiredCommands = [
-          { name: "stop", description: "Stop the current Claude Code response" },
+          { name: "stop", description: "Stop the current Mixdog response" },
         ];
         for (const [guildId] of c.guilds.cache) {
           await c.application?.commands.set(desiredCommands, guildId);

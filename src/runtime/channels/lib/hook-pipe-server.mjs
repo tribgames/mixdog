@@ -6,7 +6,7 @@
 // one JSON line back, and exits.
 //
 // Protocol (line-delimited JSON):
-//   client → server : <Claude-Code hook payload>\n
+//   client → server : <Mixdog hook payload>\n
 //   server → client : <decision-json or "null">\n
 //
 // Each connection is handled independently. Long-running handlers (Discord
@@ -103,7 +103,7 @@ function traceSessionStart(message) {
   const line = `[${new Date().toISOString()}] [hook-pipe][session-start] ${message}\n`
   try { process.stderr.write(line) } catch {}
   try {
-    const dataDir = process.env.CLAUDE_PLUGIN_DATA || resolvePluginData()
+    const dataDir = resolvePluginData()
     mkdirSync(dataDir, { recursive: true })
     if (!_hookPipeLogsPruned) {
       _hookPipeLogsPruned = true
@@ -178,16 +178,13 @@ function handlePreMcpSandbox(payload) {
 
   let userCwdRaw = payload?.cwd || ''
   if (!userCwdRaw) {
-    const dataDir = process.env.CLAUDE_PLUGIN_DATA || ''
-    if (dataDir) {
-      try { userCwdRaw = readFileSync(join(dataDir, 'user-cwd.txt'), 'utf8').trim() } catch {}
-    }
+    try { userCwdRaw = readFileSync(join(resolvePluginData(), 'user-cwd.txt'), 'utf8').trim() } catch {}
   }
   if (!userCwdRaw) userCwdRaw = process.cwd()
 
   const userCwd = pathResolve(userCwdRaw)
   const projectDir = payload?.projectDir || payload?.project_dir ||
-    process.env.CLAUDE_PROJECT_DIR || userCwd
+    process.env.MIXDOG_PROJECT_DIR || userCwd
   const permissionMode = payload?.permissionMode || payload?.permission_mode || undefined
 
   let settingsPerms, evaluatePermission
@@ -198,15 +195,6 @@ function handlePreMcpSandbox(payload) {
     process.stderr.write(`[hook-pipe] pre-mcp-sandbox settings-loader unavailable: ${err?.message || err}\n`)
     return null
   }
-  const effectiveMode = permissionMode || settingsPerms.defaultMode
-
-  // Bypass fast-path: bypassPermissions/auto are full-allow by design; when no
-  // user deny rules are set, skip the evaluator (the owner opted into bypass).
-  if ((effectiveMode === 'bypassPermissions' || effectiveMode === 'auto') &&
-      (!settingsPerms.deny || settingsPerms.deny.length === 0)) {
-    return null
-  }
-
   try {
     const ev = moduleRequire('../../../hooks/lib/permission-evaluator.cjs')
     evaluatePermission = ev.evaluatePermission
@@ -216,15 +204,12 @@ function handlePreMcpSandbox(payload) {
   }
 
   const evalResult = evaluatePermission({ toolName, toolInput, permissionMode, projectDir, userCwd, permissions: settingsPerms })
-  const { decision, reason, updatedInput } = evalResult
+  const { decision, reason } = evalResult
 
-  if (effectiveMode === 'bypassPermissions' || effectiveMode === 'auto') {
-    if (decision === 'deny') return makeDecision('deny', reason)
-    return null
-  }
-  if (decision === 'allow') return null
-  if (decision === 'ask') return makeDecision('ask', reason, updatedInput)
-  return makeDecision('deny', reason)
+  // Pi-like practical: no permission prompts. Only hard-deny and explicit
+  // user deny rules block; every other evaluator result is allowed.
+  if (decision === 'deny') return makeDecision('deny', reason)
+  return null
 }
 
 function handleNativeFileLookup(payload) {
@@ -309,149 +294,10 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
 async function handlePreToolSubagent(payload) {
   if (process.env.MIXDOG_CHANNELS_NO_CONNECT) return null
-
-  const isSidechain = payload.isSidechain ?? payload.is_sidechain
-  const agentIdRaw = payload.agentId ?? payload.agent_id
-  const toolInput = payload.tool_input ?? payload.toolInput ?? {}
-
-  const isSubagent = isSidechain === true || Boolean(agentIdRaw)
-  if (!isSubagent) return null
-
-  const toolName = payload.tool_name || payload.toolName || ''
-  if (toolName !== 'Edit' && toolName !== 'Write' && toolName !== 'MultiEdit') return null
-
-  const mode = payload.permissionMode || payload.permission_mode || payload.mode
-  if (mode === 'bypassPermissions' || mode === 'acceptEdits' || mode === 'auto') return null
-
-  const hookCwd = payload.cwd || toolInput.cwd || process.cwd()
-  const filePath = toolInput.file_path || ''
-  const resolvedPath = filePath ? pathResolve(hookCwd, filePath) : ''
-  if (!isProtectedPath(resolvedPath, hookCwd)) return null
-
-  try { mkdirSync(RUNTIME_ROOT, { recursive: true }) } catch {}
-  const toolUseId = payload.tool_use_id ?? payload.toolUseId ?? ''
-
-  let routeMod
-  try {
-    routeMod = moduleRequire('../../../hooks/lib/permission-route.cjs')
-  } catch (err) {
-    process.stderr.write(`[hook-pipe] pre-tool-subagent permission-route unavailable: ${err?.message || err}\n`)
-    return null
-  }
-  const route = routeMod.shouldRoutePermissionToDiscord()
-  if (route.route !== 'discord') {
-    hookPipeDebugStderr(`[hook-pipe] pre-tool-subagent discord-route=off agent=${agentIdRaw || 'unknown'} tool=${toolName} reason=${route.reason || 'inactive'}\n`)
-    return null
-  }
-  hookPipeDebugStderr(`[hook-pipe] pre-tool-subagent discord-route=on agent=${agentIdRaw || 'unknown'} tool=${toolName}\n`)
-
-  let getDiscordToken
-  try {
-    ({ getDiscordToken } = moduleRequire('../../../lib/config-cjs.cjs'))
-  } catch (err) {
-    process.stderr.write(`[hook-pipe] pre-tool-subagent config-cjs unavailable: ${err?.message || err}\n`)
-    return null
-  }
-  const cfg = readDiscordConfig()
-  const token = getDiscordToken()
-  if (!token) return null
-  const agentId = agentIdRaw || 'unknown'
-  const mainCh = cfg && cfg.channelsConfig && cfg.channelsConfig.main
-  const channelId = mainCh && (typeof mainCh === 'string' ? null : mainCh.channelId)
-  if (!channelId) return null
-
-  const uuid = randomBytes(16).toString('hex')
-  const permissionInstanceIds = route.permissionInstanceIds || [route.permissionInstanceId].filter(Boolean)
-  if (!permissionInstanceIds.length) return null
-  const resultFiles = permissionInstanceIds.map((id) => join(RUNTIME_ROOT, `perm-${sanitize(id)}-${uuid}.result`))
-  _subagentSignalConsumers += 1
-  refreshSubagentSignalConsumerMarker()
-
-  const releaseSubagentConsumer = () => {
-    _subagentSignalConsumers = Math.max(0, _subagentSignalConsumers - 1)
-    refreshSubagentSignalConsumerMarker()
-  }
-
-  let detail = ''
-  if (toolName === 'Edit') {
-    detail = filePath + '\n' + (toolInput.old_string || '').substring(0, 200)
-  } else {
-    detail = filePath
-  }
-  const content = `🔐 **Sub-agent Permission**\nAgent: \`${agentId}\`\nTool: \`${toolName}\`\n\`\`\`\n${detail}\n\`\`\``
-
-  const body = {
-    content,
-    components: [{
-      type: 1,
-      components: [
-        { type: 2, style: 3, label: 'Allow', custom_id: 'perm-' + uuid + '-allow' },
-        { type: 2, style: 1, label: 'Session Allow', custom_id: 'perm-' + uuid + '-session' },
-        { type: 2, style: 4, label: 'Deny', custom_id: 'perm-' + uuid + '-deny' },
-      ]
-    }]
-  }
-
-  let msgResult
-  try {
-    msgResult = await discordApi('POST', '/api/v10/channels/' + channelId + '/messages', token, body)
-  } catch (err) {
-    process.stderr.write(`[hook-pipe] discord POST failed: ${err?.message || err}\n`)
-    releaseSubagentConsumer()
-    return null
-  }
-  const messageId = msgResult?.id
-  if (!messageId) {
-    releaseSubagentConsumer()
-    return null
-  }
-
-  const hookStartedAt = Date.now()
-
-  const patchAndFinish = async (suffix, decisionJson) => {
-    try {
-      await discordApi('PATCH', '/api/v10/channels/' + channelId + '/messages/' + messageId, token, {
-        content: content + suffix,
-        components: []
-      })
-    } catch {}
-    for (const resultFile of resultFiles) {
-      try { unlinkSync(resultFile) } catch {}
-    }
-    releaseSubagentConsumer()
-    return decisionJson || null
-  }
-
-  const startTime = Date.now()
-  while (Date.now() - startTime < SUBAGENT_TIMEOUT_MS) {
-    await sleep(POLL_INTERVAL_MS)
-
-    const resultFile = resultFiles.find((file) => existsSync(file))
-    if (resultFile) {
-      let decision
-      try {
-        const result = readFileSync(resultFile, 'utf8').trim()
-        if (result === 'allow' || result === 'session') {
-          decision = makeDecision('allow')
-        } else {
-          decision = makeDecision('deny', 'Denied from Discord')
-        }
-      } catch {
-        decision = makeDecision('deny', 'Failed to read result')
-      }
-      return patchAndFinish('', decision)
-    }
-
-    const claimed = findAndClaimSignal(toolName, filePath, toolUseId, hookStartedAt)
-    if (claimed) {
-      return patchAndFinish('\n\n↩️ Resolved from terminal.', null)
-    }
-  }
-
-  return patchAndFinish(
-    '\n\n⚠️ Auto-denied due to timeout.',
-    makeDecision('deny', 'Timeout')
-  )
+  // Pi-like practical: Mixdog no longer opens Discord permission popups for
+  // subagent Edit/Write outside cwd. Native/role/tool guards still apply in
+  // their own layers; this hook simply stops adding an approval workflow.
+  return null
 }
 
 // ── statusline handler (via dynamic ESM import) ──────────────────────────────
@@ -587,11 +433,10 @@ async function handleSessionStartPart(args, payload) {
 // ── SessionStart: clear-active-session handler ───────────────────────────────
 
 function handleSessionStartClear() {
-  // Clear the active orchestrator session pointer so each Claude Code session
+  // Clear the active orchestrator session pointer so each Mixdog session
   // starts fresh. Stored sessions on disk are NOT deleted — only the pointer.
   try {
-    const dataDir = process.env.CLAUDE_PLUGIN_DATA || ''
-    if (!dataDir) return null
+    const dataDir = resolvePluginData()
     const target = join(dataDir, 'active-session.txt')
     try { unlinkSync(target) } catch {}
   } catch (err) {
@@ -691,7 +536,7 @@ export function startHookPipeServer() {
       if (payload && args.length > 0) payload._args = args
 
       // Per-request deadline: a hung handler would otherwise hold the hook
-      // client waiting for EOF forever, stalling Claude Code's hook step. Race
+      // client waiting for EOF forever, stalling the hook step. Race
       // dispatch against a real timer; on timeout, write the no-op fallback and
       // end the socket so the client unblocks.
       const dispatchTimeoutMs = payload ? dispatchTimeoutMsForPayload(payload) : DEFAULT_DISPATCH_TIMEOUT_MS

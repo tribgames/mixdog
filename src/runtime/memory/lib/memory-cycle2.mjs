@@ -6,7 +6,7 @@ function __mixdogMemoryLog(...args) {
 
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
-import { homedir as _homedir } from 'os'
+import { fileURLToPath } from 'url'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { callBridgeLlm } from './agent-ipc.mjs'
 import {
@@ -41,8 +41,7 @@ const isShiftFollowToken = (tok) => {
 }
 
 function resourceDir() {
-  if (process.env.CLAUDE_PLUGIN_ROOT) return process.env.CLAUDE_PLUGIN_ROOT
-  throw new Error('mixdog plugin root is required for prompt loading; standalone startup should initialize plugin-root compatibility env')
+  return process.env.MIXDOG_ROOT || fileURLToPath(new URL('../../../..', import.meta.url))
 }
 
 async function invokeLlm(prompt, mode, preset, timeout, llmCall = callBridgeLlm) {
@@ -521,7 +520,6 @@ export function loadCurrentRulesDigest() {
   const now = Date.now()
   if (_currentRulesDigest && now - _currentRulesDigestTs < 60_000) return _currentRulesDigest
   const sources = [
-    join(_homedir(), '.claude', 'CLAUDE.md'),
     join(resourceDir(), 'rules', 'shared', '00-language.md'),
     join(resourceDir(), 'rules', 'shared', '01-general.md'),
     join(resourceDir(), 'rules', 'shared', '01-tool.md'),

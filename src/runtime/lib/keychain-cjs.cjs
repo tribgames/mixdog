@@ -32,10 +32,9 @@ function run(cmd, args, opts) {
     // windowsHide + stdio:['ignore','pipe','pipe'] keeps powershell.exe
     // consoleless during DPAPI ops. Without these flags every keychain
     // read/write flashes a conhost window: setup-html's loaders call
-    // /agent/config, /memory/auth, /search/config which each invoke
-    // hasOpenAIOAuthCredentials / hasAnthropicOAuthCredentials /
-    // getSearchApiKey, and each of those triggers one powershell.exe
-    // spawn — users saw 8-15 console flashes during config-UI page load.
+    // /agent/config and /memory/auth, and each credential probe can trigger
+    // one powershell.exe spawn — users saw 8-15 console flashes during
+    // config-UI page load.
     // Default opts go BEFORE the spread so callers can still override.
     const result = spawnSync(cmd, args, {
         encoding: 'utf8',

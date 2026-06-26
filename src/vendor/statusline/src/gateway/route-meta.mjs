@@ -14,12 +14,6 @@ import { CLAUDE_CURRENT_MODE } from './claude-current.mjs';
 const GATEWAY_USAGE_FILE = 'gateway-usage.local.json';
 const MAX_USAGE_EVENTS = 1000;
 const USAGE_EVENT_TTL_MS = 35 * 24 * 60 * 60_000;
-const OPENCODE_GO_WINDOWS = Object.freeze([
-  Object.freeze({ label: '5H', limitUsd: 12, durationMs: 5 * 60 * 60_000, source: 'opencode-go-local' }),
-  Object.freeze({ label: '7D', limitUsd: 30, durationMs: 7 * 24 * 60 * 60_000, source: 'opencode-go-local' }),
-  Object.freeze({ label: 'M', limitUsd: 60, durationMs: 30 * 24 * 60 * 60_000, source: 'opencode-go-local' }),
-]);
-
 let routeSectionKey = null;
 let routeSectionStartedAt = 0;
 
@@ -603,9 +597,6 @@ function rawUsageWindows(rawUsage) {
 }
 
 function providerDefaultWindows(routeInfo) {
-  if (routeInfo?.provider === 'opencode-go') {
-    return OPENCODE_GO_WINDOWS.map(w => ({ ...w }));
-  }
   return [];
 }
 

@@ -1,6 +1,6 @@
 /**
- * Anthropic OAuth provider — uses Claude Code's OAuth credentials
- * (~/.claude/.credentials.json) for Claude Max subscription access.
+ * Anthropic OAuth provider — uses Mixdog-owned local OAuth credentials
+ * for Claude Max subscription access.
  *
  * Raw HTTP + SSE streaming, reuses message/tool conversion patterns
  * from anthropic.mjs. Bridge-trace instrumented.
@@ -17,6 +17,7 @@ import {
 } from '../bridge-trace.mjs';
 import { createAbortController } from '../../../shared/abort-controller.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { sanitizeToolPairs, sanitizeAnthropicContentPairs } from '../session/context-utils.mjs';
@@ -39,8 +40,7 @@ import { normalizeContentForAnthropic } from './media-normalization.mjs';
 
 // --- Model catalog cache helpers ---
 // Disk-backed cache so repeated process starts (cron, tool calls) don't
-// hammer /v1/models. 24h TTL is the same cadence Claude Code itself uses
-// for its internal model discovery.
+// hammer /v1/models. 24h TTL matches the upstream client cadence.
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
 // SSE progress emits (per-request "Response …" and "Done:" lines). Off by default.
 const SSE_VERBOSE = process.env.MIXDOG_SSE_VERBOSE === '1';
@@ -67,9 +67,9 @@ let _inMemoryCatalog = null;
 let _modelRefreshInFlight = null;
 let _oauthRefreshInFlight = null;
 // No in-memory credential cache: the canonical credentials file is the
-// single source of truth. Cross-process refresh_token rotation by host
-// Claude Code (or another concurrent reader) would invalidate any cached
-// copy here and produce invalid_grant on the next refresh. Reading from
+// single source of truth. Cross-process refresh_token rotation by another
+// concurrent reader would invalidate any cached copy here and produce
+// invalid_grant on the next refresh. Reading from
 // disk on demand is cheap (one stat + one small JSON parse) and removes
 // the cache-vs-disk skew entirely.
 
@@ -217,7 +217,8 @@ function assertSafeTokenURL(rawURL) {
 }
 const TOKEN_URL = assertSafeTokenURL(process.env.ANTHROPIC_OAUTH_TOKEN_URL || 'https://console.anthropic.com/v1/oauth/token');
 const ANTHROPIC_VERSION = '2023-06-01';
-const DEFAULT_CREDENTIALS_PATH = join(homedir(), '.claude', '.credentials.json');
+const DEFAULT_CREDENTIALS_PATH = join(resolvePluginData(), 'anthropic-oauth-credentials.json');
+const CLAUDE_CODE_CREDENTIALS_PATH = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), '.credentials.json');
 const CLAUDE_CODE_CLIENT_ID = process.env.ANTHROPIC_OAUTH_CLIENT_ID || '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
 const CLAUDE_AI_AUTHORIZE_URL = 'https://claude.com/cai/oauth/authorize';
@@ -239,18 +240,14 @@ const OAUTH_TOKEN_TIMEOUT_MS = 30_000;
 
 // Anthropic OAuth contract for first-party Claude Code clients.
 // Opus/Sonnet requests are gated on a specific system-prompt prefix.
-// Our plugin ONLY runs inside Claude Code (marketplace-distributed),
-// so declaring ourselves as Claude Code is literally accurate — not
-// impersonation. Haiku is not gated and ignores this prefix.
+// Mixdog keeps that upstream client contract for OAuth routing. Haiku is not
+// gated and ignores this prefix.
 const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude.";
 const OAUTH_BETA_HEADERS = 'oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,extended-cache-ttl-2025-04-11';
 const DEFAULT_CLI_VERSION = '2.1.77';
 
 function resolveCliVersion() {
-    // Claude Code sets CLAUDE_CODE_VERSION in the plugin subprocess env.
-    // Fallback exists so unit tests and older Claude Code versions still work.
-    return process.env.CLAUDE_CODE_VERSION
-        || process.env.CLAUDE_CODE_EXECPATH_VERSION
+    return process.env.MIXDOG_CLI_VERSION
         || DEFAULT_CLI_VERSION;
 }
 
@@ -344,20 +341,11 @@ function _pushUnique(list, value) {
     if (!list.includes(value)) list.push(value);
 }
 
-function _claudeCredentialsFromPluginRoot(root) {
-    const clean = String(root || '').replace(/\\/g, '/');
-    const marker = '/.claude/plugins/';
-    const idx = clean.indexOf(marker);
-    if (idx < 0) return null;
-    return `${clean.slice(0, idx)}/.claude/.credentials.json`;
-}
-
 function credentialCandidates() {
     const paths = [];
-    _pushUnique(paths, process.env.CLAUDE_CODE_CREDENTIALS_PATH);
-    _pushUnique(paths, process.env.CLAUDE_CREDENTIALS_PATH);
-    _pushUnique(paths, _claudeCredentialsFromPluginRoot(process.env.CLAUDE_PLUGIN_ROOT));
+    _pushUnique(paths, process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH);
     _pushUnique(paths, DEFAULT_CREDENTIALS_PATH);
+    _pushUnique(paths, CLAUDE_CODE_CREDENTIALS_PATH);
     return paths;
 }
 
@@ -400,15 +388,13 @@ function _loadCredentialsFile(path) {
 // Cross-process safe write-back. Lockfile (O_EXCL) prevents two refreshers
 // from clobbering each other; atomic rename guarantees readers see either
 // the old or new file, never a half-written one. Used so refresh_token
-// rotation propagates to host Claude Code (and any other reader of the
-// same credentials file) instead of leaving them stuck on the previous
+// rotation propagates to other readers of the same credentials file instead of
+// leaving them stuck on the previous
 // refresh_token. Mirrors openai-oauth.mjs:saveTokens.
 function _saveCredentialsFile(path, raw) {
-    // No `secret: true`: this is the HOST-owned credentials file (~/.claude/
-    // .credentials.json) — mixdog only writes back the rotated refresh_token,
-    // it must not re-permission a file Claude Code owns. (Forcing an owner-
-    // only ACL here also used to clamp the parent ~/.claude and wipe the
-    // whole tree's DACLs — see atomic-file.mjs secret-write note.)
+    // No `secret: true`: this may be an externally-owned credentials file.
+    // Mixdog only writes back the rotated refresh_token and must not rewrite
+    // parent directory permissions.
     writeJsonAtomicSync(path, raw, { lock: true, fsyncDir: true, mode: 0o600 });
 }
 
@@ -447,14 +433,14 @@ export function describeAnthropicOAuthCredentials() {
     try {
         const creds = loadCredentials();
         if (!creds?.accessToken) {
-            return { authenticated: false, status: 'Not Set', detail: '~/.claude/.credentials.json' };
+            return { authenticated: false, status: 'Not Set', detail: DEFAULT_CREDENTIALS_PATH };
         }
         const hasInferenceScope = Array.isArray(creds.scopes) && creds.scopes.includes('user:inference');
         const hasRefresh = Boolean(creds.refreshToken);
         const expiresAt = _normalizeExpiresAt(creds.expiresAt);
         const expiring = expiresAt > 0 && expiresAt < Date.now() + TOKEN_REFRESH_SKEW_MS;
         const expired = expiresAt > 0 && expiresAt <= Date.now();
-        const detail = creds.path || '~/.claude/.credentials.json';
+        const detail = creds.path || DEFAULT_CREDENTIALS_PATH;
         if (!hasInferenceScope) {
             return { authenticated: false, status: 'Missing Scope', detail, expiresAt };
         }
@@ -555,8 +541,8 @@ async function refreshOAuthCredentials(creds) {
             scopes: Array.isArray(json?.scope) ? json.scope : creds.scopes,
             subscriptionType: creds.subscriptionType,
         };
-        // Persist rotated tokens back so host Claude Code and any other
-        // reader of the same credentials file pick up the new refresh_token.
+        // Persist rotated tokens back so any other reader of the same
+        // credentials file picks up the new refresh_token.
         // Without this, host's next refresh invalidates our copy and we
         // loop on invalid_grant.
         if (creds.path && existsSync(creds.path)) {
@@ -616,7 +602,7 @@ function appendCacheControl(content, ttl = CACHE_TTL_VOLATILE) {
 
 // Anthropic's tool spec forbids oneOf / allOf / anyOf at the TOP level of
 // input_schema (nested usage inside properties is allowed). External MCP
-// servers (e.g. Claude Code's built-in tools) sometimes emit such schemas.
+// servers sometimes emit such schemas.
 // Convert them to a flat object schema so the API never sees a 400.
 function _sanitizeInputSchema(schema, toolName) {
     if (!schema || typeof schema !== 'object') {
@@ -906,7 +892,7 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
     let idleReject = null;
 
     const resetIdleTimer = () => {
-        // OFF by default (matches Claude Code native gate). When disabled the
+        // OFF by default. When disabled the
         // idle timer never arms, so the stream is never killed on inactivity;
         // the bridge stall watchdog (600s) remains the dead-stream backstop.
         if (!PROVIDER_SSE_IDLE_WATCHDOG_ENABLED) return;

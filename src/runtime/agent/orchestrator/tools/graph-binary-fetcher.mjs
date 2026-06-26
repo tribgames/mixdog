@@ -20,12 +20,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
 
-// Bundled fallback manifest shipped with the plugin. CI rewrites this on each
+// Bundled fallback manifest shipped with Mixdog. CI rewrites this on each
 // release with the per-platform asset URLs + sha256.
 const BUNDLED_MANIFEST_PATH = fileURLToPath(new URL('./graph-manifest.json', import.meta.url));
 
 // GitHub raw fallback — only consulted when neither cached nor bundled exists.
-const MANIFEST_URL = 'https://raw.githubusercontent.com/trib-plugin/mixdog/main/src/agent/orchestrator/tools/graph-manifest.json';
+const MANIFEST_URL = 'https://raw.githubusercontent.com/tribgames/mixdog/main/src/runtime/agent/orchestrator/tools/graph-manifest.json';
 
 function binSuffix() {
   return process.platform === 'win32' ? '.exe' : '';

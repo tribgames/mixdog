@@ -65,7 +65,7 @@ export function buildGrepRgArgs(parts) {
         onlyMatching,
         fixedStrings = false,
     } = parts;
-    // `--hidden` (CC parity): search dotfiles/dot-dirs (.github, .claude) that
+    // `--hidden`: search dotfiles/dot-dirs (.github, .mixdog) that
     // rg skips by default. The DEFAULT_IGNORE_GLOBS below still exclude .git and
     // the other noise dirs, so this only surfaces user-relevant hidden paths.
     const rgArgs = ['--color', 'never', '--hidden'];

@@ -1,10 +1,10 @@
 /**
  * components/TextEntryPanel.jsx — inline editor used inside picker workflows.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Box, Text, useInput, usePaste, useStdin } from 'ink';
+import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
-import { normalizeLineEndings } from '../safe-text.mjs';
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
@@ -29,15 +29,46 @@ function nextOffset(text, offset) {
   return text.length;
 }
 
-function normalizeInput(text) {
-  return normalizeLineEndings(text);
+function caretPosition(text, offset, width) {
+  const before = text.slice(0, offset);
+  let row = 0;
+  let col = 0;
+
+  for (const { segment } of graphemeSegmenter.segment(before)) {
+    if (segment === '\n') {
+      row += 1;
+      col = 0;
+      continue;
+    }
+
+    const segmentWidth = stringWidth(segment);
+    if (segmentWidth === 0) continue;
+
+    if (col > 0 && col + segmentWidth > width) {
+      row += 1;
+      col = 0;
+    }
+
+    col += segmentWidth;
+    if (col >= width) {
+      row += Math.floor(col / width);
+      col %= width;
+    }
+  }
+
+  return { row, col };
 }
 
-function truncateMiddle(text, width) {
-  const value = String(text || '');
-  if (value.length <= width) return value;
-  if (width <= 1) return '…'.repeat(Math.max(0, width));
-  return `…${value.slice(-(width - 1))}`;
+function insertText(draft, input) {
+  if (!input) return draft;
+  return {
+    value: draft.value.slice(0, draft.cursor) + input + draft.value.slice(draft.cursor),
+    cursor: draft.cursor + input.length,
+  };
+}
+
+function normalizeInput(text) {
+  return String(text ?? '').replace(/\r\n?/g, '\n');
 }
 
 export function TextEntryPanel({
@@ -47,41 +78,55 @@ export function TextEntryPanel({
   mask = false,
   columns = 80,
   actionLabel = 'save',
+  promptLabel = '> ',
   onSubmit,
   onCancel,
 }) {
   const [draft, setDraft] = useState(() => ({ value: String(initialValue || ''), cursor: String(initialValue || '').length }));
+  const [, bumpCursorAnchorEpoch] = useState(0);
   const draftRef = useRef(draft);
+  const boxRef = useRef(null);
+  const cursorEnabledRef = useRef(false);
   const { isRawModeSupported } = useStdin();
   draftRef.current = draft;
 
-  useEffect(() => {
-    const value = String(initialValue || '');
-    setDraft({ value, cursor: value.length });
-  }, [title, initialValue]);
+  const flushImmediate = () => {
+    let node = boxRef.current;
+    for (let i = 0; node && i < 64; i += 1) {
+      if (node.nodeName === 'ink-root') {
+        if (typeof node.onImmediateRender === 'function') node.onImmediateRender();
+        return;
+      }
+      node = node.parentNode;
+    }
+  };
+
+  const commitDraft = (next) => {
+    draftRef.current = next;
+    setDraft(next);
+    queueMicrotask(flushImmediate);
+  };
 
   const updateDraft = (fn) => {
-    setDraft((current) => {
-      const next = fn(current);
-      draftRef.current = next;
-      return next;
-    });
+    commitDraft(fn(draftRef.current));
   };
+
+  useEffect(() => {
+    const value = String(initialValue || '');
+    commitDraft({ value, cursor: value.length });
+  }, [title, initialValue]);
 
   const submit = () => {
     const accepted = onSubmit?.(draftRef.current.value) !== false;
     if (accepted) {
-      setDraft({ value: '', cursor: 0 });
+      commitDraft({ value: '', cursor: 0 });
     }
   };
 
   usePaste((text) => {
     const pasted = normalizeInput(text);
     if (!pasted) return;
-    updateDraft((d) => ({
-      value: d.value.slice(0, d.cursor) + pasted + d.value.slice(d.cursor),
-      cursor: d.cursor + pasted.length,
-    }));
+    updateDraft((d) => insertText(d, pasted));
   }, { isActive: isRawModeSupported });
 
   useInput((input, key) => {
@@ -94,10 +139,7 @@ export function TextEntryPanel({
     }
     const pasteFallback = rawInput.includes('\n') && (rawInput.length > 1 || !key.return);
     if (pasteFallback) {
-      updateDraft((d) => ({
-        value: d.value.slice(0, d.cursor) + rawInput + d.value.slice(d.cursor),
-        cursor: d.cursor + rawInput.length,
-      }));
+      updateDraft((d) => insertText(d, rawInput));
       return;
     }
     if (key.return || rawInput === '\n') {
@@ -121,7 +163,7 @@ export function TextEntryPanel({
       return;
     }
     if (key.ctrl && input === 'u') {
-      updateDraft(() => ({ value: '', cursor: 0 }));
+      commitDraft({ value: '', cursor: 0 });
       return;
     }
     if (key.backspace) {
@@ -141,35 +183,54 @@ export function TextEntryPanel({
       return;
     }
     if (rawInput && !key.ctrl && !key.meta) {
-      updateDraft((d) => ({
-        value: d.value.slice(0, d.cursor) + rawInput + d.value.slice(d.cursor),
-        cursor: d.cursor + rawInput.length,
-      }));
+      updateDraft((d) => insertText(d, rawInput));
     }
   }, { isActive: isRawModeSupported });
 
+  const installCursorAnchor = () => {
+    if (!boxRef.current || boxRef.current.internal_cursorAnchor) return false;
+    boxRef.current.internal_cursorAnchor = (yogaNode) => {
+      if (!cursorEnabledRef.current) return null;
+      const d = draftRef.current;
+      const labelWidth = stringWidth(String(promptLabel || ''));
+      const w = Math.max(1, (yogaNode?.getComputedWidth?.() ?? columns) - labelWidth);
+      const pos = caretPosition(d.value, d.cursor, w);
+      return pos.row === 0 ? { row: 0, col: labelWidth + pos.col } : pos;
+    };
+    return true;
+  };
+
+  cursorEnabledRef.current = isRawModeSupported;
+  installCursorAnchor();
+
+  useLayoutEffect(() => {
+    if (!installCursorAnchor()) return;
+    bumpCursorAnchorEpoch((epoch) => epoch + 1);
+    queueMicrotask(flushImmediate);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!isRawModeSupported) return;
+    queueMicrotask(flushImmediate);
+  }, [isRawModeSupported, title]);
+
   const visibleValue = mask ? draft.value.replace(/[^\n]/g, '*') : draft.value;
-  const before = visibleValue.slice(0, draft.cursor);
-  const cursorChar = visibleValue[draft.cursor] || ' ';
-  const after = visibleValue.slice(draft.cursor + 1);
-  const width = Math.max(8, columns - 8);
-  const shownBefore = truncateMiddle(before.replace(/\n/g, ' '), Math.max(0, width - after.length - 1));
-  const shownAfter = after.replace(/\n/g, ' ');
+  const renderedValue = draft.cursor === draft.value.length ? `${visibleValue} ` : visibleValue;
+  const action = String(actionLabel || 'save').trim() || 'save';
+  const helpText = `Enter to ${action} · Esc to cancel`;
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%">
       <Box borderStyle="round" borderColor={theme.promptBorder} paddingX={1} width="100%" flexDirection="column">
         <Box flexDirection="row" justifyContent="space-between">
           <Text color={theme.panelTitle}>{title}</Text>
-          <Text color={theme.subtle}>Enter {actionLabel} - Esc exit/back</Text>
+          <Text color={theme.subtle}>{helpText}</Text>
         </Box>
-        {hint ? <Text color={theme.inactive}>{hint}</Text> : <Text color={theme.inactive}> </Text>}
-        <Text>
-          <Text color={theme.inactive}>{'> '}</Text>
-          <Text color={theme.text}>{shownBefore}</Text>
-          <Text color={theme.inverseText} backgroundColor={theme.promptBorder}>{cursorChar === '\n' ? ' ' : cursorChar}</Text>
-          <Text color={theme.text}>{shownAfter}</Text>
-        </Text>
+        {hint ? <Text color={theme.subtle}>{hint}</Text> : <Text color={theme.subtle}> </Text>}
+        <Box ref={boxRef} flexDirection="row" width="100%" backgroundColor={theme.background}>
+          <Text color={theme.inactive}>{promptLabel}</Text>
+          <Text color={theme.text} wrap="hard">{renderedValue}</Text>
+        </Box>
       </Box>
     </Box>
   );

@@ -1,12 +1,18 @@
 // --- Tool definitions for external models ---
 //
 // Ordered to match the previous hand-maintained tools.json entries
-// (read / edit / write / bash / grep / glob) so
+// (read / edit / write / shell / grep / glob) so
 // build-tools-manifest reproduces the legacy ordering.
 // CANONICAL SOURCE for all tool annotations (compressible, readOnlyHint,
 // destructiveHint, etc.). tools.json is GENERATED from this array by
 // dev/scripts/build-tools-manifest.mjs — do not edit annotations in tools.json
 // directly. To verify sync: node dev/scripts/check-tools-sync.mjs
+import {
+    TOOL_ASYNC_EXECUTION_CONTRACT,
+    TOOL_MANUAL_CONTROL_CONTRACT,
+    executionModeSchemaDescription,
+} from '../../../../shared/background-tasks.mjs';
+
 export const BUILTIN_TOOLS = [
     {
         name: 'read',
@@ -88,10 +94,10 @@ export const BUILTIN_TOOLS = [
         inputSchema: { type: 'object', properties: {} },
     },
     {
-        name: 'bash',
+        name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: "Shell for git/build/test/run only. Do NOT use shell grep/cat/head for source; use code_graph/grep/read/list/glob. Set `shell` explicitly: 'powershell' for PS, 'bash' for Git Bash/POSIX. Use cwd; omit empty workdir. Windows native shell does not support persistent/session_id. run_in_background works.",
+        description: `Run an OS shell command for git/build/test/run only. Do NOT use shell grep/cat/head for source; use code_graph/grep/read/list/glob. Set shell explicitly: 'powershell' for PowerShell or 'bash' for Git Bash/POSIX. Use cwd; omit empty workdir. Windows native shell does not support persistent/session_id. mode=async uses the shared background task system and returns task_id. ${TOOL_ASYNC_EXECUTION_CONTRACT}`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -100,7 +106,8 @@ export const BUILTIN_TOOLS = [
                 workdir: { type: 'string', description: 'Alias for cwd; omit if empty.' },
                 timeout: { type: 'number', description: 'Timeout in milliseconds.' },
                 merge_stderr: { type: 'boolean' },
-                run_in_background: { type: 'boolean' },
+                mode: { type: 'string', enum: ['sync', 'async'], description: executionModeSchemaDescription('sync') },
+                run_in_background: { type: 'boolean', description: `Legacy alias for mode=async. ${TOOL_ASYNC_EXECUTION_CONTRACT}` },
                 persistent: { type: 'boolean', description: 'Persistent shell mode; unsupported on Windows native shell.' },
                 session_id: { type: 'string', description: 'Persistent shell id; omit on Windows native shell.' },
                 create: { type: 'boolean', description: 'Allow creating a new persistent session for an explicit session_id.' },
@@ -111,19 +118,19 @@ export const BUILTIN_TOOLS = [
         },
     },
     {
-        name: 'job_wait',
-        title: 'Background Job Control',
-        annotations: { title: 'Background Job Control', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        description: 'Control a bash run_in_background job by job_id. action: wait (default) | peek | kill. Not for bridge_*/sess_* ids.',
+        name: 'task',
+        title: 'Background Task Control',
+        annotations: { title: 'Background Task Control', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        description: `Manual control for an async background task by task_id. action: list | status | read | wait | cancel. ${TOOL_MANUAL_CONTROL_CONTRACT} Not for bridge_*/sess_* ids.`,
         inputSchema: {
             type: 'object',
             properties: {
-                job_id: { type: 'string', description: 'job_id from bash with run_in_background:true.' },
-                action: { type: 'string', enum: ['wait', 'peek', 'kill'], description: 'wait (default) = block until done; peek = non-blocking status + output tail; kill = terminate.' },
-                timeout_ms: { type: 'number' },
-                poll_ms: { type: 'number' },
+                task_id: { type: 'string', description: 'task_id from shell mode=async. Use only for manual control; normal completion arrives as a notification.' },
+                action: { type: 'string', enum: ['list', 'status', 'read', 'wait', 'cancel'], description: 'Manual control only: list all visible tasks; status is non-blocking; read includes available result/output; wait blocks inside this one call until done/timeout; cancel terminates when the task supports it. Do not call repeatedly as a polling loop.' },
+                timeout_ms: { type: 'number', description: 'Maximum time for a single manual wait call. Prefer the completion notification instead of repeated waits.' },
+                poll_ms: { type: 'number', description: 'Internal polling interval used only inside one manual wait call.' },
             },
-            required: ['job_id'],
+            required: [],
         },
     },
     {

@@ -1,8 +1,0 @@
-{
-  "roles": [
-    { "name": "worker", "preset": "sonnet-high", "permission": "full" },
-    { "name": "heavy-worker", "preset": "opus-high", "permission": "full" },
-    { "name": "reviewer", "preset": "opus-xhigh", "permission": "full" },
-    { "name": "debugger", "preset": "opus-xhigh", "permission": "full" }
-  ]
-}

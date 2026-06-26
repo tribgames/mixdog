@@ -1,7 +1,7 @@
 // Cross-platform managed-launcher control channel.
 //
 // Replaces the Windows-only AttachConsole + WriteConsoleInputW front-injection
-// path. A `mixdog`-launched Claude Code session can be "managed": the launcher
+// path. A `mixdog`-launched session can be "managed": the launcher
 // (setup/mixdog.mjs) owns the child process and exposes a file-based
 // command queue under the runtime root. Internal commands (/clear,
 // /reload-plugins) are enqueued by the MCP server (inject_command / inject_input)
@@ -71,7 +71,7 @@ export function launcherQueueDir(launchId) {
 // order: explicit override → fresh live build → local cargo release build →
 // shipped prebuilt.
 // Returns an absolute path when present, else null (JS fallback engages).
-const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT
+const PLUGIN_ROOT = process.env.MIXDOG_ROOT
   || resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const NATIVE_LAUNCH_DEFAULT_BIN = join(
   PLUGIN_ROOT,

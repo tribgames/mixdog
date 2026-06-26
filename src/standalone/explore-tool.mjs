@@ -1,25 +1,40 @@
 import { isAbsolute, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import {
+  TOOL_ASYNC_EXECUTION_CONTRACT,
+  TOOL_SYNC_EXECUTION_CONTRACT,
+  cancelBackgroundTask,
+  executionModeSchemaDescription,
+  getBackgroundTask,
+  renderBackgroundTask,
+  renderBackgroundTaskList,
+  resolveExecutionMode,
+  startBackgroundTask,
+  taskIdFromArgs,
+} from '../runtime/shared/background-tasks.mjs';
 import { makeBridgeLlm } from '../runtime/agent/orchestrator/smart-bridge/bridge-llm.mjs';
 
-// Ported faithfully from the original mixdog tool-defs.mjs `explore` entry.
+// Ported from the original mixdog tool-defs.mjs `explore` entry.
 // `aiWrapped` is dropped: in the standalone build there is no aiWrapped
 // dispatch hub — execution is wired directly in the runtime executor below
-// via makeBridgeLlm. The schema + description are kept verbatim so the model's
-// usage guidance matches the original intent.
+// via makeBridgeLlm. The standalone surface is synchronous: it returns a
+// bounded locator result in this tool call.
 export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: 'Broad-scope locator only; returns unverified leads. Use code_graph/grep/glob first when any symbol, term, file kind, or config clue exists. Use explore only after direct narrowing fails or topics are unrelated. One short location question.',
+  description: `Broad-scope locator only; returns unverified leads. ${TOOL_SYNC_EXECUTION_CONTRACT} ${TOOL_ASYNC_EXECUTION_CONTRACT} Use code_graph/grep/glob first when any symbol, term, file kind, or config clue exists. Use explore only after direct narrowing fails or topics are unrelated. One short location question.`,
   inputSchema: {
     type: 'object',
     properties: {
       query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'One short location question, or an array only for unrelated topics. Do not use for a known symbol/term/config key; use code_graph/grep first. Never pass a whole brief/context dump.' },
       cwd: { type: 'string' },
-      background: { type: 'boolean', description: 'Lead default true (answer pushed via channel, avoids the 120s sync cap); bridge workers run sync.' },
+      mode: { type: 'string', enum: ['sync', 'async'], description: executionModeSchemaDescription('sync') },
+      action: { type: 'string', enum: ['run', 'list', 'status', 'read', 'cancel'], description: 'Default run. list/status/read/cancel are manual recovery controls for async tasks.' },
+      task_id: { type: 'string', description: 'Shared background task id for status/read/cancel.' },
+      background: { type: 'boolean', description: 'Legacy alias for mode=async.' },
     },
-    required: ['query'],
+    required: [],
     additionalProperties: false,
   },
 };
@@ -119,6 +134,33 @@ function fail(msg) {
   return { content: [{ type: 'text', text: `[explore error] ${msg}` }], isError: true };
 }
 
+function clean(value) {
+  return String(value ?? '').trim();
+}
+
+function responseText(response) {
+  if (typeof response === 'string') return response;
+  const parts = Array.isArray(response?.content) ? response.content : [];
+  const text = parts
+    .filter((part) => part?.type === 'text')
+    .map((part) => part.text)
+    .join('\n');
+  return text || JSON.stringify(response, null, 2);
+}
+
+function controlExploreTask(action, args, ctx = {}) {
+  if (action === 'list') return ok(renderBackgroundTaskList({ surface: 'explore', context: ctx }));
+  const taskId = taskIdFromArgs(args);
+  if (!taskId) return fail('task_id is required');
+  const task = getBackgroundTask(taskId, { surface: 'explore', context: ctx });
+  if (!task) return fail(`task not found: ${taskId}`);
+  if (action === 'cancel') {
+    cancelBackgroundTask(taskId, 'cancelled by explore control');
+    return ok(renderBackgroundTask(task, { includeResult: true }));
+  }
+  return ok(renderBackgroundTask(task, { includeResult: action === 'read' }));
+}
+
 /**
  * Standalone explore executor.
  *
@@ -127,14 +169,40 @@ function fail(msg) {
  * hidden roles use. Runs query items concurrently (Promise.allSettled), then
  * aggregates the findings into one bounded text result.
  *
- * Standalone v1 deviation from the original: runs SYNC and returns the merged
- * text in-turn (no background channel-push). `background` is accepted but
- * ignored for now — flagged for Lead.
+ * Runs synchronously by default. With mode=async/background:true, registers a
+ * shared background task and delivers completion to the owner session.
  *
  * @param {object} args         — tool args ({ query, cwd, background }).
  * @param {object} ctx          — { callerCwd, callerSessionId }.
  */
 export async function runExplore(args = {}, ctx = {}) {
+  const action = clean(args.action || 'run').toLowerCase();
+  if (['list', 'status', 'read', 'cancel'].includes(action)) return controlExploreTask(action, args, ctx);
+
+  const mode = resolveExecutionMode(args, 'sync');
+  if (mode === 'async') {
+    const queries = normalizeExploreQueries(args.query);
+    if (queries.length === 0) return fail('query is required (one or more non-empty strings)');
+    const task = startBackgroundTask({
+      surface: 'explore',
+      operation: 'explore',
+      label: queries[0].replace(/\s+/g, ' ').slice(0, 120),
+      input: { query: args.query, cwd: args.cwd || null },
+      context: ctx,
+      resultType: 'explore_task_result',
+      renderResult: responseText,
+      run: async () => {
+        const response = await runExploreSync(args, ctx);
+        if (response?.isError) throw new Error(responseText(response));
+        return response;
+      },
+    });
+    return ok(renderBackgroundTask(task));
+  }
+  return runExploreSync(args, ctx);
+}
+
+async function runExploreSync(args = {}, ctx = {}) {
   const queries = normalizeExploreQueries(args.query);
   if (queries.length === 0) return fail('query is required (one or more non-empty strings)');
 

@@ -1,6 +1,7 @@
 import { readdirSync } from 'fs';
 import { basename, dirname, extname, isAbsolute, join, relative } from 'path';
 import { homedir } from 'os';
+import { resolvePluginData, mixdogRoot } from '../../../../shared/plugin-paths.mjs';
 
 // Suggest a sibling file the caller may have meant when the requested
 // path is missing: same stem with a different extension, or a same-name
@@ -84,16 +85,16 @@ export function findFileByBasename(searchRoot, fullPath, { limit = 3, maxDirs = 
 // this pass, read error bodies surface backslash paths that
 // break the forward-slash convention the rest of the tool output keeps.
 // Accepts an optional workDir to produce cwd-relative paths. This pass also
-// closes the R14 tool-result info-leak boundary: home dir / plugin root /
-// plugin data / runtime dir absolutes are rewritten into stable tokens so
+// closes the R14 tool-result info-leak boundary: home dir / Mixdog root /
+// Mixdog data / runtime dir absolutes are rewritten into stable tokens so
 // model-facing error bodies never carry environment-specific filesystem
 // segments. Full detail is retained in local logs upstream of this call.
 //
 // Replacement priority for any absolute path encountered:
 //   1. cwd-relative      (workDir set and path is inside workDir)
-//   2. <runtime>/...     (CLAUDE_PLUGIN_RUNTIME prefix)
-//   3. <plugin-data>/... (CLAUDE_PLUGIN_DATA prefix)
-//   4. <plugin-root>/... (CLAUDE_PLUGIN_ROOT prefix)
+//   2. <runtime>/...     (MIXDOG_RUNTIME_ROOT prefix)
+//   3. <mixdog-data>/... (Mixdog data dir)
+//   4. <mixdog-root>/...
 //   5. ~/...             (OS home directory prefix)
 //   6. forward-slash normalised absolute (Windows backslash → slash, no leak)
 //
@@ -105,9 +106,9 @@ export function findFileByBasename(searchRoot, fullPath, { limit = 3, maxDirs = 
 export function normalizeErrorMessage(msg, workDir) {
     if (typeof msg !== 'string') return msg;
     const home = homedir().replace(/\\/g, '/');
-    const pluginRoot = (process.env.CLAUDE_PLUGIN_ROOT || '').replace(/\\/g, '/');
-    const pluginData = (process.env.CLAUDE_PLUGIN_DATA || '').replace(/\\/g, '/');
-    const runtimeDir = (process.env.CLAUDE_PLUGIN_RUNTIME || '').replace(/\\/g, '/');
+    const pluginRoot = mixdogRoot().replace(/\\/g, '/');
+    const pluginData = resolvePluginData().replace(/\\/g, '/');
+    const runtimeDir = (process.env.MIXDOG_RUNTIME_ROOT || '').replace(/\\/g, '/');
     const cwd = typeof workDir === 'string' && workDir ? workDir.replace(/\\/g, '/') : '';
 
     const redact = (raw) => {
@@ -124,10 +125,10 @@ export function normalizeErrorMessage(msg, workDir) {
             return `<runtime>${fwd.slice(runtimeDir.length)}`;
         }
         if (pluginData && (fwd === pluginData || fwd.startsWith(pluginData + '/'))) {
-            return `<plugin-data>${fwd.slice(pluginData.length)}`;
+            return `<mixdog-data>${fwd.slice(pluginData.length)}`;
         }
         if (pluginRoot && (fwd === pluginRoot || fwd.startsWith(pluginRoot + '/'))) {
-            return `<plugin-root>${fwd.slice(pluginRoot.length)}`;
+            return `<mixdog-root>${fwd.slice(pluginRoot.length)}`;
         }
         if (home && (fwd === home || fwd.startsWith(home + '/'))) {
             return `~${fwd.slice(home.length)}`;

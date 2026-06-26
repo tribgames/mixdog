@@ -7,6 +7,12 @@
  */
 import { performance } from 'node:perf_hooks';
 import { SPINNER_VERBS } from './spinner-verbs.mjs';
+import {
+  classifyToolCategory,
+  formatAggregateDetail,
+  summarizeToolResult,
+} from '../runtime/shared/tool-surface.mjs';
+import { presentErrorText } from '../runtime/shared/err-text.mjs';
 
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
 const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
@@ -95,7 +101,116 @@ function formatIdleDuration(ms) {
   const value = Math.max(0, Number(ms) || 0);
   if (value >= 3_600_000 && value % 3_600_000 === 0) return `${value / 3_600_000}h`;
   if (value >= 60_000) return `${Math.round(value / 60_000)}m`;
-  return `${Math.round(value / 1000)}s`;
+  if (value < 1_000) return '';
+  return `${Math.floor(value / 1000)}s`;
+}
+
+const FAILED_NOTICE_ACTIONS = new Map([
+  ['api key save', 'save API key'],
+  ['auth-forget', 'forget auth'],
+  ['auto-clear', 'update auto-clear'],
+  ['autoclear', 'update auto-clear'],
+  ['bridge', 'run bridge command'],
+  ['channels', 'load channels'],
+  ['channels update', 'update channels'],
+  ['clear', 'clear chat'],
+  ['compact', 'compact context'],
+  ['copy', 'copy'],
+  ['core memory', 'load core memory'],
+  ['cwd', 'update working directory'],
+  ['effort switch', 'switch effort'],
+  ['fast', 'update fast mode'],
+  ['hook rule update', 'update hook rule'],
+  ['hook toggle', 'toggle hook'],
+  ['hook update', 'update hook'],
+  ['hooks status', 'load hooks'],
+  ['local provider update', 'update local provider'],
+  ['mcp add', 'add MCP server'],
+  ['mcp reconnect', 'reconnect MCP server'],
+  ['mcp status', 'load MCP status'],
+  ['mcp toggle', 'toggle MCP server'],
+  ['memory', 'run memory command'],
+  ['memory status', 'load memory status'],
+  ['model save', 'save model'],
+  ['model switch', 'switch model'],
+  ['oauth code', 'finish OAuth login'],
+  ['oauth login', 'start OAuth login'],
+  ['OpenAI usage auth save', 'save OpenAI usage auth'],
+  ['OpenCode Go usage auth save', 'save OpenCode Go usage auth'],
+  ['plugin add', 'add plugin'],
+  ['plugin MCP enable', 'enable plugin MCP'],
+  ['plugin uninstall', 'uninstall plugin'],
+  ['plugin update', 'update plugin'],
+  ['plugins status', 'load plugins'],
+  ['providers', 'load providers'],
+  ['recall', 'run recall'],
+  ['resume', 'resume chat'],
+  ['schedule toggle', 'toggle schedule'],
+  ['setup save', 'save setup'],
+  ['settings update', 'update settings'],
+  ['skill add', 'add skill'],
+  ['skills status', 'load skills'],
+  ['tools status', 'load tool status'],
+  ['usage', 'load usage'],
+  ['webhook toggle', 'toggle webhook'],
+  ['workflow switch', 'switch workflow'],
+]);
+
+function polishNoticeAction(action) {
+  const value = String(action || '').trim();
+  if (!value) return 'finish';
+  const key = value.toLowerCase();
+  for (const [candidate, replacement] of FAILED_NOTICE_ACTIONS.entries()) {
+    if (candidate.toLowerCase() === key) return replacement;
+  }
+  const suffixes = [
+    [' save', 'save'],
+    [' switch', 'switch'],
+    [' update', 'update'],
+    [' toggle', 'toggle'],
+    [' reconnect', 'reconnect'],
+    [' enable', 'enable'],
+    [' uninstall', 'uninstall'],
+    [' add', 'add'],
+  ];
+  for (const [suffix, verb] of suffixes) {
+    if (!key.endsWith(suffix)) continue;
+    const subject = value.slice(0, -suffix.length).trim();
+    return subject ? `${verb} ${subject}` : verb;
+  }
+  return value;
+}
+
+function sentenceStart(text) {
+  const value = String(text || '').trim();
+  return value ? `${value[0].toUpperCase()}${value.slice(1)}` : value;
+}
+
+function polishNoticeText(text) {
+  let value = String(text ?? '').trim().replace(/^✓\s*/, '');
+  if (!value) return '';
+  const error = /^error\s*:\s*(.+)$/i.exec(value);
+  if (error?.[1]) value = error[1].trim();
+  const couldNot = /^could not\s+(.+?)(?::\s*(.+))?$/i.exec(value);
+  if (couldNot) {
+    return couldNot[2]
+      ? `Couldn’t ${couldNot[1]}: ${couldNot[2]}`
+      : `Couldn’t ${couldNot[1]}.`;
+  }
+  const failed = /^(.+?)\s+failed(?::\s*(.+))?$/i.exec(value);
+  if (failed) {
+    const action = polishNoticeAction(failed[1]);
+    return failed[2] ? `Couldn’t ${action}: ${failed[2]}` : `Couldn’t ${action}.`;
+  }
+  const busy = /^(.+?)\s+already in progress\.?$/i.exec(value);
+  if (busy) return `${sentenceStart(polishNoticeAction(busy[1]))} is already running.`;
+  const required = /^(.+?)\s+is required(?:\s+for\s+(.+))?\.?$/i.exec(value);
+  if (required) {
+    const subject = required[1].trim();
+    const target = required[2]?.trim();
+    return `${subject}${target ? ` required for ${target}` : ' required'}.`;
+  }
+  return value;
 }
 
 function toolResultText(content) {
@@ -116,6 +231,14 @@ function toolResultText(content) {
   }
   if (typeof content === 'object' && typeof content.text === 'string') return content.text;
   try { return JSON.stringify(content); } catch { return String(content); }
+}
+
+function toolErrorDisplay(value, surface = 'tool') {
+  const text = presentErrorText(value, { surface });
+  if (/^(?:Search failed|Fetch failed|No first response|The .+ went stale|(?:Web search agent|Agent|Tool) (?:stopped|was cancelled))/i.test(text)) {
+    return text;
+  }
+  return /^error\s*:/i.test(text) ? text : `Error: ${text}`;
 }
 
 function toolCallId(call) {
@@ -155,6 +278,37 @@ function stripSyntheticAgentTags(text) {
     .trim();
 }
 
+function splitBridgeEnvelope(text) {
+  const value = String(text ?? '').trim();
+  if (!value) return { head: '', body: '' };
+  const match = /\n\s*\n/.exec(value);
+  if (!match) return { head: value, body: '' };
+  return {
+    head: value.slice(0, match.index).trim(),
+    body: value.slice(match.index + match[0].length).trim(),
+  };
+}
+
+function bridgeJobStatusText(parsed) {
+  if (!parsed) return '';
+  const parts = [];
+  if (parsed.status) parts.push(`status: ${parsed.status}`);
+  if (parsed.taskId) parts.push(`task_id: ${parsed.taskId}`);
+  return parts.join(' · ');
+}
+
+function bridgeJobResultText(text, parsed = parseBridgeJob(text)) {
+  const value = String(text ?? '').trim();
+  if (!value) return '';
+  if (parsed?.taskId) {
+    const { body } = splitBridgeEnvelope(value);
+    const cleanBody = stripSyntheticAgentTags(body);
+    if (cleanBody) return cleanBody;
+    return bridgeJobStatusText(parsed);
+  }
+  return stripSyntheticAgentTags(value) || value;
+}
+
 function bracketField(text, name) {
   const re = new RegExp(`^\\[${name}:\\s*([^\\]]*)\\]`, 'mi');
   return re.exec(String(text ?? ''))?.[1]?.trim() || '';
@@ -168,24 +322,36 @@ function parseSyntheticAgentMessage(text) {
     return {
       name: 'bridge',
       label: 'final',
-      args: { type: 'read', description: 'worker result' },
+      args: { type: 'read', description: 'agent result' },
       result: finalAnswer,
     };
   }
-  const shellJobId = bracketField(value, 'job');
-  if (shellJobId) {
+  const shellTaskId = bracketField(value, 'task_id');
+  if (shellTaskId) {
     const status = bracketField(value, 'status') || 'done';
     const exit = bracketField(value, 'exit');
     const command = bracketField(value, 'command');
     return {
-      name: 'bash',
+      name: 'shell',
       label: status,
-      args: { type: 'result', jobId: shellJobId, command },
+      args: { type: 'result', task_id: shellTaskId, command },
       result: value,
       isError: /^(failed|error|timeout|cancelled|killed)$/i.test(status) || (exit && exit !== '0' && exit !== 'n/a'),
     };
   }
-  if (/^<task-notification\b/i.test(value)) {
+  const bridgeJob = parseBridgeJob(value);
+  if (bridgeJob?.taskId) {
+    const label = bridgeJob.status || 'notification';
+    const result = bridgeJobResultText(value, bridgeJob);
+    return {
+      name: 'bridge',
+      label,
+      args: bridgeArgsWithResultMetadata({ type: bridgeJob.type || 'notification', description: 'agent notification' }, bridgeJob),
+      result: result || bridgeJobStatusText(bridgeJob) || 'agent notification',
+      isError: /^(failed|error|timeout|cancelled|killed)$/i.test(label),
+    };
+  }
+  if (/<task-notification\b/i.test(value)) {
     const status = textBetweenTag(value, 'status') || 'completed';
     const summary = textBetweenTag(value, 'summary') || `Agent ${status}`;
     const taskId = textBetweenTag(value, 'task-id');
@@ -222,100 +388,24 @@ function parseToolArgs(args) {
   return typeof args === 'object' ? args : {};
 }
 
-function toolGroupKey(name, args) {
-  const normalized = normalizeToolName(name);
-  switch (normalized) {
-    case 'read':
-    case 'view_image':
-    case 'read_mcp_resource':
-      return 'read';
-    case 'write':
-    case 'edit':
-    case 'apply_patch':
-      return 'update';
-    case 'grep':
-    case 'glob':
-    case 'search':
-    case 'tool_search':
-      return 'search';
-    case 'web_fetch':
-    case 'fetch':
-    case 'download_attachment':
-    case 'crawl':
-      return 'fetch';
-    case 'bash':
-    case 'bash_session':
-    case 'shell_command':
-    case 'job_wait':
-    case 'trigger_schedule':
-      return 'run';
-    case 'list':
-    case 'ls':
-      return 'list';
-    case 'memory':
-    case 'remember':
-    case 'save_memory':
-    case 'update_memory':
-    case 'recall_memory':
-    case 'recall':
-    case 'search_memories':
-      return 'memory';
-    case 'bridge':
-    case 'agent':
-    case 'task':
-      return 'agent';
-    case 'diagnostics':
-    case 'open_config':
-    case 'provider_status':
-    case 'channel_status':
-    case 'schedule_status':
-    case 'schedule_control':
-    case 'reload_config':
-    case 'list_mcp_resources':
-    case 'list_mcp_resource_templates':
-    case 'cwd':
-    case 'setup':
-      return 'setup';
-    case 'request_user_input':
-      return 'ask_user';
-    case 'update_plan':
-      return 'plan';
-    case 'reply':
-    case 'react':
-    case 'edit_message':
-    case 'activate_channel_bridge':
-    case 'inject_command':
-      return 'channel';
-    case 'code_graph': {
-      const a = parseToolArgs(args);
-      const mode = String(a.mode || a.action || '').toLowerCase();
-      if (mode === 'search' || mode === 'find_symbol' || mode === 'references' || mode === 'callers' || mode === 'callees') return 'search';
-      if (mode === 'prewarm' || mode === 'index' || mode === 'build' || mode === 'refresh') return 'setup';
-      return 'read';
-    }
-    default:
-      return `tool:${normalized}`;
-  }
-}
-
 const BRIDGE_JOB_POLL_MS = 2000;
 const BRIDGE_JOB_MAX_POLL_MS = 10 * 60_000;
 const yieldToRenderer = () => new Promise((resolve) => setImmediate(resolve));
 
 function parseBridgeJob(text) {
   const value = String(text || '');
-  const idMatch = /^bridge job:\s*(job_[^\s]+)/m.exec(value);
+  const idMatch = /^bridge task:\s*([^\s]+)/m.exec(value) || /^task_id:\s*([^\s]+)/m.exec(value);
   if (!idMatch) return null;
   const statusMatch = /^status:\s*([^\s(]+)/m.exec(value);
   const typeMatch = /^type:\s*(.+)$/m.exec(value);
   const targetMatch = /^target:\s*(.+)$/m.exec(value);
-  const roleMatch = /^role:\s*(.+)$/m.exec(value);
+  const roleMatch = /^(?:agent|role):\s*(.+)$/m.exec(value);
   const presetMatch = /^preset:\s*(.+)$/m.exec(value);
   const modelMatch = /^model:\s*([^/\s]+)\/(.+)$/m.exec(value);
   const effortMatch = /^effort:\s*(.+)$/m.exec(value);
   const fastMatch = /^fast:\s*(on|off|true|false)$/m.exec(value);
   return {
-    jobId: idMatch[1],
+    taskId: idMatch[1],
     status: (statusMatch?.[1] || '').toLowerCase(),
     type: (typeMatch?.[1] || '').trim(),
     target: (targetMatch?.[1] || '').trim(),
@@ -332,7 +422,7 @@ function bridgeArgsWithResultMetadata(args, parsed) {
   if (!parsed) return args;
   const next = { ...(args && typeof args === 'object' ? args : {}) };
   if (parsed.type) next.type = parsed.type;
-  if (parsed.jobId) next.jobId = parsed.jobId;
+  if (parsed.taskId) next.task_id = parsed.taskId;
   if (parsed.role) next.role = parsed.role;
   if (parsed.preset) next.preset = parsed.preset;
   if (parsed.provider) next.provider = parsed.provider;
@@ -344,16 +434,6 @@ function bridgeArgsWithResultMetadata(args, parsed) {
     if (target && !target.startsWith('sess_')) next.tag = target;
   }
   return next;
-}
-
-function extractBridgeJobReport(text) {
-  const value = String(text || '').trim();
-  if (!value) return '';
-  const parsed = parseBridgeJob(value);
-  if (!parsed || parsed.status !== 'done') return '';
-  const split = /\n\s*\n/.exec(value);
-  if (!split) return '';
-  return value.slice(split.index + split[0].length).trim();
 }
 
 export async function createEngineSession({
@@ -377,6 +457,7 @@ export async function createEngineSession({
   const runtime = await createMixdogSessionRuntime({ provider: providerName, model, toolMode });
   bootProfile('engine:create:runtime-ready', { ms: (performance.now() - startedAt).toFixed(1) });
   const cwd = runtime.cwd || process.cwd();
+  const stateStartedAt = performance.now();
   const autoClearState = () => runtime.getAutoClear?.() || runtime.autoClear || { enabled: true, idleMs: 60 * 60 * 1000 };
   const bridgeStatusState = () => {
     const status = runtime.bridgeStatus?.() || {};
@@ -399,8 +480,17 @@ export async function createEngineSession({
     effectiveContextWindowPercent: runtime.effectiveContextWindowPercent,
     cwd: runtime.cwd || process.cwd(),
     autoClear: autoClearState(),
+    workflow: runtime.workflow || null,
   });
 
+  const routeStateStartedAt = performance.now();
+  const initialRouteState = routeState();
+  bootProfile('engine:route-state-ready', { ms: (performance.now() - routeStateStartedAt).toFixed(1) });
+  const initialBridgeState = {
+    bridgeMode: runtime.bridgeMode || 'async',
+    bridgeWorkers: [],
+    bridgeJobs: [],
+  };
   let state = {
     items: [],
     toasts: [],
@@ -411,11 +501,12 @@ export async function createEngineSession({
     thinking: null,
     lastTurn: null,
     stats: createSessionStats(),
-    ...routeState(),
-    ...bridgeStatusState(),
+    ...initialRouteState,
+    ...initialBridgeState,
     toolMode: runtime.toolMode,
     cwd,
   };
+  bootProfile('engine:state-ready', { ms: (performance.now() - stateStartedAt).toFixed(1) });
   const syncContextStats = ({ allowEstimated = false } = {}) => {
     const ctx = runtime.contextStatus?.() || null;
     const hasProviderUsage = Number(state.stats.latestPromptTokens || state.stats.latestInputTokens || state.stats.inputTokens || 0) > 0;
@@ -426,12 +517,37 @@ export async function createEngineSession({
     state.stats.currentContextUpdatedAt = Date.now();
     return ctx;
   };
+  const contextStartedAt = performance.now();
   syncContextStats();
+  bootProfile('engine:context-ready', { ms: (performance.now() - contextStartedAt).toFixed(1) });
   const listeners = new Set();
   const emit = () => { for (const l of listeners) l(); };
   const set = (patch) => { state = { ...state, ...patch }; emit(); };
 
-  const pushItem = (item) => set({ items: [...state.items, item] });
+  const itemIndexById = new Map();
+  const replaceItems = (items) => {
+    const nextItems = Array.isArray(items) ? items : [];
+    itemIndexById.clear();
+    for (let i = 0; i < nextItems.length; i++) {
+      const id = nextItems[i]?.id;
+      if (id != null) itemIndexById.set(id, i);
+    }
+    return nextItems;
+  };
+  const pushItem = (item) => {
+    const index = state.items.length;
+    const items = [...state.items, item];
+    if (item?.id != null) itemIndexById.set(item.id, index);
+    set({ items });
+  };
+  const removeItemsByIds = (ids) => {
+    const idSet = new Set((ids || []).filter((id) => id != null));
+    if (idSet.size === 0) return false;
+    const items = state.items.filter((item) => !idSet.has(item?.id));
+    if (items.length === state.items.length) return false;
+    set({ items: replaceItems(items) });
+    return true;
+  };
   const pushUserOrSyntheticItem = (text, id = nextId()) => {
     const synthetic = parseSyntheticAgentMessage(text);
     if (!synthetic) {
@@ -445,8 +561,8 @@ export async function createEngineSession({
       name: synthetic.name || 'bridge',
       args: synthetic.args || {
         type: label,
-        jobId: synthetic.taskId || undefined,
-        description: synthetic.summary || 'worker notification',
+        task_id: synthetic.taskId || undefined,
+        description: synthetic.summary || 'agent notification',
       },
       result: synthetic.result,
       isError: synthetic.isError ?? /^(failed|error|killed|cancelled)$/i.test(label),
@@ -463,14 +579,16 @@ export async function createEngineSession({
     if (!value) return null;
     set({ toasts: [...state.toasts.filter((toast) => toast.id !== id), { id, text: value, tone }] });
     const timer = setTimeout(() => {
+      toastTimers.delete(timer);
       if (disposed) return;
       set({ toasts: state.toasts.filter((toast) => toast.id !== id) });
     }, ttlMs);
+    toastTimers.add(timer);
     timer.unref?.();
     return id;
   };
   const pushNotice = (text, tone = 'info', options = {}) => {
-    const value = String(text ?? '').trim();
+    const value = polishNoticeText(text);
     if (!value) return null;
     const forceTranscript = options.transcript === true;
     const forceToast = options.toast === true;
@@ -483,7 +601,11 @@ export async function createEngineSession({
     return id;
   };
   const patchItem = (id, patch) => {
-    const index = state.items.findIndex((it) => it.id === id);
+    let index = itemIndexById.get(id);
+    if (!Number.isInteger(index) || state.items[index]?.id !== id) {
+      index = state.items.findIndex((it) => it.id === id);
+      if (index >= 0) itemIndexById.set(id, index);
+    }
     if (index < 0) return false;
     const current = state.items[index];
     let changed = false;
@@ -500,83 +622,90 @@ export async function createEngineSession({
     return true;
   };
   const bridgeJobMonitors = new Map();
-  const injectedBridgeJobs = new Set();
+  const toastTimers = new Set();
   let disposed = false;
+
+  function clearToastTimers() {
+    for (const timer of toastTimers) {
+      clearTimeout(timer);
+    }
+    toastTimers.clear();
+  }
+
+  let unsubscribeRuntimeNotifications = null;
   let lastUserActivityAt = Date.now();
   let autoClearRunning = false;
 
-  function clearBridgeJobMonitor(jobId) {
-    const monitor = bridgeJobMonitors.get(jobId);
+  function clearBridgeJobMonitor(taskId) {
+    const monitor = bridgeJobMonitors.get(taskId);
     if (!monitor) return;
     if (monitor.timer) clearTimeout(monitor.timer);
-    bridgeJobMonitors.delete(jobId);
+    bridgeJobMonitors.delete(taskId);
   }
 
   function clearBridgeJobMonitors() {
-    for (const jobId of [...bridgeJobMonitors.keys()]) clearBridgeJobMonitor(jobId);
+    for (const taskId of [...bridgeJobMonitors.keys()]) clearBridgeJobMonitor(taskId);
   }
 
   function updateBridgeJobCard(itemId, text, isError = false) {
     const parsed = parseBridgeJob(text);
     const current = state.items.find((it) => it.id === itemId);
-    const displayText = stripSyntheticAgentTags(text) || String(text || '').trim();
+    const rawDisplayText = bridgeJobResultText(text, parsed) || String(text || '').trim();
+    const displayText = isError ? toolErrorDisplay(rawDisplayText, 'bridge') : rawDisplayText;
     patchItem(itemId, {
       result: displayText,
       text: displayText,
       isError,
       ...(parsed ? { args: bridgeArgsWithResultMetadata(current?.args, parsed) } : {}),
     });
-    if (!parsed?.jobId) return;
+    if (!parsed?.taskId) return;
     if (parsed.status && parsed.status !== 'running') {
-      clearBridgeJobMonitor(parsed.jobId);
+      clearBridgeJobMonitor(parsed.taskId);
       return;
     }
-    watchBridgeJob(parsed.jobId, itemId);
+    watchBridgeJob(parsed.taskId, itemId);
   }
 
-  function watchBridgeJob(jobId, itemId) {
-    if (!jobId || disposed) return;
-    const existing = bridgeJobMonitors.get(jobId);
+  function watchBridgeJob(taskId, itemId) {
+    if (!taskId || disposed) return;
+    const existing = bridgeJobMonitors.get(taskId);
     if (existing) {
       existing.itemId = itemId;
       return;
     }
     const monitor = { itemId, startedAt: Date.now(), timer: null };
-    bridgeJobMonitors.set(jobId, monitor);
+    bridgeJobMonitors.set(taskId, monitor);
 
     const poll = async () => {
-      if (disposed || !bridgeJobMonitors.has(jobId)) return;
+      if (disposed || !bridgeJobMonitors.has(taskId)) return;
       if (Date.now() - monitor.startedAt > BRIDGE_JOB_MAX_POLL_MS) {
-        clearBridgeJobMonitor(jobId);
+        clearBridgeJobMonitor(taskId);
         return;
       }
       try {
-        const text = String(await runtime.bridgeControl({ type: 'read', jobId }) || '').trim();
+        const text = String(await runtime.bridgeControl({ type: 'read', task_id: taskId }) || '').trim();
         const parsed = parseBridgeJob(text);
         const nextText = text || '(empty bridge result)';
-        const displayText = stripSyntheticAgentTags(nextText) || nextText;
+        const rawDisplayText = bridgeJobResultText(nextText, parsed) || nextText;
+        const isError = /^(failed|error|timeout|cancelled|killed)$/i.test(parsed?.status || '') || /^error:/i.test(text);
+        const displayText = isError ? toolErrorDisplay(rawDisplayText, 'bridge') : rawDisplayText;
         const current = state.items.find((it) => it.id === monitor.itemId);
         patchItem(monitor.itemId, {
           result: displayText,
           text: displayText,
-          isError: /^error:/i.test(text),
+          isError,
           ...(parsed ? { args: bridgeArgsWithResultMetadata(current?.args, parsed) } : {}),
         });
         set(bridgeStatusState());
         if (!parsed || parsed.status !== 'running') {
-          clearBridgeJobMonitor(jobId);
-          const report = extractBridgeJobReport(text);
-          if (report && !injectedBridgeJobs.has(jobId)) {
-            injectedBridgeJobs.add(jobId);
-            enqueue(report);
-          }
+          clearBridgeJobMonitor(taskId);
           return;
         }
       } catch (error) {
-        const errorText = `[error] ${error?.message || error}`;
+        const errorText = toolErrorDisplay(error, 'bridge');
         patchItem(monitor.itemId, { result: errorText, text: errorText, isError: true });
         set(bridgeStatusState());
-        clearBridgeJobMonitor(jobId);
+        clearBridgeJobMonitor(taskId);
         return;
       }
       monitor.timer = setTimeout(poll, BRIDGE_JOB_POLL_MS);
@@ -585,6 +714,29 @@ export async function createEngineSession({
 
     monitor.timer = setTimeout(poll, BRIDGE_JOB_POLL_MS);
     monitor.timer.unref?.();
+  }
+
+  if (typeof runtime.onNotification === 'function') {
+    unsubscribeRuntimeNotifications = runtime.onNotification((event) => {
+      if (disposed) return;
+      const text = String(event?.content ?? event?.text ?? event ?? '').trim();
+      if (!text) return;
+      const parsed = parseBridgeJob(text);
+      if (parsed?.taskId) {
+        const existing = [...state.items].reverse().find((item) => {
+          if (!item || item.kind !== 'tool' || item.name !== 'bridge') return false;
+          const args = parseToolArgs(item.args);
+          return args.task_id === parsed.taskId;
+        });
+        if (existing) {
+          updateBridgeJobCard(existing.id, text, /^(failed|error|timeout|cancelled|killed)$/i.test(parsed.status));
+          set(bridgeStatusState());
+          return;
+        }
+      }
+      pushUserOrSyntheticItem(text, nextId());
+      set(bridgeStatusState());
+    });
   }
 
   function groupedToolResultText(group) {
@@ -602,10 +754,12 @@ export async function createEngineSession({
         ...uniqueReasons.slice(1),
       ].join('\n');
     }
-    return `${completed}/${group.count} completed`;
+    return `Completed ${completed}/${group.count}`;
   }
 
   function firstErrorLine(text) {
+    const clean = toolErrorDisplay(text, 'tool');
+    if (clean) return clean;
     for (const line of String(text || '').split('\n')) {
       const trimmed = line.trim();
       if (!trimmed) continue;
@@ -614,12 +768,107 @@ export async function createEngineSession({
     return String(text || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
   }
 
+  function aggregateCompletionText(completed, total, { running = false } = {}) {
+    const count = Math.max(0, Number(total || 0));
+    const doneCount = Math.max(0, Math.min(count, Number(completed || 0)));
+    if (count <= 0) return '';
+    if (running && doneCount < count) return `Running ${doneCount}/${count}`;
+    return `Completed ${doneCount}/${count}`;
+  }
+
+  function aggregateRawResult(calls) {
+    const chunks = [];
+    for (const rec of calls || []) {
+      const text = String(rec?.resultText || '').replace(/\s+$/, '');
+      if (!text.trim()) continue;
+      const label = String(rec?.name || rec?.category || 'tool').trim() || 'tool';
+      chunks.push(`${chunks.length + 1}. ${label}\n${text}`);
+    }
+    return chunks.join('\n\n');
+  }
+
+  function aggregateBucketForCategory(category) {
+    switch (category) {
+      case 'Read':
+      case 'Search':
+        return 'local-discovery';
+      case 'Web Research':
+        return 'web-research';
+      case 'Memory':
+        return 'memory';
+      case 'Explore':
+        return 'explore';
+      case 'Edit':
+        return 'edit';
+      default:
+        // Shell/Agent/Channel/Setup/Other stay as their own cards so risky or
+        // semantically distinct actions do not disappear inside a discovery log.
+        return null;
+    }
+  }
+
+  function aggregateSummaries(aggregate) {
+    return [...(aggregate?.calls?.values?.() || [])]
+      .filter((r) => r.summary)
+      .sort((a, b) => Number(a.summarySeq ?? 0) - Number(b.summarySeq ?? 0))
+      .map((r) => r.summary);
+  }
+
+  function assignAggregateSummaryOrder(aggregate, callRec) {
+    if (!aggregate || !callRec?.summary || callRec.summarySeq != null) return;
+    const next = Math.max(0, Number(aggregate.nextSummarySeq || 0));
+    callRec.summarySeq = next;
+    aggregate.nextSummarySeq = next + 1;
+  }
+
   function patchToolCardResult(card, message, toolGroups, done) {
     if (!card || card.done) return false;
     const callId = toolResultCallId(message) || card.callId;
     if (callId && done.has(callId)) return false;
-    const text = toolResultText(message?.content);
-    const isError = message?.isError === true || message?.toolKind === 'error' || /^\s*\[?error/i.test(text);
+    const rawText = toolResultText(message?.content);
+    const isError = message?.isError === true || message?.toolKind === 'error' || /^\s*\[?error/i.test(rawText);
+    const text = isError ? toolErrorDisplay(rawText, card?.name || 'tool') : rawText;
+
+    // Aggregate card handling — collect semantic summaries per call
+    const aggregate = card.aggregate;
+    if (aggregate && card.itemId === aggregate.itemId) {
+      const callRec = callId ? aggregate.calls.get(callId) : null;
+      if (callRec) {
+        callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
+        assignAggregateSummaryOrder(aggregate, callRec);
+        callRec.isError = isError;
+        callRec.resultText = text;
+        callRec.resolved = true;
+      }
+      const allCalls = [...aggregate.calls.values()];
+      const completed = allCalls.filter((r) => r.resolved).length;
+      const errors = allCalls.filter((r) => r.isError).length;
+      const summaries = aggregateSummaries(aggregate);
+      let detailText;
+      if (errors > 0 && summaries.length === 0) {
+        const succeeded = completed - errors;
+        detailText = `${succeeded}/${allCalls.length} succeeded - ${errors} failed`;
+      } else {
+        detailText = formatAggregateDetail(summaries) || aggregateCompletionText(completed, allCalls.length, { running: completed < allCalls.length });
+      }
+      const currentItem = state.items.find((it) => it.id === card.itemId);
+      const visualCompleted = Math.max(completed, Math.min(allCalls.length, Number(currentItem?.completedCount || 0)));
+      const rawResult = aggregateRawResult(allCalls);
+      patchItem(card.itemId, {
+        result: detailText,
+        text: detailText,
+        rawResult: rawResult || null,
+        isError: errors > 0,
+        count: allCalls.length,
+        completedCount: visualCompleted,
+        completedAt: Date.now(),
+      });
+      card.done = true;
+      if (callId) done.add(callId);
+      return true;
+    }
+
+    // Non-aggregate (legacy bridge-job cards, etc.)
     const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, results: [] };
     group.completed = Math.min(group.count, group.completed + 1);
     group.errors += isError ? 1 : 0;
@@ -635,11 +884,11 @@ export async function createEngineSession({
       completedAt: Date.now(),
     };
     if (group.count <= 1) {
-      const parsedBridge = parseBridgeJob(text);
+      const parsedBridge = parseBridgeJob(rawText);
       if (parsedBridge) patch.args = bridgeArgsWithResultMetadata(state.items.find((it) => it.id === card.itemId)?.args, parsedBridge);
     }
     patchItem(card.itemId, patch);
-    if (group.count <= 1) updateBridgeJobCard(card.itemId, text, isError);
+    if (group.count <= 1) updateBridgeJobCard(card.itemId, rawText, isError);
     card.done = true;
     if (callId) done.add(callId);
     return true;
@@ -676,6 +925,34 @@ export async function createEngineSession({
     if (!finalize) return;
     for (const card of toolCards || []) {
       if (card.done) continue;
+      // Aggregate finalize — mark any remaining calls as done
+      const aggregate = card.aggregate;
+      if (aggregate && card.itemId === aggregate.itemId) {
+        const allCalls = [...aggregate.calls.values()];
+        const completed = allCalls.filter((r) => r.resolved).length;
+        const remaining = allCalls.length - completed;
+        const totalCompleted = remaining > 0 ? completed + remaining : completed;
+        const errors = allCalls.filter((r) => r.isError).length;
+        const summaries = aggregateSummaries(aggregate);
+        const detailText = formatAggregateDetail(summaries) || aggregateCompletionText(totalCompleted, allCalls.length);
+        const rawResult = aggregateRawResult(allCalls);
+        patchItem(card.itemId, {
+          result: detailText,
+          text: detailText,
+          rawResult: rawResult || null,
+          isError: errors > 0,
+          count: allCalls.length,
+          completedCount: totalCompleted,
+          completedAt: Date.now(),
+        });
+        for (const sibling of toolCards || []) {
+          if (sibling.itemId !== card.itemId) continue;
+          sibling.done = true;
+          if (sibling.callId) done.add(sibling.callId);
+        }
+        continue;
+      }
+      // Non-aggregate finalize
       const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, results: [] };
       group.completed = Math.min(group.count, group.completed + 1);
       toolGroups.set(card.itemId, group);
@@ -686,12 +963,14 @@ export async function createEngineSession({
     }
   };
 
-  async function runTurn(userText) {
+  async function runTurn(userText, options = {}) {
     const turnIndex = state.stats.turns || 0;
     const startedAt = Date.now();
     const inputBaseline = state.stats.inputTokens;
     const outputBaseline = state.stats.outputTokens;
-    set({ busy: true, lastTurn: null, spinner: { active: true, verb: pickVerb(turnIndex), startedAt, liveTokens: 0, inputTokens: 0, outputTokens: 0, mode: 'requesting' } });
+    const submittedIds = Array.isArray(options.submittedIds) ? options.submittedIds : [];
+    activePromptRestore = { text: String(userText || '').trim(), restorable: true, submittedIds, reclaimed: false };
+    set({ busy: true, lastTurn: null, spinner: { active: true, verb: pickVerb(turnIndex), startedAt, responseLength: 0, inputTokens: 0, outputTokens: 0, mode: 'requesting' } });
 
     let assistantText = '';
     let currentAssistantId = null;
@@ -705,28 +984,66 @@ export async function createEngineSession({
     const toolCards = [];
     const toolGroups = new Map();
     const resultsDone = new Set();
-    let lastToolGroupCard = null;
-    let lastToolGroupKey = null;
+    const aggregateCards = new Map(); // bucket -> { itemId, categories, categoryOrder, calls, nextSummarySeq }
 
-    const clearToolGroupContinuation = () => {
-      lastToolGroupCard = null;
-      lastToolGroupKey = null;
+    const markPromptCommitted = () => {
+      if (activePromptRestore) activePromptRestore.restorable = false;
     };
 
-    const lastVisibleToolGroupCard = (groupKey) => {
-      const previous = state.items[state.items.length - 1];
-      if (!previous || previous.kind !== 'tool' || previous.isError) return null;
-      if (toolGroupKey(previous.name, previous.args) !== groupKey) return null;
-      const group = toolGroups.get(previous.id);
-      if (!group) return null;
-      return {
-        itemId: previous.id,
-        key: groupKey,
-        count: Math.max(0, Number(previous.count || group.count || 0)),
-        names: [previous.name].filter(Boolean),
-        firstName: previous.name,
-        firstArgs: previous.args,
+    const completeAggregateVisual = () => {
+      for (const aggregate of aggregateCards.values()) {
+        const allCalls = [...aggregate.calls.values()];
+        if (allCalls.length === 0) continue;
+        const errors = allCalls.filter((r) => r.isError).length;
+        const summaries = aggregateSummaries(aggregate);
+        const detailText = formatAggregateDetail(summaries) || aggregateCompletionText(allCalls.length, allCalls.length);
+        const rawResult = aggregateRawResult(allCalls);
+        patchItem(aggregate.itemId, {
+          result: detailText,
+          text: detailText,
+          rawResult: rawResult || null,
+          isError: errors > 0,
+          count: allCalls.length,
+          completedCount: allCalls.length,
+          completedAt: Date.now(),
+        });
+      }
+    };
+
+    const clearAggregateContinuation = () => {
+      completeAggregateVisual();
+      aggregateCards.clear();
+    };
+
+    const ensureAggregateCard = (bucket) => {
+      const existing = aggregateCards.get(bucket);
+      if (existing) return existing;
+      const itemId = nextId();
+      const aggregate = {
+        itemId,
+        bucket,
+        categories: new Map(),
+        categoryOrder: [],
+        calls: new Map(),
+        nextSummarySeq: 0,
       };
+      aggregateCards.set(bucket, aggregate);
+      pushItem({
+        kind: 'tool',
+        id: itemId,
+        name: '__aggregate__',
+        args: { categoryOrder: [] },
+        aggregate: true,
+        categories: {},
+        result: null,
+        rawResult: null,
+        isError: false,
+        expanded: false,
+        count: 0,
+        completedCount: 0,
+        startedAt: Date.now(),
+      });
+      return aggregate;
     };
 
     const ensureAssistant = () => {
@@ -790,20 +1107,20 @@ export async function createEngineSession({
             patch.items = items;
           }
         }
-        const estimatedTokens = Math.round(assistantText.length / 4);
+        const responseLengthVal = assistantText.length + thinkingText.length;
         if (state.spinner) {
-          patch.spinner = { ...state.spinner, liveTokens: estimatedTokens, thinking: false, thinkingLastEndedAt: _pendingThinkingLastEndedAt || state.spinner.thinkingLastEndedAt, mode: 'responding' };
+          patch.spinner = { ...state.spinner, responseLength: responseLengthVal, thinking: false, thinkingLastEndedAt: _pendingThinkingLastEndedAt || state.spinner.thinkingLastEndedAt, mode: 'responding' };
         }
         if (Object.keys(patch).length > 0) set(patch);
         _pendingThinkingLastEndedAt = 0;
       }
       if (_pendingThinkFlush) {
         _pendingThinkFlush = false;
-        const estimatedTokens = Math.round((assistantText.length + thinkingText.length) / 4);
+        const responseLengthVal = assistantText.length + thinkingText.length;
         const thinkingElapsedMs = accumulatedThinkingMs + (thinkingSegmentStartedAt ? Math.max(0, Date.now() - thinkingSegmentStartedAt) : 0);
         const patch = { thinking: thinkingText };
         if (state.spinner) {
-          patch.spinner = { ...state.spinner, liveTokens: estimatedTokens, thinking: true, thinkingStartedAt, thinkingSegmentStartedAt, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingElapsedMs, thinkingLastEndedAt: 0, mode: 'thinking' };
+          patch.spinner = { ...state.spinner, responseLength: responseLengthVal, thinking: true, thinkingStartedAt, thinkingSegmentStartedAt, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingElapsedMs, thinkingLastEndedAt: 0, mode: 'thinking' };
         }
         set(patch);
       }
@@ -823,6 +1140,7 @@ export async function createEngineSession({
           if (value) pushUserOrSyntheticItem(value);
         },
         onToolCall: async (_iter, calls) => {
+          markPromptCommitted();
           if (thinkingText && state.thinking) {
             const thinkingLastEndedAt = closeThinkingSegment();
             flushStreamBatch(); // flush any buffered text/thinking before the tool card appears
@@ -834,63 +1152,58 @@ export async function createEngineSession({
           const batchCalls = (calls || []).filter(Boolean);
           if (batchCalls.length === 0) return;
           closeAssistantSegment();
-          let activeGroupKey = null;
-          let activeGroupCard = null;
-          let lastKeyInBatch = null;
-          let lastCardInBatch = null;
+
+          const touchedAggregates = new Set();
           for (let i = 0; i < batchCalls.length; i++) {
             const c = batchCalls[i];
             const name = toolCallName(c);
             const args = toolCallArgs(c);
-            const groupKey = toolGroupKey(name, args);
-            let groupCard = groupKey === activeGroupKey ? activeGroupCard : null;
-            if (!groupCard) {
-              if (i === 0 && groupKey === lastToolGroupKey && lastToolGroupCard) {
-                groupCard = lastToolGroupCard;
-              } else {
-                groupCard = i === 0 ? lastVisibleToolGroupCard(groupKey) : null;
-                if (!groupCard) {
-                  const itemId = nextId();
-                  groupCard = { itemId, key: groupKey, count: 0, names: [], firstName: name, firstArgs: args };
-                  toolGroups.set(itemId, { count: 0, completed: 0, errors: 0, results: [] });
-                  pushItem({
-                    kind: 'tool',
-                    id: itemId,
-                    name,
-                    args,
-                    result: null,
-                    isError: false,
-                    expanded: false,
-                    count: 0,
-                    completedCount: 0,
-                    startedAt: Date.now(),
-                  });
-                }
-              }
-              activeGroupKey = groupKey;
-              activeGroupCard = groupCard;
-            }
-            if (!groupCard.names.includes(name)) groupCard.names.push(name);
+            const category = classifyToolCategory(name, args);
+            const bucket = aggregateBucketForCategory(category);
             const callId = toolCallId(c);
-            groupCard.count += 1;
-            const group = toolGroups.get(groupCard.itemId) || { count: 0, completed: 0, errors: 0, results: [] };
-            group.count = groupCard.count;
-            toolGroups.set(groupCard.itemId, group);
-            const card = { itemId: groupCard.itemId, callId, done: false };
-            if (callId) cardByCallId.set(callId, card);
+            const callKey = callId || `__tool_${toolCards.length}_${i}`;
+
+            if (!bucket) {
+              const itemId = nextId();
+              pushItem({
+                kind: 'tool',
+                id: itemId,
+                name,
+                args,
+                result: null,
+                isError: false,
+                expanded: false,
+                count: 1,
+                completedCount: 0,
+                startedAt: Date.now(),
+              });
+              const card = { itemId, callId: callKey, done: false };
+              if (callId) {
+                cardByCallId.set(callId, card);
+              }
+              toolCards.push(card);
+              continue;
+            }
+
+            const aggregateCard = ensureAggregateCard(bucket);
+            if (!aggregateCard.categories.has(category)) aggregateCard.categoryOrder.push(category);
+            aggregateCard.categories.set(category, (aggregateCard.categories.get(category) || 0) + 1);
+            aggregateCard.calls.set(callKey, { name, args, category, summary: null, summarySeq: null, isError: false, resultText: null, resolved: false });
+            touchedAggregates.add(aggregateCard);
+            const card = { itemId: aggregateCard.itemId, callId: callKey, done: false, aggregate: aggregateCard };
+            if (callId) {
+              cardByCallId.set(callId, card);
+            }
             toolCards.push(card);
-            patchItem(groupCard.itemId, {
-              name: groupCard.firstName || name,
-              args: groupCard.firstArgs ?? args,
-              count: groupCard.count,
-              completedCount: group.completed,
-            });
-            lastKeyInBatch = groupKey;
-            lastCardInBatch = groupCard;
           }
-          if (lastKeyInBatch) {
-            lastToolGroupKey = lastKeyInBatch;
-            lastToolGroupCard = lastCardInBatch;
+
+          for (const aggregateCard of touchedAggregates) {
+            patchItem(aggregateCard.itemId, {
+              args: { categoryOrder: aggregateCard.categoryOrder.slice() },
+              count: aggregateCard.calls.size,
+              completedCount: [...aggregateCard.calls.values()].filter((r) => r.resolved).length,
+              categories: Object.fromEntries(aggregateCard.categories),
+            });
           }
           await yieldToRenderer();
         },
@@ -908,30 +1221,13 @@ export async function createEngineSession({
           if (!mode || state.spinner.mode === mode) return;
           set({ spinner: { ...state.spinner, mode } });
         },
-        onStreamDelta: () => {
-          if (!state.spinner) return;
-          if (assistantText.trim() || state.spinner.mode === 'tool-use' || state.spinner.mode === 'tool-input') return;
-          const now = startThinkingSegment();
-          const thinkingElapsedMs = accumulatedThinkingMs + Math.max(0, now - thinkingSegmentStartedAt);
-          set({
-            spinner: {
-              ...state.spinner,
-              thinking: true,
-              thinkingStartedAt,
-              thinkingSegmentStartedAt,
-              thinkingAccumulatedMs: accumulatedThinkingMs,
-              thinkingElapsedMs,
-              thinkingLastEndedAt: 0,
-              mode: 'thinking',
-            },
-          });
-        },
         onTextDelta: (chunk) => {
           const textChunk = String(chunk ?? '');
           if (!textChunk) return;
+          markPromptCommitted();
           const thinkingLastEndedAt = closeThinkingSegment();
           if (state.thinking) set({ thinking: null }); // collapse thinking panel immediately, no batch delay
-          if (textChunk.trim()) clearToolGroupContinuation();
+          if (textChunk.trim()) clearAggregateContinuation();
           assistantText += textChunk;
           ensureAssistant(); // create the assistant item in state immediately so the slot exists
           currentAssistantText += textChunk;
@@ -941,6 +1237,7 @@ export async function createEngineSession({
           scheduleStreamFlush();
         },
         onReasoningDelta: (chunk) => {
+          if (String(chunk ?? '')) markPromptCommitted();
           startThinkingSegment();
           thinkingText += String(chunk ?? '');
           // Accumulate reasoning text; fire at most one render per STREAM_BATCH_INTERVAL_MS.
@@ -981,20 +1278,30 @@ export async function createEngineSession({
         if (assistantText.trim() && currentAssistantId) {
           patchItem(currentAssistantId, { text: currentAssistantText || assistantText, streaming: false });
         }
+        // Finalize pending tool cards so they don't stay "Running..." forever
+        // after cancellation. Without this, the spinner vanishes and TurnDone
+        // shows "cancelled", but in-flight tool cards remain in a perpetual
+        // pending/blinking state because the normal finalize path (line 992)
+        // was skipped when the error interrupted the try block.
+        flushToolResults([], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
       } else {
-        pushItem({ kind: 'notice', id: nextId(), text: `[error] ${error?.message || error}`, tone: 'error' });
+        pushItem({ kind: 'notice', id: nextId(), text: toolErrorDisplay(error, 'turn'), tone: 'error' });
       }
     } finally {
+      const reclaimed = cancelled && activePromptRestore?.reclaimed === true;
+      activePromptRestore = null;
       closeThinkingSegment();
       const elapsedMs = Date.now() - startedAt;
       const thinkingElapsedMs = thinkingStartedAt ? accumulatedThinkingMs : 0;
-      const finalOutputTokens = Math.max(0, Number(state.spinner?.outputTokens || 0), Number(state.spinner?.liveTokens || 0));
+      const finalOutputTokens = Math.max(0, Number(state.spinner?.outputTokens || 0), Math.round(Number(state.spinner?.responseLength || 0) / 4));
       const turnStatus = cancelled ? 'cancelled' : 'done';
       // Pin the post-think summary into the transcript right after this turn's
       // output so it scrolls up with the answer and stays in the scrollback,
       // mirroring Claude Code. (Previously TurnDone rendered only in the
       // bottom-fixed live-status slot and vanished on the next turn.)
-      pushItem({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus, outputTokens: finalOutputTokens, thinkingElapsedMs, verb: pickDoneVerb(turnIndex) });
+      if (!reclaimed) {
+        pushItem({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus, outputTokens: finalOutputTokens, thinkingElapsedMs, verb: pickDoneVerb(turnIndex) });
+      }
       set({
         busy: false,
         spinner: null,
@@ -1006,10 +1313,12 @@ export async function createEngineSession({
         ...bridgeStatusState(),
       });
     }
+    return cancelled ? 'cancelled' : 'done';
   }
 
   const pending = [];
   let draining = false;
+  let activePromptRestore = null;
 
   async function drain() {
     if (draining) return;
@@ -1030,7 +1339,12 @@ export async function createEngineSession({
         for (const entry of batch) {
           pushUserOrSyntheticItem(entry.text, entry.id);
         }
-        await runTurn(merged);
+        const turnStatus = await runTurn(merged, { submittedIds: [...ids] });
+        // If the user re-submits the reclaimed prompt while the cancelled turn
+        // is still unwinding, enqueue() cannot start another drain because this
+        // drain loop is still active. Continue when pending work appeared during
+        // cancellation so the fresh submit does not get stuck in queued state.
+        if (turnStatus === 'cancelled' && pending.length === 0) break;
       }
     } finally {
       draining = false;
@@ -1068,7 +1382,7 @@ export async function createEngineSession({
       const idleLabel = formatIdleDuration(idleMs);
       const thresholdLabel = formatIdleDuration(cfg.idleMs);
       set({
-        items: [],
+        items: replaceItems([]),
         toasts: [],
         queued: [],
         thinking: null,
@@ -1174,7 +1488,7 @@ export async function createEngineSession({
           resetStats();
           set({ ...routeState(), toolMode: runtime.toolMode, stats: { ...state.stats } });
         })
-        .catch((error) => pushNotice(`[error] ${error?.message || error}`, 'error'));
+        .catch((error) => pushNotice(toolErrorDisplay(error, 'tool'), 'error'));
     },
     toggleBridgeMode: () => {
       const mode = runtime.toggleBridgeMode();
@@ -1455,13 +1769,50 @@ export async function createEngineSession({
     },
     abort: () => {
       if (!state.busy) return false;
-      return runtime.abort('cli-react-abort');
+      const restoreText = activePromptRestore?.restorable ? activePromptRestore.text : '';
+      const aborted = runtime.abort('cli-react-abort');
+      if (activePromptRestore) {
+        if (restoreText && aborted !== false) {
+          activePromptRestore.reclaimed = true;
+          const idSet = new Set((activePromptRestore.submittedIds || []).filter((id) => id != null));
+          const patch = { spinner: null, thinking: null, lastTurn: null };
+          if (idSet.size > 0) {
+            const items = state.items.filter((item) => !idSet.has(item?.id));
+            if (items.length !== state.items.length) {
+              patch.items = replaceItems(items);
+            }
+          }
+          set(patch);
+        }
+        activePromptRestore.restorable = false;
+      }
+      return { aborted, restoreText };
     },
     listPresets: () => {
       return runtime.listPresets();
     },
-    listProviderModels: () => {
-      return runtime.listProviderModels();
+    listProviderModels: (options = {}) => {
+      return runtime.listProviderModels(options);
+    },
+    listAgents: () => {
+      return runtime.listAgents?.() || [];
+    },
+    listWorkflows: () => {
+      return runtime.listWorkflows?.() || [];
+    },
+    setWorkflow: async (workflowId) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const result = runtime.setWorkflow?.(workflowId);
+        set({ ...routeState(), stats: { ...state.stats } });
+        return result;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    setAgentRoute: async (agentId, opts) => {
+      return await runtime.setAgentRoute?.(agentId, opts);
     },
     listProviders: () => {
       return runtime.listProviders();
@@ -1470,13 +1821,7 @@ export async function createEngineSession({
       return runtime.getProviderSetup();
     },
     getUsageDashboard: async (options = {}) => {
-      if (state.commandBusy) return null;
-      set({ commandBusy: true });
-      try {
-        return await runtime.getUsageDashboard?.(options);
-      } finally {
-        set({ commandBusy: false });
-      }
+      return await runtime.getUsageDashboard?.(options);
     },
     getOnboardingStatus: () => {
       return runtime.getOnboardingStatus?.() || { completed: true, workflowRoutes: {} };
@@ -1508,6 +1853,19 @@ export async function createEngineSession({
     saveProviderApiKey: (provider, secret) => {
       const result = runtime.saveProviderApiKey(provider, secret);
       pushNotice(`provider api key saved: ${result.provider}`, 'info');
+      return true;
+    },
+    saveOpenCodeGoUsageAuth: (opts) => {
+      const result = runtime.saveOpenCodeGoUsageAuth(opts);
+      pushNotice(result.workspaceId
+        ? `OpenCode Go usage auth saved: ${result.workspaceId}`
+        : 'OpenCode Go usage auth saved',
+        'info');
+      return true;
+    },
+    saveOpenAIUsageSessionKey: (secret) => {
+      runtime.saveOpenAIUsageSessionKey(secret);
+      pushNotice('OpenAI usage auth saved', 'info');
       return true;
     },
     setLocalProvider: (provider, opts) => {
@@ -1615,10 +1973,11 @@ export async function createEngineSession({
     clear: async () => {
       if (state.commandBusy) return false;
       set({ commandBusy: true });
+      clearToastTimers();
       try {
         await runtime.clear();
         resetStats();
-        set({ items: [], toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, ...routeState(), stats: { ...state.stats } });
+        set({ items: replaceItems([]), toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, ...routeState(), stats: { ...state.stats } });
         lastUserActivityAt = Date.now();
         return true;
       } finally {
@@ -1631,10 +1990,11 @@ export async function createEngineSession({
     newSession: async () => {
       if (state.commandBusy) return false;
       set({ commandBusy: true });
+      clearToastTimers();
       try {
         await runtime.newSession();
         resetStats();
-        set({ items: [], toasts: [], queued: [], thinking: null, lastTurn: null, ...routeState(), stats: { ...state.stats } });
+        set({ items: replaceItems([]), toasts: [], queued: [], thinking: null, lastTurn: null, ...routeState(), stats: { ...state.stats } });
         return true;
       } finally {
         set({ commandBusy: false });
@@ -1643,6 +2003,7 @@ export async function createEngineSession({
     resume: async (id) => {
       if (state.commandBusy) return false;
       set({ commandBusy: true });
+      clearToastTimers();
       try {
         const r = await runtime.resume(id);
         if (!r) return false;
@@ -1663,8 +2024,8 @@ export async function createEngineSession({
                   name: synthetic.name || 'bridge',
                   args: synthetic.args || {
                     type: label,
-                    jobId: synthetic.taskId || undefined,
-                    description: synthetic.summary || 'worker notification',
+                    task_id: synthetic.taskId || undefined,
+                    description: synthetic.summary || 'agent notification',
                   },
                   result: synthetic.result,
                   isError: synthetic.isError ?? /^(failed|error|killed|cancelled)$/i.test(label),
@@ -1684,7 +2045,7 @@ export async function createEngineSession({
           }
         }
         set({
-          items,
+          items: replaceItems(items),
           toasts: [],
           queued: [],
           thinking: null,
@@ -1698,11 +2059,14 @@ export async function createEngineSession({
         set({ commandBusy: false });
       }
     },
-    dispose: async () => {
+    dispose: async (reason = 'cli-react-exit', options = {}) => {
       if (disposed) return;
       disposed = true;
+      clearToastTimers();
+      try { unsubscribeRuntimeNotifications?.(); } catch {}
+      unsubscribeRuntimeNotifications = null;
       clearBridgeJobMonitors();
-      await runtime.close('cli-react-exit');
+      await runtime.close(reason, options);
       listeners.clear();
     },
   };

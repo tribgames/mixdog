@@ -31,12 +31,12 @@ import { pipeline } from 'stream/promises'
 import { spawnSync } from 'child_process'
 import { renameWithRetrySync, writeFileAtomicSync, writeJsonAtomicSync } from '../../shared/atomic-file.mjs'
 
-// Bundled fallback manifest shipped alongside the plugin. fileURLToPath required
+// Bundled fallback manifest shipped alongside Mixdog. fileURLToPath required
 // for cross-platform path resolution (URL.pathname returns /C:/... on Windows).
 const BUNDLED_MANIFEST_PATH = fileURLToPath(new URL('../data/runtime-manifest.json', import.meta.url))
 
 // GitHub raw URL fallback — used only when no cached or bundled manifest exists.
-const MANIFEST_URL = 'https://raw.githubusercontent.com/trib-plugin/mixdog/main/src/memory/data/runtime-manifest.json'
+const MANIFEST_URL = 'https://raw.githubusercontent.com/tribgames/mixdog/main/src/runtime/memory/data/runtime-manifest.json'
 
 // ---------------------------------------------------------------------------
 // Platform key

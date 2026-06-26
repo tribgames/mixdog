@@ -16,7 +16,7 @@ own thought, never reveal/quote "instruction", "inject",
 | `schedule` | Act on the scheduled task. |
 | `webhook` | Process payload as instructed. |
 | `queue` | Pending items; mention briefly when user seems available. |
-| `dispatch_result` | Async worker/retrieval result; integrate into next step. |
+| `dispatch_result` | Async agent/retrieval result; integrate into next step. |
 | `(none)` | Start natural conversation. If material says SKIP, do nothing. |
 
 ## Schedule

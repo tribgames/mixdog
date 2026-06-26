@@ -8,7 +8,7 @@ import {
     consumeCompatResponsesStream,
     parseCompletedToolCallArgumentsJson,
 } from './openai-compat-stream.mjs';
-import { enrichModels } from './model-catalog.mjs';
+import { enrichModels, getModelMetadataSync } from './model-catalog.mjs';
 import { appendBridgeTrace, traceBridgeUsage } from '../bridge-trace.mjs';
 import {
     resolveProviderCacheKey,
@@ -209,6 +209,23 @@ function xaiResponsesCacheRouting(opts, params, rawTools, model) {
 function normalizeXaiReasoningEffort(value) {
     const effort = String(value || '').trim().toLowerCase();
     return ['none', 'low', 'medium', 'high'].includes(effort) ? effort : null;
+}
+
+function opencodeGoReasoningEffortValues(modelInfo) {
+    const effort = (modelInfo?.reasoningOptions || []).find((option) => option?.type === 'effort');
+    return Array.isArray(effort?.values)
+        ? effort.values.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean)
+        : [];
+}
+
+function normalizeOpencodeGoReasoningEffort(value, modelInfo) {
+    const allowed = opencodeGoReasoningEffortValues(modelInfo);
+    if (!allowed.length) return null;
+    const effort = String(value || '').trim().toLowerCase();
+    if (allowed.includes(effort)) return effort;
+    if ((effort === 'max' || effort === 'xhigh') && allowed.includes('max')) return 'max';
+    if (['high', 'medium', 'low'].includes(effort) && allowed.includes('high')) return 'high';
+    return null;
 }
 
 function useXaiResponsesApi(opts, config) {
@@ -852,7 +869,7 @@ function writeXaiResponsesCacheTrace({ model, opts, params, rawTools, response, 
     }
 }
 
-function toOpenAIMessages(messages, providerName) {
+function toOpenAIMessages(messages, providerName, options = {}) {
     // NOTE: chat.completions has no equivalent slot for replaying reasoning
     // encrypted_content the way the Responses API does (no `type:'reasoning'`
     // input item). Whatever reasoningItems may be attached to assistant
@@ -865,7 +882,9 @@ function toOpenAIMessages(messages, providerName) {
     // returns 400. xAI reasoning models also preserve their official multi-turn
     // shape and cache prefix stability when prior assistant reasoning_content
     // is replayed; reasoning_effort itself remains caller/user-selected.
-    const replaysReasoningContent = providerName === 'deepseek' || providerName === 'xai';
+    const replaysReasoningContent = options.replaysReasoningContent === true
+        || providerName === 'deepseek'
+        || providerName === 'xai';
     const out = [];
     const pendingToolMedia = [];
     const flushToolMedia = () => {
@@ -1121,9 +1140,13 @@ export class OpenAICompatProvider {
             const reason = signal.reason;
             throw reason instanceof Error ? reason : new Error('OpenAI-compat request aborted by session close');
         }
+        const modelInfo = this.name === 'opencode-go'
+            ? (this.getCachedModelInfo(useModel) || getModelMetadataSync(useModel, this.name))
+            : null;
+        const replaysReasoningContent = modelInfo?.reasoningContentField === 'reasoning_content';
         const params = {
             model: useModel,
-            messages: toOpenAIMessages(messages, this.name),
+            messages: toOpenAIMessages(messages, this.name, { replaysReasoningContent }),
         };
         if (tools?.length) {
             params.tools = toOpenAITools(tools);
@@ -1134,6 +1157,13 @@ export class OpenAICompatProvider {
                 ?? this.config?.reasoningEffort
                 ?? process.env.MIXDOG_XAI_REASONING_EFFORT);
             if (reasoningEffort) params.reasoning_effort = reasoningEffort;
+        }
+        if (this.name === 'opencode-go') {
+            const reasoningEffort = normalizeOpencodeGoReasoningEffort(opts.effort ?? this.config?.reasoningEffort, modelInfo);
+            if (reasoningEffort) {
+                params.reasoning_effort = reasoningEffort;
+                params.thinking = { type: 'enabled' };
+            }
         }
         // Streaming (params.stream = true is always set below): no absolute
         // wall-clock cap on a healthy stream. A fixed total-lifetime timer
@@ -1254,7 +1284,7 @@ export class OpenAICompatProvider {
         // Capture provider reasoning_content so loop.mjs can attach it to the
         // assistant message and echo it back next turn for providers that
         // require or benefit from that official multi-turn shape.
-        const capturesReasoningContent = this.name === 'deepseek' || this.name === 'xai';
+        const capturesReasoningContent = this.name === 'deepseek' || this.name === 'xai' || replaysReasoningContent;
         const reasoningContent = (capturesReasoningContent && typeof assembled.reasoningContent === 'string')
             ? assembled.reasoningContent
             : null;

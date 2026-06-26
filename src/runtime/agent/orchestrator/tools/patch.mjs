@@ -36,6 +36,7 @@ import { resolve as pathResolve, relative as pathRelative, isAbsolute, dirname a
 import { performance } from 'node:perf_hooks';
 import { parsePatch } from 'diff';
 import { getAbortSignalForSession } from '../session/abort-lookup.mjs';
+import { startChildGuardian } from '../../../shared/child-guardian.mjs';
 import {
   normalizeInputPath,
   normalizeOutputPath,
@@ -61,7 +62,7 @@ export { PATCH_TOOL_DEFS } from './patch-tool-defs.mjs';
 const DEV_NULL = /^\/dev\/null$/;
 const V4A_EOF_MARKER = '*** End of File';
 const V4A_MOVE_TO_PREFIX = '*** Move to:';
-const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT
+const PLUGIN_ROOT = process.env.MIXDOG_ROOT
   || pathResolve(pathDirname(fileURLToPath(import.meta.url)), '../../../..');
 const NATIVE_PATCH_DEFAULT_BIN = pathJoin(
   PLUGIN_ROOT,
@@ -171,6 +172,7 @@ class NativePatchServer {
     // flashes an empty console window on Windows. Especially visible now that the
     // idle watchdog exits the server and it respawns on the next request.
     this.child = spawn(binPath, ['--server'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    startChildGuardian({ childPid: this.child.pid, label: 'native-patch-server', orphanGraceMs: 5000, forceGraceMs: 2000 });
     this.stderr = '';
     this.lines = [];
     this.waiters = [];
@@ -373,8 +375,14 @@ class NativePatchServer {
     };
   }
 
-  async close() {
+  async close(options = {}) {
     if (this.exited) return;
+    const waitForExit = options?.waitForExit !== false;
+    if (!waitForExit) {
+      try { this.child.stdin.end('QUIT\n'); } catch {}
+      this.unref();
+      return;
+    }
     this.ref();
     try { this.child.stdin.end('QUIT\n'); } catch {}
     await new Promise((resolve) => this.child.once('exit', resolve));
@@ -460,7 +468,7 @@ function scheduleNativePatchIdleClose() {
   _nativePatchServer.unref();
 }
 
-export async function closeNativePatchServerForTests() {
+export async function closeNativePatchServerForTests(options = {}) {
   if (_nativePatchPrewarmTimer) {
     try { clearImmediate(_nativePatchPrewarmTimer); } catch {}
     _nativePatchPrewarmTimer = null;
@@ -469,8 +477,8 @@ export async function closeNativePatchServerForTests() {
   _nativePatchServer = null;
   const editServer = _nativeEditServer;
   _nativeEditServer = null;
-  await server?.close();
-  await editServer?.close();
+  await server?.close(options);
+  await editServer?.close(options);
 }
 
 try { globalThis.__mixdogCloseNativePatchServers = closeNativePatchServerForTests; } catch {}

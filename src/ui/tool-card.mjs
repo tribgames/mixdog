@@ -3,7 +3,7 @@
  *
  * Replaces the raw `[tool: name]` line with a styled card that shows the tool
  * name plus a short, human-readable summary of its most relevant argument
- * (path for read/write/edit, command for bash, pattern for grep, etc.).
+ * (path for read/write/edit, command for shell, pattern for grep, etc.).
  *
  * Pure formatting: returns a string, never touches stdout. Robust to missing or
  * malformed argument objects (the engine hands us `{ name, arguments, id }`).
@@ -21,7 +21,7 @@ const SUMMARIZERS = {
   list: (a) => a.path ?? a.pattern,
   glob: (a) => joinMaybe(a.pattern) ?? a.path,
   grep: (a) => joinMaybe(a.pattern),
-  bash: (a) => a.command,
+  shell: (a) => a.command,
   diagnostics: (a) => a.path,
 };
 

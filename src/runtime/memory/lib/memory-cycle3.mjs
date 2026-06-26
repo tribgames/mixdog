@@ -21,6 +21,7 @@ function __mixdogMemoryLog(...args) {
 
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
+import { fileURLToPath } from 'url'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { callBridgeLlm } from './agent-ipc.mjs'
 import { listCore, editCore, deleteCore, CORE_SUMMARY_MAX } from './core-memory-store.mjs'
@@ -29,8 +30,7 @@ import { embedText } from './embedding-provider.mjs'
 import { searchRelevantHybrid } from './memory-recall-store.mjs'
 
 function resourceDir() {
-  if (process.env.CLAUDE_PLUGIN_ROOT) return process.env.CLAUDE_PLUGIN_ROOT
-  throw new Error('mixdog plugin root is required for prompt loading; standalone startup should initialize plugin-root compatibility env')
+  return process.env.MIXDOG_ROOT || fileURLToPath(new URL('../../../..', import.meta.url))
 }
 
 async function invokeLlm(prompt, mode, preset, timeout, llmCall = callBridgeLlm) {

@@ -15,7 +15,7 @@ import {
 } from './builtin/shell-output.mjs';
 import {
     executeBashTool,
-    executeJobWaitTool,
+    executeTaskTool,
 } from './builtin/bash-tool.mjs';
 import {
     executeFindFilesTool,
@@ -384,10 +384,10 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
     // sole arbiter for workspace-boundary decisions.
     const _toolResult = await (async () => {
     switch (toolName) {
-        case 'bash':
+        case 'shell':
             return executeBashTool(args, workDir, options);
-        case 'job_wait':
-            return executeJobWaitTool(args);
+        case 'task':
+            return executeTaskTool(args, options);
         case 'read':
             return executeReadTool(args, workDir, readStateScope, executeChildBuiltinTool, options, _readToolHelpers);
         case 'write':

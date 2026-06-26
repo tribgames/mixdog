@@ -1,5 +1,17 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
+import {
+  TOOL_ASYNC_EXECUTION_CONTRACT,
+  cancelBackgroundTask,
+  cleanupBackgroundTasks,
+  executionModeSchemaDescription,
+  getBackgroundTask,
+  listBackgroundTasks,
+  resolveExecutionMode,
+  startBackgroundTask,
+  taskIdFromArgs,
+} from '../runtime/shared/background-tasks.mjs';
+import { presentErrorText } from '../runtime/shared/err-text.mjs';
 import { prepareBridgeSession } from '../runtime/agent/orchestrator/smart-bridge/session-builder.mjs';
 import { clearGatewaySessionRoute, writeGatewaySessionRoute } from '../vendor/statusline/src/gateway/session-routes.mjs';
 
@@ -14,36 +26,44 @@ const PRESET_ALIASES = new Map([
   ['opus-xhigh', { base: 'opus-high', effort: 'xhigh', id: 'opus-xhigh', name: 'OPUS XHIGH' }],
 ]);
 
+const DEFAULT_AGENT_PRESETS = Object.freeze({
+  explore: 'sonnet-high',
+  'web-researcher': 'sonnet-high',
+  maintainer: 'haiku',
+  worker: 'sonnet-high',
+  'heavy-worker': 'opus-high',
+  reviewer: 'opus-xhigh',
+  debugger: 'opus-xhigh',
+});
+
 export const BRIDGE_TOOL = {
   name: 'bridge',
-  title: 'Bridge Worker',
+  title: 'Bridge Agent',
   annotations: {
-    title: 'Bridge Worker',
+    title: 'Bridge Agent',
     readOnlyHint: false,
     destructiveHint: true,
     idempotentHint: false,
     openWorldHint: true,
     bridgeHidden: true,
   },
-  description: 'Always async worker control: spawn/send return job handles. After ownership handoff, Lead only orchestrates/status/read/send; no same-scope edits until done/cancel/takeover. Spawn distinct tags for independent roles.',
+  description: `Workflow-agent control. For Lead/model delegation, prefer async spawn/send and omit mode unless the user explicitly needs a blocking result now. Do not set mode="sync" for normal worker/reviewer/debugger handoffs; async returns immediately and completion arrives as an owner-session notification. Use mode="sync" only for an explicit blocking wait. ${TOOL_ASYNC_EXECUTION_CONTRACT} Use agent=explore/web-researcher/maintainer/worker/heavy-worker/reviewer/debugger. No same-scope edits until done/cancel/takeover.`,
   inputSchema: {
     type: 'object',
     properties: {
-      type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: 'Default spawn.' },
-      jobId: { type: 'string', description: 'Job id for status/read.' },
-      role: { type: 'string', description: 'worker/reviewer/debugger/etc.' },
-      tag: { type: 'string', description: 'Stable worker handle; distinct tag per parallel agent.' },
+      type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: `Default spawn. spawn/send use the shared background task system when mode=async. ${TOOL_ASYNC_EXECUTION_CONTRACT}` },
+      mode: { type: 'string', enum: ['sync', 'async'], description: executionModeSchemaDescription('async') },
+      task_id: { type: 'string', description: 'Shared background task id for manual status/read/cancel recovery.' },
+      agent: { type: 'string', description: 'Workflow agent id to run. Use an agent declared by the active workflow.' },
+      tag: { type: 'string', description: 'Stable agent handle; distinct tag per parallel agent.' },
       sessionId: { type: 'string', description: 'Raw sess_ id.' },
       prompt: { type: 'string', description: 'Scoped task brief: anchors, constraints, done condition.' },
       message: { type: 'string', description: 'Follow-up for send, or spawn brief.' },
       file: { type: 'string', description: 'Prompt file.' },
-      provider: { type: 'string', description: 'Override provider.' },
-      model: { type: 'string', description: 'Override model.' },
-      preset: { type: 'string', description: 'Override preset id/name.' },
-      effort: { type: 'string', description: 'Override reasoning effort.' },
-      fast: { type: 'boolean', description: 'Enable provider fast mode when supported.' },
       cwd: { type: 'string', description: 'Working directory.' },
-      context: { type: 'string', description: 'Extra worker context.' },
+      context: { type: 'string', description: 'Extra agent context.' },
+      firstResponseTimeoutMs: { type: 'number', minimum: 0, description: 'Abort only when the agent produces no first stream/tool activity within this many ms. Default 120s. 0 disables this watchdog.' },
+      idleTimeoutMs: { type: 'number', minimum: 0, description: 'Stale watchdog after first stream/tool activity. Default 30m. 0 disables stale abort.' },
     },
     additionalProperties: true,
   },
@@ -52,20 +72,34 @@ export const BRIDGE_TOOL = {
 const FINISHED_JOB_TTL_MS = 30 * 60_000;
 const MAX_JOBS = 200;
 const TERMINAL_REAP_MS = 60 * 60_000;
-const DEFAULT_PROGRESS_IDLE_TIMEOUT_MS = 120_000;
+function envTimeoutMs(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+}
+
+const DEFAULT_FIRST_RESPONSE_TIMEOUT_MS = envTimeoutMs('MIXDOG_BRIDGE_FIRST_RESPONSE_TIMEOUT_MS', 120_000);
+const DEFAULT_STALE_TIMEOUT_MS = envTimeoutMs('MIXDOG_BRIDGE_STALE_TIMEOUT_MS', 30 * 60_000);
 const ACTIVE_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'running', 'cancelling']);
 
 function clean(value) {
   return String(value ?? '').trim();
 }
 
+function normalizeAgentName(value) {
+  const id = clean(value).toLowerCase().replace(/[\s_]+/g, '-');
+  if (id === 'explorer') return 'explore';
+  if (id === 'maint' || id === 'maintenance' || id === 'memory') return 'maintainer';
+  if (id === 'heavy' || id === 'heavyworker') return 'heavy-worker';
+  if (id === 'review') return 'reviewer';
+  if (id === 'debug') return 'debugger';
+  return id;
+}
+
 export function resolveBridgeExecutionMode(args = {}, context = {}, defaultMode = 'async') {
-  if (context.invocationSource !== 'user-command') return 'async';
-  if (args.wait === true) return 'sync';
-  if (args.wait === false) return 'async';
-  if (args.async === true) return 'async';
-  if (args.async === false) return 'sync';
-  return clean(args.mode || defaultMode).toLowerCase() === 'async' ? 'async' : 'sync';
+  const fallback = context.invocationSource !== 'user-command' ? 'async' : defaultMode;
+  return resolveExecutionMode(args, fallback);
 }
 
 function normalizePermission(value) {
@@ -76,6 +110,18 @@ function normalizePermission(value) {
 function positiveInt(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function nonNegativeInt(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+}
+
+function resolveWatchdogMs(value, fallback) {
+  const explicit = nonNegativeInt(value);
+  if (explicit !== null) return explicit;
+  return nonNegativeInt(fallback) ?? 0;
 }
 
 function presetKey(preset) {
@@ -139,6 +185,22 @@ function synthesizePreset(config, key) {
   };
 }
 
+function normalizeAgentRoute(routeLike) {
+  const provider = clean(routeLike?.provider);
+  const model = clean(routeLike?.model);
+  if (!provider || !model) return null;
+  return {
+    provider,
+    model,
+    effort: clean(routeLike?.effort) || undefined,
+    fast: routeLike?.fast === true,
+  };
+}
+
+function agentPresetName(role) {
+  return `AGENT ${String(role || '').toUpperCase()}`;
+}
+
 function readRoles(dataDir) {
   const file = resolve(dataDir, 'user-workflow.json');
   if (!existsSync(file)) return new Map();
@@ -152,7 +214,8 @@ function readRoles(dataDir) {
       permission: normalizePermission(role.permission) || 'full',
       desc_path: typeof role.desc_path === 'string' ? role.desc_path : null,
       maxLoopIterations: positiveInt(role.maxLoopIterations),
-      idleTimeoutMs: positiveInt(role.idleTimeoutMs),
+      idleTimeoutMs: nonNegativeInt(role.idleTimeoutMs),
+      firstResponseTimeoutMs: nonNegativeInt(role.firstResponseTimeoutMs),
     });
   }
   return roles;
@@ -201,43 +264,43 @@ function renderResult(value) {
     if (Array.isArray(value.workers) || Array.isArray(value.jobs)) {
       lines.push(`bridge mode: ${value.bridgeMode || 'async'}`);
       const workers = Array.isArray(value.workers) ? value.workers : [];
-      lines.push(`workers: ${workers.length}`);
+      lines.push(`agents: ${workers.length}`);
       for (const worker of workers) {
         const stale = Number.isFinite(worker.staleSeconds) ? ` stale=${worker.staleSeconds}s` : '';
         const tokens = worker.windowTokens ? ` ctx=${worker.windowTokens}${worker.windowCap ? `/${worker.windowCap}` : ''}` : '';
-        lines.push(`- ${worker.tag} ${worker.role || 'worker'} ${worker.status || 'idle'}/${worker.stage || 'idle'} ${worker.provider}/${worker.model}${stale}${tokens}`);
+        lines.push(`- ${worker.tag} ${worker.role || 'agent'} ${worker.status || 'idle'}/${worker.stage || 'idle'} ${worker.provider}/${worker.model}${stale}${tokens}`);
       }
       const jobs = Array.isArray(value.jobs) ? value.jobs : [];
-      lines.push(`jobs: ${jobs.length}`);
+      lines.push(`tasks: ${jobs.length}`);
       for (const job of jobs) {
         const target = job.tag || job.sessionId || '-';
-        lines.push(`- ${job.jobId} ${job.type} ${job.status} target=${target}${job.error ? ` error=${job.error}` : ''}`);
+        lines.push(`- ${job.task_id} ${job.type} ${job.status} target=${target}${job.error ? ` error=${presentErrorText(job.error, { surface: 'bridge' })}` : ''}`);
       }
-      if (workers.length === 0 && jobs.length === 0) lines.push('(no bridge workers or jobs)');
+      if (workers.length === 0 && jobs.length === 0) lines.push('(no bridge agents or tasks)');
       return lines.join('\n');
     }
 
-    if (value.jobId) {
-      lines.push(`bridge job: ${value.jobId}`);
+    if (value.task_id) {
+      lines.push(`bridge task: ${value.task_id}`);
       lines.push(`status: ${value.status}${value.mode ? ` (${value.mode})` : ''}`);
       if (value.type) lines.push(`type: ${value.type}`);
       if (value.tag || value.sessionId) lines.push(`target: ${value.tag || '-'} ${value.sessionId || ''}`.trim());
-      if (value.role) lines.push(`role: ${value.role}`);
-      if (value.preset) lines.push(`preset: ${value.preset}`);
+      if (value.role) lines.push(`agent: ${value.role}`);
       if (value.provider && value.model) lines.push(`model: ${value.provider}/${value.model}`);
       if (value.effort) lines.push(`effort: ${value.effort}`);
       if (value.fast === true || value.fast === false) lines.push(`fast: ${value.fast ? 'on' : 'off'}`);
-      if (value.maxLoopIterations || value.idleTimeoutMs) {
+      if (value.maxLoopIterations || value.idleTimeoutMs || value.firstResponseTimeoutMs) {
         const limitParts = [];
         if (value.maxLoopIterations) limitParts.push(`loop=${value.maxLoopIterations}`);
-        if (value.idleTimeoutMs) limitParts.push(`idle=${Math.round(value.idleTimeoutMs / 1000)}s`);
+        if (value.firstResponseTimeoutMs) limitParts.push(`first=${Math.round(value.firstResponseTimeoutMs / 1000)}s`);
+        if (value.idleTimeoutMs) limitParts.push(`stale=${Math.round(value.idleTimeoutMs / 1000)}s`);
         lines.push(`limits: ${limitParts.join(' ')}`);
       }
-      if (value.stage || value.workerStatus) lines.push(`worker: ${value.workerStatus || 'unknown'}/${value.stage || 'unknown'}`);
+      if (value.stage || value.workerStatus) lines.push(`agent: ${value.workerStatus || 'unknown'}/${value.stage || 'unknown'}`);
       if (value.startedAt) lines.push(`started: ${compactIso(value.startedAt)}`);
       if (value.finishedAt) lines.push(`finished: ${compactIso(value.finishedAt)}`);
-      if (value.error) lines.push(`error: ${value.error}`);
-      if (value.status === 'running') lines.push(`read: bridge type=read jobId=${value.jobId}`);
+      if (value.error) lines.push(`error: ${presentErrorText(value.error, { surface: 'bridge' })}`);
+      if (value.status === 'running') lines.push('notification: completion will be delivered to the owner session; use read/status only for manual recovery.');
       if (value.result !== undefined) {
         const result = value.result;
         const content = typeof result === 'string' ? result : result?.content;
@@ -251,7 +314,7 @@ function renderResult(value) {
       return [
         'bridge message queued',
         `target: ${value.tag || '-'} ${value.sessionId || ''}`.trim(),
-        value.role ? `role: ${value.role}` : null,
+        value.role ? `agent: ${value.role}` : null,
         `queueDepth: ${value.queueDepth ?? 1}`,
       ].filter(Boolean).join('\n');
     }
@@ -261,7 +324,7 @@ function renderResult(value) {
         `bridge close: ${value.closed ? 'ok' : 'not closed'}`,
         value.tag ? `tag: ${value.tag}` : null,
         value.sessionId ? `sessionId: ${value.sessionId}` : null,
-        value.jobId ? `jobId: ${value.jobId}` : null,
+        value.task_id ? `task_id: ${value.task_id}` : null,
         value.forgotten ? 'forgotten: true' : null,
       ].filter(Boolean).join('\n');
     }
@@ -270,7 +333,7 @@ function renderResult(value) {
       const header = [
         value.respawned ? 'bridge respawned' : 'bridge result',
         value.tag ? `tag=${value.tag}` : null,
-        value.role ? `role=${value.role}` : null,
+        value.role ? `agent=${value.role}` : null,
         value.provider && value.model ? `${value.provider}/${value.model}` : null,
       ].filter(Boolean).join(' ');
       return `${header}\n${stripFinalAnswerWrapper(value.content)}`;
@@ -330,7 +393,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     refreshTagsFromSessions();
     let tag;
     do {
-      tag = `${clean(role) || 'worker'}${++tagSeq}`;
+      tag = `${clean(role) || 'agent'}${++tagSeq}`;
     } while (tags.has(tag));
     return tag;
   }
@@ -436,8 +499,29 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       };
     }
 
-    const presetName = clean(args.preset) || roleCfg?.preset;
-    if (!presetName) throw new Error(`bridge: role "${args.role}" not found in user-workflow.json and no preset override was provided`);
+    const agentName = normalizeAgentName(args.agent || args.role);
+    const agentRoute = !clean(args.preset)
+      ? (normalizeAgentRoute(config?.agents?.[agentName])
+        || (agentName === 'maintainer' ? normalizeAgentRoute(config?.agents?.maintenance) : null))
+      : null;
+    if (agentRoute) {
+      return {
+        presetName: agentPresetName(agentName),
+        preset: {
+          id: `agent-${agentName}`,
+          name: agentPresetName(agentName),
+          type: 'bridge',
+          provider: agentRoute.provider,
+          model: agentRoute.model,
+          effort: agentRoute.effort,
+          fast: agentRoute.fast === true,
+          tools: 'full',
+        },
+      };
+    }
+
+    const presetName = clean(args.preset) || roleCfg?.preset || DEFAULT_AGENT_PRESETS[agentName];
+    if (!presetName) throw new Error(`bridge: agent "${agentName}" has no model assignment`);
     const preset = findPreset(config, presetName) || synthesizePreset(config, presetName);
     if (!preset) throw new Error(`bridge: preset "${presetName}" not found`);
     return { presetName, preset };
@@ -495,97 +579,112 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     };
   }
 
-  function listJobs() {
-    pruneJobs();
-    return [...jobs.values()].map((job) => ({
-      jobId: job.jobId,
-      type: job.type,
-      status: job.status,
-      tag: job.tag || null,
-      sessionId: job.sessionId || null,
-      role: job.role || null,
-      preset: job.preset || null,
-      provider: job.provider || null,
-      model: job.model || null,
-      effort: job.effort || null,
-      fast: job.fast === true || job.fast === false ? job.fast : null,
-      maxLoopIterations: job.maxLoopIterations || null,
-      idleTimeoutMs: job.idleTimeoutMs || null,
-      startedAt: job.startedAt,
-      finishedAt: job.finishedAt || null,
-      error: job.error || null,
-      ...jobWorkerSnapshot(job.sessionId),
+  function listJobs(context = {}) {
+    return listBackgroundTasks({ surface: 'bridge', context }).map((task) => ({
+      task_id: task.task_id,
+      type: task.operation,
+      status: task.status,
+      tag: task.tag || null,
+      sessionId: task.sessionId || null,
+      role: task.role || null,
+      preset: task.preset || null,
+      provider: task.provider || null,
+      model: task.model || null,
+      effort: task.effort || null,
+      fast: task.fast === true || task.fast === false ? task.fast : null,
+      maxLoopIterations: task.maxLoopIterations || null,
+      idleTimeoutMs: task.idleTimeoutMs || null,
+      firstResponseTimeoutMs: task.firstResponseTimeoutMs || null,
+      startedAt: task.startedAt,
+      finishedAt: task.finishedAt || null,
+      error: task.error || null,
+      ...jobWorkerSnapshot(task.sessionId),
     }));
   }
 
-  function getJob(args) {
-    pruneJobs();
-    const jobId = clean(args.jobId || args.id);
-    if (!jobId) throw new Error('bridge read/status: jobId is required');
-    const job = jobs.get(jobId);
-    if (!job) throw new Error(`bridge read/status: job "${jobId}" not found`);
-    return job;
+  function getJob(args, context = {}) {
+    const taskId = taskIdFromArgs(args);
+    if (!taskId) throw new Error('bridge read/status: task_id is required');
+    const task = getBackgroundTask(taskId, { surface: 'bridge', context });
+    if (!task) throw new Error(`bridge read/status: task "${taskId}" not found`);
+    return task;
   }
 
   function renderJob(job, includeResult = false) {
+    const meta = job.meta || {};
     return {
-      jobId: job.jobId,
-      type: job.type,
+      task_id: job.taskId,
+      type: job.operation,
       status: job.status,
-      tag: job.tag || null,
-      sessionId: job.sessionId || null,
-      role: job.role || null,
+      tag: meta.tag || null,
+      sessionId: meta.sessionId || null,
+      role: meta.role || null,
+      preset: meta.preset || null,
+      provider: meta.provider || null,
+      model: meta.model || null,
+      effort: meta.effort || null,
+      fast: meta.fast === true || meta.fast === false ? meta.fast : null,
+      maxLoopIterations: meta.maxLoopIterations || null,
+      idleTimeoutMs: meta.idleTimeoutMs || null,
+      firstResponseTimeoutMs: meta.firstResponseTimeoutMs || null,
       startedAt: job.startedAt,
       finishedAt: job.finishedAt || null,
       error: job.error || null,
-      ...jobWorkerSnapshot(job.sessionId),
+      ...jobWorkerSnapshot(meta.sessionId),
       ...(includeResult && job.result !== undefined ? { result: job.result } : {}),
     };
   }
 
-  function startJob(type, meta, run) {
-    pruneJobs();
-    const job = {
-      jobId: nextJobId(type),
-      type,
-      status: 'running',
-      startedAt: new Date().toISOString(),
-      finishedAt: null,
-      result: undefined,
-      error: null,
-      ...meta,
-    };
-    jobs.set(job.jobId, job);
-    job.promise = Promise.resolve()
-      .then(run)
-      .then((result) => {
-        job.status = 'done';
-        job.finishedAt = new Date().toISOString();
-        job.result = result;
-        return result;
-      })
-      .catch((error) => {
-        if (job.status === 'cancelled') return null;
-        job.status = 'error';
-        job.finishedAt = new Date().toISOString();
-        job.error = error?.message || String(error);
-        return null;
-      });
-    return job;
+  function startJob(type, meta, run, notifyContext = null) {
+    return startBackgroundTask({
+      surface: 'bridge',
+      operation: type,
+      label: meta?.tag || meta?.sessionId || type,
+      input: { type, tag: meta?.tag || null, sessionId: meta?.sessionId || null, role: meta?.role || null },
+      context: notifyContext,
+      meta,
+      resultType: 'bridge_task_result',
+      renderResult: (result) => renderResult(result),
+      cancel: () => {
+        if (meta?.sessionId) {
+          try { mgr.closeSession(meta.sessionId, 'bridge-task-cancel'); } catch {}
+        }
+      },
+      run,
+    });
   }
 
-  function startProgressIdleWatchdog(sessionId, idleTimeoutMs) {
-    const timeoutMs = positiveInt(idleTimeoutMs);
-    if (!sessionId || !timeoutMs) return null;
-    if (typeof mgr.getSessionLastProgressAt !== 'function') return null;
+  function startProgressIdleWatchdog(sessionId, idleTimeoutMs, firstResponseTimeoutMs = DEFAULT_FIRST_RESPONSE_TIMEOUT_MS) {
+    const staleMs = resolveWatchdogMs(idleTimeoutMs, DEFAULT_STALE_TIMEOUT_MS);
+    const firstMs = resolveWatchdogMs(firstResponseTimeoutMs, DEFAULT_FIRST_RESPONSE_TIMEOUT_MS);
+    if (!sessionId || (!staleMs && !firstMs)) return null;
+    if (typeof mgr.getSessionProgressSnapshot !== 'function' && typeof mgr.getSessionLastProgressAt !== 'function') return null;
     if (typeof mgr.linkParentSignalToSession !== 'function') return null;
     const controller = new AbortController();
     try { mgr.linkParentSignalToSession(sessionId, controller.signal); } catch { return null; }
     const timer = setInterval(() => {
+      const now = Date.now();
+      const snapshot = typeof mgr.getSessionProgressSnapshot === 'function'
+        ? mgr.getSessionProgressSnapshot(sessionId)
+        : null;
+      if (snapshot) {
+        if (snapshot.waitingForFirstActivity) {
+          const startedAt = snapshot.modelRequestStartedAt || snapshot.askStartedAt;
+          if (firstMs && startedAt && now - startedAt > firstMs) {
+            try { controller.abort(new Error(`bridge first response stale (${firstMs}ms)`)); } catch {}
+          }
+          return;
+        }
+        const last = snapshot.lastProgressAt || snapshot.firstActivityAt;
+        if (staleMs && last && now - last > staleMs) {
+          try { controller.abort(new Error(`bridge task stale (${staleMs}ms without stream/tool progress)`)); } catch {}
+        }
+        return;
+      }
       const last = mgr.getSessionLastProgressAt(sessionId);
-      if (!last) return;
-      if (Date.now() - last <= timeoutMs) return;
-      try { controller.abort(new Error(`standalone bridge idle timeout exceeded (${timeoutMs}ms)`)); } catch {}
+      if (staleMs && last && now - last > staleMs) {
+        try { controller.abort(new Error(`bridge task stale (${staleMs}ms without progress)`)); } catch {}
+      }
     }, 1000);
     timer.unref?.();
     return {
@@ -599,19 +698,21 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     refreshTagsFromSessions();
     const config = cfgMod.loadConfig();
     const roles = readRoles(dataDir);
-    const role = clean(args.role);
-    if (!role) throw new Error('bridge spawn: role is required');
+    const role = normalizeAgentName(args.agent || args.role);
+    if (!role) throw new Error('bridge spawn: agent is required');
     const roleCfg = roles.get(role);
     const { presetName, preset } = resolvePreset(config, args, roleCfg);
     await ensureProvider(config, preset.provider);
 
     const tag = clean(args.tag) || nextTag(role);
     if (resolveTag(tag)) throw new Error(`bridge spawn: tag "${tag}" already exists`);
-    const workerCwd = clean(args.cwd) ? resolve(args.cwd) : resolve(callerCwd || defaultCwd);
+    const baseCwd = resolve(callerCwd || defaultCwd || process.cwd());
+    const workerCwd = clean(args.cwd) ? resolve(baseCwd, args.cwd) : baseCwd;
     const prompt = withCwdHeader(await resolvePrompt(args, workerCwd), workerCwd);
     const runtimeSpec = cfgMod.resolveRuntimeSpec(preset, { lane: 'bridge', agentId: tag });
     const maxLoopIterations = positiveInt(args.maxLoopIterations) || roleCfg?.maxLoopIterations || null;
-    const idleTimeoutMs = positiveInt(args.idleTimeoutMs) || roleCfg?.idleTimeoutMs || DEFAULT_PROGRESS_IDLE_TIMEOUT_MS;
+    const idleTimeoutMs = resolveWatchdogMs(args.idleTimeoutMs, roleCfg?.idleTimeoutMs ?? DEFAULT_STALE_TIMEOUT_MS);
+    const firstResponseTimeoutMs = resolveWatchdogMs(args.firstResponseTimeoutMs, roleCfg?.firstResponseTimeoutMs ?? DEFAULT_FIRST_RESPONSE_TIMEOUT_MS);
     const { session, effectiveCwd } = prepareBridgeSession({
       role,
       presetName,
@@ -627,18 +728,18 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       permission: normalizePermission(roleCfg?.permission) || 'full',
       cacheKeyOverride: args.cacheKey || undefined,
     });
-    // Lead sessions write a gateway-session route when created; bridge workers
+    // Lead sessions write a gateway-session route when created; bridge agents
     // are built through prepareBridgeSession(), so mirror that registration here
-    // or the vendored L1/L2 statusline cannot resolve the worker route/model.
+    // or the vendored L1/L2 statusline cannot resolve the agent route/model.
     writeBridgeStatuslineRoute(session.id, preset);
     bindTag(tag, session);
     cancelReap(session.id);
-    return { args, tag, session, role, preset, presetName, workerCwd: effectiveCwd || workerCwd, prompt, maxLoopIterations, idleTimeoutMs };
+    return { args, tag, session, role, preset, presetName, workerCwd: effectiveCwd || workerCwd, prompt, maxLoopIterations, idleTimeoutMs, firstResponseTimeoutMs };
   }
 
   async function runSpawn(prepared) {
-    const { args, tag, session, role, preset, presetName, workerCwd, prompt, idleTimeoutMs } = prepared;
-    const watchdog = startProgressIdleWatchdog(session.id, idleTimeoutMs);
+    const { args, tag, session, role, preset, presetName, workerCwd, prompt, idleTimeoutMs, firstResponseTimeoutMs } = prepared;
+    const watchdog = startProgressIdleWatchdog(session.id, idleTimeoutMs, firstResponseTimeoutMs);
     try {
       const result = await mgr.askSession(session.id, prompt, args.context || null, null, workerCwd);
       const content = result?.content || '';
@@ -678,7 +779,11 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
 
   async function runSend(prepared) {
     const { args, session, sessionId, prompt } = prepared;
-    const watchdog = startProgressIdleWatchdog(sessionId, positiveInt(args.idleTimeoutMs) || DEFAULT_PROGRESS_IDLE_TIMEOUT_MS);
+    const watchdog = startProgressIdleWatchdog(
+      sessionId,
+      resolveWatchdogMs(args.idleTimeoutMs, DEFAULT_STALE_TIMEOUT_MS),
+      resolveWatchdogMs(args.firstResponseTimeoutMs, DEFAULT_FIRST_RESPONSE_TIMEOUT_MS),
+    );
     try {
       const result = await mgr.askSession(sessionId, prompt, args.context || null, null, session.cwd || defaultCwd);
       return {
@@ -699,17 +804,19 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     return await runSend(await prepareSend(args));
   }
 
-  function close(args) {
+  function close(args, context = {}) {
     refreshTagsFromSessions();
-    const jobId = clean(args.jobId);
-    const job = jobId ? jobs.get(jobId) : null;
-    const target = clean(args.tag || args.sessionId || job?.sessionId);
+    const taskId = taskIdFromArgs(args);
+    const task = taskId ? getBackgroundTask(taskId, { surface: 'bridge', context }) : null;
+    const taskMeta = task?.meta || {};
+    const target = clean(args.tag || args.sessionId || taskMeta.sessionId);
     if (!target) throw new Error('bridge close: tag or sessionId is required');
     const sessionId = resolveTag(target);
     if (!sessionId) {
       if (!target.startsWith('sess_') && tagRoles.has(target)) {
         forgetTag(target);
-        return { closed: true, forgotten: true, tag: target, sessionId: null, jobId: job?.jobId || null };
+        if (task?.taskId) cancelBackgroundTask(task.taskId, 'cancelled by bridge close');
+        return { closed: true, forgotten: true, tag: target, sessionId: null, task_id: task?.taskId || null };
       }
       throw new Error(`bridge close: target "${target}" not found`);
     }
@@ -718,23 +825,18 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     if (tag) forgetTag(tag);
     clearBridgeStatuslineRoute(sessionId);
     const ok = mgr.closeSession(sessionId, 'cli-bridge-close');
-    if (job && job.status === 'running') {
-      job.status = 'cancelled';
-      job.finishedAt = new Date().toISOString();
-      job.error = 'cancelled by bridge close';
-    }
-    return { closed: ok, tag, sessionId, jobId: job?.jobId || null };
+    if (task?.taskId) cancelBackgroundTask(task.taskId, 'cancelled by bridge close');
+    return { closed: ok, tag, sessionId, task_id: task?.taskId || null };
   }
 
-  function cleanup(args = {}) {
-    const beforeJobs = jobs.size;
+  function cleanup(args = {}, context = {}) {
     const beforeTags = tags.size;
     refreshTagsFromSessions();
-    pruneJobs({ force: args.force === true });
+    const cleaned = cleanupBackgroundTasks({ surface: 'bridge', context, force: args.force === true });
     return {
-      jobsRemoved: beforeJobs - jobs.size,
+      jobsRemoved: cleaned.removed,
       tagsRemoved: beforeTags - tags.size,
-      jobs: jobs.size,
+      jobs: listBackgroundTasks({ surface: 'bridge', context }).length,
       workers: list().length,
     };
   }
@@ -747,15 +849,13 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       try {
         closed.push(close({ tag }));
       } catch (err) {
-        failed.push({ tag, error: err?.message || String(err) });
+        failed.push({ tag, error: presentErrorText(err, { surface: 'bridge' }) });
       }
     }
-    for (const [jobId, job] of jobs.entries()) {
-      if (job?.status !== 'running') continue;
-      job.status = 'cancelled';
-      job.finishedAt = new Date().toISOString();
-      job.error = reason;
-      closed.push({ closed: true, tag: job.tag || null, sessionId: job.sessionId || null, jobId });
+    for (const task of listBackgroundTasks({ surface: 'bridge' })) {
+      if (task?.status !== 'running') continue;
+      cancelBackgroundTask(task.task_id, reason);
+      closed.push({ closed: true, tag: task.tag || null, sessionId: task.sessionId || null, task_id: task.task_id });
     }
     for (const timer of reapTimers.values()) clearTimeout(timer);
     reapTimers.clear();
@@ -765,12 +865,13 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
   function coldRespawnArgs(args = {}) {
     const target = clean(args.tag || args.sessionId);
     if (!target || target.startsWith('sess_') || resolveTag(target)) return null;
-    const recoveredRole = clean(args.role) || tagRoles.get(target);
+    const recoveredRole = clean(args.agent || args.role) || tagRoles.get(target);
     if (!recoveredRole) return null;
     return {
       ...args,
       type: 'spawn',
       tag: target,
+      agent: recoveredRole,
       role: recoveredRole,
       prompt: args.prompt ?? args.message,
       cwd: args.cwd ?? tagCwds.get(target) ?? undefined,
@@ -782,13 +883,14 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     try {
       const type = clean(args.type) || 'spawn';
       const callerCwd = clean(context.cwd || context.callerCwd);
+      const notifyContext = context;
       refreshTagsFromSessions();
-      if (type === 'list') return renderResult({ bridgeMode: defaultMode, workers: list(), jobs: listJobs() });
-      if (type === 'status') return renderResult(renderJob(getJob(args), false));
-      if (type === 'read') return renderResult(renderJob(getJob(args), true));
-      if (type === 'cleanup') return renderResult(cleanup(args));
-      if (type === 'cancel') return renderResult(close(args));
-      if (type === 'close') return renderResult(close(args));
+      if (type === 'list') return renderResult({ bridgeMode: defaultMode, workers: list(), jobs: listJobs(context) });
+      if (type === 'status') return renderResult(renderJob(getJob(args, context), false));
+      if (type === 'read') return renderResult(renderJob(getJob(args, context), true));
+      if (type === 'cleanup') return renderResult(cleanup(args, context));
+      if (type === 'cancel') return renderResult(close(args, context));
+      if (type === 'close') return renderResult(close(args, context));
       if (type === 'send') {
         const respawnArgs = coldRespawnArgs(args);
         if (respawnArgs) {
@@ -806,7 +908,8 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
               fast: prepared.preset.fast === true,
               maxLoopIterations: prepared.maxLoopIterations || null,
               idleTimeoutMs: prepared.idleTimeoutMs || null,
-            }, () => runSpawn(prepared));
+              firstResponseTimeoutMs: prepared.firstResponseTimeoutMs || null,
+            }, () => runSpawn(prepared), notifyContext);
             return renderResult({ mode: 'async', respawned: true, ...renderJob(job, false) });
           }
           return renderResult({ respawned: true, ...(await runSpawn(prepared)) });
@@ -832,7 +935,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
             preset: prepared.session.presetName || null,
             effort: prepared.session.effort || null,
             fast: prepared.session.fast === true,
-          }, () => runSend(prepared));
+          }, () => runSend(prepared), notifyContext);
           return renderResult({ mode: 'async', ...renderJob(job, false) });
         }
         return renderResult(await runSend(prepared));
@@ -851,14 +954,15 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
             fast: prepared.preset.fast === true,
             maxLoopIterations: prepared.maxLoopIterations || null,
             idleTimeoutMs: prepared.idleTimeoutMs || null,
-          }, () => runSpawn(prepared));
+            firstResponseTimeoutMs: prepared.firstResponseTimeoutMs || null,
+          }, () => runSpawn(prepared), notifyContext);
           return renderResult({ mode: 'async', ...renderJob(job, false) });
         }
         return renderResult(await runSpawn(prepared));
       }
       throw new Error(`bridge: unknown type "${type}"`);
     } catch (err) {
-      return `Error: ${err?.message || String(err)}`;
+      return `Error: ${presentErrorText(err, { surface: 'bridge' })}`;
     }
   }
 

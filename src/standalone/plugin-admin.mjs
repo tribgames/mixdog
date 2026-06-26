@@ -61,7 +61,6 @@ function saveRegistry(registry, dataDir = resolvePluginData()) {
 
 function pluginManifest(root) {
   return readJsonSafe(join(root, '.codex-plugin', 'plugin.json'))
-    || readJsonSafe(join(root, '.claude-plugin', 'plugin.json'))
     || readJsonSafe(join(root, 'plugin.json'))
     || {};
 }

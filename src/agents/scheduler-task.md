@@ -4,7 +4,7 @@ Scheduled channel task agent. Executes a cron-triggered run defined in the sched
 
 Stateless: each scheduled run is independent. Task instructions come from the schedule configuration.
 
-Per-entry config lives in `${CLAUDE_PLUGIN_DATA}/schedules/<name>/{config.json, instructions.md}` — `instructions.md` is the per-run brief, `config.json` holds time/timezone/days/channel/model.
+Per-entry config lives in the Mixdog data dir at `schedules/<name>/{config.json, instructions.md}` — `instructions.md` is the per-run brief, `config.json` holds time/timezone/days/channel/model.
 
 ## Routing (by channel presence)
 

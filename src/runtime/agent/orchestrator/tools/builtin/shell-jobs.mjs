@@ -5,6 +5,15 @@ import { basename, join } from 'path';
 import { getPluginData } from '../../config.mjs';
 import { stripAnsi } from '../shell-command.mjs';
 import { scrubLoaderVars, scrubProviderSecrets } from '../env-scrub.mjs';
+import {
+    normalizeToolNotifyContext,
+    notifyToolCompletion,
+} from '../../../../shared/tool-execution-contract.mjs';
+import {
+    completeBackgroundTask,
+    notifyBackgroundTaskProgress,
+} from '../../../../shared/background-tasks.mjs';
+import { startChildGuardian } from '../../../../shared/child-guardian.mjs';
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -15,7 +24,7 @@ function sleep(ms) {
 // flag is written when the job exits, so a .done file older than
 // SHELL_JOB_STALE_MS is the invariant proof its sibling files are also
 // safe to remove. Active and recently-completed jobs are kept so
-// `job_wait`/status readers still find them. Runs once per mcp child
+// `task` status/read/wait readers still find them. Runs once per mcp child
 // lifetime on first getShellJobsDir() call. Async dirent walk + parallel
 // stat/unlink keeps the main event loop free; fire-and-forget so the
 // synchronous caller receives `dir` immediately.
@@ -121,14 +130,9 @@ const JOB_STATUS_PREVIEW_MAX_BYTES = 4096;
 const JOB_STATUS_PREVIEW_MAX_LINES = 20;
 const JOB_STATUS_PREVIEW_MAX_CHARS = 1200;
 
-// Resolve the CC host pid (claude.exe) that owns a freshly-spawned job. In the
-// shared-daemon model one daemon serves many terminals but keeps the FIRST
-// spawner's env, so process.env.MIXDOG_OWNER_HOST_PID is the daemon owner's pid
-// — wrong for jobs spawned by any other terminal. The per-request
-// callerSession.clientHostPid (threaded from server-main through the spawn
-// site) is the correct, terminal-specific pid; the env var is only the
-// documented single-client fallback where the two are identical (or for
-// non-MCP callers that thread nothing).
+// Resolve the CLI host pid that owns a freshly-spawned job. Standalone CLI
+// execution is process-owned: background tasks are scoped to this CLI lifetime,
+// and the pid stamp is only for statusline filtering / legacy sidecars.
 function resolveJobOwnerHostPid(clientHostPid) {
     const explicit = Number(clientHostPid);
     if (Number.isInteger(explicit) && explicit > 0) return explicit;
@@ -173,7 +177,7 @@ function readShellJobDetail(jobId) {
 }
 
 export function buildJobNotFoundMessage(jobId) {
-    return `Error: job not found: ${jobId}`;
+    return `Error: task not found: ${jobId}`;
 }
 
 function isPidAlive(pid) {
@@ -212,13 +216,9 @@ function killProcessTree(pid, signal = 'SIGTERM') {
     }
 }
 
-// Module-level tracking of live background-job pids so the host process
-// can reap orphaned children on exit. Without this, detached `bash`
-// background jobs survive host death and continue running. Mirrors the
-// bash-session.mjs _installParentExitHook / _killProcessTree pattern;
-// on synchronous signal/exit paths we send SIGKILL directly because the
-// async grace period from killProcessTree() cannot run inside a sync
-// exit handler.
+// Module-level tracking of live background-job pids so CLI shutdown can reap
+// owned children. Async jobs are intentionally CLI-owned; no restart replay or
+// daemon handoff is attempted.
 const _liveJobPids = new Set();
 let _shellJobsExitHookInstalled = false;
 function _registerLiveJobPid(pid) {
@@ -246,6 +246,7 @@ function _installShellJobsExitHook() {
     try { process.on('exit', _sweepLiveJobsSync); } catch { /* ignore */ }
     try { process.on('SIGTERM', _sweepLiveJobsSync); } catch { /* ignore */ }
     try { process.on('SIGINT', _sweepLiveJobsSync); } catch { /* ignore */ }
+    try { process.on('SIGHUP', _sweepLiveJobsSync); } catch { /* ignore */ }
 }
 
 function shellQuoteSingle(s) {
@@ -342,6 +343,46 @@ function summarizeJobPreviewText(text, maxChars = 160) {
     return summary;
 }
 
+const SHELL_JOB_PROMPT_STALL_MS = 45_000;
+const SHELL_JOB_PROMPT_TAIL_BYTES = 1024;
+const SHELL_JOB_PROMPT_TAIL_LINES = 16;
+const SHELL_JOB_PROMPT_TAIL_CHARS = 1024;
+const SHELL_JOB_PROMPT_PATTERNS = [
+    /\((?:y|yes)\/(?:n|no)\)\s*[:?]?\s*$/i,
+    /\[(?:y|yes)\/(?:n|no)\]\s*[:?]?\s*$/i,
+    /\b(?:continue|proceed|confirm|overwrite|replace)\b[^\n]*[?:]\s*$/i,
+    /\bpress\s+(?:enter|return)\b[^\n]*$/i,
+    /\bdo you (?:want|wish|agree|accept)\b[^\n]*\?\s*$/i,
+    /\b(?:password|passphrase|otp|verification code)\b[^\n]*[:?]\s*$/i,
+];
+
+function looksLikeInteractivePrompt(text) {
+    const tail = stripAnsi(String(text || '')).trim();
+    if (!tail) return false;
+    const last = tail.split(/\r?\n/).slice(-4).join('\n').trim();
+    return SHELL_JOB_PROMPT_PATTERNS.some((pattern) => pattern.test(last));
+}
+
+function readPromptTail(detail) {
+    if (!detail || typeof detail !== 'object') return { bytes: 0, text: '' };
+    const stdoutInfo = readTailPreviewSync(detail.stdoutPath, {
+        maxBytes: SHELL_JOB_PROMPT_TAIL_BYTES,
+        maxLines: SHELL_JOB_PROMPT_TAIL_LINES,
+        maxChars: SHELL_JOB_PROMPT_TAIL_CHARS,
+    });
+    const stderrInfo = detail.mergeStderr === true ? null : readTailPreviewSync(detail.stderrPath, {
+        maxBytes: SHELL_JOB_PROMPT_TAIL_BYTES,
+        maxLines: SHELL_JOB_PROMPT_TAIL_LINES,
+        maxChars: SHELL_JOB_PROMPT_TAIL_CHARS,
+    });
+    const bytes = (stdoutInfo?.bytes || 0) + (stderrInfo?.bytes || 0);
+    const parts = [
+        stdoutInfo?.preview ? `[stdout tail]\n${stdoutInfo.preview}` : '',
+        stderrInfo?.preview ? `[stderr tail]\n${stderrInfo.preview}` : '',
+    ].filter(Boolean);
+    return { bytes, text: parts.join('\n\n') };
+}
+
 function attachJobInsights(detail) {
     const withPreview = attachJobPreview(detail);
     if (!withPreview || typeof withPreview !== 'object') return withPreview;
@@ -371,6 +412,36 @@ function attachJobInsights(detail) {
     return withPreview;
 }
 
+export function shellJobPublicTaskResult(detail) {
+    if (!detail || typeof detail !== 'object') return detail;
+    const result = {
+        task_id: detail.jobId || detail.task_id || null,
+        shell: detail.shellType || null,
+        status: detail.status || null,
+        cwd: detail.cwd || null,
+        pid: detail.pid || null,
+        exit_code: (typeof detail.exitCode === 'number') ? detail.exitCode : null,
+        signal: detail.signal || null,
+        timed_out: detail.timedOut === true ? true : null,
+        killed: detail.killed === true ? true : null,
+        stdout_bytes: (typeof detail.stdoutBytes === 'number') ? detail.stdoutBytes : null,
+        stderr_bytes: (typeof detail.stderrBytes === 'number') ? detail.stderrBytes : null,
+        stdout_preview: detail.stdoutPreview || null,
+        stderr_preview: detail.stderrPreview || null,
+        summary: detail.summary || null,
+        summary_source: detail.summarySource || null,
+        waited_ms: (typeof detail.waitedMs === 'number') ? detail.waitedMs : null,
+        wait_timed_out: detail.waitTimedOut === true ? true : null,
+        started_at: detail.startedAt || null,
+        finished_at: detail.finishedAt || null,
+        error: detail.error || null,
+    };
+    for (const [key, value] of Object.entries(result)) {
+        if (value == null || value === '') delete result[key];
+    }
+    return result;
+}
+
 export async function waitForShellJob(jobId, { timeoutMs = 30_000, pollMs = 250 } = {}) {
     const started = Date.now();
     const deadline = started + Math.max(0, timeoutMs);
@@ -387,7 +458,7 @@ export async function waitForShellJob(jobId, { timeoutMs = 30_000, pollMs = 250 
     return withInsights;
 }
 
-// Non-blocking peek at a background job (CC BashOutput analogue): refresh its
+// Non-blocking peek at a background task (CC BashOutput analogue): refresh its
 // status and return current stdout/stderr tail preview WITHOUT waiting for
 // completion. Returns null if the job id is unknown.
 export function peekShellJob(jobId) {
@@ -396,14 +467,14 @@ export function peekShellJob(jobId) {
     return attachJobInsights(detail);
 }
 
-// Terminate a running background job (CC KillShell analogue): kill the process
+// Terminate a running background task (CC KillShell analogue): kill the process
 // tree and mark the job failed/137. Returns null if unknown; a detail with
 // killed:false if it had already finished.
 export function killShellJob(jobId) {
     const detail = readShellJobDetail(jobId);
     if (!detail) return null;
     if (detail.status !== 'running') {
-        return { ...detail, killed: false, note: `job already ${detail.status}` };
+        return { ...detail, killed: false, note: `task already ${detail.status}` };
     }
     killProcessTree(detail.pid, 'SIGTERM');
     detail.status = 'failed';
@@ -471,44 +542,42 @@ export function startBackgroundShellJob({ command, timeoutMs, workDir, mergeStde
     return _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, shellArg, shellType, clientHostPid });
 }
 
-// In-process completion watcher. After a background `bash` job is spawned the
-// Lead session has no way to learn the job finished (no polling tool is
+// In-process completion watcher. After a background shell task is spawned the
+// Lead session has no way to learn the task finished (no polling tool is
 // auto-driven), so this registers an fs.watch on the shell-jobs dir filtered
 // to `<jobId>.done` plus a ~2s polling fallback (fs.watch misses on some
 // network / overlay filesystems) and a hard stop at timeoutMs + grace. When
-// the job completes it reads the finished detail and calls notifyFn ONCE with
-// type 'shell_job_result', mirroring pushDispatchResult's option shape so the
-// daemon router delivers the result to the dispatching terminal.
+// the job completes it reads the finished detail and delivers a shared async
+// execution notification with type 'shell_task_result'.
 //
-// v1 LIMITATION: in-process only. The watcher state lives in this MCP child;
-// if the child dies before the job completes, no notification is replayed on
-// restart (unlike dispatch-persist's recoverPending). The job's .done/.json
-// files still land on disk, but nothing re-arms a watcher for them.
+// CLI-owned by design. If the CLI/runtime process exits, no notification is
+// replayed or recovered later; shutdown cancels live jobs instead of handing
+// them to a daemon.
 //
 // All timers are unref()'d and fs.watch is closed on completion/stop, so the
 // watcher never keeps the host process alive.
 const SHELL_JOB_WATCH_POLL_MS = 2000;
 const SHELL_JOB_WATCH_GRACE_MS = 5000;
-// Registry of armed background-job watchers keyed by jobId. job_wait's `wait`
+// Registry of armed background-job watchers keyed by jobId. task wait
 // and `kill` actions already hold the completed outcome, so they cancel the
 // armed watcher here to prevent a double-notify when its next poll fires.
 const backgroundShellJobWatchers = new Map();
 // Persistent notify ctx per jobId, set at FIRST arm and surviving cancel — so a
-// re-arm after a job_wait timeout can reconstruct the notify wiring without the
+// re-arm after a task wait timeout can reconstruct the notify wiring without the
 // caller threading the ctx back in. Deleted only in the watcher's cleanup() on
 // settle (and explicitly in the kill path) so it cannot leak for entries that
 // never complete.
 const jobNotifyCtxByJobId = new Map();
-// Live job_wait waiter count per jobId. While >0 a synchronous caller is
+// Live task waiter count per jobId. While >0 a synchronous caller is
 // consuming the outcome, so the watcher must stay cancelled; the last waiter to
 // leave (count===0) owns the decision to re-arm a still-running job.
 const jobWaitWaiterCountByJobId = new Map();
-// Register a synchronous job_wait waiter. Paired with endShellJobWait in a
+// Register a synchronous task waiter. Paired with endShellJobWait in a
 // finally so the count can't leak on throw.
 export function beginShellJobWait(jobId) {
     jobWaitWaiterCountByJobId.set(jobId, (jobWaitWaiterCountByJobId.get(jobId) || 0) + 1);
 }
-// Deregister a synchronous job_wait waiter; returns the POST-decrement count so
+// Deregister a synchronous task waiter; returns the POST-decrement count so
 // the last leaver (0) can decide whether to re-arm.
 export function endShellJobWait(jobId) {
     const next = (jobWaitWaiterCountByJobId.get(jobId) || 0) - 1;
@@ -536,15 +605,15 @@ export function cancelBackgroundShellJobWatch(jobId) {
 // ctx captured at first arm (jobNotifyCtxByJobId).
 export function watchBackgroundShellJob(jobId, notifyCtx) {
     const ctx = (notifyCtx && typeof notifyCtx.notifyFn === 'function')
-        ? notifyCtx
+        ? normalizeToolNotifyContext(notifyCtx)
         : (jobId ? jobNotifyCtxByJobId.get(jobId) : null);
     if (!jobId || !ctx || typeof ctx.notifyFn !== 'function') {
-        // Direct/non-dispatch callers have no push target; the job still runs
-        // and remains pollable via job_wait, so this is not a failure.
+        // Direct/non-dispatch callers have no push target; the task still runs
+        // and remains pollable via task control, so this is not a failure.
         return;
     }
     // Idempotent arm: if a watcher is already registered for this jobId, leave
-    // it in place. Lets job_wait's re-arm-after-timeout path call this
+    // it in place. Lets task wait's re-arm-after-timeout path call this
     // unconditionally without stacking duplicate watchers.
     if (backgroundShellJobWatchers.has(jobId)) return;
     // Persist the notify ctx on FIRST arm so a later re-arm can recover it even
@@ -557,6 +626,9 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
     let watcher = null;
     let pollTimer = null;
     let hardStopTimer = null;
+    let lastOutputBytes = null;
+    let lastOutputAtMs = Date.now();
+    let promptStallNotified = false;
     const cleanup = () => {
         if (watcher) { try { watcher.close(); } catch { /* ignore */ } watcher = null; }
         if (pollTimer) { try { clearInterval(pollTimer); } catch { /* ignore */ } pollTimer = null; }
@@ -566,7 +638,7 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
         // — NOT on a bare cancel, which keeps it for a possible re-arm.
         if (settled && !cancelled) jobNotifyCtxByJobId.delete(jobId);
     };
-    // Cancel without notifying — used by job_wait's wait/kill paths, which
+    // Cancel without notifying — used by task wait/cancel paths, which
     // already hold the completed outcome. Idempotent via the `settled` guard
     // so it can never race or double-fire against a real completion notify.
     const cancel = () => {
@@ -589,7 +661,7 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
             const exitCode = (typeof detail.exitCode === 'number') ? detail.exitCode : null;
             const status = detail.status || (reason === 'timeout' ? 'running' : 'unknown');
             const lines = [
-                `[job: ${jobId}]`,
+                `[task_id: ${jobId}]`,
                 `[status: ${status}]`,
                 `[exit: ${exitCode === null ? 'n/a' : exitCode}]`,
                 elapsedMs !== null ? `[elapsed: ${elapsedMs} ms]` : null,
@@ -600,24 +672,73 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
                 (detail.mergeStderr !== true && detail.stderrPreview) ? `\n[stderr preview]\n${detail.stderrPreview}` : null,
             ].filter((l) => l !== null && l !== '');
             const body = lines.join('\n');
-            const instruction = `The background bash job ${jobId} you started earlier has finished (${status}, exit ${exitCode === null ? 'n/a' : exitCode}) — review this result in your next step.`;
-            Promise.resolve(
-                ctx.notifyFn(body, {
-                    type: 'shell_job_result',
-                    // Daemon routing: deliver to the dispatching terminal via
-                    // caller_session_id (owner-only in daemon; no session → drop).
-                    caller_session_id: ctx.routingSessionId,
-                    ...(typeof ctx.clientHostPid === 'number' && ctx.clientHostPid > 0
-                        ? { client_host_pid: String(ctx.clientHostPid) }
-                        : {}),
-                    instruction,
-                }),
-            ).catch((err) => {
-                try { process.stderr.write(`[shell-jobs] shell_job_result notify failed: jobId=${jobId} err=${err?.message ?? String(err)}\n`); } catch { /* ignore */ }
+            const taskStatus = status === 'completed'
+                ? 'completed'
+                : (status === 'cancelled' ? 'cancelled' : 'failed');
+            const instruction = `The background shell task ${jobId} you started earlier has finished (${status}, exit ${exitCode === null ? 'n/a' : exitCode}) - review this result in your next step.`;
+            const completedTask = completeBackgroundTask(jobId, {
+                status: taskStatus,
+                result: shellJobPublicTaskResult(detail),
+                resultText: body,
+                error: taskStatus === 'failed' ? (detail.error || (status === 'running' ? 'background shell watcher deadline reached' : null)) : null,
+                resultType: 'shell_task_result',
+                instruction,
+            });
+            if (completedTask) return;
+            notifyToolCompletion({
+                surface: 'shell',
+                id: jobId,
+                status: taskStatus,
+                text: body,
+                resultType: 'shell_task_result',
+                instruction,
+                context: ctx,
+                logPrefix: 'shell-jobs',
             });
         } catch (err) {
             try { process.stderr.write(`[shell-jobs] watchBackgroundShellJob fire failed: jobId=${jobId} err=${err?.message ?? String(err)}\n`); } catch { /* ignore */ }
         }
+    };
+    const maybeNotifyPromptStall = (detail) => {
+        if (settled || promptStallNotified || !detail || detail.status !== 'running') return;
+        const tail = readPromptTail(detail);
+        const now = Date.now();
+        if (lastOutputBytes === null || tail.bytes !== lastOutputBytes) {
+            lastOutputBytes = tail.bytes;
+            lastOutputAtMs = now;
+            return;
+        }
+        if (now - lastOutputAtMs < SHELL_JOB_PROMPT_STALL_MS) return;
+        if (!looksLikeInteractivePrompt(tail.text)) return;
+        const elapsedMs = now - (Date.parse(detail.startedAt || '') || now);
+        const body = [
+            `[task_id: ${jobId}]`,
+            '[status: running]',
+            `[stalled: no output growth for ${now - lastOutputAtMs} ms]`,
+            elapsedMs >= 0 ? `[elapsed: ${elapsedMs} ms]` : null,
+            detail.command ? `[command: ${detail.command}]` : null,
+            '',
+            'This background shell task appears to be waiting for interactive input. Background tasks cannot answer prompts automatically; cancel it or rerun with non-interactive flags/input.',
+            tail.text ? `\n${tail.text}` : null,
+        ].filter((line) => line !== null && line !== '').join('\n');
+        const instruction = `The background shell task ${jobId} appears to be waiting for interactive input; inspect the prompt, then cancel or rerun it non-interactively.`;
+        const sent = notifyBackgroundTaskProgress(jobId, {
+            text: body,
+            resultType: 'shell_task_progress',
+            instruction,
+            key: 'interactive-prompt-stall',
+            status: null,
+        }) || notifyToolCompletion({
+            surface: 'shell',
+            id: jobId,
+            status: null,
+            text: body,
+            resultType: 'shell_task_progress',
+            instruction,
+            context: ctx,
+            logPrefix: 'shell-jobs',
+        });
+        if (sent) promptStallNotified = true;
     };
     const checkDone = (reason) => {
         if (settled) return;
@@ -625,6 +746,7 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
         // refreshShellJob flips status off 'running' once donePath/exit/timeout
         // is observed; only fire once the job is no longer running.
         if (!detail || detail.status !== 'running') fire(reason);
+        else maybeNotifyPromptStall(detail);
     };
     try {
         const donePath = shellJobDonePath(jobId);
@@ -665,7 +787,7 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
 // path spawned a piped child whose stdout/stderr were already being captured
 // to TaskOutput spill files. When the auto-background timer fires we do NOT
 // re-spawn or wrap — the child keeps running as-is — we only publish a job
-// detail so job_wait/refreshShellJob can track it to completion.
+// detail so task control / refreshShellJob can track it to completion.
 //
 // The caller owns the child.on('close') lifecycle wiring (writing the exit
 // file FIRST, donePath AFTER) so the ordering invariant refreshShellJob()
@@ -725,7 +847,7 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
     // `exec > … 2> …` redirect plus `printf … > exitPath` / `touch donePath`
     // (filesystem ops, not shell features); and kill goes through
     // killProcessTree(), which on win32 uses `taskkill /pid /t /f` regardless
-    // of which shell spawned the tree. So Git Bash background jobs cancel,
+    // of which shell spawned the tree. So Git Bash background tasks cancel,
     // capture output, and report exit codes correctly.
     const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const stdoutPath = shellJobStdoutPath(jobId);
@@ -733,11 +855,10 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
     const exitPath = shellJobExitPath(jobId);
     const donePath = shellJobDonePath(jobId);
     const timeoutSeconds = Math.max(1, Math.ceil(timeoutMs / 1000));
-    // P2 fix: wrap with POSIX `timeout` so the kernel terminates the
-    // process at deadline regardless of mixdog parent state. Previously
-    // only the setTimeout below enforced; a mixdog restart between spawn
-    // and deadline would orphan the runaway. --preserve-status keeps the
-    // user command's exit code on success; on timeout the wrapper exits 124.
+    // P2 fix: wrap with POSIX `timeout` so the kernel terminates the process
+    // at deadline even if the JS-side timer is interrupted. --preserve-status
+    // keeps the user command's exit code on success; on timeout the wrapper
+    // exits 124.
     // `timeout` ships with GNU coreutils on Linux. On macOS, Homebrew
     // coreutils installs it as `gtimeout` (the un-prefixed name is NOT created
     // by default), so the wrapper picks `timeout` if present else `gtimeout`.
@@ -769,9 +890,9 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
     // output files via `exec > … 2> …`. The parent does NOT pass file
     // descriptors via stdio inheritance (`stdio: 'ignore'` for all three).
     //
-    // Let the shell own redirects via `exec > ... 2> ...` inside the
-    // staged script. That keeps descriptor ownership in one process and
-    // avoids detached stdio inheritance surprises.
+    // Let the shell own redirects via `exec > ... 2> ...` inside the staged
+    // script. The child remains referenced by this CLI process; detached here
+    // is only used on POSIX to create a process group for tree-kill.
     const outRedirect = mergeStderr
         ? `> ${shellQuoteSingle(stdoutPath)} 2>&1`
         : `> ${shellQuoteSingle(stdoutPath)} 2> ${shellQuoteSingle(stderrPath)}`;
@@ -780,7 +901,7 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
     try {
         writeFileSync(wrappedTempPath, scriptBody);
     } catch (e) {
-        return { jobId, kind: 'bash', status: 'failed', error: `failed to stage wrapped script: ${e?.message || e}` };
+        return { jobId, kind: 'bash', status: 'failed', error: `failed to stage shell background task: ${e?.message || e}` };
     }
     // R11: scrub loader/execution vars even though bash-tool.mjs already
     // scrubs upstream — defense-in-depth at the spawn site catches future
@@ -792,7 +913,11 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
         stdio: 'ignore',
         windowsHide: true,
     });
-    child.unref();
+    startChildGuardian({
+        childPid: child.pid,
+        childGroupPid: child.pid,
+        label: 'shell-job',
+    });
     _installShellJobsExitHook();
     _registerLiveJobPid(child.pid);
     const detail = {
@@ -888,13 +1013,13 @@ function startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr
     try {
         writeFileSync(wrappedTempPath, wrapper, 'utf-8');
     } catch (e) {
-        return { jobId, kind: 'bash', status: 'failed', error: `failed to stage PowerShell background script: ${e?.message || e}` };
+        return { jobId, kind: 'bash', status: 'failed', error: `failed to stage PowerShell background task: ${e?.message || e}` };
     }
 
     const shellStem = basename(String(shell || '')).toLowerCase().replace(/\.exe$/, '');
     // `-WindowStyle Hidden` is a Windows-only CLI switch; pwsh on macOS/Linux
     // rejects it. `-ExecutionPolicy` likewise only applies to Windows
-    // PowerShell. Build args per-platform so cross-OS pwsh background jobs run.
+    // PowerShell. Build args per-platform so cross-OS pwsh background tasks run.
     const isWin = process.platform === 'win32';
     const wrapperArgs = ['-NoLogo', '-NoProfile', '-NonInteractive'];
     if (isWin) wrapperArgs.push('-WindowStyle', 'Hidden');
@@ -907,8 +1032,8 @@ function startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr
     // completion). windowsHide:true gives CREATE_NO_WINDOW so no console
     // window flashes on screen. The wrapper owns its own stdout/stderr file
     // redirect (exec-equivalent Set-Content paths above), so stdio:'ignore'
-    // drops no output. unref() frees the host event loop; the exit hook reaps
-    // the process tree if the parent closes while the job is still running.
+    // drops no output. The child remains referenced so it is owned by the CLI
+    // process; runtime.close()/exit hooks reap it instead of daemonizing it.
     let child;
     try {
         child = spawn(shell, wrapperArgs, {
@@ -918,13 +1043,17 @@ function startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr
             stdio: 'ignore',
             windowsHide: true,
         });
+        startChildGuardian({
+            childPid: child.pid,
+            childGroupPid: child.pid,
+            label: 'shell-job-powershell',
+        });
     } catch (e) {
-        return { jobId, kind: 'bash', status: 'failed', error: `failed to spawn PowerShell background job: ${e?.message || e}` };
+        return { jobId, kind: 'bash', status: 'failed', error: `failed to spawn PowerShell background task: ${e?.message || e}` };
     }
-    child.unref();
     const childPid = child.pid;
     if (!Number.isFinite(childPid) || childPid <= 0) {
-        return { jobId, kind: 'bash', status: 'failed', error: 'PowerShell background spawn returned no pid' };
+        return { jobId, kind: 'bash', status: 'failed', error: 'PowerShell background task spawn returned no pid' };
     }
     _installShellJobsExitHook();
     _registerLiveJobPid(childPid);

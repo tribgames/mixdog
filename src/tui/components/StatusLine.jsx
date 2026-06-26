@@ -14,6 +14,7 @@ import { theme } from '../theme.mjs';
 // imports resolve from the real src/ui location, not the dist/ bundle dir.
 // esbuild leaves dynamic-import string specifiers alone.
 const STATUSLINE_MODULE = '../../ui/statusline.mjs';
+const FIRST_STATUSLINE_DELAY_MS = 150;
 
 const RESET = '\x1b[0m';
 
@@ -25,9 +26,9 @@ function ansiRgb(value, fallback) {
 
 const STATUS = ansiRgb(theme.statusText, '\x1b[38;2;198;198;198m');
 const SUBTLE = ansiRgb(theme.statusSubtle, '\x1b[38;2;136;136;136m');
-const SUCCESS = ansiRgb(theme.success, '\x1b[38;2;0;200;83m');
+const SUCCESS = ansiRgb(theme.success, '\x1b[38;2;0;170;75m');
 const WARNING = ansiRgb(theme.warning, '\x1b[38;2;255;193;7m');
-const ERROR = ansiRgb(theme.error, '\x1b[38;2;255;82;104m');
+const ERROR = ansiRgb(theme.error, '\x1b[38;2;220;70;88m');
 
 export function normalizeStatusLine(text) {
   return String(text || '')
@@ -49,23 +50,29 @@ export function StatusLine({ sessionId, provider, model, effort, fast, cwd, stat
 
   useEffect(() => {
     let alive = true;
-    import(STATUSLINE_MODULE)
-      .then((m) => m.renderStatusline({ sessionId, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, bridgeWorkers, bridgeJobs }))
-      .then((s) => {
-        if (!alive) return;
-        setLine(normalizeStatusLine(s));
-      })
-      .catch(() => {
-        if (alive) setLine('');
-      });
-    return () => { alive = false; };
+    const delay = line ? 0 : FIRST_STATUSLINE_DELAY_MS;
+    const timer = setTimeout(() => {
+      import(STATUSLINE_MODULE)
+        .then((m) => m.renderStatusline({ sessionId, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, bridgeWorkers, bridgeJobs }))
+        .then((s) => {
+          if (!alive) return;
+          setLine(normalizeStatusLine(s));
+        })
+        .catch(() => {
+          if (alive) setLine('');
+        });
+    }, delay);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
   }, [sessionId, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision]);
 
   return (
-    <Box flexDirection="column" width="100%" height={2} paddingLeft={2} marginBottom={1} backgroundColor={theme.background}>
-      {line ? line.split('\n').slice(0, 2).map((l, i) => (
-        <Text key={i}>{l}</Text>
-      )) : null}
+    <Box flexDirection="column" width="100%" height={2} overflow="hidden" paddingLeft={2} marginBottom={1} backgroundColor={theme.background}>
+      {(line ? line.split('\n').slice(0, 2) : [' ', ' ']).map((l, i) => (
+        <Text key={i} wrap="truncate">{l || ' '}</Text>
+      ))}
     </Box>
   );
 }

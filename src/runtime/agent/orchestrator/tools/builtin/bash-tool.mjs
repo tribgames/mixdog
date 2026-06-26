@@ -16,12 +16,23 @@ import {
     beginShellJobWait,
     endShellJobWait,
     clearShellJobNotifyCtx,
+    shellJobPublicTaskResult,
 } from './shell-jobs.mjs';
 import {
     analyzeShellCommandEffects,
     foregroundLongCommandHint,
     preflightShellLargeFileProbe,
 } from './shell-analysis.mjs';
+import {
+    cancelBackgroundTask,
+    completeBackgroundTask,
+    getBackgroundTask,
+    listBackgroundTasks,
+    registerBackgroundTask,
+    renderBackgroundTask,
+    renderBackgroundTaskList,
+    resolveExecutionMode,
+} from '../../../../shared/background-tasks.mjs';
 import { resolveShellFor } from './shell-runtime.mjs';
 import { smartMiddleTruncate } from './shell-output.mjs';
 import { normalizeOutputPath } from './path-utils.mjs';
@@ -147,6 +158,8 @@ export async function executeBashTool(args, workDir, options = {}) {
     if (cwdResult.error) return cwdResult.error;
     const bashWorkDir = cwdResult.cwd;
     const _readStateScope = options?.readStateScope ?? options?.sessionId ?? null;
+    const executionMode = resolveExecutionMode(args || {}, args?.run_in_background === true ? 'async' : 'sync');
+    const runInBackground = executionMode === 'async';
 
     // Run hard-block policy BEFORE branching into the persistent-shell tool.
     // The persistent path used to bypass the one-shot block scan because the
@@ -238,7 +251,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     const DEFAULT_BASH_TIMEOUT_MS = 600_000;
     const DEFAULT_BACKGROUND_BASH_TIMEOUT_MS = 600_000;
     const MAX_BASH_TIMEOUT_MS = 1_800_000;
-    const defaultTimeoutMs = args.run_in_background === true
+    const defaultTimeoutMs = runInBackground
         ? DEFAULT_BACKGROUND_BASH_TIMEOUT_MS
         : DEFAULT_BASH_TIMEOUT_MS;
     const rawTimeout = (typeof args.timeout === 'number' && args.timeout > 0)
@@ -246,7 +259,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     const timeoutMs = rawTimeout;
     const timeout = Math.min(timeoutMs, wmicRewrite?.timeoutMs || MAX_BASH_TIMEOUT_MS);
     const mergeStderr = args.merge_stderr === true;
-    const longForegroundHint = foregroundLongCommandHint(command, timeout, args);
+    const longForegroundHint = foregroundLongCommandHint(command, timeout, { ...args, run_in_background: runInBackground });
     if (longForegroundHint) return longForegroundHint;
     // Auto-background threshold (CC ASSISTANT_BLOCKING_BUDGET_MS analogue):
     // a foreground one-shot that is still running after this many ms is
@@ -256,7 +269,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     // far above). Capped below the hard timeout so the 600 s upper bound
     // stays a separate, later ceiling.
     const DEFAULT_AUTO_BACKGROUND_MS = 30_000;
-    const autoBackgroundMs = args.run_in_background === true
+    const autoBackgroundMs = runInBackground
       ? 0
       : Math.min(DEFAULT_AUTO_BACKGROUND_MS, timeout);
 
@@ -281,7 +294,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         } else {
             wrappedCommand = command;
         }
-        if (args.run_in_background === true) {
+        if (runInBackground) {
             const job = startBackgroundShellJob({
                 command: wrappedCommand,
                 timeoutMs: timeout,
@@ -297,28 +310,51 @@ export async function executeBashTool(args, workDir, options = {}) {
                 clientHostPid: options?.clientHostPid,
             });
             if (job && job.error) return `Error: ${job.error}`;
+            let task;
+            try {
+                task = registerBackgroundTask({
+                    taskId: job.jobId,
+                    surface: 'shell',
+                    operation: 'shell',
+                    label: String(command).replace(/\s+/g, ' ').slice(0, 120),
+                    input: { command, cwd: bashWorkDir },
+                    context: {
+                        notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,
+                        callerSessionId: options?.callerSessionId || options?.sessionId || null,
+                        routingSessionId: options?.routingSessionId || options?.sessionId || null,
+                        clientHostPid: options?.clientHostPid,
+                    },
+                    meta: {
+                        task_id: job.jobId,
+                        pid: job.pid,
+                        stdout: normalizeOutputPath(job.stdoutPath),
+                        stderr: mergeStderr ? null : normalizeOutputPath(job.stderrPath),
+                        cwd: bashWorkDir,
+                        timeoutMs: timeout,
+                    },
+                    resultType: 'shell_task_result',
+                    cancel: () => killShellJob(job.jobId),
+                });
+            } catch (err) {
+                try { killShellJob(job.jobId); } catch { /* best effort cleanup */ }
+                return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+            }
             // Wire a one-shot completion push so the dispatching session learns
-            // the background job finished (no polling tool is auto-driven). The
+            // the background task finished (no polling tool is auto-driven). The
             // notify ctx is threaded down from the MCP dispatch frame
             // (server-main agentContext / _dispatchByModule) the same way the
-            // explore tool receives notifyFn/routingSessionId/clientHostPid.
+            // bridge/explore-style tools receive notifyFn/routingSessionId/clientHostPid.
             // Missing notifyFn (e.g. a non-MCP caller) degrades to a stderr
             // diagnostic inside watchBackgroundShellJob — never fails the spawn.
             try {
                 watchBackgroundShellJob(job.jobId, {
                     notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,
+                    callerSessionId: options?.callerSessionId || options?.sessionId,
                     routingSessionId: options?.routingSessionId,
                     clientHostPid: options?.clientHostPid,
                 });
             } catch { /* watcher arm is best-effort; never blocks the spawn */ }
-            return _prependDestructiveWarning(command, [
-                `[job: ${job.jobId}]`,
-                `[pid: ${job.pid}]`,
-                `[stdout: ${normalizeOutputPath(job.stdoutPath)}]`,
-                mergeStderr ? null : `[stderr: ${normalizeOutputPath(job.stderrPath)}]`,
-                '',
-                `Background job started for command: ${command}`,
-            ].filter(Boolean).join('\n'));
+            return _prependDestructiveWarning(command, renderBackgroundTask(task));
         }
 
         let bashAbortSignal = null;
@@ -342,15 +378,48 @@ export async function executeBashTool(args, workDir, options = {}) {
         });
         // Auto-backgrounded: the command outlived autoBackgroundMs and is
         // still running, now adopted as a tracked shell-job. Surface the
-        // jobId + partial output so the model can poll via job_wait instead
-        // of the tool call hanging until the hard timeout.
+        // task_id + partial output for manual task control instead of
+        // keeping the tool call open until the hard timeout.
         if (result.backgrounded) {
+            let task = null;
+            if (result.jobId) {
+                try {
+                    task = registerBackgroundTask({
+                        taskId: result.jobId,
+                        surface: 'shell',
+                        operation: 'shell',
+                        label: String(command).replace(/\s+/g, ' ').slice(0, 120),
+                        input: { command, cwd: bashWorkDir },
+                        context: {
+                            notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,
+                            callerSessionId: options?.callerSessionId || options?.sessionId || null,
+                            routingSessionId: options?.routingSessionId || options?.sessionId || null,
+                            clientHostPid: options?.clientHostPid,
+                        },
+                        meta: {
+                            task_id: result.jobId,
+                            stdout: result.stdoutPath ? normalizeOutputPath(result.stdoutPath) : null,
+                            stderr: (!mergeStderr && result.stderrPath) ? normalizeOutputPath(result.stderrPath) : null,
+                            cwd: bashWorkDir,
+                            timeoutMs: timeout,
+                        },
+                        resultType: 'shell_task_result',
+                        cancel: () => killShellJob(result.jobId),
+                    });
+                } catch { task = null; }
+                try {
+                    watchBackgroundShellJob(result.jobId, {
+                        notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,
+                        callerSessionId: options?.callerSessionId || options?.sessionId,
+                        routingSessionId: options?.routingSessionId || options?.sessionId,
+                        clientHostPid: options?.clientHostPid,
+                    });
+                } catch { /* best effort */ }
+            }
             const partialStdout = smartMiddleTruncate(stripAnsi(result.stdout || ''));
             const partialStderr = stripAnsi(result.stderr || '');
             const lines = [
-                result.jobId ? `[job: ${result.jobId}]` : null,
-                result.stdoutPath ? `[stdout: ${normalizeOutputPath(result.stdoutPath)}]` : null,
-                (!mergeStderr && result.stderrPath) ? `[stderr: ${normalizeOutputPath(result.stderrPath)}]` : null,
+                task ? renderBackgroundTask(task) : (result.jobId ? `[task_id: ${result.jobId}]` : null),
                 '',
                 result.backgroundMessage || 'auto-backgrounded; still running',
                 partialStdout ? `\n[partial stdout]\n${partialStdout}` : '',
@@ -423,60 +492,146 @@ export async function executeBashTool(args, workDir, options = {}) {
     }
 }
 
-export async function executeJobWaitTool(args) {
-    const jobId = typeof args.job_id === 'string' ? args.job_id : '';
-    if (!jobId) return 'Error: job_id is required';
+const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shellJobToTaskStatus(status) {
+    if (status === 'completed') return 'completed';
+    if (status === 'cancelled') return 'cancelled';
+    if (status === 'running') return 'running';
+    return 'failed';
+}
+
+function refreshShellTask(taskId, { includeRunning = false } = {}) {
+    const job = peekShellJob(taskId);
+    if (!job) return null;
+    const publicResult = shellJobPublicTaskResult(job);
+    if (job.status !== 'running') {
+        completeBackgroundTask(taskId, {
+            status: shellJobToTaskStatus(job.status),
+            result: publicResult,
+            resultText: JSON.stringify(publicResult, null, 2),
+            notify: false,
+        });
+    } else if (includeRunning) {
+        const task = getBackgroundTask(taskId);
+        if (task) {
+            task.result = publicResult;
+            task.resultText = JSON.stringify(publicResult, null, 2);
+        }
+    }
+    return job;
+}
+
+async function waitForGenericTask(taskId, { timeoutMs = 30_000, pollMs = 250, context = {} } = {}) {
+    const started = Date.now();
+    const deadline = started + Math.max(0, Number(timeoutMs) || 0);
+    let task = getBackgroundTask(taskId, { context });
+    if (!task) return null;
+    while (task && task.status === 'running' && Date.now() < deadline) {
+        await sleep(Math.max(25, Number(pollMs) || 250));
+        task = getBackgroundTask(taskId, { context });
+    }
+    return {
+        task,
+        waitedMs: Date.now() - started,
+        waitTimedOut: Boolean(task && task.status === 'running'),
+    };
+}
+
+export async function executeTaskTool(args, options = {}) {
+    const action = typeof args.action === 'string' ? args.action.toLowerCase() : (args.task_id ? 'wait' : 'list');
+    if (action === 'list') return renderBackgroundTaskList({ context: options });
+
+    const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : '';
+    if (!taskId) return 'Error: task_id is required';
     // bridge_* / sess_* are bridge-worker / orchestrator session ids, not
-    // background shell jobs. job_wait only resolves `bash run_in_background`
+    // background shell jobs. task only resolves `shell mode=async`
     // jobs, so surface a self-correcting hint instead of the bare
     // "job not found" that otherwise invites a wrong-tool retry loop.
-    if (/^(?:bridge_|sess_)/.test(jobId)) {
-        return `Error: "${jobId}" is a bridge/session id, not a background shell job. job_wait only waits on ids returned by \`bash\` with run_in_background:true. Bridge workers are detached and reply asynchronously — check their status with bridge type=list.`;
+    if (/^(?:bridge_|sess_)/.test(taskId)) {
+        return `Error: "${taskId}" is a bridge/session id, not a background task_id. Bridge agents deliver completion notifications; use bridge list/read only for manual recovery.`;
     }
-    const action = typeof args.action === 'string' ? args.action.toLowerCase() : 'wait';
-    if (action === 'peek') {
-        const job = peekShellJob(jobId);
-        return job ? JSON.stringify(job, null, 2) : buildJobNotFoundMessage(jobId);
+
+    const task = getBackgroundTask(taskId, { context: options });
+    if (!task) return `Error: task not found: ${taskId}`;
+    const isShellTask = task.surface === 'shell';
+
+    if (action === 'status' || action === 'read') {
+        if (isShellTask) refreshShellTask(taskId, { includeRunning: action === 'read' });
+        const latest = getBackgroundTask(taskId, { context: options }) || task;
+        return renderBackgroundTask(latest, { includeResult: action === 'read' });
     }
-    if (action === 'kill') {
-        const job = killShellJob(jobId);
-        // kill forces completion the caller observes here, so cancel the armed
-        // watcher (before/after kill is equivalent) to avoid a double-notify.
-        cancelBackgroundShellJobWatch(jobId);
-        // Killed entry will never fire, so drop its persistent notify ctx too —
-        // cancel keeps the ctx (for re-arm) but kill has no re-arm path.
-        clearShellJobNotifyCtx(jobId);
-        return job ? JSON.stringify(job, null, 2) : buildJobNotFoundMessage(jobId);
+
+    if (action === 'cancel') {
+        if (isShellTask) {
+            const job = killShellJob(taskId);
+            cancelBackgroundShellJobWatch(taskId);
+            clearShellJobNotifyCtx(taskId);
+            cancelBackgroundTask(taskId, 'cancelled by task control');
+            return job ? renderBackgroundTask(getBackgroundTask(taskId, { context: options }) || task, { includeResult: true }) : buildJobNotFoundMessage(taskId);
+        }
+        cancelBackgroundTask(taskId, 'cancelled by task control');
+        return renderBackgroundTask(getBackgroundTask(taskId, { context: options }) || task, { includeResult: true });
+    }
+
+    if (action !== 'wait') {
+        return `Error: task action must be one of list|status|read|wait|cancel (got ${JSON.stringify(args.action)})`;
+    }
+
+    if (!isShellTask) {
+        const waited = await waitForGenericTask(taskId, {
+            timeoutMs: typeof args.timeout_ms === 'number' ? args.timeout_ms : 30_000,
+            pollMs: typeof args.poll_ms === 'number' ? args.poll_ms : 250,
+            context: options,
+        });
+        if (!waited?.task) return `Error: task not found: ${taskId}`;
+        const rendered = renderBackgroundTask(waited.task, { includeResult: TERMINAL_TASK_STATUSES.has(waited.task.status) });
+        return waited.waitTimedOut ? `${rendered}\nwait_timed_out: true\nwaited_ms: ${waited.waitedMs}` : rendered;
     }
     // Register as a synchronous waiter and cancel the armed watcher BEFORE
-    // awaiting: the caller consumes the outcome via this job_wait, so no async
+    // awaiting: the caller consumes the outcome via task wait, so no async
     // push is wanted, and cancelling up front closes the race where the armed
     // watcher (watch callback or 2s poll) fires during the await window. The
     // persistent notify ctx survives the cancel for a possible re-arm.
-    beginShellJobWait(jobId);
-    cancelBackgroundShellJobWatch(jobId);
+    beginShellJobWait(taskId);
+    cancelBackgroundShellJobWatch(taskId);
     try {
-        const job = await waitForShellJob(jobId, {
+        const job = await waitForShellJob(taskId, {
             timeoutMs: typeof args.timeout_ms === 'number' ? args.timeout_ms : 30_000,
             pollMs: typeof args.poll_ms === 'number' ? args.poll_ms : 250,
         });
-        if (!job) return buildJobNotFoundMessage(jobId);
-        return JSON.stringify(job, null, 2);
+        if (!job) return buildJobNotFoundMessage(taskId);
+        if (job.status !== 'running') {
+            const publicResult = shellJobPublicTaskResult(job);
+            completeBackgroundTask(taskId, {
+                status: shellJobToTaskStatus(job.status),
+                result: publicResult,
+                resultText: JSON.stringify(publicResult, null, 2),
+                notify: false,
+            });
+        }
+        const latest = getBackgroundTask(taskId, { context: options }) || task;
+        const rendered = renderBackgroundTask(latest, { includeResult: job.status !== 'running' });
+        return job.status === 'running' ? `${rendered}\nwait_timed_out: true\nwaited_ms: ${job.waitedMs}` : rendered;
     } finally {
         // Only the LAST concurrent waiter (post-decrement count 0) may re-arm,
         // and only for a still-running job (timed-out wait). Re-arm with no ctx
         // arg — watchBackgroundShellJob falls back to the persistent ctx. This
         // prevents the concurrent-waiter double-deliver: while any other waiter
         // is still synchronously consuming the outcome, the watcher stays off.
-        const remaining = endShellJobWait(jobId);
+        const remaining = endShellJobWait(taskId);
         if (remaining === 0) {
-            const latest = peekShellJob(jobId);
-            if (latest && latest.status === 'running') watchBackgroundShellJob(jobId);
+            const latest = peekShellJob(taskId);
+            if (latest && latest.status === 'running') watchBackgroundShellJob(taskId);
             // LAST waiter out and the job already finished — the outcome was
             // consumed synchronously, so no re-arm. Drop the persisted ctx here
             // or it leaks (cleanup only runs on a real watcher settle, which
             // never happens for a never-re-armed entry).
-            else clearShellJobNotifyCtx(jobId);
+            else clearShellJobNotifyCtx(taskId);
         }
     }
 }

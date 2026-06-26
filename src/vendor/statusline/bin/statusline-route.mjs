@@ -35,11 +35,11 @@ function runtimeRoot() {
 }
 
 function claudeConfigDir() {
-  return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+  return process.env.MIXDOG_CONFIG_DIR || path.join(os.homedir(), '.mixdog');
 }
 
 function pluginDataDir() {
-  return process.env.CLAUDE_PLUGIN_DATA || process.env.MIXDOG_DATA_DIR || path.join(process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog'), 'data');
+  return process.env.MIXDOG_DATA_DIR || path.join(process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog'), 'data');
 }
 
 function readJson(file) {
@@ -59,6 +59,7 @@ function num(value, fallback = null) {
 function money(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return '';
+  if (n === 0) return '$0';
   if (n >= 10) return `$${n.toFixed(0)}`;
   if (n >= 1) return `$${n.toFixed(2)}`;
   if (n >= 0.01) return `$${n.toFixed(3)}`;
@@ -493,6 +494,11 @@ export function loadGatewayStatus(options = {}) {
   return activeStatus;
 }
 
+function isLocalEstimateWindow(window) {
+  const source = cleanString(window?.source || '').toLowerCase();
+  return !source || source.includes('local') || source.includes('config');
+}
+
 export function formatGatewayLimitSegments(status, fmt) {
   if (!status) return [];
   const {
@@ -512,6 +518,20 @@ export function formatGatewayLimitSegments(status, fmt) {
   const maxWindows = COLS >= 120 ? 3 : COLS >= 80 ? 2 : 1;
   const routeSpend = num(status.routeSpend?.costUsd, null);
   const routeSpendLabel = cleanString(status.routeSpend?.label) || (COLS >= 120 ? 'SESS' : 'S');
+  const windowResetText = (window) => {
+    if (isLocalEstimateWindow(window)) return '';
+    const at = num(window?.resetAt, null);
+    if (!at || at <= Date.now()) return '';
+    if (at - Date.now() < 24 * 60 * 60_000) return epochMsToHHMM(at);
+    const d = new Date(at);
+    if (!Number.isFinite(d.getTime())) return '';
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const withReset = (segment, window) => {
+    const reset = windowResetText(window);
+    return reset ? `${segment} ${D}↻ ${reset}${R}` : segment;
+  };
   const addRouteSpend = () => {
     if (routeSpend !== null && routeSpend > 0) {
       segments.push(`${D}${routeSpendLabel.toUpperCase()}${R} ${money(routeSpend)}`);
@@ -522,8 +542,7 @@ export function formatGatewayLimitSegments(status, fmt) {
   const addApiBalance = () => {
     const remaining = num(status.balance?.remainingUsd, null);
     if (remaining !== null) {
-      const color = remaining <= 1 ? RED : remaining <= 5 ? YLW : GRN;
-      segments.push(`${D}LEFT${R} ${color}${money(remaining)}${R}`);
+      segments.push(`${D}Credit${R} ${money(remaining)}`);
     }
     return remaining !== null;
   };
@@ -541,32 +560,33 @@ export function formatGatewayLimitSegments(status, fmt) {
     const remainingCredits = num(w?.remainingCredits, null);
     const limitCredits = num(w?.limitCredits, null);
     const usedCredits = num(w?.usedCredits, null);
+    const estimated = isLocalEstimateWindow(w);
     if (remaining !== null) {
-      const color = remaining <= 1 ? RED : remaining <= 5 ? YLW : GRN;
-      segments.push(`${D}${label}${R} ${color}${money(remaining)} left${R}`);
+      const color = estimated ? YLW : remaining <= 1 ? RED : remaining <= 5 ? YLW : GRN;
+      segments.push(withReset(`${D}${label}${R} ${color}${estimated ? 'est ' : ''}${money(remaining)}${R}`, w));
     } else if (used !== null && limit !== null) {
-      segments.push(`${D}${label}${R} ${money(used)}/${money(limit)}`);
+      segments.push(withReset(`${D}${label}${R} ${estimated ? 'est ' : ''}${money(used)}/${money(limit)}`, w));
+    } else if (remainingCredits !== null && limitCredits !== null) {
+      const color = estimated ? YLW : pct !== null && pct >= 95 ? RED : pct !== null && pct >= 80 ? YLW : GRN;
+      segments.push(withReset(`${D}${label}${R} ${color}${estimated ? 'est ' : ''}${compactNumber(remainingCredits)}/${compactNumber(limitCredits)}${R}`, w));
     } else if (remainingCredits !== null) {
-      const color = pct !== null && pct >= 95 ? RED : pct !== null && pct >= 80 ? YLW : GRN;
-      segments.push(`${D}${label}${R} ${color}${compactNumber(remainingCredits)}cr left${R}`);
+      const color = estimated ? YLW : pct !== null && pct >= 95 ? RED : pct !== null && pct >= 80 ? YLW : GRN;
+      segments.push(withReset(`${D}${label}${R} ${color}${estimated ? 'est ' : ''}${compactNumber(remainingCredits)}${R}`, w));
     } else if (usedCredits !== null && limitCredits !== null) {
-      segments.push(`${D}${label}${R} ${compactNumber(usedCredits)}/${compactNumber(limitCredits)}cr`);
+      segments.push(withReset(`${D}${label}${R} ${estimated ? 'est ' : ''}${compactNumber(usedCredits)}/${compactNumber(limitCredits)}`, w));
     } else if (pct !== null) {
-      segments.push(`${D}${label}${R} ${colourPct(Math.round(pct))}`);
+      segments.push(withReset(`${D}${label}${R} ${estimated ? 'est ' : ''}${colourPct(Math.round(pct))}`, w));
     }
   }
   addRouteSpend();
   if (!isPlainApi && COLS >= 80) {
-    const resetAt = windows.map(w => num(w?.resetAt, null)).filter(n => n && n > Date.now()).sort((a, b) => a - b)[0];
-    const resetStr = resetAt ? epochMsToHHMM(resetAt) : '';
-    if (resetStr) segments.push(`${D}↻ ${resetStr}${R}`);
+    addApiBalance();
   }
   if (segments.length) return segments;
 
   const remaining = num(status.balance?.remainingUsd, null);
   if (remaining !== null) {
-    const color = remaining <= 1 ? RED : remaining <= 5 ? YLW : GRN;
-    segments.push(`${D}$${R} ${color}${money(remaining)} left${R}`);
+    segments.push(`${D}Credit${R} ${money(remaining)}`);
     addRouteSpend();
     return segments;
   }

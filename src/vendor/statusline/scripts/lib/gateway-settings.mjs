@@ -1,5 +1,5 @@
-// Shared Claude Code settings.json env writer — the SINGLE source of truth for
-// reading/mutating ~/.claude/settings.json gateway env entries, used by
+// Shared Mixdog settings.json env writer — the SINGLE source of truth for
+// reading/mutating ~/.mixdog/settings.json gateway env entries, used by
 // BOTH scripts/gateway-model.mjs (--enable / --disable) AND scripts/uninstall.mjs
 // (restoreGateway). One helper guarantees enable, disable, and uninstall never
 // diverge on path resolution or write mechanics.
@@ -15,16 +15,14 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 
-// Location: CLAUDE_CONFIG_DIR || ~/.claude (the doctor.mjs claudeConfigBase
-// pattern). SSOT so enable / disable / uninstall all target the same file even
-// when CLAUDE_CONFIG_DIR is set.
+// Location: MIXDOG_CONFIG_DIR || ~/.mixdog.
 export function resolveSettingsPath() {
-  const base = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+  const base = process.env.MIXDOG_CONFIG_DIR || join(homedir(), '.mixdog');
   return join(base, 'settings.json');
 }
 
 export function resolveGlobalClaudeConfigPath() {
-  return join(homedir(), '.claude.json');
+  return join(homedir(), '.mixdog.json');
 }
 
 const GATEWAY_ENV_KEYS = Object.freeze([

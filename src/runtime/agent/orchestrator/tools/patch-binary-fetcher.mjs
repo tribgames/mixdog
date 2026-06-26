@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
 
 const BUNDLED_MANIFEST_PATH = fileURLToPath(new URL('./patch-manifest.json', import.meta.url));
-const MANIFEST_URL = 'https://raw.githubusercontent.com/trib-plugin/mixdog/main/src/agent/orchestrator/tools/patch-manifest.json';
+const MANIFEST_URL = 'https://raw.githubusercontent.com/tribgames/mixdog/main/src/runtime/agent/orchestrator/tools/patch-manifest.json';
 
 function binSuffix() {
   return process.platform === 'win32' ? '.exe' : '';

@@ -17,6 +17,7 @@ import { Box, Text, useAnimation } from 'ink';
 import { theme, TURN_MARKER } from '../theme.mjs';
 import { Markdown, StreamingMarkdown } from './Markdown.jsx';
 import { THEREFORE } from '../figures.mjs';
+import { formatDuration } from '../time-format.mjs';
 
 export const AssistantMessage = React.memo(function AssistantMessage({ text, streaming = false }) {
   return (
@@ -51,8 +52,10 @@ export const UserMessage = React.memo(function UserMessage({ text, attached = fa
 });
 
 function formatThinkingElapsed(ms) {
-  const totalSec = Math.max(0, Math.round(Number(ms || 0) / 1000));
-  if (totalSec < 60) return `${totalSec}s`;
+  const label = formatDuration(ms);
+  if (!label) return '';
+  const totalSec = Math.floor(Math.max(0, Number(ms || 0)) / 1000);
+  if (totalSec < 60) return label;
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
@@ -61,7 +64,7 @@ function formatThinkingElapsed(ms) {
 export function ThinkingMessage({ text, elapsedMs = 0, activeSince = 0 }) {
   useAnimation({ interval: 250 });
   const liveElapsedMs = Number(elapsedMs || 0) + (activeSince ? Math.max(0, Date.now() - activeSince) : 0);
-  const elapsed = liveElapsedMs > 0 ? formatThinkingElapsed(liveElapsedMs) : '';
+  const elapsed = formatThinkingElapsed(liveElapsedMs);
   return (
     <Box flexDirection="column" marginTop={1} gap={1} width="100%">
       <Text>

@@ -127,7 +127,6 @@ function formatNumber(n) {
 const STATUS_SEP = ' · ';
 const SEP_WIDTH = STATUS_SEP.length;
 const HINT_WIDTH = 16; // 'esc to interrupt'
-const THINKING_TIME_AFTERGLOW_MS = 3000;
 
 function stableModeVerb(mode, fallback) {
   const phrases = MODE_VERBS[mode] || [fallback || 'Working'];
@@ -146,7 +145,7 @@ function chooseNextVerb(mode, fallback, current) {
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
-export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens = 0, thinking = false, thinkingElapsedMs = 0, thinkingActiveSince = 0, thinkingLastEndedAt = 0, mode = 'responding', columns = 80 }) {
+export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens = 0, thinking = false, thinkingActiveSince = 0, mode = 'responding', columns = 80 }) {
   useAnimation({ interval: FRAME_MS });
   const now = Date.now();
   const elapsedMs = startedAt ? Math.max(0, now - startedAt) : 0;
@@ -262,17 +261,15 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   const timerText = formatDuration(elapsedMs);
   const timerLabel = timerText;
   const timerW = timerLabel.length;
-  const liveThinkingElapsedMs = Number(thinkingElapsedMs || 0) + (thinkingActiveSince ? Math.max(0, now - thinkingActiveSince) : 0);
   const thinkingActive = Boolean(thinking || thinkingActiveSince);
-  const showThoughtAfterglow = !thinkingActive && thinkingLastEndedAt ? (now - thinkingLastEndedAt) < THINKING_TIME_AFTERGLOW_MS : false;
   const thinkingStatusText = thinkingActive
     ? 'thinking'
-    : (liveThinkingElapsedMs > 0 && showThoughtAfterglow ? `thought for ${formatDuration(liveThinkingElapsedMs)}` : '');
+    : '';
   const thinkingStatusW = thinkingStatusText.length;
 
   // Gate left→right; each segment after the first needs a sep.
   let usedW = 0;
-  const showTimer = avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + timerW;
+  const showTimer = Boolean(timerLabel) && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + timerW;
   if (showTimer) usedW += (usedW > 0 ? SEP_WIDTH : 0) + timerW;
 
   const showThinkingStatus = Boolean(thinkingStatusText) && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + thinkingStatusW;

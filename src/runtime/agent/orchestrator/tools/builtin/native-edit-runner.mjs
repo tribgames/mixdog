@@ -7,7 +7,7 @@ import { getPluginData } from '../../config.mjs';
 import { findCachedPatchBinary } from '../patch-binary-fetcher.mjs';
 import { runServerEdit } from '../patch.mjs';
 
-const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT
+const PLUGIN_ROOT = process.env.MIXDOG_ROOT
     || resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..');
 const NATIVE_EDIT_DEFAULT_BIN = join(
     PLUGIN_ROOT,

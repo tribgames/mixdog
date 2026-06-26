@@ -7,7 +7,7 @@ import { executeCodeGraphTool, isCodeGraphTool } from '../tools/code-graph.mjs';
 import { executeInternalTool, isInternalTool } from '../internal-tools.mjs';
 import { collectSkillsCached, loadSkillContent } from '../context/collect.mjs';
 import { traceBridgeLoop, traceBridgeTool, traceBridgeToolFailure, traceBridgeCompact, estimateProviderPayloadBytes, messagePrefixHash } from '../bridge-trace.mjs';
-import { markSessionToolCall, updateSessionStage, SessionClosedError, getSessionAbortSignal } from './manager.mjs';
+import { markSessionToolCall, updateSessionStage, SessionClosedError, getSessionAbortSignal, enqueuePendingMessage } from './manager.mjs';
 import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';
 import {
     compactMessages,
@@ -53,9 +53,9 @@ function _isScopedCacheableTool(name) {
     const n = _stripMcpPrefix(name);
     return SCOPED_CACHEABLE_TOOLS.has(n);
 }
-function _isBashTool(name) {
+function _isShellTool(name) {
     const n = _stripMcpPrefix(name);
-    return n === 'bash' || n === 'bash_session';
+    return n === 'shell' || n === 'bash_session';
 }
 
 // classifyResultKind is imported from result-classification.mjs at the top of
@@ -114,7 +114,7 @@ function _preDispatchDeny(call, toolKind, sessionRef) {
     const _bridgeOwned = sessionRef?.scope?.startsWith?.('bridge:') || sessionRef?.owner === 'bridge';
     const _controlPlaneTool = WORKER_DENIED_TOOLS.has(name);
     if (_bridgeOwned && _controlPlaneTool) {
-        return `Error: control-plane tool "${name}" is Lead-only and not available to bridge workers.`;
+        return `Error: control-plane tool "${name}" is Lead-only and not available to bridge agents.`;
     }
     const noToolRole = sessionRef?.role === 'cycle1-agent' || sessionRef?.role === 'cycle2-agent';
     if (noToolRole) {
@@ -148,8 +148,8 @@ import { createRequire } from 'module';
 import { readFileSync as _readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, resolve as resolvePath, isAbsolute } from 'path';
-// Load the CJS permission evaluator. The hooks/ directory lives two levels
-// above src/agent/orchestrator/session/, so we walk up from __dirname.
+// Load the CJS permission evaluator. The hooks/ directory lives above
+// src/runtime/agent/orchestrator/session/, so we walk up from __dirname.
 const _require = createRequire(import.meta.url);
 const _hooksLib = resolvePath(dirname(fileURLToPath(import.meta.url)), '../../../../hooks/lib/permission-evaluator.cjs');
 const { evaluatePermission: _evaluatePermission } = _require(_hooksLib);
@@ -206,7 +206,7 @@ function bridgeContextOverflowError({ stage, sessionId, sessionRef, model, budge
 }
 
 // Cache-hit results always inline the cached body. The earlier size-gated
-// `[cache-hit-ref]` branch confused bridge workers whose context did not
+// `[cache-hit-ref]` branch confused bridge agents whose context did not
 // contain the referenced prior tool_result, triggering shell-cat detours.
 // Hard iteration ceiling for every agent loop. Reset to 0 whenever the
 // transcript is compacted (see the trim block below): a long task that keeps
@@ -310,7 +310,7 @@ function _ensureTranscriptPairing(msgs, sessionId) {
 // schema still advertises them to keep one unified shard; this runtime set
 // is the fail-safe reject at call time.
 const READ_BLOCKED_TOOLS = new Set([
-    'bash', 'bash_session',
+    'shell', 'bash_session',
     'write',
     'edit',
     'apply_patch',
@@ -347,10 +347,10 @@ function isEagerDispatchable(name, tools) {
 // UI approval flow needs bidirectional prompt plumbing that does not exist.
 function _checkWorkerPermission(toolName, toolInput, sessionRef) {
     const bareToolName = _stripMcpPrefix(toolName);
-    if (sessionRef?.owner === 'bridge' && bareToolName === 'bash') {
+    if (sessionRef?.owner === 'bridge' && bareToolName === 'shell') {
         const cmdClass = classifyBashFileLookupCommand(toolInput?.command);
         if (cmdClass) {
-            return `Error: bridge worker bash file lookup blocked (${cmdClass}). Use Mixdog MCP read/grep/glob/list directly; bash is only for build/test/run/git-style commands.`;
+            return `Error: bridge worker shell file lookup blocked (${cmdClass}). Use Mixdog MCP read/grep/glob/list directly; shell is only for build/test/run/git-style commands.`;
         }
     }
     // Even when no explicit permissionMode is propagated to the worker, run
@@ -810,8 +810,8 @@ export function buildBridgeBashSessionArgs(args, sessionRef) {
     // run_in_background is a detached one-shot job, incompatible with the
     // persistent bash session. Fall through to the background-job path
     // (executeBuiltinTool -> startBackgroundShellJob) so the worker gets a
-    // [job: ...] id that job_wait can resolve — otherwise the persistent
-    // session returns a [session: ...] header and job_wait reports "job not found".
+    // task_id that task control can resolve — otherwise the persistent
+    // session returns a [session: ...] header and task control reports "task not found".
     if (args?.run_in_background === true) return null;
     const routedArgs = { ...(args || {}) };
     const explicitSessionId = typeof routedArgs.session_id === 'string' && routedArgs.session_id.trim()
@@ -856,6 +856,18 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
     const toolOpts = scopedCacheOutcome
         ? { ...executeOpts, scopedCacheOutcome }
         : executeOpts;
+    const notifyFn = (text) => {
+        if (!callerSessionId) return;
+        try { enqueuePendingMessage(callerSessionId, String(text || '')); } catch { /* best effort */ }
+    };
+    const completionToolOpts = {
+        ...toolOpts,
+        sessionId: callerSessionId,
+        callerSessionId,
+        routingSessionId: callerSessionId,
+        clientHostPid: sessionRef?.clientHostPid,
+        notifyFn,
+    };
     const beforeToolHook = typeof executeOpts.beforeToolHook === 'function'
         ? executeOpts.beforeToolHook
         : sessionRef?.beforeToolHook;
@@ -910,15 +922,22 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
         // callerSessionId propagates into server.mjs dispatchTool so that
         // dispatchAiWrapped can detect and reject recursive calls from a
         // hidden-role session (recall/search/explore → self).
-        return executeInternalTool(name, args, { callerSessionId, callerCwd: cwd });
+        return executeInternalTool(name, args, {
+            callerSessionId,
+            callerCwd: cwd,
+            clientHostPid: sessionRef?.clientHostPid,
+            signal: executeOpts.signal,
+            routingSessionId: callerSessionId,
+            notifyFn,
+        });
     }
-    if (name === 'bash') {
+    if (name === 'shell') {
         const routedArgs = buildBridgeBashSessionArgs(args, sessionRef);
         if (!routedArgs) {
             // clientHostPid scopes background shell-jobs to the dispatching
             // terminal's claude.exe pid (bridge sessions store it on sessionRef);
             // without it resolveJobOwnerHostPid falls back to the daemon-global env.
-            return executeBuiltinTool(name, args, cwd, { sessionId: callerSessionId, clientHostPid: sessionRef?.clientHostPid, ...toolOpts });
+            return executeBuiltinTool(name, args, cwd, completionToolOpts);
         }
         // Thread the session's AbortSignal so bridge type=close can interrupt the
         // persistent child process. getSessionAbortSignal is imported at top of
@@ -949,7 +968,7 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
     if (isBuiltinTool(name)) {
         // clientHostPid threaded for the same per-terminal job-scope reason as
         // the bash branch above (see resolveJobOwnerHostPid).
-        return executeBuiltinTool(name, args, cwd, { sessionId: callerSessionId, clientHostPid: sessionRef?.clientHostPid, signal: executeOpts.signal, ...toolOpts });
+        return executeBuiltinTool(name, args, cwd, completionToolOpts);
     }
     return formatUnknownBuiltinToolMessage(name, args, 'tool');
 }
@@ -1605,7 +1624,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 });
             } catch { /* best-effort — never break the loop */ }
         }
-        // No tool calls. For PUBLIC bridge workers, the bridge contract
+        // No tool calls. For PUBLIC bridge agents, the bridge contract
         // (rules/bridge/00-common.md) requires either a tool call or a
         // `<final-answer>` wrapped reply.
         // A text-only turn without those tags violates the contract (e.g.
@@ -1769,7 +1788,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     const _body = _readCacheHit.content;
                     // Return the cached body byte-for-byte instead of a
                     // human-readable cache marker. The marker made public
-                    // bridge workers treat a successful cached read as a
+                    // bridge agents treat a successful cached read as a
                     // meta instruction and repeat the same read loop.
                     result = _body;
                     _resultKind = 'cache-hit';
@@ -2004,7 +2023,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // Bash always clears scoped cache UNCONDITIONALLY — a mutating bash
             // that throws or fails partway can still leave stale find_symbol / grep entries.
             // Must not be gated on _executeOk or _resultKind.
-            if (sessionId && _isBashTool(call.name)) {
+            if (sessionId && _isShellTool(call.name)) {
                 clearScopedToolsForSession(sessionId);
             }
             // R17 compression pipeline — correct ordering (compress → cache → push):

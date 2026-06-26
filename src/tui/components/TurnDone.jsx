@@ -19,12 +19,15 @@ export function TurnDone({ elapsedMs = 0, status = 'done', verb = 'Thought' }) {
   const elapsed = formatDuration(elapsedMs);
   const cancelled = status === 'cancelled';
   const doneVerb = String(verb || 'Thought').trim() || 'Thought';
+  const copy = cancelled
+    ? elapsed ? `Cancelled after ${elapsed}` : 'Cancelled'
+    : elapsed ? `${doneVerb} for ${elapsed}` : doneVerb;
 
   return (
     <Box marginTop={1} flexDirection="row">
       <Text>
         <Text color={theme.spinnerGlyph}>{TURN_DONE_MARKER} </Text>
-        <Text color={theme.thinkingAccent}>{cancelled ? `Cancelled after ${elapsed}` : `${doneVerb} for ${elapsed}`}</Text>
+        <Text color={theme.thinkingAccent}>{copy}</Text>
       </Text>
     </Box>
   );

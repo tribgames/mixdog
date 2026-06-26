@@ -1,6 +1,7 @@
 import { spawn, execFileSync } from 'child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { startChildGuardian } from '../../../../shared/child-guardian.mjs';
 
 let _rgExecutableResolved = null;
 
@@ -174,6 +175,7 @@ function spawnRg(argsList, execOptions) {
             windowsHide: true,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
+        startChildGuardian({ childPid: proc.pid, label: 'rg-runner' });
         let stdout = '';
         let stderr = '';
         let timedOut = false;
@@ -309,6 +311,7 @@ function spawnRgWindowedLines(argsList, execOptions, opts = {}) {
             windowsHide: true,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
+        startChildGuardian({ childPid: proc.pid, label: 'rg-runner-windowed' });
         let buffer = '';
         let stderr = '';
         let skipped = 0;

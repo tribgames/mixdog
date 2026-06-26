@@ -1,19 +1,19 @@
 /**
- * Internal hidden roles — plugin-managed, user-untouchable.
+ * Internal hidden roles — Mixdog-managed, user-untouchable.
  *
  * Unlike user-workflow.json roles (which the user defines and edits freely),
  * these roles are NEVER exposed to callers of the `bridge` MCP tool. They are
- * invoked only by internal MCP handlers (explore / recall / search) and carry
+ * invoked only by internal handlers (explore / recall / search) and carry
  * their own system prompt + tool-set policy.
  *
  * Lookup order (bridge-llm.resolvePresetName):
  *   1. explicit preset arg
  *   2. opts.preset
- *   3. hidden-role registry (defaults/hidden-roles.json) ← plugin-internal
+ *   3. hidden-role registry (defaults/hidden-roles.json) <- Mixdog-internal
  *   4. user-workflow.json[role]                          ← user-owned
  *
  * Role definitions live in defaults/hidden-roles.json. Editing that file is a
- * plugin-code change; users cannot break the dispatch path by touching their
+ * Mixdog source change; users cannot break the dispatch path by touching their
  * workflow JSON.
  *
  * The preset names refer to entries seeded in mixdog-config.json (agent.presets)
@@ -23,7 +23,7 @@
  * found" error rather than silently mis-dispatching.
  *
  * Kind classification:
- *   - 'retrieval'   : short-lived MCP-invoked hidden retrieval roles (explore).
+ *   - 'retrieval'   : short-lived hidden retrieval roles (explore).
  *                     BP2 is cache-aligned with public `worker` (collect.mjs).
  *   - 'maintenance' : background-trigger hidden roles (memory cycle, recap, scheduler,
  *                     webhook). Receive only their own self section in BP2.
@@ -57,15 +57,13 @@
  *                      webhooks, scheduler-task → schedules).
  */
 
-import { fileURLToPath } from 'url'
 import { readFileSync, statSync } from 'fs'
-import { join, dirname } from 'path'
+import { join } from 'path'
+import { mixdogRoot } from '../../shared/plugin-paths.mjs'
 
-// Resolve the path to defaults/hidden-roles.json once. Same resolution
-// strategy used by bridge-llm.mjs pluginRoot() and the original eager load.
+// Resolve the path to defaults/hidden-roles.json once.
 const _HIDDEN_ROLES_PATH = (() => {
-  const root = process.env.CLAUDE_PLUGIN_ROOT
-    || join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
+  const root = mixdogRoot()
   return join(root, 'defaults', 'hidden-roles.json')
 })()
 

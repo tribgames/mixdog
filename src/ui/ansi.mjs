@@ -60,8 +60,8 @@ export const strike = sgr('9');
 
 // --- Foreground colors ------------------------------------------------------
 export const black = sgr('30');
-export const red = sgr('38;2;255;82;104');
-export const green = sgr('38;2;0;200;83');
+export const red = sgr('38;2;220;70;88');
+export const green = sgr('38;2;0;170;75');
 export const yellow = sgr('38;2;255;193;7');
 export const blue = sgr('38;2;77;159;255');
 export const magenta = sgr('38;2;177;133;219');
@@ -71,8 +71,8 @@ export const gray = sgr('38;2;198;198;198');
 export const grey = gray;
 
 // Bright variants (used sparingly for headings / accents).
-export const brightRed = sgr('38;2;255;82;104');
-export const brightGreen = sgr('38;2;0;220;100');
+export const brightRed = sgr('38;2;220;70;88');
+export const brightGreen = sgr('38;2;0;185;88');
 export const brightYellow = sgr('38;2;255;210;80');
 export const brightBlue = sgr('38;2;93;173;255');
 export const brightMagenta = sgr('38;2;190;150;230');

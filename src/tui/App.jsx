@@ -17,7 +17,7 @@
  * the transcript column grows past the screen height.
  */
 import { spawn } from 'node:child_process';
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import { theme, TURN_MARKER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
@@ -36,16 +36,18 @@ import { TextEntryPanel } from './components/TextEntryPanel.jsx';
 import { formatDuration } from './time-format.mjs';
 
 const HELP = [
-  'Slash commands:',
+  'Commands:',
   '  /clear           reset the conversation',
   '  /compact         compact older conversation context',
-  '  /autoclear       show or set idle auto-clear (on/off/status/1h)',
-  '  /new             start a fresh session (closes current)',
-  '  /resume [id]     resume a saved session (picker if no id)',
-  '  /context         show current session context surface',
-  '  /status          open session/runtime status dashboard',
+  '  /autoclear       configure idle auto-clear',
+  '  /clear (new)     start a fresh chat',
+  '  /resume [id]     resume a saved chat (picker if no id)',
+  '  /context         show current context surface',
+  '  /status          open runtime status dashboard',
   '  /usage           open global provider quota / balance dashboard',
   '  /model <name>    switch model for subsequent turns (picker if no name)',
+  '  /workflow        switch the active workflow',
+  '  /agents          show available workflow agents',
   '  /effort [level] set reasoning effort for the current model',
   '  /fast [on|off]   toggle Fast mode for this model (saved per model)',
   '  /mcp             manage MCP servers and tools',
@@ -56,9 +58,9 @@ const HELP = [
   '  /channels        manage Discord, channels, schedules, webhooks',
   '  /schedules       manage schedules',
   '  /webhooks        manage inbound webhooks',
-  '  /exit, /quit     quit',
-  'Picker: ↑/↓ navigate, Enter choose/apply, ←/→ adjust when shown, Esc exit/back.',
-  'Ctrl+B toggles bridge sync/async. /exit or /quit exits. Ctrl+V/paste inserts text. PageUp/PageDown scroll transcript.',
+  '  /quit (exit, q)  quit',
+  'Picker: ↑/↓ select, ←/→ adjust when shown, Enter choose/save, Esc back/cancel.',
+  'Esc cancels active turn. Ctrl+C copies selection. Ctrl+B toggles bridge sync/async. /exit or /quit exits. Ctrl+V/paste inserts text. PageUp/PageDown scroll transcript.',
 ].join('\n');
 
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
@@ -67,27 +69,27 @@ const MOUSE_MODIFIER_MASK = 4 | 8 | 16;
 const MOUSE_CTRL_MASK = 16;
 
 const SLASH_COMMANDS = [
-  { name: 'clear', usage: '/clear', description: 'reset the conversation' },
-  { name: 'compact', usage: '/compact', description: 'compact older conversation context' },
-  { name: 'autoclear', usage: '/autoclear [on|off|status|1h]', description: 'auto-clear after idle' },
-  { name: 'new', usage: '/new', description: 'start a fresh session' },
-  { name: 'resume', usage: '/resume', description: 'resume a saved session' },
-  { name: 'context', usage: '/context', description: 'show current session context surface' },
-  { name: 'status', usage: '/status', description: 'open session/runtime status dashboard' },
-  { name: 'usage', usage: '/usage [refresh]', description: 'show total provider quota / balance' },
-  { name: 'model', usage: '/model', description: 'switch model for subsequent turns' },
-  { name: 'effort', usage: '/effort [level]', description: 'set reasoning effort for the current model' },
-  { name: 'fast', usage: '/fast [on|off]', description: 'toggle Fast mode for the current model' },
-  { name: 'mcp', usage: '/mcp', description: 'manage MCP servers and tools' },
-  { name: 'skills', usage: '/skills', description: 'choose a skill for the next request' },
-  { name: 'plugins', usage: '/plugins', description: 'manage local plugin integrations' },
-  { name: 'hooks', usage: '/hooks', description: 'manage before-tool hook rules and events' },
-  { name: 'providers', usage: '/providers', description: 'manage auth, API keys, OAuth, and local endpoints' },
-  { name: 'channels', usage: '/channels', description: 'manage Discord, channels, schedules, webhooks' },
-  { name: 'schedules', usage: '/schedules', description: 'manage schedules' },
-  { name: 'webhooks', usage: '/webhooks', description: 'manage inbound webhooks' },
-  { name: 'exit', usage: '/exit', description: 'quit the TUI' },
-  { name: 'quit', usage: '/quit', description: 'quit the TUI' },
+  { name: 'clear', usage: '/clear', aliases: ['new'], aliasUsage: ['new'], description: 'Start a fresh chat' },
+  { name: 'compact', usage: '/compact', description: 'Compact older conversation context' },
+  { name: 'autoclear', usage: '/autoclear', description: 'Reduce cache-miss cost after long idle gaps' },
+  { name: 'resume', usage: '/resume', description: 'Resume a saved chat' },
+  { name: 'context', usage: '/context', description: 'Show current context surface' },
+  { name: 'status', usage: '/status', description: 'Open runtime status dashboard' },
+  { name: 'usage', usage: '/usage', params: '[refresh]', description: 'Show total provider quota / balance' },
+  { name: 'model', usage: '/model', description: 'Switch model for subsequent turns' },
+  { name: 'workflow', usage: '/workflow', description: 'Switch the active workflow' },
+  { name: 'agents', usage: '/agents', description: 'Show available workflow agents' },
+  { name: 'effort', usage: '/effort', params: '[level]', description: 'Set reasoning effort for the current model' },
+  { name: 'fast', usage: '/fast', params: '[on|off]', description: 'Toggle Fast mode for the current model' },
+  { name: 'mcp', usage: '/mcp', description: 'Manage MCP servers and tools' },
+  { name: 'skills', usage: '/skills', description: 'Choose a skill for the next request' },
+  { name: 'plugins', usage: '/plugins', description: 'Manage local plugin integrations' },
+  { name: 'hooks', usage: '/hooks', description: 'Manage before-tool hook rules and events' },
+  { name: 'providers', usage: '/providers', description: 'Manage auth, API keys, OAuth, and local endpoints' },
+  { name: 'channels', usage: '/channels', description: 'Manage Discord, channels, schedules, webhooks' },
+  { name: 'schedules', usage: '/schedules', description: 'Manage schedules' },
+  { name: 'webhooks', usage: '/webhooks', description: 'Manage inbound webhooks' },
+  { name: 'quit', usage: '/quit', aliases: ['exit', 'q'], aliasUsage: ['exit', 'q'], description: 'Quit the TUI' },
 ];
 
 function slashQuery(value) {
@@ -99,7 +101,31 @@ function slashQuery(value) {
 function slashCommandMatches(command, query) {
   const needle = String(query || '').toLowerCase();
   if (!needle) return true;
-  return String(command?.name || '').toLowerCase().startsWith(needle);
+  if (String(command?.name || '').toLowerCase().startsWith(needle)) return true;
+  return (command?.aliases || []).some((alias) => String(alias || '').toLowerCase().startsWith(needle));
+}
+
+function compareSlashCommands(a, b) {
+  return String(a?.name || '').localeCompare(String(b?.name || ''), 'en', { sensitivity: 'base' });
+}
+
+function normalizeSlashCommandName(cmd) {
+  const name = String(cmd || '').toLowerCase();
+  const command = SLASH_COMMANDS.find((item) => item.name === name || (item.aliases || []).includes(name));
+  return command?.name || name;
+}
+
+function slashCommandForName(cmd) {
+  const name = normalizeSlashCommandName(cmd);
+  return SLASH_COMMANDS.find((item) => item.name === name) || null;
+}
+
+function slashArgumentHint(value) {
+  const text = String(value ?? '');
+  const match = text.match(/^\/([^\s]+)\s+$/);
+  if (!match) return '';
+  const command = slashCommandForName(match[1]);
+  return command?.params ? `${command.usage} ${command.params}` : '';
 }
 
 function terminalSize(stdout) {
@@ -107,6 +133,18 @@ function terminalSize(stdout) {
     columns: stdout?.columns ?? 80,
     rows: stdout?.rows ?? 24,
   };
+}
+
+function clean(value) {
+  return String(value ?? '').trim();
+}
+
+function summarizeTags(tags, limit = 3) {
+  const values = [...new Set((Array.isArray(tags) ? tags : [])
+    .map((tag) => clean(tag))
+    .filter(Boolean))];
+  if (values.length <= limit) return values.join(', ');
+  return `${values.slice(0, limit).join(', ')}, +${values.length - limit}`;
 }
 
 function formatSessionUpdatedAt(value) {
@@ -117,25 +155,15 @@ function formatSessionUpdatedAt(value) {
   const now = new Date();
   const pad = (v) => String(v).padStart(2, '0');
   const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  const sameDay = date.getFullYear() === now.getFullYear()
-    && date.getMonth() === now.getMonth()
-    && date.getDate() === now.getDate();
-  return sameDay ? time : `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${time}`;
+  const day = `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return date.getFullYear() === now.getFullYear()
+    ? `${day} ${time}`
+    : `${date.getFullYear()}-${day} ${time}`;
 }
 
-function compactSessionCwd(cwd) {
-  const text = String(cwd || '').trim();
-  if (!text) return '(no cwd)';
-  const parts = text.split(/[\\/]+/).filter(Boolean);
-  if (parts.length === 0) return text;
-  if (parts.length === 1) return parts[0];
-  return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
-}
-
-function shortSessionId(id) {
-  const text = String(id || '');
-  if (!text) return '';
-  return text.length > 18 ? `${text.slice(0, 15)}…` : text;
+function formatSessionMessageCount(count) {
+  const n = Number(count || 0);
+  return `${Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0} msg${n === 1 ? '' : 's'}`;
 }
 
 function parseBridgeControl(text) {
@@ -145,23 +173,23 @@ function parseBridgeControl(text) {
   const value = parts[1] || '';
   if (action === 'list' || action === 'cleanup') return { type: action };
   if (action === 'spawn') {
-    const role = value;
-    if (!role) return { error: 'usage: /bridge spawn <role> [sync|async] <prompt>' };
+    const agent = value;
+    if (!agent) return { error: 'usage: /bridge spawn <agent> [sync|async] <prompt>' };
     const parsed = parseBridgeFreeform(parts.slice(2));
-    if (!parsed.message) return { error: 'usage: /bridge spawn <role> [sync|async] <prompt>' };
-    return { type: 'spawn', role, ...parsed };
+    if (!parsed.message) return { error: 'usage: /bridge spawn <agent> [sync|async] <prompt>' };
+    return { type: 'spawn', agent, ...parsed };
   }
   if (action === 'send') {
-    if (!value) return { error: 'usage: /bridge send <tag|sessionId> [sync|async] <message>' };
+    if (!value) return { error: 'usage: /bridge send <target> [sync|async] <message>' };
     const parsed = parseBridgeFreeform(parts.slice(2));
-    if (!parsed.message) return { error: 'usage: /bridge send <tag|sessionId> [sync|async] <message>' };
+    if (!parsed.message) return { error: 'usage: /bridge send <target> [sync|async] <message>' };
     return value.startsWith('sess_')
       ? { type: 'send', sessionId: value, ...parsed }
       : { type: 'send', tag: value, ...parsed };
   }
-  if (!value) return { error: `usage: /bridge ${action} <jobId|tag|sessionId>` };
-  if (action === 'status' || action === 'read') return { type: action, jobId: value };
-  if (value.startsWith('job_')) return { type: action, jobId: value };
+  if (!value) return { error: `usage: /bridge ${action} <target>` };
+  if (action === 'status' || action === 'read') return { type: action, task_id: value };
+  if (value.startsWith('job_') || value.startsWith('task_')) return { type: action, task_id: value };
   if (value.startsWith('sess_')) return { type: action, sessionId: value };
   return { type: action, tag: value };
 }
@@ -344,7 +372,7 @@ function copyToClipboard(text) {
       else reject(new Error(`${cmd} exited with code ${code}`));
     });
     child.stdin.on('error', () => { /* ignore EPIPE if the helper closed early */ });
-    child.stdin.end(text, 'utf8');
+    child.stdin.end(text);
   });
 }
 
@@ -352,7 +380,7 @@ const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpan
   switch (item.kind) {
     case 'user': return <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} />;
     case 'assistant': return <AssistantMessage text={item.text} streaming={item.streaming} />;
-    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} isError={item.isError} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} />;
+    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} />;
     case 'notice': return <NoticeMessage text={item.text} tone={item.tone} columns={columns} />;
     case 'turndone': return <TurnDone elapsedMs={item.elapsedMs} status={item.status} outputTokens={item.outputTokens} thinkingElapsedMs={item.thinkingElapsedMs} verb={item.verb} />;
     default: return null;
@@ -385,9 +413,10 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
       // rows, while overestimating can hide rows when the user scrolls upward.
       return 1 + estimateWrappedRows(item.text, columns, 6);
     case 'tool': {
-      const resultRows = item.result
-        ? (toolOutputExpanded || item.expanded ? estimateWrappedRows(item.result, columns, 8) : Math.min(8, estimateWrappedRows(item.result, columns, 8)))
-        : 0;
+      const resultText = (toolOutputExpanded || item.expanded) && item.rawResult ? item.rawResult : item.result;
+      const resultRows = resultText
+        ? (toolOutputExpanded || item.expanded ? estimateWrappedRows(resultText, columns, 8) : Math.min(8, estimateWrappedRows(resultText, columns, 8)))
+        : 1;
       return 2 + resultRows;
     }
     case 'notice':
@@ -399,30 +428,91 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
   }
 }
 
-function transcriptRenderWindow(items, { scrollOffset = 0, viewportHeight = 24, columns = 80, toolOutputExpanded = false } = {}) {
+function lowerBound(values, target) {
+  let lo = 0;
+  let hi = values.length;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (values[mid] < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+function upperBound(values, target) {
+  let lo = 0;
+  let hi = values.length;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (values[mid] <= target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+function buildTranscriptRowIndex(items, { columns = 80, toolOutputExpanded = false } = {}) {
   const allItems = Array.isArray(items) ? items : [];
-  if (allItems.length <= TRANSCRIPT_WINDOW_MIN_ITEMS) {
-    return { startIndex: 0, items: allItems };
+  const rows = new Array(allItems.length);
+  const prefixRows = new Array(allItems.length + 1);
+  prefixRows[0] = 0;
+  for (let i = 0; i < allItems.length; i++) {
+    const rowCount = Math.max(1, Math.ceil(estimateTranscriptItemRows(allItems[i], columns, toolOutputExpanded)));
+    rows[i] = rowCount;
+    prefixRows[i + 1] = prefixRows[i] + rowCount;
+  }
+  return { rows, prefixRows, totalRows: prefixRows[allItems.length] || 0 };
+}
+
+function transcriptRenderWindow(items, { scrollOffset = 0, viewportHeight = 24, columns = 80, toolOutputExpanded = false, rowIndex = null } = {}) {
+  const allItems = Array.isArray(items) ? items : [];
+  const itemCount = allItems.length;
+  const fallbackIndex = rowIndex?.prefixRows?.length === itemCount + 1
+    ? rowIndex
+    : buildTranscriptRowIndex(allItems, { columns, toolOutputExpanded });
+  const totalRows = Math.max(0, fallbackIndex.totalRows || 0);
+  const viewRows = Math.max(1, Number(viewportHeight) || 24);
+  const maxScrollRows = Math.max(0, totalRows - viewRows);
+  const effectiveScrollOffset = Math.min(
+    maxScrollRows,
+    Math.max(0, Math.ceil(Number(scrollOffset) || 0)),
+  );
+
+  if (itemCount <= TRANSCRIPT_WINDOW_MIN_ITEMS) {
+    return { startIndex: 0, endIndex: itemCount, items: allItems, bottomSpacerRows: 0, totalRows, maxScrollRows, effectiveScrollOffset };
   }
 
-  const targetRows = Math.max(1, Number(viewportHeight) || 24)
-    + Math.max(0, Math.ceil(Number(scrollOffset) || 0))
-    + TRANSCRIPT_WINDOW_OVERSCAN_ROWS;
-  const minItems = Math.min(TRANSCRIPT_WINDOW_MIN_ITEMS, allItems.length);
+  const minItems = Math.min(TRANSCRIPT_WINDOW_MIN_ITEMS, itemCount);
   const maxItems = Math.max(minItems, TRANSCRIPT_WINDOW_MAX_ITEMS);
-  let rows = 0;
-  let startIndex = allItems.length;
+  const prefixRows = fallbackIndex.prefixRows;
+  const visibleTop = Math.max(0, totalRows - effectiveScrollOffset - viewRows);
+  const visibleBottom = Math.min(totalRows, totalRows - effectiveScrollOffset);
+  const desiredTop = Math.max(0, visibleTop - TRANSCRIPT_WINDOW_OVERSCAN_ROWS);
+  const desiredBottom = Math.min(totalRows, visibleBottom + TRANSCRIPT_WINDOW_OVERSCAN_ROWS);
 
-  while (startIndex > 0) {
-    const nextIndex = startIndex - 1;
-    rows += estimateTranscriptItemRows(allItems[nextIndex], columns, toolOutputExpanded);
-    startIndex = nextIndex;
-    const count = allItems.length - startIndex;
-    if (count >= minItems && rows >= targetRows) break;
-    if (count >= maxItems && rows >= targetRows) break;
+  let startIndex = Math.max(0, upperBound(prefixRows, desiredTop) - 1);
+  let endIndex = Math.min(itemCount, Math.max(startIndex + 1, lowerBound(prefixRows, Math.max(desiredBottom, desiredTop + 1))));
+
+  while (endIndex - startIndex < minItems && startIndex > 0) startIndex--;
+  while (endIndex - startIndex < minItems && endIndex < itemCount) endIndex++;
+
+  if (endIndex - startIndex > maxItems) {
+    const visibleStartIndex = Math.max(0, upperBound(prefixRows, visibleTop) - 1);
+    const visibleEndIndex = Math.min(itemCount, Math.max(visibleStartIndex + 1, lowerBound(prefixRows, Math.max(visibleBottom, visibleTop + 1))));
+    startIndex = Math.max(0, Math.min(visibleStartIndex, itemCount - maxItems));
+    endIndex = Math.min(itemCount, Math.max(visibleEndIndex, startIndex + maxItems));
+    if (endIndex - startIndex > maxItems) startIndex = Math.max(0, endIndex - maxItems);
   }
 
-  return { startIndex, items: allItems.slice(startIndex) };
+  const bottomSpacerRows = Math.max(0, totalRows - (prefixRows[endIndex] || totalRows));
+  return {
+    startIndex,
+    endIndex,
+    items: allItems.slice(startIndex, endIndex),
+    bottomSpacerRows,
+    totalRows,
+    maxScrollRows,
+    effectiveScrollOffset,
+  };
 }
 
 export function App({ store, initialStatusLine = '' }) {
@@ -438,6 +528,10 @@ export function App({ store, initialStatusLine = '' }) {
   const { isRawModeSupported, stdin, internal_eventEmitter: inkInput } = useStdin();
   const { stdout } = useStdout();
   const [exiting, setExiting] = useState(false);
+  // tuiReady stays false across the first render + commit. A setTimeout(0) in
+  // the first effect defers the flip until one event-loop poll has drained any
+  // keystrokes that the OS buffered during terminal setup / initial mount.
+  const [tuiReady, setTuiReady] = useState(false);
   const exitRequestedRef = useRef(false);
   const [resizeState, setResizeState] = useState(() => ({ ...terminalSize(stdout), epoch: 0 }));
   // scrollOffset = how many transcript ROWS we've scrolled UP from the bottom
@@ -446,12 +540,34 @@ export function App({ store, initialStatusLine = '' }) {
   const [scrollOffset, setScrollOffset] = useState(0);
   const scrollPositionRef = useRef(0);
   const scrollTargetRef = useRef(0);
+  const maxScrollRowsRef = useRef(0);
   const scrollAnimationRef = useRef(null);
   // picker = null | { type, title, items, onSelect }
   // Rendered as an option panel attached directly above the bottom prompt.
-  const [picker, setPicker] = useState(null);
+  const pickerOpenedFromEnterRef = useRef(false);
+  const pickerOpenedFromEnterTimerRef = useRef(null);
+  const [picker, setPickerState] = useState(null);
+  const setPicker = useCallback((next) => {
+    setPickerState((prev) => {
+      const resolved = typeof next === 'function' ? next(prev) : next;
+      if (resolved && typeof resolved === 'object' && pickerOpenedFromEnterRef.current) {
+        pickerOpenedFromEnterRef.current = false;
+        if (pickerOpenedFromEnterTimerRef.current) {
+          clearTimeout(pickerOpenedFromEnterTimerRef.current);
+          pickerOpenedFromEnterTimerRef.current = null;
+        }
+        return resolved.indexMode ? resolved : { ...resolved, indexMode: 'always' };
+      }
+      return resolved;
+    });
+  }, []);
   const [contextPanel, setContextPanel] = useState(null);
   const [usagePanel, setUsagePanel] = useState(null);
+  const usageRequestRef = useRef(0);
+  const closeUsagePanel = useCallback(() => {
+    usageRequestRef.current += 1;
+    setUsagePanel(null);
+  }, []);
   const [providerPrompt, setProviderPrompt] = useState(null);
   const [channelPrompt, setChannelPrompt] = useState(null);
   const [hookPrompt, setHookPrompt] = useState(null);
@@ -467,6 +583,7 @@ export function App({ store, initialStatusLine = '' }) {
   const slashPaletteRef = useRef({ open: false, count: 0 });
   const onboardingStartedRef = useRef(false);
   const onboardingRef = useRef({ defaultRoute: null, workflowRoutes: {}, providerModels: [] });
+  const providerModelsCacheRef = useRef({ models: null, at: 0 });
   const promptHintTimerRef = useRef(null);
   const promptHintActiveRef = useRef(false);
   const mouseZoomPassthroughTimerRef = useRef(null);
@@ -499,6 +616,15 @@ export function App({ store, initialStatusLine = '' }) {
       })
       .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
   }, [store]);
+
+  // ── Post-mount input gate ──────────────────────────────────────────────
+  // Let one event-loop poll pass so Ink processes (and discards, because
+  // PromptInput is still disabled) any keystrokes queued during boot/first
+  // render. After the tick, enable the input — new keystrokes land normally.
+  useEffect(() => {
+    const timer = setTimeout(() => setTuiReady(true), 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (!stdout) return undefined;
@@ -632,7 +758,8 @@ export function App({ store, initialStatusLine = '' }) {
   }, []);
 
   const scrollTranscriptRows = useCallback((deltaRows, options = {}) => {
-    const target = Math.max(0, scrollTargetRef.current + deltaRows);
+    const maxTarget = Math.max(0, Number(maxScrollRowsRef.current) || 0);
+    const target = Math.max(0, Math.min(maxTarget, scrollTargetRef.current + deltaRows));
     const appliedDelta = target - scrollTargetRef.current;
     scrollTargetRef.current = target;
     if (appliedDelta !== 0 && dragRef.current.rect) {
@@ -861,14 +988,14 @@ export function App({ store, initialStatusLine = '' }) {
     const hardExitTimer = setTimeout(() => {
       try { process.stdout.write('\x1b[?25h\x1b[0m'); } catch {}
       process.exit(0);
-    }, 8000);
+    }, 2000);
     hardExitTimer.unref?.();
     setTimeout(() => {
       let timer = null;
       Promise.race([
-        Promise.resolve(store.dispose?.()),
+        Promise.resolve(store.dispose?.('cli-react-exit', { detach: true })),
         new Promise((resolve) => {
-          timer = setTimeout(resolve, 6500);
+          timer = setTimeout(resolve, 350);
         }),
       ]).finally(() => {
         if (timer) clearTimeout(timer);
@@ -877,23 +1004,13 @@ export function App({ store, initialStatusLine = '' }) {
     }, 60);
   }, [store, exit]);
 
-  // ESC handling is split:
-  // - draft text: PromptInput clears the draft before calling onEscape.
-  // - queued steering: Up restores it to the prompt.
-  // - running turn: Esc interrupts the active assistant turn and keeps queued
-  //   steering intact so it becomes the next user turn.
-  // Ctrl+O toggles the global tool-output expansion, matching the Claude/Pi
-  // expectation that this is a view mode rather than a per-card hidden state.
-  const toggleExpand = useCallback(() => {
-    setToolOutputExpanded((expanded) => !expanded);
-  }, []);
-
   const restoreQueuedToPrompt = useCallback((options = {}) => {
     const restoreDraft = options.restoreDraft !== false;
     const showHint = options.showHint !== false;
-    const restored = store.restoreQueued?.(promptValueRef.current || promptDraft);
+    const currentText = options.currentText ?? promptValueRef.current ?? promptDraft;
+    const restored = store.restoreQueued?.(currentText);
     if (!restored || restored.count === 0) {
-      if (showHint) showPromptHint('no queued messages to restore', 'info');
+      if (showHint) showPromptHint('No queued messages to restore.', 'info');
       return false;
     }
     if (restoreDraft) {
@@ -907,21 +1024,51 @@ export function App({ store, initialStatusLine = '' }) {
     return true;
   }, [store, promptDraft, showPromptHint, clearPromptHint]);
 
-  const handlePromptEscape = useCallback(() => {
-    if (usagePanel) {
-      setUsagePanel(null);
-      return;
+  // ESC / Up handling (Claude Code parity — refs/claude-code/src/components/PromptInput/PromptInput.tsx):
+  // - prompt-local overlays such as the slash palette close first.
+  // - queued steering: Esc or Up pops queued text back into the prompt for
+  //   editing, before current input. This is intentionally not gated on the
+  //   rendered queued state so a very fast Esc after submit can still recover
+  //   the pending text instead of aborting the active turn.
+  // - active turn + no queued steering: PromptInput calls store.abort.
+  // - non-empty prompt: first Esc only warns; second Esc clears the text.
+  const handlePromptEscape = useCallback((text = '', meta = {}) => {
+    if (usagePanel) { closeUsagePanel(); return true; }
+    if (contextPanel) { setContextPanel(null); return true; }
+
+    if (restoreQueuedToPrompt({ restoreDraft: true, showHint: false, currentText: text })) {
+      return true;
     }
-    if (contextPanel) {
-      setContextPanel(null);
-      return;
+
+    if (meta.phase === 'arm-clear') {
+      showPromptHint('Press Esc again to clear.', 'cancel');
+      return false;
     }
-    if (state.queued?.length > 0 && restoreQueuedToPrompt({ restoreDraft: true, showHint: false })) {
-      return;
+    if (meta.phase === 'clear') {
+      clearPromptHint();
+      return false;
     }
-    if (!state.busy) return;
-    if (store.abort()) showPromptHint('interrupted', 'cancel');
-  }, [contextPanel, usagePanel, state.queued, restoreQueuedToPrompt, state.busy, store, showPromptHint]);
+    // Idle + empty + nothing to restore: nothing (Claude Code: double-press from empty
+    // opens message selector, but we don't have that feature yet).
+    return false;
+  }, [contextPanel, usagePanel, closeUsagePanel, restoreQueuedToPrompt, showPromptHint, clearPromptHint]);
+
+  const handlePromptInterrupt = useCallback((currentText = '') => {
+    const result = store.abort?.();
+    if (result?.aborted === false) return undefined;
+    const restoreText = String(result?.restoreText || '').trim();
+    if (!restoreText) return undefined;
+    const existingText = String(currentText || '').trim();
+    const nextText = [restoreText, existingText].filter(Boolean).join('\n');
+    clearPromptHint();
+    return nextText;
+  }, [store, clearPromptHint]);
+
+  // Ctrl+O toggles the global tool-output expansion, matching the Claude/Pi
+  // expectation that this is a view mode rather than a per-card hidden state.
+  const toggleExpand = useCallback(() => {
+    setToolOutputExpanded((expanded) => !expanded);
+  }, []);
 
   useInput((input, key) => {
     if (key.ctrl && (input === 'b' || input === 'B')) {
@@ -929,25 +1076,22 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
     if (key.ctrl && (input === 'c' || input === 'C')) {
-      // Ctrl+C copies the current drag/double-click selection (if any) to the
-      // OS clipboard. The highlight is intentionally kept visible after copy.
+      // Ctrl+C is copy-only. It must never interrupt an active turn; Esc owns
+      // cancellation. The highlight is intentionally kept visible after copy.
       // With no active selection this is a no-op (exitOnCtrlC:false in
       // index.jsx already prevents Ctrl+C from terminating the app).
       const rect = dragRef.current.rect;
       const hasSelection = rect && !(rect.x1 === rect.x2 && rect.y1 === rect.y2);
       if (hasSelection) copySelection(rect);
+      else if (!state.busy && state.queued?.length > 0) restoreQueuedToPrompt({ restoreDraft: true, showHint: false });
       return;
     }
     if (key.ctrl && (input === 'o' || input === 'O')) {
       toggleExpand();
       return;
     }
-    if (key.upArrow && !picker && !contextPanel && !usagePanel && !providerPrompt && !channelPrompt && !hookPrompt && !settingsPrompt && !slashPaletteOpen && state.queued?.length > 0) {
-      restoreQueuedToPrompt({ restoreDraft: true, showHint: false });
-      return;
-    }
     if (key.escape && usagePanel && !picker) {
-      setUsagePanel(null);
+      closeUsagePanel();
       return;
     }
     if (key.escape && contextPanel && !picker) {
@@ -1024,11 +1168,10 @@ export function App({ store, initialStatusLine = '' }) {
   };
 
   const compareModelRecency = (a, b) => {
-    const versionDelta = compareModelVersion(a, b);
-    if (versionDelta) return versionDelta;
-
     if (isClaudeModel(a) && isClaudeModel(b)) {
       if (!!a?.latest !== !!b?.latest) return a?.latest ? -1 : 1;
+      const versionDelta = compareModelVersion(a, b);
+      if (versionDelta) return versionDelta;
       const ta = releaseTime(a);
       const tb = releaseTime(b);
       if (ta !== tb) return tb - ta;
@@ -1038,7 +1181,10 @@ export function App({ store, initialStatusLine = '' }) {
     const ta = releaseTime(a);
     const tb = releaseTime(b);
     if (ta !== tb) return tb - ta;
+
     if (!!a?.latest !== !!b?.latest) return a?.latest ? -1 : 1;
+    const versionDelta = compareModelVersion(a, b);
+    if (versionDelta) return versionDelta;
     return String(a?.display || a?.id || '').localeCompare(String(b?.display || b?.id || ''));
   };
 
@@ -1069,9 +1215,9 @@ export function App({ store, initialStatusLine = '' }) {
     if (!Number.isFinite(n) || n <= 0) return '';
     if (n >= 1_000_000) {
       const m = n / 1_000_000;
-      return `${Number.isInteger(m) ? m.toFixed(0) : m.toFixed(1)}M ctx`;
+      return `${Number.isInteger(m) ? m.toFixed(0) : m.toFixed(1)}M Context`;
     }
-    return `${Math.round(n / 1000)}k ctx`;
+    return `${Math.round(n / 1000)}k Context`;
   };
 
   const modelFamilyLimit = (provider, family) => {
@@ -1105,52 +1251,153 @@ export function App({ store, initialStatusLine = '' }) {
     return normalized;
   };
 
-  const modelDescription = (m) => [m.provider, formatContextWindow(modelContextWindow(m)), m.fastPreferred ? 'fast' : ''].filter(Boolean).join(' · ');
+  const providerDisplayName = (provider) => {
+    const key = String(provider || '').toLowerCase();
+    if (key === 'openai-oauth') return 'Codex';
+    if (key === 'anthropic-oauth') return 'Claude Code';
+    if (key === 'grok-oauth') return 'Grok Build';
+    if (key === 'openai' || key === 'openai-api') return 'OpenAI API';
+    if (key === 'anthropic' || key === 'anthropic-api') return 'Anthropic API';
+    if (key === 'gemini' || key === 'gemini-api') return 'Gemini API';
+    if (key === 'xai' || key === 'xai-api') return 'xAI API';
+    if (key === 'deepseek' || key === 'deepseek-api') return 'DeepSeek API';
+    if (key === 'opencode-go') return 'OpenCode Go API';
+    if (key === 'ollama') return 'Ollama';
+    if (key === 'lmstudio') return 'LM Studio';
+    return provider || 'Provider';
+  };
 
-  const buildModelPickerItems = (models, expandedProvider) => {
+  const providerDisplayRank = (provider) => {
+    const key = String(provider || '').toLowerCase();
+    const ranks = {
+      'openai-oauth': 10,
+      'anthropic-oauth': 20,
+      'grok-oauth': 30,
+      openai: 40,
+      'openai-api': 40,
+      anthropic: 50,
+      'anthropic-api': 50,
+      gemini: 60,
+      'gemini-api': 60,
+      xai: 70,
+      'xai-api': 70,
+      'opencode-go': 80,
+      deepseek: 90,
+      'deepseek-api': 90,
+      ollama: 100,
+      lmstudio: 110,
+    };
+    return ranks[key] ?? 900;
+  };
+
+  const titleCaseOption = (value) => String(value || '')
+    .split(/([\s_-]+)/)
+    .map((part) => /^[\s_-]+$/.test(part) ? part : `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join('');
+
+  const effortDisplayLabel = (value) => {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    if (text.toLowerCase() === 'xhigh') return 'XHigh';
+    return titleCaseOption(text);
+  };
+
+  const fastDisplayLabel = (enabled = true) => `Fast ${enabled ? 'On' : 'Off'}`;
+
+  const modelDescription = (m) => [formatContextWindow(modelContextWindow(m)), m.fastCapable ? 'Fast Available' : ''].filter(Boolean).join(' · ');
+
+  const displayModelName = (model) => {
+    const text = String(model || '').trim();
+    if (!text) return '';
+    const lower = text.toLowerCase();
+    const claude = /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)/i.exec(lower);
+    if (claude) {
+      const family = claude[1].charAt(0).toUpperCase() + claude[1].slice(1);
+      return `${family} ${claude[2]}.${claude[3]}`;
+    }
+    if (lower.startsWith('gpt-')) {
+      return text
+        .split('-')
+        .map((part, index) => (index === 0 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
+        .join('-');
+    }
+    if (lower.startsWith('grok-')) {
+      return text
+        .split('-')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+    }
+    return text;
+  };
+
+  const groupModelsByProvider = (models) => {
     const providers = new Map();
     for (const model of models) {
       if (!providers.has(model.provider)) providers.set(model.provider, []);
       providers.get(model.provider).push(model);
     }
 
-    const currentProvider = state.provider;
     const orderedProviders = [...providers.keys()].sort((a, b) => {
-      if (a === currentProvider) return -1;
-      if (b === currentProvider) return 1;
+      const rank = providerDisplayRank(a) - providerDisplayRank(b);
+      if (rank !== 0) return rank;
+      const label = providerDisplayName(a).localeCompare(providerDisplayName(b));
+      if (label !== 0) return label;
       return a.localeCompare(b);
     });
+    return { providers, orderedProviders };
+  };
 
-    const items = [];
-    for (const provider of orderedProviders) {
+  const buildModelProviderItems = (models) => {
+    const { providers, orderedProviders } = groupModelsByProvider(models);
+    return orderedProviders.map((provider) => {
       const providerModels = providers.get(provider) || [];
-      const expanded = expandedProvider === provider;
-      items.push({
+      return {
         value: `provider:${provider}`,
-        label: `${expanded ? '▾' : '▸'} ${provider}`,
-        description: '',
-        _action: 'toggle-provider',
+        label: providerDisplayName(provider),
+        description: `${providerModels.length} model${providerModels.length === 1 ? '' : 's'}`,
+        _action: 'open-provider',
         _provider: provider,
-      });
-      if (!expanded) continue;
-      for (const model of providerModels) {
-        items.push({
-          value: `model:${model.provider}:${model.id}`,
-          label: `    ${model.display || model.id}`,
-          description: modelDescription(model) ? `    ${modelDescription(model)}` : '',
-          _action: 'select-model',
-          _provider: model.provider,
-          _modelId: model.id,
-        });
-      }
-    }
-    return items;
+      };
+    });
+  };
+
+  const buildProviderModelItems = (models, provider) => {
+    const providerModels = models.filter((model) => model.provider === provider);
+    return providerModels.map((model) => ({
+      value: `model:${model.provider}:${model.id}`,
+      label: model.display || model.id,
+      description: modelDescription(model),
+      _action: 'select-model',
+      _provider: model.provider,
+      _modelId: model.id,
+      _model: model,
+    }));
   };
 
   const routeLabel = (route) => {
     if (!route?.provider || !route?.model) return '(unset)';
-    return `${route.provider}/${route.model}${route.effort ? ` · ${route.effort}` : ''}${route.fast ? ' · fast' : ''}`;
+    return [
+      providerDisplayName(route.provider),
+      displayModelName(route.model),
+      route.effort ? effortDisplayLabel(route.effort) : '',
+      route.fast ? 'Fast' : '',
+    ].filter(Boolean).join(' · ');
   };
+
+  const agentModelProfile = (route) => {
+    if (!route?.model) return '';
+    return [
+      displayModelName(route.model),
+      route.effort ? effortDisplayLabel(route.effort) : '',
+      route.fast ? 'Fast' : '',
+    ].filter(Boolean).join(' · ');
+  };
+
+  const agentModelParts = (route) => [
+    { text: route?.model ? displayModelName(route.model) : '', width: 17 },
+    { text: route?.effort ? effortDisplayLabel(route.effort) : '', width: 6 },
+    { text: route?.fast ? 'Fast' : '', width: 4 },
+  ];
 
   const routeFromModel = (model, effort = null) => ({
     provider: model.provider,
@@ -1165,7 +1412,7 @@ export function App({ store, initialStatusLine = '' }) {
     if (slot === 'lead' || slot === 'review') {
       if (/opus|gpt-5\.5|gpt-5|sonnet/.test(text)) score += 20;
       if (/mini|nano|haiku|flash/.test(text)) score -= 5;
-    } else if (slot === 'memory' || slot === 'search') {
+    } else if (slot === 'memory') {
       if (/haiku|mini|nano|flash|fast/.test(text)) score += 20;
       if (/opus|max/.test(text)) score -= 4;
     } else if (slot === 'explorer' || slot === 'bridge') {
@@ -1186,7 +1433,6 @@ export function App({ store, initialStatusLine = '' }) {
     lead: defaultRoute,
     bridge: chooseRecommendedModel(models, 'bridge', defaultRoute),
     explorer: chooseRecommendedModel(models, 'explorer', defaultRoute),
-    search: chooseRecommendedModel(models, 'search', defaultRoute),
     memory: chooseRecommendedModel(models, 'memory', defaultRoute),
   });
 
@@ -1195,12 +1441,30 @@ export function App({ store, initialStatusLine = '' }) {
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
-    let providerModels = [];
-    try {
-      providerModels = await store.listProviderModels();
-    } catch (e) {
-      store.pushNotice(`could not list models: ${e?.message || e}`, 'error');
-      return;
+    const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    const cancelModelPicker = () => {
+      if (returnTo) returnTo();
+      else setPicker(null);
+    };
+    let providerModels = Array.isArray(providerModelsCacheRef.current.models)
+      ? providerModelsCacheRef.current.models
+      : [];
+    if (!providerModels.length || options.refreshModels === true) {
+      setPicker({
+        title: options.title || 'Model',
+        description: options.loadingDescription || 'Loading models...',
+        help: returnTo ? '↑/↓ Select · Enter Open · Esc Agents' : '↑/↓ Select · Enter Open · Esc Back',
+        items: [],
+        onCancel: cancelModelPicker,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      try {
+        providerModels = await store.listProviderModels({ force: options.refreshModels === true });
+        providerModelsCacheRef.current = { models: providerModels, at: Date.now() };
+      } catch (e) {
+        store.pushNotice(`could not list models: ${e?.message || e}`, 'error');
+        return;
+      }
     }
 
     if (!providerModels || providerModels.length === 0) {
@@ -1209,154 +1473,324 @@ export function App({ store, initialStatusLine = '' }) {
         title: 'Providers',
         continueLabel: 'Back to model setup',
         continueDescription: 'retry model list after provider auth',
-        onContinue: () => void openModelPicker(),
+        onContinue: () => void openModelPicker(options),
       });
       return;
     }
 
     const models = normalizeModelOptions(providerModels);
-    let expandedProvider = null;
-    const toggleProvider = (provider, force) => {
-      if (!provider) return;
-      if (force === false) {
-        if (expandedProvider === provider) expandedProvider = null;
-        return;
-      }
-      if (force === true) {
-        expandedProvider = provider;
-        return;
-      }
-      expandedProvider = expandedProvider === provider ? null : provider;
-    };
     const renderModelPicker = () => {
-      const openModelOptionsPicker = (model) => {
-        if (!model?._provider || !model?._modelId) return;
-        const selected = models.find((m) => m.provider === model._provider && m.id === model._modelId) || {
-          provider: model._provider,
-          id: model._modelId,
-          display: model._modelId,
-          effortOptions: [{ value: 'auto', label: 'auto', description: 'provider/model default' }],
-          fastCapable: false,
-          fastPreferred: false,
+      const openProviderModelsPicker = (provider) => {
+        if (!provider) return;
+        const providerModels = models.filter((model) => model.provider === provider);
+        const preferredEffort = (values = []) => {
+          const allowed = values.filter(Boolean);
+          for (const value of ['high', 'medium', 'low', 'none', 'xhigh', 'max']) {
+            if (allowed.includes(value)) return value;
+          }
+          return allowed[0] || null;
         };
-        let selectedEffort = (selected.provider === state.provider && selected.id === state.model)
-          ? (state.effort || selected.savedEffort || 'auto')
-          : (selected.savedEffort || 'auto');
-        let selectedFast = selected.fastCapable === true && (
-          (selected.provider === state.provider && selected.id === state.model)
-            ? state.fast === true
-            : (selected.savedFast === true || selected.fastPreferred === true)
-        );
-        const effortItems = Array.isArray(selected.effortOptions) && selected.effortOptions.length > 0
-          ? selected.effortOptions
-          : [{ value: 'auto', label: 'auto', description: 'provider/model default' }];
+        const effortItemsFor = (model) => Array.isArray(model?.effortOptions) && model.effortOptions.length > 0
+          ? model.effortOptions
+          : [];
+        const modelEffortValues = (model) => effortItemsFor(model).map((effort) => effort.value).filter(Boolean);
+        const modelDefaultEffort = (model) => {
+          const values = modelEffortValues(model);
+          if (!values.length) return null;
+          const currentRoute = options.currentRoute || null;
+          if (currentRoute?.provider === model.provider && currentRoute?.model === model.id && currentRoute.effort && values.includes(currentRoute.effort)) return currentRoute.effort;
+          if (model.provider === state.provider && model.id === state.model && state.effort && values.includes(state.effort)) return state.effort;
+          if (model.savedEffort && values.includes(model.savedEffort)) return model.savedEffort;
+          return preferredEffort(values);
+        };
+        const selectedEfforts = new Map();
+        const modelKey = (model) => `${model?.provider || ''}\n${model?.id || ''}`;
+        const getSelectedEffort = (model) => {
+          if (!model) return null;
+          const key = modelKey(model);
+          if (selectedEfforts.has(key)) return selectedEfforts.get(key);
+          const effort = modelDefaultEffort(model);
+          selectedEfforts.set(key, effort);
+          return effort;
+        };
+        const setSelectedEffort = (model, effort) => {
+          if (!model) return;
+          selectedEfforts.set(modelKey(model), effort || null);
+        };
+        const selectedFast = new Map();
+        const modelDefaultFast = (model) => {
+          if (!model?.fastCapable) return false;
+          const currentRoute = options.currentRoute || null;
+          if (currentRoute?.provider === model.provider && currentRoute?.model === model.id && typeof currentRoute.fast === 'boolean') return currentRoute.fast;
+          if (model.provider === state.provider && model.id === state.model && typeof state.fast === 'boolean') return state.fast;
+          if (typeof model.savedFast === 'boolean') return model.savedFast;
+          return model.fastPreferred === true;
+        };
+        const getSelectedFast = (model) => {
+          if (!model) return false;
+          const key = modelKey(model);
+          if (selectedFast.has(key)) return selectedFast.get(key) === true;
+          const fast = modelDefaultFast(model);
+          selectedFast.set(key, fast);
+          return fast;
+        };
+        const toggleFast = (model) => {
+          if (!model?.fastCapable) return;
+          selectedFast.set(modelKey(model), !getSelectedFast(model));
+          renderProviderModels();
+        };
+        const providerEffortItems = () => {
+          const seen = new Set();
+          const out = [];
+          for (const effort of providerModels.flatMap((model) => effortItemsFor(model))) {
+            if (!effort?.value || seen.has(effort.value)) continue;
+            seen.add(effort.value);
+            out.push(effort);
+          }
+          return out;
+        };
         const effortLabel = (value) => {
-          const found = effortItems.find((effort) => effort.value === value);
-          return found?.label || value || 'auto';
+          const found = providerEffortItems().find((effort) => effort.value === value);
+          return effortDisplayLabel(found?.label || value || '');
         };
-        const cycleEffort = (direction = 1) => {
-          const values = effortItems.map((effort) => effort.value).filter(Boolean);
+        const effortGlyph = (value) => {
+          if (value === 'none') return '○';
+          if (value === 'low') return '◔';
+          if (value === 'medium') return '◑';
+          if (value === 'high') return '◕';
+          if (value === 'max') return '◆';
+          return '●';
+        };
+        const effortColor = (value) => {
+          if (value === 'none') return theme.inactive;
+          if (value === 'low') return theme.warning;
+          if (value === 'medium') return theme.claude;
+          if (value === 'high') return theme.error;
+          if (value === 'max') return theme.permission;
+          return theme.error;
+        };
+        const modelFooter = (model = null) => {
+          const items = model ? effortItemsFor(model) : providerEffortItems();
+          const values = items.map((effort) => effort.value).filter(Boolean);
+          const fastCapable = model?.fastCapable === true;
+          const fastOn = fastCapable && getSelectedFast(model);
+          const fastLine = fastCapable
+            ? { glyph: fastOn ? '●' : '○', color: fastOn ? theme.fastMode : theme.inactive, text: `${fastDisplayLabel(fastOn)} · Tab Toggle` }
+            : null;
+          if (!values.length) {
+            return fastLine ? [fastLine] : '';
+          }
+          let selectedEffort = getSelectedEffort(model);
+          if (!values.includes(selectedEffort)) {
+            selectedEffort = modelDefaultEffort(model);
+            setSelectedEffort(model, selectedEffort);
+          }
+          const effortLine = {
+            glyph: effortGlyph(selectedEffort),
+            color: effortColor(selectedEffort),
+            text: `${effortLabel(selectedEffort)} Effort ←/→ To Adjust`,
+          };
+          return fastLine ? [effortLine, fastLine] : [effortLine];
+        };
+        const coerceEffort = (model) => {
+          const values = modelEffortValues(model);
+          if (!values.length) return null;
+          const selectedEffort = getSelectedEffort(model);
+          return values.includes(selectedEffort) ? selectedEffort : modelDefaultEffort(model);
+        };
+        const cycleEffort = (model, direction = 1) => {
+          const values = modelEffortValues(model);
           if (values.length === 0) return;
-          const current = values.includes(selectedEffort) ? values.indexOf(selectedEffort) : 0;
-          selectedEffort = values[(current + direction + values.length) % values.length] || 'auto';
-          renderOptions();
+          const selectedEffort = getSelectedEffort(model);
+          const currentValue = values.includes(selectedEffort) ? selectedEffort : modelDefaultEffort(model);
+          const current = values.includes(currentValue) ? values.indexOf(currentValue) : 0;
+          setSelectedEffort(model, values[(current + direction + values.length) % values.length] || null);
+          renderProviderModels();
         };
-        const toggleFast = () => {
-          if (!selected.fastCapable) return;
-          selectedFast = !selectedFast;
-          renderOptions();
-        };
-        const applyModelOptions = () => {
-          setPicker(null);
-          void store.setRoute({
+        const applyModel = (item) => {
+          const selected = item?._model || models.find((m) => m.provider === item?._provider && m.id === item?._modelId);
+          if (!selected) return;
+          const effort = coerceEffort(selected);
+          const routeInput = {
             provider: selected.provider,
             model: selected.id,
-            effort: selectedEffort,
-            fast: selected.fastCapable ? selectedFast : false,
-          })
+            ...(effort ? { effort } : {}),
+            ...(selected.fastCapable ? { fast: getSelectedFast(selected) } : {}),
+          };
+          if (typeof options.onSelectRoute === 'function') {
+            if (typeof options.onImmediateSelect === 'function') {
+              options.onImmediateSelect(routeInput, selected, effort);
+            } else {
+              setPicker(null);
+            }
+            void Promise.resolve(options.onSelectRoute(routeInput, selected, effort))
+              .then(() => {
+                if (typeof options.onAfterSelect === 'function') options.onAfterSelect();
+              })
+              .catch((e) => store.pushNotice(`Couldn’t save model: ${e?.message || e}`, 'error'));
+            return;
+          }
+          setPicker(null);
+          void store.setRoute(routeInput)
             .then(ok => store.pushNotice(
               ok
-                ? `✓ model → ${selected.provider}/${selected.id} · effort ${selectedEffort} · fast ${selectedFast && selected.fastCapable ? 'on' : 'off'}`
-                : 'model switch already in progress',
+                ? `Model set to ${providerDisplayName(selected.provider)} / ${selected.display || selected.id}${effort ? ` · Effort ${effortDisplayLabel(effort)}` : ''}`
+                : 'Model switch is already running',
               ok ? 'info' : 'warn',
             ))
-            .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
+            .catch((e) => store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error'));
         };
-        const renderOptions = () => {
-          const fastDesc = selected.fastCapable
-            ? (selectedFast ? 'saved for this model' : 'default off')
-            : 'not supported by this provider';
-          const effortDesc = effortItems.map((effort) =>
-            effort.value === selectedEffort ? `[${effort.label || effort.value}]` : (effort.label || effort.value)
-          ).join(' / ');
+        const renderProviderModels = () => {
           setPicker({
-            title: `Model Settings · ${selected.display || selected.id}`,
-            help: '↑↓ select · ←/→ adjust · Enter apply · Esc back',
-            items: [
-              {
-                value: 'effort',
-                label: `Effort: ${effortLabel(selectedEffort)}`,
-                description: effortDesc,
-                _action: 'cycle-effort',
-              },
-              {
-                value: 'fast',
-                label: `Fast: ${selectedFast && selected.fastCapable ? 'on' : 'off'}`,
-                description: selected.fastCapable ? `${fastDesc} · ←/→ toggle` : fastDesc,
-                _action: 'toggle-fast',
-                disabled: !selected.fastCapable,
-              },
-            ],
-            onSelect: () => {
-              applyModelOptions();
-            },
+            title: providerDisplayName(provider),
+            description: options.modelDescription || 'Select a model. Adjust Effort with ←/→.',
+            footer: (item) => modelFooter(item?._model),
+            help: '↑/↓ Select · ←/→ Effort · Tab Fast · Enter Save · Esc Back',
+            indexMode: 'always',
+            items: buildProviderModelItems(models, provider),
+            onSelect: (_value, item) => applyModel(item),
             onLeft: (item) => {
-              if (item?._action === 'cycle-effort') cycleEffort(-1);
-              else if (item?._action === 'toggle-fast') toggleFast();
+              if (item?._model) cycleEffort(item._model, -1);
             },
             onRight: (item) => {
-              if (item?._action === 'cycle-effort') cycleEffort(1);
-              else if (item?._action === 'toggle-fast') toggleFast();
+              if (item?._model) cycleEffort(item._model, 1);
+            },
+            onTab: (item) => {
+              if (item?._model) toggleFast(item._model);
             },
             onCancel: () => {
               renderModelPicker();
             },
           });
         };
-        renderOptions();
+        renderProviderModels();
       };
+      const providerItems = buildModelProviderItems(models);
       setPicker({
-        title: `Model (current: ${state.model})`,
-        help: '↑↓ select · ←/→ collapse/expand provider · Enter open · Esc exit/back',
-        items: buildModelPickerItems(models, expandedProvider),
+        title: options.title || 'Model',
+        description: options.providerDescription || 'Choose a provider.',
+        help: returnTo ? '↑/↓ Select · Enter Open · Esc Agents' : '↑/↓ Select · Enter Open · Esc Back',
+        indexMode: 'always',
+        items: providerItems,
         onSelect: (_value, item) => {
-          if (item?._action === 'toggle-provider') {
-            toggleProvider(item._provider);
-            renderModelPicker();
-            return;
-          }
-          setPicker(null);
-          openModelOptionsPicker(item);
+          if (item?._provider) openProviderModelsPicker(item._provider);
         },
-        onLeft: (item) => {
-          if (item?._provider && expandedProvider === item._provider) {
-            toggleProvider(item._provider, false);
-            renderModelPicker();
-          }
-        },
-        onRight: (item) => {
-          if (item?._action === 'toggle-provider') {
-            toggleProvider(item?._provider, true);
-            renderModelPicker();
-          }
-        },
-        onCancel: () => {
-          setPicker(null);
-        },
+        onCancel: cancelModelPicker,
       });
     };
 
     renderModelPicker();
+  };
+
+  const openAgentsPicker = (options = {}) => {
+    let agents = [];
+    try {
+      agents = store.listAgents?.() || [];
+    } catch (e) {
+      store.pushNotice(`could not list agents: ${e?.message || e}`, 'error');
+      return;
+    }
+    const routeOverrides = options.routeOverrides && typeof options.routeOverrides === 'object' ? options.routeOverrides : {};
+    const initialAgentId = clean(options.initialAgentId || '');
+    const items = agents.map((agent) => ({
+      value: agent.id,
+      label: agent.label,
+      metaParts: agentModelParts(routeOverrides[agent.id] || agent.route),
+      description: agent.description || agent.definition?.description || '',
+      _agent: agent,
+    }));
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setContextPanel(null);
+    closeUsagePanel();
+    setPicker({
+      title: 'Agents',
+      description: 'Workflow agents available to bridge.',
+      help: '↑/↓ Select · Enter Set Model · Esc Back',
+      indexMode: 'always',
+      labelWidth: 18,
+      metaWidth: 33,
+      initialIndex: Math.max(0, items.findIndex((item) => item.value === initialAgentId)),
+      items,
+      onSelect: (_value, item) => {
+        const agent = item?._agent;
+        if (!agent) return;
+        void openModelPicker({
+          title: `${agent.label} Model`,
+          providerDescription: 'Choose a provider for this agent.',
+          currentRoute: agent.route || null,
+          returnTo: () => openAgentsPicker(),
+          onImmediateSelect: (routeInput) => {
+            openAgentsPicker({ routeOverrides: { [agent.id]: routeInput }, initialAgentId: agent.id });
+          },
+          onSelectRoute: async (routeInput) => {
+            const result = await store.setAgentRoute?.(agent.id, routeInput);
+            if (!result) {
+              store.pushNotice('Agent model save is already running.', 'warn');
+              return;
+            }
+            store.pushNotice(`${agent.label} model set to ${agentModelProfile(result)}`, 'info');
+          },
+        });
+      },
+      onCancel: () => {
+        setPicker(null);
+      },
+    });
+  };
+
+  const openWorkflowPicker = () => {
+    let workflows = [];
+    try {
+      workflows = store.listWorkflows?.() || [];
+    } catch (e) {
+      store.pushNotice(`could not list workflows: ${e?.message || e}`, 'error');
+      return;
+    }
+    if (!workflows.length) {
+      store.pushNotice('no workflows available', 'warn');
+      return;
+    }
+    const items = workflows.map((workflow) => ({
+      value: workflow.id,
+      label: workflow.name,
+      description: workflow.active
+        ? `Current · ${workflow.description || `${workflow.source || 'workflow'} workflow`}`
+        : workflow.description || `${workflow.source || 'workflow'} workflow`,
+      _workflow: workflow,
+    }));
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setContextPanel(null);
+    closeUsagePanel();
+    setPicker({
+      title: 'Workflow',
+      description: 'Select the active workflow for the next turn.',
+      help: '↑/↓ select · Enter choose · Esc back',
+      labelWidth: 18,
+      items,
+      onSelect: (_value, item) => {
+        const workflow = item?._workflow;
+        if (!workflow) return;
+        setPicker(null);
+        void store.setWorkflow?.(workflow.id)
+          .then((result) => {
+            if (!result) {
+              store.pushNotice('Workflow switch is already running.', 'warn');
+              return;
+            }
+            store.pushNotice(`Workflow set to ${result.name}`, 'info');
+          })
+          .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'));
+      },
+      onCancel: () => {
+        setPicker(null);
+      },
+    });
   };
 
   const openEffortPicker = () => {
@@ -1364,18 +1798,22 @@ export function App({ store, initialStatusLine = '' }) {
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
-    const current = state.effort || 'auto';
     const items = Array.isArray(state.effortOptions) && state.effortOptions.length > 0
       ? state.effortOptions
-      : [{ value: 'auto', label: 'auto', description: 'provider/model default' }];
+      : [];
+    if (!items.length) {
+      store.pushNotice('Current model has no effort levels.', 'warn');
+      return;
+    }
+    const current = state.effort || items[0]?.value || '';
     setPicker({
       title: `Effort (current: ${current})`,
       items,
       onSelect: (value) => {
         setPicker(null);
         void store.setEffort(value)
-          .then(result => store.pushNotice(result ? `✓ effort → ${result}` : 'effort switch already in progress', result ? 'info' : 'warn'))
-          .catch((e) => store.pushNotice(`effort switch failed: ${e?.message || e}`, 'error'));
+          .then(result => store.pushNotice(result ? `Effort set to ${result}` : 'Effort switch is already running.', result ? 'info' : 'warn'))
+          .catch((e) => store.pushNotice(`Couldn’t switch effort: ${e?.message || e}`, 'error'));
       },
       onCancel: () => {
         setPicker(null);
@@ -1395,28 +1833,28 @@ export function App({ store, initialStatusLine = '' }) {
         {
           value: 'sync',
           label: mode === 'sync' ? '● Sync mode' : '○ Sync mode',
-          description: 'worker calls wait for completion',
+          description: 'agent calls wait for completion',
           _action: 'mode',
           _mode: 'sync',
         },
         {
           value: 'async',
           label: mode === 'async' ? '● Async mode' : '○ Async mode',
-          description: 'worker calls return job handles',
+          description: 'agent calls return job handles',
           _action: 'mode',
           _mode: 'async',
         },
         {
           value: 'list',
-          label: 'List workers/jobs',
-          description: 'show active bridge sessions and async jobs',
+          label: 'List agents/tasks',
+          description: 'show active agents and async tasks',
           _action: 'control',
           _args: { type: 'list' },
         },
         {
           value: 'cleanup',
-          label: 'Cleanup finished jobs',
-          description: 'remove completed bridge job records',
+          label: 'Cleanup finished tasks',
+          description: 'remove completed bridge task records',
           _action: 'control',
           _args: { type: 'cleanup' },
         },
@@ -1425,7 +1863,7 @@ export function App({ store, initialStatusLine = '' }) {
         setPicker(null);
         if (item._action === 'mode') {
           const next = store.setBridgeMode?.(item._mode);
-          store.pushNotice(`✓ bridge mode → ${next || item._mode}`, 'info');
+          store.pushNotice(`Bridge mode set to ${next || item._mode}`, 'info');
           return;
         }
         if (item._action === 'control') {
@@ -1543,6 +1981,27 @@ export function App({ store, initialStatusLine = '' }) {
     const plugins = store.pluginsStatus?.() || { count: 0 };
     const skills = store.skillsStatus?.() || { count: 0 };
     const channelWorker = store.getChannelWorkerStatus?.();
+    const bridgeRows = [
+      ...(Array.isArray(state.bridgeWorkers) ? state.bridgeWorkers : []),
+      ...(Array.isArray(state.bridgeJobs) ? state.bridgeJobs : []),
+    ];
+    const bridgeActive = bridgeRows
+      .map((row) => ({
+        tag: clean(row?.tag || row?.role || row?.type || row?.task_id || ''),
+        status: clean(row?.status || row?.stage || ''),
+      }))
+      .filter((row) => row.tag && row.status && row.status !== 'idle');
+    const bridgeIdle = bridgeRows
+      .map((row) => ({
+        tag: clean(row?.tag || row?.role || row?.type || row?.task_id || ''),
+        status: clean(row?.status || row?.stage || ''),
+      }))
+      .filter((row) => row.tag && row.status === 'idle');
+    const bridgeAgentText = bridgeActive.length
+      ? `${bridgeActive.length} active (${summarizeTags(bridgeActive.map((row) => row.tag))})`
+      : bridgeIdle.length
+        ? `${bridgeIdle.length} idle (${summarizeTags(bridgeIdle.map((row) => row.tag))})`
+        : 'no active agents';
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
@@ -1554,12 +2013,12 @@ export function App({ store, initialStatusLine = '' }) {
         {
           value: 'route',
           label: 'Route',
-          description: `${state.provider}/${state.model} · ${state.effort || 'auto'}${state.fast ? ' · fast' : ''}`,
+          description: `${state.provider}/${state.model} · ${state.effort ? effortDisplayLabel(state.effort) : 'Auto'}${state.fast ? ' · Fast' : ''}`,
         },
         {
-          value: 'session',
-          label: 'Session',
-          description: state.sessionId || '(none)',
+          value: 'chat',
+          label: 'Chat',
+          description: state.sessionId ? 'active' : '(none)',
         },
         {
           value: 'cwd',
@@ -1569,7 +2028,7 @@ export function App({ store, initialStatusLine = '' }) {
         {
           value: 'bridge',
           label: 'Bridge',
-          description: `default ${state.bridgeMode || 'async'}`,
+          description: `default ${state.bridgeMode || 'async'} · ${bridgeAgentText}`,
         },
         {
           value: 'tools',
@@ -1604,7 +2063,7 @@ export function App({ store, initialStatusLine = '' }) {
         {
           value: 'channels',
           label: 'Channels',
-          description: channelWorker?.running ? `worker running · pid ${channelWorker.pid}` : 'worker stopped',
+          description: channelWorker?.running ? `runtime running · pid ${channelWorker.pid}` : 'runtime stopped',
         },
       ],
     });
@@ -1612,26 +2071,47 @@ export function App({ store, initialStatusLine = '' }) {
 
   const openUsagePanel = (arg = '') => {
     const refresh = /(?:^|\s)(?:refresh|--refresh|-r|true)(?:\s|$)/i.test(String(arg || ''));
+    const requestId = usageRequestRef.current + 1;
+    usageRequestRef.current = requestId;
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
     setPicker(null);
     setContextPanel(null);
-    setUsagePanel({ loading: true, refresh, rows: [], total: null });
-    void store.getUsageDashboard?.({ refresh })
-      .then((dashboard) => {
-        if (!dashboard) {
-          setUsagePanel(null);
-          store.pushNotice('usage dashboard unavailable', 'warn');
-          return;
-        }
-        setUsagePanel(dashboard);
+    setUsagePanel({
+      title: 'Provider Quotas',
+      subtitle: 'Statusline-style provider quota windows.',
+      checking: true,
+      refresh,
+      rows: [],
+      total: null,
+    });
+    setTimeout(() => {
+      if (usageRequestRef.current !== requestId) return;
+      void store.getUsageDashboard?.({
+        refresh,
+        onUpdate: (dashboard) => {
+          if (usageRequestRef.current !== requestId) return;
+          if (!dashboard) return;
+          setUsagePanel(dashboard);
+        },
       })
-      .catch((e) => {
-        setUsagePanel(null);
-        store.pushNotice(`usage failed: ${e?.message || e}`, 'error');
-      });
+        .then((dashboard) => {
+          if (usageRequestRef.current !== requestId) return;
+          if (!dashboard) {
+            closeUsagePanel();
+            store.pushNotice('usage dashboard unavailable', 'warn');
+            return;
+          }
+          setUsagePanel(dashboard);
+        })
+        .catch((e) => {
+          if (usageRequestRef.current !== requestId) return;
+          closeUsagePanel();
+          store.pushNotice(`usage failed: ${e?.message || e}`, 'error');
+        });
+    }, 0);
   };
 
   const openContextPicker = () => {
@@ -1755,6 +2235,7 @@ export function App({ store, initialStatusLine = '' }) {
 
   const openSettingsPicker = () => {
     const tools = store.toolsStatus?.() || { activeCount: 0, count: 0 };
+    const autoClear = store.getAutoClear?.() || {};
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
@@ -1770,15 +2251,21 @@ export function App({ store, initialStatusLine = '' }) {
         },
         {
           value: 'effort',
-          label: 'Reasoning effort',
-          description: state.effort || 'auto',
+          label: 'Reasoning Effort',
+          description: state.effort ? effortDisplayLabel(state.effort) : 'Auto',
           _action: 'effort',
         },
         {
           value: 'fast',
-          label: 'Fast mode',
-          description: state.fastCapable ? (state.fast ? 'on · saved for this model' : 'off · default') : 'not supported',
+          label: 'Fast Mode',
+          description: state.fastCapable ? (state.fast ? 'On · Saved For This Model' : 'Off · Default') : 'Not Supported',
           _action: 'fast',
+        },
+        {
+          value: 'autoclear',
+          label: 'Auto-clear',
+          description: `${autoClear.enabled ? 'on' : 'off'} · idle ${formatDuration(autoClear.idleMs || 60 * 60 * 1000)}`,
+          _action: 'autoclear',
         },
         {
           value: 'providers',
@@ -1816,6 +2303,7 @@ export function App({ store, initialStatusLine = '' }) {
         if (item._action === 'model') openModelPicker();
         else if (item._action === 'effort') openEffortPicker();
         else if (item._action === 'fast') runSlashCommand('fast');
+        else if (item._action === 'autoclear') openAutoClearPicker();
         else if (item._action === 'providers') void openProviderSetupPicker();
         else if (item._action === 'cwd') {
           setSettingsPrompt({
@@ -1880,7 +2368,7 @@ export function App({ store, initialStatusLine = '' }) {
         {
           value: 'channels',
           label: 'Channels',
-          description: channelWorker?.running ? `worker running · pid ${channelWorker.pid}` : 'worker stopped',
+          description: channelWorker?.running ? `runtime running · pid ${channelWorker.pid}` : 'runtime stopped',
           _action: 'channels',
         },
         {
@@ -1918,8 +2406,31 @@ export function App({ store, initialStatusLine = '' }) {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     const onContinue = typeof options.onContinue === 'function' ? options.onContinue : returnTo;
     const onCancel = typeof options.onCancel === 'function' ? options.onCancel : null;
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setPicker({
+      title: options.title || 'Providers',
+      description: options.description || 'Choose a provider to configure.',
+      labelWidth: 18,
+      metaWidth: 10,
+      items: [{
+        value: 'checking',
+        label: 'Checking Providers',
+        meta: '',
+        description: 'please wait',
+        _type: 'loading',
+      }],
+      onSelect: () => {},
+      onCancel: () => {
+        setPicker(null);
+        if (onCancel) onCancel();
+      },
+    });
     let setup;
     try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
       setup = await store.getProviderSetup();
     } catch (e) {
       store.pushNotice(`providers failed: ${e?.message || e}`, 'error');
@@ -1935,31 +2446,34 @@ export function App({ store, initialStatusLine = '' }) {
         _type: 'continue',
       });
     }
+    const providerEnabledLabel = (p) => (p.enabled || p.authenticated ? 'Enabled' : 'Disabled');
+    const providerItemRank = (item) => providerDisplayRank(item._providerId || item.value);
+    const providerItems = [];
     for (const p of setup.api || []) {
-      items.push({
+      providerItems.push({
         value: `api:${p.id}`,
         label: p.name,
-        description: `API Key · ${p.status} · ${p.detail}`,
+        meta: providerEnabledLabel(p),
         _type: 'api-key',
         _providerId: p.id,
         _providerName: p.name,
       });
     }
     for (const p of setup.oauth || []) {
-      items.push({
+      providerItems.push({
         value: `oauth:${p.id}`,
         label: p.name,
-        description: `OAuth · ${p.status} · ${p.detail}`,
+        meta: providerEnabledLabel(p),
         _type: 'oauth',
         _providerId: p.id,
         _providerName: p.name,
       });
     }
     for (const p of setup.local || []) {
-      items.push({
+      providerItems.push({
         value: `local:${p.id}`,
         label: p.name,
-        description: `Local · ${p.status} · ${p.baseURL}`,
+        meta: providerEnabledLabel(p),
         _type: 'local',
         _providerId: p.id,
         _providerName: p.name,
@@ -1968,13 +2482,18 @@ export function App({ store, initialStatusLine = '' }) {
         _defaultURL: p.defaultURL,
       });
     }
+    providerItems.sort((a, b) => {
+      const rank = providerItemRank(a) - providerItemRank(b);
+      if (rank !== 0) return rank;
+      return String(a.label || '').localeCompare(String(b.label || ''), 'en', { sensitivity: 'base' });
+    });
+    items.push(...providerItems);
 
-    setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
-    setSettingsPrompt(null);
     setPicker({
       title: options.title || 'Providers',
+      description: options.description || 'Choose a provider to configure.',
+      labelWidth: 18,
+      metaWidth: 10,
       items,
       onSelect: (_value, item) => {
         setPicker(null);
@@ -1983,22 +2502,39 @@ export function App({ store, initialStatusLine = '' }) {
           return;
         }
         if (item._type === 'api-key') {
+          const apiActions = [
+            {
+              value: 'set-key',
+              label: 'Set API key',
+              description: 'save or replace key in the OS keychain',
+              _action: 'set-key',
+            },
+          ];
+          if (item._providerId === 'openai') {
+            apiActions.push({
+              value: 'set-usage-auth',
+              label: 'Set Usage Auth',
+              description: 'save dashboard/session key for credit lookup',
+              _action: 'set-usage-auth',
+            });
+          }
+          if (item._providerId === 'opencode-go') {
+            apiActions.push({
+              value: 'set-usage-auth',
+              label: 'Set Usage Auth',
+              description: 'save web auth cookie for real usage lookup',
+              _action: 'set-usage-auth',
+            });
+          }
+          apiActions.push({
+            value: 'forget-key',
+            label: 'Forget API key',
+            description: 'remove stored key for this provider',
+            _action: 'forget-key',
+          });
           setPicker({
             title: `Provider · ${item._providerName}`,
-            items: [
-              {
-                value: 'set-key',
-                label: 'Set API key',
-                description: 'save or replace key in the OS keychain',
-                _action: 'set-key',
-              },
-              {
-                value: 'forget-key',
-                label: 'Forget API key',
-                description: 'remove stored key for this provider',
-                _action: 'forget-key',
-              },
-            ],
+            items: apiActions,
             onSelect: (_detailValue, detail) => {
               setPicker(null);
               if (detail._action === 'set-key') {
@@ -2006,6 +2542,16 @@ export function App({ store, initialStatusLine = '' }) {
                   kind: 'api-key',
                   providerId: item._providerId,
                   label: item._providerName,
+                  afterSave: returnTo,
+                });
+                return;
+              }
+              if (detail._action === 'set-usage-auth') {
+                setProviderPrompt({
+                  kind: item._providerId === 'openai' ? 'openai-usage-session' : 'opencode-go-cookie',
+                  providerId: item._providerId,
+                  label: item._providerName,
+                  workspaceId: null,
                   afterSave: returnTo,
                 });
                 return;
@@ -2027,6 +2573,35 @@ export function App({ store, initialStatusLine = '' }) {
           return;
         }
         if (item._type === 'oauth') {
+          if (item._providerId === 'grok-oauth' && typeof store.beginOAuthProviderLogin === 'function') {
+            let handled = false;
+            const finish = (ok, message = '') => {
+              if (handled) return;
+              handled = true;
+              setProviderPrompt(null);
+              if (message) store.pushNotice(message, ok ? 'info' : 'error');
+              void openProviderSetupPicker(options);
+            };
+            void store.beginOAuthProviderLogin(item._providerId)
+              .then((login) => {
+                setProviderPrompt({
+                  kind: 'oauth-code',
+                  providerId: item._providerId,
+                  label: 'Grok OAuth code',
+                  hint: 'Paste the code shown on the xAI page.',
+                  login,
+                  afterSave: returnTo,
+                });
+                store.pushNotice('paste the xAI code into the prompt to finish Grok login', 'info');
+                login.waitForCallback
+                  ?.then((result) => {
+                    if (result) finish(true, 'Grok OAuth login complete');
+                  })
+                  .catch((e) => finish(false, `oauth login failed: ${e?.message || e}`));
+              })
+              .catch((e) => store.pushNotice(`oauth login failed: ${e?.message || e}`, 'error'));
+            return;
+          }
           void store.loginOAuthProvider(item._providerId)
             .then(() => openProviderSetupPicker(options))
             .catch((e) => store.pushNotice(`oauth login failed: ${e?.message || e}`, 'error'));
@@ -2136,6 +2711,7 @@ export function App({ store, initialStatusLine = '' }) {
     if (!Array.isArray(onboardingRef.current.providerModels) || onboardingRef.current.providerModels.length === 0) {
       try {
         onboardingRef.current.providerModels = await store.listProviderModels();
+        providerModelsCacheRef.current = { models: onboardingRef.current.providerModels, at: Date.now() };
       } catch (e) {
         onboardingRef.current.providerModels = [];
         store.pushNotice(`could not list models: ${e?.message || e}`, 'warn');
@@ -2161,9 +2737,8 @@ export function App({ store, initialStatusLine = '' }) {
     };
     const routes = onboardingRef.current.workflowRoutes || {};
     const slots = [
-      ['bridge', 'Bridge', 'worker and agent dispatch route'],
+      ['bridge', 'Bridge', 'agent dispatch route'],
       ['explorer', 'Explorer', 'code graph, file reading, repo exploration'],
-      ['search', 'Search', 'web/search/retrieval helpers'],
       ['memory', 'Memory', 'memory cycles and curation'],
     ];
     setProviderPrompt(null);
@@ -2213,8 +2788,8 @@ export function App({ store, initialStatusLine = '' }) {
             defaultRoute,
             workflowRoutes: onboardingRef.current.workflowRoutes || {},
           })
-            .then(() => store.pushNotice('✓ first-run setup complete', 'info'))
-            .catch((e) => store.pushNotice(`setup save failed: ${e?.message || e}`, 'error'));
+            .then(() => store.pushNotice('First-run setup complete.', 'info'))
+            .catch((e) => store.pushNotice(`Couldn’t save setup: ${e?.message || e}`, 'error'));
           return;
         }
         if (item._action === 'back') {
@@ -2295,7 +2870,8 @@ export function App({ store, initialStatusLine = '' }) {
           }
         },
         onCancel: () => {
-          setPicker(null);
+          if (typeof options.onCancel === 'function') options.onCancel();
+          else setPicker(null);
         },
       });
       return;
@@ -2349,7 +2925,8 @@ export function App({ store, initialStatusLine = '' }) {
           }
         },
         onCancel: () => {
-          setPicker(null);
+          if (typeof options.onCancel === 'function') options.onCancel();
+          else setPicker(null);
         },
       });
       return;
@@ -2359,7 +2936,7 @@ export function App({ store, initialStatusLine = '' }) {
     const rows = [
       {
         value: 'worker-status',
-        label: 'Channel worker',
+        label: 'Channel runtime',
         description: worker?.running ? `running · pid ${worker.pid}` : 'stopped',
       },
       {
@@ -3101,31 +3678,85 @@ export function App({ store, initialStatusLine = '' }) {
     try {
       sessions = store.listSessions();
     } catch (e) {
-      store.pushNotice(`could not list sessions: ${e?.message || e}`, 'error');
+      store.pushNotice(`could not list saved chats: ${e?.message || e}`, 'error');
       return;
     }
     if (!sessions || sessions.length === 0) {
-      store.pushNotice('no saved sessions', 'warn');
+      store.pushNotice('no saved chats', 'warn');
       return;
     }
     const items = sessions.map((s) => {
       const preview = String(s.preview || '').replace(/\n/g, ' ').trim();
-      const count = `${s.messageCount || 0} msgs`;
-      const suffix = [count, shortSessionId(s.id)].filter(Boolean).join(' · ');
+      const count = formatSessionMessageCount(s.messageCount);
       return {
         value: s.id,
-        label: `${formatSessionUpdatedAt(s.updatedAt)} · ${compactSessionCwd(s.cwd)}`,
-        description: `${preview || '(no prompt)'} · ${suffix}`,
+        label: `${formatSessionUpdatedAt(s.updatedAt)}  ${count}`,
+        description: preview || '(no message)',
       };
     });
     setPicker({
-      title: 'Resume session',
+      title: 'Resume',
       items,
+      labelWidth: 21,
       onSelect: (value) => {
         setPicker(null);
         void store.resume(value)
-          .then(ok => store.pushNotice(ok ? `✓ resumed ${value}` : 'resume failed', ok ? 'info' : 'warn'))
-          .catch((e) => store.pushNotice(`resume failed: ${e?.message || e}`, 'error'));
+          .then(ok => store.pushNotice(ok ? `Resumed ${value}` : 'Couldn’t resume chat.', ok ? 'info' : 'warn'))
+          .catch((e) => store.pushNotice(`Couldn’t resume chat: ${e?.message || e}`, 'error'));
+      },
+      onCancel: () => {
+        setPicker(null);
+      },
+    });
+  };
+
+  const openAutoClearPicker = () => {
+    let current = null;
+    try {
+      current = store.getAutoClear?.() || null;
+    } catch {
+      current = null;
+    }
+    const idleLabel = current?.idleMs ? formatDuration(current.idleMs) : '1h';
+    const applyAutoClear = (enabled) => {
+      try {
+        const next = store.setAutoClear?.({ enabled });
+        if (!next) {
+          store.pushNotice('autoclear unavailable', 'warn');
+          return;
+        }
+        store.pushNotice(`autoclear ${next.enabled ? 'on' : 'off'} · idle ${formatDuration(next.idleMs)}`, 'info');
+      } catch (e) {
+        store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error');
+      }
+    };
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setContextPanel(null);
+    closeUsagePanel();
+    setPicker({
+      title: 'Auto-clear',
+      description: `Reduce cache-miss cost amplification by clearing stale context after ${idleLabel} idle.`,
+      labelWidth: 10,
+      items: [
+        {
+          value: 'on',
+          label: 'On',
+          description: current?.enabled ? 'Enabled' : 'Enable idle auto-clear',
+          _enabled: true,
+        },
+        {
+          value: 'off',
+          label: 'Off',
+          description: current?.enabled ? 'Disable idle auto-clear' : 'Disabled',
+          _enabled: false,
+        },
+      ],
+      onSelect: (_value, item) => {
+        setPicker(null);
+        applyAutoClear(item?._enabled === true);
       },
       onCancel: () => {
         setPicker(null);
@@ -3134,8 +3765,9 @@ export function App({ store, initialStatusLine = '' }) {
   };
 
   const runSlashCommand = (cmd, arg = '') => {
+    cmd = normalizeSlashCommandName(cmd);
     if (cmd !== 'context' && cmd !== 'status') setContextPanel(null);
-    if (cmd !== 'usage') setUsagePanel(null);
+    if (cmd !== 'usage') closeUsagePanel();
     switch (cmd) {
       case 'clear':
         if (state.busy) {
@@ -3154,8 +3786,28 @@ export function App({ store, initialStatusLine = '' }) {
           return true;
         }
         void store.setModel(arg)
-          .then(ok => store.pushNotice(ok ? `✓ model → ${arg}` : 'model switch already in progress', ok ? 'info' : 'warn'))
-          .catch((e) => store.pushNotice(`model switch failed: ${e?.message || e}`, 'error'));
+          .then(ok => store.pushNotice(ok ? `Model set to ${arg}` : 'Model switch is already running.', ok ? 'info' : 'warn'))
+          .catch((e) => store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error'));
+        return true;
+      case 'agents':
+        if (state.busy) {
+          store.pushNotice('wait for the current turn to finish before /agents', 'warn');
+          return false;
+        }
+        openAgentsPicker();
+        return true;
+      case 'workflow':
+        if (state.busy) {
+          store.pushNotice('wait for the current turn to finish before /workflow', 'warn');
+          return false;
+        }
+        if (!arg) {
+          openWorkflowPicker();
+          return true;
+        }
+        void store.setWorkflow?.(arg.trim())
+          .then((result) => store.pushNotice(result ? `Workflow set to ${result.name}` : 'Workflow switch is already running.', result ? 'info' : 'warn'))
+          .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'));
         return true;
       case 'effort':
         if (state.busy) {
@@ -3167,8 +3819,8 @@ export function App({ store, initialStatusLine = '' }) {
           return true;
         }
         void store.setEffort(arg)
-          .then(result => store.pushNotice(result ? `✓ effort → ${result}` : 'effort switch already in progress', result ? 'info' : 'warn'))
-          .catch((e) => store.pushNotice(`effort switch failed: ${e?.message || e}`, 'error'));
+          .then(result => store.pushNotice(result ? `Effort set to ${result}` : 'Effort switch is already running.', result ? 'info' : 'warn'))
+          .catch((e) => store.pushNotice(`Couldn’t switch effort: ${e?.message || e}`, 'error'));
         return true;
       case 'fast': {
         if (state.busy) {
@@ -3191,12 +3843,12 @@ export function App({ store, initialStatusLine = '' }) {
         void Promise.resolve(action)
           .then((enabled) => {
             if (enabled === null || enabled === undefined) {
-              store.pushNotice('fast switch already in progress', 'warn');
+              store.pushNotice('Fast mode switch is already running.', 'warn');
               return;
             }
-            store.pushNotice(`✓ fast mode ${enabled ? 'on' : 'off'} for ${state.provider}/${state.model}`, 'info');
+            store.pushNotice(`Fast mode ${enabled ? 'on' : 'off'} for ${state.provider}/${state.model}`, 'info');
           })
-          .catch((e) => store.pushNotice(`fast failed: ${e?.message || e}`, 'error'));
+          .catch((e) => store.pushNotice(`Couldn’t update fast mode: ${e?.message || e}`, 'error'));
         return true;
       }
       case 'cwd': {
@@ -3236,7 +3888,7 @@ export function App({ store, initialStatusLine = '' }) {
           return true;
         }
         const next = store.setBridgeMode?.(mode);
-        store.pushNotice(`✓ bridge mode → ${next || mode}`, 'info');
+        store.pushNotice(`Bridge mode set to ${next || mode}`, 'info');
         return true;
       }
       case 'mcp':
@@ -3301,9 +3953,13 @@ export function App({ store, initialStatusLine = '' }) {
       }
       case 'autoclear': {
         const value = arg.trim().toLowerCase();
+        if (!value) {
+          openAutoClearPicker();
+          return true;
+        }
         try {
           let next;
-          if (!value || value === 'status') {
+          if (value === 'status') {
             next = store.getAutoClear?.();
           } else if (value === 'on' || value === 'enable' || value === 'enabled') {
             next = store.setAutoClear?.({ enabled: true });
@@ -3345,20 +4001,11 @@ export function App({ store, initialStatusLine = '' }) {
               return;
             }
             store.pushNotice(
-              `✓ compacted context: ${r.beforeMessages}→${r.afterMessages} messages, ${r.beforeTokens}→${r.afterTokens} est tokens`,
+              `Compacted context: ${r.beforeMessages}→${r.afterMessages} messages, ${r.beforeTokens}→${r.afterTokens} est tokens`,
               'info',
             );
           })
           .catch((e) => store.pushNotice(`compact failed: ${e?.message || e}`, 'error'));
-        return true;
-      case 'new':
-        if (state.busy) {
-          store.pushNotice('wait for the current turn to finish before /new', 'warn');
-          return false;
-        }
-        void store.newSession()
-          .then(() => store.pushNotice('✓ new session', 'info'))
-          .catch((e) => store.pushNotice(`new session failed: ${e?.message || e}`, 'error'));
         return true;
       case 'resume':
         if (state.busy) {
@@ -3367,8 +4014,8 @@ export function App({ store, initialStatusLine = '' }) {
         }
         if (arg) {
           void store.resume(arg)
-            .then(ok => store.pushNotice(ok ? `✓ resumed ${arg}` : 'resume failed', ok ? 'info' : 'warn'))
-            .catch((e) => store.pushNotice(`resume failed: ${e?.message || e}`, 'error'));
+            .then(ok => store.pushNotice(ok ? `Resumed ${arg}` : 'Couldn’t resume chat.', ok ? 'info' : 'warn'))
+            .catch((e) => store.pushNotice(`Couldn’t resume chat: ${e?.message || e}`, 'error'));
         } else {
           openResumePicker();
         }
@@ -3386,7 +4033,6 @@ export function App({ store, initialStatusLine = '' }) {
       case 'config':
         openSettingsPicker();
         return true;
-      case 'exit':
       case 'quit':
         requestExit();
         return true;
@@ -3421,6 +4067,43 @@ export function App({ store, initialStatusLine = '' }) {
           return false;
         }
       }
+      if (providerPrompt.kind === 'opencode-go-cookie') {
+        if (!commandText) {
+          store.pushNotice('OpenCode auth cookie is required for usage lookup', 'warn');
+          return false;
+        }
+        try {
+          store.saveOpenCodeGoUsageAuth({
+            workspaceId: providerPrompt.workspaceId,
+            authCookie: commandText,
+          });
+          const afterSave = providerPrompt.afterSave;
+          setProviderPrompt(null);
+          if (afterSave) afterSave();
+          else void openProviderSetupPicker();
+          return true;
+        } catch (e) {
+          store.pushNotice(`OpenCode Go usage auth save failed: ${e?.message || e}`, 'error');
+          return false;
+        }
+      }
+      if (providerPrompt.kind === 'openai-usage-session') {
+        if (!commandText) {
+          store.pushNotice('OpenAI usage session key is required for credit lookup', 'warn');
+          return false;
+        }
+        try {
+          store.saveOpenAIUsageSessionKey(commandText);
+          const afterSave = providerPrompt.afterSave;
+          setProviderPrompt(null);
+          if (afterSave) afterSave();
+          else void openProviderSetupPicker();
+          return true;
+        } catch (e) {
+          store.pushNotice(`OpenAI usage auth save failed: ${e?.message || e}`, 'error');
+          return false;
+        }
+      }
       if (providerPrompt.kind === 'local-url') {
         try {
           store.setLocalProvider(providerPrompt.providerId, {
@@ -3436,6 +4119,22 @@ export function App({ store, initialStatusLine = '' }) {
           store.pushNotice(`local provider update failed: ${e?.message || e}`, 'error');
           return false;
         }
+      }
+      if (providerPrompt.kind === 'oauth-code') {
+        if (!commandText) {
+          store.pushNotice('OAuth code is required', 'warn');
+          return false;
+        }
+        void providerPrompt.login?.completeCode(commandText)
+          .then(() => {
+            const afterSave = providerPrompt.afterSave;
+            setProviderPrompt(null);
+            store.pushNotice('Grok OAuth login complete', 'info');
+            if (afterSave) afterSave();
+            else void openProviderSetupPicker();
+          })
+          .catch((e) => store.pushNotice(`oauth code failed: ${e?.message || e}`, 'error'));
+        return true;
       }
     }
     if (channelPrompt) {
@@ -3594,7 +4293,9 @@ export function App({ store, initialStatusLine = '' }) {
   const activeSlashQuery = providerPrompt || channelPrompt || hookPrompt || settingsPrompt || contextPanel || usagePanel ? null : slashQuery(promptDraft);
   const slashCommands = activeSlashQuery === null || picker || contextPanel || usagePanel || exiting || state.commandBusy
     ? []
-    : SLASH_COMMANDS.filter((command) => slashCommandMatches(command, activeSlashQuery));
+    : SLASH_COMMANDS
+      .filter((command) => slashCommandMatches(command, activeSlashQuery))
+      .sort(compareSlashCommands);
   const slashPaletteOpen = activeSlashQuery !== null
     && slashDismissedFor !== promptDraft
     && slashCommands.length > 0;
@@ -3610,16 +4311,28 @@ export function App({ store, initialStatusLine = '' }) {
     // own state, so App need not re-render — and relayout the full fullscreen
     // frame — on every keystroke (input lag fix). Entering slash mode and
     // leaving it both still sync because either prev or next is a slash token.
+    // Clearing/submitting must also sync so a consumed slash command does not
+    // remount later as stale initialValue after a picker/panel closes.
     const nextSlash = slashQuery(value);
-    setPromptDraft((prev) => (nextSlash !== null || slashQuery(prev) !== null ? value : prev));
+    setPromptDraft((prev) => {
+      const previousWasSlashFlow = String(prev || '').startsWith('/');
+      if (value === '') return '';
+      return nextSlash !== null || previousWasSlashFlow ? value : prev;
+    });
     setPromptDraftOverride((prev) => (prev === null ? prev : null));
-    if (value) clearPromptHint();
+    const argumentHint = slashArgumentHint(value);
+    if (argumentHint) {
+      showPromptHint(argumentHint, 'info');
+    } else if (value) {
+      clearPromptHint();
+    }
     if (slashDismissedFor) {
       setSlashDismissedFor((dismissed) => (dismissed && dismissed !== value ? '' : dismissed));
     }
-  }, [clearPromptHint, slashDismissedFor]);
+  }, [clearPromptHint, showPromptHint, slashDismissedFor]);
 
   const cancelProviderPrompt = useCallback(() => {
+    try { providerPrompt?.login?.cancel?.(); } catch {}
     const afterSave = providerPrompt?.afterSave;
     setProviderPrompt(null);
     if (afterSave) afterSave();
@@ -3640,7 +4353,19 @@ export function App({ store, initialStatusLine = '' }) {
   const acceptSlashPalette = useCallback(() => {
     const command = slashCommands[slashIndex];
     if (!command) return false;
-    return runSlashCommand(command.name, '');
+    pickerOpenedFromEnterRef.current = true;
+    if (pickerOpenedFromEnterTimerRef.current) {
+      clearTimeout(pickerOpenedFromEnterTimerRef.current);
+      pickerOpenedFromEnterTimerRef.current = null;
+    }
+    try {
+      return runSlashCommand(command.name, '');
+    } finally {
+      pickerOpenedFromEnterTimerRef.current = setTimeout(() => {
+        pickerOpenedFromEnterRef.current = false;
+        pickerOpenedFromEnterTimerRef.current = null;
+      }, 3000);
+    }
   }, [slashCommands, slashIndex]);
 
   const completeSlashPalette = useCallback(() => {
@@ -3649,16 +4374,19 @@ export function App({ store, initialStatusLine = '' }) {
   }, [slashCommands, slashIndex]);
 
   const cancelSlashPalette = useCallback((value = '') => {
-    setSlashDismissedFor(String(value || promptDraft || '/'));
+    // Esc clears the slash draft, so the dismissal marker must not survive.
+    // If it stays as "/" then typing "/" again is treated as the same
+    // dismissed query and the palette never re-opens.
+    setSlashDismissedFor('');
     setPromptDraft('');
     setPromptDraftOverride({ id: Date.now(), value: '' });
-  }, [promptDraft]);
+  }, []);
 
   const resizeEpoch = resizeState.epoch;
   const bridgeRevision = JSON.stringify({
     mode: state.bridgeMode || '',
     workers: (state.bridgeWorkers || []).map((w) => [w.tag, w.status, w.stage, w.sessionId]).slice(0, 20),
-    jobs: (state.bridgeJobs || []).map((j) => [j.jobId, j.status, j.tag, j.sessionId]).slice(0, 20),
+    jobs: (state.bridgeJobs || []).map((j) => [j.task_id, j.status, j.tag, j.sessionId]).slice(0, 20),
   });
 
   // ── Transcript viewport height ──────────────────────────────────────────
@@ -3681,10 +4409,10 @@ export function App({ store, initialStatusLine = '' }) {
   const textEntryPrompt = providerPrompt || channelPrompt || hookPrompt || settingsPrompt;
   const hasTextEntryPrompt = !!textEntryPrompt;
   const hasFloatingPanel = !!(picker || contextPanel || usagePanel || slashPaletteOpen || hasTextEntryPrompt);
-  // The bottom input box is hidden only by panels that REPLACE the prompt
-  // (picker / context panel / text-entry prompts). The slash palette floats
-  // above the prompt instead of merging into it, so the input box stays.
-  const inputBoxHidden = !!(picker || contextPanel || hasTextEntryPrompt);
+  const expandedOptionPanel = !!(picker || contextPanel || usagePanel || hasTextEntryPrompt);
+  // Slash search floats above the normal prompt. Actual option panels own the
+  // prompt/status area, so they hide those rows and expand into that space.
+  const inputBoxHidden = expandedOptionPanel;
   const WELCOME_ROWS = state.items.length === 0 && !hasFloatingPanel ? 11 : 0;
   // Independent reservation for each live-status child — the viewport must
   // yield enough space for every bottom sibling. ThinkingMessage: outer
@@ -3696,25 +4424,38 @@ export function App({ store, initialStatusLine = '' }) {
   const SPINNER_ROWS = state.spinner?.active ? 2 : 0;
   const SCROLL_HINT_ROWS = 0;
   const LIVE_STATUS_ROWS = THINKING_ROWS + SPINNER_ROWS;
-  const INPUT_BOX_ROWS = inputBoxHidden ? 0 : 4;
+  // The standalone prompt box is 3 rows (round border + one input line). Normal
+  // mode keeps a one-row top gap, but slash mode pins the command palette flush
+  // to the prompt, so reserve only the actual prompt height there. Otherwise an
+  // extra reserved row remains below the statusline and the prompt appears one
+  // row too high.
+  const INPUT_BOX_ROWS = inputBoxHidden ? 0 : (slashPaletteOpen ? 3 : 4);
   const STATUSLINE_ROWS = 3;
   const PANEL_MAX_VISIBLE = 8;
+  const PANEL_BASE_ROWS = PANEL_MAX_VISIBLE + 4;
+  const PICKER_CHROME_ROWS = 4;
   const TEXT_ENTRY_ROWS = 5;
-  const desiredFloatingPanelRows = picker
-    ? Math.min(picker.items.length, PANEL_MAX_VISIBLE) + 4
-    : contextPanel
-      ? Math.min(contextPanel.rows?.length || 0, PANEL_MAX_VISIBLE + 1) + 4
-    : slashPaletteOpen
-      ? Math.min(slashCommands.length, PANEL_MAX_VISIBLE) + 4
-      : hasTextEntryPrompt
-        ? TEXT_ENTRY_ROWS
-        : 0;
+  const OPTION_PANEL_EXTRA_ROWS = expandedOptionPanel ? 3 : 0;
   const queuedRows = !hasFloatingPanel && state.queued?.length ? state.queued.length + 1 : 0;
   const baseReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const maxFloatingPanelRows = Math.max(0, resizeState.rows - baseReserve - 1);
+  const desiredFloatingPanelRows = picker
+    ? PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS
+    : contextPanel
+      ? PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS
+      : usagePanel
+        ? PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS
+    : slashPaletteOpen
+      ? PANEL_MAX_VISIBLE + 4
+      : hasTextEntryPrompt
+        ? TEXT_ENTRY_ROWS + OPTION_PANEL_EXTRA_ROWS
+        : 0;
   const floatingPanelRows = desiredFloatingPanelRows > 0
     ? Math.min(desiredFloatingPanelRows, maxFloatingPanelRows)
     : 0;
+  const pickerVisibleRows = picker
+    ? Math.max(1, floatingPanelRows - PICKER_CHROME_ROWS - OPTION_PANEL_EXTRA_ROWS)
+    : PANEL_MAX_VISIBLE;
   const bottomReserve = baseReserve + floatingPanelRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
   transcriptViewportRef.current = {
@@ -3725,15 +4466,69 @@ export function App({ store, initialStatusLine = '' }) {
   const toastHint = latestToast ? latestToast.text : '';
   const inputHint = promptHint || toastHint;
   const inputHintTone = promptHint ? promptHintTone : (latestToast?.tone || 'info');
-  // Windows Terminal/conhost can scroll the alt-screen when a fullscreen frame
-  // writes the bottom-right cell. Keep the whole app one cell narrower; it is
-  // visually invisible but prevents frame drift and stale overprints. The root
-  // and fixed rows paint an opaque background so clipped transcript rows cannot
-  // show through the bottom input/status area while wheel-scrolling.
-  const frameColumns = Math.max(1, resizeState.columns - 1);
+  // Render at the terminal's full cell width. Older Windows Terminal/conhost
+  // builds could scroll the alt-screen when the bottom-right cell was written;
+  // keep an opt-in one-cell safety margin for those environments without making
+  // the default UI look off-center.
+  const rightSafetyColumns = process.env.MIXDOG_TUI_RIGHT_SAFE_MARGIN === '1' ? 1 : 0;
+  const frameColumns = Math.max(1, resizeState.columns - rightSafetyColumns);
+  const transcriptRowIndex = useMemo(() => buildTranscriptRowIndex(state.items, {
+    columns: frameColumns,
+    toolOutputExpanded,
+  }), [state.items, frameColumns, toolOutputExpanded]);
+  const transcriptWindow = useMemo(() => transcriptRenderWindow(state.items, {
+    scrollOffset,
+    viewportHeight,
+    columns: frameColumns,
+    toolOutputExpanded,
+    rowIndex: transcriptRowIndex,
+  }), [state.items, scrollOffset, viewportHeight, frameColumns, toolOutputExpanded, transcriptRowIndex]);
+  maxScrollRowsRef.current = transcriptWindow.maxScrollRows;
+  useEffect(() => {
+    const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
+    if (scrollTargetRef.current <= maxRows && scrollPositionRef.current <= maxRows && scrollOffset <= maxRows) return;
+    stopSmoothScroll();
+    const next = Math.max(0, Math.min(maxRows, scrollTargetRef.current));
+    scrollTargetRef.current = next;
+    scrollPositionRef.current = next;
+    setScrollOffset(Math.round(next));
+  }, [transcriptWindow.maxScrollRows, scrollOffset, stopSmoothScroll]);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
   // is a live column, so the live-frame line count ink relies on is accurate.
+  const promptInputControl = (
+    <PromptInput
+      onSubmit={onSubmit}
+      disabled={exiting || !!picker || !tuiReady}
+      onDraftChange={onPromptDraftChange}
+      interruptActive={state.busy}
+      onInterrupt={handlePromptInterrupt}
+      initialValue={promptDraft}
+      draftOverride={promptDraftOverride}
+      valueRef={promptValueRef}
+      hint={inputHint}
+      hintTone={inputHintTone}
+      mask={false}
+      onEscape={handlePromptEscape}
+      commandPaletteActive={slashPaletteOpen}
+      onCommandPaletteNavigate={(direction) => {
+        setSlashIndex((index) => {
+          const total = slashCommands.length;
+          if (total === 0) return 0;
+          if (direction === 'home') return 0;
+          if (direction === 'end') return total - 1;
+          if (direction === 'right') return total - 1;
+          const step = Number(direction) || 0;
+          if (step === 1 || step === -1) return (index + step + total) % total;
+          return Math.max(0, Math.min(total - 1, index + step));
+        });
+      }}
+      onCommandPaletteAccept={acceptSlashPalette}
+      onCommandPaletteCancel={cancelSlashPalette}
+      onCommandPaletteComplete={completeSlashPalette}
+      onRestoreQueued={(currentText) => restoreQueuedToPrompt({ restoreDraft: true, showHint: false, currentText })}
+    />
+  );
 
   return (
     // Fullscreen layout: a full-height column (height = terminal rows) pins the
@@ -3781,63 +4576,35 @@ export function App({ store, initialStatusLine = '' }) {
             stays fixed — so the scroll axis here is marginBottom, not marginTop.)
             scrollOffset is clamped ≥ 0 by the wheel handler; a new turn snaps it
             back to 0. */}
-        <Box flexDirection="column" width="100%" flexShrink={0} marginBottom={-scrollOffset}>
+        <Box flexDirection="column" width="100%" flexShrink={0} marginBottom={-transcriptWindow.effectiveScrollOffset}>
            {/*
-             * Transcript windowing: only render a recent tail of items rather than
-             * the full state.items list. transcriptRenderWindow computes a startIndex
-             * from the bottom that covers the visible viewport + scrollOffset + overscan.
-             * Falls back to full render when:
-             *   - a mouse drag/selection is active (dragged items may be above the window)
-             *   - global tool output is expanded (items taller, harder to estimate)
-             * This keeps bottom-pinned behaviour and scrollOffset semantics intact;
-             * items above startIndex are simply not rendered (they are off-screen and
-             * clipped by the overflow:hidden viewport anyway).
+             * Transcript windowing: render only the rows around the viewport rather
+             * than the full state.items list. A cheap bottom spacer preserves the
+             * same scroll coordinate when the visible window is in older history;
+             * items above the window are off-screen and omitted entirely.
              * MAX cap: TRANSCRIPT_WINDOW_MAX_ITEMS items (env MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS).
              * OVERSCAN: TRANSCRIPT_WINDOW_OVERSCAN_ROWS extra rows above the viewport so
              * fast wheel scrolls don't show a blank gap before re-render.
              */}
-           {(() => {
-             // Disable windowing while any selection highlight exists (active or
-             // retained after release) because the selected rows may be above the
-             // current window start, and during global tool-output expansion where
-             // row estimates are less reliable.
-             const selectionActive = dragRef.current.active || !!dragRef.current.rect;
-             const windowed = (!selectionActive && !toolOutputExpanded)
-               ? transcriptRenderWindow(state.items, {
-                   scrollOffset,
-                   viewportHeight,
-                   columns: frameColumns,
-                   toolOutputExpanded,
-                 }).items
-               : state.items;
-             const startIndex = windowed === state.items ? 0 : Math.max(0, state.items.length - windowed.length);
-             const renderItems = windowed;
-             return renderItems.map((item, i, arr) => (
+           {transcriptWindow.items.map((item, i, arr) => (
                <Item
                  key={item.id}
                  item={item}
-                 prevKind={i > 0 ? arr[i - 1].kind : state.items[startIndex - 1]?.kind ?? null}
+                 prevKind={i > 0 ? arr[i - 1].kind : state.items[transcriptWindow.startIndex - 1]?.kind ?? null}
                  columns={frameColumns}
                  toolOutputExpanded={toolOutputExpanded}
                />
-             ));
-           })()}
+           ))}
+           {transcriptWindow.bottomSpacerRows > 0 ? (
+             <Box height={transcriptWindow.bottomSpacerRows} flexShrink={0} />
+           ) : null}
         </Box>
       </Box>
 
-      {/* Live reasoning — streams just above the spinner while the turn runs,
-          then collapses (engine clears state.thinking at turn end). marginTop
-          keeps it off the last transcript row. Sits BELOW the viewport so it is
-          never clipped. */}
-      {state.thinking ? (
-        <Box marginTop={1} flexShrink={0} width="100%" backgroundColor={theme.background}>
-          <ThinkingMessage
-            text={state.thinking}
-            elapsedMs={state.spinner?.thinkingAccumulatedMs ?? state.spinner?.thinkingElapsedMs ?? 0}
-            activeSince={state.spinner?.thinkingSegmentStartedAt ?? 0}
-          />
-        </Box>
-      ) : null}
+      {/* Live reasoning — compact display in spinner status line only.
+          The full reasoning text panel is not rendered during turns to
+          reduce drag/render slowness. Spinner shows 'thinking' while
+          active and 'thought for Ns' briefly after thinking ends. */}
 
       {/* Wrapped flexShrink:0 so the live status keeps its full height and the
           viewport (flexShrink:1) yields rows to it, never the other way around —
@@ -3848,11 +4615,9 @@ export function App({ store, initialStatusLine = '' }) {
           <Spinner
             verb={state.spinner.verb}
             startedAt={state.spinner.startedAt}
-            outputTokens={Math.max(state.spinner?.outputTokens ?? 0, state.spinner?.liveTokens ?? 0)}
+            responseLength={state.spinner?.responseLength ?? 0}
             thinking={!!(state.thinking || state.spinner?.thinking)}
-            thinkingElapsedMs={state.spinner?.thinkingElapsedMs ?? state.spinner?.thinkingAccumulatedMs ?? 0}
             thinkingActiveSince={state.spinner?.thinkingSegmentStartedAt ?? 0}
-            thinkingLastEndedAt={state.spinner?.thinkingLastEndedAt ?? 0}
             mode={state.spinner?.mode || 'responding'}
             columns={frameColumns}
           />
@@ -3869,7 +4634,21 @@ export function App({ store, initialStatusLine = '' }) {
             {picker ? (
               <Picker
                 items={picker.items}
-                onSelect={picker.onSelect}
+                onSelect={(value, item) => {
+                  pickerOpenedFromEnterRef.current = true;
+                  if (pickerOpenedFromEnterTimerRef.current) {
+                    clearTimeout(pickerOpenedFromEnterTimerRef.current);
+                    pickerOpenedFromEnterTimerRef.current = null;
+                  }
+                  try {
+                    if (picker.onSelect) picker.onSelect(value, item);
+                  } finally {
+                    pickerOpenedFromEnterTimerRef.current = setTimeout(() => {
+                      pickerOpenedFromEnterRef.current = false;
+                      pickerOpenedFromEnterTimerRef.current = null;
+                    }, 3000);
+                  }
+                }}
                 onCancel={() => {
                   if (picker.onCancel) picker.onCancel();
                   else {
@@ -3879,34 +4658,73 @@ export function App({ store, initialStatusLine = '' }) {
                 }}
                 onLeft={picker.onLeft}
                 onRight={picker.onRight}
+                onTab={picker.onTab}
                 title={picker.title}
+                description={picker.description}
+                footer={picker.footer}
                 help={picker.help}
                 columns={frameColumns}
+                labelWidth={picker.labelWidth}
+                metaWidth={picker.metaWidth}
+                initialIndex={picker.initialIndex}
+                indexMode={picker.indexMode}
+                visibleCount={pickerVisibleRows}
+                fillHeight={expandedOptionPanel}
               />
             ) : contextPanel ? (
               <ContextPanel
                 rows={contextPanel.rows}
                 title={contextPanel.title}
                 columns={frameColumns}
+                fillHeight={expandedOptionPanel}
               />
             ) : usagePanel ? (
               <UsagePanel
                 dashboard={usagePanel}
                 columns={frameColumns}
+                fillHeight={expandedOptionPanel}
+                panelRows={floatingPanelRows}
               />
             ) : slashPaletteOpen ? (
               <SlashCommandPalette
                 commands={slashCommands}
                 selectedIndex={slashIndex}
-                title="Slash commands"
+                title="Commands"
                 columns={frameColumns}
+                query={activeSlashQuery}
               />
             ) : providerPrompt ? (
               <TextEntryPanel
-                title={providerPrompt.kind === 'api-key' ? `API key · ${providerPrompt.label}` : `Base URL · ${providerPrompt.label}`}
-                hint={providerPrompt.kind === 'api-key' ? 'Save or replace the provider key.' : `Default: ${providerPrompt.defaultURL}`}
-                mask={providerPrompt.kind === 'api-key'}
+                title={providerPrompt.kind === 'api-key'
+                  ? `API key · ${providerPrompt.label}`
+                  : providerPrompt.kind === 'oauth-code'
+                    ? providerPrompt.label
+                    : providerPrompt.kind === 'openai-usage-session'
+                      ? 'OpenAI Usage · Session Key'
+                    : providerPrompt.kind === 'opencode-go-cookie'
+                      ? 'OpenCode Go Usage · Auth Cookie'
+                      : `Base URL · ${providerPrompt.label}`}
+                hint={providerPrompt.kind === 'api-key'
+                  ? 'Save or replace the provider key.'
+                  : providerPrompt.kind === 'oauth-code'
+                    ? (providerPrompt.hint || 'Paste the browser code.')
+                    : providerPrompt.kind === 'openai-usage-session'
+                      ? 'Paste an OpenAI dashboard/session key for the undocumented credit lookup. It is stored in the OS keychain.'
+                    : providerPrompt.kind === 'opencode-go-cookie'
+                      ? 'Paste the OpenCode web auth cookie value. It is stored in the OS keychain.'
+                      : `Default: ${providerPrompt.defaultURL}`}
+                mask={providerPrompt.kind === 'api-key' || providerPrompt.kind === 'opencode-go-cookie' || providerPrompt.kind === 'openai-usage-session'}
                 columns={frameColumns}
+                actionLabel={providerPrompt.kind === 'oauth-code' ? 'continue' : 'save'}
+                promptLabel={providerPrompt.kind === 'api-key'
+                  ? 'API key > '
+                  : providerPrompt.kind === 'oauth-code'
+                    ? 'Paste code here if prompted > '
+                    : providerPrompt.kind === 'openai-usage-session'
+                      ? 'Session key > '
+                    : providerPrompt.kind === 'opencode-go-cookie'
+                      ? 'Auth cookie > '
+                      : 'Base URL > '}
                 onSubmit={onSubmit}
                 onCancel={cancelProviderPrompt}
               />
@@ -3916,6 +4734,7 @@ export function App({ store, initialStatusLine = '' }) {
                 hint={channelPrompt.hint || 'Save channel setting.'}
                 mask={channelPrompt.kind === 'discord-token' || channelPrompt.kind === 'webhook-token'}
                 columns={frameColumns}
+                promptLabel="Value > "
                 onSubmit={onSubmit}
                 onCancel={cancelChannelPrompt}
               />
@@ -3924,6 +4743,7 @@ export function App({ store, initialStatusLine = '' }) {
                 title={hookPrompt.label}
                 hint={hookPrompt.hint || 'Save hook setting.'}
                 columns={frameColumns}
+                promptLabel="Value > "
                 onSubmit={onSubmit}
                 onCancel={cancelHookPrompt}
               />
@@ -3933,6 +4753,7 @@ export function App({ store, initialStatusLine = '' }) {
                 hint={settingsPrompt.hint || 'Save setting.'}
                 columns={frameColumns}
                 actionLabel={settingsPrompt.kind === 'skill-use' ? 'run' : 'save'}
+                promptLabel={settingsPrompt.kind === 'skill-use' ? 'Command > ' : 'Value > '}
                 onSubmit={onSubmit}
                 onCancel={cancelSettingsPrompt}
               />
@@ -3943,41 +4764,14 @@ export function App({ store, initialStatusLine = '' }) {
         )}
         {!inputBoxHidden ? (
           <Box
-            marginTop={1}
+            marginTop={floatingPanelRows > 0 ? 0 : 1}
             width="100%"
             borderStyle="round"
             borderColor={theme.promptBorder}
             backgroundColor={theme.background}
             paddingX={1}
           >
-            <PromptInput
-              onSubmit={onSubmit}
-              disabled={exiting || state.commandBusy || !!picker}
-              onDraftChange={onPromptDraftChange}
-              initialValue={promptDraft}
-              draftOverride={promptDraftOverride}
-              valueRef={promptValueRef}
-              hint={inputHint}
-              hintTone={inputHintTone}
-              mask={false}
-              onEscape={handlePromptEscape}
-              commandPaletteActive={slashPaletteOpen}
-              onCommandPaletteNavigate={(direction) => {
-                setSlashIndex((index) => {
-                  const total = slashCommands.length;
-                  if (total === 0) return 0;
-                  if (direction === 'home') return 0;
-                  if (direction === 'end') return total - 1;
-                  if (direction === 'right') return total - 1;
-                  const step = Number(direction) || 0;
-                  if (step === 1 || step === -1) return (index + step + total) % total;
-                  return Math.max(0, Math.min(total - 1, index + step));
-                });
-              }}
-              onCommandPaletteAccept={acceptSlashPalette}
-              onCommandPaletteCancel={cancelSlashPalette}
-              onCommandPaletteComplete={completeSlashPalette}
-            />
+            {promptInputControl}
           </Box>
         ) : null}
         <StatusLine

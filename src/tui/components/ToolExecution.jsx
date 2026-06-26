@@ -19,6 +19,7 @@ import {
   formatToolSurface,
   summarizeToolArgs as surfaceSummarizeToolArgs,
   summarizeToolResult as surfaceSummarizeToolResult,
+  formatAggregateHeader,
 } from '../../runtime/shared/tool-surface.mjs';
 
 const MIN_RESULT_LINE_CHARS = 24;
@@ -47,12 +48,17 @@ function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
   const completed = Math.max(0, Number(doneCount || 0));
-  const suffix = pending && completed > 0 ? ` - ${completed}/${count} done` : '';
+  const suffix = pending && completed > 0 ? ` (${completed}/${count})` : '';
 
   const copy = (active, done, noun, pluralNoun = `${noun}s`) => {
     const object = `${count} ${plural(count, noun, pluralNoun)}`;
     if (count === 1) return pending ? active : done;
     return `${pending ? active : done} ${object}${suffix}`;
+  };
+
+  const copyTarget = (active, done, target, pluralTarget = `${target}s`) => {
+    if (count === 1) return `${pending ? active : done} ${target}`;
+    return `${pending ? active : done} ${count} ${plural(count, target, pluralTarget)}${suffix}`;
   };
 
   switch (n) {
@@ -67,10 +73,24 @@ function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
     case 'grep':
     case 'glob':
       return copy('Searching', 'Searched', 'file');
+    case 'list':
+    case 'ls':
+      return copy('Searching', 'Searched', 'item');
     case 'search':
-      return copy('Searching', 'Searched', 'search', 'searches');
+    case 'search_query':
+    case 'image_query':
+    case 'web_search':
+    case 'web_search_call':
+    case 'firecrawl_search':
+    case 'web_fetch':
+    case 'fetch':
+    case 'download_attachment':
+      return copyTarget('Researching', 'Researched', 'web', 'web items');
     case 'tool_search':
       return copy('Searching', 'Searched', 'tool');
+    case 'explore':
+      return pending ? 'Exploring' : 'Explored';
+    case 'shell':
     case 'bash':
     case 'bash_session':
     case 'shell_command':
@@ -79,27 +99,25 @@ function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
     case 'bridge':
     case 'agent':
     case 'task':
-      if (count === 1) return 'Agent';
-      return pending ? `Agent - ${completed}/${count} done` : `Agent - ${count} ${plural(count, 'call')}`;
-    case 'list':
-    case 'ls':
-      return copy('Listing', 'Listed', 'directory', 'directories');
+      return copyTarget('Calling', 'Called', 'agent');
     case 'recall':
     case 'recall_memory':
     case 'search_memories':
-      return copy('Searching', 'Searched', 'memory', 'memories');
+      return copyTarget('Checking', 'Checked', 'memory', 'memories');
     case 'remember':
     case 'save_memory':
     case 'update_memory':
-      return copy('Writing', 'Wrote', 'memory', 'memories');
+      return copyTarget('Writing', 'Wrote', 'memory', 'memories');
     default:
-      if (l === 'search' || l === 'web search') return copy('Searching', 'Searched', 'tool');
+      if (l === 'web search') return copyTarget('Researching', 'Researched', 'web', 'web items');
+      if (l === 'search') return copy('Searching', 'Searched', 'tool');
+      if (l === 'explore') return pending ? 'Exploring' : 'Explored';
       if (l === 'update') return copy('Editing', 'Edited', 'file');
       if (l === 'read') return copy('Reading', 'Read', 'file');
       if (l === 'run') return copy('Running', 'Ran', 'command');
       if (l === 'setup') return copy('Setting up', 'Set up', 'item');
-      if (l === 'memory') return copy('Using', 'Used', 'memory', 'memories');
-      if (l === 'agent') return count === 1 ? 'Agent' : pending ? `Agent - ${completed}/${count} done` : `Agent - ${count} ${plural(count, 'call')}`;
+      if (l === 'memory') return copyTarget('Checking', 'Checked', 'memory', 'memories');
+      if (l === 'agent') return copyTarget('Calling', 'Called', 'agent');
       return copy('Calling', 'Called', 'tool');
   }
 }
@@ -132,11 +150,11 @@ function isOutputDetailTool(normalizedName, label) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
   return new Set([
-    'bash', 'bash_session', 'shell_command',
+    'shell', 'bash', 'bash_session', 'shell_command', 'job_wait',
     'read', 'view_image', 'read_mcp_resource',
-    'grep', 'glob', 'search', 'web_fetch', 'fetch', 'crawl',
+    'grep', 'glob', 'search', 'search_query', 'image_query', 'web_search', 'web_search_call', 'firecrawl_search', 'explore', 'web_fetch', 'fetch', 'download_attachment',
     'list', 'ls', 'code_graph',
-    'recall', 'search_memories',
+    'recall', 'recall_memory', 'search_memories', 'remember', 'save_memory', 'update_memory',
   ]).has(n) || l === 'read' || l === 'search' || l === 'web search' || l === 'run';
 }
 
@@ -144,47 +162,117 @@ function progressDetail({ normalizedName, label, doneCount, groupCount, elapsed 
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
   const suffix = elapsed ? ` - ${elapsed}` : '';
-  const progress = groupCount > 1 ? ` - ${doneCount}/${groupCount} done` : '';
-  if (isAgentTool(n)) return `running${progress}${suffix}`;
-  if (n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait' || l === 'run') return `running${progress}${suffix}`;
-  if (n === 'grep' || n === 'glob' || n === 'search' || l === 'search' || l === 'web search') return `searching${progress}${suffix}`;
-  if (n === 'read' || n === 'view_image' || n === 'read_mcp_resource' || l === 'read') return `reading${progress}${suffix}`;
-  if (n === 'write' || n === 'edit' || n === 'apply_patch' || l === 'update') return `editing${progress}${suffix}`;
-  if (n === 'list' || n === 'ls') return `listing${progress}${suffix}`;
-  if (l === 'setup') return `setting up${progress}${suffix}`;
-  return `working${progress}${suffix}`;
+  const progress = groupCount > 1 ? ` (${doneCount}/${groupCount})` : '';
+  if (isAgentTool(n) || l === 'agent') return `Calling agent${progress}${suffix}`;
+  if (n === 'shell' || n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait' || l === 'run') return `Running${progress}${suffix}`;
+  if (n === 'search' || n === 'search_query' || n === 'image_query' || n === 'web_search' || n === 'web_search_call' || n === 'firecrawl_search' || n === 'web_fetch' || n === 'fetch' || n === 'download_attachment' || l === 'web search') return `Researching web${progress}${suffix}`;
+  if (n === 'explore' || l === 'explore') return `Exploring${progress}${suffix}`;
+  if (n === 'grep' || n === 'glob' || n === 'list' || n === 'ls' || l === 'search') return `Searching${progress}${suffix}`;
+  if (n === 'read' || n === 'view_image' || n === 'read_mcp_resource' || l === 'read') return `Reading${progress}${suffix}`;
+  if (n === 'write' || n === 'edit' || n === 'apply_patch' || l === 'update') return `Editing${progress}${suffix}`;
+  if (n === 'recall' || n === 'recall_memory' || n === 'search_memories' || l === 'memory') return `Checking memory${progress}${suffix}`;
+  if (l === 'setup') return `Setting up${progress}${suffix}`;
+  return `Working${progress}${suffix}`;
 }
 
 function genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError }) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
-  if (isError) return hasResult ? firstResultLine : 'failed';
-  if (n === 'bash' || n === 'bash_session' || n === 'shell_command') {
+  if (isError) return hasResult ? firstResultLine : 'Failed';
+  if (n === 'shell' || n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait') {
     return hasResult ? firstResultLine : '(no output)';
   }
   if (isOutputDetailTool(n, l)) {
-    return hasResult ? firstResultLine : 'completed';
+    return hasResult ? firstResultLine : 'Completed';
   }
-  if (l === 'update' || n === 'write' || n === 'edit' || n === 'apply_patch') return 'completed - no summary';
-  return 'completed';
+  if (l === 'update' || n === 'write' || n === 'edit' || n === 'apply_patch') return 'Completed - no summary';
+  return 'Completed';
 }
 
-export function ToolExecution({ name, args, result, isError, expanded, globalExpanded = false, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0 }) {
+export function ToolExecution({ name, args, result, rawResult, isError, expanded, globalExpanded = false, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {} }) {
   const [blinkOn, setBlinkOn] = useState(true);
-  const { label, summary, normalizedName, args: parsedArgs } = formatToolSurface(name, args);
   const groupCount = Math.max(1, Number(count || 1));
   const doneCount = Math.max(0, Math.min(groupCount, Number(completedCount || (result == null ? 0 : groupCount))));
-  const resultText = result == null ? null : String(result).replace(/\s+$/, '');
+  const rt = result == null ? null : String(result).replace(/\s+$/, '');
+  const rawRt = rawResult == null ? null : String(rawResult).replace(/\s+$/, '');
   const pending = doneCount < groupCount;
-  const hasResult = result != null && Boolean(String(resultText || '').trim());
-  const lines = resultText ? resultText.split('\n') : [];
+  const hasResult = result != null && Boolean(String(rt || '').trim());
+  const hasRawResult = rawResult != null && Boolean(String(rawRt || '').trim());
+  const elapsedMs = startedAt ? ((pending ? Date.now() : completedAt) - startedAt) : 0;
+  const elapsed = elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
+
+  useEffect(() => {
+    if (!pending) return undefined;
+    const timer = setInterval(() => setBlinkOn((on) => !on), TOOL_BLINK_MS);
+    return () => clearInterval(timer);
+  }, [pending]);
+
+  // ── Aggregate card ──────────────────────────────────────────────
+  if (aggregate) {
+    // Keep the aggregate header stable while results stream in; progress lives
+    // in the detail row. This avoids the header bouncing between
+    // "Reading/Searching" and "Read/Searched" as completedCount changes.
+    const headerOrder = Array.isArray(args?.categoryOrder) ? args.categoryOrder : null;
+    const headerText = formatAggregateHeader(categories || {}, { order: headerOrder });
+    let detailText;
+    if (hasResult) {
+      const progress = pending && groupCount > 1 ? `, Running ${doneCount}/${groupCount}` : '';
+      detailText = `${rt}${progress}`;
+    } else if (pending) {
+      const progress = groupCount > 1 ? `Running ${doneCount}/${groupCount}` : 'Running';
+      detailText = `${progress}` + (elapsed ? ` - ${elapsed}` : '');
+    } else {
+      detailText = groupCount > 1 ? `Completed ${doneCount}/${groupCount}` : 'Completed';
+    }
+
+    const dotColor = pending ? theme.subtle : isError ? theme.error : theme.success;
+    const dotText = pending && !blinkOn ? ' ' : TURN_MARKER;
+    const gutter = 2;
+    const showHeaderExpandHint = hasRawResult;
+    const hintLabel = showHeaderExpandHint ? `ctrl+o ${expanded ? 'collapse' : 'expand'}` : '';
+    const hintText = hintLabel ? ` ${BULLET_OPERATOR} ${hintLabel}` : '';
+    const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - stringWidth(hintText));
+    const clippedHeader = stringWidth(headerText) > avail
+      ? truncateToWidth(headerText, avail)
+      : headerText;
+    const detailLines = expanded && hasRawResult ? rawRt.split('\n') : [detailText];
+    return (
+      <Box flexDirection="column" marginTop={attached ? 0 : 1}>
+        <Box flexDirection="row">
+          <Box flexShrink={0} minWidth={2}>
+            <Text color={dotColor}>{dotText}</Text>
+          </Box>
+          <Text wrap="truncate">
+            <Text bold color={theme.text}>{clippedHeader}</Text>
+            {showHeaderExpandHint ? <Text color={TOOL_HINT_DONE_COLOR}>{hintText}</Text> : null}
+          </Text>
+        </Box>
+        <Box flexDirection="row">
+          <Box flexShrink={0}>
+            <Text color={theme.subtle}>{RESULT_GUTTER}</Text>
+          </Box>
+          <Box flexDirection="column" flexShrink={1} flexGrow={1}>
+            {detailLines.map((line, i) => (
+              <Text key={i} color={expanded && hasRawResult ? (isError ? theme.error : theme.text) : theme.subtle}>
+                {fitResultLine(line || ' ', columns)}
+              </Text>
+            ))}
+          </Box>
+        </Box>
+      </Box>
+    );
+  }
+
+  // ── Normal (non-aggregate) tool card ────────────────────────────
+  const { label, summary, normalizedName, args: parsedArgs } = formatToolSurface(name, args);
+  const lines = rt ? rt.split('\n') : [];
   const totalLines = lines.length;
   // Semantic one-line summary derived purely from name/args/result text.
   // Shown in the collapsed, non-error view in place of the raw result block.
   // Grouped cards ("Searched N files" / "Read N files") get the same treatment
   // as single calls: a one-line semantic summary stands in for the raw block.
   const resultSummary = !pending && hasResult
-    ? surfaceSummarizeToolResult(name, args, resultText, isError)
+    ? surfaceSummarizeToolResult(name, args, rt, isError)
     : null;
   // Same fit budget fitResultLine() uses, to detect a line that will be clipped.
   const maxResultChars = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
@@ -195,10 +283,8 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
 
   const toolArgPath = parsedArgs?.path ?? parsedArgs?.file_path ?? parsedArgs?.file ?? '';
   const imageDetail = normalizedName === 'view_image' && toolArgPath ? String(toolArgPath) : '';
-  const elapsedMs = startedAt ? ((pending ? Date.now() : completedAt) - startedAt) : 0;
-  const elapsed = elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
-  const agentDetail = !pending && isAgentTool(normalizedName)
-    ? `${isError ? 'failed' : 'completed'}${elapsed ? ` in ${elapsed}` : ''}`
+  const agentDetail = !pending && isAgentTool(normalizedName) && !hasResult
+    ? `${isError ? 'Failed' : 'Completed'}${elapsed ? ` in ${elapsed}` : ''}`
     : '';
   const pendingDetail = pending
     ? progressDetail({ normalizedName, label, doneCount, groupCount, elapsed })
@@ -218,14 +304,8 @@ export function ToolExecution({ name, args, result, isError, expanded, globalExp
       ? resultColor
       : theme.inactive;
 
-  useEffect(() => {
-    if (!pending) return undefined;
-    const timer = setInterval(() => setBlinkOn((on) => !on), TOOL_BLINK_MS);
-    return () => clearInterval(timer);
-  }, [pending]);
-
   const dotColor = pending ? theme.subtle : isError ? theme.error : theme.success;
-  const dotText = pending && !blinkOn ? ' ' : isError ? 'x' : TURN_MARKER;
+  const dotText = pending && !blinkOn ? ' ' : TURN_MARKER;
   const labelText = statusCopy(normalizedName, label, groupCount, doneCount, pending, isError);
   // Show the parenthesized arg summary for grouped cards too, matching single
   // calls so the header carries the same context.

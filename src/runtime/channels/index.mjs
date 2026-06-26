@@ -61,7 +61,7 @@ import {
   clearServerPid,
   RUNTIME_ROOT
 } from "./lib/runtime-paths.mjs";
-import { PLUGIN_ROOT, getDiscordToken } from "./lib/config.mjs";
+import { getDiscordToken } from "./lib/config.mjs";
 const memoryClientModulePath = new URL("./lib/memory-client.mjs", import.meta.url).href;
 const {
   appendEntry: memoryAppendEntry,
@@ -85,9 +85,8 @@ function localTimestamp() {
 }
 function readPluginVersion() {
   try {
-    const manifestPath = path.join(PLUGIN_ROOT, ".claude-plugin", "plugin.json");
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-    return manifest.version || DEFAULT_PLUGIN_VERSION;
+    const pkg = JSON.parse(fs.readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));
+    return pkg.version || DEFAULT_PLUGIN_VERSION;
   } catch {
     return DEFAULT_PLUGIN_VERSION;
   }
@@ -172,7 +171,7 @@ if (process.env.MIXDOG_CHANNELS_NO_CONNECT) {
 const _isWorkerMode = process.env.MIXDOG_WORKER_MODE === '1'
 const _isCliOwnedMode = process.env.MIXDOG_CLI_OWNED === '1'
 const _bootLogEarly = path.join(
-  process.env.CLAUDE_PLUGIN_DATA || path.join(os.tmpdir(), "mixdog"),
+  DATA_DIR || path.join(os.tmpdir(), "mixdog"),
   "boot.log"
 );
 const {
@@ -585,7 +584,7 @@ const scheduler = new Scheduler(
 // bridge dispatch as "active" regardless of user-inbound silence.
 scheduler.setPendingCheck(() => {
   try {
-    return dispatchHasPending(process.env.CLAUDE_PLUGIN_DATA);
+    return dispatchHasPending(DATA_DIR);
   } catch {
     return false;
   }
@@ -1734,7 +1733,7 @@ function injectAndRecord(channelId, name, content, options) {
   // self-corrects, but bridge roles commonly echo them and we don't want them
   // surfacing in Discord / Lead channel push.
   if (typeof content === 'string') content = stripSoftWarns(content);
-  // Skip-protocol guard: bridge workers (webhook-handler / scheduler-task)
+  // Skip-protocol guard: bridge agents (webhook-handler / scheduler-task)
   // prefix `[meta:silent]` on the first line to opt out
   // of Lead inject for genuine no-op results (label-only events, dedup,
   // "nothing to report"). The body still goes to Discord for audit; only
@@ -2231,7 +2230,7 @@ async function transcribeVoice(audioPath, { attachmentId } = {}) {
   if (maxDurationSec > 0) {
     const dur = await _probeAudioDurationSec(audioPath);
     if (dur !== null && dur > maxDurationSec) {
-      process.stderr.write(`mixdog: voice.transcription skipped — audio too long (${dur.toFixed(1)}s > ${maxDurationSec}s): ${audioPath}\n`);
+      process.stderr.write(`mixdog: voice.transcription skipped — audio too long (${Math.floor(dur)}s > ${maxDurationSec}s): ${audioPath}\n`);
       return null;
     }
   }

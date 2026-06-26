@@ -3,7 +3,18 @@
  * permission-evaluator.cjs
  * Reusable permission evaluation extracted from pre-mcp-sandbox.cjs.
  *
- * Permission priority: deny > ask > allow > mode-default
+ * Permission priority (pi-like practical model):
+ *   deny > allow > (ask neutralized) > mode-default
+ *
+ * Practical pi-like behavior:
+ *   - Hard-deny path checks (OS system dirs, credential stores, UNC, etc.)
+ *     always enforced.
+ *   - Explicit deny rules from settings always enforced.
+ *   - Explicit ask rules from settings are treated as no-match (no prompts).
+ *   - Default mode is trust/allow — no cwd-sandbox prompts.
+ *   - Permission modes and ask rules are config-compatible no-ops for the
+ *     runtime gate; the evaluator now returns only allow/deny. The 'ask'
+ *     return type remains for external API compatibility.
  *
  * Exported function:
  *   evaluatePermission({ toolName, toolInput, permissionMode, projectDir, userCwd, permissions })
@@ -19,7 +30,8 @@ const fs   = require('fs');
 const path = require('path');
 
 const { loadPermissions }               = require('./settings-loader.cjs');
-const { evaluateRules, isReadOnlyTool } = require('./permission-rules.cjs');
+const { evaluateRules } = require('./permission-rules.cjs');
+const { mixdogRoot }                    = require('../../lib/plugin-paths.cjs');
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
@@ -28,14 +40,11 @@ const MCP_PREFIXES = [
   'mcp__plugin_mixdog_trib-plugin__',
 ];
 
-// edit/write-class tools allowed under acceptEdits mode
-const EDIT_WRITE_TOOLS = new Set([
-  'edit', 'write', 'apply_patch',
-]);
-
 // ── hard-deny patterns (bypass-proof) ────────────────────────────────────────
 // These patterns are evaluated BEFORE mode checks, including bypassPermissions.
-// They cover UNC paths and dangerous absolute system locations.
+// They cover UNC paths, dangerous OS locations, and high-value local credential
+// stores. This is intentionally not a full sandbox; it is the small hard-stop
+// layer that remains in the pi-like trust model.
 
 const HARD_DENY_PATH_PATTERNS = [
   // UNC network paths (\\server\share)
@@ -51,6 +60,41 @@ const HARD_DENY_PATH_PATTERNS = [
   /^\/boot$/i,
   /^\/dev\//i,
   /^\/dev$/i,
+  /^\/root\//i,
+  /^\/root$/i,
+  /^\/run\//i,
+  /^\/run$/i,
+  /^\/var\/run\//i,
+  /^\/var\/run$/i,
+  /^\/var\/lib\//i,
+  /^\/var\/lib$/i,
+  /^\/var\/db\//i,
+  /^\/var\/db$/i,
+  /^\/bin\//i,
+  /^\/bin$/i,
+  /^\/sbin\//i,
+  /^\/sbin$/i,
+  /^\/usr\/bin\//i,
+  /^\/usr\/bin$/i,
+  /^\/usr\/sbin\//i,
+  /^\/usr\/sbin$/i,
+  /^\/usr\/lib\//i,
+  /^\/usr\/lib$/i,
+  /^\/usr\/lib64\//i,
+  /^\/usr\/lib64$/i,
+  // macOS system locations
+  /^\/system\//i,
+  /^\/system$/i,
+  /^\/library\//i,
+  /^\/library$/i,
+  /^\/private\/etc\//i,
+  /^\/private\/etc$/i,
+  /^\/private\/var\/db\//i,
+  /^\/private\/var\/db$/i,
+  /^\/private\/var\/run\//i,
+  /^\/private\/var\/run$/i,
+  /^\/volumes\//i,
+  /^\/volumes$/i,
   // Windows system dirs (various drive letters)
   /^[a-z]:[/\\]windows[/\\]/i,
   /^[a-z]:[/\\]windows$/i,
@@ -59,6 +103,45 @@ const HARD_DENY_PATH_PATTERNS = [
   /^[a-z]:[/\\]program files \(x86\)[/\\]/i,
   /^[a-z]:[/\\]program files \(x86\)$/i,
   /^[a-z]:[/\\]system32/i,
+  /^[a-z]:[/\\]programdata[/\\]/i,
+  /^[a-z]:[/\\]programdata$/i,
+  /^[a-z]:[/\\]programdata[/\\]microsoft[/\\]/i,
+  /^[a-z]:[/\\]programdata[/\\]microsoft$/i,
+  /^[a-z]:[/\\]programdata[/\\]ssh[/\\]/i,
+  /^[a-z]:[/\\]programdata[/\\]ssh$/i,
+  /^[a-z]:[/\\]programdata[/\\]docker[/\\]/i,
+  /^[a-z]:[/\\]programdata[/\\]docker$/i,
+  /^[a-z]:[/\\]recovery[/\\]/i,
+  /^[a-z]:[/\\]recovery$/i,
+  /^[a-z]:[/\\]boot[/\\]/i,
+  /^[a-z]:[/\\]boot$/i,
+  /^[a-z]:[/\\]efi[/\\]/i,
+  /^[a-z]:[/\\]efi$/i,
+  /^[a-z]:[/\\]system volume information[/\\]/i,
+  /^[a-z]:[/\\]system volume information$/i,
+  /^[a-z]:[/\\]\$recycle\.bin[/\\]/i,
+  /^[a-z]:[/\\]\$recycle\.bin$/i,
+  /^[a-z]:[/\\](pagefile|hiberfil|swapfile)\.sys$/i,
+  /^[a-z]:[/\\]documents and settings[/\\]/i,
+  /^[a-z]:[/\\]documents and settings$/i,
+  /^[a-z]:[/\\]users[/\\]all users[/\\]/i,
+  /^[a-z]:[/\\]users[/\\]all users$/i,
+  // Cross-platform user credential stores and token files
+  /^\/home\/[^/\\]+[/\\]\.(ssh|gnupg|aws|azure|docker|kube)([/\\]|$)/i,
+  /^\/home\/[^/\\]+[/\\]\.config[/\\]gcloud([/\\]|$)/i,
+  /^\/home\/[^/\\]+[/\\]\.(npmrc|netrc|pypirc|git-credentials)$/i,
+  /^\/users\/[^/\\]+[/\\]\.(ssh|gnupg|aws|azure|docker|kube)([/\\]|$)/i,
+  /^\/users\/[^/\\]+[/\\]\.config[/\\]gcloud([/\\]|$)/i,
+  /^\/users\/[^/\\]+[/\\]\.(npmrc|netrc|pypirc|git-credentials)$/i,
+  /^\/users\/[^/\\]+[/\\]library[/\\]keychains([/\\]|$)/i,
+  /^\/users\/[^/\\]+[/\\]library[/\\]application support[/\\](google[/\\]chrome|microsoft edge|bravesoftware|firefox|mozilla)([/\\]|$)/i,
+  /^[a-z]:[/\\]users[/\\][^/\\]+[/\\]\.(ssh|gnupg|aws|azure|docker|kube)([/\\]|$)/i,
+  /^[a-z]:[/\\]users[/\\][^/\\]+[/\\]\.config[/\\]gcloud([/\\]|$)/i,
+  /^[a-z]:[/\\]users[/\\][^/\\]+[/\\]\.(npmrc|netrc|pypirc|git-credentials)$/i,
+  /^[a-z]:[/\\]users[/\\][^/\\]+[/\\]appdata[/\\](roaming|local)[/\\]microsoft[/\\](credentials|protect)([/\\]|$)/i,
+  /^[a-z]:[/\\]users[/\\][^/\\]+[/\\]appdata[/\\]roaming[/\\]gnupg([/\\]|$)/i,
+  /^[a-z]:[/\\]users[/\\][^/\\]+[/\\]appdata[/\\]local[/\\](google[/\\]chrome|microsoft[/\\]edge|bravesoftware|mozilla|firefox)([/\\]|$)/i,
+  /^[a-z]:[/\\]users[/\\][^/\\]+[/\\]appdata[/\\]roaming[/\\](mozilla[/\\]firefox|mozilla|firefox)([/\\]|$)/i,
 ];
 
 /**
@@ -101,10 +184,12 @@ function isHardDenyPath(rawPaths, opts) {
     if (!p || typeof p !== 'string') continue;
     // UNC check on raw value (before normalization strips leading slashes)
     if (/^\\\\/.test(p)) return true;
-    // Normalize for platform-independent matching
-    let norm;
-    try { norm = path.resolve(p); } catch { norm = p; }
-    norm = norm.replace(/\\/g, '/');
+    // Normalize for platform-independent matching. Relative paths must resolve
+    // against the user cwd supplied by the hook payload, not the hook server's
+    // process.cwd(), or `..\\Windows\\System32` can miss the hard-deny check.
+    let resolved;
+    try { resolved = resolveCandidate(p, baseCwd); } catch { resolved = null; }
+    let norm = (resolved || p).replace(/\\/g, '/');
     for (const re of HARD_DENY_PATH_PATTERNS) {
       if (re.test(p) || re.test(norm)) return true;
     }
@@ -127,9 +212,6 @@ function isHardDenyPath(rawPaths, opts) {
     // against absolute system paths, untrusted external roots) still fall
     // through to the realpath check below.
     if (trustedRoots.length > 0) {
-      let resolved;
-      try { resolved = path.isAbsolute(p) ? path.normalize(p) : path.resolve(baseCwd, p); }
-      catch { resolved = null; }
       if (resolved) {
         let cmp = resolved.replace(/[\\/]+$/, '');
         if (path.sep === '\\') cmp = cmp.toLowerCase();
@@ -148,7 +230,7 @@ function isHardDenyPath(rawPaths, opts) {
     // so missing paths fall through with no extra check — only the literal
     // surface form is enforced for those.
     let real;
-    try { real = fs.realpathSync(p); }
+    try { real = fs.realpathSync(resolved || p); }
     catch { real = null; }
     if (real && real !== p && real !== norm.replace(/\//g, path.sep)) {
       const realNorm = real.replace(/\\/g, '/');
@@ -198,25 +280,6 @@ function resolveCandidate(p, baseCwd) {
   } catch {
     return null;
   }
-}
-
-function isInside(child, parent) {
-  const norm = p => p.replace(/[/\\]+$/, '');
-  let c = norm(child);
-  let p2 = norm(parent);
-  if (path.sep === '\\') { c = c.toLowerCase(); p2 = p2.toLowerCase(); }
-  return c === p2 || c.startsWith(p2 + '\\') || c.startsWith(p2 + '/');
-}
-
-function deepestExistingAncestor(p) {
-  let cur = p;
-  while (cur) {
-    try { if (fs.existsSync(cur) && fs.statSync(cur).isDirectory()) return cur; } catch { /* walk */ }
-    const parent = path.dirname(cur);
-    if (parent === cur) break;
-    cur = parent;
-  }
-  return path.dirname(p);
 }
 
 function extractPaths(toolName, toolInput) {
@@ -301,13 +364,13 @@ function evaluatePermission({ toolName, toolInput, permissionMode, projectDir, u
   const input = (toolInput && typeof toolInput === 'object') ? toolInput : {};
   const cwd   = (typeof userCwd === 'string' && userCwd) ? userCwd : process.cwd();
 
-  // Single extractPaths call — reused for hard-deny, sandbox, and plugin-root checks.
+  // Single extractPaths call — reused for hard-deny and explicit deny checks.
   const rawPaths = extractPaths(name, input);
 
   // Trusted-root set powers the hard-deny realpath fast-path.
-  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || '';
+  const root = mixdogRoot();
   const trustedRoots = [cwd];
-  if (pluginRoot) trustedRoots.push(pluginRoot);
+  if (root) trustedRoots.push(root);
   if (projectDir && projectDir !== cwd) trustedRoots.push(projectDir);
 
   // 0. Hard-deny: bypass-proof path check (UNC, dangerous system paths).
@@ -316,95 +379,26 @@ function evaluatePermission({ toolName, toolInput, permissionMode, projectDir, u
     return { decision: 'deny', reason: `Tool '${name}' targets a protected system path.` };
   }
 
-  // Plugin source tree: read-only exemption.
-  // Paths inside CLAUDE_PLUGIN_ROOT are always allowed for read-class tools.
-  if (pluginRoot && isReadOnlyTool(name) && rawPaths.length > 0 &&
-      rawPaths.every(p => { const r = resolveCandidate(p, cwd); return r && isInside(r, pluginRoot); })) {
-    return { decision: 'allow', reason: 'Plugin source tree read-only access allowed.' };
-  }
-
-  // 1. Resolve paths; find first outside-cwd hit
-  let firstOutsidePath     = null;
-  let firstOutsideResolved = null;
-
-  for (const raw of rawPaths) {
-    const resolved = resolveCandidate(raw, cwd);
-    if (!resolved) continue;
-    if (!isInside(resolved, cwd) && firstOutsidePath === null) {
-      firstOutsidePath     = raw;
-      firstOutsideResolved = resolved;
-    }
-  }
-
-  // 2. Use caller-supplied settings when available; otherwise load.
-  const { allow, deny, ask, defaultMode } = (permissions && typeof permissions === 'object')
+  // 1. Use caller-supplied settings when available; otherwise load.
+  const { allow, deny, defaultMode } = (permissions && typeof permissions === 'object')
     ? permissions
     : loadPermissions(projectDir || cwd);
 
-  // 4. Permission-list evaluation (deny > ask > allow)
-  const listResult = evaluateRules(name, input, allow, deny, ask);
+  // 2. Explicit rules. Pi-like practical keeps deny as the only user rule that
+  // blocks at runtime. Ask rules are ignored by passing an empty ask list.
+  const listResult = evaluateRules(name, input, allow, deny, []);
 
   if (listResult === 'deny') {
     return { decision: 'deny', reason: `Tool '${name}' blocked by deny rule.` };
-  }
-  if (listResult === 'ask') {
-    const outsideReason = firstOutsidePath
-      ? `Path '${firstOutsidePath}' is outside project sandbox (${cwd}).`
-      : `Tool '${name}' requires explicit approval.`;
-    const updatedInput = firstOutsideResolved
-      ? { cwd: deepestExistingAncestor(firstOutsideResolved) }
-      : undefined;
-    return { decision: 'ask', reason: outsideReason, ...(updatedInput ? { updatedInput } : {}) };
   }
   if (listResult === 'allow') {
     return { decision: 'allow', reason: 'Matched allow rule.' };
   }
 
-  // 5. Mode default (no list matched)
-  // Settings-derived auto-approval modes take priority over a payload
-  // 'default' so that a user-level bypassPermissions is never shadowed.
-  const AUTO_MODES = new Set(['bypassPermissions', 'auto']);
-  const mode = (AUTO_MODES.has(defaultMode) && !AUTO_MODES.has(permissionMode))
-    ? defaultMode
-    : (permissionMode || defaultMode || 'default');
-
-  if (AUTO_MODES.has(mode)) {
-    return { decision: 'allow', reason: 'bypassPermissions mode.' };
-  }
-
-  if (mode === 'acceptEdits') {
-    const prefix = MCP_PREFIXES.find(p => name.startsWith(p));
-    const shortTool = prefix ? name.slice(prefix.length) : name;
-    if (isReadOnlyTool(name) || EDIT_WRITE_TOOLS.has(shortTool)) {
-      return { decision: 'allow', reason: 'acceptEdits mode: read-only or edit/write tool.' };
-    }
-    if (firstOutsideResolved !== null) {
-      return { decision: 'ask', reason: `Tool '${name}' is outside project sandbox in acceptEdits mode.` };
-    }
-    return { decision: 'allow', reason: 'acceptEdits mode: tool is inside project sandbox.' };
-  }
-
-  if (mode === 'plan') {
-    if (isReadOnlyTool(name)) {
-      return { decision: 'allow', reason: 'plan mode: read-only tool.' };
-    }
-    return { decision: 'ask', reason: `Tool '${name}' is not allowed in plan mode.` };
-  }
-
-  if (mode === 'dontAsk') {
-    return { decision: 'deny', reason: `Tool '${name}' not matched by any allow rule (dontAsk mode).` };
-  }
-
-  // default / unknown mode
-  if (firstOutsideResolved !== null) {
-    return {
-      decision: 'ask',
-      reason: `Path '${firstOutsidePath}' is outside project sandbox (${cwd}). Approve to grant mcp access.`,
-      updatedInput: { cwd: deepestExistingAncestor(firstOutsideResolved) },
-    };
-  }
-
-  return { decision: 'allow', reason: 'default mode: tool is inside project sandbox.' };
+  // 3. Permission modes are accepted for compatibility only. They no longer
+  // implement a sandbox policy; runtime safety is hard-deny + explicit deny.
+  const mode = permissionMode || defaultMode || 'default';
+  return { decision: 'allow', reason: `${mode} mode: trust/allow (pi-like).` };
 }
 
 module.exports.evaluatePermission = evaluatePermission;

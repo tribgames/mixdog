@@ -22,22 +22,23 @@ import {
   describeGrokOAuthCredentials,
   forgetGrokOAuthCredentials,
   hasGrokOAuthCredentials,
+  beginOAuthLogin as beginGrokOAuthLogin,
   loginOAuth as loginGrokOAuth,
 } from '../runtime/agent/orchestrator/providers/grok-oauth.mjs';
 
 export const API_PROVIDERS = Object.freeze([
-  Object.freeze({ id: 'openai', name: 'OpenAI', env: 'OPENAI_API_KEY', url: 'https://platform.openai.com/api-keys' }),
-  Object.freeze({ id: 'anthropic', name: 'Anthropic', env: 'ANTHROPIC_API_KEY', url: 'https://console.anthropic.com/settings/keys' }),
-  Object.freeze({ id: 'gemini', name: 'Gemini', env: 'GEMINI_API_KEY', url: 'https://aistudio.google.com/apikey' }),
-  Object.freeze({ id: 'deepseek', name: 'DeepSeek', env: 'DEEPSEEK_API_KEY', url: 'https://platform.deepseek.com/api_keys' }),
-  Object.freeze({ id: 'xai', name: 'xAI', env: 'XAI_API_KEY', url: 'https://console.x.ai' }),
-  Object.freeze({ id: 'opencode-go', name: 'OpenCode Go', env: 'OPENCODE_API_KEY', url: 'https://opencode.ai' }),
+  Object.freeze({ id: 'openai', name: 'OpenAI API', env: 'OPENAI_API_KEY', url: 'https://platform.openai.com/api-keys' }),
+  Object.freeze({ id: 'anthropic', name: 'Anthropic API', env: 'ANTHROPIC_API_KEY', url: 'https://console.anthropic.com/settings/keys' }),
+  Object.freeze({ id: 'gemini', name: 'Gemini API', env: 'GEMINI_API_KEY', url: 'https://aistudio.google.com/apikey' }),
+  Object.freeze({ id: 'deepseek', name: 'DeepSeek API', env: 'DEEPSEEK_API_KEY', url: 'https://platform.deepseek.com/api_keys' }),
+  Object.freeze({ id: 'xai', name: 'xAI API', env: 'XAI_API_KEY', url: 'https://console.x.ai' }),
+  Object.freeze({ id: 'opencode-go', name: 'OpenCode Go API', env: 'OPENCODE_API_KEY', url: 'https://opencode.ai' }),
 ]);
 
 export const OAUTH_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'openai-oauth', name: 'Codex', desc: '~/.codex/auth.json', has: hasOpenAIOAuthCredentials, describe: describeOpenAIOAuthCredentials, forget: forgetOpenAIOAuthCredentials, login: loginOpenAIOAuth }),
-  Object.freeze({ id: 'anthropic-oauth', name: 'Anthropic OAuth', desc: 'OAuth credentials (~/.claude/.credentials.json)', has: hasAnthropicOAuthCredentials, describe: describeAnthropicOAuthCredentials, forget: forgetAnthropicOAuthCredentials, login: loginAnthropicOAuth }),
-  Object.freeze({ id: 'grok-oauth', name: 'Grok', desc: '~/.grok/auth.json or browser OAuth (Grok Build)', has: hasGrokOAuthCredentials, describe: describeGrokOAuthCredentials, forget: forgetGrokOAuthCredentials, login: loginGrokOAuth }),
+  Object.freeze({ id: 'anthropic-oauth', name: 'Claude Code', desc: 'Mixdog OAuth credentials', has: hasAnthropicOAuthCredentials, describe: describeAnthropicOAuthCredentials, forget: forgetAnthropicOAuthCredentials, login: loginAnthropicOAuth }),
+  Object.freeze({ id: 'grok-oauth', name: 'Grok', desc: '~/.grok/auth.json or browser OAuth (Grok Build)', has: hasGrokOAuthCredentials, describe: describeGrokOAuthCredentials, forget: forgetGrokOAuthCredentials, begin: beginGrokOAuthLogin, login: loginGrokOAuth }),
 ]);
 
 export const LOCAL_PROVIDERS = Object.freeze([
@@ -75,15 +76,16 @@ export async function providerSetup(config = {}) {
   const providers = config.providers || {};
   const api = API_PROVIDERS.map((p) => {
     const configured = providers[p.id] || {};
-    const stored = hasStoredSecret(SECRET_ACCOUNTS.agentApiKey(p.id));
     const envName = AGENT_PROVIDER_ENV[p.id] || p.env;
     const env = Boolean(envName && process.env[envName]);
-    const authenticated = Boolean(getAgentApiKey(p.id));
+    const configuredEnabled = configured.enabled === true;
+    const authenticated = configuredEnabled || env || Boolean(getAgentApiKey(p.id));
+    const stored = configuredEnabled && !env ? true : authenticated && !env;
     return {
       ...p,
       group: 'api',
       type: 'api-key',
-      enabled: configured.enabled === true || authenticated,
+      enabled: configuredEnabled || authenticated,
       authenticated,
       stored,
       env,
@@ -239,6 +241,29 @@ export async function loginOAuthProvider(cfgMod, provider) {
   return { provider: id, type: 'oauth', authenticated: Boolean(auth.authenticated), status: auth.status || null };
 }
 
+export async function beginOAuthProviderLogin(cfgMod, provider) {
+  const id = String(provider || '').trim();
+  const oauth = OAUTH_BY_ID.get(id);
+  if (!oauth) throw new Error(`unknown OAuth provider "${id}"`);
+  if (typeof oauth.begin !== 'function') throw new Error(`${id} does not support interactive code login`);
+  const started = await oauth.begin();
+  return {
+    provider: id,
+    type: 'oauth',
+    url: started.url,
+    waitForCallback: started.waitForCallback,
+    cancel: started.cancel,
+    completeCode: async (code) => {
+      const result = await started.completeCode(code);
+      const auth = typeof oauth.describe === 'function'
+        ? oauth.describe()
+        : { authenticated: Boolean(oauth.has()), status: Boolean(oauth.has()) ? 'Set' : 'Not Set' };
+      updateConfigProvider(cfgMod, id, { enabled: Boolean(auth.authenticated) });
+      return { provider: id, type: 'oauth', authenticated: Boolean(auth.authenticated), status: auth.status || null, result };
+    },
+  };
+}
+
 export function saveProviderApiKey(cfgMod, provider, secret) {
   const id = String(provider || '').trim();
   if (!API_PROVIDER_IDS.has(id)) throw new Error(`unknown API-key provider "${id}"`);
@@ -247,6 +272,27 @@ export function saveProviderApiKey(cfgMod, provider, secret) {
   saveSecret(SECRET_ACCOUNTS.agentApiKey(id), value);
   updateConfigProvider(cfgMod, id, { enabled: true });
   return { provider: id, type: 'api-key', authenticated: true };
+}
+
+export function saveOpenAIUsageSessionKey(cfgMod, secret) {
+  const value = String(secret || '').trim();
+  if (!value) throw new Error('OpenAI usage session key is required for credit lookup');
+  saveSecret(SECRET_ACCOUNTS.openaiUsageSessionKey, value);
+  updateConfigProvider(cfgMod, 'openai', { enabled: true });
+  return { provider: 'openai', type: 'usage-auth', authenticated: true };
+}
+
+export function saveOpenCodeGoUsageAuth(cfgMod, { workspaceId, authCookie } = {}) {
+  const workspace = String(workspaceId || '').trim();
+  if (workspace && !/^wrk_[a-zA-Z0-9]+$/.test(workspace)) throw new Error('OpenCode Go workspaceId must look like wrk_...');
+  const cookie = String(authCookie || '').trim();
+  if (!cookie) throw new Error('OpenCode auth cookie is required for usage lookup');
+  const authMatch = /(?:^|;\s*)auth=([^;]+)/.exec(cookie);
+  saveSecret(SECRET_ACCOUNTS.opencodeGoAuthCookie, authMatch ? authMatch[1] : cookie);
+  updateConfigProvider(cfgMod, 'opencode-go', workspace
+    ? { enabled: true, workspaceId: workspace }
+    : { enabled: true });
+  return { provider: 'opencode-go', type: 'usage-auth', authenticated: true, workspaceId: workspace || null };
 }
 
 export function setLocalProvider(cfgMod, provider, { enabled, baseURL } = {}) {

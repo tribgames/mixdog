@@ -47,6 +47,7 @@ import { _maybeEncodePowerShellCommand } from './shell-command.mjs';
 import { _captureTrackedMtimes, _trackedDriftNoteAfter, _injectionBlockTargets, getDedupedDestructiveWarnings } from './builtin/bash-tool.mjs';
 import { scrubLoaderVars, scrubProviderSecrets } from './env-scrub.mjs';
 import { checkExecPolicyMessage } from './bash-policy-scan.mjs';
+import { startChildGuardian } from '../../../shared/child-guardian.mjs';
 
 // Default 600 s (10 min), max 1800 s. Aligned with the one-shot bash tool's
 // 600 s default (builtin/bash-tool.mjs); the persistent shell carries
@@ -158,6 +159,7 @@ function _installParentExitHook() {
     try { process.on('exit', sweep); } catch { /* ignore */ }
     try { process.on('SIGTERM', sweep); } catch { /* ignore */ }
     try { process.on('SIGINT', sweep); } catch { /* ignore */ }
+    try { process.on('SIGHUP', sweep); } catch { /* ignore */ }
 }
 
 function _startReaper() {
@@ -320,6 +322,11 @@ function _spawnSession(id, initialCwd = process.cwd()) {
         // detached has different semantics (no console attached, used for
         // daemonization — unwanted here).
         detached: process.platform !== 'win32',
+    });
+    startChildGuardian({
+        childPid: proc.pid,
+        childGroupPid: proc.pid,
+        label: 'bash-session',
     });
     proc.stdout.setEncoding('utf-8');
     proc.stderr.setEncoding('utf-8');

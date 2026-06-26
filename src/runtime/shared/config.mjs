@@ -1,6 +1,6 @@
 /**
  * Unified config reader/writer.
- * Single file: mixdog-config.json with sections: channels, agent, memory, search.
+ * Single file: mixdog-config.json with sections such as channels, agent, and memory.
  */
 import { readFileSync, mkdirSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
@@ -231,8 +231,9 @@ export function getCapabilities() {
 export const SECRET_ACCOUNTS = Object.freeze({
   discordToken: 'discord.token',
   webhookAuth:  'webhook.authtoken',
-  searchApiKey: (provider) => `search.${provider}.apiKey`,
   agentApiKey:  (provider) => `agent.${provider}.apiKey`,
+  openaiUsageSessionKey: 'agent.openai.usageSessionKey',
+  opencodeGoAuthCookie: 'agent.opencode-go.authCookie',
 })
 
 export function isDiscordSnowflake(value) {
@@ -284,17 +285,6 @@ export function getWebhookAuthtoken() {
   return _readSecret(SECRET_ACCOUNTS.webhookAuth)
 }
 
-const SEARCH_PROVIDERS = ['firecrawl', 'tavily', 'exa']
-
-/**
- * Returns the API key for a search provider.
- * Priority: MIXDOG_SEARCH_<PROVIDER>_APIKEY → keychain('search.<provider>.apiKey') → null
- */
-export function getSearchApiKey(provider) {
-  if (!SEARCH_PROVIDERS.includes(provider)) return null
-  return _readSecret(SECRET_ACCOUNTS.searchApiKey(provider))
-}
-
 // Standard provider env names take precedence so existing OPENAI_API_KEY-style
 // exports keep working, then MIXDOG_AGENT_<P>_APIKEY, then the OS keychain.
 // SSOT for agent API-key providers: setup-server.mjs and config-merge.mjs import
@@ -327,6 +317,21 @@ export function getAgentApiKey(provider) {
     if (process.env[alias]) return process.env[alias]
   }
   return null
+}
+
+export function getOpenAIUsageSessionKey() {
+  return process.env.OPENAI_USAGE_SESSION_KEY
+    || process.env.OPENAI_DASHBOARD_SESSION_KEY
+    || process.env.OPENAI_SESSION_KEY
+    || process.env.MIXDOG_OPENAI_USAGE_SESSION_KEY
+    || _readSecret(SECRET_ACCOUNTS.openaiUsageSessionKey)
+}
+
+export function getOpenCodeGoAuthCookie() {
+  return process.env.OPENCODE_AUTH_COOKIE
+    || process.env.OPENCODE_GO_AUTH_COOKIE
+    || process.env.MIXDOG_OPENCODE_AUTH_COOKIE
+    || _readSecret(SECRET_ACCOUNTS.opencodeGoAuthCookie)
 }
 
 /**

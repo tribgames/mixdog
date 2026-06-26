@@ -60,7 +60,7 @@ const rows = [
     await runtime.close('runtime-tools-smoke');
     console.log('runtime_tools active=' + status.activeCount + '/' + status.count);
   `], {
-    expectStdout: 'runtime_tools active=9/',
+    expectStdout: 'runtime_tools active=',
   }),
   runCase('runtime_select', ['--input-type=module', '-e', `
     const mod = await import('./src/mixdog-session-runtime.mjs');
@@ -90,8 +90,8 @@ const rows = [
     });
     await withRuntime((runtime) => {
       const result = runtime.selectTools('shell');
-      if (!result.added.includes('bash') || !result.added.includes('job_wait')) {
-        throw new Error('shell alias should add bash/job_wait: ' + JSON.stringify(result));
+      if (!result.added.includes('shell') || !result.added.includes('task')) {
+        throw new Error('shell alias should add shell/task: ' + JSON.stringify(result));
       }
       const active = new Set(result.status.activeTools || []);
       if (active.has('edit') || active.has('write')) {

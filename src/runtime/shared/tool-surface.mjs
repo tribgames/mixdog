@@ -1,7 +1,5 @@
 const DEFAULT_SUMMARY_MAX = 160;
-const STATUS_SEPARATOR = String(process.env.MIXDOG_ASCII_UI || '').trim().toLowerCase().match(/^(1|true|yes|on)$/)
-  ? ' - '
-  : ' · ';
+const STATUS_SEPARATOR = ' · ';
 
 export function stripToolPrefix(name) {
   return String(name || 'tool')
@@ -119,7 +117,7 @@ function summarizePatch(patch, basePath) {
 function codeGraphLabel(args) {
   const mode = String(args.mode || args.action || '').toLowerCase();
   if (mode === 'prewarm' || mode === 'index' || mode === 'build' || mode === 'refresh') return 'Setup';
-  if (mode === 'search' || mode === 'find_symbol') return 'Search';
+  if (mode === 'search' || mode === 'find_symbol' || mode === 'references' || mode === 'callers' || mode === 'callees') return 'Search';
   return 'Read';
 }
 
@@ -144,10 +142,10 @@ export function displayToolName(name, args = {}) {
       const parsed = parseToolArgs(args);
       return parsed && parsed.old_string === '' ? 'Create' : 'Update';
     }
-    case 'bash':
+    case 'shell':
     case 'bash_session':
     case 'shell_command':
-    case 'job_wait':
+    case 'task':
     case 'trigger_schedule':
       return 'Run';
     case 'grep':
@@ -155,11 +153,17 @@ export function displayToolName(name, args = {}) {
     case 'tool_search':
       return 'Search';
     case 'search':
+    case 'search_query':
+    case 'image_query':
+    case 'web_search':
+    case 'web_search_call':
+    case 'firecrawl_search':
       return 'Web Search';
+    case 'explore':
+      return 'Explore';
     case 'web_fetch':
     case 'fetch':
     case 'download_attachment':
-    case 'crawl':
       return 'Fetch';
     case 'diagnostics':
     case 'open_config':
@@ -171,7 +175,6 @@ export function displayToolName(name, args = {}) {
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
     case 'cwd':
-    case 'setup':
       return 'Setup';
     case 'request_user_input':
       return 'Ask User';
@@ -225,12 +228,12 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       return displayToolPath(a.path ?? a.file ?? a.file_path ?? '');
     case 'apply_patch':
       return summarizePatch(a.patch, a.base_path);
-    case 'bash':
+    case 'shell':
     case 'bash_session':
     case 'shell_command':
       return truncateCommand(a.description || a.command || a.cmd || '', max);
-    case 'job_wait':
-      return compactParts([a.action || a.type || 'job', a.jobId || a.id || '']);
+    case 'task':
+      return compactParts([a.action || a.type || 'task', a.task_id || '']);
     case 'list':
     case 'ls':
       return compactParts([
@@ -251,14 +254,19 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         a.path ? `path: ${displayToolPath(a.path)}` : '',
       ]);
     case 'search':
-      return quoted(a.query || '', max);
+    case 'search_query':
+    case 'image_query':
+    case 'web_search':
+    case 'web_search_call':
+    case 'firecrawl_search':
+      return quoted(a.query || a.keywords || '', max);
+    case 'explore':
+      return truncateSingleLine(firstText(a.query, a.prompt, a.task, a.goal, a.path), Math.min(max, 80));
     case 'tool_search':
       return quoted(firstText(a.query, a.q, a.text), max);
     case 'web_fetch':
     case 'fetch':
       return truncateToolText(a.url || a.uri || '', max);
-    case 'crawl':
-      return truncateToolText(firstText(a.url, a.start_url, a.startUrl, a.uri), max);
     case 'download_attachment':
       return displayToolPath(a.filename || a.name || a.url || '');
     case 'read_mcp_resource':
@@ -407,6 +415,26 @@ function summarizeUpdateResult(text, args) {
   return null;
 }
 
+function textBetweenTag(text, tag) {
+  const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
+  const match = re.exec(String(text ?? ''));
+  return match ? match[1].trim() : '';
+}
+
+function firstAgentResultLine(text) {
+  const finalAnswer = textBetweenTag(text, 'final-answer') || textBetweenTag(text, 'result');
+  const raw = finalAnswer || text;
+  for (const line of String(raw ?? '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (/^<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
+    if (/^(?:bridge job|status|type|target|role|agent|preset|model|effort|fast|limits|session|job|task-id):\s*/i.test(trimmed)) continue;
+    if (/^\[[a-z-]+:\s*[^\]]*\]$/i.test(trimmed)) continue;
+    return truncateSingleLine(trimmed, 120);
+  }
+  return '';
+}
+
 /**
  * Derive a short semantic one-liner for a completed tool call using only the
  * tool name, parsed args, and the raw result text. Returns null when nothing
@@ -463,11 +491,11 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       if (n === 0) return null;
       return `Found ${n} ${pluralize(n, 'file')}`;
     }
-    case 'bash':
+    case 'shell':
     case 'bash_session':
     case 'shell_command': {
       if (!trimmed) return '(no output)';
-      const job = /^\[job:\s*([^\]]+)\]/mi.exec(text);
+      const job = /^\[(?:task_id|job):\s*([^\]]+)\]/mi.exec(text);
       const status = /^\[status:\s*([^\]]+)\]/mi.exec(text);
       const exit = /^\[exit:\s*([^\]]+)\]/mi.exec(text);
       if (job || status || exit) {
@@ -504,9 +532,26 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       }
       return null;
     }
+    case 'search_query':
+    case 'image_query':
+    case 'web_search':
+    case 'web_search_call':
+    case 'firecrawl_search': {
+      const match = /(\d+)\s+results?/i.exec(text);
+      if (match) {
+        const n = Number(match[1]);
+        return `Found ${n} ${pluralize(n, 'result')}`;
+      }
+      return trimmed ? firstAgentResultLine(text) || null : null;
+    }
+    case 'explore': {
+      return trimmed ? firstAgentResultLine(text) || null : null;
+    }
     case 'bridge':
     case 'agent':
     case 'task': {
+      const answerLine = firstAgentResultLine(text);
+      if (answerLine) return answerLine;
       const job = /^bridge job:\s*(job_[^\s]+)/mi.exec(text);
       const status = /^status:\s*([^\s(]+)/mi.exec(text);
       const role = /^role:\s*(.+)$/mi.exec(text);
@@ -535,4 +580,209 @@ export function isExplorerSurface(label) {
 
 export function isMemorySurface(label) {
   return label === 'Memory';
+}
+
+// ── Aggregate tool-card classification & formatting ──────────────
+
+export const CATEGORY_ORDER = [
+  'Read', 'Search', 'Web Research', 'Memory', 'Explore',
+  'Edit', 'Shell', 'Agent', 'Channel', 'Setup', 'Other',
+];
+
+const TOOL_CATEGORY = new Map([
+  ['read', 'Read'],
+  ['view_image', 'Read'],
+  ['read_mcp_resource', 'Read'],
+  ['grep', 'Search'],
+  ['glob', 'Search'],
+  ['list', 'Search'],
+  ['ls', 'Search'],
+  ['tool_search', 'Search'],
+  ['search', 'Web Research'],
+  ['web_search', 'Web Research'],
+  ['search_query', 'Web Research'],
+  ['image_query', 'Web Research'],
+  ['web_search_call', 'Web Research'],
+  ['firecrawl_search', 'Web Research'],
+  ['web_fetch', 'Web Research'],
+  ['fetch', 'Web Research'],
+  ['download_attachment', 'Web Research'],
+  ['recall', 'Memory'],
+  ['recall_memory', 'Memory'],
+  ['search_memories', 'Memory'],
+  ['remember', 'Memory'],
+  ['save_memory', 'Memory'],
+  ['update_memory', 'Memory'],
+  ['memory', 'Memory'],
+  ['explore', 'Explore'],
+  ['write', 'Edit'],
+  ['edit', 'Edit'],
+  ['apply_patch', 'Edit'],
+  ['bash', 'Shell'],
+  ['shell', 'Shell'],
+  ['shell_command', 'Shell'],
+  ['bash_session', 'Shell'],
+  ['job_wait', 'Shell'],
+  ['task', 'Agent'],
+  ['bridge', 'Agent'],
+  ['agent', 'Agent'],
+  ['reply', 'Channel'],
+  ['react', 'Channel'],
+  ['edit_message', 'Channel'],
+  ['activate_channel_bridge', 'Channel'],
+  ['inject_command', 'Channel'],
+  ['diagnostics', 'Setup'],
+  ['open_config', 'Setup'],
+  ['provider_status', 'Setup'],
+  ['channel_status', 'Setup'],
+  ['schedule_status', 'Setup'],
+  ['schedule_control', 'Setup'],
+  ['reload_config', 'Setup'],
+  ['list_mcp_resources', 'Setup'],
+  ['list_mcp_resource_templates', 'Setup'],
+  ['cwd', 'Setup'],
+  ['request_user_input', 'Setup'],
+  ['update_plan', 'Setup'],
+  ['trigger_schedule', 'Setup'],
+  ['skill', 'Setup'],
+  ['skill_execute', 'Setup'],
+  ['skill_view', 'Setup'],
+  ['skills_list', 'Setup'],
+  ['use_skill', 'Setup'],
+]);
+
+/** Return the aggregate category for a tool name + args. */
+export function classifyToolCategory(name, args = {}) {
+  const normalized = normalizeToolName(name);
+  if (normalized === 'code_graph') {
+    const mode = String(args.mode || args.action || '').toLowerCase();
+    if (mode === 'prewarm' || mode === 'index' || mode === 'build' || mode === 'refresh') return 'Setup';
+    return (mode === 'search' || mode === 'find_symbol' || mode === 'references' || mode === 'callers' || mode === 'callees') ? 'Search' : 'Read';
+  }
+  return TOOL_CATEGORY.get(normalized) || 'Other';
+}
+
+const CATEGORY_COPY = new Map([
+  ['Read', { active: 'Reading', done: 'Read', noun: 'item' }],
+  ['Search', { active: 'Searching', done: 'Searched', noun: 'item' }],
+  ['Web Research', { active: 'Researching', done: 'Researched', noun: 'web item' }],
+  ['Memory', { active: 'Checking', done: 'Checked', noun: 'memory item' }],
+  ['Explore', { active: 'Exploring', done: 'Explored', noun: 'item' }],
+  ['Edit', { active: 'Editing', done: 'Edited', noun: 'item' }],
+  ['Shell', { active: 'Running', done: 'Ran', noun: 'command' }],
+  ['Agent', { active: 'Calling', done: 'Called', noun: 'agent' }],
+  ['Channel', { active: 'Sending', done: 'Sent', noun: 'message' }],
+  ['Setup', { active: 'Setting up', done: 'Set up', noun: 'item' }],
+  ['Other', { active: 'Calling', done: 'Called', noun: 'tool' }],
+]);
+
+/** Active gerund for a category (e.g. "Reading" for "Read"). */
+export function activeCategoryLabel(category) {
+  return CATEGORY_COPY.get(category)?.active || category;
+}
+
+function doneCategoryLabel(category) {
+  return CATEGORY_COPY.get(category)?.done || category;
+}
+
+function categoryNoun(category, count) {
+  const copy = CATEGORY_COPY.get(category) || { noun: 'item' };
+  return pluralize(count, copy.noun, copy.pluralNoun || `${copy.noun}s`);
+}
+
+/**
+ * Build a comma-separated header from per-category counts.
+ * e.g. "Read 6 items, Searched 5 items, Called 1 agent"
+ */
+export function formatAggregateHeader(categories, { pending = false, order = null } = {}) {
+  const categoryKeys = Object.keys(categories || {});
+  const preferred = Array.isArray(order) && order.length ? order : categoryKeys;
+  const seen = new Set();
+  const ordered = [];
+  const add = (cat) => {
+    if (!cat || seen.has(cat) || (categories[cat] || 0) <= 0) return;
+    seen.add(cat);
+    ordered.push(cat);
+  };
+  for (const cat of preferred) add(cat);
+  for (const cat of CATEGORY_ORDER) add(cat);
+  for (const cat of Object.keys(categories || {})) add(cat);
+
+  return ordered
+    .map((cat) => {
+      const count = Number(categories[cat] || 0);
+      const label = pending ? activeCategoryLabel(cat) : doneCategoryLabel(cat);
+      return `${label} ${count} ${categoryNoun(cat, count)}`;
+    })
+    .join(', ');
+}
+
+/**
+ * Join a list of per-call result summaries into a single detail line,
+ * deduplicating exact repeats while preserving order.
+ */
+export function formatAggregateDetail(summaries) {
+  if (!summaries || summaries.length === 0) return '';
+  const metrics = new Map();
+  const order = [];
+  const extras = new Set();
+
+  const addMetric = (key, initial) => {
+    if (!metrics.has(key)) {
+      metrics.set(key, { ...initial });
+      order.push({ type: 'metric', key });
+      return metrics.get(key);
+    }
+    return metrics.get(key);
+  };
+
+  const addExtra = (text) => {
+    if (!text || extras.has(text)) return;
+    extras.add(text);
+    order.push({ type: 'extra', text });
+  };
+
+  for (const raw of summaries) {
+    const text = String(raw || '').trim();
+    if (!text) continue;
+
+    let match = /^Read\s+(\d+)\s+lines?$/i.exec(text);
+    if (match) {
+      const metric = addMetric('read_lines', { count: 0, render: (m) => `Read ${m.count} ${pluralize(m.count, 'line')}` });
+      metric.count += Number(match[1]);
+      continue;
+    }
+
+    if (/^Read image$/i.test(text)) {
+      const metric = addMetric('read_images', { count: 0, render: (m) => `Read ${m.count} ${pluralize(m.count, 'image')}` });
+      metric.count += 1;
+      continue;
+    }
+
+    match = /^Found\s+(\d+)\s+([a-z]+)$/i.exec(text);
+    if (match) {
+      const nounRaw = match[2].toLowerCase();
+      const singular = nounRaw.endsWith('ies') ? `${nounRaw.slice(0, -3)}y` : nounRaw.endsWith('s') ? nounRaw.slice(0, -1) : nounRaw;
+      const plural = nounRaw.endsWith('s') ? nounRaw : `${nounRaw}s`;
+      const key = `found_${plural}`;
+      const metric = addMetric(key, { count: 0, singular, plural, render: (m) => `Found ${m.count} ${pluralize(m.count, m.singular, m.plural)}` });
+      metric.count += Number(match[1]);
+      continue;
+    }
+
+    match = /^Updated(?:\s+-)?\s+\+(\d+)\s+-(\d+)$/i.exec(text);
+    if (match) {
+      const metric = addMetric('updated', { added: 0, removed: 0, render: (m) => `Updated +${m.added} -${m.removed}` });
+      metric.added += Number(match[1]);
+      metric.removed += Number(match[2]);
+      continue;
+    }
+
+    addExtra(text);
+  }
+
+  return order
+    .map((item) => item.type === 'metric' ? metrics.get(item.key)?.render(metrics.get(item.key)) : item.text)
+    .filter(Boolean)
+    .join(', ');
 }

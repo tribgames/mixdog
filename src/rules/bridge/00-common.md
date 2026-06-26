@@ -1,6 +1,6 @@
 # Bridge Constraints
 
-- `bridge` is Lead-only; workers/hidden roles cannot delegate.
+- `bridge` is Lead-only; bridge agents and hidden roles cannot delegate.
 - Tool denial -> do not retry; report it.
 
 ## First Tool

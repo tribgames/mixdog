@@ -73,7 +73,7 @@ export function resolveShell() {
         _resolvedShell = shellSpec('/bin/sh', 'posix');
         return _resolvedShell;
     }
-    const explicit = process.env.CLAUDE_CODE_SHELL;
+    const explicit = process.env.MIXDOG_SHELL;
     if (explicit && shellTypeFor(explicit) === 'powershell') {
         _resolvedShell = shellSpec(explicit);
         return _resolvedShell;

@@ -2,36 +2,110 @@
  * components/Picker.jsx — selectable list picker for slash commands.
  *
  * Renders a bordered, scrollable list of items with up/down navigation,
- * Enter confirm and Escape exits or backs out. Used by /model and /resume to let the
+ * Enter confirms and Escape backs out. Used by /model and /resume to let the
  * user pick from available presets or saved sessions.
  *
  * Keyboard:
  *   ↑ / ↓      — move selection (wraps at ends)
  *   ← / →      — optional picker-specific adjustment
- *   Enter       — confirm selection, calls onSelect(value)
- *   Escape      — exit, calls onCancel()
+ *   Tab         — optional picker-specific toggle
+ *   Enter       — choose/apply the selected row
+ *   Escape      — back/cancel
  *   Ctrl+C      — ignored by the TUI so terminal copy behavior can win
  */
 import React, { useState, useCallback, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
+import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
 
 /** Max items visible at once before scrolling kicks in. */
 const MAX_VISIBLE = 8;
+const DEFAULT_LABEL_WIDTH = 28;
+const SELECT_HELP = '↑/↓ Select · Enter Choose · Esc Back';
+const ADJUST_HELP = '↑/↓ Select · ←/→ Adjust · Enter Choose · Esc Back';
 
 function truncateText(value, width) {
   const text = String(value || '');
   if (!(width > 0)) return '';
-  if (text.length <= width) return text;
-  return width <= 1 ? '…'.repeat(Math.max(0, width)) : `${text.slice(0, Math.max(1, width - 1))}…`;
+  if (stringWidth(text) <= width) return text;
+  if (width <= 1) return '…'.repeat(Math.max(0, width));
+  let out = '';
+  for (const ch of text) {
+    if (stringWidth(`${out}${ch}…`) > width) break;
+    out += ch;
+  }
+  return `${out}…`;
 }
 
-export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, help, columns = 80 }) {
-  const [selectedIndex, setSelectedIndex] = useState(0);
+function padCells(value, width) {
+  const text = String(value || '');
+  const gap = Math.max(0, width - stringWidth(text));
+  return `${text}${' '.repeat(gap)}`;
+}
+
+function clampLabelWidth(value, columns) {
+  const maxWidth = Math.max(12, Math.floor(columns * 0.45));
+  return Math.max(1, Math.min(Number(value) || DEFAULT_LABEL_WIDTH, maxWidth));
+}
+
+function clampMetaWidth(value, columns, labelWidth) {
+  const available = Math.max(0, columns - labelWidth - 16);
+  const requested = Number(value) || 24;
+  return Math.max(0, Math.min(requested, available));
+}
+
+function normalizeFooterLines(activeFooter, columns) {
+  const rawLines = Array.isArray(activeFooter)
+    ? activeFooter
+    : (activeFooter ? [activeFooter] : []);
+  return rawLines.map((line) => {
+    const isObject = line && typeof line === 'object';
+    const glyph = isObject ? String(line.glyph || '') : '';
+    const color = isObject ? line.color || theme.panelTitle : theme.text;
+    const text = isObject ? String(line.text || '') : String(line || '');
+    return {
+      glyph,
+      color,
+      text: truncateText(text, Math.max(0, columns - (glyph ? 7 : 4))),
+    };
+  }).filter((line) => line.glyph || line.text);
+}
+
+export function Picker({
+  items,
+  onSelect,
+  onCancel,
+  onLeft,
+  onRight,
+  onTab,
+  title,
+  description = '',
+  footer = '',
+  help,
+  columns = 80,
+  labelWidth: labelWidthOverride = null,
+  metaWidth: metaWidthOverride = null,
+  initialIndex = 0,
+  indexMode = 'auto',
+  fillHeight = false,
+  visibleCount = MAX_VISIBLE,
+}) {
+  const visibleLimit = Math.max(1, Math.floor(Number(visibleCount) || MAX_VISIBLE));
+  const [selectedIndex, setSelectedIndex] = useState(() => Math.max(0, Math.min(Number(initialIndex) || 0, Math.max(0, items.length - 1))));
 
   useEffect(() => {
     setSelectedIndex((i) => Math.min(Math.max(0, i), Math.max(0, items.length - 1)));
   }, [items.length]);
+
+  useEffect(() => {
+    setSelectedIndex(Math.max(0, Math.min(Number(initialIndex) || 0, Math.max(0, items.length - 1))));
+  }, [initialIndex, items.length]);
+
+  const activeFooter = typeof footer === 'function' ? footer(items[selectedIndex], selectedIndex) : footer;
+  const footerLines = normalizeFooterLines(activeFooter, columns);
+  const footerReserveRows = footerLines.length > 0 ? footerLines.length + 1 : 0;
+  const effectiveVisibleLimit = Math.max(1, visibleLimit - footerReserveRows);
+  const helpText = help || (onLeft || onRight || onTab ? ADJUST_HELP : SELECT_HELP);
 
   useInput(
     useCallback(
@@ -51,11 +125,11 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, help
           return;
         }
         if (key.pageUp) {
-          setSelectedIndex((i) => Math.max(0, i - MAX_VISIBLE));
+          setSelectedIndex((i) => Math.max(0, i - effectiveVisibleLimit));
           return;
         }
         if (key.pageDown) {
-          setSelectedIndex((i) => Math.min(items.length - 1, i + MAX_VISIBLE));
+          setSelectedIndex((i) => Math.min(items.length - 1, i + effectiveVisibleLimit));
           return;
         }
         if (key.home) {
@@ -74,8 +148,13 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, help
           if (onRight) onRight(items[selectedIndex], selectedIndex);
           return;
         }
+        if (key.tab || input === '\t') {
+          if (onTab) onTab(items[selectedIndex], selectedIndex);
+          return;
+        }
         if (key.return) {
-          onSelect(items[selectedIndex].value, items[selectedIndex]);
+          const selected = items[selectedIndex];
+          if (selected && onSelect) onSelect(selected.value, selected);
           return;
         }
         if (key.escape) {
@@ -83,24 +162,39 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, help
           return;
         }
       },
-      [items, selectedIndex, onSelect, onCancel, onLeft, onRight],
+      [items, selectedIndex, onSelect, onCancel, onLeft, onRight, onTab, effectiveVisibleLimit],
     ),
   );
 
   // Clamp selected index when items change length.
   if (items.length === 0) {
+    const emptyDescription = truncateText(description, Math.max(0, columns - 4));
     return (
-      <Box flexDirection="column" flexShrink={0}>
+      <Box flexDirection="column" flexShrink={0} height={fillHeight ? '100%' : undefined}>
         <Box
           flexDirection="column"
           borderStyle="round"
-          borderColor={theme.subtle}
+          borderColor={theme.promptBorder}
           paddingX={1}
-          height={4}
+          height={fillHeight ? '100%' : undefined}
           width="100%"
         >
-          <Text color={theme.panelTitle}>{title || 'Picker'}</Text>
-          <Text color={theme.inactive}> (empty) </Text>
+          <Box flexDirection="row" justifyContent="space-between" marginBottom={0}>
+            <Text color={theme.panelTitle}>{title || 'Picker'}</Text>
+            <Text color={theme.subtle}>{helpText}</Text>
+          </Box>
+          {emptyDescription ? (
+            <>
+              <Text> </Text>
+              <Text color={theme.text}>{emptyDescription}</Text>
+              <Text> </Text>
+            </>
+          ) : (
+            <>
+              <Text> </Text>
+              <Text color={theme.inactive}>(empty)</Text>
+            </>
+          )}
         </Box>
       </Box>
     );
@@ -108,63 +202,112 @@ export function Picker({ items, onSelect, onCancel, onLeft, onRight, title, help
 
   // Scroll window centered on the selected item.
   const total = items.length;
-  const half = Math.floor(MAX_VISIBLE / 2);
+  const half = Math.floor(effectiveVisibleLimit / 2);
   let start = Math.max(0, selectedIndex - half);
-  let end = Math.min(total, start + MAX_VISIBLE);
-  if (end - start < MAX_VISIBLE && start > 0) {
-    start = Math.max(0, end - MAX_VISIBLE);
+  let end = Math.min(total, start + effectiveVisibleLimit);
+  if (end - start < effectiveVisibleLimit && start > 0) {
+    start = Math.max(0, end - effectiveVisibleLimit);
   }
   const visible = items.slice(start, end);
+  const showIndex = indexMode === 'always'
+    ? total > 0
+    : indexMode === 'never'
+      ? false
+      : total > effectiveVisibleLimit;
+  const indexWidth = showIndex ? stringWidth(`${total}.`) : 0;
+  const indexOffset = showIndex ? indexWidth + 1 : 0;
 
-  // Compute max label width for alignment.
-  const maxLabelWidth = visible.reduce((w, item) => Math.max(w, item.label.length), 0);
-  const labelWidth = Math.min(maxLabelWidth, Math.max(12, Math.floor(columns * 0.32)));
-  const descriptionWidth = Math.max(0, columns - labelWidth - 10);
+  // Keep the label column fixed across menus. Per-picker overrides are still
+  // allowed for intentionally compact surfaces such as providers/resume.
+  const labelWidth = clampLabelWidth(labelWidthOverride ?? DEFAULT_LABEL_WIDTH, columns);
+  const hasMeta = metaWidthOverride != null || visible.some((item) => item.meta || item.modelProfile || item.metaParts);
+  const metaWidth = hasMeta ? clampMetaWidth(metaWidthOverride, columns, labelWidth) : 0;
+  const descriptionWidth = Math.max(0, columns - indexOffset - labelWidth - (hasMeta ? metaWidth + 14 : 12));
+  const panelDescription = truncateText(description, Math.max(0, columns - 4));
 
   return (
-    <Box flexDirection="column" flexShrink={0} width="100%">
+    <Box flexDirection="column" flexShrink={0} width="100%" height={fillHeight ? '100%' : undefined}>
       <Box
         flexDirection="column"
         borderStyle="round"
         borderColor={theme.promptBorder}
         paddingX={1}
         width="100%"
+        height={fillHeight ? '100%' : undefined}
       >
-        <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
+        <Box flexDirection="row" justifyContent="space-between" marginBottom={panelDescription ? 0 : 1}>
           <Text color={theme.panelTitle}>{title}</Text>
-          <Text color={theme.subtle}>{help || '^/v select - Enter choose - Esc exit'}</Text>
+          <Text color={theme.subtle}>{helpText}</Text>
         </Box>
+        {panelDescription ? (
+          <>
+            <Text> </Text>
+            <Text color={theme.text}>{panelDescription}</Text>
+            <Text> </Text>
+          </>
+        ) : null}
         {visible.map((item, i) => {
           const idx = start + i;
           const isSelected = idx === selectedIndex;
           return (
             <ItemRow
               key={item.value}
+              indexText={showIndex ? `${idx + 1}.` : ''}
+              indexWidth={indexWidth}
               label={item.label}
+              meta={item.meta || item.modelProfile || ''}
+              metaParts={item.metaParts}
               description={item.description}
               labelWidth={labelWidth}
+              metaWidth={metaWidth}
               descriptionWidth={descriptionWidth}
+              showMeta={hasMeta}
               isSelected={isSelected}
             />
           );
         })}
+        {footerLines.length > 0 ? (
+          <>
+            <Box flexGrow={1} />
+            {footerLines.map((line, index) => (
+              <Text key={`footer-${index}`}>
+                {line.glyph ? <Text color={line.color}>{line.glyph} </Text> : null}
+                <Text color={theme.text}>{line.text}</Text>
+              </Text>
+            ))}
+          </>
+        ) : null}
       </Box>
     </Box>
   );
 }
 
-const ItemRow = React.memo(function ItemRow({ label, description, labelWidth, descriptionWidth, isSelected }) {
+const ItemRow = React.memo(function ItemRow({ indexText, indexWidth, label, meta, metaParts, description, labelWidth, metaWidth, descriptionWidth, showMeta, isSelected }) {
   const displayLabel = truncateText(label, labelWidth);
+  const displayMeta = truncateText(meta, metaWidth);
   const displayDescription = truncateText(description, descriptionWidth);
+  const parts = Array.isArray(metaParts) ? metaParts : null;
 
   return (
     <Box flexDirection="row" width="100%" backgroundColor={isSelected ? theme.userMessageBackground : undefined}>
-      <Text color={isSelected ? theme.text : theme.inactive}>
-        {isSelected ? '> ' : '  '}
-        {displayLabel.padEnd(labelWidth)}
+      {indexWidth > 0 ? (
+        <Text color={theme.subtle}>
+          {padCells(indexText, indexWidth)}{' '}
+        </Text>
+      ) : null}
+      <Text color={theme.text}>
+        {padCells(displayLabel, labelWidth)}
       </Text>
+      {showMeta ? (
+        <Text color={theme.text}>
+          {'  '}
+          {parts
+            ? padCells(parts.map((part) => padCells(truncateText(part?.text || '', Number(part?.width) || 1), Number(part?.width) || 1)).join('  '), metaWidth)
+            : padCells(displayMeta, metaWidth)}
+        </Text>
+      ) : null}
       {displayDescription ? (
-        <Text color={isSelected ? theme.text : theme.inactive}>
+        <Text color={theme.text}>
           {'  '}
           {displayDescription}
         </Text>

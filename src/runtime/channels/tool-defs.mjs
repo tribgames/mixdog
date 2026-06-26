@@ -153,8 +153,8 @@ export const TOOL_DEFS = [
   },
   {
     name: "inject_command",
-    title: "Inject Claude Code Slash Command",
-    annotations: { title: "Inject Claude Code Slash Command", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    title: "Inject Mixdog Slash Command",
+    annotations: { title: "Inject Mixdog Slash Command", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     description: "Inject slash command.",
     inputSchema: {
       type: "object",

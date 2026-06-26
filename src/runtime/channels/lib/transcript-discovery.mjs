@@ -8,7 +8,7 @@ import {
 } from "./session-discovery.mjs";
 
 function resolveTranscriptForSession(session) {
-  const projectsDir = join(homedir(), ".claude", "projects");
+  const projectsDir = join(homedir(), ".mixdog", "projects");
   const projectSlug = cwdToProjectSlug(process.cwd());
   const directTranscript = session.transcriptPath ? resolve(session.transcriptPath) : "";
   if (directTranscript && existsSync(directTranscript)) {
@@ -49,7 +49,7 @@ function resolveTranscriptForSession(session) {
   };
 }
 function findLatestTranscriptByMtime(cwd) {
-  const projectsDir = join(homedir(), ".claude", "projects");
+  const projectsDir = join(homedir(), ".mixdog", "projects");
   const slug = cwdToProjectSlug(cwd ?? process.cwd());
   const projectDir = join(projectsDir, slug);
   try {

@@ -1,10 +1,10 @@
 'use strict';
 /**
  * settings-loader.cjs
- * Loads and merges Claude Code settings from three tiers (lowest → highest):
- *   1. User global:   $CLAUDE_CONFIG_DIR/settings.json (or ~/.claude/settings.json)
- *   2. Project:       $CLAUDE_PROJECT_DIR/.claude/settings.json  (or cwd/.claude/settings.json)
- *   3. Project local: $CLAUDE_PROJECT_DIR/.claude/settings.local.json
+ * Loads and merges Mixdog settings from three tiers (lowest → highest):
+ *   1. User global:   $MIXDOG_CONFIG_DIR/settings.json (or ~/.mixdog/settings.json)
+ *   2. Project:       $MIXDOG_PROJECT_DIR/.mixdog/settings.json  (or cwd/.mixdog/settings.json)
+ *   3. Project local: $MIXDOG_PROJECT_DIR/.mixdog/settings.local.json
  *
  * Only `permissions` sub-tree is returned; the rest is ignored.
  * Pure fs/path — no external deps.
@@ -66,15 +66,15 @@ function mergePermissions(base, overlay) {
  * Returns `{ allow: string[], deny: string[], ask: string[], defaultMode: string }`.
  */
 function loadPermissions(projectDir) {
-  const userConfigDir = process.env.CLAUDE_CONFIG_DIR ||
-    path.join(os.homedir(), '.claude');
+  const userConfigDir = process.env.MIXDOG_CONFIG_DIR ||
+    path.join(os.homedir(), '.mixdog');
   const projDir = projectDir ||
-    process.env.CLAUDE_PROJECT_DIR ||
+    process.env.MIXDOG_PROJECT_DIR ||
     process.cwd();
 
   const userSettings    = readJsonCached(path.join(userConfigDir, 'settings.json'));
-  const projectSettings = readJsonCached(path.join(projDir, '.claude', 'settings.json'));
-  const localSettings   = readJsonCached(path.join(projDir, '.claude', 'settings.local.json'));
+  const projectSettings = readJsonCached(path.join(projDir, '.mixdog', 'settings.json'));
+  const localSettings   = readJsonCached(path.join(projDir, '.mixdog', 'settings.local.json'));
 
   // Accept permissions from `settings.permissions` (canonical) OR top-level
   // `allow`/`deny`/`ask`/`defaultMode` fields (common user shorthand).

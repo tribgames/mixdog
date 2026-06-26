@@ -497,7 +497,7 @@ export function deleteSession(id) {
     return removed;
 }
 const DEFAULT_SESSION_TTL_MS = 5 * 60 * 1000; // 5 minutes idle — aligned with Anthropic 5m messages tier and OpenAI in-memory cache window
-// Completed bridge workers (idle/done/error) live until terminal reap — must
+// Completed bridge agents (idle/done/error) live until terminal reap — must
 // match TERMINAL_REAP_MS / _scheduleBridgeReap (3_600_000) in index.mjs and
 // bridge-stall-watchdog.mjs so the store sweep is the durable 1h reaper.
 const BRIDGE_TERMINAL_TTL_MS = 60 * 60 * 1000;

@@ -30,8 +30,8 @@ export const theme = {
   inactive: 'rgb(136,136,136)', // secondary text
   subtle: 'rgb(140,140,140)', // helper text / quiet rules
   promptBorder: 'rgb(158,158,158)', // input border / prompt
-  success: 'rgb(36,173,91)', // dense Claude-like green accent
-  error: 'rgb(239,68,88)', // dense Claude-like red accent
+  success: 'rgb(28,150,78)', // muted Claude-like green accent
+  error: 'rgb(210,60,76)', // muted Claude-like red accent
   warning: 'rgb(204,157,44)', // muted amber
   suggestion: 'rgb(47,127,255)', // dense Claude-like path/link blue
   panelTitle: 'rgb(215,119,87)', // panel/picker titles stay orange

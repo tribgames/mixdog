@@ -1,8 +1,8 @@
 /**
  * dispatch-persist — crash / restart recovery for async dispatch handles.
  *
- * Plugin MCP server can be restarted by Claude Code at any time (idle timeout,
- * user reload, etc.). Any in-flight dispatch whose merge callback had not yet
+ * Async dispatch workers can restart while a request is in flight. Any dispatch
+ * whose merge callback had not yet
  * run would otherwise be orphaned silently — handle issued, no result, no
  * abort notification.
  *

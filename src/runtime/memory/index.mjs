@@ -15,12 +15,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
 function readPluginVersion() {
   try {
-    const manifestPath = path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json')
-    return JSON.parse(fs.readFileSync(manifestPath, 'utf8')).version || '0.0.1'
+    return JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, 'package.json'), 'utf8')).version || '0.0.1'
   } catch { return '0.0.1' }
 }
 const PLUGIN_VERSION = readPluginVersion()
@@ -98,7 +97,8 @@ import { listCore, addCore, editCore, deleteCore, compactCoreIds, CORE_SUMMARY_M
 import { resolveProjectId, resolveProjectScope } from './lib/project-id-resolver.mjs'
 import { openTraceDatabase, insertTraceEvents, enqueueTraceEvents, insertBridgeCalls, registerTraceExitDrain } from './lib/trace-store.mjs'
 import { updateJsonAtomicSync, writeJsonAtomicSync } from '../shared/atomic-file.mjs'
-const DATA_DIR = process.env.CLAUDE_PLUGIN_DATA || process.argv[2] || null
+import { resolvePluginData } from '../shared/plugin-paths.mjs'
+const DATA_DIR = process.argv[2] || resolvePluginData()
 if (!DATA_DIR) {
   __mixdogMemoryLog('[memory-service] memory data dir not set and no explicit data dir provided\n')
   process.exit(1)
@@ -684,7 +684,7 @@ function parseTsToMs(value) {
   return Number.isFinite(parsed) ? parsed : Date.now()
 }
 
-// Extract cwd from the transcript file's JSONL rows. Claude Code embeds
+// Extract cwd from the transcript file's JSONL rows. Mixdog embeds
 // the session cwd as a top-level `cwd` field on every message row, so
 // scanning the first few lines is reliable on all platforms (Windows/Linux)
 // without slug-decoding ambiguity. Returns undefined when no cwd is found
@@ -716,7 +716,7 @@ function cwdFromTranscriptPath(fp) {
 }
 
 function _initTranscriptWatcher() {
-  const projectsRoot = path.join(os.homedir(), '.claude', 'projects')
+  const projectsRoot = path.join(os.homedir(), '.mixdog', 'projects')
   const SAFETY_POLL_MS = 5 * 60_000
   const DEBOUNCE_MS = 500
   const watchedFiles = new Map()
@@ -2183,7 +2183,7 @@ async function handleMemoryAction(args, signal) {
     if (!['add', 'edit', 'delete', 'list'].includes(op)) {
       return { text: 'core requires op: "add" | "edit" | "delete" | "list"', isError: true }
     }
-    const dataDir = process.env.CLAUDE_PLUGIN_DATA || (typeof DATA_DIR === 'string' ? DATA_DIR : null)
+    const dataDir = (typeof DATA_DIR === 'string' ? DATA_DIR : resolvePluginData())
     if (!dataDir) return { text: 'core: memory data dir is not initialized', isError: true }
     // Local trim helper — the manage-block trimOrNull at :1807 is scoped to
     // that branch and unreachable from here.

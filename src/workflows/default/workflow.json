@@ -1,0 +1,15 @@
+{
+  "id": "default",
+  "name": "Default",
+  "description": "Default Mixdog agent workflow.",
+  "entry": "WORKFLOW.md",
+  "agents": [
+    "explore",
+    "web-researcher",
+    "maintainer",
+    "worker",
+    "heavy-worker",
+    "reviewer",
+    "debugger"
+  ]
+}

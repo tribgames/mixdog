@@ -44,7 +44,7 @@ export async function countUnclassified(db) {
 }
 
 export function selectBackfillTranscripts({ sinceMs = null, limit = null, projectsRoot = null } = {}) {
-  const root = projectsRoot || path.join(os.homedir(), '.claude', 'projects')
+  const root = projectsRoot || path.join(os.homedir(), '.mixdog', 'projects')
   if (!fs.existsSync(root)) return []
   const files = []
   for (const d of fs.readdirSync(root)) {
@@ -147,4 +147,3 @@ export async function runFullBackfill(db, {
     unclassified,
   }
 }
-

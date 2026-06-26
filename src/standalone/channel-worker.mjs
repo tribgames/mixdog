@@ -2,6 +2,7 @@ import { execFile, fork, spawnSync } from 'node:child_process';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { startChildGuardian } from '../runtime/shared/child-guardian.mjs';
 
 const CHANNEL_TOOLS = new Set([
   'reply',
@@ -33,9 +34,9 @@ export function createStandaloneChannelWorker({
   cwd = process.cwd(),
   onNotify,
 } = {}) {
-  if (!entry) throw new Error('channels worker entry is required');
-  if (!rootDir) throw new Error('channels worker rootDir is required');
-  if (!dataDir) throw new Error('channels worker dataDir is required');
+  if (!entry) throw new Error('channels runtime entry is required');
+  if (!rootDir) throw new Error('channels runtime rootDir is required');
+  if (!dataDir) throw new Error('channels runtime dataDir is required');
 
   let child = null;
   let readyPromise = null;
@@ -64,7 +65,7 @@ export function createStandaloneChannelWorker({
       running: Boolean(child && child.exitCode == null && !child.killed),
       pid: child?.pid || null,
       pending: pending.size,
-      mode: 'worker',
+      mode: 'runtime',
     };
   }
 
@@ -93,8 +94,8 @@ export function createStandaloneChannelWorker({
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
       env: {
         ...process.env,
-        CLAUDE_PLUGIN_ROOT: rootDir,
-        CLAUDE_PLUGIN_DATA: dataDir,
+        MIXDOG_ROOT: rootDir,
+        MIXDOG_DATA_DIR: dataDir,
         MIXDOG_STANDALONE: '1',
         MIXDOG_WORKER_MODE: '1',
         MIXDOG_CLI_OWNED: '1',
@@ -105,6 +106,7 @@ export function createStandaloneChannelWorker({
       windowsHide: true,
     });
     const spawnedPid = child.pid;
+    startChildGuardian({ childPid: spawnedPid, label: 'channel-worker', orphanGraceMs: 8000, forceGraceMs: 3000 });
     if (spawnedPid) ownedChildPids.add(spawnedPid);
     installParentExitHook();
 
@@ -137,7 +139,7 @@ export function createStandaloneChannelWorker({
 
     child.on('exit', (code, signal) => {
       if (spawnedPid) ownedChildPids.delete(spawnedPid);
-      const error = new Error(`channels worker exited (${signal || (code ?? 'unknown')})`);
+      const error = new Error(`channels runtime exited (${signal || (code ?? 'unknown')})`);
       if (readyReject) readyReject(error);
       readyResolve = null;
       readyReject = null;
@@ -147,7 +149,7 @@ export function createStandaloneChannelWorker({
     });
 
     child.on('error', (error) => {
-      logLine(logPath, `worker error: ${error?.message || error}`);
+      logLine(logPath, `runtime error: ${error?.message || error}`);
       if (readyReject) readyReject(error);
       readyResolve = null;
       readyReject = null;
@@ -161,8 +163,8 @@ export function createStandaloneChannelWorker({
     if (inProcessMod) return status();
     if (inProcessStartPromise) return inProcessStartPromise;
     inProcessStartPromise = (async () => {
-      process.env.CLAUDE_PLUGIN_ROOT = rootDir;
-      process.env.CLAUDE_PLUGIN_DATA = dataDir;
+      process.env.MIXDOG_ROOT = rootDir;
+      process.env.MIXDOG_DATA_DIR = dataDir;
       process.env.MIXDOG_STANDALONE ??= '1';
       process.env.MIXDOG_CHANNEL_FLAG ??= '1';
       process.env.MIXDOG_CHANNELS_AUTO_BOOT = '0';
@@ -247,7 +249,16 @@ export function createStandaloneChannelWorker({
     });
   }
 
-  function stop(reason = 'standalone shutdown') {
+  function unrefChildHandles(target) {
+    try { target?.unref?.(); } catch {}
+    try { target?.stderr?.unref?.(); } catch {}
+    try { target?.stdout?.unref?.(); } catch {}
+    try { target?.stdin?.unref?.(); } catch {}
+    try { target?.channel?.unref?.(); } catch {}
+  }
+
+  function stop(reason = 'standalone shutdown', options = {}) {
+    const waitForExit = options?.waitForExit !== false;
     if (stopPromise) return stopPromise;
     if (!useProcessWorker) {
       if (!inProcessMod && !inProcessStartPromise) return Promise.resolve(false);
@@ -267,6 +278,32 @@ export function createStandaloneChannelWorker({
     const target = child;
     const targetPid = target.pid;
     child = null;
+    if (!waitForExit) {
+      rejectPending(new Error(`channels runtime shutdown requested (${reason})`));
+      if (targetPid) ownedChildPids.delete(targetPid);
+      stopPromise = new Promise((resolve) => {
+        let settled = false;
+        const finish = (ok) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(sendTimer);
+          stopPromise = null;
+          unrefChildHandles(target);
+          resolve(ok);
+        };
+        const sendTimer = setTimeout(() => finish(false), 250);
+        try {
+          target.send?.({ type: 'shutdown', reason }, () => {
+            try { target.disconnect?.(); } catch {}
+            finish(true);
+          });
+        } catch {
+          try { target.disconnect?.(); } catch {}
+          finish(false);
+        }
+      });
+      return stopPromise;
+    }
     stopPromise = new Promise((resolve) => {
       let settled = false;
       const finish = (ok) => {

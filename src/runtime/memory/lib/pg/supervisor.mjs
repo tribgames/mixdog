@@ -438,7 +438,7 @@ async function _doEnsure(dataDir) {
  * Concurrent calls are deduplicated — exactly one spawn/recover sequence runs
  * at a time; additional callers await the same promise.
  *
- * @param {string} dataDir  Plugin data directory (CLAUDE_PLUGIN_DATA).
+ * @param {string} dataDir  Mixdog data directory.
  * @returns {Promise<{ host: string, port: number, runtimeDir: string, pgdataDir: string }>}
  */
 export function ensurePgInstance(dataDir) {

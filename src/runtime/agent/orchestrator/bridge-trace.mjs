@@ -25,6 +25,15 @@ let _toolFailurePath = null;
 const _LOCAL_TRACE_FLUSH_LINES = 100;
 const _LOCAL_TRACE_FLUSH_MS = 1000;
 const _LOCAL_TRACE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — rotate to .1 above this.
+// Throttle interval for local rotation stat checks. statSync on every flush
+// is unnecessary — rotation is a best-effort size guard. First flush always
+// checks; subsequent checks wait at least this many ms. Tune via env
+// MIXDOG_BRIDGE_TRACE_ROTATE_CHECK_MS (default 60000 ms, positive integer).
+const MIXDOG_BRIDGE_TRACE_ROTATE_CHECK_MS = (() => {
+    const v = parseInt(process.env.MIXDOG_BRIDGE_TRACE_ROTATE_CHECK_MS, 10);
+    return Number.isFinite(v) && v > 0 ? v : 60000;
+})();
+let _lastRotateCheckMs = 0;
 
 function _rotateLocalTraceIfNeeded(path) {
     try {
@@ -81,7 +90,13 @@ function _flushLocalTrace() {
     const chunk = _localTraceBuffer.join('');
     _localTraceBuffer = [];
     try {
-        _rotateLocalTraceIfNeeded(path);
+        // Throttle rotation stat checks to avoid unnecessary statSync calls
+        // on every flush. First flush (_lastRotateCheckMs === 0) always checks.
+        const now = Date.now();
+        if (_lastRotateCheckMs === 0 || now - _lastRotateCheckMs >= MIXDOG_BRIDGE_TRACE_ROTATE_CHECK_MS) {
+            _rotateLocalTraceIfNeeded(path);
+            _lastRotateCheckMs = now;
+        }
         // mode only applies on file creation; existing files keep their mode.
         // Windows ignores POSIX bits — ACL governs there.
         appendFileSync(path, chunk, { encoding: 'utf8', mode: 0o600 });
@@ -318,8 +333,8 @@ const TOOL_ARG_KEYS = {
     glob: ['pattern', 'path', 'head_limit', 'offset'],
     list: ['path', 'head_limit', 'offset', 'fuzzy'],
     code_graph: ['mode', 'file', 'symbol', 'symbols', 'body', 'language', 'limit', 'depth', 'page', 'cwd'],
-    bash: ['command', 'cwd', 'timeout', 'run_in_background', 'persistent', 'session_id'],
-    job_wait: ['job_id', 'timeout_ms', 'poll_ms'],
+    shell: ['command', 'cwd', 'timeout', 'mode', 'run_in_background', 'persistent', 'session_id'],
+    task: ['task_id', 'action', 'timeout_ms', 'poll_ms'],
     edit: ['path', 'replace_all', 'edits'],
     edit_many: ['edits'],
     write: ['path'],
@@ -328,7 +343,7 @@ const TOOL_ARG_KEYS = {
 
 const REDACT_KEY_RE = /token|secret|password|passwd|credential|authorization|api[_-]?key/i;
 const BODY_KEY_RE = /content|old_string|new_string|patch|rewrite/i;
-// Redact bash `command` values that look like they carry secrets. Covers
+// Redact shell `command` values that look like they carry secrets. Covers
 // assignment forms, Authorization headers, --password / -p flags, and
 function _redactShellCommand(cmd) {
     if (typeof cmd !== 'string') return cmd;
@@ -425,7 +440,7 @@ function classifyToolFailure(resultText, toolName) {
     if (/hunk rejected|patch failed|context mismatch|expected first old\/context|context not found/.test(text)) return 'patch/context';
     if (/not in allow-list|permission|denied|forbidden|not allowed/.test(text)) return 'permission';
     if (/unknown tool|tool.*not.*available|missing.*tool/.test(text)) return 'tool-surface';
-    if (String(toolName || '') === 'bash' || /^\s*\[exit code:\s*\d+\]/i.test(String(resultText ?? ''))) return 'command-exit';
+    if (String(toolName || '') === 'shell' || /^\s*\[exit code:\s*\d+\]/i.test(String(resultText ?? ''))) return 'command-exit';
     return 'runtime/failure';
 }
 

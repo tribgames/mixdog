@@ -273,6 +273,9 @@ function _modelsDevRowToOverride(row) {
         max_input_tokens: row?.limit?.context,
         max_output_tokens: row?.limit?.output,
         mode: 'chat',
+        supports_reasoning: row?.reasoning === true,
+        reasoning_options: Array.isArray(row?.reasoning_options) ? row.reasoning_options : [],
+        reasoning_content_field: row?.interleaved?.field || null,
         supports_function_calling: row?.tool_call === true,
         supports_vision: Array.isArray(row?.modalities?.input) && row.modalities.input.includes('image'),
         supports_prompt_caching: c.cache_read != null,
@@ -309,6 +312,7 @@ function _modelsDevMetadataSync(id, provider) {
 export function getModelMetadataSync(id, provider) {
     if (!id) return null;
     const mappedProvider = provider ? _modelsDevProviderId(provider) : null;
+    let meta = null;
     // 1. Manual overrides — authoritative + offline. Provider-guarded: when a
     //    provider hint is given, an override is only honoured if it belongs to
     //    that provider, so a model id shared across providers (e.g.
@@ -316,29 +320,31 @@ export function getModelMetadataSync(id, provider) {
     //    wrong provider's rate. Bare-id callers keep the legacy behaviour.
     const ov = PRICING_OVERRIDES[id];
     if (ov && (!mappedProvider || _modelsDevProviderId(ov.litellm_provider) === mappedProvider)) {
-        return _normalize(ov);
+        meta = _normalize(ov);
     }
     // 2. LiteLLM community catalog (broad mainstream coverage).
     if (!_memCache) warmFromDiskSync();
-    if (_memCache) {
+    if (!meta && _memCache) {
         const catalog = _memCache;
-        if (catalog[id]) return _normalize(catalog[id]);
+        if (catalog[id]) meta = _normalize(catalog[id]);
         for (const prefix of _CATALOG_SIMPLE_PREFIXES) {
-            if (catalog[prefix + id]) return _normalize(catalog[prefix + id]);
+            if (meta) break;
+            if (catalog[prefix + id]) meta = _normalize(catalog[prefix + id]);
         }
         for (const prefix of _CATALOG_BEDROCK_PREFIXES) {
+            if (meta) break;
             const v1 = catalog[prefix + id + '-v1:0'];
-            if (v1) return _normalize(v1);
+            if (v1) meta = _normalize(v1);
         }
     }
-    // 3. models.dev — provider-scoped gap filler (collision-free, auto 24h).
-    //    Placed LAST so it never shadows the authoritative sources above; it
-    //    only prices what LiteLLM/overrides do not cover (e.g. opencode-go).
+    // 3. models.dev — provider-scoped gap filler + capability overlay.
+    //    It does not shadow provider-native limits above, but it may add fields
+    //    LiteLLM lacks, such as reasoning_options for opencode-go models.
     if (mappedProvider) {
         const md = _modelsDevMetadataSync(id, provider);
-        if (md) return md;
+        if (md) meta = mergeModelMetadata(meta, md);
     }
-    return null;
+    return meta;
 }
 
 function _normalize(entry) {
@@ -353,7 +359,25 @@ function _normalize(entry) {
         supportsVision: entry.supports_vision === true,
         supportsFunctionCalling: entry.supports_function_calling === true,
         supportsPromptCaching: entry.supports_prompt_caching === true,
+        supportsReasoning: entry.supports_reasoning === true,
+        reasoningOptions: Array.isArray(entry.reasoning_options) ? entry.reasoning_options : [],
+        reasoningContentField: entry.reasoning_content_field || null,
         mode: entry.mode || null,
+    };
+}
+
+function mergeModelMetadata(base, overlay) {
+    if (!base) return overlay || null;
+    if (!overlay) return base;
+    return {
+        ...base,
+        supportsVision: base.supportsVision || overlay.supportsVision,
+        supportsFunctionCalling: base.supportsFunctionCalling || overlay.supportsFunctionCalling,
+        supportsPromptCaching: base.supportsPromptCaching || overlay.supportsPromptCaching,
+        supportsReasoning: base.supportsReasoning || overlay.supportsReasoning,
+        reasoningOptions: overlay.reasoningOptions?.length ? overlay.reasoningOptions : (base.reasoningOptions || []),
+        reasoningContentField: overlay.reasoningContentField || base.reasoningContentField || null,
+        mode: base.mode || overlay.mode || null,
     };
 }
 
@@ -365,6 +389,9 @@ function _normalize(entry) {
 export async function enrichModels(models) {
     if (!Array.isArray(models)) return models;
     const catalog = await loadCatalog();
+    if (models.some((m) => _modelsDevProviderId(m?.provider))) {
+        try { await loadModelsDevCatalog(); } catch { /* optional gap filler */ }
+    }
     return models.map(m => {
         const id = m.id || m.name;
         if (!id) return m;
@@ -380,7 +407,13 @@ export async function enrichModels(models) {
                 if (catalog[prefix + id + '-v1:0']) { entry = catalog[prefix + id + '-v1:0']; break; }
             }
         }
-        const meta = entry ? _normalize(entry) : null;
+        let meta = entry ? _normalize(entry) : null;
+        if (m.provider) {
+            const pid = _modelsDevProviderId(m.provider);
+            const row = pid ? _mdCache?.[pid]?.models?.[id] : null;
+            const providerMeta = row ? _normalize(_modelsDevRowToOverride(row)) : null;
+            if (providerMeta) meta = mergeModelMetadata(meta, providerMeta);
+        }
         if (!meta) return m;
         return {
             ...m,
@@ -396,6 +429,9 @@ export async function enrichModels(models) {
             supportsVision: meta.supportsVision,
             supportsFunctionCalling: meta.supportsFunctionCalling,
             supportsPromptCaching: meta.supportsPromptCaching,
+            supportsReasoning: meta.supportsReasoning,
+            reasoningOptions: meta.reasoningOptions || m.reasoningOptions || [],
+            reasoningContentField: meta.reasoningContentField || m.reasoningContentField || null,
             mode: meta.mode || m.mode || null,
         };
     });
@@ -423,6 +459,11 @@ export async function refreshCatalog() {
             fs.unlinkSync(mdCachePath());
         }
     } catch { /* ignore */ }
+    const [litellm] = await Promise.all([loadCatalog(), loadModelsDevCatalog()]);
+    return litellm;
+}
+
+export async function warmModelMetadataCatalogs() {
     const [litellm] = await Promise.all([loadCatalog(), loadModelsDevCatalog()]);
     return litellm;
 }

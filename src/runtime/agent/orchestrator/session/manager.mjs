@@ -1,8 +1,9 @@
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { randomBytes, createHash } from 'crypto';
-import { dirname, join } from 'path';
+import { join } from 'path';
 import { getProvider, providerInputExcludesCache } from '../providers/registry.mjs';
+import { getModelMetadataSync } from '../providers/model-catalog.mjs';
 import { fetchOAuthUsageSnapshot } from '../providers/oauth-usage.mjs';
 import { agentLoop } from './loop.mjs';
 import { compactActiveTurn, compactMessages, DEFAULT_COMPACTION_BUFFER_TOKENS } from './compact.mjs';
@@ -21,10 +22,10 @@ import { clearOffloadSession } from './tool-result-offload.mjs';
 import { classifyResultKind } from './result-classification.mjs';
 import { createAbortController } from '../../../shared/abort-controller.mjs';
 import { logLlmCall } from '../../../shared/llm/usage-log.mjs';
-import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
+import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { appendBridgeTrace } from '../bridge-trace.mjs';
-import { maxMtimeRecursive } from '../cache-mtime.mjs';
+import { maxMtime, maxMtimeRecursive } from '../cache-mtime.mjs';
 import { getRoleInstructionDir } from '../internal-roles.mjs';
 import {
     buildGatewayLimits,
@@ -34,10 +35,9 @@ import {
 // Phase B: Pool B Tier 2 content builder (common rules only).
 // Loaded once per process via createRequire so the CJS module reaches us.
 const _require = createRequire(import.meta.url);
-const STANDALONE_PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../');
 const _rulesBuilder = (() => {
     const candidates = [
-        process.env.CLAUDE_PLUGIN_ROOT && join(process.env.CLAUDE_PLUGIN_ROOT, 'lib', 'rules-builder.cjs'),
+        join(mixdogRoot(), 'lib', 'rules-builder.cjs'),
     ].filter(Boolean);
     for (const p of candidates) {
         try { return _require(p); } catch { /* fall through */ }
@@ -59,7 +59,7 @@ let _bridgeRulesCache = null;
 let _bridgeRulesMtime = 0;
 function _buildBridgeRules() {
     if (!_rulesBuilder || typeof _rulesBuilder.buildBridgeInjectionContent !== 'function') return '';
-    const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || STANDALONE_PLUGIN_ROOT;
+    const PLUGIN_ROOT = mixdogRoot();
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
     const mtime = maxMtimeRecursive([
@@ -85,17 +85,22 @@ let _leadRulesCache = null;
 let _leadRulesMtime = 0;
 function _buildLeadRules() {
     if (!_rulesBuilder || typeof _rulesBuilder.buildInjectionContent !== 'function') return '';
-    const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || STANDALONE_PLUGIN_ROOT;
+    const PLUGIN_ROOT = mixdogRoot();
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
-    const mtime = maxMtimeRecursive([
+    const mtime = Math.max(maxMtime([
+        PLUGIN_ROOT,
+        DATA_DIR,
+    ]), maxMtimeRecursive([
         join(RULES_DIR, 'shared'),
         join(RULES_DIR, 'lead'),
         join(DATA_DIR, 'history'),
         join(DATA_DIR, 'mixdog-config.json'),
-        join(DATA_DIR, 'user-workflow.json'),
         join(DATA_DIR, 'user-workflow.md'),
-    ]);
+        join(DATA_DIR, 'user-workflow.json'),
+        join(PLUGIN_ROOT, 'output-styles'),
+        join(DATA_DIR, 'output-styles'),
+    ]));
     if (_leadRulesCache !== null && mtime <= _leadRulesMtime) {
         return _leadRulesCache;
     }
@@ -116,7 +121,7 @@ const _roleSpecificCache = new Map(); // role → { value, mtime }
 function _buildRoleSpecific(currentRole) {
     if (!_rulesBuilder || typeof _rulesBuilder.buildBridgeRoleSpecificContent !== 'function') return '';
     if (!currentRole) return '';
-    const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || STANDALONE_PLUGIN_ROOT;
+    const PLUGIN_ROOT = mixdogRoot();
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
     const roleInstructionDir = getRoleInstructionDir(currentRole);
@@ -237,8 +242,8 @@ const SESSION_ROUTE_TOOL_ORDER = [
     'edit',
     'write',
     'apply_patch',
-    'bash',
-    'job_wait',
+    'shell',
+    'task',
 ];
 const SESSION_ROUTE_TOOL_RANK = new Map(SESSION_ROUTE_TOOL_ORDER.map((name, index) => [name, index]));
 const FILESYSTEM_TOOL_NAMES = new Set([
@@ -286,6 +291,10 @@ function resolveSessionTools(toolSpec, skills, { ownerIsBridge = false } = {}) {
     return _computeBaseTools(toolSpec, mcp, skillTools);
 }
 
+export function previewSessionTools(toolSpec, skills = [], options = {}) {
+    return resolveSessionTools(toolSpec, skills, options);
+}
+
 // Dedup by name, first occurrence wins. BUILTIN_TOOLS is passed in ahead
 // of the MCP-registered internal tools so plugin-side definitions take
 // precedence when both surfaces declare the same name (e.g. read / grep / glob).
@@ -329,14 +338,13 @@ function _computeBaseTools(toolSpec, mcp, skillTools) {
                 case 'tools:readonly':
                     addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => READONLY_TOOL_NAMES.has(t.name)));
                     break;
-                case 'tools:bash':
+                case 'tools:shell':
                 case 'tools:git':
                 case 'tools:analysis':
-                    // Three aliases for the same surface — `bash` is the only
-                    // shell-class tool. `tools:git` / `tools:analysis` exist so
+                    // Shell-class toolset. `tools:git` / `tools:analysis` exist so
                     // profile authors can name the intent (git workflows / data
                     // analysis) without inventing new toolset ids.
-                    addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => t.name === 'bash'));
+                    addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => t.name === 'shell' || t.name === 'task'));
                     break;
                 case 'tools:mcp':
                     addMany(mcp);
@@ -377,7 +385,7 @@ function permissionFromToolSpec(toolSpec) {
         const tags = new Set(toolSpec.map(t => String(t || '').trim()));
         const hasWriteOrShell = tags.has('full')
             || tags.has('tools:filesystem')
-            || tags.has('tools:bash')
+            || tags.has('tools:shell')
             || tags.has('tools:git')
             || tags.has('tools:analysis');
         if (tags.has('tools:readonly') && !hasWriteOrShell) return 'read';
@@ -425,22 +433,28 @@ function boundedPercent(value, fallback = null) {
     return fallback;
 }
 function providerNameOf(provider) {
+    if (typeof provider === 'string') return provider.toLowerCase();
     return String(provider?.name || provider?.id || '').toLowerCase();
 }
 function defaultEffectiveContextWindowPercent(provider) {
     // Codex exposes both the raw catalog window and a smaller effective window
     // that reserves provider-side headroom. Mirror the gateway/statusline math
-    // so bridge workers compact at the same boundary as the visible session.
+    // so bridge agents compact at the same boundary as the visible session.
     return providerNameOf(provider) === 'openai-oauth' ? 95 : null;
 }
 function resolveSessionContextMeta(provider, model, seed = {}) {
     const info = typeof provider?.getCachedModelInfo === 'function'
         ? provider.getCachedModelInfo(model)
         : null;
+    const catalogInfo = getModelMetadataSync(model, providerNameOf(provider));
     const rawContextWindow = positiveContextWindow(info?.contextWindow)
         || positiveContextWindow(info?.maxContextWindow)
         || positiveContextWindow(info?.context_window)
         || positiveContextWindow(info?.max_context_window)
+        || positiveContextWindow(catalogInfo?.contextWindow)
+        || positiveContextWindow(catalogInfo?.maxContextWindow)
+        || positiveContextWindow(catalogInfo?.context_window)
+        || positiveContextWindow(catalogInfo?.max_context_window)
         || positiveContextWindow(seed.rawContextWindow)
         || positiveContextWindow(seed.raw_context_window)
         || positiveContextWindow(seed.contextWindow)
@@ -449,7 +463,9 @@ function resolveSessionContextMeta(provider, model, seed = {}) {
         seed.effectiveContextWindowPercent
             ?? seed.effective_context_window_percent
             ?? info?.effectiveContextWindowPercent
-            ?? info?.effective_context_window_percent,
+            ?? info?.effective_context_window_percent
+            ?? catalogInfo?.effectiveContextWindowPercent
+            ?? catalogInfo?.effective_context_window_percent,
         defaultEffectiveContextWindowPercent(provider),
     );
     const pct = boundedPercent(effectiveContextWindowPercent, 100);
@@ -458,7 +474,9 @@ function resolveSessionContextMeta(provider, model, seed = {}) {
         seed.autoCompactTokenLimit
             ?? seed.auto_compact_token_limit
             ?? info?.autoCompactTokenLimit
-            ?? info?.auto_compact_token_limit,
+            ?? info?.auto_compact_token_limit
+            ?? catalogInfo?.autoCompactTokenLimit
+            ?? catalogInfo?.auto_compact_token_limit,
     );
     const derivedCompactLimit = providerNameOf(provider) === 'openai-oauth'
         ? Math.floor(rawContextWindow * 0.9)
@@ -957,7 +975,7 @@ export function createSession(opts) {
     // injected into the Tier 3 system-reminder so role differences never
     // touch the BP_2 cache prefix.
     const resolvedRole = opts.role || profile?.taskType || null;
-    const dataDir = process.env.CLAUDE_PLUGIN_DATA;
+    const dataDir = resolvePluginData();
     const roleTemplate = resolvedRole && dataDir
         ? loadRoleTemplate(resolvedRole, dataDir)
         : null;
@@ -1026,10 +1044,12 @@ export function createSession(opts) {
         skipRoleReminder: opts.skipRoleReminder || false,
         permission,
         taskBrief: opts.taskBrief || null,
+        workflowContext: opts.workflowContext || null,
+        workspaceContext: opts.workspaceContext || null,
         coreMemoryContext: opts.coreMemoryContext || null,
         projectContext: projectContext || null,
         tools: toolsForRouting,
-        bashIsPersistent: opts.owner === 'bridge' && toolsForRouting.some(t => t?.name === 'bash'),
+        bashIsPersistent: opts.owner === 'bridge' && toolsForRouting.some(t => t?.name === 'shell'),
         // Effective cwd rides in tier3Reminder so explore-like tools know
         // their search root without needing to shove "Override cwd:" into
         // the user message body (that used to fragment the shard prefix).
@@ -1236,9 +1256,53 @@ export function updateSessionStage(id, stage) {
     const entry = _touchRuntime(id);
     const now = Date.now();
     entry.stage = stage;
+    if (stage === 'connecting' || stage === 'requesting') {
+        entry.modelRequestStartedAt = now;
+    }
     entry.lastProgressAt = now;
     entry.updatedAt = now;
 }
+
+export function updateSessionRoute(id, route = {}) {
+    if (!id) return null;
+    const session = loadSession(id);
+    if (!session || session.closed === true) return null;
+    if (route.provider) session.provider = route.provider;
+    if (route.model) session.model = route.model;
+    if (Object.prototype.hasOwnProperty.call(route, 'fast')) session.fast = route.fast === true;
+    if (Object.prototype.hasOwnProperty.call(route, 'effort')) session.effort = route.effort || null;
+    const provider = session.provider ? getProvider(session.provider) : null;
+    if (provider && session.model) {
+        const contextMeta = resolveSessionContextMeta(provider, session.model);
+        session.contextWindow = contextMeta.contextWindow;
+        session.rawContextWindow = contextMeta.rawContextWindow;
+        session.effectiveContextWindowPercent = contextMeta.effectiveContextWindowPercent;
+        session.autoCompactTokenLimit = contextMeta.autoCompactTokenLimit;
+        session.compactBoundaryTokens = contextMeta.compactBoundaryTokens;
+        session.compaction = {
+            ...(session.compaction || {}),
+            boundaryTokens: contextMeta.compactBoundaryTokens,
+            contextWindow: contextMeta.contextWindow,
+            rawContextWindow: contextMeta.rawContextWindow,
+            effectiveContextWindowPercent: contextMeta.effectiveContextWindowPercent,
+            autoCompactTokenLimit: contextMeta.autoCompactTokenLimit,
+        };
+    } else {
+        delete session.contextWindow;
+        delete session.rawContextWindow;
+        delete session.effectiveContextWindowPercent;
+        delete session.autoCompactTokenLimit;
+        delete session.compactBoundaryTokens;
+    }
+    session.updatedAt = Date.now();
+    setLiveSession(session);
+    void saveSessionAsync(session, { expectedGeneration: session.generation })
+        .catch((err) => {
+            try { process.stderr.write(`[session] route update save failed: ${err?.message || err}\n`); } catch {}
+        });
+    return session;
+}
+
 /**
  * Reset heartbeat-visible fields for a new ask. Preserves controller/generation/
  * closed (lifecycle) but clears the previous run's streaming state so stale
@@ -1251,6 +1315,7 @@ export function markSessionAskStart(id) {
     entry.stage = 'connecting';
     entry.lastStreamDeltaAt = null;
     entry.lastToolCall = null;
+    entry.toolStartedAt = null;
     entry.lastError = null;
     // A new ask starts a fresh turn lifecycle — clear any stale empty-final
     // classification from the prior turn so inspectBridgeEntry doesn't keep
@@ -1264,6 +1329,7 @@ export function markSessionAskStart(id) {
     // keys solely on lastStreamDeltaAt.
     const now = Date.now();
     entry.askStartedAt = now;
+    entry.modelRequestStartedAt = now;
     entry.lastProgressAt = now;
     entry.updatedAt = now;
     // Publish heartbeat immediately so the status aggregator picks the
@@ -1393,6 +1459,36 @@ export function markSessionCancelled(id) {
 export function getSessionRuntime(id) {
     return id ? (_runtimeState.get(id) || null) : null;
 }
+
+export function getSessionProgressSnapshot(sessionId) {
+    const entry = _runtimeState.get(sessionId);
+    if (!entry) return null;
+    const askStartedAt = entry.askStartedAt || 0;
+    const modelRequestStartedAt = entry.modelRequestStartedAt || askStartedAt;
+    const firstActivityAt = Math.max(
+        entry.lastStreamDeltaAt || 0,
+        entry.toolStartedAt || 0,
+    );
+    const stage = entry.stage || 'idle';
+    const waitingForFirstActivity = Boolean(
+        modelRequestStartedAt
+        && (stage === 'connecting' || stage === 'requesting')
+        && firstActivityAt <= modelRequestStartedAt
+    );
+    return {
+        stage,
+        askStartedAt,
+        modelRequestStartedAt,
+        firstActivityAt,
+        lastStreamDeltaAt: entry.lastStreamDeltaAt || 0,
+        toolStartedAt: entry.toolStartedAt || 0,
+        lastProgressAt: entry.lastProgressAt || 0,
+        updatedAt: entry.updatedAt || 0,
+        hasFirstActivity: Boolean(firstActivityAt && (!askStartedAt || firstActivityAt >= askStartedAt)),
+        waitingForFirstActivity,
+    };
+}
+
 /**
  * Iterate all active session runtimes. Used by the stream watchdog.
  * Returns an iterable of [sessionId, entry] pairs; consumers should
@@ -1569,12 +1665,18 @@ export function linkParentSignalToSession(sessionId, parentSignal) {
     if (!(parentSignal instanceof AbortSignal)) return;
     const entry = _touchRuntime(sessionId);
     if (!entry.controller) entry.controller = createAbortController();
+    const abortReason = () => {
+        const reason = parentSignal.reason;
+        if (reason instanceof Error) return reason;
+        if (reason !== undefined && reason !== null && reason !== '') return new Error(String(reason));
+        return new Error('parent signal aborted');
+    };
     if (parentSignal.aborted) {
-        try { entry.controller.abort(new Error('parent signal aborted')); } catch { /* ignore */ }
+        try { entry.controller.abort(abortReason()); } catch { /* ignore */ }
         return;
     }
     parentSignal.addEventListener('abort', () => {
-        try { entry.controller?.abort(new Error('parent signal aborted')); } catch { /* ignore */ }
+        try { entry.controller?.abort(abortReason()); } catch { /* ignore */ }
     }, { once: true });
 }
 function _clearSessionRuntime(id) {
@@ -1599,12 +1701,20 @@ export async function _api_call_with_interrupt(sessionId, fn) {
     const entry = _touchRuntime(sessionId);
     if (!entry.controller) entry.controller = createAbortController();
     const signal = entry.controller.signal;
-    if (signal.aborted) throw new SessionClosedError(sessionId, 'aborted before call');
+    const closedFromAbort = (phase) => {
+        const reason = signal.reason;
+        if (reason instanceof SessionClosedError) return reason;
+        const detail = reason instanceof Error
+            ? reason.message
+            : (reason !== undefined && reason !== null && reason !== '' ? String(reason) : '');
+        return new SessionClosedError(sessionId, detail ? `${phase}: ${detail}` : phase);
+    };
+    if (signal.aborted) throw closedFromAbort('aborted before call');
     const underlying = fn(signal);
     underlying.catch(() => {}); // prevent unhandled rejection if we race ahead
     let onAbort = null;
     const aborted = new Promise((_, reject) => {
-        onAbort = () => reject(new SessionClosedError(sessionId, 'aborted during call'));
+        onAbort = () => reject(closedFromAbort('aborted during call'));
         if (signal.aborted) onAbort();
         else signal.addEventListener('abort', onAbort, { once: true });
     });
@@ -2323,7 +2433,7 @@ export async function clearSessionMessages(sessionId) {
     session.totalOutputTokens = 0;
     session.updatedAt = Date.now();
     await saveSessionAsync(session, { expectedGeneration: session.generation });
-    return true;
+    return session;
 }
 export async function compactSessionMessages(sessionId) {
     const session = loadSession(sessionId);

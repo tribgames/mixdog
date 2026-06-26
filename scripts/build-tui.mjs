@@ -8,7 +8,7 @@
  *
  * What is bundled vs external:
  *   - bundled: our JSX only.
- *   - external: React, Mixdog runtime, and Mixdog's checked-in Ink renderer.
+ *   - external: React and Mixdog's checked-in Ink renderer.
  *     Ink is loaded from vendor/ink directly, never by rewriting node_modules.
  *
  * Run:  node scripts/build-tui.mjs   (or `npm run build:tui`)
@@ -39,10 +39,12 @@ await build({
   platform: 'node',
   target: 'node22',
   jsx: 'automatic',
-  // Keep runtime packages external like the original CLI flow. Only `ink` is
-  // redirected to Mixdog's checked-in renderer instead of node_modules/ink.
+  // Keep package imports external like the original CLI flow. Local shared
+  // helpers are bundled so relative paths stay valid from src/tui/dist/.
+  // Only `ink` is redirected to Mixdog's checked-in renderer instead of
+  // node_modules/ink.
   packages: 'external',
-  external: ['../runtime/*', '../../runtime/*', '../vendor/*', '../../vendor/*'],
+  external: ['../vendor/*', '../../vendor/*'],
   plugins: [mixdogInkAliasPlugin],
   logLevel: 'info',
 });

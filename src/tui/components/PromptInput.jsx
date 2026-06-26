@@ -15,11 +15,10 @@
  * because it was computed a beat before the final layout. The fork computes it
  * at the exact moment of drawing, so it can never be stale.
  */
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
-import { normalizeLineEndings } from '../safe-text.mjs';
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
@@ -84,8 +83,10 @@ function caretPosition(text, offset, width) {
 }
 
 function hintStyle(tone) {
-  void tone;
-  return { accentColor: theme.inactive, textColor: theme.inactive, prefix: '*' };
+  if (tone === 'error') return { textColor: theme.error };
+  if (tone === 'warn' || tone === 'cancel') return { textColor: theme.warning };
+  if (tone === 'plain') return { textColor: theme.subtle };
+  return { textColor: theme.inactive };
 }
 
 function insertText(draft, input) {
@@ -97,13 +98,15 @@ function insertText(draft, input) {
 }
 
 function normalizePastedText(text) {
-  return normalizeLineEndings(text);
+  return String(text ?? '').replace(/\r\n?/g, '\n');
 }
 
 export function PromptInput({
   onSubmit,
   disabled = false,
   onDraftChange,
+  interruptActive = false,
+  onInterrupt,
   commandPaletteActive = false,
   mask = false,
   hint = '',
@@ -115,12 +118,14 @@ export function PromptInput({
   onCommandPaletteAccept,
   onCommandPaletteCancel,
   onCommandPaletteComplete,
+  onRestoreQueued,
   valueRef,
 }) {
   const [draft, setDraft] = useState(() => {
     const value = String(initialValue || '');
     return { value, cursor: value.length };
   });
+  const [, bumpCursorAnchorEpoch] = useState(0);
   const draftRef = useRef(draft);
   const lastReportedValueRef = useRef(draft.value);
   if (valueRef) valueRef.current = draftRef.current.value;
@@ -131,6 +136,8 @@ export function PromptInput({
   // absolute-coordinate guessing, so it never drifts).
   const boxRef = useRef(null);
   const cursorEnabledRef = useRef(false); // latest enabled state, read by the anchor fn at render time
+  const escapeClearArmedRef = useRef(false);
+  const escapeClearTimerRef = useRef(null);
   const { value, cursor } = draft;
   draftRef.current = draft;
 
@@ -152,7 +159,26 @@ export function PromptInput({
     }
   };
 
+  const clearEscapeClearArm = () => {
+    escapeClearArmedRef.current = false;
+    if (escapeClearTimerRef.current) {
+      clearTimeout(escapeClearTimerRef.current);
+      escapeClearTimerRef.current = null;
+    }
+  };
+
+  const armEscapeClear = () => {
+    escapeClearArmedRef.current = true;
+    if (escapeClearTimerRef.current) clearTimeout(escapeClearTimerRef.current);
+    escapeClearTimerRef.current = setTimeout(() => {
+      escapeClearTimerRef.current = null;
+      escapeClearArmedRef.current = false;
+    }, 1000);
+    escapeClearTimerRef.current.unref?.();
+  };
+
   const commitDraft = (next) => {
+    clearEscapeClearArm();
     draftRef.current = next;
     setDraft(next);
     if (next.value !== lastReportedValueRef.current) {
@@ -160,17 +186,37 @@ export function PromptInput({
       onDraftChange?.(next.value);
     }
     if (valueRef) valueRef.current = next.value;
-    queueMicrotask(flushImmediate);
+  };
+
+  const installCursorAnchor = () => {
+    if (!boxRef.current || boxRef.current.internal_cursorAnchor) return false;
+    boxRef.current.internal_cursorAnchor = (yogaNode) => {
+      if (!cursorEnabledRef.current) return null;
+      const d = draftRef.current;
+      const w = yogaNode?.getComputedWidth?.() ?? 0;
+      return w > 0
+        ? caretPosition(d.value, d.cursor, w)
+        : { row: 0, col: stringWidth(d.value.slice(0, d.cursor)) };
+    };
+    return true;
   };
 
   const updateDraft = (fn) => {
     commitDraft(fn(draftRef.current));
   };
 
+  const restoreQueuedToDraft = () => {
+    const restored = onRestoreQueued?.(draftRef.current.value) === true;
+    if (restored) clearEscapeClearArm();
+    return restored;
+  };
+
   useEffect(() => {
     if (!draftOverride || typeof draftOverride.value !== 'string') return;
     commitDraft({ value: draftOverride.value, cursor: draftOverride.value.length });
   }, [draftOverride?.id]);
+
+  useEffect(() => () => clearEscapeClearArm(), []);
 
   const submitDraft = (next) => {
     const text = next.value;
@@ -260,6 +306,8 @@ export function PromptInput({
     if (key.upArrow) {
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.(-1);
+      } else {
+        restoreQueuedToDraft();
       }
       return;
     }
@@ -301,19 +349,39 @@ export function PromptInput({
 
     if (key.escape) {
       if (commandPaletteActive) {
+        clearEscapeClearArm();
         onCommandPaletteCancel?.(draftRef.current.value);
         commitDraft({ value: '', cursor: 0 });
         return;
       }
-      const currentValue = draftRef.current.value;
-      if (currentValue) {
-        commitDraft({ value: '', cursor: 0 });
+      if (restoreQueuedToDraft()) {
         return;
       }
-      if (onEscape) {
-        onEscape(draftRef.current.value);
-        commitDraft({ value: '', cursor: 0 });
+      if (interruptActive) {
+        clearEscapeClearArm();
+        const restoredText = onInterrupt?.(draftRef.current.value);
+        if (typeof restoredText === 'string') {
+          commitDraft({ value: restoredText, cursor: restoredText.length });
+        }
+        return;
       }
+      const currentValue = draftRef.current.value;
+      if (onEscape?.(currentValue, { phase: 'before' }) === true) {
+        clearEscapeClearArm();
+        return;
+      }
+      if (currentValue) {
+        if (escapeClearArmedRef.current) {
+          clearEscapeClearArm();
+          onEscape?.(currentValue, { phase: 'clear' });
+          commitDraft({ value: '', cursor: 0 });
+          return;
+        }
+        armEscapeClear();
+        onEscape?.(currentValue, { phase: 'arm-clear' });
+        return;
+      }
+      onEscape?.('', { phase: 'empty' });
       return;
     }
 
@@ -398,16 +466,18 @@ export function PromptInput({
   // appear to land behind the caret (the observed scramble). Computing inside
   // the fork, from the real layout + current refs, fixes that by construction.
   cursorEnabledRef.current = !disabled && isRawModeSupported;
-  if (boxRef.current && !boxRef.current.internal_cursorAnchor) {
-    boxRef.current.internal_cursorAnchor = (yogaNode) => {
-      if (!cursorEnabledRef.current) return null;
-      const d = draftRef.current;
-      const w = yogaNode?.getComputedWidth?.() ?? 0;
-      return w > 0
-        ? caretPosition(d.value, d.cursor, w)
-        : { row: 0, col: stringWidth(d.value.slice(0, d.cursor)) };
-    };
-  }
+  installCursorAnchor();
+
+  useLayoutEffect(() => {
+    if (!installCursorAnchor()) return;
+    bumpCursorAnchorEpoch((epoch) => epoch + 1);
+    queueMicrotask(flushImmediate);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (disabled || !isRawModeSupported) return;
+    queueMicrotask(flushImmediate);
+  }, [disabled, isRawModeSupported]);
 
   // Trailing space cell so the caret at end-of-input has a rendered cell to sit
   // on (kept visually blank — no synthetic underline).
@@ -420,10 +490,7 @@ export function PromptInput({
       <Text color={theme.text} wrap="hard">{renderedValue}</Text>
       {!value && hint ? (
         <Box marginLeft={-1}>
-          <Text>
-            <Text color={hintMeta.accentColor}>{hintMeta.prefix}</Text>
-            <Text color={hintMeta.textColor}> {hint}</Text>
-          </Text>
+          <Text color={hintMeta.textColor}>{hint}</Text>
         </Box>
       ) : null}
     </Box>

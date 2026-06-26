@@ -12,13 +12,13 @@ import { dirname, join, resolve } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 
-function claudeConfigBaseDir() {
-  return process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+function mixdogConfigBaseDir() {
+  return process.env.MIXDOG_CONFIG_DIR || join(homedir(), '.mixdog');
 }
 
 export function getBackupRoot() {
   return process.env.MIXDOG_USER_DATA_BACKUP_ROOT
-    || join(claudeConfigBaseDir(), 'backups', 'mixdog-user-data');
+    || join(mixdogConfigBaseDir(), 'backups', 'user-data');
 }
 const RECOVERY_NOTICE = 'RECOVERY-REQUIRED.txt';
 

@@ -11,6 +11,39 @@ const SERVICE = 'mixdog';
 const KEYCHAIN_TIMEOUT_MS = Number(process.env.MIXDOG_KEYCHAIN_TIMEOUT_MS || 15000);
 const POWERSHELL_TIMEOUT_MS = KEYCHAIN_TIMEOUT_MS;
 
+// ---------------------------------------------------------------------------
+// getSecret read cache — avoid redundant platform-calls within TTL.
+// ---------------------------------------------------------------------------
+const KEYCHAIN_CACHE_TTL_MS = (() => {
+    const v = parseInt(process.env.MIXDOG_KEYCHAIN_CACHE_TTL_MS, 10);
+    return Number.isFinite(v) ? v : 300000;
+})();
+/** @type {Map<string, {value: (string|null), ts: number}> | null} */
+let _secretCache = null;
+
+function _cacheGet(account) {
+    if (KEYCHAIN_CACHE_TTL_MS <= 0) return undefined;
+    if (!_secretCache) return undefined;
+    const entry = _secretCache.get(account);
+    if (!entry) return undefined;
+    if (Date.now() - entry.ts >= KEYCHAIN_CACHE_TTL_MS) {
+        _secretCache.delete(account);
+        return undefined;
+    }
+    return entry.value; // may be null (cached miss)
+}
+
+function _cacheSet(account, value) {
+    if (KEYCHAIN_CACHE_TTL_MS <= 0) return;
+    if (!_secretCache) _secretCache = new Map();
+    _secretCache.set(account, { value, ts: Date.now() });
+}
+
+function _cacheInvalidate(account) {
+    if (!_secretCache) return;
+    _secretCache.delete(account);
+}
+
 // CommonJS module: cannot import the ESM src/shared/wsl.mjs, so inline an
 // equivalent WSL check (process.platform reports 'linux' inside WSL).
 function isWSL() {
@@ -32,10 +65,9 @@ function run(cmd, args, opts) {
     // windowsHide + stdio:['ignore','pipe','pipe'] keeps powershell.exe
     // consoleless during DPAPI ops. Without these flags every keychain
     // read/write flashes a conhost window: setup-html's loaders call
-    // /agent/config, /memory/auth, /search/config which each invoke
-    // hasOpenAIOAuthCredentials / hasAnthropicOAuthCredentials /
-    // getSearchApiKey, and each of those triggers one powershell.exe
-    // spawn — users saw 8-15 console flashes during config-UI page load.
+    // /agent/config and /memory/auth, and each credential probe can trigger
+    // one powershell.exe spawn — users saw 8-15 console flashes during
+    // config-UI page load.
     // Default opts go BEFORE the spread so callers can still override.
     const result = spawnSync(cmd, args, {
         encoding: 'utf8',
@@ -261,29 +293,39 @@ function win32Delete(account) {
 // ---------------------------------------------------------------------------
 
 function getSecret(account) {
+    const cached = _cacheGet(account);
+    if (cached !== undefined) return cached;
+    let value;
     switch (platform()) {
-        case 'darwin': return darwinGet(account);
-        case 'linux':  return linuxGet(account);
-        case 'win32':  return win32Get(account);
+        case 'darwin': value = darwinGet(account); break;
+        case 'linux':  value = linuxGet(account); break;
+        case 'win32':  value = win32Get(account); break;
         default: throw new Error(`[keychain] unsupported platform: ${process.platform}`);
     }
+    _cacheSet(account, value);
+    return value;
 }
 
 function setSecret(account, value) {
     switch (platform()) {
-        case 'darwin': return darwinSet(account, value);
-        case 'linux':  return linuxSet(account, value);
-        case 'win32':  return win32Set(account, value);
+        case 'darwin': darwinSet(account, value); break;
+        case 'linux':  linuxSet(account, value); break;
+        case 'win32':  win32Set(account, value); break;
         default: throw new Error(`[keychain] unsupported platform: ${process.platform}`);
     }
+    _cacheSet(account, value);
 }
 
 function deleteSecret(account) {
-    switch (platform()) {
-        case 'darwin': return darwinDelete(account);
-        case 'linux':  return linuxDelete(account);
-        case 'win32':  return win32Delete(account);
-        default: throw new Error(`[keychain] unsupported platform: ${process.platform}`);
+    try {
+        switch (platform()) {
+            case 'darwin': darwinDelete(account); break;
+            case 'linux':  linuxDelete(account); break;
+            case 'win32':  win32Delete(account); break;
+            default: throw new Error(`[keychain] unsupported platform: ${process.platform}`);
+        }
+    } finally {
+        _cacheInvalidate(account);
     }
 }
 

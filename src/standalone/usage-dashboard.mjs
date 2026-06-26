@@ -1,4 +1,13 @@
 import { fetchOAuthUsageSnapshot, readCachedOAuthUsageSnapshot } from '../runtime/agent/orchestrator/providers/oauth-usage.mjs';
+import {
+  fetchOpenCodeGoUsageSnapshot,
+  openCodeGoUsageConfigStatus,
+  readCachedOpenCodeGoUsageSnapshot,
+} from '../runtime/agent/orchestrator/providers/opencode-go-usage.mjs';
+import {
+  fetchApiUsageSnapshot,
+  readCachedApiUsageSnapshot,
+} from '../runtime/agent/orchestrator/providers/api-usage.mjs';
 
 function num(value, fallback = null) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -21,6 +30,7 @@ function clean(value) {
 function money(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 'n/a';
+  if (n === 0) return '$0';
   if (n >= 10) return `$${n.toFixed(0)}`;
   if (n >= 1) return `$${n.toFixed(2)}`;
   if (n >= 0.01) return `$${n.toFixed(3)}`;
@@ -101,14 +111,43 @@ function snapshotRemaining(snapshot) {
   return null;
 }
 
+function snapshotUsage(snapshot) {
+  const usedUsd = num(snapshot?.balance?.usedUsd ?? snapshot?.balance?.used_usd, null);
+  if (usedUsd === null) return null;
+  const limitUsd = num(snapshot?.balance?.limitUsd ?? snapshot?.balance?.limit_usd, null);
+  return {
+    usedUsd: round(usedUsd, 4),
+    limitUsd: limitUsd === null ? null : round(limitUsd, 4),
+    source: clean(snapshot?.balance?.source) || clean(snapshot?.source) || 'provider-api',
+  };
+}
+
 function displayWindow(w) {
   const label = String(w?.label || 'USE').toUpperCase();
-  if (num(w?.remainingUsd, null) !== null) return `${label} ${money(w.remainingUsd)} left`;
+  if (num(w?.remainingUsd, null) !== null) return `${label} ${money(w.remainingUsd)}`;
   if (num(w?.usedUsd, null) !== null && num(w?.limitUsd, null) !== null) return `${label} ${money(w.usedUsd)}/${money(w.limitUsd)}`;
-  if (num(w?.remainingCredits, null) !== null) return `${label} ${compactNumber(w.remainingCredits)}cr left`;
-  if (num(w?.usedCredits, null) !== null && num(w?.limitCredits, null) !== null) return `${label} ${compactNumber(w.usedCredits)}/${compactNumber(w.limitCredits)}cr`;
+  if (num(w?.remainingCredits, null) !== null && num(w?.limitCredits, null) !== null) return `${label} ${compactNumber(w.remainingCredits)}/${compactNumber(w.limitCredits)}`;
+  if (num(w?.remainingCredits, null) !== null) return `${label} ${compactNumber(w.remainingCredits)}`;
+  if (num(w?.usedCredits, null) !== null && num(w?.limitCredits, null) !== null) return `${label} ${compactNumber(w.usedCredits)}/${compactNumber(w.limitCredits)}`;
   if (num(w?.usedPct, null) !== null) return `${label} ${Math.round(w.usedPct)}%`;
   return label;
+}
+
+function providerDescription(id, group) {
+  switch (String(id || '').toLowerCase()) {
+    case 'openai-oauth': return 'ChatGPT/Codex subscription quota';
+    case 'anthropic-oauth': return 'Claude Code subscription quota';
+    case 'grok-oauth': return 'Grok Build subscription quota';
+    case 'opencode-go': return 'OpenCode Go subscription quota';
+    case 'openai': return 'OpenAI API billing';
+    case 'anthropic': return 'Anthropic API billing';
+    case 'deepseek': return 'DeepSeek API billing';
+    case 'gemini': return 'Gemini API billing';
+    case 'xai': return 'xAI API billing';
+    case 'ollama': return 'Local Ollama server';
+    case 'lmstudio': return 'Local LM Studio server';
+    default: return group === 'local' ? 'Local provider' : group === 'oauth' ? 'Subscription quota' : 'API billing';
+  }
 }
 
 function rowTone(row) {
@@ -125,11 +164,27 @@ function rowTone(row) {
 }
 
 async function oauthSnapshot(providerId, { refresh, getProvider, log }) {
-  if (refresh && typeof getProvider === 'function') {
-    const providerObj = getProvider(providerId);
-    if (providerObj) return await fetchOAuthUsageSnapshot({ provider: providerId, model: '' }, providerObj, log);
+  const cached = readCachedOAuthUsageSnapshot({ provider: providerId, model: '' });
+  if (!refresh && cached) return cached;
+  if (typeof getProvider === 'function') {
+    try {
+      const providerObj = getProvider(providerId);
+      if (providerObj) return await fetchOAuthUsageSnapshot({ provider: providerId, model: '' }, providerObj, log);
+    } catch {
+      return null;
+    }
   }
-  return readCachedOAuthUsageSnapshot({ provider: providerId, model: '' });
+  return cached;
+}
+
+async function apiSnapshot(providerId, { refresh } = {}) {
+  const cached = readCachedApiUsageSnapshot(providerId);
+  if (!refresh && cached) return cached;
+  try {
+    return await fetchApiUsageSnapshot(providerId, { force: refresh === true });
+  } catch {
+    return cached;
+  }
 }
 
 function baseRow(item, group, providerCfg = {}) {
@@ -149,11 +204,30 @@ function baseRow(item, group, providerCfg = {}) {
     sourceLabel: 'unavailable',
     primary: 'hidden',
     detail: 'provider does not expose account balance',
+    description: providerDescription(item.id, group),
     updatedAt: null,
     includeInTotal: false,
     totalBucket: null,
     config: providerCfg,
   };
+}
+
+function providerRank(row) {
+  const id = String(row?.id || '').toLowerCase();
+  const ranks = {
+    'openai-oauth': 10,
+    'anthropic-oauth': 20,
+    'grok-oauth': 30,
+    'opencode-go': 40,
+    openai: 50,
+    anthropic: 60,
+    deepseek: 70,
+    gemini: 80,
+    xai: 90,
+    lmstudio: 100,
+    ollama: 110,
+  };
+  return ranks[id] ?? 900;
 }
 
 function applyKnownRemaining(row, known, { estimated = false } = {}) {
@@ -164,7 +238,7 @@ function applyKnownRemaining(row, known, { estimated = false } = {}) {
   row.status = estimated ? 'estimated' : 'ok';
   row.source = known.source || (estimated ? 'local-budget' : 'provider-api');
   row.sourceLabel = estimated ? 'local budget' : 'API';
-  row.primary = `${money(row.remainingUsd)} left`;
+  row.primary = `${money(row.remainingUsd)}`;
   row.detail = row.limitUsd !== null && row.usedUsd !== null
     ? `${money(row.usedUsd)} / ${money(row.limitUsd)} used`
     : row.source;
@@ -173,104 +247,46 @@ function applyKnownRemaining(row, known, { estimated = false } = {}) {
   return row;
 }
 
-export async function createUsageDashboard(config = {}, options = {}) {
-  const setup = options.setup || { api: [], oauth: [], local: [] };
-  const providers = config.providers || {};
-  const rows = [];
-  const checkedAt = Date.now();
+function applyKnownUsage(row, known) {
+  if (!known || num(known.usedUsd, null) === null) return row;
+  row.usedUsd = known.usedUsd;
+  if (known.limitUsd !== null && known.limitUsd !== undefined) row.limitUsd = known.limitUsd;
+  row.status = 'partial';
+  row.source = known.source || 'provider-api';
+  row.sourceLabel = 'usage';
+  row.primary = row.limitUsd !== null && row.limitUsd !== undefined
+    ? `Used ${money(row.usedUsd)}/${money(row.limitUsd)}`
+    : `Used ${money(row.usedUsd)}`;
+  row.detail = 'Spend reported; remaining credit unavailable';
+  row.includeInTotal = false;
+  row.totalBucket = null;
+  return row;
+}
 
-  for (const item of setup.api || []) {
-    const providerCfg = providers[item.id] || {};
-    const row = baseRow(item, 'api', providerCfg);
-    if (!row.authenticated) {
-      row.status = 'missing';
-      row.source = 'not-configured';
-      row.sourceLabel = 'no key';
-      row.primary = 'not configured';
-      row.detail = item.envName ? `set ${item.envName}` : 'API key missing';
-    } else {
-      applyKnownRemaining(row, localBudget(providerCfg), { estimated: true });
-      if (!row.includeInTotal) {
-        const windows = normaliseWindows(providerCfg.quotaWindows || providerCfg.usageWindows || providerCfg.limits || providerCfg.budgets, 'config');
-        row.windows = windows;
-        if (windows.length) {
-          row.status = 'partial';
-          row.source = 'configured-windows';
-          row.sourceLabel = 'config';
-          row.primary = windows.map(displayWindow).slice(0, 2).join(' · ');
-          row.detail = 'configured quota windows';
-        } else {
-          row.status = 'hidden';
-          row.source = 'provider-hidden';
-          row.sourceLabel = 'hidden';
-          row.primary = 'balance hidden';
-          row.detail = 'provider dashboard required';
-        }
-      }
-    }
-    row.tone = rowTone(row);
-    rows.push(row);
-  }
+function applyWindowQuota(row, windows, { source = 'quota', detail = 'quota windows' } = {}) {
+  const normalized = normaliseWindows(windows, source);
+  if (!normalized.length) return false;
+  const localEstimate = normalized.every(w => {
+    const s = String(w?.source || '').toLowerCase();
+    return !s || s.includes('local') || s.includes('config');
+  });
+  row.windows = normalized;
+  row.status = localEstimate ? 'estimated' : 'partial';
+  row.source = source;
+  row.sourceLabel = localEstimate ? 'local estimate' : source;
+  row.primary = normalized.map(displayWindow).slice(0, 2).join(' · ');
+  row.detail = localEstimate ? 'Local estimate, not provider-reported' : detail;
+  return true;
+}
 
-  for (const item of setup.oauth || []) {
-    const providerCfg = providers[item.id] || {};
-    const row = baseRow(item, 'oauth', providerCfg);
-    if (!row.authenticated) {
-      row.status = 'missing';
-      row.source = 'not-configured';
-      row.sourceLabel = 'not signed in';
-      row.primary = 'not signed in';
-      row.detail = item.detail || 'OAuth credentials missing';
-    } else {
-      try {
-        const snapshot = await oauthSnapshot(item.id, options);
-        const known = snapshotRemaining(snapshot);
-        const windows = normaliseWindows(snapshot?.quotaWindows, clean(snapshot?.source) || 'provider-api');
-        row.windows = windows;
-        row.updatedAt = num(snapshot?.cachedAt, null);
-        if (known) {
-          applyKnownRemaining(row, known, { estimated: false });
-          row.sourceLabel = 'API';
-          if (windows.length) row.detail = windows.map(displayWindow).slice(0, 3).join(' · ');
-        } else if (windows.length) {
-          row.status = 'partial';
-          row.source = clean(snapshot?.source) || 'provider-api';
-          row.sourceLabel = 'API window';
-          row.primary = windows.map(displayWindow).slice(0, 2).join(' · ');
-          row.detail = windows.map(displayWindow).slice(2, 5).join(' · ') || 'quota windows only';
-        } else {
-          applyKnownRemaining(row, localBudget(providerCfg), { estimated: true });
-          if (!row.includeInTotal) {
-            row.status = 'hidden';
-            row.source = 'provider-hidden';
-            row.sourceLabel = 'hidden';
-            row.primary = 'balance hidden';
-            row.detail = 'provider dashboard required';
-          }
-        }
-      } catch (err) {
-        row.status = 'error';
-        row.source = 'error';
-        row.sourceLabel = 'error';
-        row.primary = 'fetch failed';
-        row.detail = err?.message || String(err);
-      }
-    }
-    row.tone = rowTone(row);
-    rows.push(row);
-  }
+function sortedRows(rows) {
+  return rows.slice().sort((a, b) => (
+    providerRank(a) - providerRank(b)
+    || String(a.label).localeCompare(String(b.label))
+  ));
+}
 
-  for (const item of setup.local || []) {
-    const row = baseRow(item, 'local', providers[item.id] || {});
-    row.status = item.enabled || item.detected ? 'local' : 'missing';
-    row.source = 'local-provider';
-    row.sourceLabel = item.enabled || item.detected ? 'local' : 'off';
-    row.primary = item.enabled || item.detected ? 'local provider' : 'disabled';
-    row.detail = item.baseURL || item.defaultURL || 'no billing';
-    row.tone = rowTone(row);
-    rows.push(row);
-  }
-
+function usageTotal(rows) {
   const total = rows.reduce((acc, row) => {
     acc.providerCount += 1;
     acc[`${row.status}Count`] = (acc[`${row.status}Count`] || 0) + 1;
@@ -294,20 +310,201 @@ export async function createUsageDashboard(config = {}, options = {}) {
   total.knownRemainingUsd = round(total.knownRemainingUsd, 4) || 0;
   total.apiVerifiedRemainingUsd = round(total.apiVerifiedRemainingUsd, 4) || 0;
   total.localEstimatedRemainingUsd = round(total.localEstimatedRemainingUsd, 4) || 0;
+  return total;
+}
 
-  rows.sort((a, b) => {
-    const rank = { ok: 0, estimated: 1, partial: 2, hidden: 3, error: 4, missing: 5, local: 6 };
-    return (rank[a.status] ?? 9) - (rank[b.status] ?? 9) || String(a.label).localeCompare(String(b.label));
-  });
-
+function usageDashboardSnapshot(rows, { checkedAt, refresh = false, checking = false } = {}) {
   return {
-    title: 'Usage',
-    subtitle: 'Total provider quota / balance dashboard',
+    title: 'Provider Quotas',
+    subtitle: 'Statusline-style provider quota windows.',
     checkedAt,
-    refresh: options.refresh === true,
-    total,
-    rows,
+    refresh: refresh === true,
+    checking: checking === true,
+    total: usageTotal(rows),
+    rows: sortedRows(rows),
     format: { money },
   };
 }
 
+function emitUsageDashboard(options, dashboard) {
+  if (typeof options?.onUpdate !== 'function') return;
+  try {
+    options.onUpdate(dashboard);
+  } catch {
+    // UI progress callbacks should never break the usage refresh itself.
+  }
+}
+
+export async function createUsageDashboard(config = {}, options = {}) {
+  const setup = options.setup || { api: [], oauth: [], local: [] };
+  const providers = config.providers || {};
+  const rows = [];
+  const checkedAt = Date.now();
+  const refresh = options.refresh === true;
+  const emit = (checking = true) => emitUsageDashboard(
+    options,
+    usageDashboardSnapshot(rows, { checkedAt, refresh, checking }),
+  );
+
+  const apiTasks = (setup.api || []).map(async (item) => {
+    const providerCfg = providers[item.id] || {};
+    const row = baseRow(item, 'api', providerCfg);
+    row.status = row.authenticated ? 'checking' : 'missing';
+    row.source = row.authenticated ? 'checking' : 'not-configured';
+    row.sourceLabel = row.authenticated ? 'checking' : 'no key';
+    row.primary = row.authenticated ? '' : 'not configured';
+    row.detail = row.authenticated ? 'Checking provider usage' : 'Configure auth';
+    row.tone = rowTone(row);
+    rows.push(row);
+    emit(true);
+
+    if (!row.authenticated) {
+      row.status = 'missing';
+      row.source = 'not-configured';
+      row.sourceLabel = 'no key';
+      row.primary = 'not configured';
+      row.detail = 'Configure auth';
+    } else {
+      let hasQuota = false;
+      if (item.id === 'opencode-go') {
+        const usageStatus = openCodeGoUsageConfigStatus(config);
+        try {
+          const snapshot = refresh
+            ? await fetchOpenCodeGoUsageSnapshot(config, { force: true })
+            : readCachedOpenCodeGoUsageSnapshot() || (usageStatus.ready ? await fetchOpenCodeGoUsageSnapshot(config) : null);
+          if (snapshot) {
+            hasQuota = applyWindowQuota(row, snapshot?.quotaWindows, {
+              source: 'opencode-go-console',
+              detail: 'subscription quota',
+            });
+            row.updatedAt = num(snapshot?.cachedAt, null);
+          } else {
+            row.status = 'missing';
+            row.source = 'usage-auth-missing';
+            row.sourceLabel = 'usage auth';
+            row.primary = '';
+            row.detail = usageStatus.authCookieSet
+              ? 'OpenCode Go usage not found'
+              : 'Set OpenCode web auth cookie for usage';
+          }
+        } catch (err) {
+          if (String(err?.code || '').startsWith('OPENCODE_GO_USAGE_')) {
+            row.status = 'missing';
+            row.source = 'usage-auth-missing';
+            row.sourceLabel = 'usage auth';
+            row.primary = '';
+            row.detail = usageStatus.authCookieSet
+              ? 'OpenCode Go usage not found'
+              : 'Set OpenCode web auth cookie for usage';
+          }
+        }
+      } else {
+        const snapshot = await apiSnapshot(item.id, options);
+        const known = snapshotRemaining(snapshot);
+        const usage = snapshotUsage(snapshot);
+        const windows = normaliseWindows(snapshot?.quotaWindows, clean(snapshot?.source) || 'provider-api');
+        row.updatedAt = num(snapshot?.cachedAt, null);
+        if (known) {
+          applyKnownRemaining(row, known, { estimated: false });
+          row.sourceLabel = 'API';
+          hasQuota = true;
+        } else if (windows.length) {
+          hasQuota = applyWindowQuota(row, windows, {
+            source: clean(snapshot?.source) || 'provider-api',
+            detail: 'provider quota',
+          });
+        } else if (usage) {
+          applyKnownUsage(row, usage);
+          hasQuota = true;
+        }
+      }
+      if (item.id !== 'opencode-go' && !row.includeInTotal && !hasQuota) {
+        row.status = 'hidden';
+        row.source = 'provider-hidden';
+        row.sourceLabel = 'hidden';
+        row.primary = '';
+        row.detail = 'Usage not exposed';
+      }
+    }
+    row.tone = rowTone(row);
+    emit(true);
+    return row;
+  });
+
+  const oauthTasks = (setup.oauth || []).map(async (item) => {
+    const providerCfg = providers[item.id] || {};
+    const row = baseRow(item, 'oauth', providerCfg);
+    row.status = row.authenticated ? 'checking' : 'missing';
+    row.source = row.authenticated ? 'checking' : 'not-configured';
+    row.sourceLabel = row.authenticated ? 'checking' : 'not signed in';
+    row.primary = row.authenticated ? '' : 'not signed in';
+    row.detail = row.authenticated ? 'Checking provider usage' : (item.detail || 'OAuth credentials missing');
+    row.tone = rowTone(row);
+    rows.push(row);
+    emit(true);
+
+    if (!row.authenticated) {
+      row.status = 'missing';
+      row.source = 'not-configured';
+      row.sourceLabel = 'not signed in';
+      row.primary = 'not signed in';
+      row.detail = item.detail || 'OAuth credentials missing';
+    } else {
+      try {
+        const snapshot = await oauthSnapshot(item.id, options);
+        const known = snapshotRemaining(snapshot);
+        const windows = normaliseWindows(snapshot?.quotaWindows, clean(snapshot?.source) || 'provider-api');
+        row.windows = windows;
+        row.updatedAt = num(snapshot?.cachedAt, null);
+        if (known) {
+          applyKnownRemaining(row, known, { estimated: false });
+          row.sourceLabel = 'API';
+          if (windows.length) {
+            row.windows = windows;
+            row.detail = 'subscription quota';
+          }
+        } else if (windows.length) {
+          row.status = 'partial';
+          row.source = clean(snapshot?.source) || 'provider-api';
+          row.sourceLabel = 'API window';
+          row.primary = windows.map(displayWindow).slice(0, 2).join(' · ');
+          row.detail = 'subscription quota';
+        } else {
+          row.status = 'hidden';
+          row.source = 'usage-disabled';
+          row.sourceLabel = 'disabled';
+          row.primary = '';
+          row.detail = 'No current usage query result';
+        }
+      } catch (err) {
+        row.status = 'error';
+        row.source = 'error';
+        row.sourceLabel = 'error';
+        row.primary = 'fetch failed';
+        row.detail = err?.message || String(err);
+      }
+    }
+    row.tone = rowTone(row);
+    emit(true);
+    return row;
+  });
+
+  for (const item of setup.local || []) {
+    if (item.id === 'lmstudio') continue;
+    const row = baseRow(item, 'local', providers[item.id] || {});
+    row.status = item.enabled || item.detected ? 'local' : 'missing';
+    row.source = 'local-provider';
+    row.sourceLabel = item.enabled || item.detected ? 'local' : 'off';
+    row.primary = item.enabled || item.detected ? 'local provider' : 'disabled';
+    row.detail = item.enabled || item.detected ? 'No billing quota' : 'Not running';
+    row.tone = rowTone(row);
+    rows.push(row);
+    emit(true);
+  }
+
+  await Promise.all([...apiTasks, ...oauthTasks]);
+
+  const dashboard = usageDashboardSnapshot(rows, { checkedAt, refresh, checking: false });
+  emitUsageDashboard(options, dashboard);
+  return dashboard;
+}

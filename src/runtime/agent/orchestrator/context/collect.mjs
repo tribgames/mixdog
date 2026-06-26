@@ -2,11 +2,11 @@ import { readFileSync, existsSync, readdirSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { maxMtime, maxMtimeRecursive } from '../cache-mtime.mjs';
-import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
+import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
 
 // --- mixdog asset roots (standalone CLI owns its own paths; never .claude) ---
 // Project-local:  <cwd>/.mixdog/<kind>
-// Data-local:     <pluginData>/<kind>   (standalone default: ~/.mixdog/data/<kind>)
+// Data-local:     <mixdogData>/<kind>   (standalone default: ~/.mixdog/data/<kind>)
 function mixdogHome() {
     return process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
 }
@@ -34,10 +34,12 @@ function mixdogAssetDirs(projectDir, kind) {
 // works on a fresh install (no roles/<role>.md on disk) without forcing the
 // user to open the config UI first. A saved custom body in roles/<role>.md
 // always overrides these; unknown and hidden roles are absent here and so
-// inject nothing, leaving hidden roles fully plugin-managed.
+// inject nothing, leaving hidden roles fully Mixdog-managed.
 export const DEFAULT_ROLE_IDENTITY = {
-    'worker': 'You are an implementation worker. Your job is to make the scoped code change quickly and safely, not to fully verify the product. Run only lightweight, targeted self-checks needed to avoid handing off obviously broken code. Broad verification belongs to the Lead/reviewer.',
-    'heavy-worker': 'You are a heavy implementation worker for vague, open-ended, or multi-file changes. Your job is to make the scoped change with enough local design judgment to keep files coherent, while keeping validation lightweight. Do not run broad/full verification unless explicitly requested; report what remains for Lead/reviewer.',
+    'explore': 'You are an exploration agent. Your job is to map the codebase, narrow vague requests into concrete files or symbols, and return concise leads. Do not edit files.',
+    'maintainer': 'You are a maintenance agent. Your job is to handle upkeep, cleanup audits, and background health work without occupying the Lead. Return final state, risks, and follow-up needs.',
+    'worker': 'You are an implementation agent. Your job is to make the scoped code change quickly and safely, not to fully verify the product. Run only lightweight, targeted self-checks needed to avoid handing off obviously broken code. Broad verification belongs to the Lead/reviewer.',
+    'heavy-worker': 'You are a heavy implementation agent for vague, open-ended, or multi-file changes. Your job is to make the scoped change with enough local design judgment to keep files coherent, while keeping validation lightweight. Do not run broad/full verification unless explicitly requested; report what remains for Lead/reviewer.',
     'reviewer': 'You are a correctness reviewer. Your job is to decide whether the change is ship-ready. Report only blocking correctness issues, or return SHIP-READY. Do not perform style review, broad refactors, or extra implementation.',
     'debugger': 'You are a debugging specialist. Your job is to diagnose root cause, minimal repro, and the smallest safe fix direction. Do not implement. Return evidence-backed cause and proposed fix scope, or clearly state what remains unknown.',
 };
@@ -50,14 +52,14 @@ function shellEnvironmentReminder() {
             '# environment',
             `os: Windows (${platform}/${arch})`,
             'default_shell: PowerShell',
-            'bash tool: PowerShell syntax is the default. Use shell:"powershell" for PowerShell commands, or shell:"bash" only when intentionally using Git Bash/POSIX syntax.',
+            'shell tool: PowerShell syntax is the default. Use shell:"powershell" for PowerShell commands, or shell:"bash" only when intentionally using Git Bash/POSIX syntax.',
         ].join('\n');
     }
     return [
         '# environment',
         `os: ${platform}/${arch}`,
         'default_shell: POSIX /bin/sh',
-        'bash tool: POSIX shell syntax is the default. Use shell:"bash" for POSIX commands; use shell:"powershell" only when pwsh syntax is intentional and installed.',
+        'shell tool: POSIX shell syntax is the default. Use shell:"bash" for POSIX commands; use shell:"powershell" only when pwsh syntax is intentional and installed.',
     ].join('\n');
 }
 // --- Agent template loading ---
@@ -252,7 +254,8 @@ export function buildSkillToolDefs(skills, { ownerIsBridge = false } = {}) {
 /**
  * Read Mixdog-owned user context files in broad-to-specific order:
  *   1. <pluginData>/mixdog.md        (standalone default: ~/.mixdog/data/mixdog.md)
- *   2. <ancestor>/.mixdog/mixdog.md  (from filesystem root down to cwd)
+ *   2. <ancestor>/Mixdog.md          (from filesystem root down to cwd)
+ *   3. <ancestor>/.mixdog/mixdog.md  (from filesystem root down to cwd)
  *
  * This mirrors Claude Code's "memory files are context, not system prompt"
  * model while keeping Mixdog's internal rules in code/rules-builder.
@@ -262,11 +265,24 @@ function uniquePaths(paths) {
     const seen = new Set();
     const out = [];
     for (const p of paths) {
-        if (!p || seen.has(p)) continue;
-        seen.add(p);
+        const key = p ? resolve(p).toLowerCase() : '';
+        if (!p || seen.has(key)) continue;
+        seen.add(key);
         out.push(p);
     }
     return out;
+}
+function mixdogContextFileCandidates(dir) {
+    return [
+        join(dir, 'mixdog.md'),
+        join(dir, 'Mixdog.md'),
+    ];
+}
+function mixdogProjectContextFileCandidates(dir) {
+    return [
+        ...mixdogContextFileCandidates(dir),
+        ...mixdogContextFileCandidates(join(dir, '.mixdog')),
+    ];
 }
 function mixdogGlobalContextPaths() {
     let dataRoot;
@@ -275,22 +291,20 @@ function mixdogGlobalContextPaths() {
     } catch {
         dataRoot = process.env.MIXDOG_DATA_DIR || join(mixdogHome(), 'data');
     }
-    return uniquePaths([
-        join(dataRoot, 'mixdog.md'),
-    ]);
+    return uniquePaths(mixdogContextFileCandidates(dataRoot));
 }
 function mixdogProjectContextPaths(cwd) {
     const projectDir = (typeof cwd === 'string' && cwd.length > 0) ? resolve(cwd) : null;
     if (!projectDir) return [];
-    const paths = [];
+    const dirs = [];
     let cur = projectDir;
     while (true) {
-        paths.unshift(join(cur, '.mixdog', 'mixdog.md'));
+        dirs.unshift(cur);
         const parent = dirname(cur);
         if (parent === cur) break;
         cur = parent;
     }
-    return uniquePaths(paths);
+    return uniquePaths(dirs.flatMap(mixdogProjectContextFileCandidates));
 }
 export function collectMixdogMd(cwd) {
     // When cwd is null/missing (bridge maintenance calls deliberately pass
@@ -335,7 +349,7 @@ export function collectMixdogMd(cwd) {
 const _roleTemplateCache = new Map();
 export function loadRoleTemplate(role, dataDir) {
     if (!role || !dataDir) return null;
-    // Hidden/internal roles are plugin-managed and must never read a
+    // Hidden/internal roles are Mixdog-managed and must never read a
     // DATA_DIR/roles/<hidden>.md file: explorer and the maintenance roles get
     // their identity from hidden rules only, so a stray file on disk must be
     // ignored entirely (no body, no permission/description metadata).
@@ -374,7 +388,7 @@ export function loadRoleTemplate(role, dataDir) {
 
 // --- Role-scoped catalog loader ---
 // Emits a BP2 block scoped to the calling role:
-//   - Public/custom bridge workers: their own agents/<role>.md when present,
+//   - Public/custom bridge agents: their own agents/<role>.md when present,
 //     plus the public bridge-worker contract.
 //   - Hidden roles: their own rules/bridge/<role>.md section only.
 //   - Null role: falls back to the full all-in-one block
@@ -473,7 +487,7 @@ export function loadScopedRoleCatalog(role, provider = null) {
     const useUnified = !!(provider && EXPLICIT_CACHE_PROVIDERS.has(provider));
     const cacheKey = useUnified ? '__unified__' : (role || '__all__');
     const cached = _scopedRoleCatalogCache.get(cacheKey);
-    const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+    const pluginRoot = mixdogRoot();
     // Use maxMtimeRecursive so edits to .md files inside agents/ and
     // rules/bridge/ propagate — parent dir mtime is unchanged on
     // Linux/macOS when only a nested file's content changes.
@@ -485,8 +499,6 @@ export function loadScopedRoleCatalog(role, provider = null) {
     if (cached && mtime <= cached.mtime) {
         return cached.value;
     }
-    if (!pluginRoot) return '';
-
     // Compute classification before file loading — internal-roles metadata
     // failures (malformed/missing hidden-roles.json) must propagate, not be
     // silently swallowed by the file-IO catch below.
@@ -543,7 +555,7 @@ export function loadScopedRoleCatalog(role, provider = null) {
             }
             // Inbound-event roles also need the skip-protocol rule so they
             // can opt their no-op outputs out of the Lead inject (BP1 would
-            // waste the bytes on unrelated bridge workers).
+            // waste the bytes on unrelated bridge agents).
             if (roleIsInboundEvent) {
                 const skip = hiddenPairs.find(p => p.name === 'skip-protocol');
                 if (skip) bridgeRuleSectionsToEmit.push(`## ${skip.name}\n\n${skip.body}`);
@@ -604,6 +616,8 @@ export function loadScopedRoleCatalog(role, provider = null) {
 //
 // BP3/BP4 inputs:
 //   - opts.projectContext : mixdog.md user/project context, when present
+//   - opts.workflowContext : active workflow + agent catalog, captured at session start
+//   - opts.workspaceContext : cwd + project list snapshot, captured at session start
 //   - opts.role           : role name from user-workflow.json or hidden-role registry
 //   - opts.agentTemplate  : agents/<role>.md body when authored
 //   - opts.taskBrief      : Lead-issued task description (Sub only)
@@ -639,13 +653,17 @@ export function composeSystemPrompt(opts) {
     const roleCatalog = catalogParts.join('\n\n');
 
     // ── BP3: sessionMarker (first <system-reminder> user msg, 1h cache) ─
-    // Claude Code-style user-authored context (mixdog.md) plus stable
-    // role-specific task instructions — webhook event body, schedule task
-    // body, hidden retrieval tool detail. The <!-- bp3-sentinel --> tag is
-    // what Anthropic's findTier3Index() matches on to claim a 1h BP3 slot.
+    // Claude Code-style user-authored context (mixdog.md), active workflow,
+    // plus stable role-specific task instructions — webhook event body,
+    // schedule task body, hidden retrieval tool detail. The
+    // <!-- bp3-sentinel --> tag is what Anthropic's findTier3Index() matches
+    // on to claim a 1h BP3 slot.
     const sessionMarkerParts = [];
     if (opts.projectContext) {
         sessionMarkerParts.push('# mixdog-project-context\n' + opts.projectContext);
+    }
+    if (opts.workflowContext && typeof opts.workflowContext === 'string' && opts.workflowContext.trim()) {
+        sessionMarkerParts.push(opts.workflowContext.trim());
     }
     if (opts.roleSpecific) {
         sessionMarkerParts.push(opts.roleSpecific);
@@ -671,9 +689,9 @@ export function composeSystemPrompt(opts) {
         let permissionLabel = String(permission);
         let allow =
             permission === 'read'
-                ? 'read-only; write/edit/bash rejected'
+                ? 'read-only; write/edit/shell rejected'
                 : permission === 'read-write'
-                    ? 'read + write/edit/bash'
+                    ? 'read + write/edit/shell'
                     : permission === 'mcp'
                         ? 'MCP/internal retrieval tools only; file/shell/edit tools rejected'
                     : permission === 'full'
@@ -709,7 +727,7 @@ export function composeSystemPrompt(opts) {
     // to the built-in default identity for the well-known public roles (kept in
     // sync with setup.html's WF_DEFAULT_ROLE_IDENTITY) so the feature works out
     // of the box; a saved custom body always wins, and unknown/hidden roles get
-    // nothing (hidden roles stay plugin-managed via their systemFile rules).
+    // nothing (hidden roles stay Mixdog-managed via their systemFile rules).
     //
     // Absent vs present-but-empty: when opts.roleTemplate is defined the role
     // file EXISTS on disk — its body (possibly empty for a frontmatter-only or
@@ -723,6 +741,9 @@ export function composeSystemPrompt(opts) {
         volatileParts.push('# role-identity\n' + roleIdentity);
     }
     if (opts.taskBrief) volatileParts.push('# task-brief\n' + opts.taskBrief);
+    if (opts.workspaceContext && typeof opts.workspaceContext === 'string' && opts.workspaceContext.trim()) {
+        volatileParts.push(opts.workspaceContext.trim());
+    }
     if (opts.coreMemoryContext && typeof opts.coreMemoryContext === 'string' && opts.coreMemoryContext.trim()) {
         volatileParts.push('# Core Memory\n' + opts.coreMemoryContext.trim());
     }

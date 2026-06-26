@@ -76,8 +76,11 @@ function compactHeader(oldHistory) {
     ];
 }
 
-function buildSummaryContent(oldHistory, perMessageChars) {
+function buildSummaryContent(oldHistory, perMessageChars, factsText = '') {
     const lines = compactHeader(oldHistory);
+    if (factsText) {
+        lines.push('', factsText);
+    }
     if (oldHistory.length > 0) {
         lines.push('timeline:');
         for (let i = 0; i < oldHistory.length; i += 1) {
@@ -92,26 +95,38 @@ function makeSummaryMessage(content) {
 }
 
 function fitSummaryMessage(oldHistory, remainingTokens) {
-    const minimal = makeSummaryMessage(compactHeader(oldHistory).join('\n'));
-    if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
+    const factsText = extractPreservedFacts(oldHistory);
+    const tryFit = (withFacts) => {
+        const ft = withFacts ? factsText : '';
+        const minimalText = ft
+            ? `${compactHeader(oldHistory).join('\n')}\n\n${ft}`
+            : compactHeader(oldHistory).join('\n');
+        const minimal = makeSummaryMessage(minimalText);
+        if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
 
-    let maxText = 0;
-    for (const m of oldHistory) maxText = Math.max(maxText, extractText(m).length);
+        let maxText = 0;
+        for (const m of oldHistory) maxText = Math.max(maxText, extractText(m).length);
 
-    let lo = 0;
-    let hi = Math.max(maxText, 0);
-    let best = minimal;
-    while (lo <= hi) {
-        const mid = Math.floor((lo + hi) / 2);
-        const candidate = makeSummaryMessage(buildSummaryContent(oldHistory, mid));
-        if (estimateMessagesTokens([candidate]) <= remainingTokens) {
-            best = candidate;
-            lo = mid + 1;
-        } else {
-            hi = mid - 1;
+        let lo = 0;
+        let hi = Math.max(maxText, 0);
+        let best = minimal;
+        while (lo <= hi) {
+            const mid = Math.floor((lo + hi) / 2);
+            const candidate = makeSummaryMessage(buildSummaryContent(oldHistory, mid, ft));
+            if (estimateMessagesTokens([candidate]) <= remainingTokens) {
+                best = candidate;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
         }
+        return best;
+    };
+    if (factsText) {
+        const withFacts = tryFit(true);
+        if (withFacts) return withFacts;
     }
-    return best;
+    return tryFit(false);
 }
 
 function currentTurnStart(nonSystem) {
@@ -137,6 +152,23 @@ const DEFAULT_TAIL_TURNS = 2;
 const MIN_PRESERVE_RECENT_TOKENS = 2_000;
 const COMPACTION_INPUT_MAX_CHARS = 2_000;
 const COMPACTION_PROMPT_HEADROOM = 0.85;
+const PRESERVED_FACTS_MAX_CHARS = 600;
+
+function preservedFactHints() {
+    return String(process.env.MIXDOG_COMPACT_FACT_HINTS || '')
+        .split(/[\n,;]+/u)
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(s => s.toLocaleLowerCase());
+}
+
+const PRESERVED_FACT_HINTS = preservedFactHints();
+
+function hasConfiguredPreservedFactHint(text) {
+    const lower = String(text || '').toLocaleLowerCase();
+    return PRESERVED_FACT_HINTS.some(hint => hint && lower.includes(hint));
+}
+
 const COMPACTION_SYSTEM_PROMPT = [
     'You are an anchored context summarization assistant for coding sessions.',
     '',
@@ -186,6 +218,73 @@ Rules:
 - Use the same language as the active user thread when it is clear.
 - Do not mention the summary process or that context was compacted.`;
 
+function extractPreservedFacts(messages) {
+    if (!messages || messages.length === 0) return '';
+    const candidates = [];
+    const seenSignatures = new Set();
+    const add = (prefix, text, score, messageIndex, lineIndex = 0) => {
+        const clean = text.replace(/`/g, '').trim();
+        if (clean.length < 10) return;
+        const sig = clean.slice(0, 80).toLowerCase().replace(/\s+/g, ' ');
+        if (seenSignatures.has(sig)) return;
+        seenSignatures.add(sig);
+        candidates.push({ prefix, text: clean, score, messageIndex, lineIndex });
+    };
+    const classifyLine = (t) => {
+        // Language-neutral structural cues: exact assignments, paths, URLs,
+        // symbolic error/constant identifiers, and optional user-configured
+        // locale/domain hints. Do not bake human-language keyword lists here.
+        if (/[\p{L}\p{N}_$./:-]{2,}\s*=\s*\S+/u.test(t)) return { prefix: '•', score: 100 };
+        if (/(?:^|[\s('"`])https?:\/\/[^\s'"`<>]+/iu.test(t)) return { prefix: '•', score: 95 };
+        if (/(?:^|[\s('"`])(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|~?[\\/][^\s'"`<>]+|[\p{L}\p{N}_$.-]+[\\/][^\s'"`<>]+|[\p{L}\p{N}_$.-]+\.(?:mjs|cjs|js|jsx|ts|tsx|json|md|rs|go|py|java|kt|cs|cpp|c|h|hpp|css|html|yml|yaml|toml|lock|sh|ps1)\b)/iu.test(t)) return { prefix: '•', score: 95 };
+        if (/\b[A-Z][A-Z0-9_:-]{2,}\b/.test(t)) return { prefix: '•', score: 90 };
+        if (hasConfiguredPreservedFactHint(t)) return { prefix: '!', score: 70 };
+        return null;
+    };
+    for (let mi = 0; mi < messages.length; mi += 1) {
+        const m = messages[mi];
+        const text = extractText(m);
+        if (!text) continue;
+        const lines = text.split('\n');
+        for (let li = 0; li < lines.length; li += 1) {
+            const line = lines[li];
+            const t = line.trim();
+            if (t.length < 10 || t.length > 250) continue;
+            const cls = classifyLine(t);
+            if (cls) add(cls.prefix, t, cls.score, mi, li);
+        }
+        if (m?.role === 'assistant' && Array.isArray(m.toolCalls)) {
+            for (const tc of m.toolCalls) {
+                const name = tc?.function?.name || tc?.name || '';
+                if (name && !seenSignatures.has(`tool:${name}`)) {
+                    seenSignatures.add(`tool:${name}`);
+                    candidates.push({ prefix: '•', text: `Tool: ${name}`, score: 50, messageIndex: mi, lineIndex: Number.MAX_SAFE_INTEGER });
+                }
+            }
+        }
+    }
+    if (candidates.length === 0) return '';
+    candidates.sort((a, b) =>
+        (b.score - a.score)
+        || (b.messageIndex - a.messageIndex)
+        || (b.lineIndex - a.lineIndex)
+    );
+    let result = '## Preserved Facts\n';
+    let kept = 0;
+    for (const c of candidates) {
+        if (kept >= 25) break;
+        let line = `- ${c.prefix} ${c.text}\n`;
+        if (result.length + line.length > PRESERVED_FACTS_MAX_CHARS) {
+            const room = PRESERVED_FACTS_MAX_CHARS - result.length - 8;
+            if (kept === 0 && room > 32) line = `- ${c.prefix} ${c.text.slice(0, room)}…\n`;
+            else continue;
+        }
+        result += line;
+        kept += 1;
+    }
+    return kept > 0 ? result : '';
+}
+ 
 function protectedTailStart(messages, tailTurns = PRUNE_TAIL_TURNS) {
     let seenUsers = 0;
     for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -292,12 +391,14 @@ function selectCompactionWindow(messages, budget, opts = {}) {
             break;
         }
     }
+    const preservedFacts = extractPreservedFacts(head.slice(headStart));
     return {
         system,
         head: head.slice(headStart),
         tail,
         previousSummary,
         originalHead: head,
+        preservedFacts,
     };
 }
 
@@ -309,7 +410,7 @@ function transcriptLineForCompaction(m, index, perMessageChars) {
     return `${index + 1}. ${role}${meta}:\n${text}`;
 }
 
-function buildCompactionPrompt({ head, previousSummary }, perMessageChars) {
+function buildCompactionPrompt({ head, previousSummary, preservedFacts }, perMessageChars) {
     const lines = [
         previousSummary
             ? 'Update the anchored summary below using the conversation history that follows. Preserve still-true details, remove stale details, and merge in the new facts.'
@@ -318,6 +419,9 @@ function buildCompactionPrompt({ head, previousSummary }, perMessageChars) {
     ];
     if (previousSummary) {
         lines.push('', '<previous-summary>', previousSummary, '</previous-summary>');
+    }
+    if (preservedFacts) {
+        lines.push('', '<preserved-facts>', preservedFacts, '</preserved-facts>');
     }
     lines.push('', '<conversation-history>');
     if (head.length === 0) {
@@ -332,33 +436,44 @@ function buildCompactionPrompt({ head, previousSummary }, perMessageChars) {
 }
 
 function fitCompactionPrompt(input, targetTokens) {
-    const minimal = buildCompactionPrompt(input, 0);
-    const baseMessages = [
-        { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
-        { role: 'user', content: minimal },
-    ];
-    if (estimateMessagesTokens(baseMessages) > targetTokens) return minimal;
-
-    let maxText = 0;
-    for (const m of input.head) maxText = Math.max(maxText, extractText(m).length);
-    let lo = 0;
-    let hi = Math.min(COMPACTION_INPUT_MAX_CHARS, Math.max(maxText, 0));
-    let best = minimal;
-    while (lo <= hi) {
-        const mid = Math.floor((lo + hi) / 2);
-        const candidate = buildCompactionPrompt(input, mid);
-        const candidateMessages = [
+    const tryFit = (withFacts) => {
+        const inp = withFacts ? input : { ...input, preservedFacts: null };
+        const minimal = buildCompactionPrompt(inp, 0);
+        const baseMessages = [
             { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
-            { role: 'user', content: candidate },
+            { role: 'user', content: minimal },
         ];
-        if (estimateMessagesTokens(candidateMessages) <= targetTokens) {
-            best = candidate;
-            lo = mid + 1;
-        } else {
-            hi = mid - 1;
+        if (estimateMessagesTokens(baseMessages) > targetTokens) return null;
+
+        let maxText = 0;
+        for (const m of input.head) maxText = Math.max(maxText, extractText(m).length);
+        let lo = 0;
+        let hi = Math.min(COMPACTION_INPUT_MAX_CHARS, Math.max(maxText, 0));
+        let best = minimal;
+        while (lo <= hi) {
+            const mid = Math.floor((lo + hi) / 2);
+            const candidate = buildCompactionPrompt(inp, mid);
+            const candidateMessages = [
+                { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
+                { role: 'user', content: candidate },
+            ];
+            if (estimateMessagesTokens(candidateMessages) <= targetTokens) {
+                best = candidate;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
         }
+        return best;
+    };
+    if (input.preservedFacts) {
+        const withFacts = tryFit(true);
+        if (withFacts && estimateMessagesTokens([
+            { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
+            { role: 'user', content: withFacts },
+        ]) <= targetTokens) return withFacts;
     }
-    return best;
+    return tryFit(false);
 }
 
 function extractResponseText(response) {
@@ -379,32 +494,43 @@ function extractResponseText(response) {
     return '';
 }
 
-function makeSemanticSummaryMessage(oldHistory, summary, semanticMeta = {}) {
+function makeSemanticSummaryMessage(oldHistory, summary, semanticMeta = {}, preservedFacts = '') {
     const header = compactHeader(oldHistory);
     header.push(`semantic=true provider=${semanticMeta.provider || 'unknown'} model=${semanticMeta.model || 'unknown'}`);
+    const facts = String(preservedFacts || '').trim();
     const body = String(summary || '').trim();
-    return makeSummaryMessage(body ? `${header.join('\n')}\n\n${body}` : header.join('\n'));
+    const parts = [header.join('\n')];
+    if (facts) parts.push(facts);
+    if (body) parts.push(body);
+    return makeSummaryMessage(parts.join('\n\n'));
 }
 
-function fitSemanticSummaryMessage(oldHistory, summary, remainingTokens, semanticMeta) {
-    const minimal = makeSemanticSummaryMessage(oldHistory, '', semanticMeta);
-    if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
-    const text = String(summary || '').trim();
-    if (!text) return minimal;
-    let lo = 0;
-    let hi = text.length;
-    let best = minimal;
-    while (lo <= hi) {
-        const mid = Math.floor((lo + hi) / 2);
-        const candidate = makeSemanticSummaryMessage(oldHistory, text.slice(0, mid), semanticMeta);
-        if (estimateMessagesTokens([candidate]) <= remainingTokens) {
-            best = candidate;
-            lo = mid + 1;
-        } else {
-            hi = mid - 1;
+function fitSemanticSummaryMessage(oldHistory, summary, remainingTokens, semanticMeta, preservedFacts = '') {
+    const tryFit = (factsText) => {
+        const minimal = makeSemanticSummaryMessage(oldHistory, '', semanticMeta, factsText);
+        if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
+        const text = String(summary || '').trim();
+        if (!text) return minimal;
+        let lo = 0;
+        let hi = text.length;
+        let best = minimal;
+        while (lo <= hi) {
+            const mid = Math.floor((lo + hi) / 2);
+            const candidate = makeSemanticSummaryMessage(oldHistory, text.slice(0, mid), semanticMeta, factsText);
+            if (estimateMessagesTokens([candidate]) <= remainingTokens) {
+                best = candidate;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
         }
+        return best;
+    };
+    if (preservedFacts) {
+        const withFacts = tryFit(preservedFacts);
+        if (withFacts) return withFacts;
     }
-    return best;
+    return tryFit('');
 }
 
 function combinedSignal(parent, timeoutMs) {
@@ -438,6 +564,9 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
 
     const callBudget = Math.max(1, Math.floor((opts.compactionInputBudgetTokens || budget) * COMPACTION_PROMPT_HEADROOM));
     const prompt = fitCompactionPrompt(selected, callBudget);
+    if (!prompt) {
+        throw new Error(`semanticCompactMessages: compaction prompt cannot fit call budget=${callBudget}`);
+    }
     const compactModel = model;
     const sendOpts = {
         ...(opts.sendOpts || {}),
@@ -474,7 +603,7 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
         provider: opts.providerName || provider.name || null,
         model: compactModel,
     };
-    const summaryMessage = fitSemanticSummaryMessage(oldHistory, summary, budget - mandatoryCost, semanticMeta);
+    const summaryMessage = fitSemanticSummaryMessage(oldHistory, summary, budget - mandatoryCost, semanticMeta, selected.preservedFacts);
     if (!summaryMessage) {
         throw new Error(`semanticCompactMessages: summary cannot fit remaining budget=${budget - mandatoryCost}`);
     }

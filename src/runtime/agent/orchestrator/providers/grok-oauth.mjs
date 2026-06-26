@@ -306,7 +306,11 @@ export function describeGrokOAuthCredentials() {
         const expiresAt = _normalizeExpiresAt(tokens.expires_at);
         const expiring = expiresAt > 0 && expiresAt < Date.now() + TOKEN_REFRESH_SKEW_MS;
         const expired = expiresAt > 0 && expiresAt <= Date.now();
-        const detail = tokens.source || 'oauth';
+        const detail = tokens.source === 'own'
+            ? 'Mixdog token store'
+            : tokens.source === 'grok-cli'
+                ? '~/.grok/auth.json'
+                : (tokens.source || 'oauth');
         if (!hasRefresh) {
             return {
                 authenticated: expiresAt === 0 || !expired,
@@ -350,7 +354,7 @@ export function forgetGrokOAuthCredentials() {
 // Write rotated tokens back to the Grok CLI store (~/.grok/auth.json) so the
 // CLI — and any other reader of this single-use refresh-token lineage — picks
 // up the rotation instead of replaying a now-consumed token. Mirrors
-// anthropic-oauth's write-back to ~/.claude/.credentials.json. Best-effort:
+// anthropic-oauth's credential write-back. Best-effort:
 // the own store is the authority, so a failed write-back never breaks a
 // successful refresh. Host-owned file: no secret/mode so we don't re-permission it.
 function _writeBackGrokCliTokens(refreshed) {
@@ -462,22 +466,67 @@ async function refreshTokensWithFallback(tokens) {
 
 // --- Model catalog cache (24h disk TTL) ---
 const _modelCache = makeModelCache({ fileName: 'grok-oauth-models.json', ttlMs: MODEL_CACHE_TTL_MS });
+const PROXY_MODEL_METADATA = {
+    'grok-build': { display: 'Grok Build', contextWindow: 512000 },
+    'grok-composer-2.5-fast': { display: 'Composer 2.5 Fast', contextWindow: 200000 },
+};
+
+function _grokModelSupportsEffort(id) {
+    const text = String(id || '').toLowerCase();
+    if (!text) return false;
+    if (NON_CHAT_MODEL_RE.test(text)) return false;
+    if (text.includes('non-reasoning')) return false;
+    if (text === 'grok-build' || text.startsWith('grok-build-')) return false;
+    if (text.startsWith('grok-composer')) return false;
+    return text.includes('reasoning') || /^grok-\d/.test(text);
+}
+
+function _grokApiContextWindow(model) {
+    const id = String(model?.id || model?.model || model || '').trim();
+    const native = Number(model?.context_window ?? model?.context_length ?? model?.contextWindow ?? 0);
+    if (Number.isFinite(native) && native > 0) return native;
+    const fallback = Number(PROXY_MODEL_METADATA[id]?.contextWindow || 0);
+    return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
+}
+
+function _displayGrokModel(model) {
+    const raw = String(model?.id || model?.model || model || '').trim();
+    if (!raw) return raw;
+    const displayName = String(model?.display || '').trim();
+    if (displayName && displayName !== raw) return displayName;
+    const apiName = String(model?.name || PROXY_MODEL_METADATA[raw]?.display || '').trim();
+    if (apiName && apiName !== raw) return apiName;
+    let text = raw
+        .replace(/^grok-/i, 'Grok ')
+        .replace(/-0?309\b/g, '')
+        .replace(/-/g, ' ')
+        .replace(/\b\w/g, (m) => m.toUpperCase())
+        .replace(/\bNon Reasoning\b/g, 'Non Reasoning')
+        .replace(/\bMulti Agent\b/g, 'Multi Agent');
+    text = text.replace(/\s+/g, ' ').trim();
+    return text || raw;
+}
+
+function _normalizeGrokFamily(id) {
+    return _grokModelSupportsEffort(id) ? 'grok' : 'grok-static';
+}
 
 function _normalizeGrokModel(m) {
     const id = m?.id;
     if (!id) return null;
+    const contextWindow = _grokApiContextWindow(m);
     return {
         id,
         name: id,
-        display: id,
+        display: _displayGrokModel(m),
         provider: 'grok-oauth',
-        family: 'grok',
+        family: _normalizeGrokFamily(id),
+        reasoningLevels: _grokModelSupportsEffort(id) ? ['none', 'low', 'medium', 'high'] : [],
         tier: 'version',
         latest: false,
-        // Do not trust provider-native context_window here: xAI has returned
-        // stale/route-specific values for OAuth catalogs. Context metadata is
-        // filled only by model-catalog exact/provider-scoped sources.
-        contextWindow: 0,
+        // API/proxy model catalogs provide context_length/context_window. Only
+        // proxy-only models use the tiny static fallback above.
+        contextWindow,
         created: typeof m?.created === 'number' ? m.created : null,
     };
 }
@@ -486,16 +535,33 @@ function _sanitizeGrokModels(models) {
     if (!Array.isArray(models)) return models;
     let changed = false;
     const next = models.map((m) => {
+        let out = m;
+        const display = _displayGrokModel(m);
+        const family = _normalizeGrokFamily(m?.id);
+        const reasoningLevels = _grokModelSupportsEffort(m?.id) ? ['none', 'low', 'medium', 'high'] : [];
+        if (display && display !== out?.display) {
+            changed = true;
+            out = { ...out, display, name: out?.name || out?.id };
+        }
+        if (family !== out?.family || JSON.stringify(reasoningLevels) !== JSON.stringify(out?.reasoningLevels || [])) {
+            changed = true;
+            out = { ...out, family, reasoningLevels };
+        }
+        const apiContextWindow = _grokApiContextWindow(out);
+        if (Number.isFinite(apiContextWindow) && apiContextWindow > 0 && apiContextWindow !== out?.contextWindow) {
+            changed = true;
+            out = { ...out, contextWindow: apiContextWindow };
+        }
         const trustedContext = Number(getModelMetadataSync(m?.id, 'grok-oauth')?.contextWindow);
-        if (Number.isFinite(trustedContext) && trustedContext > 0 && trustedContext !== m?.contextWindow) {
+        if (!(apiContextWindow > 0) && Number.isFinite(trustedContext) && trustedContext > 0 && trustedContext !== out?.contextWindow) {
             changed = true;
-            return { ...m, contextWindow: trustedContext };
+            return { ...out, contextWindow: trustedContext };
         }
-        if (!(trustedContext > 0) && m?.contextWindow) {
+        if (!(apiContextWindow > 0) && !(trustedContext > 0) && out?.contextWindow) {
             changed = true;
-            return { ...m, contextWindow: 0 };
+            return { ...out, contextWindow: 0 };
         }
-        return m;
+        return out;
     });
     return changed ? next : models;
 }
@@ -763,7 +829,50 @@ function generatePKCE() {
     return { verifier, challenge };
 }
 
-export async function loginOAuth() {
+async function exchangeAuthorizationCode({ discovery, pkce, code }) {
+    const cleanCode = String(code || '').trim();
+    if (!cleanCode) throw new Error('[grok-oauth] authorization code is required');
+    const tokenRes = await fetch(discovery.token_endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            client_id: CLIENT_ID,
+            code: cleanCode,
+            code_verifier: pkce.verifier,
+            redirect_uri: REDIRECT_URI,
+            // xAI re-validates the PKCE challenge at token exchange
+            // (not just the verifier), so echo it back. Omitting
+            // these makes the exchange fail. Matches the Grok CLI.
+            code_challenge: pkce.challenge,
+            code_challenge_method: 'S256',
+        }),
+        // Secret-bearing (authorization code + verifier): refuse
+        // redirects so they can't be replayed to an untrusted host.
+        redirect: 'error',
+        signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+    });
+    if (!tokenRes.ok) {
+        const text = await tokenRes.text().catch(() => '');
+        throw new Error(`[grok-oauth] token exchange ${tokenRes.status}: ${_scrubTokens(text).slice(0, 500)}`);
+    }
+    const json = await tokenRes.json();
+    if (!json.access_token || !json.refresh_token) {
+        throw new Error('[grok-oauth] token exchange response missing access_token or refresh_token');
+    }
+    const tokens = {
+        access_token: json.access_token,
+        refresh_token: json.refresh_token,
+        expires_at: typeof json.expires_in === 'number'
+            ? Date.now() + json.expires_in * 1000
+            : _normalizeExpiresAt(json.expires_at),
+        token_endpoint: discovery.token_endpoint,
+    };
+    saveTokens(tokens);
+    return tokens;
+}
+
+export async function beginOAuthLogin() {
     const discovery = await fetchDiscovery();
     const pkce = generatePKCE();
     const state = randomBytes(16).toString('hex');
@@ -780,18 +889,20 @@ export async function loginOAuth() {
     url.searchParams.set('plan', 'generic');
     url.searchParams.set('referrer', 'mixdog');
 
-    return new Promise((resolve, reject) => {
+    let server = null;
+    let timeout = null;
+    let finish = null;
+    const waitForCallback = new Promise((resolve, reject) => {
         let settled = false;
-        let timeout = null;
-        const settle = (value, error = null) => {
+        finish = (value, error = null) => {
             if (settled) return;
             settled = true;
             if (timeout) clearTimeout(timeout);
-            try { server.close(); } catch { /* already closed */ }
+            try { server?.close(); } catch { /* already closed */ }
             if (error) reject(error);
             else resolve(value);
         };
-        const server = createServer(async (req, res) => {
+        server = createServer(async (req, res) => {
             const u = new URL(req.url || '/', `http://${CALLBACK_HOST}:${CALLBACK_PORT}`);
             if (u.pathname !== CALLBACK_PATH) {
                 res.writeHead(404);
@@ -802,57 +913,19 @@ export async function loginOAuth() {
             if (!code || u.searchParams.get('state') !== state) {
                 res.writeHead(400);
                 res.end('Invalid');
-                settle(null);
+                finish(null);
                 return;
             }
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end('<html><body><h2>Grok login successful! You can close this tab.</h2></body></html>');
             try {
-                const tokenRes = await fetch(discovery.token_endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({
-                        grant_type: 'authorization_code',
-                        client_id: CLIENT_ID,
-                        code,
-                        code_verifier: pkce.verifier,
-                        redirect_uri: REDIRECT_URI,
-                        // xAI re-validates the PKCE challenge at token exchange
-                        // (not just the verifier), so echo it back. Omitting
-                        // these makes the exchange fail. Matches the Grok CLI.
-                        code_challenge: pkce.challenge,
-                        code_challenge_method: 'S256',
-                    }),
-                    // Secret-bearing (authorization code + verifier): refuse
-                    // redirects so they can't be replayed to an untrusted host.
-                    redirect: 'error',
-                    signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
-                });
-                if (!tokenRes.ok) {
-                    const text = await tokenRes.text().catch(() => '');
-                    settle(null, new Error(`[grok-oauth] token exchange ${tokenRes.status}: ${_scrubTokens(text).slice(0, 500)}`));
-                    return;
-                }
-                const json = await tokenRes.json();
-                if (!json.access_token || !json.refresh_token) {
-                    settle(null, new Error('[grok-oauth] token exchange response missing access_token or refresh_token'));
-                    return;
-                }
-                const tokens = {
-                    access_token: json.access_token,
-                    refresh_token: json.refresh_token,
-                    expires_at: typeof json.expires_in === 'number'
-                        ? Date.now() + json.expires_in * 1000
-                        : _normalizeExpiresAt(json.expires_at),
-                    token_endpoint: discovery.token_endpoint,
-                };
-                saveTokens(tokens);
-                settle(tokens);
+                const tokens = await exchangeAuthorizationCode({ discovery, pkce, code });
+                finish(tokens);
             } catch (err) {
-                settle(null, err instanceof Error ? err : new Error(String(err)));
+                finish(null, err instanceof Error ? err : new Error(String(err)));
             }
         });
-        timeout = setTimeout(() => settle(null), LOGIN_TIMEOUT_MS);
+        timeout = setTimeout(() => finish(null), LOGIN_TIMEOUT_MS);
         server.listen(CALLBACK_PORT, CALLBACK_HOST, async () => {
             process.stderr.write(`\n[grok-oauth] Open this URL to log in (consent shows as "Grok Build"):\n${url.toString()}\n\n`);
             try {
@@ -862,6 +935,25 @@ export async function loginOAuth() {
                 process.stderr.write(`[grok-oauth] browser open failed: ${String(err?.message || err).slice(0, 200)}\n`);
             }
         });
-        server.on('error', (err) => settle(null, new Error(`[grok-oauth] callback server failed on ${CALLBACK_HOST}:${CALLBACK_PORT}: ${err?.message || err}`)));
+        server.on('error', (err) => finish(null, new Error(`[grok-oauth] callback server failed on ${CALLBACK_HOST}:${CALLBACK_PORT}: ${err?.message || err}`)));
     });
+
+    return {
+        provider: 'grok-oauth',
+        url: url.toString(),
+        waitForCallback,
+        completeCode: async (code) => {
+            const tokens = await exchangeAuthorizationCode({ discovery, pkce, code });
+            finish?.(tokens);
+            return tokens;
+        },
+        cancel: () => {
+            finish?.(null);
+        },
+    };
+}
+
+export async function loginOAuth() {
+    const login = await beginOAuthLogin();
+    return await login.waitForCallback;
 }

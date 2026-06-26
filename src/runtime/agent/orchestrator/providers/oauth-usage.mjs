@@ -242,7 +242,6 @@ function balanceFromCredits(credits, source) {
   if (!credits || typeof credits !== 'object') return null;
   const balance = num(credits.balance ?? credits.remaining ?? credits.remaining_dollars, null);
   if (balance === null) return null;
-  if (credits.has_credits === false && balance <= 0) return null;
   return {
     source,
     remainingUsd: round(balance, 4),

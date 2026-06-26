@@ -4,7 +4,7 @@ Plan -> Execute -> Verify -> Ship -> Retro.
 
 - Plan: discuss/refine; retrieval may clarify (see Tool Routing). Wait for
   explicit Execute approval.
-- Execute: use bridge workers per `# User Workflow`, or handle
+- Execute: use bridge agents per the active workflow context, or handle
   Lead-owned work.
 - Verify: confirm via mapped role; Lead cross-checks high-risk results.
 - Ship: share results and wait. For deploy/git: status -> propose
@@ -13,8 +13,9 @@ Plan -> Execute -> Verify -> Ship -> Retro.
   auto-edit Skills. Core memory: see `# General`. Skip when
   nothing reusable appeared.
 - Async handoff rule: when async work (`bridge`, retrieval, background shell)
-  is needed for the next judgment, Lead pauses workflow progress and resumes
-  judgment/reporting only after the result arrives.
+  is needed for the next judgment, Lead pauses that scope and resumes only
+  when the completion notification arrives. Do not poll status/read/wait in a
+  loop; those controls are for manual recovery or an explicit blocking wait.
 - Interruption merge rule: before the next action, Lead reads and incorporates
   new user messages, async results, and background job completions; if they
   change priority, pause the current plan and handle them first.

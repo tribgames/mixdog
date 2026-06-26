@@ -1,0 +1,6 @@
+{
+  "id": "debugger",
+  "name": "Debugger",
+  "description": "Failure reproduction and root-cause analysis.",
+  "entry": "AGENT.md"
+}

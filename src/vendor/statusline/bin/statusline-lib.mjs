@@ -26,11 +26,11 @@ import {
 } from '../src/gateway/session-routes.mjs';
 
 function claudeConfigDir() {
-  return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+  return process.env.MIXDOG_CONFIG_DIR || path.join(os.homedir(), '.mixdog');
 }
 
 function pluginDataDir() {
-  return process.env.CLAUDE_PLUGIN_DATA || process.env.MIXDOG_DATA_DIR || path.join(process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog'), 'data');
+  return process.env.MIXDOG_DATA_DIR || path.join(process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog'), 'data');
 }
 
 function gatewayPort() {
@@ -179,8 +179,8 @@ export async function renderStatusLine(ccJsonInput) {
   const R   = '\x1b[0m';
   const B   = '\x1b[1m';
   const D   = '\x1b[2m';
-  const RED = '\x1b[31m';
-  const GRN = '\x1b[32m';
+  const RED = '\x1b[38;2;220;70;88m';
+  const GRN = '\x1b[38;2;0;170;75m';
   const YLW = '\x1b[33m';
   const CYN = '\x1b[36m';
   const GREY = '\x1b[90m';
@@ -199,10 +199,10 @@ export async function renderStatusLine(ccJsonInput) {
     syncCompactWindowForCurrentModel(CURRENT_ROUTE);
   } catch {}
 
-  if (process.env.MIXDOG_STATUSLINE_TRACE && CC_JSON && process.env.CLAUDE_PLUGIN_DATA) {
+  if (process.env.MIXDOG_STATUSLINE_TRACE && CC_JSON) {
     try {
       fs.writeFileSync(
-        path.join(process.env.CLAUDE_PLUGIN_DATA, 'statusline-stdin.json'),
+        path.join(pluginDataDir(), 'statusline-stdin.json'),
         CC_JSON
       );
     } catch {}
@@ -277,7 +277,7 @@ export async function renderStatusLine(ccJsonInput) {
   const CC_SESSION_ID = extract(CC_JSON, /"session_id"\s*:\s*"([^"]+)"/);
 
   let CC_EFFORT = extract(CC_JSON, /"effort"\s*:\s*\{[^}]*"level"\s*:\s*"([^"]+)"/);
-  if (!CC_EFFORT) CC_EFFORT = process.env.CLAUDE_CODE_EFFORT_LEVEL || '';
+  if (!CC_EFFORT) CC_EFFORT = process.env.MIXDOG_EFFORT_LEVEL || '';
   if (!CC_EFFORT) {
     try {
       const settingsRaw = fs.readFileSync(
@@ -555,6 +555,13 @@ export async function renderStatusLine(ccJsonInput) {
     if (p >= 70) return `${YLW}${p}%${R}`;
     return `${GRN}${p}%${R}`;
   }
+  function summarizeWorkerTags(tags, limit = 3) {
+    const cleanTags = [...new Set((Array.isArray(tags) ? tags : [])
+      .map(tag => String(tag || '').trim())
+      .filter(Boolean))];
+    if (cleanTags.length <= limit) return cleanTags.join(', ');
+    return `${cleanTags.slice(0, limit).join(', ')}, +${cleanTags.length - limit}`;
+  }
 
   const gatewayLimitSegments = formatGatewayLimitSegments(GATEWAY_STATUS, {
     COLS, D, R, RED, GRN, YLW, colourPct, epochMsToHHMM,
@@ -753,7 +760,7 @@ export async function renderStatusLine(ccJsonInput) {
       // `+` overflow marker: more live/recent candidates existed than the
       // per-tick scan cap, so the rendered count is a floor, not the ground.
       const overflow = truncated ? '+' : '';
-      return `${GREY}⚙  bash:${count}${overflow}${elapsed}${R}`;
+      return `${GREY}⚙  shell:${count}${overflow}${elapsed}${R}`;
     } catch { return ''; }
   })();
   if (bashJobsSeg) addL1(bashJobsSeg);
@@ -763,14 +770,14 @@ export async function renderStatusLine(ccJsonInput) {
   function addL2(seg) { if (seg) l2Parts.push(seg); }
 
   if (workCount > 0 && workOrder) {
-    addL2(`${GRN}●${R} ${B}${workCount} Running${R} ${D}(${R}${CYN}${workOrder}${R}${D})${R}`);
+    addL2(`${GRN}●${R} ${B}${workCount} Running${R} ${D}(${R}${B}${summarizeWorkerTags(workOrder.split(','))}${R}${D})${R}`);
   }
 
   if (idleWorkers.length) {
     // Idle workers: filled grey dot (●) + explicit 'idle' marker + tag list.
     // Filled (not hollow ○) so the glyph matches the running ● weight; only
     // the colour (grey vs green) distinguishes idle from running.
-    const idleTags = idleWorkers.join(', ');
+    const idleTags = summarizeWorkerTags(idleWorkers);
     addL2(`${GREY}● ${idleWorkers.length} idle (${idleTags})${R}`);
   }
   if (bSchedNextName && schedNextHHMM) {

@@ -37,11 +37,13 @@ export function formatToolStartProgress(name, args = {}) {
             return Array.isArray(a.writes) ? `writing ${_plural(a.writes.length, 'file')}` : `writing ${_t(a.path)}`;
         case 'apply_patch':
             return a.dry_run ? 'validating patch' : 'applying patch';
-        case 'bash':
+        case 'shell':
             return a.command ? `running ${_t(a.command)}` : 'running shell';
-        case 'job_wait': {
-            const checking = a.action && a.action !== 'wait';
-            return `${checking ? 'checking' : 'waiting for'} job ${_t(a.job_id)}`;
+        case 'task': {
+            const action = a.action || 'wait';
+            return action === 'list'
+                ? 'listing background tasks'
+                : `${action === 'wait' ? 'waiting for' : action} task ${_t(a.task_id)}`;
         }
         case 'diagnostics':
             return `running diagnostics${a.path ? ` for ${_t(a.path)}` : ''}`;
@@ -59,7 +61,7 @@ export function formatToolStartProgress(name, args = {}) {
 
         // ── search module: web ───────────────────────────────────────────
         case 'search':
-            return Array.isArray(a.query) ? `searching web (${_plural(a.query.length, 'query', 'queries')})` : `searching web for ${_t(a.query)}`;
+            return Array.isArray(a.query) ? `searching web (${_plural(a.query.length, 'query', 'queries')})` : `searching web for ${_t(a.query || a.keywords)}`;
         case 'web_fetch':
             return Array.isArray(a.url) ? `fetching ${_plural(a.url.length, 'URL')}` : `fetching ${_t(a.url)}`;
 
