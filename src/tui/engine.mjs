@@ -283,6 +283,7 @@ function stripSyntheticAgentTags(text) {
   const taskResult = textBetweenTag(value, 'result');
   if (taskResult) return taskResult;
   return value
+    .replace(/^bridge result[^\n]*(?:\n|$)/i, '')
     .replace(/<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>/gi, '')
     .trim();
 }
@@ -397,7 +398,8 @@ function parseToolArgs(args) {
   return typeof args === 'object' ? args : {};
 }
 
-const BRIDGE_JOB_POLL_MS = 2000;
+const BRIDGE_JOB_POLL_MS = 10000;
+const BRIDGE_JOB_FIRST_POLL_MS = 2500;
 const BRIDGE_JOB_MAX_POLL_MS = 10 * 60_000;
 const yieldToRenderer = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -521,6 +523,7 @@ function bridgeArgsWithResultMetadata(args, parsed) {
   if (!parsed) return args;
   const next = { ...(args && typeof args === 'object' ? args : {}) };
   if (parsed.type) next.type = parsed.type;
+  if (parsed.status) next.status = parsed.status;
   if (parsed.taskId) next.task_id = parsed.taskId;
   if (parsed.role) next.role = parsed.role;
   if (parsed.preset) next.preset = parsed.preset;
@@ -558,14 +561,21 @@ export async function createEngineSession({
   const cwd = runtime.cwd || process.cwd();
   const stateStartedAt = performance.now();
   const autoClearState = () => runtime.getAutoClear?.() || runtime.autoClear || { enabled: true, idleMs: 60 * 60 * 1000 };
-  const bridgeStatusState = () => {
+  const BRIDGE_STATUS_CACHE_MS = 1000;
+  let bridgeStatusCache = null;
+  let bridgeStatusCacheAt = 0;
+  const bridgeStatusState = ({ force = false } = {}) => {
+    const now = Date.now();
+    if (!force && bridgeStatusCache && now - bridgeStatusCacheAt < BRIDGE_STATUS_CACHE_MS) return bridgeStatusCache;
     const status = runtime.bridgeStatus?.() || {};
-    return {
+    bridgeStatusCache = {
       bridgeMode: runtime.bridgeMode || status.bridgeMode || 'async',
       bridgeWorkers: Array.isArray(status.bridgeWorkers) ? status.bridgeWorkers : [],
       bridgeJobs: Array.isArray(status.bridgeJobs) ? status.bridgeJobs : [],
       bridgeScope: status.bridgeScope || null,
     };
+    bridgeStatusCacheAt = now;
+    return bridgeStatusCache;
   };
   const routeState = () => ({
     sessionId: runtime.id,
@@ -802,7 +812,7 @@ export async function createEngineSession({
           errorCount: isError ? 1 : 0,
           ...(parsed ? { args: bridgeArgsWithResultMetadata(current?.args, parsed) } : {}),
         });
-        set(bridgeStatusState());
+        set(bridgeStatusState({ force: true }));
         if (!parsed || parsed.status !== 'running') {
           clearBridgeJobMonitor(taskId);
           return;
@@ -810,7 +820,7 @@ export async function createEngineSession({
       } catch (error) {
         const errorText = toolErrorDisplay(error, 'bridge');
         patchItem(monitor.itemId, { result: errorText, text: errorText, isError: true, errorCount: 1 });
-        set(bridgeStatusState());
+        set(bridgeStatusState({ force: true }));
         clearBridgeJobMonitor(taskId);
         return;
       }
@@ -818,7 +828,7 @@ export async function createEngineSession({
       monitor.timer.unref?.();
     };
 
-    monitor.timer = setTimeout(poll, 0);
+    monitor.timer = setTimeout(poll, BRIDGE_JOB_FIRST_POLL_MS);
     monitor.timer.unref?.();
   }
 
@@ -837,7 +847,7 @@ export async function createEngineSession({
         });
         if (existing) {
           updateBridgeJobCard(existing.id, text, /^(failed|error|timeout|cancelled|killed)$/i.test(parsed.status));
-          set(bridgeStatusState());
+          set(bridgeStatusState({ force: true }));
         }
       }
       enqueue(text, {
@@ -845,7 +855,7 @@ export async function createEngineSession({
         priority: 'later',
         key: notificationKey || undefined,
       });
-      set(bridgeStatusState());
+      set(bridgeStatusState({ force: true }));
     });
   }
 
@@ -911,8 +921,8 @@ export async function createEngineSession({
         return 'memory';
       case 'Explore':
         return 'explore';
-      case 'Edit':
-        return 'edit';
+      case 'Patch':
+        return 'patch';
       default:
         // Shell/Agent/Channel/Setup/Other stay as their own cards so risky or
         // semantically distinct actions do not disappear inside a discovery log.
@@ -1184,26 +1194,40 @@ export async function createEngineSession({
         categoryOrder: [],
         calls: new Map(),
         nextSummarySeq: 0,
+        pushed: false,
+        startedAt: Date.now(),
       };
       aggregateCards.push(aggregate);
       openAggregateCard = aggregate;
+      return aggregate;
+    };
+
+    const syncAggregateHeader = (aggregate) => {
+      if (!aggregate?.itemId) return;
+      const patch = {
+        args: { categoryOrder: aggregate.categoryOrder.slice() },
+        count: aggregate.calls.size,
+        completedCount: [...aggregate.calls.values()].filter((r) => r.resolved).length,
+        categories: Object.fromEntries(aggregate.categories),
+      };
+      if (aggregate.pushed) {
+        patchItem(aggregate.itemId, patch);
+        return;
+      }
+      aggregate.pushed = true;
       pushItem({
         kind: 'tool',
-        id: itemId,
+        id: aggregate.itemId,
         name: '__aggregate__',
-        args: { categoryOrder: [] },
+        ...patch,
         aggregate: true,
-        categories: {},
         result: null,
         rawResult: null,
         isError: false,
         expanded: false,
         headerFinalized: false,
-        count: 0,
-        completedCount: 0,
-        startedAt: Date.now(),
+        startedAt: aggregate.startedAt || Date.now(),
       });
-      return aggregate;
     };
 
     const ensureAssistant = () => {
@@ -1363,12 +1387,7 @@ export async function createEngineSession({
           }
 
           for (const aggregateCard of touchedAggregates) {
-            patchItem(aggregateCard.itemId, {
-              args: { categoryOrder: aggregateCard.categoryOrder.slice() },
-              count: aggregateCard.calls.size,
-              completedCount: [...aggregateCard.calls.values()].filter((r) => r.resolved).length,
-              categories: Object.fromEntries(aggregateCard.categories),
-            });
+            syncAggregateHeader(aggregateCard);
           }
           await yieldToRenderer();
         },
@@ -1627,9 +1646,19 @@ export async function createEngineSession({
   function drainPendingSteering() {
     const batch = dequeueQueueBatch('next');
     if (batch.length === 0) return [];
-    return batch
-      .map((entry) => String(entry.text || '').trim())
-      .filter(Boolean);
+    const out = batch
+      .map((entry) => {
+        const content = entry.content;
+        if (typeof content === 'string') return content.trim();
+        return { text: String(entry.text || '').trim(), content };
+      })
+      .filter((entry) => {
+        if (typeof entry === 'string') return entry.length > 0;
+        if (Array.isArray(entry?.content)) return entry.content.length > 0;
+        return String(entry?.content ?? '').trim().length > 0;
+      });
+    callCommitCallbacks(batch);
+    return out;
   }
 
   async function autoClearBeforeSubmit() {
@@ -1718,10 +1747,16 @@ export async function createEngineSession({
     submit: (text, options = {}) => {
       const t = promptDisplayText(text, options).trim();
       if (!t || state.commandBusy) return false;
+      const mode = options.mode || 'prompt';
+      // Plain text entered while a turn is busy is a follow-up by default:
+      // keep it in the visible queue until the current turn ends. Callers that
+      // really want mid-turn steering can still opt in with priority: 'next'.
+      const priority = options.priority ?? (state.busy && mode === 'prompt' ? 'later' : undefined);
       const queueOptions = {
         ...options,
+        mode,
         displayText: promptDisplayText(text, options),
-        priority: options.priority || (Array.isArray(text) ? 'later' : undefined),
+        priority,
       };
       if (state.busy) {
         enqueue(text, queueOptions);
@@ -1786,13 +1821,13 @@ export async function createEngineSession({
     },
     toggleBridgeMode: () => {
       const mode = runtime.toggleBridgeMode();
-      set(bridgeStatusState());
+      set(bridgeStatusState({ force: true }));
       pushNotice(`bridge mode -> ${mode}`, 'info');
       return mode;
     },
     setBridgeMode: (mode) => {
       const next = runtime.setBridgeMode(mode);
-      set(bridgeStatusState());
+      set(bridgeStatusState({ force: true }));
       return next;
     },
     getAutoClear: () => autoClearState(),
@@ -1821,7 +1856,7 @@ export async function createEngineSession({
           startedAt: Date.now(),
         });
         updateBridgeJobCard(itemId, text, /^error:/i.test(text));
-        set(bridgeStatusState());
+        set(bridgeStatusState({ force: true }));
         return result;
       } finally {
         set({ commandBusy: false });

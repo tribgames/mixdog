@@ -30,6 +30,18 @@ runNode(['--input-type=module', '-e', `
   if (typeof mod.runTui !== 'function') throw new Error('runTui export missing');
 `], 'tui bundle import smoke');
 
+runNode(['--input-type=module', '-e', `
+  process.stdout.columns = 120;
+  const { renderStatusline } = await import('./src/ui/statusline.mjs');
+  const line = await renderStatusline({
+    provider: 'openai',
+    model: 'gpt-5.5',
+    contextWindow: 1000000,
+    stats: { currentContextTokens: 999 },
+  });
+  if (/▓/.test(line) || !line.includes('░') || !line.includes('0.1%')) throw new Error('sub-1% context bar should stay empty: ' + JSON.stringify(line));
+`], 'statusline sub-percent context smoke');
+
 const boot = spawnSync(process.execPath, ['src/cli.mjs', '--help'], {
   cwd: root,
   env: { ...process.env, MIXDOG_BOOT_PROFILE: '1' },

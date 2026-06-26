@@ -28,10 +28,10 @@ export const EXPLORE_TOOL = {
     type: 'object',
     properties: {
       query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'One short location question, or an array only for unrelated topics. Do not use for a known symbol/term/config key; use code_graph/grep first. Never pass a whole brief/context dump.' },
-      cwd: { type: 'string' },
+      cwd: { type: 'string', description: 'Project/root directory to explore; narrow to the relevant repo or subtree.' },
       mode: { type: 'string', enum: ['async', 'sync'], description: `${executionModeSchemaDescription('sync')} Prefer async for non-trivial exploration; choose sync only for an explicit blocking lookup.` },
-      action: { type: 'string', enum: ['run', 'list', 'status', 'read', 'cancel'], description: 'Default run. list/status/read/cancel are manual recovery controls for async tasks.' },
-      task_id: { type: 'string', description: 'Shared background task id for status/read/cancel.' },
+      action: { type: 'string', enum: ['run', 'list', 'status', 'read', 'cancel'], description: 'Default run. list/status/read/cancel are manual recovery controls for async explore tasks.' },
+      task_id: { type: 'string', description: 'Shared background task id for manual status/read/cancel recovery.' },
       background: { type: 'boolean', description: 'Legacy alias for mode=async.' },
     },
     required: [],
@@ -87,13 +87,19 @@ function resolveExploreCwd(input, callerCwd) {
   return base;
 }
 
+function settledExplorerResult(result) {
+  if (result?.status !== 'fulfilled') {
+    return { ok: false, text: `[explorer error] ${result?.reason?.message || String(result?.reason)}` };
+  }
+  const text = typeof result.value === 'string' ? result.value.trim() : responseText(result.value).trim();
+  if (!text) return { ok: false, text: '[explorer error] empty response' };
+  return { ok: true, text };
+}
+
 function mergeSettled(settled, queries) {
   const single = queries.length === 1;
   if (single) {
-    const r = settled[0];
-    const body = r.status === 'fulfilled'
-      ? (r.value || '(no response)')
-      : `[explorer error] ${r.reason?.message || String(r.reason)}`;
+    const { text: body } = settledExplorerResult(settled[0]);
     return body.length > EXPLORE_OUTPUT_CHAR_CAP
       ? body.slice(0, EXPLORE_OUTPUT_CHAR_CAP) + EXPLORE_TRUNCATION_MARKER
       : body;
@@ -103,11 +109,8 @@ function mergeSettled(settled, queries) {
   const sep = '\n\n';
   let truncated = false;
   for (let i = 0; i < settled.length; i++) {
-    const r = settled[i];
     const header = `## Q${i + 1}: ${String(queries[i] ?? '').replace(/\s+/g, ' ').slice(0, 60)}`;
-    const body = r.status === 'fulfilled'
-      ? (r.value || '(no response)')
-      : `[explorer error] ${r.reason?.message || String(r.reason)}`;
+    const { text: body } = settledExplorerResult(settled[i]);
     const piece = `${header}\n${body}`;
     const addLen = (parts.length === 0 ? 0 : sep.length) + piece.length;
     if (total + addLen > EXPLORE_OUTPUT_CHAR_CAP) {
@@ -223,7 +226,7 @@ async function runExploreSync(args = {}, ctx = {}) {
   }));
 
   const merged = mergeSettled(settled, working);
-  const allFailed = settled.every((r) => r.status === 'rejected');
+  const allFailed = settled.every((r) => !settledExplorerResult(r).ok);
   const out = capNotice + merged;
   return allFailed ? fail(out) : ok(out);
 }

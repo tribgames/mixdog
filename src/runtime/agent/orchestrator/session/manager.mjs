@@ -1401,7 +1401,7 @@ export function markSessionAskStart(id) {
     // markSessionStreamDelta keeps refreshing once chunks arrive.
     publishHeartbeat(id, now);
 }
-export async function markSessionStreamDelta(id) {
+export function markSessionStreamDelta(id) {
     if (!id) return;
     // Non-creating lookup: a live ask ALWAYS has a runtime entry (markSessionAskStart
     // creates it before streaming begins). _touchRuntime would instead resurrect a
@@ -1422,22 +1422,14 @@ export async function markSessionStreamDelta(id) {
         entry.stage = 'streaming';
     }
     // Lightweight heartbeat (≤5s self-throttled) for the status aggregator.
-    // Disk-side session.lastHeartbeatAt below is the heavy 60s zombie-reaper
-    // signal; the .hb file is the fast fresh-session signal consumed by the
-    // status line.
+    // Avoid saving the full session here; structured-cloning large transcripts
+    // into the save worker blocks the TUI event loop during background streams.
     publishHeartbeat(id, now);
-    // Reuse the live in-memory session handle (registered into the runtime
-    // entry by askSession before streaming begins, L1495). Falling back to a
-    // synchronous loadSession() — a full readFileSync + JSON.parse of the
-    // session JSON — on EVERY stream delta blocked the event loop and grew
-    // with conversation length. The runtime handle is the same object
-    // persistIterationMetrics mutates (L1242), so the heartbeat-throttle read
-    // below stays consistent. Disk fallback only when no live handle exists.
-    const session = entry.session ?? loadSession(id);
-    if (session && now - (session.lastHeartbeatAt || 0) > HEARTBEAT_THROTTLE_MS) {
-        session.lastHeartbeatAt = now;
-        await saveSessionAsync(session, { expectedGeneration: session.generation });
-    }
+    // The .hb sidecar is the durable liveness signal for sweeps/status. Avoid
+    // posting the full session object to the save worker from the stream-delta
+    // path; structured-cloning large transcripts blocks the TUI event loop.
+    const session = entry.session;
+    if (session && now - (session.lastHeartbeatAt || 0) > HEARTBEAT_THROTTLE_MS) session.lastHeartbeatAt = now;
     entry.updatedAt = now;
 }
 export function markSessionToolCall(id, toolName) {
@@ -2116,7 +2108,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     onTextDelta: typeof askOpts?.onTextDelta === 'function' ? askOpts.onTextDelta : undefined,
                     onReasoningDelta: typeof askOpts?.onReasoningDelta === 'function' ? askOpts.onReasoningDelta : undefined,
                     onUsageDelta: (d) => {
-                        persistIterationMetrics(d).catch(() => {});
+                        setImmediate(() => persistIterationMetrics(d).catch(() => {}));
                         try { askOpts?.onUsageDelta?.(d); } catch {}
                     },
                     onToolResult: typeof askOpts?.onToolResult === 'function' ? askOpts.onToolResult : undefined,
@@ -2162,7 +2154,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         try { askOpts?.onStageChange?.(stage); } catch {}
                     },
                     onStreamDelta: () => {
-                        markSessionStreamDelta(sessionId).catch(() => {});
+                        try { markSessionStreamDelta(sessionId); } catch {}
                         try { askOpts?.onStreamDelta?.(); } catch {}
                     },
                 }),

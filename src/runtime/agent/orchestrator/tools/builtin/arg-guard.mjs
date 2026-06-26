@@ -67,35 +67,6 @@ function isNonEmptyString(v) {
     return typeof v === 'string' && v.length > 0;
 }
 
-function hasMeaningfulWriteSingle(a) {
-    return (isNonEmptyString(a?.path) || isNonEmptyString(a?.file_path))
-        && hasOwn(a, 'content')
-        && typeof a.content === 'string';
-}
-
-function isInertWriteEntry(w) {
-    return w && typeof w === 'object'
-        && !isNonEmptyString(w.path)
-        && !isNonEmptyString(w.file_path)
-        && (!hasOwn(w, 'content') || w.content === '');
-}
-
-function hasMeaningfulEditSingle(a) {
-    return hasOwn(a, 'old_string')
-        && hasOwn(a, 'new_string')
-        && isNonEmptyString(a.old_string)
-        && typeof a.new_string === 'string';
-}
-
-function isInertEditEntry(e) {
-    return e && typeof e === 'object'
-        && !isNonEmptyString(e.path)
-        && !isNonEmptyString(e.file_path)
-        && (!hasOwn(e, 'old_string') || e.old_string === '')
-        && (!hasOwn(e, 'new_string') || e.new_string === '')
-        && (!hasOwn(e, 'replace_all') || e.replace_all === false || e.replace_all === null || e.replace_all === undefined);
-}
-
 function isStringOrStringArray(v) {
     if (typeof v === 'string') return true;
     if (!Array.isArray(v) || v.length === 0) return false;
@@ -267,158 +238,9 @@ function guardRead(a) {
     return null;
 }
 
-function guardEdit(a) {
-    const op = hasOwn(a, 'operation') ? a.operation : 'replace';
-    if (op !== undefined && op !== null) {
-        if (!isString(op) || (op !== 'replace' && op !== 'notebook' && op !== 'rename')) {
-            return `Error: edit arg "operation" must be one of replace|notebook|rename (got ${JSON.stringify(op)})`;
-        }
-    }
-    if (op === 'notebook') {
-        return guardNotebookEdit(a);
-    }
-    if (op === 'rename') {
-        return guardRename(a);
-    }
-    if (Array.isArray(a.edits)) {
-        a.edits = a.edits.filter((e) => !isInertEditEntry(e));
-    }
-    let hasSingle = hasMeaningfulEditSingle(a);
-    const hasBatch = Array.isArray(a.edits) && a.edits.length > 0;
-    if (hasSingle && hasBatch) {
-        return 'Error: edit requires either single old_string/new_string OR edits[], not both';
-    }
-    if (!hasSingle && !hasBatch) {
-        if (hasOwn(a, 'edits') && !hasBatch) {
-            return 'Error: edit arg "edits" must be a non-empty array';
-        }
-        return 'Error: edit requires either (old_string + new_string) OR a non-empty edits[]';
-    }
-    if (hasSingle) {
-        if (typeof a.old_string !== 'string') {
-            return `Error: edit arg "old_string" must be a string (got ${describeType(a.old_string)})`;
-        }
-        if (a.old_string.length === 0) {
-            return 'Error: edit arg "old_string" must be non-empty';
-        }
-        if (typeof a.new_string !== 'string') {
-            return `Error: edit arg "new_string" must be a string (got ${describeType(a.new_string)})`;
-        }
-    }
-    if (hasBatch) {
-        for (let i = 0; i < a.edits.length; i++) {
-            const e = a.edits[i];
-            if (!e || typeof e !== 'object') {
-                return `Error: edit edits[${i}] must be an object with old_string + new_string`;
-            }
-            if (typeof e.old_string !== 'string') {
-                return `Error: edit edits[${i}].old_string must be a string (got ${describeType(e.old_string)})`;
-            }
-            if (e.old_string.length === 0) {
-                return `Error: edit edits[${i}].old_string must be non-empty`;
-            }
-            if (typeof e.new_string !== 'string') {
-                return `Error: edit edits[${i}].new_string must be a string (got ${describeType(e.new_string)})`;
-            }
-        }
-    }
-    return null;
-}
-
-function guardWrite(a) {
-    if (Array.isArray(a.writes)) {
-        a.writes = a.writes.filter((w) => !isInertWriteEntry(w));
-    }
-    const hasSingle = hasMeaningfulWriteSingle(a);
-    const hasBatch = Array.isArray(a.writes) && a.writes.length > 0;
-    if (hasSingle && hasBatch) {
-        return 'Error: write requires either (path + content) OR writes[], not both';
-    }
-    if (!hasSingle && !hasBatch) {
-        if (hasOwn(a, 'writes') && !hasBatch) {
-            return 'Error: write arg "writes" must be a non-empty array';
-        }
-        return 'Error: write requires either (path + content) OR a non-empty writes[]';
-    }
-    if (hasSingle) {
-        const p = hasOwn(a, 'path') ? a.path : a.file_path;
-        if (typeof p !== 'string' || !p) {
-            return `Error: write arg "path" must be a non-empty string (got ${describeType(p)})`;
-        }
-        if (typeof a.content !== 'string') {
-            return `Error: write arg "content" must be a string (got ${describeType(a.content)})`;
-        }
-    }
-    if (hasBatch) {
-        for (let i = 0; i < a.writes.length; i++) {
-            const w = a.writes[i];
-            if (!w || typeof w !== 'object') {
-                return `Error: write writes[${i}] must be an object with path + content`;
-            }
-            const p = hasOwn(w, 'path') ? w.path : w.file_path;
-            if (typeof p !== 'string' || !p) {
-                return `Error: write writes[${i}].path must be a non-empty string (got ${describeType(p)})`;
-            }
-            if (typeof w.content !== 'string') {
-                return `Error: write writes[${i}].content must be a string (got ${describeType(w.content)})`;
-            }
-        }
-    }
-    return null;
-}
-
-function guardNotebookEdit(a) {
-    const hasPath = hasOwn(a, 'notebook_path') || hasOwn(a, 'path') || hasOwn(a, 'file_path');
-    if (!hasPath) {
-        return 'Error: notebook_edit requires "notebook_path" (or alias path/file_path).';
-    }
-    for (const k of ['notebook_path', 'path', 'file_path']) {
-        if (hasOwn(a, k) && !isNonEmptyString(a[k])) {
-            return `Error: notebook_edit arg "${k}" must be a non-empty string (got ${describeType(a[k])})`;
-        }
-    }
-    const editMode = hasOwn(a, 'edit_mode') ? a.edit_mode : 'replace';
-    if (editMode !== undefined && editMode !== null) {
-        const allowedModes = new Set(['replace', 'insert', 'delete']);
-        if (!isString(editMode) || !allowedModes.has(editMode)) {
-            return `Error: notebook_edit arg "edit_mode" must be one of replace|insert|delete (got ${JSON.stringify(editMode)})`;
-        }
-    }
-    if (hasOwn(a, 'cell_type') && a.cell_type !== undefined && a.cell_type !== null) {
-        if (!isString(a.cell_type) || (a.cell_type !== 'code' && a.cell_type !== 'markdown')) {
-            return `Error: notebook_edit arg "cell_type" must be code or markdown (got ${JSON.stringify(a.cell_type)})`;
-        }
-    }
-    if (hasOwn(a, 'cell_id') && a.cell_id !== undefined && a.cell_id !== null && !isString(a.cell_id)) {
-        return `Error: notebook_edit arg "cell_id" must be a string (got ${describeType(a.cell_id)})`;
-    }
-    // new_source is required except for delete; the executor enforces the
-    // mode-specific requirement, but reject a non-string up front when present.
-    if (hasOwn(a, 'new_source') && a.new_source !== undefined && a.new_source !== null && typeof a.new_source !== 'string') {
-        return `Error: notebook_edit arg "new_source" must be a string (got ${describeType(a.new_source)})`;
-    }
-    return null;
-}
-
 function guardDiagnostics(a) {
     if (hasOwn(a, 'path') && a.path !== undefined && a.path !== null && !isNonEmptyString(a.path)) {
         return `Error: diagnostics arg "path" must be a non-empty string (got ${describeType(a.path)})`;
-    }
-    return null;
-}
-
-function guardRename(a) {
-    if (!hasOwn(a, 'symbol') || !isNonEmptyString(a.symbol)) {
-        return `Error: rename requires "symbol" (non-empty string) (got ${describeType(a.symbol)})`;
-    }
-    if (!hasOwn(a, 'new_name') || !isNonEmptyString(a.new_name)) {
-        return `Error: rename requires "new_name" (non-empty string) (got ${describeType(a.new_name)})`;
-    }
-    if (hasOwn(a, 'file') && a.file !== undefined && a.file !== null && !isNonEmptyString(a.file)) {
-        return `Error: rename arg "file" must be a non-empty string (got ${describeType(a.file)})`;
-    }
-    if (hasOwn(a, 'apply') && a.apply !== undefined && a.apply !== null && typeof a.apply !== 'boolean') {
-        return `Error: rename arg "apply" must be a boolean (got ${describeType(a.apply)})`;
     }
     return null;
 }
@@ -539,8 +361,6 @@ function guardCodeGraph(a) {
 const GUARDS = {
     grep: guardGrep,
     read: guardRead,
-    edit: guardEdit,
-    write: guardWrite,
     diagnostics: guardDiagnostics,
     shell: guardShell,
     task: guardTask,

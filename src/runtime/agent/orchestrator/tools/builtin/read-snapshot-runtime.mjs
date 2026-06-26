@@ -96,15 +96,10 @@ export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
         next.contentHash = existing.contentHash;
     }
     // Provenance: a snapshot is "grep-only" while EVERY contributing read was a
-    // single-file grep (match lines only, never the whole file). Any real
-    // read/edit/write clears it permanently. NOTE: grepOnly does not itself gate
-    // edits or overwrites — the write-overwrite gate keys on full-file PROOF
-    // (contentHash + full coverage), which a single-file grep snapshot acquires
-    // via the auto-hash below, so grep satisfies BOTH the edit gate and the
-    // write-overwrite gate; grepOnly only tailors the code-10 message when proof
-    // is absent. Sticky across merges in both orders: read→grep keeps it false
-    // (existing.grepOnly === false wins), and grep→read rebuilds it false
-    // because a read uses replaceExisting.
+    // single-file grep (match lines only, never the whole file). Any real read
+    // clears it permanently. Sticky across merges in both orders: read→grep
+    // keeps it false, and grep→read rebuilds it false because a read uses
+    // replaceExisting.
     const incomingIsGrep = meta.source === 'grep';
     next.grepOnly = incomingIsGrep && (sameFile ? existing.grepOnly === true : true);
     const rangeHashRows = [];

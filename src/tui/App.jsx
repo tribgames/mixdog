@@ -69,7 +69,7 @@ const HELP = [
   '  /webhooks        manage inbound webhooks',
   '  /quit (exit, q)  quit',
   'Picker: ↑/↓ select, ←/→ adjust when shown, Enter choose/save, Esc back/cancel.',
-  'Esc cancels active turn. Ctrl+C copies selection. Ctrl+B toggles bridge sync/async. /exit or /quit exits. Ctrl+V/paste inserts text. PageUp/PageDown scroll transcript.',
+  'Esc cancels active turn. Ctrl+C interrupts/clears or copies app selection. PageUp/PageDown scroll transcript. Set MIXDOG_TUI_MOUSE=0 for terminal-native mouse selection.',
 ].join('\n');
 
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
@@ -350,6 +350,13 @@ function centerLine(value, columns, reserve = 0) {
   return `${' '.repeat(pad)}${text}`;
 }
 
+function promptStatusColor(tone) {
+  if (tone === 'error') return theme.error;
+  if (tone === 'warn' || tone === 'cancel') return theme.warning;
+  if (tone === 'plain') return theme.subtle;
+  return theme.inactive;
+}
+
 function osc52ClipboardSequence(text) {
   const b64 = Buffer.from(String(text ?? ''), 'utf8').toString('base64');
   const raw = `\x1b]52;c;${b64}\x07`;
@@ -418,14 +425,25 @@ function copyToClipboard(text) {
   });
 }
 
-const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpanded }) {
+function isFullyFailedToolItem(item) {
+  if (!item || item.kind !== 'tool') return false;
+  const count = Math.max(1, Number(item.count || 1));
+  const done = Math.max(0, Math.min(count, Number(item.completedCount || (item.result == null ? 0 : count))));
+  const explicit = Number(item.errorCount);
+  const failed = Number.isFinite(explicit)
+    ? Math.max(0, Math.min(count, Math.floor(explicit)))
+    : item.isError ? count : 0;
+  return done >= count && failed >= count;
+}
+
+const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpanded, rightMessage = '', rightTone = 'info', rightMessageWidth = 24 }) {
   switch (item.kind) {
     case 'user': return <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} />;
     case 'assistant': return <AssistantMessage text={item.text} streaming={item.streaming} />;
-    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} headerFinalized={item.headerFinalized} />;
+    case 'tool': return isFullyFailedToolItem(item) ? null : <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} headerFinalized={item.headerFinalized} />;
     case 'notice': return <NoticeMessage text={item.text} tone={item.tone} columns={columns} />;
-    case 'turndone': return <TurnDone elapsedMs={item.elapsedMs} status={item.status} outputTokens={item.outputTokens} thinkingElapsedMs={item.thinkingElapsedMs} verb={item.verb} />;
-    case 'statusdone': return <StatusDone label={item.label} detail={item.detail} />;
+    case 'turndone': return <TurnDone elapsedMs={item.elapsedMs} status={item.status} outputTokens={item.outputTokens} thinkingElapsedMs={item.thinkingElapsedMs} verb={item.verb} rightMessage={rightMessage} rightTone={rightTone} rightMessageWidth={rightMessageWidth} />;
+    case 'statusdone': return <StatusDone label={item.label} detail={item.detail} rightMessage={rightMessage} rightTone={rightTone} rightMessageWidth={rightMessageWidth} />;
     default: return null;
   }
 });
@@ -476,6 +494,7 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
       // rows, while overestimating can hide rows when the user scrolls upward.
       return 1 + estimateWrappedRows(item.text, columns, 6);
     case 'tool': {
+      if (isFullyFailedToolItem(item)) return 0;
       const resultText = (toolOutputExpanded || item.expanded) && item.rawResult ? item.rawResult : item.result;
       const resultRows = resultText
         ? (toolOutputExpanded || item.expanded ? estimateWrappedRows(resultText, columns, 8) : Math.min(8, estimateWrappedRows(resultText, columns, 8)))
@@ -642,6 +661,7 @@ export function App({ store, initialStatusLine = '' }) {
   const pastedImagesRef = useRef({});
   const nextPastedImageIdRef = useRef(1);
   const promptValueRef = useRef('');
+  const promptSelectionRef = useRef(null);
   const [promptHint, setPromptHint] = useState('');
   const [promptHintTone, setPromptHintTone] = useState('info');
   const [slashIndex, setSlashIndex] = useState(0);
@@ -670,7 +690,8 @@ export function App({ store, initialStatusLine = '' }) {
   // refreshed store.getRenderSelectionText() on the synchronous render that the
   // final setSelection() triggered, so the selected text is ready to read.
   const copySelection = useCallback((attempt = 0) => {
-    const text = store.getRenderSelectionText?.() || selectionTextRef.current;
+    const renderText = store.getRenderSelectionText?.();
+    const text = renderText == null ? selectionTextRef.current : renderText;
     if ((!text || !text.trim()) && attempt < 4) {
       setTimeout(() => copySelection(attempt + 1), attempt === 0 ? 0 : 24);
       return;
@@ -1011,8 +1032,9 @@ export function App({ store, initialStatusLine = '' }) {
     if (mouseZoomPassthroughTimerRef.current) clearTimeout(mouseZoomPassthroughTimerRef.current);
   }, []);
 
-  // Mouse handling. index.jsx enabled SGR mouse tracking (?1000h button + ?1002h
-  // drag-motion + ?1006h SGR coords). Every event arrives as `\x1b[<b;col;rowM`
+  // Optional mouse handling. When index.jsx enables SGR mouse tracking
+  // (?1000h button + ?1002h drag-motion + ?1006h SGR coords).
+  // Every event arrives as `\x1b[<b;col;rowM`
   // (press/motion) or `\x1b[<b;col;rowm` (release), 1-based col/row. We watch raw
   // stdin and split it two ways, both additive to ink's keyboard handling:
   //   • wheel (button 64 up / 65 down) → scroll the transcript
@@ -1267,11 +1289,37 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
     if (key.ctrl && (input === 'c' || input === 'C')) {
-      // Ctrl+C is copy-only. It must never interrupt an active turn; Esc owns
-      // cancellation. With no active selection this is a no-op.
+      // Match normal terminal behavior as closely as possible. If app-owned
+      // mouse selection is explicitly enabled, Ctrl+C copies that selection;
+      // otherwise Ctrl+C interrupts the active turn or clears the current line.
+      // Native terminal selections are copied by the terminal itself before the
+      // key reaches us, so no app selection usually means an interrupt.
+      const promptSelectionText = promptSelectionRef.current?.text;
+      if (promptSelectionText) {
+        copyToClipboard(promptSelectionText)
+          .then(() => store.pushNotice(`copied ${promptSelectionText.length} char${promptSelectionText.length === 1 ? '' : 's'}`, 'plain'))
+          .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
+        return;
+      }
       const rect = dragRef.current.rect;
       const hasSelection = rect && !(rect.x1 === rect.x2 && rect.y1 === rect.y2);
-      if (hasSelection) copySelection();
+      if (hasSelection) {
+        copySelection();
+        return;
+      }
+      const currentText = String(promptValueRef.current || '');
+      if (state.busy) {
+        const restoredText = handlePromptInterrupt(currentText);
+        if (typeof restoredText === 'string') {
+          setPromptDraftOverride({ id: Date.now(), value: restoredText });
+        }
+        return;
+      }
+      if (currentText) {
+        clearPastedImagesSnapshot();
+        clearPromptHint();
+        setPromptDraftOverride({ id: Date.now(), value: '' });
+      }
       return;
     }
     if (key.ctrl && (input === 'o' || input === 'O')) {
@@ -4760,30 +4808,28 @@ export function App({ store, initialStatusLine = '' }) {
   // prompt/status area, so they hide those rows and expand into that space.
   const inputBoxHidden = expandedOptionPanel;
   const WELCOME_ROWS = state.items.length === 0 && !hasFloatingPanel ? 11 : 0;
-  // Independent reservation for each live-status child — the viewport must
-  // yield enough space for every bottom sibling. ThinkingMessage: outer
-  // marginTop(1) + inner marginTop(1) + "◈ Thinking…" label(1) = 3.
-  // Spinner occupies marginTop(1) + content(1) = 2. TurnDone is no longer a
-  // bottom sibling — it's a transcript item pinned after the turn's output, so
-  // it lives inside the viewport and needs no separate reservation here.
-  const THINKING_ROWS = state.thinking ? 3 : 0;
   const liveSpinner = state.spinner?.active ? state.spinner : (state.commandStatus?.active ? state.commandStatus : null);
-  const SPINNER_ROWS = liveSpinner ? 2 : 0;
+  const latestToast = state.toasts?.length ? state.toasts[state.toasts.length - 1] : null;
+  const toastHint = latestToast ? latestToast.text : '';
+  const inputHint = promptHint || toastHint;
+  const inputHintTone = promptHint ? promptHintTone : (latestToast?.tone || 'info');
+  const promptMetaRows = !inputBoxHidden && liveSpinner ? 1 : 0;
   const SCROLL_HINT_ROWS = 0;
-  const LIVE_STATUS_ROWS = THINKING_ROWS + SPINNER_ROWS;
+  const LIVE_STATUS_ROWS = 0;
   // The standalone prompt box is 3 rows (round border + one input line). Normal
   // mode keeps a one-row top gap, but slash mode pins the command palette flush
   // to the prompt, so reserve only the actual prompt height there. Otherwise an
   // extra reserved row remains below the statusline and the prompt appears one
   // row too high.
-  const INPUT_BOX_ROWS = inputBoxHidden ? 0 : (slashPaletteOpen ? 3 : 4);
+  const INPUT_BOX_ROWS = inputBoxHidden ? 0 : (slashPaletteOpen ? 3 : 4) + promptMetaRows;
   const STATUSLINE_ROWS = 3;
   const PANEL_MAX_VISIBLE = 8;
   const PANEL_BASE_ROWS = PANEL_MAX_VISIBLE + 4;
   const PICKER_CHROME_ROWS = 4;
   const TEXT_ENTRY_ROWS = 5;
   const OPTION_PANEL_EXTRA_ROWS = expandedOptionPanel ? 3 : 0;
-  const queuedRows = !hasFloatingPanel && state.queued?.length ? state.queued.length + 1 : 0;
+  const queuedVisible = !hasFloatingPanel && !inputBoxHidden && state.queued?.length > 0;
+  const queuedRows = queuedVisible ? state.queued.length + 1 : 0;
   const baseReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const maxFloatingPanelRows = Math.max(0, resizeState.rows - baseReserve - 1);
   const desiredFloatingPanelRows = picker
@@ -4809,16 +4855,19 @@ export function App({ store, initialStatusLine = '' }) {
     top: WELCOME_ROWS,
     bottom: Math.max(WELCOME_ROWS, WELCOME_ROWS + viewportHeight - 1),
   };
-  const latestToast = state.toasts?.length ? state.toasts[state.toasts.length - 1] : null;
-  const toastHint = latestToast ? latestToast.text : '';
-  const inputHint = promptHint || toastHint;
-  const inputHintTone = promptHint ? promptHintTone : (latestToast?.tone || 'info');
   // Render at the terminal's full cell width. Older Windows Terminal/conhost
   // builds could scroll the alt-screen when the bottom-right cell was written;
   // keep an opt-in one-cell safety margin for those environments without making
   // the default UI look off-center.
   const rightSafetyColumns = process.env.MIXDOG_TUI_RIGHT_SAFE_MARGIN === '1' ? 1 : 0;
   const frameColumns = Math.max(1, resizeState.columns - rightSafetyColumns);
+  const promptMetaVisible = !inputBoxHidden && !!liveSpinner;
+  const transientStatusWidth = inputHint
+    ? Math.max(1, Math.min(Math.max(1, frameColumns - 4), Math.max(12, Math.floor(frameColumns * 0.42))))
+    : 0;
+  const promptSpinnerColumns = liveSpinner && inputHint
+    ? Math.max(1, frameColumns - transientStatusWidth - 1)
+    : frameColumns;
   const transcriptRowIndex = useMemo(() => buildTranscriptRowIndex(state.items, {
     columns: frameColumns,
     toolOutputExpanded,
@@ -4831,6 +4880,11 @@ export function App({ store, initialStatusLine = '' }) {
     rowIndex: transcriptRowIndex,
   }), [state.items, scrollOffset, viewportHeight, frameColumns, toolOutputExpanded, transcriptRowIndex]);
   maxScrollRowsRef.current = transcriptWindow.maxScrollRows;
+  const attachInputHintToTurnDone = !liveSpinner
+    && !inputBoxHidden
+    && !!inputHint
+    && transcriptWindow.bottomSpacerRows === 0
+    && transcriptWindow.endIndex >= state.items.length;
   useLayoutEffect(() => {
     const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
     const next = {
@@ -4873,7 +4927,8 @@ export function App({ store, initialStatusLine = '' }) {
       initialValue={promptDraft}
       draftOverride={promptDraftOverride}
       valueRef={promptValueRef}
-      hint={inputHint}
+      selectionRef={promptSelectionRef}
+      hint=""
       hintTone={inputHintTone}
       mask={false}
       onEscape={handlePromptEscape}
@@ -4957,43 +5012,31 @@ export function App({ store, initialStatusLine = '' }) {
              * OVERSCAN: TRANSCRIPT_WINDOW_OVERSCAN_ROWS extra rows above the viewport so
              * fast wheel scrolls don't show a blank gap before re-render.
              */}
-           {transcriptWindow.items.map((item, i, arr) => (
+           {transcriptWindow.items.map((item, i, arr) => {
+             const showRightMessage = attachInputHintToTurnDone
+               && i === arr.length - 1
+               && (item.kind === 'turndone' || item.kind === 'statusdone');
+             return (
                <Item
                  key={item.id}
                  item={item}
                  prevKind={i > 0 ? arr[i - 1].kind : state.items[transcriptWindow.startIndex - 1]?.kind ?? null}
                  columns={frameColumns}
                  toolOutputExpanded={toolOutputExpanded}
+                 rightMessage={showRightMessage ? inputHint : ''}
+                 rightTone={inputHintTone}
+                 rightMessageWidth={transientStatusWidth || 24}
                />
-           ))}
+             );
+           })}
            {transcriptWindow.bottomSpacerRows > 0 ? (
              <Box height={transcriptWindow.bottomSpacerRows} flexShrink={0} />
            ) : null}
         </Box>
       </Box>
 
-      {/* Live reasoning — compact display in spinner status line only.
-          The full reasoning text panel is not rendered during turns to
-          reduce drag/render slowness. Spinner shows 'thinking' while
-          active and 'thought for Ns' briefly after thinking ends. */}
-
-      {/* Wrapped flexShrink:0 so the live status keeps its full height and the
-          viewport (flexShrink:1) yields rows to it, never the other way around —
-          Spinner doesn't set flexShrink itself. TurnDone is now a transcript
-          item (pinned after the turn's output), not a bottom-fixed slot. */}
-      {liveSpinner ? (
-        <Box flexShrink={0} width="100%" backgroundColor={theme.background}>
-          <Spinner
-            verb={liveSpinner.verb}
-            startedAt={liveSpinner.startedAt}
-            outputTokens={liveSpinner?.outputTokens ?? liveSpinner?.tokens ?? 0}
-            thinking={!!(state.thinking || liveSpinner?.thinking)}
-            thinkingActiveSince={liveSpinner?.thinkingSegmentStartedAt ?? 0}
-            mode={liveSpinner?.mode || 'responding'}
-            columns={frameColumns}
-          />
-        </Box>
-      ) : null}
+      {/* Live reasoning and transient status live just above the prompt: reasoning
+          on the left, short-lived copy/error/info messages on the right. */}
 
       {/* Bottom bar — pinned to the physical bottom, never moves. Floating
           panels use their actual rendered height and shrink before the prompt
@@ -5130,12 +5173,43 @@ export function App({ store, initialStatusLine = '' }) {
               />
             ) : null}
           </Box>
-        ) : (
-          <QueuedCommands queued={state.queued} columns={frameColumns} />
-        )}
+        ) : null}
         {!inputBoxHidden ? (
+          <>
+          {promptMetaVisible ? (
+            <Box
+              marginTop={floatingPanelRows > 0 ? 0 : 1}
+              height={1}
+              width="100%"
+              flexDirection="row"
+              backgroundColor={theme.background}
+            >
+              <Box flexGrow={1} flexShrink={1} overflow="hidden">
+                {liveSpinner ? (
+                  <Spinner
+                    verb={liveSpinner.verb}
+                    startedAt={liveSpinner.startedAt}
+                    outputTokens={liveSpinner?.outputTokens ?? liveSpinner?.tokens ?? 0}
+                    thinking={!!(state.thinking || liveSpinner?.thinking)}
+                    thinkingActiveSince={liveSpinner?.thinkingSegmentStartedAt ?? 0}
+                    mode={liveSpinner?.mode || 'responding'}
+                    columns={promptSpinnerColumns}
+                    marginTop={0}
+                  />
+                ) : null}
+              </Box>
+              {inputHint ? (
+                <Box flexShrink={0} width={transientStatusWidth || 1} marginLeft={1} justifyContent="flex-end" overflow="hidden">
+                  <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
+                </Box>
+              ) : null}
+            </Box>
+          ) : null}
+          {queuedVisible ? (
+            <QueuedCommands queued={state.queued} columns={frameColumns} />
+          ) : null}
           <Box
-            marginTop={floatingPanelRows > 0 ? 0 : 1}
+            marginTop={promptMetaVisible || queuedVisible ? 0 : (floatingPanelRows > 0 ? 0 : 1)}
             width="100%"
             borderStyle="round"
             borderColor={theme.promptBorder}
@@ -5144,6 +5218,7 @@ export function App({ store, initialStatusLine = '' }) {
           >
             {promptInputControl}
           </Box>
+          </>
         ) : null}
         <StatusLine
           sessionId={state.sessionId}

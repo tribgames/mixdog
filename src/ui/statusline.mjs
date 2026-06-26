@@ -280,7 +280,6 @@ function renderNativeStatusline({ provider = '', model = '', effort = '', fast =
   if (runningWorkers.length) {
     addL2(`${GRN}●${R} ${B}${runningWorkers.length} Running${R} ${D}(${R}${B}${summarizeWorkerTags(runningWorkers)}${R}${D})${R}`);
   }
-  addL2(formatBridgeFinishedNotice(bridgePayload.finishedJobs));
   const l1 = l1Parts.join(sep) || 'mixdog';
   const l2 = l2Parts.join(sep);
   return l2 ? `${l1}\n${l2}` : l1;
@@ -465,7 +464,7 @@ function makeBar(pct, cells) {
   let filled = Math.floor((Number(pct) || 0) * cells / 100);
   if (filled < 0) filled = 0;
   if (filled > cells) filled = cells;
-  if (pct > 0 && filled === 0) filled = 1;
+  if (pct >= 1 && filled === 0) filled = 1;
   return '▓'.repeat(filled) + '░'.repeat(cells - filled);
 }
 
@@ -505,27 +504,6 @@ function timeMs(value) {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
   const n = Date.parse(String(value || ''));
   return Number.isFinite(n) ? n : 0;
-}
-
-function bridgeFinalCopy(statusText) {
-  const s = String(statusText || '').toLowerCase();
-  if (/cancel/.test(s)) return { color: YLW, word: 'Cancelled' };
-  if (/error|fail|killed|timeout/.test(s)) return { color: RED, word: 'Failed' };
-  return { color: GRN, word: 'Finished' };
-}
-
-function formatBridgeFinishedNotice(finishedJobs = []) {
-  const finished = (Array.isArray(finishedJobs) ? finishedJobs : [])
-    .filter((job) => job?.finishedAtMs > 0)
-    .sort((a, b) => (b.finishedAtMs || 0) - (a.finishedAtMs || 0));
-  if (!finished.length) return '';
-  const job = finished[0];
-  const tag = summarizeWorkerTags([job.tag], 1) || 'Worker';
-  const copy = bridgeFinalCopy(job.finalStatus);
-  const elapsed = job.startedAtMs > 0 ? formatElapsed(job.finishedAtMs - job.startedAtMs) : '';
-  const duration = elapsed ? ` In ${elapsed}` : '';
-  const more = finished.length > 1 ? ` ${D}(+${finished.length - 1})${R}` : '';
-  return `${B}${tag}${R} ${copy.color}${copy.word}${R}${D}${duration}${R}${more}`;
 }
 
 function maintenanceLabel(tag) {

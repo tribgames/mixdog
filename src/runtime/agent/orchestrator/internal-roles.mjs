@@ -24,7 +24,6 @@
  *
  * Kind classification:
  *   - 'retrieval'   : short-lived hidden retrieval roles (explore).
- *                     BP2 is cache-aligned with public `worker` (collect.mjs).
  *   - 'maintenance' : background-trigger hidden roles (memory cycle, recap, scheduler,
  *                     webhook). Receive only their own self section in BP2.
  *
@@ -39,12 +38,6 @@
  * Tool schema profile:
  *   - 'unified'         : shared bridge tool schema for provider cache reuse.
  *   - 'llm-only'        : no tools exposed; pure transform/classifier roles.
- *
- * BP2 cache-shard metadata (consumed by collect.mjs loadScopedRoleCatalog):
- *   - catalogShareAgents : agents/<name>.md sections this role shares in its
- *                          BP2 catalog in addition to its own self section
- *                          (e.g. explorer rides agents/worker.md for tool-use
- *                          discipline). Maintenance roles default to none.
  *
  * BP3 role-specific instruction metadata (consumed by rules-builder.cjs
  * buildBridgeRoleSpecificContent + collect.mjs):

@@ -515,9 +515,7 @@ export function loadScopedRoleCatalog(role, provider = null) {
         const hiddenPairs = loadHiddenRoleSnippets(pluginRoot);
 
         // Pick which bridge-rule sections + agents/<role>.md sections to emit
-        // based on role classification. Self-only emit keeps BP2 minimal:
-        // a public worker only sees its own agents/worker.md, not the full
-        // catalog.
+        // based on role classification. Self-only emit keeps BP2 minimal.
         let bridgeRuleSectionsToEmit = null; // null → drop the bridge-rule block entirely
         let agentSectionsToEmit = agentSections; // default: full (unknown-role fallback)
         if (useUnified) {
@@ -534,9 +532,6 @@ export function loadScopedRoleCatalog(role, provider = null) {
             // cache-shard split from `worker`: brief-level descriptive-only
             // constraints proved insufficient (haiku still rendered verdicts on
             // evaluative queries), so the contract must sit at system level.
-            // The agents/*.md sections shared for tool-use discipline are
-            // declared per-role via `catalogShareAgents` in
-            // defaults/hidden-roles.json (explorer → worker).
             const self = hiddenPairs.find(p => p.name === role);
             bridgeRuleSectionsToEmit = self ? [`## ${self.name}\n\n${self.body}`] : [];
             agentSectionsToEmit = agentSections.filter(s =>
@@ -564,8 +559,7 @@ export function loadScopedRoleCatalog(role, provider = null) {
         } else if (role) {
             // Public/custom role — self-only agents/<role>.md when present,
             // not the full hidden/maintenance bundle. The universal bridge
-            // contract rides BP1 (rules/bridge/00-common.md); the worker tool
-            // discipline lives in agents/worker.md.
+            // contract rides BP1 (rules/bridge/00-common.md).
             bridgeRuleSectionsToEmit = [];
             agentSectionsToEmit = agentSections.filter(s => s.startsWith(`## ${role}\n`));
         } else {

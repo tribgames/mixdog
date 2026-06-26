@@ -7,25 +7,43 @@ import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
 import {
   caretPosition,
+  clearSelection,
   deleteBackwardWord,
   deleteForwardWord,
+  deleteSelectedText,
   deleteToLineEnd,
   deleteToLineStart,
   lineEnd,
   lineStart,
+  moveCursor,
   nextOffset,
   nextWordOffset,
   previousOffset,
   previousWordOffset,
+  replaceSelection,
+  selectionRange,
   verticalOffset,
 } from '../input-editing.mjs';
 
 function insertText(draft, input) {
   if (!input) return draft;
-  return {
-    value: draft.value.slice(0, draft.cursor) + input + draft.value.slice(draft.cursor),
-    cursor: draft.cursor + input.length,
-  };
+  return replaceSelection(draft, input);
+}
+
+function renderSelectedText(displayValue, range, trailingSpace = false) {
+  if (!range) return trailingSpace ? `${displayValue} ` : displayValue;
+  const start = Math.max(0, Math.min(displayValue.length, range.start));
+  const end = Math.max(start, Math.min(displayValue.length, range.end));
+  return (
+    <>
+      {start > 0 ? displayValue.slice(0, start) : null}
+      {end > start ? (
+        <Text color={theme.inverseText} backgroundColor="rgb(245,245,245)">{displayValue.slice(start, end)}</Text>
+      ) : null}
+      {displayValue.slice(end)}
+      {trailingSpace ? ' ' : ''}
+    </>
+  );
 }
 
 function normalizeInput(text) {
@@ -43,7 +61,7 @@ export function TextEntryPanel({
   onSubmit,
   onCancel,
 }) {
-  const [draft, setDraft] = useState(() => ({ value: String(initialValue || ''), cursor: String(initialValue || '').length }));
+  const [draft, setDraft] = useState(() => ({ value: String(initialValue || ''), cursor: String(initialValue || '').length, selectionAnchor: null }));
   const [, bumpCursorAnchorEpoch] = useState(0);
   const draftRef = useRef(draft);
   const boxRef = useRef(null);
@@ -75,7 +93,7 @@ export function TextEntryPanel({
     commitDraft(fn(draftRef.current), options);
   };
 
-  const moveDraftVertically = (direction) => {
+  const moveDraftVertically = (direction, { extend = false } = {}) => {
     const current = draftRef.current;
     const moved = verticalOffset(
       current.value,
@@ -86,19 +104,19 @@ export function TextEntryPanel({
     );
     preferredColumnRef.current = moved.preferredColumn;
     if (moved.cursor === current.cursor) return false;
-    commitDraft({ ...current, cursor: moved.cursor }, { keepPreferredColumn: true });
+    commitDraft(moveCursor(current, moved.cursor, { extend }), { keepPreferredColumn: true });
     return true;
   };
 
   useEffect(() => {
     const value = String(initialValue || '');
-    commitDraft({ value, cursor: value.length });
+    commitDraft({ value, cursor: value.length, selectionAnchor: null });
   }, [title, initialValue]);
 
   const submit = () => {
     const accepted = onSubmit?.(draftRef.current.value) !== false;
     if (accepted) {
-      commitDraft({ value: '', cursor: 0 });
+      commitDraft({ value: '', cursor: 0, selectionAnchor: null });
     }
   };
 
@@ -113,6 +131,10 @@ export function TextEntryPanel({
     if (/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/.test(String(input ?? ''))) return;
 
     if (key.escape) {
+      if (selectionRange(draftRef.current)) {
+        commitDraft(clearSelection(draftRef.current));
+        return;
+      }
       onCancel?.();
       return;
     }
@@ -126,54 +148,62 @@ export function TextEntryPanel({
       return;
     }
     if (key.leftArrow) {
-      updateDraft((d) => ({
-        ...d,
-        cursor: key.ctrl || key.meta
-          ? previousWordOffset(d.value, d.cursor)
-          : previousOffset(d.value, d.cursor),
-      }));
+      updateDraft((d) => {
+        const range = !key.shift && !key.ctrl && !key.meta ? selectionRange(d) : null;
+        const cursor = range
+          ? range.start
+          : key.ctrl || key.meta
+            ? previousWordOffset(d.value, d.cursor)
+            : previousOffset(d.value, d.cursor);
+        return moveCursor(d, cursor, { extend: key.shift });
+      });
       return;
     }
     if (key.rightArrow) {
-      updateDraft((d) => ({
-        ...d,
-        cursor: key.ctrl || key.meta
-          ? nextWordOffset(d.value, d.cursor)
-          : nextOffset(d.value, d.cursor),
-      }));
+      updateDraft((d) => {
+        const range = !key.shift && !key.ctrl && !key.meta ? selectionRange(d) : null;
+        const cursor = range
+          ? range.end
+          : key.ctrl || key.meta
+            ? nextWordOffset(d.value, d.cursor)
+            : nextOffset(d.value, d.cursor);
+        return moveCursor(d, cursor, { extend: key.shift });
+      });
       return;
     }
     if (key.upArrow) {
-      moveDraftVertically(-1);
+      moveDraftVertically(-1, { extend: key.shift });
       return;
     }
     if (key.downArrow) {
-      moveDraftVertically(1);
+      moveDraftVertically(1, { extend: key.shift });
       return;
     }
     const inputKey = String(input || '').toLowerCase();
     if (key.home || (key.ctrl && inputKey === 'a')) {
-      updateDraft((d) => ({ ...d, cursor: lineStart(d.value, d.cursor) }));
+      updateDraft((d) => (key.ctrl && inputKey === 'a' && d.value
+        ? { ...d, cursor: d.value.length, selectionAnchor: 0 }
+        : moveCursor(d, lineStart(d.value, d.cursor), { extend: key.shift })));
       return;
     }
     if (key.end || (key.ctrl && inputKey === 'e')) {
-      updateDraft((d) => ({ ...d, cursor: lineEnd(d.value, d.cursor) }));
+      updateDraft((d) => moveCursor(d, lineEnd(d.value, d.cursor), { extend: key.shift }));
       return;
     }
     if (key.ctrl && inputKey === 'b') {
-      updateDraft((d) => ({ ...d, cursor: previousOffset(d.value, d.cursor) }));
+      updateDraft((d) => moveCursor(d, previousOffset(d.value, d.cursor), { extend: key.shift }));
       return;
     }
     if (key.ctrl && inputKey === 'f') {
-      updateDraft((d) => ({ ...d, cursor: nextOffset(d.value, d.cursor) }));
+      updateDraft((d) => moveCursor(d, nextOffset(d.value, d.cursor), { extend: key.shift }));
       return;
     }
     if (key.meta && inputKey === 'b') {
-      updateDraft((d) => ({ ...d, cursor: previousWordOffset(d.value, d.cursor) }));
+      updateDraft((d) => moveCursor(d, previousWordOffset(d.value, d.cursor), { extend: key.shift }));
       return;
     }
     if (key.meta && inputKey === 'f') {
-      updateDraft((d) => ({ ...d, cursor: nextWordOffset(d.value, d.cursor) }));
+      updateDraft((d) => moveCursor(d, nextWordOffset(d.value, d.cursor), { extend: key.shift }));
       return;
     }
     if (key.ctrl && inputKey === 'u') {
@@ -194,17 +224,19 @@ export function TextEntryPanel({
     }
     if (key.backspace) {
       updateDraft((d) => {
+        if (selectionRange(d)) return deleteSelectedText(d);
         if (d.cursor <= 0) return d;
         const start = previousOffset(d.value, d.cursor);
-        return { value: d.value.slice(0, start) + d.value.slice(d.cursor), cursor: start };
+        return { value: d.value.slice(0, start) + d.value.slice(d.cursor), cursor: start, selectionAnchor: null };
       });
       return;
     }
     if (key.delete) {
       updateDraft((d) => {
+        if (selectionRange(d)) return deleteSelectedText(d);
         if (d.cursor >= d.value.length) return d;
         const end = nextOffset(d.value, d.cursor);
-        return { value: d.value.slice(0, d.cursor) + d.value.slice(end), cursor: d.cursor };
+        return { value: d.value.slice(0, d.cursor) + d.value.slice(end), cursor: d.cursor, selectionAnchor: null };
       });
       return;
     }
@@ -242,7 +274,7 @@ export function TextEntryPanel({
   }, [isRawModeSupported, title]);
 
   const visibleValue = mask ? draft.value.replace(/[^\n]/g, '*') : draft.value;
-  const renderedValue = draft.cursor === draft.value.length ? `${visibleValue} ` : visibleValue;
+  const renderedValue = renderSelectedText(visibleValue, selectionRange(draft), draft.cursor === draft.value.length);
   const action = String(actionLabel || 'save').trim() || 'save';
   const helpText = `Enter to ${action} · Esc to cancel`;
 

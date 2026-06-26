@@ -147,7 +147,7 @@ function chooseNextVerb(mode, fallback, current) {
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
-export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens = 0, thinking = false, thinkingActiveSince = 0, mode = 'responding', columns = 80 }) {
+export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens = 0, thinking = false, thinkingActiveSince = 0, mode = 'responding', columns = 80, marginTop = 1 }) {
   useAnimation({ interval: FRAME_MS });
   const now = Date.now();
   const elapsedMs = startedAt ? Math.max(0, now - startedAt) : 0;
@@ -298,7 +298,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
     );
   }
   return (
-    <Box marginTop={1} flexDirection="row">
+    <Box marginTop={marginTop} flexDirection="row">
       <Box flexWrap="wrap" height={1} width={2}>
         <Text color={glyphColor}>{glyph}</Text>
       </Box>

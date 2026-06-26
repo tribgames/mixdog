@@ -61,8 +61,8 @@ function stripFrontmatter(markdown) {
 }
 
 function normalizeOutputStyleName(value) {
-  const name = String(value || 'compact').trim();
-  return /^[A-Za-z0-9_.-]+$/.test(name) ? name : 'compact';
+  const name = String(value || 'default').trim();
+  return /^[A-Za-z0-9_.-]+$/.test(name) ? name : 'default';
 }
 
 function loadOutputStyle({ PLUGIN_ROOT, DATA_DIR }) {
@@ -77,11 +77,10 @@ function loadOutputStyle({ PLUGIN_ROOT, DATA_DIR }) {
     const body = stripFrontmatter(readOptional(candidate));
     if (body) return body;
   }
-  // Configured style valid but missing on disk — fall back to compact
-  if (styleName !== 'compact') {
+  if (styleName !== 'default') {
     const fallback = [
-      path.join(DATA_DIR, 'output-styles', 'compact.md'),
-      path.join(PLUGIN_ROOT, 'output-styles', 'compact.md'),
+      path.join(DATA_DIR, 'output-styles', 'default.md'),
+      path.join(PLUGIN_ROOT, 'output-styles', 'default.md'),
     ];
     for (const candidate of fallback) {
       const body = stripFrontmatter(readOptional(candidate));
@@ -187,14 +186,8 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
   const channels = readOptional(path.join(LEAD_DIR, '02-channels.md'));
   if (channels) parts.push(channels);
 
-  const team = readOptional(path.join(LEAD_DIR, '03-team.md'));
-  if (team) parts.push(team);
-
   const workflow = readOptional(path.join(LEAD_DIR, '04-workflow.md'));
   if (workflow) parts.push(workflow);
-
-  const outputStyle = loadOutputStyle({ PLUGIN_ROOT, DATA_DIR });
-  if (outputStyle) parts.push(outputStyle);
 
   const userProfile = readOptional(path.join(HISTORY_DIR, 'user.md'));
   if (userProfile) parts.push(`# User Profile\n\n${userProfile}`);
@@ -219,6 +212,11 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
       parts.push(`# User Workflow Roles\n\n${lines.join('\n')}`);
     }
   } catch { /* absent or invalid — skip */ }
+
+  // Keep output style last so user/profile/workflow context cannot soften the
+  // final formatting contract for user-visible replies.
+  const outputStyle = loadOutputStyle({ PLUGIN_ROOT, DATA_DIR });
+  if (outputStyle) parts.push(outputStyle);
 
   return parts.join('\n\n');
 }

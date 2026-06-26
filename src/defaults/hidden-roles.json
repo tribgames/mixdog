@@ -9,7 +9,6 @@
       "toolSchemaProfile": "filesystem-read",
       "kind": "retrieval",
       "permission": "read",
-      "catalogShareAgents": ["worker"],
       "stallCap": { "idleSeconds": 240, "toolRunningSeconds": 180 }
     },
     {

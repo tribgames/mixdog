@@ -1,7 +1,6 @@
 // --- Tool definitions for external models ---
 //
-// Ordered to match the previous hand-maintained tools.json entries
-// (read / edit / write / shell / grep / glob) so
+// Ordered to match the previous hand-maintained tools.json entries so
 // build-tools-manifest reproduces the legacy ordering.
 // CANONICAL SOURCE for all tool annotations (compressible, readOnlyHint,
 // destructiveHint, etc.). tools.json is GENERATED from this array by
@@ -18,7 +17,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read one known file. Broad/unknown: code_graph/grep/glob first; refs only if requested. For where/candidate answers use file:line hits and avoid read. Use symbol OR line+context; no reread same file.',
+        description: 'Read a specific file window or symbol body after narrowing the target. Do not reread content already shown by code_graph or grep.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -30,54 +29,10 @@ export const BUILTIN_TOOLS = [
         },
     },
     {
-        name: 'edit',
-        title: 'Mixdog Edit',
-        annotations: { title: 'Mixdog Edit', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-        description: 'Legacy exact-string fallback. Avoid for normal code changes; use apply_patch as the first-class mutation tool. Use edit only for one tiny already-read literal replacement when apply_patch is unavailable. Use either single old_string/new_string or edits[]; when using edits[], do not include top-level old_string/new_string.',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                path: { type: 'string' },
-                old_string: { type: 'string', description: 'Exact current text copied from a recent read; do not guess or retry stale text.' },
-                new_string: { type: 'string' },
-                replace_all: { type: 'boolean' },
-                edits: {
-                    type: 'array',
-                    items: {
-                        type: 'object',
-                        properties: {
-                            path: { type: 'string' },
-                            old_string: { type: 'string' },
-                            new_string: { type: 'string' },
-                            replace_all: { type: 'boolean' },
-                        },
-                        required: ['old_string', 'new_string'],
-                        additionalProperties: false,
-                    },
-                    minItems: 1,
-                    description: 'Batch replacements (operation:"replace"). Each item may carry its own path, or use the top-level path as the default. Prefer apply_patch for normal code changes.',
-                },
-            },
-        },
-    },
-    {
-        name: 'write',
-        title: 'Mixdog Write',
-        annotations: { title: 'Mixdog Write', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-        description: 'Write a whole file — new, or a full rewrite of one already read. For partial edits use apply_patch; never overwrite an unread file.',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                path: { type: 'string' },
-                content: { type: 'string' },
-            },
-        },
-    },
-    {
         name: 'diagnostics',
         title: 'Mixdog Diagnostics',
         annotations: { title: 'Mixdog Diagnostics', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: 'Run the matching type/lint checker under path (tsc/eslint/ruff/etc.). Default cwd; no LSP.',
+        description: 'Run the matching type/lint checker under a file or directory (tsc/eslint/ruff/etc.). Default cwd; no LSP.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -91,7 +46,7 @@ export const BUILTIN_TOOLS = [
         title: 'Open Config UI',
         annotations: { title: 'Open Config UI', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         description: 'Open the mixdog settings UI (Providers + Presets) in the browser. Starts the resident config server if needed and returns the UI URL. No params.',
-        inputSchema: { type: 'object', properties: {} },
+        inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     },
     {
         name: 'shell',
@@ -101,17 +56,17 @@ export const BUILTIN_TOOLS = [
         inputSchema: {
             type: 'object',
             properties: {
-                command: { type: 'string' },
-                cwd: { type: 'string' },
+                command: { type: 'string', description: 'Shell command to run.' },
+                cwd: { type: 'string', description: 'Working directory for the command; omit when using current cwd.' },
                 workdir: { type: 'string', description: 'Alias for cwd; omit if empty.' },
                 timeout: { type: 'number', description: 'Timeout in milliseconds.' },
-                merge_stderr: { type: 'boolean' },
+                merge_stderr: { type: 'boolean', description: 'Merge stderr into stdout in the returned output.' },
                 mode: { type: 'string', enum: ['sync', 'async'], description: executionModeSchemaDescription('sync') },
                 run_in_background: { type: 'boolean', description: `Legacy alias for mode=async. ${TOOL_ASYNC_EXECUTION_CONTRACT}` },
                 persistent: { type: 'boolean', description: 'Persistent shell mode; unsupported on Windows native shell.' },
                 session_id: { type: 'string', description: 'Persistent shell id; omit on Windows native shell.' },
                 create: { type: 'boolean', description: 'Allow creating a new persistent session for an explicit session_id.' },
-                close: { type: 'boolean' },
+                close: { type: 'boolean', description: 'Close the persistent session after this command when supported.' },
                 shell: { type: 'string', enum: ['bash', 'powershell'], description: "Force the shell. On Windows: 'bash' runs the command through Git Bash (POSIX syntax), 'powershell' forces PowerShell. On POSIX: 'powershell' resolves pwsh if installed (errors if absent); 'bash' is /bin/sh (already the default). Always set this explicitly; omitting uses the OS default (PowerShell on Windows), where POSIX syntax fails to parse." },
             },
             required: ['command'],
@@ -137,7 +92,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'FIRST for free-text/literal/config search after file-space is known. Symbols -> code_graph; unknown files -> glob/list first. Minimal: pattern, path, optional glob. Prefer plain terms/arrays over fragile regex; avoid shell grep/rg.',
+        description: 'Search text or regex within a known file or directory.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -167,7 +122,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Mixdog Glob',
         annotations: { title: 'Mixdog Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'FIRST for file-space narrowing by known filename/path pattern. Use before grep/code_graph when the main unknown is which files. Returns mtime-sorted paths.',
+        description: 'Find files by glob pattern. Use for broad file-space narrowing.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -176,14 +131,14 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Glob or array.',
+                    description: 'Glob pattern, or array of patterns.',
                 },
                 path: {
                     anyOf: [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Base dir or array.',
+                    description: 'Base directory, or array of base directories.',
                 },
                 head_limit: { type: 'number', description: 'Max entries.' },
                 offset: { type: 'number', description: 'Skip N entries for paging.' },
@@ -195,11 +150,11 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'Mixdog List Directory',
         annotations: { title: 'Mixdog List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'FIRST for file-space narrowing by directory or fuzzy partial filename. Minimal: path, or fuzzy. Use glob for known patterns; avoid tree unless needed.',
+        description: 'List directory entries or fuzzy-rank filenames. Use for broad directory/file discovery.',
         inputSchema: {
             type: 'object',
             properties: {
-                path: { type: 'string' },
+                path: { type: 'string', description: 'Directory to list; omit for current cwd.' },
                 head_limit: { type: 'number', description: 'Max entries.' },
                 offset: { type: 'number', description: 'Skip N entries for paging.' },
                 fuzzy: { type: 'string', description: 'Rank files by partial name.' },

@@ -22,6 +22,7 @@ function loadStatuslineModule() {
 }
 
 const RESET = '\x1b[0m';
+const STATUSLINE_RENDER_DEBOUNCE_MS = 150;
 
 function ansiRgb(value, fallback) {
   const match = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(String(value || '').replace(/\s+/g, ''));
@@ -55,17 +56,21 @@ export function StatusLine({ sessionId, clientHostPid, provider, model, effort, 
 
   useEffect(() => {
     let alive = true;
-    loadStatuslineModule()
-      .then((m) => m.renderStatusline({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, bridgeWorkers, bridgeJobs }))
-      .then((s) => {
-        if (!alive) return;
-        setLine(normalizeStatusLine(s));
-      })
-      .catch(() => {
-        if (alive) setLine('');
-      });
+    const timer = setTimeout(() => {
+      loadStatuslineModule()
+        .then((m) => m.renderStatusline({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, bridgeWorkers, bridgeJobs }))
+        .then((s) => {
+          if (!alive) return;
+          setLine(normalizeStatusLine(s));
+        })
+        .catch(() => {
+          if (alive) setLine('');
+        });
+    }, STATUSLINE_RENDER_DEBOUNCE_MS);
+    timer.unref?.();
     return () => {
       alive = false;
+      clearTimeout(timer);
     };
   }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision]);
 

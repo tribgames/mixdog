@@ -46,17 +46,14 @@ in-progress decisions.
 
 ## Field Rules
 
-- IDs must match input rows; never invent.
-- `update`: fresh `element`; `summary` is 3 declarative sentences
-  (cause/decision/outcome).
-- `merge`: `target_id` survives; `source_ids_csv` are absorbed. Sources
-  must share `project_id`. Emit unified `element` and 3-sentence
-  `summary`.
-- `summary`: complete declarative sentences, specifics verbatim, input
-  language, no actor names/meta/empty hedges.
-- Input category priority: `rule > constraint > decision > fact > goal
-  > preference > task > issue`. Output category is implicit.
-- Fields cannot contain literal `|` or newline; replace `|` with `/`,
-  join multi-line content with `; `.
+- Use only input IDs; never invent IDs.
+- `update`: write a fresh `element` and a 3-sentence `summary`.
+- `merge`: keep `target_id`, absorb `source_ids_csv`, and merge only rows
+  from the same `project_id`.
+- `summary`: complete sentences, input language, important specifics verbatim,
+  no actor/meta filler.
+- Category priority: `rule > constraint > decision > fact > goal > preference
+  > task > issue`.
+- Replace literal `|` with `/`; do not put newlines inside fields.
 
-Phase 3 MUST emit a verdict for every input row. Start with a digit.
+For phase 3, output one verdict for every input row. Start with a digit.

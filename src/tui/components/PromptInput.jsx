@@ -21,16 +21,21 @@ import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
 import {
   caretPosition,
+  clearSelection,
   deleteBackwardWord,
   deleteForwardWord,
+  deleteSelectedText,
   deleteToLineEnd,
   deleteToLineStart,
   lineEnd,
   lineStart,
+  moveCursor,
   nextOffset,
   nextWordOffset,
   previousOffset,
   previousWordOffset,
+  replaceSelection,
+  selectionRange,
   verticalOffset,
 } from '../input-editing.mjs';
 
@@ -43,10 +48,23 @@ function hintStyle(tone) {
 
 function insertText(draft, input) {
   if (!input) return draft;
-  return {
-    value: draft.value.slice(0, draft.cursor) + input + draft.value.slice(draft.cursor),
-    cursor: draft.cursor + input.length,
-  };
+  return replaceSelection(draft, input);
+}
+
+function renderSelectedText(displayValue, range, trailingSpace = false) {
+  if (!range) return trailingSpace ? `${displayValue} ` : displayValue;
+  const start = Math.max(0, Math.min(displayValue.length, range.start));
+  const end = Math.max(start, Math.min(displayValue.length, range.end));
+  return (
+    <>
+      {start > 0 ? displayValue.slice(0, start) : null}
+      {end > start ? (
+        <Text color={theme.inverseText} backgroundColor="rgb(245,245,245)">{displayValue.slice(start, end)}</Text>
+      ) : null}
+      {displayValue.slice(end)}
+      {trailingSpace ? ' ' : ''}
+    </>
+  );
 }
 
 function normalizePastedText(text) {
@@ -72,11 +90,12 @@ export function PromptInput({
   onCommandPaletteComplete,
   onRestoreQueued,
   onPasteText,
+  selectionRef,
   valueRef,
 }) {
   const [draft, setDraft] = useState(() => {
     const value = String(initialValue || '');
-    return { value, cursor: value.length };
+    return { value, cursor: value.length, selectionAnchor: null };
   });
   const [, bumpCursorAnchorEpoch] = useState(0);
   const draftRef = useRef(draft);
@@ -93,6 +112,12 @@ export function PromptInput({
   const preferredColumnRef = useRef(null);
   const { value, cursor } = draft;
   draftRef.current = draft;
+  if (selectionRef) {
+    const range = selectionRange(draft);
+    selectionRef.current = range
+      ? { range, text: mask ? '' : draft.value.slice(range.start, range.end) }
+      : null;
+  }
 
   // Bypass ink's render throttle for keystroke echo. ink coalesces renders to
   // maxFps (leading+trailing throttle), so when typing faster than one frame the
@@ -141,7 +166,7 @@ export function PromptInput({
     commitDraft(fn(draftRef.current), options);
   };
 
-  const moveDraftVertically = (direction) => {
+  const moveDraftVertically = (direction, { extend = false } = {}) => {
     const current = draftRef.current;
     const moved = verticalOffset(
       current.value,
@@ -152,7 +177,7 @@ export function PromptInput({
     );
     preferredColumnRef.current = moved.preferredColumn;
     if (moved.cursor === current.cursor) return false;
-    commitDraft({ ...current, cursor: moved.cursor }, { keepPreferredColumn: true });
+    commitDraft(moveCursor(current, moved.cursor, { extend }), { keepPreferredColumn: true });
     return true;
   };
 
@@ -193,8 +218,12 @@ export function PromptInput({
 
   useEffect(() => {
     if (!draftOverride || typeof draftOverride.value !== 'string') return;
-    commitDraft({ value: draftOverride.value, cursor: draftOverride.value.length });
+    commitDraft({ value: draftOverride.value, cursor: draftOverride.value.length, selectionAnchor: null });
   }, [draftOverride?.id]);
+
+  useEffect(() => () => {
+    if (selectionRef) selectionRef.current = null;
+  }, [selectionRef]);
 
   const submitDraft = (next) => {
     const text = next.value;
@@ -203,7 +232,7 @@ export function PromptInput({
       commitDraft(next);
       return;
     }
-    commitDraft({ value: '', cursor: 0 });
+    commitDraft({ value: '', cursor: 0, selectionAnchor: null });
   };
 
   // Input capture is only active on a real TTY (raw mode). In pipes/CI the input
@@ -219,8 +248,8 @@ export function PromptInput({
     const rawInput = String(input ?? '');
     const inputKey = rawInput.toLowerCase();
 
-    // Drop SGR mouse-tracking sequences (wheel/click). The App enables mouse
-    // tracking for transcript scrolling and parses these off raw stdin itself;
+    // Drop SGR mouse-tracking sequences (wheel/click). When app mouse tracking
+    // is explicitly enabled, App parses these off raw stdin itself;
     // ink still forwards the bytes here as "input", which would otherwise type
     // garbage like `[<64;55;22M` into the prompt. Match with or without the
     // leading ESC (terminals/ink may strip it): CSI '<' … final 'M'/'m'.
@@ -244,7 +273,7 @@ export function PromptInput({
         const accepted = onCommandPaletteAccept?.(draftRef.current.value);
         if (accepted !== false) {
           const text = draftRef.current.value;
-          commitDraft({ value: '', cursor: 0 });
+          commitDraft({ value: '', cursor: 0, selectionAnchor: null });
         }
         return;
       }
@@ -259,18 +288,14 @@ export function PromptInput({
 
     if (key.return) {
       if (key.shift || key.meta) {
-        updateDraft((d) => ({
-          value: `${d.value.slice(0, d.cursor)}\n${d.value.slice(d.cursor)}`,
-          cursor: d.cursor + 1,
-        }));
+        updateDraft((d) => replaceSelection(d, '\n'));
         return;
       }
 
       if (commandPaletteActive) {
         const accepted = onCommandPaletteAccept?.(draftRef.current.value);
         if (accepted !== false) {
-          const current = draftRef.current.value;
-          commitDraft({ value: '', cursor: 0 });
+          commitDraft({ value: '', cursor: 0, selectionAnchor: null });
         }
         return;
       }
@@ -280,6 +305,7 @@ export function PromptInput({
         updateDraft((d) => ({
           value: `${d.value.slice(0, d.cursor - 1)}\n${d.value.slice(d.cursor)}`,
           cursor: d.cursor,
+          selectionAnchor: null,
         }));
         return;
       }
@@ -292,7 +318,7 @@ export function PromptInput({
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.(-1);
       } else {
-        if (!restoreQueuedToDraft()) moveDraftVertically(-1);
+        if (!restoreQueuedToDraft()) moveDraftVertically(-1, { extend: key.shift });
       }
       return;
     }
@@ -301,7 +327,7 @@ export function PromptInput({
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.(1);
       } else {
-        moveDraftVertically(1);
+        moveDraftVertically(1, { extend: key.shift });
       }
       return;
     }
@@ -329,7 +355,7 @@ export function PromptInput({
     if (key.tab && commandPaletteActive) {
       const completed = onCommandPaletteComplete?.(draftRef.current.value);
       if (typeof completed === 'string') {
-        commitDraft({ value: completed, cursor: completed.length });
+        commitDraft({ value: completed, cursor: completed.length, selectionAnchor: null });
       }
       return;
     }
@@ -337,7 +363,11 @@ export function PromptInput({
     if (key.escape) {
       if (commandPaletteActive) {
         onCommandPaletteCancel?.(draftRef.current.value);
-        commitDraft({ value: '', cursor: 0 });
+        commitDraft({ value: '', cursor: 0, selectionAnchor: null });
+        return;
+      }
+      if (selectionRange(draftRef.current)) {
+        commitDraft(clearSelection(draftRef.current));
         return;
       }
       const currentValue = draftRef.current.value;
@@ -346,13 +376,13 @@ export function PromptInput({
       }
       if (currentValue) {
         onEscape?.(currentValue, { phase: 'clear' });
-        commitDraft({ value: '', cursor: 0 });
+        commitDraft({ value: '', cursor: 0, selectionAnchor: null });
         return;
       }
       if (interruptActive) {
         const restoredText = onInterrupt?.('');
         if (typeof restoredText === 'string') {
-          commitDraft({ value: restoredText, cursor: restoredText.length });
+          commitDraft({ value: restoredText, cursor: restoredText.length, selectionAnchor: null });
         }
         return;
       }
@@ -368,12 +398,15 @@ export function PromptInput({
         onCommandPaletteNavigate?.('left');
         return;
       }
-      updateDraft((d) => ({
-        ...d,
-        cursor: key.ctrl || key.meta
-          ? previousWordOffset(d.value, d.cursor)
-          : previousOffset(d.value, d.cursor),
-      }));
+      updateDraft((d) => {
+        const range = !key.shift && !key.ctrl && !key.meta ? selectionRange(d) : null;
+        const cursor = range
+          ? range.start
+          : key.ctrl || key.meta
+            ? previousWordOffset(d.value, d.cursor)
+            : previousOffset(d.value, d.cursor);
+        return moveCursor(d, cursor, { extend: key.shift });
+      });
       return;
     }
     if (key.rightArrow) {
@@ -381,50 +414,53 @@ export function PromptInput({
         onCommandPaletteNavigate?.('right');
         return;
       }
-      updateDraft((d) => ({
-        ...d,
-        cursor: key.ctrl || key.meta
-          ? nextWordOffset(d.value, d.cursor)
-          : nextOffset(d.value, d.cursor),
-      }));
+      updateDraft((d) => {
+        const range = !key.shift && !key.ctrl && !key.meta ? selectionRange(d) : null;
+        const cursor = range
+          ? range.end
+          : key.ctrl || key.meta
+            ? nextWordOffset(d.value, d.cursor)
+            : nextOffset(d.value, d.cursor);
+        return moveCursor(d, cursor, { extend: key.shift });
+      });
       return;
     }
     if (key.home) {
-      updateDraft((d) => ({ ...d, cursor: lineStart(d.value, d.cursor) }));
+      updateDraft((d) => moveCursor(d, lineStart(d.value, d.cursor), { extend: key.shift }));
       return;
     }
     if (key.end) {
-      updateDraft((d) => ({ ...d, cursor: lineEnd(d.value, d.cursor) }));
+      updateDraft((d) => moveCursor(d, lineEnd(d.value, d.cursor), { extend: key.shift }));
       return;
     }
 
     const editingKey = String(input || '').toLowerCase();
 
-    // ctrl+a / ctrl+e — line home / line end (common readline bindings).
+    // ctrl+a selects all like a normal text box; ctrl+e keeps readline line-end.
     if (key.ctrl && editingKey === 'a') {
-      updateDraft((d) => ({ ...d, cursor: lineStart(d.value, d.cursor) }));
+      updateDraft((d) => (d.value ? { ...d, cursor: d.value.length, selectionAnchor: 0 } : clearSelection(d)));
       return;
     }
     if (key.ctrl && editingKey === 'e') {
-      updateDraft((d) => ({ ...d, cursor: lineEnd(d.value, d.cursor) }));
+      updateDraft((d) => moveCursor(d, lineEnd(d.value, d.cursor), { extend: key.shift }));
       return;
     }
     // ctrl+b / ctrl+f — character left / right.
     if (key.ctrl && editingKey === 'b') {
-      updateDraft((d) => ({ ...d, cursor: previousOffset(d.value, d.cursor) }));
+      updateDraft((d) => moveCursor(d, previousOffset(d.value, d.cursor), { extend: key.shift }));
       return;
     }
     if (key.ctrl && editingKey === 'f') {
-      updateDraft((d) => ({ ...d, cursor: nextOffset(d.value, d.cursor) }));
+      updateDraft((d) => moveCursor(d, nextOffset(d.value, d.cursor), { extend: key.shift }));
       return;
     }
     // alt/option+b / alt/option+f — word left / right.
     if (key.meta && editingKey === 'b') {
-      updateDraft((d) => ({ ...d, cursor: previousWordOffset(d.value, d.cursor) }));
+      updateDraft((d) => moveCursor(d, previousWordOffset(d.value, d.cursor), { extend: key.shift }));
       return;
     }
     if (key.meta && editingKey === 'f') {
-      updateDraft((d) => ({ ...d, cursor: nextWordOffset(d.value, d.cursor) }));
+      updateDraft((d) => moveCursor(d, nextWordOffset(d.value, d.cursor), { extend: key.shift }));
       return;
     }
     // ctrl+u / ctrl+k — delete to line start / end.
@@ -449,11 +485,13 @@ export function PromptInput({
 
     if (key.backspace) {
       updateDraft((d) => {
+        if (selectionRange(d)) return deleteSelectedText(d);
         if (d.cursor <= 0) return d;
         const start = previousOffset(d.value, d.cursor);
         return {
           value: d.value.slice(0, start) + d.value.slice(d.cursor),
           cursor: start,
+          selectionAnchor: null,
         };
       });
       return;
@@ -461,11 +499,13 @@ export function PromptInput({
 
     if (key.delete) {
       updateDraft((d) => {
+        if (selectionRange(d)) return deleteSelectedText(d);
         if (d.cursor >= d.value.length) return d;
         const end = nextOffset(d.value, d.cursor);
         return {
           value: d.value.slice(0, d.cursor) + d.value.slice(end),
           cursor: d.cursor,
+          selectionAnchor: null,
         };
       });
       return;
@@ -508,7 +548,7 @@ export function PromptInput({
   // Trailing space cell so the caret at end-of-input has a rendered cell to sit
   // on (kept visually blank — no synthetic underline).
   const displayValue = mask ? value.replace(/[^\n]/g, '*') : value;
-  const renderedValue = cursor === value.length ? `${displayValue} ` : displayValue;
+  const renderedValue = renderSelectedText(displayValue, selectionRange(draft), cursor === value.length);
   const hintMeta = hintStyle(hintTone);
 
   return (

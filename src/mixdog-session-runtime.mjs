@@ -232,7 +232,7 @@ const EFFORT_FALLBACKS = {
   none: ['none'],
 };
 
-const TOOL_SEARCH_TOOL = {
+export const TOOL_SEARCH_TOOL = {
   name: 'tool_search',
   title: 'Tool Search',
   annotations: {
@@ -242,12 +242,12 @@ const TOOL_SEARCH_TOOL = {
     idempotentHint: true,
     openWorldHint: false,
   },
-  description: 'Search the current standalone tool surface and select tools/skills for the task. Use before deferred or unfamiliar tools.',
+  description: 'Search the current standalone tool surface and select deferred tools/skills for the task. Use before unfamiliar or currently inactive tools.',
   inputSchema: {
     type: 'object',
     properties: {
       query: { type: 'string', description: 'Optional search text, e.g. edit, bridge, memory, skill, mcp.' },
-      select: { type: ['string', 'array'], description: 'Comma-separated tool names or an array of tool names to select.' },
+      select: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Tool/skill names to activate, as comma-separated text or an array.' },
       limit: { type: 'number', description: 'Maximum matches to return.' },
     },
     additionalProperties: false,
@@ -265,7 +265,7 @@ const CHANNEL_STATUS_TOOL = {
     openWorldHint: false,
     bridgeHidden: true,
   },
-  description: 'List standalone Discord/channel/schedule/webhook configuration status. This never returns secrets.',
+  description: 'List standalone Discord/channel/schedule/webhook configuration status. Read-only and never returns secrets.',
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 };
 
@@ -280,7 +280,7 @@ const CWD_TOOL = {
     openWorldHint: false,
     bridgeHidden: true,
   },
-  description: 'Show or set the standalone session working directory. action=get|set; path is required for set.',
+  description: 'Show or set the standalone session working directory. Default get; action=set requires path.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -301,8 +301,6 @@ const MEASURED_TOOL_USAGE = Object.freeze({
   explore: 360,
   bridge: 330,
   shell: 81,
-  edit: 40,
-  write: 38,
   cwd: 2,
   diagnostics: 2,
   recall: 2,
@@ -388,8 +386,6 @@ const DEFERRED_SELECT_ALIASES = {
   bridge: ['bridge'],
   graph: ['code_graph'],
   code: ['code_graph'],
-  write: ['apply_patch'],
-  edit: ['apply_patch'],
   shell: ['shell', 'task'],
 };
 

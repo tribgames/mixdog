@@ -146,6 +146,71 @@ function isAgentTool(normalizedName) {
   return normalizedName === 'bridge' || normalizedName === 'agent' || normalizedName === 'task';
 }
 
+const AGENT_DISPLAY_NAMES = new Map([
+  ['explore', 'Explore'],
+  ['web-researcher', 'Web Researcher'],
+  ['maintainer', 'Maintainer'],
+  ['worker', 'Worker'],
+  ['heavy-worker', 'Heavy Worker'],
+  ['reviewer', 'Reviewer'],
+  ['debugger', 'Debugger'],
+]);
+
+function titleizeAgentName(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const key = text.toLowerCase().replace(/[\s_]+/g, '-');
+  if (AGENT_DISPLAY_NAMES.has(key)) return AGENT_DISPLAY_NAMES.get(key);
+  return text
+    .replace(/[_-]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join(' ');
+}
+
+function agentResponseTitle(args) {
+  const name = titleizeAgentName(args?.agent || args?.role || args?.subagent_type || args?.name || '');
+  return `${name || 'Agent'} response`;
+}
+
+function agentActionTitle(args) {
+  const name = titleizeAgentName(args?.agent || args?.role || args?.subagent_type || args?.name || '');
+  const agent = name || 'Agent';
+  const action = String(args?.type || args?.action || '').toLowerCase();
+  const status = String(args?.status || '').toLowerCase();
+  if (action === 'spawn') return /^(running|pending|queued)$/i.test(status) ? `Spawning ${agent}` : `Spawned ${agent}`;
+  if (action === 'send') return /^(running|pending|queued)$/i.test(status) ? `Sending to ${agent}` : `Sent to ${agent}`;
+  return '';
+}
+
+function agentActionSummary(args, summary) {
+  const text = String(summary || '').trim();
+  if (!text) return '';
+  const name = titleizeAgentName(args?.agent || args?.role || args?.subagent_type || args?.name || '');
+  if (name && text === name) return '';
+  if (name && text.startsWith(`${name} · `)) return text.slice(name.length + 3).trim();
+  return text;
+}
+
+function hasAgentResponseResult(value) {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(text)) return false;
+  const isBridgeEnvelope = /^(?:bridge task:|bridge job:|background task\b|bridge mode:|bridge message queued\b|bridge close:)/i.test(text)
+    || (/^task_id:\s*\S+/mi.test(text) && /^(?:surface|operation|status):\s*/mi.test(text));
+  if (!isBridgeEnvelope) return true;
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (/^bridge result\b/i.test(trimmed)) continue;
+    if (/^<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
+    if (/^(?:bridge job|bridge task|background task|task_id|surface|operation|label|status|type|target|role|agent|preset|model|effort|fast|limits|started|finished|error|notification|queueDepth):\s*/i.test(trimmed)) continue;
+    return true;
+  }
+  return false;
+}
+
 function isOutputDetailTool(normalizedName, label) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
@@ -186,6 +251,18 @@ function genericCompletedDetail({ normalizedName, label, hasResult, firstResultL
     return hasResult ? firstResultLine : '';
   }
   return '';
+}
+
+function agentTerminalDetail(status, isError, elapsed) {
+  const s = String(status || '').toLowerCase();
+  const word = /cancel/.test(s)
+    ? 'Cancelled'
+    : /error|fail|killed|timeout/.test(s) || isError
+      ? 'Failed'
+      : /done|success|complete|closed/.test(s)
+        ? 'Finished'
+        : '';
+  return word ? `${word}${elapsed ? ` after ${elapsed}` : ''}` : '';
 }
 
 function clampFailureCount(errorCount, groupCount, isError) {
@@ -244,7 +321,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     const dotText = pending && !blinkOn ? ' ' : TURN_MARKER;
     const gutter = 2;
     const showHeaderExpandHint = hasRawResult;
-    const hintLabel = showHeaderExpandHint ? `Ctrl+O ${expanded ? 'Collapse' : 'Expand'}` : '';
+    const hintLabel = showHeaderExpandHint ? `ctrl+o ${expanded ? 'collapse' : 'expand'}` : '';
     const hintText = hintLabel ? ` ${BULLET_OPERATOR} ${hintLabel}` : '';
     const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - stringWidth(hintText));
     const clippedHeader = stringWidth(headerText) > avail
@@ -301,8 +378,11 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
 
   const toolArgPath = parsedArgs?.path ?? parsedArgs?.file_path ?? parsedArgs?.file ?? '';
   const imageDetail = normalizedName === 'view_image' && toolArgPath ? String(toolArgPath) : '';
+  const agentCompletionDetail = !pending && isAgentTool(normalizedName)
+    ? agentTerminalDetail(parsedArgs?.status, isError, elapsed)
+    : '';
   const agentDetail = !pending && isAgentTool(normalizedName) && !hasResult
-    ? (isError ? `Failed${elapsed ? ` In ${elapsed}` : ''}` : '')
+    ? agentCompletionDetail
     : '';
   const pendingDetail = pending
     ? progressDetail({ normalizedName, label, doneCount, groupCount, elapsed })
@@ -312,18 +392,23 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     : '';
   const collapsedDetail = pending
     ? pendingDetail
-    : resultSummary || agentDetail || imageDetail || genericDetail;
+    : (/^(Cancelled|Failed|Finished)$/i.test(resultSummary || '') && agentCompletionDetail
+      ? agentCompletionDetail
+      : resultSummary) || agentDetail || imageDetail || genericDetail;
   const showRawResult = expanded && hasResult;
   const detailLines = showRawResult ? lines : (collapsedDetail ? [collapsedDetail] : []);
   const detailIsSynthetic = pending || agentDetail || resultSummary || imageDetail || (genericDetail && genericDetail !== firstResultLine);
   const detailColor = theme.text;
 
+  const isAgentResponse = !pending && isAgentTool(normalizedName) && hasResult && hasAgentResponseResult(rt);
   const dotColor = statusColor;
   const dotText = pending && !blinkOn ? ' ' : TURN_MARKER;
-  const labelText = statusCopy(normalizedName, label, groupCount, doneCount, headerPending, isError);
+  const labelText = isAgentResponse
+    ? agentResponseTitle(parsedArgs)
+    : (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs) : '') || statusCopy(normalizedName, label, groupCount, doneCount, headerPending, isError);
   // Show the parenthesized arg summary for grouped cards too, matching single
   // calls so the header carries the same context.
-  const summaryText = summary;
+  const summaryText = isAgentResponse ? '' : (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary);
   const showHeaderExpandHint = hasHiddenDetail;
   const expandHintColor = TOOL_HINT_DONE_COLOR;
 
@@ -333,7 +418,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // shown by the verb (Running/Reading/etc.), the blinking dot, and the detail
   // row, so avoid an extra standalone ellipsis between parenthesized segments.
   const gutter = 2;
-  const hintLabel = showHeaderExpandHint ? `Ctrl+O ${expanded ? 'Collapse' : 'Expand'}` : '';
+  const hintLabel = showHeaderExpandHint ? `ctrl+o ${expanded ? 'collapse' : 'expand'}` : '';
   const hintText = hintLabel ? ` ${BULLET_OPERATOR} ${hintLabel}` : '';
   const avail = Math.max(
     1,

@@ -584,7 +584,7 @@ export async function renderStatusLine(ccJsonInput) {
     let filled = Math.floor(pct * cells / 100);
     if (filled < 0) filled = 0;
     if (filled > cells) filled = cells;
-    if (pct > 0 && filled === 0) filled = 1;
+    if (pct >= 1 && filled === 0) filled = 1;
     return '▓'.repeat(filled) + '░'.repeat(cells - filled);
   }
 

@@ -34,17 +34,8 @@ import {
     executeGlobTool,
     executeGrepTool,
 } from './builtin/search-tool.mjs';
-import { executeEditTool } from './builtin/edit-tool.mjs';
-import {
-    runBatchEdit,
-    runMultiEdit,
-    runSingleEdit,
-} from './builtin/edit-engine.mjs';
-import { executeWriteTool } from './builtin/write-tool.mjs';
-import { executeNotebookEditTool } from './builtin/notebook-edit-tool.mjs';
 import { executeDiagnosticsTool } from './builtin/diagnostics-tool.mjs';
 import { executeOpenConfigTool } from './builtin/open-config-tool.mjs';
-import { executeRenameTool } from './builtin/rename-tool.mjs';
 import {
     configureReadRangeIndexTelemetry,
     flushReadRangeIndexesSync,
@@ -390,24 +381,10 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
             return executeTaskTool(args, options);
         case 'read':
             return executeReadTool(args, workDir, readStateScope, executeChildBuiltinTool, options, _readToolHelpers);
-        case 'write':
-            return executeWriteTool(args, workDir, readStateScope, options);
         case 'diagnostics':
             return executeDiagnosticsTool(args, workDir, options);
         case 'open_config':
             return executeOpenConfigTool();
-        case 'edit': {
-            const op = args?.operation;
-            if (op === 'notebook')
-                return executeNotebookEditTool(args, workDir, readStateScope, options);
-            if (op === 'rename')
-                return executeRenameTool(args, workDir, options?.abortSignal || null);
-            return executeEditTool(args, workDir, readStateScope, executeChildBuiltinTool, options, {
-                runMultiEdit,
-                runBatchEdit,
-                runSingleEdit,
-            });
-        }
         case 'grep':
             return executeGrepTool(args, workDir, executeChildBuiltinTool, readStateScope, options);
         case 'glob':

@@ -298,8 +298,8 @@ export async function executeTreeTool(args, workDir, options = {}) {
 
 // Fuzzy filename search (codex file-search / nucleo style): collect the file
 // list via `rg --files`, then rank by subsequence score. Lets a partial name
-// like "edeng" surface "edit-engine.mjs" in one call instead of guessing an
-// exact glob pattern. Honors path/hidden/include_noise/depth/head_limit.
+// like "edeng" surface matching files in one call instead of guessing an exact
+// glob pattern. Honors path/hidden/include_noise/depth/head_limit.
 async function executeFuzzyFind(args, workDir) {
     const query = String(args.fuzzy);
     const inputPath = normalizeInputPath(args.path) || '.';

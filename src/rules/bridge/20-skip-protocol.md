@@ -9,10 +9,3 @@ prefix the whole response with:
 [meta:silent]
 ```
 
-Optionally add one short reason for Discord/debug logs.
-
-Effect: Lead injection is suppressed, but Discord still receives the
-body for audit.
-
-Do not use for actionable findings, decisions, summaries, or short-but-
-useful reports. True skips only.

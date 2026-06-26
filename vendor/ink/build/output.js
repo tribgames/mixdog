@@ -249,10 +249,10 @@ export default class Output {
                     continue;
                 }
                 const rawX1 = linear
-                    ? (lineMode ? 0 : (y === start.y ? start.x : 0))
+                    ? (lineMode ? (y === start.y ? start.x : 0) : Math.min(start.x, end.x))
                     : Math.min(sel.x1, sel.x2);
                 const rawX2 = linear
-                    ? (lineMode ? row.length - 1 : (y === end.y ? end.x : row.length - 1))
+                    ? (lineMode ? (y === end.y ? end.x : row.length - 1) : Math.max(start.x, end.x))
                     : Math.max(sel.x1, sel.x2);
                 const x1 = Math.max(0, Math.min(rawX1, rawX2));
                 const x2 = Math.min(row.length - 1, Math.max(rawX1, rawX2));
@@ -292,6 +292,16 @@ export default class Output {
                 }
             }
             if (captureSelectedText) {
+                // Blank edge rows come from selecting through padded alt-screen
+                // space around rendered content. Native terminal selection does
+                // not paste those as leading/trailing empty lines, so trim only
+                // the outer empty rows and preserve intentional blank rows inside.
+                while (selRows.length > 0 && selRows[0].trim() === '') {
+                    selRows.shift();
+                }
+                while (selRows.length > 0 && selRows[selRows.length - 1].trim() === '') {
+                    selRows.pop();
+                }
                 selectedText = selRows.join('\n');
             }
         }

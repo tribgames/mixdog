@@ -70,33 +70,11 @@ const rows = [
       finally { await runtime.close('runtime-select-smoke'); }
     }
     await withRuntime((runtime) => {
-      const editResult = runtime.selectTools('edit');
-      if (editResult.added.length || !editResult.already.includes('apply_patch')) {
-        throw new Error('edit alias should resolve to already-active apply_patch: ' + JSON.stringify(editResult));
-      }
-      const afterEdit = new Set(editResult.status.activeTools || []);
-      if (afterEdit.has('edit') || afterEdit.has('write') || afterEdit.has('bash')) {
-        throw new Error('edit alias leaked extra tools: ' + [...afterEdit].join(','));
-      }
-
-      const writeResult = runtime.selectTools('write');
-      if (writeResult.added.length || !writeResult.already.includes('apply_patch')) {
-        throw new Error('write alias should resolve to already-active apply_patch: ' + JSON.stringify(writeResult));
-      }
-      const afterWrite = new Set(writeResult.status.activeTools || []);
-      if (afterWrite.has('edit') || afterWrite.has('write') || afterWrite.has('bash')) {
-        throw new Error('write alias leaked edit/bash: ' + [...afterWrite].join(','));
-      }
-    });
-    await withRuntime((runtime) => {
       const result = runtime.selectTools('shell');
       if (!result.added.includes('shell') || !result.added.includes('task')) {
         throw new Error('shell alias should add shell/task: ' + JSON.stringify(result));
       }
       const active = new Set(result.status.activeTools || []);
-      if (active.has('edit') || active.has('write')) {
-        throw new Error('shell alias leaked edit/write: ' + [...active].join(','));
-      }
     });
     console.log('runtime_select ok');
   `], {

@@ -38,7 +38,7 @@ async function main() {
   assert(/Use `bridge` to delegate actual scoped work/i.test(leadToolRules), 'lead rules must direct scoped work to bridge');
   assert(/parallelize independent files\/concerns/i.test(leadToolRules), 'lead rules must keep independent work parallel');
   assert(/Use bridge workers/i.test(workflowRules) && /parallelizes useful work/i.test(workflowRules), 'workflow rules must recommend bridge parallelism');
-  assert(/always async/i.test(BRIDGE_TOOL.description || '') && /spawn distinct tags/i.test(BRIDGE_TOOL.description || ''), 'bridge tool description must expose async parallel tags');
+  assert(/Prefer async by default/i.test(BRIDGE_TOOL.description || '') && /distinct tags/i.test(BRIDGE_TOOL.description || '') && /completion notification/i.test(BRIDGE_TOOL.description || ''), 'bridge tool description must expose async parallel tags');
 
   mkdirSync(dataDir, { recursive: true });
   await initProviders({ 'openai-oauth': { enabled: true } });

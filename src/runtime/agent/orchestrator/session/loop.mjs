@@ -172,6 +172,67 @@ function estimateMessagesTokensSafe(messages) {
     catch { return null; }
 }
 
+function steeringContentText(content) {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+        return content.map((part) => {
+            if (typeof part === 'string') return part;
+            if (part?.type === 'text') return part.text || '';
+            if (part?.type === 'image') return '[Image]';
+            return part?.text || '';
+        }).filter(Boolean).join('\n');
+    }
+    return String(content ?? '');
+}
+
+function normalizeSteeringEntry(entry) {
+    if (typeof entry === 'string') {
+        const text = entry.trim();
+        return text ? { content: text, text } : null;
+    }
+    if (!entry || typeof entry !== 'object') return null;
+    const content = Object.prototype.hasOwnProperty.call(entry, 'content') ? entry.content : entry;
+    const text = typeof entry.text === 'string' ? entry.text.trim() : steeringContentText(content).trim();
+    if (Array.isArray(content)) return content.length > 0 ? { content, text } : null;
+    if (typeof content === 'string') {
+        const value = content.trim();
+        return value ? { content: value, text: text || value } : null;
+    }
+    const fallback = steeringContentText(content).trim();
+    return fallback ? { content: fallback, text: text || fallback } : null;
+}
+
+function mergeSteeringEntries(entries) {
+    const normalized = (Array.isArray(entries) ? entries : [])
+        .map(normalizeSteeringEntry)
+        .filter(Boolean);
+    if (normalized.length === 0) return null;
+    const displayText = normalized.map((entry) => entry.text || steeringContentText(entry.content))
+        .filter((text) => String(text || '').trim())
+        .join('\n');
+    if (normalized.every((entry) => typeof entry.content === 'string')) {
+        return {
+            content: normalized.map((entry) => entry.content).filter(Boolean).join('\n'),
+            text: displayText,
+            count: normalized.length,
+        };
+    }
+    const parts = [];
+    for (const entry of normalized) {
+        if (typeof entry.content === 'string') {
+            if (entry.content.trim()) parts.push({ type: 'text', text: entry.content });
+        } else if (Array.isArray(entry.content)) {
+            parts.push(...entry.content);
+        } else {
+            const text = steeringContentText(entry.content);
+            if (text.trim()) parts.push({ type: 'text', text });
+        }
+        parts.push({ type: 'text', text: '\n' });
+    }
+    while (parts.length && parts[parts.length - 1]?.type === 'text' && parts[parts.length - 1]?.text === '\n') parts.pop();
+    return { content: parts, text: displayText || steeringContentText(parts), count: normalized.length };
+}
+
 class BridgeContextOverflowError extends Error {
     constructor({ stage, sessionId, provider, model, contextWindow, budgetTokens, reserveTokens, messageTokensEst }, cause) {
         const target = [provider, model].filter(Boolean).join('/') || 'target model';
@@ -2180,19 +2241,14 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             try { _steerMsgs = opts.drainSteering(sessionId) || []; }
             catch { _steerMsgs = []; }
             // Merge the whole batch into ONE user turn (same rule as the TUI
-            // engine.mjs drain(): multiple steering messages that landed
-            // before this boundary are joined with "\n" and delivered as a
-            // single turn, not N isolated user messages). Keeps both the
-            // user-input path and the bridge/backend path on identical
-            // merge-then-deliver semantics.
-            const _merged = _steerMsgs
-                .filter((m) => typeof m === 'string' && m.length > 0)
-                .join('\n');
-            if (_merged.length > 0) {
-                messages.push({ role: 'user', content: _merged });
-                try { opts.onSteerMessage?.(_merged); } catch {}
+            // engine.mjs drain()). Rich content arrays (for pasted images) must
+            // survive steering instead of being demoted to display text.
+            const _merged = mergeSteeringEntries(_steerMsgs);
+            if (_merged) {
+                messages.push({ role: 'user', content: _merged.content });
+                try { opts.onSteerMessage?.(_merged.text || steeringContentText(_merged.content)); } catch {}
                 if (sessionId) {
-                    try { process.stderr.write(`[steer] sess=${sessionId} injected mid-turn user message (merged=${_steerMsgs.length} len=${_merged.length})\n`); } catch {}
+                    try { process.stderr.write(`[steer] sess=${sessionId} injected mid-turn user message (merged=${_merged.count} len=${String(_merged.text || '').length})\n`); } catch {}
                 }
             }
         }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compactToolSearchDescription, defaultDeferredToolNames } from '../src/mixdog-session-runtime.mjs';
+import { compactToolSearchDescription, defaultDeferredToolNames, TOOL_SEARCH_TOOL } from '../src/mixdog-session-runtime.mjs';
 import { buildExplorerPrompt, EXPLORE_TOOL, MAX_FANOUT_QUERIES, normalizeExploreQueries } from '../src/standalone/explore-tool.mjs';
 import { BRIDGE_TOOL, createStandaloneBridge, resolveBridgeExecutionMode } from '../src/standalone/bridge-tool.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
@@ -11,6 +11,9 @@ import { executeCodeGraphTool } from '../src/runtime/agent/orchestrator/tools/co
 import { CODE_GRAPH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs';
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
+import { TOOL_DEFS as MEMORY_TOOL_DEFS } from '../src/runtime/memory/tool-defs.mjs';
+import { TOOL_DEFS as SEARCH_TOOL_DEFS } from '../src/runtime/search/tool-defs.mjs';
+import { TOOL_DEFS as CHANNEL_TOOL_DEFS } from '../src/runtime/channels/tool-defs.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -244,9 +247,12 @@ const smokeCatalog = [
   ...BUILTIN_TOOLS,
   ...CODE_GRAPH_TOOL_DEFS,
   ...PATCH_TOOL_DEFS,
+  ...MEMORY_TOOL_DEFS,
+  ...SEARCH_TOOL_DEFS,
+  ...CHANNEL_TOOL_DEFS,
   EXPLORE_TOOL,
   BRIDGE_TOOL,
-  { name: 'tool_search', annotations: { readOnlyHint: true, destructiveHint: false }, description: 'select tools' },
+  TOOL_SEARCH_TOOL,
 ].filter(Boolean);
 
 const fullDefaults = defaultDeferredToolNames(smokeCatalog, 'full');
@@ -270,13 +276,17 @@ const surfaceSize = [...fullDefaults].reduce((sum, name) => {
   const tool = smokeCatalog.find((item) => item?.name === name);
   return sum + toolSchemaSize(tool);
 }, 0);
-if (surfaceSize > 9000) {
-  throw new Error(`full default tool surface too large: ${surfaceSize} chars (cap 9000)`);
+if (surfaceSize > 13500) {
+  throw new Error(`full default tool surface too large: ${surfaceSize} chars (cap 13500)`);
 }
 for (const [name, cap] of [
   ['apply_patch', 1300],
-  ['code_graph', 1300],
+  ['code_graph', 1500],
   ['bridge', 2500],
+  ['recall', 2400],
+  ['search', 3200],
+  ['web_fetch', 900],
+  ['tool_search', 900],
 ]) {
   const tool = smokeCatalog.find((item) => item?.name === name);
   const size = toolSchemaSize(tool);
@@ -296,7 +306,9 @@ for (const name of ['apply_patch', 'bridge', 'shell', 'edit', 'write']) {
 
 const bridgeProps = BRIDGE_TOOL.inputSchema?.properties || {};
 if (!bridgeProps.mode || bridgeProps.wait) throw new Error('bridge schema should expose mode but not legacy wait');
-if (!/prefer async spawn\/send/i.test(BRIDGE_TOOL.description || '')) throw new Error('bridge description must prefer async model handoffs');
+if (!/Prefer async by default/i.test(BRIDGE_TOOL.description || '') || !/distinct tags/i.test(BRIDGE_TOOL.description || '') || !/completion notification/i.test(BRIDGE_TOOL.description || '') || !/do not interfere/i.test(BRIDGE_TOOL.description || '')) {
+  throw new Error('bridge description must preserve async tagged delegation contract');
+}
 const bridgeSmoke = createStandaloneBridge({
   cfgMod: {
     loadConfig: () => ({ providers: {}, presets: [] }),
@@ -323,6 +335,13 @@ if (!/^Error[\s:[]/.test(String(bridgeBadType)) || !/unknown type/i.test(String(
 if (EXPLORE_TOOL.annotations?.readOnlyHint !== true || EXPLORE_TOOL.annotations?.destructiveHint === true) {
   throw new Error('explore must stay read-only so readonly surfaces can use it');
 }
+const exploreProps = EXPLORE_TOOL.inputSchema?.properties || {};
+if (!/Broad-scope locator only/i.test(EXPLORE_TOOL.description || '') || !/code_graph\/grep\/glob first/i.test(EXPLORE_TOOL.description || '')) {
+  throw new Error('explore description must preserve broad-locator and direct-tool-first guidance');
+}
+if (!/Never pass a whole brief/i.test(exploreProps.query?.description || '') || !/relevant repo or subtree/i.test(exploreProps.cwd?.description || '')) {
+  throw new Error('explore schema must preserve query narrowness and cwd narrowing guidance');
+}
 const normalizedExplore = normalizeExploreQueries('["where is model selection?","  ","which file owns bridge async?"]');
 if (normalizedExplore.length !== 2 || normalizedExplore[0] !== 'where is model selection?') {
   throw new Error(`explore query normalization failed: ${JSON.stringify(normalizedExplore)}`);
@@ -333,23 +352,64 @@ if (!explorerPrompt.includes('&lt;bridge&gt;') || !explorerPrompt.includes('&amp
   throw new Error(`explorer prompt contract failed: ${explorerPrompt}`);
 }
 const patchDescription = PATCH_TOOL_DEFS[0]?.inputSchema?.properties?.patch?.description || '';
-if (!/do not repeat the same target file/i.test(patchDescription)) {
-  throw new Error('apply_patch schema must warn against duplicate target blocks');
+if (!/V4A/i.test(patchDescription) || !/one file block per target file/i.test(patchDescription) || !/exact current context/i.test(patchDescription)) {
+  throw new Error('apply_patch schema must keep V4A, per-target block, and exact-context guidance');
 }
 const readPathDescription = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.inputSchema?.properties?.path?.description || '';
 if (!/file path only/i.test(readPathDescription)) {
   throw new Error('read schema must keep directory-vs-file guidance');
 }
 const readDescription = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.description || '';
-if (!/(do not inspect refs unless requested|refs only if requested)/i.test(readDescription) || !/use symbol OR line\+context/i.test(readDescription)) {
-  throw new Error('read description must keep broad-query and exclusive-window guidance');
-}
-if (!/avoid read/i.test(readDescription) || !/(do not reread the same file|no reread same file)/i.test(readDescription)) {
-  throw new Error('read description must keep location-candidate anti-reread guidance');
+if (!/specific file window or symbol body/i.test(readDescription) || !/after narrowing/i.test(readDescription)) {
+  throw new Error('read description must stay narrow-target oriented');
 }
 const codeGraphDescription = CODE_GRAPH_TOOL_DEFS[0]?.description || '';
-if (!/answer from file:line without read/i.test(codeGraphDescription)) {
-  throw new Error('code_graph description must keep location-candidate no-read guidance');
+const codeGraphProps = CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties || {};
+if (!/Top-level entry for code-related questions/i.test(codeGraphDescription) || !/Use before read/i.test(codeGraphDescription)) {
+  throw new Error('code_graph description must stay top-level for code questions');
+}
+if (!/Operation:/i.test(codeGraphProps.mode?.description || '') || !/Directory scope is only for references\/callers/i.test(codeGraphProps.file?.description || '')) {
+  throw new Error('code_graph schema must explain mode and file scoping');
+}
+const recallTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'recall');
+const recallProps = recallTool?.inputSchema?.properties || {};
+if (!/when in doubt, recall first/i.test(recallTool?.description || '') || !recallProps.id?.anyOf || !/Do not invent ids/i.test(recallProps.id?.description || '')) {
+  throw new Error('recall schema must preserve prior-context guidance and id lookup shape');
+}
+if (!/array for independent fan-out/i.test(recallProps.query?.description || '') || !/Project pool selector/i.test(recallProps.projectScope?.description || '')) {
+  throw new Error('recall schema must explain fan-out query and project scope filters');
+}
+const memoryTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'memory');
+const memoryProps = memoryTool?.inputSchema?.properties || {};
+if (!/explicit mutation/i.test(memoryTool?.description || '') || !/Destructive jobs require exact confirm/i.test(memoryTool?.description || '') || !/Exact confirmation phrase/i.test(memoryProps.confirm?.description || '')) {
+  throw new Error('memory schema must preserve mutation/destructive confirmation guidance');
+}
+const searchTool = SEARCH_TOOL_DEFS.find((tool) => tool.name === 'search');
+const searchProps = searchTool?.inputSchema?.properties || {};
+if (!/Prefer mode=async/i.test(searchTool?.description || '') || !searchProps.query?.anyOf || !/array for fan-out/i.test(searchProps.query?.description || '')) {
+  throw new Error('search schema must preserve async guidance and string/array query shape');
+}
+if (!/Default web/i.test(searchProps.type?.description || '') || !/locale hint/i.test(searchProps.locale?.description || '') || !/Default low/i.test(searchProps.contextSize?.description || '')) {
+  throw new Error('search schema must describe type, locale, and contextSize defaults');
+}
+const webFetchTool = SEARCH_TOOL_DEFS.find((tool) => tool.name === 'web_fetch');
+const webFetchProps = webFetchTool?.inputSchema?.properties || {};
+if (!/Use after search/i.test(webFetchTool?.description || '') || !webFetchProps.url?.anyOf || !/array of URLs/i.test(webFetchProps.url?.description || '')) {
+  throw new Error('web_fetch schema must preserve after-search guidance and string/array url shape');
+}
+if (!/offset/i.test(webFetchProps.startIndex?.description || '') || !/Maximum characters/i.test(webFetchProps.maxLength?.description || '')) {
+  throw new Error('web_fetch schema must describe paging window fields');
+}
+if (!/tools\/skills/i.test(TOOL_SEARCH_TOOL.description || '') || !/deferred/i.test(TOOL_SEARCH_TOOL.description || '') || !TOOL_SEARCH_TOOL.inputSchema?.properties?.select) {
+  throw new Error('tool_search schema must preserve selection guidance and select field');
+}
+const replyTool = CHANNEL_TOOL_DEFS.find((tool) => tool.name === 'reply');
+if (!/configured channel/i.test(replyTool?.description || '') || !/local paths/i.test(replyTool?.inputSchema?.properties?.files?.description || '')) {
+  throw new Error('channel reply schema must describe target channel and attachment paths');
+}
+const fetchTool = CHANNEL_TOOL_DEFS.find((tool) => tool.name === 'fetch');
+if (!/NOT for URLs/i.test(fetchTool?.description || '') || !/web_fetch/i.test(fetchTool?.description || '')) {
+  throw new Error('channel fetch schema must distinguish Discord fetch from web_fetch');
 }
 const grepTool = BUILTIN_TOOLS.find((tool) => tool.name === 'grep');
 const grepPatternDescription = grepTool?.inputSchema?.properties?.pattern?.description || '';

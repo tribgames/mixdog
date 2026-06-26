@@ -47,14 +47,14 @@ export const BRIDGE_TOOL = {
     openWorldHint: true,
     bridgeHidden: true,
   },
-  description: `Workflow-agent control. Prefer async spawn/send for Lead/model delegation: omit mode for normal spawn/send. Never set mode="sync" for ordinary worker/reviewer/debugger handoffs; use sync only when the user explicitly asks to block for the result now. ${TOOL_ASYNC_EXECUTION_CONTRACT} Use agent=explore/web-researcher/maintainer/worker/heavy-worker/reviewer/debugger. No same-scope edits until done/cancel/takeover.`,
+  description: 'Delegate scoped work to workflow agents. Prefer async by default: spawn independent agents in parallel with distinct tags, then wait for their completion notification; do not interfere or poll while delegated work is running. Use sync only when the next step must block on the result.',
   inputSchema: {
     type: 'object',
     properties: {
-      type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: `Default spawn. For spawn/send, omit mode so Lead uses async background execution. ${TOOL_ASYNC_EXECUTION_CONTRACT}` },
-      mode: { type: 'string', enum: ['async', 'sync'], description: `${executionModeSchemaDescription('async')} Omit this for normal Lead handoffs; choose sync only for an explicit blocking wait.` },
+      type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: 'Action. Default spawn; use send only for a follow-up to an existing tag/session.' },
+      mode: { type: 'string', enum: ['async', 'sync'], description: `${executionModeSchemaDescription('async')} Prefer async for model handoffs; use sync only for an explicit blocking handoff.` },
       task_id: { type: 'string', description: 'Shared background task id for manual status/read/cancel recovery.' },
-      agent: { type: 'string', description: 'Workflow agent id to run. Use an agent declared by the active workflow.' },
+      agent: { type: 'string', description: 'Workflow agent id to run.' },
       tag: { type: 'string', description: 'Stable agent handle; distinct tag per parallel agent.' },
       sessionId: { type: 'string', description: 'Raw sess_ id.' },
       prompt: { type: 'string', description: 'Scoped task brief: anchors, constraints, done condition.' },
@@ -82,6 +82,8 @@ function envTimeoutMs(name, fallback) {
 const DEFAULT_FIRST_RESPONSE_TIMEOUT_MS = envTimeoutMs('MIXDOG_BRIDGE_FIRST_RESPONSE_TIMEOUT_MS', 120_000);
 const DEFAULT_STALE_TIMEOUT_MS = envTimeoutMs('MIXDOG_BRIDGE_STALE_TIMEOUT_MS', 30 * 60_000);
 const ACTIVE_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'running', 'cancelling']);
+const statuslineRouteOps = new Map();
+let statuslineRouteFlushScheduled = false;
 
 function clean(value) {
   return String(value ?? '').trim();
@@ -169,15 +171,35 @@ function bridgeRouteForStatusline(preset = {}) {
   return out;
 }
 
-function writeBridgeStatuslineRoute(sessionId, preset) {
-  const route = bridgeRouteForStatusline(preset);
-  if (!sessionId || !route) return false;
-  try { return writeGatewaySessionRoute(sessionId, route); } catch { return false; }
+function scheduleBridgeStatuslineRoute(sessionId, route) {
+  if (!sessionId) return false;
+  statuslineRouteOps.set(sessionId, route ? { op: 'write', route } : { op: 'clear' });
+  if (!statuslineRouteFlushScheduled) {
+    statuslineRouteFlushScheduled = true;
+    const handle = setImmediate(() => {
+      statuslineRouteFlushScheduled = false;
+      const batch = [...statuslineRouteOps.entries()];
+      statuslineRouteOps.clear();
+      for (const [sid, item] of batch) {
+        try {
+          if (item.op === 'write') writeGatewaySessionRoute(sid, item.route);
+          else clearGatewaySessionRoute(sid);
+        } catch { /* best-effort statusline route */ }
+      }
+    });
+    handle.unref?.();
+  }
+  return true;
 }
 
-function clearBridgeStatuslineRoute(sessionId) {
-  if (!sessionId) return false;
-  try { return clearGatewaySessionRoute(sessionId); } catch { return false; }
+function scheduleBridgeStatuslineWrite(sessionId, preset) {
+  const route = bridgeRouteForStatusline(preset);
+  if (!sessionId || !route) return false;
+  return scheduleBridgeStatuslineRoute(sessionId, route);
+}
+
+function scheduleBridgeStatuslineClear(sessionId) {
+  return scheduleBridgeStatuslineRoute(sessionId, null);
 }
 
 function findPreset(config, key) {
@@ -499,7 +521,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       try { mgr.hideSessionFromList?.(sessionId); } catch {}
       const tag = tagForSession(sessionId);
       if (tag) forgetTag(tag);
-      clearBridgeStatuslineRoute(sessionId);
+      scheduleBridgeStatuslineClear(sessionId);
       try { mgr.closeSession(sessionId, 'terminal-reap'); } catch {}
     }, TERMINAL_REAP_MS);
     handle.unref?.();
@@ -695,13 +717,68 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     };
   }
 
+  function preparedSpawnMeta(prepared, extras = {}) {
+    return {
+      ...(extras || {}),
+      tag: prepared.tag,
+      sessionId: prepared.session.id,
+      role: prepared.role,
+      preset: presetKey(prepared.preset) || prepared.presetName,
+      provider: prepared.preset.provider,
+      model: prepared.preset.model,
+      effort: prepared.preset.effort || null,
+      fast: prepared.preset.fast === true,
+      maxLoopIterations: prepared.maxLoopIterations || null,
+      idleTimeoutMs: prepared.idleTimeoutMs || null,
+      firstResponseTimeoutMs: prepared.firstResponseTimeoutMs || null,
+    };
+  }
+
+  function pendingSpawnMeta(args = {}, extras = {}) {
+    const role = normalizeAgentName(args.agent || args.role);
+    return {
+      ...(extras || {}),
+      tag: clean(args.tag) || null,
+      sessionId: null,
+      role: role || null,
+      preset: clean(args.preset) || null,
+      provider: clean(args.provider) || null,
+      model: clean(args.model) || null,
+      effort: clean(args.effort) || null,
+      fast: args.fast === true ? true : null,
+    };
+  }
+
+  function mergeJobMeta(job, meta = {}) {
+    if (!job || !meta || typeof meta !== 'object') return;
+    const next = { ...(job.meta || {}), ...meta };
+    job.meta = next;
+    if (job.input && typeof job.input === 'object') {
+      job.input = {
+        ...job.input,
+        tag: next.tag || job.input.tag || null,
+        sessionId: next.sessionId || job.input.sessionId || null,
+        role: next.role || job.input.role || null,
+      };
+    }
+    job.label = next.tag || next.sessionId || job.label;
+  }
+
+  function closePreparedSpawn(prepared, reason = 'bridge-task-cancel') {
+    if (!prepared?.session?.id) return;
+    try { mgr.closeSession(prepared.session.id, reason); } catch {}
+    try { scheduleBridgeStatuslineClear(prepared.session.id); } catch {}
+    if (prepared.tag) forgetTag(prepared.tag);
+  }
+
   function startJob(type, meta, run, notifyContext = null) {
     const clientHostPid = terminalPidForContext(notifyContext);
     const jobMeta = {
       ...(meta || {}),
       ...(clientHostPid ? { clientHostPid } : {}),
     };
-    return startBackgroundTask({
+    let task;
+    task = startBackgroundTask({
       surface: 'bridge',
       operation: type,
       label: jobMeta?.tag || jobMeta?.sessionId || type,
@@ -711,12 +788,33 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       resultType: 'bridge_task_result',
       renderResult: (result) => renderResult(result),
       cancel: () => {
-        if (jobMeta?.sessionId) {
-          try { mgr.closeSession(jobMeta.sessionId, 'bridge-task-cancel'); } catch {}
+        const currentMeta = task?.meta || jobMeta;
+        if (currentMeta?.sessionId) {
+          try { mgr.closeSession(currentMeta.sessionId, 'bridge-task-cancel'); } catch {}
         }
       },
-      run,
+      run: async () => {
+        // Yield one macrotask before doing bridge work. startBackgroundTask uses
+        // a Promise microtask, which otherwise begins CPU-heavy spawn prep
+        // before the TUI receives/render the "running" result.
+        await new Promise((resolve) => setImmediate(resolve));
+        if (task?.status === 'cancelled') return null;
+        return await run(task);
+      },
     });
+    return task;
+  }
+
+  function startDeferredSpawnJob(args, callerCwd, context, notifyContext, extras = {}) {
+    return startJob('spawn', pendingSpawnMeta(args, extras), async (job) => {
+      const prepared = await prepareSpawn(args, callerCwd, context);
+      mergeJobMeta(job, preparedSpawnMeta(prepared, extras));
+      if (job?.status === 'cancelled') {
+        closePreparedSpawn(prepared);
+        return null;
+      }
+      return await runSpawn(prepared);
+    }, notifyContext);
   }
 
   function startProgressIdleWatchdog(sessionId, idleTimeoutMs, firstResponseTimeoutMs = DEFAULT_FIRST_RESPONSE_TIMEOUT_MS) {
@@ -797,7 +895,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     // Lead sessions write a gateway-session route when created; bridge agents
     // are built through prepareBridgeSession(), so mirror that registration here
     // or the vendored L1/L2 statusline cannot resolve the agent route/model.
-    writeBridgeStatuslineRoute(session.id, preset);
+    scheduleBridgeStatuslineWrite(session.id, preset);
     bindTag(tag, session);
     cancelReap(session.id);
     return { args, tag, session, role, preset, presetName, workerCwd: effectiveCwd || workerCwd, prompt, maxLoopIterations, idleTimeoutMs, firstResponseTimeoutMs };
@@ -877,7 +975,13 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     const task = taskId ? getBackgroundTask(taskId, { surface: 'bridge', context }) : null;
     const taskMeta = task?.meta || {};
     const target = clean(args.tag || args.sessionId || taskMeta.sessionId);
-    if (!target) throw new Error('bridge close: tag or sessionId is required');
+    if (!target) {
+      if (task?.taskId) {
+        cancelBackgroundTask(task.taskId, 'cancelled by bridge close');
+        return { closed: true, tag: taskMeta.tag || null, sessionId: null, task_id: task.taskId };
+      }
+      throw new Error('bridge close: tag or sessionId is required');
+    }
     const sessionId = resolveTag(target, scopedContext);
     if (!sessionId) {
       if (!target.startsWith('sess_') && tagRoles.has(target)) {
@@ -890,7 +994,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     cancelReap(sessionId);
     const tag = tagForSession(sessionId);
     if (tag) forgetTag(tag);
-    clearBridgeStatuslineRoute(sessionId);
+    scheduleBridgeStatuslineClear(sessionId);
     const ok = mgr.closeSession(sessionId, 'cli-bridge-close');
     if (task?.taskId) cancelBackgroundTask(task.taskId, 'cancelled by bridge close');
     return { closed: ok, tag, sessionId, task_id: task?.taskId || null };
@@ -962,24 +1066,11 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       if (type === 'send') {
         const respawnArgs = coldRespawnArgs(args, scopedContext);
         if (respawnArgs) {
-          const prepared = await prepareSpawn(respawnArgs, callerCwd, context);
           if (modeFor(args, context) === 'async') {
-            const job = startJob('spawn', {
-              tag: prepared.tag,
-              sessionId: prepared.session.id,
-              role: prepared.role,
-              respawned: true,
-              preset: presetKey(prepared.preset) || prepared.presetName,
-              provider: prepared.preset.provider,
-              model: prepared.preset.model,
-              effort: prepared.preset.effort || null,
-              fast: prepared.preset.fast === true,
-              maxLoopIterations: prepared.maxLoopIterations || null,
-              idleTimeoutMs: prepared.idleTimeoutMs || null,
-              firstResponseTimeoutMs: prepared.firstResponseTimeoutMs || null,
-            }, () => runSpawn(prepared), notifyContext);
+            const job = startDeferredSpawnJob(respawnArgs, callerCwd, context, notifyContext, { respawned: true });
             return renderResult({ mode: 'async', respawned: true, ...renderJob(job, false) });
           }
+          const prepared = await prepareSpawn(respawnArgs, callerCwd, context);
           return renderResult({ respawned: true, ...(await runSpawn(prepared)) });
         }
         const prepared = await prepareSend(args, scopedContext);
@@ -1009,23 +1100,11 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
         return renderResult(await runSend(prepared));
       }
       if (type === 'spawn') {
-        const prepared = await prepareSpawn(args, callerCwd, context);
         if (modeFor(args, context) === 'async') {
-          const job = startJob('spawn', {
-            tag: prepared.tag,
-            sessionId: prepared.session.id,
-            role: prepared.role,
-            preset: presetKey(prepared.preset) || prepared.presetName,
-            provider: prepared.preset.provider,
-            model: prepared.preset.model,
-            effort: prepared.preset.effort || null,
-            fast: prepared.preset.fast === true,
-            maxLoopIterations: prepared.maxLoopIterations || null,
-            idleTimeoutMs: prepared.idleTimeoutMs || null,
-            firstResponseTimeoutMs: prepared.firstResponseTimeoutMs || null,
-          }, () => runSpawn(prepared), notifyContext);
+          const job = startDeferredSpawnJob(args, callerCwd, context, notifyContext);
           return renderResult({ mode: 'async', ...renderJob(job, false) });
         }
+        const prepared = await prepareSpawn(args, callerCwd, context);
         return renderResult(await runSpawn(prepared));
       }
       throw new Error(`bridge: unknown type "${type}"`);
@@ -1042,7 +1121,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       const pid = terminalPidForContext(scopedContext);
       return {
         bridgeMode: defaultMode,
-        workers: list({ scanSessions: true, context: scopedContext }),
+        workers: list({ scanSessions: false, context: scopedContext }),
         jobs: listJobs(scopedContext),
         scope: pid ? { clientHostPid: pid } : { allTerminals: true },
       };

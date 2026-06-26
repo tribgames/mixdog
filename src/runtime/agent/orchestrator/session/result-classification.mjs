@@ -8,7 +8,7 @@
  *
  * Matches documented tool-return error conventions:
  *   "Error: ..."      — Node/MCP tool errors (grep, find_symbol, read, code_graph, etc.)
- *   "Error [code N]:" — structured builtin tool errors (edit/write/read)
+ *   "Error [code N]:" — structured builtin tool errors
  *   "[error ..."      — bracketed error format
  *   "[exit code: ..." — bash non-zero exit
  *

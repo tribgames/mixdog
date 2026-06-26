@@ -12,7 +12,7 @@
 //
 // Matching is case-insensitive. The query is matched as an ordered subsequence
 // (the chars must appear in order but need not be contiguous), which is what
-// lets "edeng" find "edit-engine.mjs".
+// lets partial names surface matching files.
 
 function isBoundaryChar(ch) {
     return ch === '/' || ch === '\\' || ch === '_' || ch === '-' || ch === '.' || ch === ' ';

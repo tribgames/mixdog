@@ -207,9 +207,6 @@ export function displayToolName(name, args = {}) {
     case 'view_image':
     case 'read_mcp_resource':
       return 'Read';
-    case 'write':
-      return 'Write';
-    case 'edit':
     case 'apply_patch': {
       const parsed = parseToolArgs(args);
       return parsed && parsed.old_string === '' ? 'Create' : 'Update';
@@ -294,9 +291,6 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       ]);
     case 'view_image':
       return displayToolPath(a.path || a.file_path || '');
-    case 'write':
-    case 'edit':
-      return displayToolPath(a.path ?? a.file ?? a.file_path ?? '');
     case 'apply_patch':
       return summarizePatch(a.patch, a.base_path);
     case 'shell':
@@ -457,6 +451,55 @@ function countNonEmptyLines(text) {
     .filter((line) => line.trim()).length;
 }
 
+function splitPathAndDelta(value, explicitDelta = '') {
+  let path = String(value ?? '').trim();
+  let delta = String(explicitDelta ?? '').trim();
+  if (!delta) {
+    const sep = path.lastIndexOf(' — ');
+    if (sep !== -1) {
+      delta = path.slice(sep + 3).trim();
+      path = path.slice(0, sep).trim();
+    }
+  }
+  return { path, delta };
+}
+
+function parseLineDelta(delta) {
+  const totals = { added: 0, removed: 0, seen: false };
+  for (const match of String(delta ?? '').matchAll(/([+-])\s*(\d+)\s*(?:line|lines)?/gi)) {
+    const n = Number(match[2]) || 0;
+    totals.seen = true;
+    if (match[1] === '+') totals.added += n;
+    else totals.removed += n;
+  }
+  return totals;
+}
+
+function formatLineDelta(totals) {
+  if (!totals?.seen) return '';
+  const parts = [];
+  if (totals.added) parts.push(`+${totals.added} Lines`);
+  if (totals.removed) parts.push(`-${totals.removed} Lines`);
+  return parts.join(STATUS_SEPARATOR) || '±0 Lines';
+}
+
+function parseUpdateSummary(text) {
+  const match = /^(Updated|Created|Deleted)\s+(.+?)(?:\s+·\s+|$)/i.exec(String(text || '').trim());
+  if (!match) return null;
+  const action = titleWord(match[1]);
+  const target = match[2].trim();
+  const fileCountMatch = /^(\d+)\s+Files?$/i.exec(target);
+  const totals = parseLineDelta(text);
+  return {
+    action,
+    file: fileCountMatch ? '' : target,
+    fileCount: fileCountMatch ? Number(fileCountMatch[1]) || 0 : 0,
+    added: totals.added,
+    removed: totals.removed,
+    seen: totals.seen,
+  };
+}
+
 /** Heuristic: does the text look like a line-oriented listing rather than prose? */
 function looksLineOriented(text) {
   const lines = String(text ?? '').split('\n').filter((line) => line.trim());
@@ -469,14 +512,16 @@ function looksLineOriented(text) {
 function summarizeUpdateResult(text, args) {
   const changed = [];
   for (const line of String(text ?? '').split('\n')) {
-    const ok = /^\s*OK\s+(modify|add|delete|create)\s+(.+?)(?:\s+([±+\-]\S+))?\s*$/i.exec(line);
+    const ok = /^\s*OK\s+(modify|add|delete|create)\s+(.+?)\s*$/i.exec(line);
     if (ok) {
-      changed.push({ action: ok[1].toLowerCase(), path: ok[2].trim(), delta: ok[3] || '' });
+      const { path, delta } = splitPathAndDelta(ok[2]);
+      changed.push({ action: ok[1].toLowerCase(), path, delta });
       continue;
     }
     const edited = /^\s*(Edited|Created|Updated|Wrote):\s+(.+?)(?:\s+\(([^)]+)\))?\s*$/i.exec(line);
     if (edited) {
-      changed.push({ action: edited[1].toLowerCase(), path: edited[2].trim(), delta: edited[3] || '' });
+      const { path, delta } = splitPathAndDelta(edited[2], edited[3] || '');
+      changed.push({ action: edited[1].toLowerCase(), path, delta });
     }
   }
   if (changed.length === 1) {
@@ -485,9 +530,14 @@ function summarizeUpdateResult(text, args) {
     return compactParts([`${action} ${displayToolPath(item.path)}`, item.delta]);
   }
   if (changed.length > 1) {
-    const names = changed.slice(0, 2).map((item) => displayToolPath(item.path)).join(', ');
-    const extra = changed.length > 2 ? ` +${changed.length - 2} More` : '';
-    return `Updated ${changed.length} Files - ${names}${extra}`;
+    const totals = changed.reduce((acc, item) => {
+      const delta = parseLineDelta(item.delta);
+      acc.added += delta.added;
+      acc.removed += delta.removed;
+      acc.seen = acc.seen || delta.seen;
+      return acc;
+    }, { added: 0, removed: 0, seen: false });
+    return compactParts([`Updated ${changed.length} Files`, formatLineDelta(totals)]);
   }
 
   const parsedArgs = parseToolArgs(args);
@@ -508,6 +558,7 @@ function firstAgentResultLine(text) {
   for (const line of String(raw ?? '').split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
+    if (/^bridge result\b/i.test(trimmed)) continue;
     if (/^<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
     if (/^(?:bridge job|bridge task|status|type|target|role|agent|preset|model|effort|fast|limits|session|job|task-id|task_id|notification|queueDepth):\s*/i.test(trimmed)) continue;
     if (/^\[[a-z-]+:\s*[^\]]*\]$/i.test(trimmed)) continue;
@@ -536,8 +587,6 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       const n = text.split('\n').length;
       return `${n} ${pluralize(n, 'Line')}`;
     }
-    case 'write':
-    case 'edit':
     case 'apply_patch': {
       const updateSummary = summarizeUpdateResult(text, args);
       if (updateSummary) return updateSummary;
@@ -754,7 +803,7 @@ const CATEGORY_COPY = new Map([
   ['Web Research', { active: 'Researching', done: 'Researched', noun: 'web item' }],
   ['Memory', { active: 'Checking', done: 'Checked', noun: 'memory item' }],
   ['Explore', { active: 'Exploring', done: 'Explored', noun: 'item' }],
-  ['Patch', { active: 'Patching', done: 'Patched', noun: 'item' }],
+  ['Patch', { active: 'Editing', done: 'Edited', noun: 'item' }],
   ['Edit', { active: 'Editing', done: 'Edited', noun: 'item' }],
   ['Shell', { active: 'Running', done: 'Ran', noun: 'command' }],
   ['Agent', { active: 'Calling', done: 'Called', noun: 'agent' }],
@@ -862,6 +911,31 @@ export function formatAggregateDetail(summaries) {
       const metric = addMetric('updated', { added: 0, removed: 0, render: (m) => `+${m.added} -${m.removed}` });
       metric.added += Number(match[1]);
       metric.removed += Number(match[2]);
+      continue;
+    }
+
+    const update = parseUpdateSummary(text);
+    if (update) {
+      const metric = addMetric('updated_files', {
+        files: new Set(),
+        fileCount: 0,
+        actions: new Set(),
+        added: 0,
+        removed: 0,
+        seen: false,
+        render: (m) => {
+          const count = m.fileCount + m.files.size;
+          const action = m.actions.size === 1 ? [...m.actions][0] : 'Updated';
+          const target = count === 1 && m.fileCount === 0 ? [...m.files][0] : `${count} ${pluralize(count, 'File')}`;
+          return compactParts([`${action} ${target}`, formatLineDelta(m)]);
+        },
+      });
+      if (update.file) metric.files.add(update.file);
+      metric.fileCount += update.fileCount;
+      metric.actions.add(update.action);
+      metric.added += update.added;
+      metric.removed += update.removed;
+      metric.seen = metric.seen || update.seen;
       continue;
     }
 

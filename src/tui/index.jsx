@@ -179,9 +179,10 @@ export async function runTui({ provider, model, toolMode } = {}) {
   // useCursor; the terminal also anchors IME composition to it.
   process.stdout.write('\x1b[5 q'); // blinking bar
 
-  // Mouse tracking lets the app handle wheel scrolling and edge-drag transcript
-  // scrolling. It routes drag selection through our Ink overlay; opt out with
-  // MIXDOG_TUI_MOUSE=0 when native terminal selection is preferred.
+  // Keep mouse handling app-owned by default: native terminal selections are
+  // cleared by the fullscreen redraws that happen while a turn streams. Users
+  // who prefer their terminal's native mouse behavior can opt out with
+  // MIXDOG_TUI_MOUSE=0.
   const mouseTracking = !/^(0|false|no|off)$/i.test(String(process.env.MIXDOG_TUI_MOUSE || '1'));
   if (mouseTracking) {
     process.stdout.write(MOUSE_TRACKING_ON);
@@ -215,9 +216,9 @@ export async function runTui({ provider, model, toolMode } = {}) {
     },
   });
 
-  // exitOnCtrlC:false — keep Ctrl+C available for selection copy. Explicit
-  // exits go through /exit or /quit so teardown still restores the cursor,
-  // mouse mode, and alternate screen cleanly.
+  // exitOnCtrlC:false — App handles Ctrl+C as an interrupt/line-clear so Ink
+  // does not exit abruptly. Explicit exits go through /exit or /quit so teardown
+  // still restores the cursor, mouse mode, and alternate screen cleanly.
   try {
     const instance = render(<App store={store} />, { exitOnCtrlC: false, maxFps: 120 });
     bootProfile('render:mounted', { ms: (performance.now() - startedAt).toFixed(1) });

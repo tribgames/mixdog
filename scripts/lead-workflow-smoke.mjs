@@ -489,10 +489,10 @@ async function runScenario(name) {
   for (const call of toolCalls) {
     toolCounts[call.name] = (toolCounts[call.name] || 0) + 1;
   }
-  const mutationCount = toolCalls.filter((call) => call.name === 'apply_patch' || call.name === 'edit' || call.name === 'write').length;
+  const mutationCount = toolCalls.filter((call) => call.name === 'apply_patch').length;
   const spawnCalls = bridgeCalls.filter((call) => call.type === 'spawn' || call.type === null);
   const mutationIters = toolCalls
-    .filter((call) => call.name === 'apply_patch' || call.name === 'edit' || call.name === 'write')
+    .filter((call) => call.name === 'apply_patch')
     .map((call) => Number(call.iter))
     .filter(Number.isFinite);
   const firstMutationIter = mutationIters.length ? Math.min(...mutationIters) : null;

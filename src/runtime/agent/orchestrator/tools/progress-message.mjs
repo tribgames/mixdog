@@ -27,14 +27,6 @@ export function formatToolStartProgress(name, args = {}) {
         // ── builtin: files / shell ───────────────────────────────────────
         case 'read':
             return a.symbol ? `reading symbol ${_t(a.symbol)}` : `reading ${_t(a.path)}`;
-        case 'edit': {
-            if (Array.isArray(a.edits)) return `editing ${_plural(a.edits.length, 'file')}`;
-            if (a.notebook_path) return `editing notebook ${_t(a.notebook_path)}`;
-            if (a.symbol) return `renaming ${_t(a.symbol)}`;
-            return `editing ${_t(a.path)}`;
-        }
-        case 'write':
-            return Array.isArray(a.writes) ? `writing ${_plural(a.writes.length, 'file')}` : `writing ${_t(a.path)}`;
         case 'apply_patch':
             return a.dry_run ? 'validating patch' : 'applying patch';
         case 'shell':

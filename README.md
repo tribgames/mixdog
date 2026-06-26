@@ -57,4 +57,4 @@ vendor/
 - `vendor/ink` is bundled directly into the TUI dist; the build does not rewrite installed dependencies.
 - Standalone Mixdog uses `~/.mixdog` as its home root. Runtime data lives in `~/.mixdog/data` by default. Set `MIXDOG_HOME` to move the root, or `MIXDOG_DATA_DIR` to override only the data directory.
 - Pi/Codex/OpenCode reference snapshots live outside this package under `C:\Project\refs`.
-- The TUI uses alt-screen mode with mouse-wheel scroll tracking.
+- The TUI uses alt-screen mode and app-owned mouse wheel scrolling / drag selection by default so redraws during streaming do not clear selections. Set `MIXDOG_TUI_MOUSE=0` to opt into terminal-native mouse behavior.

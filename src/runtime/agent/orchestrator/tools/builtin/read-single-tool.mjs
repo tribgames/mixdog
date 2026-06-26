@@ -35,12 +35,10 @@ function withSymbolReadNote(text, args) {
     return `${note}\n\n${text}`;
 }
 
-// BOM-only read-encoding detection. Mirrors write-tool.mjs
-// detectExistingEncoding and CC fileRead.ts:34
+// BOM-only read-encoding detection. Mirrors CC fileRead.ts:34
 // (buffer[0]===0xff && buffer[1]===0xfe -> 'utf16le') / file.ts
 // detectFileEncoding. STRICTLY a leading-BOM rule — no content sniffing
-// and no heuristic fallback, the same invariant the write path uses so a
-// UTF-16LE file round-trips (write preserves FF FE -> read reverses it).
+// and no heuristic fallback.
 // Returns the decoder name plus the BOM byte length to strip before
 // decoding. utf8-with-BOM (EF BB BF) keeps the utf-8 decoder; its leading
 // U+FEFF is stripped for display downstream, so bomLen is reported but not
@@ -260,11 +258,8 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     if (_mediaExt === '.pdf') return extractPdfText(fullPath, args.pages, { maxOutputBytes: READ_MAX_OUTPUT_BYTES, textOnly: _mediaTextOnly });
     if (_mediaExt === '.ipynb') {
         const _ipynbOut = await extractIpynbText(fullPath, { maxOutputBytes: READ_MAX_OUTPUT_BYTES, hasRangeArgs: hasRangeArgs || args.line !== undefined, textOnly: _mediaTextOnly });
-        // Record a full-file read snapshot so notebook_edit's read-before-write
-        // guard (and edit/write consistency) can recognise the notebook was
-        // seen. A rendered ipynb read returns a media/text shape, not the raw
-        // JSON, so without this the structural editor could never satisfy its
-        // prior-read requirement. Skipped on an Error string (no real read).
+        // Record a full-file read snapshot for cache/read-state consistency.
+        // Skipped on an Error string (no real read).
         if (typeof _ipynbOut !== 'string' || !_ipynbOut.startsWith('Error:')) {
             _recordReadSnapshot(fullPath, st, readStateScope, { source: 'read', replaceExisting: true });
         }
@@ -480,10 +475,8 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     // file is full of 0x00 bytes (the high byte of every ASCII char), so
     // isBinaryFile would wrongly reject it. The FF FE BOM is an
     // unambiguous TEXT signal, so classify it as utf16le up front and skip
-    // NUL rejection. The write tool preserves this encoding
-    // (write-tool.mjs detectExistingEncoding); decoding it here reverses
-    // that so the file round-trips. (_readEnc was detected above, before
-    // the >10MiB size branch, so the large-file path can classify utf16le.)
+    // NUL rejection. (_readEnc was detected above, before the >10MiB size
+    // branch, so the large-file path can classify utf16le.)
     if (!_isUtf16 && isBinaryFile(fullPath, st.size)) {
         const { text, snapshotMeta } = formatBinaryReadPreview(fullPath, normalizeOutputPath(filePath), st.size);
         _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
