@@ -338,7 +338,12 @@ function _flushCacheStats() {
     const path = join(_snapshotDataDir, 'cache-stats.json');
     const { totals, perSession } = aggregateCacheStats();
     try {
-        writeJsonAtomicSync(path, { writtenAt: Date.now(), totals, perSession }, { compact: true, lock: true });
+        writeJsonAtomicSync(path, { writtenAt: Date.now(), totals, perSession }, {
+            compact: true,
+            lock: true,
+            fsync: false,
+            fsyncDir: false,
+        });
     } catch {
         // best-effort; never throw into caller
     }

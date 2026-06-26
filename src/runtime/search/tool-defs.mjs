@@ -8,12 +8,12 @@ export const TOOL_DEFS = [
   {
     name: 'search',
     title: 'Mixdog Web Search',
-    description: `Web search through the Web Researcher agent. ${TOOL_SYNC_EXECUTION_CONTRACT} ${TOOL_ASYNC_EXECUTION_CONTRACT} Keeps Mixdog search caching, fan-out, and result formatting.`,
+    description: `Web search through the Web Researcher agent. Prefer mode=async for broad/current web research or multi-query searches; use sync only when the next step must block on this result. ${TOOL_SYNC_EXECUTION_CONTRACT} ${TOOL_ASYNC_EXECUTION_CONTRACT} Keeps Mixdog search caching, fan-out, and result formatting.`,
     inputSchema: {
       type: 'object',
       properties: {
         query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }] },
-        mode: { type: 'string', enum: ['sync', 'async'], description: executionModeSchemaDescription('sync') },
+        mode: { type: 'string', enum: ['async', 'sync'], description: `${executionModeSchemaDescription('sync')} Prefer async for non-trivial web research; choose sync only for an explicit blocking lookup.` },
         action: { type: 'string', enum: ['run', 'list', 'status', 'read', 'cancel'], description: 'Default run. list/status/read/cancel are manual recovery controls for async search tasks.' },
         task_id: { type: 'string', description: 'Shared background task id for status/read/cancel.' },
         firstResponseTimeoutMs: { type: 'number', minimum: 0, description: 'Abort only when the Web Researcher produces no first stream/tool activity within this many ms. Default 120s. 0 disables this watchdog.' },

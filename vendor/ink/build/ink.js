@@ -323,7 +323,15 @@ export default class Ink {
     setSelection = (rect) => {
         const a = this.selectionRect;
         const same = a === rect ||
-            (a && rect && a.x1 === rect.x1 && a.y1 === rect.y1 && a.x2 === rect.x2 && a.y2 === rect.y2);
+            (a && rect &&
+                a.mode === rect.mode &&
+                a.x1 === rect.x1 &&
+                a.y1 === rect.y1 &&
+                a.x2 === rect.x2 &&
+                a.y2 === rect.y2 &&
+                a.clipY1 === rect.clipY1 &&
+                a.clipY2 === rect.clipY2 &&
+                a.captureText === rect.captureText);
         if (same) {
             return;
         }
@@ -397,9 +405,13 @@ export default class Ink {
         const { output, outputHeight, staticOutput, cursor, selectedText, plainRows } = render(this.rootNode, this.isScreenReaderEnabled, this.selectionRect);
         // [mixdog fork] Cache the text under the current selection rect so the App
         // can read it back on drag-release to copy it to the OS clipboard.
-        this.selectedText = selectedText ?? null;
+        if (selectedText !== undefined) {
+            this.selectedText = selectedText ?? null;
+        }
         // [mixdog fork] Cache per-row cell values for double-click word lookup.
-        this.lastPlainRows = plainRows ?? null;
+        if (plainRows !== undefined) {
+            this.lastPlainRows = plainRows ?? null;
+        }
         this.options.onRender?.({ renderTime: performance.now() - startTime });
         // [mixdog fork] Drive the hardware cursor from the anchored input node's
         // real render-time position, computed fresh every frame. This replaces

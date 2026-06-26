@@ -13,7 +13,9 @@ const CHANNEL_TOOLS = new Set([
   'schedule_status',
   'trigger_schedule',
   'schedule_control',
+  'activate_channel_bridge',
   'reload_config',
+  'inject_command',
 ]);
 
 const WORKER_PRELOAD = fileURLToPath(new URL('./channel-worker-preload.cjs', import.meta.url));

@@ -16,7 +16,8 @@
 // also fails open when the pipe is unreachable.
 
 import { createServer, createConnection } from 'node:net'
-import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync, readFileSync } from 'node:fs'
+import { appendFile } from 'node:fs/promises'
 import { join, resolve as pathResolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomBytes } from 'node:crypto'
@@ -109,7 +110,7 @@ function traceSessionStart(message) {
       _hookPipeLogsPruned = true
       pruneStalePluginDataLogSiblings(dataDir, DEFAULT_STALE_LOG_SIBLING_MAX)
     }
-    appendFileSync(join(dataDir, 'session-start.log'), line)
+    void appendFile(join(dataDir, 'session-start.log'), line).catch(() => {})
   } catch {}
 }
 

@@ -1,4 +1,5 @@
 import { readFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync } from 'fs';
+import { appendFile } from 'fs/promises';
 import { dirname, join } from 'path';
 import { createHash } from 'crypto';
 import os from 'os';
@@ -21,10 +22,16 @@ let _flushInFlight = false;
 let _localTracePath = null;
 let _localTraceBuffer = [];
 let _localTraceTimer = null;
+let _localTraceFlushInFlight = false;
 let _toolFailurePath = null;
+let _toolFailureBuffer = [];
+let _toolFailureTimer = null;
+let _toolFailureFlushInFlight = false;
 const _LOCAL_TRACE_FLUSH_LINES = 100;
 const _LOCAL_TRACE_FLUSH_MS = 1000;
 const _LOCAL_TRACE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — rotate to .1 above this.
+const _TOOL_FAILURE_FLUSH_LINES = 50;
+const _TOOL_FAILURE_FLUSH_MS = 1000;
 // Throttle interval for local rotation stat checks. statSync on every flush
 // is unnecessary — rotation is a best-effort size guard. First flush always
 // checks; subsequent checks wait at least this many ms. Tune via env
@@ -34,6 +41,7 @@ const MIXDOG_BRIDGE_TRACE_ROTATE_CHECK_MS = (() => {
     return Number.isFinite(v) && v > 0 ? v : 60000;
 })();
 let _lastRotateCheckMs = 0;
+let _lastToolFailureRotateCheckMs = 0;
 
 function _rotateLocalTraceIfNeeded(path) {
     try {
@@ -85,6 +93,11 @@ function _flushLocalTrace() {
         _localTraceTimer = null;
     }
     if (_localTraceBuffer.length === 0) return;
+    if (_localTraceFlushInFlight) {
+        _localTraceTimer = setTimeout(_flushLocalTrace, 25);
+        _localTraceTimer.unref?.();
+        return;
+    }
     const path = _resolveLocalTracePath();
     if (!path) return;
     const chunk = _localTraceBuffer.join('');
@@ -97,8 +110,42 @@ function _flushLocalTrace() {
             _rotateLocalTraceIfNeeded(path);
             _lastRotateCheckMs = now;
         }
-        // mode only applies on file creation; existing files keep their mode.
-        // Windows ignores POSIX bits — ACL governs there.
+    } catch (err) {
+        warnBridgeOnce('bridge-trace:local-spool', `[bridge-trace] local spool failed (${err?.message})`);
+        return;
+    }
+    // mode only applies on file creation; existing files keep their mode.
+    // Windows ignores POSIX bits — ACL governs there.
+    _localTraceFlushInFlight = true;
+    appendFile(path, chunk, { encoding: 'utf8', mode: 0o600 })
+        .catch((err) => {
+            warnBridgeOnce('bridge-trace:local-spool', `[bridge-trace] local spool failed (${err?.message})`);
+        })
+        .finally(() => {
+            _localTraceFlushInFlight = false;
+            if (_localTraceBuffer.length > 0) {
+                _localTraceTimer = setTimeout(_flushLocalTrace, 0);
+                _localTraceTimer.unref?.();
+            }
+        });
+}
+
+function _flushLocalTraceSync() {
+    if (_localTraceTimer) {
+        clearTimeout(_localTraceTimer);
+        _localTraceTimer = null;
+    }
+    if (_localTraceBuffer.length === 0) return;
+    const path = _resolveLocalTracePath();
+    if (!path) return;
+    const chunk = _localTraceBuffer.join('');
+    _localTraceBuffer = [];
+    try {
+        const now = Date.now();
+        if (_lastRotateCheckMs === 0 || now - _lastRotateCheckMs >= MIXDOG_BRIDGE_TRACE_ROTATE_CHECK_MS) {
+            _rotateLocalTraceIfNeeded(path);
+            _lastRotateCheckMs = now;
+        }
         appendFileSync(path, chunk, { encoding: 'utf8', mode: 0o600 });
     } catch (err) {
         warnBridgeOnce('bridge-trace:local-spool', `[bridge-trace] local spool failed (${err?.message})`);
@@ -106,8 +153,14 @@ function _flushLocalTrace() {
 }
 
 try {
-    process.on('beforeExit', _flushLocalTrace);
-    process.on('exit', _flushLocalTrace);
+    process.on('beforeExit', () => {
+        _flushLocalTraceSync();
+        _flushToolFailuresSync();
+    });
+    process.on('exit', () => {
+        _flushLocalTraceSync();
+        _flushToolFailuresSync();
+    });
 } catch {
     // Ignore lifecycle hook failures in embedded runtimes.
 }
@@ -419,6 +472,81 @@ function _resolveToolFailurePath() {
     }
 }
 
+function _scheduleToolFailureFlush(delayMs = _TOOL_FAILURE_FLUSH_MS) {
+    if (_toolFailureTimer) return;
+    _toolFailureTimer = setTimeout(_flushToolFailures, delayMs);
+    _toolFailureTimer.unref?.();
+}
+
+function _maybeRotateToolFailureLog(path) {
+    const now = Date.now();
+    if (_lastToolFailureRotateCheckMs !== 0 && now - _lastToolFailureRotateCheckMs < MIXDOG_BRIDGE_TRACE_ROTATE_CHECK_MS) return;
+    _rotateLocalTraceIfNeeded(path);
+    _lastToolFailureRotateCheckMs = now;
+}
+
+function _appendToolFailureRow(row) {
+    if (!_resolveToolFailurePath()) return;
+    try {
+        _toolFailureBuffer.push(`${JSON.stringify(row)}\n`);
+        if (_toolFailureBuffer.length >= _TOOL_FAILURE_FLUSH_LINES) {
+            _flushToolFailures();
+        } else {
+            _scheduleToolFailureFlush();
+        }
+    } catch (err) {
+        warnBridgeOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
+    }
+}
+
+function _flushToolFailures() {
+    if (_toolFailureTimer) {
+        clearTimeout(_toolFailureTimer);
+        _toolFailureTimer = null;
+    }
+    if (_toolFailureBuffer.length === 0) return;
+    if (_toolFailureFlushInFlight) {
+        _scheduleToolFailureFlush(25);
+        return;
+    }
+    const path = _resolveToolFailurePath();
+    if (!path) return;
+    const chunk = _toolFailureBuffer.join('');
+    _toolFailureBuffer = [];
+    try {
+        _maybeRotateToolFailureLog(path);
+    } catch (err) {
+        warnBridgeOnce('tool-failure-log:rotate', `[tool-failure-log] rotate check failed (${err?.message})`);
+    }
+    _toolFailureFlushInFlight = true;
+    appendFile(path, chunk, { encoding: 'utf8', mode: 0o600 })
+        .catch((err) => {
+            warnBridgeOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
+        })
+        .finally(() => {
+            _toolFailureFlushInFlight = false;
+            if (_toolFailureBuffer.length > 0) _scheduleToolFailureFlush(0);
+        });
+}
+
+function _flushToolFailuresSync() {
+    if (_toolFailureTimer) {
+        clearTimeout(_toolFailureTimer);
+        _toolFailureTimer = null;
+    }
+    if (_toolFailureBuffer.length === 0) return;
+    const path = _resolveToolFailurePath();
+    if (!path) return;
+    const chunk = _toolFailureBuffer.join('');
+    _toolFailureBuffer = [];
+    try {
+        _maybeRotateToolFailureLog(path);
+        appendFileSync(path, chunk, { encoding: 'utf8', mode: 0o600 });
+    } catch (err) {
+        warnBridgeOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
+    }
+}
+
 function _firstNonEmptyLine(text) {
     return String(text ?? '').split(/\r?\n/).find((line) => line.trim())?.trim() || '';
 }
@@ -446,8 +574,7 @@ function classifyToolFailure(resultText, toolName) {
 
 function traceBridgeToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, model, cwd, resultText, resultKind = 'error' }) {
     if (process.env.MIXDOG_BRIDGE_TRACE_DISABLE === '1') return;
-    const path = _resolveToolFailurePath();
-    if (!path) return;
+    if (!_resolveToolFailurePath()) return;
     try {
         const cleanText = _redactLogText(String(resultText ?? ''));
         const row = {
@@ -468,8 +595,7 @@ function traceBridgeToolFailure({ sessionId, iteration, toolName, toolKind, tool
             result_bytes_est: Buffer.byteLength(cleanText, 'utf8'),
             result_lines_est: cleanText.length > 0 ? cleanText.split('\n').length : 0,
         };
-        _rotateLocalTraceIfNeeded(path);
-        appendFileSync(path, `${JSON.stringify(row)}\n`, { encoding: 'utf8', mode: 0o600 });
+        _appendToolFailureRow(row);
     } catch (err) {
         warnBridgeOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
     }

@@ -3,7 +3,7 @@
  * Sessions are saved to disk so CLI and MCP server can share state,
  * and sessions survive server restarts (resume).
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, statSync, appendFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, statSync } from 'fs';
 import * as fsp from 'fs/promises';
 import { randomBytes } from 'crypto';
 import { join } from 'path';
@@ -82,14 +82,8 @@ export function publishHeartbeat(id, ts) {
     const last = _hbLastAt.get(id) || 0;
     if (now - last < _HEARTBEAT_THROTTLE_MS) return;
     const target = _heartbeatPath(id);
-    const tmp = `${target}.${randomBytes(4).toString('hex')}.tmp`;
-    try {
-        writeFileSync(tmp, `${now}\n`);
-        _renameWithRetrySync(tmp, target);
-        _hbLastAt.set(id, now);
-    } catch {
-        try { unlinkSync(tmp); } catch { /* ignore */ }
-    }
+    _hbLastAt.set(id, now);
+    void fsp.writeFile(target, `${now}\n`, 'utf8').catch(() => {});
 }
 
 export function deleteHeartbeat(id) {
@@ -445,10 +439,10 @@ export function markSessionClosed(id, reason = 'manual') {
                 : 0;
             const _role = existing.role || '-';
             const _owner = existing.owner || '-';
-            appendFileSync(
+            void fsp.appendFile(
                 join(_dataDir, 'tool-events.log'),
                 `[${_ts}] [session-close] owner=${_owner} role=${_role} reason=${reason} lifeMs=${_lifeMs} id=${id}\n`,
-            );
+            ).catch(() => {});
         }
     } catch { /* logger never breaks the close path */ }
     return newGen;
@@ -546,43 +540,81 @@ export function getStoredSessionsRaw() {
  * Background sweep: delete session files idle longer than ttlMs.
  * Returns { cleaned, remaining, details } for logging.
  */
-export function sweepStaleSessions(ttlMs) {
+export function sweepStaleSessions(ttlMs, options = {}) {
+    if (ttlMs && typeof ttlMs === 'object') {
+        options = ttlMs;
+        ttlMs = options.ttlMs;
+    }
     const maxAge = ttlMs || DEFAULT_SESSION_TTL_MS;
+    const sweepIdle = options.sweepIdle !== false;
+    const tombstoneMaxAgeMs = Number(options.tombstoneMaxAgeMs);
+    const sweepTombstones = Number.isFinite(tombstoneMaxAgeMs) && tombstoneMaxAgeMs > 0;
     const dir = getStoreDir();
     if (!existsSync(dir))
-        return { cleaned: 0, remaining: 0, details: [] };
+        return { cleaned: 0, remaining: 0, details: [], tombstonesCleaned: 0, tombstoneDetails: [], tombstoneErrors: [] };
     const files = readdirSync(dir).filter(f => f.endsWith('.json'));
     const now = Date.now();
     let cleaned = 0;
     let remaining = 0;
+    let tombstonesCleaned = 0;
     const details = [];
+    const tombstoneDetails = [];
+    const tombstoneErrors = [];
     for (const f of files) {
         try {
-            const session = JSON.parse(readFileSync(join(dir, f), 'utf-8'));
-            // Prefer .hb sidecar mtime — updated at tight cadence (≤5s) without
-            // serialising the full JSON, so it reflects true liveness more
-            // accurately than the JSON timestamp fields.
-            let lastActive = session.lastHeartbeatAt || session.updatedAt || session.createdAt || 0;
+            const jsonPath = join(dir, f);
+            let jsonMtime = 0;
+            let heartbeatMtime = 0;
+            try { jsonMtime = statSync(jsonPath).mtimeMs || 0; } catch {}
             try {
                 const hbPath = join(dir, f.replace(/\.json$/, '.hb'));
-                if (existsSync(hbPath)) {
-                    const hbMtime = statSync(hbPath).mtimeMs;
-                    if (hbMtime) lastActive = Math.max(lastActive, hbMtime);
-                }
+                if (existsSync(hbPath)) heartbeatMtime = statSync(hbPath).mtimeMs || 0;
             } catch { /* .hb unavailable — fall back to JSON fields */ }
-            // Sweep bridge-owned and ownerless (legacy) sessions; skip explicit user sessions.
+            const freshnessGateMs = sweepIdle ? maxAge : (sweepTombstones ? tombstoneMaxAgeMs : 0);
+            const newestMtime = Math.max(jsonMtime, heartbeatMtime);
+            if (freshnessGateMs > 0 && newestMtime > 0 && now - newestMtime <= freshnessGateMs) {
+                remaining++;
+                continue;
+            }
+            const session = JSON.parse(readFileSync(jsonPath, 'utf-8'));
+            // Already-closed tombstones are handled here before heartbeat
+            // sidecar checks; they do not need liveness probing.
+            if (session.closed === true || session.status === 'closed') {
+                if (sweepTombstones) {
+                    const updated = Number(session.updatedAt);
+                    const age = now - updated;
+                    if (Number.isFinite(updated) && age >= tombstoneMaxAgeMs) {
+                        try {
+                            if (deleteSession(session.id)) {
+                                tombstonesCleaned++;
+                                tombstoneDetails.push({ id: session.id, ageSeconds: Math.floor(age / 1000) });
+                                continue;
+                            }
+                        } catch (err) {
+                            tombstoneErrors.push({ id: session.id, message: err?.message || String(err) });
+                            remaining++;
+                            continue;
+                        }
+                    }
+                }
+                remaining++;
+                continue;
+            }
+            // Sweep bridge-owned and ownerless (legacy) sessions; skip explicit
+            // user sessions before touching heartbeat sidecars.
             if (typeof session.owner === 'string' && session.owner.length > 0 && session.owner !== 'bridge') {
                 remaining++;
                 continue;
             }
-            // Already-closed tombstones are handled by the status-server /
-            // manager tombstone reapers. Do not "close" them again here:
-            // markSessionClosed() bumps updatedAt, which makes old tombstones
-            // look fresh and can resurrect stale statusline noise.
-            if (session.closed === true || session.status === 'closed') {
+            if (!sweepIdle) {
                 remaining++;
                 continue;
             }
+            // Prefer .hb sidecar mtime — updated at tight cadence (≤5s) without
+            // serialising the full JSON, so it reflects true liveness more
+            // accurately than the JSON timestamp fields.
+            let lastActive = session.lastHeartbeatAt || session.updatedAt || session.createdAt || 0;
+            if (heartbeatMtime) lastActive = Math.max(lastActive, heartbeatMtime);
             // Running sessions are normally reaped by the stream-watchdog
             // within ~120s. Skip them here unless they've been silent past
             // RUNNING_STALL_MS, at which point they are treated as zombies.
@@ -627,5 +659,5 @@ export function sweepStaleSessions(ttlMs) {
             }
         }
     } catch { /* dir scan failure — non-fatal */ }
-    return { cleaned, remaining, details };
+    return { cleaned, remaining, details, tombstonesCleaned, tombstoneDetails, tombstoneErrors };
 }

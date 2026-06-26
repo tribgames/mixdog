@@ -219,6 +219,10 @@ export default class Output {
         const sel = this.selection;
         let selectedText = null;
         if (sel) {
+            const captureSelectedText = sel.captureText !== false;
+            if (!captureSelectedText) {
+                selectedText = undefined;
+            }
             const selectionStyles = [
                 { code: '[38;2;0;0;0m', endCode: '[39m' },
                 { code: '[48;2;245;245;245m', endCode: '[49m' },
@@ -235,11 +239,13 @@ export default class Output {
             const y1 = Math.max(0, clipY1, linear ? start.y : Math.min(sel.y1, sel.y2));
             const y2 = Math.min(this.height - 1, clipY2, linear ? end.y : Math.max(sel.y1, sel.y2));
             const lineMode = linear && y1 !== y2;
-            const selRows = [];
+            const selRows = captureSelectedText ? [] : null;
             for (let y = y1; y <= y2; y++) {
                 const row = output[y];
                 if (!row) {
-                    selRows.push('');
+                    if (captureSelectedText) {
+                        selRows.push('');
+                    }
                     continue;
                 }
                 const rawX1 = linear
@@ -269,7 +275,9 @@ export default class Output {
                     }
                     // Collect the visible glyph. Wide-char trailing placeholders
                     // carry value '' and contribute nothing, which is correct.
-                    rowText += cell.value ?? '';
+                    if (captureSelectedText) {
+                        rowText += cell.value ?? '';
+                    }
                     if (contentStart === -1 || x < contentStart || x > contentEnd) {
                         continue;
                     }
@@ -279,14 +287,18 @@ export default class Output {
                     };
                 }
                 // Trailing spaces in a selected row are padding, not content.
-                selRows.push(rowText.replace(/\s+$/u, ''));
+                if (captureSelectedText) {
+                    selRows.push(rowText.replace(/\s+$/u, ''));
+                }
             }
-            selectedText = selRows.join('\n');
+            if (captureSelectedText) {
+                selectedText = selRows.join('\n');
+            }
         }
         // [mixdog fork] Snapshot per-row, column-indexed cell values so the App
         // can compute word boundaries (double-click select) without retaining
         // this Output instance, which is created fresh per render and discarded.
-        const plainRows = output.map((row) => (row || []).map((cell) => (cell?.value ?? '')));
+        const plainRows = sel ? undefined : output.map((row) => (row || []).map((cell) => (cell?.value ?? '')));
         const generatedOutput = output
             .map(line => {
             // See https://github.com/vadimdemedes/ink/pull/564#issuecomment-1637022742

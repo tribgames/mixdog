@@ -41,6 +41,11 @@ const YLW = sgr('38;2;255;193;7');
 const RED = sgr('38;2;220;70;88');
 const CYN = sgr('38;2;136;136;136');
 const GREY = sgr('38;2;136;136;136');
+const SHELL_JOBS_SEGMENT_CACHE_MS = 1000;
+const GATEWAY_QUOTA_STATUS_CACHE_MS = 500;
+let _shellJobsSegmentCache = { ownerPid: 0, at: 0, value: '' };
+let _gatewayQuotaStatusCache = { key: '', at: 0, value: null };
+let _fallbackQuotaStatusCache = { key: '', at: 0, value: null };
 
 function summarizeWorkerTags(tags, limit = 3) {
   const cleanTags = [...new Set((Array.isArray(tags) ? tags : [])
@@ -143,7 +148,7 @@ function normalizeBridgeWorkerForStatusline(worker = {}) {
   const tag = String(worker.tag || worker.role || worker.name || '').trim();
   if (!tag) return null;
   const statusText = String(worker.stage || worker.status || '').toLowerCase();
-  const status = /idle|done|closed|error/.test(statusText) ? 'idle' : 'running';
+  const status = isTerminalBridgeStatus(statusText) ? 'idle' : 'running';
   return {
     tag,
     status,
@@ -157,11 +162,31 @@ function normalizeBridgeWorkerForStatusline(worker = {}) {
 
 function normalizeBridgeJobForStatusline(job = {}) {
   const statusText = String(job.status || job.stage || '').toLowerCase();
-  if (!statusText || !/running/.test(statusText)) return null;
-  const tag = String(job.tag || job.role || job.type || '').trim();
-  if (!tag) return null;
+  if (!statusText) return null;
+  const taskId = String(job.task_id || job.taskId || '').trim();
+  const tag = String(job.tag || job.role || job.type || taskId || '').trim();
+  if (!tag && !taskId) return null;
+  const startedAtMs = timeMs(job.startedAt);
+  const finishedAtMs = timeMs(job.finishedAt);
+  if (isTerminalBridgeStatus(statusText) && finishedAtMs > 0) {
+    return {
+      tag,
+      taskId,
+      status: 'finished',
+      finalStatus: statusText,
+      startedAtMs,
+      finishedAtMs,
+      role: job.role || null,
+      stage: job.stage || job.workerStatus || job.status || null,
+      sessionId: job.sessionId || null,
+      provider: job.provider || null,
+      model: job.model || null,
+    };
+  }
+  if (!/running/.test(statusText)) return null;
   return {
     tag,
+    taskId,
     status: 'running',
     role: job.role || null,
     stage: job.stage || job.workerStatus || job.status || null,
@@ -173,6 +198,7 @@ function normalizeBridgeJobForStatusline(job = {}) {
 
 function bridgeStatuslinePayload(bridgeWorkers = [], bridgeJobs = []) {
   const byTag = new Map();
+  const finishedJobs = [];
   for (const worker of Array.isArray(bridgeWorkers) ? bridgeWorkers : []) {
     const row = normalizeBridgeWorkerForStatusline(worker);
     if (row) byTag.set(row.tag, row);
@@ -180,12 +206,17 @@ function bridgeStatuslinePayload(bridgeWorkers = [], bridgeJobs = []) {
   for (const job of Array.isArray(bridgeJobs) ? bridgeJobs : []) {
     const row = normalizeBridgeJobForStatusline(job);
     if (!row) continue;
+    if (row.status === 'finished') {
+      finishedJobs.push(row);
+      continue;
+    }
     const prev = byTag.get(row.tag);
     byTag.set(row.tag, { ...(prev || {}), ...row, status: 'running' });
   }
   const workers = [...byTag.values()];
   return {
     workers,
+    finishedJobs: finishedJobs.sort((a, b) => (b.finishedAtMs || 0) - (a.finishedAtMs || 0)),
     sessions: {
       roles: workers.filter((w) => w.status !== 'idle').map((w) => w.tag),
       workers,
@@ -241,17 +272,15 @@ function renderNativeStatusline({ provider = '', model = '', effort = '', fast =
     : [];
   for (const seg of quotaSegments) addL1(seg);
 
-  const { maintenance, runningWorkers, idleWorkers } = classifyBridgeWorkers(bridgeStatuslinePayload(bridgeWorkers, bridgeJobs).workers);
+  const bridgePayload = bridgeStatuslinePayload(bridgeWorkers, bridgeJobs);
+  const { maintenance, runningWorkers } = classifyBridgeWorkers(bridgePayload.workers);
   if (maintenance.length) addL1(maintenance.join(' '));
   addL1(formatShellJobsSegment({ clientHostPid }));
 
   if (runningWorkers.length) {
     addL2(`${GRN}●${R} ${B}${runningWorkers.length} Running${R} ${D}(${R}${B}${summarizeWorkerTags(runningWorkers)}${R}${D})${R}`);
   }
-  if (idleWorkers.length) {
-    addL2(`${GREY}● ${idleWorkers.length} idle (${summarizeWorkerTags(idleWorkers)})${R}`);
-  }
-
+  addL2(formatBridgeFinishedNotice(bridgePayload.finishedJobs));
   const l1 = l1Parts.join(sep) || 'mixdog';
   const l2 = l2Parts.join(sep);
   return l2 ? `${l1}\n${l2}` : l1;
@@ -267,21 +296,45 @@ function dataDir() {
 }
 
 function loadGatewayQuotaStatus({ provider, sessionId, activeContextTokens, clientHostPid } = {}) {
+  const key = [
+    String(provider || ''),
+    String(sessionId || ''),
+    String(clientHostPid || ''),
+    Math.floor((Number(activeContextTokens) || 0) / 1024),
+  ].join('\0');
+  const now = Date.now();
+  if (_gatewayQuotaStatusCache.key === key && now - _gatewayQuotaStatusCache.at < GATEWAY_QUOTA_STATUS_CACHE_MS) {
+    return _gatewayQuotaStatusCache.value;
+  }
+  let value = null;
   try {
     const status = loadGatewayStatus({ sessionId, activeContextTokens, clientHostPid });
-    if (!status) return null;
+    if (!status) {
+      _gatewayQuotaStatusCache = { key, at: now, value };
+      return value;
+    }
     const statusProvider = String(status.provider || '').trim();
     const cliProvider = String(provider || '').trim();
-    if (cliProvider && statusProvider && statusProvider !== cliProvider) return null;
-    return status;
+    if (cliProvider && statusProvider && statusProvider !== cliProvider) {
+      _gatewayQuotaStatusCache = { key, at: now, value };
+      return value;
+    }
+    value = status;
   } catch {
-    return null;
+    value = null;
   }
+  _gatewayQuotaStatusCache = { key, at: now, value };
+  return value;
 }
 
 function fallbackQuotaStatus({ provider, model } = {}) {
   const normalizedProvider = String(provider || '').trim().toLowerCase();
   if (!normalizedProvider) return null;
+  const cacheKey = `${normalizedProvider}\0${String(model || '').trim()}`;
+  const cacheNow = Date.now();
+  if (_fallbackQuotaStatusCache.key === cacheKey && cacheNow - _fallbackQuotaStatusCache.at < GATEWAY_QUOTA_STATUS_CACHE_MS) {
+    return _fallbackQuotaStatusCache.value;
+  }
   const routeInfo = {
     provider: normalizedProvider,
     model: String(model || '').trim(),
@@ -290,7 +343,10 @@ function fallbackQuotaStatus({ provider, model } = {}) {
   let usageSnapshot = null;
   if (normalizedProvider === 'opencode-go') {
     usageSnapshot = readCachedOpenCodeGoUsageSnapshot();
-    if (!usageSnapshot) return null;
+    if (!usageSnapshot) {
+      _fallbackQuotaStatusCache = { key: cacheKey, at: cacheNow, value: null };
+      return null;
+    }
   } else if (normalizedProvider.includes('oauth')) {
     try {
       usageSnapshot = readCachedOAuthUsageSnapshot(routeInfo);
@@ -298,14 +354,20 @@ function fallbackQuotaStatus({ provider, model } = {}) {
   }
   try {
     const limits = buildGatewayLimits(routeInfo, null, usageSnapshot);
-    if (!limits?.quotaWindows?.length && !limits?.balance && !limits?.routeSpend) return null;
-    return {
+    if (!limits?.quotaWindows?.length && !limits?.balance && !limits?.routeSpend) {
+      _fallbackQuotaStatusCache = { key: cacheKey, at: cacheNow, value: null };
+      return null;
+    }
+    const value = {
       ...routeInfo,
       quotaWindows: limits.quotaWindows || [],
       balance: limits.balance || null,
       routeSpend: limits.routeSpend || null,
     };
+    _fallbackQuotaStatusCache = { key: cacheKey, at: cacheNow, value };
+    return value;
   } catch {
+    _fallbackQuotaStatusCache = { key: cacheKey, at: cacheNow, value: null };
     return null;
   }
 }
@@ -422,7 +484,6 @@ function epochMsToHHMM(ms) {
 function classifyBridgeWorkers(workers = []) {
   const maintenance = [];
   const runningWorkers = [];
-  const idleWorkers = [];
   for (const w of Array.isArray(workers) ? workers : []) {
     const tag = String(w?.tag || '').trim();
     if (!tag) continue;
@@ -431,10 +492,40 @@ function classifyBridgeWorkers(workers = []) {
       if (w.status !== 'idle') maintenance.push(`${GRN}↻${R} ${B}${maint}${R}`);
       continue;
     }
-    if (w.status === 'idle') idleWorkers.push(tag);
-    else runningWorkers.push(tag);
+    if (w.status !== 'idle') runningWorkers.push(tag);
   }
-  return { maintenance, runningWorkers, idleWorkers };
+  return { maintenance, runningWorkers };
+}
+
+function isTerminalBridgeStatus(statusText) {
+  return /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/.test(String(statusText || '').toLowerCase());
+}
+
+function timeMs(value) {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  const n = Date.parse(String(value || ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function bridgeFinalCopy(statusText) {
+  const s = String(statusText || '').toLowerCase();
+  if (/cancel/.test(s)) return { color: YLW, word: 'Cancelled' };
+  if (/error|fail|killed|timeout/.test(s)) return { color: RED, word: 'Failed' };
+  return { color: GRN, word: 'Finished' };
+}
+
+function formatBridgeFinishedNotice(finishedJobs = []) {
+  const finished = (Array.isArray(finishedJobs) ? finishedJobs : [])
+    .filter((job) => job?.finishedAtMs > 0)
+    .sort((a, b) => (b.finishedAtMs || 0) - (a.finishedAtMs || 0));
+  if (!finished.length) return '';
+  const job = finished[0];
+  const tag = summarizeWorkerTags([job.tag], 1) || 'Worker';
+  const copy = bridgeFinalCopy(job.finalStatus);
+  const elapsed = job.startedAtMs > 0 ? formatElapsed(job.finishedAtMs - job.startedAtMs) : '';
+  const duration = elapsed ? ` In ${elapsed}` : '';
+  const more = finished.length > 1 ? ` ${D}(+${finished.length - 1})${R}` : '';
+  return `${B}${tag}${R} ${copy.color}${copy.word}${R}${D}${duration}${R}${more}`;
 }
 
 function maintenanceLabel(tag) {
@@ -452,9 +543,17 @@ function maintenanceLabel(tag) {
 function formatShellJobsSegment({ clientHostPid } = {}) {
   const ownerPid = positiveInt(clientHostPid);
   if (!ownerPid) return '';
+  const now = Date.now();
+  if (_shellJobsSegmentCache.ownerPid === ownerPid && now - _shellJobsSegmentCache.at < SHELL_JOBS_SEGMENT_CACHE_MS) {
+    return _shellJobsSegmentCache.value;
+  }
+  let value = '';
   try {
     const dir = join(dataDir(), 'shell-jobs');
-    if (!existsSync(dir)) return '';
+    if (!existsSync(dir)) {
+      _shellJobsSegmentCache = { ownerPid, at: now, value };
+      return value;
+    }
     const names = readdirSync(dir);
     const done = new Set(names.filter((n) => n.endsWith('.done')).map((n) => n.slice(0, -5)));
     const ownerByJob = new Map();
@@ -484,13 +583,18 @@ function formatShellJobsSegment({ clientHostPid } = {}) {
         if (st.mtimeMs < oldestMs) oldestMs = st.mtimeMs;
       } catch {}
     }
-    if (!count) return '';
+    if (!count) {
+      _shellJobsSegmentCache = { ownerPid, at: now, value };
+      return value;
+    }
     const elapsedLabel = Number.isFinite(oldestMs) ? formatElapsed(Date.now() - oldestMs) : '';
     const elapsed = elapsedLabel ? ` ${elapsedLabel}` : '';
-    return `${GREY}⚙ shell:${count}${elapsed}${R}`;
+    value = `${GREY}⚙ shell:${count}${elapsed}${R}`;
   } catch {
-    return '';
+    value = '';
   }
+  _shellJobsSegmentCache = { ownerPid, at: now, value };
+  return value;
 }
 
 function isShellJobAlive(detail, detailPath, dir, id) {

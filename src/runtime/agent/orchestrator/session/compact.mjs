@@ -8,8 +8,18 @@ import {
 
 export const SUMMARY_PREFIX = 'A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done and avoid duplicating it; treat the summary as authoritative context for continuing the task. You also retain the preserved recent turns that follow.';
 export const DEFAULT_COMPACTION_BUFFER_TOKENS = 20_000;
+export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.10;
+export const MAX_COMPACTION_BUFFER_RATIO = 0.25;
 export const DEFAULT_COMPACTION_KEEP_TOKENS = 8_000;
 export const SUMMARY_OUTPUT_TOKENS = 4_096;
+
+const TOOL_CALL_ARGS_MAX_CHARS = 260;
+const TOOL_CALL_FACT_ARGS_MAX_CHARS = 140;
+const TOOL_CALLS_MAX = 4;
+const TOOL_ARG_STRING_MAX_CHARS = 360;
+const TOOL_ARG_ARRAY_MAX_ITEMS = 8;
+const TOOL_ARG_MAX_DEPTH = 4;
+const SENSITIVE_TOOL_ARG_KEY_RE = /(?:^|[_-])(?:api[_-]?key|authorization|auth|cookie|credential|passwd|password|refresh[_-]?token|secret|token)(?:$|[_-])/i;
 
 function sha16(value) {
     const text = typeof value === 'string' ? value : JSON.stringify(value ?? null);
@@ -49,10 +59,68 @@ function truncateMiddle(text, maxChars) {
     return `${value.slice(0, head)} … ${value.slice(value.length - tail)}`;
 }
 
-function toolCallNames(m) {
+function normalizeToolArgValue(value, key = '', depth = 0) {
+    if (SENSITIVE_TOOL_ARG_KEY_RE.test(String(key || ''))) return '[redacted]';
+    if (typeof value === 'bigint') return String(value);
+    if (typeof value === 'string') return truncateMiddle(value, TOOL_ARG_STRING_MAX_CHARS);
+    if (!value || typeof value !== 'object') return value ?? null;
+    if (depth >= TOOL_ARG_MAX_DEPTH) return Array.isArray(value) ? `[array:${value.length}]` : '[object]';
+    if (Array.isArray(value)) {
+        const out = value.slice(0, TOOL_ARG_ARRAY_MAX_ITEMS)
+            .map((item, index) => normalizeToolArgValue(item, String(index), depth + 1));
+        if (value.length > TOOL_ARG_ARRAY_MAX_ITEMS) out.push(`+${value.length - TOOL_ARG_ARRAY_MAX_ITEMS} more`);
+        return out;
+    }
+    const out = {};
+    for (const k of Object.keys(value).sort()) {
+        out[k] = normalizeToolArgValue(value[k], k, depth + 1);
+    }
+    return out;
+}
+
+function stableToolArgJson(value) {
+    if (value == null) return '';
+    if (typeof value === 'string') {
+        const text = value.trim();
+        if (!text) return '';
+        if (/^[\[{]/.test(text)) {
+            try { return JSON.stringify(normalizeToolArgValue(JSON.parse(text))); } catch { /* keep raw */ }
+        }
+        return truncateMiddle(text, TOOL_ARG_STRING_MAX_CHARS);
+    }
+    try {
+        return JSON.stringify(normalizeToolArgValue(value));
+    } catch {
+        return truncateMiddle(String(value || ''), TOOL_ARG_STRING_MAX_CHARS);
+    }
+}
+
+function toolCallArgsText(tc, maxChars = TOOL_CALL_ARGS_MAX_CHARS) {
+    if (!(maxChars > 0)) return '';
+    const raw = tc?.arguments ?? tc?.function?.arguments;
+    const text = stableToolArgJson(raw);
+    return text ? truncateMiddle(text, maxChars) : '';
+}
+
+function summarizeToolCall(tc, maxArgChars = TOOL_CALL_ARGS_MAX_CHARS) {
+    const name = tc?.name || tc?.function?.name || tc?.id || '?';
+    const args = toolCallArgsText(tc, maxArgChars);
+    return args ? `${name}(${args})` : name;
+}
+
+function toolCallArgBudget(perMessageChars) {
+    const chars = Number(perMessageChars);
+    if (!Number.isFinite(chars) || chars <= 0) return 0;
+    return Math.min(TOOL_CALL_ARGS_MAX_CHARS, Math.max(32, Math.floor(chars * 0.5)));
+}
+
+function toolCallSummary(m, maxArgChars = TOOL_CALL_ARGS_MAX_CHARS) {
     if (!Array.isArray(m?.toolCalls) || m.toolCalls.length === 0) return '';
-    const names = m.toolCalls.map((tc) => tc?.name || tc?.function?.name || tc?.id || '?');
-    return ` tool_calls=${names.join(',')}`;
+    const calls = m.toolCalls
+        .slice(0, TOOL_CALLS_MAX)
+        .map(tc => summarizeToolCall(tc, maxArgChars));
+    if (m.toolCalls.length > TOOL_CALLS_MAX) calls.push(`+${m.toolCalls.length - TOOL_CALLS_MAX} more`);
+    return ` tool_calls=${calls.join(';')}`;
 }
 
 function toolResultId(m) {
@@ -62,7 +130,7 @@ function toolResultId(m) {
 function lineForMessage(m, index, perMessageChars) {
     const role = m?.role || 'unknown';
     const text = truncateMiddle(extractText(m).trim(), perMessageChars);
-    const meta = `${toolCallNames(m)}${toolResultId(m)}`;
+    const meta = `${toolCallSummary(m, toolCallArgBudget(perMessageChars))}${toolResultId(m)}`;
     return text
         ? `${index + 1}. ${role}${meta}: ${text}`
         : `${index + 1}. ${role}${meta}`;
@@ -134,6 +202,23 @@ function currentTurnStart(nonSystem) {
         if (nonSystem[i]?.role === 'user') return i;
     }
     return -1;
+}
+
+export function normalizeCompactionBufferRatio(value, fallback = DEFAULT_COMPACTION_BUFFER_RATIO) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) return n > 1 ? n / 100 : n;
+    return fallback;
+}
+
+export function compactionBufferTokensForBoundary(boundaryTokens, opts = {}) {
+    const boundary = Math.max(0, Math.floor(Number(boundaryTokens) || 0));
+    const explicit = Math.max(0, Math.floor(Number(opts.explicitTokens) || 0));
+    if (!boundary) return explicit;
+    const maxRatio = normalizeCompactionBufferRatio(opts.maxRatio, MAX_COMPACTION_BUFFER_RATIO);
+    const cap = Math.max(0, Math.floor(boundary * maxRatio));
+    if (explicit > 0) return Math.max(0, Math.min(explicit, cap));
+    const ratio = normalizeCompactionBufferRatio(opts.ratio, DEFAULT_COMPACTION_BUFFER_RATIO);
+    return Math.max(0, Math.min(Math.floor(boundary * ratio), cap));
 }
 
 function effectiveBudget(budgetTokens, opts) {
@@ -256,9 +341,12 @@ function extractPreservedFacts(messages) {
         if (m?.role === 'assistant' && Array.isArray(m.toolCalls)) {
             for (const tc of m.toolCalls) {
                 const name = tc?.function?.name || tc?.name || '';
-                if (name && !seenSignatures.has(`tool:${name}`)) {
-                    seenSignatures.add(`tool:${name}`);
-                    candidates.push({ prefix: '•', text: `Tool: ${name}`, score: 50, messageIndex: mi, lineIndex: Number.MAX_SAFE_INTEGER });
+                if (name) {
+                    const summary = summarizeToolCall(tc, TOOL_CALL_FACT_ARGS_MAX_CHARS);
+                    const sig = `tool:${summary.slice(0, 160).toLowerCase()}`;
+                    if (seenSignatures.has(sig)) continue;
+                    seenSignatures.add(sig);
+                    candidates.push({ prefix: '•', text: `Tool: ${summary}`, score: 50, messageIndex: mi, lineIndex: Number.MAX_SAFE_INTEGER });
                 }
             }
         }
@@ -405,7 +493,7 @@ function selectCompactionWindow(messages, budget, opts = {}) {
 function transcriptLineForCompaction(m, index, perMessageChars) {
     const role = m?.role || 'unknown';
     const text = truncateMiddle(extractText(m).trim(), perMessageChars);
-    const meta = `${toolCallNames(m)}${toolResultId(m)}`;
+    const meta = `${toolCallSummary(m, toolCallArgBudget(perMessageChars))}${toolResultId(m)}`;
     if (!text) return `${index + 1}. ${role}${meta}`;
     return `${index + 1}. ${role}${meta}:\n${text}`;
 }

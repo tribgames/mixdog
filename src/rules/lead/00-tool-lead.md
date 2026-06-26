@@ -18,6 +18,10 @@ Lead owns orientation, routing, approvals, and final judgment.
 - Use `bridge` to delegate actual scoped work: implementation, debugging,
   review, verification, or bounded investigation. Use the active workflow's
   `agent` names.
+- For `bridge` spawn/send, omit `mode`: Lead default is async. Never write
+  `mode:"sync"` or call the handoff "synchronous" for normal worker, reviewer,
+  debugger, web-researcher, maintainer, or explore delegation. Use sync only
+  when the user explicitly asks to block for that result before continuing.
 - For two or more independent files/concerns, spawn the useful bridge agents
   early as one batch before Lead edits. Once handed off, Lead may orchestrate
   or do independent read-only work, but must not edit that scope until

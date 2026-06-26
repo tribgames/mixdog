@@ -26,6 +26,11 @@ const HEARTBEAT_MS  = 60_000; // force-write even when content is unchanged
 let _lastSnapshotJson  = null;
 let _lastSnapshotWrite = 0;
 
+function stableSnapshotJson(snapshot) {
+  const { writtenAt: _writtenAt, ...stable } = snapshot || {};
+  return JSON.stringify(stable, null, 2);
+}
+
 // ── In-memory Discord unread tracking ────────────────────────────────────────
 // Key: channelId  Value: { label, latestSeenId, unseenCount }
 // No persistence across restarts — clean start is fine for v1.
@@ -168,14 +173,14 @@ async function computeSnapshot(scheduler) {
 async function writeSnapshot(scheduler) {
   try {
     const snap = await computeSnapshot(scheduler);
-    const json = JSON.stringify(snap, null, 2);
+    const json = stableSnapshotJson(snap);
     const now = Date.now();
     if (json === _lastSnapshotJson && (now - _lastSnapshotWrite) < HEARTBEAT_MS) {
       return; // unchanged within heartbeat window — skip disk write
     }
     _lastSnapshotJson  = json;
     _lastSnapshotWrite = now;
-    writeJsonAtomicSync(SNAPSHOT_PATH, snap, { lock: true, fsyncDir: true });
+    writeJsonAtomicSync(SNAPSHOT_PATH, snap, { lock: false, fsync: false, fsyncDir: false });
   } catch (err) {
     // Non-fatal — statusline degrades gracefully when snapshot is absent.
     process.stderr.write(

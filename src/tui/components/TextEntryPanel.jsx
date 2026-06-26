@@ -5,59 +5,20 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
-
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-
-function previousOffset(text, offset) {
-  if (offset <= 0) return 0;
-  let previous = 0;
-  for (const { index, segment } of graphemeSegmenter.segment(text)) {
-    const end = index + segment.length;
-    if (end >= offset) return index;
-    previous = end;
-  }
-  return previous;
-}
-
-function nextOffset(text, offset) {
-  if (offset >= text.length) return text.length;
-  for (const { index, segment } of graphemeSegmenter.segment(text)) {
-    const end = index + segment.length;
-    if (index >= offset) return end;
-    if (end > offset) return end;
-  }
-  return text.length;
-}
-
-function caretPosition(text, offset, width) {
-  const before = text.slice(0, offset);
-  let row = 0;
-  let col = 0;
-
-  for (const { segment } of graphemeSegmenter.segment(before)) {
-    if (segment === '\n') {
-      row += 1;
-      col = 0;
-      continue;
-    }
-
-    const segmentWidth = stringWidth(segment);
-    if (segmentWidth === 0) continue;
-
-    if (col > 0 && col + segmentWidth > width) {
-      row += 1;
-      col = 0;
-    }
-
-    col += segmentWidth;
-    if (col >= width) {
-      row += Math.floor(col / width);
-      col %= width;
-    }
-  }
-
-  return { row, col };
-}
+import {
+  caretPosition,
+  deleteBackwardWord,
+  deleteForwardWord,
+  deleteToLineEnd,
+  deleteToLineStart,
+  lineEnd,
+  lineStart,
+  nextOffset,
+  nextWordOffset,
+  previousOffset,
+  previousWordOffset,
+  verticalOffset,
+} from '../input-editing.mjs';
 
 function insertText(draft, input) {
   if (!input) return draft;
@@ -87,6 +48,8 @@ export function TextEntryPanel({
   const draftRef = useRef(draft);
   const boxRef = useRef(null);
   const cursorEnabledRef = useRef(false);
+  const contentWidthRef = useRef(80);
+  const preferredColumnRef = useRef(null);
   const { isRawModeSupported } = useStdin();
   draftRef.current = draft;
 
@@ -101,14 +64,30 @@ export function TextEntryPanel({
     }
   };
 
-  const commitDraft = (next) => {
+  const commitDraft = (next, options = {}) => {
+    if (!options.keepPreferredColumn) preferredColumnRef.current = null;
     draftRef.current = next;
     setDraft(next);
     queueMicrotask(flushImmediate);
   };
 
-  const updateDraft = (fn) => {
-    commitDraft(fn(draftRef.current));
+  const updateDraft = (fn, options = {}) => {
+    commitDraft(fn(draftRef.current), options);
+  };
+
+  const moveDraftVertically = (direction) => {
+    const current = draftRef.current;
+    const moved = verticalOffset(
+      current.value,
+      current.cursor,
+      contentWidthRef.current,
+      direction,
+      preferredColumnRef.current,
+    );
+    preferredColumnRef.current = moved.preferredColumn;
+    if (moved.cursor === current.cursor) return false;
+    commitDraft({ ...current, cursor: moved.cursor }, { keepPreferredColumn: true });
+    return true;
   };
 
   useEffect(() => {
@@ -147,23 +126,70 @@ export function TextEntryPanel({
       return;
     }
     if (key.leftArrow) {
-      updateDraft((d) => ({ ...d, cursor: previousOffset(d.value, d.cursor) }));
+      updateDraft((d) => ({
+        ...d,
+        cursor: key.ctrl || key.meta
+          ? previousWordOffset(d.value, d.cursor)
+          : previousOffset(d.value, d.cursor),
+      }));
       return;
     }
     if (key.rightArrow) {
+      updateDraft((d) => ({
+        ...d,
+        cursor: key.ctrl || key.meta
+          ? nextWordOffset(d.value, d.cursor)
+          : nextOffset(d.value, d.cursor),
+      }));
+      return;
+    }
+    if (key.upArrow) {
+      moveDraftVertically(-1);
+      return;
+    }
+    if (key.downArrow) {
+      moveDraftVertically(1);
+      return;
+    }
+    const inputKey = String(input || '').toLowerCase();
+    if (key.home || (key.ctrl && inputKey === 'a')) {
+      updateDraft((d) => ({ ...d, cursor: lineStart(d.value, d.cursor) }));
+      return;
+    }
+    if (key.end || (key.ctrl && inputKey === 'e')) {
+      updateDraft((d) => ({ ...d, cursor: lineEnd(d.value, d.cursor) }));
+      return;
+    }
+    if (key.ctrl && inputKey === 'b') {
+      updateDraft((d) => ({ ...d, cursor: previousOffset(d.value, d.cursor) }));
+      return;
+    }
+    if (key.ctrl && inputKey === 'f') {
       updateDraft((d) => ({ ...d, cursor: nextOffset(d.value, d.cursor) }));
       return;
     }
-    if (key.home || (key.ctrl && input === 'a')) {
-      updateDraft((d) => ({ ...d, cursor: 0 }));
+    if (key.meta && inputKey === 'b') {
+      updateDraft((d) => ({ ...d, cursor: previousWordOffset(d.value, d.cursor) }));
       return;
     }
-    if (key.end || (key.ctrl && input === 'e')) {
-      updateDraft((d) => ({ ...d, cursor: d.value.length }));
+    if (key.meta && inputKey === 'f') {
+      updateDraft((d) => ({ ...d, cursor: nextWordOffset(d.value, d.cursor) }));
       return;
     }
-    if (key.ctrl && input === 'u') {
-      commitDraft({ value: '', cursor: 0 });
+    if (key.ctrl && inputKey === 'u') {
+      updateDraft(deleteToLineStart);
+      return;
+    }
+    if (key.ctrl && inputKey === 'k') {
+      updateDraft(deleteToLineEnd);
+      return;
+    }
+    if ((key.ctrl && inputKey === 'w') || ((key.ctrl || key.meta) && key.backspace)) {
+      updateDraft(deleteBackwardWord);
+      return;
+    }
+    if ((key.meta && inputKey === 'd') || (key.ctrl && key.delete)) {
+      updateDraft(deleteForwardWord);
       return;
     }
     if (key.backspace) {
@@ -194,6 +220,7 @@ export function TextEntryPanel({
       const d = draftRef.current;
       const labelWidth = stringWidth(String(promptLabel || ''));
       const w = Math.max(1, (yogaNode?.getComputedWidth?.() ?? columns) - labelWidth);
+      contentWidthRef.current = w;
       const pos = caretPosition(d.value, d.cursor, w);
       return pos.row === 0 ? { row: 0, col: labelWidth + pos.col } : pos;
     };

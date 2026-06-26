@@ -26,6 +26,8 @@ const MAX_TAIL_BYTES = 2 * 1024 * 1024;
 const memoryCache = new Map();
 const inflight = new Map();
 const lastWarnAt = new Map();
+let pendingDiskSnapshots = new Map();
+let pendingDiskFlushTimer = null;
 
 function num(value, fallback = null) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -68,6 +70,21 @@ function readJsonFile(file) {
 
 function writeSnapshotCache(key, snapshot) {
   if (!key || !snapshot) return;
+  pendingDiskSnapshots.set(key, snapshot);
+  if (!pendingDiskFlushTimer) {
+    pendingDiskFlushTimer = setTimeout(flushSnapshotCache, 250);
+    pendingDiskFlushTimer.unref?.();
+  }
+}
+
+function flushSnapshotCache() {
+  if (pendingDiskFlushTimer) {
+    clearTimeout(pendingDiskFlushTimer);
+    pendingDiskFlushTimer = null;
+  }
+  if (!pendingDiskSnapshots.size) return;
+  const updates = pendingDiskSnapshots;
+  pendingDiskSnapshots = new Map();
   try {
     updateJsonAtomicSync(cachePath(), (curRaw) => {
       const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
@@ -77,13 +94,20 @@ function writeSnapshotCache(key, snapshot) {
         updatedAt: Date.now(),
         routes: {
           ...routes,
-          [key]: snapshot,
+          ...Object.fromEntries(updates),
         },
       };
-    }, { compact: true, fsyncDir: true });
+    }, { compact: true, fsync: false, fsyncDir: false });
   } catch {
     // Usage display must never affect the gateway request path.
   }
+}
+
+try {
+  process.on('beforeExit', flushSnapshotCache);
+  process.on('exit', flushSnapshotCache);
+} catch {
+  // Embedded runtimes may not expose process lifecycle hooks.
 }
 
 function isContentfulSnapshot(snapshot) {

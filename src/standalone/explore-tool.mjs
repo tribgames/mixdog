@@ -23,13 +23,13 @@ export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: `Broad-scope locator only; returns unverified leads. ${TOOL_SYNC_EXECUTION_CONTRACT} ${TOOL_ASYNC_EXECUTION_CONTRACT} Use code_graph/grep/glob first when any symbol, term, file kind, or config clue exists. Use explore only after direct narrowing fails or topics are unrelated. One short location question.`,
+  description: `Broad-scope locator only; returns unverified leads. Prefer mode=async for broad exploration that can continue in parallel; use sync only when the next step must block on this locator result. ${TOOL_SYNC_EXECUTION_CONTRACT} ${TOOL_ASYNC_EXECUTION_CONTRACT} Use code_graph/grep/glob first when any symbol, term, file kind, or config clue exists. Use explore only after direct narrowing fails or topics are unrelated. One short location question.`,
   inputSchema: {
     type: 'object',
     properties: {
       query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'One short location question, or an array only for unrelated topics. Do not use for a known symbol/term/config key; use code_graph/grep first. Never pass a whole brief/context dump.' },
       cwd: { type: 'string' },
-      mode: { type: 'string', enum: ['sync', 'async'], description: executionModeSchemaDescription('sync') },
+      mode: { type: 'string', enum: ['async', 'sync'], description: `${executionModeSchemaDescription('sync')} Prefer async for non-trivial exploration; choose sync only for an explicit blocking lookup.` },
       action: { type: 'string', enum: ['run', 'list', 'status', 'read', 'cancel'], description: 'Default run. list/status/read/cancel are manual recovery controls for async tasks.' },
       task_id: { type: 'string', description: 'Shared background task id for status/read/cancel.' },
       background: { type: 'boolean', description: 'Legacy alias for mode=async.' },
@@ -46,9 +46,6 @@ export const EXPLORE_OUTPUT_CHAR_CAP = 24_000;
 const EXPLORE_TRUNCATION_MARKER = '\n\n[explore: output truncated; narrow cwd or split queries to see more]';
 // Bound fan-out so a hostile/poisoned query array cannot spawn unbounded subs.
 export const MAX_FANOUT_QUERIES = 8;
-// Explore is a locator, not a worker. Cap each hidden explorer so ambiguous
-// prompts return bounded leads instead of turning into multi-minute debugging.
-export const EXPLORE_MAX_LOOP_ITERATIONS = 8;
 
 function escapeXml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -221,7 +218,6 @@ async function runExploreSync(args = {}, ctx = {}) {
       cwd: resolvedCwd,
       brief: true,
       parentSessionId: ctx.callerSessionId || null,
-      maxLoopIterations: EXPLORE_MAX_LOOP_ITERATIONS,
     });
     return llm({ prompt: buildExplorerPrompt(q) });
   }));

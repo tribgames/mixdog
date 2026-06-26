@@ -11,7 +11,7 @@
  *   Tab         — optional picker-specific toggle
  *   Enter       — choose/apply the selected row
  *   Escape      — back/cancel
- *   Ctrl+C      — ignored by the TUI so terminal copy behavior can win
+ *   Ctrl+C      — handled globally for selection copy
  */
 import React, { useState, useCallback, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';

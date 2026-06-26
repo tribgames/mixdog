@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import * as fsp from 'node:fs/promises';
 import { join } from 'node:path';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getAgentApiKey, getOpenAIUsageSessionKey } from '../../../shared/config.mjs';
@@ -6,6 +7,8 @@ import { getAgentApiKey, getOpenAIUsageSessionKey } from '../../../shared/config
 const CACHE_FILE = 'api-usage-cache.json';
 const LIVE_TTL_MS = 5 * 60_000;
 const STALE_TTL_MS = 60 * 60_000;
+const DISK_JSON_MEMORY_TTL_MS = 1000;
+let diskJsonCache = { at: 0, file: '', value: null };
 
 function num(value, fallback = null) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -25,18 +28,24 @@ function cachePath() {
 }
 
 function readJson(file) {
+  if (diskJsonCache.file === file && Date.now() - diskJsonCache.at < DISK_JSON_MEMORY_TTL_MS) {
+    return diskJsonCache.value;
+  }
   try {
     if (!existsSync(file)) return null;
-    return JSON.parse(readFileSync(file, 'utf8'));
+    const value = JSON.parse(readFileSync(file, 'utf8'));
+    diskJsonCache = { at: Date.now(), file, value };
+    return value;
   } catch {
     return null;
   }
 }
 
 function writeJson(file, value) {
+  diskJsonCache = { at: Date.now(), file, value };
   try {
     mkdirSync(resolvePluginData(), { recursive: true });
-    writeFileSync(file, JSON.stringify(value, null, 2), 'utf8');
+    void fsp.writeFile(file, JSON.stringify(value, null, 2), 'utf8').catch(() => {});
   } catch {}
 }
 

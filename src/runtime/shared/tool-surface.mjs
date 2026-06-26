@@ -87,6 +87,78 @@ function titleizeToolName(name) {
     .join(' ') || 'Tool';
 }
 
+const AGENT_DISPLAY_NAMES = new Map([
+  ['explore', 'Explore'],
+  ['web-researcher', 'Web Researcher'],
+  ['maintainer', 'Maintainer'],
+  ['worker', 'Worker'],
+  ['heavy-worker', 'Heavy Worker'],
+  ['reviewer', 'Reviewer'],
+  ['debugger', 'Debugger'],
+]);
+
+function titleizeDisplayName(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text
+    .replace(/[_-]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (lower === 'ui') return 'UI';
+      if (lower === 'mcp') return 'MCP';
+      if (lower === 'id') return 'ID';
+      return `${lower.slice(0, 1).toUpperCase()}${lower.slice(1)}`;
+    })
+    .join(' ');
+}
+
+function displayAgentName(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const key = text.toLowerCase().replace(/[\s_]+/g, '-');
+  return AGENT_DISPLAY_NAMES.get(key) || titleizeDisplayName(text);
+}
+
+function displayModelName(model) {
+  const text = String(model || '').trim();
+  if (!text) return '';
+  const raw = text.includes('/') ? (text.split('/').filter(Boolean).at(-1) || text) : text;
+  const lower = raw.toLowerCase();
+  const newClaude = /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?/i.exec(lower);
+  if (newClaude) {
+    const family = titleizeDisplayName(newClaude[1]);
+    const minor = newClaude[3] && newClaude[3].length <= 2 ? `.${newClaude[3]}` : '';
+    return `${family} ${newClaude[2]}${minor}`;
+  }
+  const oldClaude = /^claude-(\d+)(?:-(\d+))?-(opus|sonnet|haiku)(?:-|$)/i.exec(lower);
+  if (oldClaude) {
+    const family = titleizeDisplayName(oldClaude[3]);
+    return `${family} ${oldClaude[1]}${oldClaude[2] ? `.${oldClaude[2]}` : ''}`;
+  }
+  if (lower.startsWith('gpt-')) {
+    return raw
+      .split('-')
+      .map((part, index) => (index === 0 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
+      .join('-');
+  }
+  if (lower.startsWith('grok-')) {
+    return raw
+      .split('-')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }
+  return raw;
+}
+
+function bridgeAgentModelSummary(args) {
+  return compactParts([
+    displayAgentName(firstText(args.agent, args.role, args.name, args.subagent_type)),
+    displayModelName(firstText(args.modelDisplay, args.model_display, args.displayModel, args.model)),
+  ]);
+}
+
 function summarizeLineWindow(a) {
   const offset = a.offset ?? a.start_line ?? a.startLine ?? a.line;
   const limit = a.limit ?? a.line_count ?? a.lineCount ?? a.lines;
@@ -196,7 +268,6 @@ export function displayToolName(name, args = {}) {
       return 'Skill';
     case 'bridge':
     case 'agent':
-    case 'task':
       return 'Agent';
     case 'code_graph':
       return codeGraphLabel(parseToolArgs(args));
@@ -306,19 +377,14 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         a.limit || a.topK ? `top ${a.limit ?? a.topK}` : '',
       ]);
     case 'bridge':
-    case 'agent':
-    case 'task': {
+    case 'agent': {
+      const agentModel = bridgeAgentModelSummary(a);
+      if (agentModel) return agentModel;
       const bridgeAction = a.type || a.action || a.mode || '';
       const showTarget = !/^(status|read)$/i.test(String(bridgeAction || ''));
       return compactParts([
-        a.role || a.name || a.subagent_type || '',
-        compactSlash(a.provider, a.model),
-        a.preset ? `preset ${a.preset}` : '',
-        a.effort ? `effort ${a.effort}` : '',
-        a.fast === true ? 'fast' : '',
         bridgeAction,
-        showTarget ? (a.tag || a.sessionId || '') : '',
-        truncateSingleLine(firstText(a.description, a.prompt, a.message), Math.min(max, 80)),
+        showTarget ? (a.tag || a.sessionId || a.task_id || '') : '',
       ]);
     }
     case 'code_graph':
@@ -370,6 +436,21 @@ function pluralize(count, singular, pluralText = `${singular}s`) {
   return count === 1 ? singular : pluralText;
 }
 
+function titleWord(value) {
+  const text = String(value || '');
+  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1).toLowerCase()}` : '';
+}
+
+function titleStatus(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (/^ok$/i.test(text)) return 'Ok';
+  if (/^(done|success|completed)$/i.test(text)) return 'Finished';
+  if (/^(error|failed|fail|killed|timeout)$/i.test(text)) return 'Failed';
+  if (/^(cancelled|canceled|cancel)$/i.test(text)) return 'Cancelled';
+  return titleWord(text);
+}
+
 function countNonEmptyLines(text) {
   return String(text ?? '')
     .split('\n')
@@ -405,8 +486,8 @@ function summarizeUpdateResult(text, args) {
   }
   if (changed.length > 1) {
     const names = changed.slice(0, 2).map((item) => displayToolPath(item.path)).join(', ');
-    const extra = changed.length > 2 ? ` +${changed.length - 2} more` : '';
-    return `Updated ${changed.length} files - ${names}${extra}`;
+    const extra = changed.length > 2 ? ` +${changed.length - 2} More` : '';
+    return `Updated ${changed.length} Files - ${names}${extra}`;
   }
 
   const parsedArgs = parseToolArgs(args);
@@ -428,7 +509,7 @@ function firstAgentResultLine(text) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     if (/^<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
-    if (/^(?:bridge job|status|type|target|role|agent|preset|model|effort|fast|limits|session|job|task-id):\s*/i.test(trimmed)) continue;
+    if (/^(?:bridge job|bridge task|status|type|target|role|agent|preset|model|effort|fast|limits|session|job|task-id|task_id|notification|queueDepth):\s*/i.test(trimmed)) continue;
     if (/^\[[a-z-]+:\s*[^\]]*\]$/i.test(trimmed)) continue;
     return truncateSingleLine(trimmed, 120);
   }
@@ -450,10 +531,10 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     case 'read':
     case 'view_image':
     case 'read_mcp_resource': {
-      if (/^\[image:/i.test(trimmed)) return 'Read image';
+      if (/^\[image:/i.test(trimmed)) return 'Image';
       if (!trimmed) return null;
       const n = text.split('\n').length;
-      return `Read ${n} ${pluralize(n, 'line')}`;
+      return `${n} ${pluralize(n, 'Line')}`;
     }
     case 'write':
     case 'edit':
@@ -466,7 +547,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       if (add || rem) {
         const a = add ? Number(add[1]) : 0;
         const r = rem ? Number(rem[1]) : 0;
-        return `Updated - +${a} -${r}`;
+        return `+${a} -${r}`;
       }
       // Else count unified-diff style +/- lines (ignore +++/--- file headers).
       let a = 0;
@@ -476,40 +557,40 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
         if (/^\+/.test(line)) a += 1;
         else if (/^-/.test(line)) r += 1;
       }
-      if (a > 0 || r > 0) return `Updated - +${a} -${r}`;
+      if (a > 0 || r > 0) return `+${a} -${r}`;
       return null;
     }
     case 'grep': {
       if (!trimmed || !looksLineOriented(text)) return null;
       const n = countNonEmptyLines(text);
       if (n === 0) return null;
-      return `Found ${n} ${pluralize(n, 'match', 'matches')}`;
+      return `${n} ${pluralize(n, 'Match', 'Matches')}`;
     }
     case 'glob': {
       if (!trimmed || !looksLineOriented(text)) return null;
       const n = countNonEmptyLines(text);
       if (n === 0) return null;
-      return `Found ${n} ${pluralize(n, 'file')}`;
+      return `${n} ${pluralize(n, 'File')}`;
     }
     case 'shell':
     case 'bash_session':
     case 'shell_command': {
-      if (!trimmed) return '(no output)';
+      if (!trimmed) return '(No Output)';
       const job = /^\[(?:task_id|job):\s*([^\]]+)\]/mi.exec(text);
       const status = /^\[status:\s*([^\]]+)\]/mi.exec(text);
       const exit = /^\[exit:\s*([^\]]+)\]/mi.exec(text);
       if (job || status || exit) {
         return compactParts([
           job ? job[1] : '',
-          status ? status[1] : '',
-          exit ? `exit ${exit[1]}` : '',
+          status ? titleStatus(status[1]) : '',
+          exit ? `Exit ${exit[1]}` : '',
         ]);
       }
       return null;
     }
     case 'code_graph': {
       const match = /(\d+)\s+(references|definitions|symbols|callers|callees|results|matches)/i.exec(text);
-      if (match) return `Found ${match[1]} ${match[2].toLowerCase()}`;
+      if (match) return `${match[1]} ${titleWord(match[2])}`;
       return null;
     }
     case 'web_fetch':
@@ -519,16 +600,16 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       const status = /(?:HTTP[\s/]*\d?\.?\d?\s*|status[:\s]+)([1-5]\d{2})\b/i.exec(text)
         || /\b([1-5]\d{2})\s+(?:OK|Not\s+Found|Forbidden|Moved|Found|Created|No\s+Content|Bad\s+Request|Unauthorized|Internal)/.exec(text);
       const size = /\b(\d+(?:\.\d+)?\s?(?:[KMGT]?B|bytes))\b/i.exec(text);
-      if (size && status) return `Received ${size[1]} (${status[1]})`;
-      if (size) return `Received ${size[1]}`;
-      if (status) return `Received (${status[1]})`;
+      if (size && status) return `${size[1]} · HTTP ${status[1]}`;
+      if (size) return size[1];
+      if (status) return `HTTP ${status[1]}`;
       return null;
     }
     case 'search': {
       const match = /(\d+)\s+results?/i.exec(text);
       if (match) {
         const n = Number(match[1]);
-        return `Found ${n} ${pluralize(n, 'result')}`;
+        return `${n} ${pluralize(n, 'Result')}`;
       }
       return null;
     }
@@ -540,7 +621,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       const match = /(\d+)\s+results?/i.exec(text);
       if (match) {
         const n = Number(match[1]);
-        return `Found ${n} ${pluralize(n, 'result')}`;
+        return `${n} ${pluralize(n, 'Result')}`;
       }
       return trimmed ? firstAgentResultLine(text) || null : null;
     }
@@ -558,15 +639,20 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       const preset = /^preset:\s*(.+)$/mi.exec(text);
       const model = /^model:\s*(.+)$/mi.exec(text);
       const limits = /^limits:\s*(.+)$/mi.exec(text);
+      const agentModel = compactParts([
+        displayAgentName(role ? role[1] : ''),
+        displayModelName(model ? model[1] : ''),
+      ]);
+      if (agentModel) return agentModel;
       const parts = [
         role ? role[1] : '',
         preset ? preset[1] : '',
         model ? model[1] : '',
-        status ? status[1] : '',
+        status ? titleStatus(status[1]) : '',
         limits ? limits[1] : '',
       ].filter(Boolean);
       if (parts.length) return compactParts(parts);
-      if (job) return status ? `${job[1]} ${status[1]}` : job[1];
+      if (job) return status ? `${job[1]} ${titleStatus(status[1])}` : job[1];
       return null;
     }
     default:
@@ -586,7 +672,7 @@ export function isMemorySurface(label) {
 
 export const CATEGORY_ORDER = [
   'Read', 'Search', 'Web Research', 'Memory', 'Explore',
-  'Edit', 'Shell', 'Agent', 'Channel', 'Setup', 'Other',
+  'Patch', 'Edit', 'Shell', 'Agent', 'Channel', 'Setup', 'Other',
 ];
 
 const TOOL_CATEGORY = new Map([
@@ -615,9 +701,9 @@ const TOOL_CATEGORY = new Map([
   ['update_memory', 'Memory'],
   ['memory', 'Memory'],
   ['explore', 'Explore'],
+  ['apply_patch', 'Patch'],
   ['write', 'Edit'],
   ['edit', 'Edit'],
-  ['apply_patch', 'Edit'],
   ['bash', 'Shell'],
   ['shell', 'Shell'],
   ['shell_command', 'Shell'],
@@ -668,11 +754,12 @@ const CATEGORY_COPY = new Map([
   ['Web Research', { active: 'Researching', done: 'Researched', noun: 'web item' }],
   ['Memory', { active: 'Checking', done: 'Checked', noun: 'memory item' }],
   ['Explore', { active: 'Exploring', done: 'Explored', noun: 'item' }],
+  ['Patch', { active: 'Patching', done: 'Patched', noun: 'item' }],
   ['Edit', { active: 'Editing', done: 'Edited', noun: 'item' }],
   ['Shell', { active: 'Running', done: 'Ran', noun: 'command' }],
   ['Agent', { active: 'Calling', done: 'Called', noun: 'agent' }],
   ['Channel', { active: 'Sending', done: 'Sent', noun: 'message' }],
-  ['Setup', { active: 'Setting up', done: 'Set up', noun: 'item' }],
+  ['Setup', { active: 'Setting Up', done: 'Set Up', noun: 'item' }],
   ['Other', { active: 'Calling', done: 'Called', noun: 'tool' }],
 ]);
 
@@ -746,33 +833,33 @@ export function formatAggregateDetail(summaries) {
     const text = String(raw || '').trim();
     if (!text) continue;
 
-    let match = /^Read\s+(\d+)\s+lines?$/i.exec(text);
+    let match = /^(?:Read\s+)?(\d+)\s+lines?$/i.exec(text);
     if (match) {
-      const metric = addMetric('read_lines', { count: 0, render: (m) => `Read ${m.count} ${pluralize(m.count, 'line')}` });
+      const metric = addMetric('read_lines', { count: 0, render: (m) => `${m.count} ${pluralize(m.count, 'Line')}` });
       metric.count += Number(match[1]);
       continue;
     }
 
-    if (/^Read image$/i.test(text)) {
-      const metric = addMetric('read_images', { count: 0, render: (m) => `Read ${m.count} ${pluralize(m.count, 'image')}` });
+    if (/^(?:Read\s+)?image$/i.test(text)) {
+      const metric = addMetric('read_images', { count: 0, render: (m) => `${m.count} ${pluralize(m.count, 'Image')}` });
       metric.count += 1;
       continue;
     }
 
-    match = /^Found\s+(\d+)\s+([a-z]+)$/i.exec(text);
+    match = /^(?:Found\s+)?(\d+)\s+([a-z]+)$/i.exec(text);
     if (match) {
       const nounRaw = match[2].toLowerCase();
       const singular = nounRaw.endsWith('ies') ? `${nounRaw.slice(0, -3)}y` : nounRaw.endsWith('s') ? nounRaw.slice(0, -1) : nounRaw;
       const plural = nounRaw.endsWith('s') ? nounRaw : `${nounRaw}s`;
       const key = `found_${plural}`;
-      const metric = addMetric(key, { count: 0, singular, plural, render: (m) => `Found ${m.count} ${pluralize(m.count, m.singular, m.plural)}` });
+      const metric = addMetric(key, { count: 0, singular, plural, render: (m) => `${m.count} ${pluralize(m.count, titleWord(m.singular), titleWord(m.plural))}` });
       metric.count += Number(match[1]);
       continue;
     }
 
-    match = /^Updated(?:\s+-)?\s+\+(\d+)\s+-(\d+)$/i.exec(text);
+    match = /^(?:Updated(?:\s+-)?\s+)?\+(\d+)\s+-(\d+)$/i.exec(text);
     if (match) {
-      const metric = addMetric('updated', { added: 0, removed: 0, render: (m) => `Updated +${m.added} -${m.removed}` });
+      const metric = addMetric('updated', { added: 0, removed: 0, render: (m) => `+${m.added} -${m.removed}` });
       metric.added += Number(match[1]);
       metric.removed += Number(match[2]);
       continue;

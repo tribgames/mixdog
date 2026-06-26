@@ -105,6 +105,15 @@ function formatIdleDuration(ms) {
   return `${Math.floor(value / 1000)}s`;
 }
 
+function formatTokenCount(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return '0';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}m`;
+  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return `${Math.round(n)}`;
+}
+
 const FAILED_NOTICE_ACTIONS = new Map([
   ['api key save', 'save API key'],
   ['auth-forget', 'forget auth'],
@@ -418,6 +427,96 @@ function parseBridgeJob(text) {
   };
 }
 
+const QUEUE_PRIORITY = { now: 0, next: 1, later: 2 };
+
+function queuePriorityValue(value) {
+  return QUEUE_PRIORITY[String(value || 'next')] ?? QUEUE_PRIORITY.next;
+}
+
+function defaultQueuePriority(mode) {
+  return mode === 'task-notification' ? 'later' : 'next';
+}
+
+function isQueuedEntryEditable(entry) {
+  return (entry?.mode || 'prompt') !== 'task-notification';
+}
+
+function firstQueueLine(text) {
+  return String(text || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
+}
+
+function notificationDisplayText(text) {
+  const parsed = parseBridgeJob(text);
+  const result = bridgeJobResultText(text, parsed);
+  const synthetic = parseSyntheticAgentMessage(text);
+  return firstQueueLine(synthetic?.result || result || text) || 'agent notification';
+}
+
+function promptContentText(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.map((part) => {
+      if (typeof part === 'string') return part;
+      if (part?.type === 'text') return part.text || '';
+      if (part?.type === 'image') return '[Image]';
+      return part?.text || '';
+    }).filter(Boolean).join('\n');
+  }
+  return String(content ?? '');
+}
+
+function promptDisplayText(content, options = {}) {
+  if (typeof options.displayText === 'string') return options.displayText;
+  return promptContentText(content);
+}
+
+function mergePromptContents(entries) {
+  const batch = Array.isArray(entries) ? entries : [];
+  if (batch.every((entry) => typeof entry?.content === 'string')) {
+    return batch.map((entry) => entry.content).filter((text) => String(text || '').trim()).join('\n');
+  }
+  const parts = [];
+  for (const entry of batch) {
+    const content = entry?.content;
+    if (typeof content === 'string') {
+      if (content.trim()) parts.push({ type: 'text', text: content });
+    } else if (Array.isArray(content)) {
+      parts.push(...content);
+    }
+    parts.push({ type: 'text', text: '\n' });
+  }
+  while (parts.length && parts[parts.length - 1]?.type === 'text' && parts[parts.length - 1]?.text === '\n') parts.pop();
+  return parts.length === 1 && parts[0]?.type === 'text' ? parts[0].text : parts;
+}
+
+function mergePastedImages(entries) {
+  const out = {};
+  for (const entry of entries || []) {
+    const images = entry?.pastedImages;
+    if (!images || typeof images !== 'object') continue;
+    for (const [id, image] of Object.entries(images)) {
+      if (image) out[id] = image;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function callCommitCallbacks(entries) {
+  for (const entry of entries || []) {
+    try { entry?.onCommitted?.(); } catch {}
+  }
+}
+
+function notificationQueueKey(event, text, parsed) {
+  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  const id = String(meta.execution_id || parsed?.taskId || '').trim();
+  if (!id) return '';
+  const type = String(meta.type || '').trim();
+  const status = String(meta.status || parsed?.status || '').trim();
+  const fallbackKind = String(text || '').split('\n', 1)[0]?.trim() || 'notification';
+  return [id, type || fallbackKind, status].filter(Boolean).join(':');
+}
+
 function bridgeArgsWithResultMetadata(args, parsed) {
   if (!parsed) return args;
   const next = { ...(args && typeof args === 'object' ? args : {}) };
@@ -465,10 +564,12 @@ export async function createEngineSession({
       bridgeMode: runtime.bridgeMode || status.bridgeMode || 'async',
       bridgeWorkers: Array.isArray(status.bridgeWorkers) ? status.bridgeWorkers : [],
       bridgeJobs: Array.isArray(status.bridgeJobs) ? status.bridgeJobs : [],
+      bridgeScope: status.bridgeScope || null,
     };
   };
   const routeState = () => ({
     sessionId: runtime.id,
+    clientHostPid: runtime.clientHostPid || null,
     model: runtime.model,
     provider: runtime.provider,
     effort: runtime.effort,
@@ -490,12 +591,14 @@ export async function createEngineSession({
     bridgeMode: runtime.bridgeMode || 'async',
     bridgeWorkers: [],
     bridgeJobs: [],
+    bridgeScope: null,
   };
   let state = {
     items: [],
     toasts: [],
     busy: false,
     commandBusy: false,
+    commandStatus: null,
     spinner: null,
     queued: [],
     thinking: null,
@@ -512,13 +615,13 @@ export async function createEngineSession({
     const hasProviderUsage = Number(state.stats.latestPromptTokens || state.stats.latestInputTokens || state.stats.inputTokens || 0) > 0;
     const used = Number(ctx?.usedTokens || ctx?.currentEstimatedTokens || 0);
     if (!allowEstimated && !hasProviderUsage && ctx?.usedSource !== 'last_api_request') return ctx;
-    if (Number.isFinite(used) && used > 0) state.stats.currentContextTokens = used;
+    if (Number.isFinite(used) && (used > 0 || allowEstimated)) state.stats.currentContextTokens = Math.max(0, used);
     state.stats.currentContextSource = ctx?.usedSource || null;
     state.stats.currentContextUpdatedAt = Date.now();
     return ctx;
   };
   const contextStartedAt = performance.now();
-  syncContextStats();
+  syncContextStats({ allowEstimated: true });
   bootProfile('engine:context-ready', { ms: (performance.now() - contextStartedAt).toFixed(1) });
   const listeners = new Set();
   const emit = () => { for (const l of listeners) l(); };
@@ -635,6 +738,7 @@ export async function createEngineSession({
   let unsubscribeRuntimeNotifications = null;
   let lastUserActivityAt = Date.now();
   let autoClearRunning = false;
+  const pendingNotificationKeys = new Set();
 
   function clearBridgeJobMonitor(taskId) {
     const monitor = bridgeJobMonitors.get(taskId);
@@ -656,6 +760,7 @@ export async function createEngineSession({
       result: displayText,
       text: displayText,
       isError,
+      errorCount: isError ? 1 : 0,
       ...(parsed ? { args: bridgeArgsWithResultMetadata(current?.args, parsed) } : {}),
     });
     if (!parsed?.taskId) return;
@@ -694,6 +799,7 @@ export async function createEngineSession({
           result: displayText,
           text: displayText,
           isError,
+          errorCount: isError ? 1 : 0,
           ...(parsed ? { args: bridgeArgsWithResultMetadata(current?.args, parsed) } : {}),
         });
         set(bridgeStatusState());
@@ -703,7 +809,7 @@ export async function createEngineSession({
         }
       } catch (error) {
         const errorText = toolErrorDisplay(error, 'bridge');
-        patchItem(monitor.itemId, { result: errorText, text: errorText, isError: true });
+        patchItem(monitor.itemId, { result: errorText, text: errorText, isError: true, errorCount: 1 });
         set(bridgeStatusState());
         clearBridgeJobMonitor(taskId);
         return;
@@ -712,7 +818,7 @@ export async function createEngineSession({
       monitor.timer.unref?.();
     };
 
-    monitor.timer = setTimeout(poll, BRIDGE_JOB_POLL_MS);
+    monitor.timer = setTimeout(poll, 0);
     monitor.timer.unref?.();
   }
 
@@ -722,6 +828,7 @@ export async function createEngineSession({
       const text = String(event?.content ?? event?.text ?? event ?? '').trim();
       if (!text) return;
       const parsed = parseBridgeJob(text);
+      const notificationKey = notificationQueueKey(event, text, parsed);
       if (parsed?.taskId) {
         const existing = [...state.items].reverse().find((item) => {
           if (!item || item.kind !== 'tool' || item.name !== 'bridge') return false;
@@ -731,10 +838,13 @@ export async function createEngineSession({
         if (existing) {
           updateBridgeJobCard(existing.id, text, /^(failed|error|timeout|cancelled|killed)$/i.test(parsed.status));
           set(bridgeStatusState());
-          return;
         }
       }
-      pushUserOrSyntheticItem(text, nextId());
+      enqueue(text, {
+        mode: 'task-notification',
+        priority: 'later',
+        key: notificationKey || undefined,
+      });
       set(bridgeStatusState());
     });
   }
@@ -749,12 +859,15 @@ export async function createEngineSession({
         .map((result) => firstErrorLine(result?.text))
         .filter(Boolean);
       const uniqueReasons = [...new Set(reasons)].slice(0, 2);
+      const base = succeeded > 0
+        ? `${succeeded} Ok · ${group.errors} Failed`
+        : `${group.errors} Failed`;
       return [
-        `${succeeded} succeeded - ${group.errors} failed${uniqueReasons[0] ? `: ${uniqueReasons[0]}` : ''}`,
+        `${base}${uniqueReasons[0] ? ` · ${uniqueReasons[0]}` : ''}`,
         ...uniqueReasons.slice(1),
       ].join('\n');
     }
-    return `Completed ${completed}/${group.count}`;
+    return '';
   }
 
   function firstErrorLine(text) {
@@ -773,7 +886,7 @@ export async function createEngineSession({
     const doneCount = Math.max(0, Math.min(count, Number(completed || 0)));
     if (count <= 0) return '';
     if (running && doneCount < count) return `Running ${doneCount}/${count}`;
-    return `Completed ${doneCount}/${count}`;
+    return '';
   }
 
   function aggregateRawResult(calls) {
@@ -847,7 +960,7 @@ export async function createEngineSession({
       let detailText;
       if (errors > 0 && summaries.length === 0) {
         const succeeded = completed - errors;
-        detailText = `${succeeded}/${allCalls.length} succeeded - ${errors} failed`;
+        detailText = succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`;
       } else {
         detailText = formatAggregateDetail(summaries) || aggregateCompletionText(completed, allCalls.length, { running: completed < allCalls.length });
       }
@@ -859,6 +972,7 @@ export async function createEngineSession({
         text: detailText,
         rawResult: rawResult || null,
         isError: errors > 0,
+        errorCount: errors,
         count: allCalls.length,
         completedCount: visualCompleted,
         completedAt: Date.now(),
@@ -879,6 +993,7 @@ export async function createEngineSession({
       result: resultText,
       text: resultText,
       isError: group.errors > 0,
+      errorCount: group.errors,
       count: group.count,
       completedCount: group.completed,
       completedAt: Date.now(),
@@ -941,6 +1056,7 @@ export async function createEngineSession({
           text: detailText,
           rawResult: rawResult || null,
           isError: errors > 0,
+          errorCount: errors,
           count: allCalls.length,
           completedCount: totalCompleted,
           completedAt: Date.now(),
@@ -957,7 +1073,7 @@ export async function createEngineSession({
       group.completed = Math.min(group.count, group.completed + 1);
       toolGroups.set(card.itemId, group);
       const resultText = groupedToolResultText(group);
-      patchItem(card.itemId, { result: resultText, text: resultText, isError: group.errors > 0, count: group.count, completedCount: group.completed, completedAt: Date.now() });
+      patchItem(card.itemId, { result: resultText, text: resultText, isError: group.errors > 0, errorCount: group.errors, count: group.count, completedCount: group.completed, completedAt: Date.now() });
       card.done = true;
       if (card.callId) done.add(card.callId);
     }
@@ -969,7 +1085,18 @@ export async function createEngineSession({
     const inputBaseline = state.stats.inputTokens;
     const outputBaseline = state.stats.outputTokens;
     const submittedIds = Array.isArray(options.submittedIds) ? options.submittedIds : [];
-    activePromptRestore = { text: String(userText || '').trim(), restorable: true, submittedIds, reclaimed: false };
+    const displayText = promptDisplayText(userText, options);
+    let promptCommittedCallbackCalled = false;
+    activePromptRestore = {
+      text: String(displayText || '').trim(),
+      pastedImages: options.pastedImages && typeof options.pastedImages === 'object' ? options.pastedImages : null,
+      onCommitted: typeof options.onCommitted === 'function' ? options.onCommitted : null,
+      restorable: options.restorable !== false,
+      submittedIds,
+      reclaimed: false,
+      committed: false,
+      requeueEntries: Array.isArray(options.requeueOnAbort) ? options.requeueOnAbort.slice() : [],
+    };
     set({ busy: true, lastTurn: null, spinner: { active: true, verb: pickVerb(turnIndex), startedAt, responseLength: 0, inputTokens: 0, outputTokens: 0, mode: 'requesting' } });
 
     let assistantText = '';
@@ -984,14 +1111,44 @@ export async function createEngineSession({
     const toolCards = [];
     const toolGroups = new Map();
     const resultsDone = new Set();
-    const aggregateCards = new Map(); // bucket -> { itemId, categories, categoryOrder, calls, nextSummarySeq }
+    const aggregateCards = []; // active aggregate cards in the current consecutive tool block
+    let openAggregateCard = null;
+    let autoCompactStatus = null;
 
     const markPromptCommitted = () => {
-      if (activePromptRestore) activePromptRestore.restorable = false;
+      if (activePromptRestore) {
+        if (!promptCommittedCallbackCalled && typeof activePromptRestore.onCommitted === 'function') {
+          promptCommittedCallbackCalled = true;
+          try { activePromptRestore.onCommitted(); } catch {}
+        }
+        activePromptRestore.restorable = false;
+        activePromptRestore.committed = true;
+        activePromptRestore.requeueEntries = [];
+        activePromptRestore.pastedImages = null;
+      }
+    };
+
+    const finalizeToolHeaders = () => {
+      const ids = new Set();
+      for (const card of toolCards || []) {
+        if (card?.itemId) ids.add(card.itemId);
+      }
+      for (const aggregate of aggregateCards || []) {
+        if (aggregate?.itemId) ids.add(aggregate.itemId);
+      }
+      if (ids.size === 0) return false;
+      let changed = false;
+      const items = state.items.map((item) => {
+        if (!ids.has(item?.id) || item.kind !== 'tool' || item.headerFinalized !== false) return item;
+        changed = true;
+        return { ...item, headerFinalized: true };
+      });
+      if (changed) set({ items });
+      return changed;
     };
 
     const completeAggregateVisual = () => {
-      for (const aggregate of aggregateCards.values()) {
+      for (const aggregate of aggregateCards) {
         const allCalls = [...aggregate.calls.values()];
         if (allCalls.length === 0) continue;
         const errors = allCalls.filter((r) => r.isError).length;
@@ -1012,12 +1169,13 @@ export async function createEngineSession({
 
     const clearAggregateContinuation = () => {
       completeAggregateVisual();
-      aggregateCards.clear();
+      finalizeToolHeaders();
+      aggregateCards.length = 0;
+      openAggregateCard = null;
     };
 
     const ensureAggregateCard = (bucket) => {
-      const existing = aggregateCards.get(bucket);
-      if (existing) return existing;
+      if (openAggregateCard?.bucket === bucket) return openAggregateCard;
       const itemId = nextId();
       const aggregate = {
         itemId,
@@ -1027,7 +1185,8 @@ export async function createEngineSession({
         calls: new Map(),
         nextSummarySeq: 0,
       };
-      aggregateCards.set(bucket, aggregate);
+      aggregateCards.push(aggregate);
+      openAggregateCard = aggregate;
       pushItem({
         kind: 'tool',
         id: itemId,
@@ -1039,6 +1198,7 @@ export async function createEngineSession({
         rawResult: null,
         isError: false,
         expanded: false,
+        headerFinalized: false,
         count: 0,
         completedCount: 0,
         startedAt: Date.now(),
@@ -1137,7 +1297,10 @@ export async function createEngineSession({
         drainSteering: () => drainPendingSteering(),
         onSteerMessage: (text) => {
           const value = String(text || '').trim();
-          if (value) pushUserOrSyntheticItem(value);
+          if (value) {
+            finalizeToolHeaders();
+            pushUserOrSyntheticItem(value);
+          }
         },
         onToolCall: async (_iter, calls) => {
           markPromptCommitted();
@@ -1164,6 +1327,7 @@ export async function createEngineSession({
             const callKey = callId || `__tool_${toolCards.length}_${i}`;
 
             if (!bucket) {
+              openAggregateCard = null;
               const itemId = nextId();
               pushItem({
                 kind: 'tool',
@@ -1173,6 +1337,7 @@ export async function createEngineSession({
                 result: null,
                 isError: false,
                 expanded: false,
+                headerFinalized: false,
                 count: 1,
                 completedCount: 0,
                 startedAt: Date.now(),
@@ -1217,7 +1382,9 @@ export async function createEngineSession({
             ? 'requesting'
             : value === 'streaming'
               ? (state.spinner.thinking ? 'thinking' : 'responding')
-              : null;
+              : value === 'compacting'
+                ? 'compacting'
+                : null;
           if (!mode || state.spinner.mode === mode) return;
           set({ spinner: { ...state.spinner, mode } });
         },
@@ -1256,8 +1423,11 @@ export async function createEngineSession({
           }
         },
       });
+      markPromptCommitted();
+      if (result?.postTurnCompact?.changed) autoCompactStatus = result.postTurnCompact;
 
       flushToolResults(session?.messages || [], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
+      finalizeToolHeaders();
       flushStreamBatch(); // force-flush any batched streaming text before finalization writes
       syncContextStats();
 
@@ -1284,7 +1454,9 @@ export async function createEngineSession({
         // pending/blinking state because the normal finalize path (line 992)
         // was skipped when the error interrupted the try block.
         flushToolResults([], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
+        finalizeToolHeaders();
       } else {
+        finalizeToolHeaders();
         pushItem({ kind: 'notice', id: nextId(), text: toolErrorDisplay(error, 'turn'), tone: 'error' });
       }
     } finally {
@@ -1301,6 +1473,19 @@ export async function createEngineSession({
       // bottom-fixed live-status slot and vanished on the next turn.)
       if (!reclaimed) {
         pushItem({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus, outputTokens: finalOutputTokens, thinkingElapsedMs, verb: pickDoneVerb(turnIndex) });
+        if (!cancelled && autoCompactStatus?.changed) {
+          const before = formatTokenCount(autoCompactStatus.beforeTokens || autoCompactStatus.pressureTokens || 0);
+          const after = formatTokenCount(autoCompactStatus.afterTokens || 0);
+          const trigger = formatTokenCount(autoCompactStatus.triggerTokens || 0);
+          pushItem({
+            kind: 'statusdone',
+            id: nextId(),
+            label: 'Auto-compact complete',
+            detail: [`context ${before}→${after}`, trigger !== '0' ? `trigger ${trigger}` : '']
+              .filter(Boolean)
+              .join(' · '),
+          });
+        }
       }
       set({
         busy: false,
@@ -1320,26 +1505,103 @@ export async function createEngineSession({
   let draining = false;
   let activePromptRestore = null;
 
+  function makeQueueEntry(text, options = {}) {
+    const mode = options.mode || 'prompt';
+    const priority = options.priority || defaultQueuePriority(mode);
+    const displayText = promptDisplayText(text, options);
+    return {
+      id: options.id || nextId(),
+      text: displayText,
+      content: text,
+      pastedImages: options.pastedImages && typeof options.pastedImages === 'object' ? options.pastedImages : null,
+      onCommitted: typeof options.onCommitted === 'function' ? options.onCommitted : null,
+      mode,
+      priority,
+      key: options.key || null,
+      displayText: mode === 'task-notification' ? notificationDisplayText(displayText) : String(displayText || ''),
+    };
+  }
+
+  function removeQueuedEntries(entries) {
+    const ids = new Set(entries.map((entry) => entry.id));
+    const keys = entries.map((entry) => entry.key).filter(Boolean);
+    for (const key of keys) pendingNotificationKeys.delete(key);
+    set({ queued: state.queued.filter((q) => !ids.has(q.id)) });
+  }
+
+  function requeueEntriesFront(entries) {
+    const restored = [];
+    for (const entry of entries || []) {
+      if (!entry || !String(entry.text || '').trim()) continue;
+      const next = {
+        ...entry,
+        displayText: entry.displayText || (entry.mode === 'task-notification' ? notificationDisplayText(entry.text) : String(entry.text || '')),
+      };
+      if (next.mode === 'task-notification' && next.key) {
+        if (pendingNotificationKeys.has(next.key)) continue;
+        pendingNotificationKeys.add(next.key);
+      }
+      restored.push(next);
+    }
+    if (restored.length === 0) return false;
+    pending.unshift(...restored);
+    set({ queued: [...restored, ...state.queued] });
+    return true;
+  }
+
+  function dequeueQueueBatch(maxPriority = 'later') {
+    if (pending.length === 0) return [];
+    const max = queuePriorityValue(maxPriority);
+    let bestPriority = Infinity;
+    let targetMode = null;
+    for (const entry of pending) {
+      const p = queuePriorityValue(entry.priority);
+      if (p > max) continue;
+      if (p < bestPriority) {
+        bestPriority = p;
+        targetMode = entry.mode || 'prompt';
+      }
+    }
+    if (!targetMode) return [];
+    const batch = [];
+    for (let i = 0; i < pending.length;) {
+      const entry = pending[i];
+      if ((entry.mode || 'prompt') === targetMode && queuePriorityValue(entry.priority) === bestPriority) {
+        batch.push(entry);
+        pending.splice(i, 1);
+      } else {
+        i += 1;
+      }
+    }
+    removeQueuedEntries(batch);
+    return batch;
+  }
+
   async function drain() {
     if (draining) return;
     draining = true;
     try {
       while (pending.length > 0) {
-        // Drain the WHOLE queue at once and merge into a single turn, so
-        // multiple steering messages (including duplicates) are sent together
-        // instead of running one isolated turn each. Anything enqueued while
-        // this turn runs is picked up — again merged — on the next loop pass.
-        const batch = pending.splice(0);
+        // Drain one priority/mode bucket at a time, matching Claude Code's
+        // unified command queue semantics: prompt steering stays editable and
+        // task notifications stay non-editable but model-visible.
+        const batch = dequeueQueueBatch('later');
+        if (batch.length === 0) break;
         const ids = new Set(batch.map((e) => e.id));
-        set({ queued: state.queued.filter((q) => !ids.has(q.id)) });
-        const merged = batch
-          .map((entry) => entry.text)
-          .filter((text) => String(text || '').trim())
-          .join('\n');
+        const merged = mergePromptContents(batch);
         for (const entry of batch) {
           pushUserOrSyntheticItem(entry.text, entry.id);
         }
-        const turnStatus = await runTurn(merged, { submittedIds: [...ids] });
+        const nonEditable = batch.filter((entry) => !isQueuedEntryEditable(entry));
+        const batchPastedImages = mergePastedImages(batch);
+        const turnStatus = await runTurn(merged, {
+          displayText: batch.map((entry) => entry.text).filter((text) => String(text || '').trim()).join('\n'),
+          pastedImages: batchPastedImages,
+          onCommitted: () => callCommitCallbacks(batch),
+          submittedIds: [...ids],
+          restorable: nonEditable.length === 0,
+          requeueOnAbort: nonEditable,
+        });
         // If the user re-submits the reclaimed prompt while the cancelled turn
         // is still unwinding, enqueue() cannot start another drain because this
         // drain loop is still active. Continue when pending work appeared during
@@ -1350,18 +1612,21 @@ export async function createEngineSession({
       draining = false;
     }
   }
-  function enqueue(text) {
-    const entry = { id: nextId(), text };
+  function enqueue(text, options = {}) {
+    const entry = makeQueueEntry(text, options);
+    if (entry.mode === 'task-notification' && entry.key) {
+      if (pendingNotificationKeys.has(entry.key)) return false;
+      pendingNotificationKeys.add(entry.key);
+    }
     pending.push(entry);
     set({ queued: [...state.queued, entry] });
     void drain();
+    return true;
   }
 
   function drainPendingSteering() {
-    if (pending.length === 0) return [];
-    const batch = pending.splice(0);
-    const ids = new Set(batch.map((entry) => entry.id));
-    set({ queued: state.queued.filter((q) => !ids.has(q.id)) });
+    const batch = dequeueQueueBatch('next');
+    if (batch.length === 0) return [];
     return batch
       .map((entry) => String(entry.text || '').trim())
       .filter(Boolean);
@@ -1377,10 +1642,17 @@ export async function createEngineSession({
     }
     autoClearRunning = true;
     try {
+      const beforeContext = runtime.contextStatus?.() || null;
       await runtime.clear();
       resetStats();
+      const afterContext = syncContextStats({ allowEstimated: true }) || runtime.contextStatus?.() || null;
       const idleLabel = formatIdleDuration(idleMs);
       const thresholdLabel = formatIdleDuration(cfg.idleMs);
+      const beforeTokens = Number(beforeContext?.usedTokens || beforeContext?.currentEstimatedTokens || beforeContext?.usage?.lastContextTokens || 0);
+      const afterTokens = Number(afterContext?.usedTokens || afterContext?.currentEstimatedTokens || afterContext?.usage?.lastContextTokens || 0);
+      const contextDetail = beforeTokens > 0 || afterTokens > 0
+        ? `context ${formatTokenCount(beforeTokens)}→${formatTokenCount(afterTokens)}`
+        : 'context reset';
       set({
         items: replaceItems([]),
         toasts: [],
@@ -1391,11 +1663,14 @@ export async function createEngineSession({
         ...routeState(),
         stats: { ...state.stats },
       });
-      pushNotice(
-        `auto-cleared after ${idleLabel} idle (threshold ${thresholdLabel}). Use /recall <topic> if you need older context.`,
-        'info',
-        { transcript: true },
-      );
+      pushItem({
+        kind: 'statusdone',
+        id: nextId(),
+        label: 'Auto-clear complete',
+        detail: [idleLabel ? `idle ${idleLabel}` : '', contextDetail, thresholdLabel ? `threshold ${thresholdLabel}` : '']
+          .filter(Boolean)
+          .join(' · '),
+      });
       return true;
     } catch (error) {
       pushNotice(`auto-clear failed: ${error?.message || error}`, 'error');
@@ -1407,16 +1682,30 @@ export async function createEngineSession({
   }
 
   function restoreQueued(currentText = '') {
-    const queued = pending.splice(0);
-    set({ queued: [] });
+    const queued = [];
+    for (let i = 0; i < pending.length;) {
+      const entry = pending[i];
+      if (isQueuedEntryEditable(entry)) {
+        queued.push(entry);
+        pending.splice(i, 1);
+      } else {
+        i += 1;
+      }
+    }
+    removeQueuedEntries(queued);
     const queuedText = queued.map((item) => item.text).filter((text) => String(text || '').trim()).join('\n');
     const combinedText = [queuedText, String(currentText || '')].filter((text) => text.trim()).join('\n');
-    return { count: queued.length, text: combinedText };
+    return { count: queued.length, text: combinedText, pastedImages: mergePastedImages(queued) };
   }
 
   const resetStats = () => {
-    const fresh = createSessionStats();
-    for (const k of Object.keys(fresh)) state.stats[k] = fresh[k];
+    state.stats = createSessionStats();
+    return state.stats;
+  };
+  const resetStatsAndSyncContext = () => {
+    resetStats();
+    syncContextStats({ allowEstimated: true });
+    return state.stats;
   };
 
   return {
@@ -1426,14 +1715,19 @@ export async function createEngineSession({
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    submit: (text) => {
-      const t = String(text ?? '').trim();
+    submit: (text, options = {}) => {
+      const t = promptDisplayText(text, options).trim();
       if (!t || state.commandBusy) return false;
+      const queueOptions = {
+        ...options,
+        displayText: promptDisplayText(text, options),
+        priority: options.priority || (Array.isArray(text) ? 'later' : undefined),
+      };
       if (state.busy) {
-        enqueue(t);
+        enqueue(text, queueOptions);
         return true;
       }
-      void autoClearBeforeSubmit().then(() => enqueue(t));
+      void autoClearBeforeSubmit().then(() => enqueue(text, queueOptions));
       return true;
     },
     restoreQueued,
@@ -1442,7 +1736,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         await runtime.setRoute({ model: m });
-        resetStats();
+        resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         return true;
       } finally {
@@ -1485,7 +1779,7 @@ export async function createEngineSession({
     setToolMode: (m) => {
       void runtime.setToolMode(m)
         .then(() => {
-          resetStats();
+          resetStatsAndSyncContext();
           set({ ...routeState(), toolMode: runtime.toolMode, stats: { ...state.stats } });
         })
         .catch((error) => pushNotice(toolErrorDisplay(error, 'tool'), 'error'));
@@ -1562,7 +1856,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const status = await runtime.reconnectMcp?.();
-        resetStats();
+        resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(
           `mcp reconnect: ${status?.connectedCount || 0}/${status?.configuredCount || 0} connected${status?.failedCount ? ` - ${status.failedCount} failed` : ''}`,
@@ -1578,7 +1872,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const result = await runtime.addMcpServer?.(input);
-        resetStats();
+        resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(`mcp added: ${result?.name || input?.name || 'server'}`, 'info');
         return result;
@@ -1591,7 +1885,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const status = await runtime.removeMcpServer?.(name);
-        resetStats();
+        resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(`mcp removed: ${name}`, 'info');
         return status;
@@ -1604,7 +1898,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const status = await runtime.setMcpServerEnabled?.(name, enabled);
-        resetStats();
+        resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(`mcp ${enabled ? 'enabled' : 'disabled'}: ${name}`, 'info');
         return status;
@@ -1623,7 +1917,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const result = await runtime.addSkill?.(input);
-        resetStats();
+        resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(`skill added: ${result?.skill?.name || input?.name || 'skill'}`, 'info');
         return result;
@@ -1636,7 +1930,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const status = await runtime.reloadSkills?.();
-        resetStats();
+        resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(`skills reload: ${status?.count || 0} available`, 'info');
         return status;
@@ -1652,7 +1946,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const status = await runtime.reloadPlugins?.();
-        resetStats();
+        resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(`plugins reload: ${status?.count || 0} detected`, 'info');
         return status;
@@ -1665,7 +1959,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const result = await runtime.addPlugin?.(source);
-        resetStats();
+        resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(`plugin added: ${result?.plugin?.title || result?.plugin?.name || source}`, 'info');
         return result;
@@ -1678,7 +1972,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const result = await runtime.updatePlugin?.(plugin);
-        resetStats();
+        resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(`plugin updated: ${result?.plugin?.title || result?.plugin?.name || plugin?.name || plugin}`, 'info');
         return result;
@@ -1691,7 +1985,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const result = await runtime.removePlugin?.(plugin);
-        resetStats();
+        resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(`plugin uninstalled: ${result?.plugin?.title || result?.plugin?.name || plugin?.name || plugin}`, 'info');
         return result;
@@ -1704,7 +1998,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const result = await runtime.enablePluginMcp?.(plugin);
-        resetStats();
+        resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         pushNotice(`plugin MCP enabled: ${result?.serverName || plugin?.name || 'plugin'}`, 'info');
         return result;
@@ -1760,21 +2054,29 @@ export async function createEngineSession({
     },
     compact: async () => {
       if (state.commandBusy) return null;
-      set({ commandBusy: true });
+      set({ commandBusy: true, commandStatus: { active: true, verb: 'Compacting conversation', startedAt: Date.now(), mode: 'compacting' } });
       try {
-        return await runtime.compact();
+        const result = await runtime.compact();
+        syncContextStats({ allowEstimated: true });
+        set({ ...routeState(), stats: { ...state.stats } });
+        return result;
       } finally {
-        set({ commandBusy: false });
+        set({ commandBusy: false, commandStatus: null });
       }
     },
     abort: () => {
       if (!state.busy) return false;
-      const restoreText = activePromptRestore?.restorable ? activePromptRestore.text : '';
+      const restoreState = activePromptRestore;
+      const restoreText = restoreState?.restorable ? restoreState.text : '';
+      const restorePastedImages = restoreState?.restorable && restoreState?.pastedImages ? restoreState.pastedImages : null;
+      const requeueEntries = restoreState && !restoreState.committed && Array.isArray(restoreState.requeueEntries)
+        ? restoreState.requeueEntries.slice()
+        : [];
       const aborted = runtime.abort('cli-react-abort');
-      if (activePromptRestore) {
-        if (restoreText && aborted !== false) {
-          activePromptRestore.reclaimed = true;
-          const idSet = new Set((activePromptRestore.submittedIds || []).filter((id) => id != null));
+      if (restoreState) {
+        if ((restoreText || requeueEntries.length > 0) && aborted !== false) {
+          restoreState.reclaimed = true;
+          const idSet = new Set((restoreState.submittedIds || []).filter((id) => id != null));
           const patch = { spinner: null, thinking: null, lastTurn: null };
           if (idSet.size > 0) {
             const items = state.items.filter((item) => !idSet.has(item?.id));
@@ -1783,10 +2085,12 @@ export async function createEngineSession({
             }
           }
           set(patch);
+          if (requeueEntries.length > 0) requeueEntriesFront(requeueEntries);
         }
-        activePromptRestore.restorable = false;
+        restoreState.restorable = false;
+        restoreState.requeueEntries = [];
       }
-      return { aborted, restoreText };
+      return { aborted, restoreText, pastedImages: restorePastedImages };
     },
     listPresets: () => {
       return runtime.listPresets();
@@ -1831,7 +2135,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const result = await runtime.completeOnboarding?.(payload);
-        resetStats();
+        resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         pushNotice('first-run setup saved', 'info');
         return result;
@@ -1962,7 +2266,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         await runtime.setRoute(opts);
-        resetStats();
+        resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         return true;
       } finally {
@@ -1976,7 +2280,7 @@ export async function createEngineSession({
       clearToastTimers();
       try {
         await runtime.clear();
-        resetStats();
+        resetStatsAndSyncContext();
         set({ items: replaceItems([]), toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, ...routeState(), stats: { ...state.stats } });
         lastUserActivityAt = Date.now();
         return true;
@@ -1993,8 +2297,8 @@ export async function createEngineSession({
       clearToastTimers();
       try {
         await runtime.newSession();
-        resetStats();
-        set({ items: replaceItems([]), toasts: [], queued: [], thinking: null, lastTurn: null, ...routeState(), stats: { ...state.stats } });
+        resetStatsAndSyncContext();
+        set({ items: replaceItems([]), toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, ...routeState(), stats: { ...state.stats } });
         return true;
       } finally {
         set({ commandBusy: false });
@@ -2002,11 +2306,12 @@ export async function createEngineSession({
     },
     resume: async (id) => {
       if (state.commandBusy) return false;
-      set({ commandBusy: true });
+      set({ commandBusy: true, commandStatus: { active: true, verb: 'Resuming conversation', startedAt: Date.now(), mode: 'resuming' } });
       clearToastTimers();
       try {
         const r = await runtime.resume(id);
         if (!r) return false;
+        resetStatsAndSyncContext();
         const items = [];
         for (const m of r.messages || []) {
           if (m.role === 'user') {
@@ -2056,7 +2361,7 @@ export async function createEngineSession({
         });
         return true;
       } finally {
-        set({ commandBusy: false });
+        set({ commandBusy: false, commandStatus: null });
       }
     },
     dispose: async (reason = 'cli-react-exit', options = {}) => {

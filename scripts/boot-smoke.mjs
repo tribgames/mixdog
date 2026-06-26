@@ -80,11 +80,11 @@ const rows = [
       }
 
       const writeResult = runtime.selectTools('write');
-      if (!writeResult.added.includes('write') || !writeResult.already.includes('apply_patch')) {
-        throw new Error('write alias should add write and reuse apply_patch: ' + JSON.stringify(writeResult));
+      if (writeResult.added.length || !writeResult.already.includes('apply_patch')) {
+        throw new Error('write alias should resolve to already-active apply_patch: ' + JSON.stringify(writeResult));
       }
       const afterWrite = new Set(writeResult.status.activeTools || []);
-      if (afterWrite.has('edit') || afterWrite.has('bash')) {
+      if (afterWrite.has('edit') || afterWrite.has('write') || afterWrite.has('bash')) {
         throw new Error('write alias leaked edit/bash: ' + [...afterWrite].join(','));
       }
     });

@@ -14,8 +14,11 @@ import { CLAUDE_CURRENT_MODE } from './claude-current.mjs';
 const GATEWAY_USAGE_FILE = 'gateway-usage.local.json';
 const MAX_USAGE_EVENTS = 1000;
 const USAGE_EVENT_TTL_MS = 35 * 24 * 60 * 60_000;
+const USAGE_FLUSH_DELAY_MS = 500;
 let routeSectionKey = null;
 let routeSectionStartedAt = 0;
+let pendingUsageEvents = [];
+let usageFlushTimer = null;
 
 function num(value, fallback = 0) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -443,6 +446,43 @@ function usageStorePath() {
   return join(resolvePluginData(), GATEWAY_USAGE_FILE);
 }
 
+function flushGatewayUsageEvents() {
+  if (usageFlushTimer) {
+    clearTimeout(usageFlushTimer);
+    usageFlushTimer = null;
+  }
+  if (!pendingUsageEvents.length) return;
+  const eventsToWrite = pendingUsageEvents;
+  pendingUsageEvents = [];
+  const cutoff = Date.now() - USAGE_EVENT_TTL_MS;
+  try {
+    updateJsonAtomicSync(usageStorePath(), (curRaw) => {
+      const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
+      const events = Array.isArray(cur.events) ? cur.events : [];
+      const kept = events
+        .filter(e => num(e?.ts, 0) >= cutoff)
+        .slice(-MAX_USAGE_EVENTS + eventsToWrite.length);
+      kept.push(...eventsToWrite);
+      return { version: 1, updatedAt: Date.now(), events: kept.slice(-MAX_USAGE_EVENTS) };
+    }, { compact: true, fsync: false, fsyncDir: false });
+  } catch {
+    // Local telemetry must never affect the routed model call.
+  }
+}
+
+function scheduleGatewayUsageFlush() {
+  if (usageFlushTimer) return;
+  usageFlushTimer = setTimeout(flushGatewayUsageEvents, USAGE_FLUSH_DELAY_MS);
+  usageFlushTimer.unref?.();
+}
+
+try {
+  process.on('beforeExit', flushGatewayUsageEvents);
+  process.on('exit', flushGatewayUsageEvents);
+} catch {
+  // Embedded runtimes may not expose process lifecycle hooks.
+}
+
 function compactTelemetry(compact) {
   if (!compact || typeof compact !== 'object') return null;
   const out = {
@@ -497,20 +537,9 @@ export function recordGatewayUsageEvent(summary) {
   };
   const compact = compactTelemetry(summary?.compact);
   if (compact) event.compact = compact;
-  const cutoff = Date.now() - USAGE_EVENT_TTL_MS;
-  try {
-    updateJsonAtomicSync(usageStorePath(), (curRaw) => {
-      const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
-      const events = Array.isArray(cur.events) ? cur.events : [];
-      const kept = events
-        .filter(e => num(e?.ts, 0) >= cutoff)
-        .slice(-MAX_USAGE_EVENTS + 1);
-      kept.push(event);
-      return { version: 1, updatedAt: Date.now(), events: kept };
-    }, { compact: true, fsyncDir: true });
-  } catch {
-    // Local telemetry must never affect the routed model call.
-  }
+  pendingUsageEvents.push(event);
+  if (pendingUsageEvents.length >= 20) flushGatewayUsageEvents();
+  else scheduleGatewayUsageFlush();
 }
 
 function loadUsageEvents() {

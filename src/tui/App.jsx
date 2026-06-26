@@ -16,15 +16,16 @@
  * layout, which <Static> collapses. The terminal handles scrollback itself as
  * the transcript column grows past the screen height.
  */
+import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import { theme, TURN_MARKER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
 import { AssistantMessage, UserMessage, ThinkingMessage, NoticeMessage } from './components/Message.jsx';
 import { ToolExecution } from './components/ToolExecution.jsx';
 import { Spinner } from './components/Spinner.jsx';
-import { TurnDone } from './components/TurnDone.jsx';
+import { StatusDone, TurnDone } from './components/TurnDone.jsx';
 import { StatusLine } from './components/StatusLine.jsx';
 import { PromptInput } from './components/PromptInput.jsx';
 import { QueuedCommands } from './components/QueuedCommands.jsx';
@@ -33,6 +34,14 @@ import { SlashCommandPalette } from './components/SlashCommandPalette.jsx';
 import { ContextPanel } from './components/ContextPanel.jsx';
 import { UsagePanel } from './components/UsagePanel.jsx';
 import { TextEntryPanel } from './components/TextEntryPanel.jsx';
+import {
+  buildPromptContentWithImages,
+  formatImageRef,
+  imageReferenceIds,
+  readClipboardImageAttachment,
+  readImageAttachmentFromPath,
+  splitPastedImagePathCandidates,
+} from './paste-attachments.mjs';
 import { formatDuration } from './time-format.mjs';
 
 const HELP = [
@@ -341,38 +350,71 @@ function centerLine(value, columns, reserve = 0) {
   return `${' '.repeat(pad)}${text}`;
 }
 
-// Copy text to the OS clipboard via the platform's native command. We avoid
-// OSC 52 (terminal clipboard escape) because support is uneven across Windows
-// terminals; spawning clip/pbcopy/xclip is reliable. Resolves on success,
-// rejects if the helper is missing or errors.
+function osc52ClipboardSequence(text) {
+  const b64 = Buffer.from(String(text ?? ''), 'utf8').toString('base64');
+  const raw = `\x1b]52;c;${b64}\x07`;
+  if (!process.env.TMUX) return raw;
+  return `\x1bPtmux;${raw.replaceAll('\x1b', '\x1b\x1b')}\x1b\\`;
+}
+
+function writeOsc52Clipboard(text) {
+  try {
+    process.stdout.write(osc52ClipboardSequence(text));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function nativeClipboardCommand(text) {
+  if (process.platform === 'win32') {
+    // Do not use clip.exe here: it decodes stdin with the system code page on
+    // many Windows setups, which turns UTF-8 glyphs like `·` into mojibake.
+    // Send base64 ASCII through stdin and let PowerShell decode UTF-8 before
+    // calling Set-Clipboard.
+    return {
+      cmd: 'powershell.exe',
+      args: [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        '$b=[Console]::In.ReadToEnd();$t=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b));Set-Clipboard -Value $t',
+      ],
+      input: Buffer.from(String(text ?? ''), 'utf8').toString('base64'),
+    };
+  }
+  if (process.platform === 'darwin') return { cmd: 'pbcopy', args: [], input: text };
+  if (process.env.WAYLAND_DISPLAY) return { cmd: 'wl-copy', args: [], input: text };
+  return { cmd: 'xclip', args: ['-selection', 'clipboard'], input: text };
+}
+
+// Copy text to the OS clipboard using Claude Code's shape: send OSC 52 to the
+// terminal, then use a native helper as a local safety net. OSC 52 preserves
+// Unicode via base64; the Windows helper avoids clip.exe's code-page mojibake.
 function copyToClipboard(text) {
+  const value = String(text ?? '');
+  const wroteOsc52 = writeOsc52Clipboard(value);
   return new Promise((resolve, reject) => {
-    let cmd;
-    let args = [];
-    if (process.platform === 'win32') {
-      cmd = 'clip';
-    } else if (process.platform === 'darwin') {
-      cmd = 'pbcopy';
-    } else if (process.env.WAYLAND_DISPLAY) {
-      cmd = 'wl-copy';
-    } else {
-      cmd = 'xclip';
-      args = ['-selection', 'clipboard'];
-    }
+    const { cmd, args, input } = nativeClipboardCommand(value);
     let child;
     try {
-      child = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'ignore'] });
+      child = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true });
     } catch (e) {
-      reject(e);
+      if (wroteOsc52) resolve();
+      else reject(e);
       return;
     }
-    child.on('error', reject);
+    child.on('error', (e) => {
+      if (wroteOsc52) resolve();
+      else reject(e);
+    });
     child.on('close', (code) => {
-      if (code === 0) resolve();
+      if (code === 0 || wroteOsc52) resolve();
       else reject(new Error(`${cmd} exited with code ${code}`));
     });
     child.stdin.on('error', () => { /* ignore EPIPE if the helper closed early */ });
-    child.stdin.end(text);
+    child.stdin.end(input);
   });
 }
 
@@ -380,9 +422,10 @@ const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpan
   switch (item.kind) {
     case 'user': return <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} />;
     case 'assistant': return <AssistantMessage text={item.text} streaming={item.streaming} />;
-    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} />;
+    case 'tool': return <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} headerFinalized={item.headerFinalized} />;
     case 'notice': return <NoticeMessage text={item.text} tone={item.tone} columns={columns} />;
     case 'turndone': return <TurnDone elapsedMs={item.elapsedMs} status={item.status} outputTokens={item.outputTokens} thinkingElapsedMs={item.thinkingElapsedMs} verb={item.verb} />;
+    case 'statusdone': return <StatusDone label={item.label} detail={item.detail} />;
     default: return null;
   }
 });
@@ -396,6 +439,26 @@ function positiveIntEnv(name, fallback) {
 }
 
 const TRANSCRIPT_WINDOW_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS', 180);
+const SELECTION_PAINT_INTERVAL_MS = positiveIntEnv('MIXDOG_TUI_SELECTION_PAINT_MS', 24);
+
+function selectionRectsEqual(a, b) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.mode === b.mode
+    && a.x1 === b.x1
+    && a.y1 === b.y1
+    && a.x2 === b.x2
+    && a.y2 === b.y2
+    && a.clipY1 === b.clipY1
+    && a.clipY2 === b.clipY2
+    && a.captureText === b.captureText;
+}
+
+function shiftSelectionRectY(rect, deltaY) {
+  const dy = Math.round(Number(deltaY) || 0);
+  if (!rect || dy === 0) return rect || null;
+  return { ...rect, y1: rect.y1 + dy, y2: rect.y2 + dy };
+}
 
 function estimateWrappedRows(text, columns, reserve = 4) {
   const width = Math.max(8, Number(columns || 80) - reserve);
@@ -422,6 +485,7 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
     case 'notice':
       return 1 + estimateWrappedRows(item.text, columns, 6);
     case 'turndone':
+    case 'statusdone':
       return 2;
     default:
       return 1;
@@ -574,6 +638,9 @@ export function App({ store, initialStatusLine = '' }) {
   const [settingsPrompt, setSettingsPrompt] = useState(null);
   const [promptDraft, setPromptDraft] = useState('');
   const [promptDraftOverride, setPromptDraftOverride] = useState(null);
+  const [, setPastedImages] = useState({});
+  const pastedImagesRef = useRef({});
+  const nextPastedImageIdRef = useRef(1);
   const promptValueRef = useRef('');
   const [promptHint, setPromptHint] = useState('');
   const [promptHintTone, setPromptHintTone] = useState('info');
@@ -590,20 +657,22 @@ export function App({ store, initialStatusLine = '' }) {
   // dragRef tracks an in-progress mouse text selection (see the mouse handler):
   // anchor = where the drag began, last = the latest cell, active = button held.
   const dragRef = useRef({ anchor: null, anchorScroll: 0, last: null, active: false, rect: null });
-  const selectionPaintRef = useRef({ t: 0 });
+  const selectionPaintRef = useRef({ t: 0, rect: null, pending: null, timer: null });
   const transcriptViewportRef = useRef({ top: 0, bottom: 0 });
+  const selectionLayoutRef = useRef(null);
   const selectionTextRef = useRef('');
+  const selectionTextTimerRef = useRef(null);
   // lastClickRef tracks the previous left-press cell + time so the mouse handler
   // can detect a double-click (same cell within 400ms) for word selection.
   const lastClickRef = useRef({ x: -1, y: -1, t: 0 });
 
   // Copy the currently-highlighted selection to the OS clipboard. ink's fork
   // refreshed store.getRenderSelectionText() on the synchronous render that the
-  // final setSelection() triggered, so the text under the rect is ready to read.
-  const copySelection = useCallback((rect, attempt = 0) => {
+  // final setSelection() triggered, so the selected text is ready to read.
+  const copySelection = useCallback((attempt = 0) => {
     const text = store.getRenderSelectionText?.() || selectionTextRef.current;
     if ((!text || !text.trim()) && attempt < 4) {
-      setTimeout(() => copySelection(rect, attempt + 1), attempt === 0 ? 0 : 24);
+      setTimeout(() => copySelection(attempt + 1), attempt === 0 ? 0 : 24);
       return;
     }
     if (!text || !text.trim()) return;
@@ -678,6 +747,84 @@ export function App({ store, initialStatusLine = '' }) {
     }, 2200);
   }, []);
 
+  const installPastedImages = useCallback((images, { merge = true } = {}) => {
+    if (!images || typeof images !== 'object' || Object.keys(images).length === 0) return;
+    const next = merge ? { ...pastedImagesRef.current, ...images } : { ...images };
+    pastedImagesRef.current = next;
+    const maxId = Object.keys(next)
+      .map((id) => Number(id) || 0)
+      .reduce((max, id) => Math.max(max, id), 0);
+    if (maxId >= nextPastedImageIdRef.current) nextPastedImageIdRef.current = maxId + 1;
+    setPastedImages(next);
+  }, []);
+
+  const clearPastedImagesSnapshot = useCallback((snapshot = null) => {
+    if (!snapshot) {
+      if (Object.keys(pastedImagesRef.current || {}).length === 0) return;
+      pastedImagesRef.current = {};
+      setPastedImages({});
+      return;
+    }
+    if (typeof snapshot !== 'object' || Object.keys(snapshot).length === 0) return;
+    const next = { ...pastedImagesRef.current };
+    let changed = false;
+    for (const [id, image] of Object.entries(snapshot)) {
+      if (next[id] === image) {
+        delete next[id];
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    pastedImagesRef.current = next;
+    setPastedImages(next);
+  }, []);
+
+  const registerPastedImage = useCallback((image) => {
+    if (!image || image.type !== 'image' || !image.content) return '';
+    const id = nextPastedImageIdRef.current++;
+    const entry = { ...image, id };
+    pastedImagesRef.current = { ...pastedImagesRef.current, [id]: entry };
+    setPastedImages(pastedImagesRef.current);
+    return formatImageRef(id);
+  }, []);
+
+  const handlePromptPaste = useCallback((text, meta = {}) => {
+    const source = String(meta?.source || 'paste');
+    const value = String(text ?? '');
+    if (source === 'clipboard-image-shortcut' && !value) {
+      return readClipboardImageAttachment()
+        .then((image) => {
+          if (!image) {
+            showPromptHint('no image found on clipboard', 'plain');
+            return false;
+          }
+          const ref = registerPastedImage(image);
+          showPromptHint(`attached ${image.filename || 'clipboard image'}`, 'plain');
+          return ref;
+        })
+        .catch((e) => {
+          showPromptHint(`image paste failed: ${e?.message || e}`, 'warn');
+          return false;
+        });
+    }
+
+    const chunks = splitPastedImagePathCandidates(value);
+    if (!chunks.some((chunk) => chunk.imagePath)) return undefined;
+    return Promise.all(chunks.map(async (chunk) => {
+      if (!chunk.imagePath) return chunk.text;
+      try {
+        const image = await readImageAttachmentFromPath(chunk.text, state.cwd || process.cwd());
+        if (!image) return chunk.text;
+        const ref = registerPastedImage(image);
+        showPromptHint(`attached ${image.filename || 'image'}`, 'plain');
+        return ref;
+      } catch (e) {
+        showPromptHint(`image attach failed: ${e?.message || e}`, 'warn');
+        return chunk.text;
+      }
+    })).then((parts) => parts.join(''));
+  }, [registerPastedImage, showPromptHint, state.cwd]);
+
   const stopSmoothScroll = useCallback(() => {
     if (!scrollAnimationRef.current) return;
     clearInterval(scrollAnimationRef.current);
@@ -710,7 +857,9 @@ export function App({ store, initialStatusLine = '' }) {
   }, [stopSmoothScroll]);
 
   const rememberSelectionTextSoon = useCallback(() => {
-    setTimeout(() => {
+    if (selectionTextTimerRef.current) return;
+    selectionTextTimerRef.current = setTimeout(() => {
+      selectionTextTimerRef.current = null;
       const text = store.getRenderSelectionText?.();
       if (text && text.trim()) selectionTextRef.current = text;
     }, 0);
@@ -721,33 +870,71 @@ export function App({ store, initialStatusLine = '' }) {
     y2: Math.max(0, Number(transcriptViewportRef.current?.bottom) || 0),
   }), []);
 
-  const withSelectionClip = useCallback((rect) => {
+  const withSelectionClip = useCallback((rect, options = {}) => {
     if (!rect) return null;
     const clip = selectionClip();
-    return {
+    const clipped = {
       ...rect,
       clipY1: clip.y1,
       clipY2: Math.max(clip.y1, clip.y2),
     };
+    if (options.captureText === false) clipped.captureText = false;
+    return clipped;
   }, [selectionClip]);
+
+  const paintSelectionRect = useCallback((clippedRect, { rememberText = true } = {}) => {
+    const nextRect = clippedRect || null;
+    const state = selectionPaintRef.current;
+    if (selectionRectsEqual(state.rect, nextRect)) return false;
+    state.rect = nextRect;
+    state.t = Date.now();
+    store.setRenderSelection?.(nextRect);
+    if (nextRect && rememberText && nextRect.captureText !== false) rememberSelectionTextSoon();
+    return true;
+  }, [store, rememberSelectionTextSoon]);
 
   const applySelectionRect = useCallback((rect) => {
     const clippedRect = withSelectionClip(rect);
     dragRef.current.rect = clippedRect || null;
     if (!clippedRect) selectionTextRef.current = '';
-    store.setRenderSelection?.(clippedRect || null);
-    if (clippedRect) rememberSelectionTextSoon();
-  }, [store, rememberSelectionTextSoon, withSelectionClip]);
+    const state = selectionPaintRef.current;
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+      state.pending = null;
+    }
+    paintSelectionRect(clippedRect, { rememberText: true });
+  }, [paintSelectionRect, withSelectionClip]);
 
   const applySelectionRectThrottled = useCallback((rect) => {
-    const clippedRect = withSelectionClip(rect);
+    const clippedRect = withSelectionClip(rect, { captureText: false });
+    if (selectionRectsEqual(dragRef.current.rect, clippedRect)) return;
     dragRef.current.rect = clippedRect || null;
+    const state = selectionPaintRef.current;
+    if (selectionRectsEqual(state.rect, clippedRect)) return;
     const now = Date.now();
-    if (now - selectionPaintRef.current.t < 16) return;
-    selectionPaintRef.current.t = now;
-    store.setRenderSelection?.(clippedRect || null);
-    if (clippedRect) rememberSelectionTextSoon();
-  }, [store, rememberSelectionTextSoon, withSelectionClip]);
+    const elapsed = now - state.t;
+    if (elapsed >= SELECTION_PAINT_INTERVAL_MS) {
+      if (state.timer) {
+        clearTimeout(state.timer);
+        state.timer = null;
+        state.pending = null;
+      }
+      paintSelectionRect(clippedRect, { rememberText: false });
+      return;
+    }
+    state.pending = clippedRect || null;
+    if (!state.timer) {
+      state.timer = setTimeout(() => {
+        const current = selectionPaintRef.current;
+        const pending = current.pending;
+        current.timer = null;
+        current.pending = null;
+        paintSelectionRect(pending, { rememberText: false });
+      }, Math.max(1, SELECTION_PAINT_INTERVAL_MS - elapsed));
+      state.timer.unref?.();
+    }
+  }, [paintSelectionRect, withSelectionClip]);
 
   const selectionPointAtCurrentScroll = useCallback((point, pointScroll = 0) => {
     if (!point) return null;
@@ -757,11 +944,23 @@ export function App({ store, initialStatusLine = '' }) {
     };
   }, []);
 
+  useEffect(() => () => {
+    const paintState = selectionPaintRef.current;
+    if (paintState.timer) clearTimeout(paintState.timer);
+    paintState.timer = null;
+    paintState.pending = null;
+    if (selectionTextTimerRef.current) clearTimeout(selectionTextTimerRef.current);
+    selectionTextTimerRef.current = null;
+  }, []);
+
   const scrollTranscriptRows = useCallback((deltaRows, options = {}) => {
     const maxTarget = Math.max(0, Number(maxScrollRowsRef.current) || 0);
     const target = Math.max(0, Math.min(maxTarget, scrollTargetRef.current + deltaRows));
     const appliedDelta = target - scrollTargetRef.current;
     scrollTargetRef.current = target;
+    if (appliedDelta !== 0 && selectionLayoutRef.current) {
+      selectionLayoutRef.current = { ...selectionLayoutRef.current, scrollOffset: target };
+    }
     if (appliedDelta !== 0 && dragRef.current.rect) {
       let rect;
       if (dragRef.current.active) {
@@ -769,15 +968,11 @@ export function App({ store, initialStatusLine = '' }) {
         const currentAnchor = selectionPointAtCurrentScroll(anchor, anchorScroll);
         rect = currentAnchor && last ? { mode: 'linear', x1: currentAnchor.x, y1: currentAnchor.y, x2: last.x, y2: last.y } : null;
       } else {
-        rect = {
-          ...dragRef.current.rect,
-          y1: dragRef.current.rect.y1 + appliedDelta,
-          y2: dragRef.current.rect.y2 + appliedDelta,
-        };
+        rect = shiftSelectionRectY(dragRef.current.rect, appliedDelta);
       }
       const clippedRect = withSelectionClip(rect);
       dragRef.current = { ...dragRef.current, rect: clippedRect };
-      store.setRenderSelection?.(clippedRect);
+      paintSelectionRect(clippedRect, { rememberText: !dragRef.current.active });
     }
     if (options.smooth) {
       startSmoothScroll();
@@ -786,7 +981,7 @@ export function App({ store, initialStatusLine = '' }) {
     stopSmoothScroll();
     scrollPositionRef.current = target;
     setScrollOffset(Math.round(target));
-  }, [startSmoothScroll, stopSmoothScroll, store, selectionPointAtCurrentScroll, withSelectionClip]);
+  }, [startSmoothScroll, stopSmoothScroll, paintSelectionRect, selectionPointAtCurrentScroll, withSelectionClip]);
 
   const passthroughCtrlWheelZoom = useCallback(() => {
     if (!stdout?.write) return;
@@ -937,8 +1132,8 @@ export function App({ store, initialStatusLine = '' }) {
         } else if (!press && dragRef.current.active) {
           // Button release while dragging: finalize with the release coordinate
           // (the SGR release event carries col/row) and keep the selection
-          // visible. Copy is NOT automatic — the user presses Ctrl+C to copy
-          // (see useInput). The highlight stays until ESC or a plain click.
+          // visible. Copy is NOT automatic — the user presses Ctrl+C to copy.
+          // The highlight stays until ESC or a plain click.
           const anchor = selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
           dragRef.current.active = false;
           const rect = linearSelection(anchor, { x, y: clampToTranscriptViewport(y) });
@@ -946,8 +1141,7 @@ export function App({ store, initialStatusLine = '' }) {
           if (empty) {
             applySelectionRect(null); // a plain click clears any prior highlight
           } else {
-            // Push the final rect so ink re-renders and refreshes the selection
-            // text synchronously; it is read back by copySelection on Ctrl+C.
+            // Push the final rect so ink re-renders the visible selection.
             applySelectionRect(rect);
           }
         }
@@ -968,7 +1162,7 @@ export function App({ store, initialStatusLine = '' }) {
     };
     inkInput.on('input', onData);
     return () => { inkInput.off('input', onData); };
-  }, [inkInput, isRawModeSupported, store, copySelection, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll]);
+  }, [inkInput, isRawModeSupported, store, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll]);
 
   // Keep the transcript pinned only while the user is already at the bottom.
   // If they scroll up to inspect a long answer, later tool/result cards must not
@@ -1014,6 +1208,7 @@ export function App({ store, initialStatusLine = '' }) {
       return false;
     }
     if (restoreDraft) {
+      if (restored.pastedImages) installPastedImages(restored.pastedImages, { merge: true });
       setPromptDraftOverride({ id: Date.now(), value: restored.text });
     }
     if (showHint) {
@@ -1022,47 +1217,42 @@ export function App({ store, initialStatusLine = '' }) {
       clearPromptHint();
     }
     return true;
-  }, [store, promptDraft, showPromptHint, clearPromptHint]);
+  }, [store, promptDraft, showPromptHint, clearPromptHint, installPastedImages]);
 
   // ESC / Up handling (Claude Code parity — refs/claude-code/src/components/PromptInput/PromptInput.tsx):
   // - prompt-local overlays such as the slash palette close first.
-  // - queued steering: Esc or Up pops queued text back into the prompt for
-  //   editing, before current input. This is intentionally not gated on the
-  //   rendered queued state so a very fast Esc after submit can still recover
-  //   the pending text instead of aborting the active turn.
-  // - active turn + no queued steering: PromptInput calls store.abort.
-  // - non-empty prompt: first Esc only warns; second Esc clears the text.
+  // - non-empty prompt text is cleared by PromptInput and must never interrupt
+  //   the active turn on the same Esc press.
+  // - empty prompt + active turn interrupts the active turn.
+  // - idle empty prompt can pop queued text back into the prompt for editing.
   const handlePromptEscape = useCallback((text = '', meta = {}) => {
     if (usagePanel) { closeUsagePanel(); return true; }
     if (contextPanel) { setContextPanel(null); return true; }
 
-    if (restoreQueuedToPrompt({ restoreDraft: true, showHint: false, currentText: text })) {
-      return true;
-    }
-
-    if (meta.phase === 'arm-clear') {
-      showPromptHint('Press Esc again to clear.', 'cancel');
-      return false;
-    }
     if (meta.phase === 'clear') {
+      clearPastedImagesSnapshot();
       clearPromptHint();
       return false;
+    }
+    if (meta.phase === 'empty') {
+      return restoreQueuedToPrompt({ restoreDraft: true, showHint: false, currentText: text });
     }
     // Idle + empty + nothing to restore: nothing (Claude Code: double-press from empty
     // opens message selector, but we don't have that feature yet).
     return false;
-  }, [contextPanel, usagePanel, closeUsagePanel, restoreQueuedToPrompt, showPromptHint, clearPromptHint]);
+  }, [contextPanel, usagePanel, closeUsagePanel, restoreQueuedToPrompt, clearPromptHint, clearPastedImagesSnapshot]);
 
   const handlePromptInterrupt = useCallback((currentText = '') => {
     const result = store.abort?.();
     if (result?.aborted === false) return undefined;
+    if (result?.pastedImages) installPastedImages(result.pastedImages, { merge: true });
     const restoreText = String(result?.restoreText || '').trim();
     if (!restoreText) return undefined;
     const existingText = String(currentText || '').trim();
     const nextText = [restoreText, existingText].filter(Boolean).join('\n');
     clearPromptHint();
     return nextText;
-  }, [store, clearPromptHint]);
+  }, [store, clearPromptHint, installPastedImages]);
 
   // Ctrl+O toggles the global tool-output expansion, matching the Claude/Pi
   // expectation that this is a view mode rather than a per-card hidden state.
@@ -1072,18 +1262,16 @@ export function App({ store, initialStatusLine = '' }) {
 
   useInput((input, key) => {
     if (key.ctrl && (input === 'b' || input === 'B')) {
+      if (hasTextEntryPrompt || (!picker && String(promptValueRef.current || '').length > 0)) return;
       store.toggleBridgeMode?.();
       return;
     }
     if (key.ctrl && (input === 'c' || input === 'C')) {
       // Ctrl+C is copy-only. It must never interrupt an active turn; Esc owns
-      // cancellation. The highlight is intentionally kept visible after copy.
-      // With no active selection this is a no-op (exitOnCtrlC:false in
-      // index.jsx already prevents Ctrl+C from terminating the app).
+      // cancellation. With no active selection this is a no-op.
       const rect = dragRef.current.rect;
       const hasSelection = rect && !(rect.x1 === rect.x2 && rect.y1 === rect.y2);
-      if (hasSelection) copySelection(rect);
-      else if (!state.busy && state.queued?.length > 0) restoreQueuedToPrompt({ restoreDraft: true, showHint: false });
+      if (hasSelection) copySelection();
       return;
     }
     if (key.ctrl && (input === 'o' || input === 'O')) {
@@ -1990,18 +2178,13 @@ export function App({ store, initialStatusLine = '' }) {
         tag: clean(row?.tag || row?.role || row?.type || row?.task_id || ''),
         status: clean(row?.status || row?.stage || ''),
       }))
-      .filter((row) => row.tag && row.status && row.status !== 'idle');
-    const bridgeIdle = bridgeRows
-      .map((row) => ({
-        tag: clean(row?.tag || row?.role || row?.type || row?.task_id || ''),
-        status: clean(row?.status || row?.stage || ''),
-      }))
-      .filter((row) => row.tag && row.status === 'idle');
+      .filter((row) => row.tag && row.status && !/idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i.test(row.status));
     const bridgeAgentText = bridgeActive.length
-      ? `${bridgeActive.length} active (${summarizeTags(bridgeActive.map((row) => row.tag))})`
-      : bridgeIdle.length
-        ? `${bridgeIdle.length} idle (${summarizeTags(bridgeIdle.map((row) => row.tag))})`
-        : 'no active agents';
+      ? `${bridgeActive.length} Active (${summarizeTags(bridgeActive.map((row) => row.tag))})`
+      : 'No Active Agents';
+    const bridgeScopeLabel = state.bridgeScope?.clientHostPid
+      ? `this terminal · pid ${state.bridgeScope.clientHostPid}`
+      : (state.clientHostPid ? `this terminal · pid ${state.clientHostPid}` : 'this terminal');
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
@@ -2028,7 +2211,7 @@ export function App({ store, initialStatusLine = '' }) {
         {
           value: 'bridge',
           label: 'Bridge',
-          description: `default ${state.bridgeMode || 'async'} · ${bridgeAgentText}`,
+          description: `default ${state.bridgeMode || 'async'} · ${bridgeAgentText} · ${bridgeScopeLabel}`,
         },
         {
           value: 'tools',
@@ -2155,22 +2338,28 @@ export function App({ store, initialStatusLine = '' }) {
     const contextSource = context.usedSource === 'last_api_request' ? 'last API request' : 'estimated';
     const lastApiLabel = context.lastApiRequestStale ? 'last API request (pre-compact)' : 'last API request';
     const compactBoundary = Number(compaction.boundaryTokens || windowTokens || 0);
-    const compactTrigger = Number(compaction.triggerTokens || 0);
-    const compactTarget = compactTrigger || compactBoundary;
-    const compactState = compaction.lastChanged
+    const compactTrigger = Number(compaction.triggerTokens || compactBoundary || 0);
+    const compactBuffer = Number(compaction.bufferTokens || Math.max(0, compactBoundary - compactTrigger) || 0);
+    const compactRunning = compaction.inProgress === true || compaction.lastStage === 'compacting';
+    const autoClearStage = compaction.lastStage === 'auto_clear' || compaction.lastClearAt;
+    const compactState = compactRunning
+      ? `compacting ${fmt(compaction.lastPressureTokens || usedTokens)}/${fmt(compactTrigger || compactBoundary)}`
+      : autoClearStage
+      ? `auto-cleared ${fmt(compaction.lastClearBeforeTokens ?? compaction.lastBeforeTokens)}→${fmt(compaction.lastClearAfterTokens ?? compaction.lastAfterTokens)}`
+      : compaction.lastChanged
       ? `compacted ${fmt(compaction.lastBeforeTokens)}→${fmt(compaction.lastAfterTokens)}`
-      : `checked ${fmt(compaction.lastPressureTokens || usedTokens)}/${fmt(compactTarget)}`;
+      : `checked ${fmt(compaction.lastPressureTokens || usedTokens)}/${fmt(compactTrigger || compactBoundary)}`;
     const contextRows = [
       {
         value: 'summary',
         label: 'Context Usage',
-        description: `${fmt(usedTokens)}/${fmt(windowTokens)} (${pct(usedTokens)}) · ${fmt(freeTokens)} free · ${contextSource}`,
+        description: `${fmt(usedTokens)}/${fmt(windowTokens)} (${pct(usedTokens)}) · ${fmt(freeTokens)} free · ${contextSource} · effective`,
         _action: 'summary',
       },
       {
         value: 'compaction',
         label: 'Compaction',
-        description: `${compactState} · ${compaction.lastStage || 'pending'}${compactTarget ? ` · trigger ${fmt(compactTarget)}` : ''}`,
+        description: `${compactState} · ${compaction.lastStage || 'pending'}${compactTrigger ? ` · trigger ${fmt(compactTrigger)}` : ''}${compactBoundary ? ` · boundary ${fmt(compactBoundary)}` : ''}${compactBuffer ? ` · buffer ${fmt(compactBuffer)} (${pct(compactBuffer, compactBoundary)})` : ''}`,
         _action: 'compaction',
       },
       {
@@ -2830,6 +3019,7 @@ export function App({ store, initialStatusLine = '' }) {
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
+    setContextPanel(null);
     let setup;
     try {
       setup = store.getChannelSetup();
@@ -2838,9 +3028,22 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
 
+    const openChannelPrompt = (prompt) => {
+      setPicker(null);
+      setContextPanel(null);
+      setChannelPrompt(prompt);
+    };
+
     if (focus === 'schedules') {
       const schedules = setup.schedules || [];
-      const items = schedules.length ? schedules.map((schedule) => {
+      const items = [
+        {
+          value: 'schedule-add',
+          label: 'Add schedule',
+          description: 'name | cron | instructions | optional channel | optional model',
+          _action: 'schedule-add',
+        },
+        ...(schedules.length ? schedules.map((schedule) => {
         const enabled = schedule.enabled !== false;
         return {
           value: `schedule:${schedule.name}`,
@@ -2851,18 +3054,36 @@ export function App({ store, initialStatusLine = '' }) {
           _enabled: enabled,
         };
       }) : [{
-        value: 'empty',
-        label: 'No schedules',
-        description: 'no schedules configured',
-        _action: 'noop',
-      }];
+          value: 'empty',
+          label: 'No schedules',
+          description: 'no schedules configured',
+          _action: 'noop',
+        }]),
+        {
+          value: 'back',
+          label: 'Back',
+          description: 'return to channel setup',
+          _action: 'back',
+        },
+      ];
       setPicker({
         title: 'Schedules',
         items,
         onSelect: (_value, item) => {
-          setPicker(null);
-          if (item._action !== 'schedule-toggle') return;
           try {
+            if (item._action === 'schedule-add') {
+              openChannelPrompt({
+                kind: 'schedule-add',
+                label: 'Add schedule',
+                hint: 'Format: name | cron (5 or 6 fields) | instructions | channel(optional) | model(required with channel)',
+              });
+              return;
+            }
+            if (item._action === 'back') {
+              void openChannelSetupPicker('all');
+              return;
+            }
+            if (item._action !== 'schedule-toggle') return;
             store.setScheduleEnabled?.(item._name, !item._enabled);
             void openChannelSetupPicker('schedules');
           } catch (e) {
@@ -2870,8 +3091,7 @@ export function App({ store, initialStatusLine = '' }) {
           }
         },
         onCancel: () => {
-          if (typeof options.onCancel === 'function') options.onCancel();
-          else setPicker(null);
+          setPicker(null);
         },
       });
       return;
@@ -2881,6 +3101,12 @@ export function App({ store, initialStatusLine = '' }) {
       const hooks = setup.webhooks || [];
       const serverEnabled = setup.webhook.enabled !== false;
       const items = [
+        {
+          value: 'webhook-add',
+          label: 'Add webhook',
+          description: 'name | instructions | optional channel | optional model | parser',
+          _action: 'webhook-add',
+        },
         {
           value: 'webhook-server',
           label: `${serverEnabled ? '●' : '○'} Webhook server`,
@@ -2904,13 +3130,30 @@ export function App({ store, initialStatusLine = '' }) {
           description: 'no webhook endpoints configured',
           _action: 'noop',
         }]),
+        {
+          value: 'back',
+          label: 'Back',
+          description: 'return to channel setup',
+          _action: 'back',
+        },
       ];
       setPicker({
         title: 'Webhooks',
         items,
         onSelect: (_value, item) => {
-          setPicker(null);
           try {
+            if (item._action === 'webhook-add') {
+              openChannelPrompt({
+                kind: 'webhook-add',
+                label: 'Add webhook',
+                hint: 'Format: name | instructions | channel(optional) | model(required with channel) | parser(github/generic/stripe/sentry)',
+              });
+              return;
+            }
+            if (item._action === 'back') {
+              void openChannelSetupPicker('all');
+              return;
+            }
             if (item._action === 'server-toggle') {
               store.setWebhookConfig?.({ enabled: !item._enabled });
               void openChannelSetupPicker('webhooks');
@@ -2925,69 +3168,156 @@ export function App({ store, initialStatusLine = '' }) {
           }
         },
         onCancel: () => {
-          if (typeof options.onCancel === 'function') options.onCancel();
-          else setPicker(null);
+          setPicker(null);
         },
       });
       return;
     }
 
     const worker = store.getChannelWorkerStatus?.();
-    const rows = [
+    const serverEnabled = setup.webhook.enabled !== false;
+    const items = [
       {
         value: 'worker-status',
         label: 'Channel runtime',
         description: worker?.running ? `running · pid ${worker.pid}` : 'stopped',
+        _action: 'worker-status',
       },
       {
         value: 'discord-token',
         label: 'Discord token',
         description: `Bot token · ${setup.discord.status}${setup.discord.problem ? ' · invalid' : ''}`,
+        _action: 'discord-token',
+      },
+      {
+        value: 'channel-add',
+        label: 'Add channel',
+        description: 'name | channelId | mode(interactive/broadcast)',
+        _action: 'channel-add',
+      },
+      {
+        value: 'schedules',
+        label: 'Schedules',
+        description: `${(setup.schedules || []).length} configured`,
+        _action: 'schedules',
+      },
+      {
+        value: 'schedule-add',
+        label: 'Add schedule',
+        description: 'name | cron | instructions | optional channel | optional model',
+        _action: 'schedule-add',
       },
       {
         value: 'webhook-token',
         label: 'Webhook auth',
         description: `ngrok/webhook authtoken · ${setup.webhook.status}`,
+        _action: 'webhook-token',
       },
       {
         value: 'webhook-toggle',
-        label: 'Webhook server',
-        description: `${setup.webhook.enabled === false ? 'disabled' : 'enabled'} · port ${setup.webhook.port || 3333}`,
+        label: `${serverEnabled ? '●' : '○'} Webhook server`,
+        description: `${serverEnabled ? 'enabled' : 'disabled'} · port ${setup.webhook.port || 3333}`,
+        _action: 'webhook-toggle',
+        _enabled: serverEnabled,
       },
-    ];
-
-    if (focus !== 'schedules' && focus !== 'webhooks') {
-      for (const ch of setup.channels || []) {
-        rows.push({
+      {
+        value: 'webhooks',
+        label: 'Webhooks',
+        description: `${(setup.webhooks || []).length} configured`,
+        _action: 'webhooks',
+      },
+      {
+        value: 'webhook-add',
+        label: 'Add webhook',
+        description: 'name | instructions | optional channel | optional model | parser',
+        _action: 'webhook-add',
+      },
+      ...((setup.channels || []).map((ch) => ({
           value: `channel:${ch.name}`,
           label: `# ${ch.name}`,
-          description: `${ch.channelId || '(unset)'} · ${ch.mode}${ch.main ? ' · main' : ''}`,
-        });
-      }
-    }
-    if (focus !== 'webhooks') {
-      for (const schedule of setup.schedules || []) {
-        rows.push({
-          value: `schedule:${schedule.name}`,
-          label: `↻ ${schedule.name}`,
-          description: `${schedule.time || '(no cron)'} · ${schedule.route}${schedule.model ? ` · ${schedule.model}` : ''}`,
-        });
-      }
-    }
-    if (focus !== 'schedules') {
-      for (const hook of setup.webhooks || []) {
-        rows.push({
-          value: `webhook:${hook.name}`,
-          label: `⌁ ${hook.name}`,
-          description: `${hook.parser || 'github'} · ${hook.route} · secret:${hook.secretSet ? 'set' : 'missing'}`,
-        });
-      }
-    }
+          description: `${ch.channelId || '(unset)'} · ${ch.mode}${ch.main ? ' · main' : ''} · edit`,
+          _action: 'channel-edit',
+          _channel: ch,
+        }))),
+    ];
 
-    setPicker(null);
-    setContextPanel({
-      title: focus === 'schedules' ? 'Schedules' : focus === 'webhooks' ? 'Webhooks' : 'Channels',
-      rows,
+    setPicker({
+      title: 'Channels',
+      items,
+      onSelect: (_value, item) => {
+        try {
+          if (item._action === 'worker-status') {
+            store.pushNotice(worker?.running ? `channel runtime running: pid ${worker.pid}` : 'channel runtime stopped', 'info');
+            return;
+          }
+          if (item._action === 'discord-token') {
+            openChannelPrompt({
+              kind: 'discord-token',
+              label: 'Discord bot token',
+              hint: 'Paste the Discord bot token. It is stored in the OS keychain.',
+            });
+            return;
+          }
+          if (item._action === 'webhook-token') {
+            openChannelPrompt({
+              kind: 'webhook-token',
+              label: 'Webhook/ngrok authtoken',
+              hint: 'Paste the webhook/ngrok authtoken. It is stored in the OS keychain.',
+            });
+            return;
+          }
+          if (item._action === 'channel-add') {
+            openChannelPrompt({
+              kind: 'channel-add',
+              label: 'Add channel',
+              hint: 'Format: name | Discord channel ID | mode(interactive/broadcast) | main(optional)',
+            });
+            return;
+          }
+          if (item._action === 'channel-edit') {
+            const ch = item._channel || {};
+            openChannelPrompt({
+              kind: 'channel-add',
+              label: `Edit channel · ${ch.name}`,
+              hint: `Format: ${ch.name} | ${ch.channelId || '<channel-id>'} | ${ch.mode || 'interactive'} | ${ch.main ? 'main' : 'main(optional)'}`,
+            });
+            return;
+          }
+          if (item._action === 'schedule-add') {
+            openChannelPrompt({
+              kind: 'schedule-add',
+              label: 'Add schedule',
+              hint: 'Format: name | cron (5 or 6 fields) | instructions | channel(optional) | model(required with channel)',
+            });
+            return;
+          }
+          if (item._action === 'webhook-add') {
+            openChannelPrompt({
+              kind: 'webhook-add',
+              label: 'Add webhook',
+              hint: 'Format: name | instructions | channel(optional) | model(required with channel) | parser(github/generic/stripe/sentry)',
+            });
+            return;
+          }
+          if (item._action === 'webhook-toggle') {
+            store.setWebhookConfig?.({ enabled: !item._enabled });
+            void openChannelSetupPicker('all');
+            return;
+          }
+          if (item._action === 'schedules') {
+            void openChannelSetupPicker('schedules');
+            return;
+          }
+          if (item._action === 'webhooks') {
+            void openChannelSetupPicker('webhooks');
+          }
+        } catch (e) {
+          store.pushNotice(`channels update failed: ${e?.message || e}`, 'error');
+        }
+      },
+      onCancel: () => {
+        setPicker(null);
+      },
     });
   };
 
@@ -3995,13 +4325,13 @@ export function App({ store, initialStatusLine = '' }) {
             }
             if (r.changed === false) {
               store.pushNotice(
-                `compact made no changes: ${r.beforeMessages} messages, ${r.beforeTokens} est tokens`,
+                `compact made no changes: ${r.beforeMessages} messages, context ${r.beforeTokens}`,
                 'warn',
               );
               return;
             }
             store.pushNotice(
-              `Compacted context: ${r.beforeMessages}→${r.afterMessages} messages, ${r.beforeTokens}→${r.afterTokens} est tokens`,
+              `Compacted context: ${r.beforeMessages}→${r.afterMessages} messages, context ${r.beforeTokens}→${r.afterTokens}`,
               'info',
             );
           })
@@ -4284,10 +4614,26 @@ export function App({ store, initialStatusLine = '' }) {
 
     if (commandText.startsWith('/')) {
       const [cmd, ...rest] = commandText.slice(1).split(/\s+/);
-      return runSlashCommand(cmd, rest.join(' ').trim());
+      const accepted = runSlashCommand(cmd, rest.join(' ').trim());
+      if (accepted !== false) clearPastedImagesSnapshot();
+      return accepted;
     }
     resetTranscriptScroll();
-    return store.submit(text);
+    const imageRefs = imageReferenceIds(text);
+    const imageSnapshot = Object.fromEntries(Object.entries(pastedImagesRef.current || {})
+      .filter(([id]) => imageRefs.has(Number(id))));
+    const hasImageSnapshot = Object.keys(imageSnapshot).length > 0;
+    const content = buildPromptContentWithImages(text, imageSnapshot);
+    const accepted = store.submit(content, {
+      displayText: text,
+      pastedImages: imageSnapshot,
+      onCommitted: hasImageSnapshot ? () => clearPastedImagesSnapshot(imageSnapshot) : null,
+    });
+    if (accepted) {
+      if (imageRefs.size === 0 || (!hasImageSnapshot && !state.busy)) clearPastedImagesSnapshot();
+      else if (state.busy && hasImageSnapshot) clearPastedImagesSnapshot(imageSnapshot);
+    }
+    return accepted;
   };
 
   const activeSlashQuery = providerPrompt || channelPrompt || hookPrompt || settingsPrompt || contextPanel || usagePanel ? null : slashQuery(promptDraft);
@@ -4386,7 +4732,7 @@ export function App({ store, initialStatusLine = '' }) {
   const bridgeRevision = JSON.stringify({
     mode: state.bridgeMode || '',
     workers: (state.bridgeWorkers || []).map((w) => [w.tag, w.status, w.stage, w.sessionId]).slice(0, 20),
-    jobs: (state.bridgeJobs || []).map((j) => [j.task_id, j.status, j.tag, j.sessionId]).slice(0, 20),
+    jobs: (state.bridgeJobs || []).map((j) => [j.task_id, j.status, j.tag, j.sessionId, j.startedAt, j.finishedAt, j.error]).slice(0, 20),
   });
 
   // ── Transcript viewport height ──────────────────────────────────────────
@@ -4421,7 +4767,8 @@ export function App({ store, initialStatusLine = '' }) {
   // bottom sibling — it's a transcript item pinned after the turn's output, so
   // it lives inside the viewport and needs no separate reservation here.
   const THINKING_ROWS = state.thinking ? 3 : 0;
-  const SPINNER_ROWS = state.spinner?.active ? 2 : 0;
+  const liveSpinner = state.spinner?.active ? state.spinner : (state.commandStatus?.active ? state.commandStatus : null);
+  const SPINNER_ROWS = liveSpinner ? 2 : 0;
   const SCROLL_HINT_ROWS = 0;
   const LIVE_STATUS_ROWS = THINKING_ROWS + SPINNER_ROWS;
   // The standalone prompt box is 3 rows (round border + one input line). Normal
@@ -4484,6 +4831,26 @@ export function App({ store, initialStatusLine = '' }) {
     rowIndex: transcriptRowIndex,
   }), [state.items, scrollOffset, viewportHeight, frameColumns, toolOutputExpanded, transcriptRowIndex]);
   maxScrollRowsRef.current = transcriptWindow.maxScrollRows;
+  useLayoutEffect(() => {
+    const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
+    const next = {
+      top,
+      height: Math.max(1, Number(viewportHeight) || 1),
+      totalRows: Math.max(0, Number(transcriptWindow.totalRows) || 0),
+      scrollOffset: Math.max(0, Number(transcriptWindow.effectiveScrollOffset) || 0),
+    };
+    const previous = selectionLayoutRef.current;
+    selectionLayoutRef.current = next;
+    if (!previous || !dragRef.current.rect || dragRef.current.active) return;
+    const deltaY = (next.top - previous.top)
+      + (next.height - previous.height)
+      - (next.totalRows - previous.totalRows)
+      + (next.scrollOffset - previous.scrollOffset);
+    if (deltaY === 0) return;
+    const clippedRect = withSelectionClip(shiftSelectionRectY(dragRef.current.rect, deltaY));
+    dragRef.current = { ...dragRef.current, rect: clippedRect };
+    paintSelectionRect(clippedRect, { rememberText: true });
+  }, [viewportHeight, transcriptWindow.totalRows, transcriptWindow.effectiveScrollOffset, withSelectionClip, paintSelectionRect]);
   useEffect(() => {
     const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
     if (scrollTargetRef.current <= maxRows && scrollPositionRef.current <= maxRows && scrollOffset <= maxRows) return;
@@ -4510,6 +4877,7 @@ export function App({ store, initialStatusLine = '' }) {
       hintTone={inputHintTone}
       mask={false}
       onEscape={handlePromptEscape}
+      onPasteText={handlePromptPaste}
       commandPaletteActive={slashPaletteOpen}
       onCommandPaletteNavigate={(direction) => {
         setSlashIndex((index) => {
@@ -4517,8 +4885,11 @@ export function App({ store, initialStatusLine = '' }) {
           if (total === 0) return 0;
           if (direction === 'home') return 0;
           if (direction === 'end') return total - 1;
-          if (direction === 'right') return total - 1;
-          const step = Number(direction) || 0;
+          const step = direction === 'left'
+            ? -1
+            : direction === 'right'
+              ? 1
+              : Number(direction) || 0;
           if (step === 1 || step === -1) return (index + step + total) % total;
           return Math.max(0, Math.min(total - 1, index + step));
         });
@@ -4610,15 +4981,15 @@ export function App({ store, initialStatusLine = '' }) {
           viewport (flexShrink:1) yields rows to it, never the other way around —
           Spinner doesn't set flexShrink itself. TurnDone is now a transcript
           item (pinned after the turn's output), not a bottom-fixed slot. */}
-      {state.spinner?.active ? (
+      {liveSpinner ? (
         <Box flexShrink={0} width="100%" backgroundColor={theme.background}>
           <Spinner
-            verb={state.spinner.verb}
-            startedAt={state.spinner.startedAt}
-            responseLength={state.spinner?.responseLength ?? 0}
-            thinking={!!(state.thinking || state.spinner?.thinking)}
-            thinkingActiveSince={state.spinner?.thinkingSegmentStartedAt ?? 0}
-            mode={state.spinner?.mode || 'responding'}
+            verb={liveSpinner.verb}
+            startedAt={liveSpinner.startedAt}
+            outputTokens={liveSpinner?.outputTokens ?? liveSpinner?.tokens ?? 0}
+            thinking={!!(state.thinking || liveSpinner?.thinking)}
+            thinkingActiveSince={liveSpinner?.thinkingSegmentStartedAt ?? 0}
+            mode={liveSpinner?.mode || 'responding'}
             columns={frameColumns}
           />
         </Box>
@@ -4776,6 +5147,7 @@ export function App({ store, initialStatusLine = '' }) {
         ) : null}
         <StatusLine
           sessionId={state.sessionId}
+          clientHostPid={state.clientHostPid}
           provider={state.provider}
           model={state.model}
           effort={state.effort}

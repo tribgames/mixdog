@@ -137,7 +137,15 @@ function persistScopeSync(scopeKey) {
     }
     const obj = {};
     for (const [fp, snap] of readFiles.entries()) obj[fp] = snap;
-    try { writeJsonAtomicSync(path, _withInfinitySentinels(obj), { compact: true, lock: true, mode: 0o600 }); } catch {}
+    try {
+        writeJsonAtomicSync(path, _withInfinitySentinels(obj), {
+            compact: true,
+            lock: true,
+            mode: 0o600,
+            fsync: false,
+            fsyncDir: false,
+        });
+    } catch {}
 }
 
 export function deleteReadSnapshotPathEverywhere(fullPath) {
@@ -156,7 +164,15 @@ export function deleteReadSnapshotPathEverywhere(fullPath) {
             if (!obj || typeof obj !== 'object' || !Object.prototype.hasOwnProperty.call(obj, fullPath)) continue;
             delete obj[fullPath];
             if (Object.keys(obj).length === 0) unlinkSync(p);
-            else writeJsonAtomicSync(p, obj, { compact: true, lock: true, mode: 0o600 });
+            else {
+                writeJsonAtomicSync(p, obj, {
+                    compact: true,
+                    lock: true,
+                    mode: 0o600,
+                    fsync: false,
+                    fsyncDir: false,
+                });
+            }
         } catch {}
     }
 }

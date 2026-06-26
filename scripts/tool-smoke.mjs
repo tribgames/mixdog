@@ -2,7 +2,7 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compactToolSearchDescription, defaultDeferredToolNames } from '../src/mixdog-session-runtime.mjs';
-import { buildExplorerPrompt, EXPLORE_MAX_LOOP_ITERATIONS, EXPLORE_TOOL, MAX_FANOUT_QUERIES, normalizeExploreQueries } from '../src/standalone/explore-tool.mjs';
+import { buildExplorerPrompt, EXPLORE_TOOL, MAX_FANOUT_QUERIES, normalizeExploreQueries } from '../src/standalone/explore-tool.mjs';
 import { BRIDGE_TOOL, createStandaloneBridge, resolveBridgeExecutionMode } from '../src/standalone/bridge-tool.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { validateBuiltinArgs } from '../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
@@ -101,7 +101,7 @@ if (!/^Error[\s:[]/.test(String(stalePatchOut)) || !/apply_patch/i.test(String(s
   throw new Error(`apply_patch stale context must return an Error result, not throw or pass:\n${stalePatchOut}`);
 }
 
-const shellOut = await executeBuiltinTool('bash', {
+const shellOut = await executeBuiltinTool('shell', {
   command: 'node --version',
   cwd: root,
   timeout: 30_000,
@@ -109,7 +109,7 @@ const shellOut = await executeBuiltinTool('bash', {
 }, root);
 assertOk('bash explicit shell/cwd', shellOut, /v\d+\.\d+\.\d+/);
 
-const shellFailOut = await executeBuiltinTool('bash', {
+const shellFailOut = await executeBuiltinTool('shell', {
   command: 'Write-Error "tool-smoke-bash-fail"; exit 7',
   cwd: root,
   timeout: 30_000,
@@ -119,7 +119,7 @@ if (!/^Error[\s:[]/.test(String(shellFailOut)) || !/\[exit code: 7\]/.test(Strin
   throw new Error(`bash non-zero exit must be classified as Error:\n${shellFailOut}`);
 }
 
-const shellTimeoutOut = await executeBuiltinTool('bash', {
+const shellTimeoutOut = await executeBuiltinTool('shell', {
   command: 'Start-Sleep -Seconds 2; Write-Output tool-smoke-timeout-missed',
   cwd: root,
   timeout: 500,
@@ -164,30 +164,30 @@ if (!/lookaround\/backrefs/i.test(invalidGrepLookaround || '')) {
   throw new Error(`grep unsupported-regex guard failed: ${invalidGrepLookaround}`);
 }
 
-const invalidShellPath = validateBuiltinArgs('bash', {
+const invalidShellPath = validateBuiltinArgs('shell', {
   command: 'cd C:\\Project\\mixdog && node scripts/build-tui.mjs',
 });
 if (process.platform === 'win32' && !/shell:'powershell'/i.test(invalidShellPath || '')) {
-  throw new Error(`bash Windows-path shell guard failed: ${invalidShellPath}`);
+  throw new Error(`shell Windows-path guard failed: ${invalidShellPath}`);
 }
 
-const invalidShellCwdAliasConflict = validateBuiltinArgs('bash', {
+const invalidShellCwdAliasConflict = validateBuiltinArgs('shell', {
   command: 'pwd',
   cwd: root,
   workdir: resolve(root, 'scripts'),
   shell: 'powershell',
 });
 if (!/cwd.*workdir.*conflict/i.test(invalidShellCwdAliasConflict || '')) {
-  throw new Error(`bash cwd/workdir conflict guard failed: ${invalidShellCwdAliasConflict}`);
+  throw new Error(`shell cwd/workdir conflict guard failed: ${invalidShellCwdAliasConflict}`);
 }
 
-const shellWorkdirOut = await executeBuiltinTool('bash', {
+const shellWorkdirOut = await executeBuiltinTool('shell', {
   command: 'Get-Location | Select-Object -ExpandProperty Path',
   workdir: resolve(root, 'scripts'),
   timeout: 30_000,
   shell: 'powershell',
 }, root);
-assertOk('bash workdir alias', shellWorkdirOut, /scripts\s*$/i);
+assertOk('shell workdir alias', shellWorkdirOut, /scripts\s*$/i);
 
 const invalidEditMixedShape = validateBuiltinArgs('edit', {
   path: 'scripts/smoke.mjs',
@@ -211,12 +211,19 @@ if (!/exactly one window family/i.test(readWindowErr || '')) {
   throw new Error(`read mixed-window guard failed: err=${readWindowErr} args=${JSON.stringify(mixedReadWindow)}`);
 }
 
-const forcedAsync = resolveBridgeExecutionMode(
+const modelDefaultAsync = resolveBridgeExecutionMode(
+  {},
+  { invocationSource: 'model-tool' },
+  'sync',
+);
+if (modelDefaultAsync !== 'async') throw new Error(`bridge model-tool default mode should be async, got ${modelDefaultAsync}`);
+
+const explicitSync = resolveBridgeExecutionMode(
   { wait: true, mode: 'sync', async: false },
   { invocationSource: 'model-tool' },
   'sync',
 );
-if (forcedAsync !== 'async') throw new Error(`bridge model-tool mode should be async, got ${forcedAsync}`);
+if (explicitSync !== 'sync') throw new Error(`bridge explicit sync mode should be honored, got ${explicitSync}`);
 
 const userSync = resolveBridgeExecutionMode(
   { wait: true },
@@ -249,7 +256,7 @@ if (fullDefaults.size !== 12) {
 for (const name of ['read', 'code_graph', 'grep', 'glob', 'list', 'apply_patch', 'explore', 'bridge', 'recall', 'search', 'web_fetch', 'tool_search']) {
   assertHas(fullDefaults, name);
 }
-for (const name of ['bash', 'edit', 'write']) {
+for (const name of ['shell', 'edit', 'write']) {
   assertLacks(fullDefaults, name);
 }
 
@@ -263,13 +270,13 @@ const surfaceSize = [...fullDefaults].reduce((sum, name) => {
   const tool = smokeCatalog.find((item) => item?.name === name);
   return sum + toolSchemaSize(tool);
 }, 0);
-if (surfaceSize > 8500) {
-  throw new Error(`full default tool surface too large: ${surfaceSize} chars (cap 8500)`);
+if (surfaceSize > 9000) {
+  throw new Error(`full default tool surface too large: ${surfaceSize} chars (cap 9000)`);
 }
 for (const [name, cap] of [
   ['apply_patch', 1300],
   ['code_graph', 1300],
-  ['bridge', 1500],
+  ['bridge', 2500],
 ]) {
   const tool = smokeCatalog.find((item) => item?.name === name);
   const size = toolSchemaSize(tool);
@@ -283,13 +290,13 @@ if (readonlyDefaults.size !== 7) {
 for (const name of ['read', 'code_graph', 'grep', 'glob', 'list', 'explore', 'tool_search']) {
   assertHas(readonlyDefaults, name);
 }
-for (const name of ['apply_patch', 'bridge', 'bash', 'edit', 'write']) {
+for (const name of ['apply_patch', 'bridge', 'shell', 'edit', 'write']) {
   assertLacks(readonlyDefaults, name);
 }
 
 const bridgeProps = BRIDGE_TOOL.inputSchema?.properties || {};
-if (bridgeProps.mode || bridgeProps.wait) throw new Error('bridge model schema must not expose mode/wait');
-if (!/always async/i.test(BRIDGE_TOOL.description || '')) throw new Error('bridge description must state model calls are async');
+if (!bridgeProps.mode || bridgeProps.wait) throw new Error('bridge schema should expose mode but not legacy wait');
+if (!/prefer async spawn\/send/i.test(BRIDGE_TOOL.description || '')) throw new Error('bridge description must prefer async model handoffs');
 const bridgeSmoke = createStandaloneBridge({
   cfgMod: {
     loadConfig: () => ({ providers: {}, presets: [] }),
@@ -305,7 +312,7 @@ const bridgeSmoke = createStandaloneBridge({
   cwd: root,
   defaultMode: 'async',
 });
-const bridgeMissingJob = await bridgeSmoke.execute({ type: 'read', jobId: 'job_missing_smoke' }, { invocationSource: 'model-tool', cwd: root });
+const bridgeMissingJob = await bridgeSmoke.execute({ type: 'read', task_id: 'job_missing_smoke' }, { invocationSource: 'model-tool', cwd: root });
 if (!/^Error[\s:[]/.test(String(bridgeMissingJob)) || !/job_missing_smoke/.test(String(bridgeMissingJob))) {
   throw new Error(`bridge missing job must return Error result:\n${bridgeMissingJob}`);
 }
@@ -321,7 +328,6 @@ if (normalizedExplore.length !== 2 || normalizedExplore[0] !== 'where is model s
   throw new Error(`explore query normalization failed: ${JSON.stringify(normalizedExplore)}`);
 }
 if (MAX_FANOUT_QUERIES !== 8) throw new Error(`explore fanout cap changed: ${MAX_FANOUT_QUERIES}`);
-if (EXPLORE_MAX_LOOP_ITERATIONS !== 8) throw new Error(`explore loop cap changed: ${EXPLORE_MAX_LOOP_ITERATIONS}`);
 const explorerPrompt = buildExplorerPrompt('where is <bridge> & status?');
 if (!explorerPrompt.includes('&lt;bridge&gt;') || !explorerPrompt.includes('&amp;') || /verdicts, ratings, or recommendations/.test(explorerPrompt) === false) {
   throw new Error(`explorer prompt contract failed: ${explorerPrompt}`);

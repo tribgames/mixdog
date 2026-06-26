@@ -36,6 +36,7 @@
     "smoke": "node scripts/smoke.mjs",
     "smoke:all": "npm run smoke && npm run smoke:boot && npm run smoke:tools",
     "smoke:boot": "node scripts/boot-smoke.mjs",
+    "smoke:compact": "node scripts/compact-smoke.mjs",
     "smoke:loop": "node scripts/smoke-loop.mjs",
     "smoke:loop:final": "node scripts/smoke-loop-report.mjs --require-complete --min-elapsed 5h --min-iterations 400 --max-gap 60s --max-smoke-ms 10000 --max-avg-smoke-ms 8500 --max-step-ms boot-smoke.mjs=8000 --max-step-ms tool-smoke.mjs=4000 --max-rss-mb 140 --max-rss-growth-mb 50",
     "smoke:loop:report": "node scripts/smoke-loop-report.mjs",

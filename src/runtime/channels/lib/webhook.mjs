@@ -5,9 +5,30 @@ import { spawn, spawnSync } from "child_process";
 import { DATA_DIR, isInQuietWindow } from "./config.mjs";
 import { getWebhookAuthtoken } from "../../shared/config.mjs";
 import { appendFileSync, readFileSync, readdirSync, mkdirSync, writeFileSync, unlinkSync, existsSync, renameSync, watch as fsWatch } from "fs";
+import { appendFile } from "fs/promises";
 import { randomUUID } from "crypto";
 const WEBHOOKS_DIR = join(DATA_DIR, "webhooks");
 const WEBHOOK_LOG = join(DATA_DIR, "webhook.log");
+let webhookLogBuffer = [];
+let webhookLogTimer = null;
+function flushWebhookLog() {
+  if (webhookLogTimer) {
+    clearTimeout(webhookLogTimer);
+    webhookLogTimer = null;
+  }
+  if (!webhookLogBuffer.length) return;
+  const lines = webhookLogBuffer.join("");
+  webhookLogBuffer = [];
+  void appendFile(WEBHOOK_LOG, lines).catch(() => {});
+}
+try {
+  process.on("beforeExit", flushWebhookLog);
+  process.on("exit", () => {
+    if (!webhookLogBuffer.length) return;
+    try { appendFileSync(WEBHOOK_LOG, webhookLogBuffer.join("")); } catch {}
+    webhookLogBuffer = [];
+  });
+} catch {}
 function logWebhook(msg) {
   const line = `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}
 `;
@@ -16,9 +37,10 @@ function logWebhook(msg) {
 `);
   } catch {
   }
-  try {
-    appendFileSync(WEBHOOK_LOG, line);
-  } catch {
+  webhookLogBuffer.push(line);
+  if (!webhookLogTimer) {
+    webhookLogTimer = setTimeout(flushWebhookLog, 1000);
+    webhookLogTimer.unref?.();
   }
 }
 const SIGNATURE_HEADERS = {
@@ -299,7 +321,9 @@ function appendDelivery(name, entry) {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const full = { ts: new Date().toISOString(), ...entry };
     const line = JSON.stringify(full) + "\n";
-    appendFileSync(_deliveriesPath(name), line);
+    void appendFile(_deliveriesPath(name), line).catch((err) => {
+      logWebhook(`${name}: deliveries append failed: ${err?.message ?? err}`);
+    });
     const wasWarmed = _deliveryIndexWarmed.has(name);
     _ensureDeliveryIndex(name);
     if (wasWarmed) _bumpDeliveryLogLineCount(name, 1);

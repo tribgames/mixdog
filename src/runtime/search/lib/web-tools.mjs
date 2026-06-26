@@ -446,6 +446,51 @@ function buildContentPayload(url, title, content, extractor, extra = {}) {
   }
 }
 
+function collapseTextForDetection(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim()
+}
+
+function isKnownJavascriptGateUrl(url) {
+  try {
+    const parsed = new URL(String(url || ''))
+    const path = `${parsed.pathname}${parsed.search}`.toLowerCase()
+    return path.includes('/httpservice/retry/enablejs') || path.includes('enablejs')
+  } catch {
+    return false
+  }
+}
+
+function classifyJavascriptRenderingPlaceholder(page) {
+  if (!page || typeof page !== 'object') return null
+  if (isKnownJavascriptGateUrl(page.url)) return 'javascript-required placeholder URL'
+
+  const title = collapseTextForDetection(page.title)
+  const content = collapseTextForDetection(page.content)
+  const sample = `${title}\n${content}`.slice(0, 5000)
+  if (!/javascript/i.test(sample)) return null
+
+  const strongPlaceholder = [
+    /you need to enable javascript to run this app/i,
+    /please enable javascript/i,
+    /(?:enable|turn on) javascript/i,
+    /javascript\s+(?:is\s+)?(?:disabled|required)/i,
+    /javascript\s+must\s+be\s+enabled/i,
+    /requires? javascript/i,
+  ].some(pattern => pattern.test(sample))
+  const browserInstructionNames = ['chrome', 'edge', 'firefox', 'safari', 'opera']
+    .filter(name => new RegExp(`\\b${name}\\b`, 'i').test(sample))
+    .length
+  if (!strongPlaceholder && browserInstructionNames < 3) return null
+
+  // A long article can legitimately discuss JavaScript requirements. Only
+  // auto-render compact placeholder/shell pages, plus the canonical React app
+  // shell phrase regardless of surrounding boilerplate.
+  if (content.length <= 4000 || /you need to enable javascript to run this app/i.test(sample)) {
+    return 'javascript-required placeholder content'
+  }
+  return null
+}
+
 function extractReadableArticle(url, html) {
   const dom = new JSDOM(html, { url })
   try {
@@ -988,12 +1033,12 @@ async function scrapeWithPuppeteer(url, timeoutMs, signal) {
     }
     try {
       return {
-        ...extractReadableArticle(url, html),
+        ...extractReadableArticle(finalUrl, html),
         extractor: 'puppeteer',
       }
     } catch {
       const bodyText = await page.evaluate(() => document.body?.innerText || '')
-      return buildContentPayload(url, await page.title(), bodyText, 'puppeteer')
+      return buildContentPayload(finalUrl, await page.title(), bodyText, 'puppeteer')
     }
   })
 }
@@ -1084,7 +1129,8 @@ export async function scrapeUrl(url, timeoutMs, usageState, signal) {
   const extractors = rankScrapeExtractors(host, usageState, DEFAULT_EXTRACTORS)
   const failures = []
 
-  for (const extractor of extractors) {
+  for (let i = 0; i < extractors.length; i += 1) {
+    const extractor = extractors[i]
     if (extractor === 'puppeteer') {
       try {
         await fetchHtml(normalizedUrl, timeoutMs, signal)
@@ -1100,6 +1146,14 @@ export async function scrapeUrl(url, timeoutMs, usageState, signal) {
     }
     try {
       const page = await tryExtractor(extractor, normalizedUrl, timeoutMs, signal)
+      const placeholderReason = classifyJavascriptRenderingPlaceholder(page)
+      if (placeholderReason) {
+        if (extractor !== 'puppeteer' && extractors.slice(i + 1).includes('puppeteer')) {
+          failures.push({ extractor, error: `${placeholderReason}; retrying puppeteer` })
+          continue
+        }
+        throw new Error(`${extractor} returned ${placeholderReason}`)
+      }
       noteProviderSuccess(usageState, extractor)
       return {
         ...page,

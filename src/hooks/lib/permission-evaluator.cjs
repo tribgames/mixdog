@@ -7,8 +7,9 @@
  *   deny > allow > (ask neutralized) > mode-default
  *
  * Practical pi-like behavior:
- *   - Hard-deny path checks (OS system dirs, credential stores, UNC, etc.)
- *     always enforced.
+ *   - Hard-deny path checks (OS system dirs, UNC, etc.) always enforced.
+ *   - Credential/token paths are non-write-protected, but writes stay allowed so
+ *     the user can ask the agent to install/update tokens explicitly.
  *   - Explicit deny rules from settings always enforced.
  *   - Explicit ask rules from settings are treated as no-match (no prompts).
  *   - Default mode is trust/allow — no cwd-sandbox prompts.
@@ -28,6 +29,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const os   = require('os');
 
 const { loadPermissions }               = require('./settings-loader.cjs');
 const { evaluateRules } = require('./permission-rules.cjs');
@@ -42,9 +44,9 @@ const MCP_PREFIXES = [
 
 // ── hard-deny patterns (bypass-proof) ────────────────────────────────────────
 // These patterns are evaluated BEFORE mode checks, including bypassPermissions.
-// They cover UNC paths, dangerous OS locations, and high-value local credential
-// stores. This is intentionally not a full sandbox; it is the small hard-stop
-// layer that remains in the pi-like trust model.
+// They cover UNC paths and dangerous OS locations. This is intentionally not a
+// full sandbox; it is the small hard-stop layer that remains in the pi-like
+// trust model.
 
 const HARD_DENY_PATH_PATTERNS = [
   // UNC network paths (\\server\share)
@@ -126,6 +128,14 @@ const HARD_DENY_PATH_PATTERNS = [
   /^[a-z]:[/\\]documents and settings$/i,
   /^[a-z]:[/\\]users[/\\]all users[/\\]/i,
   /^[a-z]:[/\\]users[/\\]all users$/i,
+];
+
+// Credential/token locations are different from OS system paths: reading,
+// searching, or delegating them through free-form prompts is a common
+// exfiltration footgun, but writing them is a normal
+// user-requested setup task. Keep them out of HARD_DENY so `write`/`edit` can
+// still install tokens when the user explicitly provides the value.
+const SECRET_READ_DENY_PATH_PATTERNS = [
   // Cross-platform user credential stores and token files
   /^\/home\/[^/\\]+[/\\]\.(ssh|gnupg|aws|azure|docker|kube)([/\\]|$)/i,
   /^\/home\/[^/\\]+[/\\]\.config[/\\]gcloud([/\\]|$)/i,
@@ -143,6 +153,10 @@ const HARD_DENY_PATH_PATTERNS = [
   /^[a-z]:[/\\]users[/\\][^/\\]+[/\\]appdata[/\\]local[/\\](google[/\\]chrome|microsoft[/\\]edge|bravesoftware|mozilla|firefox)([/\\]|$)/i,
   /^[a-z]:[/\\]users[/\\][^/\\]+[/\\]appdata[/\\]roaming[/\\](mozilla[/\\]firefox|mozilla|firefox)([/\\]|$)/i,
 ];
+
+const SECRET_WRITE_TOOLS = new Set([
+  'write', 'edit', 'apply_patch', 'multi_edit', 'multiedit',
+]);
 
 /**
  * Returns true if any extracted path matches a hard-deny pattern.
@@ -166,7 +180,38 @@ const HARD_DENY_PATH_PATTERNS = [
 function _stripNtfsTrailingChars(p) {
   return String(p).replace(/[. ]+(?=[\\/]|$)/g, '');
 }
-function isHardDenyPath(rawPaths, opts) {
+function shortToolName(toolName) {
+  const name = typeof toolName === 'string' ? toolName : '';
+  const prefix = MCP_PREFIXES.find(p => name.startsWith(p));
+  if (prefix) return name.slice(prefix.length);
+  if (name.startsWith('mcp__')) return name.split('__').pop() || name;
+  return name;
+}
+
+function isSecretWriteTool(toolName) {
+  return SECRET_WRITE_TOOLS.has(shortToolName(toolName).toLowerCase());
+}
+
+function extractPathLiteralsFromText(text) {
+  if (typeof text !== 'string' || !text) return [];
+  const out = [];
+  const addMatches = (re, group = 0) => {
+    for (const m of text.matchAll(re)) {
+      const value = (m[group] || '').trim().replace(/[),.;:]+$/g, '');
+      if (value) out.push(value);
+    }
+  };
+  // Capture path-looking spans until punctuation/quotes, or a whitespace that
+  // is not followed by another path segment. This keeps paths with spaces such
+  // as `Google/Chrome/User Data`, but stops before prose like `.npmrc please`.
+  addMatches(/[a-zA-Z]:[/\\](?:[^\s"'`<>|),;:]+|\s+(?=[^\s"'`<>|),;:]+[/\\][^\s"'`<>|),;:]*))*/g);
+  addMatches(/\\\\(?:[^\s"'`<>|),;:]+|\s+(?=[^\s"'`<>|),;:]+[/\\][^\s"'`<>|),;:]*))*/g);
+  addMatches(/~[/\\][^\s"'`<>|]*/g);
+  addMatches(/\/(?:etc|proc|sys|boot|dev|root|run|var|bin|sbin|usr|System|Library|private|Volumes|home|Users|users)(?:[^\s"'`<>|),;:]+|\s+(?=[^\s"'`<>|),;:]+[/\\][^\s"'`<>|),;:]*))*/g);
+  return out;
+}
+
+function matchesProtectedPath(rawPaths, opts, patterns) {
   const trustedRootsRaw = (opts && Array.isArray(opts.trustedRoots)) ? opts.trustedRoots : [];
   const baseCwd = (opts && typeof opts.cwd === 'string' && opts.cwd) ? opts.cwd : process.cwd();
   // Pre-normalize trusted roots once per call (windows: case-insensitive).
@@ -190,7 +235,7 @@ function isHardDenyPath(rawPaths, opts) {
     let resolved;
     try { resolved = resolveCandidate(p, baseCwd); } catch { resolved = null; }
     let norm = (resolved || p).replace(/\\/g, '/');
-    for (const re of HARD_DENY_PATH_PATTERNS) {
+    for (const re of patterns) {
       if (re.test(p) || re.test(norm)) return true;
     }
     // NTFS trailing-char strip: `C:\Windows \foo` resolves to `C:\Windows\foo`
@@ -199,7 +244,7 @@ function isHardDenyPath(rawPaths, opts) {
     const stripped = _stripNtfsTrailingChars(p);
     const strippedNorm = _stripNtfsTrailingChars(norm);
     if (stripped !== p || strippedNorm !== norm) {
-      for (const re of HARD_DENY_PATH_PATTERNS) {
+      for (const re of patterns) {
         if (re.test(stripped) || re.test(strippedNorm)) return true;
       }
     }
@@ -234,7 +279,7 @@ function isHardDenyPath(rawPaths, opts) {
     catch { real = null; }
     if (real && real !== p && real !== norm.replace(/\//g, path.sep)) {
       const realNorm = real.replace(/\\/g, '/');
-      for (const re of HARD_DENY_PATH_PATTERNS) {
+      for (const re of patterns) {
         if (re.test(real) || re.test(realNorm)) return true;
       }
       // Re-test UNC after symlink resolve too: a local-looking path could
@@ -246,6 +291,14 @@ function isHardDenyPath(rawPaths, opts) {
   return false;
 }
 
+function isHardDenyPath(rawPaths, opts) {
+  return matchesProtectedPath(rawPaths, opts, HARD_DENY_PATH_PATTERNS);
+}
+
+function isSecretReadDenyPath(rawPaths, opts) {
+  return matchesProtectedPath(rawPaths, opts, SECRET_READ_DENY_PATH_PATTERNS);
+}
+
 module.exports._isHardDenyPath = isHardDenyPath; // exported for tests
 
 // ── path helpers ──────────────────────────────────────────────────────────────
@@ -253,6 +306,12 @@ module.exports._isHardDenyPath = isHardDenyPath; // exported for tests
 function normalizePath(p) {
   if (!p || typeof p !== 'string') return null;
   if (/^\\\\/.test(p)) return p;
+
+  // Shell-style home shorthand is common in user prompts/settings. Expand it
+  // before absolute/relative resolution so `~/.npmrc` is treated as the real
+  // home token file, not as a harmless repo-relative path named `~`.
+  if (p === '~') p = os.homedir();
+  else if (/^~[/\\]/.test(p)) p = path.join(os.homedir(), p.slice(2));
 
   if (path.sep === '\\') {
     const posixDriveMatch = p.match(/^\/([a-zA-Z])(\/.*)?$/);
@@ -292,22 +351,42 @@ function extractPaths(toolName, toolInput) {
   const push = (...vals) => {
     for (const v of vals) { if (v && typeof v === 'string') candidates.push(v); }
   };
+  const pushTextPaths = (...vals) => {
+    for (const v of vals) push(...extractPathLiteralsFromText(v));
+  };
+  const pushPatchTarget = (target) => {
+    if (!target || typeof target !== 'string') return;
+    const cleaned = target.trim();
+    if (!cleaned) return;
+    push(cleaned);
+    if (toolInput.base_path && typeof toolInput.base_path === 'string') {
+      try {
+        const normalized = normalizePath(cleaned);
+        if (!(normalized !== null && path.isAbsolute(normalized))) {
+          push(path.join(toolInput.base_path, cleaned));
+        }
+      } catch {}
+    }
+  };
 
   switch (tool) {
     case 'bash':
     case 'bash_session':
       push(toolInput.cwd);
+      pushTextPaths(toolInput.command);
       break;
     case 'bridge':
       push(toolInput.cwd);
       push(toolInput.file);
+      pushTextPaths(toolInput.prompt, toolInput.message, toolInput.context);
       break;
     case 'apply_patch': {
       push(toolInput.base_path);
       const patch = toolInput.patch;
       if (typeof patch === 'string') {
-        for (const m of patch.matchAll(/^\+\+\+\s+b\/(.+)$/gm)) push(m[1]);
-        for (const m of patch.matchAll(/^---\s+a\/(.+)$/gm)) push(m[1]);
+        for (const m of patch.matchAll(/^\+\+\+\s+b\/(.+)$/gm)) pushPatchTarget(m[1]);
+        for (const m of patch.matchAll(/^---\s+a\/(.+)$/gm)) pushPatchTarget(m[1]);
+        for (const m of patch.matchAll(/^\*\*\*\s+(?:Add|Update|Delete) File:\s+(.+)$/gm)) pushPatchTarget(m[1]);
       }
       break;
     }
@@ -338,6 +417,7 @@ function extractPaths(toolName, toolInput) {
       // path; collect both forms so deny rules apply uniformly.
       if (Array.isArray(toolInput.edits)) toolInput.edits.forEach(e => push(e?.path, e?.file_path));
       if (Array.isArray(toolInput.writes)) toolInput.writes.forEach(w => push(w?.path, w?.file_path));
+      pushTextPaths(toolInput.command, toolInput.query, toolInput.prompt, toolInput.message, toolInput.context);
       break;
   }
 
@@ -364,7 +444,7 @@ function evaluatePermission({ toolName, toolInput, permissionMode, projectDir, u
   const input = (toolInput && typeof toolInput === 'object') ? toolInput : {};
   const cwd   = (typeof userCwd === 'string' && userCwd) ? userCwd : process.cwd();
 
-  // Single extractPaths call — reused for hard-deny and explicit deny checks.
+  // Single extractPaths call — reused for hard-deny, secret-read, and explicit deny checks.
   const rawPaths = extractPaths(name, input);
 
   // Trusted-root set powers the hard-deny realpath fast-path.
@@ -377,6 +457,10 @@ function evaluatePermission({ toolName, toolInput, permissionMode, projectDir, u
   //    Evaluated before any mode check — even bypassPermissions cannot override.
   if (isHardDenyPath(rawPaths, { trustedRoots, cwd })) {
     return { decision: 'deny', reason: `Tool '${name}' targets a protected system path.` };
+  }
+
+  if (isSecretReadDenyPath(rawPaths, { trustedRoots, cwd }) && !isSecretWriteTool(name)) {
+    return { decision: 'deny', reason: `Tool '${name}' targets a protected credential path without a write-class tool.` };
   }
 
   // 1. Use caller-supplied settings when available; otherwise load.
@@ -396,7 +480,7 @@ function evaluatePermission({ toolName, toolInput, permissionMode, projectDir, u
   }
 
   // 3. Permission modes are accepted for compatibility only. They no longer
-  // implement a sandbox policy; runtime safety is hard-deny + explicit deny.
+  // implement a sandbox policy; runtime safety is hard-deny + secret-read deny + explicit deny.
   const mode = permissionMode || defaultMode || 'default';
   return { decision: 'allow', reason: `${mode} mode: trust/allow (pi-like).` };
 }

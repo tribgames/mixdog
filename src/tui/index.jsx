@@ -6,7 +6,7 @@
  */
 import React from 'react';
 import { render } from 'ink';
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { createWriteStream, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -108,24 +108,39 @@ function installTuiStderrGuard() {
   const originalWrite = process.stderr.write.bind(process.stderr);
   const logPath = resolveTuiStderrLogPath();
   try { mkdirSync(dirname(logPath), { recursive: true }); } catch { /* ignore */ }
+  let logStream = null;
+  try {
+    logStream = createWriteStream(logPath, { flags: 'a' });
+    logStream.on('error', () => {});
+  } catch {
+    logStream = null;
+  }
 
   process.stderr.write = ((chunk, encoding, callback) => {
+    const done = typeof encoding === 'function' ? encoding : callback;
+    const enc = typeof encoding === 'string' ? encoding : undefined;
     try {
-      appendFileSync(logPath, Buffer.isBuffer(chunk) ? chunk : String(chunk ?? ''));
+      if (logStream) {
+        logStream.write(Buffer.isBuffer(chunk) ? chunk : String(chunk ?? ''), enc, () => {
+          if (typeof done === 'function') {
+            try { done(); } catch { /* ignore */ }
+          }
+        });
+        return true;
+      }
     } catch {
       // Last-resort fallback: if the log file is unavailable, drop diagnostics
       // while the fullscreen TUI owns the terminal.
     }
-    if (typeof encoding === 'function') {
-      try { encoding(); } catch { /* ignore */ }
-    } else if (typeof callback === 'function') {
-      try { callback(); } catch { /* ignore */ }
+    if (typeof done === 'function') {
+      try { done(); } catch { /* ignore */ }
     }
     return true;
   });
 
   return () => {
     process.stderr.write = originalWrite;
+    try { logStream?.end(); } catch { /* ignore */ }
   };
 }
 
@@ -200,9 +215,9 @@ export async function runTui({ provider, model, toolMode } = {}) {
     },
   });
 
-  // exitOnCtrlC:false — keep Ctrl+C available for terminal copy behavior.
-  // Explicit exits go through /exit or /quit so teardown still restores the
-  // cursor, mouse mode, and alternate screen cleanly.
+  // exitOnCtrlC:false — keep Ctrl+C available for selection copy. Explicit
+  // exits go through /exit or /quit so teardown still restores the cursor,
+  // mouse mode, and alternate screen cleanly.
   try {
     const instance = render(<App store={store} />, { exitOnCtrlC: false, maxFps: 120 });
     bootProfile('render:mounted', { ms: (performance.now() - startedAt).toFixed(1) });

@@ -16,7 +16,10 @@ import {
     compactActiveTurn,
     SUMMARY_PREFIX,
     DEFAULT_COMPACTION_BUFFER_TOKENS,
+    DEFAULT_COMPACTION_BUFFER_RATIO,
     DEFAULT_COMPACTION_KEEP_TOKENS,
+    compactionBufferTokensForBoundary,
+    normalizeCompactionBufferRatio,
 } from './compact.mjs';
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
 import { classifyBashFileLookupCommand, stripSoftWarns } from '../tool-loop-guard.mjs';
@@ -514,14 +517,28 @@ function resolveSemanticCompactSetting(sessionRef, cfg = {}) {
     // narrow tests do not pay an extra provider call unless they opt in.
     return sessionRef?.owner === 'bridge';
 }
+function resolveCompactBufferRatio(cfg = {}) {
+    return normalizeCompactionBufferRatio(
+        cfg.bufferPercent
+            ?? cfg.bufferPct
+            ?? cfg.bufferRatio
+            ?? cfg.bufferFraction
+            ?? process.env.MIXDOG_BRIDGE_COMPACT_BUFFER_PERCENT
+            ?? process.env.MIXDOG_BRIDGE_COMPACT_BUFFER_RATIO,
+        DEFAULT_COMPACTION_BUFFER_RATIO,
+    );
+}
 function resolveCompactBufferTokens(boundaryTokens, cfg = {}) {
     const configured = positiveTokenInt(cfg.bufferTokens ?? cfg.buffer)
         || envTokenInt('MIXDOG_BRIDGE_COMPACT_BUFFER_TOKENS')
-        || DEFAULT_COMPACTION_BUFFER_TOKENS;
+        || 0;
     const boundary = positiveTokenInt(boundaryTokens);
-    if (!boundary) return configured;
-    const windowCap = Math.max(0, Math.floor(boundary * COMPACT_BUFFER_MAX_WINDOW_FRACTION));
-    return Math.max(0, Math.min(configured, windowCap));
+    if (!boundary) return configured || DEFAULT_COMPACTION_BUFFER_TOKENS;
+    return compactionBufferTokensForBoundary(boundary, {
+        explicitTokens: configured,
+        ratio: resolveCompactBufferRatio(cfg),
+        maxRatio: COMPACT_BUFFER_MAX_WINDOW_FRACTION,
+    });
 }
 function resolveCompactKeepTokens(cfg = {}) {
     return positiveTokenInt(cfg.keepTokens ?? cfg.keep?.tokens ?? cfg.preserveRecentTokens)
@@ -534,19 +551,19 @@ function resolveWorkerCompactPolicy(sessionRef, tools) {
     const auto = cfg.auto !== false && envFlag('MIXDOG_BRIDGE_COMPACT_AUTO', true);
     if (!auto) return { auto: false };
     const contextWindow = positiveTokenInt(sessionRef.contextWindow ?? cfg.contextWindow);
-    const autoLimit = positiveTokenInt(
-        sessionRef.compactBoundaryTokens
-            ?? cfg.boundaryTokens
-            ?? sessionRef.autoCompactTokenLimit
-            ?? cfg.autoCompactTokenLimit,
-    );
-    const boundaryTokens = autoLimit && contextWindow
-        ? Math.min(autoLimit, contextWindow)
-        : (autoLimit || contextWindow);
+    const explicitBoundary = positiveTokenInt(sessionRef.compactBoundaryTokens ?? cfg.boundaryTokens);
+    const autoLimit = positiveTokenInt(sessionRef.autoCompactTokenLimit ?? cfg.autoCompactTokenLimit);
+    const boundaryTokens = explicitBoundary && contextWindow
+        ? Math.min(explicitBoundary, contextWindow)
+        : (explicitBoundary || contextWindow || autoLimit);
     if (!boundaryTokens) return null;
     const compactBoundaryTokens = Math.max(1, Math.floor(boundaryTokens * COMPACT_SAFETY_PERCENT));
-    const bufferTokens = resolveCompactBufferTokens(compactBoundaryTokens, cfg);
-    const triggerTokens = Math.max(1, compactBoundaryTokens - bufferTokens);
+    const autoTriggerTokens = autoLimit && autoLimit < compactBoundaryTokens ? Math.max(1, autoLimit) : null;
+    const bufferTokens = autoTriggerTokens
+        ? Math.max(0, compactBoundaryTokens - autoTriggerTokens)
+        : resolveCompactBufferTokens(compactBoundaryTokens, cfg);
+    const bufferRatio = compactBoundaryTokens ? (bufferTokens / compactBoundaryTokens) : resolveCompactBufferRatio(cfg);
+    const triggerTokens = autoTriggerTokens || Math.max(1, compactBoundaryTokens - bufferTokens);
     const configuredReserve = positiveTokenInt(cfg.reservedTokens)
         || envTokenInt('MIXDOG_BRIDGE_COMPACT_RESERVED_TOKENS')
         || 0;
@@ -566,6 +583,7 @@ function resolveWorkerCompactPolicy(sessionRef, tools) {
         boundaryTokens: compactBoundaryTokens,
         triggerTokens,
         bufferTokens,
+        bufferRatio,
         contextWindow,
         rawContextWindow: positiveTokenInt(sessionRef.rawContextWindow ?? cfg.rawContextWindow) || contextWindow,
         effectiveContextWindowPercent: Number.isFinite(Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent))
@@ -601,13 +619,11 @@ function compactPressureTokens(messageTokensEst, policy, sessionRef) {
     const providerReported = latestProviderContextTokens(sessionRef);
     return Math.max(estimated ?? 0, providerReported || 0);
 }
-function compactTargetBudget(policy, sourceTokens, ratio = 0.45) {
+function compactTargetBudget(policy) {
     const boundary = positiveTokenInt(policy?.boundaryTokens);
     if (!boundary) return null;
-    const reserve = Math.max(0, Number(policy?.reserveTokens) || 0);
-    const source = Math.max(0, Number(sourceTokens) || 0);
-    const targetEffective = Math.max(32_000, Math.floor(source * ratio));
-    return Math.max(1, Math.min(boundary, targetEffective + reserve));
+    const trigger = positiveTokenInt(policy?.triggerTokens) || boundary;
+    return Math.max(1, Math.min(boundary, trigger));
 }
 function shouldCompactForSession(messageTokensEst, policy, sessionRef) {
     if (!policy?.auto || !policy.boundaryTokens) return false;
@@ -640,6 +656,7 @@ function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         boundaryTokens: policy.boundaryTokens || null,
         triggerTokens: policy.triggerTokens || null,
         bufferTokens: policy.bufferTokens || 0,
+        bufferRatio: policy.bufferRatio ?? prev.bufferRatio ?? null,
         contextWindow: policy.contextWindow || null,
         rawContextWindow: policy.rawContextWindow || null,
         effectiveContextWindowPercent: policy.effectiveContextWindowPercent ?? null,
@@ -1061,7 +1078,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             const pressureTokens = compactPressureTokens(messageTokensEst, compactPolicy, sessionRef);
             const shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, sessionRef);
             const compactBudgetTokens = shouldCompact
-                ? (compactTargetBudget(compactPolicy, pressureTokens) || compactPolicy.boundaryTokens)
+                ? (compactTargetBudget(compactPolicy) || compactPolicy.boundaryTokens)
                 : compactPolicy.boundaryTokens;
             if (!shouldCompact) {
                 rememberCompactTelemetry(sessionRef, compactPolicy, {
@@ -1071,6 +1088,13 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     pressureTokens,
                 });
             } else {
+                try { opts.onStageChange?.('compacting'); } catch { /* best-effort */ }
+                rememberCompactTelemetry(sessionRef, compactPolicy, {
+                    stage: 'compacting',
+                    beforeTokens: messageTokensEst,
+                    afterTokens: messageTokensEst,
+                    pressureTokens,
+                });
                 let compacted;
                 let remoteCompactResult = null;
                 let pruneCount = 0;
@@ -1276,6 +1300,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         messageTokensEst,
                     }, compactErr);
                 }
+                try { opts.onStageChange?.('requesting'); } catch { /* best-effort */ }
                 const compactChanged = messagesArrayChanged(messages, compacted);
                 if (compactChanged) {
                     messages.length = 0;

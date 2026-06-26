@@ -83,7 +83,7 @@ export function ThinkingMessage({ text, elapsedMs = 0, activeSince = 0 }) {
 export function NoticeMessage({ text, tone, columns = 80 }) {
   const accentColor = tone === 'error' ? theme.error : tone === 'warn' ? theme.warning : theme.inactive;
   const bodyColor = tone === 'info' || tone === 'plain' ? theme.inactive : theme.statusText;
-  const prefix = tone === 'plain' ? '' : tone === 'error' ? 'x' : '·';
+  const prefix = tone === 'plain' || tone === 'error' ? '' : '·';
   const iconWidth = prefix ? 2 : 0;
   const paddingLeft = 2;
   const rowWidth = Math.max(1, columns - 1);

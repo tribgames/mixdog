@@ -29,7 +29,7 @@ function writeTextFile(filePath, value) {
   writeFileSync(filePath, value);
 }
 function writeJsonFile(filePath, value) {
-  writeJsonAtomicSync(filePath, value, { compact: true, lock: true, fsyncDir: true });
+  writeJsonAtomicSync(filePath, value, { compact: true, lock: true, fsync: false, fsyncDir: false });
 }
 class JsonStateFile {
   constructor(filePath, fallback) {

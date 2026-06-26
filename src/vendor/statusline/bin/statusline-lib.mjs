@@ -33,6 +33,17 @@ function pluginDataDir() {
   return process.env.MIXDOG_DATA_DIR || path.join(process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog'), 'data');
 }
 
+function writeFileIfChangedSync(file, content) {
+  try {
+    if (fs.existsSync(file) && fs.readFileSync(file, 'utf8') === content) return true;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, content);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function gatewayPort() {
   const envPort = Number(process.env.MIXDOG_GATEWAY_PORT);
   if (Number.isFinite(envPort) && envPort > 0) return Math.floor(envPort);
@@ -167,8 +178,9 @@ function writeStatuslineLastSnapshot(json) {
   try { JSON.parse(json); } catch { return; }
   try {
     const file = path.join(claudeConfigDir(), 'cc-statusline-last.json');
-    fs.mkdirSync(path.dirname(file), { recursive: true });
     const tmp = `${file}.${process.pid}.tmp`;
+    if (fs.existsSync(file) && fs.readFileSync(file, 'utf8') === json) return;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(tmp, json);
     fs.renameSync(tmp, file);
   } catch {}
@@ -407,7 +419,7 @@ export async function renderStatusLine(ccJsonInput) {
       }
     } catch {}
     if (statusAdvert && mappingPath && !needClaim) {
-      try { fs.writeFileSync(mappingPath, statusAdvert); } catch {}
+      writeFileIfChangedSync(mappingPath, statusAdvert);
     }
   }
   if (!statusAdvert && !CC_SESSION_ID) {

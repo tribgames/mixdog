@@ -19,68 +19,20 @@ import React, { useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
-
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-
-function previousOffset(text, offset) {
-  if (offset <= 0) return 0;
-  let previous = 0;
-  for (const { index, segment } of graphemeSegmenter.segment(text)) {
-    const end = index + segment.length;
-    if (end >= offset) return index;
-    previous = end;
-  }
-  return previous;
-}
-
-function nextOffset(text, offset) {
-  if (offset >= text.length) return text.length;
-  for (const { index, segment } of graphemeSegmenter.segment(text)) {
-    const end = index + segment.length;
-    if (index >= offset) return end;
-    if (end > offset) return end;
-  }
-  return text.length;
-}
-
-function lineStart(text, offset) {
-  return text.lastIndexOf('\n', Math.max(0, offset - 1)) + 1;
-}
-
-function lineEnd(text, offset) {
-  const end = text.indexOf('\n', offset);
-  return end === -1 ? text.length : end;
-}
-
-function caretPosition(text, offset, width) {
-  const before = text.slice(0, offset);
-  let row = 0;
-  let col = 0;
-
-  for (const { segment } of graphemeSegmenter.segment(before)) {
-    if (segment === '\n') {
-      row += 1;
-      col = 0;
-      continue;
-    }
-
-    const segmentWidth = stringWidth(segment);
-    if (segmentWidth === 0) continue;
-
-    if (col > 0 && col + segmentWidth > width) {
-      row += 1;
-      col = 0;
-    }
-
-    col += segmentWidth;
-    if (col >= width) {
-      row += Math.floor(col / width);
-      col %= width;
-    }
-  }
-
-  return { row, col };
-}
+import {
+  caretPosition,
+  deleteBackwardWord,
+  deleteForwardWord,
+  deleteToLineEnd,
+  deleteToLineStart,
+  lineEnd,
+  lineStart,
+  nextOffset,
+  nextWordOffset,
+  previousOffset,
+  previousWordOffset,
+  verticalOffset,
+} from '../input-editing.mjs';
 
 function hintStyle(tone) {
   if (tone === 'error') return { textColor: theme.error };
@@ -119,6 +71,7 @@ export function PromptInput({
   onCommandPaletteCancel,
   onCommandPaletteComplete,
   onRestoreQueued,
+  onPasteText,
   valueRef,
 }) {
   const [draft, setDraft] = useState(() => {
@@ -136,8 +89,8 @@ export function PromptInput({
   // absolute-coordinate guessing, so it never drifts).
   const boxRef = useRef(null);
   const cursorEnabledRef = useRef(false); // latest enabled state, read by the anchor fn at render time
-  const escapeClearArmedRef = useRef(false);
-  const escapeClearTimerRef = useRef(null);
+  const contentWidthRef = useRef(80);
+  const preferredColumnRef = useRef(null);
   const { value, cursor } = draft;
   draftRef.current = draft;
 
@@ -159,26 +112,8 @@ export function PromptInput({
     }
   };
 
-  const clearEscapeClearArm = () => {
-    escapeClearArmedRef.current = false;
-    if (escapeClearTimerRef.current) {
-      clearTimeout(escapeClearTimerRef.current);
-      escapeClearTimerRef.current = null;
-    }
-  };
-
-  const armEscapeClear = () => {
-    escapeClearArmedRef.current = true;
-    if (escapeClearTimerRef.current) clearTimeout(escapeClearTimerRef.current);
-    escapeClearTimerRef.current = setTimeout(() => {
-      escapeClearTimerRef.current = null;
-      escapeClearArmedRef.current = false;
-    }, 1000);
-    escapeClearTimerRef.current.unref?.();
-  };
-
-  const commitDraft = (next) => {
-    clearEscapeClearArm();
+  const commitDraft = (next, options = {}) => {
+    if (!options.keepPreferredColumn) preferredColumnRef.current = null;
     draftRef.current = next;
     setDraft(next);
     if (next.value !== lastReportedValueRef.current) {
@@ -194,6 +129,7 @@ export function PromptInput({
       if (!cursorEnabledRef.current) return null;
       const d = draftRef.current;
       const w = yogaNode?.getComputedWidth?.() ?? 0;
+      contentWidthRef.current = Math.max(1, w || contentWidthRef.current || 80);
       return w > 0
         ? caretPosition(d.value, d.cursor, w)
         : { row: 0, col: stringWidth(d.value.slice(0, d.cursor)) };
@@ -201,22 +137,64 @@ export function PromptInput({
     return true;
   };
 
-  const updateDraft = (fn) => {
-    commitDraft(fn(draftRef.current));
+  const updateDraft = (fn, options = {}) => {
+    commitDraft(fn(draftRef.current), options);
+  };
+
+  const moveDraftVertically = (direction) => {
+    const current = draftRef.current;
+    const moved = verticalOffset(
+      current.value,
+      current.cursor,
+      contentWidthRef.current,
+      direction,
+      preferredColumnRef.current,
+    );
+    preferredColumnRef.current = moved.preferredColumn;
+    if (moved.cursor === current.cursor) return false;
+    commitDraft({ ...current, cursor: moved.cursor }, { keepPreferredColumn: true });
+    return true;
   };
 
   const restoreQueuedToDraft = () => {
-    const restored = onRestoreQueued?.(draftRef.current.value) === true;
-    if (restored) clearEscapeClearArm();
-    return restored;
+    return onRestoreQueued?.(draftRef.current.value) === true;
+  };
+
+  const insertAtDraft = (text) => {
+    const value = String(text ?? '');
+    if (!value) return;
+    commitDraft(insertText(draftRef.current, value));
+  };
+
+  const handleExternalPaste = (text, meta = {}) => {
+    const pasted = normalizePastedText(text);
+    const fallback = () => { if (pasted) insertAtDraft(pasted); };
+    let handled;
+    try {
+      handled = onPasteText?.(pasted, meta);
+    } catch {
+      fallback();
+      return;
+    }
+    const apply = (replacement) => {
+      if (typeof replacement === 'string') {
+        insertAtDraft(replacement);
+        return;
+      }
+      if (replacement === false) return;
+      fallback();
+    };
+    if (handled && typeof handled.then === 'function') {
+      handled.then(apply).catch(fallback);
+    } else {
+      apply(handled);
+    }
   };
 
   useEffect(() => {
     if (!draftOverride || typeof draftOverride.value !== 'string') return;
     commitDraft({ value: draftOverride.value, cursor: draftOverride.value.length });
   }, [draftOverride?.id]);
-
-  useEffect(() => () => clearEscapeClearArm(), []);
 
   const submitDraft = (next) => {
     const text = next.value;
@@ -232,15 +210,14 @@ export function PromptInput({
   // is inert — useInput with isActive:false won't throw.
   usePaste((text) => {
     if (disabled) return;
-    const pasted = normalizePastedText(text);
-    if (!pasted) return;
-    updateDraft((d) => insertText(d, pasted));
+    handleExternalPaste(text, { source: 'paste' });
   }, { isActive: isRawModeSupported && !disabled });
 
   useInput((input, key) => {
     if (disabled) return;
 
     const rawInput = String(input ?? '');
+    const inputKey = rawInput.toLowerCase();
 
     // Drop SGR mouse-tracking sequences (wheel/click). The App enables mouse
     // tracking for transcript scrolling and parses these off raw stdin itself;
@@ -251,15 +228,18 @@ export function PromptInput({
       return;
     }
 
-    const pasteFallback = /[\r\n]/.test(rawInput) && (rawInput.length > 1 || !key.return);
+    const rawUpArrow = rawInput === '\x1b[A' || rawInput === '\x1bOA' || rawInput === '[A' || rawInput === 'OA';
+    const rawDownArrow = rawInput === '\x1b[B' || rawInput === '\x1bOB' || rawInput === '[B' || rawInput === 'OB';
+    const lineBreakIndex = rawInput.search(/[\r\n]/);
+    const rawEnter = rawInput === '\r' || rawInput === '\n' || rawInput === '\r\n';
+
+    const pasteFallback = lineBreakIndex !== -1 && !rawEnter && (rawInput.length > 1 || !key.return);
     if (pasteFallback) {
-      const pasted = normalizePastedText(rawInput);
-      if (pasted) updateDraft((d) => insertText(d, pasted));
+      handleExternalPaste(rawInput, { source: 'paste-fallback' });
       return;
     }
 
-    const returnIndex = rawInput.indexOf('\r');
-    if (returnIndex !== -1 && !key.shift && !key.meta) {
+    if (lineBreakIndex !== -1 && !key.shift && !key.meta && (key.return || rawEnter)) {
       if (commandPaletteActive) {
         const accepted = onCommandPaletteAccept?.(draftRef.current.value);
         if (accepted !== false) {
@@ -268,7 +248,12 @@ export function PromptInput({
         }
         return;
       }
-      submitDraft(insertText(draftRef.current, rawInput.slice(0, returnIndex)));
+      submitDraft(insertText(draftRef.current, rawInput.slice(0, lineBreakIndex)));
+      return;
+    }
+
+    if (!commandPaletteActive && ((key.ctrl && inputKey === 'v') || (key.meta && inputKey === 'v'))) {
+      handleExternalPaste('', { source: 'clipboard-image-shortcut' });
       return;
     }
 
@@ -303,18 +288,20 @@ export function PromptInput({
       return;
     }
 
-    if (key.upArrow) {
+    if (key.upArrow || rawUpArrow) {
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.(-1);
       } else {
-        restoreQueuedToDraft();
+        if (!restoreQueuedToDraft()) moveDraftVertically(-1);
       }
       return;
     }
 
-    if (key.downArrow) {
+    if (key.downArrow || rawDownArrow) {
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.(1);
+      } else {
+        moveDraftVertically(1);
       }
       return;
     }
@@ -349,36 +336,27 @@ export function PromptInput({
 
     if (key.escape) {
       if (commandPaletteActive) {
-        clearEscapeClearArm();
         onCommandPaletteCancel?.(draftRef.current.value);
         commitDraft({ value: '', cursor: 0 });
         return;
       }
-      if (restoreQueuedToDraft()) {
+      const currentValue = draftRef.current.value;
+      if (onEscape?.(currentValue, { phase: 'before' }) === true) {
+        return;
+      }
+      if (currentValue) {
+        onEscape?.(currentValue, { phase: 'clear' });
+        commitDraft({ value: '', cursor: 0 });
         return;
       }
       if (interruptActive) {
-        clearEscapeClearArm();
-        const restoredText = onInterrupt?.(draftRef.current.value);
+        const restoredText = onInterrupt?.('');
         if (typeof restoredText === 'string') {
           commitDraft({ value: restoredText, cursor: restoredText.length });
         }
         return;
       }
-      const currentValue = draftRef.current.value;
-      if (onEscape?.(currentValue, { phase: 'before' }) === true) {
-        clearEscapeClearArm();
-        return;
-      }
-      if (currentValue) {
-        if (escapeClearArmedRef.current) {
-          clearEscapeClearArm();
-          onEscape?.(currentValue, { phase: 'clear' });
-          commitDraft({ value: '', cursor: 0 });
-          return;
-        }
-        armEscapeClear();
-        onEscape?.(currentValue, { phase: 'arm-clear' });
+      if (restoreQueuedToDraft()) {
         return;
       }
       onEscape?.('', { phase: 'empty' });
@@ -386,7 +364,16 @@ export function PromptInput({
     }
 
     if (key.leftArrow) {
-      updateDraft((d) => ({ ...d, cursor: previousOffset(d.value, d.cursor) }));
+      if (commandPaletteActive) {
+        onCommandPaletteNavigate?.('left');
+        return;
+      }
+      updateDraft((d) => ({
+        ...d,
+        cursor: key.ctrl || key.meta
+          ? previousWordOffset(d.value, d.cursor)
+          : previousOffset(d.value, d.cursor),
+      }));
       return;
     }
     if (key.rightArrow) {
@@ -394,7 +381,12 @@ export function PromptInput({
         onCommandPaletteNavigate?.('right');
         return;
       }
-      updateDraft((d) => ({ ...d, cursor: nextOffset(d.value, d.cursor) }));
+      updateDraft((d) => ({
+        ...d,
+        cursor: key.ctrl || key.meta
+          ? nextWordOffset(d.value, d.cursor)
+          : nextOffset(d.value, d.cursor),
+      }));
       return;
     }
     if (key.home) {
@@ -403,6 +395,55 @@ export function PromptInput({
     }
     if (key.end) {
       updateDraft((d) => ({ ...d, cursor: lineEnd(d.value, d.cursor) }));
+      return;
+    }
+
+    const editingKey = String(input || '').toLowerCase();
+
+    // ctrl+a / ctrl+e — line home / line end (common readline bindings).
+    if (key.ctrl && editingKey === 'a') {
+      updateDraft((d) => ({ ...d, cursor: lineStart(d.value, d.cursor) }));
+      return;
+    }
+    if (key.ctrl && editingKey === 'e') {
+      updateDraft((d) => ({ ...d, cursor: lineEnd(d.value, d.cursor) }));
+      return;
+    }
+    // ctrl+b / ctrl+f — character left / right.
+    if (key.ctrl && editingKey === 'b') {
+      updateDraft((d) => ({ ...d, cursor: previousOffset(d.value, d.cursor) }));
+      return;
+    }
+    if (key.ctrl && editingKey === 'f') {
+      updateDraft((d) => ({ ...d, cursor: nextOffset(d.value, d.cursor) }));
+      return;
+    }
+    // alt/option+b / alt/option+f — word left / right.
+    if (key.meta && editingKey === 'b') {
+      updateDraft((d) => ({ ...d, cursor: previousWordOffset(d.value, d.cursor) }));
+      return;
+    }
+    if (key.meta && editingKey === 'f') {
+      updateDraft((d) => ({ ...d, cursor: nextWordOffset(d.value, d.cursor) }));
+      return;
+    }
+    // ctrl+u / ctrl+k — delete to line start / end.
+    if (key.ctrl && editingKey === 'u') {
+      updateDraft(deleteToLineStart);
+      return;
+    }
+    if (key.ctrl && editingKey === 'k') {
+      updateDraft(deleteToLineEnd);
+      return;
+    }
+    // ctrl+w / alt+backspace — delete previous word.
+    if ((key.ctrl && editingKey === 'w') || ((key.ctrl || key.meta) && key.backspace)) {
+      updateDraft(deleteBackwardWord);
+      return;
+    }
+    // alt+d / ctrl+delete — delete next word.
+    if ((key.meta && editingKey === 'd') || (key.ctrl && key.delete)) {
+      updateDraft(deleteForwardWord);
       return;
     }
 
@@ -430,27 +471,12 @@ export function PromptInput({
       return;
     }
 
-    // ctrl+a / ctrl+e — line home / line end (common readline bindings).
-    if (key.ctrl && input === 'a') {
-      updateDraft((d) => ({ ...d, cursor: lineStart(d.value, d.cursor) }));
-      return;
-    }
-    if (key.ctrl && input === 'e') {
-      updateDraft((d) => ({ ...d, cursor: lineEnd(d.value, d.cursor) }));
-      return;
-    }
-    // ctrl+u — clear line.
-    if (key.ctrl && input === 'u') {
-      commitDraft({ value: '', cursor: 0 });
-      return;
-    }
-
     // Printable input (ignore other control keys). Strip any embedded SGR mouse
     // sequences as a belt-and-suspenders guard (the early return above catches
     // whole-sequence inputs; this removes partials that rode in with real text).
     const printable = rawInput
       .replace(/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/g, '')
-      .replace(/\r/g, '');
+      .replace(/[\r\n]/g, '');
     if (printable && !key.ctrl && !key.meta) {
       updateDraft((d) => insertText(d, printable));
     }

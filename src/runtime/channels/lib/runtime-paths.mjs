@@ -181,7 +181,7 @@ function readActiveInstance() {
             && _staleSup2 === undefined;
           if (ownerEmpty) return undefined;
           return { ...stableRestLocked, updatedAt: Date.now() };
-        }, { compact: true, fsyncDir: true });
+        }, { compact: true, fsync: false, fsyncDir: false });
       } catch {}
     }
     return null;
@@ -334,7 +334,7 @@ function refreshActiveInstance(instanceId, meta) {
       }
     }
     return { ...preservedExtra, ...next };
-  }, { compact: true, fsyncDir: true });
+  }, { compact: true, fsync: false, fsyncDir: false });
 }
 const SERVER_PID_FILE = join(
   RUNTIME_ROOT,

@@ -14,7 +14,12 @@ import { theme } from '../theme.mjs';
 // imports resolve from the real src/ui location, not the dist/ bundle dir.
 // esbuild leaves dynamic-import string specifiers alone.
 const STATUSLINE_MODULE = '../../ui/statusline.mjs';
-const FIRST_STATUSLINE_DELAY_MS = 150;
+let statuslineModulePromise = null;
+
+function loadStatuslineModule() {
+  if (!statuslineModulePromise) statuslineModulePromise = import(STATUSLINE_MODULE);
+  return statuslineModulePromise;
+}
 
 const RESET = '\x1b[0m';
 
@@ -45,28 +50,24 @@ export function normalizeStatusLine(text) {
     .replaceAll(`${RESET} ${SUBTLE}│${RESET} `, ` ${SUBTLE}│${RESET} `);
 }
 
-export function StatusLine({ sessionId, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision = '', bridgeWorkers = [], bridgeJobs = [], initialLine = '' }) {
+export function StatusLine({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision = '', bridgeWorkers = [], bridgeJobs = [], initialLine = '' }) {
   const [line, setLine] = useState(() => normalizeStatusLine(initialLine));
 
   useEffect(() => {
     let alive = true;
-    const delay = line ? 0 : FIRST_STATUSLINE_DELAY_MS;
-    const timer = setTimeout(() => {
-      import(STATUSLINE_MODULE)
-        .then((m) => m.renderStatusline({ sessionId, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, bridgeWorkers, bridgeJobs }))
-        .then((s) => {
-          if (!alive) return;
-          setLine(normalizeStatusLine(s));
-        })
-        .catch(() => {
-          if (alive) setLine('');
-        });
-    }, delay);
+    loadStatuslineModule()
+      .then((m) => m.renderStatusline({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, bridgeWorkers, bridgeJobs }))
+      .then((s) => {
+        if (!alive) return;
+        setLine(normalizeStatusLine(s));
+      })
+      .catch(() => {
+        if (alive) setLine('');
+      });
     return () => {
       alive = false;
-      clearTimeout(timer);
     };
-  }, [sessionId, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision]);
+  }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision]);
 
   return (
     <Box flexDirection="column" width="100%" height={2} overflow="hidden" paddingLeft={2} marginBottom={1} backgroundColor={theme.background}>

@@ -31,6 +31,13 @@
 ## Output
 
 - Final reply exactly `<final-answer>...</final-answer>`. Nothing outside the tags.
+- Claude Code-compact: one sentence or max 3 flat bullets.
+- No headings, nested bullets, tables, report labels, tool traces, searched-path
+  lists, model/session metadata, timings, or token counts unless decisive.
+- Implementation: changed files + verification only; say if not run.
+- Review/debug: finding -> evidence -> fix/blocker. No blocking issue ->
+  `SHIP-READY` alone.
+- Quote only the shortest decisive error. No raw logs or long file lists.
 
 ## Git
 

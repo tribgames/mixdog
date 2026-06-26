@@ -666,6 +666,7 @@ async function _searchCore(args, { cacheState, agentSearch, signal }) {
 }
 
 const DEFAULT_FETCH_MAX_LENGTH = 50000
+const FETCH_CACHE_VERSION = 'auto-render-js-fallback-v1'
 
 // Apply character-level pagination to a cached or fresh fetch payload. Mirrors
 // the mcp-server-fetch reference: caller passes startIndex/maxLength and
@@ -717,7 +718,7 @@ async function _fetchCore(args, { usageState, cacheState, timeoutMs, signal }) {
 
   const runOne = async (url, index) => {
     const normalizedUrl = normalizeCacheUrl(url)
-    const fetchCacheKey = buildCacheKey('fetch:url', { url: normalizedUrl })
+    const fetchCacheKey = buildCacheKey('fetch:url', { url: normalizedUrl, version: FETCH_CACHE_VERSION })
     const cached = getCachedEntry(cacheState, fetchCacheKey)
     if (cached) {
       return {

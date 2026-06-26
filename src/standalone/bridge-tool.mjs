@@ -47,12 +47,12 @@ export const BRIDGE_TOOL = {
     openWorldHint: true,
     bridgeHidden: true,
   },
-  description: `Workflow-agent control. For Lead/model delegation, prefer async spawn/send and omit mode unless the user explicitly needs a blocking result now. Do not set mode="sync" for normal worker/reviewer/debugger handoffs; async returns immediately and completion arrives as an owner-session notification. Use mode="sync" only for an explicit blocking wait. ${TOOL_ASYNC_EXECUTION_CONTRACT} Use agent=explore/web-researcher/maintainer/worker/heavy-worker/reviewer/debugger. No same-scope edits until done/cancel/takeover.`,
+  description: `Workflow-agent control. Prefer async spawn/send for Lead/model delegation: omit mode for normal spawn/send. Never set mode="sync" for ordinary worker/reviewer/debugger handoffs; use sync only when the user explicitly asks to block for the result now. ${TOOL_ASYNC_EXECUTION_CONTRACT} Use agent=explore/web-researcher/maintainer/worker/heavy-worker/reviewer/debugger. No same-scope edits until done/cancel/takeover.`,
   inputSchema: {
     type: 'object',
     properties: {
-      type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: `Default spawn. spawn/send use the shared background task system when mode=async. ${TOOL_ASYNC_EXECUTION_CONTRACT}` },
-      mode: { type: 'string', enum: ['sync', 'async'], description: executionModeSchemaDescription('async') },
+      type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: `Default spawn. For spawn/send, omit mode so Lead uses async background execution. ${TOOL_ASYNC_EXECUTION_CONTRACT}` },
+      mode: { type: 'string', enum: ['async', 'sync'], description: `${executionModeSchemaDescription('async')} Omit this for normal Lead handoffs; choose sync only for an explicit blocking wait.` },
       task_id: { type: 'string', description: 'Shared background task id for manual status/read/cancel recovery.' },
       agent: { type: 'string', description: 'Workflow agent id to run. Use an agent declared by the active workflow.' },
       tag: { type: 'string', description: 'Stable agent handle; distinct tag per parallel agent.' },
@@ -110,6 +110,23 @@ function normalizePermission(value) {
 function positiveInt(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function terminalPidForContext(context = {}) {
+  return positiveInt(context?.clientHostPid);
+}
+
+function bridgeScope(args = {}, context = {}) {
+  const scope = clean(args.scope || args.terminal || args.term).toLowerCase();
+  if (args.allTerminals === true || scope === 'all' || scope === 'global') return {};
+  return context || {};
+}
+
+function sessionMatchesContext(session, context = {}) {
+  const wantedPid = terminalPidForContext(context);
+  if (!wantedPid) return true;
+  const sessionPid = positiveInt(session?.clientHostPid);
+  return !!sessionPid && sessionPid === wantedPid;
 }
 
 function nonNegativeInt(value) {
@@ -268,13 +285,15 @@ function renderResult(value) {
       for (const worker of workers) {
         const stale = Number.isFinite(worker.staleSeconds) ? ` stale=${worker.staleSeconds}s` : '';
         const tokens = worker.windowTokens ? ` ctx=${worker.windowTokens}${worker.windowCap ? `/${worker.windowCap}` : ''}` : '';
-        lines.push(`- ${worker.tag} ${worker.role || 'agent'} ${worker.status || 'idle'}/${worker.stage || 'idle'} ${worker.provider}/${worker.model}${stale}${tokens}`);
+        const terminal = worker.clientHostPid ? ` term=${worker.clientHostPid}` : '';
+        lines.push(`- ${worker.tag} ${worker.role || 'agent'} ${worker.status || 'idle'}/${worker.stage || 'idle'} ${worker.provider}/${worker.model}${terminal}${stale}${tokens}`);
       }
       const jobs = Array.isArray(value.jobs) ? value.jobs : [];
       lines.push(`tasks: ${jobs.length}`);
       for (const job of jobs) {
         const target = job.tag || job.sessionId || '-';
-        lines.push(`- ${job.task_id} ${job.type} ${job.status} target=${target}${job.error ? ` error=${presentErrorText(job.error, { surface: 'bridge' })}` : ''}`);
+        const terminal = job.clientHostPid ? ` term=${job.clientHostPid}` : '';
+        lines.push(`- ${job.task_id} ${job.type} ${job.status} target=${target}${terminal}${job.error ? ` error=${presentErrorText(job.error, { surface: 'bridge' })}` : ''}`);
       }
       if (workers.length === 0 && jobs.length === 0) lines.push('(no bridge agents or tasks)');
       return lines.join('\n');
@@ -368,12 +387,23 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     return `job_${Date.now()}_${jobSeq}_${clean(type) || 'bridge'}`;
   }
 
-  function resolveTag(target) {
-    refreshTagsFromSessions();
+  function resolveTag(target, context = {}) {
+    refreshTagsFromSessions({ context });
     const value = clean(target);
     if (!value) return null;
-    if (value.startsWith('sess_')) return getLiveSession(value) ? value : null;
-    return tags.get(value) || null;
+    if (value.startsWith('sess_')) {
+      const session = getLiveSession(value);
+      return session && sessionMatchesContext(session, context) ? value : null;
+    }
+    const matches = bridgeSessionEntries({ scanSessions: true, context })
+      .filter((entry) => entry.tag === value);
+    if (matches.length === 1) return matches[0].session.id;
+    if (matches.length > 1) {
+      throw new Error(`bridge: tag "${value}" is ambiguous across terminals; use sessionId`);
+    }
+    const sessionId = tags.get(value) || null;
+    const session = getLiveSession(sessionId);
+    return session && sessionMatchesContext(session, context) ? sessionId : null;
   }
 
   function getLiveSession(sessionId) {
@@ -383,29 +413,56 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
   }
 
   function tagForSession(sessionId) {
+    const session = getLiveSession(sessionId);
+    const persistedTag = clean(session?.bridgeTag);
+    if (persistedTag) return persistedTag;
     for (const [tag, sid] of tags.entries()) {
       if (sid === sessionId) return tag;
     }
     return null;
   }
 
-  function nextTag(role) {
-    refreshTagsFromSessions();
+  function bridgeSessionEntries({ scanSessions = true, context = {} } = {}) {
+    const rows = [];
+    const seen = new Set();
+    const add = (session, fallbackTag = '') => {
+      const tag = clean(session?.bridgeTag) || clean(fallbackTag);
+      if (!tag || !session?.id || session.closed === true) return;
+      if (!sessionMatchesContext(session, context)) return;
+      if (seen.has(session.id)) return;
+      seen.add(session.id);
+      rows.push({ tag, session });
+    };
+    if (scanSessions) {
+      for (const session of mgr.listSessions({ includeClosed: false }) || []) {
+        add(session, session?.bridgeTag);
+      }
+    }
+    for (const [tag, sessionId] of tags.entries()) {
+      add(getLiveSession(sessionId), tag);
+    }
+    return rows;
+  }
+
+  function nextTag(role, context = {}) {
+    refreshTagsFromSessions({ context });
     let tag;
     do {
       tag = `${clean(role) || 'agent'}${++tagSeq}`;
-    } while (tags.has(tag));
+    } while (resolveTag(tag, context));
     return tag;
   }
 
-  function refreshTagsFromSessions() {
+  function refreshTagsFromSessions({ scanSessions = true, context = {} } = {}) {
     for (const [tag, sessionId] of [...tags.entries()]) {
       const session = getLiveSession(sessionId);
       if (!session || session.closed) tags.delete(tag);
     }
+    if (!scanSessions) return;
     for (const session of mgr.listSessions({ includeClosed: false }) || []) {
       const tag = clean(session?.bridgeTag);
       if (!tag || tags.has(tag)) continue;
+      if (!sessionMatchesContext(session, context)) continue;
       tags.set(tag, session.id);
       if (session.role) tagRoles.set(tag, session.role);
       if (session.cwd) tagCwds.set(tag, session.cwd);
@@ -527,13 +584,12 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     return { presetName, preset };
   }
 
-  function list() {
-    refreshTagsFromSessions();
+  function list({ scanSessions = true, context = {} } = {}) {
+    refreshTagsFromSessions({ scanSessions, context });
     const now = Date.now();
     const rows = [];
-    for (const [tag, sessionId] of tags.entries()) {
-      const session = mgr.getSession(sessionId);
-      if (!session || session.closed) continue;
+    for (const { tag, session } of bridgeSessionEntries({ scanSessions, context })) {
+      const sessionId = session.id;
       const runtime = mgr.getSessionRuntime?.(sessionId);
       const status = session.closed === true ? 'closed' : (session.status || 'idle');
       const stage = status === 'idle' || status === 'error' || status === 'closed'
@@ -553,6 +609,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
         createdAt: session.createdAt || null,
         updatedAt: session.updatedAt || null,
         lastUsedAt: session.lastUsedAt || null,
+        clientHostPid: session.clientHostPid || null,
         lastStreamDeltaAt: runtime?.lastStreamDeltaAt ? new Date(runtime.lastStreamDeltaAt).toISOString() : null,
         staleSeconds: runtime?.lastStreamDeltaAt ? Math.floor((now - runtime.lastStreamDeltaAt) / 1000) : null,
         windowTokens: Number(session.lastContextTokens ?? session.lastInputTokens) || 0,
@@ -575,12 +632,14 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     return {
       workerStatus: status,
       stage: runtime?.stage || status,
+      clientHostPid: session.clientHostPid || null,
       lastStreamDeltaAt: runtime?.lastStreamDeltaAt ? new Date(runtime.lastStreamDeltaAt).toISOString() : null,
     };
   }
 
   function listJobs(context = {}) {
-    return listBackgroundTasks({ surface: 'bridge', context }).map((task) => ({
+    const wantedPid = terminalPidForContext(context);
+    const rows = listBackgroundTasks({ surface: 'bridge', context }).map((task) => ({
       task_id: task.task_id,
       type: task.operation,
       status: task.status,
@@ -600,6 +659,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       error: task.error || null,
       ...jobWorkerSnapshot(task.sessionId),
     }));
+    return wantedPid ? rows.filter((row) => positiveInt(row.clientHostPid) === wantedPid) : rows;
   }
 
   function getJob(args, context = {}) {
@@ -636,18 +696,23 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
   }
 
   function startJob(type, meta, run, notifyContext = null) {
+    const clientHostPid = terminalPidForContext(notifyContext);
+    const jobMeta = {
+      ...(meta || {}),
+      ...(clientHostPid ? { clientHostPid } : {}),
+    };
     return startBackgroundTask({
       surface: 'bridge',
       operation: type,
-      label: meta?.tag || meta?.sessionId || type,
-      input: { type, tag: meta?.tag || null, sessionId: meta?.sessionId || null, role: meta?.role || null },
+      label: jobMeta?.tag || jobMeta?.sessionId || type,
+      input: { type, tag: jobMeta?.tag || null, sessionId: jobMeta?.sessionId || null, role: jobMeta?.role || null },
       context: notifyContext,
-      meta,
+      meta: jobMeta,
       resultType: 'bridge_task_result',
       renderResult: (result) => renderResult(result),
       cancel: () => {
-        if (meta?.sessionId) {
-          try { mgr.closeSession(meta.sessionId, 'bridge-task-cancel'); } catch {}
+        if (jobMeta?.sessionId) {
+          try { mgr.closeSession(jobMeta.sessionId, 'bridge-task-cancel'); } catch {}
         }
       },
       run,
@@ -694,8 +759,8 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     };
   }
 
-  async function prepareSpawn(args, callerCwd = null) {
-    refreshTagsFromSessions();
+  async function prepareSpawn(args, callerCwd = null, context = {}) {
+    refreshTagsFromSessions({ context });
     const config = cfgMod.loadConfig();
     const roles = readRoles(dataDir);
     const role = normalizeAgentName(args.agent || args.role);
@@ -704,8 +769,8 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     const { presetName, preset } = resolvePreset(config, args, roleCfg);
     await ensureProvider(config, preset.provider);
 
-    const tag = clean(args.tag) || nextTag(role);
-    if (resolveTag(tag)) throw new Error(`bridge spawn: tag "${tag}" already exists`);
+    const tag = clean(args.tag) || nextTag(role, context);
+    if (resolveTag(tag, context)) throw new Error(`bridge spawn: tag "${tag}" already exists`);
     const baseCwd = resolve(callerCwd || defaultCwd || process.cwd());
     const workerCwd = clean(args.cwd) ? resolve(baseCwd, args.cwd) : baseCwd;
     const prompt = withCwdHeader(await resolvePrompt(args, workerCwd), workerCwd);
@@ -722,6 +787,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       cwd: workerCwd,
       sourceType: 'cli',
       sourceName: role,
+      clientHostPid: terminalPidForContext(context) || null,
       bridgeTag: tag,
       taskType: clean(args.taskType) || clean(args.typeHint) || undefined,
       maxLoopIterations: maxLoopIterations || undefined,
@@ -764,11 +830,11 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     return await runSpawn(await prepareSpawn(args));
   }
 
-  async function prepareSend(args) {
-    refreshTagsFromSessions();
+  async function prepareSend(args, context = {}) {
+    refreshTagsFromSessions({ context });
     const target = clean(args.tag || args.sessionId);
     if (!target) throw new Error('bridge send: tag or sessionId is required');
-    const sessionId = resolveTag(target);
+    const sessionId = resolveTag(target, context);
     if (!sessionId) throw new Error(`bridge send: target "${target}" not found`);
     const session = mgr.getSession(sessionId);
     if (!session || session.closed) throw new Error(`bridge send: session "${sessionId}" is closed`);
@@ -805,13 +871,14 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
   }
 
   function close(args, context = {}) {
-    refreshTagsFromSessions();
+    const scopedContext = bridgeScope(args, context);
+    refreshTagsFromSessions({ context: scopedContext });
     const taskId = taskIdFromArgs(args);
     const task = taskId ? getBackgroundTask(taskId, { surface: 'bridge', context }) : null;
     const taskMeta = task?.meta || {};
     const target = clean(args.tag || args.sessionId || taskMeta.sessionId);
     if (!target) throw new Error('bridge close: tag or sessionId is required');
-    const sessionId = resolveTag(target);
+    const sessionId = resolveTag(target, scopedContext);
     if (!sessionId) {
       if (!target.startsWith('sess_') && tagRoles.has(target)) {
         forgetTag(target);
@@ -830,14 +897,15 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
   }
 
   function cleanup(args = {}, context = {}) {
+    const scopedContext = bridgeScope(args, context);
     const beforeTags = tags.size;
-    refreshTagsFromSessions();
-    const cleaned = cleanupBackgroundTasks({ surface: 'bridge', context, force: args.force === true });
+    refreshTagsFromSessions({ context: scopedContext });
+    const cleaned = cleanupBackgroundTasks({ surface: 'bridge', context: scopedContext, force: args.force === true });
     return {
       jobsRemoved: cleaned.removed,
       tagsRemoved: beforeTags - tags.size,
-      jobs: listBackgroundTasks({ surface: 'bridge', context }).length,
-      workers: list().length,
+      jobs: listJobs(scopedContext).length,
+      workers: list({ context: scopedContext }).length,
     };
   }
 
@@ -845,9 +913,9 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     refreshTagsFromSessions();
     const closed = [];
     const failed = [];
-    for (const tag of [...tags.keys()]) {
+    for (const { tag, session } of bridgeSessionEntries({ scanSessions: true, context: {} })) {
       try {
-        closed.push(close({ tag }));
+        closed.push(close({ sessionId: session.id }));
       } catch (err) {
         failed.push({ tag, error: presentErrorText(err, { surface: 'bridge' }) });
       }
@@ -862,9 +930,9 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     return { closed, failed };
   }
 
-  function coldRespawnArgs(args = {}) {
+  function coldRespawnArgs(args = {}, context = {}) {
     const target = clean(args.tag || args.sessionId);
-    if (!target || target.startsWith('sess_') || resolveTag(target)) return null;
+    if (!target || target.startsWith('sess_') || resolveTag(target, context)) return null;
     const recoveredRole = clean(args.agent || args.role) || tagRoles.get(target);
     if (!recoveredRole) return null;
     return {
@@ -883,18 +951,18 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     try {
       const type = clean(args.type) || 'spawn';
       const callerCwd = clean(context.cwd || context.callerCwd);
+      const scopedContext = bridgeScope(args, context);
       const notifyContext = context;
-      refreshTagsFromSessions();
-      if (type === 'list') return renderResult({ bridgeMode: defaultMode, workers: list(), jobs: listJobs(context) });
-      if (type === 'status') return renderResult(renderJob(getJob(args, context), false));
-      if (type === 'read') return renderResult(renderJob(getJob(args, context), true));
-      if (type === 'cleanup') return renderResult(cleanup(args, context));
-      if (type === 'cancel') return renderResult(close(args, context));
-      if (type === 'close') return renderResult(close(args, context));
+      if (type === 'list') return renderResult({ bridgeMode: defaultMode, workers: list({ context: scopedContext }), jobs: listJobs(scopedContext) });
+      if (type === 'status') return renderResult(renderJob(getJob(args, scopedContext), false));
+      if (type === 'read') return renderResult(renderJob(getJob(args, scopedContext), true));
+      if (type === 'cleanup') return renderResult(cleanup(args, scopedContext));
+      if (type === 'cancel') return renderResult(close(args, scopedContext));
+      if (type === 'close') return renderResult(close(args, scopedContext));
       if (type === 'send') {
-        const respawnArgs = coldRespawnArgs(args);
+        const respawnArgs = coldRespawnArgs(args, scopedContext);
         if (respawnArgs) {
-          const prepared = await prepareSpawn(respawnArgs, callerCwd);
+          const prepared = await prepareSpawn(respawnArgs, callerCwd, context);
           if (modeFor(args, context) === 'async') {
             const job = startJob('spawn', {
               tag: prepared.tag,
@@ -914,7 +982,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
           }
           return renderResult({ respawned: true, ...(await runSpawn(prepared)) });
         }
-        const prepared = await prepareSend(args);
+        const prepared = await prepareSend(args, scopedContext);
         if (isSessionBusy(prepared.sessionId) && typeof mgr.enqueuePendingMessage === 'function') {
           const queueDepth = mgr.enqueuePendingMessage(prepared.sessionId, prepared.prompt);
           return renderResult({
@@ -941,7 +1009,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
         return renderResult(await runSend(prepared));
       }
       if (type === 'spawn') {
-        const prepared = await prepareSpawn(args, callerCwd);
+        const prepared = await prepareSpawn(args, callerCwd, context);
         if (modeFor(args, context) === 'async') {
           const job = startJob('spawn', {
             tag: prepared.tag,
@@ -969,7 +1037,16 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
   return {
     tools: [BRIDGE_TOOL],
     execute,
-    getStatus: () => ({ bridgeMode: defaultMode, workers: list(), jobs: listJobs() }),
+    getStatus: (context = {}) => {
+      const scopedContext = bridgeScope({}, context);
+      const pid = terminalPidForContext(scopedContext);
+      return {
+        bridgeMode: defaultMode,
+        workers: list({ scanSessions: true, context: scopedContext }),
+        jobs: listJobs(scopedContext),
+        scope: pid ? { clientHostPid: pid } : { allTerminals: true },
+      };
+    },
     getDefaultMode: () => defaultMode,
     setDefaultMode: (mode) => {
       defaultMode = normalizeMode(mode);

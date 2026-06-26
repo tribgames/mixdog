@@ -95,7 +95,7 @@ async function main() {
         return { content: `worker wrote feature\n${String(out).split(/\r?\n/)[0]}` };
       }
       if (/run verification/i.test(prompt)) {
-        const out = await executeBuiltinTool('bash', {
+        const out = await executeBuiltinTool('shell', {
           command: 'Get-Content feature.txt',
           cwd: cwdOverride,
           shell: 'powershell',

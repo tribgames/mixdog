@@ -30,9 +30,10 @@ export function QueuedCommands({ queued, columns }) {
         // = columns-4. When truncating we append '…' (1 cell), so the slice
         // must leave room for that suffix and avoid a wrap to row 2.
         const contentWidth = Math.max(1, columns - 4);
-        const displayText = item.text.length > contentWidth
-          ? (contentWidth <= 1 ? '…'.repeat(contentWidth) : item.text.slice(0, Math.max(1, contentWidth - 1)) + '…')
-          : item.text;
+        const sourceText = String(item.displayText || item.text || '');
+        const displayText = sourceText.length > contentWidth
+          ? (contentWidth <= 1 ? '…'.repeat(contentWidth) : sourceText.slice(0, Math.max(1, contentWidth - 1)) + '…')
+          : sourceText;
         return (
           <Box key={item.id} width={bandColumns} backgroundColor={theme.userMessageBackground} paddingLeft={2} paddingRight={1}>
             <Text wrap="wrap">

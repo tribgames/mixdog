@@ -11,16 +11,15 @@
  *     2s (CC useStalledAnimation).
  *   - thinking shimmer: left-to-right "thinking" label after delay (CC
  *     ThinkingShimmerText, inlined from useAnimationFrame).
- *   - progressive width gating: timer/tokens/hint shown left→right only if
+ *   - progressive width gating: timer/tokens/thinking shown left→right only if
  *     they fit after the previous segments (CC SpinnerAnimationRow).
- *   - progressive width gating: elapsed/tokens shown as soon as columns allow.
  *   - token counter animation: smooth increment toward the current turn's
  *     output token count, shown Claude Code style as a single "<glyph> N
  *     tokens" segment (CC SpinnerAnimationRow + SpinnerModeGlyph). The glyph
  *     is mode-driven: up while requesting, down otherwise. Input totals hidden.
  *   - elided duration formatting (CC formatDuration: "0:25" after 60s).
  *   - mode prop: 'responding' | 'thinking' | 'tool-use' | 'tool-input' |
- *     'requesting' (default 'responding').
+ *     'requesting' | 'compacting' | 'resuming' (default 'responding').
  */
 import React, { useRef } from 'react';
 import { Box, Text, useAnimation } from 'ink';
@@ -36,13 +35,15 @@ const FRAMES = [...SPINNER_FRAMES, ...[...SPINNER_FRAMES].reverse()];
 // Stall: response must grow within this window or the glyph reddens.
 const STALL_TIMEOUT_MS = 3000;
 const STALL_FADE_MS = 2000; // CC fades red over 2s
-// Hint ("esc to interrupt") is shown immediately when space allows.
-const SHOW_HINT_AFTER_MS = 0;
+// Claude Code hides elapsed/token meta on short turns unless verbose/teammates
+// are active. Mixdog has no spinner verbose/teammate row here, so mirror the
+// default 30s threshold.
+const SHOW_TOKENS_AFTER_MS = 30_000;
 // Thinking shimmer starts after this delay (CC THINKING_DELAY_MS).
 const THINKING_DELAY_MS = 3000;
 
 // One-way shimmer. The tail runs past the final character before restarting.
-const GLIMMER_SPEED_MS = { requesting: 70, 'tool-use': 120, responding: 120, thinking: 120, 'tool-input': 120 };
+const GLIMMER_SPEED_MS = { requesting: 70, compacting: 120, resuming: 120, 'tool-use': 120, responding: 120, thinking: 120, 'tool-input': 120 };
 const GLIMMER_TRAIL = 4;
 const THINKING_GLIMMER_SPEED_MS = 120;
 const THINKING_GLIMMER_TRAIL = 4;
@@ -52,6 +53,8 @@ const VERB_CHANGE_PROBABILITY = 0.65;
 
 const MODE_VERBS = {
   requesting: ['Requesting', 'Preparing', 'Routing'],
+  compacting: ['Compacting conversation'],
+  resuming: ['Resuming conversation'],
   thinking: ['Thinking', 'Reasoning', 'Mapping'],
   'tool-use': ['Using tools', 'Checking files', 'Running tools', 'Reading output'],
   'tool-input': ['Using tools', 'Checking files', 'Running tools', 'Reading output'],
@@ -126,7 +129,6 @@ function formatNumber(n) {
 
 const STATUS_SEP = ' · ';
 const SEP_WIDTH = STATUS_SEP.length;
-const HINT_WIDTH = 16; // 'esc to interrupt'
 
 function stableModeVerb(mode, fallback) {
   const phrases = MODE_VERBS[mode] || [fallback || 'Working'];
@@ -251,11 +253,9 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   const tokenText = displayedOutputTokens > 0 ? `${tokenGlyph} ${formatNumber(displayedOutputTokens)} tokens` : '';
   const tokenW = tokenText.length;
 
-  // Progressive width gating (CC SpinnerAnimationRow:
-  //   show things left→right, each only if it fits after the previous ones).
-  // Mixdog shows elapsed and token count immediately when they fit, matching the
-  // original compact live status instead of hiding short-turn token counters.
-  const showHintNow = elapsedMs > SHOW_HINT_AFTER_MS;
+  // Progressive width gating (CC SpinnerAnimationRow): show status parts
+  // left→right, each only if it fits after the previous ones. Timer/tokens are
+  // hidden for short turns by default; thinking status can still show alone.
   const avail = columns - messageLen - 5; // glyph(2) + ' (' + ')'
 
   const timerText = formatDuration(elapsedMs);
@@ -266,25 +266,26 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
     ? 'thinking'
     : '';
   const thinkingStatusW = thinkingStatusText.length;
+  const wantsTimerAndTokens = elapsedMs > SHOW_TOKENS_AFTER_MS;
 
-  // Gate left→right; each segment after the first needs a sep.
-  let usedW = 0;
-  const showTimer = Boolean(timerLabel) && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + timerW;
-  if (showTimer) usedW += (usedW > 0 ? SEP_WIDTH : 0) + timerW;
+  // Claude Code gives thinking display priority for narrow widths, but renders
+  // it after timer/tokens in the final byline.
+  const showThinkingStatus = Boolean(thinkingStatusText) && avail > thinkingStatusW;
+  const usedAfterThinking = showThinkingStatus ? thinkingStatusW + SEP_WIDTH : 0;
+  const showTimer = wantsTimerAndTokens && Boolean(timerLabel) && avail > usedAfterThinking + timerW;
+  const usedAfterTimer = usedAfterThinking + (showTimer ? timerW + SEP_WIDTH : 0);
+  const showTokens = wantsTimerAndTokens && tokenText && avail > usedAfterTimer + tokenW;
 
-  const showThinkingStatus = Boolean(thinkingStatusText) && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + thinkingStatusW;
-  if (showThinkingStatus) usedW += (usedW > 0 ? SEP_WIDTH : 0) + thinkingStatusW;
-
-  const showTokens = tokenText && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + tokenW;
-  if (showTokens) usedW += (usedW > 0 ? SEP_WIDTH : 0) + tokenW;
-
-  const showHint = showHintNow && avail > usedW + (usedW > 0 ? SEP_WIDTH : 0) + HINT_WIDTH;
-
-  // Build meta line segments — elapsed, thinking status, tokens, hint.
+  // Build meta line segments — elapsed, tokens, thinking (Claude Code order).
   const segments = [];
   if (showTimer) {
     segments.push(
       <Text key="elapsed" color={theme.timerText}>{timerLabel}</Text>
+    );
+  }
+  if (showTokens) {
+    segments.push(
+      <Text key="tokens" color={theme.statusSubtle}>{tokenText}</Text>
     );
   }
   if (showThinkingStatus) {
@@ -296,17 +297,6 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
         : <Text key="thinking-status" color={theme.statusSubtle}>{thinkingStatusText}</Text>
     );
   }
-  if (showTokens) {
-    segments.push(
-      <Text key="tokens" color={theme.statusSubtle}>{tokenText}</Text>
-    );
-  }
-  if (showHint) {
-    segments.push(
-      <Text key="hint" color={theme.statusSubtle}>esc to interrupt</Text>
-    );
-  }
-
   return (
     <Box marginTop={1} flexDirection="row">
       <Box flexWrap="wrap" height={1} width={2}>

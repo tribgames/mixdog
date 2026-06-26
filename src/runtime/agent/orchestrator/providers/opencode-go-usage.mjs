@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync } from 'node:fs';
+import * as fsp from 'node:fs/promises';
 import { join } from 'node:path';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getOpenCodeGoAuthCookie } from '../../../shared/config.mjs';
@@ -14,6 +15,8 @@ const LIMITS_USD = Object.freeze({
   weekly: { label: '7D', limitUsd: 30 },
   monthly: { label: 'M', limitUsd: 60 },
 });
+const DISK_JSON_MEMORY_TTL_MS = 1000;
+let diskJsonCache = { at: 0, file: '', value: null };
 
 function num(value, fallback = null) {
   const n = Number(value);
@@ -37,18 +40,24 @@ function cachePath() {
 }
 
 function readJson(file) {
+  if (diskJsonCache.file === file && Date.now() - diskJsonCache.at < DISK_JSON_MEMORY_TTL_MS) {
+    return diskJsonCache.value;
+  }
   try {
     if (!existsSync(file)) return null;
-    return JSON.parse(readFileSync(file, 'utf8'));
+    const value = JSON.parse(readFileSync(file, 'utf8'));
+    diskJsonCache = { at: Date.now(), file, value };
+    return value;
   } catch {
     return null;
   }
 }
 
 function writeJson(file, value) {
+  diskJsonCache = { at: Date.now(), file, value };
   try {
     mkdirSync(resolvePluginData(), { recursive: true });
-    writeFileSync(file, JSON.stringify(value, null, 2), 'utf8');
+    void fsp.writeFile(file, JSON.stringify(value, null, 2), 'utf8').catch(() => {});
   } catch {}
 }
 

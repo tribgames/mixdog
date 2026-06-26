@@ -156,7 +156,7 @@ export function writeGatewaySessionRoute(sessionId, route, options = {}) {
         sessions[sid] = { ...normalized, sessionId: sid, updatedAt: Date.now() };
       }
       return { version: 2, updatedAt: Date.now(), sessions, sessionHosts };
-    }, { compact: true, fsyncDir: true });
+    }, { compact: true, fsync: false, fsyncDir: false });
     return true;
   } catch {
     return false;
@@ -181,7 +181,7 @@ export function clearGatewaySessionRoute(sessionId, options = {}) {
         delete sessions[sid];
       }
       return { version: 2, updatedAt: Date.now(), sessions, sessionHosts };
-    }, { compact: true, fsyncDir: true });
+    }, { compact: true, fsync: false, fsyncDir: false });
     return true;
   } catch {
     return false;

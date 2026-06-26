@@ -32,3 +32,18 @@ export function TurnDone({ elapsedMs = 0, status = 'done', verb = 'Thought' }) {
     </Box>
   );
 }
+
+export function StatusDone({ label = 'Complete', detail = '' }) {
+  const copy = String(label || 'Complete').trim() || 'Complete';
+  const suffix = String(detail || '').trim();
+
+  return (
+    <Box marginTop={1} flexDirection="row">
+      <Text>
+        <Text color={theme.spinnerGlyph}>{TURN_DONE_MARKER} </Text>
+        <Text color={theme.thinkingAccent}>{copy}</Text>
+        {suffix ? <Text color={theme.subtle}> · {suffix}</Text> : null}
+      </Text>
+    </Box>
+  );
+}

@@ -276,9 +276,8 @@ export function completeBackgroundTask(taskId, {
 export function notifyTaskCompletion(task, instruction) {
   if (!task || task.notified === true) return false;
   if (!TERMINAL_STATUSES.has(task.status)) return false;
-  task.notified = true;
   const text = renderBackgroundTask(task, { includeResult: true });
-  return notifyToolCompletion({
+  const sent = notifyToolCompletion({
     surface: task.surface,
     id: task.taskId,
     status: task.status,
@@ -288,6 +287,8 @@ export function notifyTaskCompletion(task, instruction) {
     context: task.notifyContext,
     logPrefix: `background-${task.surface}`,
   });
+  if (sent) task.notified = true;
+  return sent;
 }
 
 export function notifyBackgroundTaskProgress(taskOrId, {

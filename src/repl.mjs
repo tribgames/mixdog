@@ -263,7 +263,7 @@ async function handleSlash(line, ctx) {
           stdout.write(yellow(r.reason) + '\n');
           return;
         }
-        stdout.write(green(`✓ compacted context: ${r.beforeMessages}→${r.afterMessages} messages, ${r.beforeTokens}→${r.afterTokens} est tokens`) + '\n');
+        stdout.write(green(`✓ compacted context: ${r.beforeMessages}→${r.afterMessages} messages, context ${r.beforeTokens}→${r.afterTokens}`) + '\n');
       }
       return;
 

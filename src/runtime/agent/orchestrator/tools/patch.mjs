@@ -672,6 +672,8 @@ async function preValidateNativeBatch(parsed, basePath) {
       kind,
       fullPath,
       displayPath,
+      added,
+      removed,
       hunks: entry.hunks?.length || 0,
       linesChanged: added + removed,
     });
@@ -1227,12 +1229,19 @@ async function dispatchNativePatch({ entries, basePath, nativePatchStr, fuzz, re
   }
   scheduleNativePatchIdleClose();
   const verb = dryRun ? 'checked' : 'applied';
+  const verbLabel = dryRun ? 'Checked' : 'Applied';
+  const countLabel = (count, singular, plural = `${singular}s`) => `${count} ${count === 1 ? singular : plural}`;
+  const kindLabel = (kind) => {
+    const text = String(kind || '').trim();
+    return text ? `${text.charAt(0).toUpperCase()}${text.slice(1).toLowerCase()}` : 'Update';
+  };
   const summary = stats.partial
-    ? `Error: patch partially ${dryRun ? 'checked' : 'applied'} (${verb} ${writtenEntries.length}, ${stats.failures.length} skipped) (native)`
-    : `${verb} ${writtenEntries.length} (native)${dryRun ? ' dry-run' : ''}`;
+    ? `Error: Patch Partially ${verbLabel} (${countLabel(writtenEntries.length, 'File')} ${verb} · ${countLabel(stats.failures.length, 'File')} Skipped) (Native)`
+    : `${verbLabel} ${countLabel(writtenEntries.length, 'File')} (Native)${dryRun ? ' Dry Run' : ''}`;
   const lines = [summary];
   for (const entry of writtenEntries) {
-    lines.push(`  OK ${entry.kind} ${entry.displayPath} ±${entry.linesChanged}L/${entry.hunks}h`);
+    const detail = `+${countLabel(entry.added || 0, 'Line')} · -${countLabel(entry.removed || 0, 'Line')}`;
+    lines.push(`  OK ${kindLabel(entry.kind)} ${entry.displayPath} — ${detail}`);
   }
   for (const f of stats.failures || []) {
     lines.push(`  SKIP ${f.path || '(unknown)'} — ${f.reason}${formatNativeFailureContext(parsed, basePath, f.path, { fuzz })}`);

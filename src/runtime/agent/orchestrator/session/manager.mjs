@@ -6,7 +6,13 @@ import { getProvider, providerInputExcludesCache } from '../providers/registry.m
 import { getModelMetadataSync } from '../providers/model-catalog.mjs';
 import { fetchOAuthUsageSnapshot } from '../providers/oauth-usage.mjs';
 import { agentLoop } from './loop.mjs';
-import { compactActiveTurn, compactMessages, DEFAULT_COMPACTION_BUFFER_TOKENS } from './compact.mjs';
+import {
+    compactActiveTurn,
+    compactMessages,
+    DEFAULT_COMPACTION_BUFFER_RATIO,
+    compactionBufferTokensForBoundary,
+    normalizeCompactionBufferRatio,
+} from './compact.mjs';
 import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';
 import { getMcpTools } from '../mcp/client.mjs';
 import { getInternalTools, executeInternalTool } from '../internal-tools.mjs';
@@ -16,7 +22,7 @@ import { CODE_GRAPH_TOOL_DEFS } from '../tools/code-graph-tool-defs.mjs';
 import { executeCodeGraphTool } from '../tools/code-graph.mjs';
 import { closeBashSession } from '../tools/bash-session.mjs';
 import { collectSkillsCached, buildSkillToolDefs, loadAgentTemplate, loadRoleTemplate, composeSystemPrompt, collectMixdogMd } from '../context/collect.mjs';
-import { saveSession, saveSessionAsync, loadSession, deleteSession, listStoredSessions, getStoredSessionsRaw, sweepStaleSessions, markSessionClosed, publishHeartbeat, deleteHeartbeat, setLiveSession } from './store.mjs';
+import { saveSession, saveSessionAsync, loadSession, listStoredSessions, sweepStaleSessions, markSessionClosed, publishHeartbeat, deleteHeartbeat, setLiveSession } from './store.mjs';
 import { clearReadDedupSession, tryPrefetchCached, setPrefetchCached } from './read-dedup.mjs';
 import { clearOffloadSession } from './tool-result-offload.mjs';
 import { classifyResultKind } from './result-classification.mjs';
@@ -239,21 +245,18 @@ const SESSION_ROUTE_TOOL_ORDER = [
     'list',
     'grep',
     'read',
-    'edit',
-    'write',
     'apply_patch',
     'shell',
     'task',
 ];
 const SESSION_ROUTE_TOOL_RANK = new Map(SESSION_ROUTE_TOOL_ORDER.map((name, index) => [name, index]));
+const MODEL_HIDDEN_FILE_MUTATION_TOOLS = new Set(['edit', 'write']);
 const FILESYSTEM_TOOL_NAMES = new Set([
     'code_graph',
     'glob',
     'list',
     'grep',
     'read',
-    'edit',
-    'write',
     'apply_patch',
 ]);
 const READONLY_TOOL_NAMES = new Set([
@@ -276,7 +279,7 @@ function orderSessionTools(tools) {
 }
 
 const ALL_BUILTIN_SESSION_TOOLS = orderSessionTools(_dedupByName([
-    ...BUILTIN_TOOLS,
+    ...BUILTIN_TOOLS.filter(t => !MODEL_HIDDEN_FILE_MUTATION_TOOLS.has(t?.name)),
     ...PATCH_TOOL_DEFS,
     ...CODE_GRAPH_TOOL_DEFS,
 ]));
@@ -436,6 +439,29 @@ function providerNameOf(provider) {
     if (typeof provider === 'string') return provider.toLowerCase();
     return String(provider?.name || provider?.id || '').toLowerCase();
 }
+function compactBufferRatioForSession(session) {
+    const cfg = session?.compaction || {};
+    return normalizeCompactionBufferRatio(
+        cfg.bufferPercent
+            ?? cfg.bufferPct
+            ?? cfg.bufferRatio
+            ?? cfg.bufferFraction
+            ?? process.env.MIXDOG_BRIDGE_COMPACT_BUFFER_PERCENT
+            ?? process.env.MIXDOG_BRIDGE_COMPACT_BUFFER_RATIO,
+        DEFAULT_COMPACTION_BUFFER_RATIO,
+    );
+}
+function compactBufferTokensForSession(session, boundaryTokens) {
+    const cfg = session?.compaction || {};
+    const explicit = positiveContextWindow(cfg.bufferTokens ?? cfg.buffer)
+        || positiveContextWindow(process.env.MIXDOG_BRIDGE_COMPACT_BUFFER_TOKENS)
+        || 0;
+    return compactionBufferTokensForBoundary(boundaryTokens, {
+        explicitTokens: explicit,
+        ratio: compactBufferRatioForSession(session),
+        maxRatio: 0.25,
+    });
+}
 function defaultEffectiveContextWindowPercent(provider) {
     // Codex exposes both the raw catalog window and a smaller effective window
     // that reserves provider-side headroom. Mirror the gateway/statusline math
@@ -484,9 +510,7 @@ function resolveSessionContextMeta(provider, model, seed = {}) {
     const autoCompactTokenLimit = explicitCompactLimit && derivedCompactLimit
         ? Math.min(explicitCompactLimit, derivedCompactLimit)
         : (explicitCompactLimit || derivedCompactLimit);
-    const compactBoundaryTokens = autoCompactTokenLimit
-        ? Math.min(autoCompactTokenLimit, contextWindow)
-        : contextWindow;
+    const compactBoundaryTokens = contextWindow;
     return {
         contextWindow,
         rawContextWindow,
@@ -498,19 +522,16 @@ function resolveSessionContextMeta(provider, model, seed = {}) {
 function compactTriggerForSession(session, boundaryTokens) {
     const boundary = positiveContextWindow(boundaryTokens);
     if (!boundary) return null;
-    const configured = positiveContextWindow(session?.compaction?.bufferTokens ?? session?.compaction?.buffer)
-        || DEFAULT_COMPACTION_BUFFER_TOKENS;
-    const cap = Math.max(0, Math.floor(boundary * 0.25));
-    const buffer = Math.max(0, Math.min(configured, cap));
+    const autoLimit = positiveContextWindow(session?.autoCompactTokenLimit ?? session?.compaction?.autoCompactTokenLimit);
+    if (autoLimit && autoLimit < boundary) return Math.max(1, autoLimit);
+    const buffer = compactBufferTokensForSession(session, boundary);
     return Math.max(1, boundary - buffer);
 }
-function compactTargetBudget(boundaryTokens, reserveTokens, sourceTokens, ratio = 0.45) {
+function compactTargetBudget(boundaryTokens, _reserveTokens, triggerTokens = null) {
     const boundary = positiveContextWindow(boundaryTokens);
     if (!boundary) return null;
-    const reserve = Math.max(0, Number(reserveTokens) || 0);
-    const source = Math.max(0, Number(sourceTokens) || 0);
-    const targetEffective = Math.max(32_000, Math.floor(source * ratio));
-    return Math.max(1, Math.min(boundary, targetEffective + reserve));
+    const trigger = positiveContextWindow(triggerTokens) || boundary;
+    return Math.max(1, Math.min(boundary, trigger));
 }
 function autoCompactSessionAfterTurn(session) {
     if (!session || session.closed === true) return null;
@@ -522,25 +543,32 @@ function autoCompactSessionAfterTurn(session) {
         || positiveContextWindow(session.contextWindow);
     if (!boundary) return null;
     const reserveTokens = estimateRequestReserveTokens(session.tools || []);
-    const beforeTokens = estimateMessagesTokens(messages);
+    const beforeMessageTokens = estimateMessagesTokens(messages);
     const lastContextTokens = positiveContextWindow(session.lastContextTokens) || 0;
-    const triggerTokens = positiveContextWindow(session.compaction?.triggerTokens)
-        || compactTriggerForSession(session, boundary)
+    const triggerTokens = compactTriggerForSession(session, boundary)
+        || positiveContextWindow(session.compaction?.triggerTokens)
         || boundary;
-    const pressureTokens = Math.max(beforeTokens + reserveTokens, lastContextTokens);
+    const bufferTokens = Math.max(0, boundary - triggerTokens);
+    const bufferRatio = boundary ? (bufferTokens / boundary) : compactBufferRatioForSession(session);
+    const pressureTokens = Math.max(beforeMessageTokens + reserveTokens, lastContextTokens);
+    const beforeTokens = pressureTokens;
     if (pressureTokens < triggerTokens) return {
         changed: false,
         reason: 'below threshold',
         beforeTokens,
         afterTokens: beforeTokens,
+        beforeMessageTokens,
+        afterMessageTokens: beforeMessageTokens,
         pressureTokens,
         triggerTokens,
+        bufferTokens,
+        bufferRatio,
         boundaryTokens: boundary,
         reserveTokens,
     };
     let compacted;
     let compactError = null;
-    const compactBudget = compactTargetBudget(boundary, reserveTokens, pressureTokens);
+    const compactBudget = compactTargetBudget(boundary, reserveTokens, triggerTokens);
     try {
         compacted = compactMessages(messages, compactBudget || boundary, { reserveTokens, force: true });
     } catch (err) {
@@ -560,10 +588,14 @@ function autoCompactSessionAfterTurn(session) {
             auto: true,
             boundaryTokens: boundary,
             triggerTokens,
+            bufferTokens,
+            bufferRatio,
             reserveTokens,
             lastStage: 'post_turn_failed',
             lastBeforeTokens: beforeTokens,
             lastAfterTokens: beforeTokens,
+            lastBeforeMessageTokens: beforeMessageTokens,
+            lastAfterMessageTokens: beforeMessageTokens,
             lastPressureTokens: pressureTokens,
             lastCheckedAt: now,
             lastChanged: false,
@@ -574,15 +606,20 @@ function autoCompactSessionAfterTurn(session) {
             error: session.compaction.lastError,
             beforeTokens,
             afterTokens: beforeTokens,
+            beforeMessageTokens,
+            afterMessageTokens: beforeMessageTokens,
             pressureTokens,
             triggerTokens,
+            bufferTokens,
+            bufferRatio,
             boundaryTokens: boundary,
             reserveTokens,
         };
     }
     const beforeEncoded = JSON.stringify(messages);
     const afterEncoded = JSON.stringify(compacted);
-    const afterTokens = estimateMessagesTokens(compacted);
+    const afterMessageTokens = estimateMessagesTokens(compacted);
+    const afterTokens = afterMessageTokens + reserveTokens;
     const changed = beforeEncoded !== afterEncoded;
     const now = Date.now();
     session.messages = compacted;
@@ -592,10 +629,14 @@ function autoCompactSessionAfterTurn(session) {
         auto: true,
         boundaryTokens: boundary,
         triggerTokens,
+        bufferTokens,
+        bufferRatio,
         reserveTokens,
         lastStage: 'post_turn',
         lastBeforeTokens: beforeTokens,
         lastAfterTokens: afterTokens,
+        lastBeforeMessageTokens: beforeMessageTokens,
+        lastAfterMessageTokens: afterMessageTokens,
         lastPressureTokens: pressureTokens,
         lastCheckedAt: now,
         lastChanged: changed,
@@ -608,8 +649,12 @@ function autoCompactSessionAfterTurn(session) {
         changed,
         beforeTokens,
         afterTokens,
+        beforeMessageTokens,
+        afterMessageTokens,
         pressureTokens,
         triggerTokens,
+        bufferTokens,
+        bufferRatio,
         boundaryTokens: boundary,
         reserveTokens,
     };
@@ -1267,6 +1312,8 @@ export function updateSessionRoute(id, route = {}) {
     if (!id) return null;
     const session = loadSession(id);
     if (!session || session.closed === true) return null;
+    const previousProvider = session.provider || null;
+    const previousModel = session.model || null;
     if (route.provider) session.provider = route.provider;
     if (route.model) session.model = route.model;
     if (Object.prototype.hasOwnProperty.call(route, 'fast')) session.fast = route.fast === true;
@@ -1293,6 +1340,19 @@ export function updateSessionRoute(id, route = {}) {
         delete session.effectiveContextWindowPercent;
         delete session.autoCompactTokenLimit;
         delete session.compactBoundaryTokens;
+    }
+    const routeChanged = (route.provider && route.provider !== previousProvider)
+        || (route.model && route.model !== previousModel);
+    if (routeChanged) {
+        const now = Date.now();
+        session.lastInputTokens = 0;
+        session.lastOutputTokens = 0;
+        session.lastCachedReadTokens = 0;
+        session.lastCacheWriteTokens = 0;
+        session.lastContextTokens = 0;
+        session.lastContextTokensUpdatedAt = now;
+        session.lastContextTokensStaleAfterCompact = false;
+        session.providerState = undefined;
     }
     session.updatedAt = Date.now();
     setLiveSession(session);
@@ -1840,6 +1900,36 @@ export function drainPendingMessages(sessionId) {
     }
     return out;
 }
+
+function promptContentText(content) {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+        return content.map((part) => {
+            if (typeof part === 'string') return part;
+            if (part?.type === 'text') return part.text || '';
+            if (part?.type === 'image') return '[Image]';
+            return part?.text || '';
+        }).filter(Boolean).join('\n');
+    }
+    return String(content ?? '');
+}
+
+function promptContentBytes(content) {
+    try {
+        if (typeof content === 'string') return Buffer.byteLength(content, 'utf8');
+        return Buffer.byteLength(JSON.stringify(content), 'utf8');
+    } catch {
+        return Buffer.byteLength(promptContentText(content), 'utf8');
+    }
+}
+
+function prefixUserTurnContent(content, contextBlock) {
+    if (!contextBlock) return content;
+    if (Array.isArray(content)) {
+        return [{ type: 'text', text: `${contextBlock}# Task\n` }, ...content];
+    }
+    return `${contextBlock}# Task\n${content}`;
+}
 function acquireSessionLock(sessionId) {
     let entry = _sessionLocks.get(sessionId);
     if (!entry) {
@@ -1978,18 +2068,17 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 _contextBlock += `# Prefetch\n${_capCtx(explicitPrefetchResult)}\n\n`;
             }
             const beforeCount = session.messages.length + 1;
+            const promptTextForMetrics = promptContentText(prompt);
             // Soft warning only; real size management (compaction primary,
             // byte-budget trim as safety net) lives in agentLoop. Selecting a
             // 25% pre-trim here would starve compaction's 50% threshold.
             const softBudget = Math.floor(session.contextWindow * 0.25);
-            const promptTokenEstimate = prompt.length * 0.5; // conservative for CJK
+            const promptTokenEstimate = promptTextForMetrics.length * 0.5; // conservative for CJK
             if (promptTokenEstimate > softBudget * 0.7) {
                 process.stderr.write(`[session] Warning: prompt is very large (est. ${Math.round(promptTokenEstimate)} tokens vs ${softBudget} soft budget)\n`);
             }
             const effectiveCwd = cwdOverride || session.cwd;
-            const _userTurnContent = _contextBlock
-                ? `${_contextBlock}# Task\n${prompt}`
-                : prompt;
+            const _userTurnContent = prefixUserTurnContent(prompt, _contextBlock);
             cancelledUserTurnContent = _userTurnContent;
             const outgoing = [...session.messages, { role: 'user', content: _userTurnContent }];
             // Per-turn injected-context trace row (complements kind:"usage").
@@ -1999,8 +2088,8 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             try {
                 const _ctxBytes = Buffer.byteLength(context || '', 'utf8');
                 const _prefetchBytes = Buffer.byteLength(explicitPrefetchResult || '', 'utf8');
-                const _promptBytes = Buffer.byteLength(prompt || '', 'utf8');
-                const _userTurnBytes = Buffer.byteLength(_userTurnContent, 'utf8');
+                const _promptBytes = promptContentBytes(prompt);
+                const _userTurnBytes = promptContentBytes(_userTurnContent);
                 const _messagesBytes = Buffer.byteLength(JSON.stringify(session.messages || []), 'utf8');
                 const _totalBytes = _userTurnBytes + _messagesBytes;
                 appendBridgeTrace({
@@ -2277,6 +2366,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 ...result,
                 trimmed: messagesDropped > 0,
                 messagesDropped,
+                postTurnCompact: postTurnCompact?.changed ? postTurnCompact : null,
             };
         } catch (err) {
             if (err instanceof SessionClosedError) {
@@ -2407,6 +2497,7 @@ export async function clearSessionMessages(sessionId) {
     if (session.closed === true) return false;
     const keep = [];
     const messages = Array.isArray(session.messages) ? session.messages : [];
+    const beforeMessageTokens = estimateMessagesTokens(messages);
     for (let i = 0; i < messages.length; i += 1) {
         const m = messages[i];
         if (!m) continue;
@@ -2428,10 +2519,41 @@ export async function clearSessionMessages(sessionId) {
             }
         }
     }
+    const afterMessageTokens = estimateMessagesTokens(keep);
+    const reserveTokens = estimateRequestReserveTokens(session.tools || []);
+    const beforeTokens = Math.max(beforeMessageTokens + reserveTokens, positiveContextWindow(session.lastContextTokens) || 0);
+    const afterTokens = afterMessageTokens + reserveTokens;
+    const now = Date.now();
     session.messages = keep;
     session.totalInputTokens = 0;
     session.totalOutputTokens = 0;
-    session.updatedAt = Date.now();
+    session.totalCachedReadTokens = 0;
+    session.totalCacheWriteTokens = 0;
+    session.lastInputTokens = 0;
+    session.lastOutputTokens = 0;
+    session.lastCachedReadTokens = 0;
+    session.lastCacheWriteTokens = 0;
+    session.lastContextTokens = 0;
+    session.lastContextTokensUpdatedAt = now;
+    session.lastContextTokensStaleAfterCompact = false;
+    session.providerState = undefined;
+    session.compaction = {
+        ...(session.compaction || {}),
+        lastStage: 'auto_clear',
+        lastBeforeTokens: beforeTokens,
+        lastAfterTokens: afterTokens,
+        lastBeforeMessageTokens: beforeMessageTokens,
+        lastAfterMessageTokens: afterMessageTokens,
+        lastPressureTokens: beforeTokens,
+        lastCheckedAt: now,
+        lastChanged: beforeTokens !== afterTokens,
+        lastClearAt: now,
+        lastClearBeforeTokens: beforeTokens,
+        lastClearAfterTokens: afterTokens,
+        lastClearBeforeMessageTokens: beforeMessageTokens,
+        lastClearAfterMessageTokens: afterMessageTokens,
+    };
+    session.updatedAt = now;
     await saveSessionAsync(session, { expectedGeneration: session.generation });
     return session;
 }
@@ -2440,7 +2562,7 @@ export async function compactSessionMessages(sessionId) {
     if (!session) return null;
     if (session.closed === true) return null;
     const beforeMessages = Array.isArray(session.messages) ? session.messages : [];
-    const beforeTokens = estimateMessagesTokens(beforeMessages);
+    const beforeMessageTokens = estimateMessagesTokens(beforeMessages);
     const nonSystem = beforeMessages.filter(m => m?.role !== 'system');
     let currentTurnStart = -1;
     for (let i = nonSystem.length - 1; i >= 0; i -= 1) {
@@ -2456,7 +2578,10 @@ export async function compactSessionMessages(sessionId) {
         throw new Error('compact: no context window is available for this session');
     }
     const reserveTokens = estimateRequestReserveTokens(session.tools || []);
-    const compactBudget = compactTargetBudget(boundary, reserveTokens, beforeTokens);
+    const triggerTokens = compactTriggerForSession(session, boundary) || boundary;
+    const bufferTokens = Math.max(0, boundary - triggerTokens);
+    const bufferRatio = boundary ? (bufferTokens / boundary) : compactBufferRatioForSession(session);
+    const compactBudget = compactTargetBudget(boundary, reserveTokens, triggerTokens);
     let beforeEncoded = '';
     try { beforeEncoded = JSON.stringify(beforeMessages); } catch { beforeEncoded = ''; }
     let compacted;
@@ -2470,30 +2595,43 @@ export async function compactSessionMessages(sessionId) {
         } catch { /* best-effort */ }
         compacted = compactActiveTurn(beforeMessages, compactBudget || boundary, { reserveTokens });
     }
-    const afterTokens = estimateMessagesTokens(compacted);
+    const afterMessageTokens = estimateMessagesTokens(compacted);
     let afterEncoded = '';
     try { afterEncoded = JSON.stringify(compacted); } catch { afterEncoded = ''; }
     const changed = beforeEncoded && afterEncoded
         ? beforeEncoded !== afterEncoded
-        : (compacted.length !== beforeMessages.length || afterTokens !== beforeTokens);
+        : (compacted.length !== beforeMessages.length || afterMessageTokens !== beforeMessageTokens);
     session.messages = compacted;
     const now = Date.now();
+    const beforeTokens = Math.max(beforeMessageTokens + reserveTokens, positiveContextWindow(session.lastContextTokens) || 0);
+    const afterTokens = afterMessageTokens + reserveTokens;
     session.compaction = {
         ...(session.compaction || {}),
         auto: session.compaction?.auto !== false,
         boundaryTokens: boundary,
+        triggerTokens,
+        bufferTokens,
+        bufferRatio,
         reserveTokens,
         lastStage: 'manual',
         lastBeforeTokens: beforeTokens,
         lastAfterTokens: afterTokens,
-        lastPressureTokens: beforeTokens + reserveTokens,
+        lastBeforeMessageTokens: beforeMessageTokens,
+        lastAfterMessageTokens: afterMessageTokens,
+        lastPressureTokens: beforeTokens,
         lastCheckedAt: now,
         lastChanged: changed,
         lastChangedAt: changed ? now : session.compaction?.lastChangedAt || null,
         lastCompactAt: changed ? now : session.compaction?.lastCompactAt || null,
         compactCount: (session.compaction?.compactCount || 0) + (changed ? 1 : 0),
     };
-    if (changed) session.lastContextTokensStaleAfterCompact = true;
+    session.lastInputTokens = 0;
+    session.lastOutputTokens = 0;
+    session.lastCachedReadTokens = 0;
+    session.lastCacheWriteTokens = 0;
+    session.lastContextTokens = 0;
+    session.lastContextTokensUpdatedAt = now;
+    session.lastContextTokensStaleAfterCompact = false;
     session.updatedAt = Date.now();
     await saveSessionAsync(session, { expectedGeneration: session.generation });
     return {
@@ -2502,8 +2640,12 @@ export async function compactSessionMessages(sessionId) {
         afterMessages: compacted.length,
         beforeTokens,
         afterTokens,
+        beforeMessageTokens,
+        afterMessageTokens,
         budgetTokens: boundary,
         targetBudgetTokens: compactBudget || boundary,
+        triggerTokens,
+        bufferTokens,
         reserveTokens,
     };
 }
@@ -2605,13 +2747,39 @@ export function abortSessionTurn(id, reason = 'turn-abort') {
 }
 
 // --- Periodic idle session cleanup ---
-const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // check every 5 minutes
+const CLEANUP_INTERVAL_MS = nonNegativeIntEnv('MIXDOG_SESSION_CLEANUP_INTERVAL_MS', 5 * 60 * 1000); // check every 5 minutes
+const CLEANUP_INITIAL_DELAY_MS = nonNegativeIntEnv('MIXDOG_SESSION_CLEANUP_INITIAL_DELAY_MS', 60 * 1000);
+const CLEANUP_SLOW_LOG_MS = nonNegativeIntEnv('MIXDOG_SESSION_CLEANUP_SLOW_LOG_MS', 250);
 const TOMBSTONE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h — far longer than any realistic ask race window
 let _cleanupTimer = null;
+let _cleanupInitialTimer = null;
 
-function sweepIdleSessions() {
+function nonNegativeIntEnv(name, fallback) {
+    const value = Number(process.env[name]);
+    return Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
+}
+
+function _previewIds(items, limit = 5) {
+    const ids = (items || []).slice(0, limit).map((item) => item.id).filter(Boolean);
+    if (ids.length === 0) return '';
+    const more = items.length > limit ? `, +${items.length - limit} more` : '';
+    return ` (${ids.join(', ')}${more})`;
+}
+
+function sweepIdleSessions({ includeTombstones = true } = {}) {
+    const startedAt = Date.now();
     try {
-        const { cleaned, remaining, details } = sweepStaleSessions();
+        const result = sweepStaleSessions({
+            tombstoneMaxAgeMs: includeTombstones ? TOMBSTONE_MAX_AGE_MS : 0,
+        });
+        const {
+            cleaned,
+            remaining,
+            details,
+            tombstonesCleaned = 0,
+            tombstoneDetails = [],
+            tombstoneErrors = [],
+        } = result;
         if (cleaned > 0) {
             for (const d of details) {
                 // Skip entries with an active in-flight controller — aborting
@@ -2629,6 +2797,20 @@ function sweepIdleSessions() {
                 process.stderr.write(`[bridge-session] idle cleanup: closed ${d.id} (idle ${d.idleMinutes}m, owner=${d.owner})\n`);
             }
             process.stderr.write(`[bridge-session] idle sweep: cleaned ${cleaned} session(s), ${remaining} remaining\n`);
+        }
+        if (tombstonesCleaned > 0) {
+            for (const d of tombstoneDetails) {
+                if (d?.id) _clearSessionRuntime(d.id);
+            }
+            process.stderr.write(`[session-sweep] unlinked ${tombstonesCleaned} tombstone(s)${_previewIds(tombstoneDetails)}\n`);
+        }
+        if (tombstoneErrors.length > 0) {
+            const first = tombstoneErrors[0];
+            process.stderr.write(`[session-sweep] tombstone unlink failed for ${tombstoneErrors.length} session(s): ${first?.id || 'unknown'} ${first?.message || ''}\n`);
+        }
+        const elapsed = Date.now() - startedAt;
+        if (elapsed >= CLEANUP_SLOW_LOG_MS) {
+            process.stderr.write(`[session-sweep] cleanup took ${elapsed}ms (idle=${cleaned}, tombstones=${tombstonesCleaned}, remaining=${remaining})\n`);
         }
     } catch (e) {
         process.stderr.write(`[bridge-session] idle sweep error: ${e && e.message || e}\n`);
@@ -2649,25 +2831,21 @@ function sweepIdleSessions() {
  */
 export function sweepTombstones() {
     try {
-        const now = Date.now();
-        const sessions = getStoredSessionsRaw();
-        let cleaned = 0;
-        for (const s of sessions) {
-            if (!s.closed) continue;
-            const updated = Number(s.updatedAt);
-            if (!Number.isFinite(updated)) continue;
-            const age = now - updated;
-            if (age < TOMBSTONE_MAX_AGE_MS) continue;
-            try {
-                deleteSession(s.id);
-                _clearSessionRuntime(s.id);
-                cleaned++;
-                process.stderr.write(`[session-sweep] unlinked tombstone ${s.id} (age=${Math.floor(age / 1000)}s)\n`);
-            } catch (e) {
-                process.stderr.write(`[session-sweep] unlink failed ${s.id}: ${e && e.message || e}\n`);
-            }
+        const { tombstonesCleaned = 0, tombstoneDetails = [], tombstoneErrors = [] } = sweepStaleSessions({
+            sweepIdle: false,
+            tombstoneMaxAgeMs: TOMBSTONE_MAX_AGE_MS,
+        });
+        for (const d of tombstoneDetails) {
+            if (d?.id) _clearSessionRuntime(d.id);
         }
-        return cleaned;
+        if (tombstonesCleaned > 0) {
+            process.stderr.write(`[session-sweep] unlinked ${tombstonesCleaned} tombstone(s)${_previewIds(tombstoneDetails)}\n`);
+        }
+        if (tombstoneErrors.length > 0) {
+            const first = tombstoneErrors[0];
+            process.stderr.write(`[session-sweep] tombstone unlink failed for ${tombstoneErrors.length} session(s): ${first?.id || 'unknown'} ${first?.message || ''}\n`);
+        }
+        return tombstonesCleaned;
     } catch (e) {
         process.stderr.write(`[session-sweep] tombstone sweep error: ${e && e.message || e}\n`);
         return 0;
@@ -2675,18 +2853,36 @@ export function sweepTombstones() {
 }
 
 function _runCleanupCycle() {
-    sweepIdleSessions();
-    sweepTombstones();
+    sweepIdleSessions({ includeTombstones: true });
 }
 
-export function startIdleCleanup() {
+function _startCleanupInterval() {
     if (_cleanupTimer) return;
-    _runCleanupCycle();
+    if (CLEANUP_INTERVAL_MS <= 0) return;
     _cleanupTimer = setInterval(_runCleanupCycle, CLEANUP_INTERVAL_MS);
     if (_cleanupTimer.unref) _cleanupTimer.unref(); // don't block process exit
 }
 
+export function startIdleCleanup() {
+    if (_cleanupTimer || _cleanupInitialTimer) return;
+    if (CLEANUP_INITIAL_DELAY_MS <= 0) {
+        _runCleanupCycle();
+        _startCleanupInterval();
+        return;
+    }
+    _cleanupInitialTimer = setTimeout(() => {
+        _cleanupInitialTimer = null;
+        _runCleanupCycle();
+        _startCleanupInterval();
+    }, CLEANUP_INITIAL_DELAY_MS);
+    if (_cleanupInitialTimer.unref) _cleanupInitialTimer.unref();
+}
+
 export function stopIdleCleanup() {
+    if (_cleanupInitialTimer) {
+        clearTimeout(_cleanupInitialTimer);
+        _cleanupInitialTimer = null;
+    }
     if (_cleanupTimer) {
         clearInterval(_cleanupTimer);
         _cleanupTimer = null;

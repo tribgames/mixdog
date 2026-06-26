@@ -388,7 +388,7 @@ const DEFERRED_SELECT_ALIASES = {
   bridge: ['bridge'],
   graph: ['code_graph'],
   code: ['code_graph'],
-  write: ['apply_patch', 'write'],
+  write: ['apply_patch'],
   edit: ['apply_patch'],
   shell: ['shell', 'task'],
 };
@@ -1472,8 +1472,12 @@ export async function createMixdogSessionRuntime({
 
   function notifyFnForSession(callerSessionId) {
     return (text, meta = {}) => {
+      const hadRuntimeListener = notificationListeners.size > 0;
       emitRuntimeNotification(text, meta);
-      if (callerSessionId && typeof mgr.enqueuePendingMessage === 'function') {
+      // TUI sessions keep their own Claude-Code-style command queue via
+      // onNotification. Headless/model-tool callers have no listener, so fall
+      // back to the session manager pending-message queue.
+      if (!hadRuntimeListener && callerSessionId && typeof mgr.enqueuePendingMessage === 'function') {
         try { mgr.enqueuePendingMessage(callerSessionId, String(text || '')); } catch {}
       }
     };
@@ -1708,14 +1712,15 @@ export async function createMixdogSessionRuntime({
   bootProfile('bridge:ready', { ms: (performance.now() - bridgeStartedAt).toFixed(1) });
   const bridgeStatusState = () => {
     try {
-      const status = bridge.getStatus?.() || {};
+      const status = bridge.getStatus?.({ clientHostPid: session?.clientHostPid || process.pid }) || {};
       return {
         bridgeMode: bridge.getDefaultMode?.() || status.bridgeMode || 'async',
         bridgeWorkers: Array.isArray(status.workers) ? status.workers : [],
         bridgeJobs: Array.isArray(status.jobs) ? status.jobs : [],
+        bridgeScope: status.scope || null,
       };
     } catch {
-      return { bridgeMode: bridge.getDefaultMode?.() || 'async', bridgeWorkers: [], bridgeJobs: [] };
+      return { bridgeMode: bridge.getDefaultMode?.() || 'async', bridgeWorkers: [], bridgeJobs: [], bridgeScope: null };
     }
   };
   const channelsStartedAt = performance.now();
@@ -2318,6 +2323,7 @@ function parsedProviderModelVersion(id) {
       contextWindow: session?.contextWindow || null,
       rawContextWindow: session?.rawContextWindow || null,
       effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
+      autoCompactTokenLimit: Number(session?.autoCompactTokenLimit || 0),
       lastContextTokens: Number(session?.lastContextTokens || 0),
       lastContextTokensUpdatedAt: Number(session?.lastContextTokensUpdatedAt || 0),
       lastContextTokensStaleAfterCompact: session?.lastContextTokensStaleAfterCompact === true,
@@ -2420,12 +2426,18 @@ function parsedProviderModelVersion(id) {
         || (compactAt > 0 && usageAt > 0 && usageAt <= compactAt)
         || (compactAt > 0 && usageAt <= 0)
       );
+      const compactBoundaryTokens = Number(session?.compactBoundaryTokens || session?.compaction?.boundaryTokens || 0);
+      const displayWindow = compactBoundaryTokens || effectiveWindow;
       const usedTokens = lastUsageStale
         ? estimatedContextTokens
         : Math.max(estimatedContextTokens, lastContextTokens || 0);
-      const freeTokens = effectiveWindow ? Math.max(0, effectiveWindow - usedTokens) : 0;
-      const compactBoundaryTokens = Number(session?.compactBoundaryTokens || session?.compaction?.boundaryTokens || 0);
-      const compactTriggerTokens = Number(session?.compaction?.triggerTokens || 0);
+      const freeTokens = displayWindow ? Math.max(0, displayWindow - usedTokens) : 0;
+      const autoCompactTokenLimit = Number(session?.autoCompactTokenLimit || 0);
+      const defaultCompactTriggerTokens = compactBoundaryTokens ? Math.max(1, Math.floor(compactBoundaryTokens * 0.9)) : 0;
+      const compactTriggerTokens = autoCompactTokenLimit && compactBoundaryTokens && autoCompactTokenLimit < compactBoundaryTokens
+        ? autoCompactTokenLimit
+        : Number(session?.compaction?.triggerTokens || defaultCompactTriggerTokens || 0);
+      const compactBufferTokens = Number(session?.compaction?.bufferTokens || (compactBoundaryTokens && compactTriggerTokens ? Math.max(0, compactBoundaryTokens - compactTriggerTokens) : 0));
       const value = {
         sessionId: session?.id || null,
         provider: route.provider,
@@ -2433,7 +2445,8 @@ function parsedProviderModelVersion(id) {
         cwd: currentCwd,
         toolMode: mode,
         bridgeMode,
-        contextWindow: effectiveWindow || null,
+        contextWindow: displayWindow || effectiveWindow || null,
+        effectiveContextWindow: effectiveWindow || null,
         rawContextWindow: rawWindow || null,
         effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
         usedTokens,
@@ -2448,6 +2461,7 @@ function parsedProviderModelVersion(id) {
           ...(session?.compaction || {}),
           boundaryTokens: compactBoundaryTokens || null,
           triggerTokens: compactTriggerTokens || null,
+          bufferTokens: compactBufferTokens || null,
           currentEstimatedTokens: estimatedContextTokens,
           lastApiRequestTokens: lastContextTokens || 0,
           lastApiRequestStale: lastUsageStale,
@@ -2863,8 +2877,18 @@ function parsedProviderModelVersion(id) {
     bridgeStatus() {
       return bridgeStatusState();
     },
+    get clientHostPid() {
+      return session?.clientHostPid || process.pid;
+    },
     bridgeControl(args = {}) {
-      return bridge.execute(args, { callerCwd: currentCwd, invocationSource: 'user-command' });
+      const callerSessionId = session?.id || null;
+      return bridge.execute(args, {
+        callerCwd: currentCwd,
+        invocationSource: 'user-command',
+        callerSessionId,
+        clientHostPid: session?.clientHostPid || process.pid,
+        notifyFn: notifyFnForSession(callerSessionId),
+      });
     },
     onNotification(listener) {
       if (typeof listener !== 'function') return () => {};

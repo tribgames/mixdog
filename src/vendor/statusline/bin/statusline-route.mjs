@@ -467,7 +467,7 @@ export function loadGatewayStatus(options = {}) {
       num(contextBoundary, 0),
     )
     : null;
-  const recomputedContextUsedPct = pctOf(compactRequestWithLiveTokens ? liveContextTokens : (overflowContextTokens ?? lastUsage?.promptTokens ?? liveContextTokens), contextBoundary);
+  const recomputedContextUsedPct = pctOf(liveContextTokens ?? (compactRequestWithLiveTokens ? liveContextTokens : (overflowContextTokens ?? lastUsage?.promptTokens)), contextBoundary);
   const activeQuotaWindows = metricsMatch && Array.isArray(active.gateway_quota_windows)
     ? active.gateway_quota_windows
     : [];
