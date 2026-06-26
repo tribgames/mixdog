@@ -57,10 +57,9 @@ export async function run(argv = []) {
     toolMode,
   };
 
-  // `--help` / `-h`: print the help text and exit 0. The help source lives in
-  // repl.mjs (single source of truth) and is exported as printHelp().
+  // `--help` / `-h`: keep this path tiny; do not import the REPL/runtime stack.
   if (argv.includes('--help') || argv.includes('-h')) {
-    const { printHelp } = await import('./repl.mjs');
+    const { printHelp } = await import('./help.mjs');
     printHelp();
     return 0;
   }

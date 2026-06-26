@@ -4,6 +4,18 @@ function __mixdogMemoryLog(...args) {
   return __mixdogMemoryStderrWrite(...args);
 }
 
+function installPoolErrorHandler(pool, label) {
+  if (!pool || typeof pool.on !== 'function') return pool
+  pool.on('error', (err, client) => {
+    const code = err?.code || err?.errno || ''
+    const msg = err?.message || String(err || 'unknown error')
+    const pid = client?.processID ? ` pid=${client.processID}` : ''
+    const suffix = code ? ` ${code}` : ''
+    __mixdogMemoryLog(`[pg-adapter] ${label} idle client error${suffix}${pid}: ${msg}\n`)
+  })
+  return pool
+}
+
 // pg-adapter.mjs — PG connection manager for mixdog 0.4.0
 // Single owner: supervisor-pg.ensurePgInstance(dataDir) starts PG.
 // pg-adapter calls supervisor-pg — never pg-process directly.
@@ -235,6 +247,7 @@ export async function ensurePgInstance(dataDir, opts = {}) {
       host, port, user: PG_USER, database: 'postgres',
       password: '', max: 1, idleTimeoutMillis: 5_000,
     })
+    installPoolErrorHandler(adminPool, 'admin-pool')
     try {
       // CREATE DATABASE cannot run inside a transaction, so guard the
       // check-then-create with a session-level advisory lock held on a single
@@ -280,6 +293,7 @@ export async function ensurePgInstance(dataDir, opts = {}) {
       password: '', max: 5, idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
     })
+    installPoolErrorHandler(pgPool, `pool:${schema}`)
 
     // 4. Bootstrap extensions + schemas once (idempotent).
     await bootstrapInstance(pgPool, resolve(dataDir))

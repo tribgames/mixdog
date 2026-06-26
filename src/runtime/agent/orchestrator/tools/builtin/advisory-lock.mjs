@@ -1,4 +1,4 @@
-// Cross-process advisory lock for write/edit operations. Uses a sibling
+// Cross-process advisory lock for patch/write operations. Uses a sibling
 // lockfile written exclusively (`wx`) and a process.kill(pid, 0) liveness
 // check to clean up after crashed holders. Pair with the in-process
 // withPathLock for the same target: in-process serialises async callers

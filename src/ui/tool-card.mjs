@@ -3,7 +3,7 @@
  *
  * Replaces the raw `[tool: name]` line with a styled card that shows the tool
  * name plus a short, human-readable summary of its most relevant argument
- * (path for read/write/edit, command for shell, pattern for grep, etc.).
+ * (path for read/apply_patch, command for shell, pattern for grep, etc.).
  *
  * Pure formatting: returns a string, never touches stdout. Robust to missing or
  * malformed argument objects (the engine hands us `{ name, arguments, id }`).
@@ -15,9 +15,7 @@ const MAX_SUMMARY = 72;
 /** Map of tool name -> function deriving its one-line summary from args. */
 const SUMMARIZERS = {
   read: (a) => a.path ?? a.file,
-  write: (a) => a.path,
   apply_patch: (a) => a.path ?? a.base_path ?? firstPatchPath(a.patch),
-  edit: (a) => a.path ?? (Array.isArray(a.edits) ? a.edits[0]?.path : undefined),
   list: (a) => a.path ?? a.pattern,
   glob: (a) => joinMaybe(a.pattern) ?? a.path,
   grep: (a) => joinMaybe(a.pattern),

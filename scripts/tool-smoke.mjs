@@ -105,30 +105,43 @@ if (!/^Error[\s:[]/.test(String(stalePatchOut)) || !/apply_patch/i.test(String(s
   throw new Error(`apply_patch stale context must return an Error result, not throw or pass:\n${stalePatchOut}`);
 }
 
-const shellOut = await executeBuiltinTool('shell', {
+const shellOutPromise = executeBuiltinTool('shell', {
   command: 'node --version',
   cwd: root,
   timeout: 30_000,
   shell: 'powershell',
 }, root);
-assertOk('bash explicit shell/cwd', shellOut, /v\d+\.\d+\.\d+/);
 
-const shellFailOut = await executeBuiltinTool('shell', {
+const shellFailOutPromise = executeBuiltinTool('shell', {
   command: 'Write-Error "tool-smoke-bash-fail"; exit 7',
   cwd: root,
   timeout: 30_000,
   shell: 'powershell',
 }, root);
-if (!/^Error[\s:[]/.test(String(shellFailOut)) || !/\[exit code: 7\]/.test(String(shellFailOut))) {
-  throw new Error(`bash non-zero exit must be classified as Error:\n${shellFailOut}`);
-}
 
-const shellTimeoutOut = await executeBuiltinTool('shell', {
+const shellTimeoutOutPromise = executeBuiltinTool('shell', {
   command: 'Start-Sleep -Seconds 2; Write-Output tool-smoke-timeout-missed',
   cwd: root,
   timeout: 500,
   shell: 'powershell',
 }, root);
+
+const shellWorkdirOutPromise = executeBuiltinTool('shell', {
+  command: 'Get-Location | Select-Object -ExpandProperty Path',
+  workdir: resolve(root, 'scripts'),
+  timeout: 30_000,
+  shell: 'powershell',
+}, root);
+
+const shellOut = await shellOutPromise;
+assertOk('bash explicit shell/cwd', shellOut, /v\d+\.\d+\.\d+/);
+
+const shellFailOut = await shellFailOutPromise;
+if (!/^Error[\s:[]/.test(String(shellFailOut)) || !/\[exit code: 7\]/.test(String(shellFailOut))) {
+  throw new Error(`bash non-zero exit must be classified as Error:\n${shellFailOut}`);
+}
+
+const shellTimeoutOut = await shellTimeoutOutPromise;
 if (!/^Error[\s:[]/.test(String(shellTimeoutOut)) || !/\[timeout: 500ms\b/.test(String(shellTimeoutOut))) {
   throw new Error(`bash timeout must be milliseconds and classified as Error:\n${shellTimeoutOut}`);
 }
@@ -185,12 +198,7 @@ if (!/cwd.*workdir.*conflict/i.test(invalidShellCwdAliasConflict || '')) {
   throw new Error(`shell cwd/workdir conflict guard failed: ${invalidShellCwdAliasConflict}`);
 }
 
-const shellWorkdirOut = await executeBuiltinTool('shell', {
-  command: 'Get-Location | Select-Object -ExpandProperty Path',
-  workdir: resolve(root, 'scripts'),
-  timeout: 30_000,
-  shell: 'powershell',
-}, root);
+const shellWorkdirOut = await shellWorkdirOutPromise;
 assertOk('shell workdir alias', shellWorkdirOut, /scripts\s*$/i);
 
 const mixedReadWindow = {
@@ -267,13 +275,13 @@ const smokeCatalog = [
 ].filter(Boolean);
 
 const fullDefaults = defaultDeferredToolNames(smokeCatalog, 'full');
-if (fullDefaults.size !== 12) {
-  throw new Error(`full default surface should stay 12 tools, got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`);
+if (fullDefaults.size !== 13) {
+  throw new Error(`full default surface should stay 13 tools, got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'glob', 'list', 'apply_patch', 'explore', 'bridge', 'recall', 'search', 'web_fetch', 'tool_search']) {
+for (const name of ['read', 'code_graph', 'grep', 'glob', 'list', 'apply_patch', 'explore', 'bridge', 'shell', 'recall', 'search', 'web_fetch', 'tool_search']) {
   assertHas(fullDefaults, name);
 }
-for (const name of ['shell', 'edit', 'write']) {
+for (const name of ['task']) {
   assertLacks(fullDefaults, name);
 }
 
@@ -284,10 +292,6 @@ if (leadDefaults.size !== 14) {
 for (const name of ['read', 'code_graph', 'grep', 'glob', 'list', 'shell', 'task', 'apply_patch', 'explore', 'bridge', 'recall', 'search', 'web_fetch', 'tool_search']) {
   assertHas(leadDefaults, name);
 }
-for (const name of ['edit', 'write']) {
-  assertLacks(leadDefaults, name);
-}
-
 function toolSchemaSize(tool) {
   const desc = String(tool?.description || '');
   const schema = JSON.stringify(tool?.input_schema || tool?.inputSchema || {});
@@ -298,8 +302,8 @@ const surfaceSize = [...fullDefaults].reduce((sum, name) => {
   const tool = smokeCatalog.find((item) => item?.name === name);
   return sum + toolSchemaSize(tool);
 }, 0);
-if (surfaceSize > 14000) {
-  throw new Error(`full default tool surface too large: ${surfaceSize} chars (cap 14000)`);
+if (surfaceSize > 17000) {
+  throw new Error(`full default tool surface too large: ${surfaceSize} chars (cap 17000)`);
 }
 for (const [name, cap] of [
   ['apply_patch', 1300],
@@ -322,13 +326,13 @@ if (readonlyDefaults.size !== 7) {
 for (const name of ['read', 'code_graph', 'grep', 'glob', 'list', 'explore', 'tool_search']) {
   assertHas(readonlyDefaults, name);
 }
-for (const name of ['apply_patch', 'bridge', 'shell', 'edit', 'write']) {
+for (const name of ['apply_patch', 'bridge', 'shell']) {
   assertLacks(readonlyDefaults, name);
 }
 
 const bridgeProps = BRIDGE_TOOL.inputSchema?.properties || {};
 if (!bridgeProps.mode || bridgeProps.wait) throw new Error('bridge schema should expose mode but not legacy wait');
-if (!/Prefer async by default/i.test(BRIDGE_TOOL.description || '') || !/distinct tags/i.test(BRIDGE_TOOL.description || '') || !/completion notification/i.test(BRIDGE_TOOL.description || '') || !/do not interfere/i.test(BRIDGE_TOOL.description || '')) {
+if (!/Prefer async by default/i.test(BRIDGE_TOOL.description || '') || !/distinct tags/i.test(BRIDGE_TOOL.description || '') || !/completion notification/i.test(BRIDGE_TOOL.description || '') || !/do not call status\/read/i.test(BRIDGE_TOOL.description || '')) {
   throw new Error('bridge description must preserve async tagged delegation contract');
 }
 const bridgeSmoke = createStandaloneBridge({

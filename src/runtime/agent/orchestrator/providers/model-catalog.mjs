@@ -338,8 +338,8 @@ export function getModelMetadataSync(id, provider) {
         }
     }
     // 3. models.dev — provider-scoped gap filler + capability overlay.
-    //    It does not shadow provider-native limits above, but it may add fields
-    //    LiteLLM lacks, such as reasoning_options for opencode-go models.
+    //    Provider-scoped limits may replace generic LiteLLM rows for the same
+    //    id, and add fields LiteLLM lacks, such as opencode-go reasoning_options.
     if (mappedProvider) {
         const md = _modelsDevMetadataSync(id, provider);
         if (md) meta = mergeModelMetadata(meta, md);
@@ -371,6 +371,8 @@ function mergeModelMetadata(base, overlay) {
     if (!overlay) return base;
     return {
         ...base,
+        contextWindow: overlay.contextWindow || base.contextWindow || null,
+        outputTokens: overlay.outputTokens || base.outputTokens || null,
         supportsVision: base.supportsVision || overlay.supportsVision,
         supportsFunctionCalling: base.supportsFunctionCalling || overlay.supportsFunctionCalling,
         supportsPromptCaching: base.supportsPromptCaching || overlay.supportsPromptCaching,

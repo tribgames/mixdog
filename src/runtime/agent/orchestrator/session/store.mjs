@@ -9,9 +9,10 @@ import { randomBytes } from 'crypto';
 import { join } from 'path';
 import { Worker } from 'worker_threads';
 import { getPluginData } from '../config.mjs';
-import { renameWithRetrySync } from '../../../shared/atomic-file.mjs';
+import { renameWithRetrySync, updateJsonAtomicSync, writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 
 const _lastSaveError = new Map(); // id -> { message, at }
+const SESSION_SUMMARY_INDEX_VERSION = 1;
 
 function _renameWithRetrySync(tmp, target) {
     return renameWithRetrySync(tmp, target);
@@ -32,6 +33,11 @@ function sessionPath(id) {
     }
     return join(getStoreDir(), `${id}.json`);
 }
+function summaryIndexPath() {
+    const dir = getPluginData();
+    mkdirSync(dir, { recursive: true });
+    return join(dir, 'session-summaries.json');
+}
 /**
  * Ensure generation/closed defaults on every session object.
  * Older persisted sessions predate these fields; we normalise at load and save.
@@ -42,6 +48,177 @@ function _ensureLifecycleFields(session) {
     if (!Array.isArray(session.messages)) session.messages = [];
     if (!Array.isArray(session.tools)) session.tools = [];
     return session;
+}
+
+function _messageText(content) {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+        return content.map((part) => {
+            if (typeof part === 'string') return part;
+            if (part?.type === 'text') return part.text || '';
+            if (typeof part?.text === 'string') return part.text;
+            try { return JSON.stringify(part); } catch { return ''; }
+        }).filter(Boolean).join('\n');
+    }
+    if (content && typeof content === 'object') {
+        if (typeof content.text === 'string') return content.text;
+        try { return JSON.stringify(content); } catch { return ''; }
+    }
+    return '';
+}
+
+function _cleanPreview(text, max = 240) {
+    const value = String(text || '').replace(/\s+/g, ' ').trim();
+    return value.length > max ? value.slice(0, max).replace(/\s+\S*$/, '').trim() : value;
+}
+
+function _isPreviewNoise(text) {
+    const value = String(text || '').trim();
+    if (!value) return true;
+    if (value.startsWith('<system-reminder>')) return true;
+    if (/^Reference files:/i.test(value)) return true;
+    if (value.includes('<!-- bp3-sentinel -->')) return true;
+    return false;
+}
+
+function _sessionPreview(session) {
+    const messages = Array.isArray(session?.messages) ? session.messages : [];
+    let first = '';
+    for (const m of messages) {
+        if (m?.role !== 'user') continue;
+        const text = _cleanPreview(_messageText(m.content));
+        if (_isPreviewNoise(text)) continue;
+        if (!first) first = text;
+    }
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const m = messages[i];
+        if (m?.role !== 'user') continue;
+        const text = _cleanPreview(_messageText(m.content));
+        if (_isPreviewNoise(text)) continue;
+        return text || first;
+    }
+    return first;
+}
+
+function _sessionMessageCount(session) {
+    const messages = Array.isArray(session?.messages) ? session.messages : [];
+    let count = 0;
+    for (const m of messages) {
+        if (m && (m.role === 'user' || m.role === 'assistant')) count++;
+    }
+    return count;
+}
+
+function _positiveNumber(value, fallback = 0) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function _sessionSummary(session) {
+    if (!session?.id) return null;
+    return {
+        id: String(session.id),
+        updatedAt: _positiveNumber(session.updatedAt, Date.now()),
+        createdAt: _positiveNumber(session.createdAt, 0),
+        lastHeartbeatAt: _positiveNumber(session.lastHeartbeatAt, 0),
+        closed: session.closed === true,
+        status: String(session.status || (session.closed === true ? 'closed' : 'idle')),
+        owner: session.owner || 'user',
+        role: session.role || null,
+        sourceType: session.sourceType || null,
+        sourceName: session.sourceName || null,
+        scopeKey: session.scopeKey || null,
+        ownerSessionId: session.ownerSessionId || null,
+        clientHostPid: _positiveNumber(session.clientHostPid, 0) || null,
+        cwd: session.cwd || '',
+        provider: session.provider || null,
+        model: session.model || null,
+        bridgeTag: session.bridgeTag || null,
+        task_id: session.task_id || session.taskId || null,
+        permission: session.permission || null,
+        toolPermission: session.toolPermission || null,
+        messageCount: _sessionMessageCount(session),
+        preview: _sessionPreview(session),
+        generation: typeof session.generation === 'number' ? session.generation : 0,
+        implicitBashSessionId: session.implicitBashSessionId || null,
+    };
+}
+
+function _normalizeSummaryRow(row) {
+    if (!row?.id || typeof row.id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(row.id)) return null;
+    return {
+        id: row.id,
+        updatedAt: _positiveNumber(row.updatedAt, 0),
+        createdAt: _positiveNumber(row.createdAt, 0),
+        lastHeartbeatAt: _positiveNumber(row.lastHeartbeatAt, 0),
+        closed: row.closed === true,
+        status: String(row.status || (row.closed === true ? 'closed' : 'idle')),
+        owner: row.owner || 'user',
+        role: row.role || null,
+        sourceType: row.sourceType || null,
+        sourceName: row.sourceName || null,
+        scopeKey: row.scopeKey || null,
+        ownerSessionId: row.ownerSessionId || null,
+        clientHostPid: _positiveNumber(row.clientHostPid, 0) || null,
+        cwd: row.cwd || '',
+        provider: row.provider || null,
+        model: row.model || null,
+        bridgeTag: row.bridgeTag || null,
+        task_id: row.task_id || null,
+        permission: row.permission || null,
+        toolPermission: row.toolPermission || null,
+        messageCount: Math.max(0, Math.floor(Number(row.messageCount) || 0)),
+        preview: _cleanPreview(row.preview || ''),
+        generation: typeof row.generation === 'number' ? row.generation : 0,
+        implicitBashSessionId: row.implicitBashSessionId || null,
+    };
+}
+
+function _normalizeSummaryIndex(raw) {
+    const rows = Array.isArray(raw?.rows) ? raw.rows.map(_normalizeSummaryRow).filter(Boolean) : [];
+    rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    return { version: SESSION_SUMMARY_INDEX_VERSION, updatedAt: _positiveNumber(raw?.updatedAt, 0), rows };
+}
+
+function _writeSummaryIndex(rows) {
+    const cleanRows = (rows || []).map(_normalizeSummaryRow).filter(Boolean)
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    writeJsonAtomicSync(summaryIndexPath(), {
+        version: SESSION_SUMMARY_INDEX_VERSION,
+        updatedAt: Date.now(),
+        rows: cleanRows,
+    }, { compact: true, lock: true });
+    return cleanRows;
+}
+
+function _upsertSessionSummary(session) {
+    const row = _sessionSummary(session);
+    if (!row) return;
+    try {
+        updateJsonAtomicSync(summaryIndexPath(), (cur) => {
+            const index = _normalizeSummaryIndex(cur);
+            const rows = index.rows.filter((r) => r.id !== row.id);
+            const cleanRow = _normalizeSummaryRow(row);
+            if (!cleanRow) return undefined;
+            const existing = index.rows.find((r) => r.id === row.id) || null;
+            if (existing && JSON.stringify(existing) === JSON.stringify(cleanRow)) return undefined;
+            rows.push(cleanRow);
+            rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+            return { version: SESSION_SUMMARY_INDEX_VERSION, updatedAt: Date.now(), rows };
+        }, { compact: true, lock: true });
+    } catch { /* summary index is best-effort */ }
+}
+
+function _removeSessionSummary(id) {
+    if (!id) return;
+    try {
+        updateJsonAtomicSync(summaryIndexPath(), (cur) => {
+            const index = _normalizeSummaryIndex(cur);
+            const rows = index.rows.filter((r) => r.id !== id);
+            if (rows.length === index.rows.length) return undefined;
+            return { version: SESSION_SUMMARY_INDEX_VERSION, updatedAt: Date.now(), rows };
+        }, { compact: true, lock: true });
+    } catch { /* summary index is best-effort */ }
 }
 
 /** Module-level map tracking in-flight saves per session ID to prevent concurrent write corruption. */
@@ -297,6 +474,7 @@ function _doSaveSync(payload) {
             return;
         }
         _renameWithRetrySync(tmp, target);
+        _upsertSessionSummary(session);
     } catch (err) {
         try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
         throw err;
@@ -390,6 +568,7 @@ async function _doSave(payload) {
             return;
         }
         _renameWithRetrySync(tmp, target);
+        _upsertSessionSummary(session);
     } catch (err) {
         try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
         _savePending.delete(id);
@@ -426,6 +605,7 @@ export function markSessionClosed(id, reason = 'manual') {
     _savePending.delete(id);
     _clearLiveSession(id);
     _deleteHeartbeat(id);
+    _upsertSessionSummary(tombstone);
     // Structured close metric. Single emission point because every close
     // path funnels through markSessionClosed. lifeMs = updatedAt-createdAt
     // straddles the tombstone (updatedAt was just set to Date.now()), so
@@ -488,6 +668,7 @@ export function deleteSession(id) {
         catch { /* fall through to .hb cleanup */ }
     }
     _deleteHeartbeat(id);
+    if (removed) _removeSessionSummary(id);
     return removed;
 }
 const DEFAULT_SESSION_TTL_MS = 5 * 60 * 1000; // 5 minutes idle — aligned with Anthropic 5m messages tier and OpenAI in-memory cache window
@@ -516,6 +697,28 @@ export function listStoredSessions() {
         catch { /* skip corrupt */ }
     }
     return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export function rebuildSessionSummaryIndex() {
+    const rows = listStoredSessions().map(_sessionSummary).filter(Boolean);
+    return _writeSummaryIndex(rows);
+}
+
+export function listStoredSessionSummaries(options = {}) {
+    const rebuildIfMissing = options.rebuildIfMissing !== false;
+    const p = summaryIndexPath();
+    if (!existsSync(p)) {
+        return rebuildIfMissing ? rebuildSessionSummaryIndex() : [];
+    }
+    try {
+        const index = _normalizeSummaryIndex(JSON.parse(readFileSync(p, 'utf-8')));
+        if (index.rows.length > 0) return index.rows;
+        const dir = getStoreDir();
+        const hasSessionFiles = existsSync(dir) && readdirSync(dir).some((f) => f.endsWith('.json'));
+        return hasSessionFiles && rebuildIfMissing ? rebuildSessionSummaryIndex() : index.rows;
+    } catch {
+        return rebuildIfMissing ? rebuildSessionSummaryIndex() : [];
+    }
 }
 
 /**
@@ -552,7 +755,7 @@ export function sweepStaleSessions(ttlMs, options = {}) {
     const dir = getStoreDir();
     if (!existsSync(dir))
         return { cleaned: 0, remaining: 0, details: [], tombstonesCleaned: 0, tombstoneDetails: [], tombstoneErrors: [] };
-    const files = readdirSync(dir).filter(f => f.endsWith('.json'));
+    const summaries = listStoredSessionSummaries();
     const now = Date.now();
     let cleaned = 0;
     let remaining = 0;
@@ -560,38 +763,42 @@ export function sweepStaleSessions(ttlMs, options = {}) {
     const details = [];
     const tombstoneDetails = [];
     const tombstoneErrors = [];
-    for (const f of files) {
+    for (const row of summaries) {
         try {
-            const jsonPath = join(dir, f);
+            if (!row?.id) continue;
+            const jsonPath = sessionPath(row.id);
+            if (!existsSync(jsonPath)) {
+                _removeSessionSummary(row.id);
+                continue;
+            }
             let jsonMtime = 0;
             let heartbeatMtime = 0;
             try { jsonMtime = statSync(jsonPath).mtimeMs || 0; } catch {}
             try {
-                const hbPath = join(dir, f.replace(/\.json$/, '.hb'));
+                const hbPath = join(dir, `${row.id}.hb`);
                 if (existsSync(hbPath)) heartbeatMtime = statSync(hbPath).mtimeMs || 0;
             } catch { /* .hb unavailable — fall back to JSON fields */ }
             const freshnessGateMs = sweepIdle ? maxAge : (sweepTombstones ? tombstoneMaxAgeMs : 0);
-            const newestMtime = Math.max(jsonMtime, heartbeatMtime);
-            if (freshnessGateMs > 0 && newestMtime > 0 && now - newestMtime <= freshnessGateMs) {
+            const newestKnown = Math.max(row.updatedAt || 0, row.lastHeartbeatAt || 0, row.createdAt || 0, jsonMtime, heartbeatMtime);
+            if (freshnessGateMs > 0 && newestKnown > 0 && now - newestKnown <= freshnessGateMs) {
                 remaining++;
                 continue;
             }
-            const session = JSON.parse(readFileSync(jsonPath, 'utf-8'));
             // Already-closed tombstones are handled here before heartbeat
             // sidecar checks; they do not need liveness probing.
-            if (session.closed === true || session.status === 'closed') {
+            if (row.closed === true || row.status === 'closed') {
                 if (sweepTombstones) {
-                    const updated = Number(session.updatedAt);
+                    const updated = Number(row.updatedAt);
                     const age = now - updated;
                     if (Number.isFinite(updated) && age >= tombstoneMaxAgeMs) {
                         try {
-                            if (deleteSession(session.id)) {
+                            if (deleteSession(row.id)) {
                                 tombstonesCleaned++;
-                                tombstoneDetails.push({ id: session.id, ageSeconds: Math.floor(age / 1000) });
+                                tombstoneDetails.push({ id: row.id, ageSeconds: Math.floor(age / 1000) });
                                 continue;
                             }
                         } catch (err) {
-                            tombstoneErrors.push({ id: session.id, message: err?.message || String(err) });
+                            tombstoneErrors.push({ id: row.id, message: err?.message || String(err) });
                             remaining++;
                             continue;
                         }
@@ -602,7 +809,7 @@ export function sweepStaleSessions(ttlMs, options = {}) {
             }
             // Sweep bridge-owned and ownerless (legacy) sessions; skip explicit
             // user sessions before touching heartbeat sidecars.
-            if (typeof session.owner === 'string' && session.owner.length > 0 && session.owner !== 'bridge') {
+            if (typeof row.owner === 'string' && row.owner.length > 0 && row.owner !== 'bridge') {
                 remaining++;
                 continue;
             }
@@ -613,30 +820,30 @@ export function sweepStaleSessions(ttlMs, options = {}) {
             // Prefer .hb sidecar mtime — updated at tight cadence (≤5s) without
             // serialising the full JSON, so it reflects true liveness more
             // accurately than the JSON timestamp fields.
-            let lastActive = session.lastHeartbeatAt || session.updatedAt || session.createdAt || 0;
+            let lastActive = row.lastHeartbeatAt || row.updatedAt || row.createdAt || 0;
             if (heartbeatMtime) lastActive = Math.max(lastActive, heartbeatMtime);
             // Running sessions are normally reaped by the stream-watchdog
             // within ~120s. Skip them here unless they've been silent past
             // RUNNING_STALL_MS, at which point they are treated as zombies.
-            if (session.status === 'running' && now - lastActive <= RUNNING_STALL_MS) {
+            if (row.status === 'running' && now - lastActive <= RUNNING_STALL_MS) {
                 remaining++;
                 continue;
             }
-            const isCompletedBridge = session.owner === 'bridge'
-                && BRIDGE_TERMINAL_STATUSES.has(session.status);
+            const isCompletedBridge = row.owner === 'bridge'
+                && BRIDGE_TERMINAL_STATUSES.has(row.status);
             const sessionMaxAge = isCompletedBridge ? BRIDGE_TERMINAL_TTL_MS : maxAge;
             if (now - lastActive > sessionMaxAge) {
-                try { markSessionClosed(session.id, 'idle-sweep'); }
+                try { markSessionClosed(row.id, 'idle-sweep'); }
                 catch (err) {
-                    process.stderr.write(`[session-store] idle-sweep close failed for ${session.id}: ${err?.message}\n`);
+                    process.stderr.write(`[session-store] idle-sweep close failed for ${row.id}: ${err?.message}\n`);
                     continue;
                 }
                 cleaned++;
                 details.push({
-                    id: session.id,
-                    owner: session.owner || 'unknown',
+                    id: row.id,
+                    owner: row.owner || 'unknown',
                     idleMinutes: Math.round((now - lastActive) / 60000),
-                    bashSessionId: session.implicitBashSessionId || null,
+                    bashSessionId: row.implicitBashSessionId || null,
                 });
             } else {
                 remaining++;

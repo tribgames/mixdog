@@ -151,12 +151,11 @@ function compactWindowForRouteLike(route) {
   const explicit = num(route.autoCompactTokenLimit ?? route.auto_compact_token_limit);
   const raw = num(route.rawContextWindow ?? route.raw_context_window ?? route.contextWindow ?? route.context_window);
   const context = num(route.contextWindow ?? route.context_window);
-  const derived = raw > 0 ? Math.floor(raw * 9 / 10) : 0;
-  if (explicit > 0 && derived > 0) return Math.min(explicit, derived);
+  const pct = num(route.effectiveContextWindowPercent ?? route.effective_context_window_percent) || 95;
+  const effective = context || (raw > 0 ? Math.max(1, Math.floor(raw * Math.min(100, pct) / 100)) : 0);
+  if (explicit > 0 && effective > 0) return Math.min(explicit, effective);
   if (explicit > 0) return explicit;
-  if (derived > 0 && context > 0) return Math.min(derived, context);
-  if (derived > 0) return derived;
-  return context > 0 ? context : null;
+  return effective > 0 ? effective : null;
 }
 
 function syncCompactWindowForCurrentModel(route) {

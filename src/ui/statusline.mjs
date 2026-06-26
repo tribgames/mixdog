@@ -13,11 +13,15 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { bold, colorEnabled, green, rgb } from './ansi.mjs';
+import { createSessionStats } from './session-stats.mjs';
+import { forEachSessionRuntime } from '../runtime/agent/orchestrator/session/manager.mjs';
+import { listHiddenRoleNames } from '../runtime/agent/orchestrator/internal-roles.mjs';
 import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
 import { readCachedOAuthUsageSnapshot } from '../runtime/agent/orchestrator/providers/oauth-usage.mjs';
 import { readCachedOpenCodeGoUsageSnapshot } from '../runtime/agent/orchestrator/providers/opencode-go-usage.mjs';
 import { buildGatewayLimits } from '../runtime/agent/orchestrator/providers/statusline-route-meta.mjs';
 import { formatGatewayLimitSegments, loadGatewayStatus } from '../vendor/statusline/bin/statusline-route.mjs';
+export { createSessionStats, applyUsageDelta } from './session-stats.mjs';
 
 // Token window used to compute a fallback context% from our own session usage.
 // The live gateway (when up) overrides this with the real route's window. This
@@ -43,9 +47,11 @@ const CYN = sgr('38;2;136;136;136');
 const GREY = sgr('38;2;136;136;136');
 const SHELL_JOBS_SEGMENT_CACHE_MS = 1000;
 const GATEWAY_QUOTA_STATUS_CACHE_MS = 500;
+const DEFAULT_HIDDEN_STATUSLINE_ROLES = Object.freeze(['explorer', 'cycle1-agent', 'cycle2-agent', 'cycle3-agent', 'scheduler-task', 'webhook-handler']);
 let _shellJobsSegmentCache = { ownerPid: 0, at: 0, value: '' };
 let _gatewayQuotaStatusCache = { key: '', at: 0, value: null };
 let _fallbackQuotaStatusCache = { key: '', at: 0, value: null };
+let _hiddenStatuslineRoles = null;
 
 function summarizeWorkerTags(tags, limit = 3) {
   const cleanTags = [...new Set((Array.isArray(tags) ? tags : [])
@@ -53,46 +59,6 @@ function summarizeWorkerTags(tags, limit = 3) {
     .filter(Boolean))];
   if (cleanTags.length <= limit) return cleanTags.join(', ');
   return `${cleanTags.slice(0, limit).join(', ')}, +${cleanTags.length - limit}`;
-}
-
-/** Create a mutable session-usage accumulator. */
-export function createSessionStats() {
-  return {
-    inputTokens: 0,
-    outputTokens: 0,
-    cachedTokens: 0,
-    cacheWriteTokens: 0,
-    promptTokens: 0,
-    latestInputTokens: 0,
-    latestOutputTokens: 0,
-    latestCachedTokens: 0,
-    latestCacheWriteTokens: 0,
-    latestPromptTokens: 0,
-    costUsd: 0,
-    turns: 0,
-  };
-}
-
-/**
- * Fold one `onUsageDelta` event into the accumulator.
- * @param {object} stats — from createSessionStats()
- * @param {object} delta — { deltaInput, deltaOutput, deltaCachedRead, deltaCacheWrite, costUsd }
- */
-export function applyUsageDelta(stats, delta = {}) {
-  if (!stats || !delta) return stats;
-  stats.inputTokens += num(delta.deltaInput);
-  stats.outputTokens += num(delta.deltaOutput);
-  stats.cachedTokens += num(delta.deltaCachedRead);
-  stats.cacheWriteTokens += num(delta.deltaCacheWrite);
-  stats.promptTokens += num(delta.deltaPrompt);
-  stats.latestInputTokens = num(delta.deltaInput);
-  stats.latestOutputTokens = num(delta.deltaOutput);
-  stats.latestCachedTokens = num(delta.deltaCachedRead);
-  stats.latestCacheWriteTokens = num(delta.deltaCacheWrite);
-  stats.latestPromptTokens = num(delta.deltaPrompt);
-  // costUsd from the engine is cumulative-per-call; we sum the per-turn deltas.
-  stats.costUsd += num(delta.costUsd);
-  return stats;
 }
 
 /**
@@ -123,7 +89,10 @@ function promptFootprintTokens(provider, stats) {
 
 function currentContextTokens(provider, stats) {
   const s = stats || createSessionStats();
-  const explicit = num(s.currentContextTokens ?? s.contextTokens ?? s.latestPromptTokens);
+  const source = String(s.currentContextSource || '').toLowerCase();
+  const explicit = source === 'estimated'
+    ? 0
+    : num(s.currentContextTokens ?? s.contextTokens ?? s.latestPromptTokens);
   if (explicit > 0) return explicit;
   const latestInput = num(s.latestInputTokens);
   const latestCacheRead = num(s.latestCachedTokens);
@@ -272,7 +241,10 @@ function renderNativeStatusline({ provider = '', model = '', effort = '', fast =
     : [];
   for (const seg of quotaSegments) addL1(seg);
 
-  const bridgePayload = bridgeStatuslinePayload(bridgeWorkers, bridgeJobs);
+  const bridgePayload = bridgeStatuslinePayload([
+    ...(Array.isArray(bridgeWorkers) ? bridgeWorkers : []),
+    ...activeHiddenRoleWorkers({ sessionId, clientHostPid }),
+  ], bridgeJobs);
   const { maintenance, runningWorkers } = classifyBridgeWorkers(bridgePayload.workers);
   if (maintenance.length) addL1(maintenance.join(' '));
   addL1(formatShellJobsSegment({ clientHostPid }));
@@ -483,17 +455,83 @@ function epochMsToHHMM(ms) {
 function classifyBridgeWorkers(workers = []) {
   const maintenance = [];
   const runningWorkers = [];
+  const seenMaintenance = new Set();
+  const seenRunning = new Set();
   for (const w of Array.isArray(workers) ? workers : []) {
     const tag = String(w?.tag || '').trim();
     if (!tag) continue;
-    const maint = maintenanceLabel(tag);
+    const maint = hiddenWorkerLabel(w);
     if (maint) {
-      if (w.status !== 'idle') maintenance.push(`${GRN}↻${R} ${B}${maint}${R}`);
+      if (w.status !== 'idle' && !seenMaintenance.has(maint)) {
+        seenMaintenance.add(maint);
+        maintenance.push(`${GRN}↻${R} ${B}${maint}${R}`);
+      }
       continue;
     }
-    if (w.status !== 'idle') runningWorkers.push(tag);
+    if (w.status !== 'idle' && !seenRunning.has(tag)) {
+      seenRunning.add(tag);
+      runningWorkers.push(tag);
+    }
   }
   return { maintenance, runningWorkers };
+}
+
+function hiddenWorkerLabel(worker = {}) {
+  const role = String(worker?.role || '').trim();
+  const tag = String(worker?.tag || '').trim();
+  return maintenanceLabel(role) || (!role ? maintenanceLabel(tag) : '');
+}
+
+function hiddenStatuslineRoles() {
+  if (_hiddenStatuslineRoles) return _hiddenStatuslineRoles;
+  const roles = new Set(DEFAULT_HIDDEN_STATUSLINE_ROLES);
+  try {
+    for (const role of listHiddenRoleNames()) {
+      const clean = String(role || '').trim();
+      if (clean) roles.add(clean);
+    }
+  } catch {}
+  _hiddenStatuslineRoles = roles;
+  return roles;
+}
+
+function isActiveHiddenStatus(statusText) {
+  return /^(connecting|requesting|streaming|tool_running|running)$/i.test(String(statusText || '').trim());
+}
+
+function activeHiddenRoleWorkers({ sessionId = '', clientHostPid = 0 } = {}) {
+  const roles = hiddenStatuslineRoles();
+  const ownerPid = positiveInt(clientHostPid);
+  const ownerSessionId = String(sessionId || '').trim();
+  const rows = [];
+  try {
+    for (const [runtimeSessionId, entry] of forEachSessionRuntime() || []) {
+      if (!entry || entry.closed === true) continue;
+      const session = entry.session || null;
+      if (!session || session.closed === true) continue;
+      const role = String(session?.role || '').trim();
+      if (!role || !roles.has(role)) continue;
+      const id = session?.id || runtimeSessionId || null;
+      if (ownerSessionId && id === ownerSessionId) continue;
+      const sessionOwnerId = String(session?.ownerSessionId || '').trim();
+      if (sessionOwnerId && ownerSessionId && sessionOwnerId !== ownerSessionId) continue;
+      const pid = positiveInt(session?.clientHostPid);
+      if (ownerPid && pid && pid !== ownerPid) continue;
+      const stage = String(entry.stage || session?.stage || session?.status || '').trim().toLowerCase();
+      const status = String(session?.status || stage || '').trim().toLowerCase();
+      if (!isActiveHiddenStatus(stage || status)) continue;
+      rows.push({
+        tag: String(session?.bridgeTag || `${role}:${id || rows.length}`).trim(),
+        role,
+        status: 'running',
+        stage: stage || status || 'running',
+        sessionId: id,
+        provider: session?.provider || null,
+        model: session?.model || null,
+      });
+    }
+  } catch {}
+  return rows;
 }
 
 function isTerminalBridgeStatus(statusText) {

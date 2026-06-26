@@ -222,7 +222,7 @@ export function setReadCached({ sessionId, args, cwd, content, toolUseId }) {
 
 /**
  * Invalidate all cache entries for `path` in the given session. Called when
- * a write-class tool (write/edit/apply_patch) touches the path.
+ * a mutation tool (apply_patch) touches the path.
  */
 export function invalidatePathForSession(sessionId, path, cwd) {
     if (!sessionId) return;

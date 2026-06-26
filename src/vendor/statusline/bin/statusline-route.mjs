@@ -193,9 +193,7 @@ function routeContextMeta(provider, info = {}, inherited = {}) {
       ?? info.auto_compact_token_limit,
     null,
   );
-  const derivedCompactLimit = rawContextWindow
-    ? Math.floor(rawContextWindow * 9 / 10)
-    : null;
+  const derivedCompactLimit = contextWindow || rawContextWindow || null;
   const autoCompactTokenLimit = explicitCompactLimit && derivedCompactLimit
     ? Math.min(explicitCompactLimit, derivedCompactLimit)
     : explicitCompactLimit ?? derivedCompactLimit;
@@ -212,11 +210,9 @@ function compactBoundaryForStatus(routeInfo = {}, compact = null) {
   const contextWindow = num(routeInfo?.contextWindow ?? compact?.contextWindow, 0);
   const budgetWindow = num(compact?.budgetWindow, 0);
   const rawContextWindow = num(routeInfo?.rawContextWindow ?? compact?.rawContextWindow, 0);
-  if (compactLimit > 0 && contextWindow > 0) return Math.min(compactLimit, contextWindow);
-  if (compactLimit > 0) return compactLimit;
-  if (budgetWindow > 0 && contextWindow > 0) return Math.min(budgetWindow, contextWindow);
-  if (budgetWindow > 0) return budgetWindow;
   if (contextWindow > 0) return contextWindow;
+  if (budgetWindow > 0) return budgetWindow;
+  if (compactLimit > 0) return compactLimit;
   return rawContextWindow > 0 ? rawContextWindow : null;
 }
 
@@ -445,7 +441,8 @@ export function loadGatewayStatus(options = {}) {
   const routeMatchesConfigured = configured
     ? configured.provider === active.gateway_provider && configured.model === active.gateway_model
     : true;
-  const metricsMatch = gatewayClientHostMatch && (sessionStatus ? true : (currentSessionId ? transcriptMatch : true)) && routeMatchesConfigured;
+  const metricsOwnCurrentSession = !!(sessionStatus || gatewayCcSessionMatch || gatewayTranscriptMatch || activeTranscriptMatch);
+  const metricsMatch = gatewayClientHostMatch && metricsOwnCurrentSession && routeMatchesConfigured;
   const lastUsage = gatewayClientHostMatch && (sessionStatus || gatewayCcSessionMatch || gatewayTranscriptMatch) && active.gateway_last_usage && typeof active.gateway_last_usage === 'object'
     ? active.gateway_last_usage
     : null;

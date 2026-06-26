@@ -3,7 +3,7 @@ import { join } from 'path';
 import { writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 
-// Mixdog read/write/edit share a scoped snapshot store. Value stores the
+// Mixdog read/patch paths share a scoped snapshot store. Value stores the
 // mtime + size at read-time. A missing scope is fail-closed: snapshots without
 // a real scope id are NOT recorded under a shared default bucket (would let
 // worker A's read satisfy worker B's edit-gate across sessions via a persisted

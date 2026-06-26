@@ -166,6 +166,11 @@ export function StreamingMarkdown({ children }) {
   const stablePrefixRef = useRef('');
   const text = String(children ?? '');
 
+  if (!hasMarkdownSyntax(text)) {
+    stablePrefixRef.current = '';
+    return <Markdown>{text}</Markdown>;
+  }
+
   if (!text.startsWith(stablePrefixRef.current)) {
     stablePrefixRef.current = '';
   }

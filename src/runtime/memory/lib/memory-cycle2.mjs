@@ -13,6 +13,7 @@ import {
   syncRootEmbedding, deleteRootEmbedding, flushEmbeddingDirty,
 } from './memory-embed.mjs'
 import { listCore, backfillCoreEmbeddings, CORE_SUMMARY_MAX } from './core-memory-store.mjs'
+import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
 
 export const CYCLE2_ACTIVE_TARGET_CAP = 100
 const TIER1_THRESHOLD = 0.78
@@ -842,9 +843,53 @@ async function sonnetCascade(candidates, rulesDigest, options = {}) {
 
 const _runCycle2InFlight = new WeakMap()
 
+function mergeNestedNumeric(a = {}, b = {}) {
+  const out = { ...a, ...b }
+  for (const key of new Set([...Object.keys(a || {}), ...Object.keys(b || {})])) {
+    out[key] = Number(a?.[key] || 0) + Number(b?.[key] || 0)
+  }
+  return out
+}
+
+function mergeCycle2Results(a, b) {
+  if (!a) return b
+  if (!b) return a
+  return {
+    ...a,
+    ...b,
+    promoted: Number(a.promoted || 0) + Number(b.promoted || 0),
+    archived: Number(a.archived || 0) + Number(b.archived || 0),
+    merged: Number(a.merged || 0) + Number(b.merged || 0),
+    updated: Number(a.updated || 0) + Number(b.updated || 0),
+    kept: Number(a.kept || 0) + Number(b.kept || 0),
+    rejected_verb: Number(a.rejected_verb || 0) + Number(b.rejected_verb || 0),
+    merge_rejected: Number(a.merge_rejected || 0) + Number(b.merge_rejected || 0),
+    missing_core_summary: Number(a.missing_core_summary || 0) + Number(b.missing_core_summary || 0),
+    core_embedding_backfill: Number(a.core_embedding_backfill || 0) + Number(b.core_embedding_backfill || 0),
+    rescore: mergeNestedNumeric(a.rescore, b.rescore),
+    phase_merge: mergeNestedNumeric(a.phase_merge, b.phase_merge),
+    cascade: mergeNestedNumeric(a.cascade, b.cascade),
+    skippedInFlight: false,
+  }
+}
+
 export async function runCycle2(db, config = {}, options = {}, dataDir = null) {
   const signal = options?.signal
   throwIfAborted(signal)
+  const coalescedRetry = options?.coalescedRetry === true
+  const retryAttempt = Math.max(0, Number(options?.coalescedRetryAttempt || 0))
+  const maxRetries = resolveCoalesceMaxRetries(config, 3)
+  const requestSignature = makeCycleRequestSignature('cycle2', config, {
+    cascadePreset: options?.cascadePreset,
+    concurrency: options?.concurrency,
+  })
+  const scheduleRetry = () => scheduleCoalescedCycleRetry(
+    db,
+    'cycle2',
+    () => runCycle2(db, config, { ...options, signal: undefined, coalescedRetry: true, coalescedRetryAttempt: retryAttempt + 1 }, dataDir),
+    config,
+    requestSignature,
+  )
   const partial = {
     promoted: 0, archived: 0, merged: 0, updated: 0, kept: 0, rejected_verb: 0,
     merge_rejected: 0,
@@ -855,6 +900,8 @@ export async function runCycle2(db, config = {}, options = {}, dataDir = null) {
     cascade: { evaluated: 0, dropped: 0 },
   }
   if (_runCycle2InFlight.has(db)) {
+    if (!coalescedRetry) await markCycleRequest(db, 'cycle2', 'in-flight', requestSignature)
+    if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry()
     __mixdogMemoryLog('[cycle2] skipped: already in flight for this db\n')
     return { ok: true, ...partial, skippedInFlight: true }
   }
@@ -868,23 +915,77 @@ export async function runCycle2(db, config = {}, options = {}, dataDir = null) {
     client.release()
     if (signal?.aborted) throw signal.reason ?? err
     __mixdogMemoryLog(`[cycle2] advisory lock query failed: ${err.message}\n`)
+    if (!coalescedRetry) await markCycleRequest(db, 'cycle2', 'lock-error', requestSignature)
     return { ok: true, ...partial, skippedInFlight: true }
   }
   if (!gotLock) {
     client.release()
+    if (!coalescedRetry) await markCycleRequest(db, 'cycle2', 'advisory-lock', requestSignature)
+    if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry()
     __mixdogMemoryLog('[cycle2] skipped: advisory lock held by another worker\n')
     return { ok: true, ...partial, skippedInFlight: true }
   }
   const _p = (async () => {
     try {
-      const result = await _runCycle2Impl(db, config, options, dataDir)
-      return { ok: true, ...result }
+      let result = null
+      let coalescedRuns = 0
+      let coalescedRequests = 0
+      if (coalescedRetry) {
+        const pending = await consumeCycleRequests(db, 'cycle2', requestSignature)
+        if (pending <= 0) return { ok: true, ...partial, skippedInFlight: false, coalescedRetryNoop: true }
+        coalescedRuns += 1
+        coalescedRequests += pending
+        __mixdogMemoryLog(`[cycle2] retrying coalesced requests=${pending}\n`)
+      }
+      try {
+        result = await _runCycle2Impl(db, config, options, dataDir)
+      } catch (err) {
+        if (coalescedRetry) {
+          await markCycleRequest(db, 'cycle2', 'retry-error', requestSignature)
+          if (retryAttempt < maxRetries) scheduleRetry()
+        }
+        throw err
+      }
+      const maxDrains = resolveCoalesceMaxDrains(config, 1)
+      let drainLoops = 0
+      while (drainLoops < maxDrains) {
+        throwIfAborted(signal)
+        const pending = await consumeCycleRequests(db, 'cycle2', requestSignature)
+        if (pending <= 0) break
+        drainLoops += 1
+        coalescedRuns += 1
+        coalescedRequests += pending
+        __mixdogMemoryLog(`[cycle2] draining coalesced requests=${pending}\n`)
+        try {
+          const next = await _runCycle2Impl(db, config, options, dataDir)
+          result = mergeCycle2Results(result, next)
+        } catch (err) {
+          await markCycleRequest(db, 'cycle2', 'drain-error', requestSignature)
+          if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry()
+          throw err
+        }
+      }
+      if (coalescedRuns > 0) {
+        result = { ...result, coalescedRuns, coalescedRequests }
+      }
+      const okResult = { ok: true, ...result }
+      if (coalescedRetry && !okResult?.coalescedRetryNoop && typeof options?.onCoalescedSuccess === 'function') {
+        try { await options.onCoalescedSuccess(okResult) }
+        catch (err) { __mixdogMemoryLog(`[cycle2] coalesced success callback failed: ${err?.message || err}\n`) }
+      }
+      return okResult
     } catch (e) {
       if (signal?.aborted) throw signal.reason ?? e
       return { ok: false, error: e.message, ...partial }
     } finally {
-      try { await client.query(`SELECT pg_advisory_unlock(hashtext($1))`, ['mixdog.cycle2']) } catch {}
-      client.release()
+      let releaseErr = null
+      try {
+        const r = await client.query(`SELECT pg_advisory_unlock(hashtext($1)) AS unlocked`, ['mixdog.cycle2'])
+        if (r.rows[0]?.unlocked !== true) releaseErr = new Error('cycle2 advisory unlock returned false')
+      } catch (err) {
+        releaseErr = err
+      }
+      client.release(releaseErr || undefined)
     }
   })()
   _runCycle2InFlight.set(db, _p)

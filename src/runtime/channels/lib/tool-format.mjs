@@ -80,8 +80,6 @@ function buildToolLine(name, input, hiddenCheck = isHidden) {
       detail = (input?.command || input?.cmd || desc || "").substring(0, 500);
       break;
     }
-    case "edit":
-    case "write":
     case "apply_patch":
       detail = input?.file_path || "";
       break;

@@ -10,6 +10,7 @@ import { callBridgeLlm } from './agent-ipc.mjs'
 import {
   flushEmbeddingDirty, inferChunkProjectId,
 } from './memory-embed.mjs'
+import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
 
 const VALID_CATEGORIES = new Set([
   'rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue',
@@ -163,11 +164,12 @@ export function parseCycle1LineFormat(raw) {
   return chunks.length > 0 ? { chunks } : null
 }
 
-// Partition by session_id; MIN_BATCH also gates per-session windows, SESSION_CAP bounds per-tick fan-out.
+// Partition by session_id; MIN_BATCH gates total pending rows, SESSION_CAP bounds per-tick session fan-out.
 const CYCLE1_MIN_BATCH = 3
 const CYCLE1_SESSION_CAP = 10
 
-// Per-db SKIP gate — concurrent calls drop, scheduler retries.
+// Per-db SKIP gate — concurrent callers coalesce into a DB-backed dirty bit;
+// the lock holder drains it after the current run instead of making them wait.
 const _runCycle1InFlight = new WeakMap()
 const _lastCycle1LogAt = new Map()
 
@@ -211,7 +213,7 @@ async function countPendingRows(db) {
       `SELECT COUNT(*) AS c
        FROM entries
        WHERE chunk_root IS NULL
-         AND session_id IS NOT NULL
+         AND NULLIF(btrim(session_id), '') IS NOT NULL
          AND (reviewed_at IS NULL OR reviewed_at < $1)`,
       [Date.now() - CYCLE1_OMITTED_COOLDOWN_MS],
     )
@@ -221,10 +223,61 @@ async function countPendingRows(db) {
   }
 }
 
+function uniqueNumbers(values) {
+  return [...new Set((Array.isArray(values) ? values : [])
+    .map(v => Number(v))
+    .filter(v => Number.isFinite(v)))]
+}
+
+function mergeCycle1Results(a, b) {
+  if (!a) return b
+  if (!b) return a
+  const sum = (key) => Number(a?.[key] || 0) + Number(b?.[key] || 0)
+  const qualityKeys = [...new Set([
+    ...Object.keys(a?.quality || {}),
+    ...Object.keys(b?.quality || {}),
+  ])]
+  const quality = {}
+  for (const key of qualityKeys) {
+    quality[key] = Number(a?.quality?.[key] || 0) + Number(b?.quality?.[key] || 0)
+  }
+  return {
+    ...b,
+    processed: sum('processed'),
+    chunks: sum('chunks'),
+    skipped: sum('skipped'),
+    sessions: sum('sessions'),
+    skippedInFlight: false,
+    pendingRows: b.pendingRows ?? a.pendingRows,
+    failed_row_ids: uniqueNumbers([...(a.failed_row_ids || []), ...(b.failed_row_ids || [])]),
+    omitted_row_ids: uniqueNumbers([...(a.omitted_row_ids || []), ...(b.omitted_row_ids || [])]),
+    prefiltered_row_ids: uniqueNumbers([...(a.prefiltered_row_ids || []), ...(b.prefiltered_row_ids || [])]),
+    invalid_chunks: [...(a.invalid_chunks || []), ...(b.invalid_chunks || [])],
+    quality,
+  }
+}
+
 export async function runCycle1(db, config = {}, options = {}, dataDir = null) {
   const signal = options?.signal
   throwIfAborted(signal)
+  const coalescedRetry = options?.coalescedRetry === true
+  const retryAttempt = Math.max(0, Number(options?.coalescedRetryAttempt || 0))
+  const maxRetries = resolveCoalesceMaxRetries(config, 3)
+  const requestSignature = makeCycleRequestSignature('cycle1', config, {
+    preset: options?.preset,
+    concurrency: options?.concurrency,
+    maxConcurrent: options?.maxConcurrent,
+  })
+  const scheduleRetry = () => scheduleCoalescedCycleRetry(
+    db,
+    'cycle1',
+    () => runCycle1(db, config, { ...options, signal: undefined, coalescedRetry: true, coalescedRetryAttempt: retryAttempt + 1 }, dataDir),
+    config,
+    requestSignature,
+  )
   if (_runCycle1InFlight.has(db)) {
+    if (!coalescedRetry) await markCycleRequest(db, 'cycle1', 'in-flight', requestSignature)
+    if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry()
     logCycle1Throttled('in-flight', '[cycle1] skipped: already in flight for this db\n')
     return {
       processed: 0, chunks: 0, skipped: 0, sessions: 0,
@@ -242,19 +295,75 @@ export async function runCycle1(db, config = {}, options = {}, dataDir = null) {
     client.release()
     if (signal?.aborted) throw signal.reason ?? err
     __mixdogMemoryLog(`[cycle1] advisory lock query failed: ${err.message}\n`)
+    if (!coalescedRetry) await markCycleRequest(db, 'cycle1', 'lock-error', requestSignature)
     return { processed: 0, chunks: 0, skipped: 0, sessions: 0, skippedInFlight: true, pendingRows: await countPendingRows(db) }
   }
   if (!gotLock) {
     client.release()
+    if (!coalescedRetry) await markCycleRequest(db, 'cycle1', 'advisory-lock', requestSignature)
+    if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry()
     logCycle1Throttled('advisory-lock', '[cycle1] skipped: advisory lock held by another worker\n')
     return { processed: 0, chunks: 0, skipped: 0, sessions: 0, skippedInFlight: true, pendingRows: await countPendingRows(db) }
   }
   const p = (async () => {
     try {
-      return await _runCycle1Impl(db, config, options, dataDir)
+      let result = null
+      let coalescedRuns = 0
+      let coalescedRequests = 0
+      if (coalescedRetry) {
+        const pending = await consumeCycleRequests(db, 'cycle1', requestSignature)
+        if (pending <= 0) {
+          return { processed: 0, chunks: 0, skipped: 0, sessions: 0, skippedInFlight: false, pendingRows: await countPendingRows(db), coalescedRetryNoop: true }
+        }
+        coalescedRuns += 1
+        coalescedRequests += pending
+        __mixdogMemoryLog(`[cycle1] retrying coalesced requests=${pending}\n`)
+      }
+      try {
+        result = await _runCycle1Impl(db, config, options, dataDir)
+      } catch (err) {
+        if (coalescedRetry) {
+          await markCycleRequest(db, 'cycle1', 'retry-error', requestSignature)
+          if (retryAttempt < maxRetries) scheduleRetry()
+        }
+        throw err
+      }
+      const maxDrains = resolveCoalesceMaxDrains(config, 1)
+      let drainLoops = 0
+      while (drainLoops < maxDrains) {
+        throwIfAborted(signal)
+        const pending = await consumeCycleRequests(db, 'cycle1', requestSignature)
+        if (pending <= 0) break
+        drainLoops += 1
+        coalescedRuns += 1
+        coalescedRequests += pending
+        __mixdogMemoryLog(`[cycle1] draining coalesced requests=${pending}\n`)
+        try {
+          const next = await _runCycle1Impl(db, config, options, dataDir)
+          result = mergeCycle1Results(result, next)
+        } catch (err) {
+          await markCycleRequest(db, 'cycle1', 'drain-error', requestSignature)
+          if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry()
+          throw err
+        }
+      }
+      if (coalescedRuns > 0) {
+        result = { ...result, coalescedRuns, coalescedRequests }
+      }
+      if (coalescedRetry && !result?.coalescedRetryNoop && typeof options?.onCoalescedSuccess === 'function') {
+        try { await options.onCoalescedSuccess(result) }
+        catch (err) { __mixdogMemoryLog(`[cycle1] coalesced success callback failed: ${err?.message || err}\n`) }
+      }
+      return result
     } finally {
-      try { await client.query(`SELECT pg_advisory_unlock(hashtext($1))`, ['mixdog.cycle1']) } catch {}
-      client.release()
+      let releaseErr = null
+      try {
+        const r = await client.query(`SELECT pg_advisory_unlock(hashtext($1)) AS unlocked`, ['mixdog.cycle1'])
+        if (r.rows[0]?.unlocked !== true) releaseErr = new Error('cycle1 advisory unlock returned false')
+      } catch (err) {
+        releaseErr = err
+      }
+      client.release(releaseErr || undefined)
     }
   })()
   _runCycle1InFlight.set(db, p)
@@ -281,22 +390,38 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
   const timeout = callerDeadlineMs > 0
     ? Math.min(baseTimeout, Math.max(5000, callerDeadlineMs - 1000))
     : baseTimeout
-  // Time-ordered fetch; windows are split purely by total row count below.
-  const fetchLimit = sessionCap * batchSize
+  // Select closest/recent sessions first, then fetch closest/recent rows per
+  // selected session. Memory fill is recency-first; session isolation below
+  // keeps unrelated episodes out of the same classifier prompt.
   const fetchResult = await db.query(
-    `SELECT id, ts, role, content, session_id, source_ref, project_id
-     FROM entries
-     WHERE chunk_root IS NULL
-       AND session_id IS NOT NULL
-       AND (reviewed_at IS NULL OR reviewed_at < $2)
-     ORDER BY ts DESC, id DESC
-     LIMIT $1`,
-    [fetchLimit, Date.now() - CYCLE1_OMITTED_COOLDOWN_MS],
+    `WITH selected_sessions AS (
+       SELECT session_id, MAX(ts) AS latest_ts, MAX(id) AS latest_id
+       FROM entries
+       WHERE chunk_root IS NULL
+         AND NULLIF(btrim(session_id), '') IS NOT NULL
+         AND (reviewed_at IS NULL OR reviewed_at < $2)
+       GROUP BY session_id
+       ORDER BY latest_ts DESC, latest_id DESC
+       LIMIT $1
+     ), ranked AS (
+       SELECT e.id, e.ts, e.role, e.content, e.session_id, e.source_ref, e.project_id,
+              s.latest_ts, s.latest_id,
+              ROW_NUMBER() OVER (PARTITION BY e.session_id ORDER BY e.ts DESC, e.id DESC) AS rn
+       FROM entries e
+       JOIN selected_sessions s ON s.session_id = e.session_id
+       WHERE e.chunk_root IS NULL
+         AND (e.reviewed_at IS NULL OR e.reviewed_at < $2)
+     )
+     SELECT id, ts, role, content, session_id, source_ref, project_id
+     FROM ranked
+     WHERE rn <= $3
+     ORDER BY latest_ts DESC, latest_id DESC, session_id, ts DESC, id DESC`,
+    [sessionCap, Date.now() - CYCLE1_OMITTED_COOLDOWN_MS, batchSize],
   )
   throwIfAborted(signal)
   const rowsDesc = fetchResult.rows
 
-  if (rowsDesc.length < minBatch) {
+  if (Number.isFinite(pendingRowsAtStart) && pendingRowsAtStart < minBatch) {
     throwIfAborted(signal)
     flushEmbeddingDirty(db, { signal }).catch((err) =>
       __mixdogMemoryLog(`[cycle1] quick-exit embedding flush failed: ${err.message}\n`)
@@ -318,23 +443,30 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
     }
   }
 
-  // Window purely by total fetched row count: ceil(rows / batchSize) windows,
-  // evenly sized, in chronological order. Session boundaries are NOT used to
-  // split windows — each entry carries a [sess:] marker in the prompt and
-  // DEFAULT_CYCLE1_RULES forbids merging chunks across those markers, so a
-  // single window may safely span sessions. fetchLimit caps total rows, so
-  // windowCount stays bounded (<= session_cap) and every window runs at once.
-  const rowsAsc = rowsDesc.slice().reverse()
-  const windows = []
-  const windowCount = Math.max(1, Math.ceil(rowsAsc.length / batchSize))
-  const baseSize = Math.floor(rowsAsc.length / windowCount)
-  const remainder = rowsAsc.length % windowCount
-  let _offset = 0
-  for (let i = 0; i < windowCount; i++) {
+  // Window by session first, then by batch size inside that session. This makes
+  // the classifier input structurally correct instead of relying on prompt text
+  // to prevent cross-session merges. Rows within each session are converted back
+  // to chronological order for the classifier prompt.
+  const selectedSessions = new Set()
+  const rowsBySession = new Map()
+  for (const row of rowsDesc) {
     throwIfAborted(signal)
-    const size = baseSize + (i < remainder ? 1 : 0)
-    windows.push(rowsAsc.slice(_offset, _offset + size))
-    _offset += size
+    const sid = String(row.session_id || '')
+    if (!sid) continue
+    if (!rowsBySession.has(sid)) {
+      if (selectedSessions.size >= sessionCap) continue
+      selectedSessions.add(sid)
+      rowsBySession.set(sid, [])
+    }
+    rowsBySession.get(sid).push(row)
+  }
+  const windows = []
+  for (const sessionRowsDesc of rowsBySession.values()) {
+    const rowsAsc = sessionRowsDesc.slice().reverse()
+    for (let offset = 0; offset < rowsAsc.length; offset += batchSize) {
+      throwIfAborted(signal)
+      windows.push(rowsAsc.slice(offset, offset + batchSize))
+    }
   }
 
   async function processWindow(rows, windowIdx) {

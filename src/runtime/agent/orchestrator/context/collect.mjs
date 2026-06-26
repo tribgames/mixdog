@@ -683,11 +683,11 @@ export function composeSystemPrompt(opts) {
         let permissionLabel = String(permission);
         let allow =
             permission === 'read'
-                ? 'read-only; write/edit/shell rejected'
+                ? 'read-only; apply_patch/shell rejected'
                 : permission === 'read-write'
-                    ? 'read + write/edit/shell'
+                    ? 'read + apply_patch/shell'
                     : permission === 'mcp'
-                        ? 'MCP/internal retrieval tools only; file/shell/edit tools rejected'
+                        ? 'MCP/internal retrieval tools only; file/shell mutation tools rejected'
                     : permission === 'full'
                         ? 'full — all tools'
                         : 'unknown — treat as read-only';

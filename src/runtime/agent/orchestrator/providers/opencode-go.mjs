@@ -10,6 +10,16 @@ const ANTHROPIC_MODEL_PREFIXES = [
     'qwen',
 ];
 
+const OPENCODE_GO_CONTEXT_WINDOWS = Object.freeze({
+    // OpenCode models catalog fixture / models.dev opencode-go provider rows.
+    'minimax-m2.7': 204800,
+    'minimax-m2-7': 204800,
+    'kimi-k2.5': 262144,
+    'kimi-k2-5': 262144,
+    'mimo-v2.5-pro': 1048576,
+    'glm-5': 202752,
+});
+
 function isAnthropicGoModel(model) {
     const id = String(model || '').toLowerCase();
     return ANTHROPIC_MODEL_PREFIXES.some(prefix => id.startsWith(prefix));
@@ -18,6 +28,11 @@ function isAnthropicGoModel(model) {
 function opencodeGoContextWindow(_modelId, current = 0) {
     const native = Number(current);
     if (Number.isFinite(native) && native > 0) return native;
+    const fallback = OPENCODE_GO_CONTEXT_WINDOWS[String(_modelId || '').toLowerCase()];
+    if (fallback) return fallback;
+    const catalog = getModelMetadataSync(_modelId, 'opencode-go');
+    const contextWindow = Number(catalog?.contextWindow);
+    if (Number.isFinite(contextWindow) && contextWindow > 0) return Math.floor(contextWindow);
     return 0;
 }
 

@@ -8,7 +8,7 @@
  *   - The result hangs under a single dim `  ⎿  ` gutter — the gutter is placed
  *     once, not repeated per wrapped line (CC MessageResponse.tsx style).
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
 import { theme, TURN_MARKER, RESULT_GUTTER } from '../theme.mjs';
@@ -38,7 +38,192 @@ export function summarizeArgs(name, args) {
 
 export const MAX_RESULT_LINES = 8;
 const TOOL_BLINK_MS = 500;
+const TOOL_BLINK_LIMIT_MS = 3000;
+const TOOL_PENDING_SHOW_DELAY_MS = 1000;
 const TOOL_HINT_DONE_COLOR = theme.subtle;
+const COUNT_TWEEN_MS = 700;
+const COUNT_TWEEN_FRAME_MS = 70;
+
+function normalizeCount(value) {
+  const n = Number(value || 0);
+  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+}
+
+function baselineCount(value) {
+  return normalizeCount(value) > 0 ? 1 : 0;
+}
+
+function easeOutCubic(t) {
+  const clamped = Math.max(0, Math.min(1, Number(t) || 0));
+  return 1 - Math.pow(1 - clamped, 3);
+}
+
+function tweenCount(from, to, progress) {
+  const start = normalizeCount(from);
+  const end = normalizeCount(to);
+  if (end <= start) return end;
+  const clamped = Math.max(0, Math.min(1, Number(progress) || 0));
+  if (clamped >= 1) return end;
+  return Math.min(end - 1, Math.max(start, Math.floor(start + ((end - start) * easeOutCubic(clamped)))));
+}
+
+function useCountUp(target, enabled = true) {
+  const normalized = normalizeCount(target);
+  const initial = enabled ? normalized : baselineCount(normalized);
+  const [display, setDisplay] = useState(initial);
+  const displayRef = useRef(initial);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (!enabled) {
+      const baseline = baselineCount(normalized);
+      displayRef.current = baseline;
+      setDisplay(baseline);
+      return undefined;
+    }
+    const from = normalizeCount(displayRef.current);
+    const to = normalized;
+    if (to <= from) {
+      displayRef.current = to;
+      setDisplay(to);
+      return undefined;
+    }
+    const started = Date.now();
+    const tick = () => {
+      const progress = Math.min(1, (Date.now() - started) / COUNT_TWEEN_MS);
+      const next = tweenCount(from, to, progress);
+      displayRef.current = next;
+      setDisplay(next);
+      if (progress >= 1 && timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+    displayRef.current = from;
+    setDisplay(from);
+    const timer = setInterval(tick, COUNT_TWEEN_FRAME_MS);
+    timerRef.current = timer;
+    timer.unref?.();
+    return () => {
+      clearInterval(timer);
+      if (timerRef.current === timer) timerRef.current = null;
+    };
+  }, [normalized, enabled]);
+
+  return display;
+}
+
+function normalizeCountMap(value = {}) {
+  const out = {};
+  for (const [key, raw] of Object.entries(value || {})) out[key] = normalizeCount(raw);
+  return out;
+}
+
+function baselineCountMap(value = {}) {
+  const out = {};
+  for (const [key, raw] of Object.entries(value || {})) out[key] = baselineCount(raw);
+  return out;
+}
+
+function countMapSignature(value = {}) {
+  return Object.keys(value || {})
+    .sort()
+    .map((key) => `${key}:${normalizeCount(value[key])}`)
+    .join('|');
+}
+
+function useCountUpMap(targets = {}, enabled = true) {
+  const normalizedTargets = normalizeCountMap(targets);
+  const signature = countMapSignature(normalizedTargets);
+  const initial = enabled ? normalizedTargets : baselineCountMap(normalizedTargets);
+  const [display, setDisplay] = useState(initial);
+  const displayRef = useRef(initial);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (!enabled) {
+      const baseline = baselineCountMap(normalizedTargets);
+      displayRef.current = baseline;
+      setDisplay(baseline);
+      return undefined;
+    }
+    const from = {};
+    let needsTween = false;
+    for (const [key, to] of Object.entries(normalizedTargets)) {
+      const current = normalizeCount(displayRef.current?.[key]);
+      from[key] = current;
+      if (to > current) needsTween = true;
+    }
+    if (!needsTween) {
+      displayRef.current = normalizedTargets;
+      setDisplay(normalizedTargets);
+      return undefined;
+    }
+    const started = Date.now();
+    const tick = () => {
+      const progress = Math.min(1, (Date.now() - started) / COUNT_TWEEN_MS);
+      const next = {};
+      for (const [key, to] of Object.entries(normalizedTargets)) {
+        const start = normalizeCount(from[key]);
+        next[key] = tweenCount(start, to, progress);
+      }
+      displayRef.current = next;
+      setDisplay(next);
+      if (progress >= 1 && timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+    displayRef.current = from;
+    setDisplay(from);
+    const timer = setInterval(tick, COUNT_TWEEN_FRAME_MS);
+    timerRef.current = timer;
+    timer.unref?.();
+    return () => {
+      clearInterval(timer);
+      if (timerRef.current === timer) timerRef.current = null;
+    };
+  }, [signature, enabled]);
+
+  return display;
+}
+
+function deltaColor(token) {
+  return String(token || '').startsWith('+') ? theme.success : theme.error;
+}
+
+function deltaTextParts(text) {
+  const value = String(text ?? '');
+  const parts = [];
+  const re = /(^|[\s([,{·])([+-]\s*\d+)(?=\s+Lines?\b)/gi;
+  let last = 0;
+  let match;
+  while ((match = re.exec(value))) {
+    const prefix = match[1] || '';
+    const token = (match[2] || '').replace(/\s+/g, '');
+    const tokenStart = match.index + prefix.length;
+    if (match.index > last) parts.push({ text: value.slice(last, match.index) });
+    if (prefix) parts.push({ text: prefix });
+    if (token) parts.push({ text: token, color: deltaColor(token) });
+    last = tokenStart + (match[2] || '').length;
+  }
+  if (last < value.length) parts.push({ text: value.slice(last) });
+  return parts;
+}
+
+function renderDeltaText(text) {
+  return deltaTextParts(text).map((part, index) => (
+    part.color ? <Text key={index} color={part.color}>{part.text}</Text> : part.text
+  ));
+}
 
 function plural(count, singular, pluralText = `${singular}s`) {
   return count === 1 ? singular : pluralText;
@@ -47,18 +232,17 @@ function plural(count, singular, pluralText = `${singular}s`) {
 function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
-  const completed = Math.max(0, Number(doneCount || 0));
-  const suffix = pending && completed > 0 ? ` (${completed}/${count})` : '';
 
   const copy = (active, done, noun, pluralNoun = `${noun}s`) => {
+    if (pending) return active;
     const object = `${count} ${plural(count, noun, pluralNoun)}`;
-    if (count === 1) return pending ? active : done;
-    return `${pending ? active : done} ${object}${suffix}`;
+    return `${done} ${object}`;
   };
 
   const copyTarget = (active, done, target, pluralTarget = `${target}s`) => {
-    if (count === 1) return `${pending ? active : done} ${target}`;
-    return `${pending ? active : done} ${count} ${plural(count, target, pluralTarget)}${suffix}`;
+    if (pending) return `${active} ${target}`;
+    const singularTarget = pluralTarget === 'web items' ? 'web item' : target;
+    return `${done} ${count} ${plural(count, singularTarget, pluralTarget)}`;
   };
 
   switch (n) {
@@ -66,8 +250,6 @@ function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
     case 'view_image':
     case 'read_mcp_resource':
       return copy('Reading', 'Read', 'file');
-    case 'write':
-    case 'edit':
     case 'apply_patch':
       return copy('Editing', 'Edited', 'file');
     case 'grep':
@@ -299,21 +481,20 @@ function isOutputDetailTool(normalizedName, label) {
   ]).has(n) || l === 'read' || l === 'search' || l === 'web search' || l === 'run';
 }
 
-function progressDetail({ normalizedName, label, doneCount, groupCount, elapsed }) {
+function progressDetail({ normalizedName, label, elapsed }) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
   const suffix = elapsed ? ` - ${elapsed}` : '';
-  const progress = groupCount > 1 ? ` (${doneCount}/${groupCount})` : '';
-  if (isAgentTool(n) || l === 'agent') return `Calling Agent${progress}${suffix}`;
-  if (n === 'shell' || n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait' || l === 'run') return `Running${progress}${suffix}`;
-  if (n === 'search' || n === 'search_query' || n === 'image_query' || n === 'web_search' || n === 'web_search_call' || n === 'firecrawl_search' || n === 'web_fetch' || n === 'fetch' || n === 'download_attachment' || l === 'web search') return `Researching Web${progress}${suffix}`;
-  if (n === 'explore' || l === 'explore') return `Exploring${progress}${suffix}`;
-  if (n === 'grep' || n === 'glob' || n === 'list' || n === 'ls' || l === 'search') return `Searching${progress}${suffix}`;
-  if (n === 'read' || n === 'view_image' || n === 'read_mcp_resource' || l === 'read') return `Reading${progress}${suffix}`;
-  if (n === 'write' || n === 'edit' || n === 'apply_patch' || l === 'update') return `Editing${progress}${suffix}`;
-  if (n === 'recall' || n === 'recall_memory' || n === 'search_memories' || l === 'memory') return `Checking Memory${progress}${suffix}`;
-  if (l === 'setup') return `Setting Up${progress}${suffix}`;
-  return `Working${progress}${suffix}`;
+  if (isAgentTool(n) || l === 'agent') return `Calling Agent${suffix}`;
+  if (n === 'shell' || n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait' || l === 'run') return `Running${suffix}`;
+  if (n === 'search' || n === 'search_query' || n === 'image_query' || n === 'web_search' || n === 'web_search_call' || n === 'firecrawl_search' || n === 'web_fetch' || n === 'fetch' || n === 'download_attachment' || l === 'web search') return `Researching Web${suffix}`;
+  if (n === 'explore' || l === 'explore') return `Exploring${suffix}`;
+  if (n === 'grep' || n === 'glob' || n === 'list' || n === 'ls' || l === 'search') return `Searching${suffix}`;
+  if (n === 'read' || n === 'view_image' || n === 'read_mcp_resource' || l === 'read') return `Reading${suffix}`;
+  if (n === 'apply_patch' || l === 'update') return `Editing${suffix}`;
+  if (n === 'recall' || n === 'recall_memory' || n === 'search_memories' || l === 'memory') return `Checking Memory${suffix}`;
+  if (l === 'setup') return `Setting Up${suffix}`;
+  return `Working${suffix}`;
 }
 
 function genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError }) {
@@ -356,45 +537,94 @@ function toolStatusColor({ pending, groupCount, failedCount }) {
 
 export function ToolExecution({ name, args, result, rawResult, isError, errorCount, expanded, globalExpanded = false, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, headerFinalized = true }) {
   const [blinkOn, setBlinkOn] = useState(true);
+  const [blinkExpired, setBlinkExpired] = useState(false);
+  const [pendingDelayElapsed, setPendingDelayElapsed] = useState(false);
   const groupCount = Math.max(1, Number(count || 1));
   const doneCount = Math.max(0, Math.min(groupCount, Number(completedCount || (result == null ? 0 : groupCount))));
   const rt = result == null ? null : String(result).replace(/\s+$/, '');
   const rawRt = rawResult == null ? null : String(rawResult).replace(/\s+$/, '');
   const pending = doneCount < groupCount;
-  const headerPending = pending || headerFinalized === false;
+  const startedAtMs = Number(startedAt || 0);
+  const completedAtMs = Number(completedAt || 0);
+  const pendingAgeMs = pending && startedAtMs ? Math.max(0, Date.now() - startedAtMs) : 0;
+  const pendingDisplayReady = !pending || !startedAtMs || pendingDelayElapsed || pendingAgeMs >= TOOL_PENDING_SHOW_DELAY_MS;
+  const completedQuickly = !pending && startedAtMs > 0 && completedAtMs > 0 && Math.max(0, completedAtMs - startedAtMs) < TOOL_PENDING_SHOW_DELAY_MS;
+  const headerPending = pending || (headerFinalized === false && !completedQuickly);
   const hasResult = result != null && Boolean(String(rt || '').trim());
   const hasRawResult = rawResult != null && Boolean(String(rawRt || '').trim());
-  const elapsedMs = startedAt ? ((pending ? Date.now() : completedAt) - startedAt) : 0;
+  const elapsedMs = startedAtMs ? Math.max(0, (pending ? Date.now() : (completedAtMs || Date.now())) - startedAtMs) : 0;
   const elapsed = elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
   const failedCount = clampFailureCount(errorCount, groupCount, isError);
   const statusColor = toolStatusColor({ pending, groupCount, failedCount });
+  const countsVisible = !headerPending;
+  const displayGroupCount = useCountUp(groupCount, countsVisible);
+  const displayCategories = useCountUpMap(categories || {}, aggregate === true && countsVisible);
 
   useEffect(() => {
-    if (!pending) return undefined;
+    if (!pending) {
+      setPendingDelayElapsed(false);
+      return undefined;
+    }
+    const started = Number(startedAt || 0);
+    if (!started) {
+      setPendingDelayElapsed(true);
+      return undefined;
+    }
+    const remaining = TOOL_PENDING_SHOW_DELAY_MS - Math.max(0, Date.now() - started);
+    if (remaining <= 0) {
+      setPendingDelayElapsed(true);
+      return undefined;
+    }
+    setPendingDelayElapsed(false);
+    const timer = setTimeout(() => setPendingDelayElapsed(true), remaining);
+    return () => clearTimeout(timer);
+  }, [pending, startedAt]);
+
+  useEffect(() => {
+    if (!pending || !pendingDisplayReady || blinkExpired) {
+      setBlinkOn(true);
+      return undefined;
+    }
     const timer = setInterval(() => setBlinkOn((on) => !on), TOOL_BLINK_MS);
     return () => clearInterval(timer);
-  }, [pending]);
+  }, [pending, pendingDisplayReady, blinkExpired]);
+
+  useEffect(() => {
+    if (!pending || !pendingDisplayReady) {
+      setBlinkExpired(false);
+      return undefined;
+    }
+    const started = Number(startedAt || 0);
+    const remaining = TOOL_BLINK_LIMIT_MS - (started ? Math.max(0, Date.now() - started) : 0);
+    if (remaining <= 0) {
+      setBlinkExpired(true);
+      return undefined;
+    }
+    setBlinkExpired(false);
+    const timer = setTimeout(() => setBlinkExpired(true), remaining);
+    return () => clearTimeout(timer);
+  }, [pending, pendingDisplayReady, startedAt]);
+
+  if (pending && !pendingDisplayReady) return null;
 
   // ── Aggregate card ──────────────────────────────────────────────
   if (aggregate) {
-    // Keep the aggregate header stable while results stream in; progress lives
-    // in the detail row. This avoids the header bouncing between
-    // "Reading/Searching" and "Read/Searched" as completedCount changes.
+    // Pending aggregate headers omit counts so intermediate tool batches do not
+    // bounce between "Reading 1 item" and "Reading 4 items". Final counts and
+    // result summaries appear only after completion.
     const headerOrder = Array.isArray(args?.categoryOrder) ? args.categoryOrder : null;
-    const headerText = formatAggregateHeader(categories || {}, { pending: headerPending, order: headerOrder });
+    const headerText = formatAggregateHeader(displayCategories || {}, { pending: headerPending, order: headerOrder });
     let detailText;
     if (hasResult) {
-      const progress = pending && groupCount > 1 ? `, Running ${doneCount}/${groupCount}` : '';
-      detailText = `${rt}${progress}`;
+      detailText = rt;
     } else if (pending) {
-      const progress = groupCount > 1 ? `Running ${doneCount}/${groupCount}` : 'Running';
-      detailText = `${progress}` + (elapsed ? ` - ${elapsed}` : '');
+      detailText = '';
     } else {
       detailText = '';
     }
 
     const dotColor = statusColor;
-    const dotText = pending && !blinkOn ? ' ' : TURN_MARKER;
+    const dotText = pending && !blinkExpired && !blinkOn ? ' ' : TURN_MARKER;
     const gutter = 2;
     const showHeaderExpandHint = hasRawResult;
     const hintLabel = showHeaderExpandHint ? `ctrl+o ${expanded ? 'collapse' : 'expand'}` : '';
@@ -424,7 +654,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
             <Box flexDirection="column" flexShrink={1} flexGrow={1}>
               {detailLines.map((line, i) => (
                 <Text key={i} color={aggregateDetailColor}>
-                  {fitResultLine(line || ' ', columns)}
+                  {renderDeltaText(fitResultLine(line || ' ', columns))}
                 </Text>
               ))}
             </Box>
@@ -466,7 +696,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     ? agentCompletionDetail
     : '';
   const pendingDetail = pending
-    ? progressDetail({ normalizedName, label, doneCount, groupCount, elapsed })
+    ? progressDetail({ normalizedName, label, elapsed })
     : '';
   const genericDetail = !pending && !agentDetail && !imageDetail && !resultSummary
     ? genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError })
@@ -489,12 +719,12 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const isAgentResponse = isAgentResult && hasAgentResponseResult(rt);
   const isAgentMetadataResult = isAgentResult && !isAgentResponse;
   const dotColor = statusColor;
-  const dotText = pending && !blinkOn ? ' ' : TURN_MARKER;
+  const dotText = pending && !blinkExpired && !blinkOn ? ' ' : TURN_MARKER;
   let labelText;
   if (isAgentResponse) labelText = agentResponseTitle(parsedArgs);
   else if (isBackgroundResponse) labelText = backgroundTaskResultTitle(normalizedName, backgroundMeta || parsedArgs);
   else if (isBackgroundMetadataResult) labelText = backgroundTaskActionTitle(normalizedName, backgroundMeta);
-  else labelText = (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs) : '') || statusCopy(normalizedName, label, groupCount, doneCount, headerPending, isError);
+  else labelText = (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs) : '') || statusCopy(normalizedName, label, displayGroupCount, doneCount, headerPending, isError);
   // Show the parenthesized arg summary for grouped cards too, matching single
   // calls so the header carries the same context.
   const summaryText = isAgentResponse || isBackgroundResponse ? '' : (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary);
@@ -550,7 +780,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
           <Box flexDirection="column" flexShrink={1} flexGrow={1}>
             {detailLines.map((line, i) => (
               <Text key={i} color={showRawResult ? resultColor : detailColor}>
-                {fitResultLine(line || ' ', columns)}
+                {renderDeltaText(fitResultLine(line || ' ', columns))}
               </Text>
             ))}
           </Box>

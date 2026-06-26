@@ -42,6 +42,8 @@ import {
     PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS,
 } from '../stall-policy.mjs';
 
+globalThis.__mixdogOpenaiWsRuntimeLoaded = true;
+
 const CODEX_WS_URL = 'wss://chatgpt.com/backend-api/codex/responses';
 const CODEX_OAUTH_ORIGINATOR = 'codex_cli_rs';
 const OPENAI_WS_URL = 'wss://api.openai.com/v1/responses';

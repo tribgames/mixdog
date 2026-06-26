@@ -28,7 +28,7 @@ ${projectDir}
 
 Goal: validate how the lead plans and batches independent work. Do not solve everything directly in the lead.
 
-Please use the bridge tool with async workers for the independent sections below. Spawn distinct tags early so the work can overlap, then poll/read the jobs and make a concise final report.
+Please use the bridge tool with async workers for the independent sections below. Spawn distinct tags early so the work can overlap, then wait for completion notifications and make a concise final report.
 
 Independent sections:
 1. worker: update src/math.mjs to export subtract(a, b).

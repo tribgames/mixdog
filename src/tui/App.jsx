@@ -56,6 +56,7 @@ const HELP = [
   '  /usage           open global provider quota / balance dashboard',
   '  /model <name>    switch model for subsequent turns (picker if no name)',
   '  /workflow        switch the active workflow',
+  '  /OutputStyle     switch Lead output style',
   '  /agents          show available workflow agents',
   '  /effort [level] set reasoning effort for the current model',
   '  /fast [on|off]   toggle Fast mode for this model (saved per model)',
@@ -87,6 +88,7 @@ const SLASH_COMMANDS = [
   { name: 'usage', usage: '/usage', params: '[refresh]', description: 'Show total provider quota / balance' },
   { name: 'model', usage: '/model', description: 'Switch model for subsequent turns' },
   { name: 'workflow', usage: '/workflow', description: 'Switch the active workflow' },
+  { name: 'outputstyle', usage: '/OutputStyle', aliases: ['output-style', 'style'], aliasUsage: ['style'], params: '[name]', description: 'Switch Lead output style' },
   { name: 'agents', usage: '/agents', description: 'Show available workflow agents' },
   { name: 'effort', usage: '/effort', params: '[level]', description: 'Set reasoning effort for the current model' },
   { name: 'fast', usage: '/fast', params: '[on|off]', description: 'Toggle Fast mode for the current model' },
@@ -146,6 +148,14 @@ function terminalSize(stdout) {
 
 function clean(value) {
   return String(value ?? '').trim();
+}
+
+function systemShellDescription(shell = {}) {
+  const command = clean(shell.command);
+  if (command) return `${command} · config`;
+  const effective = clean(shell.effective);
+  if (effective) return `${effective} · ${shell.source || 'env'}`;
+  return 'auto';
 }
 
 function summarizeTags(tags, limit = 3) {
@@ -625,6 +635,8 @@ export function App({ store, initialStatusLine = '' }) {
   const scrollTargetRef = useRef(0);
   const maxScrollRowsRef = useRef(0);
   const scrollAnimationRef = useRef(null);
+  const transcriptTotalRowsRef = useRef(0);
+  const preservedScrollDeltaRef = useRef(0);
   // picker = null | { type, title, items, onSelect }
   // Rendered as an option panel attached directly above the bottom prompt.
   const pickerOpenedFromEnterRef = useRef(false);
@@ -1243,10 +1255,10 @@ export function App({ store, initialStatusLine = '' }) {
 
   // ESC / Up handling (Claude Code parity — refs/claude-code/src/components/PromptInput/PromptInput.tsx):
   // - prompt-local overlays such as the slash palette close first.
+  // - queued editable messages pop back into the prompt before clear/interrupt.
   // - non-empty prompt text is cleared by PromptInput and must never interrupt
   //   the active turn on the same Esc press.
   // - empty prompt + active turn interrupts the active turn.
-  // - idle empty prompt can pop queued text back into the prompt for editing.
   const handlePromptEscape = useCallback((text = '', meta = {}) => {
     if (usagePanel) { closeUsagePanel(); return true; }
     if (contextPanel) { setContextPanel(null); return true; }
@@ -1991,10 +2003,8 @@ export function App({ store, initialStatusLine = '' }) {
     }
     const items = workflows.map((workflow) => ({
       value: workflow.id,
-      label: workflow.name,
-      description: workflow.active
-        ? `Current · ${workflow.description || `${workflow.source || 'workflow'} workflow`}`
-        : workflow.description || `${workflow.source || 'workflow'} workflow`,
+      label: workflow.active ? `${workflow.name} ✓` : workflow.name,
+      description: workflow.description || `${workflow.source || 'workflow'} workflow`,
       _workflow: workflow,
     }));
     setProviderPrompt(null);
@@ -2022,6 +2032,65 @@ export function App({ store, initialStatusLine = '' }) {
             store.pushNotice(`Workflow set to ${result.name}`, 'info');
           })
           .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'));
+      },
+      onCancel: () => {
+        setPicker(null);
+      },
+    });
+  };
+
+  const outputStyleNotice = (result) => {
+    const label = result?.current?.label || result?.current?.id || result?.configured || 'Default';
+    return result?.appliedToCurrentSession === false
+      ? `Output style set to ${label}. Use /clear to apply to this chat.`
+      : `Output style set to ${label}.`;
+  };
+
+  const openOutputStylePicker = () => {
+    let status = null;
+    try {
+      status = store.listOutputStyles?.() || null;
+    } catch (e) {
+      store.pushNotice(`could not list output styles: ${e?.message || e}`, 'error');
+      return;
+    }
+    const styles = Array.isArray(status?.styles) ? status.styles : [];
+    if (!styles.length) {
+      store.pushNotice('no output styles available', 'warn');
+      return;
+    }
+    const currentId = status?.current?.id || 'default';
+    const items = styles.map((style) => ({
+      value: style.id,
+      label: `${style.label || style.id}${style.id === currentId ? ' ✓' : ''}`,
+      description: style.description || style.source || 'output style',
+      _style: style,
+    }));
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setContextPanel(null);
+    closeUsagePanel();
+    setPicker({
+      title: 'Output Style',
+      description: 'Select the Lead response style for future turns.',
+      help: '↑/↓ select · Enter choose · Esc back',
+      labelWidth: 18,
+      items,
+      onSelect: (_value, item) => {
+        const style = item?._style;
+        if (!style) return;
+        setPicker(null);
+        void store.setOutputStyle?.(style.id)
+          .then((result) => {
+            if (!result) {
+              store.pushNotice('Output style switch is already running.', 'warn');
+              return;
+            }
+            store.pushNotice(outputStyleNotice(result), 'info');
+          })
+          .catch((e) => store.pushNotice(`Couldn’t switch output style: ${e?.message || e}`, 'error'));
       },
       onCancel: () => {
         setPicker(null);
@@ -2347,12 +2416,12 @@ export function App({ store, initialStatusLine = '' }) {
 
   const openContextPicker = () => {
     const tools = store.toolsStatus?.() || { activeCount: 0, count: 0, activeTools: [] };
+    const mcp = store.mcpStatus?.() || { connectedCount: 0, configuredCount: 0, failedCount: 0 };
     const skills = store.skillsStatus?.() || { count: 0 };
     const plugins = store.pluginsStatus?.() || { count: 0 };
     const context = store.contextStatus?.() || {};
     const usage = context.usage || {};
     const messages = context.messages || {};
-    const roles = messages.roles || {};
     const request = context.request || {};
     const compaction = context.compaction || {};
     const windowTokens = Number(context.contextWindow || state.contextWindow || context.rawContextWindow || state.rawContextWindow || 0);
@@ -2379,10 +2448,6 @@ export function App({ store, initialStatusLine = '' }) {
     const cacheHitRate = cacheDenom > 0
       ? `${((cachedRead / cacheDenom) * 100).toFixed(0)}%`
       : 'n/a';
-    const roleLine = (label, key) => {
-      const row = roles[key] || { count: 0, tokens: 0 };
-      return `${label}: ${fmt(row.tokens)} tokens (${pct(row.tokens)}) · ${row.count || 0} messages`;
-    };
     const contextSource = context.usedSource === 'last_api_request' ? 'last API request' : 'estimated';
     const lastApiLabel = context.lastApiRequestStale ? 'last API request (pre-compact)' : 'last API request';
     const compactBoundary = Number(compaction.boundaryTokens || windowTokens || 0);
@@ -2466,6 +2531,60 @@ export function App({ store, initialStatusLine = '' }) {
     setPicker(null);
     setContextPanel({
       title: 'Context Usage',
+      detail: {
+        type: 'context',
+        usage: {
+          usedTokens,
+          windowTokens,
+          freeTokens,
+          rawWindowTokens,
+          source: contextSource,
+          effective: true,
+        },
+        compaction: {
+          stage: compaction.lastStage || 'pending',
+          state: compactState,
+          triggerTokens: compactTrigger,
+          boundaryTokens: compactBoundary,
+        },
+        messages: {
+          tokens: messages.estimatedTokens,
+          count: messages.count,
+          semantic: messages.semantic,
+        },
+        tools: {
+          schemaTokens: request.toolSchemaTokens,
+          active: tools.activeCount,
+          count: tools.count,
+        },
+        toolIo: {
+          calls: messages.toolCallCount,
+          results: messages.toolResultCount,
+        },
+        request: {
+          toolSchemaBreakdown: request.toolSchemaBreakdown,
+          overheadTokens: request.requestOverheadTokens,
+          reserveTokens: request.reserveTokens,
+        },
+        lastApi: {
+          contextTokens: usage.lastContextTokens,
+          inputTokens: usage.lastInputTokens,
+          outputTokens: usage.lastOutputTokens,
+        },
+        cache: {
+          hitRate: cacheHitRate,
+          readTokens: usage.lastCachedReadTokens,
+        },
+        extensions: {
+          skills: skills.count,
+          plugins: plugins.count,
+        },
+        mcp: {
+          connected: mcp.connectedCount,
+          configured: mcp.configuredCount,
+          failed: mcp.failedCount,
+        },
+      },
       rows: contextRows,
     });
   };
@@ -2473,6 +2592,7 @@ export function App({ store, initialStatusLine = '' }) {
   const openSettingsPicker = () => {
     const tools = store.toolsStatus?.() || { activeCount: 0, count: 0 };
     const autoClear = store.getAutoClear?.() || {};
+    const systemShell = state.systemShell || store.getSystemShell?.() || {};
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
@@ -2517,6 +2637,12 @@ export function App({ store, initialStatusLine = '' }) {
           _action: 'cwd',
         },
         {
+          value: 'system-shell',
+          label: 'System shell command',
+          description: systemShellDescription(systemShell),
+          _action: 'system-shell',
+        },
+        {
           value: 'bridge',
           label: 'Bridge',
           description: `default ${state.bridgeMode || 'async'}`,
@@ -2547,6 +2673,13 @@ export function App({ store, initialStatusLine = '' }) {
             kind: 'cwd',
             label: 'Working directory',
             hint: state.cwd,
+          });
+        }
+        else if (item._action === 'system-shell') {
+          setSettingsPrompt({
+            kind: 'system-shell',
+            label: 'System shell command',
+            hint: 'PowerShell/pwsh path or command; blank/auto = auto',
           });
         }
         else if (item._action === 'bridge') openBridgePicker();
@@ -4075,6 +4208,7 @@ export function App({ store, initialStatusLine = '' }) {
     setPicker({
       title: 'Resume',
       items,
+      fillAvailable: true,
       labelWidth: 21,
       onSelect: (value) => {
         setPicker(null);
@@ -4187,6 +4321,38 @@ export function App({ store, initialStatusLine = '' }) {
           .then((result) => store.pushNotice(result ? `Workflow set to ${result.name}` : 'Workflow switch is already running.', result ? 'info' : 'warn'))
           .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'));
         return true;
+      case 'outputstyle': {
+        if (state.busy) {
+          store.pushNotice('wait for the current turn to finish before /OutputStyle', 'warn');
+          return false;
+        }
+        const value = arg.trim();
+        const lower = value.toLowerCase();
+        if (!value) {
+          openOutputStylePicker();
+          return true;
+        }
+        if (lower === 'status' || lower === 'current' || lower === 'show') {
+          try {
+            const status = store.getOutputStyle?.();
+            const label = status?.current?.label || status?.current?.id || status?.configured || 'Default';
+            store.pushNotice(`Output style: ${label}`, 'info');
+          } catch (e) {
+            store.pushNotice(`Couldn’t read output style: ${e?.message || e}`, 'error');
+          }
+          return true;
+        }
+        void store.setOutputStyle?.(value)
+          .then((result) => {
+            if (!result) {
+              store.pushNotice('Output style switch is already running.', 'warn');
+              return;
+            }
+            store.pushNotice(outputStyleNotice(result), 'info');
+          })
+          .catch((e) => store.pushNotice(`Couldn’t switch output style: ${e?.message || e}`, 'error'));
+        return true;
+      }
       case 'effort':
         if (state.busy) {
           store.pushNotice('wait for the current turn to finish before /effort', 'warn');
@@ -4364,7 +4530,11 @@ export function App({ store, initialStatusLine = '' }) {
         void store.compact()
           .then((r) => {
             if (!r) {
-              store.pushNotice('compact failed', 'warn');
+              store.pushNotice('Compact failed.', 'warn');
+              return;
+            }
+            if (r.error) {
+              store.pushNotice('Compact failed.', 'error');
               return;
             }
             if (r.changed === false && r.reason) {
@@ -4372,18 +4542,12 @@ export function App({ store, initialStatusLine = '' }) {
               return;
             }
             if (r.changed === false) {
-              store.pushNotice(
-                `compact made no changes: ${r.beforeMessages} messages, context ${r.beforeTokens}`,
-                'warn',
-              );
+              store.pushNotice('nothing to compact', 'warn');
               return;
             }
-            store.pushNotice(
-              `Compacted context: ${r.beforeMessages}→${r.afterMessages} messages, context ${r.beforeTokens}→${r.afterTokens}`,
-              'info',
-            );
+            store.pushNotice('Compact done.', 'info');
           })
-          .catch((e) => store.pushNotice(`compact failed: ${e?.message || e}`, 'error'));
+          .catch(() => store.pushNotice('Compact failed.', 'error'));
         return true;
       case 'resume':
         if (state.busy) {
@@ -4599,6 +4763,12 @@ export function App({ store, initialStatusLine = '' }) {
             return false;
           }
           store.setCwd?.(commandText);
+          setSettingsPrompt(null);
+          void openSettingsPicker();
+          return true;
+        }
+        if (settingsPrompt.kind === 'system-shell') {
+          store.setSystemShell?.(commandText);
           setSettingsPrompt(null);
           void openSettingsPicker();
           return true;
@@ -4833,9 +5003,9 @@ export function App({ store, initialStatusLine = '' }) {
   const baseReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const maxFloatingPanelRows = Math.max(0, resizeState.rows - baseReserve - 1);
   const desiredFloatingPanelRows = picker
-    ? PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS
+    ? (picker.fillAvailable ? maxFloatingPanelRows : PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS)
     : contextPanel
-      ? PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS
+      ? PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS + 3
       : usagePanel
         ? PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS
     : slashPaletteOpen
@@ -4847,7 +5017,7 @@ export function App({ store, initialStatusLine = '' }) {
     ? Math.min(desiredFloatingPanelRows, maxFloatingPanelRows)
     : 0;
   const pickerVisibleRows = picker
-    ? Math.max(1, floatingPanelRows - PICKER_CHROME_ROWS - OPTION_PANEL_EXTRA_ROWS)
+    ? Math.max(1, floatingPanelRows - PICKER_CHROME_ROWS - (picker.fillAvailable ? 0 : OPTION_PANEL_EXTRA_ROWS))
     : PANEL_MAX_VISIBLE;
   const bottomReserve = baseReserve + floatingPanelRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
@@ -4886,6 +5056,29 @@ export function App({ store, initialStatusLine = '' }) {
     && transcriptWindow.bottomSpacerRows === 0
     && transcriptWindow.endIndex >= state.items.length;
   useLayoutEffect(() => {
+    const totalRows = Math.max(0, Number(transcriptWindow.totalRows) || 0);
+    const previousTotalRows = Math.max(0, Number(transcriptTotalRowsRef.current) || 0);
+    transcriptTotalRowsRef.current = totalRows;
+    const rowDelta = totalRows - previousTotalRows;
+    if (previousTotalRows <= 0 || rowDelta === 0 || dragRef.current.active) return;
+
+    const currentTarget = Math.max(0, Number(scrollTargetRef.current) || 0);
+    const currentPosition = Math.max(0, Number(scrollPositionRef.current) || 0);
+    const currentOffset = Math.max(0, Number(scrollOffset) || 0);
+    if (currentTarget <= 0 && currentPosition <= 0 && currentOffset <= 0) return;
+
+    const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
+    const nextTarget = Math.max(0, Math.min(maxRows, currentTarget + rowDelta));
+    const appliedDelta = nextTarget - currentTarget;
+    if (appliedDelta === 0) return;
+
+    stopSmoothScroll();
+    scrollTargetRef.current = nextTarget;
+    scrollPositionRef.current = Math.max(0, Math.min(maxRows, currentPosition + appliedDelta));
+    preservedScrollDeltaRef.current += appliedDelta;
+    setScrollOffset(Math.max(0, Math.round(Math.min(maxRows, currentOffset + appliedDelta))));
+  }, [transcriptWindow.totalRows, transcriptWindow.maxScrollRows, scrollOffset, stopSmoothScroll]);
+  useLayoutEffect(() => {
     const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
     const next = {
       top,
@@ -4893,6 +5086,11 @@ export function App({ store, initialStatusLine = '' }) {
       totalRows: Math.max(0, Number(transcriptWindow.totalRows) || 0),
       scrollOffset: Math.max(0, Number(transcriptWindow.effectiveScrollOffset) || 0),
     };
+    const preservedDelta = Number(preservedScrollDeltaRef.current) || 0;
+    if (preservedDelta !== 0) {
+      next.scrollOffset = Math.max(0, next.scrollOffset + preservedDelta);
+      preservedScrollDeltaRef.current = 0;
+    }
     const previous = selectionLayoutRef.current;
     selectionLayoutRef.current = next;
     if (!previous || !dragRef.current.rect || dragRef.current.active) return;
@@ -5089,6 +5287,7 @@ export function App({ store, initialStatusLine = '' }) {
               <ContextPanel
                 rows={contextPanel.rows}
                 title={contextPanel.title}
+                detail={contextPanel.detail}
                 columns={frameColumns}
                 fillHeight={expandedOptionPanel}
               />

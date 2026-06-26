@@ -25,35 +25,41 @@ import { stdin, stdout } from 'node:process';
 import { basename } from 'node:path';
 
 import { bold, dim, cyan, green, red, yellow, colorEnabled } from './ui/ansi.mjs';
-import { renderMarkdown } from './ui/markdown.mjs';
-import { renderToolCard } from './ui/tool-card.mjs';
-import { createSessionStats, applyUsageDelta, renderStatusline } from './ui/statusline.mjs';
-import { createMixdogSessionRuntime } from './mixdog-session-runtime.mjs';
-import { installProcessSignalCleanup } from './runtime/shared/process-shutdown.mjs';
+import { printHelp } from './help.mjs';
+import { createSessionStats, applyUsageDelta } from './ui/session-stats.mjs';
 
-/** Help text shared by `--help` and the `/help` slash command. */
-const HELP_LINES = [
-  'mixdog — standalone mixdog CLI/TUI coding agent.',
-  '',
-  'Usage:',
-  '  mixdog [--provider <name>] [--model <name>] [--readonly]',
-  '  mixdog --help',
-  '',
-  'Slash commands (inside the REPL):',
-  '  /help              show this help',
-  '  /clear             reset the conversation and clear the screen',
-  '  /compact           compact older conversation context',
-  '  /model <name>      switch model/preset for subsequent turns',
-  '  /mode <name>       switch tool surface: full | readonly',
-  '  /exit              quit',
-  '',
-  'History: use ↑ / ↓ to recall previous inputs.',
-];
+let runtimeModulePromise = null;
+let markdownModulePromise = null;
+let toolCardModulePromise = null;
+let statuslineModulePromise = null;
+let shutdownModulePromise = null;
 
-/** Print the `--help` text. Routed here so app.mjs stays untouched. */
-export function printHelp(write = (s) => stdout.write(s)) {
-  write(HELP_LINES.join('\n') + '\n');
+function loadRuntimeModule() {
+  runtimeModulePromise ??= import('./mixdog-session-runtime.mjs');
+  return runtimeModulePromise;
 }
+
+async function renderMarkdownLazy(text) {
+  const mod = await (markdownModulePromise ??= import('./ui/markdown.mjs'));
+  return mod.renderMarkdown(text);
+}
+
+async function renderToolCardLazy(call) {
+  const mod = await (toolCardModulePromise ??= import('./ui/tool-card.mjs'));
+  return mod.renderToolCard(call);
+}
+
+async function renderStatuslineLazy(opts) {
+  const mod = await (statuslineModulePromise ??= import('./ui/statusline.mjs'));
+  return mod.renderStatusline(opts);
+}
+
+async function loadShutdownModule() {
+  shutdownModulePromise ??= import('./runtime/shared/process-shutdown.mjs');
+  return shutdownModulePromise;
+}
+
+export { printHelp };
 
 export async function runRepl({ provider: providerName, model, toolMode = 'full' } = {}) {
   // `--help` short-circuits before any provider init so the smoke test (which
@@ -64,19 +70,44 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
     return 0;
   }
 
-  const runtime = await createMixdogSessionRuntime({ provider: providerName, model, toolMode });
   const stats = createSessionStats();
   const cwd = process.cwd();
   let rl = null;
+  let runtime = null;
+  let runtimePromise = null;
   let closed = false;
+
+  const ensureRuntime = async () => {
+    if (closed) throw new Error('runtime closed');
+    if (runtime) return runtime;
+    if (!runtimePromise) {
+      runtimePromise = (async () => {
+        const { createMixdogSessionRuntime } = await loadRuntimeModule();
+        const next = await createMixdogSessionRuntime({ provider: providerName, model, toolMode });
+        runtime = next;
+        return next;
+      })().finally(() => {
+        runtimePromise = null;
+      });
+    }
+    const next = await runtimePromise;
+    if (closed) {
+      try { await next.close('cli-exit'); } catch {}
+      if (runtime === next) runtime = null;
+      throw new Error('runtime closed');
+    }
+    return next;
+  };
+
   const closeRuntime = async (reason = 'cli-exit') => {
     if (closed) return;
     closed = true;
     try { rl?.close(); } catch {}
-    await runtime.close(reason);
+    const pendingRuntime = runtime || (runtimePromise ? await runtimePromise.catch(() => null) : null);
+    if (pendingRuntime) await pendingRuntime.close(reason);
   };
 
-  printBanner(runtime.provider, runtime.model, cwd, runtime.toolMode);
+  printBanner(providerName, model, cwd, toolMode);
 
   rl = createInterface({
     input: stdin,
@@ -85,6 +116,7 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
     // historySize > 0 enables readline's built-in ↑/↓ recall of prior inputs.
     historySize: 200,
   });
+  const { installProcessSignalCleanup } = await loadShutdownModule();
   const signalCleanup = installProcessSignalCleanup({
     name: 'mixdog-repl',
     timeoutMs: 6500,
@@ -109,9 +141,13 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
       if (line.startsWith('/')) {
         const handled = await handleSlash(line, {
           rl,
-          runtime,
+          ensureRuntime,
+          getRuntime: () => runtime,
           stats,
           cwd,
+          providerName,
+          model,
+          toolMode,
           closeRuntime,
         });
         if (handled === 'exit') {
@@ -127,11 +163,12 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
       let streamedText = '';
       let printedAny = false;
       try {
+        const runtime = await ensureRuntime();
         const { result } = await runtime.ask(
           line,
           {
             onToolCall: async (_iter, calls) => {
-            for (const c of calls || []) stdout.write('\n' + renderToolCard(c) + '\n');
+              for (const c of calls || []) stdout.write('\n' + (await renderToolCardLazy(c)) + '\n');
           },
             onTextDelta: (chunk) => {
               printedAny = true;
@@ -151,10 +188,10 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
         if (finalText) {
           if (printedAny && colorEnabled()) {
             eraseStreamedBlock(streamedText);
-            stdout.write(renderMarkdown(finalText) + '\n');
+            stdout.write(await renderMarkdownLazy(finalText) + '\n');
           } else if (!printedAny) {
             // Nothing streamed live (provider without onTextDelta) — render once.
-            stdout.write(renderMarkdown(finalText) + '\n');
+            stdout.write(await renderMarkdownLazy(finalText) + '\n');
           } else {
             // Non-TTY / NO_COLOR: leave the raw stream, just terminate the line.
             stdout.write('\n');
@@ -162,7 +199,7 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
         }
 
         // Per-turn statusline footer.
-        stdout.write('\n' + (await renderStatusline({
+        stdout.write('\n' + (await renderStatuslineLazy({
           provider: runtime.provider,
           model: runtime.model,
           cwd,
@@ -194,7 +231,9 @@ function promptText() {
 
 function printBanner(providerName, model, cwd, toolMode) {
   const title = bold('mixdog');
-  const id = cyan(`${providerName}/${model}`);
+  const providerLabel = providerName || 'auto';
+  const modelLabel = model || 'default';
+  const id = cyan(`${providerLabel}/${modelLabel}`);
   stdout.write(`${title} ${dim('—')} ${id} ${dim('·')} ${dim(toolMode)} ${dim('·')} ${dim(basename(cwd))}\n`);
   stdout.write(dim('Type a message, or /help for commands. Ctrl+C to exit.') + '\n\n');
 }
@@ -225,7 +264,8 @@ function eraseStreamedBlock(streamedText) {
  * Handle a `/command` line. Returns 'exit' to quit, otherwise undefined.
  */
 async function handleSlash(line, ctx) {
-  const [cmd, ...rest] = line.slice(1).split(/\s+/);
+  const [rawCmd, ...rest] = line.slice(1).split(/\s+/);
+  const cmd = String(rawCmd || '').toLowerCase();
   const arg = rest.join(' ').trim();
 
   switch (cmd) {
@@ -234,33 +274,43 @@ async function handleSlash(line, ctx) {
       return;
 
     case 'clear':
-      await ctx.runtime.clear();
       {
+        const runtime = await ctx.ensureRuntime();
+        await runtime.clear();
         const fresh = createSessionStats();
         for (const k of Object.keys(fresh)) ctx.stats[k] = fresh[k];
+        // Clear screen + scrollback and home the cursor.
+        stdout.write(colorEnabled() ? '\x1b[2J\x1b[3J\x1b[H' : '\n');
+        stdout.write(dim('conversation reset.') + '\n');
+        stdout.write((await renderStatuslineLazy({
+          provider: runtime.provider,
+          model: runtime.model,
+          cwd: ctx.cwd,
+          stats: ctx.stats,
+          contextWindow: runtime.contextWindow,
+          rawContextWindow: runtime.rawContextWindow,
+        })) + '\n');
       }
-      // Clear screen + scrollback and home the cursor.
-      stdout.write(colorEnabled() ? '\x1b[2J\x1b[3J\x1b[H' : '\n');
-      stdout.write(dim('conversation reset.') + '\n');
-      stdout.write((await renderStatusline({
-        provider: ctx.runtime.provider,
-        model: ctx.runtime.model,
-        cwd: ctx.cwd,
-        stats: ctx.stats,
-        contextWindow: ctx.runtime.contextWindow,
-        rawContextWindow: ctx.runtime.rawContextWindow,
-      })) + '\n');
       return;
 
     case 'compact':
       {
-        const r = await ctx.runtime.compact();
+        const runtime = await ctx.ensureRuntime();
+        const r = await runtime.compact();
         if (!r) {
           stdout.write(yellow('compact failed') + '\n');
           return;
         }
+        if (r.error) {
+          stdout.write(red('compact failed') + '\n');
+          return;
+        }
         if (r.changed === false && r.reason) {
           stdout.write(yellow(r.reason) + '\n');
+          return;
+        }
+        if (r.changed === false) {
+          stdout.write(yellow('nothing to compact') + '\n');
           return;
         }
         stdout.write(green(`✓ compacted context: ${r.beforeMessages}→${r.afterMessages} messages, context ${r.beforeTokens}→${r.afterTokens}`) + '\n');
@@ -269,22 +319,53 @@ async function handleSlash(line, ctx) {
 
     case 'model':
       if (!arg) {
-        stdout.write(yellow(`current model: ${ctx.runtime.provider}/${ctx.runtime.model}`) + '\n');
+        const runtime = ctx.getRuntime?.();
+        const provider = runtime?.provider || ctx.providerName || 'auto';
+        const currentModel = runtime?.model || ctx.model || 'default';
+        stdout.write(yellow(`current model: ${provider}/${currentModel}`) + '\n');
         stdout.write(dim('usage: /model <preset-or-model>') + '\n');
         return;
       }
-      await ctx.runtime.setRoute({ model: arg });
-      stdout.write(green(`✓ model → ${ctx.runtime.provider}/${ctx.runtime.model}`) + '\n');
+      {
+        const runtime = await ctx.ensureRuntime();
+        await runtime.setRoute({ model: arg });
+        stdout.write(green(`✓ model → ${runtime.provider}/${runtime.model}`) + '\n');
+      }
+      return;
+
+    case 'outputstyle':
+    case 'output-style':
+    case 'style':
+      {
+        const runtime = await ctx.ensureRuntime();
+        const lower = arg.toLowerCase();
+        if (!arg || lower === 'status' || lower === 'current' || lower === 'show') {
+          const status = runtime.getOutputStyle?.() || runtime.listOutputStyles?.();
+          const label = status?.current?.label || status?.current?.id || status?.configured || 'Default';
+          const available = (status?.styles || []).map((style) => style.label || style.id).join(', ');
+          stdout.write(yellow(`current output style: ${label}`) + '\n');
+          if (available) stdout.write(dim(`available: ${available}`) + '\n');
+          return;
+        }
+        const result = await runtime.setOutputStyle(arg);
+        const label = result?.current?.label || result?.current?.id || arg;
+        const suffix = result?.appliedToCurrentSession === false ? ' (use /clear to apply to this chat)' : '';
+        stdout.write(green(`✓ output style → ${label}${suffix}`) + '\n');
+      }
       return;
 
     case 'mode':
       if (!arg) {
-        stdout.write(yellow(`current mode: ${ctx.runtime.toolMode}`) + '\n');
+        const runtime = ctx.getRuntime?.();
+        stdout.write(yellow(`current mode: ${runtime?.toolMode || ctx.toolMode}`) + '\n');
         stdout.write(dim('usage: /mode full|readonly') + '\n');
         return;
       }
-      await ctx.runtime.setToolMode(arg);
-      stdout.write(green(`✓ mode → ${ctx.runtime.toolMode}`) + '\n');
+      {
+        const runtime = await ctx.ensureRuntime();
+        await runtime.setToolMode(arg);
+        stdout.write(green(`✓ mode → ${runtime.toolMode}`) + '\n');
+      }
       return;
 
     case 'exit':

@@ -38,13 +38,9 @@ function _stripMcpPrefix(name) {
 function _isReadTool(name) {
     return _stripMcpPrefix(name) === 'read';
 }
-function _isScalarWriteEditTool(name) {
-    const n = _stripMcpPrefix(name);
-    return n === 'write' || n === 'edit';
-}
 function _isMutationTool(name) {
     const n = _stripMcpPrefix(name);
-    return n === 'apply_patch' || n === 'write' || n === 'edit';
+    return n === 'apply_patch';
 }
 const SCOPED_CACHEABLE_TOOLS = new Set([
     'code_graph',
@@ -375,8 +371,6 @@ function _ensureTranscriptPairing(msgs, sessionId) {
 // is the fail-safe reject at call time.
 const READ_BLOCKED_TOOLS = new Set([
     'shell', 'bash_session',
-    'write',
-    'edit',
     'apply_patch',
 ]);
 const MCP_ONLY_ALLOWED_KINDS = new Set(['mcp', 'internal', 'skill']);
@@ -605,6 +599,39 @@ function resolveCompactBufferTokens(boundaryTokens, cfg = {}) {
         maxRatio: COMPACT_BUFFER_MAX_WINDOW_FRACTION,
     });
 }
+const COMPACT_TARGET_RATIO = 0.02;
+const COMPACT_TARGET_MIN_TOKENS = 4_000;
+const COMPACT_TARGET_MAX_TOKENS = 16_000;
+function resolveCompactTargetRatio(cfg = {}) {
+    const raw = cfg.targetPercent
+        ?? cfg.targetPct
+        ?? cfg.targetRatio
+        ?? cfg.targetFraction
+        ?? process.env.MIXDOG_BRIDGE_COMPACT_TARGET_PERCENT
+        ?? process.env.MIXDOG_COMPACT_TARGET_PERCENT
+        ?? COMPACT_TARGET_RATIO;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return COMPACT_TARGET_RATIO;
+    return n > 1 ? n / 100 : n;
+}
+function resolveCompactTargetTokens(boundaryTokens, cfg = {}) {
+    const boundary = positiveTokenInt(boundaryTokens);
+    if (!boundary) return null;
+    const explicit = positiveTokenInt(cfg.targetTokens ?? cfg.target)
+        || envTokenInt('MIXDOG_BRIDGE_COMPACT_TARGET_TOKENS')
+        || envTokenInt('MIXDOG_COMPACT_TARGET_TOKENS');
+    if (explicit) return Math.max(1, Math.min(boundary, explicit));
+    const minTarget = Math.min(boundary, positiveTokenInt(cfg.targetMinTokens ?? cfg.minTargetTokens)
+        || envTokenInt('MIXDOG_BRIDGE_COMPACT_TARGET_MIN_TOKENS')
+        || envTokenInt('MIXDOG_COMPACT_TARGET_MIN_TOKENS')
+        || COMPACT_TARGET_MIN_TOKENS);
+    const maxTarget = Math.min(boundary, positiveTokenInt(cfg.targetMaxTokens ?? cfg.maxTargetTokens)
+        || envTokenInt('MIXDOG_BRIDGE_COMPACT_TARGET_MAX_TOKENS')
+        || envTokenInt('MIXDOG_COMPACT_TARGET_MAX_TOKENS')
+        || COMPACT_TARGET_MAX_TOKENS);
+    const byRatio = Math.max(1, Math.floor(boundary * resolveCompactTargetRatio(cfg)));
+    return Math.max(1, Math.min(boundary, maxTarget, Math.max(minTarget, byRatio)));
+}
 function resolveCompactKeepTokens(cfg = {}) {
     return positiveTokenInt(cfg.keepTokens ?? cfg.keep?.tokens ?? cfg.preserveRecentTokens)
         || envTokenInt('MIXDOG_BRIDGE_COMPACT_KEEP_TOKENS')
@@ -623,7 +650,7 @@ function resolveWorkerCompactPolicy(sessionRef, tools) {
         : (explicitBoundary || contextWindow || autoLimit);
     if (!boundaryTokens) return null;
     const compactBoundaryTokens = Math.max(1, Math.floor(boundaryTokens * COMPACT_SAFETY_PERCENT));
-    const autoTriggerTokens = autoLimit && autoLimit < compactBoundaryTokens ? Math.max(1, autoLimit) : null;
+    const autoTriggerTokens = autoLimit && autoLimit <= compactBoundaryTokens ? Math.max(1, autoLimit) : null;
     const bufferTokens = autoTriggerTokens
         ? Math.max(0, compactBoundaryTokens - autoTriggerTokens)
         : resolveCompactBufferTokens(compactBoundaryTokens, cfg);
@@ -687,8 +714,9 @@ function compactPressureTokens(messageTokensEst, policy, sessionRef) {
 function compactTargetBudget(policy) {
     const boundary = positiveTokenInt(policy?.boundaryTokens);
     if (!boundary) return null;
-    const trigger = positiveTokenInt(policy?.triggerTokens) || boundary;
-    return Math.max(1, Math.min(boundary, trigger));
+    const reserve = Math.max(0, Number(policy?.reserveTokens) || 0);
+    const targetEffective = resolveCompactTargetTokens(boundary, policy) || boundary;
+    return Math.max(1, Math.min(boundary, targetEffective + reserve));
 }
 function shouldCompactForSession(messageTokensEst, policy, sessionRef) {
     if (!policy?.auto || !policy.boundaryTokens) return false;
@@ -1116,6 +1144,20 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         messages.push(message);
         try { opts.onToolResult?.(message); } catch {}
     };
+    const drainSteeringIntoMessages = (stage = 'mid-turn') => {
+        if (typeof opts.drainSteering !== 'function') return false;
+        let steerMsgs = [];
+        try { steerMsgs = opts.drainSteering(sessionId) || []; }
+        catch { steerMsgs = []; }
+        const merged = mergeSteeringEntries(steerMsgs);
+        if (!merged) return false;
+        messages.push({ role: 'user', content: merged.content });
+        try { opts.onSteerMessage?.(merged.text || steeringContentText(merged.content)); } catch {}
+        if (sessionId) {
+            try { process.stderr.write(`[steer] sess=${sessionId} injected ${stage} user message (merged=${merged.count} len=${String(merged.text || '').length})\n`); } catch {}
+        }
+        return true;
+    };
     const maxLoopIterations = Number.isFinite(sessionRef?.maxLoopIterations)
         ? sessionRef.maxLoopIterations
         : MAX_LOOP_ITERATIONS;
@@ -1143,7 +1185,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             const pressureTokens = compactPressureTokens(messageTokensEst, compactPolicy, sessionRef);
             const shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, sessionRef);
             const compactBudgetTokens = shouldCompact
-                ? (compactTargetBudget(compactPolicy) || compactPolicy.boundaryTokens)
+                ? (compactTargetBudget({ ...compactPolicy, pressureTokens }) || compactPolicy.boundaryTokens)
                 : compactPolicy.boundaryTokens;
             if (!shouldCompact) {
                 rememberCompactTelemetry(sessionRef, compactPolicy, {
@@ -1199,9 +1241,16 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                                     tailTurns: compactPolicy.tailTurns,
                                     keepTokens: compactPolicy.keepTokens,
                                     preserveRecentTokens: compactPolicy.preserveRecentTokens,
+                                    force: true,
                                 },
                             );
-                            compacted = semanticCompactResult.messages;
+                            const semanticMessages = Array.isArray(semanticCompactResult?.messages)
+                                ? semanticCompactResult.messages
+                                : null;
+                            if (semanticMessages && (semanticCompactResult?.semantic === true
+                                || messagesArrayChanged(compactInputMessages, semanticMessages))) {
+                                compacted = semanticMessages;
+                            }
                             if (semanticCompactResult?.usage) {
                                 lastUsage = addUsage(lastUsage, semanticCompactResult.usage);
                                 if (!firstTurnUsage) firstTurnUsage = normalizeUsage(semanticCompactResult.usage);
@@ -1250,6 +1299,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                             if (!compactPolicy.activeTurnFallback) throw deterministicErr;
                             compacted = compactActiveTurn(compactInputMessages, compactBudgetTokens, {
                                 reserveTokens: compactPolicy.reserveTokens,
+                                force: true,
                             });
                             try {
                                 process.stderr.write(
@@ -1422,6 +1472,12 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 });
             }
         }
+        // A pre-send compaction pass can take long enough for the user (or a
+        // background completion notification) to enqueue more input. Drain once
+        // immediately before provider.send so that input is included in the very
+        // next request instead of sitting in the queue until after the model has
+        // already answered the pre-compaction prompt.
+        drainSteeringIntoMessages('pre-send');
         const nextIteration = iterations + 1;
         opts.iteration = nextIteration;
         opts.providerState = providerState;
@@ -1548,9 +1604,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             }
             const overflowPolicy = resolveWorkerCompactPolicy(sessionRef, sendTools.length ? sendTools : tools);
             const overflowBase = overflowPolicy?.boundaryTokens || sessionRef.contextWindow;
+            const overflowStrictBudget = Math.floor(overflowBase * OVERFLOW_RETRY_COMPACT_PERCENT);
             const overflowBudget = Math.max(1, Math.min(
                 overflowBase,
-                overflowPolicy?.triggerTokens || Math.floor(overflowBase * OVERFLOW_RETRY_COMPACT_PERCENT),
+                overflowPolicy?.triggerTokens || overflowBase,
+                overflowStrictBudget || overflowBase,
             ));
             const overflowReserve = overflowPolicy?.reserveTokens || estimateRequestReserveTokens(sendTools.length ? sendTools : tools);
             const beforeCount = messages.length;
@@ -1559,7 +1617,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             const messageTokensEst = estimateMessagesTokensSafe(messages);
             let recompacted;
             try {
-                recompacted = compactMessages(messages, overflowBudget, { reserveTokens: overflowReserve });
+                recompacted = compactMessages(messages, overflowBudget, { reserveTokens: overflowReserve, force: true });
             } catch (compactErr) {
                 // Same narrow active-turn fallback as the pre-send path: when
                 // system + the whole current turn overflow even the stricter
@@ -1569,7 +1627,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 // overflow error behavior.
                 if (overflowPolicy?.activeTurnFallback) {
                     try {
-                        recompacted = compactActiveTurn(messages, overflowBudget, { reserveTokens: overflowReserve });
+                        recompacted = compactActiveTurn(messages, overflowBudget, { reserveTokens: overflowReserve, force: true });
                         try {
                             process.stderr.write(
                                 `[loop] active-turn fallback compaction on overflow retry ` +
@@ -1784,9 +1842,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         //
         // Intra-turn duplicate suppression: when an LLM emits two tool_use
         // blocks with identical (name, args) inside the SAME assistant turn,
-        // re-executing wastes tokens. Restricted to tools with
-        // `readOnlyHint:true` (= isEagerDispatchable) — bash/write/edit/
-        // apply_patch may be intentional repeats with distinct side effects.
+                // re-executing wastes tokens. Restricted to tools with
+                // `readOnlyHint:true` (= isEagerDispatchable) — bash/apply_patch
+                // may be intentional repeats with distinct side effects.
         // Pre-pass identifies duplicates BEFORE startEagerRun so eager
         // dispatch also skips them, not just the for-body.
         const _duplicateCallIds = new Set();
@@ -1974,11 +2032,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 }
             }
             // A failed executed call keeps its FULL argument body in history so the
-            // model can retry against the original (a large apply_patch `patch` /
-            // edit `old_string` would otherwise be hidden behind a
+            // model can retry against the original (a large apply_patch `patch`
+            // would otherwise be hidden behind a
             // `[mixdog compacted …]` placeholder). Restored IMMEDIATELY — not at end
             // of loop — so an abort or post-processing throw after this point cannot
-            // leave a failed edit compacted. Cache-safe: _assistantTurnMsg is not
+            // leave a failed patch compacted. Cache-safe: _assistantTurnMsg is not
             // transmitted until the next provider.send. Early-continue paths (dedup /
             // repeat-failure-guard) never reach here and stay compacted.
             if ((!_executeOk || _resultKind === 'error') && call?.id) {
@@ -1995,10 +2053,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             if (sessionId && _executeOk && _resultKind === 'normal') {
                 const _toolBare = _stripMcpPrefix(call.name);
                 if (_readCacheHit === null && _isReadTool(call.name)) {
-                    // Post-edit advisory: handle BOTH scalar and array forms
+                    // Post-patch advisory: handle BOTH scalar and array forms
                     // of args.path. The array form (path:[a,b,c] or
                     // path:[{path:a},{path:b}]) was a coverage gap in R1 —
-                    // an LLM that edits X then reads [X,Y] should still see
+                    // an LLM that patches X then reads [X,Y] should still see
                     // the advisory for X.
                     const _argsPath = call.arguments?.path;
                     const _pathList = [];
@@ -2052,59 +2110,14 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     } else {
                         clearScopedToolsForSession(sessionId);
                     }
-                } else if (_isScalarWriteEditTool(call.name)) {
-                    // Scalar `args.path` only: precise invalidate + advisory mark.
-                    // Array-form (`edits[]`/`writes[]`): the tool may have partial-
-                    // failed across paths and the result string aggregates;
-                    // full-clear instead of falsely marking every path.
-                    const _scalarPath = call.arguments?.path || call.arguments?.file_path;
-                    const _hasArrayForm = Array.isArray(call.arguments?.edits)
-                        || Array.isArray(call.arguments?.writes);
-                    if (_hasArrayForm) {
-                        clearReadDedupSession(sessionId);
-                        clearScopedToolsForSession(sessionId);
-                        // R20: array-form — walk each entry, extract its path,
-                        // and invalidate the prefetch cache + mark post-edit for
-                        // every distinct touched path. Falls back to the top-
-                        // level `path` (or `file_path`) when an entry omits its
-                        // own path. This covers both edit edits[] and write
-                        // writes[] forms; entries without a resolvable path are
-                        // silently skipped (their stat-validation safety net at
-                        // next lookup still applies).
-                        const _topPath = call.arguments?.path || call.arguments?.file_path;
-                        const _entries = call.arguments?.edits || call.arguments?.writes || [];
-                        const _seenPaths = new Set();
-                        for (const _e of _entries) {
-                            const _ep = _e?.path || _e?.file_path || _topPath;
-                            if (typeof _ep === 'string' && _ep && !_seenPaths.has(_ep)) {
-                                _seenPaths.add(_ep);
-                                invalidatePathForSession(sessionId, _ep, cwd);
-                                markPostEdit({ sessionId, path: _ep, cwd, toolName: _toolBare });
-                                invalidatePrefetchCache(_ep, cwd);
-                            }
-                        }
-                        if (_seenPaths.size > 0) {
-                            clearScopedToolsForSessionPaths(sessionId, [..._seenPaths], cwd);
-                        }
-                    } else if (typeof _scalarPath === 'string') {
-                        invalidatePathForSession(sessionId, _scalarPath, cwd);
-                        markPostEdit({ sessionId, path: _scalarPath, cwd, toolName: _toolBare });
-                        // R20: cross-dispatch prefetch cache invalidation.
-                        invalidatePrefetchCache(_scalarPath, cwd);
-                        // Targeted scoped-cache invalidation for the single touched path (D).
-                        clearScopedToolsForSessionPaths(sessionId, [_scalarPath], cwd);
-                    } else {
-                        // No path extractable — full wipe fallback.
-                        clearScopedToolsForSession(sessionId);
-                    }
                 }
             } // end _executeOk+_resultKind gate (scoped tool cache set)
-            // E: mutation tools (apply_patch / write / edit) must invalidate caches
+            // E: mutation tools (apply_patch) must invalidate caches
             // even on returned-error/partial-fail — the file state is unknown after
             // an error exit, and some tools report failure as an Error: result string
             // rather than throwing.
             // This block runs unconditionally (not gated on _executeOk or _resultKind).
-            if (sessionId && (!_executeOk || _resultKind === 'error') && (_stripMcpPrefix(call.name) === 'apply_patch' || _isScalarWriteEditTool(call.name))) {
+            if (sessionId && (!_executeOk || _resultKind === 'error') && _stripMcpPrefix(call.name) === 'apply_patch') {
                 clearReadDedupSession(sessionId);
             }
             if (_isMutationTool(call.name)) {
@@ -2240,22 +2253,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // already run to completion. Mirrors pi/agent-loop.ts:253 +
         // 182-190 — steering messages land right before the next assistant
         // response so the model sees them on its very next iteration.
-        if (typeof opts.drainSteering === 'function') {
-            let _steerMsgs = [];
-            try { _steerMsgs = opts.drainSteering(sessionId) || []; }
-            catch { _steerMsgs = []; }
-            // Merge the whole batch into ONE user turn (same rule as the TUI
-            // engine.mjs drain()). Rich content arrays (for pasted images) must
-            // survive steering instead of being demoted to display text.
-            const _merged = mergeSteeringEntries(_steerMsgs);
-            if (_merged) {
-                messages.push({ role: 'user', content: _merged.content });
-                try { opts.onSteerMessage?.(_merged.text || steeringContentText(_merged.content)); } catch {}
-                if (sessionId) {
-                    try { process.stderr.write(`[steer] sess=${sessionId} injected mid-turn user message (merged=${_merged.count} len=${String(_merged.text || '').length})\n`); } catch {}
-                }
-            }
-        }
+        drainSteeringIntoMessages('mid-turn');
         // About to re-send with tool results — transition back to connecting for the next turn.
         if (sessionId) updateSessionStage(sessionId, 'connecting');
     }

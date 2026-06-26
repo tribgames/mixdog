@@ -177,6 +177,22 @@ export function readSection(section) {
   return stripGeneratedMarker(readAll()[section] ?? null) ?? {}
 }
 
+export function readConfig() {
+  return stripGeneratedMarker(readAll()) ?? {}
+}
+
+export function updateConfig(updater) {
+  let saved = null
+  withConfigLock(() => {
+    const current = stripGeneratedMarker(readAllForRmW()) || {}
+    const next = typeof updater === 'function' ? updater({ ...current }) : updater
+    if (!isPlainObject(next)) throw new Error('[config] updateConfig updater must return an object')
+    saved = stripGeneratedMarker(next) || {}
+    writeAll(saved)
+  })
+  return saved
+}
+
 export function writeSection(section, data) {
   withConfigLock(() => {
     const all = readAllForRmW()

@@ -3,12 +3,20 @@ import { existsSync } from 'fs';
 import { basename, dirname, join } from 'path';
 
 let _resolvedShell = null;
+let _configuredShell = null;
 // Per-kind cache for resolveShellFor(). 'default' aliases resolveShell()'s
 // singleton; 'bash'/'powershell' get their own memoized slots. ONLY a
 // successful (non-null) resolution is cached — a resolution MISS is
 // deliberately not memoized so the next call re-probes (Git Bash / pwsh may
 // be installed mid-session, and PATH can change for a long-lived host).
 const _resolvedShellByKind = new Map();
+
+export function setConfiguredShell(value = '') {
+    const next = String(value || '').trim();
+    _configuredShell = next || null;
+    _resolvedShell = null;
+    _resolvedShellByKind.clear();
+}
 
 function shellTypeFor(shell) {
     const stem = basename(String(shell || '')).toLowerCase().replace(/\.exe$/, '');
@@ -73,7 +81,7 @@ export function resolveShell() {
         _resolvedShell = shellSpec('/bin/sh', 'posix');
         return _resolvedShell;
     }
-    const explicit = process.env.MIXDOG_SHELL;
+    const explicit = _configuredShell || process.env.MIXDOG_SHELL;
     if (explicit && shellTypeFor(explicit) === 'powershell') {
         _resolvedShell = shellSpec(explicit);
         return _resolvedShell;

@@ -721,7 +721,7 @@ export function isMemorySurface(label) {
 
 export const CATEGORY_ORDER = [
   'Read', 'Search', 'Web Research', 'Memory', 'Explore',
-  'Patch', 'Edit', 'Shell', 'Agent', 'Channel', 'Setup', 'Other',
+  'Patch', 'Shell', 'Agent', 'Channel', 'Setup', 'Other',
 ];
 
 const TOOL_CATEGORY = new Map([
@@ -751,8 +751,6 @@ const TOOL_CATEGORY = new Map([
   ['memory', 'Memory'],
   ['explore', 'Explore'],
   ['apply_patch', 'Patch'],
-  ['write', 'Edit'],
-  ['edit', 'Edit'],
   ['bash', 'Shell'],
   ['shell', 'Shell'],
   ['shell_command', 'Shell'],
@@ -804,7 +802,6 @@ const CATEGORY_COPY = new Map([
   ['Memory', { active: 'Checking', done: 'Checked', noun: 'memory item' }],
   ['Explore', { active: 'Exploring', done: 'Explored', noun: 'item' }],
   ['Patch', { active: 'Editing', done: 'Edited', noun: 'item' }],
-  ['Edit', { active: 'Editing', done: 'Edited', noun: 'item' }],
   ['Shell', { active: 'Running', done: 'Ran', noun: 'command' }],
   ['Agent', { active: 'Calling', done: 'Called', noun: 'agent' }],
   ['Channel', { active: 'Sending', done: 'Sent', noun: 'message' }],
@@ -848,6 +845,7 @@ export function formatAggregateHeader(categories, { pending = false, order = nul
     .map((cat) => {
       const count = Number(categories[cat] || 0);
       const label = pending ? activeCategoryLabel(cat) : doneCategoryLabel(cat);
+      if (pending) return label;
       return `${label} ${count} ${categoryNoun(cat, count)}`;
     })
     .join(', ');

@@ -51,7 +51,7 @@ export function normalizeStatusLine(text) {
     .replaceAll(`${RESET} ${SUBTLE}│${RESET} `, ` ${SUBTLE}│${RESET} `);
 }
 
-export function StatusLine({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision = '', bridgeWorkers = [], bridgeJobs = [], initialLine = '' }) {
+function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision = '', bridgeWorkers = [], bridgeJobs = [], initialLine = '' }) {
   const [line, setLine] = useState(() => normalizeStatusLine(initialLine));
 
   useEffect(() => {
@@ -61,10 +61,11 @@ export function StatusLine({ sessionId, clientHostPid, provider, model, effort, 
         .then((m) => m.renderStatusline({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, bridgeWorkers, bridgeJobs }))
         .then((s) => {
           if (!alive) return;
-          setLine(normalizeStatusLine(s));
+          const next = normalizeStatusLine(s);
+          setLine((prev) => (prev === next ? prev : next));
         })
         .catch(() => {
-          if (alive) setLine('');
+          if (alive) setLine((prev) => (prev === '' ? prev : ''));
         });
     }, STATUSLINE_RENDER_DEBOUNCE_MS);
     timer.unref?.();
@@ -72,7 +73,7 @@ export function StatusLine({ sessionId, clientHostPid, provider, model, effort, 
       alive = false;
       clearTimeout(timer);
     };
-  }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision]);
+  }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision, bridgeWorkers, bridgeJobs]);
 
   return (
     <Box flexDirection="column" width="100%" height={2} overflow="hidden" paddingLeft={2} marginBottom={1} backgroundColor={theme.background}>
@@ -82,3 +83,5 @@ export function StatusLine({ sessionId, clientHostPid, provider, model, effort, 
     </Box>
   );
 }
+
+export const StatusLine = React.memo(StatusLineView);

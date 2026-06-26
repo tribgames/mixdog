@@ -28,7 +28,7 @@
  *                     webhook). Receive only their own self section in BP2.
  *
  * Permission classification:
- *   - 'read'       : read-only — write/edit/bash blocked at loop.mjs runtime
+ *   - 'read'       : read-only — apply_patch/shell blocked at loop.mjs runtime
  *                    guard with the same error string public read-only roles see.
  *   - 'read-write' : full tool surface — used by hidden roles that legitimately
  *                    mutate state (scheduler-task launches commands,

@@ -8,7 +8,7 @@ function __mixdogMemoryLog(...args) {
 // Uses pg-adapter (schema='trace') so trace_events live in the trace schema.
 // Isolated from memory schema; shares the same PG instance.
 
-import { ensurePgInstance, checkedConnect } from './pg/adapter.mjs'
+import { ensurePgInstance, checkedConnect, closePgInstance } from './pg/adapter.mjs'
 import { resolve } from 'path'
 
 const dbs = new Map()
@@ -633,32 +633,77 @@ function _scheduleFlush(db, q) {
 // Issue 4: timer is unref()'d so it won't prevent exit; register drain handlers.
 // ---------------------------------------------------------------------------
 
-const _registeredExitDbs = new WeakSet()
+const _registeredExitDbs = new WeakMap()
+
+async function drainTraceQueue(db) {
+  const q = _traceQueues.get(db)
+  if (!q) return
+  try {
+    if (q.timer) { clearTimeout(q.timer); q.timer = null }
+    if (q.flushPromise) await q.flushPromise.catch(() => {})
+    if (q.pending.length > 0) await _insertTraceEventsDirect(db, q.pending.splice(0).flatMap(w => w.events))
+  } catch (e) {
+    __mixdogMemoryLog(`[trace-queue] drain failed: ${e?.message}\n`)
+  }
+}
+
+function clearTraceQueue(db) {
+  const q = _traceQueues.get(db)
+  if (!q) return
+  if (q.timer) { clearTimeout(q.timer); q.timer = null }
+  q.pending.length = 0
+  q.flushPromise = null
+  _traceQueues.delete(db)
+}
+
+function unregisterTraceExitDrain(db) {
+  const handlers = _registeredExitDbs.get(db)
+  if (!handlers) return
+  try { process.off('exit', handlers.onExit) } catch {}
+  try { process.off('SIGTERM', handlers.onSigterm) } catch {}
+  try { process.off('beforeExit', handlers.onBeforeExit) } catch {}
+  _registeredExitDbs.delete(db)
+}
 
 export function registerTraceExitDrain(db) {
   if (_registeredExitDbs.has(db)) return
-  _registeredExitDbs.add(db)
 
   async function drainOnExit() {
-    const q = _traceQueues.get(db)
-    if (!q || q.pending.length === 0) return
-    try {
-      if (q.timer) { clearTimeout(q.timer); q.timer = null }
-      if (q.flushPromise) await q.flushPromise.catch(() => {})
-      if (q.pending.length > 0) await _insertTraceEventsDirect(db, q.pending.splice(0).flatMap(w => w.events))
-    } catch (e) {
-      __mixdogMemoryLog(`[trace-queue] exit drain failed: ${e?.message}\n`)
-    }
+    await drainTraceQueue(db)
   }
 
-  process.on('exit', () => {
+  const onExit = () => {
     const q = _traceQueues.get(db)
     if (q?.pending.length) __mixdogMemoryLog(`[trace-queue] exit with ${q.pending.length} unflushed events\n`)
-  })
+  }
+  const onSigterm = async () => { await drainOnExit(); process.exit(0) }
 
-  process.on('SIGTERM', async () => { await drainOnExit(); process.exit(0) })
-
+  process.on('exit', onExit)
+  process.on('SIGTERM', onSigterm)
   process.once('beforeExit', drainOnExit)
+
+  _registeredExitDbs.set(db, { onExit, onSigterm, onBeforeExit: drainOnExit })
+}
+
+export async function closeTraceDatabase(dataDir) {
+  const key = resolve(dataDir)
+  let db = dbs.get(key)
+  if (!db && opening.has(key)) {
+    try { db = await opening.get(key) } catch { db = null }
+  }
+  if (!db) return false
+  const timer = partitionTimers.get(key)
+  if (timer) {
+    try { clearInterval(timer) } catch {}
+    partitionTimers.delete(key)
+  }
+  await drainTraceQueue(db)
+  clearTraceQueue(db)
+  unregisterTraceExitDrain(db)
+  dbs.delete(key)
+  try { await db.close?.() } catch {}
+  try { await closePgInstance(dataDir, { schema: 'trace' }) } catch {}
+  return true
 }
 
 /**

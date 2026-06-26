@@ -9,6 +9,7 @@ import { agentLoop } from './loop.mjs';
 import {
     compactActiveTurn,
     compactMessages,
+    semanticCompactMessages,
     DEFAULT_COMPACTION_BUFFER_RATIO,
     compactionBufferTokensForBoundary,
     normalizeCompactionBufferRatio,
@@ -22,7 +23,7 @@ import { CODE_GRAPH_TOOL_DEFS } from '../tools/code-graph-tool-defs.mjs';
 import { executeCodeGraphTool } from '../tools/code-graph.mjs';
 import { closeBashSession } from '../tools/bash-session.mjs';
 import { collectSkillsCached, buildSkillToolDefs, loadAgentTemplate, loadRoleTemplate, composeSystemPrompt, collectMixdogMd } from '../context/collect.mjs';
-import { saveSession, saveSessionAsync, loadSession, listStoredSessions, sweepStaleSessions, markSessionClosed, publishHeartbeat, deleteHeartbeat, setLiveSession } from './store.mjs';
+import { saveSession, saveSessionAsync, loadSession, listStoredSessionSummaries, sweepStaleSessions, markSessionClosed, publishHeartbeat, deleteHeartbeat, setLiveSession } from './store.mjs';
 import { clearReadDedupSession, tryPrefetchCached, setPrefetchCached } from './read-dedup.mjs';
 import { clearOffloadSession } from './tool-result-offload.mjs';
 import { classifyResultKind } from './result-classification.mjs';
@@ -250,7 +251,6 @@ const SESSION_ROUTE_TOOL_ORDER = [
     'task',
 ];
 const SESSION_ROUTE_TOOL_RANK = new Map(SESSION_ROUTE_TOOL_ORDER.map((name, index) => [name, index]));
-const MODEL_HIDDEN_FILE_MUTATION_TOOLS = new Set(['edit', 'write']);
 const FILESYSTEM_TOOL_NAMES = new Set([
     'code_graph',
     'glob',
@@ -279,7 +279,7 @@ function orderSessionTools(tools) {
 }
 
 const ALL_BUILTIN_SESSION_TOOLS = orderSessionTools(_dedupByName([
-    ...BUILTIN_TOOLS.filter(t => !MODEL_HIDDEN_FILE_MUTATION_TOOLS.has(t?.name)),
+    ...BUILTIN_TOOLS,
     ...PATCH_TOOL_DEFS,
     ...CODE_GRAPH_TOOL_DEFS,
 ]));
@@ -430,6 +430,11 @@ function positiveContextWindow(value) {
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
 }
+function envFlag(name, fallback = false) {
+    const v = process.env[name];
+    if (v === undefined) return fallback;
+    return !['0', 'false', 'off', 'no'].includes(String(v).trim().toLowerCase());
+}
 function boundedPercent(value, fallback = null) {
     const n = Number(value);
     if (Number.isFinite(n) && n > 0 && n <= 100) return n;
@@ -462,11 +467,35 @@ function compactBufferTokensForSession(session, boundaryTokens) {
         maxRatio: 0.25,
     });
 }
+const COMPACT_TARGET_RATIO = 0.02;
+const COMPACT_TARGET_MIN_TOKENS = 4_000;
+const COMPACT_TARGET_MAX_TOKENS = 16_000;
+function compactTargetRatio() {
+    const raw = process.env.MIXDOG_COMPACT_TARGET_PERCENT
+        ?? process.env.MIXDOG_BRIDGE_COMPACT_TARGET_PERCENT
+        ?? COMPACT_TARGET_RATIO;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return COMPACT_TARGET_RATIO;
+    return n > 1 ? n / 100 : n;
+}
+function compactTargetTokensForBoundary(boundaryTokens) {
+    const boundary = positiveContextWindow(boundaryTokens);
+    if (!boundary) return null;
+    const explicit = positiveContextWindow(
+        process.env.MIXDOG_COMPACT_TARGET_TOKENS
+            ?? process.env.MIXDOG_BRIDGE_COMPACT_TARGET_TOKENS,
+    );
+    if (explicit) return Math.max(1, Math.min(boundary, explicit));
+    const minTarget = Math.min(boundary, positiveContextWindow(process.env.MIXDOG_COMPACT_TARGET_MIN_TOKENS) || COMPACT_TARGET_MIN_TOKENS);
+    const maxTarget = Math.min(boundary, positiveContextWindow(process.env.MIXDOG_COMPACT_TARGET_MAX_TOKENS) || COMPACT_TARGET_MAX_TOKENS);
+    const byRatio = Math.max(1, Math.floor(boundary * compactTargetRatio()));
+    return Math.max(1, Math.min(boundary, maxTarget, Math.max(minTarget, byRatio)));
+}
 function defaultEffectiveContextWindowPercent(provider) {
-    // Codex exposes both the raw catalog window and a smaller effective window
-    // that reserves provider-side headroom. Mirror the gateway/statusline math
-    // so bridge agents compact at the same boundary as the visible session.
-    return providerNameOf(provider) === 'openai-oauth' ? 95 : null;
+    // Gateway/statusline route metadata reserves a universal 5% headroom from
+    // the raw catalog window. Keep session compaction on the same effective
+    // capacity so /context, the TUI statusline, and gateway telemetry agree.
+    return 95;
 }
 function resolveSessionContextMeta(provider, model, seed = {}) {
     const info = typeof provider?.getCachedModelInfo === 'function'
@@ -504,9 +533,7 @@ function resolveSessionContextMeta(provider, model, seed = {}) {
             ?? catalogInfo?.autoCompactTokenLimit
             ?? catalogInfo?.auto_compact_token_limit,
     );
-    const derivedCompactLimit = providerNameOf(provider) === 'openai-oauth'
-        ? Math.floor(rawContextWindow * 0.9)
-        : null;
+    const derivedCompactLimit = contextWindow;
     const autoCompactTokenLimit = explicitCompactLimit && derivedCompactLimit
         ? Math.min(explicitCompactLimit, derivedCompactLimit)
         : (explicitCompactLimit || derivedCompactLimit);
@@ -523,25 +550,54 @@ function compactTriggerForSession(session, boundaryTokens) {
     const boundary = positiveContextWindow(boundaryTokens);
     if (!boundary) return null;
     const autoLimit = positiveContextWindow(session?.autoCompactTokenLimit ?? session?.compaction?.autoCompactTokenLimit);
-    if (autoLimit && autoLimit < boundary) return Math.max(1, autoLimit);
+    if (autoLimit && autoLimit <= boundary) return Math.max(1, autoLimit);
     const buffer = compactBufferTokensForSession(session, boundary);
     return Math.max(1, boundary - buffer);
 }
-function compactTargetBudget(boundaryTokens, _reserveTokens, triggerTokens = null) {
+function compactTargetBudget(boundaryTokens, reserveTokens, _sourceTokens = null, _ratio = null) {
     const boundary = positiveContextWindow(boundaryTokens);
     if (!boundary) return null;
-    const trigger = positiveContextWindow(triggerTokens) || boundary;
-    return Math.max(1, Math.min(boundary, trigger));
+    const reserve = Math.max(0, Number(reserveTokens) || 0);
+    const targetEffective = compactTargetTokensForBoundary(boundary) || boundary;
+    return Math.max(1, Math.min(boundary, targetEffective + reserve));
 }
-function autoCompactSessionAfterTurn(session) {
+function semanticCompactionEnabledForSession(session) {
+    const cfg = session?.compaction || {};
+    if (process.env.MIXDOG_COMPACT_SEMANTIC !== undefined) return envFlag('MIXDOG_COMPACT_SEMANTIC', true);
+    if (process.env.MIXDOG_BRIDGE_COMPACT_SEMANTIC !== undefined) return envFlag('MIXDOG_BRIDGE_COMPACT_SEMANTIC', true);
+    if (cfg.semantic === false || cfg.semantic === 'false' || cfg.semantic === 'off') return false;
+    if (cfg.semantic === true || cfg.semantic === 'true' || cfg.semantic === 'on' || cfg.semantic === 'auto') return true;
+    return true;
+}
+function addCompactUsageToSession(session, usage) {
+    if (!session || !usage) return;
+    const inputTokens = usage.inputTokens || 0;
+    const outputTokens = usage.outputTokens || 0;
+    const cachedTokens = usage.cachedTokens || 0;
+    const cacheWriteTokens = usage.cacheWriteTokens || 0;
+    session.totalInputTokens = (session.totalInputTokens || 0) + inputTokens;
+    session.totalOutputTokens = (session.totalOutputTokens || 0) + outputTokens;
+    session.totalCachedReadTokens = (session.totalCachedReadTokens || 0) + cachedTokens;
+    session.totalCacheWriteTokens = (session.totalCacheWriteTokens || 0) + cacheWriteTokens;
+    session.tokensCumulative = (session.tokensCumulative || 0) + inputTokens + outputTokens;
+}
+function isExpectedCompactFallbackError(err) {
+    return /(?:no compactable prior history before (?:preserved tail|current turn)|no (?:current )?user turn to preserve)/i.test(String(err?.message || err || ''));
+}
+async function runSessionCompaction(session, opts = {}) {
     if (!session || session.closed === true) return null;
-    if (session.compaction?.auto === false) return null;
+    const mode = opts.mode === 'auto' ? 'auto' : 'manual';
+    const force = opts.force === true || mode === 'manual';
+    if (mode === 'auto' && session.compaction?.auto === false) return null;
     const messages = Array.isArray(session.messages) ? session.messages : [];
-    if (messages.length < 3) return null;
+    if (messages.length < 3 && !force) return null;
     const boundary = positiveContextWindow(session.compactBoundaryTokens)
         || positiveContextWindow(session.autoCompactTokenLimit)
         || positiveContextWindow(session.contextWindow);
-    if (!boundary) return null;
+    if (!boundary) {
+        if (force) throw new Error('compact: no context window is available for this session');
+        return null;
+    }
     const reserveTokens = estimateRequestReserveTokens(session.tools || []);
     const beforeMessageTokens = estimateMessagesTokens(messages);
     const lastContextTokens = positiveContextWindow(session.lastContextTokens) || 0;
@@ -552,9 +608,11 @@ function autoCompactSessionAfterTurn(session) {
     const bufferRatio = boundary ? (bufferTokens / boundary) : compactBufferRatioForSession(session);
     const pressureTokens = Math.max(beforeMessageTokens + reserveTokens, lastContextTokens);
     const beforeTokens = pressureTokens;
-    if (pressureTokens < triggerTokens) return {
+    if (!force && pressureTokens < triggerTokens) return {
         changed: false,
         reason: 'below threshold',
+        beforeMessages: messages.length,
+        afterMessages: messages.length,
         beforeTokens,
         afterTokens: beforeTokens,
         beforeMessageTokens,
@@ -564,19 +622,66 @@ function autoCompactSessionAfterTurn(session) {
         bufferTokens,
         bufferRatio,
         boundaryTokens: boundary,
+        budgetTokens: boundary,
+        targetBudgetTokens: boundary,
         reserveTokens,
+        semanticCompact: false,
     };
+    const budgetSourceTokens = force ? Math.max(pressureTokens, triggerTokens) : pressureTokens;
+    const compactBudget = compactTargetBudget(boundary, reserveTokens, budgetSourceTokens);
+    const budget = compactBudget || boundary;
+    const provider = opts.provider || getProvider(session.provider) || null;
     let compacted;
     let compactError = null;
-    const compactBudget = compactTargetBudget(boundary, reserveTokens, triggerTokens);
+    let semanticCompactResult = null;
+    let semanticCompactError = null;
+    if (semanticCompactionEnabledForSession(session)) {
+        try {
+            if (!provider || typeof provider.send !== 'function') {
+                throw new Error(`semantic compact provider unavailable: ${session.provider || 'unknown'}`);
+            }
+            semanticCompactResult = await semanticCompactMessages(
+                provider,
+                messages,
+                opts.model || session.model,
+                budget,
+                {
+                    reserveTokens,
+                    providerName: session.provider || provider?.name || null,
+                    sessionId: opts.sessionId || session.id || null,
+                    signal: opts.signal || null,
+                    promptCacheKey: session.promptCacheKey || null,
+                    providerCacheKey: session.promptCacheKey || null,
+                    timeoutMs: positiveContextWindow(session.compaction?.timeoutMs) || 30_000,
+                    tailTurns: positiveContextWindow(session.compaction?.tailTurns) || 2,
+                    keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
+                    preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
+                    force: true,
+                },
+            );
+            if (Array.isArray(semanticCompactResult?.messages)) {
+                compacted = semanticCompactResult.messages;
+                addCompactUsageToSession(session, semanticCompactResult.usage);
+            }
+        } catch (err) {
+            semanticCompactError = err;
+            if (!isExpectedCompactFallbackError(err)) {
+                try {
+                    process.stderr.write(`[session] semantic ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}; falling back to deterministic compact\n`);
+                } catch { /* best-effort */ }
+            }
+        }
+    }
     try {
-        compacted = compactMessages(messages, compactBudget || boundary, { reserveTokens, force: true });
+        if (!compacted) compacted = compactMessages(messages, budget, { reserveTokens, force: true });
     } catch (err) {
+        if (!isExpectedCompactFallbackError(err)) {
+            try {
+                process.stderr.write(`[session] ${mode} compact fallback (sess=${session.id || 'unknown'}): ${err?.message || err}\n`);
+            } catch { /* best-effort */ }
+        }
         try {
-            process.stderr.write(`[session] auto compact fallback (sess=${session.id || 'unknown'}): ${err?.message || err}\n`);
-        } catch { /* best-effort */ }
-        try {
-            compacted = compactActiveTurn(messages, compactBudget || boundary, { reserveTokens });
+            compacted = compactActiveTurn(messages, budget, { reserveTokens, force: true });
         } catch (fallbackErr) {
             compactError = fallbackErr;
         }
@@ -585,13 +690,13 @@ function autoCompactSessionAfterTurn(session) {
         const now = Date.now();
         session.compaction = {
             ...(session.compaction || {}),
-            auto: true,
+            auto: mode === 'auto' ? true : session.compaction?.auto !== false,
             boundaryTokens: boundary,
             triggerTokens,
             bufferTokens,
             bufferRatio,
             reserveTokens,
-            lastStage: 'post_turn_failed',
+            lastStage: mode === 'auto' ? 'post_turn_failed' : 'manual_failed',
             lastBeforeTokens: beforeTokens,
             lastAfterTokens: beforeTokens,
             lastBeforeMessageTokens: beforeMessageTokens,
@@ -599,11 +704,15 @@ function autoCompactSessionAfterTurn(session) {
             lastPressureTokens: pressureTokens,
             lastCheckedAt: now,
             lastChanged: false,
-            lastError: compactError?.message || String(compactError || 'compact failed'),
+            lastSemantic: false,
+            lastSemanticError: semanticCompactError?.message || null,
+            lastError: compactError?.message || semanticCompactError?.message || String(compactError || semanticCompactError || 'compact failed'),
         };
         return {
             changed: false,
             error: session.compaction.lastError,
+            beforeMessages: messages.length,
+            afterMessages: messages.length,
             beforeTokens,
             afterTokens: beforeTokens,
             beforeMessageTokens,
@@ -613,26 +722,35 @@ function autoCompactSessionAfterTurn(session) {
             bufferTokens,
             bufferRatio,
             boundaryTokens: boundary,
+            budgetTokens: boundary,
+            targetBudgetTokens: budget,
             reserveTokens,
+            semanticCompact: false,
+            semanticError: semanticCompactError?.message || null,
         };
     }
-    const beforeEncoded = JSON.stringify(messages);
-    const afterEncoded = JSON.stringify(compacted);
+    let beforeEncoded = '';
+    let afterEncoded = '';
+    try { beforeEncoded = JSON.stringify(messages); } catch { beforeEncoded = ''; }
+    try { afterEncoded = JSON.stringify(compacted); } catch { afterEncoded = ''; }
     const afterMessageTokens = estimateMessagesTokens(compacted);
     const afterTokens = afterMessageTokens + reserveTokens;
-    const changed = beforeEncoded !== afterEncoded;
+    const changed = beforeEncoded && afterEncoded
+        ? beforeEncoded !== afterEncoded
+        : (compacted.length !== messages.length || afterMessageTokens !== beforeMessageTokens);
+    const unchangedReason = changed ? null : (force ? 'nothing to compact' : 'below threshold');
     const now = Date.now();
     session.messages = compacted;
     session.providerState = undefined;
     session.compaction = {
         ...(session.compaction || {}),
-        auto: true,
+        auto: mode === 'auto' ? true : session.compaction?.auto !== false,
         boundaryTokens: boundary,
         triggerTokens,
         bufferTokens,
         bufferRatio,
         reserveTokens,
-        lastStage: 'post_turn',
+        lastStage: mode === 'auto' ? 'post_turn' : 'manual',
         lastBeforeTokens: beforeTokens,
         lastAfterTokens: afterTokens,
         lastBeforeMessageTokens: beforeMessageTokens,
@@ -642,11 +760,22 @@ function autoCompactSessionAfterTurn(session) {
         lastChanged: changed,
         lastChangedAt: changed ? now : session.compaction?.lastChangedAt || null,
         lastCompactAt: changed ? now : session.compaction?.lastCompactAt || null,
+        lastSemantic: semanticCompactResult?.semantic === true,
+        lastSemanticError: semanticCompactError?.message || null,
+        lastSemanticUsage: semanticCompactResult?.usage ? {
+            inputTokens: semanticCompactResult.usage.inputTokens || 0,
+            outputTokens: semanticCompactResult.usage.outputTokens || 0,
+            cachedTokens: semanticCompactResult.usage.cachedTokens || 0,
+            cacheWriteTokens: semanticCompactResult.usage.cacheWriteTokens || 0,
+        } : null,
         compactCount: (session.compaction?.compactCount || 0) + (changed ? 1 : 0),
     };
-    if (changed) session.lastContextTokensStaleAfterCompact = true;
+    if (changed && mode === 'auto') session.lastContextTokensStaleAfterCompact = true;
     return {
         changed,
+        reason: unchangedReason,
+        beforeMessages: messages.length,
+        afterMessages: compacted.length,
         beforeTokens,
         afterTokens,
         beforeMessageTokens,
@@ -656,8 +785,16 @@ function autoCompactSessionAfterTurn(session) {
         bufferTokens,
         bufferRatio,
         boundaryTokens: boundary,
+        budgetTokens: boundary,
+        targetBudgetTokens: budget,
         reserveTokens,
+        semanticCompact: semanticCompactResult?.semantic === true,
+        semanticError: semanticCompactError?.message || null,
+        usage: semanticCompactResult?.usage || null,
     };
+}
+async function autoCompactSessionAfterTurn(session, opts = {}) {
+    return runSessionCompaction(session, { ...opts, mode: 'auto', force: false });
 }
 // Provider-scoped unified cache key. Goal: all orchestrator-internal
 // dispatches (bridge/maintenance/mcp/scheduler/webhook) targeting the
@@ -2000,6 +2137,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         runtime.controller = createAbortController();
         runtime.generation = askGeneration;
         runtime.closed = false;
+        runtime.session = preSession;
         markSessionAskStart(sessionId);
         // Preprocessing is inside try so provider-not-available / trim failures
         // fall into the catch and mark the session as errored rather than
@@ -2336,7 +2474,12 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             if (result.providerState !== undefined) {
                 session.providerState = result.providerState;
             }
-            const postTurnCompact = autoCompactSessionAfterTurn(session);
+            const postTurnCompact = await autoCompactSessionAfterTurn(session, {
+                provider,
+                model: session.model,
+                sessionId,
+                signal: getSessionAbortSignal(sessionId),
+            });
             if (postTurnCompact?.changed) {
                 try {
                     process.stderr.write(
@@ -2347,6 +2490,8 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 } catch { /* best-effort */ }
             }
             await saveSessionAsync(session, { expectedGeneration: askGeneration });
+            activeSession = session;
+            runtime.session = session;
             // Tag empty-synthesis BEFORE markSessionDone so the watchdog
             // (which inspects entry.emptyFinal first) classifies the
             // terminal state correctly even if it ticks during unwind.
@@ -2408,6 +2553,11 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 .join('\n');
             if (_mergedTail.length > 0) {
                 _pendingTail.push(_mergedTail);
+                const refreshed = loadSession(sessionId);
+                if (refreshed && refreshed.closed !== true) {
+                    activeSession = refreshed;
+                    runtime.session = refreshed;
+                }
                 continue;
             }
         }
@@ -2430,12 +2580,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
 // scope session when the caller passes --scope (agent/<name>).
 export function findSessionByScopeKey(scopeKey) {
     if (!scopeKey) return null;
-    const sessions = listStoredSessions();
+    const summaries = listStoredSessionSummaries();
     // Exclude tombstoned sessions (`closed === true`) so callers never receive
     // a session whose controller was aborted by closeSession(). The `closed`
     // bit is the authoritative tombstone flag; `status === 'error'` is not,
     // since transient-error sessions remain resumable.
-    return sessions.find(s => s.scopeKey === scopeKey && s.closed !== true) || null;
+    const summary = summaries.find(s => s.scopeKey === scopeKey && s.closed !== true) || null;
+    return summary?.id ? loadSession(summary.id) : null;
 }
 // --- resume (reload tools for a stored session) ---
 export async function resumeSession(sessionId, preset) {
@@ -2475,7 +2626,7 @@ export function getSession(id) {
 }
 export function listSessions(opts = {}) {
     const includeClosed = opts.includeClosed === true;
-    const sessions = listStoredSessions();
+    const sessions = listStoredSessionSummaries();
     const hiddenIds = new Set([..._runtimeState.entries()].filter(([, e]) => e.listHidden).map(([id]) => id));
     // Tombstoned sessions (closed===true) are excluded unless the caller opts in
     // (e.g. bridge list includeClosed:true).
@@ -2554,93 +2705,28 @@ export async function compactSessionMessages(sessionId) {
     const session = loadSession(sessionId);
     if (!session) return null;
     if (session.closed === true) return null;
-    const beforeMessages = Array.isArray(session.messages) ? session.messages : [];
-    const beforeMessageTokens = estimateMessagesTokens(beforeMessages);
-    const nonSystem = beforeMessages.filter(m => m?.role !== 'system');
-    let currentTurnStart = -1;
-    for (let i = nonSystem.length - 1; i >= 0; i -= 1) {
-        if (nonSystem[i]?.role === 'user') {
-            currentTurnStart = i;
-            break;
-        }
-    }
-    const boundary = positiveContextWindow(session.compactBoundaryTokens)
-        || positiveContextWindow(session.autoCompactTokenLimit)
-        || positiveContextWindow(session.contextWindow);
-    if (!boundary) {
-        throw new Error('compact: no context window is available for this session');
-    }
-    const reserveTokens = estimateRequestReserveTokens(session.tools || []);
-    const triggerTokens = compactTriggerForSession(session, boundary) || boundary;
-    const bufferTokens = Math.max(0, boundary - triggerTokens);
-    const bufferRatio = boundary ? (bufferTokens / boundary) : compactBufferRatioForSession(session);
-    const compactBudget = compactTargetBudget(boundary, reserveTokens, triggerTokens);
-    let beforeEncoded = '';
-    try { beforeEncoded = JSON.stringify(beforeMessages); } catch { beforeEncoded = ''; }
-    let compacted;
-    try {
-        compacted = currentTurnStart <= 0
-            ? compactActiveTurn(beforeMessages, compactBudget || boundary, { reserveTokens })
-            : compactMessages(beforeMessages, compactBudget || boundary, { reserveTokens, force: true });
-    } catch (err) {
-        try {
-            process.stderr.write(`[session] manual compact fallback (sess=${sessionId}): ${err?.message || err}\n`);
-        } catch { /* best-effort */ }
-        compacted = compactActiveTurn(beforeMessages, compactBudget || boundary, { reserveTokens });
-    }
-    const afterMessageTokens = estimateMessagesTokens(compacted);
-    let afterEncoded = '';
-    try { afterEncoded = JSON.stringify(compacted); } catch { afterEncoded = ''; }
-    const changed = beforeEncoded && afterEncoded
-        ? beforeEncoded !== afterEncoded
-        : (compacted.length !== beforeMessages.length || afterMessageTokens !== beforeMessageTokens);
-    session.messages = compacted;
+    const result = await runSessionCompaction(session, {
+        mode: 'manual',
+        force: true,
+        provider: getProvider(session.provider),
+        model: session.model,
+        sessionId,
+        signal: getSessionAbortSignal(sessionId),
+    });
+    if (!result) return null;
     const now = Date.now();
-    const beforeTokens = Math.max(beforeMessageTokens + reserveTokens, positiveContextWindow(session.lastContextTokens) || 0);
-    const afterTokens = afterMessageTokens + reserveTokens;
-    session.compaction = {
-        ...(session.compaction || {}),
-        auto: session.compaction?.auto !== false,
-        boundaryTokens: boundary,
-        triggerTokens,
-        bufferTokens,
-        bufferRatio,
-        reserveTokens,
-        lastStage: 'manual',
-        lastBeforeTokens: beforeTokens,
-        lastAfterTokens: afterTokens,
-        lastBeforeMessageTokens: beforeMessageTokens,
-        lastAfterMessageTokens: afterMessageTokens,
-        lastPressureTokens: beforeTokens,
-        lastCheckedAt: now,
-        lastChanged: changed,
-        lastChangedAt: changed ? now : session.compaction?.lastChangedAt || null,
-        lastCompactAt: changed ? now : session.compaction?.lastCompactAt || null,
-        compactCount: (session.compaction?.compactCount || 0) + (changed ? 1 : 0),
-    };
-    session.lastInputTokens = 0;
-    session.lastOutputTokens = 0;
-    session.lastCachedReadTokens = 0;
-    session.lastCacheWriteTokens = 0;
-    session.lastContextTokens = 0;
-    session.lastContextTokensUpdatedAt = now;
-    session.lastContextTokensStaleAfterCompact = false;
+    if (!result.error) {
+        session.lastInputTokens = 0;
+        session.lastOutputTokens = 0;
+        session.lastCachedReadTokens = 0;
+        session.lastCacheWriteTokens = 0;
+        session.lastContextTokens = 0;
+        session.lastContextTokensUpdatedAt = now;
+        session.lastContextTokensStaleAfterCompact = false;
+    }
     session.updatedAt = Date.now();
     await saveSessionAsync(session, { expectedGeneration: session.generation });
-    return {
-        changed,
-        beforeMessages: beforeMessages.length,
-        afterMessages: compacted.length,
-        beforeTokens,
-        afterTokens,
-        beforeMessageTokens,
-        afterMessageTokens,
-        budgetTokens: boundary,
-        targetBudgetTokens: compactBudget || boundary,
-        triggerTokens,
-        bufferTokens,
-        reserveTokens,
-    };
+    return result;
 }
 export async function updateSessionStatus(id, status) {
     const session = loadSession(id);
@@ -2741,7 +2827,7 @@ export function abortSessionTurn(id, reason = 'turn-abort') {
 
 // --- Periodic idle session cleanup ---
 const CLEANUP_INTERVAL_MS = nonNegativeIntEnv('MIXDOG_SESSION_CLEANUP_INTERVAL_MS', 5 * 60 * 1000); // check every 5 minutes
-const CLEANUP_INITIAL_DELAY_MS = nonNegativeIntEnv('MIXDOG_SESSION_CLEANUP_INITIAL_DELAY_MS', 60 * 1000);
+const CLEANUP_INITIAL_DELAY_MS = nonNegativeIntEnv('MIXDOG_SESSION_CLEANUP_INITIAL_DELAY_MS', CLEANUP_INTERVAL_MS > 0 ? CLEANUP_INTERVAL_MS : 0);
 const CLEANUP_SLOW_LOG_MS = nonNegativeIntEnv('MIXDOG_SESSION_CLEANUP_SLOW_LOG_MS', 250);
 const TOMBSTONE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h — far longer than any realistic ask race window
 let _cleanupTimer = null;
@@ -2845,7 +2931,17 @@ export function sweepTombstones() {
     }
 }
 
+function hasActiveRuntimeWork() {
+    for (const [, entry] of _runtimeState) {
+        if (!entry || entry.closed === true) continue;
+        if (entry.controller && !entry.controller.signal?.aborted) return true;
+        if (['connecting', 'requesting', 'streaming', 'tool_running', 'cancelling'].includes(entry.stage)) return true;
+    }
+    return false;
+}
+
 function _runCleanupCycle() {
+    if (hasActiveRuntimeWork()) return;
     sweepIdleSessions({ includeTombstones: true });
 }
 

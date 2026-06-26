@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { ensureProjectMixdogMd, ensureStandaloneEnvironment } from './standalone/seeds.mjs';
@@ -11,6 +11,7 @@ import { createStandaloneHookBus } from './standalone/hook-bus.mjs';
 import { writeLastSessionCwd } from './runtime/shared/user-cwd.mjs';
 import { cancelBackgroundTasks } from './runtime/shared/background-tasks.mjs';
 import { createWorkspaceRouter, formatWorkspaceSessionContext } from './runtime/shared/workspace-router.mjs';
+import { setConfiguredShell } from './runtime/agent/orchestrator/tools/builtin/shell-runtime.mjs';
 import {
   PROVIDER_STATUS_TOOL,
   beginOAuthProviderLogin,
@@ -85,6 +86,40 @@ function messageContextText(message) {
   return text;
 }
 
+function stripSystemReminder(text) {
+  return String(text || '')
+    .replace(/^\s*<system-reminder>\s*/i, '')
+    .replace(/\s*<\/system-reminder>\s*$/i, '')
+    .trim();
+}
+
+function splitMarkdownSections(text) {
+  const sections = [];
+  let current = [];
+  for (const line of String(text || '').split(/\r?\n/)) {
+    if (/^#\s+/.test(line) && current.length) {
+      const body = current.join('\n').trim();
+      if (body) sections.push(body);
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  const tail = current.join('\n').trim();
+  if (tail) sections.push(tail);
+  return sections;
+}
+
+function reminderSectionBucket(section) {
+  const heading = String(section.match(/^#\s+([^\n]+)/)?.[1] || '').trim().toLowerCase();
+  if (heading.includes('core memory')) return 'memory';
+  if (heading.includes('mixdog-project-context') || heading.includes('project-context')) return 'project';
+  if (heading.includes('active workflow') || heading.includes('available agents') || heading.includes('workflow')) return 'workflow';
+  if (heading.includes('workspace') || heading === 'role' || heading.includes('role-identity') || heading.includes('task-brief')) return 'workspace';
+  if (heading.includes('environment')) return 'environment';
+  return 'other';
+}
+
 function summarizeContextMessages(messages) {
   const rows = {
     system: { count: 0, tokens: 0 },
@@ -93,15 +128,55 @@ function summarizeContextMessages(messages) {
     tool: { count: 0, tokens: 0 },
     other: { count: 0, tokens: 0 },
   };
+  const semantic = {
+    system: { count: 0, tokens: 0 },
+    chat: { count: 0, tokens: 0 },
+    assistant: { count: 0, tokens: 0 },
+    toolResults: { count: 0, tokens: 0 },
+    reminders: { count: 0, tokens: 0, otherTokens: 0 },
+    project: { tokens: 0 },
+    workflow: { tokens: 0 },
+    memory: { tokens: 0 },
+    workspace: { tokens: 0 },
+    environment: { tokens: 0 },
+    other: { tokens: 0 },
+  };
   let toolCallCount = 0;
   let toolCallTokens = 0;
   let toolResultCount = 0;
   let toolResultTokens = 0;
   for (const message of messages || []) {
     const role = rows[message?.role] ? message.role : 'other';
-    const tokens = roughTokenCount(messageContextText(message)) + 4;
+    const text = messageContextText(message);
+    const tokens = roughTokenCount(text) + 4;
     rows[role].count += 1;
     rows[role].tokens += tokens;
+    if (role === 'system') {
+      semantic.system.count += 1;
+      semantic.system.tokens += tokens;
+    } else if (role === 'user') {
+      if (String(text || '').trim().startsWith('<system-reminder>')) {
+        semantic.reminders.count += 1;
+        semantic.reminders.tokens += tokens;
+        let sectionTokens = 0;
+        for (const section of splitMarkdownSections(stripSystemReminder(text))) {
+          const bucket = reminderSectionBucket(section);
+          const sectionTokenCount = roughTokenCount(section);
+          semantic[bucket].tokens += sectionTokenCount;
+          sectionTokens += sectionTokenCount;
+        }
+        semantic.reminders.otherTokens += Math.max(0, tokens - sectionTokens);
+      } else {
+        semantic.chat.count += 1;
+        semantic.chat.tokens += tokens;
+      }
+    } else if (role === 'assistant') {
+      semantic.assistant.count += 1;
+      semantic.assistant.tokens += tokens;
+    } else if (role === 'tool') {
+      semantic.toolResults.count += 1;
+      semantic.toolResults.tokens += tokens;
+    }
     if (message?.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
       toolCallCount += message.toolCalls.length;
       try { toolCallTokens += roughTokenCount(JSON.stringify(message.toolCalls)); }
@@ -116,6 +191,7 @@ function summarizeContextMessages(messages) {
     count: Array.isArray(messages) ? messages.length : 0,
     estimatedTokens: Array.isArray(messages) ? estimateMessagesTokens(messages) : 0,
     roles: rows,
+    semantic,
     toolCallCount,
     toolCallTokens,
     toolResultCount,
@@ -172,7 +248,23 @@ const EFFORT_LABELS = {
   max: 'Max',
 };
 
-const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
+function envFlag(name) {
+  return /^(1|true|yes|on)$/i.test(String(process.env[name] || ''));
+}
+
+function envPresent(name) {
+  return process.env[name] !== undefined && process.env[name] !== '';
+}
+
+function envDelayMs(name, fallback, { min = 0, max = 60_000 } = {}) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(n)));
+}
+
+const BOOT_PROFILE_ENABLED = envFlag('MIXDOG_BOOT_PROFILE');
 const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
 
 function bootProfile(event, fields = {}) {
@@ -241,12 +333,13 @@ export const TOOL_SEARCH_TOOL = {
     destructiveHint: false,
     idempotentHint: true,
     openWorldHint: false,
+    bridgeHidden: true,
   },
   description: 'Search the current standalone tool surface and select deferred tools/skills for the task. Use before unfamiliar or currently inactive tools.',
   inputSchema: {
     type: 'object',
     properties: {
-      query: { type: 'string', description: 'Optional search text, e.g. edit, bridge, memory, skill, mcp.' },
+      query: { type: 'string', description: 'Optional search text, e.g. shell, bridge, memory, skill, mcp.' },
       select: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Tool/skill names to activate, as comma-separated text or an array.' },
       limit: { type: 'number', description: 'Maximum matches to return.' },
     },
@@ -317,7 +410,7 @@ const DEFERRED_ALWAYS_ACTIVE_TOOLS = new Set([
   'web_fetch',
 ]);
 const LEAD_DISALLOWED_TOOLS = Object.freeze(['diagnostics', 'open_config']);
-const DEFERRED_DEFAULT_FULL_LIMIT = 8;
+const DEFERRED_DEFAULT_FULL_LIMIT = 9;
 const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
   'read',
   'code_graph',
@@ -472,6 +565,132 @@ function clean(value) {
   return String(value ?? '').trim();
 }
 
+const OUTPUT_STYLE_ORDER = ['default', 'simple', 'extreme-simple'];
+const OUTPUT_STYLE_ALIASES = new Map([
+  ['compact', 'default'],
+  ['normal', 'default'],
+  ['extreme', 'extreme-simple'],
+  ['extremesimple', 'extreme-simple'],
+  ['extreme-simple', 'extreme-simple'],
+  ['extreme_simple', 'extreme-simple'],
+]);
+
+function normalizeOutputStyleId(value) {
+  const raw = clean(value).toLowerCase();
+  if (!raw) return '';
+  const slug = raw.replace(/[_\s]+/g, '-').replace(/^-+|-+$/g, '');
+  const compact = slug.replace(/[_.-]+/g, '');
+  if (OUTPUT_STYLE_ALIASES.has(slug)) return OUTPUT_STYLE_ALIASES.get(slug);
+  if (OUTPUT_STYLE_ALIASES.has(compact)) return OUTPUT_STYLE_ALIASES.get(compact);
+  return /^[a-z0-9.-]+$/.test(slug) ? slug : '';
+}
+
+function outputStyleCompactKey(value) {
+  return normalizeOutputStyleId(value).replace(/[_.-]+/g, '');
+}
+
+function titleCaseOutputStyle(id) {
+  return clean(id)
+    .split(/[_.-]+/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(' ') || 'Default';
+}
+
+function parseOutputStyleFrontmatter(markdown) {
+  const match = String(markdown || '').match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const meta = {};
+  if (!match) return meta;
+  for (const line of match[1].split(/\r?\n/)) {
+    const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*?)\s*$/);
+    if (!kv) continue;
+    meta[kv[1]] = kv[2].replace(/^['"]|['"]$/g, '').trim();
+  }
+  return meta;
+}
+
+function readOutputStyleMetadata(filePath, source) {
+  let raw = '';
+  try { raw = readFileSync(filePath, 'utf8'); } catch { return null; }
+  const meta = parseOutputStyleFrontmatter(raw);
+  const fileId = normalizeOutputStyleId(basename(filePath).replace(/\.md$/i, ''));
+  const id = normalizeOutputStyleId(meta.name) || fileId;
+  if (!id) return null;
+  const aliases = clean(meta.aliases)
+    .split(',')
+    .map((value) => normalizeOutputStyleId(value))
+    .filter(Boolean);
+  const label = clean(meta.title || meta.label) || titleCaseOutputStyle(id);
+  return {
+    id,
+    label,
+    description: clean(meta.description),
+    aliases,
+    source,
+  };
+}
+
+function listOutputStyleCatalog(dataDir = STANDALONE_DATA_DIR) {
+  const byId = new Map();
+  const dirs = [
+    { dir: join(STANDALONE_ROOT, 'output-styles'), source: 'builtin' },
+    { dir: join(dataDir || STANDALONE_DATA_DIR, 'output-styles'), source: 'user' },
+  ];
+  for (const { dir, source } of dirs) {
+    let entries = [];
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.md')) continue;
+      const style = readOutputStyleMetadata(join(dir, entry.name), source);
+      if (style) byId.set(style.id, style);
+    }
+  }
+  return [...byId.values()].sort((a, b) => {
+    const ai = OUTPUT_STYLE_ORDER.indexOf(a.id);
+    const bi = OUTPUT_STYLE_ORDER.indexOf(b.id);
+    if (ai !== bi) return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+    return a.label.localeCompare(b.label, 'en', { sensitivity: 'base' });
+  });
+}
+
+function findOutputStyle(value, styles) {
+  const id = normalizeOutputStyleId(value);
+  const compact = outputStyleCompactKey(value);
+  if (!id && !compact) return null;
+  return (styles || []).find((style) => {
+    if (style.id === id || outputStyleCompactKey(style.id) === compact) return true;
+    if (outputStyleCompactKey(style.label) === compact) return true;
+    return (style.aliases || []).some((alias) => alias === id || outputStyleCompactKey(alias) === compact);
+  }) || null;
+}
+
+function configuredOutputStyleValue(dataDir = STANDALONE_DATA_DIR) {
+  const unified = readJsonSafe(join(dataDir || STANDALONE_DATA_DIR, 'mixdog-config.json')) || {};
+  return clean(unified.outputStyle || (unified.agent && unified.agent.outputStyle) || 'default') || 'default';
+}
+
+function outputStyleStatus(dataDir = STANDALONE_DATA_DIR) {
+  const styles = listOutputStyleCatalog(dataDir);
+  const configured = configuredOutputStyleValue(dataDir);
+  const current = findOutputStyle(configured, styles)
+    || findOutputStyle('default', styles)
+    || styles[0]
+    || { id: 'default', label: 'Default', description: '', aliases: [], source: 'builtin' };
+  return { configured, current, styles };
+}
+
+function sessionHasConversationMessages(activeSession) {
+  const messages = Array.isArray(activeSession?.messages) ? activeSession.messages : [];
+  return messages.some((message) => {
+    const role = message?.role;
+    if (role !== 'user' && role !== 'assistant' && role !== 'tool') return false;
+    const text = sessionMessageText(message.content).trim();
+    if (!text && role !== 'assistant') return false;
+    if (role === 'user' && isSessionPreviewNoise(text)) return false;
+    return true;
+  });
+}
+
 function readJsonSafe(path) {
   try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
 }
@@ -586,6 +805,29 @@ function ensureProviderEnabled(config, provider) {
 
 const AUTO_CLEAR_DEFAULT_IDLE_MS = 60 * 60 * 1000;
 
+function normalizeSystemShellConfig(value = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const command = clean(raw.command ?? raw.path ?? raw.executable ?? raw.shell);
+  const envCommand = clean(process.env.MIXDOG_SHELL);
+  return {
+    command,
+    effective: command || envCommand || '',
+    source: command ? 'config' : (envCommand ? 'env' : 'auto'),
+  };
+}
+
+function normalizeSystemShellCommand(value) {
+  const command = clean(value).replace(/^auto$/i, '').replace(/^['"](.+)['"]$/, '$1').trim();
+  if (!command) return '';
+  if (process.platform === 'win32') {
+    const stem = command.split(/[\\/]/).pop().toLowerCase().replace(/\.exe$/, '');
+    if (stem !== 'powershell' && stem !== 'pwsh') {
+      throw new Error('system shell command must be powershell.exe or pwsh on Windows');
+    }
+  }
+  return command;
+}
+
 function normalizeAutoClearConfig(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const idleMs = Number(raw.idleMs ?? raw.thresholdMs ?? raw.idleMillis);
@@ -615,6 +857,7 @@ function parseDurationMs(input) {
 }
 
 const FAST_CAPABLE_PROVIDERS = new Set(['anthropic', 'anthropic-oauth', 'openai', 'openai-oauth']);
+const LAZY_SECRET_PROVIDERS = new Set(['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'ollama', 'lmstudio']);
 
 function routeFastKey(provider, model) {
   const p = clean(provider);
@@ -968,6 +1211,30 @@ function toolResponseText(result) {
   return JSON.stringify(result, null, 2);
 }
 
+function isEmptyRecallText(value) {
+  const text = String(value || '').trim();
+  return !text || /^\(?no results\)?$/i.test(text) || /^\(?empty memory result\)?$/i.test(text);
+}
+
+function currentSessionRecallRows(session, query, { limit = 10 } = {}) {
+  const messages = Array.isArray(session?.messages) ? session.messages : [];
+  if (!messages.length) return '(no results)';
+  const terms = [...new Set(String(query || '').toLowerCase().match(/[\p{L}\p{N}_./:-]{2,}/gu) || [])]
+    .filter(Boolean)
+    .slice(0, 16);
+  const max = Math.max(1, Math.min(100, Number(limit) || 10));
+  const rows = [];
+  for (let i = messages.length - 1; i >= 0 && rows.length < max; i -= 1) {
+    const m = messages[i];
+    if (!m || (m.role !== 'user' && m.role !== 'assistant' && m.role !== 'tool')) continue;
+    const text = messageContextText(m).replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    if (terms.length && !terms.some((term) => text.toLowerCase().includes(term))) continue;
+    rows.push(`[session:${i + 1}] ${m.role}: ${text.slice(0, 1000)}`);
+  }
+  return rows.length ? rows.join('\n') : '(no results)';
+}
+
 function parseToolSelection(value) {
   if (Array.isArray(value)) return value.map(clean).filter(Boolean);
   return String(value || '')
@@ -981,8 +1248,35 @@ function toolKind(tool) {
   if (name.startsWith('mcp__')) return 'mcp';
   if (name.startsWith('skill_') || name === 'skills_list') return 'skill';
   if (tool?.annotations?.bridgeHidden) return 'control';
-  if (['edit', 'write', 'apply_patch', 'shell'].includes(name)) return 'write';
+  if (['apply_patch', 'shell'].includes(name)) return 'mutation';
   return 'tool';
+}
+
+function toolSchemaBucket(tool) {
+  const name = clean(tool?.name);
+  const kind = toolKind(tool);
+  if (kind === 'mcp') return 'mcp';
+  if (kind === 'skill') return 'skills';
+  if (name === 'memory' || name === 'recall' || name.includes('memory')) return 'memory';
+  if (name === 'search' || name === 'web_fetch') return 'web';
+  if (['read', 'grep', 'glob', 'list', 'code_graph', 'explore'].includes(name)) return 'code';
+  if (['shell', 'apply_patch'].includes(name)) return 'mutation';
+  if (name === 'bridge' || name === 'delegate' || name.includes('bridge')) return 'agents';
+  if (name.includes('channel') || name.includes('discord') || name.includes('webhook')) return 'channels';
+  if (name.includes('provider') || name === 'tool_search' || name === 'cwd') return 'setup';
+  return 'other';
+}
+
+function estimateToolSchemaBreakdown(tools) {
+  const out = {};
+  for (const tool of Array.isArray(tools) ? tools : []) {
+    const bucket = toolSchemaBucket(tool);
+    const row = out[bucket] || { count: 0, tokens: 0 };
+    row.count += 1;
+    row.tokens += estimateToolSchemaTokens([tool]);
+    out[bucket] = row;
+  }
+  return out;
 }
 
 function measuredToolUsage(name) {
@@ -1359,16 +1653,36 @@ export async function createMixdogSessionRuntime({
 
   const configStartedAt = performance.now();
   let config = cfgMod.loadConfig({ secrets: false });
+  setConfiguredShell(normalizeSystemShellConfig(config.shell).command);
   let configHasSecrets = false;
   let route = resolveRoute(config, { provider, model });
   bootProfile('config:ready', { ms: (performance.now() - configStartedAt).toFixed(1) });
   let mode = normalizeToolMode(toolMode);
   let session = null;
+  let sessionCreatePromise = null;
   let currentCwd = cwd;
   let sessionNeedsCwdRefresh = false;
   const workspaceRouter = createWorkspaceRouter({ entryCwd: cwd });
   let closeRequested = false;
   let channelStartTimer = null;
+  let providerWarmupTimer = null;
+  let providerModelWarmupTimer = null;
+  let activeTurnCount = 0;
+  let firstTurnCompleted = false;
+  const sessionPrewarmDelayMs = envDelayMs('MIXDOG_SESSION_PREWARM_DELAY_MS', 50, { min: 0, max: 10_000 });
+  const providerWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_WARMUP_DELAY_MS', 1_500, { min: 0, max: 60_000 });
+  const providerModelWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS', 15_000, { min: 0, max: 120_000 });
+  const channelStartDelayMs = envDelayMs('MIXDOG_CHANNEL_START_DELAY_MS', 10_000, { min: 0, max: 120_000 });
+  const backgroundBusyRetryMs = envDelayMs('MIXDOG_BACKGROUND_BUSY_RETRY_MS', 1_000, { min: 50, max: 10_000 });
+  const sessionPrewarmEnabled = !envFlag('MIXDOG_DISABLE_SESSION_PREWARM')
+    && (envFlag('MIXDOG_ENABLE_SESSION_PREWARM') || envPresent('MIXDOG_SESSION_PREWARM_DELAY_MS'));
+  const providerWarmupEnabled = !envFlag('MIXDOG_DISABLE_PROVIDER_WARMUP')
+    && (
+      envFlag('MIXDOG_ENABLE_PROVIDER_WARMUP')
+      || envFlag('MIXDOG_PROVIDER_WARMUP_BEFORE_FIRST_TURN')
+      || envPresent('MIXDOG_PROVIDER_WARMUP_DELAY_MS')
+      || envPresent('MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS')
+    );
   const modelMetaByRoute = new Map();
   const notificationListeners = new Set();
   let providerModelsCache = { models: null, at: 0 };
@@ -1897,6 +2211,15 @@ export async function createMixdogSessionRuntime({
     return config;
   }
 
+  function ensureConfigForRouteProvider() {
+    const providerId = clean(route.provider);
+    const providerCfg = config?.providers?.[providerId];
+    if (configHasSecrets || LAZY_SECRET_PROVIDERS.has(providerId) || providerCfg?.apiKey) {
+      return config;
+    }
+    return ensureFullConfig();
+  }
+
   async function ensureProvidersReady(providerConfig = config.providers || {}) {
     if (providerInitPromise) return await providerInitPromise;
     providerInitPromise = reg.initProviders(providerConfig)
@@ -1927,7 +2250,7 @@ export async function createMixdogSessionRuntime({
     return `${clean(providerId)}\n${clean(modelId)}`;
   }
 
-  async function lookupModelMeta(providerId, modelId) {
+  async function lookupModelMeta(providerId, modelId, { allowFetch = false } = {}) {
     const key = modelMetaKey(providerId, modelId);
     if (modelMetaByRoute.has(key)) return modelMetaByRoute.get(key);
     const providerImpl = reg.getProvider(providerId);
@@ -1943,6 +2266,12 @@ export async function createMixdogSessionRuntime({
         modelMetaByRoute.set(key, meta);
         return meta;
       }
+    }
+    if (!allowFetch) {
+      const fallback = { id: modelId, provider: providerId };
+      modelMetaByRoute.set(key, fallback);
+      scheduleProviderModelWarmup();
+      return fallback;
     }
     try {
       const models = await providerImpl.listModels();
@@ -2193,60 +2522,177 @@ function parsedProviderModelVersion(id) {
     return await createCurrentSession();
   }
 
-  async function createCurrentSession() {
+  async function createCurrentSession(reason = 'demand') {
+    if (sessionCreatePromise) return await sessionCreatePromise;
+    if (session?.id && !sessionNeedsCwdRefresh) {
+      const liveSession = mgr.getSession(session.id);
+      if (liveSession && liveSession.closed !== true && liveSession.status !== 'closed') {
+        session = liveSession;
+        return session;
+      }
+      session = null;
+    }
+
     const startedAt = performance.now();
-    bootProfile('session:create:start', { mode });
-    ensureFullConfig();
-    await resolveMissingRouteModelForFirstTurn();
-    requireModelRoute();
-    await refreshRouteEffort();
-    const providerImpl = reg.getProvider(route.provider);
-    if (!providerImpl) {
-      throw new Error(`Provider "${route.provider}" is not configured.`);
+    bootProfile('session:create:start', { mode, reason });
+    const promise = (async () => {
+      ensureConfigForRouteProvider();
+      await resolveMissingRouteModelForFirstTurn();
+      requireModelRoute();
+      bootProfile('session:create:route-ready', { ms: (performance.now() - startedAt).toFixed(1) });
+      await refreshRouteEffort();
+      bootProfile('session:create:effort-ready', { ms: (performance.now() - startedAt).toFixed(1) });
+      const providerImpl = reg.getProvider(route.provider);
+      if (!providerImpl) {
+        throw new Error(`Provider "${route.provider}" is not configured.`);
+      }
+      bootProfile('session:create:provider-ready', { ms: (performance.now() - startedAt).toFixed(1) });
+      const coreMemoryContext = await loadCoreMemoryContext();
+      if (closeRequested) throw new Error('runtime is closing');
+      const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
+      const workflowContext = workflowContextBlock(config, dataDir);
+      const workspaceContext = buildWorkspaceContext();
+      const sessionOpts = {
+        provider: route.provider,
+        model: route.model,
+        preset: route.preset || undefined,
+        tools: toolSpecForMode(mode),
+        owner: 'cli',
+        role: 'lead',
+        lane: 'cli',
+        sourceType: 'lead',
+        sourceName: 'main',
+        clientHostPid: process.pid,
+        disallowedTools: LEAD_DISALLOWED_TOOLS,
+        cwd: currentCwd,
+        coreMemoryContext,
+        workflowContext,
+        workspaceContext,
+        fast: route.fast === true,
+      };
+      if (hasOwn(route, 'effort') || route.effectiveEffort) {
+        sessionOpts.effort = route.effectiveEffort || null;
+      }
+      session = mgr.createSession(sessionOpts);
+      sessionNeedsCwdRefresh = false;
+      Object.defineProperty(session, 'beforeToolHook', {
+        value: (input) => hooks.beforeTool(input),
+        enumerable: false,
+        configurable: true,
+        writable: true,
+      });
+      applyDeferredToolSurface(session, mode, standaloneTools);
+      applyPreSessionToolSelection();
+      statusRoutes?.writeGatewaySessionRoute?.(session.id, routeForStatusline(route));
+      hooks.emit('session:create', { sessionId: session.id, provider: route.provider, model: route.model, toolMode: mode, cwd: currentCwd });
+      bootProfile('session:create:ready', {
+        ms: (performance.now() - startedAt).toFixed(1),
+        reason,
+        tools: Array.isArray(session.tools) ? session.tools.length : 0,
+        catalog: Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog.length : 0,
+      });
+      return session;
+    })();
+
+    sessionCreatePromise = promise;
+    try {
+      return await promise;
+    } finally {
+      if (sessionCreatePromise === promise) sessionCreatePromise = null;
     }
-    const coreMemoryContext = await loadCoreMemoryContext();
-    const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
-    const workflowContext = workflowContextBlock(config, dataDir);
-    const workspaceContext = buildWorkspaceContext();
-    const sessionOpts = {
-      provider: route.provider,
-      model: route.model,
-      preset: route.preset || undefined,
-      tools: toolSpecForMode(mode),
-      owner: 'cli',
-      role: 'lead',
-      lane: 'cli',
-      sourceType: 'lead',
-      sourceName: 'main',
-      clientHostPid: process.pid,
-      disallowedTools: LEAD_DISALLOWED_TOOLS,
-      cwd: currentCwd,
-      coreMemoryContext,
-      workflowContext,
-      workspaceContext,
-      fast: route.fast === true,
-    };
-    if (hasOwn(route, 'effort') || route.effectiveEffort) {
-      sessionOpts.effort = route.effectiveEffort || null;
+  }
+
+  function scheduleLeadSessionPrewarm() {
+    if (!sessionPrewarmEnabled) {
+      bootProfile('session:prewarm-skipped');
+      return;
     }
-    session = mgr.createSession(sessionOpts);
-    sessionNeedsCwdRefresh = false;
-    Object.defineProperty(session, 'beforeToolHook', {
-      value: (input) => hooks.beforeTool(input),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-    applyDeferredToolSurface(session, mode, standaloneTools);
-    applyPreSessionToolSelection();
-    statusRoutes?.writeGatewaySessionRoute?.(session.id, routeForStatusline(route));
-    hooks.emit('session:create', { sessionId: session.id, provider: route.provider, model: route.model, toolMode: mode, cwd: currentCwd });
-    bootProfile('session:create:ready', {
-      ms: (performance.now() - startedAt).toFixed(1),
-      tools: Array.isArray(session.tools) ? session.tools.length : 0,
-      catalog: Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog.length : 0,
-    });
-    return session;
+    const timer = setTimeout(() => {
+      if (closeRequested || session?.id || sessionCreatePromise || activeTurnCount > 0) return;
+      void createCurrentSession('prewarm')
+        .then(() => bootProfile('session:prewarm:ready'))
+        .catch((error) => bootProfile('session:prewarm:failed', { error: error?.message || String(error) }));
+    }, sessionPrewarmDelayMs);
+    timer.unref?.();
+  }
+
+  function scheduleProviderWarmup(delayMs = providerWarmupDelayMs) {
+    if (!providerWarmupEnabled) {
+      bootProfile('providers:warm-skipped');
+      return;
+    }
+    if (providerWarmupTimer || closeRequested) return;
+    providerWarmupTimer = setTimeout(() => {
+      providerWarmupTimer = null;
+      if (closeRequested) return;
+      if (!firstTurnCompleted && !envFlag('MIXDOG_PROVIDER_WARMUP_BEFORE_FIRST_TURN')) {
+        bootProfile('providers:warm-deferred', { reason: 'first-turn-pending' });
+        return;
+      }
+      if (activeTurnCount > 0 || sessionCreatePromise) {
+        bootProfile('providers:warm-deferred', { reason: activeTurnCount > 0 ? 'turn-active' : 'session-create' });
+        scheduleProviderWarmup(backgroundBusyRetryMs);
+        return;
+      }
+      const providersStartedAt = performance.now();
+      try {
+        config = cfgMod.loadConfig();
+        configHasSecrets = true;
+      } catch (error) {
+        bootProfile('config:full-failed', { error: error?.message || String(error) });
+      }
+      void ensureProvidersReady(config.providers || {})
+        .then(() => {
+          bootProfile('providers:init:ready', { ms: (performance.now() - providersStartedAt).toFixed(1) });
+          if (closeRequested) return null;
+          return true;
+        })
+        .catch((error) => bootProfile('providers:warm-failed', { error: error?.message || String(error) }));
+    }, delayMs);
+    providerWarmupTimer.unref?.();
+  }
+
+  function scheduleProviderModelWarmup(delayMs = providerModelWarmupDelayMs) {
+    if (!providerWarmupEnabled) return;
+    if (providerModelWarmupTimer || closeRequested) return;
+    providerModelWarmupTimer = setTimeout(() => {
+      providerModelWarmupTimer = null;
+      if (closeRequested || Array.isArray(providerModelsCache.models) || providerModelsPromise) return;
+      if (activeTurnCount > 0 || sessionCreatePromise) {
+        bootProfile('provider-models:warm-deferred', { reason: activeTurnCount > 0 ? 'turn-active' : 'session-create' });
+        scheduleProviderModelWarmup(backgroundBusyRetryMs);
+        return;
+      }
+      warmProviderModelCache();
+    }, delayMs);
+    providerModelWarmupTimer.unref?.();
+  }
+
+  function scheduleChannelStart(delayMs = channelStartDelayMs) {
+    if (envFlag('MIXDOG_DISABLE_CHANNEL_START')) {
+      bootProfile('channels:start-skipped');
+      return;
+    }
+    if (channelStartTimer || closeRequested) return;
+    bootProfile('channels:start-scheduled', { delayMs });
+    channelStartTimer = setTimeout(() => {
+      channelStartTimer = null;
+      if (closeRequested) return;
+      if (activeTurnCount > 0 || sessionCreatePromise) {
+        bootProfile('channels:start-deferred', { reason: activeTurnCount > 0 ? 'turn-active' : 'session-create' });
+        scheduleChannelStart(backgroundBusyRetryMs);
+        return;
+      }
+      const startedAt = performance.now();
+      bootProfile('channels:start:begin');
+      channels.start()
+        .then(() => bootProfile('channels:start:ready', { ms: (performance.now() - startedAt).toFixed(1) }))
+        .catch((error) => bootProfile('channels:start:failed', {
+          ms: (performance.now() - startedAt).toFixed(1),
+          error: error?.message || String(error),
+        }));
+    }, delayMs);
+    channelStartTimer.unref?.();
   }
 
   function withTeardownDeadline(promise, ms, fallback = false) {
@@ -2261,44 +2707,14 @@ function parsedProviderModelVersion(id) {
     });
   }
 
-  setImmediate(() => {
-    if (closeRequested) return;
-    const providersStartedAt = performance.now();
-    try {
-      config = cfgMod.loadConfig();
-      configHasSecrets = true;
-    } catch (error) {
-      bootProfile('config:full-failed', { error: error?.message || String(error) });
-    }
-    void ensureProvidersReady(config.providers || {})
-      .then(() => {
-        bootProfile('providers:init:ready', { ms: (performance.now() - providersStartedAt).toFixed(1) });
-        warmProviderModelCache();
-        return cachedProviderSetup();
-      })
-      .then((setup) => bootProfile('provider-setup:warm-ready', {
-        api: Array.isArray(setup?.api) ? setup.api.length : 0,
-        oauth: Array.isArray(setup?.oauth) ? setup.oauth.length : 0,
-        local: Array.isArray(setup?.local) ? setup.local.length : 0,
-      }))
-      .catch((error) => bootProfile('providers:warm-failed', { error: error?.message || String(error) }));
+  bootProfile('session-runtime:ready', {
+    lazySession: true,
+    prewarmSession: sessionPrewarmEnabled,
+    providerWarmup: providerWarmupEnabled,
   });
-
-  bootProfile('session-runtime:ready', { lazySession: true });
-  bootProfile('channels:start-scheduled', { delayMs: 500 });
-  channelStartTimer = setTimeout(() => {
-    channelStartTimer = null;
-    if (closeRequested) return;
-    const startedAt = performance.now();
-    bootProfile('channels:start:begin');
-    channels.start()
-      .then(() => bootProfile('channels:start:ready', { ms: (performance.now() - startedAt).toFixed(1) }))
-      .catch((error) => bootProfile('channels:start:failed', {
-        ms: (performance.now() - startedAt).toFixed(1),
-        error: error?.message || String(error),
-      }));
-  }, 500);
-  channelStartTimer.unref?.();
+  scheduleLeadSessionPrewarm();
+  scheduleProviderWarmup();
+  scheduleChannelStart();
 
   function contextStatusCacheKeyFor({ messages, tools, bridgeMode }) {
     const compaction = session?.compaction || {};
@@ -2389,10 +2805,17 @@ function parsedProviderModelVersion(id) {
     get autoClear() {
       return normalizeAutoClearConfig(config.autoClear);
     },
+    get systemShell() {
+      return normalizeSystemShellConfig(config.shell);
+    },
     get workflow() {
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const pack = loadWorkflowPack(dataDir, activeWorkflowId(config));
       return pack ? { id: pack.id, name: pack.name, description: pack.description, source: pack.source } : { id: DEFAULT_WORKFLOW_ID, name: 'Default' };
+    },
+    get outputStyle() {
+      const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
+      return outputStyleStatus(dataDir).current;
     },
     get cwd() {
       return currentCwd;
@@ -2411,6 +2834,7 @@ function parsedProviderModelVersion(id) {
 
       const messageSummary = summarizeContextMessages(messages);
       const toolSchemaTokens = estimateToolSchemaTokens(tools);
+      const toolSchemaBreakdown = estimateToolSchemaBreakdown(tools);
       const requestReserveTokens = estimateRequestReserveTokens(tools);
       const requestOverheadTokens = Math.max(0, requestReserveTokens - toolSchemaTokens);
       const rawWindow = Number(session?.rawContextWindow || session?.contextWindow || 0);
@@ -2431,8 +2855,8 @@ function parsedProviderModelVersion(id) {
         : Math.max(estimatedContextTokens, lastContextTokens || 0);
       const freeTokens = displayWindow ? Math.max(0, displayWindow - usedTokens) : 0;
       const autoCompactTokenLimit = Number(session?.autoCompactTokenLimit || 0);
-      const defaultCompactTriggerTokens = compactBoundaryTokens ? Math.max(1, Math.floor(compactBoundaryTokens * 0.9)) : 0;
-      const compactTriggerTokens = autoCompactTokenLimit && compactBoundaryTokens && autoCompactTokenLimit < compactBoundaryTokens
+      const defaultCompactTriggerTokens = compactBoundaryTokens ? Math.max(1, compactBoundaryTokens) : 0;
+      const compactTriggerTokens = autoCompactTokenLimit && compactBoundaryTokens && autoCompactTokenLimit <= compactBoundaryTokens
         ? autoCompactTokenLimit
         : Number(session?.compaction?.triggerTokens || defaultCompactTriggerTokens || 0);
       const compactBufferTokens = Number(session?.compaction?.bufferTokens || (compactBoundaryTokens && compactTriggerTokens ? Math.max(0, compactBoundaryTokens - compactTriggerTokens) : 0));
@@ -2467,6 +2891,7 @@ function parsedProviderModelVersion(id) {
         messages: messageSummary,
         request: {
           toolSchemaTokens,
+          toolSchemaBreakdown,
           requestOverheadTokens,
           reserveTokens: requestReserveTokens,
         },
@@ -2516,6 +2941,20 @@ function parsedProviderModelVersion(id) {
     },
     getAutoClear() {
       return normalizeAutoClearConfig(config.autoClear);
+    },
+    getSystemShell() {
+      return normalizeSystemShellConfig(config.shell);
+    },
+    setSystemShell(input = {}) {
+      const command = normalizeSystemShellCommand(typeof input === 'string' ? input : input?.command);
+      const nextConfig = cfgMod.loadConfig();
+      cfgMod.saveConfig({
+        ...nextConfig,
+        shell: command ? { ...(nextConfig.shell || {}), command } : {},
+      });
+      config = cfgMod.loadConfig();
+      setConfiguredShell(command);
+      return normalizeSystemShellConfig(config.shell);
     },
     setAutoClear(input = {}) {
       const current = normalizeAutoClearConfig(config.autoClear);
@@ -2744,6 +3183,42 @@ function parsedProviderModelVersion(id) {
         agents: workflow.agents,
       }));
     },
+    getOutputStyle() {
+      const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
+      return outputStyleStatus(dataDir);
+    },
+    listOutputStyles() {
+      const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
+      return outputStyleStatus(dataDir);
+    },
+    async setOutputStyle(value) {
+      const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
+      const before = outputStyleStatus(dataDir);
+      const selected = findOutputStyle(value, before.styles);
+      if (!selected) {
+        const names = before.styles.map((style) => style.label || style.id).join(', ') || 'Default';
+        throw new Error(`output style must be one of ${names}`);
+      }
+      if (typeof sharedCfgMod.updateConfig !== 'function') throw new Error('output style config writer unavailable');
+      sharedCfgMod.updateConfig((root) => {
+        const next = { ...(root || {}), outputStyle: selected.id };
+        if (next.agent && typeof next.agent === 'object' && !Array.isArray(next.agent)) {
+          const agent = { ...next.agent };
+          delete agent.outputStyle;
+          next.agent = agent;
+        }
+        return next;
+      });
+      const hasConversation = sessionHasConversationMessages(session);
+      let appliedToCurrentSession = !hasConversation;
+      if (session?.id && !hasConversation) {
+        mgr.closeSession(session.id, 'cli-output-style-switch');
+        session = null;
+        await recreateCurrentSessionIfReady();
+      }
+      invalidateContextStatusCache();
+      return { ...outputStyleStatus(dataDir), appliedToCurrentSession };
+    },
     async setWorkflow(workflowId) {
       const id = normalizeWorkflowId(workflowId, DEFAULT_WORKFLOW_ID);
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
@@ -2796,11 +3271,12 @@ function parsedProviderModelVersion(id) {
       return routeToSave;
     },
     async ask(prompt, options = {}) {
-      await refreshSessionForCwdIfNeeded('cwd-change');
-      if (!session?.id) await createCurrentSession();
+      activeTurnCount += 1;
       const startedAt = Date.now();
-      hooks.emit('turn:start', { sessionId: session.id, prompt, cwd: currentCwd });
       try {
+        await refreshSessionForCwdIfNeeded('cwd-change');
+        if (!session?.id) await createCurrentSession('turn');
+        hooks.emit('turn:start', { sessionId: session.id, prompt, cwd: currentCwd });
         const turnContext = [options.context || ''].map((part) => String(part || '').trim()).filter(Boolean).join('\n\n');
         const result = await mgr.askSession(
           session.id,
@@ -2838,20 +3314,33 @@ function parsedProviderModelVersion(id) {
       } catch (error) {
         hooks.emit('turn:error', { sessionId: session?.id || null, elapsedMs: Date.now() - startedAt, error: error?.message || String(error) });
         throw error;
+      } finally {
+        activeTurnCount = Math.max(0, activeTurnCount - 1);
+        if (!firstTurnCompleted) {
+          firstTurnCompleted = true;
+          scheduleProviderWarmup();
+          scheduleProviderModelWarmup();
+        }
       }
     },
-    async clear() {
+    async clear(options = {}) {
       if (!session?.id) return false;
       const cleared = await mgr.clearSessionMessages(session.id);
       if (!cleared) return false;
       session = typeof cleared === 'object' ? cleared : (mgr.getSession(session.id) || session);
+      if (options.recoverBridge === true) {
+        try { bridge.recoverWorkers?.({ clientHostPid: session?.clientHostPid || process.pid }); } catch {}
+      }
       invalidateContextStatusCache();
       return true;
     },
-    async compact() {
+    async compact(options = {}) {
       if (!session?.id) return null;
       const result = await mgr.compactSessionMessages(session.id);
       session = mgr.getSession(session.id) || session;
+      if (options.recoverBridge === true) {
+        try { bridge.recoverWorkers?.({ clientHostPid: session?.clientHostPid || process.pid }); } catch {}
+      }
       invalidateContextStatusCache();
       return result;
     },
@@ -3089,13 +3578,48 @@ function parsedProviderModelVersion(id) {
       return toolResponseText(await memoryMod.handleToolCall('memory', args || {}));
     },
     async recall(query, args = {}) {
+      const baseQuery = query || args?.query || '';
+      if (args?.currentSession !== false && session?.id) {
+        const currentText = currentSessionRecallRows(session, baseQuery, { limit: args?.limit });
+        if (!isEmptyRecallText(currentText)) return currentText;
+      }
       const memoryMod = await getMemoryModule();
       if (!memoryMod?.handleToolCall) throw new Error('memory runtime is not available');
-      return toolResponseText(await memoryMod.handleToolCall('recall', {
+      const baseArgs = {
         ...(args || {}),
-        query: query || args?.query || '',
+        query: baseQuery,
         cwd: args?.cwd || currentCwd,
-      }));
+      };
+      let result = '(no results)';
+      if (session?.id && args?.currentSession !== false && args?.forceCycleOnEmpty !== false) {
+        const messages = Array.isArray(session.messages) ? session.messages : [];
+        if (messages.length > 0) {
+          await memoryMod.handleToolCall('memory', {
+            action: 'ingest_session',
+            sessionId: session.id,
+            cwd: currentCwd,
+            messages,
+          });
+          await memoryMod.handleToolCall('memory', {
+            action: 'cycle1',
+            min_batch: 1,
+            session_cap: 1,
+            batch_size: Math.max(1, Math.min(100, messages.length)),
+          });
+          result = toolResponseText(await memoryMod.handleToolCall('recall', {
+            ...baseArgs,
+            sessionId: session.id,
+            currentSession: true,
+            projectScope: baseArgs.projectScope || 'all',
+            includeRaw: baseArgs.includeRaw !== false,
+            includeArchived: baseArgs.includeArchived !== false,
+          }));
+        }
+      }
+      if (isEmptyRecallText(result)) {
+        result = toolResponseText(await memoryMod.handleToolCall('recall', baseArgs));
+      }
+      return result;
     },
     async setRoute(next) {
       const requested = { ...(next || {}) };
@@ -3184,15 +3708,34 @@ function parsedProviderModelVersion(id) {
         clearTimeout(channelStartTimer);
         channelStartTimer = null;
       }
+      if (providerWarmupTimer) {
+        clearTimeout(providerWarmupTimer);
+        providerWarmupTimer = null;
+      }
+      if (providerModelWarmupTimer) {
+        clearTimeout(providerModelWarmupTimer);
+        providerModelWarmupTimer = null;
+      }
       try { cancelBackgroundTasks({ reason, notify: false }); } catch {}
       const channelStop = channels.stop(reason, detach ? { waitForExit: false } : undefined);
       try { bridge.closeAll(reason); } catch {}
       let mcpStop = null;
       try { mcpStop = mcpClient.disconnectAll?.(); } catch {}
-      const openaiWsStop = import('./runtime/agent/orchestrator/providers/openai-oauth-ws.mjs')
-        .then((mod) => mod?.drainOpenaiWsPool?.(reason))
-        .catch(() => {});
+      const openaiWsStop = globalThis.__mixdogOpenaiWsRuntimeLoaded === true
+        ? import('./runtime/agent/orchestrator/providers/openai-oauth-ws.mjs')
+          .then((mod) => mod?.drainOpenaiWsPool?.(reason))
+          .catch(() => {})
+        : null;
       const patchStop = closePatchRuntimeIfLoaded(detach ? { waitForExit: false } : undefined);
+      const memoryStop = memoryModPromise
+        ? memoryModPromise
+          .then((mod) => (typeof mod?.stop === 'function' ? mod.stop() : null))
+          .catch(() => {})
+          .finally(() => {
+            memoryInitPromise = null;
+            memoryModPromise = null;
+          })
+        : null;
       let ok = false;
       if (session?.id) {
         statusRoutes?.clearGatewaySessionRoute?.(session.id);
@@ -3201,6 +3744,7 @@ function parsedProviderModelVersion(id) {
       }
       if (detach) {
         try { await withTeardownDeadline(channelStop, 300, false); } catch {}
+        try { await withTeardownDeadline(memoryStop, 1500, false); } catch {}
         for (const stop of [mcpStop, openaiWsStop, patchStop]) {
           Promise.resolve(stop).catch(() => {});
         }
@@ -3211,6 +3755,7 @@ function parsedProviderModelVersion(id) {
         withTeardownDeadline(mcpStop, 1500, false),
         withTeardownDeadline(openaiWsStop, 1500, false),
         withTeardownDeadline(patchStop, 1500, false),
+        withTeardownDeadline(memoryStop, 5500, false),
       ]);
       return ok;
     },
@@ -3230,21 +3775,25 @@ function parsedProviderModelVersion(id) {
           || (sourceType === 'cli' && (!sourceName || sourceName === 'main'))
           || (!sourceType && !sourceName && owner !== 'bridge');
         if (!leadish) return null;
-        const msgs = s.messages || [];
-        const userPreviews = msgs
-          .filter(m => m && m.role === 'user')
-          .map(m => cleanSessionPreview(sessionMessageText(m.content)))
-          .filter(text => !isSessionPreviewNoise(text));
-        const preview = userPreviews[userPreviews.length - 1] || userPreviews[0] || '';
+        let preview = cleanSessionPreview(s.preview || '');
+        let messageCount = Math.max(0, Number(s.messageCount) || 0);
+        if (!preview && Array.isArray(s.messages)) {
+          const msgs = s.messages || [];
+          const userPreviews = msgs
+            .filter(m => m && m.role === 'user')
+            .map(m => cleanSessionPreview(sessionMessageText(m.content)))
+            .filter(text => !isSessionPreviewNoise(text));
+          preview = userPreviews[userPreviews.length - 1] || userPreviews[0] || '';
+          messageCount = msgs.filter(m => m && (m.role === 'user' || m.role === 'assistant')).length;
+        }
         if (!preview) return null;
-        const userAsst = msgs.filter(m => m && (m.role === 'user' || m.role === 'assistant'));
         return {
           id: s.id,
           updatedAt: s.updatedAt,
           cwd: s.cwd || '',
           model: s.model,
           provider: s.provider,
-          messageCount: userAsst.length,
+          messageCount,
           preview,
         };
       }).filter(Boolean);

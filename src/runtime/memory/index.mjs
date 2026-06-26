@@ -87,6 +87,7 @@ import { configureEmbedding, embedText, embedTexts, getEmbeddingDims, getEmbeddi
 import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs'
 import { runCycle1, runCycle2, runCycle3, runUnifiedGate, parseInterval, syncRootEmbedding, applySimpleStatus, applyUpdate, applyMerge, CYCLE2_ACTIVE_TARGET_CAP } from './lib/memory-cycle.mjs'
 import { getInFlightCycle1 } from './lib/memory-cycle1.mjs'
+import { claimAndMarkScheduledCycle, makeCycleRequestSignature, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry } from './lib/memory-cycle-requests.mjs'
 import { searchRelevantHybrid } from './lib/memory-recall-store.mjs'
 import { fetchEntriesByIdsScoped } from './lib/memory-recall-id-patch.mjs'
 import { retrieveEntries } from './lib/memory-retrievers.mjs'
@@ -95,7 +96,7 @@ import { computeEntryScore } from './lib/memory-score.mjs'
 import { runFullBackfill } from './lib/memory-ops-policy.mjs'
 import { listCore, addCore, editCore, deleteCore, compactCoreIds, CORE_SUMMARY_MAX } from './lib/core-memory-store.mjs'
 import { resolveProjectId, resolveProjectScope } from './lib/project-id-resolver.mjs'
-import { openTraceDatabase, insertTraceEvents, enqueueTraceEvents, insertBridgeCalls, registerTraceExitDrain } from './lib/trace-store.mjs'
+import { openTraceDatabase, closeTraceDatabase, insertTraceEvents, enqueueTraceEvents, insertBridgeCalls, registerTraceExitDrain } from './lib/trace-store.mjs'
 import { updateJsonAtomicSync, writeJsonAtomicSync } from '../shared/atomic-file.mjs'
 import { resolvePluginData } from '../shared/plugin-paths.mjs'
 const DATA_DIR = process.argv[2] || resolvePluginData()
@@ -112,6 +113,7 @@ const RUNTIME_ROOT = process.env.MIXDOG_RUNTIME_ROOT
   : path.join(os.tmpdir(), 'mixdog')
 
 let _periodicAdvertiseInstalled = false
+let _periodicAdvertiseTimer = null
 // Track the most recently advertised port so the periodic tick re-reads it
 // every interval. Without this the setInterval closure binds the FIRST port
 // (the upstream we proxied to) and keeps re-advertising the dead upstream
@@ -155,18 +157,20 @@ function advertiseMemoryPort(boundPort, attempt = 0) {
     }, { compact: true, fsyncDir: true })
     if (!_periodicAdvertiseInstalled) {
       _periodicAdvertiseInstalled = true
-      setInterval(() => {
+      _periodicAdvertiseTimer = setInterval(() => {
         try {
           if (_currentAdvertisedPort != null) {
             advertiseMemoryPort(_currentAdvertisedPort)
           }
         } catch {}
-      }, 30_000).unref()
+      }, 30_000)
+      _periodicAdvertiseTimer.unref?.()
     }
   } catch (e) {
     const transient = e?.code === 'EPERM' || e?.code === 'EBUSY' || e?.code === 'EACCES'
     if (transient && attempt < 3) {
-      setTimeout(() => advertiseMemoryPort(boundPort, attempt + 1), 50 * (attempt + 1))
+      const retryTimer = setTimeout(() => advertiseMemoryPort(boundPort, attempt + 1), 50 * (attempt + 1))
+      retryTimer.unref?.()
       return
     }
     __mixdogMemoryLog(`[memory-service] active-instance memory_port advertise failed: ${e?.message || e}\n`)
@@ -362,6 +366,7 @@ let _startupTimeout = null
 let _cycle1InFlight = null // shared cycle1 promise (outer coalesce layer)
 let _initialized = false
 let _initPromise = null
+let _stopPromise = null
 let _bootTimestamp = null
 let _transcriptOffsets = new Map()
 // Boot-edge background warmup. ONNX session creation on the embedding worker
@@ -565,6 +570,65 @@ async function readRawRowsInWindow(db, tsFromMs, tsToMs, hardLimit = 10, { proje
     const rows = (await db.query(sql, params)).rows
     return rows.map(r => ({ ...r, retrievalScore: 0, rrf: 0 }))
   } catch { return [] }
+}
+
+function sessionRecallTerms(query) {
+  return [...new Set(String(query || '').toLowerCase().match(/[\p{L}\p{N}_./:-]{2,}/gu) || [])]
+    .filter((term) => !CORE_RECALL_STOPWORDS.has(term))
+    .slice(0, 12)
+}
+
+async function recallSessionRows(args = {}) {
+  const sessionId = String(args.sessionId || args.session_id || '').trim()
+  if (!sessionId) return { text: '(no current session)' }
+  const limit = Math.max(1, Math.min(100, Number(args.limit) || 20))
+  const terms = sessionRecallTerms(args.query)
+  const params = [sessionId]
+  const where = ['session_id = $1']
+  if (terms.length > 0) {
+    const textExpr = `lower(coalesce(content, '') || ' ' || coalesce(element, '') || ' ' || coalesce(summary, ''))`
+    const clauses = terms.map((term) => {
+      params.push(`%${term}%`)
+      return `${textExpr} LIKE $${params.length}`
+    })
+    where.push(`(${clauses.join(' OR ')})`)
+  }
+  params.push(limit)
+  const rows = (await db.query(`
+    SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
+           element, category, summary, status, score, last_seen_at, project_id
+    FROM entries
+    WHERE ${where.join(' AND ')}
+    ORDER BY ts DESC, id DESC
+    LIMIT $${params.length}
+  `, params)).rows
+  return { text: renderEntryLines(rows) }
+}
+
+async function ingestSessionMessages(args = {}) {
+  const sessionId = String(args.sessionId || args.session_id || `session-${Date.now()}`).trim()
+  const messages = Array.isArray(args.messages) ? args.messages : []
+  const limit = Math.max(1, Math.min(500, Number(args.limit) || 200))
+  const start = Math.max(0, messages.length - limit)
+  const projectId = resolveProjectScope(typeof args.cwd === 'string' && args.cwd ? args.cwd : null)
+  let considered = 0
+  let inserted = 0
+  for (let i = start; i < messages.length; i += 1) {
+    const m = messages[i]
+    if (!m || (m.role !== 'user' && m.role !== 'assistant')) continue
+    const content = cleanMemoryText(firstTextContent(m.content))
+    if (!content || !content.trim()) continue
+    considered += 1
+    const tsMs = parseTsToMs(m.ts ?? m.timestamp ?? (Date.now() - (messages.length - i)))
+    const sourceRef = `session:${sessionId}#${i + 1}`
+    const result = await db.query(`
+      INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT DO NOTHING
+    `, [tsMs, m.role, content, sourceRef, sessionId, i + 1, projectId])
+    inserted += Number(result.rowCount ?? result.affectedRows ?? 0) || 0
+  }
+  return { text: `ingest_session: considered=${considered} inserted=${inserted} session=${sessionId}` }
 }
 
 async function ingestTranscriptFile(transcriptPath, { cwd } = {}) {
@@ -903,6 +967,20 @@ function _initTranscriptWatcher() {
 const CYCLE1_HEALTH_OVERDUE_MS = 5 * 60_000
 const CYCLE1_AUTO_RESTART_COOLDOWN_MS = 5 * 60_000
 
+async function recordCycle1Result(result) {
+  const now = Date.now()
+  await setCycleLastRun('cycle1_heartbeat', now)
+  const skipped = result?.skippedInFlight === true
+  const coalescedNoop = result?.coalescedRetryNoop === true
+  const allFailed = !skipped
+    && Number(result?.chunks ?? 0) === 0
+    && Number(result?.processed ?? 0) === 0
+    && Number(result?.skipped ?? 0) > 0
+  if (!skipped && !coalescedNoop && !allFailed) {
+    await setCycleLastRun('cycle1', now)
+  }
+}
+
 function _startCycle1Run(config = {}, options = {}) {
   _cycle1InFlight = (async () => {
     try {
@@ -912,15 +990,8 @@ function _startCycle1Run(config = {}, options = {}) {
       // the run actually did work. Skipped/in-flight runs do NOT count as
       // success because the next overdue check would otherwise see a fake
       // green and stop forcing auto-restarts.
-      const now = Date.now()
-      await setCycleLastRun('cycle1_heartbeat', now)
-      const skipped = result?.skippedInFlight === true
-      const allFailed = !skipped
-        && Number(result?.chunks ?? 0) === 0
-        && Number(result?.processed ?? 0) === 0
-        && Number(result?.skipped ?? 0) > 0
-      if (!skipped && !allFailed) {
-        await setCycleLastRun('cycle1', now)
+      if (typeof options?.onCoalescedSuccess !== 'function') {
+        await recordCycle1Result(result)
       }
       return result
     } finally {
@@ -970,10 +1041,10 @@ async function _awaitCycle1Run(config = {}, options = {}) {
 }
 
 // Periodic cycle1 sizing: only enter when ≥ 20 pending rows have built up,
-// then split into 2 windows of 50 rows each (≤100 rows per tick) and process
-// both windows in parallel. The on-demand path used by SessionStart hooks runs
-// with a 1-row threshold and 5×20 windows instead — see hooks/session-start.cjs
-// ON_DEMAND_CYCLE1_ARGS.
+// then process up to 2 sessions × 50 rows per tick. cycle1 itself keeps each
+// classifier window session-isolated. The on-demand path used by SessionStart
+// hooks runs with a 1-row threshold and 5×20 windows instead — see
+// hooks/session-start.cjs ON_DEMAND_CYCLE1_ARGS.
 // mainConfig.cycle1 values still win, so users can override any of these in
 // config.json.
 function periodicCycle1Config() {
@@ -986,7 +1057,150 @@ function periodicCycle1Config() {
   }
 }
 
+function scheduledCycle1Signature(config) {
+  return makeCycleRequestSignature('cycle1', config, {
+    preset: undefined,
+    concurrency: undefined,
+    maxConcurrent: undefined,
+  })
+}
+
+function scheduledCycle2Signature(config) {
+  return makeCycleRequestSignature('cycle2', config, {
+    cascadePreset: undefined,
+    concurrency: undefined,
+  })
+}
+
+function scheduledCycle3ApplyMode(config) {
+  const raw = String(config?.cycle3?.applyMode || 'conservative').trim().toLowerCase()
+  return (raw === 'proposal' || raw === 'dry-run' || raw === 'dryrun') ? 'proposal' : 'conservative'
+}
+
+function scheduledCycle3Signature(config) {
+  const retryConfig = config?.cycle3 || config
+  return makeCycleRequestSignature('cycle3', retryConfig, {
+    applyMode: scheduledCycle3ApplyMode(config),
+    apply: undefined,
+  })
+}
+
+async function enqueueScheduledCycle(kind, intervalMs, signature) {
+  const claim = await claimAndMarkScheduledCycle(db, kind, intervalMs, signature, { reason: 'scheduled' })
+  return claim.claimed === true
+}
+
+async function enqueueScheduledCycle1(intervalMs, _reason = 'scheduled') {
+  const config = periodicCycle1Config()
+  const signature = scheduledCycle1Signature(config)
+  if (await enqueueScheduledCycle('cycle1', intervalMs, signature)) {
+    scheduleScheduledCycle1(config, signature)
+  }
+}
+
+async function enqueueScheduledCycle2(intervalMs, _reason = 'scheduled') {
+  const config = mainConfig?.cycle2 || {}
+  const signature = scheduledCycle2Signature(config)
+  if (await enqueueScheduledCycle('cycle2', intervalMs, signature)) {
+    scheduleScheduledCycle2(config, signature)
+  }
+}
+
+async function enqueueScheduledCycle3(intervalMs, _reason = 'scheduled') {
+  const config = mainConfig || {}
+  const signature = scheduledCycle3Signature(config)
+  if (await enqueueScheduledCycle('cycle3', intervalMs, signature)) {
+    scheduleScheduledCycle3(config, signature)
+  }
+}
+
+function scheduleScheduledCycle1(config, signature, attempt = 0) {
+  const maxRetries = resolveCoalesceMaxRetries(config, 3)
+  if (attempt > maxRetries) {
+    __mixdogMemoryLog('[cycle1] scheduled queue retry cap reached\n')
+    return
+  }
+  scheduleCoalescedCycleRetry(db, 'cycle1', async () => {
+    if (_cycle1InFlight) {
+      scheduleScheduledCycle1(config, signature, attempt + 1)
+      return
+    }
+    const result = await _awaitCycle1Run(config, {
+      coalescedRetry: true,
+      onCoalescedSuccess: recordCycle1Result,
+    })
+    if (result?.skippedInFlight) scheduleScheduledCycle1(config, signature, attempt + 1)
+  }, config, signature)
+}
+
+function scheduleScheduledCycle2(config, signature, attempt = 0) {
+  const maxRetries = resolveCoalesceMaxRetries(config, 3)
+  if (attempt > maxRetries) {
+    __mixdogMemoryLog('[cycle2] scheduled queue retry cap reached\n')
+    return
+  }
+  scheduleCoalescedCycleRetry(db, 'cycle2', async () => {
+    if (_cycle2InFlight) {
+      scheduleScheduledCycle2(config, signature, attempt + 1)
+      return
+    }
+    _cycle2InFlight = true
+    try {
+      const result = await runCycle2(db, config, {
+        coalescedRetry: true,
+        onCoalescedSuccess: _finalizeCycle2Run,
+      }, DATA_DIR)
+      if (result?.skippedInFlight) {
+        scheduleScheduledCycle2(config, signature, attempt + 1)
+      } else if (result?.coalescedRetryNoop) {
+        __mixdogMemoryLog('[cycle2] scheduled queue noop\n')
+      } else if (result?.ok === false) {
+        await _finalizeCycle2Run(result)
+      }
+    } catch (err) {
+      __mixdogMemoryLog(`[cycle2] scheduled queue failed: ${err?.message || err}\n`)
+    } finally {
+      _cycle2InFlight = false
+    }
+  }, config, signature)
+}
+
+function scheduleScheduledCycle3(config, signature, attempt = 0) {
+  const retryConfig = config?.cycle3 || config
+  const maxRetries = resolveCoalesceMaxRetries(retryConfig, 3)
+  if (attempt > maxRetries) {
+    __mixdogMemoryLog('[cycle3] scheduled queue retry cap reached\n')
+    return
+  }
+  scheduleCoalescedCycleRetry(db, 'cycle3', async () => {
+    if (_cycle3InFlight) {
+      scheduleScheduledCycle3(config, signature, attempt + 1)
+      return
+    }
+    _cycle3InFlight = true
+    try {
+      const result = await runCycle3(db, config, DATA_DIR, {
+        coalescedRetry: true,
+        onCoalescedSuccess: () => setCycleLastRun('cycle3', Date.now()),
+      })
+      if (result?.skippedInFlight) {
+        scheduleScheduledCycle3(config, signature, attempt + 1)
+      } else if (result?.coalescedRetryNoop) {
+        __mixdogMemoryLog('[cycle3] scheduled queue noop\n')
+      }
+    } catch (err) {
+      __mixdogMemoryLog(`[cycle3] scheduled queue failed: ${err?.message || err}\n`)
+    } finally {
+      _cycle3InFlight = false
+    }
+  }, retryConfig, signature)
+}
+
 async function _finalizeCycle2Run(result) {
+  if (result?.skippedInFlight) {
+    __mixdogMemoryLog('[cycle2] skipped: in flight\n')
+    return
+  }
   if (result.ok) {
     await setCycleLastRun('cycle2', Date.now())
     await setCycleLastRun('cycle2_last_error', '')
@@ -1060,34 +1274,15 @@ async function checkCycles() {
   }
 
   if (now - last.cycle1 >= cycle1Ms) {
-    const result = await _awaitCycle1Run(periodicCycle1Config())
-    __mixdogMemoryLog(`[cycle1] completed chunks=${result?.chunks ?? 0} processed=${result?.processed ?? 0}\n`)
+    await enqueueScheduledCycle1(cycle1Ms, 'scheduled')
   }
 
   if (now - last.cycle2 >= cycle2Ms) {
-    if (!_cycle2InFlight) {
-      _cycle2InFlight = true
-      // Detached: cycle2 can take minutes; awaiting here would delay the
-      // next periodic checkCycles() tick and block sibling IPC (search,
-      // append) on the memory worker. The in-flight guard prevents
-      // concurrent runs; rejection is logged but does not propagate.
-      runCycle2(db, mainConfig?.cycle2 || {}, {}, DATA_DIR)
-        .then(_finalizeCycle2Run)
-        .catch(err => __mixdogMemoryLog(`[cycle2] detached run failed: ${err?.message || err}\n`))
-        .finally(() => { _cycle2InFlight = false })
-    }
+    await enqueueScheduledCycle2(cycle2Ms, 'scheduled')
   }
 
   if (now - last.cycle3 >= cycle3Ms) {
-    if (!_cycle3InFlight) {
-      _cycle3InFlight = true
-      // Detached like cycle2 — core review walks every core_entries row with a
-      // recall + LLM call per row, so it can take a while. 24h cadence default.
-      runCycle3(db, mainConfig || {}, DATA_DIR)
-        .then(() => setCycleLastRun('cycle3', Date.now()))
-        .catch(err => __mixdogMemoryLog(`[cycle3] detached run failed: ${err?.message || err}\n`))
-        .finally(() => { _cycle3InFlight = false })
-    }
+    await enqueueScheduledCycle3(cycle3Ms, 'scheduled')
   }
 }
 let _cycle2InFlight = false
@@ -1329,6 +1524,9 @@ async function handleSearch(args, signal) {
   // Cooperative abort check: throw early if the caller already aborted
   // (IPC cancel handler signals the AbortController before re-entry).
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')
+  if (args?.currentSession === true || args?.sessionId || args?.session_id) {
+    return await recallSessionRows(args)
+  }
   // id mode (follow-up lookup): caller passed `#N` markers from a prior
   // recall result. Fetch those rows directly + their chunk members,
   // bypassing hybrid search entirely. Output reuses renderEntryLines so
@@ -1679,6 +1877,93 @@ function renderEntryLines(rows) {
   }
   if (_capped) lines.push(`[recall truncated — showing first ${RECALL_LINE_CAP} lines; narrow the query (limit/period/projectScope) for the rest]`)
   return lines.join('\n')
+}
+
+async function dumpSessionRootChunks(args = {}) {
+  const sessionId = String(args.sessionId || args.session_id || '').trim()
+  if (!sessionId) return { text: '(no current session)', rows: [], chunks: [], isError: true }
+  const includeRaw = args.includeRaw !== false
+  const limit = Math.max(1, Math.min(1000, Number(args.limit) || 1000))
+  const rootRows = (await db.query(`
+    SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
+           element, category, summary, status, score, last_seen_at, project_id
+    FROM entries
+    WHERE session_id = $1 AND is_root = 1
+    ORDER BY COALESCE(source_turn, 2147483647) ASC, ts ASC, id ASC
+    LIMIT $2
+  `, [sessionId, limit])).rows
+  const roots = rootRows.map((r) => ({ ...r, members: [] }))
+  const rootIds = roots.map((r) => Number(r.id)).filter((id) => Number.isFinite(id))
+  const memberRows = rootIds.length > 0
+    ? (await db.query(`
+        SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root, project_id
+        FROM entries
+        WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
+        ORDER BY chunk_root ASC, COALESCE(source_turn, 2147483647) ASC, ts ASC, id ASC
+      `, [rootIds])).rows
+    : []
+  const byRoot = new Map(roots.map((r) => [Number(r.id), r]))
+  for (const m of memberRows) {
+    const root = byRoot.get(Number(m.chunk_root))
+    if (root) root.members.push(m)
+  }
+  let rawRows = []
+  if (includeRaw) {
+    rawRows = (await db.query(`
+      SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root, project_id
+      FROM entries
+      WHERE session_id = $1
+        AND is_root = 0
+        AND (chunk_root IS NULL OR chunk_root = id)
+      ORDER BY COALESCE(source_turn, 2147483647) ASC, ts ASC, id ASC
+      LIMIT $2
+    `, [sessionId, limit])).rows
+  }
+  const chunks = []
+  for (const root of roots) {
+    const memberText = root.members
+      .map((m) => `${m.role === 'assistant' ? 'assistant' : m.role === 'user' ? 'user' : m.role}: ${cleanMemoryText(String(m.content ?? ''))}`)
+      .filter(Boolean)
+      .join('\n')
+    const summary = [root.element, root.summary].map((v) => String(v || '').trim()).filter(Boolean).join(' — ')
+    chunks.push({
+      id: Number(root.id),
+      kind: 'root',
+      ts: Number(root.ts) || 0,
+      sourceTurn: root.source_turn ?? null,
+      category: root.category || null,
+      summary,
+      text: memberText || cleanMemoryText(String(root.content ?? '')),
+      members: root.members,
+    })
+  }
+  for (const raw of rawRows) {
+    chunks.push({
+      id: Number(raw.id),
+      kind: 'raw',
+      ts: Number(raw.ts) || 0,
+      sourceTurn: raw.source_turn ?? null,
+      category: null,
+      summary: '',
+      text: `${raw.role === 'assistant' ? 'assistant' : raw.role === 'user' ? 'user' : raw.role}: ${cleanMemoryText(String(raw.content ?? ''))}`,
+      members: [],
+    })
+  }
+  chunks.sort((a, b) => {
+    const at = Number.isFinite(Number(a.sourceTurn)) ? Number(a.sourceTurn) : 2147483647
+    const bt = Number.isFinite(Number(b.sourceTurn)) ? Number(b.sourceTurn) : 2147483647
+    return (at - bt) || ((a.ts || 0) - (b.ts || 0)) || ((a.id || 0) - (b.id || 0))
+  })
+  const text = chunks.length
+    ? chunks.map((chunk, idx) => {
+        const label = chunk.kind === 'root'
+          ? `# chunk ${idx + 1} root=${chunk.id}${chunk.category ? ` category=${chunk.category}` : ''}`
+          : `# raw ${idx + 1} id=${chunk.id}`
+        const summary = chunk.summary ? `summary: ${chunk.summary}\n` : ''
+        return `${label}\n${summary}${chunk.text}`.trim()
+      }).join('\n\n')
+    : '(no results)'
+  return { text, rows: [...roots, ...rawRows], chunks }
 }
 
 async function entryStats() {
@@ -2039,6 +2324,14 @@ async function handleMemoryAction(args, signal) {
 
   if (action === 'backfill') {
     return _handleMemBackfill(args, config, signal)
+  }
+
+  if (action === 'ingest_session') {
+    return ingestSessionMessages(args)
+  }
+
+  if (action === 'dump_session_roots') {
+    return dumpSessionRootChunks(args)
   }
 
   if (action === 'manage') {
@@ -2416,6 +2709,9 @@ async function handleToolCall(name, args, signal) {
         ...(a.includeRaw !== undefined ? { includeRaw: a.includeRaw } : {}),
         ...(a.cwd ? { cwd: a.cwd } : {}),
         ...(a.projectScope ? { projectScope: a.projectScope } : {}),
+        ...(a.sessionId ? { sessionId: a.sessionId } : {}),
+        ...(a.session_id ? { session_id: a.session_id } : {}),
+        ...(a.currentSession !== undefined ? { currentSession: a.currentSession } : {}),
       }
       const result = await handleSearch(searchArgs, signal)
       return { content: [{ type: 'text', text: result.text }], isError: result.isError || false }
@@ -3249,23 +3545,69 @@ export async function init() {
 }
 
 export async function stop() {
-  _stopCycles()
-  await stopLlmWorker()
-  if (httpServer) await new Promise(resolve => httpServer.close(resolve))
-  await closeDatabase(DATA_DIR)
-  // Stop the PG postmaster after the connection pool has been drained.
-  // closeDatabase() only ends the client pool; without this the child
-  // postmaster keeps running after the memory service exits.
-  try {
-    const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs')
-    await stopPgForShutdown()
-  } catch {}
-  releaseLock()
+  if (_stopPromise) return _stopPromise
+  _stopPromise = (async () => {
+    _stopCycles()
+    if (_periodicAdvertiseTimer) {
+      try { clearInterval(_periodicAdvertiseTimer) } catch {}
+      _periodicAdvertiseTimer = null
+    }
+    _periodicAdvertiseInstalled = false
+    _currentAdvertisedPort = null
+    _pendingEmbeddingWarmup = null
+    await stopLlmWorker()
+    resetHttpListenErrorHandler()
+    if (_httpBoundPort != null || _httpReadyPromise) {
+      await new Promise(resolve => {
+        try {
+          httpServer.close(() => resolve())
+        } catch {
+          resolve()
+        }
+      })
+    }
+    _httpReadyPromise = null
+    _httpBoundPort = null
+    activePort = BASE_PORT
+    if (_traceDb) {
+      try { await closeTraceDatabase(DATA_DIR) } catch {}
+      _traceDb = null
+    }
+    await closeDatabase(DATA_DIR)
+    // Stop the PG postmaster after the connection pools have been drained.
+    // closeDatabase() only ends the client pool; without this the child
+    // postmaster keeps running after the memory service exits.
+    try {
+      const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs')
+      await stopPgForShutdown()
+    } catch {}
+    db = null
+    mainConfig = null
+    _initialized = false
+    _initPromise = null
+    _bootTimestamp = null
+    _transcriptOffsets = new Map()
+    _cycle1InFlight = null
+    _cycle2InFlight = false
+    _cycle3InFlight = false
+    _checkCyclesInFlight = false
+    releaseLock()
+  })().finally(() => {
+    _stopPromise = null
+  })
+  return _stopPromise
 }
 
 let activePort = BASE_PORT
 let _httpReadyPromise = null
 let _httpBoundPort = null
+let _httpListenErrorHandler = null
+
+function resetHttpListenErrorHandler() {
+  if (!_httpListenErrorHandler) return
+  try { httpServer.off('error', _httpListenErrorHandler) } catch {}
+  _httpListenErrorHandler = null
+}
 
 function _startHttpServer() {
   if (_httpBoundPort != null) return Promise.resolve(_httpBoundPort)
@@ -3280,7 +3622,11 @@ function _startHttpServer() {
         resolve(boundPort)
       })
     }
-    httpServer.on('error', (err) => {
+    _httpListenErrorHandler = (err) => {
+      if (_httpBoundPort != null) {
+        __mixdogMemoryLog(`[memory-service] HTTP error: ${err?.message || err}\n`)
+        return
+      }
       if (err.code === 'EADDRINUSE' && activePort < MAX_PORT) {
         activePort++
         tryListen()
@@ -3290,9 +3636,11 @@ function _startHttpServer() {
         tryListen()
       } else {
         __mixdogMemoryLog(`[memory-service] HTTP fatal: ${err.message}\n`)
+        resetHttpListenErrorHandler()
         reject(err)
       }
-    })
+    }
+    httpServer.on('error', _httpListenErrorHandler)
     tryListen()
   })
   return _httpReadyPromise

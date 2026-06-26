@@ -142,6 +142,21 @@ function extractCompatCachedTokens(usage) {
     return 0;
 }
 
+function positiveTokenInt(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function resolveCompatMaxOutputTokens(opts = {}) {
+    return positiveTokenInt(
+        opts.maxOutputTokens
+        ?? opts.outputTokens
+        ?? opts.max_output_tokens
+        ?? opts.maxTokens
+        ?? opts.max_tokens,
+    );
+}
+
 function xaiPrefixSeed({ opts, params, rawTools, model }) {
     const providerKey = resolveProviderCacheKey(opts, 'xai');
     const systemMessages = (params?.messages || [])
@@ -1148,6 +1163,8 @@ export class OpenAICompatProvider {
             model: useModel,
             messages: toOpenAIMessages(messages, this.name, { replaysReasoningContent }),
         };
+        const maxOutputTokens = resolveCompatMaxOutputTokens(opts);
+        if (maxOutputTokens) params.max_tokens = maxOutputTokens;
         if (tools?.length) {
             params.tools = toOpenAITools(tools);
         }

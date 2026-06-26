@@ -1,12 +1,12 @@
-// Post-edit advisory marks: one-shot sidecar on the next read after a write.
+// Post-patch advisory marks: one-shot sidecar on the next read after a patch.
 import { _normalizeAbs } from './util.mjs';
 
 // sessionId -> Map<absPath, { ts, toolName }>
 const _postEditBySession = new Map();
 
 /**
- * Mark `path` as just-edited for `sessionId`. Caller invokes this after a
- * successful write/edit/apply_patch so the next read on the same path can
+ * Mark `path` as just-patched for `sessionId`. Caller invokes this after a
+ * successful apply_patch so the next read on the same path can
  * receive a one-shot advisory sidecar.
  */
 export function markPostEdit({ sessionId, path, cwd, toolName }) {
@@ -15,7 +15,7 @@ export function markPostEdit({ sessionId, path, cwd, toolName }) {
     if (!abs) return;
     let m = _postEditBySession.get(sessionId);
     if (!m) { m = new Map(); _postEditBySession.set(sessionId, m); }
-    m.set(abs, { ts: Date.now(), toolName: String(toolName || 'edit') });
+    m.set(abs, { ts: Date.now(), toolName: String(toolName || 'apply_patch') });
 }
 
 /**

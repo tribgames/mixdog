@@ -50,6 +50,13 @@ function normalizeInput(text) {
   return String(text ?? '').replace(/\r\n?/g, '\n');
 }
 
+function singleTrailingLineBreakPrefix(text) {
+  const normalized = normalizeInput(text);
+  if (!normalized.endsWith('\n')) return null;
+  const prefix = normalized.slice(0, -1);
+  return prefix.includes('\n') ? null : prefix;
+}
+
 export function TextEntryPanel({
   title,
   hint = '',
@@ -120,6 +127,17 @@ export function TextEntryPanel({
     }
   };
 
+  const submitEnterChunk = (prefix = '') => {
+    const current = draftRef.current;
+    const next = prefix ? insertText(current, prefix) : current;
+    const accepted = onSubmit?.(next.value) !== false;
+    if (accepted) {
+      commitDraft({ value: '', cursor: 0, selectionAnchor: null });
+    } else if (next !== current) {
+      commitDraft(next);
+    }
+  };
+
   usePaste((text) => {
     const pasted = normalizeInput(text);
     if (!pasted) return;
@@ -138,9 +156,18 @@ export function TextEntryPanel({
       onCancel?.();
       return;
     }
-    const pasteFallback = rawInput.includes('\n') && (rawInput.length > 1 || !key.return);
+    const trailingEnterPrefix = singleTrailingLineBreakPrefix(rawInput);
+    const pasteFallback = rawInput.includes('\n') && trailingEnterPrefix === null && (rawInput.length > 1 || !key.return);
     if (pasteFallback) {
       updateDraft((d) => insertText(d, rawInput));
+      return;
+    }
+    if (trailingEnterPrefix !== null) {
+      if (key.shift || key.meta) {
+        updateDraft((d) => insertText(d, `${trailingEnterPrefix}\n`));
+        return;
+      }
+      submitEnterChunk(trailingEnterPrefix);
       return;
     }
     if (key.return || rawInput === '\n') {

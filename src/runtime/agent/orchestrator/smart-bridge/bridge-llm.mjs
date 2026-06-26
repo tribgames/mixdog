@@ -142,6 +142,7 @@ export function resolvePresetName({ preset, optsPreset, role, config: cfgIn = nu
  * @param {string} [opts.taskType]  — optional internal classification stamped on the session
  * @param {string} [opts.preset]    — explicit preset override (bypasses role → preset lookup)
  * @param {string} [opts.parentSessionId] — parent bridge session for trace aggregation
+ * @param {string|null} [opts.ownerSessionId] — owning Mixdog session for statusline isolation
  * @param {AbortSignal} [opts.parentSignal] — optional AbortSignal from the fan-out coordinator;
  *   when aborted the bridge role session's own controller is also aborted so the
  *   provider call tears down promptly (parent→child cascade).
@@ -229,6 +230,7 @@ export function makeBridgeLlm(opts = {}) {
             sourceType: opts.sourceType,
             sourceName: sourceNameArg || opts.sourceName,
             parentSessionId: opts.parentSessionId || null,
+            ownerSessionId: opts.ownerSessionId === undefined ? (opts.parentSessionId || null) : opts.ownerSessionId,
             clientHostPid: opts.clientHostPid,
             skipRoleReminder: isPoolC,
             schemaAllowedTools: resolveHiddenRoleSchemaAllowedTools(hidden),

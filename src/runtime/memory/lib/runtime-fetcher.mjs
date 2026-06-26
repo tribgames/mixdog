@@ -37,6 +37,7 @@ const BUNDLED_MANIFEST_PATH = fileURLToPath(new URL('../data/runtime-manifest.js
 
 // GitHub raw URL fallback — used only when no cached or bundled manifest exists.
 const MANIFEST_URL = 'https://raw.githubusercontent.com/tribgames/mixdog/main/src/runtime/memory/data/runtime-manifest.json'
+const LEGACY_RUNTIME_RELEASE_REPOSITORY = 'trib-plugin/mixdog'
 
 // ---------------------------------------------------------------------------
 // Platform key
@@ -152,6 +153,26 @@ async function downloadWithRetry(url, destPath) {
     }
   }
   throw lastErr
+}
+
+function runtimeAssetUrlCandidates(url) {
+  const value = String(url || '')
+  const out = []
+  const add = (candidate) => {
+    if (candidate && !out.includes(candidate)) out.push(candidate)
+  }
+  add(value)
+  const match = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/releases\/download\//i.exec(value)
+  if (!match) return out
+  const releaseRepo = match[1]
+  const overrides = String(process.env.MIXDOG_RUNTIME_RELEASE_REPOSITORY || process.env.RUNTIME_RELEASE_REPOSITORY || '')
+    .split(/[\s,;]+/u)
+    .map((repo) => repo.trim())
+    .filter(Boolean)
+  for (const repo of [...overrides, LEGACY_RUNTIME_RELEASE_REPOSITORY]) {
+    if (repo && repo !== releaseRepo) add(value.replace(`/github.com/${releaseRepo}/`, `/github.com/${repo}/`))
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -412,10 +433,23 @@ export async function ensureRuntime(dataDir) {
   const stagingLock = acquireStagingLock(stagingDir)
   try {
     let downloadOk = false
+    let lastDownloadErr = null
     try {
-      await downloadWithRetry(url, tarPath)
-      await verifySha256(tarPath, sha256)
-      downloadOk = true
+      for (const candidateUrl of runtimeAssetUrlCandidates(url)) {
+        try {
+          if (candidateUrl !== url) {
+            __mixdogMemoryLog(`[runtime-fetcher] retrying runtime download from fallback release repo — ${candidateUrl}\n`)
+          }
+          await downloadWithRetry(candidateUrl, tarPath)
+          await verifySha256(tarPath, sha256)
+          downloadOk = true
+          break
+        } catch (err) {
+          lastDownloadErr = err
+          try { rmSync(tarPath, { force: true }) } catch {}
+        }
+      }
+      if (!downloadOk && lastDownloadErr) throw lastDownloadErr
       extractTarGz(tarPath, stagingDir, stagingDir)
     } finally {
       try { rmSync(tarPath, { force: true }) } catch {}

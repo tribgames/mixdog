@@ -144,6 +144,7 @@ const FAILED_NOTICE_ACTIONS = new Map([
   ['model switch', 'switch model'],
   ['oauth code', 'finish OAuth login'],
   ['oauth login', 'start OAuth login'],
+  ['output style switch', 'switch output style'],
   ['OpenAI usage auth save', 'save OpenAI usage auth'],
   ['OpenCode Go usage auth save', 'save OpenCode Go usage auth'],
   ['plugin add', 'add plugin'],
@@ -432,8 +433,6 @@ function parseToolArgs(args) {
   return typeof args === 'object' ? args : {};
 }
 
-const BRIDGE_JOB_POLL_MS = 2000;
-const BRIDGE_JOB_MAX_POLL_MS = 10 * 60_000;
 const yieldToRenderer = () => new Promise((resolve) => setImmediate(resolve));
 
 function parseBridgeJob(text) {
@@ -469,7 +468,7 @@ function queuePriorityValue(value) {
 }
 
 function defaultQueuePriority(mode) {
-  return mode === 'task-notification' ? 'later' : 'next';
+  return mode === 'task-notification' ? 'next' : 'later';
 }
 
 function isQueuedEntryEditable(entry) {
@@ -623,6 +622,7 @@ export async function createEngineSession({
     rawContextWindow: runtime.rawContextWindow,
     effectiveContextWindowPercent: runtime.effectiveContextWindowPercent,
     cwd: runtime.cwd || process.cwd(),
+    systemShell: runtime.systemShell || { source: 'auto', command: '', effective: '' },
     autoClear: autoClearState(),
     workflow: runtime.workflow || null,
   });
@@ -656,10 +656,14 @@ export async function createEngineSession({
   const syncContextStats = ({ allowEstimated = false } = {}) => {
     const ctx = runtime.contextStatus?.() || null;
     const hasProviderUsage = Number(state.stats.latestPromptTokens || state.stats.latestInputTokens || state.stats.inputTokens || 0) > 0;
-    const used = Number(ctx?.usedTokens || ctx?.currentEstimatedTokens || 0);
+    const lastApiTokens = Number(ctx?.lastApiRequestStale ? 0 : (ctx?.lastApiRequestTokens || ctx?.usage?.lastContextTokens || 0));
+    const estimatedTokens = Number(ctx?.currentEstimatedTokens || 0);
+    const used = lastApiTokens;
     if (!allowEstimated && !hasProviderUsage && ctx?.usedSource !== 'last_api_request') return ctx;
-    if (Number.isFinite(used) && (used > 0 || allowEstimated)) state.stats.currentContextTokens = Math.max(0, used);
-    state.stats.currentContextSource = ctx?.usedSource || null;
+    if (Number.isFinite(used) && used > 0) state.stats.currentContextTokens = Math.max(0, used);
+    else state.stats.currentContextTokens = 0;
+    state.stats.currentEstimatedContextTokens = Number.isFinite(estimatedTokens) ? Math.max(0, estimatedTokens) : 0;
+    state.stats.currentContextSource = used > 0 ? 'last_api_request' : (estimatedTokens > 0 ? 'estimated' : null);
     state.stats.currentContextUpdatedAt = Date.now();
     return ctx;
   };
@@ -668,7 +672,20 @@ export async function createEngineSession({
   bootProfile('engine:context-ready', { ms: (performance.now() - contextStartedAt).toFixed(1) });
   const listeners = new Set();
   const emit = () => { for (const l of listeners) l(); };
-  const set = (patch) => { state = { ...state, ...patch }; emit(); };
+  const set = (patch) => {
+    if (!patch || typeof patch !== 'object') return false;
+    let changed = false;
+    for (const [key, value] of Object.entries(patch)) {
+      if (!Object.is(state[key], value)) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) return false;
+    state = { ...state, ...patch };
+    emit();
+    return true;
+  };
 
   const itemIndexById = new Map();
   const replaceItems = (items) => {
@@ -719,7 +736,7 @@ export async function createEngineSession({
       completedAt: Date.now(),
     });
   };
-  const pushToast = (text, tone = 'info', ttlMs = 3200) => {
+  const pushToast = (text, tone = 'info', ttlMs = 3000) => {
     const id = nextId();
     const value = String(text ?? '').trim();
     if (!value) return null;
@@ -737,11 +754,7 @@ export async function createEngineSession({
     const value = polishNoticeText(text);
     if (!value) return null;
     const forceTranscript = options.transcript === true;
-    const forceToast = options.toast === true;
-    const shortEnough = value.length <= 180 && !value.includes('\n');
-    if ((forceToast || shortEnough) && !forceTranscript) {
-      return pushToast(value, tone, options.ttlMs);
-    }
+    if (!forceTranscript) return pushToast(value, tone, options.ttlMs);
     const id = nextId();
     pushItem({ kind: 'notice', id, text: value, tone });
     return id;
@@ -767,7 +780,6 @@ export async function createEngineSession({
     set({ items });
     return true;
   };
-  const bridgeJobMonitors = new Map();
   const toastTimers = new Set();
   let disposed = false;
 
@@ -783,17 +795,6 @@ export async function createEngineSession({
   let autoClearRunning = false;
   const pendingNotificationKeys = new Set();
 
-  function clearBridgeJobMonitor(taskId) {
-    const monitor = bridgeJobMonitors.get(taskId);
-    if (!monitor) return;
-    if (monitor.timer) clearTimeout(monitor.timer);
-    bridgeJobMonitors.delete(taskId);
-  }
-
-  function clearBridgeJobMonitors() {
-    for (const taskId of [...bridgeJobMonitors.keys()]) clearBridgeJobMonitor(taskId);
-  }
-
   function updateBridgeJobCard(itemId, text, isError = false) {
     const parsed = parseBridgeJob(text);
     const current = state.items.find((it) => it.id === itemId);
@@ -806,63 +807,6 @@ export async function createEngineSession({
       errorCount: isError ? 1 : 0,
       ...(parsed ? { args: bridgeArgsWithResultMetadata(current?.args, parsed) } : {}),
     });
-    if (!parsed?.taskId) return;
-    if (parsed.status && parsed.status !== 'running') {
-      clearBridgeJobMonitor(parsed.taskId);
-      return;
-    }
-    watchBridgeJob(parsed.taskId, itemId);
-  }
-
-  function watchBridgeJob(taskId, itemId) {
-    if (!taskId || disposed) return;
-    const existing = bridgeJobMonitors.get(taskId);
-    if (existing) {
-      existing.itemId = itemId;
-      return;
-    }
-    const monitor = { itemId, startedAt: Date.now(), timer: null };
-    bridgeJobMonitors.set(taskId, monitor);
-
-    const poll = async () => {
-      if (disposed || !bridgeJobMonitors.has(taskId)) return;
-      if (Date.now() - monitor.startedAt > BRIDGE_JOB_MAX_POLL_MS) {
-        clearBridgeJobMonitor(taskId);
-        return;
-      }
-      try {
-        const text = String(await runtime.bridgeControl({ type: 'read', task_id: taskId }) || '').trim();
-        const parsed = parseBridgeJob(text);
-        const nextText = text || '(empty bridge result)';
-        const rawDisplayText = bridgeJobResultText(nextText, parsed) || nextText;
-        const isError = /^(failed|error|timeout|cancelled|killed)$/i.test(parsed?.status || '') || /^error:/i.test(text);
-        const displayText = isError ? toolErrorDisplay(rawDisplayText, 'bridge') : rawDisplayText;
-        const current = state.items.find((it) => it.id === monitor.itemId);
-        patchItem(monitor.itemId, {
-          result: displayText,
-          text: displayText,
-          isError,
-          errorCount: isError ? 1 : 0,
-          ...(parsed ? { args: bridgeArgsWithResultMetadata(current?.args, parsed) } : {}),
-        });
-        set(bridgeStatusState({ force: true }));
-        if (!parsed || parsed.status !== 'running') {
-          clearBridgeJobMonitor(taskId);
-          return;
-        }
-      } catch (error) {
-        const errorText = toolErrorDisplay(error, 'bridge');
-        patchItem(monitor.itemId, { result: errorText, text: errorText, isError: true, errorCount: 1 });
-        set(bridgeStatusState({ force: true }));
-        clearBridgeJobMonitor(taskId);
-        return;
-      }
-      monitor.timer = setTimeout(poll, BRIDGE_JOB_POLL_MS);
-      monitor.timer.unref?.();
-    };
-
-    monitor.timer = setTimeout(poll, 0);
-    monitor.timer.unref?.();
   }
 
   if (typeof runtime.onNotification === 'function') {
@@ -880,15 +824,14 @@ export async function createEngineSession({
         });
         if (existing) {
           updateBridgeJobCard(existing.id, text, /^(failed|error|timeout|cancelled|killed)$/i.test(parsed.status));
-          set(bridgeStatusState({ force: true }));
         }
+        set(bridgeStatusState({ force: true }));
       }
       enqueue(text, {
         mode: 'task-notification',
-        priority: 'later',
+        priority: 'next',
         key: notificationKey || undefined,
       });
-      set(bridgeStatusState({ force: true }));
     });
   }
 
@@ -922,14 +865,6 @@ export async function createEngineSession({
       if (/^(Error|\[?error|FAIL\b)/i.test(trimmed)) return trimmed;
     }
     return String(text || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
-  }
-
-  function aggregateCompletionText(completed, total, { running = false } = {}) {
-    const count = Math.max(0, Number(total || 0));
-    const doneCount = Math.max(0, Math.min(count, Number(completed || 0)));
-    if (count <= 0) return '';
-    if (running && doneCount < count) return `Running ${doneCount}/${count}`;
-    return '';
   }
 
   function aggregateRawResult(calls) {
@@ -1005,7 +940,7 @@ export async function createEngineSession({
         const succeeded = completed - errors;
         detailText = succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`;
       } else {
-        detailText = formatAggregateDetail(summaries) || aggregateCompletionText(completed, allCalls.length, { running: completed < allCalls.length });
+        detailText = formatAggregateDetail(summaries) || '';
       }
       const currentItem = state.items.find((it) => it.id === card.itemId);
       const visualCompleted = Math.max(completed, Math.min(allCalls.length, Number(currentItem?.completedCount || 0)));
@@ -1043,7 +978,10 @@ export async function createEngineSession({
     };
     if (group.count <= 1) {
       const parsedBridge = parseBridgeJob(rawText);
-      if (parsedBridge) patch.args = bridgeArgsWithResultMetadata(state.items.find((it) => it.id === card.itemId)?.args, parsedBridge);
+      if (parsedBridge) {
+        patch.args = bridgeArgsWithResultMetadata(state.items.find((it) => it.id === card.itemId)?.args, parsedBridge);
+        set(bridgeStatusState({ force: true }));
+      }
     }
     patchItem(card.itemId, patch);
     if (group.count <= 1) updateBridgeJobCard(card.itemId, rawText, isError);
@@ -1092,7 +1030,7 @@ export async function createEngineSession({
         const totalCompleted = remaining > 0 ? completed + remaining : completed;
         const errors = allCalls.filter((r) => r.isError).length;
         const summaries = aggregateSummaries(aggregate);
-        const detailText = formatAggregateDetail(summaries) || aggregateCompletionText(totalCompleted, allCalls.length);
+        const detailText = formatAggregateDetail(summaries) || '';
         const rawResult = aggregateRawResult(allCalls);
         patchItem(card.itemId, {
           result: detailText,
@@ -1196,7 +1134,7 @@ export async function createEngineSession({
         if (allCalls.length === 0) continue;
         const errors = allCalls.filter((r) => r.isError).length;
         const summaries = aggregateSummaries(aggregate);
-        const detailText = formatAggregateDetail(summaries) || aggregateCompletionText(allCalls.length, allCalls.length);
+        const detailText = formatAggregateDetail(summaries) || '';
         const rawResult = aggregateRawResult(allCalls);
         patchItem(aggregate.itemId, {
           result: detailText,
@@ -1509,7 +1447,7 @@ export async function createEngineSession({
         finalizeToolHeaders();
       } else {
         finalizeToolHeaders();
-        pushItem({ kind: 'notice', id: nextId(), text: toolErrorDisplay(error, 'turn'), tone: 'error' });
+        pushNotice(toolErrorDisplay(error, 'turn'), 'error');
       }
     } finally {
       const reclaimed = cancelled && activePromptRestore?.reclaimed === true;
@@ -1547,7 +1485,7 @@ export async function createEngineSession({
         stats: { ...state.stats },
         ...routeState(),
         toolMode: runtime.toolMode,
-        ...bridgeStatusState(),
+        ...bridgeStatusState({ force: true }),
       });
     }
     return cancelled ? 'cancelled' : 'done';
@@ -1781,10 +1719,11 @@ export async function createEngineSession({
       const t = promptDisplayText(text, options).trim();
       if (!t || state.commandBusy) return false;
       const mode = options.mode || 'prompt';
-      // Plain text entered while a turn is busy is a follow-up by default:
-      // keep it in the visible queue until the current turn ends. Callers that
-      // really want mid-turn steering can still opt in with priority: 'next'.
-      const priority = options.priority ?? (state.busy && mode === 'prompt' ? 'later' : undefined);
+      // Plain user input entered while a turn is busy is a post-turn follow-up
+      // by default, so it lands after any auto-compact/save boundary instead of
+      // being swallowed as mid-turn steering. Task notifications still opt into
+      // priority: 'next' and are injected at the next tool boundary.
+      const priority = options.priority;
       const queueOptions = {
         ...options,
         mode,
@@ -1914,6 +1853,15 @@ export async function createEngineSession({
       const next = runtime.setCwd(path);
       set({ cwd: next });
       pushNotice(`cwd -> ${next}`, 'info');
+      return next;
+    },
+    getSystemShell: () => {
+      return runtime.getSystemShell?.() || runtime.systemShell || { source: 'auto', command: '', effective: '' };
+    },
+    setSystemShell: (command) => {
+      const next = runtime.setSystemShell?.(command) || { source: 'auto', command: '', effective: '' };
+      set({ ...routeState(), systemShell: next });
+      pushNotice(`system shell -> ${next.effective || 'auto'}`, 'info');
       return next;
     },
     mcpStatus: () => {
@@ -2101,9 +2049,7 @@ export async function createEngineSession({
       try {
         const result = await runtime.memoryControl(args);
         const text = String(result || '').trim() || '(empty memory result)';
-        if (!options.silent) {
-          pushItem({ kind: 'notice', id: nextId(), text, tone: 'info' });
-        }
+        if (!options.silent) pushNotice(text, 'info');
         return result;
       } finally {
         set({ commandBusy: false });
@@ -2111,22 +2057,27 @@ export async function createEngineSession({
     },
     recall: async (query, args = {}) => {
       if (state.commandBusy) return null;
-      set({ commandBusy: true });
+      const startedAt = Date.now();
+      set({ commandBusy: true, commandStatus: { active: true, verb: 'Recalling memory', startedAt, mode: 'recalling' } });
       try {
         const result = await runtime.recall(query, args);
-        pushItem({ kind: 'notice', id: nextId(), text: String(result || '').trim() || '(empty recall result)', tone: 'info' });
+        pushNotice(String(result || '').trim() || '(empty recall result)', 'info');
         return result;
       } finally {
-        set({ commandBusy: false });
+        set({ commandBusy: false, commandStatus: null });
       }
     },
     compact: async () => {
       if (state.commandBusy) return null;
-      set({ commandBusy: true, commandStatus: { active: true, verb: 'Compacting conversation', startedAt: Date.now(), mode: 'compacting' } });
+      const startedAt = Date.now();
+      set({ commandBusy: true, commandStatus: { active: true, verb: 'Compacting conversation', startedAt, mode: 'compacting' } });
       try {
-        const result = await runtime.compact();
+        const result = await runtime.compact({ recoverBridge: true });
         syncContextStats({ allowEstimated: true });
         set({ ...routeState(), stats: { ...state.stats } });
+        if (result) {
+          pushItem({ kind: 'turndone', id: nextId(), elapsedMs: Date.now() - startedAt, status: 'done', outputTokens: 0, thinkingElapsedMs: 0, verb: 'Compacted' });
+        }
         return result;
       } finally {
         set({ commandBusy: false, commandStatus: null });
@@ -2171,6 +2122,24 @@ export async function createEngineSession({
     },
     listWorkflows: () => {
       return runtime.listWorkflows?.() || [];
+    },
+    getOutputStyle: () => {
+      return runtime.getOutputStyle?.() || runtime.listOutputStyles?.() || null;
+    },
+    listOutputStyles: () => {
+      return runtime.listOutputStyles?.() || runtime.getOutputStyle?.() || { styles: [], current: null, configured: 'default' };
+    },
+    setOutputStyle: async (styleId) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.setOutputStyle?.(styleId);
+        resetStatsAndSyncContext();
+        set({ ...routeState(), stats: { ...state.stats } });
+        return result;
+      } finally {
+        set({ commandBusy: false });
+      }
     },
     setWorkflow: async (workflowId) => {
       if (state.commandBusy) return null;
@@ -2347,7 +2316,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       clearToastTimers();
       try {
-        await runtime.clear();
+        await runtime.clear({ recoverBridge: true });
         resetStatsAndSyncContext();
         set({ items: replaceItems([]), toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, ...routeState(), stats: { ...state.stats } });
         lastUserActivityAt = Date.now();
@@ -2438,7 +2407,6 @@ export async function createEngineSession({
       clearToastTimers();
       try { unsubscribeRuntimeNotifications?.(); } catch {}
       unsubscribeRuntimeNotifications = null;
-      clearBridgeJobMonitors();
       await runtime.close(reason, options);
       listeners.clear();
     },

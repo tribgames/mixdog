@@ -221,6 +221,7 @@ async function runExploreSync(args = {}, ctx = {}) {
       cwd: resolvedCwd,
       brief: true,
       parentSessionId: ctx.callerSessionId || null,
+      clientHostPid: ctx.clientHostPid || null,
     });
     return llm({ prompt: buildExplorerPrompt(q) });
   }));

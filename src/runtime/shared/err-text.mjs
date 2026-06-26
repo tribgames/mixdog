@@ -75,6 +75,13 @@ export function presentErrorText(error, options = {}) {
   text = oneLine(stripErrorPrefix(text));
   if (!text) return 'Unknown error';
 
+  if (/\bBRIDGE_CONTEXT_OVERFLOW\b|bridge context overflow|latest turn cannot fit|context budget|context window/i.test(text)) {
+    return 'Context too large.';
+  }
+  if (/\bcompact(?:ion)?\b.*\b(?:failed|error|overflow)\b|\b(?:failed|error)\b.*\bcompact(?:ion)?\b/i.test(text)) {
+    return 'Compact failed.';
+  }
+
   const firstResponse = /(?:bridge\s+)?first response stale\s*\((\d+)ms\)/i.exec(text);
   if (firstResponse) {
     return `No first response from the ${subject} within ${formatDurationMs(firstResponse[1])}.`;

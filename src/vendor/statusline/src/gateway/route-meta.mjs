@@ -123,7 +123,7 @@ function effectiveContextWindow(rawContextWindow, percent) {
   return Math.max(1, Math.floor(raw * pct / 100));
 }
 
-function autoCompactTokenLimit(provider, rawContextWindow, info = {}, seed = {}) {
+function autoCompactTokenLimit(provider, rawContextWindow, contextWindow, info = {}, seed = {}) {
   const explicit = num(
     seed.autoCompactTokenLimit
       ?? seed.auto_compact_token_limit
@@ -131,10 +131,7 @@ function autoCompactTokenLimit(provider, rawContextWindow, info = {}, seed = {})
       ?? info.auto_compact_token_limit,
     0,
   );
-  const raw = num(rawContextWindow, 0);
-  const derived = raw > 0
-    ? Math.floor(raw * 9 / 10)
-    : 0;
+  const derived = num(contextWindow, 0) || num(rawContextWindow, 0);
   if (explicit > 0 && derived > 0) return Math.min(explicit, derived);
   if (explicit > 0) return explicit;
   return derived > 0 ? derived : null;
@@ -295,7 +292,7 @@ export function readGatewayRouteInfo(seed = {}, providerObj = null) {
     || num(seed.contextWindow, 0);
   const effectivePercent = effectiveContextWindowPercent(provider, info, seed);
   const contextWindow = effectiveContextWindow(rawContextWindow, effectivePercent);
-  const compactLimit = autoCompactTokenLimit(provider, rawContextWindow, info, seed);
+  const compactLimit = autoCompactTokenLimit(provider, rawContextWindow, contextWindow, info, seed);
   const outputTokens = num(info?.outputTokens ?? info?.maxOutputTokens ?? info?.max_output_tokens, 0);
 
   return {
@@ -408,7 +405,12 @@ function usageCostUsd(routeInfo, usage) {
 }
 
 function contextUsageBoundary(routeInfo, compact = null) {
-  return compactBoundaryForRoute(routeInfo, compact);
+  const contextWindow = num(routeInfo?.contextWindow ?? compact?.contextWindow, 0);
+  const budgetWindow = num(compact?.budgetWindow, 0);
+  const rawContextWindow = num(routeInfo?.rawContextWindow ?? compact?.rawContextWindow, 0);
+  if (contextWindow > 0) return contextWindow;
+  if (budgetWindow > 0) return budgetWindow;
+  return rawContextWindow > 0 ? rawContextWindow : compactBoundaryForRoute(routeInfo, compact);
 }
 
 export function summarizeGatewayUsage(routeInfo, providerOut, compact = null, durationMs = null) {

@@ -1,5 +1,5 @@
 {
-  "outputStyle": "compact",
+  "outputStyle": "default",
   "channels": {
     "promptInjection": {
       "mode": "hook",

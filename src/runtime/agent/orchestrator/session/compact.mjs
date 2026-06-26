@@ -204,6 +204,46 @@ function currentTurnStart(nonSystem) {
     return -1;
 }
 
+function isProtectedContextUserMessage(m) {
+    if (m?.role !== 'user' || typeof m.content !== 'string') return false;
+    return m.content.trimStart().startsWith('<system-reminder>');
+}
+
+function isProtectedContextAckMessage(m) {
+    return m?.role === 'assistant'
+        && typeof m.content === 'string'
+        && m.content.trim() === '.'
+        && !Array.isArray(m.toolCalls);
+}
+
+function splitProtectedContext(messages) {
+    const protectedPrefix = [];
+    const conversation = [];
+    let prefixMode = true;
+    let previousWasProtectedContext = false;
+    for (const m of messages || []) {
+        if (m?.role === 'system') {
+            protectedPrefix.push(m);
+            previousWasProtectedContext = false;
+            continue;
+        }
+        if (prefixMode && isProtectedContextUserMessage(m)) {
+            protectedPrefix.push(m);
+            previousWasProtectedContext = true;
+            continue;
+        }
+        if (prefixMode && previousWasProtectedContext && isProtectedContextAckMessage(m)) {
+            protectedPrefix.push(m);
+            previousWasProtectedContext = false;
+            continue;
+        }
+        prefixMode = false;
+        previousWasProtectedContext = false;
+        conversation.push(m);
+    }
+    return { protectedPrefix, conversation };
+}
+
 export function normalizeCompactionBufferRatio(value, fallback = DEFAULT_COMPACTION_BUFFER_RATIO) {
     const n = Number(value);
     if (Number.isFinite(n) && n > 0) return n > 1 ? n / 100 : n;
@@ -451,8 +491,7 @@ function userIndexes(messages) {
 
 function selectCompactionWindow(messages, budget, opts = {}) {
     const sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
-    const system = sanitized.filter(m => m?.role === 'system');
-    const nonSystem = sanitized.filter(m => m?.role !== 'system');
+    const { protectedPrefix, conversation: nonSystem } = splitProtectedContext(sanitized);
     const users = userIndexes(nonSystem);
     if (!users.length) throw new Error('semanticCompactMessages: no user turn to preserve');
 
@@ -481,7 +520,7 @@ function selectCompactionWindow(messages, budget, opts = {}) {
     }
     const preservedFacts = extractPreservedFacts(head.slice(headStart));
     return {
-        system,
+        system: protectedPrefix,
         head: head.slice(headStart),
         tail,
         previousSummary,
@@ -635,7 +674,7 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
     }
     const budget = effectiveBudget(budgetTokens, opts);
     const sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
-    if (estimateMessagesTokens(sanitized) <= budget) {
+    if (estimateMessagesTokens(sanitized) <= budget && opts.force !== true) {
         return { messages: sanitized, usage: null, semantic: false };
     }
 
@@ -718,8 +757,7 @@ export function compactMessages(messages, budgetTokens, opts = {}) {
         return reconcileDedupStubs(sanitized);
     }
 
-    const system = sanitized.filter(m => m?.role === 'system');
-    const nonSystem = sanitized.filter(m => m?.role !== 'system');
+    const { protectedPrefix, conversation: nonSystem } = splitProtectedContext(sanitized);
     const turnStart = currentTurnStart(nonSystem);
     if (turnStart <= 0) {
         throw new Error(`compactMessages: no compactable prior history before current turn (budget=${budget})`);
@@ -727,7 +765,7 @@ export function compactMessages(messages, budgetTokens, opts = {}) {
 
     const oldHistory = nonSystem.slice(0, turnStart);
     const currentTurn = nonSystem.slice(turnStart);
-    let mandatory = sanitizeToolPairs([...system, ...currentTurn]);
+    let mandatory = sanitizeToolPairs([...protectedPrefix, ...currentTurn]);
     mandatory = reconcileDedupStubs(dedupToolResultBodies(mandatory));
     const mandatoryCost = estimateMessagesTokens(mandatory);
     if (mandatoryCost > budget) {
@@ -739,7 +777,7 @@ export function compactMessages(messages, budgetTokens, opts = {}) {
         throw new Error(`compactMessages: compact summary cannot fit remaining budget=${budget - mandatoryCost}`);
     }
 
-    let result = sanitizeToolPairs([...system, summary, ...currentTurn]);
+    let result = sanitizeToolPairs([...protectedPrefix, summary, ...currentTurn]);
     result = reconcileDedupStubs(dedupToolResultBodies(result));
     const finalTokens = estimateMessagesTokens(result);
     if (finalTokens > budget) {
@@ -790,10 +828,10 @@ function splitTurnGroups(messages) {
 export function compactActiveTurn(messages, budgetTokens, opts = {}) {
     const budget = effectiveBudget(budgetTokens, opts);
     const sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
-    const system = sanitized.filter(m => m?.role === 'system');
-    const nonSystem = sanitized.filter(m => m?.role !== 'system');
+    const { protectedPrefix, conversation: nonSystem } = splitProtectedContext(sanitized);
     const turnStart = currentTurnStart(nonSystem);
     if (turnStart < 0) {
+        if (nonSystem.length === 0) return protectedPrefix;
         throw new Error(`compactActiveTurn: no current user turn to preserve (budget=${budget})`);
     }
 
@@ -803,6 +841,7 @@ export function compactActiveTurn(messages, budgetTokens, opts = {}) {
     const groups = splitTurnGroups(currentTurn.slice(1));
     const minGroups = Math.max(1, Number(opts.minActiveTurnGroups) || 1);
     const maxChars = Math.max(256, Number(opts.maxToolOutputChars) || PRUNE_TOOL_OUTPUT_MAX_CHARS);
+    const force = opts.force === true;
 
     const pruneToolMsg = (m) => (
         m?.role === 'tool' && typeof m.content === 'string' && m.content.length > maxChars
@@ -827,32 +866,53 @@ export function compactActiveTurn(messages, budgetTokens, opts = {}) {
         return out;
     };
 
-    const finalize = (turnMsgs) => {
-        let base = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs([...system, ...turnMsgs])));
+    const buildWithSummaries = (turnMsgs, { oldSummary = null, activeSummary = null } = {}) => {
+        const [taskUser, ...restTurn] = turnMsgs;
+        return reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs([
+            ...protectedPrefix,
+            ...(oldSummary ? [oldSummary] : []),
+            taskUser,
+            ...(activeSummary ? [activeSummary] : []),
+            ...restTurn,
+        ])));
+    };
+
+    const finalize = (turnMsgs, activeHistory = []) => {
+        let oldSummary = null;
+        let activeSummary = null;
+        let base = buildWithSummaries(turnMsgs);
+        if (activeHistory.length) {
+            const baseCost = estimateMessagesTokens(base);
+            if (baseCost < budget) {
+                activeSummary = fitSummaryMessage(activeHistory, budget - baseCost);
+                if (activeSummary) base = buildWithSummaries(turnMsgs, { activeSummary });
+            }
+        }
         if (oldHistory.length) {
             const baseCost = estimateMessagesTokens(base);
             if (baseCost < budget) {
-                const summary = fitSummaryMessage(oldHistory, budget - baseCost);
-                if (summary) {
-                    base = reconcileDedupStubs(
-                        dedupToolResultBodies(sanitizeToolPairs([...system, summary, ...turnMsgs])),
-                    );
-                }
+                oldSummary = fitSummaryMessage(oldHistory, budget - baseCost);
+                if (oldSummary) base = buildWithSummaries(turnMsgs, { oldSummary, activeSummary });
             }
         }
         return base;
     };
 
     const maxDrop = Math.max(0, groups.length - minGroups);
-    for (let drop = 0; drop <= maxDrop; drop += 1) {
+    const startDrop = force && maxDrop > 0 ? 1 : 0;
+    for (let drop = startDrop; drop <= maxDrop; drop += 1) {
         const kept = groups.slice(drop);
-        for (const mode of ['older', 'all']) {
-            const candidate = finalize(buildTurnMsgs(kept, mode));
+        const activeHistory = groups.slice(0, drop).flat();
+        const modes = force && drop === 0 && activeHistory.length === 0
+            ? ['all', 'older']
+            : ['older', 'all'];
+        for (const mode of modes) {
+            const candidate = finalize(buildTurnMsgs(kept, mode), activeHistory);
             if (estimateMessagesTokens(candidate) <= budget) return candidate;
         }
     }
 
-    const floor = finalize(buildTurnMsgs(groups.slice(-minGroups), 'all'));
+    const floor = finalize(buildTurnMsgs(groups.slice(-minGroups), 'all'), groups.slice(0, -minGroups).flat());
     throw new Error(
         `compactActiveTurn: system+task user+latest turn group exceeds budget=${budget} ` +
         `(floor=${estimateMessagesTokens(floor)})`,

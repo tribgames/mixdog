@@ -28,6 +28,7 @@ import { listCore, editCore, deleteCore, CORE_SUMMARY_MAX } from './core-memory-
 import { loadCurrentRulesDigest } from './memory-cycle2.mjs'
 import { embedText } from './embedding-provider.mjs'
 import { searchRelevantHybrid } from './memory-recall-store.mjs'
+import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
 
 function resourceDir() {
   return process.env.MIXDOG_ROOT || fileURLToPath(new URL('../../../..', import.meta.url))
@@ -214,10 +215,53 @@ function parseVerdicts(raw, idSet) {
 
 const _runCycle3InFlight = new WeakMap()
 
+function mergeCycle3Counts(a = {}, b = {}) {
+  return {
+    kept: Number(a.kept || 0) + Number(b.kept || 0),
+    updated: Number(a.updated || 0) + Number(b.updated || 0),
+    merged: Number(a.merged || 0) + Number(b.merged || 0),
+    deleted: Number(a.deleted || 0) + Number(b.deleted || 0),
+  }
+}
+
+function mergeCycle3Results(a, b) {
+  if (!a) return b
+  if (!b) return a
+  return {
+    ...a,
+    ...b,
+    reviewed: Number(a.reviewed || 0) + Number(b.reviewed || 0),
+    kept: Number(a.kept || 0) + Number(b.kept || 0),
+    updated: Number(a.updated || 0) + Number(b.updated || 0),
+    merged: Number(a.merged || 0) + Number(b.merged || 0),
+    deleted: Number(a.deleted || 0) + Number(b.deleted || 0),
+    proposed: mergeCycle3Counts(a.proposed, b.proposed),
+    held: {
+      updated: Number(a?.held?.updated || 0) + Number(b?.held?.updated || 0),
+      merged: Number(a?.held?.merged || 0) + Number(b?.held?.merged || 0),
+      deleted: Number(a?.held?.deleted || 0) + Number(b?.held?.deleted || 0),
+    },
+    details: [...(a.details || []), ...(b.details || [])],
+    skippedInFlight: false,
+  }
+}
+
 export async function runCycle3(db, config, dataDir, options = {}) {
   const signal = options?.signal
   throwIfAborted(signal)
+  const coalescedRetry = options?.coalescedRetry === true
+  const retryConfig = config?.cycle3 || config
+  const retryAttempt = Math.max(0, Number(options?.coalescedRetryAttempt || 0))
+  const maxRetries = resolveCoalesceMaxRetries(retryConfig, 3)
   const applyMode = resolveApplyMode(config, options)
+  const requestSignature = makeCycleRequestSignature('cycle3', retryConfig, { applyMode, apply: options?.apply })
+  const scheduleRetry = () => scheduleCoalescedCycleRetry(
+    db,
+    'cycle3',
+    () => runCycle3(db, config, dataDir, { ...options, signal: undefined, coalescedRetry: true, coalescedRetryAttempt: retryAttempt + 1 }),
+    retryConfig,
+    requestSignature,
+  )
   const partial = {
     reviewed: 0, kept: 0, updated: 0, merged: 0, deleted: 0,
     proposed: { kept: 0, updated: 0, merged: 0, deleted: 0 },
@@ -227,6 +271,8 @@ export async function runCycle3(db, config, dataDir, options = {}) {
     details: [],
   }
   if (_runCycle3InFlight.has(db)) {
+    if (!coalescedRetry) await markCycleRequest(db, 'cycle3', 'in-flight', requestSignature)
+    if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry()
     __mixdogMemoryLog('[cycle3] skipped: already in flight for this db\n')
     return { ...partial, skippedInFlight: true }
   }
@@ -239,19 +285,73 @@ export async function runCycle3(db, config, dataDir, options = {}) {
     client.release()
     if (signal?.aborted) throw signal.reason ?? err
     __mixdogMemoryLog(`[cycle3] advisory lock query failed: ${err.message}\n`)
+    if (!coalescedRetry) await markCycleRequest(db, 'cycle3', 'lock-error', requestSignature)
     return { ...partial, skippedInFlight: true }
   }
   if (!gotLock) {
     client.release()
+    if (!coalescedRetry) await markCycleRequest(db, 'cycle3', 'advisory-lock', requestSignature)
+    if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry()
     __mixdogMemoryLog('[cycle3] skipped: advisory lock held by another worker\n')
     return { ...partial, skippedInFlight: true }
   }
   const promise = (async () => {
     try {
-      return await _runCycle3Impl(db, config, dataDir, options)
+      let result = null
+      let coalescedRuns = 0
+      let coalescedRequests = 0
+      if (coalescedRetry) {
+        const pending = await consumeCycleRequests(db, 'cycle3', requestSignature)
+        if (pending <= 0) return { ...partial, skippedInFlight: false, coalescedRetryNoop: true }
+        coalescedRuns += 1
+        coalescedRequests += pending
+        __mixdogMemoryLog(`[cycle3] retrying coalesced requests=${pending}\n`)
+      }
+      try {
+        result = await _runCycle3Impl(db, config, dataDir, options)
+      } catch (err) {
+        if (coalescedRetry) {
+          await markCycleRequest(db, 'cycle3', 'retry-error', requestSignature)
+          if (retryAttempt < maxRetries) scheduleRetry()
+        }
+        throw err
+      }
+      const maxDrains = resolveCoalesceMaxDrains(retryConfig, 1)
+      let drainLoops = 0
+      while (drainLoops < maxDrains) {
+        throwIfAborted(signal)
+        const pending = await consumeCycleRequests(db, 'cycle3', requestSignature)
+        if (pending <= 0) break
+        drainLoops += 1
+        coalescedRuns += 1
+        coalescedRequests += pending
+        __mixdogMemoryLog(`[cycle3] draining coalesced requests=${pending}\n`)
+        try {
+          const next = await _runCycle3Impl(db, config, dataDir, options)
+          result = mergeCycle3Results(result, next)
+        } catch (err) {
+          await markCycleRequest(db, 'cycle3', 'drain-error', requestSignature)
+          if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry()
+          throw err
+        }
+      }
+      if (coalescedRuns > 0) {
+        result = { ...result, coalescedRuns, coalescedRequests }
+      }
+      if (coalescedRetry && !result?.coalescedRetryNoop && typeof options?.onCoalescedSuccess === 'function') {
+        try { await options.onCoalescedSuccess(result) }
+        catch (err) { __mixdogMemoryLog(`[cycle3] coalesced success callback failed: ${err?.message || err}\n`) }
+      }
+      return result
     } finally {
-      try { await client.query(`SELECT pg_advisory_unlock(hashtext($1))`, ['mixdog.cycle3']) } catch {}
-      client.release()
+      let releaseErr = null
+      try {
+        const r = await client.query(`SELECT pg_advisory_unlock(hashtext($1)) AS unlocked`, ['mixdog.cycle3'])
+        if (r.rows[0]?.unlocked !== true) releaseErr = new Error('cycle3 advisory unlock returned false')
+      } catch (err) {
+        releaseErr = err
+      }
+      client.release(releaseErr || undefined)
     }
   })()
   _runCycle3InFlight.set(db, promise)

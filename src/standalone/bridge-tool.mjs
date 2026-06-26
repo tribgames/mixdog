@@ -12,6 +12,7 @@ import {
   taskIdFromArgs,
 } from '../runtime/shared/background-tasks.mjs';
 import { presentErrorText } from '../runtime/shared/err-text.mjs';
+import { updateJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { prepareBridgeSession } from '../runtime/agent/orchestrator/smart-bridge/session-builder.mjs';
 import { clearGatewaySessionRoute, writeGatewaySessionRoute } from '../vendor/statusline/src/gateway/session-routes.mjs';
 
@@ -47,13 +48,13 @@ export const BRIDGE_TOOL = {
     openWorldHint: true,
     bridgeHidden: true,
   },
-  description: 'Delegate scoped work to workflow agents. Prefer async by default: spawn independent agents in parallel with distinct tags, then wait for their completion notification; do not interfere or poll while delegated work is running. Use sync only when the next step must block on the result.',
+  description: 'Delegate scoped work to workflow agents. Prefer async by default: spawn independent agents in parallel with distinct tags, then keep doing Lead-side work that does not need their result. After async spawn, do not call status/read, do not interfere, and do not poll; wait for the completion notification only when the next step depends on that result. status/read are manual recovery or explicit user-requested controls only. Use sync only when the next step must block.',
   inputSchema: {
     type: 'object',
     properties: {
-      type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: 'Action. Default spawn; use send only for a follow-up to an existing tag/session.' },
+      type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: 'Action. Default spawn; send follows up to an existing tag/session. status/read are manual recovery controls, not normal polling.' },
       mode: { type: 'string', enum: ['async', 'sync'], description: `${executionModeSchemaDescription('async')} Prefer async for model handoffs; use sync only for an explicit blocking handoff.` },
-      task_id: { type: 'string', description: 'Shared background task id for manual status/read/cancel recovery.' },
+      task_id: { type: 'string', description: 'Manual status/read/cancel recovery task id; not needed for normal async completion.' },
       agent: { type: 'string', description: 'Workflow agent id to run.' },
       tag: { type: 'string', description: 'Stable agent handle; distinct tag per parallel agent.' },
       sessionId: { type: 'string', description: 'Raw sess_ id.' },
@@ -72,6 +73,7 @@ export const BRIDGE_TOOL = {
 const FINISHED_JOB_TTL_MS = 30 * 60_000;
 const MAX_JOBS = 200;
 const TERMINAL_REAP_MS = 60 * 60_000;
+const WORKER_INDEX_FILE = 'bridge-workers.json';
 function envTimeoutMs(name, fallback) {
   const raw = process.env[name];
   if (raw === undefined || raw === '') return fallback;
@@ -127,6 +129,13 @@ function sessionMatchesContext(session, context = {}) {
   if (!wantedPid) return true;
   const sessionPid = positiveInt(session?.clientHostPid);
   return !!sessionPid && sessionPid === wantedPid;
+}
+
+function rowMatchesContext(row, context = {}) {
+  const wantedPid = terminalPidForContext(context);
+  if (!wantedPid) return true;
+  const rowPid = positiveInt(row?.clientHostPid);
+  return !!rowPid && rowPid === wantedPid;
 }
 
 function nonNegativeInt(value) {
@@ -387,15 +396,224 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     return `job_${Date.now()}_${jobSeq}_${clean(type) || 'bridge'}`;
   }
 
-  function resolveTag(target, context = {}) {
-    refreshTagsFromSessions({ context });
+  function workerIndexPath() {
+    return dataDir ? resolve(dataDir, WORKER_INDEX_FILE) : null;
+  }
+
+  function workerRowKey(row = {}) {
+    return clean(row.sessionId) || clean(row.tag);
+  }
+
+  function workerRowTime(row = {}) {
+    return Date.parse(row.updatedAt || row.finishedAt || row.lastUsedAt || row.createdAt || '') || 0;
+  }
+
+  function isTerminalWorkerStatus(status) {
+    return /^(idle|closed|completed|failed|error|cancelled|canceled|killed|timeout)$/i.test(clean(status));
+  }
+
+  function keepWorkerRow(row = {}) {
+    if (!clean(row.tag) || !clean(row.sessionId)) return false;
+    const t = workerRowTime(row);
+    if (!t) return true;
+    if (!isTerminalWorkerStatus(row.status || row.stage)) return true;
+    return Date.now() - t < TERMINAL_REAP_MS;
+  }
+
+  function normalizeWorkerRows(value) {
+    const source = Array.isArray(value?.workers)
+      ? value.workers
+      : (value?.workers && typeof value.workers === 'object'
+        ? Object.values(value.workers)
+        : (Array.isArray(value) ? value : []));
+    return source
+      .filter((row) => row && typeof row === 'object')
+      .map((row) => ({
+        tag: clean(row.tag),
+        sessionId: clean(row.sessionId),
+        role: clean(row.role) || null,
+        provider: clean(row.provider) || null,
+        model: clean(row.model) || null,
+        preset: clean(row.preset) || null,
+        effort: clean(row.effort) || null,
+        fast: row.fast === true ? true : (row.fast === false ? false : null),
+        status: clean(row.status) || 'idle',
+        stage: clean(row.stage) || clean(row.status) || 'idle',
+        createdAt: clean(row.createdAt) || null,
+        updatedAt: clean(row.updatedAt) || null,
+        lastUsedAt: clean(row.lastUsedAt) || null,
+        finishedAt: clean(row.finishedAt) || null,
+        clientHostPid: positiveInt(row.clientHostPid),
+        cwd: clean(row.cwd) || null,
+        task_id: clean(row.task_id || row.taskId) || null,
+        error: clean(row.error) || null,
+        permission: clean(row.permission) || null,
+        toolPermission: clean(row.toolPermission) || null,
+        messages: positiveInt(row.messages) || 0,
+        tools: positiveInt(row.tools) || 0,
+      }))
+      .filter(keepWorkerRow);
+  }
+
+  function readWorkerRows(context = {}) {
+    const file = workerIndexPath();
+    if (!file || !existsSync(file)) return [];
+    try {
+      const rows = normalizeWorkerRows(JSON.parse(readFileSync(file, 'utf8')));
+      return rows.filter((row) => rowMatchesContext(row, context));
+    } catch {
+      return [];
+    }
+  }
+
+  function writeWorkerRows(mutator) {
+    const file = workerIndexPath();
+    if (!file || typeof mutator !== 'function') return null;
+    try {
+      return updateJsonAtomicSync(file, (cur) => {
+        const byKey = new Map();
+        for (const row of normalizeWorkerRows(cur)) {
+          const key = workerRowKey(row);
+          if (key) byKey.set(key, row);
+        }
+        mutator(byKey);
+        const workers = {};
+        for (const row of [...byKey.values()].filter(keepWorkerRow)) {
+          const key = workerRowKey(row);
+          if (key) workers[key] = row;
+        }
+        return { version: 1, updatedAt: new Date().toISOString(), workers };
+      }, { lock: true });
+    } catch {
+      return null;
+    }
+  }
+
+  function workerRowFromSession(session, fallbackTag = '', extra = {}) {
+    const tag = clean(session?.bridgeTag) || clean(fallbackTag) || clean(extra.tag);
+    const sessionId = clean(session?.id || extra.sessionId);
+    if (!tag || !sessionId) return null;
+    const runtime = mgr.getSessionRuntime?.(sessionId);
+    const status = clean(extra.status) || (session?.closed === true ? 'closed' : clean(session?.status) || 'idle');
+    const stage = clean(extra.stage) || clean(runtime?.stage) || status;
+    const nowIso = new Date().toISOString();
+    return {
+      tag,
+      sessionId,
+      role: clean(extra.role) || clean(session?.role) || null,
+      provider: clean(extra.provider) || clean(session?.provider) || null,
+      model: clean(extra.model) || clean(session?.model) || null,
+      preset: clean(extra.preset) || clean(session?.presetName) || null,
+      effort: clean(extra.effort) || clean(session?.effort) || null,
+      fast: extra.fast === true || extra.fast === false ? extra.fast : (session?.fast === true ? true : null),
+      status,
+      stage,
+      createdAt: clean(session?.createdAt) || clean(extra.createdAt) || nowIso,
+      updatedAt: clean(extra.updatedAt) || nowIso,
+      lastUsedAt: clean(session?.lastUsedAt) || null,
+      finishedAt: clean(extra.finishedAt) || null,
+      clientHostPid: positiveInt(extra.clientHostPid) || positiveInt(session?.clientHostPid),
+      cwd: clean(session?.cwd) || clean(extra.cwd) || null,
+      task_id: clean(extra.task_id || extra.taskId) || null,
+      error: clean(extra.error) || null,
+      permission: clean(session?.permission) || null,
+      toolPermission: clean(session?.toolPermission) || null,
+      messages: Array.isArray(session?.messages) ? session.messages.length : 0,
+      tools: Array.isArray(session?.tools) ? session.tools.length : 0,
+    };
+  }
+
+  function workerRowToSession(row = {}) {
+    return {
+      id: row.sessionId,
+      bridgeTag: row.tag,
+      role: row.role || null,
+      provider: row.provider || null,
+      model: row.model || null,
+      presetName: row.preset || null,
+      effort: row.effort || null,
+      fast: row.fast === true,
+      status: row.status || 'idle',
+      stage: row.stage || row.status || 'idle',
+      createdAt: row.createdAt || null,
+      updatedAt: row.updatedAt || null,
+      lastUsedAt: row.lastUsedAt || null,
+      clientHostPid: row.clientHostPid || null,
+      cwd: row.cwd || null,
+      permission: row.permission || null,
+      toolPermission: row.toolPermission || null,
+      messageCount: Math.max(0, Number(row.messages || 0)),
+      toolCount: Math.max(0, Number(row.tools || 0)),
+    };
+  }
+
+  function upsertWorkerRow(row) {
+    const normalized = normalizeWorkerRows({ workers: [row] })[0];
+    if (!normalized) return false;
+    tags.set(normalized.tag, normalized.sessionId);
+    if (normalized.role) tagRoles.set(normalized.tag, normalized.role);
+    if (normalized.cwd) tagCwds.set(normalized.tag, normalized.cwd);
+    writeWorkerRows((byKey) => {
+      const key = workerRowKey(normalized);
+      const prev = byKey.get(key) || {};
+      const merged = { ...prev, ...normalized };
+      for (const field of ['role', 'provider', 'model', 'preset', 'effort', 'fast', 'clientHostPid', 'cwd', 'task_id', 'permission', 'toolPermission']) {
+        if ((merged[field] === null || merged[field] === '') && prev[field] != null && prev[field] !== '') {
+          merged[field] = prev[field];
+        }
+      }
+      byKey.set(key, {
+        ...merged,
+        createdAt: normalized.createdAt || prev.createdAt || new Date().toISOString(),
+        updatedAt: normalized.updatedAt || new Date().toISOString(),
+      });
+    });
+    return true;
+  }
+
+  function upsertWorkerSession(session, fallbackTag = '', extra = {}) {
+    return upsertWorkerRow(workerRowFromSession(session, fallbackTag, extra));
+  }
+
+  function removeWorkerRow({ tag = '', sessionId = '' } = {}) {
+    const targetTag = clean(tag);
+    const targetSessionId = clean(sessionId);
+    writeWorkerRows((byKey) => {
+      for (const [key, row] of [...byKey.entries()]) {
+        if ((targetSessionId && row.sessionId === targetSessionId) || (targetTag && row.tag === targetTag)) {
+          byKey.delete(key);
+        }
+      }
+    });
+  }
+
+  function refreshTagsFromIndex(context = {}) {
+    const rows = readWorkerRows(context);
+    for (const row of rows) {
+      if (!row.tag || !row.sessionId) continue;
+      tags.set(row.tag, row.sessionId);
+      if (row.role) tagRoles.set(row.tag, row.role);
+      if (row.cwd) tagCwds.set(row.tag, row.cwd);
+    }
+    return rows;
+  }
+
+  function wantsSessionScan(args = {}) {
+    return args.recover === true || args.scanSessions === true || args.scan_sessions === true;
+  }
+
+  function resolveTag(target, context = {}, options = {}) {
+    const scanSessions = options.scanSessions === true;
+    refreshTagsFromSessions({ scanSessions, context });
     const value = clean(target);
     if (!value) return null;
     if (value.startsWith('sess_')) {
       const session = getLiveSession(value);
-      return session && sessionMatchesContext(session, context) ? value : null;
+      if (session && sessionMatchesContext(session, context)) return value;
+      const row = readWorkerRows(context).find((item) => item.sessionId === value);
+      return row ? value : null;
     }
-    const matches = bridgeSessionEntries({ scanSessions: true, context })
+    const matches = bridgeSessionEntries({ scanSessions, context })
       .filter((entry) => entry.tag === value);
     if (matches.length === 1) return matches[0].session.id;
     if (matches.length > 1) {
@@ -422,7 +640,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     return null;
   }
 
-  function bridgeSessionEntries({ scanSessions = true, context = {} } = {}) {
+  function bridgeSessionEntries({ scanSessions = false, context = {} } = {}) {
     const rows = [];
     const seen = new Set();
     const add = (session, fallbackTag = '') => {
@@ -433,9 +651,19 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       seen.add(session.id);
       rows.push({ tag, session });
     };
+    const addIndexRow = (row) => {
+      const tag = clean(row?.tag);
+      const sessionId = clean(row?.sessionId);
+      if (!tag || !sessionId || !rowMatchesContext(row, context)) return;
+      if (seen.has(sessionId)) return;
+      seen.add(sessionId);
+      rows.push({ tag, session: workerRowToSession(row), indexRow: row });
+    };
+    for (const row of readWorkerRows(context)) addIndexRow(row);
     if (scanSessions) {
       for (const session of mgr.listSessions({ includeClosed: false }) || []) {
         add(session, session?.bridgeTag);
+        if (clean(session?.bridgeTag)) upsertWorkerSession(session, session.bridgeTag);
       }
     }
     for (const [tag, sessionId] of tags.entries()) {
@@ -453,8 +681,11 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     return tag;
   }
 
-  function refreshTagsFromSessions({ scanSessions = true, context = {} } = {}) {
+  function refreshTagsFromSessions({ scanSessions = false, context = {} } = {}) {
+    const indexedRows = refreshTagsFromIndex(context);
+    const indexedKeys = new Set(indexedRows.map((row) => `${row.tag}\0${row.sessionId}`));
     for (const [tag, sessionId] of [...tags.entries()]) {
+      if (indexedKeys.has(`${tag}\0${sessionId}`)) continue;
       const session = getLiveSession(sessionId);
       if (!session || session.closed) tags.delete(tag);
     }
@@ -466,21 +697,25 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       tags.set(tag, session.id);
       if (session.role) tagRoles.set(tag, session.role);
       if (session.cwd) tagCwds.set(tag, session.cwd);
+      upsertWorkerSession(session, tag);
     }
   }
 
-  function bindTag(tag, session) {
+  function bindTag(tag, session, extra = {}) {
     if (!tag || !session?.id) return;
     tags.set(tag, session.id);
     if (session.role) tagRoles.set(tag, session.role);
     if (session.cwd) tagCwds.set(tag, session.cwd);
+    upsertWorkerSession(session, tag, extra);
   }
 
   function forgetTag(tag) {
     if (!tag) return;
+    const sessionId = tags.get(tag) || '';
     tags.delete(tag);
     tagRoles.delete(tag);
     tagCwds.delete(tag);
+    removeWorkerRow({ tag, sessionId });
   }
 
   function cancelReap(sessionId) {
@@ -499,6 +734,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       try { mgr.hideSessionFromList?.(sessionId); } catch {}
       const tag = tagForSession(sessionId);
       if (tag) forgetTag(tag);
+      removeWorkerRow({ tag, sessionId });
       clearBridgeStatuslineRoute(sessionId);
       try { mgr.closeSession(sessionId, 'terminal-reap'); } catch {}
     }, TERMINAL_REAP_MS);
@@ -584,7 +820,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     return { presetName, preset };
   }
 
-  function list({ scanSessions = true, context = {} } = {}) {
+  function list({ scanSessions = false, context = {} } = {}) {
     refreshTagsFromSessions({ scanSessions, context });
     const now = Date.now();
     const rows = [];
@@ -592,9 +828,9 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       const sessionId = session.id;
       const runtime = mgr.getSessionRuntime?.(sessionId);
       const status = session.closed === true ? 'closed' : (session.status || 'idle');
-      const stage = status === 'idle' || status === 'error' || status === 'closed'
+      const stage = session.stage || (status === 'idle' || status === 'error' || status === 'closed'
         ? status
-        : (runtime?.stage || status);
+        : (runtime?.stage || status));
       rows.push({
         tag,
         sessionId,
@@ -616,8 +852,8 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
         windowCap: Number(session.contextWindow) || null,
         permission: session.permission || null,
         toolPermission: session.toolPermission || null,
-        messages: Array.isArray(session.messages) ? session.messages.length : 0,
-        tools: Array.isArray(session.tools) ? session.tools.length : 0,
+        messages: Array.isArray(session.messages) ? session.messages.length : Math.max(0, Number(session.messageCount || 0)),
+        tools: Array.isArray(session.tools) ? session.tools.length : Math.max(0, Number(session.toolCount || 0)),
       });
     }
     return rows;
@@ -747,6 +983,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     try { mgr.closeSession(prepared.session.id, reason); } catch {}
     try { clearBridgeStatuslineRoute(prepared.session.id); } catch {}
     if (prepared.tag) forgetTag(prepared.tag);
+    removeWorkerRow({ tag: prepared.tag, sessionId: prepared.session.id });
   }
 
   function startJob(type, meta, run, notifyContext = null) {
@@ -787,6 +1024,13 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     return startJob('spawn', pendingSpawnMeta(args, extras), async (job) => {
       const prepared = await prepareSpawn(args, callerCwd, context);
       mergeJobMeta(job, preparedSpawnMeta(prepared, extras));
+      upsertWorkerSession(prepared.session, prepared.tag, {
+        ...preparedSpawnMeta(prepared, extras),
+        status: 'running',
+        stage: 'running',
+        task_id: job.taskId,
+        startedAt: job.startedAt,
+      });
       if (job?.status === 'cancelled') {
         closePreparedSpawn(prepared);
         return null;
@@ -846,7 +1090,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     await ensureProvider(config, preset.provider);
 
     const tag = clean(args.tag) || nextTag(role, context);
-    if (resolveTag(tag, context)) throw new Error(`bridge spawn: tag "${tag}" already exists`);
+    if (resolveTag(tag, context, { scanSessions: wantsSessionScan(args) })) throw new Error(`bridge spawn: tag "${tag}" already exists`);
     const baseCwd = resolve(callerCwd || defaultCwd || process.cwd());
     const workerCwd = clean(args.cwd) ? resolve(baseCwd, args.cwd) : baseCwd;
     const prompt = withCwdHeader(await resolvePrompt(args, workerCwd), workerCwd);
@@ -874,7 +1118,16 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     // are built through prepareBridgeSession(), so mirror that registration here
     // or the vendored L1/L2 statusline cannot resolve the agent route/model.
     writeBridgeStatuslineRoute(session.id, preset);
-    bindTag(tag, session);
+    bindTag(tag, session, {
+      role,
+      preset: presetKey(preset) || presetName,
+      provider: preset.provider,
+      model: preset.model,
+      effort: preset.effort || null,
+      fast: preset.fast === true,
+      status: 'idle',
+      stage: 'idle',
+    });
     cancelReap(session.id);
     return { args, tag, session, role, preset, presetName, workerCwd: effectiveCwd || workerCwd, prompt, maxLoopIterations, idleTimeoutMs, firstResponseTimeoutMs };
   }
@@ -882,6 +1135,17 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
   async function runSpawn(prepared) {
     const { args, tag, session, role, preset, presetName, workerCwd, prompt, idleTimeoutMs, firstResponseTimeoutMs } = prepared;
     const watchdog = startProgressIdleWatchdog(session.id, idleTimeoutMs, firstResponseTimeoutMs);
+    let finalStatus = 'idle';
+    upsertWorkerSession(session, tag, {
+      role,
+      preset: presetKey(preset) || presetName,
+      provider: preset.provider,
+      model: preset.model,
+      effort: preset.effort || null,
+      fast: preset.fast === true,
+      status: 'running',
+      stage: 'running',
+    });
     try {
       const result = await mgr.askSession(session.id, prompt, args.context || null, null, workerCwd);
       const content = result?.content || '';
@@ -896,8 +1160,22 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
         fast: preset.fast === true,
         content,
       };
+    } catch (error) {
+      finalStatus = 'error';
+      throw error;
     } finally {
       watchdog?.stop?.();
+      upsertWorkerSession(session, tag, {
+        role,
+        preset: presetKey(preset) || presetName,
+        provider: preset.provider,
+        model: preset.model,
+        effort: preset.effort || null,
+        fast: preset.fast === true,
+        status: finalStatus,
+        stage: finalStatus,
+        finishedAt: new Date().toISOString(),
+      });
       scheduleReap(session.id);
     }
   }
@@ -907,10 +1185,10 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
   }
 
   async function prepareSend(args, context = {}) {
-    refreshTagsFromSessions({ context });
+    refreshTagsFromSessions({ scanSessions: wantsSessionScan(args), context });
     const target = clean(args.tag || args.sessionId);
     if (!target) throw new Error('bridge send: tag or sessionId is required');
-    const sessionId = resolveTag(target, context);
+    const sessionId = resolveTag(target, context, { scanSessions: wantsSessionScan(args) });
     if (!sessionId) throw new Error(`bridge send: target "${target}" not found`);
     const session = mgr.getSession(sessionId);
     if (!session || session.closed) throw new Error(`bridge send: session "${sessionId}" is closed`);
@@ -926,18 +1204,29 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       resolveWatchdogMs(args.idleTimeoutMs, DEFAULT_STALE_TIMEOUT_MS),
       resolveWatchdogMs(args.firstResponseTimeoutMs, DEFAULT_FIRST_RESPONSE_TIMEOUT_MS),
     );
+    const tag = tagForSession(sessionId);
+    let finalStatus = 'idle';
+    upsertWorkerSession(session, tag, { status: 'running', stage: 'running' });
     try {
       const result = await mgr.askSession(sessionId, prompt, args.context || null, null, session.cwd || defaultCwd);
       return {
-        tag: tagForSession(sessionId),
+        tag,
         sessionId,
         role: session.role || null,
         provider: session.provider,
         model: session.model,
         content: result?.content || '',
       };
+    } catch (error) {
+      finalStatus = 'error';
+      throw error;
     } finally {
       watchdog?.stop?.();
+      upsertWorkerSession(session, tag, {
+        status: finalStatus,
+        stage: finalStatus,
+        finishedAt: new Date().toISOString(),
+      });
       scheduleReap(sessionId);
     }
   }
@@ -948,7 +1237,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
 
   function close(args, context = {}) {
     const scopedContext = bridgeScope(args, context);
-    refreshTagsFromSessions({ context: scopedContext });
+    refreshTagsFromSessions({ scanSessions: wantsSessionScan(args), context: scopedContext });
     const taskId = taskIdFromArgs(args);
     const task = taskId ? getBackgroundTask(taskId, { surface: 'bridge', context }) : null;
     const taskMeta = task?.meta || {};
@@ -960,7 +1249,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       }
       throw new Error('bridge close: tag or sessionId is required');
     }
-    const sessionId = resolveTag(target, scopedContext);
+    const sessionId = resolveTag(target, scopedContext, { scanSessions: wantsSessionScan(args) });
     if (!sessionId) {
       if (!target.startsWith('sess_') && tagRoles.has(target)) {
         forgetTag(target);
@@ -972,6 +1261,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     cancelReap(sessionId);
     const tag = tagForSession(sessionId);
     if (tag) forgetTag(tag);
+    removeWorkerRow({ tag, sessionId });
     clearBridgeStatuslineRoute(sessionId);
     const ok = mgr.closeSession(sessionId, 'cli-bridge-close');
     if (task?.taskId) cancelBackgroundTask(task.taskId, 'cancelled by bridge close');
@@ -981,21 +1271,21 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
   function cleanup(args = {}, context = {}) {
     const scopedContext = bridgeScope(args, context);
     const beforeTags = tags.size;
-    refreshTagsFromSessions({ context: scopedContext });
+    refreshTagsFromSessions({ scanSessions: wantsSessionScan(args), context: scopedContext });
     const cleaned = cleanupBackgroundTasks({ surface: 'bridge', context: scopedContext, force: args.force === true });
     return {
       jobsRemoved: cleaned.removed,
       tagsRemoved: beforeTags - tags.size,
       jobs: listJobs(scopedContext).length,
-      workers: list({ context: scopedContext }).length,
+      workers: list({ scanSessions: wantsSessionScan(args), context: scopedContext }).length,
     };
   }
 
   function closeAll(reason = 'cli-bridge-close-all') {
-    refreshTagsFromSessions();
+    refreshTagsFromSessions({ scanSessions: false });
     const closed = [];
     const failed = [];
-    for (const { tag, session } of bridgeSessionEntries({ scanSessions: true, context: {} })) {
+    for (const { tag, session } of bridgeSessionEntries({ scanSessions: false, context: {} })) {
       try {
         closed.push(close({ sessionId: session.id }));
       } catch (err) {
@@ -1009,6 +1299,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
     }
     for (const timer of reapTimers.values()) clearTimeout(timer);
     reapTimers.clear();
+    writeWorkerRows((byKey) => byKey.clear());
     return { closed, failed };
   }
 
@@ -1035,7 +1326,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       const callerCwd = clean(context.cwd || context.callerCwd);
       const scopedContext = bridgeScope(args, context);
       const notifyContext = context;
-      if (type === 'list') return renderResult({ bridgeMode: defaultMode, workers: list({ context: scopedContext }), jobs: listJobs(scopedContext) });
+      if (type === 'list') return renderResult({ bridgeMode: defaultMode, workers: list({ scanSessions: wantsSessionScan(args), context: scopedContext }), jobs: listJobs(scopedContext) });
       if (type === 'status') return renderResult(renderJob(getJob(args, scopedContext), false));
       if (type === 'read') return renderResult(renderJob(getJob(args, scopedContext), true));
       if (type === 'cleanup') return renderResult(cleanup(args, scopedContext));
@@ -1099,10 +1390,15 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       const pid = terminalPidForContext(scopedContext);
       return {
         bridgeMode: defaultMode,
-        workers: list({ scanSessions: true, context: scopedContext }),
+        workers: list({ scanSessions: false, context: scopedContext }),
         jobs: listJobs(scopedContext),
         scope: pid ? { clientHostPid: pid } : { allTerminals: true },
       };
+    },
+    recoverWorkers: (context = {}) => {
+      const scopedContext = bridgeScope({ recover: true }, context);
+      refreshTagsFromSessions({ scanSessions: true, context: scopedContext });
+      return list({ scanSessions: false, context: scopedContext });
     },
     getDefaultMode: () => defaultMode,
     setDefaultMode: (mode) => {

@@ -71,6 +71,13 @@ function normalizePastedText(text) {
   return String(text ?? '').replace(/\r\n?/g, '\n');
 }
 
+function singleTrailingLineBreakPrefix(text) {
+  const normalized = normalizePastedText(text);
+  if (!normalized.endsWith('\n')) return null;
+  const prefix = normalized.slice(0, -1);
+  return prefix.includes('\n') ? null : prefix;
+}
+
 export function PromptInput({
   onSubmit,
   disabled = false,
@@ -141,6 +148,7 @@ export function PromptInput({
     if (!options.keepPreferredColumn) preferredColumnRef.current = null;
     draftRef.current = next;
     setDraft(next);
+    queueMicrotask(flushImmediate);
     if (next.value !== lastReportedValueRef.current) {
       lastReportedValueRef.current = next.value;
       onDraftChange?.(next.value);
@@ -235,6 +243,21 @@ export function PromptInput({
     commitDraft({ value: '', cursor: 0, selectionAnchor: null });
   };
 
+  const submitEnterChunk = (prefix = '') => {
+    const current = draftRef.current;
+    const next = prefix ? insertText(current, prefix) : current;
+    if (commandPaletteActive) {
+      const accepted = onCommandPaletteAccept?.(next.value);
+      if (accepted !== false) {
+        commitDraft({ value: '', cursor: 0, selectionAnchor: null });
+      } else if (next !== current) {
+        commitDraft(next);
+      }
+      return;
+    }
+    submitDraft(next);
+  };
+
   // Input capture is only active on a real TTY (raw mode). In pipes/CI the input
   // is inert — useInput with isActive:false won't throw.
   usePaste((text) => {
@@ -261,23 +284,20 @@ export function PromptInput({
     const rawDownArrow = rawInput === '\x1b[B' || rawInput === '\x1bOB' || rawInput === '[B' || rawInput === 'OB';
     const lineBreakIndex = rawInput.search(/[\r\n]/);
     const rawEnter = rawInput === '\r' || rawInput === '\n' || rawInput === '\r\n';
+    const trailingEnterPrefix = singleTrailingLineBreakPrefix(rawInput);
 
-    const pasteFallback = lineBreakIndex !== -1 && !rawEnter && (rawInput.length > 1 || !key.return);
+    const pasteFallback = lineBreakIndex !== -1 && trailingEnterPrefix === null && !rawEnter && (rawInput.length > 1 || !key.return);
     if (pasteFallback) {
       handleExternalPaste(rawInput, { source: 'paste-fallback' });
       return;
     }
 
-    if (lineBreakIndex !== -1 && !key.shift && !key.meta && (key.return || rawEnter)) {
-      if (commandPaletteActive) {
-        const accepted = onCommandPaletteAccept?.(draftRef.current.value);
-        if (accepted !== false) {
-          const text = draftRef.current.value;
-          commitDraft({ value: '', cursor: 0, selectionAnchor: null });
-        }
+    if (trailingEnterPrefix !== null) {
+      if (key.shift || key.meta) {
+        updateDraft((d) => insertText(d, `${trailingEnterPrefix}\n`));
         return;
       }
-      submitDraft(insertText(draftRef.current, rawInput.slice(0, lineBreakIndex)));
+      submitEnterChunk(trailingEnterPrefix);
       return;
     }
 

@@ -255,6 +255,7 @@ export function loadConfig(options = {}) {
                 autoClear: { enabled: true, idleMs: 60 * 60 * 1000, ...raw.autoClear },
                 trajectory: { enabled: true, ...raw.trajectory },
                 bridge: raw.bridge && typeof raw.bridge === 'object' ? raw.bridge : {},
+                shell: raw.shell && typeof raw.shell === 'object' ? raw.shell : {},
             };
         }
         catch { /* fall through */ }
@@ -276,6 +277,7 @@ export function loadConfig(options = {}) {
         autoClear: { enabled: true, idleMs: 60 * 60 * 1000 },
         trajectory: { enabled: true },
         bridge: {},
+        shell: {},
     };
 }
 /**
@@ -346,6 +348,7 @@ export function saveConfig(config) {
         autoClear: config.autoClear || {},
         trajectory: config.trajectory || {},
         bridge: config.bridge || {},
+        shell: config.shell || {},
     }));
 }
 // --- Preset helpers ---
