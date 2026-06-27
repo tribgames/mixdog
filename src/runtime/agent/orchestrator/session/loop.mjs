@@ -1317,6 +1317,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 });
             } else {
                 try { opts.onStageChange?.('compacting'); } catch { /* best-effort */ }
+                const compactStartedAt = Date.now();
                 rememberCompactTelemetry(sessionRef, compactPolicy, {
                     stage: 'compacting',
                     beforeTokens: messageTokensEst,
@@ -1463,6 +1464,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         semantic: compactPolicy.semantic === true,
                         recallFastTrack: compactPolicy.recallFastTrack === true,
                         pruneCount,
+                        durationMs: Date.now() - compactStartedAt,
                         error: compactErr && compactErr.message ? compactErr.message : String(compactErr),
                     });
                     throw bridgeContextOverflowError({
@@ -1545,6 +1547,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     semantic: semanticCompactResult?.semantic === true,
                     recallFastTrack: recallFastTrackResult?.recallFastTrack === true,
                     pruneCount,
+                    durationMs: Date.now() - compactStartedAt,
                 });
             }
         }

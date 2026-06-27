@@ -452,13 +452,21 @@ const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpan
   }
 });
 
-const TRANSCRIPT_WINDOW_MIN_ITEMS = 80;
-const TRANSCRIPT_WINDOW_OVERSCAN_ROWS = 24;
-
 function positiveIntEnv(name, fallback) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
+
+// Per-keystroke render cost is proportional to the number of MOUNTED transcript
+// items: ink's renderNodeToOutput still serializes (squashTextNodes/wrapText/
+// output.write) every child even when an overflow:hidden viewport clips it
+// off-screen — clipping only trims write coordinates, not the serialization. So
+// the only lever for typing latency on a tall transcript is mounting fewer
+// rows. The window keeps a small ITEM floor (so a few items stay mounted for
+// stable scroll/overscan) but is otherwise driven by the viewport+overscan ROW
+// span, not a large fixed item count. All three are env-tunable for A/B / revert.
+const TRANSCRIPT_WINDOW_MIN_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_MIN_ITEMS', 12);
+const TRANSCRIPT_WINDOW_OVERSCAN_ROWS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_OVERSCAN_ROWS', 24);
 
 const TRANSCRIPT_WINDOW_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS', 180);
 const SELECTION_PAINT_INTERVAL_MS = positiveIntEnv('MIXDOG_TUI_SELECTION_PAINT_MS', 24);
@@ -593,13 +601,72 @@ function upperBound(values, target) {
   return lo;
 }
 
+// Per-item cache validation key. This MUST contain EVERY item field that
+// `estimateTranscriptItemRows` (and `isFullyFailedToolItem`, which it calls)
+// reads, so any height-affecting change invalidates both the row-count cache
+// and the structure signature. `columns`/`toolOutputExpanded` are global, not
+// per-item, so the callers fold those in separately (signature prefix + the row
+// cache's `toolExpanded` field). For tool items the estimate uses `rawResult`
+// when expanded and `result` otherwise, and the fully-failed check reads
+// count/completedCount/errorCount/isError plus whether `result` is null — all
+// captured here. `result` length is encoded as -1 when null so a null→"" change
+// (which flips the fully-failed `done` count) is never collapsed.
+function transcriptItemVariantKey(item) {
+  const expanded = item.expanded ? 1 : 0;
+  if (item.kind === 'tool') {
+    const resultLen = item.result == null ? -1 : String(item.result).length;
+    const rawLen = item.rawResult == null ? -1 : String(item.rawResult).length;
+    const count = Number(item.count ?? 0);
+    const completed = item.completedCount === undefined ? 'u' : Number(item.completedCount);
+    const errors = item.errorCount === undefined ? 'u' : Number(item.errorCount);
+    const isError = item.isError ? 1 : 0;
+    return `x${expanded}:r${resultLen}:R${rawLen}:c${count}:d${completed}:e${errors}:E${isError}`;
+  }
+  return `x${expanded}:l${String(item.text ?? item.result ?? '').length}`;
+}
+
+// Per-item ESTIMATED ROW COUNT cache for buildTranscriptRowIndex. The prefix-sum
+// index is rebuilt whenever the structure signature changes (the consuming memo
+// is keyed on it), but each rebuild re-ran estimateTranscriptItemRows for EVERY
+// item from scratch — an O(n) `estimateWrappedRows` walk over all historical
+// text on each rebuild. A completed (non-streaming) item's estimated height is a
+// pure function of its variant key + `columns` + `toolOutputExpanded`, none of
+// which change while the item keeps its object identity (engine.mjs swaps in a
+// NEW object on any patch, so a changed item misses the cache). Memoize the row
+// count on item identity, validated on the SAME variant key as the signature
+// cache (+ columns + toolOutputExpanded) so a stale value can never be served.
+// Streaming assistant items are never cached — their height can change between
+// flushes — so the values stay 100% identical to the uncached implementation.
+const transcriptRowsCache = new WeakMap();
+
+function estimateTranscriptItemRowsCached(item, columns, toolOutputExpanded) {
+  if (!item) return Math.max(1, Math.ceil(estimateTranscriptItemRows(item, columns, toolOutputExpanded)));
+  if (item.kind === 'assistant' && item.streaming) {
+    return Math.max(1, Math.ceil(estimateTranscriptItemRows(item, columns, toolOutputExpanded)));
+  }
+  const variantKey = transcriptItemVariantKey(item);
+  const toolExpanded = toolOutputExpanded ? 1 : 0;
+  const cached = transcriptRowsCache.get(item);
+  if (cached
+    && cached.columns === columns
+    && cached.toolExpanded === toolExpanded
+    && cached.variantKey === variantKey
+    && cached.id === item.id
+    && cached.kind === item.kind) {
+    return cached.rows;
+  }
+  const rows = Math.max(1, Math.ceil(estimateTranscriptItemRows(item, columns, toolOutputExpanded)));
+  transcriptRowsCache.set(item, { id: item.id, kind: item.kind, variantKey, columns, toolExpanded, rows });
+  return rows;
+}
+
 function buildTranscriptRowIndex(items, { columns = 80, toolOutputExpanded = false } = {}) {
   const allItems = Array.isArray(items) ? items : [];
   const rows = new Array(allItems.length);
   const prefixRows = new Array(allItems.length + 1);
   prefixRows[0] = 0;
   for (let i = 0; i < allItems.length; i++) {
-    const rowCount = Math.max(1, Math.ceil(estimateTranscriptItemRows(allItems[i], columns, toolOutputExpanded)));
+    const rowCount = estimateTranscriptItemRowsCached(allItems[i], columns, toolOutputExpanded);
     rows[i] = rowCount;
     prefixRows[i + 1] = prefixRows[i] + rowCount;
   }
@@ -629,8 +696,12 @@ function buildTranscriptRowIndex(items, { columns = 80, toolOutputExpanded = fal
 // `state.items` array, which is where the hit rate comes from. Streaming
 // assistant items still recompute their estimated height every call because
 // their height can change between flushes. The cache key is validated on
-// `id`/`kind`/`len`/`expanded`/`columns` so even a hypothetical future in-place
-// mutation of an item can never serve a stale sigPart.
+// the SAME `transcriptItemVariantKey` (id/kind/expanded + text/result length,
+// or for tool items rawResult length + count/completedCount/errorCount/isError)
+// plus `columns`, so any field `estimateTranscriptItemRows` reads is folded in
+// and a stale sigPart can never be served. This is critical: the consuming
+// row-index memo only rebuilds when THIS signature changes, so missing a
+// height-affecting field here would freeze a stale row count.
 const transcriptSigPartCache = new WeakMap();
 
 function transcriptStructureSignature(items, columns, toolOutputExpanded) {
@@ -645,23 +716,21 @@ function transcriptStructureSignature(items, columns, toolOutputExpanded) {
       sig += `;a${it.id}:${estimateTranscriptItemRows(it, columns, toolOutputExpanded)}`;
       continue;
     }
-    // Completed item: reuse the cached sigPart while the inputs that can change
-    // it (text/result length, expanded flag, columns) are unchanged. Identity
-    // is keyed on the item object itself (stable for in-place append/patch).
-    const len = String(it.text ?? it.result ?? '').length;
-    const expanded = it.expanded ? 1 : 0;
+    // Completed item: reuse the cached sigPart while the variant key (every
+    // height-affecting field) and columns are unchanged. Identity is keyed on
+    // the item object itself (stable for in-place append/patch).
+    const variantKey = transcriptItemVariantKey(it);
     const cached = transcriptSigPartCache.get(it);
     if (cached
-      && cached.len === len
-      && cached.expanded === expanded
+      && cached.variantKey === variantKey
       && cached.columns === columns
       && cached.id === it.id
       && cached.kind === it.kind) {
       sig += cached.sigPart;
       continue;
     }
-    const sigPart = `;${it.kind?.[0] || '?'}${it.id}:${expanded}:${len}`;
-    transcriptSigPartCache.set(it, { id: it.id, kind: it.kind, len, expanded, columns, sigPart });
+    const sigPart = `;${it.kind?.[0] || '?'}${it.id}:${variantKey}`;
+    transcriptSigPartCache.set(it, { id: it.id, kind: it.kind, variantKey, columns, sigPart });
     sig += sigPart;
   }
   return sig;
@@ -681,7 +750,15 @@ function transcriptRenderWindow(items, { scrollOffset = 0, viewportHeight = 24, 
     Math.max(0, Math.ceil(Number(scrollOffset) || 0)),
   );
 
-  if (itemCount <= TRANSCRIPT_WINDOW_MIN_ITEMS) {
+  // Bypass windowing only when the WHOLE transcript already fits in the
+  // viewport plus a full overscan band above and below — i.e. mounting every
+  // item costs nothing extra over what the user can scroll to without a
+  // re-window. Keying this on ROWS (not a large fixed item count) is what lets
+  // a tall transcript stop mounting hundreds of off-screen rows on every
+  // keystroke. A small item count still short-circuits so tiny sessions skip the
+  // binary-search windowing entirely.
+  const bypassRowBudget = viewRows + TRANSCRIPT_WINDOW_OVERSCAN_ROWS * 2;
+  if (itemCount <= TRANSCRIPT_WINDOW_MIN_ITEMS || totalRows <= bypassRowBudget) {
     return { startIndex: 0, endIndex: itemCount, items: allItems, bottomSpacerRows: 0, totalRows, maxScrollRows, effectiveScrollOffset };
   }
 
@@ -5381,14 +5458,16 @@ export function App({ store, initialStatusLine = '' }) {
     const argumentHint = slashArgumentHint(value);
     if (argumentHint) {
       showPromptHint(argumentHint, 'info');
-    } else if (value && (promptHintActiveRef.current || promptHintTimerRef.current)) {
+    } else if (promptHintActiveRef.current || promptHintTimerRef.current) {
       // Only clear when a hint is actually live (shown or pending its timer).
       // clearPromptHint() already early-returns when neither ref is set, but
       // gating the call here avoids invoking it on EVERY keystroke once a hint
       // has appeared — that call path otherwise drives a setState → full App
       // re-render per key, which is costly on long transcripts. Hint-while-
       // typing still vanishes immediately because the guard includes the active
-      // state; the argumentHint branch above is untouched.
+      // state; the argumentHint branch above is untouched. The guard no longer
+      // requires a non-empty value: clearing/submitting to '' must also dismiss
+      // a live hint instead of leaving it until its timer expires.
       clearPromptHint();
     }
     if (slashDismissedFor) {

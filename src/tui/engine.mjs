@@ -14,6 +14,7 @@ import {
   summarizeToolResult,
 } from '../runtime/shared/tool-surface.mjs';
 import { presentErrorText } from '../runtime/shared/err-text.mjs';
+import { formatDuration } from './time-format.mjs';
 import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
@@ -124,40 +125,18 @@ function compactEventLabel(event = {}) {
   return 'Compact complete';
 }
 
-function compactKindLabel(event = {}) {
-  const type = String(event.compactType || event.type || '').trim();
-  if (type) return type;
-  if (event.recallFastTrack) return 'recall-fasttrack';
-  if (event.semantic) return 'semantic';
-  return 'compact';
-}
-
 function compactEventDetail(event = {}) {
   const beforeTokens = Number(event.beforeTokens ?? event.messageTokensEst ?? 0);
   const afterTokens = Number(event.afterTokens ?? 0);
-  const beforeMessages = Number(event.beforeMessages ?? event.beforeCount ?? 0);
-  const afterMessages = Number(event.afterMessages ?? event.afterCount ?? 0);
-  const stage = String(event.stage || '').replace(/_/g, '-');
-  const trigger = String(event.trigger || '').replace(/_/g, '-');
   const tokenPart = beforeTokens || afterTokens
     ? `${formatTokenCount(beforeTokens)}→${formatTokenCount(afterTokens)} tokens`
     : '';
-  const messagePart = beforeMessages || afterMessages
-    ? `${beforeMessages || 0}→${afterMessages || 0} messages`
-    : '';
+  const elapsedPart = formatDuration(Number(event.durationMs ?? event.elapsedMs ?? 0));
   return [
-    compactKindLabel(event),
-    stage,
-    trigger,
+    elapsedPart,
     tokenPart,
-    messagePart,
-    event.triggerTokens ? `trigger ${formatTokenCount(event.triggerTokens)}` : '',
-    event.boundaryTokens ? `boundary ${formatTokenCount(event.boundaryTokens)}` : '',
-    event.targetBudgetTokens ? `target ${formatTokenCount(event.targetBudgetTokens)}` : '',
-    event.reserveTokens ? `reserve ${formatTokenCount(event.reserveTokens)}` : '',
-    event.pruneCount ? `pruned ${event.pruneCount}` : '',
     event.error ? presentErrorText(event.error, { surface: 'compact', max: 160 }) : '',
-  ].filter(Boolean).join(' · ') || 'compact event';
+  ].filter(Boolean).join(' · ');
 }
 
 const FAILED_NOTICE_ACTIONS = new Map([
@@ -2398,12 +2377,9 @@ export async function createEngineSession({
               afterTokens: result.afterTokens,
               beforeMessages: result.beforeMessages,
               afterMessages: result.afterMessages,
-              triggerTokens: result.triggerTokens,
-              boundaryTokens: result.boundaryTokens,
-              targetBudgetTokens: result.targetBudgetTokens,
-              reserveTokens: result.reserveTokens,
               semantic: result.semanticCompact,
               recallFastTrack: result.recallFastTrack,
+              durationMs: Date.now() - startedAt,
               error: result.error,
             }),
           });

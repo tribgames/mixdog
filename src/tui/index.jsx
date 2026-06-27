@@ -23,10 +23,41 @@ const EXIT_WAIT_TIMEOUT_MS = positiveIntEnv('MIXDOG_TUI_EXIT_WAIT_MS', 2500);
 const EXIT_HARD_DELAY_MS = positiveIntEnv('MIXDOG_TUI_HARD_EXIT_DELAY_MS', 500);
 const EXIT_HARD_ENABLED = !/^(0|false|no|off)$/i.test(String(process.env.MIXDOG_TUI_HARD_EXIT || '1'));
 const EXIT_DEBUG_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_TUI_EXIT_DEBUG || ''));
+const PERF_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_TUI_PERF || ''));
 
 function positiveIntEnv(name, fallback) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+// Lightweight render-frame profiler. Forked ink calls options.onRender with the
+// per-frame render() wall time (renderNodeToOutput serialization). We aggregate
+// and emit a rolling summary every PERF_REPORT_EVERY frames so typing latency
+// can be measured without flooding output. Entirely no-op unless
+// MIXDOG_TUI_PERF=1, so it costs nothing in normal runs.
+const PERF_REPORT_EVERY = positiveIntEnv('MIXDOG_TUI_PERF_EVERY', 60);
+function makeRenderProfiler() {
+  if (!PERF_ENABLED) return undefined;
+  let count = 0;
+  let sum = 0;
+  let max = 0;
+  let slow = 0;
+  return ({ renderTime } = {}) => {
+    const ms = Number(renderTime) || 0;
+    count += 1;
+    sum += ms;
+    if (ms > max) max = ms;
+    if (ms >= 16) slow += 1;
+    if (count >= PERF_REPORT_EVERY) {
+      const avg = sum / count;
+      try {
+        process.stderr.write(
+          `[mixdog-perf] frames=${count} avg=${avg.toFixed(2)}ms max=${max.toFixed(2)}ms slow16+=${slow}\n`,
+        );
+      } catch { /* ignore */ }
+      count = 0; sum = 0; max = 0; slow = 0;
+    }
+  };
 }
 
 function bootProfile(event, fields = {}) {
@@ -220,7 +251,7 @@ export async function runTui({ provider, model, toolMode } = {}) {
   // does not exit abruptly. Explicit exits go through /exit or /quit so teardown
   // still restores the cursor, mouse mode, and alternate screen cleanly.
   try {
-    const instance = render(<App store={store} />, { exitOnCtrlC: false, maxFps: 120 });
+    const instance = render(<App store={store} />, { exitOnCtrlC: false, maxFps: 120, onRender: makeRenderProfiler() });
     bootProfile('render:mounted', { ms: (performance.now() - startedAt).toFixed(1) });
     const { waitUntilExit } = instance;
     // [mixdog fork] Hand the ink renderer's drag-selection setter to the store so
