@@ -5,7 +5,10 @@ import { join } from 'path';
 import { getProvider, providerInputExcludesCache } from '../providers/registry.mjs';
 import { getModelMetadataSync } from '../providers/model-catalog.mjs';
 import { fetchOAuthUsageSnapshot } from '../providers/oauth-usage.mjs';
-import { sanitizeContentForStoredHistory } from '../providers/media-normalization.mjs';
+// Image content is kept in-memory and in the model-visible history so multi-turn
+// recognition matches Claude Code (live transcript always retains images). The
+// stored-history placeholder swap now happens only at disk-serialization time
+// inside the session store, so it is no longer imported here.
 import {
     recallFastTrackCompactMessages,
     semanticCompactMessages,
@@ -2235,13 +2238,13 @@ function isInternalCancelledAssistantMessage(message) {
         || /Preserve the user request above as the active task context/i.test(text);
 }
 
-function sanitizeSessionMessageForStoredHistory(message) {
-    if (!message || typeof message !== 'object') return message;
-    const content = sanitizeContentForStoredHistory(message.content);
-    return content === message.content ? message : { ...message, content };
-}
-
 function sanitizeSessionMessagesForModel(messages) {
+    // Drop internal runtime-notification turns and cancelled-assistant stubs so
+    // they never reach the model, but KEEP image content intact. Claude Code
+    // parity: the live transcript and every model request retain attached
+    // images across turns; only the compaction-summary call strips them. The
+    // disk-stored session JSON replaces image bytes with a text placeholder at
+    // serialization time (see store.mjs), so this no longer touches images.
     if (!Array.isArray(messages) || messages.length === 0) return [];
     const out = [];
     let droppingInternalTurn = false;
@@ -2261,7 +2264,7 @@ function sanitizeSessionMessagesForModel(messages) {
                 continue;
             }
         }
-        out.push(sanitizeSessionMessageForStoredHistory(message));
+        out.push(message);
     }
     return out;
 }
@@ -2525,7 +2528,10 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             if (result.content || result.reasoningContent) {
                 session.messages.push({
                     role: 'assistant',
-                    content: sanitizeContentForStoredHistory(result.content || ''),
+                    // Keep content as-is in memory (model-visible). Image bytes,
+                    // if any, are swapped for a placeholder only at disk write
+                    // time inside the session store (store.mjs _sessionForDisk).
+                    content: result.content || '',
                     ...(typeof result.reasoningContent === 'string' && result.reasoningContent
                         ? { reasoningContent: result.reasoningContent }
                         : {}),
@@ -2715,7 +2721,10 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         const originalMessages = Array.isArray(activeSession.messages) ? activeSession.messages : [];
                         const cleanedMessages = sanitizeSessionMessagesForModel(originalMessages);
                         const nextMessages = cleanedMessages.slice();
-                        const cancelledStoredContent = sanitizeContentForStoredHistory(cancelledUserTurnContent);
+                        // In-memory cancelled turn keeps its original content
+                        // (images intact for the next model send); the store
+                        // layer placeholders image bytes on disk serialization.
+                        const cancelledStoredContent = cancelledUserTurnContent;
                         const shouldPreserveUserTurn = cancelledStoredContent && !isInternalRuntimeNotificationText(cancelledStoredContent);
                         const lastMessage = nextMessages[nextMessages.length - 1];
                         if (shouldPreserveUserTurn && !(lastMessage?.role === 'user' && promptContentText(lastMessage.content) === promptContentText(cancelledStoredContent))) {

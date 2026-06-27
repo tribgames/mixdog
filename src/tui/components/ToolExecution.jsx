@@ -453,8 +453,11 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const completedAtMs = Number(completedAt || 0);
   const pendingAgeMs = pending && startedAtMs ? Math.max(0, Date.now() - startedAtMs) : 0;
   const pendingDisplayReady = !pending || !startedAtMs || pendingDelayElapsed || pendingAgeMs >= TOOL_PENDING_SHOW_DELAY_MS;
-  const completedQuickly = !pending && startedAtMs > 0 && completedAtMs > 0 && Math.max(0, completedAtMs - startedAtMs) < TOOL_PENDING_SHOW_DELAY_MS;
-  const headerPending = pending || (headerFinalized === false && !completedQuickly);
+  // Keep the action verb in its active form until the engine explicitly seals
+  // the tool block. Fast tool batches often complete before the next provider
+  // iteration decides whether to call more tools or emit assistant text; flipping
+  // "Finding" -> "Found" -> "Finding" during that gap makes the transcript jump.
+  const headerPending = pending || headerFinalized === false;
   const hasResult = result != null && Boolean(String(rt || '').trim());
   const hasRawResult = rawResult != null && Boolean(String(rawRt || '').trim());
   const elapsedMs = startedAtMs ? Math.max(0, (pending ? Date.now() : (completedAtMs || Date.now())) - startedAtMs) : 0;
@@ -531,7 +534,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
       detailText = '';
     }
 
-    const dotColor = statusColor;
+    const dotColor = headerPending ? theme.subtle : statusColor;
     const dotText = pending && !blinkExpired && !blinkOn ? ' ' : TURN_MARKER;
     const gutter = 2;
     const showHeaderExpandHint = hasRawResult;
@@ -562,7 +565,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     const isPlaceholderDetail = !(expanded && hasRawResult) && !detailText;
     const detailLines = expanded && hasRawResult
       ? rawRt.split('\n')
-      : (detailText ? [detailText] : [pending ? 'Running' : 'Finished']);
+      : (detailText ? [detailText] : [headerPending ? 'Running' : 'Finished']);
     const aggregateDetailColor = isPlaceholderDetail ? theme.subtle : theme.text;
     return (
       <Box flexDirection="column" marginTop={attached ? 0 : 1}>

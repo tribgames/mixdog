@@ -858,6 +858,48 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
 }
 
 export function recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
+    return _recallFastTrackCompactMessages(messages, budgetTokens, opts);
+}
+
+// Option B tail policy for recall fast-track (type 2): keep the most recent
+// RECALL_TAIL_USER_MAX user messages verbatim; if their combined token cost
+// exceeds RECALL_TAIL_TOKEN_CAP, keep the newest whole and middle-truncate the
+// older one(s) so the kept set fits the cap. Assistant/tool turns never enter
+// the tail — the chunk summary already carries that history.
+const RECALL_TAIL_USER_MAX = 2;
+const RECALL_TAIL_TOKEN_CAP = DEFAULT_COMPACTION_KEEP_TOKENS; // 8k
+// Rough chars-per-token used only to size a truncation target; the real fit is
+// re-checked with estimateMessagesTokens below.
+const RECALL_TAIL_CHARS_PER_TOKEN = 4;
+
+function selectRecallTailUserMessages(tail, opts = {}) {
+    const users = (Array.isArray(tail) ? tail : []).filter((m) => m?.role === 'user');
+    const max = Math.max(1, Number(opts.maxUsers) || RECALL_TAIL_USER_MAX);
+    const cap = Math.max(1, Number(opts.tokenCap) || RECALL_TAIL_TOKEN_CAP);
+    // Take the newest `max` user messages, oldest-first for output order.
+    const recent = users.slice(-max);
+    if (recent.length === 0) return [];
+    if (estimateMessagesTokens(recent) <= cap) return recent;
+    // Over cap: always keep the newest whole, then add older ones (newest-first)
+    // only while they fit; truncate the first one that would overflow.
+    const newestFirst = recent.slice().reverse();
+    const kept = [];
+    let used = 0;
+    for (let i = 0; i < newestFirst.length; i += 1) {
+        const m = newestFirst[i];
+        const cost = estimateMessagesTokens([m]);
+        if (used + cost <= cap) { kept.push(m); used += cost; continue; }
+        const room = cap - used;
+        if (room > 0 && typeof m.content === 'string') {
+            const truncated = truncateMiddle(m.content, Math.max(0, room * RECALL_TAIL_CHARS_PER_TOKEN));
+            if (truncated) kept.push({ ...m, content: truncated });
+        }
+        break;
+    }
+    return kept.reverse();
+}
+
+function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
     let budget = effectiveBudget(budgetTokens, opts);
     const sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
     if (estimateMessagesTokens(sanitized) <= budget && opts.force !== true) {
@@ -865,11 +907,23 @@ export function recallFastTrackCompactMessages(messages, budgetTokens, opts = {}
     }
 
     const selected = selectCompactionWindow(sanitized, budget, opts);
-    if (selected.head.length === 0 && !selected.previousSummary) {
+    // Recall fast-track (type 2, toy mode): keep it dead simple. The chunked
+    // recall text already carries the history, so the preserved tail is reduced
+    // to the recent USER messages only (Codex-style) — assistant turns and tool
+    // outputs are dropped from the tail. Result shape: system rules → chunk
+    // summary → recent user messages. Because the chunk is the history anchor,
+    // an empty head is fine as long as we have recall text to emit.
+    //
+    // Tail policy (option B): keep the most recent RECALL_TAIL_USER_MAX (2) user
+    // messages. If those two together exceed RECALL_TAIL_TOKEN_CAP (8k), keep the
+    // newest whole and truncate the older one so the pair fits the cap.
+    const recallTail = selectRecallTailUserMessages(selected.tail);
+    if (selected.head.length === 0 && !selected.previousSummary
+        && !(String(opts.recallText || '').trim() || opts.allowEmptyRecall === true)) {
         throw new Error('recallFastTrackCompactMessages: no compactable prior history before preserved tail');
     }
 
-    const mandatory = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs([...selected.system, ...selected.tail])));
+    const mandatory = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs([...selected.system, ...recallTail])));
     const mandatoryCost = estimateMessagesTokens(mandatory);
     // See semanticCompactMessages: replacing the head with a compact summary
     // always shrinks the transcript, so a budget below the mandatory (system +
@@ -892,7 +946,7 @@ export function recallFastTrackCompactMessages(messages, budgetTokens, opts = {}
         throw new Error(`recallFastTrackCompactMessages: summary cannot fit remaining budget=${budget - mandatoryCost}`);
     }
 
-    let result = sanitizeToolPairs([...selected.system, summaryMessage, ...selected.tail]);
+    let result = sanitizeToolPairs([...selected.system, summaryMessage, ...recallTail]);
     result = reconcileDedupStubs(dedupToolResultBodies(result));
     const finalTokens = estimateMessagesTokens(result);
     if (finalTokens > budget) {

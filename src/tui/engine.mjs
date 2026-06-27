@@ -1342,13 +1342,21 @@ export async function createEngineSession({
     };
 
     const ensureAggregateCard = (bucket) => {
-      if (openAggregateCard?.bucket === bucket && isAggregateTail(openAggregateCard)) return openAggregateCard;
+      // Reuse the open aggregate when it is either still the transcript tail OR
+      // has not been pushed yet. The not-yet-pushed case matters for parallel
+      // tool batches: every call in one onToolCall batch is collected first and
+      // the card is pushed once afterward (syncAggregateHeader), so the 2nd+
+      // same-bucket call in the SAME batch must merge even though the card is
+      // not yet visible in state.items (isAggregateTail would be false).
+      if (openAggregateCard?.bucket === bucket
+          && (!openAggregateCard.pushed || isAggregateTail(openAggregateCard))) return openAggregateCard;
       // If the previous aggregate was finalized/closed but is still the tail of
-      // the transcript, continue that exact card instead of pushing a duplicate
-      // directly below it. Never reach past a visible assistant/tool/status item:
-      // that would make an older card's count change "in the middle" of history.
+      // the transcript (or was never pushed), continue that exact card instead
+      // of pushing a duplicate directly below it. Never reach past a visible
+      // assistant/tool/status item: that would make an older card's count change
+      // "in the middle" of history.
       const tailAggregate = aggregateByBucket.get(bucket);
-      if (isAggregateTail(tailAggregate)) {
+      if (tailAggregate && (!tailAggregate.pushed || isAggregateTail(tailAggregate))) {
         openAggregateCard = tailAggregate;
         rememberActiveAggregate(tailAggregate);
         return tailAggregate;
@@ -1415,6 +1423,19 @@ export async function createEngineSession({
     const closeAssistantSegment = () => {
       currentAssistantId = null;
       currentAssistantText = '';
+    };
+
+    const commitAssistantSegment = ({ sealToolBlock = false } = {}) => {
+      const text = currentAssistantText || '';
+      if (!text.trim()) {
+        closeAssistantSegment();
+        return false;
+      }
+      if (sealToolBlock) clearAggregateContinuation();
+      const id = currentAssistantId || ensureAssistant(text);
+      patchItem(id, { text, streaming: false });
+      closeAssistantSegment();
+      return true;
     };
 
     const startThinkingSegment = () => {
@@ -1545,10 +1566,7 @@ export async function createEngineSession({
           }
           const batchCalls = (calls || []).filter(Boolean);
           if (batchCalls.length === 0) return;
-          if (currentAssistantId && currentAssistantText.trim()) {
-            patchItem(currentAssistantId, { text: currentAssistantText, streaming: false });
-          }
-          closeAssistantSegment();
+          commitAssistantSegment({ sealToolBlock: true });
 
           const touchedAggregates = new Set();
           for (let i = 0; i < batchCalls.length; i++) {
@@ -1637,7 +1655,6 @@ export async function createEngineSession({
           markPromptCommitted();
           const thinkingLastEndedAt = closeThinkingSegment();
           if (state.thinking) set({ thinking: null }); // collapse thinking panel immediately, no batch delay
-          if (textChunk.trim()) clearAggregateContinuation();
           assistantText += textChunk;
           currentAssistantText += textChunk;
           // Accumulate text and schedule a batched flush (≤1 render per
@@ -1667,7 +1684,6 @@ export async function createEngineSession({
           markPromptCommitted();
           closeThinkingSegment();
           if (state.thinking) set({ thinking: null });
-          clearAggregateContinuation();
           assistantText += full;
           currentAssistantText += full;
           _pendingTextFlush = true;

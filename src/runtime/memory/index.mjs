@@ -86,6 +86,9 @@ import {
 import { configureEmbedding, embedText, embedTexts, getEmbeddingDims, getEmbeddingDtype, getEmbeddingModelId, getKnownDimsForCurrentModel, isEmbeddingModelReady, primeEmbeddingDims, warmupEmbeddingProvider } from './lib/embedding-provider.mjs'
 import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs'
 import { runCycle1, runCycle2, runCycle3, runUnifiedGate, parseInterval, syncRootEmbedding, applySimpleStatus, applyUpdate, applyMerge, CYCLE2_ACTIVE_TARGET_CAP } from './lib/memory-cycle.mjs'
+import { loadConfig as loadAgentConfig } from '../agent/orchestrator/config.mjs'
+import { initProviders } from '../agent/orchestrator/providers/registry.mjs'
+import { makeBridgeLlm } from '../agent/orchestrator/smart-bridge/bridge-llm.mjs'
 import { getInFlightCycle1 } from './lib/memory-cycle1.mjs'
 import { claimAndMarkScheduledCycle, makeCycleRequestSignature, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry } from './lib/memory-cycle-requests.mjs'
 import { searchRelevantHybrid } from './lib/memory-recall-store.mjs'
@@ -545,6 +548,27 @@ async function _initStore() {
     startLlmWorker()
   } else {
     __mixdogMemoryLog('[memory-service] secondary mode; skipping llm worker\n')
+  }
+  // Initialize the in-process provider registry so cycle1 can run the bridge
+  // LLM locally (makeBridgeLlm → session manager → provider.send). In
+  // standalone the memory worker runs as a detached HTTP daemon whose parent
+  // has disconnected IPC, so the legacy callBridgeLlm() IPC path is dead on
+  // arrival. Mirror the channels worker boot (channels/index.mjs:
+  // loadAgentConfig() + initProviders) so the registry is populated before any
+  // cycle1 dispatch. The gate MUST match _startCycle1Run's makeBridgeLlm
+  // injection condition: cycle1 may dispatch in-process whenever cycles are
+  // enabled OR the llm worker is enabled (both exclude secondary mode), so
+  // registering only under the llm-worker gate would leave a hole where
+  // MIXDOG_MEMORY_DISABLE_LLM_WORKER=1 + cycles enabled hits an empty registry
+  // and fails with "Provider not found". Non-fatal: a failure here is logged
+  // and cycle1's own callLlm surfaces the unresolved-provider error per call.
+  if (memoryCyclesEnabled() || memoryLlmWorkerEnabled()) {
+    try {
+      const agentCfg = loadAgentConfig()
+      await initProviders(agentCfg.providers || {})
+    } catch (e) {
+      process.stderr.write(`[memory-service] initProviders failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`)
+    }
   }
   _bootTimestamp = Date.now()
   await loadTranscriptOffsets()
@@ -1083,6 +1107,43 @@ function _initTranscriptWatcher() {
 const CYCLE1_HEALTH_OVERDUE_MS = 5 * 60_000
 const CYCLE1_AUTO_RESTART_COOLDOWN_MS = 5 * 60_000
 
+// In-process cycle1 LLM adapter. The memory daemon runs makeBridgeLlm()
+// locally (provider registry is initialized in _initStore), so cycle1 never
+// has to route over the dead IPC bridge (agent-ipc.mjs callBridgeLlm). The
+// factory is built once (role/taskType are fixed) and the returned function
+// is reshaped to cycle1's call signature: cycle1 invokes
+// `callLlm({ role, taskType, mode, preset, timeout, cwd }, userMessage)` and
+// expects a raw string, while makeBridgeLlm's function takes a single
+// `{ prompt }` object. The adapter bridges the two — preset/cwd resolution is
+// handled inside makeBridgeLlm via role (cycle1-agent → maint.memory slot).
+let _cycle1BridgeLlm = null
+function getCycle1CallLlm() {
+  if (!_cycle1BridgeLlm) {
+    _cycle1BridgeLlm = makeBridgeLlm({
+      role: 'cycle1-agent',
+      taskType: 'maintenance',
+      sourceType: 'memory-cycle',
+      // cycle1 parses the full raw line-format response; the bridge brief cap
+      // (12KB) would truncate a large valid response and append prose, causing
+      // partial parsing / omitted / invalid chunks. Opt out so the cycle1
+      // no-truncation contract is preserved through makeBridgeLlm.
+      brief: false,
+    })
+  }
+  return async (opts = {}, userMessage) => {
+    // Preserve cycle1's timeout contract: cycle1 derives `opts.timeout` from
+    // config / caller deadline and expects it to bound the call. makeBridgeLlm
+    // takes it as a per-call `idleTimeoutMs` (stale watchdog). Map it through;
+    // omit when absent/0 so bridge defaults apply.
+    const callTimeout = Number(opts?.timeout)
+    return _cycle1BridgeLlm({
+      prompt: String(userMessage ?? ''),
+      preset: opts?.preset || undefined,
+      ...(Number.isFinite(callTimeout) && callTimeout > 0 ? { idleTimeoutMs: callTimeout } : {}),
+    })
+  }
+}
+
 async function recordCycle1Result(result) {
   const now = Date.now()
   await setCycleLastRun('cycle1_heartbeat', now)
@@ -1098,6 +1159,13 @@ async function recordCycle1Result(result) {
 }
 
 function _startCycle1Run(config = {}, options = {}) {
+  // Default to the in-process bridge LLM so every cycle1 path — scheduled,
+  // auto-restart, periodic, manual (action:cycle1), backfill drain, rebuild —
+  // dispatches locally and the dead IPC fallback in memory-cycle1.mjs is never
+  // reached. Explicit options.callLlm (if a caller ever passes one) wins.
+  if (typeof options?.callLlm !== 'function') {
+    options = { ...options, callLlm: getCycle1CallLlm() }
+  }
   _cycle1InFlight = (async () => {
     try {
       const result = await runCycle1(db, config, options, DATA_DIR)
@@ -3312,11 +3380,14 @@ const httpServer = http.createServer(async (req, res) => {
         : null
 
       // Lazy-load LLM + chunking helpers so production boot pays nothing.
-      const [{ buildCycle1ChunkPrompt, parseCycle1LineFormat }, { callBridgeLlm }, { resolveMaintenancePreset }] = await Promise.all([
+      // Use the same in-process bridge LLM adapter as real cycle1 — the legacy
+      // agent-ipc callBridgeLlm() path is dead in the detached standalone
+      // memory daemon (no connected IPC), so the dev bench must mirror prod.
+      const [{ buildCycle1ChunkPrompt, parseCycle1LineFormat }, { resolveMaintenancePreset }] = await Promise.all([
         import('./lib/memory-cycle1.mjs'),
-        import('./lib/agent-ipc.mjs'),
         import('../shared/llm/index.mjs'),
       ])
+      const benchCallLlm = getCycle1CallLlm()
 
       const CYCLE1_MIN_BATCH = 3
       const CYCLE1_SESSION_CAP = 10
@@ -3387,13 +3458,9 @@ const httpServer = http.createServer(async (req, res) => {
         const t0 = Date.now()
         let raw, error
         try {
-          raw = await callBridgeLlm({
-            role: 'cycle1-agent',
-            taskType: 'maintenance',
-            mode: 'cycle1',
+          raw = await benchCallLlm({
             preset,
             timeout: TIMEOUT_MS,
-            cwd: null,
           }, userMessage)
         } catch (e) {
           error = e?.message ?? String(e)

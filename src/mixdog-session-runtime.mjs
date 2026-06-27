@@ -2195,12 +2195,14 @@ export async function createMixdogSessionRuntime({
   let providerSetupWarmupTimer = null;
   let providerWarmupTimer = null;
   let providerModelWarmupTimer = null;
+  let statuslineUsageWarmupTimer = null;
   let activeTurnCount = 0;
   let firstTurnCompleted = false;
   const sessionPrewarmDelayMs = envDelayMs('MIXDOG_SESSION_PREWARM_DELAY_MS', 50, { min: 0, max: 10_000 });
   const providerSetupWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_SETUP_WARMUP_DELAY_MS', 300, { min: 0, max: 60_000 });
   const providerWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_WARMUP_DELAY_MS', 1_500, { min: 0, max: 60_000 });
   const providerModelWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS', 15_000, { min: 0, max: 120_000 });
+  const statuslineUsageWarmupDelayMs = envDelayMs('MIXDOG_STATUSLINE_USAGE_WARMUP_DELAY_MS', 800, { min: 0, max: 60_000 });
   const channelStartDelayMs = envDelayMs('MIXDOG_CHANNEL_START_DELAY_MS', 10_000, { min: 0, max: 120_000 });
   const backgroundBusyRetryMs = envDelayMs('MIXDOG_BACKGROUND_BUSY_RETRY_MS', 1_000, { min: 50, max: 10_000 });
   const sessionPrewarmEnabled = !envFlag('MIXDOG_DISABLE_SESSION_PREWARM')
@@ -3353,6 +3355,34 @@ function parsedProviderModelVersion(id) {
     providerModelWarmupTimer.unref?.();
   }
 
+  function scheduleStatuslineUsageWarmup(delayMs = statuslineUsageWarmupDelayMs) {
+    const providerId = clean(route?.provider);
+    if (!providerId || !providerId.includes('oauth')) {
+      bootProfile('statusline-usage:warm-skipped', { provider: providerId || null });
+      return;
+    }
+    if (statuslineUsageWarmupTimer || closeRequested) return;
+    statuslineUsageWarmupTimer = setTimeout(async () => {
+      statuslineUsageWarmupTimer = null;
+      if (closeRequested) return;
+      if (activeTurnCount > 0 || sessionCreatePromise) {
+        bootProfile('statusline-usage:warm-deferred', { reason: activeTurnCount > 0 ? 'turn-active' : 'session-create' });
+        scheduleStatuslineUsageWarmup(backgroundBusyRetryMs);
+        return;
+      }
+      try {
+        ensureConfigForRouteProvider();
+        await ensureProvidersReady(ensureProviderEnabled(config, route.provider));
+        if (closeRequested) return;
+        refreshStatuslineUsageSnapshot(route);
+        bootProfile('statusline-usage:warm-ready', { provider: clean(route?.provider) });
+      } catch (error) {
+        bootProfile('statusline-usage:warm-failed', { error: error?.message || String(error) });
+      }
+    }, delayMs);
+    statuslineUsageWarmupTimer.unref?.();
+  }
+
   function scheduleChannelStart(delayMs = channelStartDelayMs) {
     if (envFlag('MIXDOG_DISABLE_CHANNEL_START')) {
       bootProfile('channels:start-skipped');
@@ -3404,6 +3434,7 @@ function parsedProviderModelVersion(id) {
   scheduleLeadSessionPrewarm();
   scheduleProviderSetupWarmup();
   scheduleProviderWarmup();
+  scheduleStatuslineUsageWarmup();
   scheduleChannelStart();
 
   function contextStatusCacheKeyFor({ messages, tools }) {
@@ -4556,6 +4587,10 @@ function parsedProviderModelVersion(id) {
       if (providerModelWarmupTimer) {
         clearTimeout(providerModelWarmupTimer);
         providerModelWarmupTimer = null;
+      }
+      if (statuslineUsageWarmupTimer) {
+        clearTimeout(statuslineUsageWarmupTimer);
+        statuslineUsageWarmupTimer = null;
       }
       try { cancelBackgroundTasks({ reason, notify: false }); } catch {}
       const channelStop = channels.stop(reason, detach ? { waitForExit: false } : undefined);

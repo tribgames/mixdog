@@ -11,9 +11,30 @@ import { Worker } from 'worker_threads';
 import { getPluginData } from '../config.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { renameWithRetrySync, updateJsonAtomicSync, writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+import { sanitizeContentForStoredHistory } from '../providers/media-normalization.mjs';
 
 const _lastSaveError = new Map(); // id -> { message, at }
 const SESSION_SUMMARY_INDEX_VERSION = 1;
+
+// Claude Code parity: the live in-memory session (and every model request)
+// retains attached image bytes across turns so multi-turn recognition works.
+// The persisted session JSON, however, replaces image content with a short
+// text placeholder at serialization time — keeping session files small without
+// starving the model of the image mid-conversation. Returns the same object
+// reference when nothing changed (no-image sessions pay only a shallow scan).
+function _sessionForDisk(session) {
+    const messages = Array.isArray(session?.messages) ? session.messages : null;
+    if (!messages || messages.length === 0) return session;
+    let changed = false;
+    const out = messages.map((m) => {
+        if (!m || typeof m !== 'object') return m;
+        const content = sanitizeContentForStoredHistory(m.content);
+        if (content !== m.content) { changed = true; return { ...m, content }; }
+        return m;
+    });
+    if (!changed) return session;
+    return { ...session, messages: out };
+}
 
 function _renameWithRetrySync(tmp, target) {
     return renameWithRetrySync(tmp, target);
@@ -456,7 +477,7 @@ function _doSaveSync(payload) {
     const target = sessionPath(id);
     const tmp = target + '.' + randomBytes(6).toString('hex') + '.tmp';
     try {
-        writeFileSync(tmp, JSON.stringify(session), 'utf-8');
+        writeFileSync(tmp, JSON.stringify(_sessionForDisk(session)), 'utf-8');
         if (_shouldDrop(id, opts)) {
             try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
             return;
@@ -559,7 +580,7 @@ async function _doSave(payload) {
     const target = sessionPath(id);
     const tmp = target + '.' + randomBytes(6).toString('hex') + '.tmp';
     try {
-        await fsp.writeFile(tmp, JSON.stringify(session), 'utf-8');
+        await fsp.writeFile(tmp, JSON.stringify(_sessionForDisk(session)), 'utf-8');
         // Second check: between the temp write and the rename, closeSession()
         // may have planted a tombstone. Re-check on disk; if a newer tombstone
         // now exists, discard our temp file rather than let rename clobber it.
@@ -598,7 +619,7 @@ export function markSessionClosed(id, reason = 'manual') {
     const target = sessionPath(id);
     const tmp = target + '.' + randomBytes(6).toString('hex') + '.tmp';
     try {
-        writeFileSync(tmp, JSON.stringify(tombstone), 'utf-8');
+        writeFileSync(tmp, JSON.stringify(_sessionForDisk(tombstone)), 'utf-8');
         _renameWithRetrySync(tmp, target);
     } catch {
         try { unlinkSync(tmp); } catch { /* ignore */ }

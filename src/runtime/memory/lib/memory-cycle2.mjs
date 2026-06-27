@@ -521,7 +521,6 @@ export function loadCurrentRulesDigest() {
   const now = Date.now()
   if (_currentRulesDigest && now - _currentRulesDigestTs < 60_000) return _currentRulesDigest
   const sources = [
-    join(resourceDir(), 'rules', 'shared', '00-language.md'),
     join(resourceDir(), 'rules', 'shared', '01-general.md'),
     join(resourceDir(), 'rules', 'shared', '01-tool.md'),
     join(resourceDir(), 'rules', 'shared', '04-memory.md'),

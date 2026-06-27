@@ -50,8 +50,8 @@ function nextCallId() {
  * @returns {Promise<string>}      raw assistant content
  */
 export function callBridgeLlm(opts = {}, prompt) {
-  if (!process.send) {
-    return Promise.reject(new Error('agent-ipc: process.send unavailable (not running as worker)'))
+  if (!process.send || !process.connected) {
+    return Promise.reject(new Error('agent-ipc: IPC channel unavailable (no process.send / not connected)'))
   }
   installListener()
   const callId = nextCallId()
@@ -60,15 +60,26 @@ export function callBridgeLlm(opts = {}, prompt) {
     const timer = setTimeout(() => {
       if (!pending.has(callId)) return
       pending.delete(callId)
-      try {
-        process.send({ type: 'agent_ipc_cancel', callId })
-      } catch {}
+      if (process.connected) {
+        try {
+          process.send({ type: 'agent_ipc_cancel', callId }, undefined, {}, () => {})
+        } catch {}
+      }
       reject(new Error(`agent-ipc: timed out after ${timeoutMs}ms`))
     }, timeoutMs)
     pending.set(callId, {
       resolve: (v) => { clearTimeout(timer); resolve(v) },
       reject: (e) => { clearTimeout(timer); reject(e) },
     })
+    if (!process.connected) {
+      pending.delete(callId)
+      clearTimeout(timer)
+      reject(new Error('agent-ipc: IPC channel not connected'))
+      return
+    }
+    // Pass a write callback so a closed-channel write surfaces as an async
+    // error here (rejecting this Promise) instead of bubbling to the process
+    // 'error' event and crashing the daemon with ERR_IPC_CHANNEL_CLOSED.
     try {
       process.send({
         type: 'agent_ipc_request',
@@ -83,6 +94,12 @@ export function callBridgeLlm(opts = {}, prompt) {
           prompt: String(prompt ?? ''),
           timeout: timeoutMs,
         },
+      }, undefined, {}, (err) => {
+        if (!err) return
+        if (!pending.has(callId)) return
+        pending.delete(callId)
+        clearTimeout(timer)
+        reject(err)
       })
     } catch (e) {
       pending.delete(callId)

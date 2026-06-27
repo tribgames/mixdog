@@ -695,6 +695,20 @@ function textBetweenTag(text, tag) {
   return match ? match[1].trim() : '';
 }
 
+// Strip the most common inline-markdown markers so a one-line card summary
+// reads as plain prose ("**not clean**" → "not clean", "`x`" → "x"). Block
+// markers (#, >, -, 1.) at line start are dropped too. Whitespace is collapsed
+// by the caller's truncateSingleLine.
+function stripInlineMarkdown(value) {
+  return String(value ?? '')
+    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/(?<!\*)\*(?!\*)([^*]+)\*(?!\*)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .trim();
+}
+
 function firstAgentResultLine(text) {
   const finalAnswer = textBetweenTag(text, 'final-answer') || textBetweenTag(text, 'result');
   const raw = finalAnswer || text;
@@ -914,7 +928,10 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     case 'agent':
     case 'task': {
       const answerLine = firstAgentResultLine(text);
-      if (answerLine) return answerLine;
+      // Agent/task result cards show only a tight one-liner: the full report is
+      // available via ctrl+o expand. Strip inline markdown and cap shorter than
+      // the generic 120 so the header stays compact.
+      if (answerLine) return truncateSingleLine(stripInlineMarkdown(answerLine), 64);
       const task = /^agent task:\s*(\S+)/mi.exec(text);
       const status = /^status:\s*([^\s(]+)/mi.exec(text);
       const role = /^role:\s*(.+)$/mi.exec(text);

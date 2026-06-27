@@ -25,6 +25,8 @@ export { markCodeGraphDirtyPaths } from './code-graph-state.mjs';
 const CODE_GRAPH_TTL_MS = 30_000;
 const CODE_GRAPH_MAX_FILES = 10_000;
 const CODE_GRAPH_WORKER_TIMEOUT_MS = 120_000;
+// Timeout for the native mixdog-graph binary child process (spawned per graph build).
+const CODE_GRAPH_BINARY_TIMEOUT_MS = Math.max(1000, Number(process.env.MIXDOG_CODE_GRAPH_BINARY_TIMEOUT_MS) || 20000);
 // Legacy single-file cache. Kept as a constant for the one-shot migration
 // path; new writes go into the per-cwd directory layout below.
 const CODE_GRAPH_DISK_FILE = 'code-graph-cache.json';
@@ -3009,7 +3011,11 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
     }
   }
   const { spawn } = await import('node:child_process');
-  return await new Promise((resolve, reject) => {
+  const timeoutMs = CODE_GRAPH_BINARY_TIMEOUT_MS;
+  let retried = false;
+
+  // Inner spawn + promise — extracted so we can retry once on EAGAIN.
+  const _spawnOnce = () => new Promise((resolve, reject) => {
     // When stdinLines is supplied (--files mode), stream one JSON object per
     // line to the child's STDIN — the reused nodes' metadata — so Rust can
     // resolve imports across the WHOLE tree (fresh + reused) while only
@@ -3024,6 +3030,65 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
     const chunks = [];
     let stderrText = '';
     const STDERR_CAP = 8 * 1024;
+    let settled = false;
+
+    // ── timeout + kill helpers (mirrors rg-runner's _killRgProc/_escalateRgKill) ──
+    let timeoutTimer = null;
+    let killGraceTimer = null;
+
+    const _procGone = () => proc.exitCode != null || proc.signalCode != null;
+
+    const _escalateKill = () => {
+      if (_procGone()) return;
+      const pid = proc.pid;
+      if (!pid) return;
+      try {
+        if (process.platform === 'win32') {
+          spawn('taskkill', ['/pid', String(pid), '/t', '/f'], {
+            windowsHide: true,
+            stdio: 'ignore',
+          });
+        } else {
+          try { proc.kill('SIGKILL'); } catch { /* ignore */ }
+        }
+      } catch { /* ignore */ }
+    };
+
+    const _killProc = () => {
+      if (_procGone()) return;
+      try { proc.kill('SIGTERM'); } catch { /* ignore */ }
+      if (killGraceTimer) {
+        clearTimeout(killGraceTimer);
+        killGraceTimer = null;
+      }
+      killGraceTimer = setTimeout(() => {
+        killGraceTimer = null;
+        _escalateKill();
+      }, 3000);
+      if (killGraceTimer.unref) killGraceTimer.unref();
+    };
+
+    const _clearTimers = () => {
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+        timeoutTimer = null;
+      }
+      if (killGraceTimer) {
+        clearTimeout(killGraceTimer);
+        killGraceTimer = null;
+      }
+    };
+
+    // Arm timeout — unref so it doesn't keep the process alive.
+    timeoutTimer = setTimeout(() => {
+      _killProc();
+      if (settled) return;
+      settled = true;
+      _clearTimers();
+      reject(new Error(`[code-graph] mixdog-graph timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    if (timeoutTimer.unref) timeoutTimer.unref();
+
     proc.stdout.on('data', (c) => chunks.push(c));
     proc.stderr.on('data', (c) => {
       if (stderrText.length >= STDERR_CAP) return;
@@ -3031,13 +3096,21 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
       const room = STDERR_CAP - stderrText.length;
       stderrText += piece.length > room ? piece.slice(0, room) : piece;
     });
-    proc.on('error', (err) => reject(err));
+    proc.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      _clearTimers();
+      reject(err);
+    });
     if (wantsStdin) {
       proc.stdin.on('error', () => { /* child may close stdin early; ignore EPIPE */ });
       proc.stdin.write(stdinLines.length ? `${stdinLines.join('\n')}\n` : '');
       proc.stdin.end();
     }
     proc.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      _clearTimers();
       if (code !== 0) {
         reject(new Error(`[code-graph] mixdog-graph exited ${code}: ${stderrText.trim().slice(0, 200)}`));
         return;
@@ -3055,8 +3128,18 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
       resolve(out);
     });
   });
-}
 
+  // Outer call with one EAGAIN retry (mirrors rg-runner runRg / runRgWindowedLines).
+  try {
+    return await _spawnOnce();
+  } catch (err) {
+    if (!retried && (err?.code === 'EAGAIN' || /EAGAIN/i.test(String(err?.message || err?.stderr || '')))) {
+      retried = true;
+      return _spawnOnce();
+    }
+    throw err;
+  }
+}
 function _runGraphManifest(absRoot) { return _runGraphBinaryJsonl(absRoot, ['--manifest']); }
 function _runGraphWalk(absRoot) { return _runGraphBinaryJsonl(absRoot, []); }
 // --files (design A: full-graph resolution) full-parses only `rels` (argv) but

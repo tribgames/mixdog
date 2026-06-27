@@ -1215,6 +1215,18 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         }
     };
     const sessionRef = opts.session || null;
+    // Sub-agent (worker/heavy-worker/reviewer/debugger/explore/…) sessions
+    // drop mid-turn assistant preamble text outright. Only the final
+    // <final-answer> reply is consumed by Lead, so any "Now let me…" prose
+    // that precedes a tool call is pure noise — both for live surfacing AND
+    // for the agent's own history (where it re-enters context as input
+    // tokens on every later turn). Drop it at the runtime, no model-side rule:
+    //   - streaming  : opts.onTextDelta suppressed (token-by-token preamble)
+    //   - buffered   : opts.onAssistantText skipped (response.content below)
+    //   - history    : tool-call turn content blanked before messages.push
+    // Reasoning/thinking deltas, tool calls, and the final answer are kept.
+    const suppressMidTurnText = isAgentOwner(sessionRef);
+    if (suppressMidTurnText) opts.onTextDelta = undefined;
     const pushToolResultMessage = (message) => {
         messages.push(message);
         try { opts.onToolResult?.(message); } catch {}
@@ -1792,8 +1804,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // rendered it; providers that return the text only in response.content
         // (no deltas) would otherwise show nothing before the tool card. The
         // engine de-dups against already-streamed text, so emitting here is
-        // safe for both paths.
-        if (typeof response.content === 'string' && response.content.trim()) {
+        // safe for both paths. Sub-agent sessions suppress it entirely
+        // (suppressMidTurnText) — Lead only consumes the final answer.
+        if (!suppressMidTurnText && typeof response.content === 'string' && response.content.trim()) {
             try { opts.onAssistantText?.(response.content); } catch { /* best-effort */ }
         }
         // Per-turn batch shape — one row per assistant turn so trace
@@ -1809,7 +1822,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // server-side cache prefix stable.
         const _assistantTurnMsg = {
             role: 'assistant',
-            content: response.content || '',
+            // Sub-agent tool-call turns carry only mid-turn preamble in
+            // response.content (the real result rides the later final-answer
+            // turn). Blank it so it never accumulates as input tokens.
+            content: suppressMidTurnText ? '' : (response.content || ''),
             toolCalls: compactToolCallsForHistory(calls),
             ...(Array.isArray(response.reasoningItems) && response.reasoningItems.length
                 ? { reasoningItems: response.reasoningItems }

@@ -166,11 +166,9 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
   const memoryConfig = readConfigSection(DATA_DIR, 'memory');
   const parts = [];
 
-  // Language policy injects first — global default, applied to every Lead reply
-  // and to internal role communication regardless of locale.
-  const language = readOptional(path.join(SHARED_DIR, '00-language.md'));
-  if (language) parts.push(language);
-
+  // Language policy now lives in lead/01-general.md (Lead-only). Bridge/agent
+  // sessions keep their own English contract (bridge/00-common.md) without a
+  // conflicting "follow user language" line.
   const general = readOptional(path.join(LEAD_DIR, '01-general.md'));
   if (general) {
     const addressBullet = composeUserAddressBullet(memoryConfig);
@@ -223,15 +221,13 @@ function buildBridgeInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
   const BRIDGE_DIR = path.join(RULES_DIR, 'bridge');
   const parts = [];
 
-  // 0. Language policy — global default, language-neutral plugin behavior.
-  const language = readOptional(path.join(SHARED_DIR, '00-language.md'));
-  if (language) parts.push(language);
-
-  // 1. Universal tool policy — same full set Lead receives.
+  // Universal tool policy — same full set Lead receives. No shared language
+  // policy here: bridge/agent language is governed by bridge/00-common.md
+  // ("Use English for agent task communication").
   const tool = readOptional(path.join(SHARED_DIR, '01-tool.md'));
   if (tool) parts.push(tool);
 
-  // 2. Bridge common behavior.
+  // Bridge common behavior.
   const common = readOptional(path.join(BRIDGE_DIR, '00-common.md'));
   if (common) parts.push(common);
 
