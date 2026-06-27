@@ -615,6 +615,20 @@ function buildTranscriptRowIndex(items, { columns = 80, toolOutputExpanded = fal
 // kind, expansion) or when the streaming item's ESTIMATED HEIGHT actually
 // changes — not on every character. `columns`/`toolOutputExpanded` are folded
 // in because they alter wrapped row estimates.
+//
+// Cost note: even though the consuming memos are cached on this signature, the
+// signature itself was recomputed O(n) on EVERY App re-render (drag motion →
+// setScrollOffset, scroll, streaming flush ~8ms). For long transcripts that
+// per-frame O(n) walk grew linearly and slowed typing/drag/scroll. The
+// per-item `sigPart` for COMPLETED (non-streaming) items only changes when the
+// item's `text`/`result` length, `expanded`, or `columns` change, so it is
+// memoized on the item OBJECT IDENTITY via this WeakMap. The engine appends/
+// patches completed items in place (same reference), so cache hit rate is high.
+// Streaming assistant items still recompute their estimated height every call
+// because their height can change between flushes. The cache is validated on
+// `len` as well so a patch that mutates `text` in place still invalidates.
+const transcriptSigPartCache = new WeakMap();
+
 function transcriptStructureSignature(items, columns, toolOutputExpanded) {
   const list = Array.isArray(items) ? items : [];
   let sig = `${list.length}|${columns}|${toolOutputExpanded ? 1 : 0}`;
@@ -627,7 +641,19 @@ function transcriptStructureSignature(items, columns, toolOutputExpanded) {
       sig += `;a${it.id}:${estimateTranscriptItemRows(it, columns, toolOutputExpanded)}`;
       continue;
     }
-    sig += `;${it.kind?.[0] || '?'}${it.id}:${it.expanded ? 1 : 0}:${String(it.text ?? it.result ?? '').length}`;
+    // Completed item: reuse the cached sigPart while the inputs that can change
+    // it (text/result length, expanded flag, columns) are unchanged. Identity
+    // is keyed on the item object itself (stable for in-place append/patch).
+    const len = String(it.text ?? it.result ?? '').length;
+    const expanded = it.expanded ? 1 : 0;
+    const cached = transcriptSigPartCache.get(it);
+    if (cached && cached.len === len && cached.expanded === expanded && cached.columns === columns) {
+      sig += cached.sigPart;
+      continue;
+    }
+    const sigPart = `;${it.kind?.[0] || '?'}${it.id}:${expanded}:${len}`;
+    transcriptSigPartCache.set(it, { len, expanded, columns, sigPart });
+    sig += sigPart;
   }
   return sig;
 }
@@ -5509,7 +5535,16 @@ export function App({ store, initialStatusLine = '' }) {
   // each delta frame and visibly throttled the stream. The signature changes
   // only when transcript structure or the streaming item's estimated height
   // changes, so steady per-character growth keeps both memos warm.
-  const transcriptStructureSig = transcriptStructureSignature(state.items, frameColumns, toolOutputExpanded);
+  //
+  // The signature itself is memoized on `state.items` identity (+columns/
+  // expanded) so re-renders that DO NOT touch items — drag motion, scroll,
+  // input typing — skip the O(n) signature walk entirely. During streaming the
+  // engine hands us a fresh `state.items` array each flush, so this memo
+  // recomputes and still tracks the streaming item's height correctly.
+  const transcriptStructureSig = useMemo(
+    () => transcriptStructureSignature(state.items, frameColumns, toolOutputExpanded),
+    [state.items, frameColumns, toolOutputExpanded],
+  );
   const transcriptRowIndex = useMemo(() => buildTranscriptRowIndex(state.items, {
     columns: frameColumns,
     toolOutputExpanded,

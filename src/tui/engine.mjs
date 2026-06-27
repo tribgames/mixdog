@@ -840,25 +840,7 @@ export async function createEngineSession({
       task_id: synthetic.taskId || parsed?.taskId || undefined,
       description: synthetic.summary || 'agent notification',
     };
-    const taskId = args.task_id || synthetic.taskId || parsed?.taskId || '';
     const isError = synthetic.isError ?? /^(failed|error|timeout|killed|cancelled)$/i.test(label);
-    const existing = taskId ? [...state.items].reverse().find((item) => {
-      if (!item || item.kind !== 'tool') return false;
-      return parseToolArgs(item.args).task_id === taskId;
-    }) : null;
-    if (existing) {
-      patchItem(existing.id, {
-        name: synthetic.name || existing.name || 'task',
-        args,
-        result: synthetic.result,
-        text: synthetic.result,
-        isError,
-        errorCount: isError ? 1 : 0,
-        completedCount: 1,
-        completedAt: Date.now(),
-      });
-      return true;
-    }
     pushItem({
       kind: 'tool',
       id,
@@ -962,12 +944,6 @@ export async function createEngineSession({
     });
   }
 
-  function upsertExecutionNotificationCard(text, parsed = null) {
-    if (!upsertSyntheticToolItem(text, nextId(), parsed)) {
-      pushNotice(firstQueueLine(text) || 'Background task finished.', 'info');
-    }
-  }
-
   if (typeof runtime.onNotification === 'function') {
     unsubscribeRuntimeNotifications = runtime.onNotification((event) => {
       if (disposed) return;
@@ -979,7 +955,6 @@ export async function createEngineSession({
         const firstDelivery = !notificationKey || !displayedExecutionNotificationKeys.has(notificationKey);
         if (firstDelivery) {
           if (notificationKey) displayedExecutionNotificationKeys.add(notificationKey);
-          upsertExecutionNotificationCard(text, parsed);
           enqueue(text, {
             mode: 'task-notification',
             priority: 'next',
@@ -990,14 +965,6 @@ export async function createEngineSession({
         return true;
       }
       if (parsed?.taskId) {
-        const existing = [...state.items].reverse().find((item) => {
-          if (!item || item.kind !== 'tool' || item.name !== 'agent') return false;
-          const args = parseToolArgs(item.args);
-          return args.task_id === parsed.taskId;
-        });
-        if (existing) {
-          updateBridgeJobCard(existing.id, text, /^(failed|error|timeout|cancelled|killed)$/i.test(parsed.status));
-        }
         set(bridgeStatusState({ force: true }));
       }
       enqueue(text, {
