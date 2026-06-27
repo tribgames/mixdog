@@ -622,11 +622,15 @@ function buildTranscriptRowIndex(items, { columns = 80, toolOutputExpanded = fal
 // per-frame O(n) walk grew linearly and slowed typing/drag/scroll. The
 // per-item `sigPart` for COMPLETED (non-streaming) items only changes when the
 // item's `text`/`result` length, `expanded`, or `columns` change, so it is
-// memoized on the item OBJECT IDENTITY via this WeakMap. The engine appends/
-// patches completed items in place (same reference), so cache hit rate is high.
-// Streaming assistant items still recompute their estimated height every call
-// because their height can change between flushes. The cache is validated on
-// `len` as well so a patch that mutates `text` in place still invalidates.
+// memoized on the item OBJECT IDENTITY via this WeakMap. The engine creates a
+// NEW object whenever it patches an item (engine.mjs patchItem/flush do
+// `items[index] = { ...current, ...patch }`), so a patched item simply misses
+// the cache; untouched historical items retain their identity across the fresh
+// `state.items` array, which is where the hit rate comes from. Streaming
+// assistant items still recompute their estimated height every call because
+// their height can change between flushes. The cache key is validated on
+// `id`/`kind`/`len`/`expanded`/`columns` so even a hypothetical future in-place
+// mutation of an item can never serve a stale sigPart.
 const transcriptSigPartCache = new WeakMap();
 
 function transcriptStructureSignature(items, columns, toolOutputExpanded) {
@@ -647,12 +651,17 @@ function transcriptStructureSignature(items, columns, toolOutputExpanded) {
     const len = String(it.text ?? it.result ?? '').length;
     const expanded = it.expanded ? 1 : 0;
     const cached = transcriptSigPartCache.get(it);
-    if (cached && cached.len === len && cached.expanded === expanded && cached.columns === columns) {
+    if (cached
+      && cached.len === len
+      && cached.expanded === expanded
+      && cached.columns === columns
+      && cached.id === it.id
+      && cached.kind === it.kind) {
       sig += cached.sigPart;
       continue;
     }
     const sigPart = `;${it.kind?.[0] || '?'}${it.id}:${expanded}:${len}`;
-    transcriptSigPartCache.set(it, { len, expanded, columns, sigPart });
+    transcriptSigPartCache.set(it, { id: it.id, kind: it.kind, len, expanded, columns, sigPart });
     sig += sigPart;
   }
   return sig;
@@ -5372,7 +5381,14 @@ export function App({ store, initialStatusLine = '' }) {
     const argumentHint = slashArgumentHint(value);
     if (argumentHint) {
       showPromptHint(argumentHint, 'info');
-    } else if (value) {
+    } else if (value && (promptHintActiveRef.current || promptHintTimerRef.current)) {
+      // Only clear when a hint is actually live (shown or pending its timer).
+      // clearPromptHint() already early-returns when neither ref is set, but
+      // gating the call here avoids invoking it on EVERY keystroke once a hint
+      // has appeared — that call path otherwise drives a setState → full App
+      // re-render per key, which is costly on long transcripts. Hint-while-
+      // typing still vanishes immediately because the guard includes the active
+      // state; the argumentHint branch above is untouched.
       clearPromptHint();
     }
     if (slashDismissedFor) {
