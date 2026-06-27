@@ -46,9 +46,6 @@ const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const CODEX_OAUTH_ORIGINATOR = 'codex_cli_rs';
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses';
-const OPENAI_CODEX_REMOTE_COMPACT_FALLBACK = 'openai-codex';
-const OPENAI_CODEX_REMOTE_COMPACT_VERSION = 1;
-const REMOTE_COMPACT_RETAINED_TOKEN_BUDGET = 64_000;
 // Version string baked into the models endpoint query — Codex rejects the
 // request without it. Keep close to the latest published Codex CLI because
 // older versions trigger a visibility-filtered catalog (e.g. only rollout
@@ -526,18 +523,6 @@ function _cloneJson(value) {
     try { return JSON.parse(JSON.stringify(value)); } catch { return value; }
 }
 
-function _nativeCompactState(providerState, model) {
-    const state = providerState?.openaiCodex?.remoteCompact;
-    if (!state || state.version !== OPENAI_CODEX_REMOTE_COMPACT_VERSION) return null;
-    if (!Array.isArray(state.nativePrefix) || state.nativePrefix.length === 0) return null;
-    if (state.model && model && state.model !== model) return null;
-    return state;
-}
-
-function _isRemoteCompactFallbackMessage(m) {
-    return m?._mixdogRemoteCompactFallback === OPENAI_CODEX_REMOTE_COMPACT_FALLBACK;
-}
-
 function _contentTextParts(content, type = 'input_text') {
     if (typeof content === 'string') return content ? [{ type, text: content }] : [];
     if (!Array.isArray(content)) {
@@ -556,117 +541,11 @@ function _contentTextParts(content, type = 'input_text') {
     return out;
 }
 
-function _messageToNativeRetainedItem(m) {
-    const role = m?.role;
-    if (role !== 'user') return null;
-    if (_isRemoteCompactFallbackMessage(m)) return null;
-    const content = _contentTextParts(m.content, 'input_text');
-    if (!content.length) return null;
-    return { type: 'message', role, content };
-}
-
-function _nativeMessageTextTokenCount(item) {
-    if (!item || item.type !== 'message') return 0;
-    const content = Array.isArray(item.content) ? item.content : [];
-    let chars = 0;
-    for (const part of content) {
-        if (typeof part?.text === 'string') chars += part.text.length;
-    }
-    return Math.max(1, Math.ceil(chars / 4));
-}
-
-function _truncateTextForTokens(text, maxTokens) {
-    const value = String(text || '');
-    const maxChars = Math.max(0, Math.floor(maxTokens * 4));
-    if (value.length <= maxChars) return value;
-    if (maxChars <= 32) return value.slice(0, maxChars);
-    const marker = `...${Math.max(1, Math.ceil((value.length - maxChars) / 4))} tokens truncated...`;
-    const room = Math.max(0, maxChars - marker.length);
-    const head = Math.ceil(room / 2);
-    const tail = Math.floor(room / 2);
-    return `${value.slice(0, head)}${marker}${value.slice(value.length - tail)}`;
-}
-
-function _truncateNativeMessageToTokenBudget(item, maxTokens) {
-    if (!item || item.type !== 'message') return item;
-    const clone = _cloneJson(item);
-    let remaining = Math.max(0, Math.floor(maxTokens));
-    const content = [];
-    for (const part of Array.isArray(clone.content) ? clone.content : []) {
-        if (typeof part?.text !== 'string') {
-            content.push(part);
-            continue;
-        }
-        if (remaining <= 0) continue;
-        const tokenCount = Math.max(1, Math.ceil(part.text.length / 4));
-        if (tokenCount <= remaining) {
-            content.push(part);
-            remaining -= tokenCount;
-        } else {
-            const truncated = _truncateTextForTokens(part.text, remaining);
-            if (truncated) content.push({ ...part, text: truncated });
-            remaining = 0;
-        }
-    }
-    if (!content.length) return null;
-    clone.content = content;
-    return clone;
-}
-
-function _truncateRetainedNativeMessages(items, maxTokens = REMOTE_COMPACT_RETAINED_TOKEN_BUDGET) {
-    let remaining = Math.max(0, Math.floor(maxTokens));
-    const reversed = [];
-    for (let i = items.length - 1; i >= 0; i -= 1) {
-        if (remaining <= 0) break;
-        const item = items[i];
-        const tokenCount = _nativeMessageTextTokenCount(item);
-        if (tokenCount <= remaining) {
-            reversed.push(item);
-            remaining -= tokenCount;
-            continue;
-        }
-        const truncated = _truncateNativeMessageToTokenBudget(item, remaining);
-        if (truncated) reversed.push(truncated);
-        remaining = 0;
-    }
-    return reversed.reverse();
-}
-
-function _buildOpenAICodexNativeCompactPrefix(messages, compactionItem) {
-    const retained = [];
-    for (const m of messages || []) {
-        const item = _messageToNativeRetainedItem(m);
-        if (item) retained.push(item);
-    }
-    const compact = _cloneJson(compactionItem);
-    return [..._truncateRetainedNativeMessages(retained), compact];
-}
-
-function _withOpenAICodexRemoteCompactState(providerState, { model, nativePrefix, responseId } = {}) {
-    return {
-        ...(providerState || {}),
-        openaiCodex: {
-            ...(providerState?.openaiCodex || {}),
-            remoteCompact: {
-                version: OPENAI_CODEX_REMOTE_COMPACT_VERSION,
-                model: model || null,
-                nativePrefix,
-                responseId: responseId || null,
-                installedAt: Date.now(),
-            },
-        },
-    };
-}
-
 /**
  * Convert a message slice to Responses API input items.
  */
 function convertMessagesToResponsesInput(messages, opts = {}) {
     const out = [];
-    const nativeCompact = _nativeCompactState(opts.providerState, opts.model);
-    if (nativeCompact) {
-        for (const item of nativeCompact.nativePrefix) out.push(_cloneJson(item));
-    }
     const pendingToolMedia = [];
     const flushToolMedia = () => {
         if (!pendingToolMedia.length) return;
@@ -674,7 +553,6 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
     };
     for (const m of messages) {
         if (!m || m.role === 'system') continue;
-        if (nativeCompact && _isRemoteCompactFallbackMessage(m)) continue;
         if (m.role === 'tool') {
             const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
             out.push({
@@ -731,6 +609,11 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     // tool_choice / parallel_tool_calls are all inert without side effects
     // for most callers but their presence affects how Codex classifies the
     // request (and therefore whether the prompt cache is consulted).
+    const include = ['reasoning.encrypted_content'];
+    for (const item of Array.isArray(opts.nativeInclude) ? opts.nativeInclude : []) {
+        const value = String(item || '').trim();
+        if (value && !include.includes(value)) include.push(value);
+    }
     const body = {
         model,
         instructions,
@@ -739,7 +622,7 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         stream: true,
         reasoning: { effort: opts.effort || 'medium' },
         text: { verbosity: 'medium' },
-        include: ['reasoning.encrypted_content'],
+        include,
         tool_choice: opts.toolChoice || 'auto',
         parallel_tool_calls: true,
     };
@@ -758,14 +641,20 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
             body.service_tier = 'priority';
         }
     }
-    // Add tools
-    if (tools?.length) {
-        body.tools = tools.map(t => ({
+    // Add tools. `nativeTools` are server-hosted Responses tools (for
+    // example web_search) and must be passed through without wrapping them as
+    // function tools.
+    const functionTools = tools?.length ? tools.map(t => ({
             type: 'function',
             name: t.name,
             description: t.description,
             parameters: t.inputSchema,
-        }));
+        })) : [];
+    const nativeTools = Array.isArray(opts.nativeTools)
+        ? opts.nativeTools.filter(t => t && typeof t === 'object')
+        : [];
+    if (functionTools.length || nativeTools.length) {
+        body.tools = [...nativeTools, ...functionTools];
     }
     const promptCacheProvider = opts.promptCacheProvider || 'openai-oauth';
     const promptCacheLane = opts.promptCacheLane || resolveProviderPromptCacheLane(promptCacheProvider, opts);
@@ -788,22 +677,17 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     return body;
 }
 
-function buildRemoteCompactionRequestBody(messages, model, tools, sendOpts) {
-    const body = buildRequestBody(messages, model, tools, {
-        ...(sendOpts || {}),
-        expectCompaction: true,
-    });
-    body.input = [
-        ...(Array.isArray(body.input) ? body.input : []),
-        { type: 'compaction_trigger' },
-    ];
-    return body;
-}
-
 function _envFlag(name, fallback = true) {
     const raw = process.env[name];
     if (raw == null || raw === '') return fallback;
     return !['0', 'false', 'off', 'no'].includes(String(raw).toLowerCase());
+}
+
+function _envPositiveInt(name, fallback) {
+    const raw = process.env[name];
+    if (raw == null || raw === '') return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
 function _parseJsonObject(value) {
@@ -1019,7 +903,6 @@ export async function sendViaHttpSse({
     const toolCalls = [];
     const pendingCalls = new Map();
     const reasoningItems = [];
-    const compactionItems = [];
     const citations = [];
     const citationKeys = new Set();
     const webSearchCalls = [];
@@ -1066,11 +949,6 @@ export async function sendViaHttpSse({
                 summary: Array.isArray(item.summary) ? item.summary : [],
             });
         }
-    };
-    const pushCompactionItem = (item) => {
-        if (!item || !['compaction', 'compaction_summary', 'context_compaction'].includes(item.type)) return;
-        if (!item.encrypted_content) return;
-        compactionItems.push(item);
     };
     const meaningful = () => {
         if (ttftMs == null) ttftMs = Date.now() - sseStartedAt;
@@ -1127,7 +1005,6 @@ export async function sendViaHttpSse({
                 const item = event.item || {};
                 pushReasoningItem(item);
                 pushWebSearchCall(item);
-                pushCompactionItem(item);
                 if (item.type === 'function_call') {
                     const tc = toolCalls.find(t => t._pendingItemId === (item.id || ''));
                     if (tc) {
@@ -1165,8 +1042,6 @@ export async function sendViaHttpSse({
                         pushReasoningItem(item);
                     } else if (item.type === 'web_search_call') {
                         pushWebSearchCall(item);
-                    } else if (['compaction', 'compaction_summary', 'context_compaction'].includes(item.type)) {
-                        pushCompactionItem(item);
                     } else if (item.type === 'function_call') {
                         // Match the still-pending placeholder by item id, or
                         // an already-recorded call by its canonical call_id —
@@ -1282,9 +1157,6 @@ export async function sendViaHttpSse({
     if (unresolved) {
         throw new Error(`OpenAI OAuth HTTP fallback function_call salvage failed: missing call_id/name for item_id=${unresolved._pendingItemId || '?'}`);
     }
-    if (opts?.expectCompaction === true && compactionItems.length !== 1) {
-        throw new Error(`OpenAI OAuth HTTP fallback remote compaction expected exactly one compaction output item, got ${compactionItems.length}`);
-    }
     if (!completed && !content && !toolCalls.length) {
         throw new Error('OpenAI OAuth HTTP fallback ended before response.completed');
     }
@@ -1318,8 +1190,6 @@ export async function sendViaHttpSse({
         content,
         model: liveModel,
         reasoningItems: reasoningItems.length ? reasoningItems : undefined,
-        compactionItem: compactionItems.length === 1 ? compactionItems[0] : undefined,
-        compactionItems: compactionItems.length ? compactionItems : undefined,
         toolCalls: toolCalls.length ? toolCalls.map(({ _pendingItemId, ...t }) => t) : undefined,
         citations: citations.length ? citations : undefined,
         webSearchCalls: webSearchCalls.length ? webSearchCalls : undefined,
@@ -1339,6 +1209,7 @@ export class OpenAIOAuthProvider {
     tokens = null;
     _refreshFallbackUntil = 0;
     _forceHttpFallback = false;
+    _forceHttpFallbackUntil = 0;
     config;
     constructor(config) {
         this.config = config || {};
@@ -1349,114 +1220,6 @@ export class OpenAIOAuthProvider {
     }
     getCachedModelInfo(model) {
         return _findCachedCodexModel(model);
-    }
-    async remoteCompactMessages(messages, model, tools, sendOpts = {}) {
-        const opts = {
-            ...sendOpts,
-            expectCompaction: true,
-            nativeCompact: true,
-        };
-        const useModel = model || await ensureLatestCodexModel(this);
-        const promptCacheLane = resolveProviderPromptCacheLane('openai-oauth', opts, this.config);
-        const bodyOpts = {
-            ...opts,
-            promptCacheLane,
-        };
-        const body = buildRemoteCompactionRequestBody(messages, useModel, tools, bodyOpts);
-        let auth = await this.ensureAuth();
-        const poolKey = opts.sessionId || null;
-        const cacheKey = body.prompt_cache_key || resolveProviderCacheKey(opts, 'openai-oauth');
-        const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
-        const onStageChange = typeof opts.onStageChange === 'function' ? opts.onStageChange : null;
-        const sendWs = typeof opts._sendViaWebSocketFn === 'function' ? opts._sendViaWebSocketFn : sendViaWebSocket;
-        const sendHttp = typeof opts._sendViaHttpSseFn === 'function' ? opts._sendViaHttpSseFn : sendViaHttpSse;
-        const dispatchHttp = async (reason, originalErr = null) => {
-            appendBridgeTrace({
-                sessionId: poolKey,
-                iteration,
-                kind: 'transport_fallback',
-                provider: 'openai-oauth',
-                model: useModel,
-                transport: 'http',
-                payload: {
-                    from: 'websocket',
-                    to: 'http',
-                    reason,
-                    remote_compact: true,
-                    error_code: originalErr?.code || null,
-                    error_http_status: Number(originalErr?.httpStatus || 0) || null,
-                },
-            });
-            return sendHttp({
-                auth,
-                body,
-                opts,
-                onStreamDelta: null,
-                onToolCall: null,
-                onStageChange,
-                externalSignal: opts.signal || null,
-                poolKey,
-                cacheKey,
-                iteration,
-                useModel,
-                fetchFn: opts._fetchFn,
-            });
-        };
-        const dispatchWs = (forceFresh = false) => sendWs({
-            auth,
-            body,
-            sendOpts: opts,
-            onStreamDelta: null,
-            onToolCall: null,
-            onStageChange,
-            externalSignal: opts.signal || null,
-            poolKey,
-            cacheKey,
-            iteration,
-            useModel,
-            displayModel: _displayCodexModel,
-            forceFresh,
-            includeResponseId: true,
-        });
-
-        let result;
-        if (opts.forceHttpFallback === true
-            || this._forceHttpFallback
-            || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)) {
-            result = await dispatchHttp('forced');
-        } else {
-            try {
-                result = await dispatchWs(false);
-            } catch (err) {
-                const status = err?.httpStatus;
-                if (status === 401 || status === 403) {
-                    this._refreshFallbackUntil = 0;
-                    auth = await this.ensureAuth({ forceRefresh: true, reason: String(status) });
-                    result = await dispatchWs(true);
-                } else if (_shouldUseOpenAIHttpFallback(err, opts.signal || null)) {
-                    result = await dispatchHttp(err?.retryClassifier || err?.midstreamClassifier || err?.code || err?.message || 'ws_failed', err);
-                } else {
-                    throw err;
-                }
-            }
-        }
-
-        if (!result?.compactionItem) {
-            throw new Error('OpenAI OAuth remote compact completed without compaction item');
-        }
-        const liveModel = result.model || useModel;
-        if (liveModel && !_codexCatalogHas(liveModel)) void this._refreshModelCache();
-        const nativePrefix = _buildOpenAICodexNativeCompactPrefix(messages, result.compactionItem);
-        return {
-            model: liveModel,
-            usage: result.usage,
-            responseId: result.responseId || null,
-            providerState: _withOpenAICodexRemoteCompactState(opts.providerState, {
-                model: useModel,
-                nativePrefix,
-                responseId: result.responseId || null,
-            }),
-        };
     }
     async ensureAuth({ forceRefresh = false, reason = 'preemptive' } = {}) {
         if (!this.tokens) this.tokens = loadTokens();
@@ -1569,6 +1332,10 @@ export class OpenAIOAuthProvider {
         return this.tokens;
     }
     async send(messages, model, tools, sendOpts) {
+        // Re-warm a kept-alive socket before the turn (TTL-gated no-op while
+        // hot). After an idle gap it re-opens one in parallel with auth/body
+        // build so the HTTP/SSE path skips the cold TLS handshake.
+        preconnect('https://chatgpt.com');
         const opts = sendOpts || {};
         const onStageChange = typeof opts.onStageChange === 'function' ? opts.onStageChange : null;
         const onStreamDelta = typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null;
@@ -1625,7 +1392,20 @@ export class OpenAIOAuthProvider {
             }
             return result;
         };
-        const dispatchHttp = async (reason, originalErr = null) => {
+        const httpFallbackActive = () => {
+            if (this._forceHttpFallbackUntil > Date.now()) return true;
+            if (this._forceHttpFallback || this._forceHttpFallbackUntil) {
+                this._forceHttpFallback = false;
+                this._forceHttpFallbackUntil = 0;
+            }
+            return false;
+        };
+        const markStickyHttpFallback = () => {
+            const ttlMs = _envPositiveInt('MIXDOG_OPENAI_OAUTH_HTTP_FALLBACK_STICKY_MS', 60_000);
+            this._forceHttpFallback = true;
+            this._forceHttpFallbackUntil = Date.now() + ttlMs;
+        };
+        const dispatchHttp = async (reason, originalErr = null, { sticky = false } = {}) => {
             appendBridgeTrace({
                 sessionId: poolKey,
                 iteration,
@@ -1658,7 +1438,7 @@ export class OpenAIOAuthProvider {
                 useModel,
                 fetchFn: opts._fetchFn,
             });
-            this._forceHttpFallback = true;
+            if (sticky) markStickyHttpFallback();
             if (process.env.MIXDOG_DEBUG_BRIDGE) {
                 process.stderr.write(`[bridge-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok transport=http-fallback\n`);
             }
@@ -1681,7 +1461,7 @@ export class OpenAIOAuthProvider {
             forceFresh,
         });
         if (opts.forceHttpFallback === true
-            || this._forceHttpFallback
+            || httpFallbackActive()
             || hasImageContent
             || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)) {
             return dispatchHttp(hasImageContent ? 'image_content' : 'forced');
@@ -1715,7 +1495,11 @@ export class OpenAIOAuthProvider {
                 } catch (retryErr) {
                     if (_shouldUseOpenAIHttpFallback(retryErr, externalSignal)) {
                         try {
-                            return await dispatchHttp(retryErr?.retryClassifier || retryErr?.code || retryErr?.message || 'ws_auth_retry_failed', retryErr);
+                            return await dispatchHttp(
+                                retryErr?.retryClassifier || retryErr?.code || retryErr?.message || 'ws_auth_retry_failed',
+                                retryErr,
+                                { sticky: true },
+                            );
                         } catch (fallbackErr) {
                             try { retryErr.fallbackError = fallbackErr; } catch {}
                             throw retryErr;
@@ -1738,7 +1522,11 @@ export class OpenAIOAuthProvider {
             }
             if (_shouldUseOpenAIHttpFallback(err, externalSignal)) {
                 try {
-                    return await dispatchHttp(err?.retryClassifier || err?.midstreamClassifier || err?.code || err?.message || 'ws_failed', err);
+                    return await dispatchHttp(
+                        err?.retryClassifier || err?.midstreamClassifier || err?.code || err?.message || 'ws_failed',
+                        err,
+                        { sticky: true },
+                    );
                 } catch (fallbackErr) {
                     try { err.fallbackError = fallbackErr; } catch {}
                     throw err;

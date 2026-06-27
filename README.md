@@ -1,8 +1,25 @@
 # mixdog
 
-Standalone coding-agent CLI/TUI workspace for **mixdog**.
+Mixdog is a standalone coding-agent CLI/TUI workspace for developers who want
+one terminal experience across multiple LLM providers.
 
-An Ink (React) terminal UI front-end driving multi-provider LLM agents (Anthropic, OpenAI, Google) over MCP, with Mixdog's Ink renderer (`vendor/ink`) for full-screen alt-screen rendering, cursor handling, and scroll support.
+It combines an Ink-based terminal UI, a multi-provider runtime, workflow agents,
+MCP/plugin/skill loading, memory, web search, channel integrations, and focused
+repo tools for reading, editing, testing, and reviewing code.
+
+## Highlights
+
+- Multi-provider model routing for Anthropic, OpenAI-compatible APIs, Google,
+  XAI/Grok, OAuth-backed providers, and local endpoints.
+- Full-screen TUI with slash commands, model/workflow pickers, provider setup,
+  usage dashboards, tool cards, statusline integration, and resumable sessions.
+- Agent task delegation through the `agent` tool and `/agent` command.
+- Focused repo tools for `read`, `grep`, `glob`, `list`, `code_graph`,
+  `apply_patch`, `shell`, `cwd`, `explore`, web search, and memory recall.
+- Workflow agents for implementation, review, debugging, maintenance, web
+  research, and heavier model routes.
+- Optional Discord/channel/webhook/schedule integrations for remote or event
+  driven workflows.
 
 ## Requirements
 
@@ -24,37 +41,49 @@ mixdog --help
 ## Usage
 
 ```bash
-# Run the CLI from any project directory
+# Run the TUI from any project directory
 mixdog
 
-# Build the Ink (React) TUI bundle
-npm run build:tui
-
-# Smoke test
+# Run the basic smoke test
 npm run smoke
 
+# Run the core smoke suite
+npm run smoke:all
 ```
 
-## Project layout
+Inside the TUI, use `/providers` to configure model access, `/model` to switch
+models, `/workflow` to select a workflow, `/agents` to inspect available
+workflow agents, and `/agent` to manage active agent tasks.
 
-```
+## Documentation
+
+- [Feature Map](docs/features.md)
+- [Agent Tasks](docs/agent-tasks.md)
+
+## Project Layout
+
+```text
 src/
-  cli.mjs        # entry point (bin: mixdog)
+  cli.mjs        # CLI entry point (bin: mixdog)
   app.mjs        # app wiring
-  repl.mjs       # REPL loop
-  runtime/       # agent runtime
-  tui/           # canonical Ink (React) TUI (bundled to dist/)
-  lib/ ui/ hooks/ defaults/ vendor/
+  repl.mjs       # plain REPL loop
+  runtime/       # provider runtime, tools, memory, channels
+  tui/           # canonical Ink TUI (bundled to dist/)
+  agents/        # workflow agent definitions
+  rules/         # Lead and agent instructions
 scripts/
-  build-tui.mjs  # esbuild bundle of the React TUI
-  smoke.mjs      # smoke test
+  smoke*.mjs     # smoke checks
+  build-tui.mjs  # esbuild bundle for the React TUI
 vendor/
-  ink/           # Mixdog Ink renderer (alt-screen / cursor / scroll fixes)
+  ink/           # Mixdog Ink renderer
 ```
 
-## Notes
+## Data And Configuration
 
-- `vendor/ink` is bundled directly into the TUI dist; the build does not rewrite installed dependencies.
-- Standalone Mixdog uses `~/.mixdog` as its home root. Runtime data lives in `~/.mixdog/data` by default. Set `MIXDOG_HOME` to move the root, or `MIXDOG_DATA_DIR` to override only the data directory.
-- Pi/Codex/OpenCode reference snapshots live outside this package under `C:\Project\refs`.
-- The TUI uses alt-screen mode and app-owned mouse wheel scrolling / drag selection by default so redraws during streaming do not clear selections. Set `MIXDOG_TUI_MOUSE=0` to opt into terminal-native mouse behavior.
+Standalone Mixdog uses `~/.mixdog` as its home root. Runtime data lives in
+`~/.mixdog/data` by default. Set `MIXDOG_HOME` to move the root, or
+`MIXDOG_DATA_DIR` to override only the data directory.
+
+The TUI uses alt-screen mode and app-owned mouse wheel scrolling / drag
+selection by default. Set `MIXDOG_TUI_MOUSE=0` to opt into terminal-native mouse
+behavior.

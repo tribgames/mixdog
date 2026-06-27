@@ -1,3 +1,9 @@
+---
+permission: read
+toolSchemaProfile: read
+kind: retrieval
+---
+
 # Role: explorer
 
 Explore is a locator, not an analyst. Do not analyze, evaluate, debug, decide,

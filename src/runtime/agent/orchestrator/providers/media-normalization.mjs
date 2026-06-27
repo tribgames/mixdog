@@ -39,6 +39,11 @@ function imageInfoFromDataUrl(url) {
     return { mimeType: cleanMimeType(m[1]), data: m[2] };
 }
 
+function imageMimeFromDataUrl(url) {
+    const m = String(url || '').match(/^data:(image\/[a-z0-9.+_-]+);base64,/i);
+    return m ? cleanMimeType(m[1]) : null;
+}
+
 function textFromPart(block) {
     if (typeof block === 'string') return block;
     if (!block || typeof block !== 'object') return '';
@@ -79,6 +84,40 @@ export function contentToText(content, fallback = '') {
     if (!parts) return content == null ? fallback : stringifyFallback(content);
     const text = parts.map(jsonFallbackFromPart).filter(Boolean).join('\n');
     return text || fallback;
+}
+
+function storedHistoryImagePlaceholder(part) {
+    const info = imageInfo(part);
+    const url = imageUrlFromPart(part);
+    const mimeType = info?.mimeType || imageMimeFromDataUrl(url) || (part?.type === 'image' ? DEFAULT_IMAGE_MIME : '');
+    return `[Image omitted from stored history${mimeType ? `: ${mimeType}` : ''}]`;
+}
+
+function sanitizePartForStoredHistory(part) {
+    if (typeof part === 'string') return part;
+    if (!part || typeof part !== 'object') return part;
+    if (part.type === 'image' || part.type === 'image_url' || part.type === 'input_image' || imageUrlFromPart(part)) {
+        return { type: 'text', text: storedHistoryImagePlaceholder(part) };
+    }
+    if (Array.isArray(part.content)) {
+        const nextContent = sanitizeContentForStoredHistory(part.content);
+        if (nextContent !== part.content) return { ...part, content: nextContent };
+    }
+    return part;
+}
+
+export function sanitizeContentForStoredHistory(content) {
+    if (typeof content === 'string') return content;
+    const parts = contentParts(content);
+    if (!parts) return content;
+    let changed = false;
+    const out = parts.map((part) => {
+        const next = sanitizePartForStoredHistory(part);
+        if (next !== part) changed = true;
+        return next;
+    });
+    if (!changed) return content;
+    return Array.isArray(content) ? out : { ...content, content: out };
 }
 
 export function normalizeContentForAnthropic(content) {

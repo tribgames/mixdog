@@ -13,7 +13,7 @@
  *   const text = await llm({ prompt });
  *
  * Internally it:
- *   1. Resolves the preset (explicit arg > opts.preset > user-workflow.json[role])
+ *   1. Resolves the preset (explicit arg > opts.preset > hidden-role config)
  *   2. Creates or reuses a session via the session manager
  *   3. Applies stateless-reset for stateless profiles so the prefix handle
  *      stays warm while per-dispatch transcripts never leak
@@ -21,13 +21,10 @@
  *      `session/manager.mjs` (mode='active')
  */
 
-import { readFileSync } from 'fs';
-import { join } from 'path';
 import { loadConfig } from '../config.mjs';
 import { resolveRuntimeSpec } from '../config.mjs';
 import { getHiddenRole, resolveBridgeSessionPermission } from '../internal-roles.mjs';
 import { prepareBridgeSession } from './session-builder.mjs';
-import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import {
     askSession,
     updateSessionStatus,
@@ -66,15 +63,26 @@ function applyBriefCap(text) {
 //      recursion break)
 // Hidden-role exceptions are declarative: defaults/hidden-roles.json may set
 // toolSchemaProfile when first-turn routing quality is worth a separate tool
-// prefix. Keep "unified" as the default; new profiles must justify the cache
-// shard split.
+// prefix. Standard profiles are none/read/full; legacy names stay as aliases.
 // See manager.mjs resolveSessionTools for the single source of truth;
 // bridge visibility is declared via annotations.bridgeHidden on each tool def.
 const HIDDEN_ROLE_TOOL_SCHEMA_PROFILES = Object.freeze({
+    full: null,
+    none: Object.freeze([]),
+    read: Object.freeze([
+        'code_graph',
+        'find',
+        'glob',
+        'list',
+        'grep',
+        'read',
+    ]),
+    // Backward-compatible aliases for older hidden-role definitions.
     unified: null,
     'llm-only': Object.freeze([]),
     'filesystem-read': Object.freeze([
         'code_graph',
+        'find',
         'glob',
         'list',
         'grep',
@@ -87,20 +95,16 @@ export function resolveHiddenRoleSchemaAllowedTools(hidden) {
     if (Array.isArray(hidden.schemaAllowedTools)) {
         return hidden.schemaAllowedTools.map((name) => String(name || '').trim()).filter(Boolean);
     }
-    const profile = String(hidden.toolSchemaProfile || 'unified').trim() || 'unified';
+    const profile = String(hidden.toolSchemaProfile || 'full').trim() || 'full';
     if (Object.prototype.hasOwnProperty.call(HIDDEN_ROLE_TOOL_SCHEMA_PROFILES, profile)) {
         return HIDDEN_ROLE_TOOL_SCHEMA_PROFILES[profile];
     }
-    process.stderr.write(`[bridge-llm] unknown hidden-role toolSchemaProfile="${profile}" role="${hidden.name || 'unknown'}"; using unified schema\n`);
+    process.stderr.write(`[bridge-llm] unknown hidden-role toolSchemaProfile="${profile}" role="${hidden.name || 'unknown'}"; using full schema\n`);
     return null;
 }
 
 /**
- * Resolve a preset name from (preset arg | opts.preset | hidden-role | user-workflow).
- *
- * Hidden roles (explorer, cycle1/cycle2, scheduler-task, etc.) are
- * Mixdog-managed and take precedence over user-workflow.json — users cannot
- * override them by redefining the same name.
+ * Resolve a preset name from (preset arg | opts.preset | hidden-role config).
  */
 export function resolvePresetName({ preset, optsPreset, role, config: cfgIn = null }) {
     if (preset) return preset;
@@ -117,21 +121,12 @@ export function resolvePresetName({ preset, optsPreset, role, config: cfgIn = nu
     const hidden = getHiddenRole(role);
     if (hidden) {
         try {
-            const config = cfgIn || loadConfig();
+            const config = cfgIn || loadConfig({ secrets: false });
             const maint = config?.maintenance || {};
             return maint[hidden.maintKey || hidden.slot] || null;
         } catch { return null; }
     }
-    try {
-        const pluginData = resolvePluginData();
-        if (!pluginData) return null;
-        const wf = JSON.parse(readFileSync(join(pluginData, 'user-workflow.json'), 'utf8'));
-        if (!Array.isArray(wf.roles)) return null;
-        const entry = wf.roles.find((r) => r.name === role);
-        return entry ? entry.preset : null;
-    } catch {
-        return null;
-    }
+    return null;
 }
 
 /**
@@ -159,7 +154,7 @@ export function makeBridgeLlm(opts = {}) {
             throw new Error(`[bridge-llm] prompt required for role "${role}"`);
         }
 
-        const config = opts.config || loadConfig();
+        const config = opts.config || loadConfig({ secrets: false });
         const presetName = resolvePresetName({
             preset: presetArg,
             optsPreset: opts.preset,
@@ -291,13 +286,13 @@ export function makeBridgeLlm(opts = {}) {
                     }
                     const last = snapshot.lastProgressAt || snapshot.firstActivityAt;
                     if (_staleMs > 0 && last && now - last > _staleMs) {
-                        try { _idleController.abort(new Error(`bridge task stale (${_staleMs}ms without stream/tool progress)`)); } catch { /* ignore */ }
+                        try { _idleController.abort(new Error(`agent task stale (${_staleMs}ms without stream/tool progress)`)); } catch { /* ignore */ }
                     }
                     return;
                 }
                 const last = _getLastProgressAt?.(session.id);
                 if (_staleMs > 0 && last && now - last > _staleMs) {
-                    try { _idleController.abort(new Error(`bridge task stale (${_staleMs}ms without progress)`)); } catch { /* ignore */ }
+                    try { _idleController.abort(new Error(`agent task stale (${_staleMs}ms without progress)`)); } catch { /* ignore */ }
                 }
             }, 1000)
             : null;

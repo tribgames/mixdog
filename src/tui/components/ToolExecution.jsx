@@ -8,7 +8,7 @@
  *   - The result hangs under a single dim `  ⎿  ` gutter — the gutter is placed
  *     once, not repeated per wrapped line (CC MessageResponse.tsx style).
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
 import { theme, TURN_MARKER, RESULT_GUTTER } from '../theme.mjs';
@@ -17,9 +17,9 @@ import { BULLET_OPERATOR } from '../figures.mjs';
 import {
   displayToolName as surfaceDisplayToolName,
   formatToolSurface,
-  summarizeToolArgs as surfaceSummarizeToolArgs,
   summarizeToolResult as surfaceSummarizeToolResult,
   formatAggregateHeader,
+  formatToolActionHeader,
 } from '../../runtime/shared/tool-surface.mjs';
 
 const MIN_RESULT_LINE_CHARS = 24;
@@ -31,169 +31,26 @@ export function displayToolName(name, args) {
   return surfaceDisplayToolName(name, args);
 }
 
-/** Claude Code-style one-line renderToolUseMessage summary. */
-export function summarizeArgs(name, args) {
-  return surfaceSummarizeToolArgs(name, args);
-}
-
-export const MAX_RESULT_LINES = 8;
 const TOOL_BLINK_MS = 500;
 const TOOL_BLINK_LIMIT_MS = 3000;
 const TOOL_PENDING_SHOW_DELAY_MS = 1000;
 const TOOL_HINT_DONE_COLOR = theme.subtle;
-const COUNT_TWEEN_MS = 700;
-const COUNT_TWEEN_FRAME_MS = 70;
 
 function normalizeCount(value) {
   const n = Number(value || 0);
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
 }
 
-function baselineCount(value) {
-  return normalizeCount(value) > 0 ? 1 : 0;
-}
-
-function easeOutCubic(t) {
-  const clamped = Math.max(0, Math.min(1, Number(t) || 0));
-  return 1 - Math.pow(1 - clamped, 3);
-}
-
-function tweenCount(from, to, progress) {
-  const start = normalizeCount(from);
-  const end = normalizeCount(to);
-  if (end <= start) return end;
-  const clamped = Math.max(0, Math.min(1, Number(progress) || 0));
-  if (clamped >= 1) return end;
-  return Math.min(end - 1, Math.max(start, Math.floor(start + ((end - start) * easeOutCubic(clamped)))));
-}
-
-function useCountUp(target, enabled = true) {
-  const normalized = normalizeCount(target);
-  const initial = enabled ? normalized : baselineCount(normalized);
-  const [display, setDisplay] = useState(initial);
-  const displayRef = useRef(initial);
-  const timerRef = useRef(null);
-
-  useEffect(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    if (!enabled) {
-      const baseline = baselineCount(normalized);
-      displayRef.current = baseline;
-      setDisplay(baseline);
-      return undefined;
-    }
-    const from = normalizeCount(displayRef.current);
-    const to = normalized;
-    if (to <= from) {
-      displayRef.current = to;
-      setDisplay(to);
-      return undefined;
-    }
-    const started = Date.now();
-    const tick = () => {
-      const progress = Math.min(1, (Date.now() - started) / COUNT_TWEEN_MS);
-      const next = tweenCount(from, to, progress);
-      displayRef.current = next;
-      setDisplay(next);
-      if (progress >= 1 && timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-    displayRef.current = from;
-    setDisplay(from);
-    const timer = setInterval(tick, COUNT_TWEEN_FRAME_MS);
-    timerRef.current = timer;
-    timer.unref?.();
-    return () => {
-      clearInterval(timer);
-      if (timerRef.current === timer) timerRef.current = null;
-    };
-  }, [normalized, enabled]);
-
-  return display;
-}
-
 function normalizeCountMap(value = {}) {
   const out = {};
-  for (const [key, raw] of Object.entries(value || {})) out[key] = normalizeCount(raw);
+  for (const [key, raw] of Object.entries(value || {})) {
+    if (raw && typeof raw === 'object') {
+      out[key] = { ...raw, count: normalizeCount(raw.count) };
+    } else {
+      out[key] = normalizeCount(raw);
+    }
+  }
   return out;
-}
-
-function baselineCountMap(value = {}) {
-  const out = {};
-  for (const [key, raw] of Object.entries(value || {})) out[key] = baselineCount(raw);
-  return out;
-}
-
-function countMapSignature(value = {}) {
-  return Object.keys(value || {})
-    .sort()
-    .map((key) => `${key}:${normalizeCount(value[key])}`)
-    .join('|');
-}
-
-function useCountUpMap(targets = {}, enabled = true) {
-  const normalizedTargets = normalizeCountMap(targets);
-  const signature = countMapSignature(normalizedTargets);
-  const initial = enabled ? normalizedTargets : baselineCountMap(normalizedTargets);
-  const [display, setDisplay] = useState(initial);
-  const displayRef = useRef(initial);
-  const timerRef = useRef(null);
-
-  useEffect(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    if (!enabled) {
-      const baseline = baselineCountMap(normalizedTargets);
-      displayRef.current = baseline;
-      setDisplay(baseline);
-      return undefined;
-    }
-    const from = {};
-    let needsTween = false;
-    for (const [key, to] of Object.entries(normalizedTargets)) {
-      const current = normalizeCount(displayRef.current?.[key]);
-      from[key] = current;
-      if (to > current) needsTween = true;
-    }
-    if (!needsTween) {
-      displayRef.current = normalizedTargets;
-      setDisplay(normalizedTargets);
-      return undefined;
-    }
-    const started = Date.now();
-    const tick = () => {
-      const progress = Math.min(1, (Date.now() - started) / COUNT_TWEEN_MS);
-      const next = {};
-      for (const [key, to] of Object.entries(normalizedTargets)) {
-        const start = normalizeCount(from[key]);
-        next[key] = tweenCount(start, to, progress);
-      }
-      displayRef.current = next;
-      setDisplay(next);
-      if (progress >= 1 && timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-    displayRef.current = from;
-    setDisplay(from);
-    const timer = setInterval(tick, COUNT_TWEEN_FRAME_MS);
-    timerRef.current = timer;
-    timer.unref?.();
-    return () => {
-      clearInterval(timer);
-      if (timerRef.current === timer) timerRef.current = null;
-    };
-  }, [signature, enabled]);
-
-  return display;
 }
 
 function deltaColor(token) {
@@ -240,6 +97,35 @@ function shellResultStatus(value) {
   return match ? String(match[1] || '').toLowerCase() : '';
 }
 
+function normalizeTerminalStatus(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (/^(running|pending|queued|in_progress|in-progress)$/.test(raw)) return 'running';
+  if (/^(completed|complete|done|success|succeeded|ok)$/.test(raw)) return 'completed';
+  if (/^(failed|fail|error|errored|timeout|timed_out|killed)$/.test(raw)) return 'failed';
+  if (/^(cancelled|canceled|cancel)$/.test(raw)) return 'cancelled';
+  return '';
+}
+
+function displayTerminalStatus(value) {
+  const status = normalizeTerminalStatus(value);
+  if (status === 'running') return 'Running';
+  if (status === 'completed') return 'Finished';
+  if (status === 'failed') return 'Failed';
+  if (status === 'cancelled') return 'Cancelled';
+  return '';
+}
+
+function resultTerminalStatus(value) {
+  const text = String(value || '');
+  const tagged = text.match(/<status[^>]*>([\s\S]*?)<\/status>/i)?.[1]?.trim();
+  if (tagged) return normalizeTerminalStatus(tagged);
+  const bracketed = text.match(/^\[status:\s*([^\]]*)\]/mi)?.[1]?.trim();
+  if (bracketed) return normalizeTerminalStatus(bracketed);
+  const inline = text.match(/^(?:status|state):\s*([^\s·,;]+)/mi)?.[1]?.trim();
+  return normalizeTerminalStatus(inline);
+}
+
 function shellDisplayStatus({ pending = false, failedCount = 0, isError = false, result = '' } = {}) {
   const status = shellResultStatus(result);
   if (pending || /^(running|pending|queued)$/.test(status)) return 'running';
@@ -249,15 +135,15 @@ function shellDisplayStatus({ pending = false, failedCount = 0, isError = false,
 }
 
 function shellHeader(status, count = 1) {
-  const noun = plural(Number(count) || 1, 'command');
-  if (status === 'running') return `Running ${noun}`;
-  if (status === 'failed') return `Failed ${noun}`;
-  if (status === 'cancelled') return `Cancelled ${noun}`;
-  return `Ran ${noun}`;
+  const n = Math.max(1, Number(count) || 1);
+  const object = `${n} ${plural(n, 'command')}`;
+  if (status === 'running') return `Running ${object}`;
+  return `Ran ${object}`;
 }
 
 function shellDetail(status, elapsed = '') {
-  return elapsed ? `${elapsed} · ${status}` : status;
+  const label = displayTerminalStatus(status) || status;
+  return elapsed ? `${elapsed} · ${label}` : label;
 }
 
 function shellResultElapsed(value) {
@@ -267,121 +153,8 @@ function shellResultElapsed(value) {
   return Number.isFinite(elapsedMs) && elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
 }
 
-function statusCopy(normalizedName, label, count, doneCount, pending, isError) {
-  const n = String(normalizedName || '').toLowerCase();
-  const l = String(label || '').toLowerCase();
-
-  const copy = (active, done, noun, pluralNoun = `${noun}s`) => {
-    if (pending) return active;
-    const object = `${count} ${plural(count, noun, pluralNoun)}`;
-    return `${done} ${object}`;
-  };
-
-  const copyTarget = (active, done, target, pluralTarget = `${target}s`) => {
-    if (pending) return `${active} ${target}`;
-    const singularTarget = pluralTarget === 'web items' ? 'web item' : target;
-    return `${done} ${count} ${plural(count, singularTarget, pluralTarget)}`;
-  };
-
-  if (l === 'mcp') return copy('Using MCP', 'Used', 'MCP tool', 'MCP tools');
-
-  switch (n) {
-    case 'read':
-    case 'view_image':
-    case 'read_mcp_resource':
-      return copy('Reading', 'Read', 'file');
-    case 'apply_patch':
-      return copy('Editing', 'Edited', 'file');
-    case 'grep':
-    case 'glob':
-      return copy('Searching', 'Searched', 'file');
-    case 'list':
-    case 'ls':
-      return copy('Searching', 'Searched', 'item');
-    case 'search':
-    case 'search_query':
-    case 'image_query':
-    case 'web_search':
-    case 'web_search_call':
-    case 'firecrawl_search':
-    case 'web_fetch':
-    case 'fetch':
-    case 'download_attachment':
-      return copyTarget('Researching', 'Researched', 'web', 'web items');
-    case 'tool_search': {
-      const target = String(label || '').replace(/^load\s+/i, '').trim();
-      const lowerTarget = target.toLowerCase();
-      if (pending) return target ? `Loading ${target}` : 'Loading Tools';
-      if (lowerTarget === 'mcp') return copy('Loading MCP', 'Loaded', 'MCP tool', 'MCP tools');
-      if (lowerTarget === 'skills') return copy('Loading Skills', 'Loaded', 'skill');
-      if (lowerTarget === 'tools') return copy('Loading Tools', 'Loaded', 'tool');
-      return copy('Loading', 'Loaded', 'item');
-    }
-    case 'explore':
-      return copy('Exploring', 'Explored', 'item');
-    case 'shell':
-    case 'bash':
-    case 'bash_session':
-    case 'shell_command':
-    case 'job_wait':
-      return shellHeader(pending ? 'running' : (isError ? 'failed' : 'completed'), count);
-    case 'bridge':
-    case 'agent':
-    case 'task':
-      return copyTarget('Calling', 'Called', 'agent');
-    case 'recall':
-    case 'recall_memory':
-    case 'search_memories':
-      return copyTarget('Checking', 'Checked', 'memory', 'memories');
-    case 'remember':
-    case 'save_memory':
-    case 'update_memory':
-      return copyTarget('Writing', 'Wrote', 'memory', 'memories');
-    case 'skill_view':
-    case 'skills_list':
-      return copy('Loading Skill', 'Loaded', 'skill');
-    case 'skill':
-    case 'skill_execute':
-    case 'use_skill':
-      return copy('Using Skill', 'Used', 'skill');
-    case 'reply':
-    case 'react':
-    case 'edit_message':
-    case 'activate_channel_bridge':
-    case 'inject_command':
-      return copyTarget('Sending', 'Sent', 'message');
-    case 'request_user_input':
-      return pending ? 'Asking User' : 'Asked User';
-    case 'update_plan':
-      return pending ? 'Updating Plan' : 'Updated Plan';
-    case 'diagnostics':
-    case 'open_config':
-    case 'provider_status':
-    case 'channel_status':
-    case 'schedule_status':
-    case 'schedule_control':
-    case 'reload_config':
-    case 'list_mcp_resources':
-    case 'list_mcp_resource_templates':
-    case 'cwd':
-    case 'trigger_schedule':
-      return copy('Setting Up', 'Set Up', 'item');
-    default:
-      if (l === 'skill') return copy('Loading Skill', 'Loaded', 'skill');
-      if (l === 'web search') return copyTarget('Researching', 'Researched', 'web', 'web items');
-      if (l === 'search') return copy('Searching', 'Searched', 'tool');
-      if (l === 'explore') return copy('Exploring', 'Explored', 'item');
-      if (l === 'update') return copy('Editing', 'Edited', 'file');
-      if (l === 'read') return copy('Reading', 'Read', 'file');
-      if (l === 'run') return shellHeader(pending ? 'running' : (isError ? 'failed' : 'completed'), count);
-      if (l === 'setup') return copy('Setting Up', 'Set Up', 'item');
-      if (l === 'memory') return copyTarget('Checking', 'Checked', 'memory', 'memories');
-      if (l === 'agent') return copyTarget('Calling', 'Called', 'agent');
-      if (l === 'channel') return copyTarget('Sending', 'Sent', 'message');
-      if (l === 'ask user') return pending ? 'Asking User' : 'Asked User';
-      if (l === 'plan') return pending ? 'Updating Plan' : 'Updated Plan';
-      return copy('Calling', 'Called', 'tool');
-  }
+function statusCopy(name, label, count, doneCount, pending, isError, args = {}) {
+  return formatToolActionHeader(name, args, { pending, count });
 }
 
 function fitResultLine(line, columns) {
@@ -405,7 +178,7 @@ function truncateToWidth(text, maxWidth) {
 }
 
 function isAgentTool(normalizedName) {
-  return normalizedName === 'bridge' || normalizedName === 'agent' || normalizedName === 'task';
+  return normalizedName === 'agent';
 }
 
 function isBackgroundTaskTool(normalizedName) {
@@ -414,7 +187,6 @@ function isBackgroundTaskTool(normalizedName) {
 
 const AGENT_DISPLAY_NAMES = new Map([
   ['explore', 'Explore'],
-  ['web-researcher', 'Web Researcher'],
   ['maintainer', 'Maintainer'],
   ['worker', 'Worker'],
   ['heavy-worker', 'Heavy Worker'],
@@ -469,7 +241,7 @@ function hasAgentResponseResult(value) {
   if (!text) return false;
   if (/^(?:undefined|null)$/i.test(text)) return false;
   if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(text)) return false;
-  const isBridgeEnvelope = /^(?:bridge task:|bridge job:|background task\b|bridge mode:|bridge message queued\b|bridge close:)/i.test(text)
+  const isBridgeEnvelope = /^(?:agent task:|background task\b|agent mode:|agent message queued\b|agent close:)/i.test(text)
     || (/^task_id:\s*\S+/mi.test(text) && /^(?:surface|operation|status):\s*/mi.test(text));
   if (!isBridgeEnvelope) return true;
   let sawBlank = false;
@@ -479,12 +251,12 @@ function hasAgentResponseResult(value) {
       sawBlank = true;
       continue;
     }
-    if (/^bridge result\b/i.test(trimmed)) continue;
+    if (/^agent result\b/i.test(trimmed)) continue;
     if (/^(?:undefined|null)$/i.test(trimmed)) continue;
     if (/^<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
-    if (!sawBlank && /^(?:bridge job|bridge task|background task|bridge message queued\b|bridge close:|task_id|surface|operation|label|status|type|target|role|agent|preset|model|effort|fast|limits|started|finished|error|notification|queueDepth):?\s*/i.test(trimmed)) continue;
-    if (!sawBlank && /^(?:bridge mode|agents|tasks):\s*/i.test(trimmed)) continue;
-    if (/^\(no bridge agents or tasks\)$/i.test(trimmed)) continue;
+    if (!sawBlank && /^(?:agent task|background task|agent message queued\b|agent close:|task_id|surface|operation|label|status|type|target|role|agent|preset|model|effort|fast|limits|started|finished|error|notification|queueDepth):?\s*/i.test(trimmed)) continue;
+    if (!sawBlank && /^(?:agent mode|agents|tasks):\s*/i.test(trimmed)) continue;
+    if (/^\(no agents or tasks\)$/i.test(trimmed)) continue;
     if (!sawBlank && /^-\s+\S+/i.test(trimmed)) continue;
     return true;
   }
@@ -537,6 +309,16 @@ function prefixElapsed(detail, elapsed = '') {
   return text ? `${time} · ${text}` : time;
 }
 
+function mergeTerminalDetail(status, detail = '') {
+  const label = displayTerminalStatus(status);
+  const text = String(detail || '').trim();
+  if (!label) return text;
+  if (label === 'Finished' && text) return text;
+  if (!text) return label;
+  if (text.toLowerCase().startsWith(label.toLowerCase())) return text;
+  return `${label} · ${text}`;
+}
+
 function shouldPrefixSyncElapsed(normalizedName, label) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
@@ -567,7 +349,8 @@ function backgroundTaskActionTitle(normalizedName, meta = {}) {
 
 function backgroundTaskDetail(meta = {}, elapsed = '') {
   const parts = [];
-  if (meta.status) parts.push(`status: ${meta.status}`);
+  const status = displayTerminalStatus(meta.status);
+  if (status) parts.push(status);
   if (meta.taskId) parts.push(`task_id: ${meta.taskId}`);
   const firstBodyLine = String(meta.body || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
   if (firstBodyLine && /^(running|pending|queued)$/i.test(meta.status || '')) parts.push(firstBodyLine);
@@ -587,36 +370,14 @@ function isOutputDetailTool(normalizedName, label) {
   return new Set([
     'shell', 'bash', 'bash_session', 'shell_command', 'job_wait',
     'read', 'view_image', 'read_mcp_resource',
-    'grep', 'glob', 'search', 'search_query', 'image_query', 'web_search', 'web_search_call', 'firecrawl_search', 'explore', 'web_fetch', 'fetch', 'download_attachment',
+    'grep', 'glob', 'search', 'search_query', 'image_query', 'web_search', 'web_search_call', 'explore', 'web_fetch', 'fetch', 'download_attachment',
     'list', 'ls', 'code_graph',
     'recall', 'recall_memory', 'search_memories', 'remember', 'save_memory', 'update_memory',
   ]).has(n) || l === 'read' || l === 'search' || l === 'web search' || l === 'run';
 }
 
 function progressDetail({ normalizedName, label, elapsed }) {
-  const n = String(normalizedName || '').toLowerCase();
-  const l = String(label || '').toLowerCase();
-  const suffix = elapsed ? ` - ${elapsed}` : '';
-  if (l === 'mcp') return `Using MCP${suffix}`;
-  if (n === 'skill_view' || n === 'skills_list') return `Loading Skill${suffix}`;
-  if (n === 'skill' || n === 'skill_execute' || n === 'use_skill' || l === 'skill') return `Using Skill${suffix}`;
-  if (n === 'tool_search') {
-    const target = String(label || '').replace(/^load\s+/i, '').trim();
-    return `Loading ${target || 'Tools'}${suffix}`;
-  }
-  if (isAgentTool(n) || l === 'agent') return `Calling Agent${suffix}`;
-  if (n === 'shell' || n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait' || l === 'run') return `Running${suffix}`;
-  if (n === 'search' || n === 'search_query' || n === 'image_query' || n === 'web_search' || n === 'web_search_call' || n === 'firecrawl_search' || n === 'web_fetch' || n === 'fetch' || n === 'download_attachment' || l === 'web search') return `Researching Web${suffix}`;
-  if (n === 'explore' || l === 'explore') return `Exploring${suffix}`;
-  if (n === 'grep' || n === 'glob' || n === 'list' || n === 'ls' || l === 'search') return `Searching${suffix}`;
-  if (n === 'read' || n === 'view_image' || n === 'read_mcp_resource' || l === 'read') return `Reading${suffix}`;
-  if (n === 'apply_patch' || l === 'update') return `Editing${suffix}`;
-  if (n === 'recall' || n === 'recall_memory' || n === 'search_memories' || l === 'memory') return `Checking Memory${suffix}`;
-  if (n === 'reply' || n === 'react' || n === 'edit_message' || n === 'activate_channel_bridge' || n === 'inject_command' || l === 'channel') return `Sending${suffix}`;
-  if (n === 'request_user_input' || l === 'ask user') return `Asking User${suffix}`;
-  if (n === 'update_plan' || l === 'plan') return `Updating Plan${suffix}`;
-  if (l === 'setup') return `Setting Up${suffix}`;
-  return `Working${suffix}`;
+  return elapsed ? `${elapsed} elapsed` : '';
 }
 
 function genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError }) {
@@ -630,6 +391,24 @@ function genericCompletedDetail({ normalizedName, label, hasResult, firstResultL
     return hasResult ? firstResultLine : '';
   }
   return '';
+}
+
+function toolSearchLoadedSummary(resultText) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(resultText || ''));
+  } catch {
+    return '';
+  }
+  const tools = parsed?.selected?.tools;
+  if (!tools || typeof tools !== 'object') return '';
+  const names = [
+    ...(Array.isArray(tools.added) ? tools.added : []),
+    ...(Array.isArray(tools.already) ? tools.already : []),
+  ]
+    .map((name) => String(name || '').trim())
+    .filter(Boolean);
+  return [...new Set(names)].join(', ');
 }
 
 function agentTerminalDetail(status, isError, elapsed) {
@@ -650,8 +429,11 @@ function clampFailureCount(errorCount, groupCount, isError) {
   return isError ? groupCount : 0;
 }
 
-function toolStatusColor({ pending, groupCount, failedCount }) {
+function toolStatusColor({ pending, groupCount, failedCount, terminalStatus = '' }) {
   if (pending) return theme.subtle;
+  const status = normalizeTerminalStatus(terminalStatus);
+  if (status === 'failed') return theme.error;
+  if (status === 'cancelled') return theme.warning || theme.mixdogOrange || theme.subtle;
   if (failedCount <= 0) return theme.success;
   if (groupCount > 1 && failedCount < groupCount) return theme.mixdogOrange || theme.warning;
   return theme.error;
@@ -661,6 +443,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const [blinkOn, setBlinkOn] = useState(true);
   const [blinkExpired, setBlinkExpired] = useState(false);
   const [pendingDelayElapsed, setPendingDelayElapsed] = useState(false);
+  const [, setElapsedTick] = useState(0);
   const groupCount = Math.max(1, Number(count || 1));
   const doneCount = Math.max(0, Math.min(groupCount, Number(completedCount || (result == null ? 0 : groupCount))));
   const rt = result == null ? null : String(result).replace(/\s+$/, '');
@@ -678,9 +461,8 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const elapsed = elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
   const failedCount = clampFailureCount(errorCount, groupCount, isError);
   const statusColor = toolStatusColor({ pending, groupCount, failedCount });
-  const countsVisible = !headerPending;
-  const displayGroupCount = useCountUp(groupCount, countsVisible);
-  const displayCategories = useCountUpMap(categories || {}, aggregate === true && countsVisible);
+  const displayGroupCount = groupCount;
+  const displayCategories = normalizeCountMap(categories || {});
 
   useEffect(() => {
     if (!pending) {
@@ -727,6 +509,12 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     return () => clearTimeout(timer);
   }, [pending, pendingDisplayReady, startedAt]);
 
+  useEffect(() => {
+    if (!pending || !pendingDisplayReady || !startedAtMs) return undefined;
+    const timer = setInterval(() => setElapsedTick((tick) => (tick + 1) % 1000000), 1000);
+    return () => clearInterval(timer);
+  }, [pending, pendingDisplayReady, startedAtMs]);
+
   if (pending && !pendingDisplayReady) return null;
 
   // ── Aggregate card ──────────────────────────────────────────────
@@ -739,8 +527,6 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     let detailText;
     if (hasResult) {
       detailText = rt;
-    } else if (pending) {
-      detailText = '';
     } else {
       detailText = '';
     }
@@ -749,14 +535,35 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     const dotText = pending && !blinkExpired && !blinkOn ? ' ' : TURN_MARKER;
     const gutter = 2;
     const showHeaderExpandHint = hasRawResult;
-    const hintLabel = showHeaderExpandHint ? `ctrl+o ${expanded ? 'collapse' : 'expand'}` : '';
-    const hintText = hintLabel ? ` ${BULLET_OPERATOR} ${hintLabel}` : '';
-    const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - stringWidth(hintText));
+    const hintLabel = `ctrl+o ${expanded ? 'collapse' : 'expand'}`;
+    const hintText = ` ${BULLET_OPERATOR} ${hintLabel}`;
+    const headerMetaText = pending && elapsed ? ` (${elapsed} elapsed)` : '';
+    // Reserve the expand-hint slot for the card's whole lifecycle so the header
+    // body never reflows when the hint appears on completion. During pending the
+    // elapsed meta shares this same right region; reserving the wider of the two
+    // keeps `avail` (and the header clip point) fixed, so nothing "appears then
+    // shrinks back" on the right edge as counts/results land.
+    const rightReserve = Math.max(stringWidth(hintText), stringWidth(headerMetaText));
+    const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - rightReserve);
     const clippedHeader = stringWidth(headerText) > avail
       ? truncateToWidth(headerText, avail)
       : headerText;
-    const detailLines = expanded && hasRawResult ? rawRt.split('\n') : (detailText ? [detailText] : []);
-    const aggregateDetailColor = theme.text;
+    // Keep the aggregate card at a fixed height (header + one detail row) for
+    // its whole lifecycle. Pending cards have no result yet, so reserve the
+    // detail row up front instead of growing from 1→2 rows when the summary
+    // lands on completion — that late row push is the "줄 튐" jump. The empty
+    // placeholder renders as a blank line under the ⎿ gutter; the final summary
+    // simply fills it in place. This matches estimateTranscriptItemRows (always
+    // 2 + resultRows), so windowing/scroll stay in lockstep too.
+    // When there is no summary yet (pending) or none could be derived, fill the
+    // reserved detail row with a status word instead of a blank line so the area
+    // under the ⎿ gutter never looks empty. Real summaries keep the normal text
+    // color; the status placeholder is rendered dim.
+    const isPlaceholderDetail = !(expanded && hasRawResult) && !detailText;
+    const detailLines = expanded && hasRawResult
+      ? rawRt.split('\n')
+      : (detailText ? [detailText] : [pending ? 'Running' : 'Finished']);
+    const aggregateDetailColor = isPlaceholderDetail ? theme.subtle : theme.text;
     return (
       <Box flexDirection="column" marginTop={attached ? 0 : 1}>
         <Box flexDirection="row">
@@ -765,6 +572,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
           </Box>
           <Text wrap="truncate">
             <Text bold color={theme.text}>{clippedHeader}</Text>
+            {headerMetaText ? <Text color={theme.subtle}>{headerMetaText}</Text> : null}
             {showHeaderExpandHint ? <Text color={TOOL_HINT_DONE_COLOR}>{hintText}</Text> : null}
           </Text>
         </Box>
@@ -800,7 +608,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // Shown in the collapsed, non-error view in place of the raw result block.
   // Grouped cards ("Searched N files" / "Read N files") get the same treatment
   // as single calls: a one-line semantic summary stands in for the raw block.
-  const resultSummary = !isShellSurface && !pending && hasResult
+  const resultSummary = !pending && hasResult
     ? surfaceSummarizeToolResult(name, args, displayedResultText, isError)
     : null;
   // Same fit budget fitResultLine() uses, to detect a line that will be clipped.
@@ -824,15 +632,15 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const agentDetail = !pending && isAgentTool(normalizedName) && !hasResult
     ? agentCompletionDetail
     : '';
-  const pendingDetail = pending
-    ? (isShellSurface ? shellStatusDetail : progressDetail({ normalizedName, label, elapsed }))
-    : '';
   const genericDetail = !pending && !isShellSurface && !agentDetail && !imageDetail && !resultSummary
     ? genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError })
     : '';
   const isBackgroundResult = !pending && hasResult && isBackgroundTaskTool(normalizedName);
   const isBackgroundResponse = isBackgroundResult && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgs(normalizedName, parsedArgs));
   const isBackgroundMetadataResult = isBackgroundResult && !isBackgroundResponse && Boolean(backgroundMeta);
+  const terminalStatus = pending
+    ? 'running'
+    : (shellStatus || normalizeTerminalStatus(backgroundMeta?.status) || normalizeTerminalStatus(parsedArgs?.status) || resultTerminalStatus(displayedResultText) || (isError || failedCount > 0 ? 'failed' : 'completed'));
   const backgroundMetadataDetail = isBackgroundMetadataResult ? backgroundTaskDetail(backgroundMeta, backgroundElapsed) : '';
   const backgroundResponseDetail = isBackgroundResponse && resultSummary
     ? prefixElapsed(resultSummary, backgroundElapsed)
@@ -840,13 +648,14 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const syncElapsedDetail = !isBackgroundResponse && shouldPrefixSyncElapsed(normalizedName, label)
     ? prefixElapsed(backgroundResponseDetail, elapsed)
     : backgroundResponseDetail;
-  const collapsedDetail = isShellSurface
-    ? shellStatusDetail
-    : pending
-      ? pendingDetail
-      : backgroundMetadataDetail || (/^(Cancelled|Failed|Finished)$/i.test(resultSummary || '') && agentCompletionDetail
-      ? agentCompletionDetail
-      : syncElapsedDetail) || agentDetail || imageDetail || genericDetail;
+  const nonShellDetail = backgroundMetadataDetail || (/^(Cancelled|Failed|Finished)$/i.test(resultSummary || '') && agentCompletionDetail
+    ? agentCompletionDetail
+    : syncElapsedDetail) || agentDetail || imageDetail || genericDetail;
+  const collapsedDetail = pending
+    ? ''
+    : isShellSurface
+      ? mergeTerminalDetail(shellStatus, resultSummary)
+      : mergeTerminalDetail(terminalStatus, nonShellDetail);
   const showRawResult = expanded && hasResult && !isBackgroundMetadataResult;
   const detailLines = showRawResult ? lines : (collapsedDetail ? [collapsedDetail] : []);
   const detailColor = theme.text;
@@ -855,18 +664,24 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const isAgentResponse = isAgentResult && hasAgentResponseResult(rt);
   const isAgentMetadataResult = isAgentResult && !isAgentResponse;
   const visibleDetailLines = isAgentMetadataResult ? [] : detailLines;
-  const dotColor = isShellSurface && shellStatus === 'running' ? theme.subtle : statusColor;
+  const finalStatusColor = toolStatusColor({ pending, groupCount, failedCount, terminalStatus });
+  const dotColor = isShellSurface && shellStatus === 'running' ? theme.subtle : finalStatusColor;
   const dotText = pending && !blinkExpired && !blinkOn ? ' ' : TURN_MARKER;
   let labelText;
   if (isAgentResponse) labelText = agentResponseTitle(parsedArgs);
   else if (isBackgroundResponse) labelText = backgroundTaskResultTitle(normalizedName, backgroundMeta || parsedArgs);
   else if (isBackgroundMetadataResult) labelText = backgroundTaskActionTitle(normalizedName, backgroundMeta);
   else if (isShellSurface) labelText = shellHeader(shellStatus, displayGroupCount);
-  else labelText = (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs) : '') || statusCopy(normalizedName, label, displayGroupCount, doneCount, headerPending, isError);
+  else labelText = (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs) : '') || statusCopy(name, label, displayGroupCount, doneCount, headerPending, isError, parsedArgs);
   // Show the parenthesized arg summary for grouped cards too, matching single
   // calls so the header carries the same context.
-  const summaryText = isShellSurface || isAgentResponse || isBackgroundResponse ? '' : (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary);
-  const showHeaderExpandHint = hasHiddenDetail && !isShellSurface && !isAgentMetadataResult && !isBackgroundMetadataResult;
+  const toolSearchSummary = !pending && normalizedName === 'tool_search' && hasResult
+    ? toolSearchLoadedSummary(displayedResultText)
+    : '';
+  const summaryText = isAgentResponse || isBackgroundResponse
+    ? ''
+    : toolSearchSummary || (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary);
+  const showHeaderExpandHint = hasHiddenDetail && normalizedName !== 'tool_search' && !isShellSurface && !isAgentMetadataResult && !isBackgroundMetadataResult;
   const expandHintColor = TOOL_HINT_DONE_COLOR;
 
   // Build a single-line header that never wraps: reserve width for the fixed
@@ -877,9 +692,10 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const gutter = 2;
   const hintLabel = showHeaderExpandHint ? `ctrl+o ${expanded ? 'collapse' : 'expand'}` : '';
   const hintText = hintLabel ? ` ${BULLET_OPERATOR} ${hintLabel}` : '';
+  const headerMetaText = pending && elapsed ? ` (${elapsed} elapsed)` : '';
   const avail = Math.max(
     1,
-    (Number(columns) || 80) - 1 - gutter - stringWidth(hintText),
+    (Number(columns) || 80) - 1 - gutter - stringWidth(hintText) - stringWidth(headerMetaText),
   );
   let labelOut;
   let summaryOut;
@@ -906,6 +722,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
         <Text wrap="truncate">
           <Text bold color={theme.text}>{labelOut}</Text>
           {summaryOut ? <Text color={theme.text}>{summaryOut}</Text> : null}
+          {headerMetaText ? <Text color={theme.subtle}>{headerMetaText}</Text> : null}
           {showHeaderExpandHint ? <Text color={expandHintColor}>{hintText}</Text> : null}
         </Text>
       </Box>

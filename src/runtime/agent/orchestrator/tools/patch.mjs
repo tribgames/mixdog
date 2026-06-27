@@ -47,7 +47,7 @@ import {
   withBuiltinPathLocks,
 } from './builtin.mjs';
 import { withAdvisoryLocks } from './builtin/advisory-lock.mjs';
-import { markCodeGraphDirtyPaths } from './code-graph.mjs';
+import { markCodeGraphDirtyPaths } from './code-graph-state.mjs';
 import { wrapMutationRouteOutput } from './mutation-planner.mjs';
 import { getPluginData } from '../config.mjs';
 import { ensurePatchBinary, findCachedPatchBinary } from './patch-binary-fetcher.mjs';

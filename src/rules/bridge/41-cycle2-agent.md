@@ -1,3 +1,10 @@
+---
+permission: read
+toolSchemaProfile: none
+kind: maintenance
+maintKey: memory
+---
+
 # Role: cycle2-agent
 
 Backend re-scorer for `is_root` long-term memory. Input has phase,

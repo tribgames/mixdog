@@ -254,23 +254,77 @@ export async function init(db, dims) {
   )
 }
 
+async function getEmbeddingColumnDims(db, tableName) {
+  const r = await db.query(`
+    SELECT a.atttypmod
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = current_schema()
+      AND c.relname = $1
+      AND a.attname = 'embedding'
+      AND a.attnum > 0
+      AND NOT a.attisdropped
+  `, [tableName])
+  const row = r.rows[0]
+  return row ? Number(row.atttypmod) : null
+}
+
+async function ensureHotActiveSearchObjects(db) {
+  await db.exec(`
+    CREATE MATERIALIZED VIEW IF NOT EXISTS mv_hot_active AS
+    SELECT id, element, summary, category, status, score, last_seen_at, promoted_at,
+           project_id, embedding, search_tsv
+    FROM entries
+    WHERE is_root = 1 AND status = 'active' AND embedding IS NOT NULL
+    WITH NO DATA
+  `)
+  await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS mv_hot_active_id ON mv_hot_active(id)`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS mv_hot_active_hnsw ON mv_hot_active USING hnsw (embedding halfvec_cosine_ops)`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS mv_hot_active_tsv  ON mv_hot_active USING GIN (search_tsv)`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS mv_hot_active_score ON mv_hot_active(score DESC)`)
+}
+
+async function resetEmbeddingColumnsForDims(db, dimCount) {
+  const entriesDims = await getEmbeddingColumnDims(db, 'entries')
+  const coreDims = await getEmbeddingColumnDims(db, 'core_entries')
+  const needsEntriesReset = entriesDims != null && entriesDims !== dimCount
+  const needsCoreReset = coreDims != null && coreDims !== dimCount
+  if (!needsEntriesReset && !needsCoreReset) return false
+
+  __mixdogMemoryLog(
+    `[memory] embedding dimension changed; resetting vectors for halfvec(${dimCount}) ` +
+    `(entries=${entriesDims ?? 'missing'}, core_entries=${coreDims ?? 'missing'})\n`,
+  )
+
+  await db.exec(`DROP MATERIALIZED VIEW IF EXISTS mv_hot_active CASCADE`)
+  await db.exec(`DROP INDEX IF EXISTS idx_entries_embedding_hnsw`)
+  await db.exec(`DROP INDEX IF EXISTS core_entries_embedding_hnsw`)
+
+  if (needsEntriesReset) {
+    await db.exec(`ALTER TABLE entries ALTER COLUMN embedding TYPE halfvec(${dimCount}) USING NULL::halfvec(${dimCount})`)
+    await db.exec(`UPDATE entries SET summary_hash = NULL WHERE summary_hash IS NOT NULL`)
+  }
+  if (needsCoreReset) {
+    await db.exec(`ALTER TABLE core_entries ALTER COLUMN embedding TYPE halfvec(${dimCount}) USING NULL::halfvec(${dimCount})`)
+  }
+
+  await db.exec(`DROP TABLE IF EXISTS memory.embedding_cache`)
+  await db.query(
+    `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
+     ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+    ['embedding.current_dims', JSON.stringify(dimCount)],
+  )
+  return true
+}
+
 // Validate that the halfvec column dimension stored in the DB matches
 // dimCount from the current model config. Call after schema is confirmed
 // complete and before any embedding operations.
 export async function validateEmbeddingDims(db, dimCount) {
-  const r = await db.query(`
-    SELECT atttypmod
-    FROM pg_attribute a
-    JOIN pg_class c ON c.oid = a.attrelid
-    WHERE c.relname = 'entries'
-      AND a.attname = 'embedding'
-      AND a.attnum > 0
-      AND NOT a.attisdropped
-  `)
-  const row = r.rows[0]
-  if (!row) return // column absent — pre-schema DB; bootstrapSchema will handle
+  const colDims = await getEmbeddingColumnDims(db, 'entries')
+  if (colDims == null) return // column absent — pre-schema DB; bootstrapSchema will handle
   // pgvector halfvec stores dimension as atttypmod directly (unlike varchar which uses dims+4).
-  const colDims = row.atttypmod
   if (colDims !== dimCount) {
     throw new Error(
       `Embedding dimension mismatch: DB column halfvec(${colDims}) vs model config ${dimCount} dims. ` +
@@ -285,6 +339,7 @@ export async function ensureCurrentSchemaExtensions(db, dims) {
   // idempotent and define the current runtime schema.
   if (Number.isInteger(dims) && dims > 0) {
     await db.exec(`ALTER TABLE core_entries ADD COLUMN IF NOT EXISTS embedding halfvec(${dims})`)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE is_root = 1 AND embedding IS NOT NULL`)
     await db.exec(`CREATE INDEX IF NOT EXISTS core_entries_embedding_hnsw ON core_entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL`)
   }
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS core_summary text`)
@@ -319,6 +374,16 @@ export async function ensureCurrentSchemaExtensions(db, dims) {
     __mixdogMemoryLog(`[memory] ensureCurrentSchemaExtensions: core_entries_unique_proj_elem creation failed — duplicate rows must be deduplicated before this index can be created: ${err?.message || err}\n`)
     throw err
   }
+
+  if (Number.isInteger(dims) && dims > 0) {
+    await db.query(
+      `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
+       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+      ['embedding.current_dims', JSON.stringify(dims)],
+    )
+  }
+
+  await ensureHotActiveSearchObjects(db)
 }
 
 export async function openDatabase(dataDir, dims) {
@@ -345,6 +410,9 @@ export async function openDatabase(dataDir, dims) {
           await init(db, dims)
         }
       })
+    }
+    if (await isBootstrapComplete(db)) {
+      await resetEmbeddingColumnsForDims(db, Number(dims))
     }
     await ensureCurrentSchemaExtensions(db, Number(dims))
     await validateEmbeddingDims(db, Number(dims))

@@ -24,7 +24,6 @@ const RECOVERY_NOTICE = 'RECOVERY-REQUIRED.txt';
 
 const USER_DATA_FILES = [
   'mixdog-config.json',
-  'user-workflow.json',
   'user-workflow.md',
   'history/user.md',
   'history/bot.md',
@@ -33,7 +32,6 @@ const USER_DATA_FILES = [
 const USER_DATA_DIRS = [
   'schedules',
   'webhooks',
-  'roles',
   'workflows',
 ];
 

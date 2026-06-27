@@ -17,14 +17,23 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read a specific file window or symbol body after narrowing the target. Do not reread content already shown by code_graph or grep.',
+        description: 'Read known file path(s). Use line+context for a small window; pass a path array for independent files.',
         inputSchema: {
             type: 'object',
             properties: {
-                path: { type: 'string', description: 'File path only; dirs use list.' },
+                path: {
+                    anyOf: [
+                        { type: 'string' },
+                        {
+                            type: 'array',
+                            items: { type: 'string' },
+                            minItems: 1,
+                        },
+                    ],
+                    description: 'File path only, or array of file paths. Dirs use list.',
+                },
                 line: { type: 'number', minimum: 1, description: 'Anchor line. Do not combine with offset/limit.' },
                 context: { type: 'number', minimum: 0, maximum: 200, description: 'Lines around line. Use only with line; max 200.' },
-                symbol: { type: 'string', description: 'Symbol body via code graph.' },
             },
         },
     },
@@ -76,7 +85,7 @@ export const BUILTIN_TOOLS = [
         name: 'task',
         title: 'Background Task Control',
         annotations: { title: 'Background Task Control', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        description: `Manual control for an async background task by task_id. action: list | status | read | wait | cancel. ${TOOL_MANUAL_CONTROL_CONTRACT} Not for bridge_*/sess_* ids.`,
+        description: `Manual control for an async background task by task_id. action: list | status | read | wait | cancel. ${TOOL_MANUAL_CONTROL_CONTRACT} Not for agent session ids or sess_* ids.`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -122,7 +131,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Mixdog Glob',
         annotations: { title: 'Mixdog Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Find files by glob pattern. Use for broad file-space narrowing.',
+        description: 'Find files by known glob pattern. Returns rg natural order without per-file stat.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -147,17 +156,31 @@ export const BUILTIN_TOOLS = [
         },
     },
     {
+        name: 'find',
+        title: 'Mixdog Find Files',
+        annotations: { title: 'Mixdog Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
+        description: 'Fuzzy-find files by partial path/name. Returns candidate paths only.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                query: { type: 'string', description: 'Partial file/path words, e.g. "bridge trace".' },
+                path: { type: 'string', description: 'Base directory; omit for current cwd.' },
+                head_limit: { type: 'number', description: 'Max candidate paths.' },
+            },
+            required: ['query'],
+        },
+    },
+    {
         name: 'list',
         title: 'Mixdog List Directory',
         annotations: { title: 'Mixdog List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'List directory entries or fuzzy-rank filenames. Use for broad directory/file discovery.',
+        description: 'List directory entries from a known directory. Use glob for broad file discovery.',
         inputSchema: {
             type: 'object',
             properties: {
                 path: { type: 'string', description: 'Directory to list; omit for current cwd.' },
                 head_limit: { type: 'number', description: 'Max entries.' },
                 offset: { type: 'number', description: 'Skip N entries for paging.' },
-                fuzzy: { type: 'string', description: 'Rank files by partial name.' },
             },
             required: [],
         },

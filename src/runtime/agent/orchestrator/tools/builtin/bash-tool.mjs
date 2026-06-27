@@ -4,7 +4,7 @@ import { wrapCommandWithSnapshot } from '../shell-snapshot.mjs';
 import { getDestructiveCommandWarning } from '../destructive-warning.mjs';
 import { maybeRewriteWmicProcessCommand } from '../shell-policy.mjs';
 import { buildBashPolicyScanTargets, checkExecPolicyMessage, injectionBlockTargets } from '../bash-policy-scan.mjs';
-import { markCodeGraphDirtyPaths, drainCodeGraphCache } from '../code-graph.mjs';
+import { markCodeGraphDirtyPaths, drainCodeGraphCache } from '../code-graph-state.mjs';
 import {
     buildJobNotFoundMessage,
     startBackgroundShellJob,
@@ -548,12 +548,12 @@ export async function executeTaskTool(args, options = {}) {
 
     const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : '';
     if (!taskId) return 'Error: task_id is required';
-    // bridge_* / sess_* are bridge-worker / orchestrator session ids, not
-    // background shell jobs. task only resolves `shell mode=async`
-    // jobs, so surface a self-correcting hint instead of the bare
-    // "job not found" that otherwise invites a wrong-tool retry loop.
-    if (/^(?:bridge_|sess_)/.test(taskId)) {
-        return `Error: "${taskId}" is a bridge/session id, not a background task_id. Bridge agents deliver completion notifications; use bridge list/read only for manual recovery.`;
+    // sess_* values are agent/orchestrator session ids, not background shell
+    // tasks. task only resolves `shell mode=async` tasks, so surface a
+    // self-correcting hint instead of the bare "task not found" that otherwise
+    // invites a wrong-tool retry loop.
+    if (/^sess_/.test(taskId)) {
+        return `Error: "${taskId}" is an agent/session id, not a background task_id. Agent tasks deliver completion notifications; use agent list/read only for manual recovery.`;
     }
 
     const task = getBackgroundTask(taskId, { context: options });

@@ -8,7 +8,7 @@
  * Pure formatting: returns a string, never touches stdout. Robust to missing or
  * malformed argument objects (the engine hands us `{ name, arguments, id }`).
  */
-import { bold, dim, cyan, gray, yellow, green } from './ansi.mjs';
+import { bold, cyan, gray } from './ansi.mjs';
 
 const MAX_SUMMARY = 72;
 
@@ -17,6 +17,7 @@ const SUMMARIZERS = {
   read: (a) => a.path ?? a.file,
   apply_patch: (a) => a.path ?? a.base_path ?? firstPatchPath(a.patch),
   list: (a) => a.path ?? a.pattern,
+  find: (a) => a.query ?? a.fuzzy ?? a.path,
   glob: (a) => joinMaybe(a.pattern) ?? a.path,
   grep: (a) => joinMaybe(a.pattern),
   shell: (a) => a.command,
@@ -41,18 +42,6 @@ export function renderToolCard(call) {
   const label = bold(name);
   if (!summary) return `  ${bullet} ${label}`;
   return `  ${bullet} ${label} ${gray(truncate(summary, MAX_SUMMARY))}`;
-}
-
-/** Render several calls (from one iteration) as a joined block. */
-export function renderToolCards(calls) {
-  return (calls || []).map(renderToolCard).join('\n');
-}
-
-/** A small "done" marker line for a completed tool (optional nicety). */
-export function renderToolResult(name, { ok = true, note = '' } = {}) {
-  const mark = ok ? green('ok') : yellow('x');
-  const tail = note ? ' ' + dim(truncate(String(note), 48)) : '';
-  return `  ${mark} ${dim(String(name ?? 'tool'))}${tail}`;
 }
 
 // --- helpers -----------------------------------------------------------------

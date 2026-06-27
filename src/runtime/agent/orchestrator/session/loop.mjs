@@ -3,34 +3,33 @@ import { executeMcpTool, isMcpTool, mcpToolHasField } from '../mcp/client.mjs';
 import { canonicalizeBuiltinToolName, executeBuiltinTool, formatUnknownBuiltinToolMessage, isBuiltinTool } from '../tools/builtin.mjs';
 import { executeBashSessionTool } from '../tools/bash-session.mjs';
 import { executePatchTool } from '../tools/patch.mjs';
-import { executeCodeGraphTool, isCodeGraphTool } from '../tools/code-graph.mjs';
 import { executeInternalTool, isInternalTool } from '../internal-tools.mjs';
 import { collectSkillsCached, loadSkillContent } from '../context/collect.mjs';
 import { traceBridgeLoop, traceBridgeTool, traceBridgeToolFailure, traceBridgeCompact, estimateProviderPayloadBytes, messagePrefixHash } from '../bridge-trace.mjs';
+import { isAgentOwner } from '../agent-owner.mjs';
 import { markSessionToolCall, updateSessionStage, SessionClosedError, getSessionAbortSignal, enqueuePendingMessage } from './manager.mjs';
 import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';
 import {
-    compactMessages,
     recallFastTrackCompactMessages,
     pruneToolOutputs,
     semanticCompactMessages,
-    compactActiveTurn,
     compactTypeIsRecallFastTrack,
     compactTypeIsSemantic,
     normalizeCompactType,
     DEFAULT_COMPACT_TYPE,
-    SUMMARY_PREFIX,
     DEFAULT_COMPACTION_BUFFER_TOKENS,
     DEFAULT_COMPACTION_BUFFER_RATIO,
     DEFAULT_COMPACTION_KEEP_TOKENS,
     compactionBufferTokensForBoundary,
     normalizeCompactionBufferRatio,
+    drainSessionCycle1,
 } from './compact.mjs';
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
 import { classifyBashFileLookupCommand, classifyBridgeWorkerGitMutationCommand, stripSoftWarns } from '../tool-loop-guard.mjs';
 import { maybeOffloadToolResult } from './tool-result-offload.mjs';
 import { tryReadCached, setReadCached, invalidatePathForSession, markPostEdit, consumePostEditMark, clearReadDedupSession, extractTouchedPathsFromPatch, tryScopedToolCached, setScopedToolCached, clearScopedToolsForSession, clearScopedToolsForSessionPaths, invalidatePrefetchCache } from './read-dedup.mjs';
 import { createScopedCacheOutcome } from './cache/scoped-cache-outcome.mjs';
+import { modelVisibleToolCompletionMessage } from '../../../shared/tool-execution-contract.mjs';
 import { createHash } from 'crypto';
 
 // Tool-name classification for cross-turn read dedup.
@@ -53,6 +52,13 @@ const SCOPED_CACHEABLE_TOOLS = new Set([
     'list',
     'glob',
 ]);
+let codeGraphRuntimePromise = null;
+async function executeCodeGraphToolLazy(name, args, cwd, signal = null, options = {}) {
+    codeGraphRuntimePromise ??= import('../tools/code-graph.mjs');
+    const mod = await codeGraphRuntimePromise;
+    if (typeof mod.executeCodeGraphTool !== 'function') throw new Error('code_graph runtime is not available');
+    return mod.executeCodeGraphTool(name, args, cwd, signal, options);
+}
 function _isScopedCacheableTool(name) {
     const n = _stripMcpPrefix(name);
     return SCOPED_CACHEABLE_TOOLS.has(n);
@@ -92,19 +98,18 @@ function _intraTurnSig(name, args) {
 // non-null as "do not start eager".
 //
 // Predicates are kept in the same order as the legacy serial branch so a
-// bridge-owned control-plane tool fails on _bridgeOwned+_controlPlaneTool
+// agent-owned control-plane tool fails on _agentOwned+_controlPlaneTool
 // FIRST (not on permission/wrapper checks) — matches the prior wording.
-// Bridge workers are sandboxed to code/research tools. They must never reach
+// Agent workers are sandboxed to code/research tools. They must never reach
 // owner/host control surfaces: session management, the ENTIRE channels module
 // (Discord messaging, schedules, webhook/config, channel-bridge toggle,
 // command injection), or host input injection. Explicit name list (no imports)
 // keeps this hot-path gate dependency-free; add new owner/channel tools here.
 const WORKER_DENIED_TOOLS = new Set([
-    // session control-plane — unified into the single `bridge` tool
+    // session control-plane — unified into the single `agent` tool
     // (type=spawn|send|close|list). Denying the one name blocks all worker
-    // session control. Legacy names kept for defense-in-depth against any
-    // stale catalog entry that still advertises them.
-    'bridge', 'close_session', 'list_sessions', 'create_session',
+    // session control.
+    'agent',
     // channels module (owner/Discord-facing)
     'reply', 'react', 'edit_message', 'download_attachment', 'fetch',
     'schedule_status', 'trigger_schedule', 'schedule_control',
@@ -115,10 +120,10 @@ const WORKER_DENIED_TOOLS = new Set([
 function _preDispatchDeny(call, toolKind, sessionRef) {
     const name = call?.name;
     if (typeof name !== 'string' || !name) return null;
-    const _bridgeOwned = sessionRef?.scope?.startsWith?.('bridge:') || sessionRef?.owner === 'bridge';
+    const _bridgeOwned = sessionRef?.scope?.startsWith?.('bridge:') || isAgentOwner(sessionRef);
     const _controlPlaneTool = WORKER_DENIED_TOOLS.has(name);
     if (_bridgeOwned && _controlPlaneTool) {
-        return `Error: control-plane tool "${name}" is Lead-only and not available to bridge agents.`;
+        return `Error: control-plane tool "${name}" is Lead-only and not available to agent workers.`;
     }
     const noToolRole = sessionRef?.role === 'cycle1-agent' || sessionRef?.role === 'cycle2-agent';
     if (noToolRole) {
@@ -129,6 +134,9 @@ function _preDispatchDeny(call, toolKind, sessionRef) {
     }
     const effectivePermission = effectiveToolPermission(sessionRef);
     const permissionBlocked = isBlockedByPermission(name, toolKind, effectivePermission);
+    if (permissionBlocked && effectivePermission === 'none') {
+        return `Error: tool "${name}" is not available on this session (permission=none). Re-emit the answer without tool_use blocks.`;
+    }
     if (permissionBlocked && effectivePermission === 'mcp') {
         return `Error: tool "${name}" is not available on this session (permission=mcp). Use MCP/internal retrieval tools only.`;
     }
@@ -271,7 +279,7 @@ function bridgeContextOverflowError({ stage, sessionId, sessionRef, model, budge
 }
 
 // Cache-hit results always inline the cached body. The earlier size-gated
-// `[cache-hit-ref]` branch confused bridge agents whose context did not
+// `[cache-hit-ref]` branch confused agents whose context did not
 // contain the referenced prior tool_result, triggering shell-cat detours.
 // Hard iteration ceiling for every agent loop. Reset to 0 whenever the
 // transcript is compacted (see the trim block below): a long task that keeps
@@ -401,23 +409,23 @@ function isEagerDispatchable(name, tools) {
     const def = tools.find(t => t?.name === name);
     return def?.annotations?.readOnlyHint === true;
 }
-// ── Bridge-worker permission enforcement ──────────────────────────────────────
+// ── Agent-worker permission enforcement ───────────────────────────────────────
 // Mirrors the PreToolUse hook evaluation for tool calls that originate inside a
-// bridge worker session. Worker dispatch previously bypassed the hook pipeline
+// worker session. Worker dispatch previously bypassed the hook pipeline
 // entirely; this guard closes that gap by running the same evaluator inline.
 //
 // `ask` is treated as deny here — forwarding `ask` decisions to the channel
 // UI approval flow needs bidirectional prompt plumbing that does not exist.
 function _checkWorkerPermission(toolName, toolInput, sessionRef) {
     const bareToolName = _stripMcpPrefix(toolName);
-    if (sessionRef?.owner === 'bridge' && bareToolName === 'shell') {
+    if (isAgentOwner(sessionRef) && bareToolName === 'shell') {
         const cmdClass = classifyBashFileLookupCommand(toolInput?.command);
         if (cmdClass) {
-            return `Error: bridge worker shell file lookup blocked (${cmdClass}). Use Mixdog MCP read/grep/glob/list directly; shell is only for build/test/run/git-style commands.`;
+            return `Error: agent worker shell file lookup blocked (${cmdClass}). Use Mixdog MCP read/grep/glob/list directly; shell is only for build/test/run/git-style commands.`;
         }
         const gitClass = classifyBridgeWorkerGitMutationCommand(toolInput?.command);
         if (gitClass) {
-            return `Error: bridge worker git operation blocked (${gitClass}). Git operations are deferred to Lead.`;
+            return `Error: agent worker git operation blocked (${gitClass}). Git operations are deferred to Lead.`;
         }
     }
     // Even when no explicit permissionMode is propagated to the worker, run
@@ -458,6 +466,7 @@ function effectiveToolPermission(sessionRef) {
     return sessionRef?.toolPermission || sessionRef?.permission || null;
 }
 function isBlockedByPermission(toolName, toolKind, permission) {
+    if (permission === 'none') return true;
     if (permission === 'mcp') return !MCP_ONLY_ALLOWED_KINDS.has(toolKind);
     if (permission === 'read') return READ_BLOCKED_TOOLS.has(toolName);
     // Object-form {allow,deny} permission (role template / profile). The
@@ -483,7 +492,7 @@ function isBlockedByPermission(toolName, toolKind, permission) {
 }
 function isBlockedHiddenWrapperCall(toolName, sessionRef) {
     if (!RETRIEVAL_WRAPPERS.has(toolName)) return false;
-    if (sessionRef?.owner !== 'bridge') return false;
+    if (!isAgentOwner(sessionRef)) return false;
     if (!isHiddenRole(sessionRef?.role)) return false;
     const allow = HIDDEN_ROLE_WRAPPER_ALLOWLIST[sessionRef.role];
     if (allow && allow.has(toolName)) return false;
@@ -527,38 +536,6 @@ function addUsage(total, usage) {
     }
     return next;
 }
-function splitMessagesForRemoteCompact(messages) {
-    if (!Array.isArray(messages)) return null;
-    const system = messages.filter(m => m?.role === 'system');
-    const nonSystem = messages.filter(m => m?.role !== 'system');
-    let turnStart = -1;
-    for (let i = nonSystem.length - 1; i >= 0; i -= 1) {
-        if (nonSystem[i]?.role === 'user') {
-            turnStart = i;
-            break;
-        }
-    }
-    if (turnStart <= 0) return null;
-    const oldHistory = nonSystem.slice(0, turnStart);
-    if (!oldHistory.length) return null;
-    return [...system, ...oldHistory];
-}
-function markRemoteCompactFallback(messages, providerName) {
-    if (!Array.isArray(messages)) return false;
-    for (const m of messages) {
-        if (m?.role !== 'user' || typeof m.content !== 'string') continue;
-        if (!m.content.startsWith(SUMMARY_PREFIX)) continue;
-        m._mixdogRemoteCompactFallback = 'openai-codex';
-        m._mixdogRemoteCompactProvider = providerName || 'openai-oauth';
-        return true;
-    }
-    return false;
-}
-function providerRemoteCompactEnabled(provider, opts) {
-    if (opts?.remoteCompact === false) return false;
-    if (process.env.MIXDOG_REMOTE_COMPACT === '0') return false;
-    return typeof provider?.remoteCompactMessages === 'function';
-}
 function positiveTokenInt(value) {
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
@@ -576,10 +553,9 @@ function resolveSemanticCompactSetting(sessionRef, cfg = {}) {
     if (env !== undefined) return envFlag('MIXDOG_BRIDGE_COMPACT_SEMANTIC', true);
     if (cfg.semantic === false || cfg.semantic === 'false' || cfg.semantic === 'off') return false;
     if (cfg.semantic === true || cfg.semantic === 'true' || cfg.semantic === 'on') return true;
-    // OpenCode keeps compaction as a session concern. For Mixdog, default the
-    // semantic agent only on bridge-owned workers so direct user sessions and
-    // narrow tests do not pay an extra provider call unless they opt in.
-    return sessionRef?.owner === 'bridge';
+    // The compact type is already explicit (`semantic` by default). Honor it
+    // directly instead of substituting another compaction path.
+    return true;
 }
 
 function resolveCompactTypeSetting(_sessionRef, cfg = {}) {
@@ -621,23 +597,34 @@ async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTo
         includeRaw: true,
         limit: positiveTokenInt(sessionRef?.compaction?.recallChunkLimit ?? sessionRef?.compaction?.recallLimit) || hydrateLimit,
     };
+    const runTool = (name, args) => executeInternalTool(name, args, callerCtx);
     let recallText = await executeInternalTool('memory', dumpArgs, callerCtx);
     let cycle1Text = '';
     const hasRawRows = /(?:^|\n)# raw_pending\s+\d+\s+id=/i.test(String(recallText || ''));
     if (hasRawRows) {
         try {
-            cycle1Text = await executeInternalTool('memory', {
-                action: 'cycle1',
+            // Drain this session's cycle1 in window×concurrency units until no
+            // raw rows remain, so the injected root is fully chunked rather than
+            // carrying the unprocessed transcript tail (single-pass left raw in).
+            const drained = await drainSessionCycle1(runTool, {
                 sessionId,
-                min_batch: 1,
-                session_cap: 1,
-                batch_size: positiveTokenInt(sessionRef?.compaction?.recallCycle1BatchSize) || 100,
-                rows_per_session: positiveTokenInt(sessionRef?.compaction?.recallRowsPerSession) || 100,
-                window_size: positiveTokenInt(sessionRef?.compaction?.recallWindowSize) || 20,
-                concurrency: positiveTokenInt(sessionRef?.compaction?.recallConcurrency) || 5,
-                _callerDeadlineMs: positiveTokenInt(sessionRef?.compaction?.recallCycle1DeadlineMs) || 120_000,
-            }, callerCtx);
-            recallText = await executeInternalTool('memory', dumpArgs, callerCtx);
+                dumpArgs,
+                deadlineMs: positiveTokenInt(sessionRef?.compaction?.recallCycle1DeadlineMs) || 120_000,
+                maxPasses: positiveTokenInt(sessionRef?.compaction?.recallCycle1MaxPasses) || 0,
+                cycleArgs: {
+                    min_batch: 1,
+                    session_cap: 1,
+                    batch_size: positiveTokenInt(sessionRef?.compaction?.recallCycle1BatchSize) || 100,
+                    rows_per_session: positiveTokenInt(sessionRef?.compaction?.recallRowsPerSession) || 100,
+                    window_size: positiveTokenInt(sessionRef?.compaction?.recallWindowSize) || 20,
+                    concurrency: positiveTokenInt(sessionRef?.compaction?.recallConcurrency) || 5,
+                },
+            });
+            recallText = drained.recallText;
+            cycle1Text = drained.cycle1Text;
+            if (drained.rawRemaining > 0) {
+                try { process.stderr.write(`[loop] recall-fasttrack drained passes=${drained.passes} rawRemaining=${drained.rawRemaining} (sess=${sessionId || 'unknown'})\n`); } catch {}
+            }
         } catch (err) {
             try { process.stderr.write(`[loop] recall-fasttrack cycle1 skipped (sess=${sessionId || 'unknown'}): ${err?.message || err}\n`); } catch {}
         }
@@ -747,14 +734,6 @@ function resolveWorkerCompactPolicy(sessionRef, tools) {
         type: compactType,
         compactType,
         prune: cfg.prune === true || envFlag('MIXDOG_BRIDGE_COMPACT_PRUNE', false),
-        // Narrow active-turn fallback (bridge/worker only). When system +
-        // current turn alone overflow the budget, shrink older same-turn tool
-        // outputs / drop older same-turn groups before declaring overflow,
-        // preserving system + task user + the latest group(s) and tool
-        // pairing. Defaults on for workers; disable via env to restore the
-        // strict no-fallback behavior.
-        activeTurnFallback: cfg.activeTurnFallback !== false
-            && envFlag('MIXDOG_BRIDGE_COMPACT_ACTIVE_TURN_FALLBACK', true),
         boundaryTokens: compactBoundaryTokens,
         triggerTokens,
         bufferTokens,
@@ -853,7 +832,6 @@ function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         lastPressureTokens: meta.pressureTokens ?? null,
         lastStage: meta.stage || prev.lastStage || null,
         lastChanged: changed,
-        lastRemote: meta.remoteCompact === true,
         lastSemantic: meta.semanticCompact === true,
         lastSemanticError: meta.semanticError || null,
         lastRecallFastTrack: meta.recallFastTrack === true,
@@ -874,6 +852,16 @@ function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
     if (policy.effectiveContextWindowPercent !== null) {
         sessionRef.effectiveContextWindowPercent = policy.effectiveContextWindowPercent;
     }
+}
+
+function emitCompactEvent(opts, event = {}) {
+    if (!opts || typeof opts.onCompactEvent !== 'function') return;
+    try { opts.onCompactEvent({ ts: Date.now(), ...event }); }
+    catch { /* best-effort UI/log hook */ }
+}
+
+function compactEventType(policy, fallback = DEFAULT_COMPACT_TYPE) {
+    return policy?.compactType || policy?.type || fallback;
 }
 const SKILL_TOOL_NAMES = new Set(['skills_list', 'skill_view', 'skill_execute']);
 const SPECIAL_TOOL_NAMES = new Set(['bash_session', 'apply_patch', 'code_graph']);
@@ -1005,7 +993,7 @@ function extractBashSessionId(result) {
 }
 
 export function buildBridgeBashSessionArgs(args, sessionRef) {
-    if (sessionRef?.owner !== 'bridge') return null;
+    if (!isAgentOwner(sessionRef)) return null;
     // run_in_background is a detached one-shot job, incompatible with the
     // persistent bash session. Fall through to the background-job path
     // (executeBuiltinTool -> startBackgroundShellJob) so the worker gets a
@@ -1055,14 +1043,20 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
     const toolOpts = scopedCacheOutcome
         ? { ...executeOpts, scopedCacheOutcome }
         : executeOpts;
-    const notifyFn = (text) => {
-        if (!callerSessionId) return;
-        try { enqueuePendingMessage(callerSessionId, String(text || '')); } catch { /* best effort */ }
-    };
+    const notificationSessionId = String(executeOpts.notifySessionId || sessionRef?.ownerSessionId || callerSessionId || '').trim();
+    const notifyFn = typeof executeOpts.notifyFn === 'function'
+        ? executeOpts.notifyFn
+        : (text, meta = {}) => {
+            if (!notificationSessionId) return;
+            try {
+                const visible = modelVisibleToolCompletionMessage(text, meta);
+                if (visible) enqueuePendingMessage(notificationSessionId, visible);
+            } catch { /* best effort */ }
+        };
     const completionToolOpts = {
         ...toolOpts,
         sessionId: callerSessionId,
-        callerSessionId,
+        callerSessionId: notificationSessionId || callerSessionId,
         routingSessionId: callerSessionId,
         clientHostPid: sessionRef?.clientHostPid,
         notifyFn,
@@ -1112,10 +1106,10 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
         const finalArgs = needsCwdInjection ? { ...(args || {}), cwd } : args;
         return executeMcpTool(name, finalArgs);
     }
-    if (isCodeGraphTool(name)) {
+    if (name === 'code_graph') {
         // cwd chain: args.cwd (caller-explicit) → session cwd → undefined (handler throws)
         const graphCwd = (typeof args?.cwd === 'string' && args.cwd.trim()) ? args.cwd.trim() : cwd;
-        return executeCodeGraphTool(name, args, graphCwd, null, toolOpts);
+        return executeCodeGraphToolLazy(name, args, graphCwd, null, toolOpts);
     }
     if (isInternalTool(name)) {
         // callerSessionId propagates into server.mjs dispatchTool so that
@@ -1214,9 +1208,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         ? tools.find(tool => tool?.name === forcedFirstTool)
         : null;
     // Opaque providerState passthrough. The loop never inspects provider-native
-    // payloads; the originating provider owns them. OpenAI Codex uses this for
-    // native remote compaction prefixes, and stateful Responses providers may
-    // use it for continuation anchors.
+    // payloads; the originating provider owns them. Stateful Responses
+    // providers may use it for continuation anchors.
     let providerState = opts.providerState ?? undefined;
     const throwIfAborted = () => {
         if (signal?.aborted) {
@@ -1233,18 +1226,39 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         messages.push(message);
         try { opts.onToolResult?.(message); } catch {}
     };
-    const drainSteeringIntoMessages = (stage = 'mid-turn') => {
+    const drainSteeringIntoMessages = (stage = 'mid-turn', options = {}) => {
         if (typeof opts.drainSteering !== 'function') return false;
         let steerMsgs = [];
         try { steerMsgs = opts.drainSteering(sessionId) || []; }
         catch { steerMsgs = []; }
         const merged = mergeSteeringEntries(steerMsgs);
         if (!merged) return false;
+        if (typeof options.beforeAppend === 'function') {
+            try { options.beforeAppend(); } catch { /* best-effort hook */ }
+        }
         messages.push({ role: 'user', content: merged.content });
         try { opts.onSteerMessage?.(merged.text || steeringContentText(merged.content)); } catch {}
         if (sessionId) {
             try { process.stderr.write(`[steer] sess=${sessionId} injected ${stage} user message (merged=${merged.count} len=${String(merged.text || '').length})\n`); } catch {}
         }
+        return true;
+    };
+    const pushIntermediateAssistantResponse = (resp) => {
+        if (!resp) return false;
+        const content = typeof resp.content === 'string' ? resp.content : (resp.content == null ? '' : String(resp.content));
+        const reasoningContent = typeof resp.reasoningContent === 'string' && resp.reasoningContent
+            ? resp.reasoningContent
+            : '';
+        const reasoningItems = Array.isArray(resp.reasoningItems) && resp.reasoningItems.length
+            ? resp.reasoningItems
+            : null;
+        if (!content && !reasoningContent && !reasoningItems) return false;
+        messages.push({
+            role: 'assistant',
+            content,
+            ...(reasoningItems ? { reasoningItems } : {}),
+            ...(reasoningContent ? { reasoningContent } : {}),
+        });
         return true;
     };
     const maxLoopIterations = Number.isFinite(sessionRef?.maxLoopIterations)
@@ -1268,8 +1282,21 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // a best-effort JSON.stringify length — close enough to the
             // payload we hand the provider for prefix-cache analysis.
             const beforeCount = messages.length;
-            let beforeBytes = null;
-            try { beforeBytes = Buffer.byteLength(JSON.stringify(messages), 'utf8'); } catch { beforeBytes = null; }
+            // beforeBytes is only ever read inside the shouldCompact telemetry
+            // branches below. Computing it eagerly serialized the ENTIRE message
+            // array (Buffer.byteLength(JSON.stringify(messages))) on every loop
+            // iteration — including the common no-compact path — which grows
+            // linearly with transcript size and was a real per-iteration drag.
+            // Defer it to a memoized lazy getter so the no-compact path pays
+            // nothing and the compact path still gets an exact byte count once.
+            let _beforeBytes;
+            let _beforeBytesComputed = false;
+            const getBeforeBytes = () => {
+                if (_beforeBytesComputed) return _beforeBytes;
+                _beforeBytesComputed = true;
+                try { _beforeBytes = Buffer.byteLength(JSON.stringify(messages), 'utf8'); } catch { _beforeBytes = null; }
+                return _beforeBytes;
+            };
             const messageTokensEst = estimateMessagesTokensSafe(messages);
             const pressureTokens = compactPressureTokens(messageTokensEst, compactPolicy, sessionRef);
             const shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, sessionRef);
@@ -1292,7 +1319,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     pressureTokens,
                 });
                 let compacted;
-                let remoteCompactResult = null;
                 let pruneCount = 0;
                 let summaryChanged = false;
                 let semanticCompactResult = null;
@@ -1308,11 +1334,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         pruneCount = countPrunedToolOutputs(messages, pruned);
                         compactInputMessages = pruned;
                     }
-                    // Pre-send compaction replaces destructive drop: older
-                    // non-system history is condensed into one summary message.
-                    // The current turn and tool pairing stay intact; if those
-                    // mandatory parts cannot fit, compactMessages throws instead
-                    // of silently discarding user-visible context.
                     if (compactPolicy.recallFastTrack) {
                         try {
                             recallFastTrackResult = await runRecallFastTrackCompact({
@@ -1326,18 +1347,17 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                             const recallMessages = Array.isArray(recallFastTrackResult?.messages)
                                 ? recallFastTrackResult.messages
                                 : null;
-                            if (recallMessages && (recallFastTrackResult?.recallFastTrack === true
-                                || messagesArrayChanged(compactInputMessages, recallMessages))) {
-                                compacted = recallMessages;
-                            }
+                            if (!recallMessages) throw new Error('recall-fasttrack compact produced no messages');
+                            compacted = recallMessages;
                         } catch (recallErr) {
                             recallFastTrackError = recallErr;
                             try {
                                 process.stderr.write(
                                     `[loop] recall-fasttrack compact failed (sess=${sessionId || 'unknown'}): ` +
-                                    `${recallErr?.message || recallErr}; falling back to deterministic compact\n`,
+                                    `${recallErr?.message || recallErr}\n`,
                                 );
                             } catch { /* best-effort */ }
+                            throw recallErr;
                         }
                     } else if (compactPolicy.semantic) {
                         try {
@@ -1364,10 +1384,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                             const semanticMessages = Array.isArray(semanticCompactResult?.messages)
                                 ? semanticCompactResult.messages
                                 : null;
-                            if (semanticMessages && (semanticCompactResult?.semantic === true
-                                || messagesArrayChanged(compactInputMessages, semanticMessages))) {
-                                compacted = semanticMessages;
-                            }
+                            if (!semanticMessages) throw new Error('semantic compact produced no messages');
+                            compacted = semanticMessages;
                             if (semanticCompactResult?.usage) {
                                 lastUsage = addUsage(lastUsage, semanticCompactResult.usage);
                                 if (!firstTurnUsage) firstTurnUsage = normalizeUsage(semanticCompactResult.usage);
@@ -1391,115 +1409,15 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                             try {
                                 process.stderr.write(
                                     `[loop] semantic compact failed (sess=${sessionId || 'unknown'}): ` +
-                                    `${semanticErr?.message || semanticErr}; falling back to deterministic compact\n`,
+                                    `${semanticErr?.message || semanticErr}\n`,
                                 );
                             } catch { /* best-effort */ }
+                            throw semanticErr;
                         }
-                    }
-                    if (!compacted) {
-                        try {
-                            compacted = compactMessages(compactInputMessages, compactBudgetTokens, {
-                                reserveTokens: compactPolicy.reserveTokens,
-                                force: true,
-                            });
-                        } catch (deterministicErr) {
-                            // Deterministic (and any prior semantic) compaction
-                            // failed because system + the entire current turn is
-                            // mandatory and overflows the budget. For bridge
-                            // workers, fall back to the narrow active-turn
-                            // compactor, which shrinks older same-turn tool
-                            // outputs / drops older same-turn groups while
-                            // preserving system + task user + the latest
-                            // group(s) and tool pairing. It still throws (and we
-                            // surface overflow below) when even that floor cannot
-                            // fit, so overflow/cancellation behavior is preserved.
-                            if (!compactPolicy.activeTurnFallback) throw deterministicErr;
-                            compacted = compactActiveTurn(compactInputMessages, compactBudgetTokens, {
-                                reserveTokens: compactPolicy.reserveTokens,
-                                force: true,
-                            });
-                            try {
-                                process.stderr.write(
-                                    `[loop] active-turn fallback compaction (sess=${sessionId || 'unknown'}): ` +
-                                    `${deterministicErr?.message || deterministicErr}\n`,
-                                );
-                            } catch { /* best-effort */ }
-                        }
+                    } else {
+                        throw new Error(`compact type ${compactPolicy.compactType || compactPolicy.type || DEFAULT_COMPACT_TYPE} is unavailable for auto compact`);
                     }
                     summaryChanged = messagesArrayChanged(compactInputMessages, compacted);
-                    if (summaryChanged && !compactPolicy.recallFastTrack && providerRemoteCompactEnabled(provider, opts)) {
-                        const compactInput = splitMessagesForRemoteCompact(messages);
-                        if (compactInput) {
-                            try {
-                                remoteCompactResult = await provider.remoteCompactMessages(
-                                    compactInput,
-                                    model,
-                                    tools,
-                                    {
-                                        ...opts,
-                                        thinkingBudgetTokens: undefined,
-                                        xaiReasoningEffort: undefined,
-                                        reasoningEffort: undefined,
-                                        effort: 'low',
-                                        providerState,
-                                        iteration: iterations + 1,
-                                        remoteCompact: true,
-                                        onToolCall: undefined,
-                                        onStreamDelta: undefined,
-                                    },
-                                );
-                                if (remoteCompactResult?.providerState !== undefined) {
-                                    markRemoteCompactFallback(compacted, provider?.name);
-                                }
-                                if (remoteCompactResult?.usage) {
-                                    lastUsage = addUsage(lastUsage, remoteCompactResult.usage);
-                                    if (!firstTurnUsage) firstTurnUsage = normalizeUsage(remoteCompactResult.usage);
-                                    if (sessionId && opts.onUsageDelta) {
-                                        try {
-                                            opts.onUsageDelta({
-                                                sessionId,
-                                                iterationIndex: iterations + 1,
-                                                deltaInput: remoteCompactResult.usage.inputTokens || 0,
-                                                deltaOutput: remoteCompactResult.usage.outputTokens || 0,
-                                                deltaCachedRead: remoteCompactResult.usage.cachedTokens || 0,
-                                                deltaCacheWrite: remoteCompactResult.usage.cacheWriteTokens || 0,
-                                                source: 'remote_compact',
-                                                ts: Date.now(),
-                                            });
-                                        } catch { /* best-effort */ }
-                                    }
-                                }
-                            } catch (remoteErr) {
-                                try {
-                                    process.stderr.write(
-                                        `[loop] remote compact failed (sess=${sessionId || 'unknown'}): ` +
-                                        `${remoteErr?.message || remoteErr}; falling back to local summary\n`,
-                                    );
-                                } catch { /* best-effort */ }
-                                traceBridgeCompact({
-                                    sessionId,
-                                    iteration: iterations + 1,
-                                    stage: 'remote_compact',
-                                    prune_count: pruneCount,
-                                    compact_changed: false,
-                                    input_prefix_hash: messagePrefixHash(messages),
-                                    before_count: beforeCount,
-                                    after_count: beforeCount,
-                                    before_bytes: beforeBytes,
-                                    after_bytes: beforeBytes,
-                                    context_window: compactPolicy.contextWindow,
-                                    budget_tokens: compactPolicy.boundaryTokens,
-                                    target_budget_tokens: compactBudgetTokens,
-                                    reserve_tokens: compactPolicy.reserveTokens,
-                                    message_tokens_est: messageTokensEst,
-                                    provider: sessionRef.provider,
-                                    model: sessionRef.model || model,
-                                    error: remoteErr && remoteErr.message ? remoteErr.message : String(remoteErr),
-                                    error_code: 'REMOTE_COMPACT_FAILED',
-                                });
-                            }
-                        }
-                    }
                 } catch (compactErr) {
                     traceBridgeCompact({
                         sessionId,
@@ -1510,8 +1428,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         input_prefix_hash: messagePrefixHash(messages),
                         before_count: beforeCount,
                         after_count: messages.length,
-                        before_bytes: beforeBytes,
-                        after_bytes: beforeBytes,
+                        before_bytes: getBeforeBytes(),
+                        after_bytes: getBeforeBytes(),
                         context_window: compactPolicy.contextWindow,
                         budget_tokens: compactPolicy.boundaryTokens,
                         target_budget_tokens: compactBudgetTokens,
@@ -1521,6 +1439,26 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         model: sessionRef.model || model,
                         error: compactErr && compactErr.message ? compactErr.message : String(compactErr),
                         error_code: 'BRIDGE_CONTEXT_OVERFLOW',
+                    });
+                    emitCompactEvent(opts, {
+                        sessionId,
+                        stage: 'pre_send',
+                        trigger: 'auto',
+                        status: 'failed',
+                        compactType: compactEventType(compactPolicy),
+                        beforeTokens: messageTokensEst,
+                        afterTokens: messageTokensEst,
+                        beforeMessages: beforeCount,
+                        afterMessages: messages.length,
+                        pressureTokens,
+                        triggerTokens: compactPolicy.triggerTokens,
+                        boundaryTokens: compactPolicy.boundaryTokens,
+                        targetBudgetTokens: compactBudgetTokens,
+                        reserveTokens: compactPolicy.reserveTokens,
+                        semantic: compactPolicy.semantic === true,
+                        recallFastTrack: compactPolicy.recallFastTrack === true,
+                        pruneCount,
+                        error: compactErr && compactErr.message ? compactErr.message : String(compactErr),
                     });
                     throw bridgeContextOverflowError({
                         stage: 'pre_send',
@@ -1537,17 +1475,12 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 if (compactChanged) {
                     messages.length = 0;
                     messages.push(...compacted);
-                    if (remoteCompactResult?.providerState !== undefined) {
-                        providerState = remoteCompactResult.providerState;
-                    } else {
-                        // Compacting/pruning the transcript invalidates the
-                        // server-side conversation anchor (xAI Responses /
-                        // Codex WS rely on previous_response_id which points
-                        // at a now-mutated prefix). Drop providerState so the
-                        // next send starts a fresh chain instead of triggering
-                        // silent cache miss or hard mismatch.
-                        providerState = undefined;
-                    }
+                    // Compacting/pruning the transcript invalidates the
+                    // server-side conversation anchor (xAI Responses / Codex
+                    // WS rely on previous_response_id which points at a
+                    // now-mutated prefix). Drop providerState so the next send
+                    // starts a fresh chain.
+                    providerState = undefined;
                     // Compaction shrank the transcript, so prior turns no
                     // longer pressure the window — reset the iteration counter
                     // so a steadily-compacting long task isn't killed by the
@@ -1561,7 +1494,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     afterTokens,
                     pressureTokens,
                     compactChanged,
-                    remoteCompact: remoteCompactResult?.providerState !== undefined,
                     semanticCompact: semanticCompactResult?.semantic === true,
                     semanticError: semanticCompactError?.message || null,
                     recallFastTrack: recallFastTrackResult?.recallFastTrack === true,
@@ -1579,7 +1511,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     input_prefix_hash: messagePrefixHash(messages),
                     before_count: beforeCount,
                     after_count: messages.length,
-                    before_bytes: beforeBytes,
+                    before_bytes: getBeforeBytes(),
                     after_bytes: afterBytes,
                     context_window: compactPolicy.contextWindow,
                     budget_tokens: compactPolicy.boundaryTokens,
@@ -1588,6 +1520,26 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     message_tokens_est: messageTokensEst,
                     provider: sessionRef.provider,
                     model: sessionRef.model || model,
+                });
+                emitCompactEvent(opts, {
+                    sessionId,
+                    stage: 'pre_send',
+                    trigger: 'auto',
+                    status: compactChanged || summaryChanged || pruneCount > 0 ? 'compacted' : 'no_change',
+                    compactType: compactEventType(compactPolicy),
+                    beforeTokens: messageTokensEst,
+                    afterTokens,
+                    beforeMessages: beforeCount,
+                    afterMessages: messages.length,
+                    pressureTokens,
+                    triggerTokens: compactPolicy.triggerTokens,
+                    boundaryTokens: compactPolicy.boundaryTokens,
+                    targetBudgetTokens: compactBudgetTokens,
+                    reserveTokens: compactPolicy.reserveTokens,
+                    changed: compactChanged || summaryChanged,
+                    semantic: semanticCompactResult?.semantic === true,
+                    recallFastTrack: recallFastTrackResult?.recallFastTrack === true,
+                    pruneCount,
                 });
             }
         }
@@ -1653,7 +1605,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 try {
                     const permBlocked = _checkWorkerPermission(call.name, call.arguments, sessionRef);
                     if (permBlocked !== null) return { ok: true, value: permBlocked };
-                    return { ok: true, value: await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal }) };
+                    return { ok: true, value: await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn }) };
                 } catch (error) {
                     return { ok: false, error };
                 }
@@ -1735,28 +1687,84 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             try { beforeBytes = Buffer.byteLength(JSON.stringify(messages), 'utf8'); } catch { beforeBytes = null; }
             const messageTokensEst = estimateMessagesTokensSafe(messages);
             let recompacted;
+            let overflowSemanticResult = null;
+            let overflowSemanticError = null;
+            let overflowRecallResult = null;
+            let overflowRecallError = null;
             try {
-                recompacted = compactMessages(messages, overflowBudget, { reserveTokens: overflowReserve, force: true });
-            } catch (compactErr) {
-                // Same narrow active-turn fallback as the pre-send path: when
-                // system + the whole current turn overflow even the stricter
-                // overflow-retry budget, shrink older same-turn tool outputs /
-                // drop older same-turn groups before surfacing overflow. Throws
-                // (caught below) when even the floor cannot fit, preserving the
-                // overflow error behavior.
-                if (overflowPolicy?.activeTurnFallback) {
-                    try {
-                        recompacted = compactActiveTurn(messages, overflowBudget, { reserveTokens: overflowReserve, force: true });
-                        try {
-                            process.stderr.write(
-                                `[loop] active-turn fallback compaction on overflow retry ` +
-                                `(sess=${sessionId || 'unknown'} iter=${nextIteration}): ` +
-                                `${compactErr?.message || compactErr}\n`,
-                            );
-                        } catch { /* best-effort */ }
-                    } catch { recompacted = undefined; }
+                if (!overflowPolicy?.auto) {
+                    throw new Error('auto compact is disabled for overflow retry');
                 }
-                if (!recompacted) {
+                if (overflowPolicy.recallFastTrack) {
+                    try {
+                        overflowRecallResult = await runRecallFastTrackCompact({
+                            sessionRef,
+                            messages,
+                            compactBudgetTokens: overflowBudget,
+                            compactPolicy: overflowPolicy,
+                            sessionId,
+                            signal,
+                        });
+                        recompacted = Array.isArray(overflowRecallResult?.messages)
+                            ? overflowRecallResult.messages
+                            : null;
+                        if (!recompacted) throw new Error('recall-fasttrack compact produced no messages');
+                    } catch (err) {
+                        overflowRecallError = err;
+                        throw err;
+                    }
+                } else if (overflowPolicy.semantic) {
+                    try {
+                        overflowSemanticResult = await semanticCompactMessages(
+                            provider,
+                            messages,
+                            model,
+                            overflowBudget,
+                            {
+                                reserveTokens: overflowReserve,
+                                providerName: sessionRef.provider || provider?.name || null,
+                                sessionId,
+                                signal,
+                                sendOpts: opts,
+                                promptCacheKey: opts.promptCacheKey || null,
+                                providerCacheKey: opts.providerCacheKey || null,
+                                timeoutMs: overflowPolicy.semanticTimeoutMs,
+                                tailTurns: overflowPolicy.tailTurns,
+                                keepTokens: overflowPolicy.keepTokens,
+                                preserveRecentTokens: overflowPolicy.preserveRecentTokens,
+                                force: true,
+                            },
+                        );
+                        recompacted = Array.isArray(overflowSemanticResult?.messages)
+                            ? overflowSemanticResult.messages
+                            : null;
+                        if (!recompacted) throw new Error('semantic compact produced no messages');
+                        if (overflowSemanticResult?.usage) {
+                            lastUsage = addUsage(lastUsage, overflowSemanticResult.usage);
+                            if (!firstTurnUsage) firstTurnUsage = normalizeUsage(overflowSemanticResult.usage);
+                            if (sessionId && opts.onUsageDelta) {
+                                try {
+                                    opts.onUsageDelta({
+                                        sessionId,
+                                        iterationIndex: nextIteration,
+                                        deltaInput: overflowSemanticResult.usage.inputTokens || 0,
+                                        deltaOutput: overflowSemanticResult.usage.outputTokens || 0,
+                                        deltaCachedRead: overflowSemanticResult.usage.cachedTokens || 0,
+                                        deltaCacheWrite: overflowSemanticResult.usage.cacheWriteTokens || 0,
+                                        source: 'semantic_compact',
+                                        ts: Date.now(),
+                                    });
+                                } catch { /* best-effort */ }
+                            }
+                        }
+                    } catch (err) {
+                        overflowSemanticError = err;
+                        throw err;
+                    }
+                } else {
+                    throw new Error(`compact type ${overflowPolicy.compactType || overflowPolicy.type || DEFAULT_COMPACT_TYPE} is unavailable for overflow retry`);
+                }
+            } catch (compactErr) {
                 traceBridgeCompact({
                     sessionId,
                     iteration: nextIteration,
@@ -1777,6 +1785,24 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     error: compactErr && compactErr.message ? compactErr.message : String(compactErr),
                     error_code: 'BRIDGE_CONTEXT_OVERFLOW',
                 });
+                emitCompactEvent(opts, {
+                    sessionId,
+                    stage: 'overflow_retry',
+                    trigger: 'overflow',
+                    status: 'failed',
+                    compactType: compactEventType(overflowPolicy),
+                    beforeTokens: messageTokensEst,
+                    afterTokens: messageTokensEst,
+                    beforeMessages: beforeCount,
+                    afterMessages: messages.length,
+                    boundaryTokens: overflowPolicy?.boundaryTokens || sessionRef.contextWindow,
+                    targetBudgetTokens: overflowBudget,
+                    reserveTokens: overflowReserve,
+                    semantic: overflowPolicy?.semantic === true,
+                    recallFastTrack: overflowPolicy?.recallFastTrack === true,
+                    pruneCount: 0,
+                    error: compactErr && compactErr.message ? compactErr.message : String(compactErr),
+                });
                 throw bridgeContextOverflowError({
                     stage: 'overflow_retry',
                     sessionId,
@@ -1786,7 +1812,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     reserveTokens: overflowReserve,
                     messageTokensEst,
                 }, compactErr);
-                }
             }
             const compactChanged = messagesArrayChanged(messages, recompacted);
             const pruneCount = Math.max(beforeCount - recompacted.length, 0);
@@ -1817,6 +1842,28 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 beforeTokens: messageTokensEst,
                 afterTokens: estimateMessagesTokensSafe(messages),
                 compactChanged,
+                pruneCount,
+                semanticCompact: overflowSemanticResult?.semantic === true,
+                semanticError: overflowSemanticError?.message || null,
+                recallFastTrack: overflowRecallResult?.recallFastTrack === true,
+                recallFastTrackError: overflowRecallError?.message || null,
+            });
+            emitCompactEvent(opts, {
+                sessionId,
+                stage: 'overflow_retry',
+                trigger: 'overflow',
+                status: compactChanged || pruneCount > 0 ? 'compacted' : 'no_change',
+                compactType: compactEventType(overflowPolicy),
+                beforeTokens: messageTokensEst,
+                afterTokens: estimateMessagesTokensSafe(messages),
+                beforeMessages: beforeCount,
+                afterMessages: messages.length,
+                boundaryTokens: overflowPolicy?.boundaryTokens || sessionRef.contextWindow,
+                targetBudgetTokens: overflowBudget,
+                reserveTokens: overflowReserve,
+                changed: compactChanged,
+                semantic: overflowSemanticResult?.semantic === true,
+                recallFastTrack: overflowRecallResult?.recallFastTrack === true,
                 pruneCount,
             });
             // The transcript prefix changed; the server-side conversation anchor
@@ -1891,7 +1938,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 });
             } catch { /* best-effort — never break the loop */ }
         }
-        // No tool calls. For PUBLIC bridge agents, the bridge contract
+        // No tool calls. For PUBLIC agents, the agent contract
         // (rules/bridge/00-common.md) requires either a tool call or a
         // `<final-answer>` wrapped reply.
         // A text-only turn without those tags violates the contract (e.g.
@@ -1918,6 +1965,17 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             const isHidden = HIDDEN_ROLE_NAMES.has(sessionRole);
             const stopReason = response.stopReason ?? response.stop_reason ?? null;
             const isIncompleteStop = stopReason && INCOMPLETE_STOP_REASONS.has(stopReason);
+            // A user/schedule notification can arrive while provider.send() is
+            // returning a terminal no-tool response. Drain once before accepting
+            // it as final so the queued input is handled in the same active turn
+            // instead of waiting for post-turn TUI drain. If the model already
+            // produced assistant text, persist that as an intermediate assistant
+            // message before appending the steered user message.
+            if (drainSteeringIntoMessages('final-pre-send', {
+                beforeAppend: () => pushIntermediateAssistantResponse(response),
+            })) {
+                continue;
+            }
             if (!hasContent && !isHidden) {
                 if (contractNudges >= 1) break;
                 contractNudges += 1;
@@ -1934,6 +1992,15 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         }
         const calls = response.toolCalls;
         toolCallsTotal += calls.length;
+        // Surface any mid-turn assistant text (preamble that precedes a tool
+        // call) to the UI. Providers that stream text via onTextDelta already
+        // rendered it; providers that return the text only in response.content
+        // (no deltas) would otherwise show nothing before the tool card. The
+        // engine de-dups against already-streamed text, so emitting here is
+        // safe for both paths.
+        if (typeof response.content === 'string' && response.content.trim()) {
+            try { opts.onAssistantText?.(response.content); } catch { /* best-effort */ }
+        }
         // Per-turn batch shape — one row per assistant turn so trace
         // consumers can derive multi-tool adoption ratio without scanning
         // every assistant message body.
@@ -2055,7 +2122,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     const _body = _readCacheHit.content;
                     // Return the cached body byte-for-byte instead of a
                     // human-readable cache marker. The marker made public
-                    // bridge agents treat a successful cached read as a
+                    // agents treat a successful cached read as a
                     // meta instruction and repeat the same read loop.
                     result = _body;
                     _resultKind = 'cache-hit';
@@ -2114,7 +2181,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                             toolEndedAt = Date.now();
                             _resultKind = 'error';
                         } else {
-                            result = await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal });
+                            result = await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn });
                             toolEndedAt = Date.now();
                             // Boundary: tool-return string convention → structural kind.
                             // The only prefix check in this codebase; downstream layers
@@ -2364,8 +2431,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // Mid-turn steering is drained at the next loop's pre-send point,
         // AFTER any auto-compact pass. Draining here would put the steering
         // user turn after the fresh tool results before compaction runs; then
-        // compactMessages() would treat those fresh tool results as prior
-        // history and could summarize/drop them before the model sees them.
+        // semantic/recall compaction would treat those fresh tool results as
+        // prior history before the model sees them.
         // About to re-send with tool results — transition back to connecting for the next turn.
         if (sessionId) updateSessionStage(sessionId, 'connecting');
     }

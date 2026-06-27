@@ -5,7 +5,7 @@
  * soft-warn sidecars) was removed once every warn path had been disabled. Two
  * standalone utilities remain:
  *   • classifyBashFileLookupCommand — detects a `bash` call whose first token is
- *     a file-lookup that has a dedicated in-process tool (read/grep/glob/list).
+ *     a file-lookup that has a dedicated in-process tool (read/grep/find/glob/list).
  *     Used by the bridge-worker permission gate to block the shell route.
  *   • classifyBridgeWorkerGitMutationCommand — detects bridge-worker shell
  *     calls that try to run git operations reserved for Lead.
@@ -16,7 +16,7 @@
 // File-lookup-via-shell detector. Matches a `bash` command whose first token
 // is a unix find/grep/cat/ls/head/tail OR a powershell file-discovery cmdlet
 // (Get-ChildItem / Select-String / Get-Content). These have dedicated tools
-// (glob / grep / read / list) per rules/shared/01-tool.md; using bash routes
+// (find / glob / grep / read / list) per rules/shared/01-tool.md; using bash routes
 // around the in-process tool cache and the path-permission check, and the
 // outputs were observed in PG telemetry running 100x slower than the dedicated
 // path. Get-CimInstance / Win32_Process etc. are NOT matched — process

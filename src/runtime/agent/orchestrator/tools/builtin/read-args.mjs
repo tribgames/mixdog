@@ -98,6 +98,8 @@ export function normaliseReadLineWindowArgs(inputArgs, workDir) {
                 args.limit = limit;
             }
         }
+        delete args.line;
+        delete args.context;
     }
     return args;
 }

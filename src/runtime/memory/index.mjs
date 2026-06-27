@@ -83,7 +83,7 @@ import {
   setMetaValue,
   cleanMemoryText,
 } from './lib/memory.mjs'
-import { configureEmbedding, embedText, embedTexts, getEmbeddingDims, getEmbeddingModelId, getKnownDimsForCurrentModel, primeEmbeddingDims, warmupEmbeddingProvider } from './lib/embedding-provider.mjs'
+import { configureEmbedding, embedText, embedTexts, getEmbeddingDims, getEmbeddingDtype, getEmbeddingModelId, getKnownDimsForCurrentModel, isEmbeddingModelReady, primeEmbeddingDims, warmupEmbeddingProvider } from './lib/embedding-provider.mjs'
 import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs'
 import { runCycle1, runCycle2, runCycle3, runUnifiedGate, parseInterval, syncRootEmbedding, applySimpleStatus, applyUpdate, applyMerge, CYCLE2_ACTIVE_TARGET_CAP } from './lib/memory-cycle.mjs'
 import { getInFlightCycle1 } from './lib/memory-cycle1.mjs'
@@ -127,7 +127,28 @@ function parsePositivePid(value) {
   return Number.isFinite(pid) && pid > 0 ? pid : null
 }
 
-const MEMORY_SERVER_PID = parsePositivePid(process.env.MIXDOG_SERVER_PID)
+const MEMORY_SERVER_PID = parsePositivePid(process.env.MIXDOG_SERVER_PID) ?? process.pid
+const MEMORY_DAEMON_MODE = process.env.MIXDOG_MEMORY_DAEMON === '1'
+const MEMORY_IDLE_TTL_MS = Math.max(0, Number(process.env.MIXDOG_MEMORY_IDLE_TTL_MS) || 10 * 60_000)
+let _idleShutdownTimer = null
+
+function touchDaemonIdleTimer(reason = 'activity') {
+  if (!MEMORY_DAEMON_MODE || MEMORY_IDLE_TTL_MS <= 0) return
+  if (_idleShutdownTimer) {
+    try { clearTimeout(_idleShutdownTimer) } catch {}
+    _idleShutdownTimer = null
+  }
+  _idleShutdownTimer = setTimeout(() => {
+    __mixdogMemoryLog(`[memory-service] daemon idle TTL elapsed after ${reason}; shutting down\n`)
+    stop()
+      .then(() => process.exit(0))
+      .catch((e) => {
+        __mixdogMemoryLog(`[memory-service] daemon idle shutdown failed: ${e?.message || e}\n`)
+        process.exit(1)
+      })
+  }, MEMORY_IDLE_TTL_MS)
+  _idleShutdownTimer.unref?.()
+}
 
 function advertiseMemoryPort(boundPort, attempt = 0) {
   if (!Number.isFinite(boundPort) || boundPort <= 0) return
@@ -379,6 +400,7 @@ let _transcriptOffsets = new Map()
 // so it starts the instant boot's CPU-heavy work is done — no magic-number
 // delay. MIXDOG_EMBED_WARMUP=0 disables it (model loads lazily on first use).
 let _pendingEmbeddingWarmup = null
+let _embeddingColdRecallLogAt = 0
 
 const TRANSCRIPT_OFFSETS_KEY = 'state.transcript_offsets'
 const CYCLE_LAST_RUN_KEY = 'state.cycle_last_run'
@@ -388,8 +410,50 @@ function embeddingWarmupEnabled() {
   return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no')
 }
 
+function envFlagEnabled(name) {
+  const raw = String(process.env[name] ?? '').trim().toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'on' || raw === 'yes'
+}
+
+function memorySecondaryMode() {
+  return envFlagEnabled('MIXDOG_MEMORY_SECONDARY')
+}
+
+function embeddingWarmupCanStart() {
+  return embeddingWarmupEnabled() && !memorySecondaryMode()
+}
+
+function memoryLlmWorkerEnabled() {
+  return !memorySecondaryMode() && !envFlagEnabled('MIXDOG_MEMORY_DISABLE_LLM_WORKER')
+}
+
+function memoryCyclesEnabled() {
+  return !memorySecondaryMode() && !envFlagEnabled('MIXDOG_MEMORY_DISABLE_CYCLES')
+}
+
+function secondaryPgAdvertised() {
+  if (!memorySecondaryMode()) return true
+  const runtimeRoot = process.env.MIXDOG_RUNTIME_ROOT
+    ? path.resolve(process.env.MIXDOG_RUNTIME_ROOT)
+    : path.join(os.tmpdir(), 'mixdog')
+  try {
+    const cur = JSON.parse(fs.readFileSync(path.join(runtimeRoot, 'active-instance.json'), 'utf8'))
+    const port = Number(cur?.pg_port)
+    const pgdata = cur?.pg_pgdata ? path.resolve(String(cur.pg_pgdata)) : ''
+    return Number.isInteger(port) && port > 0 && pgdata === path.resolve(path.join(DATA_DIR, 'pgdata'))
+  } catch {
+    return false
+  }
+}
+
+function assertSecondaryPgAttachable() {
+  if (!secondaryPgAdvertised()) {
+    throw new Error('memory-service: secondary mode requires an existing primary PG instance')
+  }
+}
+
 function scheduleBackgroundEmbeddingWarmup(metaPath, metaKey) {
-  if (!embeddingWarmupEnabled()) return
+  if (!embeddingWarmupCanStart()) return
   // Queue the warmup; _initRuntime fires it once boot completes.
   _pendingEmbeddingWarmup = () => {
     warmupEmbeddingProvider()
@@ -403,7 +467,6 @@ function scheduleBackgroundEmbeddingWarmup(metaPath, metaKey) {
       })
       .catch(err => {
         __mixdogMemoryLog(`[memory-service] background warmup failed: ${err?.message || err}\n`)
-        process.exit(1)
       })
   }
 }
@@ -435,7 +498,7 @@ async function _initStore() {
   const metaKey = {
     provider: embeddingConfig?.provider ?? null,
     model: getEmbeddingModelId(),
-    dtype: embeddingConfig?.dtype ?? null,
+    dtype: getEmbeddingDtype(),
   }
   let dimsResolved = null
   try {
@@ -456,12 +519,17 @@ async function _initStore() {
 
   if (dimsResolved) {
     primeEmbeddingDims(dimsResolved)
+    assertSecondaryPgAttachable()
     db = await openDatabase(DATA_DIR, dimsResolved)
     scheduleBackgroundEmbeddingWarmup(EMBEDDING_META_PATH, metaKey)
   } else {
+    if (!embeddingWarmupCanStart()) {
+      throw new Error('memory-service: embedding dims unavailable while warmup is disabled')
+    }
     // Cold path: meta missed AND model not registered. Sequential.
     await warmupEmbeddingProvider()
     dimsResolved = Number(getEmbeddingDims())
+    assertSecondaryPgAttachable()
     db = await openDatabase(DATA_DIR, dimsResolved)
     try {
       writeJsonAtomicSync(EMBEDDING_META_PATH, { ...metaKey, dims: dimsResolved }, { lock: true })
@@ -473,7 +541,11 @@ async function _initStore() {
   if (!await isBootstrapComplete(db)) {
     throw new Error('memory-service: bootstrap not complete after openDatabase')
   }
-  startLlmWorker()
+  if (memoryLlmWorkerEnabled()) {
+    startLlmWorker()
+  } else {
+    __mixdogMemoryLog('[memory-service] secondary mode; skipping llm worker\n')
+  }
   _bootTimestamp = Date.now()
   await loadTranscriptOffsets()
 }
@@ -1383,8 +1455,12 @@ async function _initRuntime() {
   // increments, so deleted rows leave permanent gaps. Fast no-op when already
   // contiguous (or empty). Runs only here — never in cycle2/addCore/deleteCore.
   await compactCoreIds(DATA_DIR)
-  _transcriptWatcher = _initTranscriptWatcher()
-  _startCycles()
+  if (memoryCyclesEnabled()) {
+    _transcriptWatcher = _initTranscriptWatcher()
+    _startCycles()
+  } else {
+    __mixdogMemoryLog('[memory-service] secondary mode; skipping background cycles\n')
+  }
   _initialized = true
   // Boot complete — continue straight into the deferred embedding warmup.
   // Fire-and-forget on the embedding worker thread; never awaited so it does
@@ -1397,6 +1473,7 @@ function _beginRuntimeInit() {
   if (!_initPromise) {
     _initPromise = _initRuntime().catch((e) => {
       __mixdogMemoryLog(`[memory-service] runtime init failed: ${e?.stack || e?.message || e}\n`)
+      _initPromise = null
       throw e
     })
   }
@@ -1661,15 +1738,20 @@ async function handleSearch(args, signal) {
     })
     let settled
     try {
-      // Pre-warm the per-query embedding cache with one batched ONNX run so
-      // each sub-search lands an embedText cache hit (~0ms) instead of
-      // serially queueing through the worker's single-flight inference lock.
-      // Replaces N sequential ~130ms inferences with one ~150-200ms batch.
-      //
-      // Race against the same deadline as the fan-out itself: a stuck
-      // embedding worker would previously park here indefinitely because
-      // the timer hadn't been started yet from the fan-out's perspective.
-      await Promise.race([embedTexts(queries), deadlineRace])
+      // Pre-warm only when the embedding model is already resident. If the
+      // process is still cold, keep recall responsive and let the background
+      // warmup finish independently instead of making the first query pay the
+      // ONNX session-create cost.
+      if (isEmbeddingModelReady()) {
+        // Race against the same deadline as the fan-out itself: a stuck
+        // embedding worker would previously park here indefinitely because
+        // the timer hadn't been started yet from the fan-out's perspective.
+        await Promise.race([embedTexts(queries), deadlineRace])
+      } else if (embeddingWarmupCanStart()) {
+        void warmupEmbeddingProvider().catch((err) => {
+          __mixdogMemoryLog(`[memory-service] embedding warmup after cold fan-out skipped dense search: ${err?.message || err}\n`)
+        })
+      }
       settled = await Promise.race([
         Promise.all(queries.map(async (q) => {
           if (fanOutAbort.signal.aborted) throw fanOutAbort.signal.reason
@@ -1748,7 +1830,21 @@ async function handleSearch(args, signal) {
   if (query) {
     const _t0 = Date.now()
     if (signal?.aborted) throw signal.reason ?? new Error('aborted')
-    const queryVector = await embedText(query)
+    let queryVector = null
+    if (isEmbeddingModelReady()) {
+      queryVector = await embedText(query)
+    } else {
+      const now = Date.now()
+      if (now - _embeddingColdRecallLogAt > 10_000) {
+        _embeddingColdRecallLogAt = now
+        __mixdogMemoryLog('[recall] embedding model cold; returning lexical results while background warmup continues\n')
+      }
+      if (embeddingWarmupCanStart()) {
+        void warmupEmbeddingProvider().catch((err) => {
+          __mixdogMemoryLog(`[memory-service] embedding warmup after cold recall failed: ${err?.message || err}\n`)
+        })
+      }
+    }
     if (signal?.aborted) throw signal.reason ?? new Error('aborted')
     const _t1 = Date.now()
     if (process.env.MIXDOG_DEBUG_MEMORY) {
@@ -2919,6 +3015,7 @@ let _backfillInFlight = null
 const _ownerInFlightHttpCalls = new Map()
 
 const httpServer = http.createServer(async (req, res) => {
+  touchDaemonIdleTimer(`${req.method || 'HTTP'} ${req.url || '/'}`)
   if (req.method === 'POST' && req.url === '/session-reset') {
     _bootTimestamp = Date.now()
     sendJson(res, { ok: true, bootTimestamp: _bootTimestamp })
@@ -3595,14 +3692,20 @@ export async function init() {
     process.on('exit', releaseMemoryOwnerLock)
   }
   const runtimeReady = _beginRuntimeInit()
-  const boundPort = await _startHttpServer()
-  await runtimeReady
-  advertiseMemoryPort(boundPort)
+  let boundPort = null
+  if (!memorySecondaryMode()) {
+    boundPort = await _startHttpServer()
+    await runtimeReady
+    advertiseMemoryPort(boundPort)
+  } else {
+    await runtimeReady
+  }
   if (process.env.MIXDOG_WORKER_MODE === '1' && process.send) {
     __mixdogMemoryLog(`[boot-time] tag=memory-ready tMs=${Date.now()}\n`)
     process.send({ type: 'ready', port: boundPort })
   }
   __mixdogMemoryLog(`[memory-service] init() complete (entries unified mode, version=${PLUGIN_VERSION})\n`)
+  touchDaemonIdleTimer('init')
 }
 
 export async function stop() {
@@ -3616,6 +3719,10 @@ export async function stop() {
     _periodicAdvertiseInstalled = false
     _currentAdvertisedPort = null
     _pendingEmbeddingWarmup = null
+    if (_idleShutdownTimer) {
+      try { clearTimeout(_idleShutdownTimer) } catch {}
+      _idleShutdownTimer = null
+    }
     await stopLlmWorker()
     resetHttpListenErrorHandler()
     if (_httpBoundPort != null || _httpReadyPromise) {
@@ -3638,10 +3745,14 @@ export async function stop() {
     // Stop the PG postmaster after the connection pools have been drained.
     // closeDatabase() only ends the client pool; without this the child
     // postmaster keeps running after the memory service exits.
-    try {
-      const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs')
-      await stopPgForShutdown()
-    } catch {}
+    if (!memorySecondaryMode()) {
+      try {
+        const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs')
+        await stopPgForShutdown()
+      } catch {}
+    } else {
+      __mixdogMemoryLog('[memory-service] secondary mode; leaving shared PG running\n')
+    }
     db = null
     mainConfig = null
     _initialized = false

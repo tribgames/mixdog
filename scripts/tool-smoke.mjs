@@ -1,9 +1,15 @@
 #!/usr/bin/env node
-import { dirname, resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compactToolSearchDescription, defaultDeferredToolNames, TOOL_SEARCH_TOOL } from '../src/mixdog-session-runtime.mjs';
 import { buildExplorerPrompt, EXPLORE_TOOL, MAX_FANOUT_QUERIES, normalizeExploreQueries } from '../src/standalone/explore-tool.mjs';
 import { BRIDGE_TOOL, createStandaloneBridge, resolveBridgeExecutionMode } from '../src/standalone/bridge-tool.mjs';
+import { createStandaloneChannelWorker } from '../src/standalone/channel-worker.mjs';
+import { OpenAIOAuthProvider } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
+import { contentHasImage, sanitizeContentForStoredHistory } from '../src/runtime/agent/orchestrator/providers/media-normalization.mjs';
+import { initProviders } from '../src/runtime/agent/orchestrator/providers/registry.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { validateBuiltinArgs } from '../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
@@ -27,6 +33,61 @@ function assertOk(name, result, pattern = null) {
     throw new Error(`${name} returned unexpected output:\n${text.slice(0, 1000)}`);
   }
   return text;
+}
+
+{
+  const prevTraceDisable = process.env.MIXDOG_BRIDGE_TRACE_DISABLE;
+  process.env.MIXDOG_BRIDGE_TRACE_DISABLE = '1';
+  try {
+    const provider = new OpenAIOAuthProvider({});
+    provider.ensureAuth = async () => ({ access_token: 'fake-token' });
+    const calls = [];
+    const fakeWs = async () => {
+      calls.push('ws');
+      return { content: 'ws-ok' };
+    };
+    const fakeHttp = async () => {
+      calls.push('http');
+      return { content: 'http-ok' };
+    };
+    const imageTurnContent = [
+      { type: 'text', text: 'look' },
+      { type: 'image', data: 'abc', mimeType: 'image/png' },
+    ];
+    await provider.send(
+      [
+        { role: 'system', content: 'sys' },
+        { role: 'user', content: imageTurnContent },
+      ],
+      'gpt-5.5',
+      [],
+      { _sendViaWebSocketFn: fakeWs, _sendViaHttpSseFn: fakeHttp, sessionId: 'tool-smoke-image-fallback' },
+    );
+    if (provider._forceHttpFallback) {
+      throw new Error('image fallback must not poison future OpenAI OAuth sends');
+    }
+    const storedImageTurnContent = sanitizeContentForStoredHistory(imageTurnContent);
+    if (contentHasImage(storedImageTurnContent)) {
+      throw new Error(`stored image history must not retain provider-visible image parts: ${JSON.stringify(storedImageTurnContent)}`);
+    }
+    await provider.send(
+      [
+        { role: 'system', content: 'sys' },
+        { role: 'user', content: storedImageTurnContent },
+        { role: 'assistant', content: 'image received' },
+        { role: 'user', content: 'plain ping text, no image' },
+      ],
+      'gpt-5.5',
+      [],
+      { _sendViaWebSocketFn: fakeWs, _sendViaHttpSseFn: fakeHttp, sessionId: 'tool-smoke-plain-after-image' },
+    );
+    if (calls.join(',') !== 'http,ws') {
+      throw new Error(`image fallback should not force next text send over HTTP: ${calls.join(',')}`);
+    }
+  } finally {
+    if (prevTraceDisable == null) delete process.env.MIXDOG_BRIDGE_TRACE_DISABLE;
+    else process.env.MIXDOG_BRIDGE_TRACE_DISABLE = prevTraceDisable;
+  }
 }
 
 const listOut = await executeBuiltinTool('list', { path: 'scripts', head_limit: 20 }, root);
@@ -54,6 +115,13 @@ const explicitSrcGlobOut = await executeBuiltinTool('glob', {
   head_limit: 20,
 }, root);
 assertOk('glob explicit src', explicitSrcGlobOut, /src[\\/].*engine\.mjs/i);
+
+const findOut = await executeBuiltinTool('find', {
+  query: 'tool smoke',
+  path: '.',
+  head_limit: 10,
+}, root);
+assertOk('find', findOut, /scripts[\\/]tool-smoke\.mjs/i);
 
 const readOut = await executeBuiltinTool('read', {
   path: 'scripts/smoke.mjs',
@@ -218,21 +286,21 @@ const modelDefaultAsync = resolveBridgeExecutionMode(
   { invocationSource: 'model-tool' },
   'sync',
 );
-if (modelDefaultAsync !== 'async') throw new Error(`bridge model-tool default mode should be async, got ${modelDefaultAsync}`);
+if (modelDefaultAsync !== 'async') throw new Error(`agent model-tool default mode should be async, got ${modelDefaultAsync}`);
 
 const explicitSync = resolveBridgeExecutionMode(
   { wait: true, mode: 'sync', async: false },
   { invocationSource: 'model-tool' },
   'sync',
 );
-if (explicitSync !== 'sync') throw new Error(`bridge explicit sync mode should be honored, got ${explicitSync}`);
+if (explicitSync !== 'sync') throw new Error(`agent explicit sync mode should be honored, got ${explicitSync}`);
 
 const userSync = resolveBridgeExecutionMode(
   { wait: true },
   { invocationSource: 'user-command' },
   'async',
 );
-if (userSync !== 'sync') throw new Error(`bridge user-command wait mode should be sync, got ${userSync}`);
+if (userSync !== 'sync') throw new Error(`agent user-command wait mode should be sync, got ${userSync}`);
 
 for (const command of [
   'git status --short',
@@ -240,7 +308,7 @@ for (const command of [
   'Write-Output "git push"',
 ]) {
   const blocked = classifyBridgeWorkerGitMutationCommand(command);
-  if (blocked) throw new Error(`bridge git guard should allow readonly/non-command form ${JSON.stringify(command)}; got ${blocked}`);
+  if (blocked) throw new Error(`agent git guard should allow readonly/non-command form ${JSON.stringify(command)}; got ${blocked}`);
 }
 for (const [command, expected] of [
   ['git push', 'git push'],
@@ -251,7 +319,7 @@ for (const [command, expected] of [
   ['powershell -Command "git stash"', 'git stash'],
 ]) {
   const blocked = classifyBridgeWorkerGitMutationCommand(command);
-  if (blocked !== expected) throw new Error(`bridge git guard mismatch for ${JSON.stringify(command)}: got ${blocked}, expected ${expected}`);
+  if (blocked !== expected) throw new Error(`agent git guard mismatch for ${JSON.stringify(command)}: got ${blocked}, expected ${expected}`);
 }
 
 function assertHas(set, name) {
@@ -275,21 +343,21 @@ const smokeCatalog = [
 ].filter(Boolean);
 
 const fullDefaults = defaultDeferredToolNames(smokeCatalog, 'full');
-if (fullDefaults.size !== 13) {
-  throw new Error(`full default surface should stay 13 tools, got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`);
+if (fullDefaults.size !== 9) {
+  throw new Error(`full default surface should stay 9 tools, got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'glob', 'list', 'apply_patch', 'explore', 'bridge', 'shell', 'recall', 'search', 'web_fetch', 'tool_search']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'apply_patch', 'explore', 'tool_search']) {
   assertHas(fullDefaults, name);
 }
-for (const name of ['task']) {
+for (const name of ['shell', 'task', 'agent', 'recall', 'search', 'web_fetch', 'cwd']) {
   assertLacks(fullDefaults, name);
 }
 
 const leadDefaults = defaultDeferredToolNames(smokeCatalog, 'lead');
-if (leadDefaults.size !== 14) {
-  throw new Error(`lead default surface should stay 14 tools, got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
+if (leadDefaults.size !== 15) {
+  throw new Error(`lead default surface should stay 15 tools, got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'glob', 'list', 'shell', 'task', 'apply_patch', 'explore', 'bridge', 'recall', 'search', 'web_fetch', 'tool_search']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'shell', 'task', 'apply_patch', 'explore', 'agent', 'recall', 'search', 'web_fetch', 'tool_search']) {
   assertHas(leadDefaults, name);
 }
 function toolSchemaSize(tool) {
@@ -308,7 +376,7 @@ if (surfaceSize > 17000) {
 for (const [name, cap] of [
   ['apply_patch', 1300],
   ['code_graph', 1550],
-  ['bridge', 2500],
+  ['agent', 2500],
   ['recall', 2400],
   ['search', 3200],
   ['web_fetch', 900],
@@ -320,25 +388,25 @@ for (const [name, cap] of [
 }
 
 const readonlyDefaults = defaultDeferredToolNames(smokeCatalog, 'readonly');
-if (readonlyDefaults.size !== 7) {
-  throw new Error(`readonly default surface should stay 7 tools, got ${readonlyDefaults.size}: ${[...readonlyDefaults].join(', ')}`);
+if (readonlyDefaults.size !== 8) {
+  throw new Error(`readonly default surface should stay 8 tools, got ${readonlyDefaults.size}: ${[...readonlyDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'glob', 'list', 'explore', 'tool_search']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'explore', 'tool_search']) {
   assertHas(readonlyDefaults, name);
 }
-for (const name of ['apply_patch', 'bridge', 'shell']) {
+for (const name of ['apply_patch', 'agent', 'shell']) {
   assertLacks(readonlyDefaults, name);
 }
 
 const bridgeProps = BRIDGE_TOOL.inputSchema?.properties || {};
-if (!bridgeProps.mode || bridgeProps.wait) throw new Error('bridge schema should expose mode but not legacy wait');
+if (!bridgeProps.mode || bridgeProps.wait) throw new Error('agent schema should expose mode but not legacy wait');
 if (!/(?:Prefer async by default|Always use mode:"async")/i.test(BRIDGE_TOOL.description || '') || !/distinct tags/i.test(BRIDGE_TOOL.description || '') || !/completion notification/i.test(BRIDGE_TOOL.description || '') || !/do not (?:call|poll) status\/read/i.test(BRIDGE_TOOL.description || '')) {
-  throw new Error('bridge description must preserve async tagged delegation contract');
+  throw new Error('agent description must preserve async tagged delegation contract');
 }
 const bridgeSmoke = createStandaloneBridge({
   cfgMod: {
     loadConfig: () => ({ providers: {}, presets: [] }),
-    resolveRuntimeSpec: () => { throw new Error('bridge smoke should not resolve runtime for read/list errors'); },
+    resolveRuntimeSpec: () => { throw new Error('agent smoke should not resolve runtime for read/list errors'); },
   },
   reg: { initProviders: async () => {} },
   mgr: {
@@ -350,13 +418,143 @@ const bridgeSmoke = createStandaloneBridge({
   cwd: root,
   defaultMode: 'async',
 });
-const bridgeMissingJob = await bridgeSmoke.execute({ type: 'read', task_id: 'job_missing_smoke' }, { invocationSource: 'model-tool', cwd: root });
-if (!/^Error[\s:[]/.test(String(bridgeMissingJob)) || !/job_missing_smoke/.test(String(bridgeMissingJob))) {
-  throw new Error(`bridge missing job must return Error result:\n${bridgeMissingJob}`);
+const bridgeMissingJob = await bridgeSmoke.execute({ type: 'read', task_id: 'task_missing_smoke' }, { invocationSource: 'model-tool', cwd: root });
+if (!/^Error[\s:[]/.test(String(bridgeMissingJob)) || !/task_missing_smoke/.test(String(bridgeMissingJob))) {
+  throw new Error(`agent missing task must return Error result:\n${bridgeMissingJob}`);
 }
 const bridgeBadType = await bridgeSmoke.execute({ type: 'definitely_bad_type' }, { invocationSource: 'model-tool', cwd: root });
 if (!/^Error[\s:[]/.test(String(bridgeBadType)) || !/unknown type/i.test(String(bridgeBadType))) {
-  throw new Error(`bridge unknown type must return Error result:\n${bridgeBadType}`);
+  throw new Error(`agent unknown type must return Error result:\n${bridgeBadType}`);
+}
+
+async function waitForSmoke(predicate, label, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+  }
+  throw new Error(`timed out waiting for ${label}`);
+}
+
+const channelWorkerTmp = mkdtempSync(join(tmpdir(), 'mixdog-channel-worker-env-'));
+let channelEnvWorker = null;
+const prevChannelDaemon = process.env.MIXDOG_CHANNEL_DAEMON;
+const prevChannelSingleton = process.env.MIXDOG_CHANNEL_SINGLETON;
+const prevChannelWorkerProcess = process.env.MIXDOG_CHANNEL_WORKER_PROCESS;
+const prevRuntimeRoot = process.env.MIXDOG_RUNTIME_ROOT;
+const prevEnvOut = process.env.SMOKE_CHANNEL_ENV_OUT;
+try {
+  const entry = join(channelWorkerTmp, 'entry.mjs');
+  const dataDir = join(channelWorkerTmp, 'data');
+  const runtimeDir = join(channelWorkerTmp, 'runtime');
+  const envOut = join(channelWorkerTmp, 'env.json');
+  mkdirSync(dataDir, { recursive: true });
+  mkdirSync(runtimeDir, { recursive: true });
+  writeFileSync(entry, `
+import { writeFileSync } from 'node:fs';
+writeFileSync(process.env.SMOKE_CHANNEL_ENV_OUT, JSON.stringify({
+  cliOwned: process.env.MIXDOG_CLI_OWNED,
+  daemon: process.env.MIXDOG_CHANNEL_DAEMON,
+}));
+process.send?.({ type: 'ready' });
+process.on('message', (msg) => {
+  if (msg?.type === 'shutdown') process.exit(0);
+});
+setInterval(() => {}, 10000);
+`);
+  process.env.MIXDOG_CHANNEL_DAEMON = '1';
+  process.env.MIXDOG_CHANNEL_SINGLETON = '1';
+  process.env.MIXDOG_CHANNEL_WORKER_PROCESS = '1';
+  process.env.MIXDOG_RUNTIME_ROOT = runtimeDir;
+  process.env.SMOKE_CHANNEL_ENV_OUT = envOut;
+  channelEnvWorker = createStandaloneChannelWorker({
+    entry,
+    rootDir: root,
+    dataDir,
+    cwd: root,
+  });
+  await channelEnvWorker.start();
+  const childEnv = JSON.parse(readFileSync(envOut, 'utf8'));
+  if (childEnv.daemon !== '1') {
+    throw new Error(`channel daemon smoke expected daemon=1, got ${childEnv.daemon}`);
+  }
+  if (childEnv.cliOwned !== '0') {
+    throw new Error(`channel daemon must advertise owner HTTP (MIXDOG_CLI_OWNED=0), got ${childEnv.cliOwned}`);
+  }
+} finally {
+  try { await channelEnvWorker?.stop?.('channel-worker-env-smoke', { force: true }); } catch {}
+  if (prevChannelDaemon == null) delete process.env.MIXDOG_CHANNEL_DAEMON;
+  else process.env.MIXDOG_CHANNEL_DAEMON = prevChannelDaemon;
+  if (prevChannelSingleton == null) delete process.env.MIXDOG_CHANNEL_SINGLETON;
+  else process.env.MIXDOG_CHANNEL_SINGLETON = prevChannelSingleton;
+  if (prevChannelWorkerProcess == null) delete process.env.MIXDOG_CHANNEL_WORKER_PROCESS;
+  else process.env.MIXDOG_CHANNEL_WORKER_PROCESS = prevChannelWorkerProcess;
+  if (prevRuntimeRoot == null) delete process.env.MIXDOG_RUNTIME_ROOT;
+  else process.env.MIXDOG_RUNTIME_ROOT = prevRuntimeRoot;
+  if (prevEnvOut == null) delete process.env.SMOKE_CHANNEL_ENV_OUT;
+  else process.env.SMOKE_CHANNEL_ENV_OUT = prevEnvOut;
+  rmSync(channelWorkerTmp, { recursive: true, force: true });
+}
+
+const bridgeNotifyTmp = mkdtempSync(join(tmpdir(), 'mixdog-bridge-notify-'));
+try {
+  const ownerNotifications = [];
+  const workerQueued = [];
+  const bridgeNotifySmoke = createStandaloneBridge({
+    cfgMod: {
+      loadConfig: () => ({
+        providers: { 'openai-oauth': { enabled: true } },
+        presets: [{ id: 'sonnet-high', name: 'sonnet-high', provider: 'openai-oauth', model: 'smoke-model', type: 'agent', tools: 'full' }],
+      }),
+      resolveRuntimeSpec: () => ({ scopeKey: 'smoke-notify', lane: 'bridge' }),
+    },
+    reg: { initProviders },
+    mgr: {
+      askSession: async (sessionId, _prompt, _context, _onToolCall, _cwdOverride, _prefetch, askOpts = {}) => {
+        const nestedText = `background task\ntask_id: task_shell_notify_smoke\nsurface: shell\noperation: shell\nstatus: completed\nstarted: 2026-01-01T00:00:00.000Z\nfinished: 2026-01-01T00:00:01.000Z\n\nnested background done for ${sessionId}`;
+        askOpts.notifyFn?.(nestedText, {
+          type: 'shell_task_result',
+          execution_surface: 'shell',
+          execution_id: 'task_shell_notify_smoke',
+          status: 'completed',
+        });
+        return { content: 'worker completed' };
+      },
+      enqueuePendingMessage: (sessionId, message) => {
+        workerQueued.push({ sessionId, message });
+        return 1;
+      },
+      getSession: () => null,
+      listSessions: () => [],
+      closeSession: () => false,
+      hideSessionFromList: () => false,
+    },
+    dataDir: bridgeNotifyTmp,
+    cwd: root,
+    defaultMode: 'async',
+  });
+  const notifyContext = {
+    invocationSource: 'model-tool',
+    callerCwd: root,
+    callerSessionId: 'sess_owner_notify_smoke',
+    clientHostPid: 424242,
+    notifyFn: (text, meta) => {
+      ownerNotifications.push({ text, meta });
+      return true;
+    },
+  };
+  const notifyStart = await bridgeNotifySmoke.execute({ type: 'spawn', mode: 'async', agent: 'worker', tag: 'notify-smoke', prompt: 'notify smoke' }, notifyContext);
+  if (!/agent task:/i.test(String(notifyStart)) || !/status: running/i.test(String(notifyStart))) {
+    throw new Error(`agent async notify smoke did not start task:\n${notifyStart}`);
+  }
+  await waitForSmoke(
+    () => ownerNotifications.some((event) => /task_shell_notify_smoke/.test(event.text))
+      && workerQueued.some((event) => /task_shell_notify_smoke/.test(event.message)),
+    'agent child background completion routing',
+  );
+  await bridgeNotifySmoke.execute({ type: 'cleanup', force: true }, notifyContext);
+} finally {
+  rmSync(bridgeNotifyTmp, { recursive: true, force: true });
 }
 if (EXPLORE_TOOL.annotations?.readOnlyHint !== true || EXPLORE_TOOL.annotations?.destructiveHint === true) {
   throw new Error('explore must stay read-only so readonly surfaces can use it');
@@ -368,13 +566,13 @@ if (!/(?:Broad-scope locator only|First-choice tool for broad or unclear repo\/c
 if (!/Never pass a whole brief/i.test(exploreProps.query?.description || '') || !/relevant repo or subtree/i.test(exploreProps.cwd?.description || '')) {
   throw new Error('explore schema must preserve query narrowness and cwd narrowing guidance');
 }
-const normalizedExplore = normalizeExploreQueries('["where is model selection?","  ","which file owns bridge async?"]');
+const normalizedExplore = normalizeExploreQueries('["where is model selection?","  ","which file owns agent async?"]');
 if (normalizedExplore.length !== 2 || normalizedExplore[0] !== 'where is model selection?') {
   throw new Error(`explore query normalization failed: ${JSON.stringify(normalizedExplore)}`);
 }
 if (MAX_FANOUT_QUERIES !== 8) throw new Error(`explore fanout cap changed: ${MAX_FANOUT_QUERIES}`);
-const explorerPrompt = buildExplorerPrompt('where is <bridge> & status?');
-if (!explorerPrompt.includes('&lt;bridge&gt;') || !explorerPrompt.includes('&amp;') || /verdicts, ratings, or recommendations/.test(explorerPrompt) === false) {
+const explorerPrompt = buildExplorerPrompt('where is <agent> & status?');
+if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;') || /verdicts, ratings, or recommendations/.test(explorerPrompt) === false) {
   throw new Error(`explorer prompt contract failed: ${explorerPrompt}`);
 }
 const patchDescription = PATCH_TOOL_DEFS[0]?.inputSchema?.properties?.patch?.description || '';
@@ -386,13 +584,13 @@ if (!/file path only/i.test(readPathDescription)) {
   throw new Error('read schema must keep directory-vs-file guidance');
 }
 const readDescription = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.description || '';
-if (!/specific file window or symbol body/i.test(readDescription) || !/after narrowing/i.test(readDescription)) {
+if (!/known file path\(s\)/i.test(readDescription) || !/line\+context/i.test(readDescription)) {
   throw new Error('read description must stay narrow-target oriented');
 }
 const codeGraphDescription = CODE_GRAPH_TOOL_DEFS[0]?.description || '';
 const codeGraphProps = CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties || {};
-if (!/Top-level entry for code-related questions/i.test(codeGraphDescription) || !/Use before read/i.test(codeGraphDescription)) {
-  throw new Error('code_graph description must stay top-level for code questions');
+if (!/known files\/symbols/i.test(codeGraphDescription) || !/Use find\/glob for file discovery/i.test(codeGraphDescription)) {
+  throw new Error('code_graph description must stay structure-oriented and defer file discovery to find/glob');
 }
 if (!/Operation:/i.test(codeGraphProps.mode?.description || '') || !/Directory scope is only for references\/callers/i.test(codeGraphProps.file?.description || '')) {
   throw new Error('code_graph schema must explain mode and file scoping');
@@ -412,8 +610,8 @@ if (!/explicit mutation/i.test(memoryTool?.description || '') || !/Destructive j
 }
 const searchTool = SEARCH_TOOL_DEFS.find((tool) => tool.name === 'search');
 const searchProps = searchTool?.inputSchema?.properties || {};
-if (!/(?:Prefer mode=async|Always use mode:"async")/i.test(searchTool?.description || '') || !searchProps.query?.anyOf || !/array for fan-out/i.test(searchProps.query?.description || '')) {
-  throw new Error('search schema must preserve async guidance and string/array query shape');
+if (!/Runs synchronously/i.test(searchTool?.description || '') || searchProps.mode || searchProps.action || searchProps.task_id || !searchProps.query?.anyOf || !/array for fan-out/i.test(searchProps.query?.description || '')) {
+  throw new Error('search schema must preserve sync execution guidance and string/array query shape');
 }
 if (!/Default web/i.test(searchProps.type?.description || '') || !/locale hint/i.test(searchProps.locale?.description || '') || !/Default low/i.test(searchProps.contextSize?.description || '')) {
   throw new Error('search schema must describe type, locale, and contextSize defaults');

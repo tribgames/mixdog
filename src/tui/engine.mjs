@@ -8,11 +8,13 @@
 import { performance } from 'node:perf_hooks';
 import { SPINNER_VERBS } from './spinner-verbs.mjs';
 import {
+  aggregateToolCategoryEntry,
   classifyToolCategory,
   formatAggregateDetail,
   summarizeToolResult,
 } from '../runtime/shared/tool-surface.mjs';
 import { presentErrorText } from '../runtime/shared/err-text.mjs';
+import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
 const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
@@ -114,12 +116,57 @@ function formatTokenCount(value) {
   return `${Math.round(n)}`;
 }
 
+function compactEventLabel(event = {}) {
+  const status = String(event.status || '').toLowerCase();
+  if (status === 'failed') return 'Compact failed';
+  if (status === 'skipped') return 'Compact skipped';
+  if (status === 'no_change') return 'Compact checked';
+  return 'Compact complete';
+}
+
+function compactKindLabel(event = {}) {
+  const type = String(event.compactType || event.type || '').trim();
+  if (type) return type;
+  if (event.recallFastTrack) return 'recall-fasttrack';
+  if (event.semantic) return 'semantic';
+  return 'compact';
+}
+
+function compactEventDetail(event = {}) {
+  const beforeTokens = Number(event.beforeTokens ?? event.messageTokensEst ?? 0);
+  const afterTokens = Number(event.afterTokens ?? 0);
+  const beforeMessages = Number(event.beforeMessages ?? event.beforeCount ?? 0);
+  const afterMessages = Number(event.afterMessages ?? event.afterCount ?? 0);
+  const stage = String(event.stage || '').replace(/_/g, '-');
+  const trigger = String(event.trigger || '').replace(/_/g, '-');
+  const tokenPart = beforeTokens || afterTokens
+    ? `${formatTokenCount(beforeTokens)}→${formatTokenCount(afterTokens)} tokens`
+    : '';
+  const messagePart = beforeMessages || afterMessages
+    ? `${beforeMessages || 0}→${afterMessages || 0} messages`
+    : '';
+  return [
+    compactKindLabel(event),
+    stage,
+    trigger,
+    tokenPart,
+    messagePart,
+    event.triggerTokens ? `trigger ${formatTokenCount(event.triggerTokens)}` : '',
+    event.boundaryTokens ? `boundary ${formatTokenCount(event.boundaryTokens)}` : '',
+    event.targetBudgetTokens ? `target ${formatTokenCount(event.targetBudgetTokens)}` : '',
+    event.reserveTokens ? `reserve ${formatTokenCount(event.reserveTokens)}` : '',
+    event.pruneCount ? `pruned ${event.pruneCount}` : '',
+    event.error ? presentErrorText(event.error, { surface: 'compact', max: 160 }) : '',
+  ].filter(Boolean).join(' · ') || 'compact event';
+}
+
 const FAILED_NOTICE_ACTIONS = new Map([
   ['api key save', 'save API key'],
   ['auth-forget', 'forget auth'],
   ['auto-clear', 'update auto-clear'],
   ['autoclear', 'update auto-clear'],
-  ['bridge', 'run bridge command'],
+  ['bridge', 'run agent command'],
+  ['agent', 'run agent command'],
   ['channels', 'load channels'],
   ['channels update', 'update channels'],
   ['clear', 'clear chat'],
@@ -284,7 +331,7 @@ function stripSyntheticAgentTags(text) {
   const taskResult = textBetweenTag(value, 'result');
   if (taskResult) return taskResult;
   return value
-    .replace(/^bridge result[^\n]*(?:\n|$)/i, '')
+    .replace(/^agent result[^\n]*(?:\n|$)/i, '')
     .replace(/<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>/gi, '')
     .trim();
 }
@@ -334,7 +381,7 @@ function parseBackgroundTaskEnvelope(text) {
     if (match) fields[match[1].toLowerCase()] = match[2].trim();
   }
   const surface = String(fields.surface || fields.operation || 'task').toLowerCase();
-  const name = surface === 'explore' || surface === 'search' || surface === 'shell' ? surface : 'task';
+  const name = surface === 'explore' || surface === 'search' || surface === 'shell' || surface === 'agent' ? surface : 'task';
   const status = String(fields.status || '').toLowerCase();
   const taskId = fields.task_id || fields.taskid || '';
   return {
@@ -360,13 +407,27 @@ function bracketField(text, name) {
   return re.exec(String(text ?? ''))?.[1]?.trim() || '';
 }
 
+function toolResultStatus(text) {
+  const value = String(text ?? '');
+  const tagged = textBetweenTag(value, 'status');
+  if (tagged) return tagged.trim();
+  const bracketed = bracketField(value, 'status');
+  if (bracketed) return bracketed.trim();
+  const inline = /^(?:status|state):\s*([^\s·,;]+)/mi.exec(value);
+  return inline ? inline[1].trim() : '';
+}
+
+function isErrorToolStatus(status) {
+  return /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(String(status || '').trim());
+}
+
 function parseSyntheticAgentMessage(text) {
   const value = String(text ?? '').trim();
   if (!value) return null;
   const finalAnswer = textBetweenTag(value, 'final-answer');
   if (finalAnswer) {
     return {
-      name: 'bridge',
+      name: 'agent',
       label: 'final',
       args: { type: 'read', description: 'agent result' },
       result: finalAnswer,
@@ -392,7 +453,7 @@ function parseSyntheticAgentMessage(text) {
     const label = bridgeJob.status || 'notification';
     const result = bridgeJobResultText(value, bridgeJob);
     return {
-      name: 'bridge',
+      name: 'agent',
       label,
       args: bridgeArgsWithResultMetadata({ type: bridgeJob.type || 'notification', description: 'agent notification' }, bridgeJob),
       result: result || bridgeJobStatusText(bridgeJob) || 'agent notification',
@@ -405,7 +466,7 @@ function parseSyntheticAgentMessage(text) {
     const taskId = textBetweenTag(value, 'task-id');
     const result = stripSyntheticAgentTags(value);
     return {
-      name: 'bridge',
+      name: 'agent',
       label: status,
       taskId,
       summary,
@@ -440,7 +501,7 @@ const yieldToRenderer = () => new Promise((resolve) => setImmediate(resolve));
 
 function parseBridgeJob(text) {
   const value = String(text || '');
-  const idMatch = /^bridge task:\s*([^\s]+)/m.exec(value) || /^task_id:\s*([^\s]+)/m.exec(value);
+  const idMatch = /^agent task:\s*([^\s]+)/m.exec(value) || /^task_id:\s*([^\s]+)/m.exec(value);
   if (!idMatch) return null;
   const statusMatch = /^status:\s*([^\s(]+)/m.exec(value);
   const typeMatch = /^type:\s*(.+)$/m.exec(value);
@@ -478,6 +539,13 @@ function isQueuedEntryEditable(entry) {
   return (entry?.mode || 'prompt') !== 'task-notification';
 }
 
+function isQueuedEntryVisible(entry) {
+  // state.queued drives the user-command wait list above the prompt. Background
+  // task completions stay in the internal pending queue, but should never look
+  // like commands typed by the user while they wait to be drained.
+  return isQueuedEntryEditable(entry);
+}
+
 function firstQueueLine(text) {
   return String(text || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
 }
@@ -500,6 +568,41 @@ function promptContentText(content) {
     }).filter(Boolean).join('\n');
   }
   return String(content ?? '');
+}
+
+function timestampMs(value) {
+  if (value == null || value === '') return 0;
+  const n = Number(value);
+  if (Number.isFinite(n) && n > 0) return n;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function hasModelVisibleConversation(session) {
+  const messages = Array.isArray(session?.messages) ? session.messages : [];
+  return messages.some((message) => {
+    const role = message?.role;
+    if (role !== 'user' && role !== 'assistant' && role !== 'tool') return false;
+    const text = promptContentText(message.content).trim();
+    if (role === 'user' && text.startsWith('<system-reminder>')) return false;
+    if (role === 'assistant' && text === '.' && !Array.isArray(message.toolCalls)) return false;
+    return !!text || role === 'assistant' || role === 'tool';
+  });
+}
+
+function sessionActivityTimestamp(session, fallback = 0) {
+  if (!hasModelVisibleConversation(session)) return 0;
+  return timestampMs(session?.lastUsedAt)
+    || timestampMs(session?.updatedAt)
+    || timestampMs(fallback);
+}
+
+function hasCompactSummary(session) {
+  return (Array.isArray(session?.messages) ? session.messages : []).some((message) => (
+    message?.role === 'user'
+    && typeof message.content === 'string'
+    && message.content.startsWith(SUMMARY_PREFIX)
+  ));
 }
 
 function promptDisplayText(content, options = {}) {
@@ -552,6 +655,13 @@ function notificationQueueKey(event, text, parsed) {
   const status = String(meta.status || parsed?.status || '').trim();
   const fallbackKind = String(text || '').split('\n', 1)[0]?.trim() || 'notification';
   return [id, type || fallbackKind, status].filter(Boolean).join(':');
+}
+
+function isExecutionNotification(event, text, parsed) {
+  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  if (meta.execution_id || meta.execution_surface) return true;
+  if (parseBackgroundTaskEnvelope(text)) return true;
+  return Boolean(parsed?.taskId && /^(?:agent task:|task_id:)/mi.test(String(text || '')));
 }
 
 function bridgeArgsWithResultMetadata(args, parsed) {
@@ -626,6 +736,7 @@ export async function createEngineSession({
     effectiveContextWindowPercent: runtime.effectiveContextWindowPercent,
     cwd: runtime.cwd || process.cwd(),
     systemShell: runtime.systemShell || { source: 'auto', command: '', effective: '' },
+    searchRoute: runtime.getSearchRoute?.() || runtime.searchRoute || null,
     autoClear: autoClearState(),
     workflow: runtime.workflow || null,
   });
@@ -659,19 +770,13 @@ export async function createEngineSession({
   const syncContextStats = ({ allowEstimated = false } = {}) => {
     const ctx = runtime.contextStatus?.() || null;
     const hasProviderUsage = Number(state.stats.latestPromptTokens || state.stats.latestInputTokens || state.stats.inputTokens || 0) > 0;
-    const lastApiRequestStale = ctx?.lastApiRequestStale === true;
-    const lastApiTokens = Number(lastApiRequestStale ? 0 : (ctx?.lastApiRequestTokens || ctx?.usage?.lastContextTokens || 0));
     const estimatedTokens = Number(ctx?.currentEstimatedTokens || 0);
-    const postCompactEstimatedTokens = Number(ctx?.usedTokens || estimatedTokens || 0);
-    const usePostCompactEstimate = lastApiRequestStale && postCompactEstimatedTokens > 0;
-    const used = lastApiTokens || (usePostCompactEstimate ? postCompactEstimatedTokens : 0);
+    const used = Number(ctx?.usedTokens || 0);
     if (!allowEstimated && !hasProviderUsage && ctx?.usedSource !== 'last_api_request') return ctx;
     if (Number.isFinite(used) && used > 0) state.stats.currentContextTokens = Math.max(0, used);
     else state.stats.currentContextTokens = 0;
     state.stats.currentEstimatedContextTokens = Number.isFinite(estimatedTokens) ? Math.max(0, estimatedTokens) : 0;
-    state.stats.currentContextSource = lastApiTokens > 0
-      ? 'last_api_request'
-      : (usePostCompactEstimate ? 'post_compact_estimate' : (estimatedTokens > 0 ? 'estimated' : null));
+    state.stats.currentContextSource = ctx?.usedSource || (estimatedTokens > 0 ? 'estimated' : null);
     state.stats.currentContextUpdatedAt = Date.now();
     return ctx;
   };
@@ -679,7 +784,24 @@ export async function createEngineSession({
   syncContextStats({ allowEstimated: true });
   bootProfile('engine:context-ready', { ms: (performance.now() - contextStartedAt).toFixed(1) });
   const listeners = new Set();
-  const emit = () => { for (const l of listeners) l(); };
+  // Coalesce store notifications: a single onToolCall batch / finalize path
+  // fires many set() calls in one synchronous block (aggregate header sync,
+  // spinner, item pushes). Notifying React on every set() painted the
+  // intermediate layouts ("툭툭" header/count jitter). Collapsing the
+  // notifications into one microtask means listeners see only the final state
+  // of the current tick — "draw twice, keep the last one". getState() stays
+  // synchronous and always returns the latest snapshot, so useSyncExternalStore
+  // never tears.
+  let emitScheduled = false;
+  const flushEmit = () => {
+    emitScheduled = false;
+    for (const l of listeners) l();
+  };
+  const emit = () => {
+    if (emitScheduled) return;
+    emitScheduled = true;
+    queueMicrotask(flushEmit);
+  };
   const set = (patch) => {
     if (!patch || typeof patch !== 'object') return false;
     let changed = false;
@@ -711,38 +833,52 @@ export async function createEngineSession({
     if (item?.id != null) itemIndexById.set(item.id, index);
     set({ items });
   };
-  const removeItemsByIds = (ids) => {
-    const idSet = new Set((ids || []).filter((id) => id != null));
-    if (idSet.size === 0) return false;
-    const items = state.items.filter((item) => !idSet.has(item?.id));
-    if (items.length === state.items.length) return false;
-    set({ items: replaceItems(items) });
-    return true;
-  };
-  const pushUserOrSyntheticItem = (text, id = nextId()) => {
+  const upsertSyntheticToolItem = (text, id = nextId(), parsed = null) => {
     const synthetic = parseSyntheticAgentMessage(text);
-    if (!synthetic) {
-      pushItem({ kind: 'user', id, text });
-      return;
-    }
+    if (!synthetic) return false;
     const label = synthetic.label || 'notification';
+    const args = synthetic.args || {
+      type: label,
+      task_id: synthetic.taskId || parsed?.taskId || undefined,
+      description: synthetic.summary || 'agent notification',
+    };
+    const taskId = args.task_id || synthetic.taskId || parsed?.taskId || '';
+    const isError = synthetic.isError ?? /^(failed|error|timeout|killed|cancelled)$/i.test(label);
+    const existing = taskId ? [...state.items].reverse().find((item) => {
+      if (!item || item.kind !== 'tool') return false;
+      return parseToolArgs(item.args).task_id === taskId;
+    }) : null;
+    if (existing) {
+      patchItem(existing.id, {
+        name: synthetic.name || existing.name || 'task',
+        args,
+        result: synthetic.result,
+        text: synthetic.result,
+        isError,
+        errorCount: isError ? 1 : 0,
+        completedCount: 1,
+        completedAt: Date.now(),
+      });
+      return true;
+    }
     pushItem({
       kind: 'tool',
       id,
-      name: synthetic.name || 'bridge',
-      args: synthetic.args || {
-        type: label,
-        task_id: synthetic.taskId || undefined,
-        description: synthetic.summary || 'agent notification',
-      },
+      name: synthetic.name || 'agent',
+      args,
       result: synthetic.result,
-      isError: synthetic.isError ?? /^(failed|error|killed|cancelled)$/i.test(label),
+      isError,
       expanded: false,
       count: 1,
       completedCount: 1,
       startedAt: Date.now(),
       completedAt: Date.now(),
     });
+    return true;
+  };
+  const pushUserOrSyntheticItem = (text, id = nextId()) => {
+    if (upsertSyntheticToolItem(text, id)) return;
+    pushItem({ kind: 'user', id, text });
   };
   const pushToast = (text, tone = 'info', ttlMs = 3000) => {
     const id = nextId();
@@ -790,6 +926,16 @@ export async function createEngineSession({
   };
   const toastTimers = new Set();
   let disposed = false;
+  const runtimePulseTimer = setInterval(() => {
+    if (disposed) return;
+    syncContextStats({ allowEstimated: true });
+    set({
+      ...routeState(),
+      stats: { ...state.stats },
+      ...bridgeStatusState(),
+    });
+  }, 2000);
+  runtimePulseTimer.unref?.();
 
   function clearToastTimers() {
     for (const timer of toastTimers) {
@@ -802,12 +948,13 @@ export async function createEngineSession({
   let lastUserActivityAt = Date.now();
   let autoClearRunning = false;
   const pendingNotificationKeys = new Set();
+  const displayedExecutionNotificationKeys = new Set();
 
   function updateBridgeJobCard(itemId, text, isError = false) {
     const parsed = parseBridgeJob(text);
     const current = state.items.find((it) => it.id === itemId);
     const rawDisplayText = bridgeJobResultText(text, parsed) || String(text ?? '').trim();
-    const displayText = isError ? toolErrorDisplay(rawDisplayText, 'bridge') : rawDisplayText;
+    const displayText = isError ? toolErrorDisplay(rawDisplayText, 'agent') : rawDisplayText;
     patchItem(itemId, {
       result: displayText,
       text: displayText,
@@ -817,6 +964,12 @@ export async function createEngineSession({
     });
   }
 
+  function upsertExecutionNotificationCard(text, parsed = null) {
+    if (!upsertSyntheticToolItem(text, nextId(), parsed)) {
+      pushNotice(firstQueueLine(text) || 'Background task finished.', 'info');
+    }
+  }
+
   if (typeof runtime.onNotification === 'function') {
     unsubscribeRuntimeNotifications = runtime.onNotification((event) => {
       if (disposed) return;
@@ -824,9 +977,23 @@ export async function createEngineSession({
       if (!text) return;
       const parsed = parseBridgeJob(text);
       const notificationKey = notificationQueueKey(event, text, parsed);
+      if (isExecutionNotification(event, text, parsed)) {
+        const firstDelivery = !notificationKey || !displayedExecutionNotificationKeys.has(notificationKey);
+        if (firstDelivery) {
+          if (notificationKey) displayedExecutionNotificationKeys.add(notificationKey);
+          upsertExecutionNotificationCard(text, parsed);
+          enqueue(text, {
+            mode: 'task-notification',
+            priority: 'next',
+            key: notificationKey || undefined,
+          });
+        }
+        if (parsed?.taskId) set(bridgeStatusState({ force: true }));
+        return true;
+      }
       if (parsed?.taskId) {
         const existing = [...state.items].reverse().find((item) => {
-          if (!item || item.kind !== 'tool' || item.name !== 'bridge') return false;
+          if (!item || item.kind !== 'tool' || item.name !== 'agent') return false;
           const args = parseToolArgs(item.args);
           return args.task_id === parsed.taskId;
         });
@@ -840,6 +1007,7 @@ export async function createEngineSession({
         priority: 'next',
         key: notificationKey || undefined,
       });
+      return true;
     });
   }
 
@@ -925,7 +1093,7 @@ export async function createEngineSession({
     const callId = toolResultCallId(message) || card.callId;
     if (callId && done.has(callId)) return false;
     const rawText = toolResultText(message?.content);
-    const isError = message?.isError === true || message?.toolKind === 'error' || /^\s*\[?error/i.test(rawText);
+    const isError = message?.isError === true || message?.toolKind === 'error' || /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText));
     const text = isError ? toolErrorDisplay(rawText, card?.name || 'tool') : rawText;
 
     // Aggregate card handling — collect semantic summaries per call
@@ -1101,8 +1269,8 @@ export async function createEngineSession({
     const toolGroups = new Map();
     const resultsDone = new Set();
     const aggregateCards = []; // active aggregate cards in the current consecutive tool block
+    const aggregateByBucket = new Map(); // tail-continuation cache; append only while still the last visible item
     let openAggregateCard = null;
-    let autoCompactStatus = null;
 
     const markPromptCommitted = () => {
       if (activePromptRestore) {
@@ -1163,8 +1331,30 @@ export async function createEngineSession({
       openAggregateCard = null;
     };
 
+    const isAggregateTail = (aggregate) => {
+      if (!aggregate?.itemId) return false;
+      const last = state.items[state.items.length - 1];
+      return last?.kind === 'tool' && last.aggregate === true && last.id === aggregate.itemId;
+    };
+
+    const rememberActiveAggregate = (aggregate) => {
+      if (!aggregate) return;
+      if (!aggregateCards.includes(aggregate)) aggregateCards.push(aggregate);
+      aggregateByBucket.set(aggregate.bucket, aggregate);
+    };
+
     const ensureAggregateCard = (bucket) => {
-      if (openAggregateCard?.bucket === bucket) return openAggregateCard;
+      if (openAggregateCard?.bucket === bucket && isAggregateTail(openAggregateCard)) return openAggregateCard;
+      // If the previous aggregate was finalized/closed but is still the tail of
+      // the transcript, continue that exact card instead of pushing a duplicate
+      // directly below it. Never reach past a visible assistant/tool/status item:
+      // that would make an older card's count change "in the middle" of history.
+      const tailAggregate = aggregateByBucket.get(bucket);
+      if (isAggregateTail(tailAggregate)) {
+        openAggregateCard = tailAggregate;
+        rememberActiveAggregate(tailAggregate);
+        return tailAggregate;
+      }
       const itemId = nextId();
       const aggregate = {
         itemId,
@@ -1176,7 +1366,7 @@ export async function createEngineSession({
         pushed: false,
         startedAt: Date.now(),
       };
-      aggregateCards.push(aggregate);
+      rememberActiveAggregate(aggregate);
       openAggregateCard = aggregate;
       return aggregate;
     };
@@ -1209,11 +1399,17 @@ export async function createEngineSession({
       });
     };
 
-    const ensureAssistant = () => {
+    const ensureAssistant = (initialText = '') => {
       if (!currentAssistantId) {
         currentAssistantId = nextId();
-        currentAssistantText = '';
-        pushItem({ kind: 'assistant', id: currentAssistantId, text: '', streaming: true });
+        // Do NOT reset currentAssistantText here. The first onTextDelta has
+        // already accumulated the opening chunk before this batched flush runs;
+        // wiping it dropped the leading characters and forced a later set() to
+        // re-add them. Segment resets are owned by closeAssistantSegment().
+        // Seed the new row with the already-visible text so the ● gutter and the
+        // first body line appear in the SAME set()/emit() — no empty "●-only"
+        // row that scrolls once on its own and again when the body lands.
+        pushItem({ kind: 'assistant', id: currentAssistantId, text: String(initialText || ''), streaming: true });
       }
       return currentAssistantId;
     };
@@ -1244,7 +1440,12 @@ export async function createEngineSession({
     // batch accumulated text and flush at most once per STREAM_BATCH_INTERVAL_MS
     // (≈16ms / 60fps cap). A forced flush happens before any tool call,
     // finalization, or error so those code paths see the correct text state.
-    const STREAM_BATCH_INTERVAL_MS = 16;
+    // Flush cadence for streamed text/thinking. 8ms (~120fps) matches the Ink
+    // render maxFps (index.jsx render({ maxFps: 120 })), so a queued batch is
+    // never held back waiting for the next Ink frame. 16ms (~60fps) left every
+    // other Ink frame idle, which made fast provider streams visibly land in
+    // coarse chunks ("10 chars at a time").
+    const STREAM_BATCH_INTERVAL_MS = 8;
     let _batchTimer = null;
     let _pendingTextFlush = false;   // true when a text/spinner update is queued
     let _pendingThinkFlush = false;  // true when a thinking update is queued
@@ -1257,17 +1458,33 @@ export async function createEngineSession({
       }
       if (_pendingTextFlush) {
         _pendingTextFlush = false;
-        const id = ensureAssistant();
-        // Emit the accumulated assistant text and spinner update together so a
-        // streaming batch costs one set() → one emit() → one React reconcile.
+        // Show only COMPLETED lines while streaming. The in-progress trailing
+        // line stays hidden until its '\n' arrives, so the visible text never
+        // grows a glyph at a time (no "무"→pause→"무슨 일…" partial reveal, no
+        // CJK-width reflow jitter). The final non-streaming patch
+        // (streaming:false) always carries the full text, so the tail line that
+        // never got a newline still lands once at finalize.
+        const newlineIdx = currentAssistantText.lastIndexOf('\n');
+        const streamingVisibleText = newlineIdx >= 0
+          ? currentAssistantText.slice(0, newlineIdx + 1)
+          : '';
         const patch = {};
-        const index = state.items.findIndex((it) => it.id === id);
-        if (index >= 0) {
-          const current = state.items[index];
-          if (!Object.is(current.text, currentAssistantText) || current.streaming !== true) {
-            const items = state.items.slice();
-            items[index] = { ...current, text: currentAssistantText, streaming: true };
-            patch.items = items;
+        // Do NOT create the assistant row (and scroll the transcript) before
+        // there is a completed line to show. Until the first '\n' the only
+        // pending state is the spinner; the row appears together with its first
+        // visible line, so no empty "●-only" row flashes/scrolls ahead of text.
+        if (currentAssistantId || streamingVisibleText) {
+          const id = ensureAssistant(streamingVisibleText);
+          // Emit the accumulated assistant text and spinner update together so a
+          // streaming batch costs one set() → one emit() → one React reconcile.
+          const index = state.items.findIndex((it) => it.id === id);
+          if (index >= 0) {
+            const current = state.items[index];
+            if (!Object.is(current.text, streamingVisibleText) || current.streaming !== true) {
+              const items = state.items.slice();
+              items[index] = { ...current, text: streamingVisibleText, streaming: true };
+              patch.items = items;
+            }
           }
         }
         const responseLengthVal = assistantText.length + thinkingText.length;
@@ -1299,6 +1516,16 @@ export async function createEngineSession({
       const { result, session } = await runtime.ask(userText, {
         drainSteering: () => drainPendingSteering(),
         onSteerMessage: (text) => {
+          // Steering can be injected after a terminal no-tool response has
+          // already streamed but before runTurn finalizes. Seal the current
+          // assistant segment first so the steered user turn and the next
+          // assistant response do not get visually merged into one bubble.
+          flushStreamBatch();
+          if (currentAssistantId) {
+            patchItem(currentAssistantId, { text: currentAssistantText || assistantText, streaming: false });
+            closeAssistantSegment();
+          }
+          assistantText = '';
           const value = String(text || '').trim();
           if (value) {
             finalizeToolHeaders();
@@ -1307,16 +1534,22 @@ export async function createEngineSession({
         },
         onToolCall: async (_iter, calls) => {
           markPromptCommitted();
+          // Always flush any buffered mid-turn assistant text before the tool
+          // card appears. Without this, when neither a thinking panel nor a
+          // spinner is active the buffered text was dropped by the following
+          // closeAssistantSegment(), so the message above the tool card vanished.
+          flushStreamBatch();
           if (thinkingText && state.thinking) {
             const thinkingLastEndedAt = closeThinkingSegment();
-            flushStreamBatch(); // flush any buffered text/thinking before the tool card appears
             set({ thinking: null, spinner: state.spinner ? { ...state.spinner, thinking: false, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingLastEndedAt, mode: 'tool-use' } : state.spinner });
           } else if (state.spinner) {
-            flushStreamBatch(); // flush any buffered text before the tool card appears
             set({ spinner: { ...state.spinner, mode: 'tool-use' } });
           }
           const batchCalls = (calls || []).filter(Boolean);
           if (batchCalls.length === 0) return;
+          if (currentAssistantId && currentAssistantText.trim()) {
+            patchItem(currentAssistantId, { text: currentAssistantText, streaming: false });
+          }
           closeAssistantSegment();
 
           const touchedAggregates = new Set();
@@ -1326,6 +1559,7 @@ export async function createEngineSession({
             const args = toolCallArgs(c);
             const category = classifyToolCategory(name, args);
             const bucket = aggregateBucketForCategory(category);
+            const categoryEntry = aggregateToolCategoryEntry(name, args, category);
             const callId = toolCallId(c);
             const callKey = callId || `__tool_${toolCards.length}_${i}`;
 
@@ -1354,8 +1588,12 @@ export async function createEngineSession({
             }
 
             const aggregateCard = ensureAggregateCard(bucket);
-            if (!aggregateCard.categories.has(category)) aggregateCard.categoryOrder.push(category);
-            aggregateCard.categories.set(category, (aggregateCard.categories.get(category) || 0) + 1);
+            if (!aggregateCard.categories.has(categoryEntry.key)) aggregateCard.categoryOrder.push(categoryEntry.key);
+            const prevCategory = aggregateCard.categories.get(categoryEntry.key);
+            aggregateCard.categories.set(categoryEntry.key, {
+              ...categoryEntry,
+              count: Number(prevCategory?.count || 0) + Number(categoryEntry.count || 1),
+            });
             aggregateCard.calls.set(callKey, { name, args, category, summary: null, summarySeq: null, isError: false, resultText: null, resolved: false });
             touchedAggregates.add(aggregateCard);
             const card = { itemId: aggregateCard.itemId, callId: callKey, done: false, aggregate: aggregateCard };
@@ -1372,6 +1610,15 @@ export async function createEngineSession({
         },
         onToolResult: (message) => {
           flushToolResults([message], toolCards, cardByCallId, toolGroups, resultsDone);
+        },
+        onCompactEvent: (event) => {
+          flushStreamBatch();
+          pushItem({
+            kind: 'statusdone',
+            id: nextId(),
+            label: compactEventLabel(event),
+            detail: compactEventDetail(event),
+          });
         },
         onStageChange: (stage) => {
           if (!state.spinner) return;
@@ -1394,12 +1641,39 @@ export async function createEngineSession({
           if (state.thinking) set({ thinking: null }); // collapse thinking panel immediately, no batch delay
           if (textChunk.trim()) clearAggregateContinuation();
           assistantText += textChunk;
-          ensureAssistant(); // create the assistant item in state immediately so the slot exists
           currentAssistantText += textChunk;
-          // Accumulate text; fire at most one render per STREAM_BATCH_INTERVAL_MS.
+          // Accumulate text and schedule a batched flush (≤1 render per
+          // STREAM_BATCH_INTERVAL_MS). Without scheduling, mid-turn text only
+          // surfaced via the tool-call/finalize flush, so a text→tool segment
+          // with no spinner/thinking dropped the message above the tool card.
           _pendingTextFlush = true;
           if (thinkingLastEndedAt) _pendingThinkingLastEndedAt = thinkingLastEndedAt;
           scheduleStreamFlush();
+        },
+        onAssistantText: (text) => {
+          // Mid-turn assistant text that precedes a tool call. Providers that
+          // stream via onTextDelta already accumulated it into assistantText;
+          // providers that only return the final response.content (no deltas)
+          // never fired onTextDelta, so without this the preamble shows nothing
+          // before the tool card. De-dup against already-streamed text so the
+          // streaming path is unaffected.
+          const full = String(text ?? '');
+          if (!full.trim()) return;
+          // If the streaming path already produced text for THIS segment,
+          // onTextDelta owns the render — content is the same accumulated text
+          // (or a superset), so skip to avoid double-printing the preamble.
+          // Do not check turn-global assistantText: earlier closed preambles stay
+          // there across tool calls, and would suppress later non-streaming
+          // preambles even though currentAssistantText has been reset.
+          if (currentAssistantText.trim()) return;
+          markPromptCommitted();
+          closeThinkingSegment();
+          if (state.thinking) set({ thinking: null });
+          clearAggregateContinuation();
+          assistantText += full;
+          currentAssistantText += full;
+          _pendingTextFlush = true;
+          flushStreamBatch();
         },
         onReasoningDelta: (chunk) => {
           if (String(chunk ?? '')) markPromptCommitted();
@@ -1422,21 +1696,26 @@ export async function createEngineSession({
         },
       });
       markPromptCommitted();
-      if (result?.postTurnCompact?.changed) autoCompactStatus = result.postTurnCompact;
 
       flushToolResults(session?.messages || [], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
       finalizeToolHeaders();
       flushStreamBatch(); // force-flush any batched streaming text before finalization writes
       syncContextStats();
 
-      const finalText = (result?.content != null && String(result.content)) || assistantText;
-      if (assistantText.trim() && currentAssistantId) {
-        patchItem(currentAssistantId, { text: currentAssistantText || assistantText, streaming: false });
-      }
-      if (finalText && !assistantText.trim()) {
-        const id = ensureAssistant();
+      const finalText = result?.content != null ? String(result.content) : '';
+      if (finalText.trim()) {
+        // The persisted transcript is written from the provider's final content,
+        // while the live TUI row is fed by streaming deltas. If a provider/parser
+        // misses or suppresses an early delta, keeping the streamed buffer here
+        // leaves the final on-screen assistant row missing leading characters even
+        // though the transcript is correct. Always reconcile the active segment to
+        // the final provider text when it is available.
+        const id = currentAssistantId || ensureAssistant();
         currentAssistantText = finalText;
         patchItem(id, { text: finalText, streaming: false });
+      } else if (currentAssistantId && (currentAssistantText.trim() || assistantText.trim())) {
+        const streamedText = currentAssistantText || assistantText;
+        patchItem(currentAssistantId, { text: streamedText, streaming: false });
       }
       state.stats.turns = (state.stats.turns || 0) + 1;
     } catch (error) {
@@ -1471,19 +1750,6 @@ export async function createEngineSession({
       // bottom-fixed live-status slot and vanished on the next turn.)
       if (!reclaimed) {
         pushItem({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus, outputTokens: finalOutputTokens, thinkingElapsedMs, verb: pickDoneVerb(turnIndex) });
-        if (!cancelled && autoCompactStatus?.changed) {
-          const before = formatTokenCount(autoCompactStatus.beforeTokens || autoCompactStatus.pressureTokens || 0);
-          const after = formatTokenCount(autoCompactStatus.afterTokens || 0);
-          const trigger = formatTokenCount(autoCompactStatus.triggerTokens || 0);
-          pushItem({
-            kind: 'statusdone',
-            id: nextId(),
-            label: 'Auto-compact complete',
-            detail: [`context ${before}→${after}`, trigger !== '0' ? `trigger ${trigger}` : '']
-              .filter(Boolean)
-              .join(' · '),
-          });
-        }
       }
       set({
         busy: false,
@@ -1524,7 +1790,8 @@ export async function createEngineSession({
     const ids = new Set(entries.map((entry) => entry.id));
     const keys = entries.map((entry) => entry.key).filter(Boolean);
     for (const key of keys) pendingNotificationKeys.delete(key);
-    set({ queued: state.queued.filter((q) => !ids.has(q.id)) });
+    const queued = state.queued.filter((q) => !ids.has(q.id));
+    if (queued.length !== state.queued.length) set({ queued });
   }
 
   function requeueEntriesFront(entries) {
@@ -1543,7 +1810,8 @@ export async function createEngineSession({
     }
     if (restored.length === 0) return false;
     pending.unshift(...restored);
-    set({ queued: [...restored, ...state.queued] });
+    const visible = restored.filter(isQueuedEntryVisible);
+    if (visible.length > 0) set({ queued: [...visible, ...state.queued] });
     return true;
   }
 
@@ -1618,7 +1886,7 @@ export async function createEngineSession({
       pendingNotificationKeys.add(entry.key);
     }
     pending.push(entry);
-    set({ queued: [...state.queued, entry] });
+    if (isQueuedEntryVisible(entry)) set({ queued: [...state.queued, entry] });
     void drain();
     return true;
   }
@@ -1644,19 +1912,21 @@ export async function createEngineSession({
   async function autoClearBeforeSubmit() {
     const cfg = autoClearState();
     const now = Date.now();
-    const idleMs = now - lastUserActivityAt;
+    const activityAt = sessionActivityTimestamp(runtime.session, lastUserActivityAt);
+    const idleMs = activityAt ? now - activityAt : 0;
     if (!cfg.enabled || state.busy || pending.length > 0 || autoClearRunning || idleMs < cfg.idleMs) {
-      lastUserActivityAt = now;
+      if (!activityAt) lastUserActivityAt = now;
       return false;
     }
     autoClearRunning = true;
     const startedAt = Date.now();
-    set({ commandStatus: { active: true, verb: 'Auto-clearing conversation', startedAt, mode: 'auto-clear' } });
+    set({ commandStatus: { active: true, verb: 'Auto-clearing idle conversation', startedAt, mode: 'auto-clear' } });
     try {
       const beforeContext = runtime.contextStatus?.() || null;
-      await runtime.clear({ compactType: cfg.compactType || null });
+      await runtime.clear({ compactType: cfg.compactType || null, requireCompactSuccess: !!cfg.compactType });
       resetStats();
       const afterContext = syncContextStats({ allowEstimated: true }) || runtime.contextStatus?.() || null;
+      const afterCompaction = runtime.session?.compaction || afterContext?.compaction || {};
       const idleLabel = formatIdleDuration(idleMs);
       const thresholdLabel = formatIdleDuration(cfg.idleMs);
       const beforeTokens = Number(beforeContext?.usedTokens || beforeContext?.currentEstimatedTokens || beforeContext?.usage?.lastContextTokens || 0);
@@ -1674,18 +1944,27 @@ export async function createEngineSession({
         ...routeState(),
         stats: { ...state.stats },
       });
-      const compactLabel = cfg.compactType ? `compact type ${cfg.compactType}` : '';
+      const compactType = afterCompaction.lastClearCompactType || cfg.compactType || '';
+      const compactLabel = compactType ? `compact ${compactType}` : '';
+      const summaryLabel = cfg.compactType ? (hasCompactSummary(runtime.session) ? 'summary kept' : 'summary missing') : '';
       pushItem({
         kind: 'statusdone',
         id: nextId(),
         label: 'Auto-clear complete',
-        detail: [idleLabel ? `idle ${idleLabel}` : '', contextDetail, compactLabel, thresholdLabel ? `threshold ${thresholdLabel}` : '']
+        detail: [idleLabel ? `idle ${idleLabel}` : '', contextDetail, compactLabel, summaryLabel, thresholdLabel ? `threshold ${thresholdLabel}` : '']
           .filter(Boolean)
           .join(' · '),
       });
       return true;
     } catch (error) {
-      pushNotice(`auto-clear failed: ${error?.message || error}`, 'error');
+      const message = presentErrorText(error, { surface: 'auto-clear' });
+      pushItem({
+        kind: 'statusdone',
+        id: nextId(),
+        label: 'Auto-clear skipped',
+        detail: `conversation kept · ${message}`,
+      });
+      pushNotice(`auto-clear skipped: ${message}`, 'error');
       return false;
     } finally {
       lastUserActivityAt = Date.now();
@@ -1732,11 +2011,11 @@ export async function createEngineSession({
       const t = promptDisplayText(text, options).trim();
       if (!t || state.commandBusy) return false;
       const mode = options.mode || 'prompt';
-      // Plain user input entered while a turn is busy is a post-turn follow-up
-      // by default, so it lands after any auto-compact/save boundary instead of
-      // being swallowed as mid-turn steering. Task notifications still opt into
-      // priority: 'next' and are injected at the next tool boundary.
-      const priority = options.priority;
+      // Plain user input entered while a turn is busy should steer the active
+      // turn at the next safe provider-send boundary. This is boundary-only
+      // (not a provider/tool hard interrupt), and explicit priority overrides
+      // still win for callers that want post-turn follow-up semantics.
+      const priority = options.priority || (state.busy && mode === 'prompt' ? 'next' : undefined);
       const queueOptions = {
         ...options,
         mode,
@@ -1807,7 +2086,7 @@ export async function createEngineSession({
     toggleBridgeMode: () => {
       const mode = runtime.toggleBridgeMode();
       set(bridgeStatusState({ force: true }));
-      pushNotice(`bridge mode -> ${mode}`, 'info');
+      pushNotice(`Agent mode -> ${mode}`, 'info');
       return mode;
     },
     setBridgeMode: (mode) => {
@@ -1821,6 +2100,53 @@ export async function createEngineSession({
       set({ autoClear: next });
       return next;
     },
+    getCompactionSettings: () => {
+      return runtime.getCompactionSettings?.() || {};
+    },
+    setCompactionSettings: async (input = {}) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const next = runtime.setCompactionSettings?.(input) || {};
+        syncContextStats({ allowEstimated: true });
+        set({ ...routeState(), stats: { ...state.stats } });
+        return next;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    getMemorySettings: () => {
+      return runtime.getMemorySettings?.() || { enabled: true };
+    },
+    setMemoryEnabled: async (enabled) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const next = await runtime.setMemoryEnabled?.(enabled);
+        syncContextStats({ allowEstimated: true });
+        set({ ...routeState(), stats: { ...state.stats } });
+        return next;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    getChannelSettings: (options = {}) => {
+      return runtime.getChannelSettings?.(options) || {
+        enabled: true,
+        ...(options?.includeStatus === false ? {} : { status: runtime.getChannelWorkerStatus?.() }),
+      };
+    },
+    setChannelsEnabled: async (enabled) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const next = await runtime.setChannelsEnabled?.(enabled);
+        set({ ...routeState(), stats: { ...state.stats } });
+        return next;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
     bridgeControl: async (args = {}) => {
       if (state.commandBusy) return null;
       set({ commandBusy: true });
@@ -1831,7 +2157,7 @@ export async function createEngineSession({
         pushItem({
           kind: 'tool',
           id: itemId,
-          name: 'bridge',
+          name: 'agent',
           args,
           result: null,
           isError: false,
@@ -2089,7 +2415,28 @@ export async function createEngineSession({
         syncContextStats({ allowEstimated: true });
         set({ ...routeState(), stats: { ...state.stats } });
         if (result) {
-          pushItem({ kind: 'turndone', id: nextId(), elapsedMs: Date.now() - startedAt, status: 'done', outputTokens: 0, thinkingElapsedMs: 0, verb: 'Compacted' });
+          pushItem({
+            kind: 'statusdone',
+            id: nextId(),
+            label: result.error ? 'Compact failed' : (result.changed === false ? 'Compact checked' : 'Compact complete'),
+            detail: compactEventDetail({
+              stage: 'manual',
+              trigger: 'manual',
+              status: result.error ? 'failed' : (result.changed === false ? 'no_change' : 'compacted'),
+              compactType: result.compactType,
+              beforeTokens: result.beforeTokens,
+              afterTokens: result.afterTokens,
+              beforeMessages: result.beforeMessages,
+              afterMessages: result.afterMessages,
+              triggerTokens: result.triggerTokens,
+              boundaryTokens: result.boundaryTokens,
+              targetBudgetTokens: result.targetBudgetTokens,
+              reserveTokens: result.reserveTokens,
+              semantic: result.semanticCompact,
+              recallFastTrack: result.recallFastTrack,
+              error: result.error,
+            }),
+          });
         }
         return result;
       } finally {
@@ -2129,6 +2476,23 @@ export async function createEngineSession({
     },
     listProviderModels: (options = {}) => {
       return runtime.listProviderModels(options);
+    },
+    getSearchRoute: () => {
+      return runtime.getSearchRoute?.() || runtime.searchRoute || null;
+    },
+    listSearchModels: (options = {}) => {
+      return runtime.listSearchModels?.(options) || [];
+    },
+    setSearchRoute: async (opts) => {
+      if (state.commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.setSearchRoute?.(opts);
+        set({ ...routeState(), stats: { ...state.stats } });
+        return result;
+      } finally {
+        set({ commandBusy: false });
+      }
     },
     listAgents: () => {
       return runtime.listAgents?.() || [];
@@ -2387,7 +2751,7 @@ export async function createEngineSession({
                 items.push({
                   kind: 'tool',
                   id: nextId(),
-                  name: synthetic.name || 'bridge',
+                  name: synthetic.name || 'agent',
                   args: synthetic.args || {
                     type: label,
                     task_id: synthetic.taskId || undefined,
@@ -2429,6 +2793,7 @@ export async function createEngineSession({
       if (disposed) return;
       disposed = true;
       clearToastTimers();
+      try { clearInterval(runtimePulseTimer); } catch {}
       try { unsubscribeRuntimeNotifications?.(); } catch {}
       unsubscribeRuntimeNotifications = null;
       await runtime.close(reason, options);

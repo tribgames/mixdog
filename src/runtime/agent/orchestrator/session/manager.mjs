@@ -5,10 +5,8 @@ import { join } from 'path';
 import { getProvider, providerInputExcludesCache } from '../providers/registry.mjs';
 import { getModelMetadataSync } from '../providers/model-catalog.mjs';
 import { fetchOAuthUsageSnapshot } from '../providers/oauth-usage.mjs';
-import { agentLoop } from './loop.mjs';
+import { sanitizeContentForStoredHistory } from '../providers/media-normalization.mjs';
 import {
-    compactActiveTurn,
-    compactMessages,
     recallFastTrackCompactMessages,
     semanticCompactMessages,
     compactTypeIsRecallFastTrack,
@@ -19,16 +17,15 @@ import {
     DEFAULT_COMPACTION_BUFFER_RATIO,
     compactionBufferTokensForBoundary,
     normalizeCompactionBufferRatio,
+    drainSessionCycle1,
 } from './compact.mjs';
 import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';
 import { getMcpTools } from '../mcp/client.mjs';
 import { getInternalTools, executeInternalTool } from '../internal-tools.mjs';
-import { BUILTIN_TOOLS } from '../tools/builtin.mjs';
+import { BUILTIN_TOOLS } from '../tools/builtin/builtin-tools.mjs';
 import { PATCH_TOOL_DEFS } from '../tools/patch-tool-defs.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../tools/code-graph-tool-defs.mjs';
-import { executeCodeGraphTool } from '../tools/code-graph.mjs';
-import { closeBashSession } from '../tools/bash-session.mjs';
-import { collectSkillsCached, buildSkillToolDefs, loadAgentTemplate, loadRoleTemplate, composeSystemPrompt, collectMixdogMd } from '../context/collect.mjs';
+import { collectSkillsCached, buildSkillToolDefs, loadAgentTemplate, composeSystemPrompt, collectMixdogMd } from '../context/collect.mjs';
 import { saveSession, saveSessionAsync, loadSession, listStoredSessionSummaries, sweepStaleSessions, markSessionClosed, publishHeartbeat, deleteHeartbeat, setLiveSession } from './store.mjs';
 import { clearReadDedupSession, tryPrefetchCached, setPrefetchCached } from './read-dedup.mjs';
 import { clearOffloadSession } from './tool-result-offload.mjs';
@@ -38,8 +35,9 @@ import { logLlmCall } from '../../../shared/llm/usage-log.mjs';
 import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { appendBridgeTrace } from '../bridge-trace.mjs';
+import { isAgentOwner } from '../agent-owner.mjs';
 import { maxMtime, maxMtimeRecursive } from '../cache-mtime.mjs';
-import { getRoleInstructionDir } from '../internal-roles.mjs';
+import { getRoleInstructionDir, isHiddenRole } from '../internal-roles.mjs';
 import {
     buildGatewayLimits,
     recordGatewayUsageEvent,
@@ -70,6 +68,28 @@ const _rulesBuilder = (() => {
 // same prefix bytes.
 let _bridgeRulesCache = null;
 let _bridgeRulesMtime = 0;
+let _codeGraphRuntimePromise = null;
+let _agentLoopPromise = null;
+let _bashSessionRuntimePromise = null;
+async function _executeCodeGraphToolLazy(name, args, cwd, signal = null, options = {}) {
+    _codeGraphRuntimePromise ??= import('../tools/code-graph.mjs');
+    const mod = await _codeGraphRuntimePromise;
+    if (typeof mod.executeCodeGraphTool !== 'function') throw new Error('code_graph runtime is not available');
+    return mod.executeCodeGraphTool(name, args, cwd, signal, options);
+}
+async function _getAgentLoop() {
+    _agentLoopPromise ??= import('./loop.mjs');
+    const mod = await _agentLoopPromise;
+    if (typeof mod.agentLoop !== 'function') throw new Error('agent loop runtime is not available');
+    return mod.agentLoop;
+}
+function _closeBashSessionLazy(sessionId, reason) {
+    if (!sessionId) return;
+    _bashSessionRuntimePromise ??= import('../tools/bash-session.mjs');
+    _bashSessionRuntimePromise
+        .then((mod) => { if (typeof mod.closeBashSession === 'function') mod.closeBashSession(sessionId, reason); })
+        .catch(() => {});
+}
 function _buildBridgeRules() {
     if (!_rulesBuilder || typeof _rulesBuilder.buildBridgeInjectionContent !== 'function') return '';
     const PLUGIN_ROOT = mixdogRoot();
@@ -78,7 +98,6 @@ function _buildBridgeRules() {
     const mtime = maxMtimeRecursive([
         join(RULES_DIR, 'shared'),
         join(RULES_DIR, 'bridge'),
-        join(DATA_DIR, 'roles'),
         join(DATA_DIR, 'mixdog-config.json'),
     ]);
     if (_bridgeRulesCache !== null && mtime <= _bridgeRulesMtime) {
@@ -110,7 +129,6 @@ function _buildLeadRules() {
         join(DATA_DIR, 'history'),
         join(DATA_DIR, 'mixdog-config.json'),
         join(DATA_DIR, 'user-workflow.md'),
-        join(DATA_DIR, 'user-workflow.json'),
         join(PLUGIN_ROOT, 'output-styles'),
         join(DATA_DIR, 'output-styles'),
     ]));
@@ -248,6 +266,7 @@ function _getMcpTools() {
 
 const SESSION_ROUTE_TOOL_ORDER = [
     'code_graph',
+    'find',
     'glob',
     'list',
     'grep',
@@ -259,6 +278,7 @@ const SESSION_ROUTE_TOOL_ORDER = [
 const SESSION_ROUTE_TOOL_RANK = new Map(SESSION_ROUTE_TOOL_ORDER.map((name, index) => [name, index]));
 const FILESYSTEM_TOOL_NAMES = new Set([
     'code_graph',
+    'find',
     'glob',
     'list',
     'grep',
@@ -267,6 +287,7 @@ const FILESYSTEM_TOOL_NAMES = new Set([
 ]);
 const READONLY_TOOL_NAMES = new Set([
     'code_graph',
+    'find',
     'glob',
     'list',
     'grep',
@@ -539,10 +560,16 @@ function resolveSessionContextMeta(provider, model, seed = {}) {
             ?? catalogInfo?.autoCompactTokenLimit
             ?? catalogInfo?.auto_compact_token_limit,
     );
-    const derivedCompactLimit = contextWindow;
-    const autoCompactTokenLimit = explicitCompactLimit && derivedCompactLimit
-        ? Math.min(explicitCompactLimit, derivedCompactLimit)
-        : (explicitCompactLimit || derivedCompactLimit);
+    // Do NOT derive the auto-compact limit from the full effective window.
+    // Setting it to contextWindow makes autoTriggerTokens == boundary and the
+    // compaction buffer collapse to 0 (loop.mjs:708-713 / compactTriggerForSession),
+    // so auto-compact only fires when the context is already at the limit —
+    // at which point semantic compact fails ("result exceeds budget" /
+    // "summary cannot fit") and the turn can no longer be resumed.
+    // Leave it null unless the provider/catalog/seed supplies an explicit
+    // limit; the downstream buffer logic (default 10%, capped 25%) then
+    // triggers compaction with headroom, matching Claude Code's threshold.
+    const autoCompactTokenLimit = explicitCompactLimit || null;
     const compactBoundaryTokens = contextWindow;
     return {
         contextWindow,
@@ -596,9 +623,6 @@ function addCompactUsageToSession(session, usage) {
     session.totalCacheWriteTokens = (session.totalCacheWriteTokens || 0) + cacheWriteTokens;
     session.tokensCumulative = (session.tokensCumulative || 0) + inputTokens + outputTokens;
 }
-function isExpectedCompactFallbackError(err) {
-    return /(?:no compactable prior history before (?:preserved tail|current turn)|no (?:current )?user turn to preserve)/i.test(String(err?.message || err || ''));
-}
 async function runRecallFastTrackForSession(session, messages, opts = {}) {
     const sessionId = opts.sessionId || session?.id || null;
     if (!sessionId) throw new Error('recall-fasttrack requires a session id');
@@ -630,23 +654,34 @@ async function runRecallFastTrackForSession(session, messages, opts = {}) {
         includeRaw: true,
         limit: positiveContextWindow(session?.compaction?.recallChunkLimit ?? session?.compaction?.recallLimit) || hydrateLimit,
     };
+    const runTool = (name, args) => executeInternalTool(name, args, callerCtx);
     let recallText = await executeInternalTool('memory', dumpArgs, callerCtx);
     let cycle1Text = '';
     const hasRawRows = /(?:^|\n)# raw_pending\s+\d+\s+id=/i.test(String(recallText || ''));
     if (hasRawRows) {
         try {
-            cycle1Text = await executeInternalTool('memory', {
-                action: 'cycle1',
+            // Drain this session's cycle1 in window×concurrency units until no
+            // raw rows remain, so the injected root is fully chunked rather than
+            // carrying the unprocessed transcript tail (single-pass left raw in).
+            const drained = await drainSessionCycle1(runTool, {
                 sessionId,
-                min_batch: 1,
-                session_cap: 1,
-                batch_size: positiveContextWindow(session?.compaction?.recallCycle1BatchSize) || 100,
-                rows_per_session: positiveContextWindow(session?.compaction?.recallRowsPerSession) || 100,
-                window_size: positiveContextWindow(session?.compaction?.recallWindowSize) || 20,
-                concurrency: positiveContextWindow(session?.compaction?.recallConcurrency) || 5,
-                _callerDeadlineMs: positiveContextWindow(session?.compaction?.recallCycle1DeadlineMs) || 120_000,
-            }, callerCtx);
-            recallText = await executeInternalTool('memory', dumpArgs, callerCtx);
+                dumpArgs,
+                deadlineMs: positiveContextWindow(session?.compaction?.recallCycle1DeadlineMs) || 120_000,
+                maxPasses: positiveContextWindow(session?.compaction?.recallCycle1MaxPasses) || 0,
+                cycleArgs: {
+                    min_batch: 1,
+                    session_cap: 1,
+                    batch_size: positiveContextWindow(session?.compaction?.recallCycle1BatchSize) || 100,
+                    rows_per_session: positiveContextWindow(session?.compaction?.recallRowsPerSession) || 100,
+                    window_size: positiveContextWindow(session?.compaction?.recallWindowSize) || 20,
+                    concurrency: positiveContextWindow(session?.compaction?.recallConcurrency) || 5,
+                },
+            });
+            recallText = drained.recallText;
+            cycle1Text = drained.cycle1Text;
+            if (drained.rawRemaining > 0) {
+                try { process.stderr.write(`[session] recall-fasttrack drained passes=${drained.passes} rawRemaining=${drained.rawRemaining} (sess=${sessionId})\n`); } catch {}
+            }
         } catch (err) {
             try { process.stderr.write(`[session] recall-fasttrack cycle1 skipped (sess=${sessionId}): ${err?.message || err}\n`); } catch {}
         }
@@ -730,14 +765,16 @@ async function runSessionCompaction(session, opts = {}) {
             }
         } catch (err) {
             recallFastTrackError = err;
-            if (!isExpectedCompactFallbackError(err)) {
-                try {
-                    process.stderr.write(`[session] recall-fasttrack ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}; falling back to deterministic compact\n`);
-                } catch { /* best-effort */ }
-            }
+            compactError = err;
+            try {
+                process.stderr.write(`[session] recall-fasttrack ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}\n`);
+            } catch { /* best-effort */ }
         }
-    } else if (compactTypeIsSemantic(compactType) && semanticCompactionEnabledForSession(session)) {
+    } else if (compactTypeIsSemantic(compactType)) {
         try {
+            if (!semanticCompactionEnabledForSession(session)) {
+                throw new Error('semantic compact is disabled for this session');
+            }
             if (!provider || typeof provider.send !== 'function') {
                 throw new Error(`semantic compact provider unavailable: ${session.provider || 'unknown'}`);
             }
@@ -766,26 +803,14 @@ async function runSessionCompaction(session, opts = {}) {
             }
         } catch (err) {
             semanticCompactError = err;
-            if (!isExpectedCompactFallbackError(err)) {
-                try {
-                    process.stderr.write(`[session] semantic ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}; falling back to deterministic compact\n`);
-                } catch { /* best-effort */ }
-            }
-        }
-    }
-    try {
-        if (!compacted) compacted = compactMessages(messages, budget, { reserveTokens, force: true });
-    } catch (err) {
-        if (!isExpectedCompactFallbackError(err)) {
+            compactError = err;
             try {
-                process.stderr.write(`[session] ${mode} compact fallback (sess=${session.id || 'unknown'}): ${err?.message || err}\n`);
+                process.stderr.write(`[session] semantic ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}\n`);
             } catch { /* best-effort */ }
         }
-        try {
-            compacted = compactActiveTurn(messages, budget, { reserveTokens, force: true });
-        } catch (fallbackErr) {
-            compactError = fallbackErr;
-        }
+    }
+    if (!compacted && !compactError) {
+        compactError = new Error(`${compactType} compact produced no messages`);
     }
     if (!compacted) {
         const now = Date.now();
@@ -911,9 +936,6 @@ async function runSessionCompaction(session, opts = {}) {
         usage: semanticCompactResult?.usage || null,
     };
 }
-async function autoCompactSessionAfterTurn(session, opts = {}) {
-    return runSessionCompaction(session, { ...opts, mode: 'auto', force: false });
-}
 // Provider-scoped unified cache key. Goal: all orchestrator-internal
 // dispatches (bridge/maintenance/mcp/scheduler/webhook) targeting the
 // same provider land in a single server-side cache shard, so the
@@ -970,7 +992,7 @@ function _guardedPrefetchTool(toolName, toolArgs, session) {
 
 async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
     if (!explicitPrefetch || typeof explicitPrefetch !== 'object') return null;
-    if (session?.owner !== 'bridge') return null;
+    if (!isAgentOwner(session)) return null;
     const parts = [];
     const failed = [];
     const totalEntries = [];
@@ -1012,7 +1034,7 @@ async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
     if (files.length > 0) {
         const _pfGuard = _guardedPrefetchTool('read', { path: files }, session);
         if (_pfGuard) {
-            process.stderr.write(`[bridge-prefetch] files read blocked: ${_pfGuard}\n`);
+            process.stderr.write(`[agent-prefetch] files read blocked: ${_pfGuard}\n`);
             failed.push(...files);
             totalEntries.push(...files);
         } else {
@@ -1056,7 +1078,7 @@ async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
                     readArgs.n = Number.isFinite(opts.n) ? opts.n : 120;
                 }
                 const out = await executeInternalTool('read', readArgs).catch((e) => {
-                    process.stderr.write(`[bridge-prefetch] file read failed (${f}): ${e && e.message || e}\n`);
+                    process.stderr.write(`[agent-prefetch] file read failed (${f}): ${e && e.message || e}\n`);
                     return null;
                 });
                 if (out !== null) {
@@ -1094,9 +1116,11 @@ async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
             parts.push(`### prefetch files\nread ${readParts.length}\n\n${readParts.join('\n\n')}`);
         }
         // Log hit/miss counters so dispatch telemetry shows prefetch effectiveness.
-        process.stderr.write(
-            `[prefetch] files=${files.length} cached=${fileHits.length} miss=${fileMisses.length} failed=${failed.length}\n`
-        );
+        if (process.env.MIXDOG_DEBUG_SESSION_LOG) {
+            process.stderr.write(
+                `[prefetch] files=${files.length} cached=${fileHits.length} miss=${fileMisses.length} failed=${failed.length}\n`
+            );
+        }
         // Attach stats to session so post-hoc analyzers (inspect-session.mjs)
         // can see prefetch effectiveness without parsing stderr logs.
         if (session && typeof session === 'object') {
@@ -1118,13 +1142,13 @@ async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
             totalEntries.push(symbol);
             const blocked = _guardedPrefetchTool('code_graph', cgArgs, session);
             if (blocked) {
-                process.stderr.write(`[bridge-prefetch] callers(${symbol}) blocked: ${blocked}\n`);
+                process.stderr.write(`[agent-prefetch] callers(${symbol}) blocked: ${blocked}\n`);
                 return Promise.resolve({ symbol, out: null, blocked: true });
             }
-            return executeCodeGraphTool('code_graph', cgArgs, session?.cwd)
+            return _executeCodeGraphToolLazy('code_graph', cgArgs, session?.cwd)
                 .then(out => ({ symbol, out }))
                 .catch(e => {
-                    process.stderr.write(`[bridge-prefetch] callers(${symbol}) failed: ${e && e.message || e}\n`);
+                    process.stderr.write(`[agent-prefetch] callers(${symbol}) failed: ${e && e.message || e}\n`);
                     return { symbol, out: null };
                 });
         });
@@ -1149,13 +1173,13 @@ async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
             totalEntries.push(symbol);
             const blocked = _guardedPrefetchTool('code_graph', cgArgs, session);
             if (blocked) {
-                process.stderr.write(`[bridge-prefetch] references(${symbol}) blocked: ${blocked}\n`);
+                process.stderr.write(`[agent-prefetch] references(${symbol}) blocked: ${blocked}\n`);
                 return Promise.resolve({ symbol, out: null, blocked: true });
             }
-            return executeCodeGraphTool('code_graph', cgArgs, session?.cwd)
+            return _executeCodeGraphToolLazy('code_graph', cgArgs, session?.cwd)
                 .then(out => ({ symbol, out }))
                 .catch(e => {
-                    process.stderr.write(`[bridge-prefetch] references(${symbol}) failed: ${e && e.message || e}\n`);
+                    process.stderr.write(`[agent-prefetch] references(${symbol}) failed: ${e && e.message || e}\n`);
                     return { symbol, out: null };
                 });
         });
@@ -1255,37 +1279,30 @@ export function createSession(opts) {
         throw new Error(`Provider "${providerName}" not found or not enabled`);
     const id = `sess_${process.pid}_${nextId++}_${Date.now()}_${randomBytes(16).toString('hex')}`;
     const messages = [];
-    const agentTemplate = opts.agent ? loadAgentTemplate(opts.agent, opts.cwd) : null;
+    const resolvedRole = opts.role || profile?.taskType || null;
+    const agentTemplateName = opts.agent || (resolvedRole && !isHiddenRole(resolvedRole) ? resolvedRole : null);
+    const agentTemplate = agentTemplateName ? loadAgentTemplate(agentTemplateName, opts.cwd) : null;
     const skills = opts.skipSkills ? [] : collectSkillsCached(opts.cwd);
 
     // Bridge shared prefix (bit-identical across roles). Hidden roles reuse the
     // same shared bridge rules so the cache shard stays stable across bridge
-    // callers. User-defined data (DATA_DIR roles/schedules/webhooks) is baked
+    // callers. User-defined schedules/webhooks are baked
     // into BP1 as a single fixed-value monolithic block so every role shares
     // one cache shard. A user edit invalidates BP1 once and the new prefix
     // re-warms across all roles together.
     const bridgeRulesRole = opts.role || profile?.taskType || null;
-    const injectedRules = opts.skipBridgeRules ? '' : (opts.owner === 'bridge' ? _buildBridgeRules() : _buildLeadRules());
-    const roleSpecific = opts.owner === 'bridge' && !opts.skipBridgeRules ? _buildRoleSpecific(bridgeRulesRole) : '';
+    const ownerIsAgent = isAgentOwner(opts.owner);
+    const injectedRules = opts.skipBridgeRules ? '' : (ownerIsAgent ? _buildBridgeRules() : _buildLeadRules());
+    const roleSpecific = ownerIsAgent && !opts.skipBridgeRules ? _buildRoleSpecific(bridgeRulesRole) : '';
     // mixdog.md user/project context (global + cwd ancestors, broad-to-specific).
     const projectContext = collectMixdogMd(opts.cwd);
-
-    // Role template (Phase B §4 — UI-managed). Reads <DATA_DIR>/roles/<role>.md
-    // and parses frontmatter (description, permission). The template is
-    // injected into the Tier 3 system-reminder so role differences never
-    // touch the BP_2 cache prefix.
-    const resolvedRole = opts.role || profile?.taskType || null;
-    const dataDir = resolvePluginData();
-    const roleTemplate = resolvedRole && dataDir
-        ? loadRoleTemplate(resolvedRole, dataDir)
-        : null;
 
     // Bridge sessions must not inherit role/profile/preset tool narrowing: Pool
     // B and Pool C share one bit-identical tool schema for BP_1/BP_2 cache
     // reuse, and permission differences are enforced only at call time. Raw
     // non-bridge callers keep the historical profile.tools / preset.tools
     // behaviour.
-    const toolSpec = opts.owner === 'bridge'
+    const toolSpec = ownerIsAgent
         ? 'full'
         : (Array.isArray(profile?.tools) ? profile.tools : toolPreset);
 
@@ -1293,21 +1310,21 @@ export function createSession(opts) {
     // enter the prompt, or they split the shared bridge cache tail; they map
     // to toolPermission below and are enforced only at call time.
     const permission = opts.permission
-        || roleTemplate?.permission
         || null;
     const toolPermission = opts.permission
         || profile?.permission
-        || roleTemplate?.permission
         || permissionFromToolSpec(toolPreset)
         || null;
-    let toolsForRouting = resolveSessionTools(toolSpec, skills, { ownerIsBridge: opts.owner === 'bridge' });
-    // Fail-closed permission intersection: when a role declares an explicit
-    // permission (from user-workflow.json or the role template), intersect the
+    let toolsForRouting = resolveSessionTools(toolSpec, skills, { ownerIsBridge: ownerIsAgent });
+    // Fail-closed permission intersection: when a session declares an explicit
+    // object-form permission, intersect the
     // resolved tool list with the permission's allow/deny lists. If the
     // intersection produces an empty set the permission config is broken —
     // fail closed (zero tools) rather than silently falling back to the full
     // preset, which would grant the role more surface than declared.
-    if (toolPermission && typeof toolPermission === 'object') {
+    if (toolPermission === 'none') {
+        toolsForRouting = [];
+    } else if (toolPermission && typeof toolPermission === 'object') {
         const allowSet = Array.isArray(toolPermission.allow) && toolPermission.allow.length > 0
             ? new Set(toolPermission.allow.map(n => String(n).toLowerCase()))
             : null;
@@ -1335,9 +1352,8 @@ export function createSession(opts) {
         userPrompt: opts.systemPrompt,
         bridgeRules: injectedRules || undefined,
         roleSpecific: roleSpecific || undefined,
-        skipRoleCatalog: opts.owner !== 'bridge',
+        skipRoleCatalog: !ownerIsAgent,
         agentTemplate: agentTemplate || undefined,
-        roleTemplate: roleTemplate || undefined,
         hasSkills: skills.length > 0,
         profile: profile || undefined,
         role: resolvedRole,
@@ -1349,7 +1365,7 @@ export function createSession(opts) {
         coreMemoryContext: opts.coreMemoryContext || null,
         projectContext: projectContext || null,
         tools: toolsForRouting,
-        bashIsPersistent: opts.owner === 'bridge' && toolsForRouting.some(t => t?.name === 'shell'),
+        bashIsPersistent: ownerIsAgent && toolsForRouting.some(t => t?.name === 'shell'),
         // Effective cwd rides in tier3Reminder so explore-like tools know
         // their search root without needing to shove "Override cwd:" into
         // the user message body (that used to fragment the shard prefix).
@@ -1405,7 +1421,7 @@ export function createSession(opts) {
         const allowSet = new Set(callerAllow);
         const before = tools.length;
         tools = tools.filter(t => allowSet.has(String(t?.name || '').toLowerCase()));
-        if (tools.length !== before && !process.env.MIXDOG_QUIET_SESSION_LOG) {
+        if (tools.length !== before && process.env.MIXDOG_DEBUG_SESSION_LOG) {
             process.stderr.write(`[session] schemaAllowedTools=${callerAllow.join(',')} kept ${tools.length}/${before} tools\n`);
         }
     }
@@ -1414,21 +1430,21 @@ export function createSession(opts) {
         const denySet = new Set(callerDeny);
         const before = tools.length;
         tools = tools.filter(t => !denySet.has(String(t?.name || '').toLowerCase()));
-        if (tools.length !== before && !process.env.MIXDOG_QUIET_SESSION_LOG) {
+        if (tools.length !== before && process.env.MIXDOG_DEBUG_SESSION_LOG) {
             process.stderr.write(`[session] disallowedTools=${callerDeny.join(',')} stripped ${before - tools.length} tools\n`);
         }
     }
-    if (opts.owner === 'bridge') {
+    if (ownerIsAgent) {
         const before = tools.length;
         tools = tools.filter(t => !t?.annotations?.bridgeHidden);
-        if (tools.length !== before && !process.env.MIXDOG_QUIET_SESSION_LOG) {
+        if (tools.length !== before && process.env.MIXDOG_DEBUG_SESSION_LOG) {
             process.stderr.write(`[session] bridgeHidden stripped ${before - tools.length} tools\n`);
         }
     }
 
     // Bridge tool canonicalization: keep route-sensitive tools in policy order
     // while preserving deterministic MCP/skill order for BP1 shard stability.
-    if (opts.owner === 'bridge') {
+    if (ownerIsAgent) {
         tools = orderSessionTools(tools);
     }
 
@@ -1436,7 +1452,7 @@ export function createSession(opts) {
     // bridge schemas shared unless a hidden-role schema profile explicitly
     // passes schemaAllowedTools for a small specialist; broad role
     // whitelists would fragment the cache shard.
-    if (resolvedRole && !process.env.MIXDOG_QUIET_SESSION_LOG) {
+    if (resolvedRole && process.env.MIXDOG_DEBUG_SESSION_LOG) {
         process.stderr.write(`[session] role=${resolvedRole} permission=${permission || 'full'} toolPermission=${toolPermission || 'full'} tools=${tools.length}\n`);
     }
     const contextMeta = resolveSessionContextMeta(provider, modelName);
@@ -2147,15 +2163,15 @@ export function drainPendingMessages(sessionId) {
     const memory = q && q.length > 0 ? q.slice() : [];
     _sessionPendingMessages.delete(sessionId);
     const persisted = drainPersistedPendingMessages(sessionId);
-    if (memory.length === 0) return persisted;
-    if (persisted.length === 0) return memory;
+    if (memory.length === 0) return modelVisiblePendingMessages(persisted);
+    if (persisted.length === 0) return modelVisiblePendingMessages(memory);
     const prefixMatches = memory.every((m, i) => persisted[i] === m);
-    if (prefixMatches) return [...memory, ...persisted.slice(memory.length)];
+    if (prefixMatches) return modelVisiblePendingMessages([...memory, ...persisted.slice(memory.length)]);
     const out = persisted.slice();
     for (const m of memory) {
         if (!out.includes(m)) out.push(m);
     }
-    return out;
+    return modelVisiblePendingMessages(out);
 }
 
 function promptContentText(content) {
@@ -2187,6 +2203,69 @@ function prefixUserTurnContent(content, contextBlock) {
     }
     return `${contextBlock}# Task\n${content}`;
 }
+
+function modelVisiblePendingMessages(messages) {
+    return (Array.isArray(messages) ? messages : [])
+        .filter((message) => typeof message === 'string' && message.length > 0)
+        .filter((message) => !isInternalRuntimeNotificationText(message));
+}
+
+function isInternalRuntimeNotificationText(content) {
+    const text = promptContentText(content).trim();
+    if (!text) return false;
+    if (/<task-notification\b/i.test(text)) return true;
+    if (/^background task\b/i.test(text)
+        && /^task_id:\s*\S+/mi.test(text)
+        && /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b/mi.test(text)) {
+        return true;
+    }
+    if (/^task_id:\s*\S+/mi.test(text)
+        && /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b/mi.test(text)
+        && /^(?:surface|operation|type|target|role|agent|preset|model|effort|fast|notification):\s*/mi.test(text)) {
+        return true;
+    }
+    return false;
+}
+
+function isInternalCancelledAssistantMessage(message) {
+    if (!message || message.role !== 'assistant') return false;
+    if (message.cancelled === true) return true;
+    const text = promptContentText(message.content).trim();
+    return /^\[cancelled\]\s+This turn was interrupted before completion\./i.test(text)
+        || /Preserve the user request above as the active task context/i.test(text);
+}
+
+function sanitizeSessionMessageForStoredHistory(message) {
+    if (!message || typeof message !== 'object') return message;
+    const content = sanitizeContentForStoredHistory(message.content);
+    return content === message.content ? message : { ...message, content };
+}
+
+function sanitizeSessionMessagesForModel(messages) {
+    if (!Array.isArray(messages) || messages.length === 0) return [];
+    const out = [];
+    let droppingInternalTurn = false;
+    for (const message of messages) {
+        if (isInternalCancelledAssistantMessage(message)) {
+            droppingInternalTurn = false;
+            continue;
+        }
+        if (message?.role === 'user' && isInternalRuntimeNotificationText(message.content)) {
+            droppingInternalTurn = true;
+            continue;
+        }
+        if (droppingInternalTurn) {
+            if (message?.role === 'user') {
+                droppingInternalTurn = false;
+            } else {
+                continue;
+            }
+        }
+        out.push(sanitizeSessionMessageForStoredHistory(message));
+    }
+    return out;
+}
+
 function acquireSessionLock(sessionId) {
     let entry = _sessionLocks.get(sessionId);
     if (!entry) {
@@ -2212,13 +2291,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
     const _prefetchFiles = (explicitPrefetch?.files?.length) || 0;
     const _prefetchCallers = (explicitPrefetch?.callers?.length) || 0;
     const _prefetchRefs = (explicitPrefetch?.references?.length) || 0;
-    if (process.env.MIXDOG_DEBUG_BRIDGE) {
-        process.stderr.write(`[bridge-trace] t0-ask-start sessionHash=${createHash('sha256').update(String(sessionId)).digest('hex').slice(0, 8)} role=? iteration=0 promptSrc=${_promptSrc} prefetchFiles=${_prefetchFiles} callers=${_prefetchCallers} references=${_prefetchRefs}\n`);
+    if (process.env.MIXDOG_DEBUG_AGENT) {
+        process.stderr.write(`[agent-trace] t0-ask-start sessionHash=${createHash('sha256').update(String(sessionId)).digest('hex').slice(0, 8)} role=? iteration=0 promptSrc=${_promptSrc} prefetchFiles=${_prefetchFiles} callers=${_prefetchCallers} references=${_prefetchRefs}\n`);
     }
     const unlock = await acquireSessionLock(sessionId);
     const _lockWaitedMs = Date.now() - _askStartedAt;
-    if (process.env.MIXDOG_DEBUG_BRIDGE) {
-        process.stderr.write(`[bridge-trace] lock-acquired waitedMs=${_lockWaitedMs}\n`);
+    if (process.env.MIXDOG_DEBUG_AGENT) {
+        process.stderr.write(`[agent-trace] lock-acquired waitedMs=${_lockWaitedMs}\n`);
     }
     // The mutex is held for the WHOLE askSession call, including any follow-up
     // turns drained from the pending-message queue below — the single outer
@@ -2327,7 +2406,8 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             if (explicitPrefetchResult) {
                 _contextBlock += `# Prefetch\n${_capCtx(explicitPrefetchResult)}\n\n`;
             }
-            const beforeCount = session.messages.length + 1;
+            const historyMessages = sanitizeSessionMessagesForModel(session.messages);
+            const beforeCount = historyMessages.length + 1;
             const promptTextForMetrics = promptContentText(prompt);
             // Soft warning only; real size management (compaction primary,
             // byte-budget trim as safety net) lives in agentLoop. Selecting a
@@ -2340,7 +2420,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             const effectiveCwd = cwdOverride || session.cwd;
             const _userTurnContent = prefixUserTurnContent(prompt, _contextBlock);
             cancelledUserTurnContent = _userTurnContent;
-            const outgoing = [...session.messages, { role: 'user', content: _userTurnContent }];
+            const outgoing = [...historyMessages, { role: 'user', content: _userTurnContent }];
             // Per-turn injected-context trace row (complements kind:"usage").
             // Cheap byte-length accounting — no hashing, no payload bodies.
             // Honors the same MIXDOG_BRIDGE_TRACE_DISABLE gate as usage rows;
@@ -2350,7 +2430,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 const _prefetchBytes = Buffer.byteLength(explicitPrefetchResult || '', 'utf8');
                 const _promptBytes = promptContentBytes(prompt);
                 const _userTurnBytes = promptContentBytes(_userTurnContent);
-                const _messagesBytes = Buffer.byteLength(JSON.stringify(session.messages || []), 'utf8');
+                const _messagesBytes = Buffer.byteLength(JSON.stringify(historyMessages || []), 'utf8');
                 const _totalBytes = _userTurnBytes + _messagesBytes;
                 appendBridgeTrace({
                     kind: 'context',
@@ -2364,10 +2444,11 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         promptBytes: _promptBytes,
                         userTurnBytes: _userTurnBytes,
                         messagesBytes: _messagesBytes,
-                        messagesCount: Array.isArray(session.messages) ? session.messages.length : 0,
+                        messagesCount: historyMessages.length,
                     },
                 });
             } catch { /* trace must never break the ask path */ }
+            const agentLoop = await _getAgentLoop();
             const result = await _api_call_with_interrupt(sessionId, (signal) =>
                 agentLoop(provider, outgoing, session.model, session.tools, onToolCall, effectiveCwd, {
                     effort: session.effort || null,
@@ -2375,11 +2456,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     sessionId,
                     onTextDelta: typeof askOpts?.onTextDelta === 'function' ? askOpts.onTextDelta : undefined,
                     onReasoningDelta: typeof askOpts?.onReasoningDelta === 'function' ? askOpts.onReasoningDelta : undefined,
+                    onAssistantText: typeof askOpts?.onAssistantText === 'function' ? askOpts.onAssistantText : undefined,
                     onUsageDelta: (d) => {
                         persistIterationMetrics(d).catch(() => {});
                         try { askOpts?.onUsageDelta?.(d); } catch {}
                     },
                     onToolResult: typeof askOpts?.onToolResult === 'function' ? askOpts.onToolResult : undefined,
+                    onCompactEvent: typeof askOpts?.onCompactEvent === 'function' ? askOpts.onCompactEvent : undefined,
                     // Mid-turn steering drain. agentLoop calls this at every
                     // tool-batch boundary (before the next provider.send) and
                     // injects any returned strings as user turns — so input
@@ -2402,6 +2485,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         return out;
                     },
                     onSteerMessage: typeof askOpts?.onSteerMessage === 'function' ? askOpts.onSteerMessage : undefined,
+                    notifyFn: typeof askOpts?.notifyFn === 'function' ? askOpts.notifyFn : undefined,
                     promptCacheKey: session.promptCacheKey || sessionId,
                     // Provider-scoped cache key (mixdog-codex, mixdog-claude…).
                     // Distinct from sessionId — providers that pool sockets
@@ -2437,11 +2521,11 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // Update and save. outgoing is mutated in place by agentLoop
             // (compaction + safety trim), so its length reflects post-loop state.
             const messagesDropped = Math.max(0, beforeCount - outgoing.length);
-            session.messages = outgoing;
+            session.messages = sanitizeSessionMessagesForModel(outgoing);
             if (result.content || result.reasoningContent) {
                 session.messages.push({
                     role: 'assistant',
-                    content: result.content || '',
+                    content: sanitizeContentForStoredHistory(result.content || ''),
                     ...(typeof result.reasoningContent === 'string' && result.reasoningContent
                         ? { reasoningContent: result.reasoningContent }
                         : {}),
@@ -2549,7 +2633,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     }
                 } catch {}
             }
-            // Append to bridge-trace.jsonl with the rich bridge usage fields.
+            // Append to the agent trace store with rich usage fields.
             if (result.usage) {
                 const inputTokens = result.usage.inputTokens || 0;
                 const outputTokens = result.usage.outputTokens || 0;
@@ -2622,27 +2706,32 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 ...result,
                 trimmed: messagesDropped > 0,
                 messagesDropped,
-                postTurnCompact: null,
             };
         } catch (err) {
             if (err instanceof SessionClosedError) {
                 const currentRuntime = _runtimeState.get(sessionId);
-                if (!currentRuntime?.closed && activeSession && cancelledUserTurnContent) {
-                    activeSession.messages = [
-                        ...(Array.isArray(activeSession.messages) ? activeSession.messages : []),
-                        { role: 'user', content: cancelledUserTurnContent },
-                        {
-                            role: 'assistant',
-                            content: '[cancelled] This turn was interrupted before completion. Preserve the user request above as the active task context if the user asks to continue.',
-                            cancelled: true,
-                            ts: Date.now(),
-                        },
-                    ];
-                    activeSession.updatedAt = Date.now();
-                    activeSession.lastUsedAt = Date.now();
-                    try {
-                        await saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
-                    } catch { /* cancellation persistence is best-effort */ }
+                if (!currentRuntime?.closed) {
+                    if (activeSession) {
+                        const originalMessages = Array.isArray(activeSession.messages) ? activeSession.messages : [];
+                        const cleanedMessages = sanitizeSessionMessagesForModel(originalMessages);
+                        const nextMessages = cleanedMessages.slice();
+                        const cancelledStoredContent = sanitizeContentForStoredHistory(cancelledUserTurnContent);
+                        const shouldPreserveUserTurn = cancelledStoredContent && !isInternalRuntimeNotificationText(cancelledStoredContent);
+                        const lastMessage = nextMessages[nextMessages.length - 1];
+                        if (shouldPreserveUserTurn && !(lastMessage?.role === 'user' && promptContentText(lastMessage.content) === promptContentText(cancelledStoredContent))) {
+                            nextMessages.push({ role: 'user', content: cancelledStoredContent });
+                        }
+                        const messagesChanged = nextMessages.length !== originalMessages.length
+                            || nextMessages.some((message, index) => message !== originalMessages[index]);
+                        if (messagesChanged) {
+                            activeSession.messages = nextMessages;
+                            activeSession.updatedAt = Date.now();
+                            activeSession.lastUsedAt = Date.now();
+                            try {
+                                await saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
+                            } catch { /* cancellation cleanup is best-effort */ }
+                        }
+                    }
                     markSessionCancelled(sessionId);
                 }
                 // Cancellation is not an error; propagate silently so callers
@@ -2729,7 +2818,7 @@ export async function resumeSession(sessionId, preset) {
             if (Array.isArray(profile?.tools)) toolSpec = profile.tools;
         } catch { /* ignore lookup failures, keep preset fallback */ }
     }
-    session.tools = resolveSessionTools(toolSpec, skills, { ownerIsBridge: session.owner === 'bridge' });
+    session.tools = resolveSessionTools(toolSpec, skills, { ownerIsBridge: isAgentOwner(session) });
     const newTools = session.tools;
     const missing = oldTools.filter(t => !newTools.find(n => n.name === t.name));
     if (missing.length) {
@@ -2773,12 +2862,40 @@ export async function clearSessionMessages(sessionId, options = {}) {
             compactType: clearCompactType,
         };
         try {
-            await runSessionCompaction(session, { mode: 'manual', force: true, sessionId });
+            const compactResult = await runSessionCompaction(session, { mode: 'manual', force: true, sessionId });
+            if (compactResult?.error) {
+                clearCompactError = new Error(compactResult.error);
+            }
         } catch (err) {
             clearCompactError = err;
             try { process.stderr.write(`[session] auto-clear pre-compact failed (sess=${sessionId}): ${err?.message || err}\n`); } catch { /* best-effort */ }
         }
         messages = Array.isArray(session.messages) ? session.messages : [];
+    }
+    if (compactBeforeClear && clearOptions.requireCompactSuccess === true) {
+        const hasRetainedSummary = messages.some((m) => (
+            m?.role === 'user'
+            && typeof m.content === 'string'
+            && m.content.startsWith(SUMMARY_PREFIX)
+        ));
+        if (!hasRetainedSummary && !clearCompactError) {
+            clearCompactError = new Error('compact produced no retained summary');
+        }
+    }
+    if (clearCompactError && clearOptions.requireCompactSuccess === true) {
+        const now = Date.now();
+        session.compaction = {
+            ...(session.compaction || {}),
+            lastStage: 'auto_clear_failed',
+            lastCheckedAt: now,
+            lastChanged: false,
+            lastClearAt: session.compaction?.lastClearAt || null,
+            lastClearCompactType: clearCompactType || session.compaction?.compactType || null,
+            lastClearCompactError: clearCompactError?.message || String(clearCompactError),
+        };
+        session.updatedAt = now;
+        await saveSessionAsync(session, { expectedGeneration: session.generation });
+        throw new Error(`auto-clear compact failed; conversation kept: ${session.compaction.lastClearCompactError}`);
     }
     const preserveCompactSummary = compactBeforeClear && clearOptions.keepCompactSummary !== false;
     for (let i = 0; i < messages.length; i += 1) {
@@ -2939,10 +3056,10 @@ export function closeSession(id, reason = 'manual') {
         const durationMs = (typeof askStartedAt === 'number') ? (Date.now() - askStartedAt) : null;
         const parts = [`session=${id}`, `reason=${reason}`];
         if (durationMs != null) parts.push(`duration=${durationMs}ms`);
-        if (!process.env.MIXDOG_QUIET_SESSION_LOG) process.stderr.write(`[bridge-close] ${parts.join(' ')}\n`);
+        if (process.env.MIXDOG_DEBUG_SESSION_LOG) process.stderr.write(`[agent-close] ${parts.join(' ')}\n`);
     } catch { /* best-effort */ }
     for (const bsid of allBashIds) {
-        try { closeBashSession(bsid, `bridge-close:${id}`); } catch { /* ignore */ }
+        try { _closeBashSessionLazy(bsid, `agent-close:${id}`); } catch { /* ignore */ }
     }
     // Drop session-scoped read dedup cache so the Map doesn't accumulate
     // entries across mcp-server lifetime.
@@ -3018,12 +3135,12 @@ function sweepIdleSessions({ includeTombstones = true } = {}) {
                 } else {
                     _clearSessionRuntime(d.id);
                     if (d.bashSessionId) {
-                        try { closeBashSession(d.bashSessionId, `idle-sweep:${d.id}`); } catch { /* ignore */ }
+                        try { _closeBashSessionLazy(d.bashSessionId, `idle-sweep:${d.id}`); } catch { /* ignore */ }
                     }
                 }
-                process.stderr.write(`[bridge-session] idle cleanup: closed ${d.id} (idle ${d.idleMinutes}m, owner=${d.owner})\n`);
+                process.stderr.write(`[agent-session] idle cleanup: closed ${d.id} (idle ${d.idleMinutes}m, owner=${d.owner})\n`);
             }
-            process.stderr.write(`[bridge-session] idle sweep: cleaned ${cleaned} session(s), ${remaining} remaining\n`);
+            process.stderr.write(`[agent-session] idle sweep: cleaned ${cleaned} session(s), ${remaining} remaining\n`);
         }
         if (tombstonesCleaned > 0) {
             for (const d of tombstoneDetails) {
@@ -3040,7 +3157,7 @@ function sweepIdleSessions({ includeTombstones = true } = {}) {
             process.stderr.write(`[session-sweep] cleanup took ${elapsed}ms (idle=${cleaned}, tombstones=${tombstonesCleaned}, remaining=${remaining})\n`);
         }
     } catch (e) {
-        process.stderr.write(`[bridge-session] idle sweep error: ${e && e.message || e}\n`);
+        process.stderr.write(`[agent-session] idle sweep error: ${e && e.message || e}\n`);
     }
 }
 

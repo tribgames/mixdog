@@ -75,11 +75,11 @@ function resolveCacheTtls(opts) {
 }
 
 const MODELS = [
-    { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', provider: 'anthropic', contextWindow: 1000000 },
-    { id: 'claude-opus-4-7', name: 'Claude Opus 4.7', provider: 'anthropic', contextWindow: 1000000 },
-    { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', provider: 'anthropic', contextWindow: 1000000 },
-    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'anthropic', contextWindow: 1000000 },
-    { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', provider: 'anthropic', contextWindow: 200000 },
+    { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', provider: 'anthropic', family: 'opus', contextWindow: 1000000 },
+    { id: 'claude-opus-4-7', name: 'Claude Opus 4.7', provider: 'anthropic', family: 'opus', contextWindow: 1000000 },
+    { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', provider: 'anthropic', family: 'opus', contextWindow: 1000000 },
+    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'anthropic', family: 'sonnet', contextWindow: 1000000 },
+    { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', provider: 'anthropic', family: 'haiku', contextWindow: 200000 },
 ];
 const ANTHROPIC_VERSION = '2023-06-01';
 
@@ -131,8 +131,21 @@ const EFFORT_BUDGET = {
     low: 1024,
     medium: 4096,
     high: 16384,
+    xhigh: 32768,
     max: 32768,
 };
+
+const MIN_THINKING_BUDGET = 1024;
+const THINKING_OUTPUT_RESERVE = 1024;
+
+function clampThinkingBudgetTokens(value, maxTokens) {
+    const desired = Math.floor(Number(value));
+    const max = Math.floor(Number(maxTokens));
+    if (!Number.isFinite(desired) || desired <= 0 || !Number.isFinite(max)) return null;
+    const ceiling = max - THINKING_OUTPUT_RESERVE;
+    if (ceiling < MIN_THINKING_BUDGET) return null;
+    return Math.max(MIN_THINKING_BUDGET, Math.min(desired, ceiling));
+}
 // Anthropic forbids oneOf / allOf / anyOf at the TOP level of input_schema.
 // Mirror the same sanitizer as anthropic-oauth.mjs so both providers are safe.
 function _sanitizeInputSchema(schema, toolName) {
@@ -169,9 +182,11 @@ function _sanitizeInputSchema(schema, toolName) {
         if (addition) description = description ? `${description} ${addition}` : addition;
     }
     const mergedPropsCount = Object.keys(mergedProps).length;
-    process.stderr.write(
-        `[anthropic-sanitizer] tool="${toolName ?? ''}" compound="${compoundKey}" branches=${Array.isArray(compound) ? compound.length : 0} mergedProps=${mergedPropsCount}\n`
-    );
+    if (process.env.MIXDOG_DEBUG_SESSION_LOG) {
+        process.stderr.write(
+            `[anthropic-sanitizer] tool="${toolName ?? ''}" compound="${compoundKey}" branches=${Array.isArray(compound) ? compound.length : 0} mergedProps=${mergedPropsCount}\n`
+        );
+    }
     return {
         type: 'object',
         ...(description ? { description } : {}),
@@ -185,6 +200,11 @@ function toAnthropicTools(tools) {
         description: t.description,
         input_schema: _sanitizeInputSchema(t.inputSchema, t.name),
     }));
+}
+function nativeAnthropicTools(opts) {
+    return Array.isArray(opts?.nativeTools)
+        ? opts.nativeTools.filter(t => t && typeof t === 'object')
+        : [];
 }
 function toAnthropicMessages(messages) {
     // Marker-free lowering. cache_control is applied AFTER sanitization by
@@ -444,18 +464,21 @@ export class AnthropicProvider {
                 : undefined,
             messages: anthropicMessages,
         };
-        if (tools?.length) {
+        const nativeTools = nativeAnthropicTools(opts);
+        if (tools?.length || nativeTools.length) {
             // No cache_control on tools — the system BP covers tools via
             // Anthropic prefix semantics (order: tools → system → messages).
-            params.tools = toAnthropicTools(tools);
+            params.tools = [...nativeTools, ...toAnthropicTools(tools || [])];
         }
         // Effort → extended thinking budget. Gateway inherit mode may pass the
         // exact Claude Code budget from the incoming Anthropic request.
         const thinkingBudgetTokens = Number(opts.thinkingBudgetTokens);
-        if (Number.isFinite(thinkingBudgetTokens) && thinkingBudgetTokens > 0) {
-            params.thinking = { type: 'enabled', budget_tokens: Math.floor(thinkingBudgetTokens) };
-        } else if (opts.effort && EFFORT_BUDGET[opts.effort]) {
-            params.thinking = { type: 'enabled', budget_tokens: EFFORT_BUDGET[opts.effort] };
+        const requestedThinkingBudget = Number.isFinite(thinkingBudgetTokens) && thinkingBudgetTokens > 0
+            ? thinkingBudgetTokens
+            : (opts.effort && EFFORT_BUDGET[opts.effort] ? EFFORT_BUDGET[opts.effort] : null);
+        const budgetTokens = clampThinkingBudgetTokens(requestedThinkingBudget, maxTokens);
+        if (budgetTokens) {
+            params.thinking = { type: 'enabled', budget_tokens: budgetTokens };
         }
         // Fast mode → speed: "fast" on models Anthropic marks as speed-capable.
         if (opts.fast === true && supportsAnthropicFastMode(useModel)) {

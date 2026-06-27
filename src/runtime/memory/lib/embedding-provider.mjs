@@ -12,12 +12,18 @@ import { Worker } from 'worker_threads'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { writeProfilePoint } from './model-profile.mjs'
+import {
+  getConfiguredEmbeddingModelId,
+  getDefaultEmbeddingDtype,
+  getKnownEmbeddingDims,
+  normalizeEmbeddingDtype,
+} from './embedding-model-config.mjs'
 
-const MODEL_ID = 'Xenova/bge-m3'
+const MODEL_ID = getConfiguredEmbeddingModelId()
 
 // Static dims registry — bypasses first-boot measurement for registered models.
 // Validated against measured dims inside warmupEmbeddingProvider; mismatch throws.
-const KNOWN_MODEL_DIMS = { 'Xenova/bge-m3': 1024 }
+const KNOWN_MODEL_DIMS = { [MODEL_ID]: getKnownEmbeddingDims(MODEL_ID) }
 
 let worker = null
 let _restartCount = 0
@@ -26,6 +32,8 @@ const MAX_RESTART_BACKOFF_MS = 30_000
 let cachedDims = null
 let _modelReady = false
 let _device = 'cpu'
+let _configuredDtype = getDefaultEmbeddingDtype(MODEL_ID)
+let _warmupPromise = null
 let _embedCallCount = 0
 let _msgId = 0
 const _pending = new Map()
@@ -145,9 +153,10 @@ export function configureEmbedding(config = {}) {
   cachedDims = null
   _modelReady = false
   _device = 'cpu'
+  _configuredDtype = normalizeEmbeddingDtype(MODEL_ID, config.dtype ?? process.env.MIXDOG_EMBED_DTYPE)
   queryEmbeddingCache.clear()
   if (worker) {
-    sendToWorker('configure', { dtype: config.dtype }).catch((err) => {
+    sendToWorker('configure', { dtype: _configuredDtype }).catch((err) => {
       // Silent .catch hid worker reconfigure failures (dtype mismatch,
       // worker crash, IPC closed). At least one log line so cycle1 /
       // cycle2 root-cause investigation can see the upstream failure
@@ -166,8 +175,16 @@ export function getEmbeddingModelId() {
   return MODEL_ID
 }
 
+export function getEmbeddingDtype() {
+  return _configuredDtype
+}
+
 export function getKnownDimsForCurrentModel() {
   return KNOWN_MODEL_DIMS[MODEL_ID] ?? null
+}
+
+export function isEmbeddingModelReady() {
+  return _modelReady && Boolean(cachedDims)
 }
 
 export function getEmbeddingDims() {
@@ -175,7 +192,7 @@ export function getEmbeddingDims() {
   return cachedDims
 }
 
-export async function warmupEmbeddingProvider() {
+async function runEmbeddingWarmup() {
   if (_modelReady && cachedDims) return true
   const result = await sendToWorker('warmup')
   if (!result.dims) throw new Error('warmup returned no dims — model output missing')
@@ -189,6 +206,16 @@ export async function warmupEmbeddingProvider() {
   _modelReady = true
   _device = result.device || 'cpu'
   return true
+}
+
+export function warmupEmbeddingProvider() {
+  if (_modelReady && cachedDims) return Promise.resolve(true)
+  if (!_warmupPromise) {
+    _warmupPromise = runEmbeddingWarmup().finally(() => {
+      _warmupPromise = null
+    })
+  }
+  return _warmupPromise
 }
 
 export async function embedText(text) {

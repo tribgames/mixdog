@@ -148,10 +148,11 @@ function windowSegmentParts(w) {
 }
 
 function creditSegmentParts(value) {
+  const creditColor = Number(value) === 0 ? theme.text : remainingUsdColor(value);
   return [
     { text: CREDIT_LABEL, color: theme.subtle },
     { text: ' ', color: theme.inactive },
-    { text: money(value), color: remainingUsdColor(value) },
+    { text: money(value), color: creditColor },
   ];
 }
 
@@ -185,13 +186,10 @@ function rowStatusParts(row, columns = 80, statusWidth = 0) {
     case 'checking':
       return [{ text: 'checking...', color: theme.inactive }];
     case 'hidden':
-      return row?.detail ? [{ text: row.detail, color: theme.inactive }] : [];
     case 'missing':
-      return row?.primary && row.primary !== 'not configured' ? [{ text: row.primary, color: theme.inactive }] : [];
     case 'local':
-      return row?.primary ? [{ text: row.primary, color: theme.inactive }] : [];
     case 'error':
-      return row?.primary ? [{ text: row.primary, color: theme.error }] : [];
+      return [];
     default:
       return row?.primary ? [{ text: row.primary, color: theme.text }] : [];
   }

@@ -573,8 +573,8 @@ function refreshShellJob(jobId) {
     return detail;
 }
 
-export function startBackgroundShellJob({ command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, shellArg, shellType, clientHostPid }) {
-    return _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, shellArg, shellType, clientHostPid });
+export function startBackgroundShellJob({ command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, shellArg, shellArgs, shellType, clientHostPid }) {
+    return _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, shellArg, shellArgs, shellType, clientHostPid });
 }
 
 // In-process completion watcher. After a background shell task is spawned the
@@ -898,7 +898,7 @@ export function adoptForegroundShellJob({ command, cwd, pid, timeoutMs, mergeStd
     return { ...detail, exitPath, donePath };
 }
 
-function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, shellArg, shellType, clientHostPid }) {
+function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, shellArg, shellArgs, shellType, clientHostPid }) {
     // Route ANY PowerShell shell to the PS wrapper, regardless of platform.
     // Gating on win32 sent shell:'powershell' on macOS/Linux down the POSIX
     // path below, which spawns `pwsh <wrapper>.sh` — pwsh then tries to run a
@@ -940,7 +940,8 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
     // it trivial to distinguish a timeout (124) from a user-side
     // SIGTERM exit (143).
     const innerShellQ = shellQuoteSingle(shell);
-    const innerArgQ = shellQuoteSingle(shellArg);
+    const innerArgs = Array.isArray(shellArgs) && shellArgs.length > 0 ? shellArgs : [shellArg];
+    const innerArgsQ = innerArgs.filter((arg) => arg != null && String(arg).length > 0).map(shellQuoteSingle).join(' ');
     // Runtime enforcement proof: the wrapper touches <jobId>.enforced right
     // before exec'ing `timeout`, so the marker exists iff the timeout branch
     // actually ran under the wrapper's own env/cwd. A spawn-time probe can't
@@ -954,7 +955,7 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
     // status for processes that actually exited 0. `rm -- "$0"` removes
     // the staged wrapper .cmd.sh after donePath is published so a host
     // crash before this point still leaves the file for the sweep to GC.
-    const wrapped = `{ if command -v timeout >/dev/null 2>&1; then _to=timeout; elif command -v gtimeout >/dev/null 2>&1; then _to=gtimeout; else _to=; fi; if [ -n "$_to" ]; then touch ${shellQuoteSingle(enforcedPath)}; "$_to" ${timeoutSeconds} ${innerShellQ} ${innerArgQ} ${userCmdQuoted}; else ${innerShellQ} ${innerArgQ} ${userCmdQuoted}; fi; rc=$?; printf '%s' "$rc" > ${shellQuoteSingle(exitPath)}; touch ${shellQuoteSingle(donePath)}; rm -- "$0" 2>/dev/null; exit $rc; }`;
+    const wrapped = `{ if command -v timeout >/dev/null 2>&1; then _to=timeout; elif command -v gtimeout >/dev/null 2>&1; then _to=gtimeout; else _to=; fi; if [ -n "$_to" ]; then touch ${shellQuoteSingle(enforcedPath)}; "$_to" ${timeoutSeconds} ${innerShellQ} ${innerArgsQ} ${userCmdQuoted}; else ${innerShellQ} ${innerArgsQ} ${userCmdQuoted}; fi; rc=$?; printf '%s' "$rc" > ${shellQuoteSingle(exitPath)}; touch ${shellQuoteSingle(donePath)}; rm -- "$0" 2>/dev/null; exit $rc; }`;
     // Stage the wrapped command to a .sh and let the script open its own
     // output files via `exec > … 2> …`. The parent does NOT pass file
     // descriptors via stdio inheritance (`stdio: 'ignore'` for all three).

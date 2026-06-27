@@ -23,6 +23,7 @@ function loadStatuslineModule() {
 
 const RESET = '\x1b[0m';
 const STATUSLINE_RENDER_DEBOUNCE_MS = 150;
+const STATUSLINE_REFRESH_MS = 2000;
 
 function ansiRgb(value, fallback) {
   const match = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(String(value || '').replace(/\s+/g, ''));
@@ -35,6 +36,28 @@ const SUBTLE = ansiRgb(theme.statusSubtle, '\x1b[38;2;136;136;136m');
 const SUCCESS = ansiRgb(theme.success, '\x1b[38;2;0;170;75m');
 const WARNING = ansiRgb(theme.warning, '\x1b[38;2;255;193;7m');
 const ERROR = ansiRgb(theme.error, '\x1b[38;2;220;70;88m');
+
+function terminalColumns() {
+  const cols = Number(process.stdout?.columns);
+  return Number.isFinite(cols) && cols > 0 ? Math.floor(cols) : 120;
+}
+
+function localContextSegment() {
+  const cols = terminalColumns();
+  const cells = cols >= 120 ? 14 : cols >= 80 ? 8 : 0;
+  if (!cells) return `${SUCCESS}0%${RESET}`;
+  return `${SUBTLE}${'░'.repeat(cells)}${RESET} ${STATUS}0%${RESET}`;
+}
+
+function localFallbackStatusLine({ model = '', effort = '', fast = false } = {}) {
+  const display = String(model || 'model')
+    .replace(/-\d{4}-\d{2}-\d{2}$/, '')
+    .replace(/^gpt-/i, 'GPT-')
+    .replace(/(?:^|-)([a-z])/g, (m) => m.toUpperCase());
+  const flags = [effort ? String(effort).toUpperCase() : '', fast === true ? 'FAST' : ''].filter(Boolean);
+  const modelBits = [display, ...flags].join(` ${SUBTLE}·${RESET} `);
+  return `${STATUS}◆${RESET} ${STATUS}${modelBits}${RESET} ${SUBTLE}│${RESET} ${localContextSegment()}`;
+}
 
 export function normalizeStatusLine(text) {
   return String(text || '')
@@ -52,20 +75,41 @@ export function normalizeStatusLine(text) {
 }
 
 function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision = '', bridgeWorkers = [], bridgeJobs = [], initialLine = '' }) {
-  const [line, setLine] = useState(() => normalizeStatusLine(initialLine));
+  const [line, setLine] = useState(() => normalizeStatusLine(initialLine || localFallbackStatusLine({ provider, model, effort, fast })));
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  const statuslineArgs = { sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, bridgeWorkers, bridgeJobs };
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setRefreshTick((tick) => (tick + 1) % 1_000_000);
+    }, STATUSLINE_REFRESH_MS);
+    timer.unref?.();
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let alive = true;
+    if (!line) {
+      loadStatuslineModule()
+        .then((m) => {
+          if (!alive || typeof m.fallbackStatusline !== 'function') return;
+          const next = normalizeStatusLine(m.fallbackStatusline(statuslineArgs));
+          if (next) setLine((prev) => (prev || next));
+        })
+        .catch(() => {});
+    }
     const timer = setTimeout(() => {
       loadStatuslineModule()
-        .then((m) => m.renderStatusline({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, bridgeWorkers, bridgeJobs }))
+        .then((m) => m.renderStatusline(statuslineArgs))
         .then((s) => {
           if (!alive) return;
           const next = normalizeStatusLine(s);
-          setLine((prev) => (prev === next ? prev : next));
+          if (next) setLine((prev) => (prev === next ? prev : next));
         })
         .catch(() => {
-          if (alive) setLine((prev) => (prev === '' ? prev : ''));
+          // Keep the previous/minimal line. Boot-time gateway/cache races should
+          // never blank the reserved footer and make the statusline flicker.
         });
     }, STATUSLINE_RENDER_DEBOUNCE_MS);
     timer.unref?.();
@@ -73,7 +117,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
       alive = false;
       clearTimeout(timer);
     };
-  }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision, bridgeWorkers, bridgeJobs]);
+  }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision, bridgeWorkers, bridgeJobs, refreshTick]);
 
   return (
     <Box flexDirection="column" width="100%" height={2} overflow="hidden" paddingLeft={2} marginBottom={1} backgroundColor={theme.background}>

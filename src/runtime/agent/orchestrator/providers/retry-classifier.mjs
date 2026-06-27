@@ -27,10 +27,10 @@ import {
 
 // HTTP statuses considered transient — safe to retry with backoff.
 //   408 — request timeout
-//   429 — rate limit (caller may still respect Retry-After, but the kind
-//         classification here only signals "retryable"; sub-error in the
-//         provider can still treat 429 as permanent for quota-exhausted)
 //   500/502/503/504 — server errors (overload / bad gateway / timeout)
+//   429 is deliberately excluded: rate-limit/quota windows are deterministic
+//   for the current call and must surface immediately instead of sleeping until
+//   an outer watchdog reports a misleading timeout.
 const TRANSIENT_STATUSES = new Set([408, 500, 502, 503, 504])
 
 // HTTP statuses that mean "permanent: stop retrying, surface to caller".
@@ -58,7 +58,7 @@ const MESSAGE_PATTERNS = [
   // by classifyError because per-call retry won't change the answer (the
   // window must elapse). Providers that want time-bounded retry should
   // honor Retry-After on the original response, not loop here.
-  { regex: /(?:rate ?limit|quota)/i, status: 429 },
+  { regex: /(?:rate[_ -]?limit|quota|too many requests|resource exhausted|insufficient_quota|quota_exceeded)/i, status: 429 },
   // Auth — never retryable from our side.
   { regex: /\b(?:unauthorized|unauthorised|authentication|not authenticated|token expired|access token|invalid api key)\b/i, status: 401 },
   { regex: /\b(?:forbidden|permission denied|policy violation)\b/i, status: 403 },
@@ -296,17 +296,17 @@ export async function withRetry(fn, opts = {}) {
       }
       lastErr = caught
       populateHttpStatusFromMessage(caught)
-      const retryAfterMs = retryAfterMsFromError(caught)
       const status = Number(caught?.httpStatus || caught?.status || caught?.response?.status || 0)
       const kind = classifyError(caught)
       const unsafeToRetry = caught?.unsafeToRetry === true
         || caught?.providerQuota === true
         || caught?.quotaExceeded === true
       if (unsafeToRetry) throw caught
-      const retryableRateLimit = status === 429 && retryAfterMs != null
-      if (kind !== 'transient' && !retryableRateLimit) throw caught
+      if (status === 429) throw caught
+      if (kind !== 'transient') throw caught
       // Last attempt failed transiently — propagate to caller.
       if (attempt === maxAttempts - 1) throw caught
+      const retryAfterMs = retryAfterMsFromError(caught)
       if (retryAfterMs != null) {
         nextDelayMs = Math.max(0, Math.min(retryAfterMs, maxRetryAfterMs))
         nextDelayReason = 'retry-after'

@@ -822,6 +822,41 @@ function toGeminiTools(tools) {
         })),
     };
 }
+function toGeminiNativeTools(nativeTools) {
+    if (!Array.isArray(nativeTools)) return [];
+    const out = [];
+    for (const tool of nativeTools) {
+        const type = String(tool?.type || '').trim().toLowerCase();
+        if (type === 'google_search' || type === 'google_search_retrieval') {
+            out.push({ googleSearch: {} });
+        }
+    }
+    return out;
+}
+
+function collectGeminiGroundingSources(candidate) {
+    const out = [];
+    const seen = new Set();
+    const add = (source) => {
+        if (!source || typeof source !== 'object') return;
+        const web = source.web && typeof source.web === 'object' ? source.web : source;
+        const url = String(web.uri || web.url || source.uri || source.url || '').trim();
+        if (!url || seen.has(url)) return;
+        seen.add(url);
+        out.push({
+            title: String(web.title || source.title || url).trim(),
+            url,
+            snippet: '',
+            source: 'gemini-grounding',
+            provider: 'gemini',
+        });
+    };
+    const grounding = candidate?.groundingMetadata || {};
+    for (const chunk of Array.isArray(grounding.groundingChunks) ? grounding.groundingChunks : []) add(chunk);
+    const citationMetadata = candidate?.citationMetadata || {};
+    for (const source of Array.isArray(citationMetadata.citationSources) ? citationMetadata.citationSources : []) add(source);
+    return out;
+}
 
 // Map the orchestrator-level toolChoice to Gemini's functionCallingConfig.
 //   auto      -> AUTO
@@ -998,6 +1033,7 @@ export class GeminiProvider {
     // tokens/hour) is dwarfed by the 75% input-price discount on hits beyond
     // a few iterations.
     async _ensureGeminiCache({ apiKey, model, systemInstruction, geminiTools, contents, opts }) {
+        if (Array.isArray(opts?.nativeTools) && opts.nativeTools.length) return null;
         const state = opts.providerState?.gemini || null;
         const now = Date.now();
         const currentIter = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : 1;
@@ -1242,6 +1278,9 @@ export class GeminiProvider {
     }
 
     async send(messages, model, tools, sendOpts) {
+        // Re-warm a kept-alive socket before the turn (TTL-gated no-op while
+        // hot) so a post-idle request skips the cold TLS handshake.
+        preconnect('https://generativelanguage.googleapis.com');
         try {
             return await this._doSend(messages, model, tools, sendOpts);
         } catch (err) {
@@ -1275,8 +1314,12 @@ export class GeminiProvider {
         if (!contents.length)
             throw new Error('No messages to send');
 
-        const geminiTools = tools?.length ? [toGeminiTools(tools)] : undefined;
-        const toolConfig = geminiTools ? toGeminiToolConfig(opts.toolChoice) : undefined;
+        const nativeGeminiTools = toGeminiNativeTools(opts.nativeTools);
+        const functionGeminiTools = tools?.length ? [toGeminiTools(tools)] : [];
+        const geminiTools = nativeGeminiTools.length || functionGeminiTools.length
+            ? [...nativeGeminiTools, ...functionGeminiTools]
+            : undefined;
+        const toolConfig = functionGeminiTools.length ? toGeminiToolConfig(opts.toolChoice) : undefined;
         try { opts.onStageChange?.('requesting'); } catch {}
 
         // Explicit cachedContents (system + tools + prior-turn transcript).
@@ -1478,6 +1521,7 @@ export class GeminiProvider {
         const textParts = candidate?.content?.parts?.filter(p => 'text' in p) ?? [];
         const content = textParts.map(p => 'text' in p ? p.text : '').join('');
         const toolCalls = parseToolCalls(candidate?.content?.parts ?? []);
+        const citations = collectGeminiGroundingSources(candidate);
         emitGeminiToolCalls(toolCalls, onToolCall);
         // Inspect candidate.finishReason — Gemini reports terminal status here.
         // Only STOP (and the legacy "FINISH_REASON_STOP") plus tool/function-
@@ -1571,6 +1615,7 @@ export class GeminiProvider {
             content,
             model: useModel,
             toolCalls,
+            citations: citations.length ? citations : undefined,
             providerState: opts.providerState,
             usage: um ? (() => {
                 const input = um.promptTokenCount || um.totalTokenCount || 0;

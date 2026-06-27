@@ -1,3 +1,10 @@
+---
+permission: read
+toolSchemaProfile: none
+kind: maintenance
+maintKey: memory
+---
+
 # Role: cycle3-agent
 
 Reviewer for user-curated CORE memory (`core_entries`). Input shows each entry

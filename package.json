@@ -43,6 +43,7 @@
     "smoke:tools": "node scripts/tool-smoke.mjs",
     "smoke:output": "node scripts/output-style-smoke.mjs",
     "failures": "node scripts/tool-failures.mjs",
+    "trace:llm": "node scripts/llm-trace-summary.mjs",
     "build:tui": "node scripts/build-tui.mjs"
   },
   "engines": {

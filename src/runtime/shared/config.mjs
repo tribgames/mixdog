@@ -15,7 +15,7 @@ import {
 } from './user-data-guard.mjs'
 
 const _require = createRequire(import.meta.url)
-const { getSecret: _getSecret, setSecret: _setSecret, deleteSecret: _deleteSecret } = _require('../../lib/keychain-cjs.cjs')
+const { getSecret: _getSecret, setSecret: _setSecret, deleteSecret: _deleteSecret, hasSecret: _hasSecret } = _require('../../lib/keychain-cjs.cjs')
 
 const DATA_DIR = resolvePluginData()
 
@@ -93,7 +93,7 @@ function readAll() {
   // failed write), not a fresh install. Self-heal from the newest
   // structurally-complete backup instead of silently collapsing to {} —
   // which callers (readSection/getCapabilities) merge with in-memory
-  // defaults, dropping the user's presets/roles/sections. In-memory only:
+  // defaults, dropping the user's presets/agent routes/sections. In-memory only:
   // readAll() runs OUTSIDE the config lock (unlike the RMW path), so we do
   // not write here to avoid an unlocked-write race; the next writeSection
   // re-persists the file under the lock.
@@ -387,7 +387,10 @@ export function deleteSecret(account) {
  * browser.
  */
 export function hasStoredSecret(account) {
-  try { return !!_getSecret(account) } catch { return false }
+  try {
+    if (typeof _hasSecret === 'function') return !!_hasSecret(account)
+    return !!_getSecret(account)
+  } catch { return false }
 }
 
 export { CONFIG_PATH }

@@ -32,12 +32,24 @@ const _LOCAL_TRACE_FLUSH_MS = 1000;
 const _LOCAL_TRACE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — rotate to .1 above this.
 const _TOOL_FAILURE_FLUSH_LINES = 50;
 const _TOOL_FAILURE_FLUSH_MS = 1000;
+const MIXDOG_SLOW_TOOL_TRACE_MS = (() => {
+    const v = parseInt(process.env.MIXDOG_SLOW_TOOL_TRACE_MS, 10);
+    return Number.isFinite(v) && v > 0 ? v : 3000;
+})();
+const MIXDOG_SLOW_TOOL_TRACE_NAMES_RAW = String(process.env.MIXDOG_SLOW_TOOL_TRACE_NAMES || 'recall,grep,code_graph');
+const MIXDOG_SLOW_TOOL_TRACE_ALL = MIXDOG_SLOW_TOOL_TRACE_NAMES_RAW.trim() === '*';
+const MIXDOG_SLOW_TOOL_TRACE_NAMES = new Set(
+    MIXDOG_SLOW_TOOL_TRACE_NAMES_RAW
+        .split(',')
+        .map((name) => name.trim())
+        .filter(Boolean)
+);
 // Throttle interval for local rotation stat checks. statSync on every flush
 // is unnecessary — rotation is a best-effort size guard. First flush always
 // checks; subsequent checks wait at least this many ms. Tune via env
-// MIXDOG_BRIDGE_TRACE_ROTATE_CHECK_MS (default 60000 ms, positive integer).
+// MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS (default 60000 ms, positive integer).
 const MIXDOG_BRIDGE_TRACE_ROTATE_CHECK_MS = (() => {
-    const v = parseInt(process.env.MIXDOG_BRIDGE_TRACE_ROTATE_CHECK_MS, 10);
+    const v = parseInt(process.env.MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS, 10);
     return Number.isFinite(v) && v > 0 ? v : 60000;
 })();
 let _lastRotateCheckMs = 0;
@@ -49,7 +61,7 @@ function _rotateLocalTraceIfNeeded(path) {
         if (stat && stat.size > _LOCAL_TRACE_MAX_BYTES) {
             try { renameSync(path, `${path}.1`); }
             catch (err) {
-                warnBridgeOnce('bridge-trace:local-rotate', `[bridge-trace] local rotate failed (${err?.message})`);
+                warnBridgeOnce('agent-trace:local-rotate', `[agent-trace] local rotate failed (${err?.message})`);
             }
         }
     } catch {
@@ -58,11 +70,12 @@ function _rotateLocalTraceIfNeeded(path) {
 }
 
 function _resolveLocalTracePath() {
-    if (process.env.MIXDOG_BRIDGE_TRACE_LOCAL_DISABLE === '1') return null;
+    if (process.env.MIXDOG_AGENT_TRACE_LOCAL_DISABLE === '1' || process.env.MIXDOG_BRIDGE_TRACE_LOCAL_DISABLE === '1') return null;
     if (_localTracePath) return _localTracePath;
     try {
-        _localTracePath = process.env.MIXDOG_BRIDGE_TRACE_PATH
-            || join(getPluginData(), 'history', 'bridge-trace.jsonl');
+        _localTracePath = process.env.MIXDOG_AGENT_TRACE_PATH
+            || process.env.MIXDOG_BRIDGE_TRACE_PATH
+            || join(getPluginData(), 'history', 'agent-trace.jsonl');
         // R4 data-at-rest: trace rows may carry tool payloads / prompts;
         // clamp dir to owner-only on POSIX (advisory on Windows).
         mkdirSync(dirname(_localTracePath), { recursive: true, mode: 0o700 });
@@ -83,7 +96,7 @@ function _appendLocalTrace(row) {
             _localTraceTimer.unref?.();
         }
     } catch (err) {
-        warnBridgeOnce('bridge-trace:local-spool', `[bridge-trace] local spool failed (${err?.message})`);
+        warnBridgeOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
     }
 }
 
@@ -111,7 +124,7 @@ function _flushLocalTrace() {
             _lastRotateCheckMs = now;
         }
     } catch (err) {
-        warnBridgeOnce('bridge-trace:local-spool', `[bridge-trace] local spool failed (${err?.message})`);
+        warnBridgeOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
         return;
     }
     // mode only applies on file creation; existing files keep their mode.
@@ -119,7 +132,7 @@ function _flushLocalTrace() {
     _localTraceFlushInFlight = true;
     appendFile(path, chunk, { encoding: 'utf8', mode: 0o600 })
         .catch((err) => {
-            warnBridgeOnce('bridge-trace:local-spool', `[bridge-trace] local spool failed (${err?.message})`);
+            warnBridgeOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
         })
         .finally(() => {
             _localTraceFlushInFlight = false;
@@ -148,7 +161,7 @@ function _flushLocalTraceSync() {
         }
         appendFileSync(path, chunk, { encoding: 'utf8', mode: 0o600 });
     } catch (err) {
-        warnBridgeOnce('bridge-trace:local-spool', `[bridge-trace] local spool failed (${err?.message})`);
+        warnBridgeOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
     }
 }
 
@@ -187,7 +200,7 @@ async function _flush() {
     _flushTimer = null;
     if (_buffer.length === 0) return;
     if (_flushInFlight) {
-        if (!_flushTimer) _flushTimer = setTimeout(_flush, _FLUSH_INTERVAL_MS);
+        if (!_flushTimer) { _flushTimer = setTimeout(_flush, _FLUSH_INTERVAL_MS); _flushTimer.unref?.(); }
         return;
     }
     _flushInFlight = true;
@@ -195,7 +208,7 @@ async function _flush() {
         const url = _resolveServiceUrl();
         if (!url) {
             // Service not up yet — keep buffer, retry next timer tick
-            if (!_flushTimer) _flushTimer = setTimeout(_flush, _FLUSH_INTERVAL_MS);
+            if (!_flushTimer) { _flushTimer = setTimeout(_flush, _FLUSH_INTERVAL_MS); _flushTimer.unref?.(); }
             return;
         }
         const batch = _buffer.splice(0, _FLUSH_BATCH_SIZE);
@@ -207,11 +220,11 @@ async function _flush() {
                 signal: AbortSignal.timeout(5000),
             });
             if (!resp.ok) {
-                warnBridgeOnce('bridge-trace:flush-error', `[bridge-trace] /admin/trace-record returned ${resp.status} — dropping batch`);
+                warnBridgeOnce('agent-trace:flush-error', `[agent-trace] /admin/trace-record returned ${resp.status} — dropping batch`);
             }
         } catch (err) {
             _serviceUrl = null;
-            warnBridgeOnce('bridge-trace:flush-fetch', `[bridge-trace] flush fetch failed (${err?.message}) — dropping batch`);
+            warnBridgeOnce('agent-trace:flush-fetch', `[agent-trace] flush fetch failed (${err?.message}) — dropping batch`);
         }
         if (_buffer.length >= _FLUSH_BATCH_SIZE) {
             // More pending — schedule another flush immediately
@@ -228,6 +241,12 @@ function _scheduleFlush(immediate = false) {
         setImmediate(_flush);
     } else if (!_flushTimer) {
         _flushTimer = setTimeout(_flush, _FLUSH_INTERVAL_MS);
+        // Never let the periodic trace flush keep the event loop alive: a
+        // ref'd 5s timer prevented short-lived processes (smoke scripts, agent
+        // tasks) from exiting naturally after their work was done — they hung
+        // until an external timeout/kill. exit/beforeExit drains still flush
+        // the buffer, so unref loses no data.
+        _flushTimer.unref?.();
     }
 }
 
@@ -246,7 +265,7 @@ function normalizeSessionId(sessionId) {
 
 function appendBridgeTrace(record = {}) {
     // Test isolation — when run-all-tests.mjs sets this env, skip entirely.
-    if (process.env.MIXDOG_BRIDGE_TRACE_DISABLE === '1') return;
+    if (process.env.MIXDOG_AGENT_TRACE_DISABLE === '1' || process.env.MIXDOG_BRIDGE_TRACE_DISABLE === '1') return;
     try {
         // Coerce ts to epoch ms integer at enqueue time
         let ts = record.ts || Date.now();
@@ -265,7 +284,7 @@ function appendBridgeTrace(record = {}) {
 
         if (_buffer.length >= _BUFFER_MAX) {
             _buffer.shift(); // drop oldest
-            warnBridgeOnce('bridge-trace:buffer-full', '[bridge-trace] buffer full (2000) — dropping oldest event');
+            warnBridgeOnce('agent-trace:buffer-full', '[agent-trace] buffer full (2000) — dropping oldest event');
         }
         _appendLocalTrace(row);
         _buffer.push(row);
@@ -383,8 +402,12 @@ function traceBridgeCompact({
 const TOOL_ARG_KEYS = {
     read: ['path', 'offset', 'limit', 'line', 'context', 'symbol'],
     grep: ['pattern', 'path', 'glob', 'output_mode', 'head_limit', 'offset'],
-    glob: ['pattern', 'path', 'head_limit', 'offset'],
-    list: ['path', 'head_limit', 'offset', 'fuzzy'],
+    glob: ['pattern', 'path', 'head_limit', 'offset', 'sort'],
+    find: ['query', 'path', 'head_limit'],
+    list: ['path', 'head_limit', 'offset'],
+    recall: ['query', 'limit', 'session_id', 'cwd'],
+    search: ['query', 'limit', 'cwd'],
+    explore: ['query', 'queries', 'limit', 'cwd'],
     code_graph: ['mode', 'file', 'symbol', 'symbols', 'body', 'language', 'limit', 'depth', 'page', 'cwd'],
     shell: ['command', 'cwd', 'timeout', 'mode', 'run_in_background', 'persistent', 'session_id'],
     task: ['task_id', 'action', 'timeout_ms', 'poll_ms'],
@@ -603,6 +626,10 @@ function traceBridgeToolFailure({ sessionId, iteration, toolName, toolKind, tool
 
 function traceBridgeTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, resultKind, model, resultText, cwd }) {
     const nextCallCount = countJsonNextCalls(resultText);
+    const resultBytesEst = typeof resultText === 'string' ? Buffer.byteLength(resultText, 'utf8') : 0;
+    const resultLinesEst = typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0;
+    const numericToolMs = Number(toolMs);
+    const summarizedArgs = summarizeToolArgs(toolName, toolArgs);
     // Flat shape — fields named exactly as the bridge_calls PG columns so
     // insertBridgeCalls can pick them up by direct property access without
     // a payload-unwrap step. result_kind has no column and rides as plain
@@ -616,13 +643,39 @@ function traceBridgeTool({ sessionId, iteration, toolName, toolKind, toolMs, too
         tool_name: toolName,
         tool_kind: toolKind,
         tool_ms: toolMs,
-        tool_args: summarizeToolArgs(toolName, toolArgs),
+        tool_args: summarizedArgs,
         result_kind: resultKind || null,
         result_has_next_call: nextCallCount > 0,
         result_next_call_count: nextCallCount,
-        result_bytes_est: typeof resultText === 'string' ? Buffer.byteLength(resultText, 'utf8') : 0,
-        result_lines_est: typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0,
+        result_bytes_est: resultBytesEst,
+        result_lines_est: resultLinesEst,
     });
+    if (
+        Number.isFinite(numericToolMs)
+        && numericToolMs >= MIXDOG_SLOW_TOOL_TRACE_MS
+        && (MIXDOG_SLOW_TOOL_TRACE_ALL || MIXDOG_SLOW_TOOL_TRACE_NAMES.size === 0 || MIXDOG_SLOW_TOOL_TRACE_NAMES.has(String(toolName || '')))
+    ) {
+        appendBridgeTrace({
+            sessionId,
+            iteration,
+            kind: 'tool_slow',
+            role: role || null,
+            model: model || null,
+            tool_name: toolName,
+            tool_kind: toolKind,
+            tool_ms: numericToolMs,
+            payload: {
+                threshold_ms: MIXDOG_SLOW_TOOL_TRACE_MS,
+                result_kind: resultKind || null,
+                tool_args: summarizedArgs,
+                result_has_next_call: nextCallCount > 0,
+                result_next_call_count: nextCallCount,
+                result_bytes_est: resultBytesEst,
+                result_lines_est: resultLinesEst,
+                cwd: cwd || null,
+            },
+        });
+    }
     if (resultKind === 'error') {
         traceBridgeToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, model, cwd, resultText, resultKind });
     }
@@ -660,14 +713,6 @@ export function traceBridgeBatch({ sessionId, toolCallCount }) {
         kind: 'batch',
         tool_call_count: toolCallCount,
     });
-}
-
-function _sanitizeSample(sample) {
-    if (sample == null) return sample;
-    if (typeof sample === 'string' || typeof sample === 'object') {
-        return compactTraceArgValue(sample, '', 0);
-    }
-    return sample;
 }
 
 function traceStreamStalled({ sessionId, info }) {

@@ -29,36 +29,8 @@ import {
     splitToolContentForOpenAIChat,
     splitToolContentForOpenAIResponses,
 } from './media-normalization.mjs';
-// OPENAI_COMPAT_PRESETS — self-declaring list of compat provider names and
-// their base URLs / defaults. registry.mjs imports this export so there is no
-// parallel OPENAI_COMPAT_PROVIDERS list to maintain separately.
-export const OPENAI_COMPAT_PRESETS = {
-    deepseek: {
-        baseURL: 'https://api.deepseek.com',
-        defaultModel: 'deepseek-v4-pro',
-    },
-    xai: {
-        baseURL: 'https://api.x.ai/v1',
-        defaultModel: 'grok-4.3',
-    },
-    // OpenCode Go — low-cost coding-model subscription gateway. GLM / Kimi /
-    // DeepSeek / MiMo use the OpenAI-compatible chat surface; MiniMax / Qwen
-    // use the Anthropic-compatible messages surface. opencode-go.mjs provides
-    // the dual transport while this preset remains the shared base URL/key
-    // source. Auth is a single OPENCODE_API_KEY (Bearer).
-    'opencode-go': {
-        baseURL: 'https://opencode.ai/zen/go/v1',
-        defaultModel: 'glm-5.2',
-    },
-    ollama: {
-        baseURL: 'http://localhost:11434/v1',
-        defaultModel: 'llama3.3:latest',
-    },
-    lmstudio: {
-        baseURL: 'http://localhost:1234/v1',
-        defaultModel: 'default',
-    },
-};
+import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
+export { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
 const PRESETS = OPENAI_COMPAT_PRESETS;
 const MODEL_LIST_TIMEOUT_MS = resolveTimeoutMs(
     'MIXDOG_COMPAT_MODEL_LIST_TIMEOUT_MS',
@@ -964,6 +936,11 @@ function toResponsesTools(tools) {
         parameters: t.inputSchema,
     }));
 }
+function nativeResponsesTools(opts) {
+    return Array.isArray(opts?.nativeTools)
+        ? opts.nativeTools.filter(t => t && typeof t === 'object')
+        : [];
+}
 function parseToolCalls(choice, label) {
     const calls = choice.message?.tool_calls;
     if (!calls?.length)
@@ -1004,6 +981,56 @@ function responseOutputText(response) {
         }
     }
     return chunks.join('');
+}
+function collectCompatResponseSearchSources(response) {
+    const citations = [];
+    const webSearchCalls = [];
+    const seen = new Set();
+    const addCitation = (source, fallback = {}) => {
+        if (!source) return;
+        if (typeof source === 'string') {
+            const url = source.trim();
+            if (!url || seen.has(url)) return;
+            seen.add(url);
+            citations.push({ title: url, url, snippet: '', source: fallback.source || 'citation', provider: 'xai' });
+            return;
+        }
+        if (typeof source !== 'object') return;
+        const url = String(
+            source.url
+            || source.uri
+            || source.href
+            || source.source_url
+            || source.url_citation?.url
+            || '',
+        ).trim();
+        if (!url || seen.has(url)) return;
+        seen.add(url);
+        citations.push({
+            title: String(source.title || source.name || source.query || source.url_citation?.title || fallback.title || url).trim(),
+            url,
+            snippet: String(source.snippet || source.text || source.description || '').trim(),
+            source: source.source || fallback.source || 'citation',
+            provider: source.provider || 'xai',
+        });
+    };
+    for (const citation of Array.isArray(response?.citations) ? response.citations : []) addCitation(citation);
+    for (const item of Array.isArray(response?.output) ? response.output : []) {
+        if (item?.type === 'web_search_call') {
+            webSearchCalls.push({ id: item.id || '', status: item.status || '', action: item.action || null });
+            const action = item.action || {};
+            for (const source of Array.isArray(action.sources) ? action.sources : []) addCitation(source, { title: action.query || '', source: 'web_search_call' });
+            if (action.url) addCitation({ url: action.url, title: action.query || '' }, { source: 'web_search_call' });
+            for (const url of Array.isArray(action.urls) ? action.urls : []) addCitation({ url, title: action.query || '' }, { source: 'web_search_call' });
+        }
+        for (const citation of Array.isArray(item?.citations) ? item.citations : []) addCitation(citation);
+        for (const part of Array.isArray(item?.content) ? item.content : []) {
+            for (const annotation of Array.isArray(part?.annotations) ? part.annotations : []) {
+                addCitation(annotation, { source: 'annotation' });
+            }
+        }
+    }
+    return { citations, webSearchCalls };
 }
 function toResponsesInputMessage(m, pendingToolMedia = null) {
     if (m.role === 'tool') {
@@ -1357,7 +1384,8 @@ export class OpenAICompatProvider {
             prompt_cache_key: cacheRouting.key,
         };
         if (previousResponseId) params.previous_response_id = previousResponseId;
-        if (tools?.length) params.tools = toResponsesTools(tools);
+        const nativeTools = nativeResponsesTools(opts);
+        if (tools?.length || nativeTools.length) params.tools = [...nativeTools, ...toResponsesTools(tools || [])];
         // SSE transport: report 'requesting' until the stream opens, then
         // per-chunk onStreamDelta feeds the bridge stall watchdog.
         try { opts.onStageChange?.('requesting'); } catch { /* heartbeat best-effort */ }
@@ -1469,11 +1497,14 @@ export class OpenAICompatProvider {
             });
         }
         const nextPreviousResponseId = streamed.stopReason === 'length' ? null : response.id;
+        const searchSources = collectCompatResponseSearchSources(response);
         return {
             content: streamed.content,
             model: response.model || useModel,
             toolCalls,
             stopReason: streamed.stopReason || null,
+            citations: searchSources.citations.length ? searchSources.citations : undefined,
+            webSearchCalls: searchSources.webSearchCalls.length ? searchSources.webSearchCalls : undefined,
             providerState: {
                 ...(opts.providerState || {}),
                 xaiResponses: {
@@ -1529,7 +1560,8 @@ export class OpenAICompatProvider {
         // xAI rejects instructions together with previous_response_id; the
         // first response already anchors instructions for the continuation.
         else if (instructions) params.instructions = instructions;
-        if (tools?.length) params.tools = toResponsesTools(tools);
+        const nativeTools = nativeResponsesTools(opts);
+        if (tools?.length || nativeTools.length) params.tools = [...nativeTools, ...toResponsesTools(tools || [])];
         const reasoningEffort = normalizeXaiReasoningEffort(opts.xaiReasoningEffort
             ?? opts.effort
             ?? this.config?.reasoningEffort
@@ -1640,6 +1672,8 @@ export class OpenAICompatProvider {
                 ...result.usage,
                 ...(costUsd != null ? { costUsd } : {}),
             } : undefined,
+            citations: Array.isArray(result.citations) && result.citations.length ? result.citations : undefined,
+            webSearchCalls: Array.isArray(result.webSearchCalls) && result.webSearchCalls.length ? result.webSearchCalls : undefined,
         };
     }
     async _fetchModelItems() {

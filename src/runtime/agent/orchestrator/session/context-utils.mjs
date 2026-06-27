@@ -46,9 +46,9 @@ export function estimateToolSchemaTokens(tools) {
 
 /**
  * Total headroom the caller should reserve out of the context window before
- * compaction: tool-schema bytes + fixed request framing overhead. Pass the
- * result as `opts.reserveTokens` to compactMessages so the working budget
- * accounts for request-side bytes the message estimate cannot see.
+ * compaction: tool-schema bytes + fixed request framing overhead. Pass this as
+ * `opts.reserveTokens` so semantic/recall compaction budgets account for
+ * request-side bytes the message estimate cannot see.
  */
 export function estimateRequestReserveTokens(tools) {
     return estimateToolSchemaTokens(tools) + REQUEST_OVERHEAD_TOKENS;

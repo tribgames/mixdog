@@ -16,6 +16,7 @@ import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 const CACHE_FILE = 'gateway-oauth-usage-cache.json';
 const LIVE_CACHE_TTL_MS = 60_000;
 const DISK_CACHE_TTL_MS = 10 * 60_000;
+const STALE_DISK_CACHE_TTL_MS = 7 * 24 * 60 * 60_000;
 const NEGATIVE_CACHE_TTL_MS = 5 * 60_000;
 const FETCH_TIMEOUT_MS = 4500;
 const WARN_TTL_MS = 5 * 60_000;
@@ -134,17 +135,41 @@ function freshSnapshot(snapshot, ttlMs) {
   return snapshot;
 }
 
-export function readCachedOAuthUsageSnapshot(routeInfo) {
+function newestProviderSnapshot(entries, provider, ttlMs) {
+  const providerOnly = String(provider || '').toLowerCase();
+  if (!providerOnly) return null;
+  const routePrefix = `${providerOnly}\u0001`;
+  let best = null;
+  let bestAt = 0;
+  const iterable = entries instanceof Map ? entries.entries() : Object.entries(entries || {});
+  for (const [key, snapshot] of iterable) {
+    if (key !== providerOnly && !String(key).startsWith(routePrefix)) continue;
+    const fresh = freshSnapshot(snapshot, ttlMs);
+    const at = num(fresh?.cachedAt, 0);
+    if (fresh && at >= bestAt) {
+      best = fresh;
+      bestAt = at;
+    }
+  }
+  return best;
+}
+
+export function readCachedOAuthUsageSnapshot(routeInfo, options = {}) {
   const key = routeKey(routeInfo);
   const providerOnlyKey = providerKey(routeInfo);
+  const diskTtlMs = options?.allowStale === true
+    ? STALE_DISK_CACHE_TTL_MS
+    : DISK_CACHE_TTL_MS;
   const mem = freshSnapshot(memoryCache.get(key), LIVE_CACHE_TTL_MS)
-    || freshSnapshot(memoryCache.get(providerOnlyKey), LIVE_CACHE_TTL_MS);
+    || freshSnapshot(memoryCache.get(providerOnlyKey), LIVE_CACHE_TTL_MS)
+    || newestProviderSnapshot(memoryCache, providerOnlyKey, LIVE_CACHE_TTL_MS);
   if (mem) return mem;
 
   const raw = readJsonFile(cachePath());
   const routes = raw?.routes && typeof raw.routes === 'object' ? raw.routes : {};
-  return freshSnapshot(routes[key], DISK_CACHE_TTL_MS)
-    || freshSnapshot(routes[providerOnlyKey], DISK_CACHE_TTL_MS)
+  return freshSnapshot(routes[key], diskTtlMs)
+    || freshSnapshot(routes[providerOnlyKey], diskTtlMs)
+    || newestProviderSnapshot(routes, providerOnlyKey, diskTtlMs)
     || null;
 }
 
@@ -364,18 +389,6 @@ function normalizeAnthropicUsage(data, source = 'anthropic-oauth') {
     balance: balanceFromExtraUsage(data.extra_usage),
     rawKeys: Object.keys(data || {}).sort(),
   };
-}
-
-function parseStatuslineRateLimits(raw, source) {
-  if (!raw || typeof raw !== 'object') return null;
-  const rateLimits = raw.rate_limits || raw.rateLimits;
-  if (!rateLimits || typeof rateLimits !== 'object') return null;
-  const windows = [
-    windowFromPercent('5H', rateLimits.five_hour || rateLimits.primary, source),
-    windowFromPercent('7D', rateLimits.seven_day || rateLimits.secondary, source),
-  ].filter(Boolean);
-  if (!windows.length) return null;
-  return { quotaWindows: windows, source };
 }
 
 function tailFileText(file, maxBytes = MAX_TAIL_BYTES) {

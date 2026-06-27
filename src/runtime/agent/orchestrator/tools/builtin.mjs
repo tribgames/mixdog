@@ -19,6 +19,7 @@ import {
 } from './builtin/bash-tool.mjs';
 import {
     executeFindFilesTool,
+    executeFuzzyFindTool,
     executeListTool,
     executeTreeTool,
 } from './builtin/list-tool.mjs';
@@ -389,6 +390,8 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
             return executeGrepTool(args, workDir, executeChildBuiltinTool, readStateScope, options);
         case 'glob':
             return executeGlobTool(args, workDir, options);
+        case 'find':
+            return executeFuzzyFindTool(args, workDir, options);
         case 'list':
             return executeListTool(args, workDir, options);
         case 'tree':

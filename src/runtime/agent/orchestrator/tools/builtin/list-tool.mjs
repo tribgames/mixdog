@@ -60,7 +60,7 @@ function listGuardPath(p) {
 
 export async function executeListTool(args, workDir, options = {}) {
     if (typeof args.fuzzy === 'string' && args.fuzzy.length > 0) {
-        return executeFuzzyFind(args, workDir);
+        return executeFuzzyFindTool({ ...args, query: args.fuzzy }, workDir, options);
     }
     if (args.mode === 'tree') return executeTreeTool(args, workDir, options);
     if (args.mode === 'find') return executeFindFilesTool(args, workDir, options);
@@ -296,12 +296,13 @@ export async function executeTreeTool(args, workDir, options = {}) {
     return out;
 }
 
-// Fuzzy filename search (codex file-search / nucleo style): collect the file
-// list via `rg --files`, then rank by subsequence score. Lets a partial name
-// like "edeng" surface matching files in one call instead of guessing an exact
-// glob pattern. Honors path/hidden/include_noise/depth/head_limit.
-async function executeFuzzyFind(args, workDir) {
-    const query = String(args.fuzzy);
+// Fuzzy filename search (Codex file-search / nucleo style): collect the file
+// list via `rg --files`, then rank by subsequence score. `list.fuzzy` still
+// routes here for hidden backward compatibility, but the model-facing tool is
+// `find`.
+export async function executeFuzzyFindTool(args, workDir, options = {}) {
+    const query = String(args.query ?? args.fuzzy ?? '').trim();
+    if (!query) return 'Error: find requires query.';
     const inputPath = normalizeInputPath(args.path) || '.';
     const guard = listGuardPath(inputPath);
     if (guard) return guard;
@@ -310,10 +311,25 @@ async function executeFuzzyFind(args, workDir) {
     if (guardFull) return guardFull;
     const hidden = Boolean(args.hidden);
     const includeNoise = Boolean(args.include_noise);
-    // head_limit:0 means "no cap" per list semantics — keep 0 distinct from default.
-    const headLimit = normalizeListHeadLimit(args.head_limit, 40);
+    // head_limit:0 means "no cap" per list semantics; default is intentionally
+    // compact so ambiguous discovery does not dump a huge candidate list.
+    const headLimit = normalizeListHeadLimit(args.head_limit, 25);
     const depth = args.depth != null ? Math.max(parseInt(args.depth, 10) || 1, 1) : null;
-    const rgArgs = ['--files', '--no-ignore'];
+    const cacheKey = buildListCacheKey({
+        mode: 'fuzzy_find',
+        inputPath: normalizeOutputPath(fullPath),
+        depth: depth ?? '',
+        hidden,
+        sort: 'score',
+        typeFilter: 'file',
+        headLimit,
+        offset: '',
+        namePattern: query,
+        includeNoise,
+    });
+    const cached = cacheGet(cacheKey);
+    if (cached !== null) return cached;
+    const rgArgs = ['--files'];
     if (hidden) rgArgs.push('--hidden');
     if (depth != null) rgArgs.push('--max-depth', String(depth));
     if (!includeNoise) {
@@ -333,12 +349,20 @@ async function executeFuzzyFind(args, workDir) {
         .map((p) => (p.endsWith('\r') ? p.slice(0, -1) : p))
         .filter((p) => p.length > 0)
         .map((p) => ({ path: normalizeOutputPath(p.replace(/^\.[/\\]/, '')) }));
-    const ranked = fuzzyRank(query, items, headLimit);
+    const rankLimit = headLimit > 0 ? headLimit + 1 : headLimit;
+    const rankedRaw = fuzzyRank(query, items, rankLimit);
+    const hasMore = headLimit > 0 && rankedRaw.length > headLimit;
+    const ranked = hasMore ? rankedRaw.slice(0, headLimit) : rankedRaw;
     if (ranked.length === 0) return `(no fuzzy match for "${query}")`;
     const out = ranked.map((r) => r.item.path).join('\n');
-    return headLimit > 0 && ranked.length >= headLimit
+    const result = hasMore
         ? `${out}\n... (top ${headLimit}; raise head_limit for more)`
         : out;
+    cacheSet(cacheKey, result, { scopes: [fullPath] });
+    if (typeof options?.onProgress === 'function') {
+        try { options.onProgress(`${ranked.length} candidates`); } catch { /* best-effort */ }
+    }
+    return result;
 }
 
 export async function executeFindFilesTool(args, workDir, options = {}) {

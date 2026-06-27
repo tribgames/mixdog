@@ -306,6 +306,14 @@ function getSecret(account) {
     return value;
 }
 
+function hasSecret(account) {
+    const cached = _cacheGet(account);
+    if (cached !== undefined) return cached != null;
+    if (platform() === 'win32') return fs.existsSync(dpApiFile(account));
+    try { return getSecret(account) != null; }
+    catch { return false; }
+}
+
 function setSecret(account, value) {
     switch (platform()) {
         case 'darwin': darwinSet(account, value); break;
@@ -329,4 +337,4 @@ function deleteSecret(account) {
     }
 }
 
-module.exports = { getSecret, setSecret, deleteSecret, SERVICE };
+module.exports = { getSecret, setSecret, deleteSecret, hasSecret, SERVICE };

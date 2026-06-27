@@ -46,11 +46,6 @@ export const theme = {
 /* --- Glyphs (refs/claude-code/src/constants/figures.ts) ------------------- */
 import {
   BLACK_CIRCLE,
-  POINTER,
-  EFFORT_LOW,
-  EFFORT_MEDIUM,
-  EFFORT_HIGH,
-  EFFORT_MAX,
   RESULT_GUTTER_GLYPH,
 } from './figures.mjs';
 
@@ -58,10 +53,3 @@ import {
 export const TURN_MARKER = BLACK_CIRCLE;
 /** Result-tree gutter — CC MessageResponse style `⎿`, ASCII only when requested. */
 export const RESULT_GUTTER = `  ${RESULT_GUTTER_GLYPH}  `;
-/** Continuation indent aligning under the result content. */
-export const RESULT_INDENT = '     ';
-/** Prompt prefix glyph before the input — CC figures.pointer `❯`. */
-export const PROMPT_GLYPH = POINTER;
-
-/** Effort-level glyphs (figures.ts EFFORT_*). */
-export const EFFORT_GLYPH = { low: EFFORT_LOW, medium: EFFORT_MEDIUM, high: EFFORT_HIGH, max: EFFORT_MAX };

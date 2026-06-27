@@ -8,10 +8,18 @@ import {
 
 export const SUMMARY_PREFIX = 'A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done and avoid duplicating it; treat the summary as authoritative context for continuing the task. You also retain the preserved recent turns that follow.';
 export const DEFAULT_COMPACTION_BUFFER_TOKENS = 20_000;
-export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.10;
+export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.05;
 export const MAX_COMPACTION_BUFFER_RATIO = 0.25;
 export const DEFAULT_COMPACTION_KEEP_TOKENS = 8_000;
 export const SUMMARY_OUTPUT_TOKENS = 4_096;
+// Minimum room the generated summary needs after the mandatory (system +
+// preserved tail) cost is accounted for. When the configured target budget is
+// smaller than the mandatory cost (e.g. the preserved recent turn carries a
+// large tool result), the compaction MUST still proceed: the old head is the
+// part being summarized away, so dropping it already shrinks the transcript.
+// Refusing with "exceeds budget" here is what surfaced as auto-clear / overflow
+// compact failures. Floor the working budget to mandatory + this room instead.
+export const COMPACT_SUMMARY_MIN_ROOM_TOKENS = 4_000;
 
 const TOOL_CALL_ARGS_MAX_CHARS = 260;
 const TOOL_CALL_FACT_ARGS_MAX_CHARS = 140;
@@ -127,15 +135,6 @@ function toolResultId(m) {
     return m?.role === 'tool' && m.toolCallId ? ` tool_result=${m.toolCallId}` : '';
 }
 
-function lineForMessage(m, index, perMessageChars) {
-    const role = m?.role || 'unknown';
-    const text = truncateMiddle(extractText(m).trim(), perMessageChars);
-    const meta = `${toolCallSummary(m, toolCallArgBudget(perMessageChars))}${toolResultId(m)}`;
-    return text
-        ? `${index + 1}. ${role}${meta}: ${text}`
-        : `${index + 1}. ${role}${meta}`;
-}
-
 function compactHeader(oldHistory) {
     const encoded = JSON.stringify(oldHistory ?? []);
     return [
@@ -144,64 +143,8 @@ function compactHeader(oldHistory) {
     ];
 }
 
-function buildSummaryContent(oldHistory, perMessageChars, factsText = '') {
-    const lines = compactHeader(oldHistory);
-    if (factsText) {
-        lines.push('', factsText);
-    }
-    if (oldHistory.length > 0) {
-        lines.push('timeline:');
-        for (let i = 0; i < oldHistory.length; i += 1) {
-            lines.push(lineForMessage(oldHistory[i], i, perMessageChars));
-        }
-    }
-    return lines.join('\n');
-}
-
 function makeSummaryMessage(content) {
     return { role: 'user', content };
-}
-
-function fitSummaryMessage(oldHistory, remainingTokens) {
-    const factsText = extractPreservedFacts(oldHistory);
-    const tryFit = (withFacts) => {
-        const ft = withFacts ? factsText : '';
-        const minimalText = ft
-            ? `${compactHeader(oldHistory).join('\n')}\n\n${ft}`
-            : compactHeader(oldHistory).join('\n');
-        const minimal = makeSummaryMessage(minimalText);
-        if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
-
-        let maxText = 0;
-        for (const m of oldHistory) maxText = Math.max(maxText, extractText(m).length);
-
-        let lo = 0;
-        let hi = Math.max(maxText, 0);
-        let best = minimal;
-        while (lo <= hi) {
-            const mid = Math.floor((lo + hi) / 2);
-            const candidate = makeSummaryMessage(buildSummaryContent(oldHistory, mid, ft));
-            if (estimateMessagesTokens([candidate]) <= remainingTokens) {
-                best = candidate;
-                lo = mid + 1;
-            } else {
-                hi = mid - 1;
-            }
-        }
-        return best;
-    };
-    if (factsText) {
-        const withFacts = tryFit(true);
-        if (withFacts) return withFacts;
-    }
-    return tryFit(false);
-}
-
-function currentTurnStart(nonSystem) {
-    for (let i = nonSystem.length - 1; i >= 0; i -= 1) {
-        if (nonSystem[i]?.role === 'user') return i;
-    }
-    return -1;
 }
 
 function isProtectedContextUserMessage(m) {
@@ -262,7 +205,7 @@ export function compactionBufferTokensForBoundary(boundaryTokens, opts = {}) {
 }
 
 function effectiveBudget(budgetTokens, opts) {
-    if (!(budgetTokens > 0)) throw new Error('compactMessages: budgetTokens must be > 0');
+    if (!(budgetTokens > 0)) throw new Error('compact: budgetTokens must be > 0');
     const reserve = Number(opts?.reserveTokens) || 0;
     if (reserve <= 0) return budgetTokens;
     const effectiveReserve = Math.min(reserve, Math.floor(budgetTokens * 0.5));
@@ -305,6 +248,65 @@ export function compactTypeIsSemantic(value) {
 
 export function compactTypeIsRecallFastTrack(value) {
     return normalizeCompactType(value) === COMPACT_TYPE_RECALL_FASTTRACK;
+}
+
+// Count raw (unchunked) pending rows still present in a dump_session_roots
+// payload. recall-fasttrack must keep cycle1-chunking until this reaches 0 so
+// the injected root is the chunked summary, not the raw transcript tail.
+export function countRawPendingRows(dumpText) {
+    const text = String(dumpText || '');
+    const matches = text.match(/(?:^|\n)# raw_pending\s+\d+\s+id=/gi);
+    return matches ? matches.length : 0;
+}
+
+// Drain a single session's cycle1 in fixed window×concurrency units, looping
+// until no raw rows remain (or a pass stops making progress / the deadline
+// elapses). This replaces the previous single-pass cycle1 so large sessions
+// get fully chunked before their root is injected into the compacted context.
+export async function drainSessionCycle1(runTool, { sessionId, cycleArgs = {}, dumpArgs, maxPasses = 0, deadlineMs = 0 } = {}) {
+    if (typeof runTool !== 'function') throw new Error('drainSessionCycle1: runTool is required');
+    if (!sessionId) throw new Error('drainSessionCycle1: sessionId is required');
+    if (!dumpArgs) throw new Error('drainSessionCycle1: dumpArgs is required');
+    const startedAt = Date.now();
+    const hardPasses = Math.max(1, Number(maxPasses) || 50);
+    const lines = [];
+    let recallText = await runTool('memory', dumpArgs);
+    let rawRemaining = countRawPendingRows(recallText);
+    let pass = 0;
+    while (rawRemaining > 0 && pass < hardPasses) {
+        if (deadlineMs > 0 && (Date.now() - startedAt) >= deadlineMs) break;
+        pass += 1;
+        const passDeadline = deadlineMs > 0
+            ? Math.max(1, deadlineMs - (Date.now() - startedAt))
+            : 0;
+        let passText = '';
+        try {
+            passText = await runTool('memory', {
+                action: 'cycle1',
+                sessionId,
+                ...cycleArgs,
+                ...(passDeadline > 0 ? { _callerDeadlineMs: passDeadline } : {}),
+            });
+        } catch (err) {
+            lines.push(`cycle1 pass=${pass} error=${err?.message || err}`);
+            break;
+        }
+        if (passText) lines.push(`cycle1 pass=${pass}: ${String(passText).trim()}`);
+        recallText = await runTool('memory', dumpArgs);
+        const nextRaw = countRawPendingRows(recallText);
+        // No forward progress (raw not shrinking) — stop instead of spinning.
+        if (nextRaw >= rawRemaining) {
+            rawRemaining = nextRaw;
+            break;
+        }
+        rawRemaining = nextRaw;
+    }
+    return {
+        recallText,
+        cycle1Text: lines.join('\n'),
+        passes: pass,
+        rawRemaining,
+    };
 }
 
 function preservedFactHints() {
@@ -765,7 +767,7 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
     if (!provider || typeof provider.send !== 'function') {
         throw new Error('semanticCompactMessages: provider.send is required');
     }
-    const budget = effectiveBudget(budgetTokens, opts);
+    let budget = effectiveBudget(budgetTokens, opts);
     const sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
     if (estimateMessagesTokens(sanitized) <= budget && opts.force !== true) {
         return { messages: sanitized, usage: null, semantic: false };
@@ -778,8 +780,14 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
 
     const mandatory = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs([...selected.system, ...selected.tail])));
     const mandatoryCost = estimateMessagesTokens(mandatory);
-    if (mandatoryCost > budget) {
-        throw new Error(`semanticCompactMessages: system+preserved tail exceeds budget=${budget} (base=${mandatoryCost})`);
+    // The preserved tail is kept verbatim and the head is replaced by a much
+    // smaller summary, so the compacted result is always smaller than the
+    // input regardless of how the configured target budget compares to the
+    // mandatory cost. When the budget cannot even hold what we must keep, raise
+    // it to fit (mandatory + summary room) rather than refusing — a refusal
+    // here was the source of auto-clear / overflow compact failures.
+    if (mandatoryCost + COMPACT_SUMMARY_MIN_ROOM_TOKENS > budget) {
+        budget = mandatoryCost + COMPACT_SUMMARY_MIN_ROOM_TOKENS;
     }
 
     const callBudget = Math.max(1, Math.floor((opts.compactionInputBudgetTokens || budget) * COMPACTION_PROMPT_HEADROOM));
@@ -806,7 +814,6 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
         onStageChange: undefined,
         drainSteering: undefined,
         onSteerMessage: undefined,
-        remoteCompact: false,
         signal: combinedSignal(opts.signal || opts.sendOpts?.signal || null, opts.timeoutMs || 30_000),
     };
     if (opts.sessionId) sendOpts.sessionId = `${opts.sessionId}:compact`;
@@ -851,7 +858,7 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
 }
 
 export function recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
-    const budget = effectiveBudget(budgetTokens, opts);
+    let budget = effectiveBudget(budgetTokens, opts);
     const sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
     if (estimateMessagesTokens(sanitized) <= budget && opts.force !== true) {
         return { messages: sanitized, recallFastTrack: false };
@@ -864,8 +871,12 @@ export function recallFastTrackCompactMessages(messages, budgetTokens, opts = {}
 
     const mandatory = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs([...selected.system, ...selected.tail])));
     const mandatoryCost = estimateMessagesTokens(mandatory);
-    if (mandatoryCost > budget) {
-        throw new Error(`recallFastTrackCompactMessages: system+preserved tail exceeds budget=${budget} (base=${mandatoryCost})`);
+    // See semanticCompactMessages: replacing the head with a compact summary
+    // always shrinks the transcript, so a budget below the mandatory (system +
+    // preserved tail) cost must lift the budget to fit rather than refuse.
+    // Refusing here previously surfaced as auto-clear / overflow failures.
+    if (mandatoryCost + COMPACT_SUMMARY_MIN_ROOM_TOKENS > budget) {
+        budget = mandatoryCost + COMPACT_SUMMARY_MIN_ROOM_TOKENS;
     }
 
     const recallText = String(opts.recallText || '').trim();
@@ -893,173 +904,4 @@ export function recallFastTrackCompactMessages(messages, budgetTokens, opts = {}
         compactType: COMPACT_TYPE_RECALL_FASTTRACK,
         query: opts.query || '',
     };
-}
-
-export function compactMessages(messages, budgetTokens, opts = {}) {
-    const budget = effectiveBudget(budgetTokens, opts);
-    const sanitized = sanitizeToolPairs(messages);
-    if (estimateMessagesTokens(sanitized) <= budget && opts.force !== true) {
-        return reconcileDedupStubs(sanitized);
-    }
-
-    const { protectedPrefix, conversation: nonSystem } = splitProtectedContext(sanitized);
-    const turnStart = currentTurnStart(nonSystem);
-    if (turnStart <= 0) {
-        throw new Error(`compactMessages: no compactable prior history before current turn (budget=${budget})`);
-    }
-
-    const oldHistory = nonSystem.slice(0, turnStart);
-    const currentTurn = nonSystem.slice(turnStart);
-    let mandatory = sanitizeToolPairs([...protectedPrefix, ...currentTurn]);
-    mandatory = reconcileDedupStubs(dedupToolResultBodies(mandatory));
-    const mandatoryCost = estimateMessagesTokens(mandatory);
-    if (mandatoryCost > budget) {
-        throw new Error(`compactMessages: mandatory system+current turn exceeds budget=${budget} (base=${mandatoryCost})`);
-    }
-
-    const summary = fitSummaryMessage(oldHistory, budget - mandatoryCost);
-    if (!summary) {
-        throw new Error(`compactMessages: compact summary cannot fit remaining budget=${budget - mandatoryCost}`);
-    }
-
-    let result = sanitizeToolPairs([...protectedPrefix, summary, ...currentTurn]);
-    result = reconcileDedupStubs(dedupToolResultBodies(result));
-    const finalTokens = estimateMessagesTokens(result);
-    if (finalTokens > budget) {
-        throw new Error(`compactMessages: compacted result exceeds budget=${budget} (result=${finalTokens})`);
-    }
-    return result;
-}
-
-// Split the assistant/tool portion of a single user turn into ordered
-// groups. Each group starts at an assistant message and absorbs the tool
-// results that follow it, so a group is the atomic unit we can drop or
-// prune without orphaning a tool_use/tool_result pair.
-function splitTurnGroups(messages) {
-    const groups = [];
-    let current = null;
-    for (const m of messages) {
-        if (m?.role === 'assistant') {
-            if (current) groups.push(current);
-            current = [m];
-        } else {
-            if (!current) current = [];
-            current.push(m);
-        }
-    }
-    if (current) groups.push(current);
-    return groups;
-}
-
-/**
- * Active-turn fallback compaction (bridge/worker only).
- *
- * compactMessages/semanticCompactMessages treat the ENTIRE current turn as
- * mandatory, so a hidden worker with one user turn plus many assistant/tool
- * iterations throws overflow even when older same-turn tool outputs could be
- * safely shrunk. This narrow fallback shrinks the current turn itself while
- * preserving, in priority order:
- *   - all system messages,
- *   - the original task user message (the turn's first user message),
- *   - the latest assistant/tool group(s),
- *   - valid tool_use/tool_result pairing (via sanitizeToolPairs).
- *
- * Older prior history (before the current turn) is condensed to a best-effort
- * summary when it still fits the remaining budget, otherwise dropped — it has
- * already been superseded by completed turns. It NEVER silently drops the task
- * user message or the latest group: if system + task user + the fully-pruned
- * latest group still cannot fit, it throws so the caller surfaces overflow.
- */
-export function compactActiveTurn(messages, budgetTokens, opts = {}) {
-    const budget = effectiveBudget(budgetTokens, opts);
-    const sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
-    const { protectedPrefix, conversation: nonSystem } = splitProtectedContext(sanitized);
-    const turnStart = currentTurnStart(nonSystem);
-    if (turnStart < 0) {
-        if (nonSystem.length === 0) return protectedPrefix;
-        throw new Error(`compactActiveTurn: no current user turn to preserve (budget=${budget})`);
-    }
-
-    const oldHistory = nonSystem.slice(0, turnStart);
-    const currentTurn = nonSystem.slice(turnStart);
-    const userMsg = currentTurn[0];
-    const groups = splitTurnGroups(currentTurn.slice(1));
-    const minGroups = Math.max(1, Number(opts.minActiveTurnGroups) || 1);
-    const maxChars = Math.max(256, Number(opts.maxToolOutputChars) || PRUNE_TOOL_OUTPUT_MAX_CHARS);
-    const force = opts.force === true;
-
-    const pruneToolMsg = (m) => (
-        m?.role === 'tool' && typeof m.content === 'string' && m.content.length > maxChars
-            ? {
-                ...m,
-                content: pruneToolOutputText(m.content, maxChars, m.toolCallId),
-                compacted: true,
-                compactedKind: 'active_turn_tool_prune',
-            }
-            : m
-    );
-
-    // pruneMode: 'older' prunes every group except the latest; 'all' prunes
-    // every kept group (last resort before declaring overflow).
-    const buildTurnMsgs = (keptGroups, pruneMode) => {
-        const out = [userMsg];
-        for (let gi = 0; gi < keptGroups.length; gi += 1) {
-            const isLatest = gi === keptGroups.length - 1;
-            const prune = pruneMode === 'all' || (pruneMode === 'older' && !isLatest);
-            for (const m of keptGroups[gi]) out.push(prune ? pruneToolMsg(m) : m);
-        }
-        return out;
-    };
-
-    const buildWithSummaries = (turnMsgs, { oldSummary = null, activeSummary = null } = {}) => {
-        const [taskUser, ...restTurn] = turnMsgs;
-        return reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs([
-            ...protectedPrefix,
-            ...(oldSummary ? [oldSummary] : []),
-            taskUser,
-            ...(activeSummary ? [activeSummary] : []),
-            ...restTurn,
-        ])));
-    };
-
-    const finalize = (turnMsgs, activeHistory = []) => {
-        let oldSummary = null;
-        let activeSummary = null;
-        let base = buildWithSummaries(turnMsgs);
-        if (activeHistory.length) {
-            const baseCost = estimateMessagesTokens(base);
-            if (baseCost < budget) {
-                activeSummary = fitSummaryMessage(activeHistory, budget - baseCost);
-                if (activeSummary) base = buildWithSummaries(turnMsgs, { activeSummary });
-            }
-        }
-        if (oldHistory.length) {
-            const baseCost = estimateMessagesTokens(base);
-            if (baseCost < budget) {
-                oldSummary = fitSummaryMessage(oldHistory, budget - baseCost);
-                if (oldSummary) base = buildWithSummaries(turnMsgs, { oldSummary, activeSummary });
-            }
-        }
-        return base;
-    };
-
-    const maxDrop = Math.max(0, groups.length - minGroups);
-    const startDrop = force && maxDrop > 0 ? 1 : 0;
-    for (let drop = startDrop; drop <= maxDrop; drop += 1) {
-        const kept = groups.slice(drop);
-        const activeHistory = groups.slice(0, drop).flat();
-        const modes = force && drop === 0 && activeHistory.length === 0
-            ? ['all', 'older']
-            : ['older', 'all'];
-        for (const mode of modes) {
-            const candidate = finalize(buildTurnMsgs(kept, mode), activeHistory);
-            if (estimateMessagesTokens(candidate) <= budget) return candidate;
-        }
-    }
-
-    const floor = finalize(buildTurnMsgs(groups.slice(-minGroups), 'all'), groups.slice(0, -minGroups).flat());
-    throw new Error(
-        `compactActiveTurn: system+task user+latest turn group exceeds budget=${budget} ` +
-        `(floor=${estimateMessagesTokens(floor)})`,
-    );
 }

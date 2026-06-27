@@ -156,7 +156,6 @@ function titleizeToolName(name) {
 
 const AGENT_DISPLAY_NAMES = new Map([
   ['explore', 'Explore'],
-  ['web-researcher', 'Web Researcher'],
   ['maintainer', 'Maintainer'],
   ['worker', 'Worker'],
   ['heavy-worker', 'Heavy Worker'],
@@ -253,6 +252,36 @@ function summarizePatch(patch, basePath) {
   return text ? 'patch' : '';
 }
 
+function collectionCount(...values) {
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      const count = value.filter((item) => item != null && String(item).trim()).length;
+      return count || value.length || 0;
+    }
+    if (value && typeof value === 'object') return 1;
+    if (value != null && String(value).trim()) return 1;
+  }
+  return 0;
+}
+
+function formatCountedUnit(count, singular, pluralText = `${singular}s`) {
+  const n = Math.max(0, Number(count || 0));
+  return n > 0 ? `${n} ${pluralize(n, singular, pluralText)}` : '';
+}
+
+function patchFileCount(args = {}) {
+  const patchText = String(args.patch ?? '');
+  if (patchText) {
+    const files = new Set();
+    for (const line of patchText.split('\n')) {
+      const match = /^\*\*\*\s+(?:Update|Add|Delete) File:\s+(.+)\s*$/.exec(line);
+      if (match) files.add(match[1].trim());
+    }
+    if (files.size > 0) return files.size;
+  }
+  return collectionCount(args.path, args.file, args.file_path, args.base_path);
+}
+
 function codeGraphLabel(args) {
   const mode = String(args.mode || args.action || '').toLowerCase();
   if (mode === 'prewarm' || mode === 'index' || mode === 'build' || mode === 'refresh') return 'Setup';
@@ -282,12 +311,17 @@ export function displayToolName(name, args = {}) {
     case 'shell':
     case 'bash_session':
     case 'shell_command':
-    case 'task':
-    case 'trigger_schedule':
       return 'Run';
+    case 'task':
+      return 'Task';
     case 'grep':
+    case 'find':
     case 'glob':
+    case 'list':
+    case 'ls':
       return 'Search';
+    case 'trigger_schedule':
+      return 'Schedule';
     case 'tool_search':
       return toolSearchDisplayLabel(parseToolArgs(args));
     case 'search':
@@ -295,7 +329,6 @@ export function displayToolName(name, args = {}) {
     case 'image_query':
     case 'web_search':
     case 'web_search_call':
-    case 'firecrawl_search':
       return 'Web Search';
     case 'explore':
       return 'Explore';
@@ -362,6 +395,9 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
   switch (normalized) {
     case 'read':
       if (!a.path && !a.file_path) return '';
+      if (Array.isArray(a.path) || Array.isArray(a.file_path)) {
+        return formatCountedUnit(collectionCount(a.path, a.file_path), 'file');
+      }
       return compactParts([
         displayToolPath(a.path ?? a.file_path),
         a.pages ? `pages ${a.pages}` : summarizeLineWindow(a),
@@ -378,12 +414,18 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       return compactParts([a.action || a.type || 'task', a.task_id || '']);
     case 'list':
     case 'ls':
+      if (Array.isArray(a.path) || Array.isArray(a.dir) || Array.isArray(a.cwd)) {
+        return formatCountedUnit(collectionCount(a.path, a.dir, a.cwd), 'directory', 'directories');
+      }
       return compactParts([
         displayToolPath(a.path ?? a.dir ?? a.cwd ?? ''),
         a.head_limit || a.limit ? `${a.head_limit ?? a.limit} entries` : '',
       ]);
     case 'grep':
       if (!a.pattern && !a.query) return '';
+      if (Array.isArray(a.pattern) || Array.isArray(a.query)) {
+        return formatCountedUnit(collectionCount(a.pattern, a.query), 'pattern');
+      }
       return compactParts([
         `pattern: ${quoted(a.pattern ?? a.query, max)}`,
         a.path ? `path: ${displayToolPath(a.path)}` : '',
@@ -391,8 +433,20 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       ]);
     case 'glob':
       if (!a.pattern && !a.glob) return '';
+      if (Array.isArray(a.pattern) || Array.isArray(a.glob)) {
+        return formatCountedUnit(collectionCount(a.pattern, a.glob), 'glob');
+      }
       return compactParts([
         `pattern: ${quoted(a.pattern ?? a.glob, max)}`,
+        a.path ? `path: ${displayToolPath(a.path)}` : '',
+      ]);
+    case 'find':
+      if (!a.query && !a.fuzzy) return '';
+      if (Array.isArray(a.query) || Array.isArray(a.fuzzy)) {
+        return formatCountedUnit(collectionCount(a.query, a.fuzzy), 'query', 'queries');
+      }
+      return compactParts([
+        quoted(a.query ?? a.fuzzy, max),
         a.path ? `path: ${displayToolPath(a.path)}` : '',
       ]);
     case 'search':
@@ -400,9 +454,14 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'image_query':
     case 'web_search':
     case 'web_search_call':
-    case 'firecrawl_search':
+      if (Array.isArray(a.query) || Array.isArray(a.keywords)) {
+        return formatCountedUnit(collectionCount(a.query, a.keywords), 'query', 'queries');
+      }
       return quoted(a.query || a.keywords || '', max);
     case 'explore':
+      if (Array.isArray(a.query) || Array.isArray(a.prompt) || Array.isArray(a.task) || Array.isArray(a.goal)) {
+        return formatCountedUnit(collectionCount(a.query, a.prompt, a.task, a.goal), 'query', 'queries');
+      }
       return truncateSingleLine(firstText(a.query, a.prompt, a.task, a.goal, a.path), Math.min(max, 80));
     case 'tool_search':
       {
@@ -412,6 +471,9 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       }
     case 'web_fetch':
     case 'fetch':
+      if (Array.isArray(a.url) || Array.isArray(a.uri)) {
+        return formatCountedUnit(collectionCount(a.url, a.uri), 'URL', 'URLs');
+      }
       return truncateToolText(a.url || a.uri || '', max);
     case 'download_attachment':
       return displayToolPath(a.filename || a.name || a.url || '');
@@ -639,13 +701,44 @@ function firstAgentResultLine(text) {
   for (const line of String(raw ?? '').split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    if (/^bridge result\b/i.test(trimmed)) continue;
+    if (/^agent result\b/i.test(trimmed)) continue;
     if (/^<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
-    if (/^(?:bridge job|bridge task|status|type|target|role|agent|preset|model|effort|fast|limits|session|job|task-id|task_id|notification|queueDepth):\s*/i.test(trimmed)) continue;
+    if (/^(?:agent task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|notification|queueDepth):\s*/i.test(trimmed)) continue;
     if (/^\[[a-z-]+:\s*[^\]]*\]$/i.test(trimmed)) continue;
     return truncateSingleLine(trimmed, 120);
   }
   return '';
+}
+
+function summarizeGenericResult(text) {
+  const trimmed = String(text ?? '').trim();
+  if (!trimmed) return null;
+  if (/^(?:undefined|null)$/i.test(trimmed)) return null;
+
+  if (/^[\[{]/.test(trimmed)) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return `${parsed.length} ${pluralize(parsed.length, 'Item')}`;
+      if (parsed && typeof parsed === 'object') {
+        const status = firstText(parsed.status, parsed.state, parsed.result, parsed.message);
+        if (status) return truncateSingleLine(titleStatus(status), 120);
+        if (parsed.cwd) return truncateSingleLine(parsed.cwd, 120);
+        if (typeof parsed.ok === 'boolean') return parsed.ok ? 'Ok' : 'Failed';
+        for (const key of ['items', 'results', 'resources', 'templates', 'providers', 'schedules', 'channels', 'tools']) {
+          if (Array.isArray(parsed[key])) return `${parsed[key].length} ${pluralize(parsed[key].length, titleWord(key.slice(0, -1) || 'Item'))}`;
+        }
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  const line = firstAgentResultLine(text) || trimmed.split('\n').map((item) => item.trim()).find(Boolean) || '';
+  if (!line || line === '{' || line === '[') return null;
+  if (/^(ok|done|success|saved|sent|updated|reloaded|connected|enabled|disabled|active|inactive)$/i.test(line)) {
+    return titleStatus(line);
+  }
+  return truncateSingleLine(line, 120);
 }
 
 /**
@@ -704,6 +797,19 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       if (n === 0) return null;
       return `${n} ${pluralize(n, 'File')}`;
     }
+    case 'find': {
+      if (!trimmed || !looksLineOriented(text)) return null;
+      const n = countNonEmptyLines(text);
+      if (n === 0) return null;
+      return `${n} ${pluralize(n, 'Candidate')}`;
+    }
+    case 'list':
+    case 'ls': {
+      if (!trimmed || !looksLineOriented(text)) return null;
+      const n = countNonEmptyLines(text);
+      if (n === 0) return null;
+      return `${n} ${pluralize(n, 'Entry', 'Entries')}`;
+    }
     case 'shell':
     case 'bash_session':
     case 'shell_command': {
@@ -737,6 +843,8 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       if (status) return `HTTP ${status[1]}`;
       return null;
     }
+    case 'download_attachment':
+      return summarizeGenericResult(text);
     case 'search': {
       const match = /(\d+)\s+results?/i.exec(text);
       if (match) {
@@ -748,8 +856,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     case 'search_query':
     case 'image_query':
     case 'web_search':
-    case 'web_search_call':
-    case 'firecrawl_search': {
+    case 'web_search_call': {
       const match = /(\d+)\s+results?/i.exec(text);
       if (match) {
         const n = Number(match[1]);
@@ -760,6 +867,31 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     case 'explore': {
       return trimmed ? firstAgentResultLine(text) || null : null;
     }
+    case 'recall':
+    case 'search_memories':
+    case 'memory':
+    case 'remember':
+    case 'save_memory':
+    case 'update_memory':
+    case 'reply':
+    case 'react':
+    case 'edit_message':
+    case 'activate_channel_bridge':
+    case 'inject_command':
+    case 'request_user_input':
+    case 'update_plan':
+    case 'diagnostics':
+    case 'open_config':
+    case 'provider_status':
+    case 'channel_status':
+    case 'schedule_status':
+    case 'schedule_control':
+    case 'trigger_schedule':
+    case 'reload_config':
+    case 'cwd':
+    case 'list_mcp_resources':
+    case 'list_mcp_resource_templates':
+      return summarizeGenericResult(text);
     case 'skill':
     case 'skill_execute':
     case 'skill_view':
@@ -779,12 +911,11 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       }
       return trimmed ? firstAgentResultLine(text) || null : null;
     }
-    case 'bridge':
     case 'agent':
     case 'task': {
       const answerLine = firstAgentResultLine(text);
       if (answerLine) return answerLine;
-      const job = /^bridge job:\s*(job_[^\s]+)/mi.exec(text);
+      const task = /^agent task:\s*(\S+)/mi.exec(text);
       const status = /^status:\s*([^\s(]+)/mi.exec(text);
       const role = /^role:\s*(.+)$/mi.exec(text);
       const preset = /^preset:\s*(.+)$/mi.exec(text);
@@ -796,6 +927,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       ]);
       if (agentModel) return agentModel;
       const parts = [
+        task ? task[1] : '',
         role ? role[1] : '',
         preset ? preset[1] : '',
         model ? model[1] : '',
@@ -803,7 +935,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
         limits ? limits[1] : '',
       ].filter(Boolean);
       if (parts.length) return compactParts(parts);
-      if (job) return status ? `${job[1]} ${titleStatus(status[1])}` : job[1];
+      if (task) return status ? `${task[1]} ${titleStatus(status[1])}` : task[1];
       return null;
     }
     default:
@@ -823,7 +955,7 @@ export function isMemorySurface(label) {
 
 export const CATEGORY_ORDER = [
   'Read', 'Search', 'Load', 'MCP', 'Skill', 'Web Research', 'Memory', 'Explore',
-  'Patch', 'Shell', 'Agent', 'Channel', 'Setup', 'Other',
+  'Patch', 'Shell', 'Agent', 'Task', 'Schedule', 'Channel', 'Setup', 'Other',
 ];
 
 const TOOL_CATEGORY = new Map([
@@ -831,6 +963,7 @@ const TOOL_CATEGORY = new Map([
   ['view_image', 'Read'],
   ['read_mcp_resource', 'Read'],
   ['grep', 'Search'],
+  ['find', 'Search'],
   ['glob', 'Search'],
   ['list', 'Search'],
   ['ls', 'Search'],
@@ -840,7 +973,6 @@ const TOOL_CATEGORY = new Map([
   ['search_query', 'Web Research'],
   ['image_query', 'Web Research'],
   ['web_search_call', 'Web Research'],
-  ['firecrawl_search', 'Web Research'],
   ['web_fetch', 'Web Research'],
   ['fetch', 'Web Research'],
   ['download_attachment', 'Web Research'],
@@ -858,8 +990,7 @@ const TOOL_CATEGORY = new Map([
   ['shell_command', 'Shell'],
   ['bash_session', 'Shell'],
   ['job_wait', 'Shell'],
-  ['task', 'Agent'],
-  ['bridge', 'Agent'],
+  ['task', 'Task'],
   ['agent', 'Agent'],
   ['reply', 'Channel'],
   ['react', 'Channel'],
@@ -878,7 +1009,7 @@ const TOOL_CATEGORY = new Map([
   ['cwd', 'Setup'],
   ['request_user_input', 'Setup'],
   ['update_plan', 'Setup'],
-  ['trigger_schedule', 'Setup'],
+  ['trigger_schedule', 'Schedule'],
   ['skill', 'Skill'],
   ['skill_execute', 'Skill'],
   ['skill_view', 'Skill'],
@@ -899,19 +1030,21 @@ export function classifyToolCategory(name, args = {}) {
 }
 
 const CATEGORY_COPY = new Map([
-  ['Read', { active: 'Reading', done: 'Read', noun: 'item' }],
-  ['Search', { active: 'Searching', done: 'Searched', noun: 'item' }],
+  ['Read', { active: 'Reading', done: 'Read', noun: 'file' }],
+  ['Search', { active: 'Searching', done: 'Searched', noun: 'file' }],
   ['Load', { active: 'Loading', done: 'Loaded', noun: 'tool' }],
-  ['MCP', { active: 'Using MCP', done: 'Used', noun: 'MCP tool' }],
-  ['Skill', { active: 'Loading Skill', done: 'Loaded', noun: 'skill' }],
-  ['Web Research', { active: 'Researching', done: 'Researched', noun: 'web item' }],
+  ['MCP', { active: 'Using', done: 'Used', noun: 'MCP tool' }],
+  ['Skill', { active: 'Loading', done: 'Loaded', noun: 'skill' }],
+  ['Web Research', { active: 'Researching', done: 'Researched', noun: 'query', pluralNoun: 'queries' }],
   ['Memory', { active: 'Checking', done: 'Checked', noun: 'memory item' }],
-  ['Explore', { active: 'Exploring', done: 'Explored', noun: 'item' }],
-  ['Patch', { active: 'Editing', done: 'Edited', noun: 'item' }],
+  ['Explore', { active: 'Exploring', done: 'Explored', noun: 'query', pluralNoun: 'queries' }],
+  ['Patch', { active: 'Editing', done: 'Edited', noun: 'file' }],
   ['Shell', { active: 'Running', done: 'Ran', noun: 'command' }],
   ['Agent', { active: 'Calling', done: 'Called', noun: 'agent' }],
+  ['Task', { active: 'Checking', done: 'Checked', noun: 'task' }],
+  ['Schedule', { active: 'Running', done: 'Ran', noun: 'schedule' }],
   ['Channel', { active: 'Sending', done: 'Sent', noun: 'message' }],
-  ['Setup', { active: 'Setting Up', done: 'Set Up', noun: 'item' }],
+  ['Setup', { active: 'Setting up', done: 'Set up', noun: 'item' }],
   ['Other', { active: 'Calling', done: 'Called', noun: 'tool' }],
 ]);
 
@@ -929,6 +1062,183 @@ function categoryNoun(category, count) {
   return pluralize(count, copy.noun, copy.pluralNoun || `${copy.noun}s`);
 }
 
+function categoryCopy(category) {
+  return CATEGORY_COPY.get(category) || CATEGORY_COPY.get('Other') || { active: 'Calling', done: 'Called', noun: 'tool' };
+}
+
+function unitDescriptor(category, overrides = {}) {
+  const copy = categoryCopy(category);
+  return {
+    category,
+    active: overrides.active || copy.active,
+    done: overrides.done || copy.done,
+    noun: overrides.noun || copy.noun || 'item',
+    pluralNoun: overrides.pluralNoun || copy.pluralNoun || `${overrides.noun || copy.noun || 'item'}s`,
+    count: Math.max(1, Number(overrides.count || 1)),
+  };
+}
+
+function queryCount(args, ...keys) {
+  return collectionCount(...keys.map((key) => args?.[key]));
+}
+
+export function toolWorkUnit(name, args = {}, category = '') {
+  const a = parseToolArgs(args);
+  const normalized = normalizeToolName(name);
+  const cat = category || classifyToolCategory(name, a);
+  if (isMcpToolName(name)) {
+    return unitDescriptor('MCP', { count: queryCount(a, 'query', 'q', 'text', 'prompt', 'path', 'uri', 'name', 'id', 'action') || 1 });
+  }
+  switch (normalized) {
+    case 'read':
+      return unitDescriptor('Read', { count: queryCount(a, 'path', 'paths', 'file_path', 'file', 'files') || 1, noun: 'file' });
+    case 'view_image':
+      return unitDescriptor('Read', { count: queryCount(a, 'path', 'file_path', 'file') || 1, noun: 'image' });
+    case 'read_mcp_resource':
+      return unitDescriptor('Read', { count: queryCount(a, 'uri', 'uris') || 1, noun: 'resource' });
+    case 'apply_patch': {
+      const creating = a.old_string === '';
+      return unitDescriptor('Patch', {
+        count: patchFileCount(a) || 1,
+        active: creating ? 'Creating' : 'Editing',
+        done: creating ? 'Created' : 'Edited',
+        noun: 'file',
+      });
+    }
+    case 'grep':
+      return unitDescriptor('Search', { count: queryCount(a, 'pattern', 'patterns', 'query') || 1, active: 'Searching', done: 'Searched', noun: 'pattern' });
+    case 'glob':
+      return unitDescriptor('Search', { count: queryCount(a, 'pattern', 'patterns', 'glob', 'globs') || 1, active: 'Finding', done: 'Found', noun: 'glob' });
+    case 'find':
+      return unitDescriptor('Search', { count: queryCount(a, 'query', 'queries', 'fuzzy') || 1, active: 'Finding', done: 'Found', noun: 'query', pluralNoun: 'queries' });
+    case 'list':
+    case 'ls':
+      return unitDescriptor('Search', { count: queryCount(a, 'path', 'paths', 'dir', 'dirs', 'cwd') || 1, active: 'Listing', done: 'Listed', noun: 'directory', pluralNoun: 'directories' });
+    case 'tool_search': {
+      const selected = splitToolSearchSelection(a.select);
+      if (selected.length) return unitDescriptor('Load', { count: selected.length, noun: 'tool' });
+      return unitDescriptor('Load', { count: queryCount(a, 'query', 'q', 'text') || 1, noun: 'query', pluralNoun: 'queries' });
+    }
+    case 'search':
+    case 'search_query':
+    case 'image_query':
+    case 'web_search':
+    case 'web_search_call':
+      return unitDescriptor('Web Research', { count: queryCount(a, 'query', 'queries', 'keywords') || 1, noun: 'query', pluralNoun: 'queries' });
+    case 'web_fetch':
+    case 'fetch':
+      return unitDescriptor('Web Research', { count: queryCount(a, 'url', 'urls', 'uri', 'uris') || 1, active: 'Fetching', done: 'Fetched', noun: 'URL', pluralNoun: 'URLs' });
+    case 'download_attachment':
+      return unitDescriptor('Web Research', { count: queryCount(a, 'url', 'urls', 'filename', 'name') || 1, active: 'Downloading', done: 'Downloaded', noun: 'attachment' });
+    case 'recall':
+    case 'recall_memory':
+    case 'search_memories':
+      return unitDescriptor('Memory', { count: queryCount(a, 'query', 'queries', 'text', 'input') || 1, noun: 'query', pluralNoun: 'queries' });
+    case 'remember':
+    case 'save_memory':
+    case 'update_memory':
+    case 'memory':
+      return unitDescriptor('Memory', { count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1, active: 'Writing', done: 'Wrote', noun: 'memory item' });
+    case 'explore':
+      return unitDescriptor('Explore', { count: queryCount(a, 'query', 'queries', 'prompt', 'task', 'goal') || 1, noun: 'query', pluralNoun: 'queries' });
+    case 'shell':
+    case 'bash':
+    case 'bash_session':
+    case 'shell_command':
+    case 'job_wait':
+      return unitDescriptor('Shell', { count: queryCount(a, 'command', 'commands', 'cmd') || 1, noun: 'command' });
+    case 'agent':
+    case 'bridge':
+      return unitDescriptor('Agent', { count: queryCount(a, 'agents', 'roles', 'role', 'tag', 'task_id', 'sessionId') || 1, noun: 'agent' });
+    case 'task':
+      return unitDescriptor('Task', { count: queryCount(a, 'task_id', 'task_ids', 'id', 'ids') || 1, noun: 'task' });
+    case 'skill':
+    case 'skill_execute':
+    case 'skill_view':
+    case 'skills_list':
+    case 'use_skill':
+      return unitDescriptor('Skill', { count: queryCount(a, 'name', 'skill', 'skill_name', 'query', 'q') || 1, noun: 'skill' });
+    case 'reply':
+    case 'react':
+    case 'edit_message':
+    case 'activate_channel_bridge':
+    case 'inject_command':
+      return unitDescriptor('Channel', { count: queryCount(a, 'messages', 'messageId', 'command', 'text') || 1, noun: 'message' });
+    case 'trigger_schedule':
+      return unitDescriptor('Schedule', { count: queryCount(a, 'name', 'id') || 1, noun: 'schedule' });
+    case 'code_graph': {
+      const mode = String(a.mode || a.action || '').toLowerCase();
+      const searching = mode === 'search' || mode === 'find_symbol' || mode === 'references' || mode === 'callers' || mode === 'callees';
+      return unitDescriptor(searching ? 'Search' : 'Read', {
+        count: queryCount(a, 'symbols', 'symbol', 'query', 'file', 'path') || 1,
+        active: searching ? 'Mapping' : 'Reading',
+        done: searching ? 'Mapped' : 'Read',
+        noun: searching ? 'symbol' : 'file',
+      });
+    }
+    case 'request_user_input':
+      return unitDescriptor('Setup', { active: 'Asking', done: 'Asked', noun: 'user' });
+    case 'update_plan':
+      return unitDescriptor('Setup', { active: 'Updating', done: 'Updated', noun: 'plan' });
+    default:
+      return unitDescriptor(cat, { count: queryCount(a, 'items', 'targets', 'query', 'path', 'name', 'id', 'action') || 1 });
+  }
+}
+
+export function formatToolActionHeader(name, args = {}, { pending = false, count = 1, category = '' } = {}) {
+  const unit = toolWorkUnit(name, args, category);
+  const n = Math.max(1, Number(unit.count || count || 1));
+  const verb = pending ? unit.active : unit.done;
+  return `${verb} ${n} ${pluralize(n, unit.noun, unit.pluralNoun)}`;
+}
+
+export function aggregateToolCategoryEntry(name, args = {}, category = '') {
+  const cat = category || classifyToolCategory(name, args);
+  const unit = toolWorkUnit(name, args, cat);
+  const key = [cat, unit.active, unit.done, unit.noun, unit.pluralNoun].join('|');
+  return {
+    key,
+    category: cat,
+    active: unit.active,
+    done: unit.done,
+    noun: unit.noun,
+    pluralNoun: unit.pluralNoun,
+    count: Math.max(1, Number(unit.count || 1)),
+  };
+}
+
+function aggregateCount(value) {
+  if (value && typeof value === 'object') return Math.max(0, Number(value.count || 0));
+  return Math.max(0, Number(value || 0));
+}
+
+function aggregateDescriptor(key, value) {
+  if (value && typeof value === 'object') {
+    const category = value.category || String(key || '').split('|')[0] || 'Other';
+    const copy = categoryCopy(category);
+    const noun = value.noun || copy.noun || 'item';
+    return {
+      category,
+      active: value.active || copy.active,
+      done: value.done || copy.done,
+      noun,
+      pluralNoun: value.pluralNoun || copy.pluralNoun || `${noun}s`,
+      count: aggregateCount(value),
+    };
+  }
+  const category = String(key || '');
+  const copy = categoryCopy(category);
+  const noun = copy.noun || 'item';
+  return {
+    category,
+    active: copy.active,
+    done: copy.done,
+    noun,
+    pluralNoun: copy.pluralNoun || `${noun}s`,
+    count: aggregateCount(value),
+  };
+}
+
 /**
  * Build a comma-separated header from per-category counts.
  * e.g. "Read 6 items, Searched 5 items, Called 1 agent"
@@ -939,7 +1249,7 @@ export function formatAggregateHeader(categories, { pending = false, order = nul
   const seen = new Set();
   const ordered = [];
   const add = (cat) => {
-    if (!cat || seen.has(cat) || (categories[cat] || 0) <= 0) return;
+    if (!cat || seen.has(cat) || aggregateCount(categories[cat]) <= 0) return;
     seen.add(cat);
     ordered.push(cat);
   };
@@ -949,10 +1259,9 @@ export function formatAggregateHeader(categories, { pending = false, order = nul
 
   return ordered
     .map((cat) => {
-      const count = Number(categories[cat] || 0);
-      const label = pending ? activeCategoryLabel(cat) : doneCategoryLabel(cat);
-      if (pending) return label;
-      return `${label} ${count} ${categoryNoun(cat, count)}`;
+      const item = aggregateDescriptor(cat, categories[cat]);
+      const label = pending ? item.active : item.done;
+      return `${label} ${item.count} ${pluralize(item.count, item.noun, item.pluralNoun)}`;
     })
     .join(', ');
 }

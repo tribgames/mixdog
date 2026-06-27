@@ -60,7 +60,7 @@ function isOneShotMaintenanceRole(role) {
  *   '5m'   → ephemeral 5m TTL  (1.25x write premium, 0.1x read)
  *   'none' → no breakpoint written on this layer
  *
- * Public bridge agents stay resumable for up to 1h (the terminal-reap window)
+ * Public agents stay resumable for up to 1h (the terminal-reap window)
  * for same-task reuse, so their message tail uses 1h too. Hidden multi-turn
  * roles (explorer / scheduler / webhook) run a single fan-out or entry-driven
  * session that is not resumed for same-task reuse, so their volatile tail stays
@@ -82,7 +82,7 @@ export function resolveCacheStrategy(role) {
     if (getHiddenRole(role)) {
         return { tools: '1h', system: '1h', tier3: '1h', messages: '5m' };
     }
-    // Public bridge agents: resumable up to 1h for same-task reuse → 1h tail.
+    // Public agents: resumable up to 1h for same-task reuse -> 1h tail.
     return { tools: '1h', system: '1h', tier3: '1h', messages: '1h' };
 }
 

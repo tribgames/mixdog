@@ -5,11 +5,18 @@ import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { ensureProjectMixdogMd, ensureStandaloneEnvironment } from './standalone/seeds.mjs';
 import { createStandaloneBridge } from './standalone/bridge-tool.mjs';
+import { isAgentOwner } from './runtime/agent/orchestrator/agent-owner.mjs';
 import { EXPLORE_TOOL, runExplore } from './standalone/explore-tool.mjs';
 import { createStandaloneChannelWorker } from './standalone/channel-worker.mjs';
+import { createStandaloneMemoryRuntime } from './standalone/memory-runtime-proxy.mjs';
 import { createStandaloneHookBus } from './standalone/hook-bus.mjs';
 import { writeLastSessionCwd } from './runtime/shared/user-cwd.mjs';
 import { cancelBackgroundTasks } from './runtime/shared/background-tasks.mjs';
+import { modelVisibleToolCompletionMessage } from './runtime/shared/tool-execution-contract.mjs';
+import {
+  normalizeAgentPermissionOrNone,
+  readMarkdownDocument,
+} from './runtime/shared/markdown-frontmatter.mjs';
 import { createWorkspaceRouter, formatWorkspaceSessionContext } from './runtime/shared/workspace-router.mjs';
 import { setConfiguredShell } from './runtime/agent/orchestrator/tools/builtin/shell-runtime.mjs';
 import {
@@ -25,6 +32,7 @@ import {
   setLocalProvider,
 } from './standalone/provider-admin.mjs';
 import { createUsageDashboard } from './standalone/usage-dashboard.mjs';
+import { fetchOAuthUsageSnapshot } from './runtime/agent/orchestrator/providers/oauth-usage.mjs';
 import {
   channelSetup,
   deleteChannel,
@@ -296,7 +304,7 @@ async function profiledImport(label, spec, { optional = false } = {}) {
 const EFFORT_OPTIONS_BY_PROVIDER = {
   openai: ['none', 'low', 'medium', 'high', 'xhigh'],
   'openai-oauth': ['none', 'low', 'medium', 'high', 'xhigh'],
-  anthropic: ['low', 'medium', 'high', 'max'],
+  anthropic: ['low', 'medium', 'high', 'xhigh', 'max'],
   'anthropic-oauth': ['low', 'medium', 'high', 'xhigh', 'max'],
   xai: ['none', 'low', 'medium', 'high'],
   'grok-oauth': ['none', 'low', 'medium', 'high'],
@@ -339,7 +347,7 @@ export const TOOL_SEARCH_TOOL = {
   inputSchema: {
     type: 'object',
     properties: {
-      query: { type: 'string', description: 'Optional search text, e.g. shell, bridge, memory, skill, mcp.' },
+      query: { type: 'string', description: 'Optional search text, e.g. shell, agent, memory, skill, mcp.' },
       select: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Tool/skill names to activate, as comma-separated text or an array.' },
       limit: { type: 'number', description: 'Maximum matches to return.' },
     },
@@ -373,7 +381,7 @@ const CWD_TOOL = {
     openWorldHint: false,
     bridgeHidden: true,
   },
-  description: 'Show or set the standalone session working directory. Default get; action=set requires path.',
+  description: 'Show or set the standalone session working directory. Use before repo-local work when the target folder may differ. Default get; action=set requires path.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -388,11 +396,12 @@ const MEASURED_TOOL_USAGE = Object.freeze({
   read: 710,
   code_graph: 520,
   grep: 500,
+  find: 480,
   glob: 460,
   list: 430,
   apply_patch: 400,
   explore: 360,
-  bridge: 330,
+  agent: 330,
   shell: 81,
   cwd: 2,
   diagnostics: 2,
@@ -403,18 +412,23 @@ const MEASURED_TOOL_USAGE = Object.freeze({
   channel_status: 2,
 });
 const MEASURED_TOOL_ORDER = Object.freeze(Object.keys(MEASURED_TOOL_USAGE));
-const DEFERRED_ALWAYS_ACTIVE_TOOLS = new Set([
-  'tool_search',
-  'recall',
-  'search',
-  'web_fetch',
-]);
 const LEAD_DISALLOWED_TOOLS = Object.freeze(['diagnostics', 'open_config']);
-const DEFERRED_DEFAULT_FULL_LIMIT = 9;
+const DEFERRED_DEFAULT_FULL_TOOLS = Object.freeze([
+  'read',
+  'code_graph',
+  'grep',
+  'find',
+  'glob',
+  'list',
+  'explore',
+  'apply_patch',
+  'tool_search',
+]);
 const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
   'read',
   'code_graph',
   'grep',
+  'find',
   'glob',
   'list',
   'explore',
@@ -424,13 +438,14 @@ const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   'read',
   'code_graph',
   'grep',
+  'find',
   'glob',
   'list',
   'shell',
   'task',
   'explore',
   'apply_patch',
-  'bridge',
+  'agent',
   'recall',
   'search',
   'web_fetch',
@@ -441,6 +456,7 @@ const READONLY_TOOL_NAMES = new Set([
   'read',
   'list',
   'grep',
+  'find',
   'glob',
   'code_graph',
   'search',
@@ -465,7 +481,7 @@ function applyStandaloneToolDefaults(tool) {
   };
 }
 const DEFERRED_SELECT_ALIASES = {
-  filesystem: ['read', 'list', 'grep', 'glob'],
+  filesystem: ['read', 'list', 'grep', 'find', 'glob'],
   search: ['search', 'web_fetch'],
   web: ['web_fetch', 'search'],
   memory: ['memory', 'recall'],
@@ -478,7 +494,7 @@ const DEFERRED_SELECT_ALIASES = {
   channel: ['channel_status'],
   explore: ['explore'],
   discovery: ['explore'],
-  bridge: ['bridge'],
+  agent: ['agent'],
   graph: ['code_graph'],
   code: ['code_graph'],
   shell: ['shell', 'task'],
@@ -507,8 +523,21 @@ function effortOptionsFor(provider, model) {
   const declared = Array.isArray(model?.reasoningLevels)
     ? model.reasoningLevels.map(clean).filter(Boolean)
     : [];
-  if (Array.isArray(model?.reasoningLevels)) return filterProvider(declared);
   const family = clean(model?.family).toLowerCase();
+  if (Array.isArray(model?.reasoningLevels)) {
+    if (declared.length) return filterProvider(declared);
+    if (Object.prototype.hasOwnProperty.call(EFFORT_BY_FAMILY, family)) {
+      return filterProvider(EFFORT_BY_FAMILY[family]);
+    }
+    return [];
+  }
+  const reasoningOptionEffort = Array.isArray(model?.reasoningOptions)
+    ? model.reasoningOptions.find((option) => clean(option?.type).toLowerCase() === 'effort')
+    : null;
+  const reasoningOptionValues = Array.isArray(reasoningOptionEffort?.values)
+    ? reasoningOptionEffort.values.map(clean).filter(Boolean)
+    : [];
+  if (reasoningOptionValues.length) return filterProvider(reasoningOptionValues);
   if (Object.prototype.hasOwnProperty.call(EFFORT_BY_FAMILY, family)) {
     return filterProvider(EFFORT_BY_FAMILY[family]);
   }
@@ -832,11 +861,48 @@ function normalizeAutoClearConfig(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const idleMs = Number(raw.idleMs ?? raw.thresholdMs ?? raw.idleMillis);
   const compactType = clean(raw.compactType ?? raw.compact_type ?? raw.type);
+  const normalizedCompactType = compactType ? normalizeCompactTypeSetting(compactType, 'semantic') : '';
   return {
     enabled: raw.enabled !== false,
     idleMs: Number.isFinite(idleMs) && idleMs > 0 ? Math.max(60_000, Math.round(idleMs)) : AUTO_CLEAR_DEFAULT_IDLE_MS,
-    ...(compactType ? { compactType } : {}),
+    ...(normalizedCompactType ? { compactType: normalizedCompactType } : {}),
   };
+}
+
+function normalizeCompactTypeSetting(value, fallback = 'semantic') {
+  const raw = clean(value).toLowerCase().replace(/_/g, '-');
+  if (!raw) return fallback;
+  if (raw === '1' || raw === 'type1' || raw === 'type-1' || raw === 'semantic' || raw === 'summary' || raw === 'default') return 'semantic';
+  if (raw === '2' || raw === 'type2' || raw === 'type-2' || raw === 'recall' || raw === 'recall-fast' || raw === 'recall-fasttrack' || raw === 'recall-fast-track' || raw === 'fasttrack' || raw === 'fast-track') return 'recall-fasttrack';
+  return fallback;
+}
+
+function normalizeCompactionConfig(value = {}, { memoryEnabled = true } = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  let compactType = normalizeCompactTypeSetting(raw.compactType ?? raw.compact_type ?? raw.type, 'semantic');
+  if (compactType === 'recall-fasttrack' && memoryEnabled === false) compactType = 'semantic';
+  return {
+    ...raw,
+    auto: raw.auto !== false && raw.enabled !== false,
+    type: compactType,
+    compactType,
+  };
+}
+
+function moduleEnabled(configLike, name, fallback = true) {
+  const entry = configLike?.modules?.[name];
+  if (entry && typeof entry === 'object' && entry.enabled === false) return false;
+  return fallback !== false;
+}
+
+function setModuleEnabledInConfig(configLike, name, enabled) {
+  const next = { ...(configLike || {}) };
+  next.modules = { ...(next.modules || {}) };
+  next.modules[name] = {
+    ...(next.modules[name] || {}),
+    enabled: enabled !== false,
+  };
+  return next;
 }
 
 function formatDurationMs(ms) {
@@ -887,6 +953,44 @@ function openAiDirectModelSupportsFast(model) {
     || /^gpt-5\.4-mini(?:-\d{4}|$)/.test(id);
 }
 
+function openAiModelSupportsHostedWebSearch(model) {
+  const id = clean(model?.id || model).toLowerCase();
+  if (!id) return false;
+  if (model?.supportsWebSearch === true) return true;
+  const tools = [
+    ...(Array.isArray(model?.supportedTools) ? model.supportedTools : []),
+    ...(Array.isArray(model?.tools) ? model.tools : []),
+    ...(Array.isArray(model?.capabilities?.tools) ? model.capabilities.tools : []),
+  ].map((tool) => clean(tool?.type || tool?.name || tool).toLowerCase());
+  if (tools.some((tool) => tool === 'web_search' || tool === 'web_search_preview')) return true;
+  if (/codex|image|audio|tts|stt|embedding|rerank|moderation|search-preview/.test(id)) return false;
+  return /^gpt-(5(?:\.|$|-)|4\.1(?:-|$)|4o(?:-|$)|4\.5(?:-|$))/.test(id)
+    || /^o[34](?:-|$)/.test(id);
+}
+
+function grokModelSupportsHostedWebSearch(model) {
+  const id = clean(model?.id || model).toLowerCase();
+  if (!id || /imagine|image|video|composer/.test(id)) return false;
+  if (id === 'grok-build') return false;
+  return /^grok-/.test(id);
+}
+
+function geminiModelSupportsHostedWebSearch(model) {
+  const id = clean(model?.id || model).toLowerCase();
+  if (!id || /embedding|aqa|imagen|veo|tts|image|computer-use|customtools/.test(id)) return false;
+  return /^gemini-(3(?:\.|-|$)|2\.5-|2\.0-flash)/.test(id);
+}
+
+function anthropicModelSupportsHostedWebSearch(model) {
+  const id = clean(model?.id || model).toLowerCase();
+  if (!id) return false;
+  const match = id.match(/^claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?/);
+  if (!match) return false;
+  const major = Number(match[2]) || 0;
+  const minor = Number(match[3]) || 0;
+  return major > 4 || (major === 4 && minor >= 0);
+}
+
 function anthropicModelMetaSupportsFast(model) {
   const id = clean(model?.id || model).toLowerCase();
   return /^claude-(opus|sonnet)/.test(id);
@@ -901,6 +1005,16 @@ function fastCapableFor(provider, model) {
   return false;
 }
 
+function searchCapableFor(provider, model) {
+  const p = normalizeSearchProviderId(provider);
+  if (!isSearchCapableProvider(p)) return false;
+  if (p === 'openai' || p === 'openai-oauth') return openAiModelSupportsHostedWebSearch(model);
+  if (p === 'grok-oauth' || p === 'xai') return grokModelSupportsHostedWebSearch(model);
+  if (p === 'gemini') return geminiModelSupportsHostedWebSearch(model);
+  if (p === 'anthropic' || p === 'anthropic-oauth') return anthropicModelSupportsHostedWebSearch(model);
+  return model?.supportsWebSearch === true;
+}
+
 function fastPreferenceFor(config, provider, model) {
   const key = routeFastKey(provider, model);
   if (!key) return false;
@@ -909,10 +1023,10 @@ function fastPreferenceFor(config, provider, model) {
   return config?.fastModels?.[key] === true;
 }
 
-function saveModelSettings(cfgMod, route, { fastCapable = true } = {}) {
+function saveModelSettings(cfgMod, route, { fastCapable = true, baseConfig = null } = {}) {
   const key = routeFastKey(route?.provider, route?.model);
-  if (!key) return cfgMod.loadConfig();
-  const nextConfig = cfgMod.loadConfig();
+  if (!key) return baseConfig || cfgMod.loadConfig();
+  const nextConfig = baseConfig || cfgMod.loadConfig();
   const modelSettings = { ...(nextConfig.modelSettings || {}) };
   const nextSetting = { ...(modelSettings[key] || {}) };
   if (hasOwn(route, 'effort') && route.effort) nextSetting.effort = route.effort;
@@ -954,17 +1068,78 @@ function routeForStatusline(route) {
   return out;
 }
 
+function writeStatuslineRoute(statusRoutes, session, route) {
+  if (!session?.id || !route) return;
+  const clientHostPid = session?.clientHostPid || process.pid;
+  statusRoutes?.writeGatewaySessionRoute?.(session.id, routeForStatusline(route), { clientHostPid });
+}
+
 const ONBOARDING_VERSION = 1;
-const WORKFLOW_ROUTE_SLOTS = ['lead', 'bridge', 'explorer', 'memory'];
+const WORKFLOW_ROUTE_SLOTS = ['lead', 'agent', 'explorer', 'memory'];
 const FIXED_AGENT_SLOTS = Object.freeze([
   { id: 'explore', label: 'Explore', description: 'Broad repository exploration', workflowSlot: 'explorer' },
-  { id: 'web-researcher', label: 'Web Researcher', description: 'External current-info research' },
   { id: 'maintainer', label: 'Maintainer', description: 'Background memory and upkeep', workflowSlot: 'memory' },
   { id: 'worker', label: 'Worker', description: 'Scoped implementation' },
   { id: 'heavy-worker', label: 'Heavy Worker', description: 'Broad or multi-file implementation' },
   { id: 'reviewer', label: 'Reviewer', description: 'Diff review and risk checks' },
   { id: 'debugger', label: 'Debugger', description: 'Root-cause analysis and failure tracing' },
 ]);
+const SEARCH_CAPABLE_PROVIDERS = new Set([
+  'openai-oauth',
+  'openai',
+  'grok-oauth',
+  'xai',
+  'gemini',
+  'anthropic',
+  'anthropic-oauth',
+]);
+const SEARCH_PROVIDER_ALIASES = Object.freeze({
+  'openai-api': 'openai',
+  'xai-api': 'xai',
+  'gemini-api': 'gemini',
+  'anthropic-api': 'anthropic',
+});
+const QUICK_SEARCH_MODELS = Object.freeze({
+  'openai-oauth': [
+    { id: 'gpt-5.5', display: 'GPT-5.5', latest: true, contextWindow: 1000000 },
+    { id: 'gpt-5.4', display: 'GPT-5.4', latest: true, contextWindow: 1000000 },
+    { id: 'gpt-5', display: 'GPT-5', contextWindow: 400000 },
+    { id: 'gpt-4.1', display: 'GPT-4.1', contextWindow: 1000000 },
+  ],
+  openai: [
+    { id: 'gpt-5.5', display: 'GPT-5.5', latest: true, contextWindow: 1000000 },
+    { id: 'gpt-5.4', display: 'GPT-5.4', latest: true, contextWindow: 1000000 },
+    { id: 'gpt-5', display: 'GPT-5', contextWindow: 400000 },
+    { id: 'gpt-4.1', display: 'GPT-4.1', contextWindow: 1000000 },
+    { id: 'gpt-4o', display: 'GPT-4o', contextWindow: 128000 },
+  ],
+  'grok-oauth': [
+    { id: 'grok-4.3', display: 'Grok 4.3', latest: true, contextWindow: 1000000 },
+    { id: 'grok-4.20', display: 'Grok 4.20', contextWindow: 1000000 },
+    { id: 'grok-4', display: 'Grok 4', contextWindow: 256000 },
+  ],
+  xai: [
+    { id: 'grok-4.3', display: 'Grok 4.3', latest: true, contextWindow: 1000000 },
+    { id: 'grok-4.20', display: 'Grok 4.20', contextWindow: 1000000 },
+    { id: 'grok-4', display: 'Grok 4', contextWindow: 256000 },
+  ],
+  gemini: [
+    { id: 'gemini-3-pro', display: 'Gemini 3 Pro', latest: true, contextWindow: 1000000 },
+    { id: 'gemini-2.5-pro', display: 'Gemini 2.5 Pro', contextWindow: 1000000 },
+    { id: 'gemini-2.5-flash', display: 'Gemini 2.5 Flash', contextWindow: 1000000 },
+    { id: 'gemini-2.0-flash', display: 'Gemini 2.0 Flash', contextWindow: 1000000 },
+  ],
+  'anthropic-oauth': [
+    { id: 'claude-opus-4-8', display: 'Claude Opus 4.8', latest: true, contextWindow: 1000000 },
+    { id: 'claude-sonnet-4-6', display: 'Claude Sonnet 4.6', latest: true, contextWindow: 1000000 },
+    { id: 'claude-haiku-4-5-20251001', display: 'Claude Haiku 4.5', contextWindow: 200000 },
+  ],
+  anthropic: [
+    { id: 'claude-opus-4-8', display: 'Claude Opus 4.8', latest: true, contextWindow: 1000000 },
+    { id: 'claude-sonnet-4-6', display: 'Claude Sonnet 4.6', latest: true, contextWindow: 1000000 },
+    { id: 'claude-haiku-4-5-20251001', display: 'Claude Haiku 4.5', contextWindow: 200000 },
+  ],
+});
 const AGENT_ROLE_IDS = new Set(FIXED_AGENT_SLOTS.map((agent) => agent.id));
 const agentDefinitionCache = new Map();
 const DEFAULT_WORKFLOW_ID = 'default';
@@ -1073,20 +1248,22 @@ function loadAgentDefinition(dataDir, id) {
   for (const dir of agentSourceDirs(dataDir, agentId)) {
     const manifest = readJsonSafe(join(dir, 'agent.json')) || {};
     const entry = clean(manifest.entry) || 'AGENT.md';
-    const body = readTextSafe(join(dir, entry));
+    const doc = readMarkdownDocument(readTextSafe(join(dir, entry)));
+    const body = doc.body;
     if (!body) continue;
     const definition = {
       id: agentId,
       name: clean(manifest.name) || FIXED_AGENT_SLOTS.find((agent) => agent.id === agentId)?.label || agentId,
       description: clean(manifest.description) || FIXED_AGENT_SLOTS.find((agent) => agent.id === agentId)?.description || '',
+      permission: normalizeAgentPermissionOrNone(doc.frontmatter.permission),
+      frontmatter: doc.frontmatter,
       body,
     };
     agentDefinitionCache.set(cacheKey, definition);
     return definition;
   }
-  const legacyBody = readTextSafe(join(dataDir || STANDALONE_DATA_DIR, 'roles', `${agentId}.md`))
-    || readTextSafe(join(STANDALONE_ROOT, 'agents', `${agentId}.md`));
-  if (!legacyBody) {
+  const legacyDoc = readMarkdownDocument(readTextSafe(join(STANDALONE_ROOT, 'agents', `${agentId}.md`)));
+  if (!legacyDoc.body) {
     agentDefinitionCache.set(cacheKey, null);
     return null;
   }
@@ -1094,7 +1271,9 @@ function loadAgentDefinition(dataDir, id) {
     id: agentId,
     name: FIXED_AGENT_SLOTS.find((agent) => agent.id === agentId)?.label || agentId,
     description: '',
-    body: legacyBody,
+    permission: normalizeAgentPermissionOrNone(legacyDoc.frontmatter.permission),
+    frontmatter: legacyDoc.frontmatter,
+    body: legacyDoc.body,
   };
   agentDefinitionCache.set(cacheKey, definition);
   return definition;
@@ -1138,6 +1317,36 @@ function normalizeWorkflowRoute(routeLike, fallback = {}) {
   };
 }
 
+function normalizeSearchProviderId(provider) {
+  const id = clean(provider);
+  return SEARCH_PROVIDER_ALIASES[id] || id;
+}
+
+function isSearchCapableProvider(provider) {
+  return SEARCH_CAPABLE_PROVIDERS.has(normalizeSearchProviderId(provider));
+}
+
+function normalizeSearchRouteConfig(routeLike, fallback = {}) {
+  const provider = normalizeSearchProviderId(routeLike?.provider || fallback.provider);
+  const model = clean(routeLike?.model || fallback.model);
+  if (!provider || !model) return null;
+  let effort = null;
+  try {
+    effort = normalizeEffortInput(routeLike?.effort ?? fallback.effort);
+  } catch {
+    effort = null;
+  }
+  const fast = routeLike?.fast ?? fallback.fast;
+  const toolType = clean(routeLike?.toolType || fallback.toolType);
+  return {
+    provider,
+    model,
+    ...(effort ? { effort } : {}),
+    ...(fast === true ? { fast: true } : {}),
+    ...(toolType ? { toolType } : {}),
+  };
+}
+
 function upsertWorkflowPreset(presets, slot, routeLike) {
   const route = normalizeWorkflowRoute(routeLike);
   if (!route) return presets;
@@ -1145,7 +1354,7 @@ function upsertWorkflowPreset(presets, slot, routeLike) {
   const preset = {
     id,
     name: workflowPresetName(slot),
-    type: 'bridge',
+    type: 'agent',
     provider: route.provider,
     model: route.model,
     ...(route.effort ? { effort: route.effort } : {}),
@@ -1161,22 +1370,10 @@ function summarizeWorkflowRoutes(config) {
   const routes = config?.workflowRoutes && typeof config.workflowRoutes === 'object' ? config.workflowRoutes : {};
   const out = {};
   for (const slot of WORKFLOW_ROUTE_SLOTS) {
-    const route = routes[slot];
+    const route = routes[slot] || (slot === 'agent' ? routes.bridge : null);
     if (route?.provider && route?.model) out[slot] = normalizeWorkflowRoute(route);
   }
   return out;
-}
-
-function legacyWorkflowRolePreset(dataDir, role) {
-  try {
-    const file = join(dataDir, 'user-workflow.json');
-    if (!existsSync(file)) return '';
-    const raw = JSON.parse(readFileSync(file, 'utf8'));
-    const found = (raw?.roles || []).find((item) => clean(item?.name) === role);
-    return clean(found?.preset);
-  } catch {
-    return '';
-  }
 }
 
 function routeFromPreset(config, presetName) {
@@ -1184,7 +1381,7 @@ function routeFromPreset(config, presetName) {
   return preset ? normalizeWorkflowRoute(preset) : null;
 }
 
-function agentRouteFromConfig(config, agentId, dataDir) {
+function agentRouteFromConfig(config, agentId, _dataDir) {
   const id = normalizeAgentId(agentId);
   if (!id) return null;
   const explicit = normalizeWorkflowRoute(config?.agents?.[id])
@@ -1200,7 +1397,7 @@ function agentRouteFromConfig(config, agentId, dataDir) {
   if (id === 'explore') return routeFromPreset(config, config?.maintenance?.explore);
   if (id === 'maintainer') return routeFromPreset(config, config?.maintenance?.memory);
 
-  return routeFromPreset(config, legacyWorkflowRolePreset(dataDir, id));
+  return null;
 }
 
 function toolResponseText(result) {
@@ -1262,9 +1459,9 @@ function toolSchemaBucket(tool) {
   if (kind === 'skill') return 'skills';
   if (name === 'memory' || name === 'recall' || name.includes('memory')) return 'memory';
   if (name === 'search' || name === 'web_fetch') return 'web';
-  if (['read', 'grep', 'glob', 'list', 'code_graph', 'explore'].includes(name)) return 'code';
+  if (['read', 'grep', 'find', 'glob', 'list', 'code_graph', 'explore'].includes(name)) return 'code';
   if (['shell', 'apply_patch'].includes(name)) return 'mutation';
-  if (name === 'bridge' || name === 'delegate' || name.includes('bridge')) return 'agents';
+  if (name === 'agent' || name === 'delegate') return 'agents';
   if (name.includes('channel') || name.includes('discord') || name.includes('webhook')) return 'channels';
   if (name.includes('provider') || name === 'tool_search' || name === 'cwd') return 'setup';
   return 'other';
@@ -1331,24 +1528,14 @@ function sortedNamesByMeasuredUsage(names) {
 }
 
 export function defaultDeferredToolNames(catalog, mode) {
+  const available = new Set((catalog || []).map((tool) => clean(tool?.name)).filter(Boolean));
   if (mode === 'lead') {
-    const available = new Set((catalog || []).map((tool) => clean(tool?.name)).filter(Boolean));
     return new Set(DEFERRED_DEFAULT_LEAD_TOOLS.filter((name) => available.has(name)));
   }
   if (mode === 'readonly') {
-    const available = new Set((catalog || []).map((tool) => clean(tool?.name)).filter(Boolean));
     return new Set(DEFERRED_DEFAULT_READONLY_TOOLS.filter((name) => available.has(name)));
   }
-  const names = new Set(DEFERRED_ALWAYS_ACTIVE_TOOLS);
-  const limit = DEFERRED_DEFAULT_FULL_LIMIT;
-  for (const tool of sortedCatalogByMeasuredUsage(catalog)) {
-    const name = clean(tool?.name);
-    if (!name || names.has(name)) continue;
-    if (mode === 'readonly' && !isReadonlySelectable(tool)) continue;
-    names.add(name);
-    if (names.size >= DEFERRED_ALWAYS_ACTIVE_TOOLS.size + limit) break;
-  }
-  return names;
+  return new Set(DEFERRED_DEFAULT_FULL_TOOLS.filter((name) => available.has(name)));
 }
 
 export function compactToolSearchDescription(value, max = 220) {
@@ -1451,6 +1638,16 @@ function toolSearchMatches(row, query) {
   return tokens.some((token) => haystack.includes(token));
 }
 
+function toolSearchAutoLoadMatches(row, query) {
+  const raw = clean(query).toLowerCase();
+  if (!raw) return false;
+  const haystack = toolSearchText(row);
+  if (haystack.includes(raw)) return true;
+  const tokens = toolSearchTokens(raw);
+  if (tokens.length <= 1) return toolSearchMatches(row, query);
+  return tokens.every((token) => haystack.includes(token));
+}
+
 function expandSelectionNames(names) {
   const out = [];
   for (const raw of names || []) {
@@ -1461,6 +1658,16 @@ function expandSelectionNames(names) {
     else out.push(key);
   }
   return [...new Set(out)];
+}
+
+function autoToolSelectionNames(query, rows, toolNames, limit) {
+  const raw = clean(query).toLowerCase();
+  const alias = DEFERRED_SELECT_ALIASES[raw];
+  if (alias) return alias.filter((name) => toolNames.has(name)).slice(0, limit);
+  return rows
+    .filter((row) => toolNames.has(row.name) && toolSearchAutoLoadMatches(row, query))
+    .slice(0, limit)
+    .map((row) => row.name);
 }
 
 function isReadonlySelectable(tool) {
@@ -1538,11 +1745,20 @@ function renderToolSearch(args = {}, session, mode = 'full', options = {}) {
   for (const name of [...toolNames]) toolNames.add(String(name).toLowerCase());
   const initialLoadedSkills = new Set(Array.isArray(session?.deferredLoadedSkills) ? session.deferredLoadedSkills : []);
   const initialSkillRows = skillSearchRows(options.skills, initialLoadedSkills);
+  const initialRows = [
+    ...catalog.map((tool) => toolRow(tool, activeNames)),
+    ...initialSkillRows,
+  ].filter((row) => row.name);
   const skillSelection = selectedNames.length
     ? selectToolSearchSkills(session, selectedNames, initialSkillRows, options, toolNames)
     : { claimed: new Set(), loaded: [], already: [], missing: [], active: initialLoadedSkills };
   const toolSelectedNames = selectedNames.filter((name) => !skillSelection.claimed.has(name));
-  const toolSelection = toolSelectedNames.length ? selectDeferredTools(session, toolSelectedNames, mode) : null;
+  const explicitToolSelection = toolSelectedNames.length ? selectDeferredTools(session, toolSelectedNames, mode) : null;
+  const autoToolNames = (!selectedNames.length && query)
+    ? autoToolSelectionNames(query, initialRows, toolNames, limit)
+    : [];
+  const autoToolSelection = autoToolNames.length ? selectDeferredTools(session, autoToolNames, mode) : null;
+  const toolSelection = explicitToolSelection || autoToolSelection;
   const nextActiveNames = new Set((session?.tools || []).map((tool) => tool?.name).filter(Boolean));
   const nextLoadedSkills = new Set(Array.isArray(session?.deferredLoadedSkills) ? session.deferredLoadedSkills : [...skillSelection.active]);
   const rows = [
@@ -1627,18 +1843,51 @@ export async function createMixdogSessionRuntime({
     profiledImport('code-graph-tool-defs', CODE_GRAPH_TOOL_DEFS, { optional: true }),
   ]);
   bootProfile('imports:ready', { ms: (performance.now() - importsStartedAt).toFixed(1) });
+  const pluginDataDir = cfgMod.getPluginData();
+  const memoryRuntime = createStandaloneMemoryRuntime({
+    entry: join(STANDALONE_ROOT, MEMORY_RUNTIME.replace(/^\.\//, '')),
+    dataDir: pluginDataDir,
+    cwd,
+  });
   let memoryModPromise = null;
-  let memoryInitPromise = null;
   let searchModPromise = null;
   let codeGraphModPromise = null;
+  let outputStyleStatusCache = null;
+  let outputStyleStatusCacheAt = 0;
+  let outputStyleStatusCacheDir = '';
+
+  const memoryEnabled = () => moduleEnabled(config, 'memory', true);
+  const channelsEnabled = () => moduleEnabled(config, 'channels', true);
+  const getOutputStyleStatusCached = ({ fresh = false } = {}) => {
+    const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
+    const cacheDir = resolve(dataDir);
+    const now = performance.now();
+    if (
+      !fresh
+      && outputStyleStatusCache
+      && outputStyleStatusCacheDir === cacheDir
+      && now - outputStyleStatusCacheAt < 2500
+    ) {
+      return outputStyleStatusCache;
+    }
+    outputStyleStatusCache = outputStyleStatus(dataDir);
+    outputStyleStatusCacheAt = now;
+    outputStyleStatusCacheDir = cacheDir;
+    return outputStyleStatusCache;
+  };
+  const invalidateOutputStyleStatusCache = () => {
+    outputStyleStatusCache = null;
+    outputStyleStatusCacheAt = 0;
+    outputStyleStatusCacheDir = '';
+  };
 
   async function getMemoryModule() {
+    if (!memoryEnabled()) throw new Error('memory is disabled in settings');
     const startedAt = performance.now();
-    memoryModPromise ??= import(MEMORY_RUNTIME);
+    memoryModPromise ??= Promise.resolve(memoryRuntime);
     const mod = await memoryModPromise;
     if (typeof mod?.init === 'function') {
-      memoryInitPromise ??= mod.init();
-      await memoryInitPromise;
+      await mod.init();
     }
     bootProfile('memory-runtime:ready', { ms: (performance.now() - startedAt).toFixed(1) });
     return mod;
@@ -1650,6 +1899,190 @@ export async function createMixdogSessionRuntime({
     const mod = await searchModPromise;
     bootProfile('search-runtime:ready', { ms: (performance.now() - startedAt).toFixed(1) });
     return mod;
+  }
+
+  function normalizeSearchAllowedDomain(site) {
+    const raw = clean(site);
+    if (!raw) return '';
+    try {
+      return new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.toLowerCase();
+    } catch {
+      return raw.replace(/^https?:\/\//i, '').split('/')[0].toLowerCase();
+    }
+  }
+
+  function nativeSearchUserLocation(locale) {
+    if (!locale || typeof locale !== 'object' || Array.isArray(locale)) return null;
+    const location = { type: 'approximate' };
+    for (const key of ['country', 'region', 'city', 'timezone']) {
+      const value = clean(locale[key]);
+      if (value) location[key] = value;
+    }
+    return Object.keys(location).length > 1 ? location : null;
+  }
+
+  function nativeSearchTool(args = {}, toolType = 'web_search', providerId = '') {
+    const providerName = normalizeSearchProviderId(providerId);
+    const domain = normalizeSearchAllowedDomain(args.site);
+    const type = clean(toolType) || 'web_search';
+    const location = nativeSearchUserLocation(args.locale);
+    if (providerName === 'gemini') {
+      return { type: type || 'google_search' };
+    }
+    if (providerName === 'anthropic' || providerName === 'anthropic-oauth') {
+      const tool = {
+        type: 'web_search_20250305',
+        name: 'web_search',
+        max_uses: Math.max(1, Math.min(10, Number(args.maxResults) || 5)),
+      };
+      if (domain) tool.allowed_domains = [domain];
+      if (location) tool.user_location = location;
+      return tool;
+    }
+    if (providerName === 'grok-oauth' || providerName === 'xai') {
+      const tool = { type };
+      if (domain) tool.filters = { allowed_domains: [domain] };
+      return tool;
+    }
+    const tool = {
+      type,
+    };
+    if (type === 'web_search') {
+      tool.search_context_size = clean(args.contextSize) || 'low';
+      if (domain) tool.filters = { allowed_domains: [domain] };
+      if (location) tool.user_location = location;
+    }
+    return tool;
+  }
+
+  function nativeSearchToolTypes(routeLike = {}) {
+    const envToolType = clean(process.env.MIXDOG_NATIVE_SEARCH_TOOL_TYPE);
+    if (envToolType) return [envToolType];
+    const configured = clean(routeLike.toolType);
+    if (configured) return [configured];
+    const providerName = normalizeSearchProviderId(routeLike.provider);
+    if (providerName === 'gemini') return ['google_search'];
+    if (providerName === 'anthropic' || providerName === 'anthropic-oauth') return ['web_search'];
+    if (providerName === 'grok-oauth' || providerName === 'xai') return ['web_search'];
+    return ['web_search', 'web_search_preview'];
+  }
+
+  function nativeSearchRoutes() {
+    const cfg = ensureFullConfig();
+    searchRoute = normalizeSearchRouteConfig(cfg.searchRoute) || normalizeSearchRouteConfig(searchRoute);
+    if (!searchRoute) return [];
+    const providerName = normalizeSearchProviderId(searchRoute.provider);
+    if (!isSearchCapableProvider(providerName)) return [];
+    return [{
+      key: `${providerName}\n${searchRoute.model}`,
+      provider: providerName,
+      model: searchRoute.model,
+      source: 'search-route',
+      effort: searchRoute.effort || null,
+      fast: searchRoute.fast === true,
+      toolType: searchRoute.toolType || null,
+    }];
+  }
+
+  function nativeSearchMessages(searchArgs = {}) {
+    const prompt = searchArgs.prompt || '';
+    return [
+      {
+        role: 'system',
+        content: [
+          'You are Mixdog native web search.',
+          'Use the hosted web_search tool for current or external facts.',
+          'Answer concisely, cite source URLs, and do not request local tools or file edits.',
+        ].join('\n'),
+      },
+      { role: 'user', content: prompt },
+    ];
+  }
+
+  function flattenNativeSearchSources(result = {}) {
+    const out = [];
+    const add = (source, fallbackTitle = '') => {
+      if (!source || typeof source !== 'object') return;
+      const url = clean(source.url || source.uri || source.href || source.source_url);
+      if (!url) return;
+      out.push({
+        title: clean(source.title || source.query || source.name || fallbackTitle || url),
+        url,
+        snippet: clean(source.snippet || source.text || source.description),
+        source: source.source || 'native-web-search',
+        provider: source.provider || 'native-web-search',
+      });
+    };
+    for (const citation of Array.isArray(result.citations) ? result.citations : []) add(citation);
+    for (const call of Array.isArray(result.webSearchCalls) ? result.webSearchCalls : []) {
+      const action = call?.action || {};
+      for (const source of Array.isArray(action.sources) ? action.sources : []) add(source, action.query || '');
+      if (action.url) add({ url: action.url, title: action.query || '' });
+      for (const url of Array.isArray(action.urls) ? action.urls : []) add({ url, title: action.query || '' });
+    }
+    const seen = new Set();
+    return out.filter((item) => {
+      const key = item.url || `${item.title}\n${item.snippet}`;
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  async function runNativeWebSearch(searchArgs = {}, { signal } = {}) {
+    const candidates = nativeSearchRoutes();
+    if (!candidates.length) {
+      throw new Error('search route is not configured; open /search to choose a search provider/model');
+    }
+    const errors = [];
+    for (const candidate of candidates) {
+      for (const toolType of nativeSearchToolTypes(candidate)) {
+        try {
+          await ensureProvidersReady(ensureProviderEnabled(config, candidate.provider));
+          const providerImpl = reg.getProvider(candidate.provider);
+          if (!providerImpl || typeof providerImpl.send !== 'function') {
+            throw new Error(`provider "${candidate.provider}" is not ready`);
+          }
+          const model = candidate.model;
+          const searchTool = nativeSearchTool(searchArgs, toolType, candidate.provider);
+          const startedAt = Date.now();
+          const result = await providerImpl.send(
+            nativeSearchMessages(searchArgs),
+            model,
+            undefined,
+            {
+              signal,
+              role: 'web-search',
+              sessionId: `${session?.id || 'search'}:native-search:${Date.now().toString(36)}`,
+              sourceType: 'native-search',
+              sourceName: 'search',
+              nativeTools: [searchTool],
+              nativeInclude: candidate.provider === 'openai' || candidate.provider === 'openai-oauth'
+                ? ['web_search_call.action.sources']
+                : [],
+              toolChoice: candidate.provider === 'gemini' ? 'auto' : 'required',
+              ...(candidate.effort ? { effort: candidate.effort } : {}),
+              fast: candidate.fast === true,
+              onStageChange: () => {},
+              onStreamDelta: () => {},
+            },
+          );
+          const sources = flattenNativeSearchSources(result);
+          return {
+            content: String(result?.content || '').trim(),
+            provider: candidate.provider,
+            model: result?.model || candidate.model || null,
+            usage: result?.usage || null,
+            citations: sources,
+            webSearchCalls: result?.webSearchCalls || [],
+            durationMs: Date.now() - startedAt,
+          };
+        } catch (err) {
+          errors.push(`${candidate.provider}${candidate.model ? `/${candidate.model}` : ''}/${toolType}: ${err?.message || String(err)}`);
+        }
+      }
+    }
+    throw new Error(`native web search failed: ${errors.join(' | ')}`);
   }
 
   async function getCodeGraphModule() {
@@ -1672,8 +2105,7 @@ export async function createMixdogSessionRuntime({
     };
     nextConfig.default = workflowPresetId('lead');
 
-    cfgMod.saveConfig(nextConfig);
-    config = nextConfig;
+    saveConfigAndAdopt(nextConfig);
     return leadRoute;
   }
 
@@ -1714,6 +2146,10 @@ export async function createMixdogSessionRuntime({
   async function loadCoreMemoryContext() {
     // Boot should not pay for memory/PG startup unless explicitly requested.
     // Recall and memory tools still initialize the memory service on first use.
+    if (!memoryEnabled()) {
+      bootProfile('core-memory:disabled');
+      return '';
+    }
     if (process.env.MIXDOG_BOOT_CORE_MEMORY !== '1') {
       bootProfile('core-memory:skipped');
       return '';
@@ -1746,6 +2182,7 @@ export async function createMixdogSessionRuntime({
   setConfiguredShell(normalizeSystemShellConfig(config.shell).command);
   let configHasSecrets = false;
   let route = resolveRoute(config, { provider, model });
+  let searchRoute = normalizeSearchRouteConfig(config.searchRoute);
   bootProfile('config:ready', { ms: (performance.now() - configStartedAt).toFixed(1) });
   let mode = normalizeToolMode(toolMode);
   let session = null;
@@ -1755,11 +2192,13 @@ export async function createMixdogSessionRuntime({
   const workspaceRouter = createWorkspaceRouter({ entryCwd: cwd });
   let closeRequested = false;
   let channelStartTimer = null;
+  let providerSetupWarmupTimer = null;
   let providerWarmupTimer = null;
   let providerModelWarmupTimer = null;
   let activeTurnCount = 0;
   let firstTurnCompleted = false;
   const sessionPrewarmDelayMs = envDelayMs('MIXDOG_SESSION_PREWARM_DELAY_MS', 50, { min: 0, max: 10_000 });
+  const providerSetupWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_SETUP_WARMUP_DELAY_MS', 300, { min: 0, max: 60_000 });
   const providerWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_WARMUP_DELAY_MS', 1_500, { min: 0, max: 60_000 });
   const providerModelWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS', 15_000, { min: 0, max: 120_000 });
   const channelStartDelayMs = envDelayMs('MIXDOG_CHANNEL_START_DELAY_MS', 10_000, { min: 0, max: 120_000 });
@@ -1777,10 +2216,14 @@ export async function createMixdogSessionRuntime({
   const notificationListeners = new Set();
   let providerModelsCache = { models: null, at: 0 };
   let providerModelsPromise = null;
+  let searchProviderModelsCache = { models: null, at: 0 };
+  let searchProviderModelsPromise = null;
+  let usageDashboardCache = { dashboard: null, at: 0 };
+  let usageDashboardPromise = null;
   let providerSetupCache = { setup: null, at: 0 };
+  let providerSetupQuickCache = { setup: null, at: 0 };
   let providerSetupPromise = null;
   let providerInitPromise = null;
-  const PROVIDER_SETUP_CACHE_TTL_MS = 10_000;
   let mcpFailures = [];
   let preSessionToolSurface = null;
   let contextStatusCacheKey = null;
@@ -1789,72 +2232,6 @@ export async function createMixdogSessionRuntime({
   const hooks = createStandaloneHookBus({ dataDir: cfgMod.getPluginData() });
   hooks.emit('runtime:start', { cwd: currentCwd, provider: route.provider, model: route.model, toolMode: mode });
   bootProfile('hooks:ready', { ms: (performance.now() - hooksStartedAt).toFixed(1) });
-
-  function contextContentLength(content) {
-    if (typeof content === 'string') return content.length;
-    if (!Array.isArray(content)) {
-      try { return JSON.stringify(content ?? '').length; } catch { return String(content ?? '').length; }
-    }
-    let length = 0;
-    for (const part of content) {
-      if (typeof part === 'string') length += part.length;
-      else if (typeof part?.text === 'string') length += part.text.length;
-      else {
-        try { length += JSON.stringify(part ?? '').length; } catch { length += String(part ?? '').length; }
-      }
-    }
-    return length;
-  }
-
-  function sameContextStatusKey(a, b) {
-    if (!a || !b || a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (!Object.is(a[i], b[i])) return false;
-    }
-    return true;
-  }
-
-  function buildContextStatusCacheKey(messages, tools, bridgeMode) {
-    const lastMessage = messages[messages.length - 1] || null;
-    const compaction = session?.compaction || null;
-    return [
-      session?.id || null,
-      route.provider,
-      route.model,
-      currentCwd,
-      mode,
-      bridgeMode,
-      messages,
-      messages.length,
-      lastMessage,
-      lastMessage?.role || null,
-      lastMessage?.content || null,
-      contextContentLength(lastMessage?.content),
-      Array.isArray(lastMessage?.toolCalls) ? lastMessage.toolCalls.length : 0,
-      tools,
-      tools.length,
-      session?.contextWindow || null,
-      session?.rawContextWindow || null,
-      session?.effectiveContextWindowPercent || null,
-      session?.lastContextTokens || 0,
-      session?.lastContextTokensUpdatedAt || 0,
-      session?.lastContextTokensStaleAfterCompact === true,
-      session?.lastInputTokens || 0,
-      session?.lastOutputTokens || 0,
-      session?.lastCachedReadTokens || 0,
-      session?.lastCacheWriteTokens || 0,
-      session?.totalInputTokens || 0,
-      session?.totalOutputTokens || 0,
-      session?.totalCachedReadTokens || 0,
-      session?.totalCacheWriteTokens || 0,
-      session?.compactBoundaryTokens || 0,
-      compaction,
-      compaction?.lastChangedAt || 0,
-      compaction?.lastCompactAt || 0,
-      compaction?.boundaryTokens || 0,
-      compaction?.triggerTokens || 0,
-    ];
-  }
 
   function mcpTransportLabel(cfg = {}) {
     if (cfg.autoDetect) return `autoDetect:${cfg.autoDetect}`;
@@ -1865,23 +2242,30 @@ export async function createMixdogSessionRuntime({
 
   function emitRuntimeNotification(content, meta = {}) {
     const text = String(content || '').trim();
-    if (!text) return;
+    if (!text) return false;
     const event = { content: text, meta: meta && typeof meta === 'object' ? meta : {} };
+    let handled = false;
     for (const listener of [...notificationListeners]) {
-      try { listener(event); } catch {}
+      try {
+        if (listener(event) === true) handled = true;
+      } catch {}
     }
+    return handled;
   }
 
   function notifyFnForSession(callerSessionId) {
     return (text, meta = {}) => {
-      const hadRuntimeListener = notificationListeners.size > 0;
-      emitRuntimeNotification(text, meta);
+      const handledByRuntimeListener = emitRuntimeNotification(text, meta);
       // TUI sessions keep their own Claude-Code-style command queue via
-      // onNotification. Headless/model-tool callers have no listener, so fall
-      // back to the session manager pending-message queue.
-      if (!hadRuntimeListener && callerSessionId && typeof mgr.enqueuePendingMessage === 'function') {
-        try { mgr.enqueuePendingMessage(callerSessionId, String(text || '')); } catch {}
+      // onNotification. Headless/API listeners may exist but not consume the
+      // event, so fall back unless a listener explicitly returns true.
+      if (!handledByRuntimeListener && callerSessionId && typeof mgr.enqueuePendingMessage === 'function') {
+        try {
+          const visible = modelVisibleToolCompletionMessage(text, meta);
+          if (visible) return mgr.enqueuePendingMessage(callerSessionId, visible) > 0;
+        } catch {}
       }
+      return handledByRuntimeListener;
     };
   }
 
@@ -2203,35 +2587,8 @@ export async function createMixdogSessionRuntime({
           routingSessionId: callerSessionId,
           clientHostPid: callerCtx?.clientHostPid || session?.clientHostPid || process.pid,
           notifyFn: notifyFnForSession(callerSessionId),
-          agentSearch: name === 'search'
-            ? async (searchArgs) => {
-              const query = Array.isArray(searchArgs.keywords)
-                ? searchArgs.keywords.join('\n')
-                : String(searchArgs.keywords || searchArgs.query || '');
-              const prompt = searchArgs.prompt || [
-                'Perform a concise web research task for Mixdog search.',
-                '',
-                `Query: ${query}`,
-                searchArgs.site ? `Site/domain restriction: ${searchArgs.site}` : null,
-                searchArgs.type ? `Search type: ${searchArgs.type}` : null,
-                searchArgs.locale ? `Locale: ${typeof searchArgs.locale === 'string' ? searchArgs.locale : JSON.stringify(searchArgs.locale)}` : null,
-                `Max results: ${Math.max(1, Math.min(20, Number(searchArgs.maxResults) || 10))}`,
-                '',
-                'Return a short answer first, then cite useful results as title + URL + one-line snippet.',
-                'Do not edit files.',
-              ].filter(Boolean).join('\n');
-              const rendered = await bridge.execute({
-                type: 'spawn',
-                agent: 'web-researcher',
-                tag: `search_${Date.now().toString(36)}`,
-                prompt,
-                cwd: callerCwd,
-                wait: true,
-                firstResponseTimeoutMs: Number.isFinite(Number(searchArgs.firstResponseTimeoutMs)) ? Number(searchArgs.firstResponseTimeoutMs) : 120_000,
-                idleTimeoutMs: Number.isFinite(Number(searchArgs.idleTimeoutMs)) ? Number(searchArgs.idleTimeoutMs) : 30 * 60_000,
-              }, { invocationSource: 'user-command', callerCwd });
-              return String(rendered || '').replace(/^bridge result[^\n]*\n/i, '').trim();
-            }
+          nativeSearch: name === 'search'
+            ? async (searchArgs) => runNativeWebSearch(searchArgs, { signal: callerCtx?.signal || session?.controller?.signal })
             : undefined,
         });
       }
@@ -2274,7 +2631,7 @@ export async function createMixdogSessionRuntime({
         }
         return JSON.stringify({ cwd: currentCwd, sessionId: session?.id || null }, null, 2);
       }
-      if (name === 'bridge') {
+      if (name === 'agent') {
         const callerSessionId = callerCtx?.callerSessionId || session?.id || null;
         return await bridge.execute(args, {
           callerCwd,
@@ -2285,9 +2642,12 @@ export async function createMixdogSessionRuntime({
           notifyFn: notifyFnForSession(callerSessionId),
         });
       }
-      if (name === 'provider_status') return renderProviderStatus(cfgMod.loadConfig());
+      if (name === 'provider_status') return renderProviderStatus(displayConfig());
       if (name === 'channel_status') return renderChannelStatus();
-      if (channels.isChannelTool(name)) return await channels.execute(name, args || {});
+      if (channels.isChannelTool(name)) {
+        if (!channelsEnabled()) throw new Error('channels are disabled in settings');
+        return await channels.execute(name, args || {});
+      }
       throw new Error(`unknown standalone internal tool: ${name}`);
     },
   });
@@ -2306,16 +2666,40 @@ export async function createMixdogSessionRuntime({
   function invalidateProviderCaches() {
     providerModelsCache = { models: null, at: 0 };
     providerModelsPromise = null;
+    searchProviderModelsCache = { models: null, at: 0 };
+    searchProviderModelsPromise = null;
+    usageDashboardCache = { dashboard: null, at: 0 };
+    usageDashboardPromise = null;
     providerSetupCache = { setup: null, at: 0 };
+    providerSetupQuickCache = { setup: null, at: 0 };
     providerSetupPromise = null;
     providerInitPromise = null;
     modelMetaByRoute.clear();
   }
 
+  function adoptConfig(nextConfig, { hasSecrets = configHasSecrets } = {}) {
+    config = nextConfig;
+    configHasSecrets = hasSecrets === true;
+    setConfiguredShell(normalizeSystemShellConfig(config.shell).command);
+    searchRoute = normalizeSearchRouteConfig(config.searchRoute) || normalizeSearchRouteConfig(searchRoute);
+    return config;
+  }
+
+  function saveConfigAndAdopt(nextConfig, { hasSecrets = configHasSecrets } = {}) {
+    cfgMod.saveConfig(nextConfig);
+    return adoptConfig(nextConfig, { hasSecrets });
+  }
+
+  function reloadFullConfig() {
+    return adoptConfig(cfgMod.loadConfig(), { hasSecrets: true });
+  }
+
   function ensureFullConfig() {
     if (configHasSecrets) return config;
-    config = cfgMod.loadConfig();
-    configHasSecrets = true;
+    return reloadFullConfig();
+  }
+
+  function displayConfig() {
     return config;
   }
 
@@ -2328,6 +2712,19 @@ export async function createMixdogSessionRuntime({
     return ensureFullConfig();
   }
 
+  function refreshStatuslineUsageSnapshot(routeLike = {}) {
+    const providerId = clean(routeLike.provider);
+    const modelId = clean(routeLike.model);
+    if (!providerId || !providerId.includes('oauth')) return;
+    const providerObj = reg.getProvider(providerId);
+    if (!providerObj) return;
+    void fetchOAuthUsageSnapshot({ provider: providerId, model: modelId }, providerObj, (message) => {
+      if (process.env.MIXDOG_STATUSLINE_TRACE) {
+        try { process.stderr.write(`[statusline] ${message}\n`); } catch {}
+      }
+    }).catch(() => {});
+  }
+
   async function ensureProvidersReady(providerConfig = config.providers || {}) {
     if (providerInitPromise) return await providerInitPromise;
     providerInitPromise = reg.initProviders(providerConfig)
@@ -2337,13 +2734,23 @@ export async function createMixdogSessionRuntime({
     return await providerInitPromise;
   }
 
-  async function cachedProviderSetup({ force = false } = {}) {
-    const now = Date.now();
-    if (!force && providerSetupCache.setup && now - providerSetupCache.at < PROVIDER_SETUP_CACHE_TTL_MS) {
+  async function cachedProviderSetup({ force = false, quick = false } = {}) {
+    if (!force && providerSetupCache.setup) {
       return providerSetupCache.setup;
     }
-    if (!force && providerSetupPromise) return await providerSetupPromise;
-    providerSetupPromise = providerSetup(cfgMod.loadConfig())
+    if (quick) {
+      if (!force && providerSetupQuickCache.setup) {
+        return providerSetupQuickCache.setup;
+      }
+      const setup = await providerSetup(displayConfig(), { detectLocal: false, checkSecrets: false });
+      providerSetupQuickCache = { setup, at: Date.now() };
+      if (!providerSetupPromise && !providerSetupWarmupTimer && !closeRequested) {
+        scheduleProviderSetupWarmup(0);
+      }
+      return setup;
+    }
+    if (providerSetupPromise) return await providerSetupPromise;
+    providerSetupPromise = providerSetup(displayConfig(), { detectLocal: true })
       .then((setup) => {
         providerSetupCache = { setup, at: Date.now() };
         return setup;
@@ -2491,9 +2898,10 @@ function parsedProviderModelVersion(id) {
       description: m.description || '',
       supportsVision: m.supportsVision === true,
       supportsFunctionCalling: m.supportsFunctionCalling === true,
+      supportsWebSearch: searchCapableFor(name, m),
       supportsPromptCaching: m.supportsPromptCaching === true,
       supportsReasoning: m.supportsReasoning === true,
-      reasoningLevels: Array.isArray(m.reasoningLevels) ? m.reasoningLevels : [],
+      reasoningLevels: Array.isArray(m.reasoningLevels) ? m.reasoningLevels : undefined,
       reasoningOptions: Array.isArray(m.reasoningOptions) ? m.reasoningOptions : [],
       reasoningContentField: m.reasoningContentField || null,
       mode: m.mode || null,
@@ -2515,32 +2923,185 @@ function parsedProviderModelVersion(id) {
     return sortProviderModels((rows || []).map(hydrateProviderModelRow));
   }
 
+  function addQuickSearchModel(rows, seen, provider, model) {
+    const providerName = normalizeSearchProviderId(provider);
+    const modelId = clean(model?.id || model);
+    if (!providerName || !modelId || !isSearchCapableProvider(providerName)) return;
+    const key = `${providerName}:${modelId}`;
+    if (seen.has(key)) return;
+    const row = providerModelCacheRow(providerName, {
+      id: modelId,
+      name: model?.name || model?.display || modelId,
+      display: model?.display || model?.name || modelId,
+      contextWindow: model?.contextWindow || null,
+      outputTokens: model?.outputTokens || null,
+      latest: model?.latest === true,
+      supportsWebSearch: true,
+      supportsFunctionCalling: model?.supportsFunctionCalling === true,
+      supportsPromptCaching: model?.supportsPromptCaching === true,
+      supportsReasoning: model?.supportsReasoning === true,
+      reasoningLevels: Array.isArray(model?.reasoningLevels) ? model.reasoningLevels : undefined,
+      reasoningOptions: Array.isArray(model?.reasoningOptions) ? model.reasoningOptions : [],
+      mode: 'chat',
+    });
+    if (row.supportsWebSearch !== true) return;
+    seen.add(key);
+    rows.push({
+      ...row,
+      provider: providerName,
+      searchCapable: true,
+      searchToolType: row.searchToolType || 'web_search',
+    });
+  }
+
+  function quickSearchProviderModelRows() {
+    const pickerConfig = displayConfig();
+    const rows = [];
+    const seen = new Set();
+    for (const [name, providerConfig] of Object.entries(pickerConfig.providers || {})) {
+      const providerName = normalizeSearchProviderId(name);
+      if (!providerConfig?.enabled || !isSearchCapableProvider(providerName)) continue;
+      for (const model of QUICK_SEARCH_MODELS[providerName] || []) {
+        addQuickSearchModel(rows, seen, providerName, model);
+      }
+    }
+    const configuredSearch = normalizeSearchRouteConfig(pickerConfig.searchRoute) || normalizeSearchRouteConfig(searchRoute);
+    if (configuredSearch?.provider && configuredSearch?.model) {
+      addQuickSearchModel(rows, seen, configuredSearch.provider, {
+        id: configuredSearch.model,
+        display: configuredSearch.model,
+      });
+    }
+    if (route?.provider && route?.model && searchCapableFor(route.provider, route)) {
+      addQuickSearchModel(rows, seen, route.provider, {
+        id: route.model,
+        display: route.model,
+      });
+    }
+    return searchModelsFromRows(rows);
+  }
+
+  function searchModelsFromRows(rows) {
+    return sortProviderModels((rows || [])
+      .filter((row) => row.supportsWebSearch === true)
+      .map((row) => ({
+        ...row,
+        provider: normalizeSearchProviderId(row.provider),
+        searchCapable: true,
+        searchToolType: row.searchToolType || 'web_search',
+      })));
+  }
+
+  async function collectSearchProviderModels({ force = false } = {}) {
+    if (!force && Array.isArray(searchProviderModelsCache.models)) {
+      return providerModelsFromCacheRows(searchProviderModelsCache.models);
+    }
+    if (!force && Array.isArray(providerModelsCache.models)) {
+      const rows = searchModelsFromRows(providerModelsCache.models);
+      searchProviderModelsCache = { models: rows, at: Date.now() };
+      return providerModelsFromCacheRows(rows);
+    }
+    if (!force) {
+      const rows = quickSearchProviderModelRows();
+      searchProviderModelsCache = { models: rows, at: Date.now() };
+      return providerModelsFromCacheRows(rows);
+    }
+    if (!searchProviderModelsPromise) {
+      searchProviderModelsPromise = loadSearchProviderModelsFresh()
+        .then((models) => {
+          searchProviderModelsCache = { models, at: Date.now() };
+          return models;
+        })
+        .finally(() => {
+          searchProviderModelsPromise = null;
+        });
+    }
+    return providerModelsFromCacheRows(await searchProviderModelsPromise);
+  }
+
+  function enabledSearchProviderConfig() {
+    ensureFullConfig();
+    const out = {};
+    for (const [name, providerConfig] of Object.entries(config.providers || {})) {
+      const providerName = normalizeSearchProviderId(name);
+      if (!providerConfig?.enabled || !isSearchCapableProvider(providerName)) continue;
+      out[providerName] = { ...providerConfig, enabled: true };
+    }
+    return out;
+  }
+
+  async function loadSearchProviderModelsFresh() {
+    const searchProviders = enabledSearchProviderConfig();
+    const providerNames = Object.keys(searchProviders);
+    if (!providerNames.length) return [];
+    await ensureProvidersReady(config.providers || {});
+    const providerResults = await Promise.all(providerNames.map(async (name) => {
+      const provider = reg.getProvider(name);
+      if (typeof provider?.listModels !== 'function') return [];
+      try {
+        const models = await provider.listModels();
+        if (!Array.isArray(models)) return [];
+        const rows = [];
+        for (const m of models) {
+          if (!m?.id || !isSelectableLlmModel(m)) continue;
+          const row = providerModelCacheRow(name, m);
+          if (row.supportsWebSearch !== true) continue;
+          rows.push({
+            ...row,
+            provider: normalizeSearchProviderId(row.provider),
+            searchCapable: true,
+            searchToolType: row.searchToolType || 'web_search',
+          });
+          modelMetaByRoute.set(modelMetaKey(name, m.id), row);
+        }
+        return rows;
+      } catch {
+        // Keep the picker responsive if one search-capable provider has a
+        // transient catalog/auth failure.
+        return [];
+      }
+    }));
+    const results = [];
+    const seen = new Set();
+    for (const row of providerResults.flat()) {
+      const key = `${normalizeSearchProviderId(row.provider)}:${row.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push(row);
+    }
+    return results;
+  }
+
   async function loadProviderModelsFresh() {
     ensureFullConfig();
     await ensureProvidersReady(config.providers || {});
-    const allProviders = reg.getAllProviders();
-    const results = [];
-    const seen = new Set();
-    for (const [name, provider] of allProviders) {
-      if (typeof provider?.listModels !== 'function') continue;
+    const allProviders = [...reg.getAllProviders()];
+    const providerResults = await Promise.all(allProviders.map(async ([name, provider]) => {
+      if (typeof provider?.listModels !== 'function') return [];
       try {
         const models = await provider.listModels();
-        if (Array.isArray(models)) {
-          for (const m of models) {
-            if (!m?.id) continue;
-            if (!isSelectableLlmModel(m)) continue;
-            const key = `${name}:${m.id}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            const row = providerModelCacheRow(name, m);
-            results.push(row);
-            modelMetaByRoute.set(modelMetaKey(name, m.id), row);
-          }
+        if (!Array.isArray(models)) return [];
+        const rows = [];
+        for (const m of models) {
+          if (!m?.id) continue;
+          if (!isSelectableLlmModel(m)) continue;
+          rows.push(providerModelCacheRow(name, m));
         }
+        return rows;
       } catch {
         // Ignore per-provider catalog failures so one bad credential or
         // transient /models error does not hide other authenticated models.
+        return [];
       }
+    }));
+    const results = [];
+    const seen = new Set();
+    for (const row of providerResults.flat()) {
+      const key = `${row.provider}:${row.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push(row);
+      modelMetaByRoute.set(modelMetaKey(row.provider, row.id), row);
     }
     return results;
   }
@@ -2677,7 +3238,9 @@ function parsedProviderModelVersion(id) {
         workflowContext,
         workspaceContext,
         fast: route.fast === true,
-        compaction: config.compaction && typeof config.compaction === 'object' ? config.compaction : undefined,
+        compaction: config.compaction && typeof config.compaction === 'object'
+          ? normalizeCompactionConfig(config.compaction, { memoryEnabled: memoryEnabled() })
+          : undefined,
       };
       if (hasOwn(route, 'effort') || route.effectiveEffort) {
         sessionOpts.effort = route.effectiveEffort || null;
@@ -2692,7 +3255,7 @@ function parsedProviderModelVersion(id) {
       });
       applyDeferredToolSurface(session, mode, standaloneTools);
       applyPreSessionToolSelection();
-      statusRoutes?.writeGatewaySessionRoute?.(session.id, routeForStatusline(route));
+      writeStatuslineRoute(statusRoutes, session, route);
       hooks.emit('session:create', { sessionId: session.id, provider: route.provider, model: route.model, toolMode: mode, cwd: currentCwd });
       bootProfile('session:create:ready', {
         ms: (performance.now() - startedAt).toFixed(1),
@@ -2745,8 +3308,7 @@ function parsedProviderModelVersion(id) {
       }
       const providersStartedAt = performance.now();
       try {
-        config = cfgMod.loadConfig();
-        configHasSecrets = true;
+        reloadFullConfig();
       } catch (error) {
         bootProfile('config:full-failed', { error: error?.message || String(error) });
       }
@@ -2759,6 +3321,18 @@ function parsedProviderModelVersion(id) {
         .catch((error) => bootProfile('providers:warm-failed', { error: error?.message || String(error) }));
     }, delayMs);
     providerWarmupTimer.unref?.();
+  }
+
+  function scheduleProviderSetupWarmup(delayMs = providerSetupWarmupDelayMs) {
+    if (providerSetupWarmupTimer || closeRequested) return;
+    providerSetupWarmupTimer = setTimeout(() => {
+      providerSetupWarmupTimer = null;
+      if (closeRequested) return;
+      void cachedProviderSetup()
+        .then(() => bootProfile('provider-setup:warm-ready'))
+        .catch((error) => bootProfile('provider-setup:warm-failed', { error: error?.message || String(error) }));
+    }, delayMs);
+    providerSetupWarmupTimer.unref?.();
   }
 
   function scheduleProviderModelWarmup(delayMs = providerModelWarmupDelayMs) {
@@ -2780,6 +3354,10 @@ function parsedProviderModelVersion(id) {
   function scheduleChannelStart(delayMs = channelStartDelayMs) {
     if (envFlag('MIXDOG_DISABLE_CHANNEL_START')) {
       bootProfile('channels:start-skipped');
+      return;
+    }
+    if (!channelsEnabled()) {
+      bootProfile('channels:start-disabled');
       return;
     }
     if (channelStartTimer || closeRequested) return;
@@ -2822,6 +3400,7 @@ function parsedProviderModelVersion(id) {
     providerWarmup: providerWarmupEnabled,
   });
   scheduleLeadSessionPrewarm();
+  scheduleProviderSetupWarmup();
   scheduleProviderWarmup();
   scheduleChannelStart();
 
@@ -2917,14 +3496,17 @@ function parsedProviderModelVersion(id) {
     get systemShell() {
       return normalizeSystemShellConfig(config.shell);
     },
+    get searchRoute() {
+      searchRoute = normalizeSearchRouteConfig(config.searchRoute) || normalizeSearchRouteConfig(searchRoute);
+      return searchRoute;
+    },
     get workflow() {
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const pack = loadWorkflowPack(dataDir, activeWorkflowId(config));
       return pack ? { id: pack.id, name: pack.name, description: pack.description, source: pack.source } : { id: DEFAULT_WORKFLOW_ID, name: 'Default' };
     },
     get outputStyle() {
-      const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
-      return outputStyleStatus(dataDir).current;
+      return getOutputStyleStatusCached().current;
     },
     get cwd() {
       return currentCwd;
@@ -2949,7 +3531,16 @@ function parsedProviderModelVersion(id) {
       const rawWindow = Number(session?.rawContextWindow || session?.contextWindow || 0);
       const effectiveWindow = Number(session?.contextWindow || rawWindow || 0);
       const lastContextTokens = Number(session?.lastContextTokens || 0);
-      const estimatedContextTokens = messageSummary.estimatedTokens + requestReserveTokens;
+      // On a brand-new session (no conversation messages and no recorded API
+      // usage) the only thing left is the fixed request-overhead reserve, which
+      // is fit/compaction headroom — not consumed context. Surfacing it as
+      // "used" makes the statusline read a phantom ~0.1% on first entry. Keep
+      // the reserve for compaction math but report zero estimated context until
+      // the transcript actually has content.
+      const hasContextActivity = messageSummary.count > 0 || lastContextTokens > 0;
+      const estimatedContextTokens = hasContextActivity
+        ? messageSummary.estimatedTokens + requestReserveTokens
+        : 0;
       const compactAt = Number(session?.compaction?.lastChangedAt || session?.compaction?.lastCompactAt || 0);
       const usageAt = Number(session?.lastContextTokensUpdatedAt || 0);
       const lastUsageStale = !!lastContextTokens && (
@@ -3021,26 +3612,64 @@ function parsedProviderModelVersion(id) {
       return value;
     },
     listProviders() {
-      return renderProviderStatus(cfgMod.loadConfig());
+      return renderProviderStatus(displayConfig());
     },
     async getProviderSetup() {
       return await cachedProviderSetup();
     },
     async getUsageDashboard(options = {}) {
-      const nextConfig = cfgMod.loadConfig();
-      return await createUsageDashboard(nextConfig, {
-        ...(options || {}),
-        setup: await cachedProviderSetup(),
-        getProvider: (providerId) => reg.getProvider(providerId),
-        log: (message) => {
-          if (process.env.MIXDOG_USAGE_TRACE) {
-            try { process.stderr.write(`[usage] ${message}\n`); } catch {}
-          }
-        },
-      });
+      const forceSetup = options?.force === true || options?.refresh === true;
+      if (!forceSetup && usageDashboardCache.dashboard) {
+        const cached = {
+          ...usageDashboardCache.dashboard,
+          refresh: false,
+          checking: false,
+          cached: true,
+          cachedAt: usageDashboardCache.at,
+        };
+        if (typeof options?.onUpdate === 'function') {
+          try { options.onUpdate(cached); } catch {}
+        }
+        return cached;
+      }
+      if (!forceSetup && usageDashboardPromise) return await usageDashboardPromise;
+      const quickSetup = options?.quickSetup !== false;
+      const getProvider = (providerId) => reg.getProvider(providerId);
+      const log = (message) => {
+        if (process.env.MIXDOG_USAGE_TRACE) {
+          try { process.stderr.write(`[usage] ${message}\n`); } catch {}
+        }
+      };
+      if (quickSetup && typeof options?.onUpdate === 'function') {
+        const previewConfig = displayConfig();
+        const previewSetup = await cachedProviderSetup({ force: false, quick: true });
+        await createUsageDashboard(previewConfig, {
+          ...(options || {}),
+          preview: true,
+          setup: previewSetup,
+          getProvider,
+          log,
+        });
+      }
+      const buildDashboard = async () => {
+        const dashboard = await createUsageDashboard(displayConfig(), {
+          ...(options || {}),
+          setup: await cachedProviderSetup({ force: forceSetup, quick: false }),
+          getProvider,
+          log,
+        });
+        usageDashboardCache = { dashboard, at: Date.now() };
+        return dashboard;
+      };
+      if (forceSetup) return await buildDashboard();
+      usageDashboardPromise = buildDashboard()
+        .finally(() => {
+          usageDashboardPromise = null;
+        });
+      return await usageDashboardPromise;
     },
     getOnboardingStatus() {
-      const nextConfig = cfgMod.loadConfig();
+      const nextConfig = displayConfig();
       return {
         completed: nextConfig?.onboarding?.completed === true,
         version: nextConfig?.onboarding?.version || 0,
@@ -3051,17 +3680,91 @@ function parsedProviderModelVersion(id) {
     getAutoClear() {
       return normalizeAutoClearConfig(config.autoClear);
     },
+    getCompactionSettings() {
+      return normalizeCompactionConfig(config.compaction, { memoryEnabled: memoryEnabled() });
+    },
+    setCompactionSettings(input = {}) {
+      const current = normalizeCompactionConfig(config.compaction, { memoryEnabled: memoryEnabled() });
+      const next = { ...current };
+      if (hasOwn(input, 'auto')) next.auto = input.auto !== false;
+      if (hasOwn(input, 'enabled')) next.auto = input.enabled !== false;
+      if (hasOwn(input, 'type') || hasOwn(input, 'compactType') || hasOwn(input, 'compact_type')) {
+        const requestedType = input.type ?? input.compactType ?? input.compact_type;
+        const compactType = normalizeCompactTypeSetting(requestedType, current.compactType || current.type || 'semantic');
+        if (compactType === 'recall-fasttrack' && !memoryEnabled()) {
+          throw new Error('recall-fasttrack compact requires memory to be enabled');
+        }
+        next.type = compactType;
+        next.compactType = compactType;
+      }
+      const nextConfig = { ...config };
+      nextConfig.compaction = normalizeCompactionConfig(next, { memoryEnabled: memoryEnabled() });
+      saveConfigAndAdopt(nextConfig);
+      if (session) {
+        session.compaction = {
+          ...(session.compaction || {}),
+          ...normalizeCompactionConfig(config.compaction, { memoryEnabled: memoryEnabled() }),
+        };
+      }
+      invalidateContextStatusCache();
+      return normalizeCompactionConfig(config.compaction, { memoryEnabled: memoryEnabled() });
+    },
+    getMemorySettings() {
+      return {
+        enabled: memoryEnabled(),
+        compactFastTrackAvailable: memoryEnabled(),
+      };
+    },
+    async setMemoryEnabled(enabled) {
+      const nextConfig = setModuleEnabledInConfig({ ...config }, 'memory', enabled !== false);
+      if (enabled === false) {
+        nextConfig.compaction = normalizeCompactionConfig(nextConfig.compaction, { memoryEnabled: false });
+      }
+      saveConfigAndAdopt(nextConfig);
+      if (!memoryEnabled() && memoryModPromise) {
+        await memoryModPromise.then((mod) => mod?.stop?.()).catch(() => {});
+        memoryModPromise = null;
+      }
+      if (session && config.compaction) {
+        session.compaction = {
+          ...(session.compaction || {}),
+          ...normalizeCompactionConfig(config.compaction, { memoryEnabled: memoryEnabled() }),
+        };
+      }
+      invalidatePreSessionToolSurface();
+      invalidateContextStatusCache();
+      return this.getMemorySettings();
+    },
+    getChannelSettings(options = {}) {
+      return {
+        enabled: channelsEnabled(),
+        ...(options?.includeStatus === false ? {} : { status: channels.status() }),
+      };
+    },
+    async setChannelsEnabled(enabled) {
+      const nextConfig = setModuleEnabledInConfig({ ...config }, 'channels', enabled !== false);
+      saveConfigAndAdopt(nextConfig);
+      if (!channelsEnabled()) {
+        if (channelStartTimer) {
+          clearTimeout(channelStartTimer);
+          channelStartTimer = null;
+        }
+        await channels.stop('settings-disabled', { waitForExit: false }).catch(() => {});
+      } else {
+        scheduleChannelStart(0);
+      }
+      invalidatePreSessionToolSurface();
+      return this.getChannelSettings();
+    },
     getSystemShell() {
       return normalizeSystemShellConfig(config.shell);
     },
     setSystemShell(input = {}) {
       const command = normalizeSystemShellCommand(typeof input === 'string' ? input : input?.command);
-      const nextConfig = cfgMod.loadConfig();
-      cfgMod.saveConfig({
-        ...nextConfig,
-        shell: command ? { ...(nextConfig.shell || {}), command } : {},
+      saveConfigAndAdopt({
+        ...config,
+        shell: command ? { ...(config.shell || {}), command } : {},
       });
-      config = cfgMod.loadConfig();
       setConfiguredShell(command);
       return normalizeSystemShellConfig(config.shell);
     },
@@ -3080,9 +3783,7 @@ function parsedProviderModelVersion(id) {
         next.idleMs = idleMs;
         if (!hasOwn(input, 'enabled')) next.enabled = true;
       }
-      const nextConfig = cfgMod.loadConfig();
-      cfgMod.saveConfig({ ...nextConfig, autoClear: next });
-      config = cfgMod.loadConfig();
+      saveConfigAndAdopt({ ...config, autoClear: next });
       return { ...normalizeAutoClearConfig(config.autoClear), label: formatDurationMs(normalizeAutoClearConfig(config.autoClear).idleMs) };
     },
     async completeOnboarding(payload = {}) {
@@ -3090,7 +3791,7 @@ function parsedProviderModelVersion(id) {
       const workflowInput = payload.workflowRoutes && typeof payload.workflowRoutes === 'object'
         ? payload.workflowRoutes
         : {};
-      const nextConfig = cfgMod.loadConfig();
+      const nextConfig = { ...config };
       let presets = Array.isArray(nextConfig.presets) ? nextConfig.presets.slice() : [];
       const workflowRoutes = { ...(nextConfig.workflowRoutes || {}) };
 
@@ -3101,11 +3802,12 @@ function parsedProviderModelVersion(id) {
       }
 
       for (const slot of WORKFLOW_ROUTE_SLOTS) {
-        const normalized = normalizeWorkflowRoute(workflowInput[slot]);
+        const normalized = normalizeWorkflowRoute(workflowInput[slot] || (slot === 'agent' ? workflowInput.bridge : null));
         if (!normalized) continue;
         workflowRoutes[slot] = normalized;
         presets = upsertWorkflowPreset(presets, slot, normalized);
       }
+      delete workflowRoutes.bridge;
 
       nextConfig.presets = presets;
       nextConfig.workflowRoutes = workflowRoutes;
@@ -3121,8 +3823,7 @@ function parsedProviderModelVersion(id) {
         completedAt: new Date().toISOString(),
       };
 
-      cfgMod.saveConfig(nextConfig);
-      config = cfgMod.loadConfig();
+      saveConfigAndAdopt(nextConfig);
       if (defaultRoute) {
         route = resolveRoute(config, { provider: defaultRoute.provider, model: defaultRoute.model, effort: defaultRoute.effort });
         if (session?.id) mgr.closeSession(session.id, 'cli-onboarding-complete');
@@ -3205,25 +3906,25 @@ function parsedProviderModelVersion(id) {
       const result = String(secret || '').trim()
         ? saveProviderApiKey(cfgMod, providerId, secret)
         : await loginOAuthProvider(cfgMod, providerId);
-      config = cfgMod.loadConfig();
+      reloadFullConfig();
       invalidateProviderCaches();
       warmProviderModelCache();
       return result;
     },
     async loginOAuthProvider(providerId) {
       const result = await loginOAuthProvider(cfgMod, providerId);
-      config = cfgMod.loadConfig();
+      reloadFullConfig();
       invalidateProviderCaches();
       warmProviderModelCache();
       return result;
     },
     async beginOAuthProviderLogin(providerId) {
       const result = await beginOAuthProviderLogin(cfgMod, providerId);
-      config = cfgMod.loadConfig();
+      reloadFullConfig();
       return {
         ...result,
         waitForCallback: result.waitForCallback?.then((completed) => {
-          config = cfgMod.loadConfig();
+          reloadFullConfig();
           if (completed) {
             invalidateProviderCaches();
             warmProviderModelCache();
@@ -3232,7 +3933,7 @@ function parsedProviderModelVersion(id) {
         }),
         completeCode: async (code) => {
           const completed = await result.completeCode(code);
-          config = cfgMod.loadConfig();
+          reloadFullConfig();
           invalidateProviderCaches();
           warmProviderModelCache();
           return completed;
@@ -3241,42 +3942,80 @@ function parsedProviderModelVersion(id) {
     },
     saveProviderApiKey(providerId, secret) {
       const result = saveProviderApiKey(cfgMod, providerId, secret);
-      config = cfgMod.loadConfig();
+      reloadFullConfig();
       invalidateProviderCaches();
       warmProviderModelCache();
       return result;
     },
     saveOpenAIUsageSessionKey(secret) {
       const result = saveOpenAIUsageSessionKey(cfgMod, secret);
-      config = cfgMod.loadConfig();
+      reloadFullConfig();
       invalidateProviderCaches();
       return result;
     },
     saveOpenCodeGoUsageAuth(opts) {
       const result = saveOpenCodeGoUsageAuth(cfgMod, opts);
-      config = cfgMod.loadConfig();
+      reloadFullConfig();
       invalidateProviderCaches();
       return result;
     },
     setLocalProvider(providerId, opts) {
       const result = setLocalProvider(cfgMod, providerId, opts);
-      config = cfgMod.loadConfig();
+      reloadFullConfig();
       invalidateProviderCaches();
       warmProviderModelCache();
       return result;
     },
     forgetProviderAuth(providerId) {
       const result = forgetProviderAuth(cfgMod, providerId);
-      config = cfgMod.loadConfig();
+      reloadFullConfig();
       invalidateProviderCaches();
       warmProviderModelCache();
       return result;
     },
     listPresets() {
-      return cfgMod.listPresets(cfgMod.loadConfig());
+      return cfgMod.listPresets(displayConfig());
     },
     async listProviderModels(options = {}) {
       return await collectProviderModels({ force: options.force === true || options.refresh === true });
+    },
+    getSearchRoute() {
+      searchRoute = normalizeSearchRouteConfig(config.searchRoute) || normalizeSearchRouteConfig(searchRoute);
+      return searchRoute;
+    },
+    async listSearchModels(options = {}) {
+      return await collectSearchProviderModels({ force: options.force === true || options.refresh === true });
+    },
+    async setSearchRoute(next) {
+      let selectedRoute = normalizeSearchRouteConfig(next);
+      if (!selectedRoute && next?.model && searchRoute?.provider) {
+        selectedRoute = normalizeSearchRouteConfig({ ...next, provider: searchRoute.provider });
+      }
+      if (!selectedRoute) throw new Error('search route requires provider and model');
+      if (!isSearchCapableProvider(selectedRoute.provider)) {
+        throw new Error(`provider "${selectedRoute.provider}" does not support Mixdog native search`);
+      }
+      ensureFullConfig();
+      await reg.initProviders(ensureProviderEnabled(config, selectedRoute.provider));
+      const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
+      if (!searchCapableFor(selectedRoute.provider, modelMeta)) {
+        throw new Error(`model "${selectedRoute.model}" is not marked as web-search capable`);
+      }
+      const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta);
+      const effort = coerceEffortFor(selectedRoute.provider, modelMeta, selectedRoute.effort);
+      selectedRoute = {
+        ...selectedRoute,
+        ...(effort ? { effort } : {}),
+        fast: fastCapable ? selectedRoute.fast === true : false,
+      };
+      adoptConfig(saveModelSettings(cfgMod, selectedRoute, { fastCapable, baseConfig: config }), { hasSecrets: configHasSecrets });
+      const routeToSave = normalizeSearchRouteConfig(selectedRoute);
+      const nextConfig = { ...config };
+      nextConfig.searchRoute = routeToSave;
+      saveConfigAndAdopt(nextConfig);
+      searchRoute = normalizeSearchRouteConfig(config.searchRoute);
+      invalidateProviderCaches();
+      return searchRoute;
     },
     listAgents() {
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
@@ -3288,7 +4027,7 @@ function parsedProviderModelVersion(id) {
       }));
     },
     listWorkflows() {
-      const currentConfig = cfgMod.loadConfig();
+      const currentConfig = displayConfig();
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const active = activeWorkflowId(currentConfig);
       return listWorkflowPacks(dataDir).map((workflow) => ({
@@ -3301,16 +4040,13 @@ function parsedProviderModelVersion(id) {
       }));
     },
     getOutputStyle() {
-      const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
-      return outputStyleStatus(dataDir);
+      return getOutputStyleStatusCached();
     },
     listOutputStyles() {
-      const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
-      return outputStyleStatus(dataDir);
+      return getOutputStyleStatusCached();
     },
     async setOutputStyle(value) {
-      const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
-      const before = outputStyleStatus(dataDir);
+      const before = getOutputStyleStatusCached({ fresh: true });
       const selected = findOutputStyle(value, before.styles);
       if (!selected) {
         const names = before.styles.map((style) => style.label || style.id).join(', ') || 'Default';
@@ -3326,6 +4062,7 @@ function parsedProviderModelVersion(id) {
         }
         return next;
       });
+      invalidateOutputStyleStatusCache();
       const hasConversation = sessionHasConversationMessages(session);
       let appliedToCurrentSession = !hasConversation;
       if (session?.id && !hasConversation) {
@@ -3334,17 +4071,16 @@ function parsedProviderModelVersion(id) {
         await recreateCurrentSessionIfReady();
       }
       invalidateContextStatusCache();
-      return { ...outputStyleStatus(dataDir), appliedToCurrentSession };
+      return { ...getOutputStyleStatusCached({ fresh: true }), appliedToCurrentSession };
     },
     async setWorkflow(workflowId) {
       const id = normalizeWorkflowId(workflowId, DEFAULT_WORKFLOW_ID);
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const pack = loadWorkflowPack(dataDir, id);
       if (!pack || pack.id !== id) throw new Error(`workflow "${workflowId}" not found`);
-      const nextConfig = cfgMod.loadConfig();
+      const nextConfig = { ...config };
       nextConfig.workflow = { ...(nextConfig.workflow || {}), active: id };
-      cfgMod.saveConfig(nextConfig);
-      config = cfgMod.loadConfig();
+      saveConfigAndAdopt(nextConfig);
       if (session?.id) {
         mgr.closeSession(session.id, 'cli-workflow-switch');
         session = null;
@@ -3360,12 +4096,12 @@ function parsedProviderModelVersion(id) {
       const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
       const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta);
       selectedRoute = { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false };
-      config = saveModelSettings(cfgMod, selectedRoute, { fastCapable });
+      adoptConfig(saveModelSettings(cfgMod, selectedRoute, { fastCapable, baseConfig: config }), { hasSecrets: configHasSecrets });
 
       const routeToSave = normalizeWorkflowRoute(selectedRoute);
       if (!routeToSave) throw new Error('agent route requires provider and model');
       const agent = FIXED_AGENT_SLOTS.find((item) => item.id === id);
-      const nextConfig = cfgMod.loadConfig();
+      const nextConfig = { ...config };
       nextConfig.agents = {
         ...(nextConfig.agents || {}),
         [id]: routeToSave,
@@ -3383,8 +4119,7 @@ function parsedProviderModelVersion(id) {
           ...(id === 'maintainer' ? { memory: workflowPresetId('memory') } : {}),
         };
       }
-      cfgMod.saveConfig(nextConfig);
-      config = cfgMod.loadConfig();
+      saveConfigAndAdopt(nextConfig);
       return routeToSave;
     },
     async ask(prompt, options = {}) {
@@ -3417,12 +4152,15 @@ function parsedProviderModelVersion(id) {
           {
             onTextDelta: options.onTextDelta,
             onReasoningDelta: options.onReasoningDelta,
+            onAssistantText: options.onAssistantText,
             onUsageDelta: options.onUsageDelta,
             onToolResult: options.onToolResult,
+            onCompactEvent: options.onCompactEvent,
             onStageChange: options.onStageChange,
             onStreamDelta: options.onStreamDelta,
             drainSteering: options.drainSteering,
             onSteerMessage: options.onSteerMessage,
+            notifyFn: notifyFnForSession(session.id),
           },
         );
         session = mgr.getSession(session.id) || session;
@@ -3531,7 +4269,7 @@ function parsedProviderModelVersion(id) {
       return mcpStatus();
     },
     async reconnectMcp() {
-      config = cfgMod.loadConfig();
+      reloadFullConfig();
       const status = await connectConfiguredMcp({ reset: true });
       invalidatePreSessionToolSurface();
       if (session?.id) mgr.closeSession(session.id, 'cli-mcp-reconnect');
@@ -3540,13 +4278,12 @@ function parsedProviderModelVersion(id) {
     },
     async addMcpServer(input = {}) {
       const { name, config: serverConfig } = normalizeMcpServerInput(input);
-      const nextConfig = cfgMod.loadConfig();
+      const nextConfig = { ...config };
       nextConfig.mcpServers = {
         ...(nextConfig.mcpServers || {}),
         [name]: serverConfig,
       };
-      cfgMod.saveConfig(nextConfig);
-      config = cfgMod.loadConfig();
+      saveConfigAndAdopt(nextConfig);
       const status = await connectConfiguredMcp({ reset: true });
       invalidatePreSessionToolSurface();
       if (session?.id) mgr.closeSession(session.id, 'cli-mcp-add');
@@ -3556,7 +4293,7 @@ function parsedProviderModelVersion(id) {
     async removeMcpServer(name) {
       const serverName = clean(name);
       if (!serverName) throw new Error('MCP server name is required');
-      const nextConfig = cfgMod.loadConfig();
+      const nextConfig = { ...config };
       const current = nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object'
         ? { ...nextConfig.mcpServers }
         : {};
@@ -3564,8 +4301,7 @@ function parsedProviderModelVersion(id) {
         throw new Error(`MCP server not configured: ${serverName}`);
       }
       delete current[serverName];
-      cfgMod.saveConfig({ ...nextConfig, mcpServers: current });
-      config = cfgMod.loadConfig();
+      saveConfigAndAdopt({ ...nextConfig, mcpServers: current });
       const status = await connectConfiguredMcp({ reset: true });
       invalidatePreSessionToolSurface();
       if (session?.id) mgr.closeSession(session.id, 'cli-mcp-remove');
@@ -3575,7 +4311,7 @@ function parsedProviderModelVersion(id) {
     async setMcpServerEnabled(name, enabled) {
       const serverName = clean(name);
       if (!serverName) throw new Error('MCP server name is required');
-      const nextConfig = cfgMod.loadConfig();
+      const nextConfig = { ...config };
       const current = nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object'
         ? { ...nextConfig.mcpServers }
         : {};
@@ -3583,8 +4319,7 @@ function parsedProviderModelVersion(id) {
         throw new Error(`MCP server not configured: ${serverName}`);
       }
       current[serverName] = { ...(current[serverName] || {}), enabled: enabled !== false };
-      cfgMod.saveConfig({ ...nextConfig, mcpServers: current });
-      config = cfgMod.loadConfig();
+      saveConfigAndAdopt({ ...nextConfig, mcpServers: current });
       const status = await connectConfiguredMcp({ reset: true });
       invalidatePreSessionToolSurface();
       if (session?.id) mgr.closeSession(session.id, 'cli-mcp-toggle');
@@ -3635,13 +4370,12 @@ function parsedProviderModelVersion(id) {
       const key = clean(plugin.id || plugin.name || plugin);
       const dataDir = cfgMod.getPluginData?.();
       const removed = registryRemovePlugin(key, { dataDir });
-      const nextConfig = cfgMod.loadConfig();
+      const nextConfig = { ...config };
       const serverName = pluginMcpServerName(plugin);
       if (nextConfig.mcpServers && Object.prototype.hasOwnProperty.call(nextConfig.mcpServers, serverName)) {
         const current = { ...nextConfig.mcpServers };
         delete current[serverName];
-        cfgMod.saveConfig({ ...nextConfig, mcpServers: current });
-        config = cfgMod.loadConfig();
+        saveConfigAndAdopt({ ...nextConfig, mcpServers: current });
         await connectConfiguredMcp({ reset: true });
         invalidatePreSessionToolSurface();
       }
@@ -3656,7 +4390,7 @@ function parsedProviderModelVersion(id) {
       const scriptPath = join(root, script);
       if (!existsSync(scriptPath)) throw new Error(`plugin MCP script not found: ${scriptPath}`);
       const serverName = pluginMcpServerName(plugin);
-      const nextConfig = cfgMod.loadConfig();
+      const nextConfig = { ...config };
       nextConfig.mcpServers = {
         ...(nextConfig.mcpServers || {}),
         [serverName]: {
@@ -3669,8 +4403,7 @@ function parsedProviderModelVersion(id) {
           },
         },
       };
-      cfgMod.saveConfig(nextConfig);
-      config = cfgMod.loadConfig();
+      saveConfigAndAdopt(nextConfig);
       const status = await connectConfiguredMcp({ reset: true });
       invalidatePreSessionToolSurface();
       if (session?.id) mgr.closeSession(session.id, 'cli-plugin-mcp-enable');
@@ -3751,12 +4484,13 @@ function parsedProviderModelVersion(id) {
       const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
       const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta);
       selectedRoute = { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false };
-      config = saveModelSettings(cfgMod, selectedRoute, { fastCapable });
+      adoptConfig(saveModelSettings(cfgMod, selectedRoute, { fastCapable, baseConfig: config }), { hasSecrets: configHasSecrets });
       const leadRoute = persistLeadRoute(selectedRoute);
       route = resolveRoute(config, leadRoute
         ? { model: workflowPresetId('lead') }
         : selectedRoute);
       await refreshRouteEffort(modelMeta);
+      refreshStatuslineUsageSnapshot(route);
       if (session) {
         const updated = mgr.updateSessionRoute?.(session.id, {
           provider: route.provider,
@@ -3771,7 +4505,7 @@ function parsedProviderModelVersion(id) {
           session.fast = route.fast === true;
           session.effort = route.effectiveEffort || null;
         }
-        statusRoutes?.writeGatewaySessionRoute?.(session.id, routeForStatusline(route));
+        writeStatuslineRoute(statusRoutes, session, route);
         invalidateContextStatusCache();
       }
       return route;
@@ -3785,14 +4519,14 @@ function parsedProviderModelVersion(id) {
         throw new Error(`fast mode is not available for ${route.provider}/${route.model}`);
       }
       route = resolveRoute(config, { provider: route.provider, model: route.model, effort: route.effort, fast: fastCapable ? enabled : false });
-      config = saveModelSettings(cfgMod, route, { fastCapable });
+      adoptConfig(saveModelSettings(cfgMod, route, { fastCapable, baseConfig: config }), { hasSecrets: configHasSecrets });
       const leadRoute = persistLeadRoute(route);
       if (leadRoute) route = resolveRoute(config, { model: workflowPresetId('lead') });
       await refreshRouteEffort(modelMeta);
       if (session) {
         session.fast = route.fast === true;
         session.effort = route.effectiveEffort || null;
-        statusRoutes?.writeGatewaySessionRoute?.(session.id, routeForStatusline(route));
+        writeStatuslineRoute(statusRoutes, session, route);
         invalidateContextStatusCache();
       }
       return route.fast === true;
@@ -3813,7 +4547,7 @@ function parsedProviderModelVersion(id) {
       await refreshRouteEffort();
       if (session) {
         session.effort = route.effectiveEffort || null;
-        statusRoutes?.writeGatewaySessionRoute?.(session.id, routeForStatusline(route));
+        writeStatuslineRoute(statusRoutes, session, route);
         invalidateContextStatusCache();
       }
       return route;
@@ -3824,6 +4558,10 @@ function parsedProviderModelVersion(id) {
       if (channelStartTimer) {
         clearTimeout(channelStartTimer);
         channelStartTimer = null;
+      }
+      if (providerSetupWarmupTimer) {
+        clearTimeout(providerSetupWarmupTimer);
+        providerSetupWarmupTimer = null;
       }
       if (providerWarmupTimer) {
         clearTimeout(providerWarmupTimer);
@@ -3849,7 +4587,6 @@ function parsedProviderModelVersion(id) {
           .then((mod) => (typeof mod?.stop === 'function' ? mod.stop() : null))
           .catch(() => {})
           .finally(() => {
-            memoryInitPromise = null;
             memoryModPromise = null;
           })
         : null;
@@ -3904,7 +4641,7 @@ function parsedProviderModelVersion(id) {
         const leadish = role === 'lead'
           || sourceType === 'lead'
           || (sourceType === 'cli' && (!sourceName || sourceName === 'main'))
-          || (!sourceType && !sourceName && owner !== 'bridge');
+          || (!sourceType && !sourceName && !isAgentOwner(owner));
         if (!leadish) return null;
         let preview = cleanSessionPreview(s.preview || '');
         let messageCount = Math.max(0, Number(s.messageCount) || 0);
@@ -3954,7 +4691,7 @@ function parsedProviderModelVersion(id) {
       invalidatePreSessionToolSurface();
       invalidateContextStatusCache();
       sessionNeedsCwdRefresh = false;
-      statusRoutes?.writeGatewaySessionRoute?.(session.id, routeForStatusline(route));
+      writeStatuslineRoute(statusRoutes, session, route);
       return {
         id: resumed.id,
         messages: resumed.messages || [],

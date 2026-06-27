@@ -20,6 +20,7 @@ import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
 import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
+import stringWidth from 'string-width';
 import { theme, TURN_MARKER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
 import { AssistantMessage, UserMessage, ThinkingMessage, NoticeMessage } from './components/Message.jsx';
@@ -34,7 +35,6 @@ import { SlashCommandPalette } from './components/SlashCommandPalette.jsx';
 import { ContextPanel } from './components/ContextPanel.jsx';
 import { UsagePanel } from './components/UsagePanel.jsx';
 import { TextEntryPanel } from './components/TextEntryPanel.jsx';
-import { openInBrowser } from '../runtime/shared/open-url.mjs';
 import {
   buildPromptContentWithImages,
   formatImageRef,
@@ -44,35 +44,6 @@ import {
   splitPastedImagePathCandidates,
 } from './paste-attachments.mjs';
 import { formatDuration } from './time-format.mjs';
-
-const HELP = [
-  'Commands:',
-  '  /clear           reset the conversation',
-  '  /compact         compact older conversation context',
-  '  /autoclear       configure idle auto-clear',
-  '  /clear (new)     start a fresh chat',
-  '  /resume [id]     resume a saved chat (picker if no id)',
-  '  /context         show current context surface',
-  '  /status          open runtime status dashboard',
-  '  /usage           open global provider quota / balance dashboard',
-  '  /model <name>    switch model for subsequent turns (picker if no name)',
-  '  /workflow        switch the active workflow',
-  '  /OutputStyle     switch Lead output style',
-  '  /agents          show available workflow agents',
-  '  /effort [level] set reasoning effort for the current model',
-  '  /fast [on|off]   toggle Fast mode for this model (saved per model)',
-  '  /mcp             manage MCP servers and tools',
-  '  /skills          choose a skill for the next request',
-  '  /plugins         manage local plugin integrations',
-  '  /hooks           manage before-tool hook rules and events',
-  '  /providers       manage provider auth and local endpoints',
-  '  /channels        manage Discord, channels, schedules, webhooks',
-  '  /schedules       manage schedules',
-  '  /webhooks        manage inbound webhooks',
-  '  /quit (exit, q)  quit',
-  'Picker: ↑/↓ select, ←/→ adjust when shown, Enter choose/save, Esc back/cancel.',
-  'Esc cancels active turn. Ctrl+C interrupts/clears or copies app selection. PageUp/PageDown scroll transcript. Set MIXDOG_TUI_MOUSE=0 for terminal-native mouse selection.',
-].join('\n');
 
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
@@ -88,9 +59,11 @@ const SLASH_COMMANDS = [
   { name: 'status', usage: '/status', description: 'Open runtime status dashboard' },
   { name: 'usage', usage: '/usage', params: '[refresh]', description: 'Show total provider quota / balance' },
   { name: 'model', usage: '/model', description: 'Switch model for subsequent turns' },
+  { name: 'search', usage: '/search', description: 'Set the web search provider/model' },
   { name: 'workflow', usage: '/workflow', description: 'Switch the active workflow' },
-  { name: 'outputstyle', usage: '/OutputStyle', aliases: ['output-style', 'style'], aliasUsage: ['style'], params: '[name]', description: 'Switch Lead output style' },
+  { name: 'outputstyle', usage: '/OutputStyle', aliases: ['output-style', 'style'], aliasUsage: ['style'], showAliasUsage: false, params: '[name]', description: 'Switch Lead output style' },
   { name: 'agents', usage: '/agents', description: 'Show available workflow agents' },
+  { name: 'agent', usage: '/agent', params: '[sync|async|list|status|read|cleanup|cancel|close]', description: 'Manage active agents and async tasks' },
   { name: 'effort', usage: '/effort', params: '[level]', description: 'Set reasoning effort for the current model' },
   { name: 'fast', usage: '/fast', params: '[on|off]', description: 'Toggle Fast mode for the current model' },
   { name: 'mcp', usage: '/mcp', description: 'Manage MCP servers and tools' },
@@ -101,6 +74,7 @@ const SLASH_COMMANDS = [
   { name: 'channels', usage: '/channels', description: 'Manage Discord, channels, schedules, webhooks' },
   { name: 'schedules', usage: '/schedules', description: 'Manage schedules' },
   { name: 'webhooks', usage: '/webhooks', description: 'Manage inbound webhooks' },
+  { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings' },
   { name: 'quit', usage: '/quit', aliases: ['exit', 'q'], aliasUsage: ['exit', 'q'], description: 'Quit the TUI' },
 ];
 
@@ -218,22 +192,22 @@ function parseBridgeControl(text) {
   if (action === 'list' || action === 'cleanup') return { type: action };
   if (action === 'spawn') {
     const agent = value;
-    if (!agent) return { error: 'usage: /bridge spawn <agent> [sync|async] <prompt>' };
+    if (!agent) return { error: 'usage: /agent spawn <agent> [sync|async] <prompt>' };
     const parsed = parseBridgeFreeform(parts.slice(2));
-    if (!parsed.message) return { error: 'usage: /bridge spawn <agent> [sync|async] <prompt>' };
+    if (!parsed.message) return { error: 'usage: /agent spawn <agent> [sync|async] <prompt>' };
     return { type: 'spawn', agent, ...parsed };
   }
   if (action === 'send') {
-    if (!value) return { error: 'usage: /bridge send <target> [sync|async] <message>' };
+    if (!value) return { error: 'usage: /agent send <target> [sync|async] <message>' };
     const parsed = parseBridgeFreeform(parts.slice(2));
-    if (!parsed.message) return { error: 'usage: /bridge send <target> [sync|async] <message>' };
+    if (!parsed.message) return { error: 'usage: /agent send <target> [sync|async] <message>' };
     return value.startsWith('sess_')
       ? { type: 'send', sessionId: value, ...parsed }
       : { type: 'send', tag: value, ...parsed };
   }
-  if (!value) return { error: `usage: /bridge ${action} <target>` };
+  if (!value) return { error: `usage: /agent ${action} <target>` };
   if (action === 'status' || action === 'read') return { type: action, task_id: value };
-  if (value.startsWith('job_') || value.startsWith('task_')) return { type: action, task_id: value };
+  if (value.startsWith('task_')) return { type: action, task_id: value };
   if (value.startsWith('sess_')) return { type: action, sessionId: value };
   return { type: action, tag: value };
 }
@@ -474,7 +448,7 @@ function isFullyFailedToolItem(item) {
 const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpanded, rightMessage = '', rightTone = 'info', rightMessageWidth = 24 }) {
   switch (item.kind) {
     case 'user': return <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} />;
-    case 'assistant': return <AssistantMessage text={item.text} streaming={item.streaming} />;
+    case 'assistant': return <AssistantMessage text={item.text} streaming={item.streaming} columns={columns} />;
     case 'tool': return isFullyFailedToolItem(item) ? null : <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} headerFinalized={item.headerFinalized} />;
     case 'notice': return <NoticeMessage text={item.text} tone={item.tone} columns={columns} />;
     case 'turndone': return <TurnDone elapsedMs={item.elapsedMs} status={item.status} outputTokens={item.outputTokens} thinkingElapsedMs={item.thinkingElapsedMs} verb={item.verb} rightMessage={rightMessage} rightTone={rightTone} rightMessageWidth={rightMessageWidth} />;
@@ -513,10 +487,63 @@ function shiftSelectionRectY(rect, deltaY) {
   return { ...rect, y1: rect.y1 + dy, y2: rect.y2 + dy };
 }
 
+// Count how many terminal rows ONE logical line (no '\n') occupies once ink
+// word-wraps it. ink/Yoga break on whitespace (wrap-ansi wordWrap), NOT on a
+// hard column count: a word that does not fit the remaining space is pushed
+// whole to the next row, so `Math.ceil(width/cols)` UNDER-counts whenever a
+// long token (e.g. `src/tui/App.jsx`) straddles a wrap boundary. That
+// under-count accumulates over a long transcript and, because the viewport is
+// `overflow:hidden` + `justifyContent:flex-end`, the newest assistant row gets
+// its TOP wrapped lines clipped (only the last line shows). Mirror the greedy
+// word-wrap so the row estimate is never lower than what ink actually renders.
+function wrappedLineRows(line, width) {
+  const text = String(line);
+  const full = stringWidth(text);
+  if (full === 0) return 1;
+  if (full <= width) return 1;
+  let rows = 1;
+  let col = 0;
+  for (const token of text.split(/(\s+)/)) {
+    if (!token) continue;
+    const tw = stringWidth(token);
+    if (tw === 0) continue;
+    if (tw > width) {
+      // Over-long unbreakable token: ink hard-splits it across rows.
+      if (col > 0) { rows++; col = 0; }
+      rows += Math.ceil(tw / width) - 1;
+      col = tw % width || width;
+      continue;
+    }
+    if (col + tw > width) { rows++; col = tw; }
+    else { col += tw; }
+  }
+  return Math.max(1, rows);
+}
+
 function estimateWrappedRows(text, columns, reserve = 4) {
   const width = Math.max(8, Number(columns || 80) - reserve);
   const lines = String(text ?? '').split('\n');
-  return Math.max(1, lines.reduce((sum, line) => sum + Math.max(1, Math.ceil(String(line).length / width)), 0));
+  return Math.max(1, lines.reduce((sum, line) => sum + wrappedLineRows(line, width), 0));
+}
+
+// Markdown renders block tokens inside `<Box gap={1}>` (Markdown.jsx), so every
+// block boundary adds ONE blank row that the raw-text row count misses. A GFM
+// table also renders its own bordered box (top/header/sep/rows/bottom) whose
+// height the wrapped-line count cannot see. Add a conservative per-item bump so
+// assistant/markdown rows are never UNDER-estimated (over-estimate only widens
+// the scroll window harmlessly; under-estimate clips visible text).
+function estimateMarkdownExtraRows(text) {
+  const value = String(text ?? '');
+  if (!value) return 0;
+  let extra = 0;
+  // Blank-line block separators ≈ Markdown gap rows between blocks.
+  const blocks = value.split(/\n{2,}/).filter((b) => b.trim()).length;
+  if (blocks > 1) extra += blocks - 1;
+  // GFM table: header + separator + each body row + 4 border lines, minus the
+  // raw '\n' rows already counted. Approximate by adding the border overhead.
+  const tableSeparators = (value.match(/^\s*\|?\s*:?-{2,}.*\|/gm) || []).length;
+  if (tableSeparators > 0) extra += tableSeparators * 4;
+  return extra;
 }
 
 function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
@@ -525,9 +552,12 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
     case 'user':
       return 1 + estimateWrappedRows(item.text, columns, 4);
     case 'assistant':
-      // Keep this intentionally low-biased: underestimating renders extra older
-      // rows, while overestimating can hide rows when the user scrolls upward.
-      return 1 + estimateWrappedRows(item.text, columns, 6);
+      // The body wraps at columns-3: 2-col ● gutter + 1 right-edge safety cell
+      // (see AssistantMessage). Keep the estimate in lockstep with the real
+      // body width so viewport clipping never drops the top of wrapped answers.
+      // Add Markdown block-gap + table border overhead (estimateMarkdownExtraRows)
+      // so multi-block/table answers are not under-counted and clipped at the top.
+      return 1 + estimateWrappedRows(item.text, columns, 3) + estimateMarkdownExtraRows(item.text);
     case 'tool': {
       if (isFullyFailedToolItem(item)) return 0;
       const resultText = (toolOutputExpanded || item.expanded) && item.rawResult ? item.rawResult : item.result;
@@ -579,6 +609,32 @@ function buildTranscriptRowIndex(items, { columns = 80, toolOutputExpanded = fal
     prefixRows[i + 1] = prefixRows[i] + rowCount;
   }
   return { rows, prefixRows, totalRows: prefixRows[allItems.length] || 0 };
+}
+
+// Stable signature for the transcript row-index / window memos. During
+// streaming the engine replaces `state.items` with a fresh array every flush
+// (~8ms) while only the final assistant item's `text` grows. Keying the heavy
+// O(n) row-index + windowing memos directly on `state.items` re-ran them on
+// every delta frame, which throttled the stream into coarse chunks. This
+// signature changes only when transcript STRUCTURE changes (item count, id,
+// kind, expansion) or when the streaming item's ESTIMATED HEIGHT actually
+// changes — not on every character. `columns`/`toolOutputExpanded` are folded
+// in because they alter wrapped row estimates.
+function transcriptStructureSignature(items, columns, toolOutputExpanded) {
+  const list = Array.isArray(items) ? items : [];
+  let sig = `${list.length}|${columns}|${toolOutputExpanded ? 1 : 0}`;
+  for (let i = 0; i < list.length; i++) {
+    const it = list[i];
+    if (!it) { sig += ';_'; continue; }
+    // Streaming assistant: include only the estimated row count, not the text,
+    // so per-character growth that does not change height keeps the memo warm.
+    if (it.kind === 'assistant' && it.streaming) {
+      sig += `;a${it.id}:${estimateTranscriptItemRows(it, columns, toolOutputExpanded)}`;
+      continue;
+    }
+    sig += `;${it.kind?.[0] || '?'}${it.id}:${it.expanded ? 1 : 0}:${String(it.text ?? it.result ?? '').length}`;
+  }
+  return sig;
 }
 
 function transcriptRenderWindow(items, { scrollOffset = 0, viewportHeight = 24, columns = 80, toolOutputExpanded = false, rowIndex = null } = {}) {
@@ -709,6 +765,16 @@ export function App({ store, initialStatusLine = '' }) {
   const onboardingStartedRef = useRef(false);
   const onboardingRef = useRef({ defaultRoute: null, workflowRoutes: {}, providerModels: [] });
   const providerModelsCacheRef = useRef({ models: null, at: 0 });
+  const searchModelsCacheRef = useRef({ models: null, at: 0 });
+  const clearModelCaches = useCallback((scope = 'all') => {
+    if (scope === 'all' || scope === 'provider') {
+      providerModelsCacheRef.current = { models: null, at: 0 };
+      onboardingRef.current.providerModels = [];
+    }
+    if (scope === 'all' || scope === 'search') {
+      searchModelsCacheRef.current = { models: null, at: 0 };
+    }
+  }, []);
   const promptHintTimerRef = useRef(null);
   const promptHintActiveRef = useRef(false);
   const mouseZoomPassthroughTimerRef = useRef(null);
@@ -1621,13 +1687,19 @@ export function App({ store, initialStatusLine = '' }) {
     return { providers, orderedProviders };
   };
 
-  const buildModelProviderItems = (models) => {
+  const buildModelProviderItems = (models, currentRoute = null) => {
     const { providers, orderedProviders } = groupModelsByProvider(models);
     return orderedProviders.map((provider) => {
       const providerModels = providers.get(provider) || [];
+      const currentModel = currentRoute?.provider === provider
+        ? providerModels.find((model) => model.id === currentRoute.model)
+        : null;
       return {
         value: `provider:${provider}`,
         label: providerDisplayName(provider),
+        marker: currentModel ? '✓' : '',
+        markerColor: theme.success,
+        meta: currentModel ? displayModelName(currentModel.display || currentModel.id) : '',
         description: `${providerModels.length} model${providerModels.length === 1 ? '' : 's'}`,
         _action: 'open-provider',
         _provider: provider,
@@ -1635,11 +1707,13 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
-  const buildProviderModelItems = (models, provider) => {
+  const buildProviderModelItems = (models, provider, currentRoute = null) => {
     const providerModels = models.filter((model) => model.provider === provider);
     return providerModels.map((model) => ({
       value: `model:${model.provider}:${model.id}`,
       label: model.display || model.id,
+      marker: currentRoute?.provider === model.provider && currentRoute?.model === model.id ? '✓' : '',
+      markerColor: theme.success,
       description: modelDescription(model),
       _action: 'select-model',
       _provider: model.provider,
@@ -1652,6 +1726,15 @@ export function App({ store, initialStatusLine = '' }) {
     if (!route?.provider || !route?.model) return '(unset)';
     return [
       providerDisplayName(route.provider),
+      displayModelName(route.model),
+      route.effort ? effortDisplayLabel(route.effort) : '',
+      route.fast ? 'Fast' : '',
+    ].filter(Boolean).join(' · ');
+  };
+
+  const routeModelLabel = (route) => {
+    if (!route?.model) return '(unset)';
+    return [
       displayModelName(route.model),
       route.effort ? effortDisplayLabel(route.effort) : '',
       route.fast ? 'Fast' : '',
@@ -1716,25 +1799,29 @@ export function App({ store, initialStatusLine = '' }) {
     setHookPrompt(null);
     setSettingsPrompt(null);
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    const returnLabel = String(options.returnLabel || 'Agents');
+    const returnOnNestedCancel = options.returnOnNestedCancel === true;
     const cancelModelPicker = () => {
       if (returnTo) returnTo();
       else setPicker(null);
     };
-    let providerModels = Array.isArray(providerModelsCacheRef.current.models)
-      ? providerModelsCacheRef.current.models
+    const cacheRef = options.cacheRef === 'search' ? searchModelsCacheRef : providerModelsCacheRef;
+    const loadModels = typeof options.loadModels === 'function' ? options.loadModels : store.listProviderModels;
+    let providerModels = Array.isArray(cacheRef.current.models)
+      ? cacheRef.current.models
       : [];
     if (!providerModels.length || options.refreshModels === true) {
       setPicker({
         title: options.title || 'Model',
         description: options.loadingDescription || 'Loading models...',
-        help: returnTo ? '↑/↓ Select · Enter Open · Esc Agents' : '↑/↓ Select · Enter Open · Esc Back',
+        help: returnTo ? `↑/↓ Select · Enter Open · Esc ${returnLabel}` : '↑/↓ Select · Enter Open · Esc Back',
         items: [],
         onCancel: cancelModelPicker,
       });
       await new Promise((resolve) => setTimeout(resolve, 0));
       try {
-        providerModels = await store.listProviderModels({ force: options.refreshModels === true });
-        providerModelsCacheRef.current = { models: providerModels, at: Date.now() };
+        providerModels = await loadModels({ force: options.refreshModels === true });
+        cacheRef.current = { models: providerModels, at: Date.now() };
       } catch (e) {
         store.pushNotice(`could not list models: ${e?.message || e}`, 'error');
         return;
@@ -1742,7 +1829,7 @@ export function App({ store, initialStatusLine = '' }) {
     }
 
     if (!providerModels || providerModels.length === 0) {
-      store.pushNotice('no provider models available; open /providers to authenticate', 'warn');
+      store.pushNotice(options.emptyNotice || 'no provider models available; open /providers to authenticate', 'warn');
       void openProviderSetupPicker({
         title: 'Providers',
         continueLabel: 'Back to model setup',
@@ -1753,6 +1840,12 @@ export function App({ store, initialStatusLine = '' }) {
     }
 
     const models = normalizeModelOptions(providerModels);
+    const activeRoute = options.currentRoute || {
+      provider: state.provider,
+      model: state.model,
+      effort: state.effort,
+      fast: state.fast,
+    };
     const renderModelPicker = () => {
       const openProviderModelsPicker = (provider) => {
         if (!provider) return;
@@ -1898,20 +1991,26 @@ export function App({ store, initialStatusLine = '' }) {
               setPicker(null);
             }
             void Promise.resolve(options.onSelectRoute(routeInput, selected, effort))
-              .then(() => {
+              .then((result) => {
+                if (result) clearModelCaches('all');
                 if (typeof options.onAfterSelect === 'function') options.onAfterSelect();
+                return result;
               })
               .catch((e) => store.pushNotice(`Couldn’t save model: ${e?.message || e}`, 'error'));
             return;
           }
           setPicker(null);
           void store.setRoute(routeInput)
-            .then(ok => store.pushNotice(
-              ok
-                ? `Model set to ${providerDisplayName(selected.provider)} / ${selected.display || selected.id}${effort ? ` · Effort ${effortDisplayLabel(effort)}` : ''}`
-                : 'Model switch is already running',
-              ok ? 'info' : 'warn',
-            ))
+            .then((ok) => {
+              if (ok) clearModelCaches('provider');
+              store.pushNotice(
+                ok
+                  ? `Model set to ${providerDisplayName(selected.provider)} / ${selected.display || selected.id}${effort ? ` · Effort ${effortDisplayLabel(effort)}` : ''}`
+                  : 'Model switch is already running',
+                ok ? 'info' : 'warn',
+              );
+              if (ok && typeof options.onAfterSelect === 'function') options.onAfterSelect();
+            })
             .catch((e) => store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error'));
         };
         const renderProviderModels = () => {
@@ -1919,9 +2018,11 @@ export function App({ store, initialStatusLine = '' }) {
             title: providerDisplayName(provider),
             description: options.modelDescription || 'Select a model. Adjust Effort with ←/→.',
             footer: (item) => modelFooter(item?._model),
-            help: '↑/↓ Select · ←/→ Effort · Tab Fast · Enter Save · Esc Back',
+            help: returnOnNestedCancel && returnTo
+              ? `↑/↓ Select · ←/→ Effort · Tab Fast · Enter Save · Esc ${returnLabel}`
+              : '↑/↓ Select · ←/→ Effort · Tab Fast · Enter Save · Esc Back',
             indexMode: 'always',
-            items: buildProviderModelItems(models, provider),
+            items: buildProviderModelItems(models, provider, activeRoute),
             onSelect: (_value, item) => applyModel(item),
             onLeft: (item) => {
               if (item?._model) cycleEffort(item._model, -1);
@@ -1933,18 +2034,21 @@ export function App({ store, initialStatusLine = '' }) {
               if (item?._model) toggleFast(item._model);
             },
             onCancel: () => {
-              renderModelPicker();
+              if (returnOnNestedCancel && returnTo) cancelModelPicker();
+              else renderModelPicker();
             },
           });
         };
         renderProviderModels();
       };
-      const providerItems = buildModelProviderItems(models);
+      const providerItems = buildModelProviderItems(models, activeRoute);
       setPicker({
         title: options.title || 'Model',
         description: options.providerDescription || 'Choose a provider.',
-        help: returnTo ? '↑/↓ Select · Enter Open · Esc Agents' : '↑/↓ Select · Enter Open · Esc Back',
+        help: returnTo ? `↑/↓ Select · Enter Open · Esc ${returnLabel}` : '↑/↓ Select · Enter Open · Esc Back',
         indexMode: 'always',
+        labelWidth: 18,
+        metaWidth: 20,
         items: providerItems,
         onSelect: (_value, item) => {
           if (item?._provider) openProviderModelsPicker(item._provider);
@@ -1954,6 +2058,37 @@ export function App({ store, initialStatusLine = '' }) {
     };
 
     renderModelPicker();
+  };
+
+  const openSearchPicker = (options = {}) => {
+    const routeOverride = options.routeOverride || null;
+    const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    void openModelPicker({
+      title: 'Search Model',
+      loadingDescription: 'Loading search-capable models...',
+      providerDescription: 'Choose native search provider.',
+      modelDescription: 'Select native search model. Adjust Effort with ←/→.',
+      emptyNotice: 'no native search models available; connect OpenAI, Grok, Gemini, or Anthropic',
+      cacheRef: 'search',
+      loadModels: store.listSearchModels,
+      currentRoute: routeOverride || store.getSearchRoute?.() || null,
+      returnTo,
+      returnLabel: options.returnLabel || 'Settings',
+      returnOnNestedCancel: options.returnOnNestedCancel === true,
+      onImmediateSelect: returnTo ? null : (routeInput) => {
+        openSearchPicker({ routeOverride: routeInput });
+      },
+      onSelectRoute: async (routeInput) => {
+        const result = await store.setSearchRoute?.(routeInput);
+        if (!result) {
+          store.pushNotice('Search model save is already running.', 'warn');
+          return;
+        }
+        store.pushNotice(`Search model set to ${routeLabel(result)}`, 'info');
+        return result;
+      },
+      onAfterSelect: returnTo || null,
+    });
   };
 
   const openAgentsPicker = (options = {}) => {
@@ -1981,7 +2116,7 @@ export function App({ store, initialStatusLine = '' }) {
     closeUsagePanel();
     setPicker({
       title: 'Agents',
-      description: 'Workflow agents available to bridge.',
+      description: 'Workflow agents available for agent tasks.',
       help: '↑/↓ Select · Enter Set Model · Esc Back',
       indexMode: 'always',
       labelWidth: 18,
@@ -2015,7 +2150,8 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
-  const openWorkflowPicker = () => {
+  const openWorkflowPicker = (options = {}) => {
+    const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     let workflows = [];
     try {
       workflows = store.listWorkflows?.() || [];
@@ -2030,7 +2166,8 @@ export function App({ store, initialStatusLine = '' }) {
     const items = workflows.map((workflow) => ({
       value: workflow.id,
       label: workflow.name,
-      labelSuffix: workflow.active ? '✓' : '',
+      marker: workflow.active ? '✓' : '',
+      markerColor: theme.success,
       description: workflow.description || `${workflow.source || 'workflow'} workflow`,
       _workflow: workflow,
     }));
@@ -2042,8 +2179,8 @@ export function App({ store, initialStatusLine = '' }) {
     closeUsagePanel();
     setPicker({
       title: 'Workflow',
-      description: 'Select the active workflow for the next turn.',
-      help: '↑/↓ select · Enter choose · Esc back',
+      description: 'Select active workflow.',
+      help: returnTo ? '↑/↓ Select · Enter Choose · Esc Settings' : '↑/↓ Select · Enter Choose · Esc Back',
       labelWidth: 18,
       items,
       onSelect: (_value, item) => {
@@ -2057,11 +2194,13 @@ export function App({ store, initialStatusLine = '' }) {
               return;
             }
             store.pushNotice(`Workflow set to ${result.name}`, 'info');
+            if (returnTo) returnTo();
           })
           .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'));
       },
       onCancel: () => {
         setPicker(null);
+        if (returnTo) returnTo();
       },
     });
   };
@@ -2073,7 +2212,8 @@ export function App({ store, initialStatusLine = '' }) {
       : `Output style set to ${label}.`;
   };
 
-  const openOutputStylePicker = () => {
+  const openOutputStylePicker = (options = {}) => {
+    const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     let status = null;
     try {
       status = store.listOutputStyles?.() || null;
@@ -2090,7 +2230,8 @@ export function App({ store, initialStatusLine = '' }) {
     const items = styles.map((style) => ({
       value: style.id,
       label: style.label || style.id,
-      labelSuffix: style.id === currentId ? '✓' : '',
+      marker: style.id === currentId ? '✓' : '',
+      markerColor: theme.success,
       description: style.description || style.source || 'output style',
       _style: style,
     }));
@@ -2102,8 +2243,8 @@ export function App({ store, initialStatusLine = '' }) {
     closeUsagePanel();
     setPicker({
       title: 'Output Style',
-      description: 'Select the Lead response style for future turns.',
-      help: '↑/↓ select · Enter choose · Esc back',
+      description: 'Select response style.',
+      help: returnTo ? '↑/↓ Select · Enter Choose · Esc Settings' : '↑/↓ Select · Enter Choose · Esc Back',
       labelWidth: 18,
       items,
       onSelect: (_value, item) => {
@@ -2117,11 +2258,13 @@ export function App({ store, initialStatusLine = '' }) {
               return;
             }
             store.pushNotice(outputStyleNotice(result), 'info');
+            if (returnTo) returnTo();
           })
           .catch((e) => store.pushNotice(`Couldn’t switch output style: ${e?.message || e}`, 'error'));
       },
       onCancel: () => {
         setPicker(null);
+        if (returnTo) returnTo();
       },
     });
   };
@@ -2141,7 +2284,8 @@ export function App({ store, initialStatusLine = '' }) {
     const current = state.effort || items[0]?.value || '';
     const pickerItems = items.map((item) => ({
       ...item,
-      labelSuffix: item?.value === current ? '✓' : '',
+      marker: item?.value === current ? '✓' : '',
+      markerColor: theme.success,
       description: clean(item?.description).toLowerCase() === 'current' ? '' : item?.description,
     }));
     setPicker({
@@ -2166,19 +2310,23 @@ export function App({ store, initialStatusLine = '' }) {
     setSettingsPrompt(null);
     const mode = state.bridgeMode || 'async';
     setPicker({
-      title: `Bridge (current: ${mode})`,
+      title: `Agent Tasks (current: ${mode})`,
       items: [
         {
           value: 'sync',
-          label: mode === 'sync' ? '● Sync mode' : '○ Sync mode',
+          label: 'Sync mode',
+          marker: mode === 'sync' ? '●' : '○',
+          markerColor: mode === 'sync' ? theme.success : theme.inactive,
           description: 'agent calls wait for completion',
           _action: 'mode',
           _mode: 'sync',
         },
         {
           value: 'async',
-          label: mode === 'async' ? '● Async mode' : '○ Async mode',
-          description: 'agent calls return job handles',
+          label: 'Async mode',
+          marker: mode === 'async' ? '●' : '○',
+          markerColor: mode === 'async' ? theme.success : theme.inactive,
+          description: 'agent calls return task IDs',
           _action: 'mode',
           _mode: 'async',
         },
@@ -2192,7 +2340,7 @@ export function App({ store, initialStatusLine = '' }) {
         {
           value: 'cleanup',
           label: 'Cleanup finished tasks',
-          description: 'remove completed bridge task records',
+          description: 'remove completed agent task records',
           _action: 'control',
           _args: { type: 'cleanup' },
         },
@@ -2201,12 +2349,12 @@ export function App({ store, initialStatusLine = '' }) {
         setPicker(null);
         if (item._action === 'mode') {
           const next = store.setBridgeMode?.(item._mode);
-          store.pushNotice(`Bridge mode set to ${next || item._mode}`, 'info');
+          store.pushNotice(`Agent mode set to ${next || item._mode}`, 'info');
           return;
         }
         if (item._action === 'control') {
           void store.bridgeControl?.(item._args)
-            .catch((e) => store.pushNotice(`bridge failed: ${e?.message || e}`, 'error'));
+            .catch((e) => store.pushNotice(`agent failed: ${e?.message || e}`, 'error'));
         }
       },
       onCancel: () => {
@@ -2233,7 +2381,9 @@ export function App({ store, initialStatusLine = '' }) {
       },
       ...(tools.length ? tools.map((tool) => ({
         value: tool.name,
-        label: `${tool.active ? '●' : '○'} ${tool.name}`,
+        label: tool.name,
+        marker: tool.active ? '●' : '○',
+        markerColor: tool.active ? theme.success : theme.inactive,
         description: `${tool.kind || 'tool'} · usage ${tool.usage || 0}${tool.description ? ` · ${tool.description}` : ''}`,
         _action: tool.active ? 'tool' : 'enable',
         _tool: tool,
@@ -2361,7 +2511,7 @@ export function App({ store, initialStatusLine = '' }) {
         },
         {
           value: 'bridge',
-          label: 'Bridge',
+          label: 'Agent Tasks',
           description: `default ${state.bridgeMode || 'async'} · ${bridgeAgentText} · ${bridgeScopeLabel}`,
         },
         {
@@ -2488,9 +2638,13 @@ export function App({ store, initialStatusLine = '' }) {
     const compactTrigger = Number(compaction.triggerTokens || compactBoundary || 0);
     const compactBuffer = Number(compaction.bufferTokens || Math.max(0, compactBoundary - compactTrigger) || 0);
     const compactRunning = compaction.inProgress === true || compaction.lastStage === 'compacting';
+    const autoClearFailed = compaction.lastStage === 'auto_clear_failed' || !!compaction.lastClearCompactError;
     const autoClearStage = compaction.lastStage === 'auto_clear' || compaction.lastClearAt;
+    const compactTypeLabel = compaction.lastClearCompactType || compaction.compactType || compaction.type || '';
     const compactState = compactRunning
       ? `compacting ${fmt(compaction.lastPressureTokens || usedTokens)}/${fmt(compactTrigger || compactBoundary)}`
+      : autoClearFailed
+      ? `auto-clear skipped${compaction.lastClearCompactError ? `: ${compaction.lastClearCompactError}` : ''}`
       : autoClearStage
       ? `auto-cleared ${fmt(compaction.lastClearBeforeTokens ?? compaction.lastBeforeTokens)}→${fmt(compaction.lastClearAfterTokens ?? compaction.lastAfterTokens)}`
       : compaction.lastChanged
@@ -2506,7 +2660,7 @@ export function App({ store, initialStatusLine = '' }) {
       {
         value: 'compaction',
         label: 'Compaction',
-        description: `${compactState} · ${compaction.lastStage || 'pending'}${compactTrigger ? ` · trigger ${fmt(compactTrigger)}` : ''}${compactBoundary ? ` · boundary ${fmt(compactBoundary)}` : ''}${compactBuffer ? ` · buffer ${fmt(compactBuffer)} (${pct(compactBuffer, compactBoundary)})` : ''}`,
+        description: `${compactState} · ${compaction.lastStage || 'pending'}${compactTypeLabel ? ` · type ${compactTypeLabel}` : ''}${compactTrigger ? ` · trigger ${fmt(compactTrigger)}` : ''}${compactBoundary ? ` · boundary ${fmt(compactBoundary)}` : ''}${compactBuffer ? ` · buffer ${fmt(compactBuffer)} (${pct(compactBuffer, compactBoundary)})` : ''}`,
         _action: 'compaction',
       },
       {
@@ -2649,184 +2803,314 @@ export function App({ store, initialStatusLine = '' }) {
   ]);
 
   const openSettingsPicker = () => {
-    const tools = store.toolsStatus?.() || { activeCount: 0, count: 0 };
     const autoClear = store.getAutoClear?.() || {};
-    const systemShell = state.systemShell || store.getSystemShell?.() || {};
+    const compaction = store.getCompactionSettings?.() || {};
+    const memory = store.getMemorySettings?.() || { enabled: true };
+    const channels = store.getChannelSettings?.({ includeStatus: false }) || { enabled: true };
+    const outputStyle = store.getOutputStyle?.() || store.listOutputStyles?.() || {};
+    const workflow = state.workflow || {};
+    const mcp = store.mcpStatus?.() || { connectedCount: 0, configuredCount: 0, failedCount: 0 };
+    const hooks = store.hooksStatus?.() || { ruleCount: 0 };
+    const plugins = store.pluginsStatus?.() || { count: 0 };
+    const skills = store.skillsStatus?.() || { count: 0 };
+    const channelWorker = store.getChannelWorkerStatus?.();
+    const compactType = compaction.compactType || compaction.type || 'semantic';
+    const compactTypeLabel = compactType === 'recall-fasttrack' ? 'Fast-track' : 'Default';
+    const outputStyleLabel = outputStyle?.current?.label || outputStyle?.current?.id || outputStyle?.configured || 'Default';
+    const workflowLabel = workflow.name || workflow.id || 'Default';
+    const boolLabel = (enabled) => enabled ? 'On' : 'Off';
+    const compactTypeDescription = memory.enabled === false
+      ? 'Default summarization is active; fast-track needs Memory.'
+      : compactType === 'recall-fasttrack'
+        ? 'Uses Memory recall to rebuild context faster on large histories.'
+        : 'Uses semantic summarization for predictable context compaction.';
+    const applyAutoClear = (enabled) => {
+      try {
+        const next = store.setAutoClear?.({ enabled });
+        if (!next) store.pushNotice('autoclear unavailable', 'warn');
+        else store.pushNotice(`Auto-clear ${next.enabled ? 'on' : 'off'}`, 'info');
+      } catch (e) {
+        store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error');
+      }
+      openSettingsPicker();
+    };
+    const applyCompaction = (patch = {}) => {
+      void Promise.resolve(store.setCompactionSettings?.(patch))
+        .then((next) => {
+          if (!next) {
+            store.pushNotice('compaction setting is busy', 'warn');
+            return;
+          }
+          store.pushNotice(`Compaction ${next.auto !== false ? 'auto on' : 'auto off'} · ${next.compactType === 'recall-fasttrack' ? 'Fast-track' : 'Default'}`, 'info');
+        })
+        .catch((e) => store.pushNotice(`compaction failed: ${e?.message || e}`, 'error'))
+        .finally(() => openSettingsPicker());
+    };
+    const applyMemory = (enabled) => {
+      void Promise.resolve(store.setMemoryEnabled?.(enabled))
+        .then((next) => {
+          if (!next) {
+            store.pushNotice('memory setting is busy', 'warn');
+            return;
+          }
+          store.pushNotice(`Memory ${next.enabled ? 'on' : 'off'}`, 'info');
+        })
+        .catch((e) => store.pushNotice(`memory setting failed: ${e?.message || e}`, 'error'))
+        .finally(() => openSettingsPicker());
+    };
+    const applyChannels = (enabled) => {
+      void Promise.resolve(store.setChannelsEnabled?.(enabled))
+        .then((next) => {
+          if (!next) {
+            store.pushNotice('channel setting is busy', 'warn');
+            return;
+          }
+          store.pushNotice(`Channels ${next.enabled ? 'on' : 'off'}`, 'info');
+        })
+        .catch((e) => store.pushNotice(`channel setting failed: ${e?.message || e}`, 'error'))
+        .finally(() => openSettingsPicker());
+    };
+    const cycleOutputStyle = (direction = 1) => {
+      let status = null;
+      try { status = store.listOutputStyles?.() || null; } catch (e) {
+        store.pushNotice(`could not list output styles: ${e?.message || e}`, 'error');
+        return;
+      }
+      const styles = Array.isArray(status?.styles) ? status.styles : [];
+      if (!styles.length) {
+        store.pushNotice('no output styles available', 'warn');
+        return;
+      }
+      const currentId = status?.current?.id || 'default';
+      const currentIndex = Math.max(0, styles.findIndex((style) => style.id === currentId));
+      const next = styles[(currentIndex + direction + styles.length) % styles.length];
+      void store.setOutputStyle?.(next.id)
+        .then((result) => {
+          if (!result) {
+            store.pushNotice('Output style switch is already running.', 'warn');
+            return;
+          }
+          store.pushNotice(outputStyleNotice(result), 'info');
+        })
+        .catch((e) => store.pushNotice(`Couldn’t switch output style: ${e?.message || e}`, 'error'))
+        .finally(() => openSettingsPicker());
+    };
+    const cycleWorkflow = (direction = 1) => {
+      let workflows = [];
+      try { workflows = store.listWorkflows?.() || []; } catch (e) {
+        store.pushNotice(`could not list workflows: ${e?.message || e}`, 'error');
+        return;
+      }
+      if (!workflows.length) {
+        store.pushNotice('no workflows available', 'warn');
+        return;
+      }
+      const currentIndex = Math.max(0, workflows.findIndex((item) => item.active || item.id === workflow.id));
+      const next = workflows[(currentIndex + direction + workflows.length) % workflows.length];
+      void store.setWorkflow?.(next.id)
+        .then((result) => {
+          if (!result) {
+            store.pushNotice('Workflow switch is already running.', 'warn');
+            return;
+          }
+          store.pushNotice(`Workflow set to ${result.name}`, 'info');
+        })
+        .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'))
+        .finally(() => openSettingsPicker());
+    };
+    const items = [
+      {
+        value: 'autoclear',
+        label: 'Auto-clear',
+        meta: boolLabel(autoClear.enabled !== false),
+        description: `Clear idle sessions after ${formatDuration(autoClear.idleMs || 60 * 60 * 1000)}.`,
+        _action: 'autoclear',
+      },
+      {
+        value: 'autocompact',
+        label: 'Auto-compact',
+        meta: boolLabel(compaction.auto !== false),
+        description: 'Compact when context is high.',
+        _action: 'autocompact',
+      },
+      {
+        value: 'compact-type',
+        label: 'Compact type',
+        meta: compactTypeLabel,
+        description: compactTypeDescription,
+        _action: 'compact-type',
+      },
+      {
+        value: 'memory',
+        label: 'Memory enabled',
+        meta: boolLabel(memory.enabled !== false),
+        description: memory.enabled === false
+          ? 'Recall and memory disabled.'
+          : 'Recall, memory, and fast-track support.',
+        _action: 'memory',
+      },
+      {
+        value: 'memory-dashboard',
+        label: 'Memory dashboard',
+        description: 'runtime dashboard, cycles, and core entries',
+        _action: 'memory-dashboard',
+      },
+      {
+        value: 'channels',
+        label: 'Channels enabled',
+        meta: boolLabel(channels.enabled !== false),
+        description: channels.enabled === false
+          ? 'Channel tools disabled.'
+          : 'Discord, schedules, and webhooks.',
+        _action: 'channels',
+      },
+      {
+        value: 'channels-setup',
+        label: 'Channels setup',
+        description: channelWorker?.running ? `runtime running · pid ${channelWorker.pid}` : 'runtime stopped',
+        _action: 'channels-setup',
+      },
+      {
+        value: 'output-style',
+        label: 'Output style',
+        meta: outputStyleLabel,
+        description: 'Response tone and format.',
+        _action: 'output-style',
+      },
+      {
+        value: 'workflow',
+        label: 'Workflow',
+        meta: workflowLabel,
+        description: 'Active agent routing profile.',
+        _action: 'workflow',
+      },
+      {
+        value: 'model',
+        label: 'Model',
+        meta: displayModelName(state.model),
+        description: 'Main chat model.',
+        _action: 'model',
+      },
+      {
+        value: 'search',
+        label: 'Search model',
+        meta: routeModelLabel(store.getSearchRoute?.()),
+        description: 'Native search model.',
+        _action: 'search',
+      },
+      {
+        value: 'providers',
+        label: 'Providers',
+        description: 'Auth, API keys, OAuth, local.',
+        _action: 'providers',
+      },
+      {
+        value: 'mcp',
+        label: 'MCP servers',
+        description: `${mcp.connectedCount || 0}/${mcp.configuredCount || 0} connected${mcp.failedCount ? ` · ${mcp.failedCount} failed` : ''}`,
+        _action: 'mcp',
+      },
+      {
+        value: 'plugins',
+        label: 'Plugins',
+        description: `${plugins.count || 0} detected`,
+        _action: 'plugins',
+      },
+      {
+        value: 'hooks',
+        label: 'Hooks',
+        description: `${hooks.ruleCount || 0} before-tool rules`,
+        _action: 'hooks',
+      },
+      {
+        value: 'skills',
+        label: 'Skills',
+        description: `${skills.count || 0} available`,
+        _action: 'skills',
+      },
+      {
+        value: 'runtime-status',
+        label: 'Runtime status',
+        description: 'open read-only overview dashboard',
+        _action: 'status',
+      },
+    ];
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
     setPicker({
       title: 'Settings',
-      items: [
-        {
-          value: 'model',
-          label: 'Model',
-          description: `${state.provider}/${state.model}`,
-          _action: 'model',
-        },
-        {
-          value: 'effort',
-          label: 'Reasoning Effort',
-          description: state.effort ? effortDisplayLabel(state.effort) : 'Auto',
-          _action: 'effort',
-        },
-        {
-          value: 'fast',
-          label: 'Fast Mode',
-          description: state.fastCapable ? (state.fast ? 'On · Saved For This Model' : 'Off · Default') : 'Not Supported',
-          _action: 'fast',
-        },
-        {
-          value: 'autoclear',
-          label: 'Auto-clear',
-          description: `${autoClear.enabled ? 'on' : 'off'} · idle ${formatDuration(autoClear.idleMs || 60 * 60 * 1000)}`,
-          _action: 'autoclear',
-        },
-        {
-          value: 'providers',
-          label: 'Providers',
-          description: 'API keys, OAuth, local endpoints',
-          _action: 'providers',
-        },
-        {
-          value: 'cwd',
-          label: 'Working directory',
-          description: state.cwd,
-          _action: 'cwd',
-        },
-        {
-          value: 'system-shell',
-          label: 'System shell command',
-          description: systemShellDescription(systemShell),
-          _action: 'system-shell',
-        },
-        {
-          value: 'bridge',
-          label: 'Bridge',
-          description: `default ${state.bridgeMode || 'async'}`,
-          _action: 'bridge',
-        },
-        {
-          value: 'tools',
-          label: 'Tool surface',
-          description: `${tools.activeCount || 0}/${tools.count || 0} active · ${state.toolMode}`,
-          _action: 'tools',
-        },
-        {
-          value: 'advanced',
-          label: 'Advanced',
-          description: 'MCP, plugins, hooks, skills, channels, runtime status',
-          _action: 'advanced',
-        },
-      ],
+      description: 'Runtime, model, tools, and integrations.',
+      help: '↑/↓ Select · ←/→ Change · Enter Open/Toggle · Esc Close',
+      indexMode: 'always',
+      labelWidth: 18,
+      metaWidth: 18,
+      fillAvailable: true,
+      items,
+      onLeft: (item) => {
+        if (item?._action === 'autoclear') applyAutoClear(!(autoClear.enabled !== false));
+        else if (item?._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
+        else if (item?._action === 'compact-type') {
+          const nextType = compactType === 'recall-fasttrack' ? 'semantic' : 'recall-fasttrack';
+          applyCompaction({ compactType: nextType });
+        }
+        else if (item?._action === 'memory') applyMemory(!(memory.enabled !== false));
+        else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
+        else if (item?._action === 'output-style') cycleOutputStyle(-1);
+        else if (item?._action === 'workflow') cycleWorkflow(-1);
+      },
+      onRight: (item) => {
+        if (item?._action === 'autoclear') applyAutoClear(!(autoClear.enabled !== false));
+        else if (item?._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
+        else if (item?._action === 'compact-type') {
+          const nextType = compactType === 'recall-fasttrack' ? 'semantic' : 'recall-fasttrack';
+          applyCompaction({ compactType: nextType });
+        }
+        else if (item?._action === 'memory') applyMemory(!(memory.enabled !== false));
+        else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
+        else if (item?._action === 'output-style') cycleOutputStyle(1);
+        else if (item?._action === 'workflow') cycleWorkflow(1);
+      },
       onSelect: (_value, item) => {
         setPicker(null);
-        if (item._action === 'model') openModelPicker();
-        else if (item._action === 'effort') openEffortPicker();
-        else if (item._action === 'fast') runSlashCommand('fast');
-        else if (item._action === 'autoclear') openAutoClearPicker();
-        else if (item._action === 'providers') void openProviderSetupPicker();
-        else if (item._action === 'cwd') {
-          setSettingsPrompt({
-            kind: 'cwd',
-            label: 'Working directory',
-            hint: state.cwd,
-          });
+        if (item._action === 'autoclear') openAutoClearPicker({ returnTo: openSettingsPicker });
+        else if (item._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
+        else if (item._action === 'compact-type') {
+          const nextType = compactType === 'recall-fasttrack' ? 'semantic' : 'recall-fasttrack';
+          applyCompaction({ compactType: nextType });
         }
-        else if (item._action === 'system-shell') {
-          setSettingsPrompt({
-            kind: 'system-shell',
-            label: 'System shell command',
-            hint: 'PowerShell/pwsh path or command; blank/auto = auto',
-          });
-        }
-        else if (item._action === 'bridge') openBridgePicker();
-        else if (item._action === 'tools') openToolsPicker();
-        else if (item._action === 'advanced') openAdvancedSettingsPicker();
-      },
-      onCancel: () => {
-        setPicker(null);
-      },
-    });
-  };
-
-  const openAdvancedSettingsPicker = () => {
-    const mcp = store.mcpStatus?.() || { connectedCount: 0, configuredCount: 0, failedCount: 0 };
-    const hooks = store.hooksStatus?.() || { ruleCount: 0 };
-    const plugins = store.pluginsStatus?.() || { count: 0 };
-    const skills = store.skillsStatus?.() || { count: 0 };
-    const channelWorker = store.getChannelWorkerStatus?.();
-    setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
-    setSettingsPrompt(null);
-    setPicker({
-      title: 'Advanced Settings',
-      items: [
-        {
-          value: 'mcp',
-          label: 'MCP servers',
-          description: `${mcp.connectedCount || 0}/${mcp.configuredCount || 0} connected${mcp.failedCount ? ` · ${mcp.failedCount} failed` : ''}`,
-          _action: 'mcp',
-        },
-        {
-          value: 'memory',
-          label: 'Memory',
-          description: 'runtime dashboard, cycles, and core entries',
-          _action: 'memory',
-        },
-        {
-          value: 'plugins',
-          label: 'Plugins',
-          description: `${plugins.count || 0} detected`,
-          _action: 'plugins',
-        },
-        {
-          value: 'hooks',
-          label: 'Hooks',
-          description: `${hooks.ruleCount || 0} before-tool rules`,
-          _action: 'hooks',
-        },
-        {
-          value: 'skills',
-          label: 'Skills',
-          description: `${skills.count || 0} available`,
-          _action: 'skills',
-        },
-        {
-          value: 'channels',
-          label: 'Channels',
-          description: channelWorker?.running ? `runtime running · pid ${channelWorker.pid}` : 'runtime stopped',
-          _action: 'channels',
-        },
-        {
-          value: 'status',
-          label: 'Runtime status',
-          description: 'open read-only overview dashboard',
-          _action: 'status',
-        },
-        {
-          value: 'back',
-          label: 'Back',
-          description: 'return to main settings',
-          _action: 'back',
-        },
-      ],
-      onSelect: (_value, item) => {
-        setPicker(null);
-        if (item._action === 'mcp') openMcpPicker();
-        else if (item._action === 'memory') openMemoryPicker();
+        else if (item._action === 'memory') applyMemory(!(memory.enabled !== false));
+        else if (item._action === 'memory-dashboard') openMemoryPicker();
+        else if (item._action === 'channels') applyChannels(!(channels.enabled !== false));
+        else if (item._action === 'channels-setup') void openChannelSetupPicker('all');
+        else if (item._action === 'output-style') openOutputStylePicker({ returnTo: openSettingsPicker });
+        else if (item._action === 'workflow') openWorkflowPicker({ returnTo: openSettingsPicker });
+        else if (item._action === 'model') openModelPicker({
+          returnTo: openSettingsPicker,
+          returnLabel: 'Settings',
+          returnOnNestedCancel: true,
+          onAfterSelect: openSettingsPicker,
+        });
+        else if (item._action === 'search') openSearchPicker({
+          returnTo: openSettingsPicker,
+          returnLabel: 'Settings',
+          returnOnNestedCancel: true,
+        });
+        else if (item._action === 'providers') void openProviderSetupPicker({
+          returnTo: openSettingsPicker,
+          onCancel: openSettingsPicker,
+          continueLabel: 'Back to settings',
+          continueDescription: 'return to settings',
+        });
+        else if (item._action === 'mcp') openMcpPicker();
         else if (item._action === 'plugins') openPluginsPicker();
         else if (item._action === 'hooks') openHooksPicker();
         else if (item._action === 'skills') openSkillsPicker();
-        else if (item._action === 'channels') void openChannelSetupPicker('all');
         else if (item._action === 'status') openStatusPicker();
-        else if (item._action === 'back') openSettingsPicker();
       },
       onCancel: () => {
         setPicker(null);
-        openSettingsPicker();
       },
     });
   };
@@ -2939,19 +3223,6 @@ export function App({ store, initialStatusLine = '' }) {
     const reopenProviders = () => {
       void openProviderSetupPicker(options);
     };
-    const openProviderUrl = (url, label = 'provider page') => {
-      const target = clean(url);
-      if (!target) {
-        store.pushNotice('no provider URL configured', 'warn');
-        return;
-      }
-      try {
-        openInBrowser(target);
-        store.pushNotice(`opened ${label}`, 'info');
-      } catch (e) {
-        store.pushNotice(`could not open ${label}: ${e?.message || e}`, 'error');
-      }
-    };
     const providerActionFooter = (provider) => provider ? [{
       glyph: provider.enabled || provider.authenticated || provider.detected ? '●' : '○',
       color: provider.enabled || provider.authenticated || provider.detected ? theme.success : theme.inactive,
@@ -2973,48 +3244,16 @@ export function App({ store, initialStatusLine = '' }) {
       const hasAuth = providerItem._authenticated || provider.authenticated;
       const hasStoredKey = provider.stored || (!provider.env && hasAuth);
       const apiActions = [];
-      if (hasAuth) {
-        apiActions.push({
-          value: 'keep-key',
-          label: 'Keep current key',
-          description: 'return without changing this provider',
-          _action: 'keep-key',
-        });
-      }
       apiActions.push({
         value: 'set-key',
-        label: hasAuth ? 'Replace API key' : 'Set API key',
+        label: hasAuth ? 'Replace API key' : 'Add API key',
         description: provider.envName ? `masked input · ${provider.envName}` : 'masked input · stored in OS keychain',
         _action: 'set-key',
       });
-      if (providerItem._url) {
-        apiActions.push({
-          value: 'open-key-page',
-          label: 'Open key page',
-          description: providerItem._url,
-          _action: 'open-key-page',
-        });
-      }
-      if (providerItem._providerId === 'openai') {
-        apiActions.push({
-          value: 'set-usage-auth',
-          label: 'Set Usage Auth',
-          description: 'save dashboard/session key for credit lookup',
-          _action: 'set-usage-auth',
-        });
-      }
-      if (providerItem._providerId === 'opencode-go') {
-        apiActions.push({
-          value: 'set-usage-auth',
-          label: 'Set Usage Auth',
-          description: 'save web auth cookie for real usage lookup',
-          _action: 'set-usage-auth',
-        });
-      }
       if (hasStoredKey) {
         apiActions.push({
           value: 'forget-key',
-          label: 'Clear stored API key',
+          label: 'Delete API key',
           description: provider.env ? 'remove keychain key; env key remains active' : 'remove stored key for this provider',
           _action: 'forget-key',
         });
@@ -3029,32 +3268,14 @@ export function App({ store, initialStatusLine = '' }) {
         items: apiActions,
         onSelect: (_detailValue, detail) => {
           setPicker(null);
-          if (detail._action === 'keep-key') {
-            reopenProviders();
-            return;
-          }
           if (detail._action === 'set-key') {
             setApiKeyPrompt(providerItem);
-            return;
-          }
-          if (detail._action === 'open-key-page') {
-            openProviderUrl(providerItem._url, `${providerItem._providerName} key page`);
-            openApiProviderActions(providerItem);
-            return;
-          }
-          if (detail._action === 'set-usage-auth') {
-            setProviderPrompt({
-              kind: providerItem._providerId === 'openai' ? 'openai-usage-session' : 'opencode-go-cookie',
-              providerId: providerItem._providerId,
-              label: providerItem._providerName,
-              workspaceId: null,
-              afterSave: returnTo,
-            });
             return;
           }
           if (detail._action === 'forget-key') {
             try {
               store.forgetProviderAuth(providerItem._providerId);
+              clearModelCaches('all');
               reopenProviders();
             } catch (e) {
               store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
@@ -3140,6 +3361,7 @@ export function App({ store, initialStatusLine = '' }) {
         const finish = (ok, message = '') => {
           if (handled) return;
           handled = true;
+          if (ok) clearModelCaches('all');
           if (backedOut) {
             if (message) store.pushNotice(message, ok ? 'info' : 'error');
             return;
@@ -3179,6 +3401,7 @@ export function App({ store, initialStatusLine = '' }) {
       }
       void store.loginOAuthProvider(providerItem._providerId)
         .then(() => {
+          clearModelCaches('all');
           if (backedOut) {
             store.pushNotice(`${providerItem._providerName} login complete`, 'info');
             return;
@@ -3227,6 +3450,7 @@ export function App({ store, initialStatusLine = '' }) {
           if (detail._action === 'forget-oauth') {
             try {
               store.forgetProviderAuth(providerItem._providerId);
+              clearModelCaches('all');
               reopenProviders();
             } catch (e) {
               store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
@@ -3278,6 +3502,7 @@ export function App({ store, initialStatusLine = '' }) {
           if (detail._action === 'disable-local') {
             try {
               store.setLocalProvider(providerItem._providerId, { enabled: false, baseURL: providerItem._baseURL });
+              clearModelCaches('all');
               reopenProviders();
             } catch (e) {
               store.pushNotice(`local provider update failed: ${e?.message || e}`, 'error');
@@ -3427,7 +3652,7 @@ export function App({ store, initialStatusLine = '' }) {
     };
     const routes = onboardingRef.current.workflowRoutes || {};
     const slots = [
-      ['bridge', 'Bridge', 'agent dispatch route'],
+      ['bridge', 'Agent', 'agent dispatch route'],
       ['explorer', 'Explorer', 'code graph, file reading, repo exploration'],
       ['memory', 'Memory', 'memory cycles and curation'],
     ];
@@ -3548,7 +3773,9 @@ export function App({ store, initialStatusLine = '' }) {
         const enabled = schedule.enabled !== false;
         return {
           value: `schedule:${schedule.name}`,
-          label: `${enabled ? '●' : '○'} ${schedule.name}`,
+          label: schedule.name,
+          marker: enabled ? '●' : '○',
+          markerColor: enabled ? theme.success : theme.inactive,
           description: `${schedule.time || '(no cron)'} · ${schedule.route}${schedule.model ? ` · ${schedule.model}` : ''}`,
           _action: 'schedule-toggle',
           _name: schedule.name,
@@ -3610,7 +3837,9 @@ export function App({ store, initialStatusLine = '' }) {
         },
         {
           value: 'webhook-server',
-          label: `${serverEnabled ? '●' : '○'} Webhook server`,
+          label: 'Webhook server',
+          marker: serverEnabled ? '●' : '○',
+          markerColor: serverEnabled ? theme.success : theme.inactive,
           description: `port ${setup.webhook.port || 3333} · auth ${setup.webhook.status}`,
           _action: 'server-toggle',
           _enabled: serverEnabled,
@@ -3619,7 +3848,9 @@ export function App({ store, initialStatusLine = '' }) {
           const enabled = hook.enabled !== false;
           return {
             value: `webhook:${hook.name}`,
-            label: `${enabled ? '●' : '○'} ${hook.name}`,
+            label: hook.name,
+            marker: enabled ? '●' : '○',
+            markerColor: enabled ? theme.success : theme.inactive,
             description: `${hook.parser || 'github'} · ${hook.route} · secret:${hook.secretSet ? 'set' : 'missing'}`,
             _action: 'webhook-toggle',
             _name: hook.name,
@@ -3716,7 +3947,9 @@ export function App({ store, initialStatusLine = '' }) {
       },
       {
         value: 'webhook-toggle',
-        label: `${serverEnabled ? '●' : '○'} Webhook server`,
+        label: 'Webhook server',
+        marker: serverEnabled ? '●' : '○',
+        markerColor: serverEnabled ? theme.success : theme.inactive,
         description: `${serverEnabled ? 'enabled' : 'disabled'} · port ${setup.webhook.port || 3333}`,
         _action: 'webhook-toggle',
         _enabled: serverEnabled,
@@ -3831,39 +4064,6 @@ export function App({ store, initialStatusLine = '' }) {
       return null;
     }
     return { ...status, servers: status.servers || [] };
-  };
-
-  const openMcpToolPicker = (server, tool) => {
-    setPicker({
-      title: tool.name.replace(/^mcp__[^_]+__/, ''),
-      items: [
-        {
-          value: 'info',
-          label: 'Tool info',
-          description: tool.description || tool.name,
-          _action: 'info',
-        },
-        {
-          value: 'copy-name',
-          label: 'Copy full name',
-          description: tool.name,
-          _action: 'copy-name',
-        },
-      ],
-      onSelect: (_detailValue, detail) => {
-        setPicker(null);
-        if (detail._action === 'info') {
-          store.pushNotice([tool.name, tool.description || ''].filter(Boolean).join('\n'), 'info');
-          return;
-        }
-        if (detail._action === 'copy-name') {
-          void copyToClipboard(tool.name)
-            .then(() => store.pushNotice(`copied MCP tool: ${tool.name}`, 'plain'))
-            .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
-        }
-      },
-      onCancel: () => openMcpServerPicker(server),
-    });
   };
 
   const openMcpServerPicker = (server) => {
@@ -4283,62 +4483,6 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
-  const openHookRulePicker = (rule) => {
-    setPicker({
-      title: `Hook rule ${rule.index + 1}`,
-      items: [
-        {
-          value: 'toggle',
-          label: rule.enabled ? 'Disable rule' : 'Enable rule',
-          description: `${rule.tool} -> ${rule.action}`,
-          _action: 'toggle',
-        },
-        {
-          value: 'delete',
-          label: 'Delete rule',
-          description: rule.reason || rule.match || `${rule.tool} -> ${rule.action}`,
-          _action: 'delete',
-        },
-        {
-          value: 'view',
-          label: 'View rule',
-          description: 'show normalized rule details',
-          _action: 'view',
-        },
-        {
-          value: 'copy',
-          label: 'Copy rule JSON',
-          description: 'copy normalized rule details',
-          _action: 'copy',
-        },
-      ],
-      onSelect: (_value, item) => {
-        setPicker(null);
-        try {
-          if (item._action === 'toggle') {
-            store.setHookRuleEnabled?.(rule.index, !rule.enabled);
-            void openHooksPicker();
-          } else if (item._action === 'delete') {
-            store.deleteHookRule?.(rule.index);
-            void openHooksPicker();
-          } else if (item._action === 'view') {
-            store.pushNotice(JSON.stringify(rule, null, 2), 'info');
-          } else if (item._action === 'copy') {
-            void copyToClipboard(JSON.stringify(rule, null, 2))
-              .then(() => store.pushNotice(`copied hook rule ${rule.index + 1}`, 'plain'))
-              .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
-          }
-        } catch (e) {
-          store.pushNotice(`hook rule update failed: ${e?.message || e}`, 'error');
-        }
-      },
-      onCancel: () => {
-        setPicker(null);
-        void openHooksPicker();
-      },
-    });
-  };
-
   const openHooksPicker = () => {
     let status;
     try {
@@ -4351,7 +4495,9 @@ export function App({ store, initialStatusLine = '' }) {
     const items = [
       ...(rules.length ? rules.map((rule) => ({
         value: `rule:${rule.index}`,
-        label: `${rule.enabled ? '●' : '○'} ${rule.tool} -> ${rule.action}`,
+        label: `${rule.tool} -> ${rule.action}`,
+        marker: rule.enabled ? '●' : '○',
+        markerColor: rule.enabled ? theme.success : theme.inactive,
         description: `${rule.match ? `match ${rule.match} · ` : ''}${rule.reason || 'Enter toggle'}`,
         _action: 'rule',
         _rule: rule,
@@ -4542,7 +4688,8 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
-  const openAutoClearPicker = () => {
+  const openAutoClearPicker = (options = {}) => {
+    const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     let current = null;
     try {
       current = store.getAutoClear?.() || null;
@@ -4571,20 +4718,22 @@ export function App({ store, initialStatusLine = '' }) {
     closeUsagePanel();
     setPicker({
       title: 'Auto-clear',
-      description: `Reduce cache-miss cost amplification by clearing stale context after ${idleLabel} idle.`,
+      description: `Clear idle context after ${idleLabel}.`,
       labelWidth: 10,
       items: [
         {
           value: 'on',
           label: 'On',
-          labelSuffix: autoClearEnabled ? '✓' : '',
+          marker: autoClearEnabled ? '✓' : '',
+          markerColor: theme.success,
           description: autoClearEnabled ? `idle ${idleLabel}` : 'Enable idle auto-clear',
           _enabled: true,
         },
         {
           value: 'off',
           label: 'Off',
-          labelSuffix: autoClearEnabled ? '' : '✓',
+          marker: autoClearEnabled ? '' : '✓',
+          markerColor: theme.success,
           description: autoClearEnabled ? 'Disable idle auto-clear' : 'idle auto-clear disabled',
           _enabled: false,
         },
@@ -4592,9 +4741,11 @@ export function App({ store, initialStatusLine = '' }) {
       onSelect: (_value, item) => {
         setPicker(null);
         applyAutoClear(item?._enabled === true);
+        if (returnTo) returnTo();
       },
       onCancel: () => {
         setPicker(null);
+        if (returnTo) returnTo();
       },
     });
   };
@@ -4623,6 +4774,14 @@ export function App({ store, initialStatusLine = '' }) {
         void store.setModel(arg)
           .then(ok => store.pushNotice(ok ? `Model set to ${arg}` : 'Model switch is already running.', ok ? 'info' : 'warn'))
           .catch((e) => store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error'));
+        return true;
+      case 'search':
+        if (state.busy) {
+          store.pushNotice('wait for the current turn to finish before /search', 'warn');
+          return false;
+        }
+        if (arg) store.pushNotice('/search sets the search provider/model; the search tool uses that model when called.', 'warn');
+        openSearchPicker();
         return true;
       case 'agents':
         if (state.busy) {
@@ -4734,7 +4893,7 @@ export function App({ store, initialStatusLine = '' }) {
       case 'tools':
         openToolsPicker(arg.trim());
         return true;
-      case 'bridge': {
+      case 'agent': {
         const mode = arg.trim().toLowerCase();
         if (!mode) {
           openBridgePicker();
@@ -4747,15 +4906,15 @@ export function App({ store, initialStatusLine = '' }) {
         }
         if (control) {
           void store.bridgeControl?.(control)
-            .catch((e) => store.pushNotice(`bridge failed: ${e?.message || e}`, 'error'));
+            .catch((e) => store.pushNotice(`agent failed: ${e?.message || e}`, 'error'));
           return true;
         }
         if (mode !== 'sync' && mode !== 'async') {
-          store.pushNotice('usage: /bridge [sync|async|list|status|read|cleanup|cancel|close]', 'warn');
+          store.pushNotice('usage: /agent [sync|async|list|status|read|cleanup|cancel|close]', 'warn');
           return true;
         }
         const next = store.setBridgeMode?.(mode);
-        store.pushNotice(`Bridge mode set to ${next || mode}`, 'info');
+        store.pushNotice(`Agent mode set to ${next || mode}`, 'info');
         return true;
       }
       case 'mcp':
@@ -4922,6 +5081,7 @@ export function App({ store, initialStatusLine = '' }) {
         }
         try {
           store.saveProviderApiKey(providerPrompt.providerId, commandText);
+          clearModelCaches('all');
           const afterSave = providerPrompt.afterSave;
           setProviderPrompt(null);
           if (afterSave) afterSave();
@@ -4975,6 +5135,7 @@ export function App({ store, initialStatusLine = '' }) {
             enabled: true,
             baseURL: commandText || providerPrompt.defaultURL,
           });
+          clearModelCaches('all');
           const afterSave = providerPrompt.afterSave;
           setProviderPrompt(null);
           if (afterSave) afterSave();
@@ -5001,6 +5162,7 @@ export function App({ store, initialStatusLine = '' }) {
             const successReturn = providerPrompt.successReturn;
             const afterSave = providerPrompt.afterSave;
             oauthSubmitRef.current = false;
+            clearModelCaches('all');
             setProviderPrompt(null);
             store.pushNotice(`${providerPrompt.providerName || 'OAuth'} login complete`, 'info');
             if (successReturn) successReturn();
@@ -5287,11 +5449,15 @@ export function App({ store, initialStatusLine = '' }) {
   }, []);
 
   const resizeEpoch = resizeState.epoch;
-  const bridgeRevision = JSON.stringify({
+  // bridgeRevision is a cheap change-detection key for downstream consumers, but
+  // JSON.stringify over the worker/job arrays ran on EVERY render (including the
+  // ~120fps streaming reconciles). Memoize on the bridge slices so it only
+  // recomputes when bridge state actually changes, not on every assistant delta.
+  const bridgeRevision = useMemo(() => JSON.stringify({
     mode: state.bridgeMode || '',
     workers: (state.bridgeWorkers || []).map((w) => [w.tag, w.status, w.stage, w.sessionId]).slice(0, 20),
     jobs: (state.bridgeJobs || []).map((j) => [j.task_id, j.status, j.tag, j.sessionId, j.startedAt, j.finishedAt, j.error]).slice(0, 20),
-  });
+  }), [state.bridgeMode, state.bridgeWorkers, state.bridgeJobs]);
 
   // ── Transcript viewport height ──────────────────────────────────────────
   // ROOT-CAUSE FIX: the transcript must live in a box with an EXPLICIT numeric
@@ -5365,11 +5531,10 @@ export function App({ store, initialStatusLine = '' }) {
     top: WELCOME_ROWS,
     bottom: Math.max(WELCOME_ROWS, WELCOME_ROWS + viewportHeight - 1),
   };
-  // Render at the terminal's full cell width. Older Windows Terminal/conhost
-  // builds could scroll the alt-screen when the bottom-right cell was written;
-  // keep an opt-in one-cell safety margin for those environments without making
-  // the default UI look off-center.
-  const rightSafetyColumns = process.env.MIXDOG_TUI_RIGHT_SAFE_MARGIN === '1' ? 1 : 0;
+  // Windows Terminal/conhost scrolls the alt-screen (auto-wrap/DECAWM) when the
+  // bottom-right cell is written, so reserve one cell on win32. Other platforms
+  // render at full width.
+  const rightSafetyColumns = process.platform === 'win32' ? 1 : 0;
   const frameColumns = Math.max(1, resizeState.columns - rightSafetyColumns);
   const promptMetaVisible = !inputBoxHidden && !!liveSpinner;
   const transientStatusWidth = inputHint
@@ -5378,18 +5543,38 @@ export function App({ store, initialStatusLine = '' }) {
   const promptSpinnerColumns = liveSpinner && inputHint
     ? Math.max(1, frameColumns - transientStatusWidth - 1)
     : frameColumns;
+  // Key the heavy O(n) row-index + windowing memos on a STRUCTURE signature
+  // instead of the `state.items` array identity. The engine swaps `state.items`
+  // for a new array on every streaming flush (~8ms) while only the final
+  // assistant item's text grows; depending on array identity re-ran both memos
+  // each delta frame and visibly throttled the stream. The signature changes
+  // only when transcript structure or the streaming item's estimated height
+  // changes, so steady per-character growth keeps both memos warm.
+  const transcriptStructureSig = transcriptStructureSignature(state.items, frameColumns, toolOutputExpanded);
   const transcriptRowIndex = useMemo(() => buildTranscriptRowIndex(state.items, {
     columns: frameColumns,
     toolOutputExpanded,
-  }), [state.items, frameColumns, toolOutputExpanded]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: sig captures the relevant item changes
+  }), [transcriptStructureSig]);
   const transcriptWindow = useMemo(() => transcriptRenderWindow(state.items, {
     scrollOffset,
     viewportHeight,
     columns: frameColumns,
     toolOutputExpanded,
     rowIndex: transcriptRowIndex,
-  }), [state.items, scrollOffset, viewportHeight, frameColumns, toolOutputExpanded, transcriptRowIndex]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: sig+scroll/viewport capture the relevant changes
+  }), [transcriptStructureSig, scrollOffset, viewportHeight, transcriptRowIndex]);
   maxScrollRowsRef.current = transcriptWindow.maxScrollRows;
+  // The window memo is keyed on a structure signature that intentionally
+  // ignores per-character growth of the streaming assistant text, so its
+  // `items` slice can hold a STALE reference to the streaming item between
+  // height changes. Re-slice the live `state.items` over the memo's stable
+  // [startIndex, endIndex) bounds so the on-screen text is always current
+  // while the expensive indexing/windowing stays warm.
+  const transcriptVisibleItems = (state.items || []).slice(
+    transcriptWindow.startIndex,
+    transcriptWindow.endIndex,
+  );
   const attachInputHintToTurnDone = !liveSpinner
     && !inputBoxHidden
     && !!inputHint
@@ -5550,7 +5735,7 @@ export function App({ store, initialStatusLine = '' }) {
              * OVERSCAN: TRANSCRIPT_WINDOW_OVERSCAN_ROWS extra rows above the viewport so
              * fast wheel scrolls don't show a blank gap before re-render.
              */}
-           {transcriptWindow.items.map((item, i, arr) => {
+           {transcriptVisibleItems.map((item, i, arr) => {
              const showRightMessage = attachInputHintToTurnDone
                && i === arr.length - 1
                && (item.kind === 'turndone' || item.kind === 'statusdone');

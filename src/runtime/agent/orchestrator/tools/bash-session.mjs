@@ -41,7 +41,7 @@ import * as nodeUtil from 'node:util';
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { invalidateBuiltinResultCache, analyzeShellCommandEffects, preflightShellLargeFileProbe } from './builtin.mjs';
-import { markCodeGraphDirtyPaths, drainCodeGraphCache } from './code-graph.mjs';
+import { markCodeGraphDirtyPaths, drainCodeGraphCache } from './code-graph-state.mjs';
 import { maybeRewriteWmicProcessCommand } from './shell-policy.mjs';
 import { _maybeEncodePowerShellCommand } from './shell-command.mjs';
 import { _captureTrackedMtimes, _trackedDriftNoteAfter, _injectionBlockTargets, getDedupedDestructiveWarnings } from './builtin/bash-tool.mjs';

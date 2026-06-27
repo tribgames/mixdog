@@ -3,11 +3,26 @@ import dns from 'dns'
 import net from 'net'
 import { Agent, fetch as undiciFetch } from 'undici'
 
-import { JSDOM } from 'jsdom'
-import puppeteer from 'puppeteer-core'
 import { Readability } from '@mozilla/readability'
 import { isWSL } from '../../shared/wsl.mjs'
 import { startChildGuardian } from '../../shared/child-guardian.mjs'
+
+// Lazy heavy deps: importing jsdom (~400ms) and puppeteer-core (~130ms) at
+// module load added ~540ms to the first web search even when the request never
+// scraped HTML. Load them on first actual use and cache the resolved binding so
+// repeat calls pay nothing. The search runtime itself is already dynamically
+// imported, so this keeps that first-use cost proportional to what the request
+// truly needs (a plain fetch path touches neither).
+let _JSDOM = null
+async function loadJSDOM() {
+  if (!_JSDOM) ({ JSDOM: _JSDOM } = await import('jsdom'))
+  return _JSDOM
+}
+let _puppeteer = null
+async function loadPuppeteer() {
+  if (!_puppeteer) _puppeteer = (await import('puppeteer-core')).default
+  return _puppeteer
+}
 
 
 const PKG_VERSION = (() => { try { return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version } catch { return '0.0.1' } })()
@@ -491,7 +506,8 @@ function classifyJavascriptRenderingPlaceholder(page) {
   return null
 }
 
-function extractReadableArticle(url, html) {
+async function extractReadableArticle(url, html) {
+  const JSDOM = await loadJSDOM()
   const dom = new JSDOM(html, { url })
   try {
     const doc = dom.window.document
@@ -812,7 +828,7 @@ async function scrapeWithReadability(url, timeoutMs, signal) {
     currentUrl = target
     html = await fetchHtml(currentUrl, timeoutMs, signal)
   }
-  return extractReadableArticle(currentUrl, html)
+  return await extractReadableArticle(currentUrl, html)
 }
 
 function resolveBrowserLaunchOptions() {
@@ -888,23 +904,26 @@ async function _getPoolBrowser() {
   }
   if (_poolBrowser) return _poolBrowser
   if (!_poolLaunching) {
-    _poolLaunching = puppeteer.launch({
-      headless: true,
-      ...resolveBrowserLaunchOptions(),
-      args: buildPuppeteerLaunchArgs(),
-    }).then((browser) => {
-      _poolBrowser = browser
-      try {
-        const proc = browser.process?.()
-        startChildGuardian({ childPid: proc?.pid, label: 'puppeteer-browser' })
-      } catch {}
-      browser.on('disconnected', () => {
-        if (_poolBrowser === browser) _poolBrowser = null
+    _poolLaunching = loadPuppeteer()
+      .then((puppeteer) => puppeteer.launch({
+        headless: true,
+        ...resolveBrowserLaunchOptions(),
+        args: buildPuppeteerLaunchArgs(),
+      }))
+      .then((browser) => {
+        _poolBrowser = browser
+        try {
+          const proc = browser.process?.()
+          startChildGuardian({ childPid: proc?.pid, label: 'puppeteer-browser' })
+        } catch {}
+        browser.on('disconnected', () => {
+          if (_poolBrowser === browser) _poolBrowser = null
+        })
+        return browser
       })
-      return browser
-    }).finally(() => {
-      _poolLaunching = null
-    })
+      .finally(() => {
+        _poolLaunching = null
+      })
   }
   return _poolLaunching
 }
@@ -1033,7 +1052,7 @@ async function scrapeWithPuppeteer(url, timeoutMs, signal) {
     }
     try {
       return {
-        ...extractReadableArticle(finalUrl, html),
+        ...(await extractReadableArticle(finalUrl, html)),
         extractor: 'puppeteer',
       }
     } catch {
@@ -1088,7 +1107,8 @@ function filterLinks(rawLinks, baseUrl, { limit = 50, sameDomainOnly = true, sea
   return items
 }
 
-function extractLinksFromHtml(baseUrl, html, options) {
+async function extractLinksFromHtml(baseUrl, html, options) {
+  const JSDOM = await loadJSDOM()
   const dom = new JSDOM(html, { url: baseUrl })
   try {
     const links = Array.from(dom.window.document.querySelectorAll('a[href]')).map(link => ({
@@ -1103,7 +1123,7 @@ function extractLinksFromHtml(baseUrl, html, options) {
 
 async function mapWithHttp(url, options, timeoutMs, signal) {
   const html = await fetchHtml(url, timeoutMs, signal)
-  return extractLinksFromHtml(url, html, options)
+  return await extractLinksFromHtml(url, html, options)
 }
 
 async function mapWithPuppeteer(url, options, timeoutMs, signal) {

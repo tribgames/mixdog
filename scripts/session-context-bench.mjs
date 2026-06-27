@@ -63,7 +63,6 @@ function directCycle1Llm(provider, model) {
       effort: 'low',
       fast: true,
       maxOutputTokens: Number(arg('cycle1-max-output-tokens', 1200)) || 1200,
-      remoteCompact: false,
     });
     return textOfResult(response).trim();
   };

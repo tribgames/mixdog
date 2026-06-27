@@ -30,34 +30,14 @@ import {
 import {
   flushUsageState,
   loadUsageState,
-  noteProviderFailure,
-  classifyProviderError,
-  noteProviderSuccess,
-  saveUsageState,
   updateProviderState,
 } from './lib/state.mjs'
 import { assertPublicUrl, crawlSite, getScrapeCapabilities, pinnedFetch, scrapeUrls } from './lib/web-tools.mjs'
 import { formatResponse } from './lib/formatter.mjs'
-import {
-  cancelBackgroundTask,
-  getBackgroundTask,
-  renderBackgroundTask,
-  renderBackgroundTaskList,
-  resolveExecutionMode,
-  startBackgroundTask,
-  taskIdFromArgs,
-} from '../shared/background-tasks.mjs'
-
-
 ensureDataDir()
 
 const searchArgsSchema = z.object({
   keywords: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).describe('Search query string or array of queries.'),
-  mode: z.enum(['sync', 'async']).optional(),
-  action: z.enum(['run', 'list', 'status', 'read', 'cancel']).optional(),
-  task_id: z.string().optional(),
-  firstResponseTimeoutMs: z.number().int().min(0).optional(),
-  idleTimeoutMs: z.number().int().min(0).optional(),
   site: z.string().optional().describe('Restrict results to a specific domain.'),
   type: z.enum(['web', 'news', 'images']).optional().describe('Search type. Default: web.'),
   maxResults: z.number().int().min(1).max(20).optional().describe('Maximum number of results to return (1-20).'),
@@ -81,7 +61,7 @@ const searchUrlArgsSchema = z.object({
   cwd: z.string().optional(),
 })
 
-const SEARCH_EMPTY_STRING_FIELDS = ['keywords', 'site', 'type', 'locale', 'contextSize', 'mode', 'action', 'task_id', 'firstResponseTimeoutMs', 'idleTimeoutMs']
+const SEARCH_EMPTY_STRING_FIELDS = ['keywords', 'site', 'type', 'locale', 'contextSize']
 
 function normalizeSearchArgs(rawArgs) {
   if (!rawArgs || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) return rawArgs
@@ -125,31 +105,8 @@ function formattedText(tool, payload) {
   }
 }
 
-function toolText(response) {
-  if (typeof response === 'string') return response
-  const parts = Array.isArray(response?.content) ? response.content : []
-  const text = parts
-    .filter(part => part?.type === 'text')
-    .map(part => part.text)
-    .join('\n')
-  return text || JSON.stringify(response, null, 2)
-}
-
 function okText(text) {
   return { content: [{ type: 'text', text }], isError: false }
-}
-
-function searchTaskControl(action, args = {}, options = {}) {
-  if (action === 'list') return okText(renderBackgroundTaskList({ surface: 'search', context: options }))
-  const taskId = taskIdFromArgs(args)
-  if (!taskId) return { ...okText('Error: task_id is required'), isError: true }
-  const task = getBackgroundTask(taskId, { surface: 'search', context: options })
-  if (!task) return { ...okText(`Error: search task not found: ${taskId}`), isError: true }
-  if (action === 'cancel') {
-    cancelBackgroundTask(taskId, 'cancelled by search control')
-    return okText(renderBackgroundTask(task, { includeResult: true }))
-  }
-  return okText(renderBackgroundTask(task, { includeResult: action === 'read' }))
 }
 
 function isInvalidSearchResult(result) {
@@ -194,365 +151,6 @@ function normalizeCacheUrl(url) {
     return new URL(url).toString()
   } catch {
     return String(url)
-  }
-}
-
-const DOC_INDEX_MAX_BYTES = 2 * 1024 * 1024
-const DOC_INDEX_MAX_FETCHES = 8
-const DOC_INDEX_COMMON_PATHS = ['docs', 'api', 'reference', 'api/reference']
-const DOC_INDEX_STOPWORDS = new Set([
-  'about', 'after', 'again', 'also', 'and', 'are', 'can', 'com', 'doc', 'docs',
-  'documentation', 'for', 'from', 'how', 'http', 'https', 'into', 'official',
-  'page', 'pages', 'site', 'the', 'this', 'title', 'url', 'use', 'using', 'what',
-  'when', 'where', 'which', 'with', 'www',
-])
-
-function keywordsText(keywords) {
-  return Array.isArray(keywords) ? keywords.join(' ') : String(keywords || '')
-}
-
-function queryTokens(keywords) {
-  const tokens = keywordsText(keywords)
-    .toLowerCase()
-    .match(/[\p{L}\p{N}][\p{L}\p{N}._-]{1,}/gu) || []
-  return [...new Set(tokens
-    .filter(token => token.length >= 3 && !DOC_INDEX_STOPWORDS.has(token)))]
-}
-
-// Weighted scoring across title/path/url/snippet. Title hit is the strongest
-// signal (8) because llms.txt entries are hand-curated; path-segment hits
-// (5) and last-segment hits (3..10) catch /api/foo over /blog/foo. Url and
-// snippet (2 / 1) act as tiebreakers when title misses. .md penalty -2 so
-// raw markdown sources lose to rendered docs when both are listed.
-function docLinkScore(link, tokens) {
-  if (!tokens.length) return 0
-  const title = String(link.title || '').toLowerCase()
-  const url = String(link.url || '').toLowerCase()
-  const snippet = String(link.snippet || '').toLowerCase()
-  let pathname = ''
-  try {
-    pathname = new URL(link.url).pathname.toLowerCase()
-  } catch {}
-  const segments = pathname.split('/').filter(Boolean)
-  let score = 0
-  for (const token of tokens) {
-    if (title.includes(token)) score += 8
-    if (segments.includes(token)) score += 5
-    if (segments.at(-1) === token) score += 3 + Math.max(0, 7 - segments.length)
-    if (url.includes(token)) score += 2
-    if (snippet.includes(token)) score += 1
-  }
-  if (/\.md$/i.test(pathname)) score -= 2
-  return score
-}
-
-function docIndexUrlCandidates(site, keywords) {
-  if (!site) return []
-  let parsed
-  try {
-    parsed = new URL(/^https?:\/\//i.test(site) ? site : `https://${site}`)
-  } catch {
-    return []
-  }
-  const candidates = []
-  const add = (url) => {
-    try {
-      const normalized = new URL(url).toString()
-      if (!candidates.includes(normalized)) candidates.push(normalized)
-    } catch {}
-  }
-  const pathParts = parsed.pathname.split('/').filter(Boolean)
-  for (let i = pathParts.length; i >= 0; i -= 1) {
-    const prefix = pathParts.slice(0, i).join('/')
-    add(`${parsed.origin}${prefix ? `/${prefix}` : ''}/llms.txt`)
-  }
-  // When the user asks an api/docs question on a bare-host site, also probe
-  // the common doc-prefix llms.txt locations the host might publish under.
-  const docsIntent = /\b(?:api|docs?|documentation|reference)\b/i.test(keywordsText(keywords))
-  if (docsIntent && pathParts.length === 0) {
-    for (const prefix of DOC_INDEX_COMMON_PATHS) {
-      add(`${parsed.origin}/${prefix}/llms.txt`)
-    }
-  }
-  return candidates
-}
-
-
-function docIndexAbortSignal(timeoutMs, parentSignal) {
-  const ms = Math.min(Math.max(Number(timeoutMs) || 10_000, 1000), 10_000)
-  if (typeof AbortSignal.any === 'function') {
-    const parts = [AbortSignal.timeout(ms)]
-    if (parentSignal) parts.push(parentSignal)
-    return AbortSignal.any(parts)
-  }
-  const controller = new AbortController()
-  let timer
-  let onParentAbort
-  const abortWith = reason => {
-    if (timer !== undefined) {
-      clearTimeout(timer)
-      timer = undefined
-    }
-    if (parentSignal && onParentAbort) {
-      parentSignal.removeEventListener('abort', onParentAbort)
-      onParentAbort = undefined
-    }
-    if (!controller.signal.aborted) controller.abort(reason)
-  }
-  timer = setTimeout(
-    () => abortWith(new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
-    ms,
-  )
-  if (parentSignal) {
-    if (parentSignal.aborted) {
-      abortWith(parentSignal.reason)
-      return controller.signal
-    }
-    onParentAbort = () => abortWith(parentSignal.reason)
-    parentSignal.addEventListener('abort', onParentAbort, { once: true })
-  }
-  return controller.signal
-}
-
-async function fetchDocIndex(url, timeoutMs, parentSignal) {
-  // SSRF: reuse the guarded web_fetch path's public-URL/private-IP check so
-  // docs-index discovery cannot be steered into localhost / link-local /
-  // cloud-metadata addresses by a hostile site override. Follow redirects
-  // manually and re-validate each hop so a 30x Location can't steer us to
-  // a private/loopback address after the initial check.
-  const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
-  const MAX_REDIRECTS = 5
-  const signal = docIndexAbortSignal(timeoutMs, parentSignal)
-  let currentUrl = url
-  let response
-  for (let hops = 0; ; hops++) {
-    assertPublicUrl(currentUrl)
-    // pinnedFetch resolves+validates the host once and pins the connection
-    // to the validated IP, closing the validate-then-fetch DNS-rebinding /
-    // TOCTOU window that bare `fetch` left open.
-    response = await pinnedFetch(currentUrl, {
-      headers: { Accept: 'text/markdown,text/plain,text/*,*/*' },
-      signal,
-      redirect: 'manual',
-    })
-    if (!REDIRECT_STATUSES.has(response.status)) break
-    try { await response.body?.cancel() } catch {}
-    if (hops >= MAX_REDIRECTS) {
-      throw new Error(`docs index too many redirects (max ${MAX_REDIRECTS})`)
-    }
-    const location = response.headers.get('location')
-    if (!location) {
-      throw new Error(`docs index redirect ${response.status} without Location header`)
-    }
-    currentUrl = new URL(location, currentUrl).toString()
-  }
-  if (!response.ok) {
-    try { await response.body?.cancel() } catch {}
-    throw new Error(`docs index fetch failed: ${response.status}`)
-  }
-  const contentLength = Number(response.headers.get('content-length') || 0)
-  if (contentLength > DOC_INDEX_MAX_BYTES) {
-    try { await response.body?.cancel() } catch {}
-    throw new Error(`docs index too large: ${contentLength}`)
-  }
-  // Enforce DOC_INDEX_MAX_BYTES while streaming so chunked / missing-length
-  // responses can't blow past the 2MB cap by deferring the check until after
-  // the whole body is buffered.
-  const reader = response.body?.getReader?.()
-  let text
-  if (!reader) {
-    // Buffer as bytes and cap by byte length — string.length counts UTF-16
-    // code units, which under-counts multi-byte characters and lets the
-    // body blow past DOC_INDEX_MAX_BYTES.
-    const buf = new Uint8Array(await response.arrayBuffer())
-    const capped = buf.byteLength > DOC_INDEX_MAX_BYTES ? buf.subarray(0, DOC_INDEX_MAX_BYTES) : buf
-    text = new TextDecoder('utf-8', { fatal: false }).decode(capped)
-  } else {
-    const chunks = []
-    let total = 0
-    let capped = false
-    try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        total += value.byteLength
-        chunks.push(value)
-        if (total >= DOC_INDEX_MAX_BYTES) {
-          capped = true
-          try { await reader.cancel() } catch {}
-          break
-        }
-      }
-    } finally {
-      try { reader.releaseLock() } catch {}
-    }
-    const decoder = new TextDecoder('utf-8', { fatal: false })
-    let buf = ''
-    for (const chunk of chunks) buf += decoder.decode(chunk, { stream: true })
-    buf += decoder.decode()
-    text = capped || buf.length > DOC_INDEX_MAX_BYTES ? buf.slice(0, DOC_INDEX_MAX_BYTES) : buf
-  }
-  return {
-    text,
-    url: response.url || url,
-  }
-}
-
-function parseDocIndexLinks(text, sourceUrl) {
-  const links = []
-  const seen = new Set()
-  const add = (title, rawUrl, snippet = '') => {
-    if (!title || !rawUrl) return
-    let url
-    try {
-      url = new URL(rawUrl, sourceUrl).toString()
-    } catch {
-      return
-    }
-    if (!/^https?:\/\//i.test(url) || seen.has(url)) return
-    seen.add(url)
-    links.push({
-      title: String(title).trim(),
-      url,
-      snippet: String(snippet || '').trim(),
-      sourceUrl,
-    })
-  }
-
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const item = line.match(/^\s*[-*]\s+\[([^\]]{1,180})\]\(([^)\s]+)\)\s*:?\s*(.*)$/)
-    if (item) add(item[1], item[2], item[3])
-  }
-  const inlineRe = /\[([^\]]{1,180})\]\((https?:\/\/[^)\s]+)\)/g
-  let match
-  while ((match = inlineRe.exec(String(text || '')))) {
-    add(match[1], match[2])
-  }
-  return links
-}
-
-
-function isDocIndexLink(url) {
-  try {
-    return /\/llms(?:-full)?\.txt$/i.test(new URL(url).pathname)
-  } catch {
-    return false
-  }
-}
-
-function hostFromUrl(url) {
-  try {
-    return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.toLowerCase()
-  } catch {
-    return ''
-  }
-}
-
-function isBaseHost(host) {
-  return host.split('.').filter(Boolean).length <= 2
-}
-
-function hostMatchesScope(host, scopedHost) {
-  if (!host || !scopedHost) return false
-  if (host === scopedHost) return true
-  return isBaseHost(scopedHost) && host.endsWith(`.${scopedHost}`)
-}
-
-function sameDocIndexScope(url, site, requestedIndexUrl) {
-  const linkHost = hostFromUrl(url)
-  if (!linkHost) return false
-  // Always require the link to match the original requested site host.
-  const siteHost = hostFromUrl(site)
-  if (siteHost && !hostMatchesScope(linkHost, siteHost)) return false
-  const scopes = [
-    siteHost,
-    hostFromUrl(requestedIndexUrl),
-  ].filter(Boolean)
-  return scopes.some(scope => hostMatchesScope(linkHost, scope))
-}
-
-async function discoverDocsIndexResults(args, timeoutMs, parentSignal) {
-  if (!args?.site || (args.type && args.type !== 'web')) return []
-  const tokens = queryTokens(args.keywords)
-  if (!tokens.length) return []
-
-  const queue = docIndexUrlCandidates(args.site, args.keywords)
-  const seenIndexes = new Set()
-  const candidates = []
-
-  while (queue.length > 0 && seenIndexes.size < DOC_INDEX_MAX_FETCHES) {
-    if (parentSignal?.aborted) return []
-    const indexUrl = queue.shift()
-    if (!indexUrl || seenIndexes.has(indexUrl)) continue
-    seenIndexes.add(indexUrl)
-    let index = null
-    try {
-      index = await fetchDocIndex(indexUrl, timeoutMs, parentSignal)
-    } catch {
-      continue
-    }
-    const sourceUrl = index.url || indexUrl
-    const links = parseDocIndexLinks(index.text, sourceUrl)
-    for (const link of links) {
-      if (isDocIndexLink(link.url)) {
-        if (!seenIndexes.has(link.url) && queue.length + seenIndexes.size < DOC_INDEX_MAX_FETCHES) queue.push(link.url)
-        continue
-      }
-      if (!sameDocIndexScope(link.url, args.site, indexUrl)) continue
-      const score = docLinkScore(link, tokens)
-      if (score <= 0) continue
-      candidates.push({
-        ...link,
-        score,
-      })
-    }
-  }
-
-  const seenUrls = new Set()
-  return candidates
-    .sort((a, b) => b.score - a.score)
-    .filter((item) => {
-      if (seenUrls.has(item.url)) return false
-      seenUrls.add(item.url)
-      return true
-    })
-    .slice(0, Math.min(Number(args.maxResults) || 5, 5))
-    .map(item => ({
-      title: item.title,
-      url: item.url,
-      snippet: item.snippet || `Matched docs index: ${item.sourceUrl}`,
-      source: 'docs-index',
-      provider: 'docs-index',
-      publishedDate: null,
-      meta: { score: item.score, sourceUrl: item.sourceUrl },
-    }))
-}
-
-async function augmentSearchPayloadWithDocsIndex(payload, args, timeoutMs, parentSignal) {
-  if (!payload || typeof payload !== 'object') return payload
-  const response = payload.response
-  if (!response || typeof response !== 'object' || !Array.isArray(response.results)) return payload
-  const indexResults = await discoverDocsIndexResults(args, timeoutMs, parentSignal)
-  if (!indexResults.length) return payload
-  const seen = new Set()
-  const results = []
-  for (const result of [...indexResults, ...response.results]) {
-    const url = String(result?.url || '')
-    const key = url || `${result?.title || ''}\n${result?.snippet || ''}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    results.push(result)
-  }
-  return {
-    ...payload,
-    response: {
-      ...response,
-      results: results.slice(0, Math.max(Number(args.maxResults) || results.length, indexResults.length)),
-      docsIndexAugmented: {
-        added: indexResults.length,
-        sources: [...new Set(indexResults.map(item => item.meta?.sourceUrl).filter(Boolean))],
-      },
-    },
   }
 }
 
@@ -609,10 +207,92 @@ function buildAgentSearchPrompt(args) {
   return lines.join('\n')
 }
 
-async function _searchCore(args, { cacheState, agentSearch, signal }) {
+function sourceUrl(source) {
+  return String(source?.url || source?.uri || source?.href || source?.source_url || '').trim()
+}
+
+function sourceTitle(source, fallbackUrl = '') {
+  return String(source?.title || source?.query || source?.name || fallbackUrl || '(untitled)').trim()
+}
+
+function sourceSnippet(source) {
+  return String(source?.snippet || source?.text || source?.description || '').replace(/\s+/g, ' ').trim()
+}
+
+function collectNativeSearchSources(result) {
+  const out = []
+  const add = (source, fallback = {}) => {
+    if (!source || typeof source !== 'object') return
+    const url = sourceUrl(source)
+    if (!url) return
+    out.push({
+      title: sourceTitle(source, fallback.title || url),
+      url,
+      snippet: sourceSnippet(source),
+      source: source.source || fallback.source || 'native-web-search',
+      provider: source.provider || fallback.provider || 'native-web-search',
+      publishedDate: source.publishedDate || source.published_date || null,
+    })
+  }
+  for (const citation of Array.isArray(result?.citations) ? result.citations : []) {
+    add(citation, { source: 'citation' })
+  }
+  for (const call of Array.isArray(result?.webSearchCalls) ? result.webSearchCalls : []) {
+    const action = call?.action || {}
+    for (const source of Array.isArray(action.sources) ? action.sources : []) {
+      add(source, { title: action.query || '', source: 'web_search_call' })
+    }
+    if (action.url) add({ url: action.url, title: action.query || '' }, { source: 'web_search_call' })
+    for (const url of Array.isArray(action.urls) ? action.urls : []) {
+      add({ url, title: action.query || '' }, { source: 'web_search_call' })
+    }
+  }
+  const seen = new Set()
+  return out.filter((item) => {
+    const key = item.url || `${item.title}\n${item.snippet}`
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function normalizeNativeSearchPayload(result, args, startedAt) {
+  if (result && typeof result === 'object' && result.tool === 'search' && result.response) {
+    return result
+  }
   const cacheArgs = searchArgsForCacheKey(args)
+  const answer = typeof result === 'string' ? result : String(result?.content || result?.answer || '').trim()
+  const provider = String(result?.provider || 'native-web-search')
+  const results = collectNativeSearchSources(result).slice(0, cacheArgs.maxResults)
+  const warnings = []
+  if (!results.length && Array.isArray(result?.webSearchCalls) && result.webSearchCalls.length) {
+    warnings.push('native web search returned no source URLs')
+  }
+  return {
+    tool: 'search',
+    provider,
+    response: {
+      usedProvider: provider,
+      query: Array.isArray(cacheArgs.keywords) ? cacheArgs.keywords.join('\n') : cacheArgs.keywords,
+      rawQuery: Array.isArray(cacheArgs.keywords) ? cacheArgs.keywords.join('\n') : cacheArgs.keywords,
+      answer,
+      model: result?.model || null,
+      durationMs: Date.now() - startedAt,
+      usage: result?.usage || null,
+      results,
+      warnings,
+      type: cacheArgs.type,
+      site: cacheArgs.site,
+      locale: cacheArgs.locale,
+    },
+  }
+}
+
+async function _searchCore(args, { cacheState, nativeSearch, signal }) {
+  const cacheArgs = searchArgsForCacheKey(args)
+  const backend = 'native-web-search'
   const searchCacheKey = buildCacheKey('search', {
-    provider: 'web-researcher',
+    provider: backend,
     ...cacheArgs,
   })
   const cachedSearch = getCachedEntry(cacheState, searchCacheKey)
@@ -623,37 +303,19 @@ async function _searchCore(args, { cacheState, agentSearch, signal }) {
 
   const run = (async () => {
     if (signal?.aborted) throw signal.reason || new Error('search aborted')
-    if (typeof agentSearch !== 'function') {
-      throw new Error('search provider unavailable: Web Researcher agent bridge is not attached')
+    if (typeof nativeSearch === 'function') {
+      const startedAt = Date.now()
+      const result = await nativeSearch({
+        ...args,
+        ...cacheArgs,
+        prompt: buildAgentSearchPrompt({ ...args, ...cacheArgs }),
+      })
+      const payload = normalizeNativeSearchPayload(result, { ...args, ...cacheArgs }, startedAt)
+      const cachedEntry = setCachedEntry(cacheState, searchCacheKey, payload, getSearchCacheTtlMs(cacheArgs.type))
+      flushCacheState()
+      return { ...payload, cache: buildCacheMeta(cachedEntry, false) }
     }
-    const startedAt = Date.now()
-    const content = await agentSearch({
-      ...args,
-      ...cacheArgs,
-      prompt: buildAgentSearchPrompt({ ...args, ...cacheArgs }),
-    })
-    const answer = String(content || '').trim()
-    const payload = {
-      tool: 'search',
-      provider: 'web-researcher',
-      response: {
-        usedProvider: 'web-researcher',
-        query: Array.isArray(cacheArgs.keywords) ? cacheArgs.keywords.join('\n') : cacheArgs.keywords,
-        rawQuery: Array.isArray(cacheArgs.keywords) ? cacheArgs.keywords.join('\n') : cacheArgs.keywords,
-        answer,
-        model: null,
-        durationMs: Date.now() - startedAt,
-        usage: null,
-        results: [],
-        warnings: [],
-        type: cacheArgs.type,
-        site: cacheArgs.site,
-        locale: cacheArgs.locale,
-      },
-    }
-    const cachedEntry = setCachedEntry(cacheState, searchCacheKey, payload, getSearchCacheTtlMs(cacheArgs.type))
-    flushCacheState()
-    return { ...payload, cache: buildCacheMeta(cachedEntry, false) }
+    throw new Error('search provider unavailable: open /search to choose a search provider/model')
   })()
 
   run.catch(() => {})
@@ -784,9 +446,8 @@ async function _fetchCore(args, { usageState, cacheState, timeoutMs, signal }) {
   return { tool: 'web_fetch', results, urlsTruncated: allUrls.length > urls.length ? allUrls.length : 0 }
 }
 
-// Only `web_fetch` remains in the direct web module. Web search is routed
-// through the Web Researcher agent, so there is no standalone search provider
-// configuration or search backend selection surface.
+// Web search is supplied by the runtime through the configured native search
+// route. The module owns argument validation, caching, fan-out, and formatting.
 import { TOOL_DEFS as toolDefinitions } from './tool-defs.mjs'
 
 const SEARCH_INSTRUCTIONS = '';
@@ -809,7 +470,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 }))
 
 async function handleToolCall(name, rawArgs, options = {}) {
-  const { signal, agentSearch } = options || {}
+  const { signal, nativeSearch } = options || {}
   const config = loadConfig()
   const usageState = loadUsageState()
   const cacheState = loadCacheState()
@@ -818,10 +479,6 @@ async function handleToolCall(name, rawArgs, options = {}) {
   switch (name) {
     case 'search': {
       let args
-      const rawAction = String(rawArgs?.action || 'run').trim().toLowerCase()
-      if (['list', 'status', 'read', 'cancel'].includes(rawAction)) {
-        return searchTaskControl(rawAction, rawArgs || {}, options)
-      }
       if (rawArgs && rawArgs.pattern !== undefined && rawArgs.query === undefined && rawArgs.keywords === undefined) {
         return { content: [{ type: 'text', text: 'Error: web search requires query; use glob(pattern=...) for file paths.' }], isError: true }
       }
@@ -842,14 +499,14 @@ async function handleToolCall(name, rawArgs, options = {}) {
           const SEARCH_FANOUT_CAP = Math.max(1, Number(process.env.SEARCH_FANOUT_CAP) || 10)
           const keywords = [...new Set(args.keywords.map(kw => String(kw || '').trim()).filter(Boolean))].slice(0, SEARCH_FANOUT_CAP)
           const sections = await Promise.all(keywords.map(async (kw) => {
-            const sub = await handleToolCall('search', { ...rawArgs, keywords: kw, mode: 'sync', action: 'run' }, { signal, agentSearch })
+            const sub = await handleToolCall('search', { ...rawArgs, keywords: kw }, { signal, nativeSearch })
             const text = (sub.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n')
             return `### Query: ${kw}\n\n${text}`
           }))
           return { content: [{ type: 'text', text: sections.join('\n\n---\n\n') }] }
         }
         try {
-          const result = await _searchCore(args, { cacheState, agentSearch, signal })
+          const result = await _searchCore(args, { cacheState, nativeSearch, signal })
           flushUsageState()
           return formattedText('search', result)
         } catch (error) {
@@ -858,27 +515,6 @@ async function handleToolCall(name, rawArgs, options = {}) {
           const _cleanErr = presentErrorText(_rawErr, { surface: 'search' })
           return { content: [{ type: 'text', text: `Search failed: ${_cleanErr}` }], isError: true }
         }
-      }
-      if (resolveExecutionMode(args, 'async') === 'async') {
-        const label = Array.isArray(args.keywords)
-          ? args.keywords.join(' | ')
-          : String(args.keywords || '')
-        const task = startBackgroundTask({
-          surface: 'search',
-          operation: 'search',
-          label: label.replace(/\s+/g, ' ').slice(0, 120),
-          input: { keywords: args.keywords, site: args.site || null, type: args.type || 'web' },
-          context: options,
-          resultType: 'search_task_result',
-          renderResult: (text) => String(text || ''),
-          run: async () => {
-            const response = await runSearchNow()
-            const text = toolText(response)
-            if (response?.isError) throw new Error(text)
-            return text
-          },
-        })
-        return okText(renderBackgroundTask(task))
       }
       return runSearchNow()
     }

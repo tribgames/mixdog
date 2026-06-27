@@ -155,6 +155,15 @@ function _openAiPromptCacheLaneRateLimitPerMin(sendOpts = {}) {
     );
 }
 
+function _openAiPromptCacheLaneSlowTraceMs(sendOpts = {}) {
+    return _positiveInt(
+        sendOpts?.openaiCacheLaneSlowTraceMs
+            ?? sendOpts?.promptCacheLaneSlowTraceMs
+            ?? process.env.MIXDOG_OPENAI_CACHE_LANE_SLOW_MS,
+        3000,
+    );
+}
+
 function _isOpenAiPromptCacheLaneAuth(auth) {
     return auth?.type !== 'xai';
 }
@@ -381,6 +390,43 @@ async function _withOpenAiPromptCacheLane({ auth, cacheKey, sendOpts, poolKey, i
         activeAfterAcquire: handle.activeCount,
         queueDepthAfterAcquire: handle.queueDepth,
     };
+    const slowTraceMs = _openAiPromptCacheLaneSlowTraceMs(sendOpts);
+    const slowWaitMs = Math.max(Number(laneMeta.rateWaitMs) || 0, Number(laneMeta.waitMs) || 0);
+    if (slowTraceMs > 0 && slowWaitMs >= slowTraceMs) {
+        appendBridgeTrace({
+            sessionId: poolKey,
+            iteration,
+            kind: 'cache_lane_slow',
+            provider: traceProvider,
+            model: useModel,
+            event: laneMeta.rateWaitMs > 0 && laneMeta.waitMs > 0
+                ? 'rate_and_queue_wait'
+                : laneMeta.rateWaitMs > 0
+                    ? 'rate_wait'
+                    : 'queue_wait',
+            lane_key_hash: laneKeyHash,
+            payload: {
+                event: laneMeta.rateWaitMs > 0 && laneMeta.waitMs > 0
+                    ? 'rate_and_queue_wait'
+                    : laneMeta.rateWaitMs > 0
+                        ? 'rate_wait'
+                        : 'queue_wait',
+                provider: traceProvider,
+                model: useModel,
+                lane_key_hash: laneKeyHash,
+                threshold_ms: slowTraceMs,
+                max_wait_ms: slowWaitMs,
+                rate_limit_per_min: laneMeta.rateLimitPerMin,
+                rate_wait_ms: laneMeta.rateWaitMs,
+                rate_window_count: laneMeta.rateWindowCount,
+                max_in_flight: laneMeta.maxInFlight,
+                queued: laneMeta.queued,
+                wait_ms: laneMeta.waitMs,
+                active_after_acquire: laneMeta.activeAfterAcquire,
+                queue_depth_after_acquire: laneMeta.queueDepthAfterAcquire,
+            },
+        });
+    }
     try {
         return await fn(laneMeta);
     } finally {
@@ -996,7 +1042,6 @@ export async function _streamResponse({
     const toolCalls = [];
     const webSearchCalls = [];
     const webSearchCallKeys = new Set();
-    const compactionItems = [];
     const responseItemsAdded = [];
     const responseItemKeys = new Set();
     const citations = [];
@@ -1084,11 +1129,6 @@ export async function _streamResponse({
         if (Array.isArray(action.urls)) {
             for (const url of action.urls) pushCitation({ url, title: action.query || '' });
         }
-    };
-    const pushCompactionItem = (item) => {
-        if (!item || !['compaction', 'compaction_summary', 'context_compaction'].includes(item.type)) return;
-        if (!item.encrypted_content) return;
-        compactionItems.push(item);
     };
     const logReasoningDeltaSuppression = () => {
         if (!logSuppressedReasoningDeltas) return;
@@ -1263,19 +1303,12 @@ export async function _streamResponse({
         const finish = () => {
             logReasoningDeltaSuppression();
             cleanup();
-            if (!terminalError && midState.expectCompaction === true && compactionItems.length !== 1) {
-                terminalError = new Error(
-                    `${errLabel} remote compaction expected exactly one compaction output item, got ${compactionItems.length}`,
-                );
-            }
             if (terminalError) { reject(terminalError); return; }
             resolve({
                 content,
                 model,
                 reasoningItems: reasoningItems.length ? reasoningItems : undefined,
                 responseItems: responseItemsAdded.length ? responseItemsAdded : undefined,
-                compactionItem: compactionItems.length === 1 ? compactionItems[0] : undefined,
-                compactionItems: compactionItems.length ? compactionItems : undefined,
                 toolCalls: toolCalls.length ? toolCalls : undefined,
                 citations: citations.length ? citations : undefined,
                 webSearchCalls: webSearchCalls.length ? webSearchCalls : undefined,
@@ -1417,10 +1450,6 @@ export async function _streamResponse({
                     // server-side prompt cache prefix warm.
                     if (event.item?.type === 'reasoning') pushReasoningItem(event.item);
                     if (event.item?.type === 'web_search_call') pushWebSearchCall(event.item);
-                    if (['compaction', 'compaction_summary', 'context_compaction'].includes(event.item?.type)) {
-                        pushCompactionItem(event.item);
-                        onMeaningfulOutput();
-                    }
                     break;
                 case 'response.completed': {
                     const completedServiceTier = event.response?.service_tier || event.response?.serviceTier || '';
@@ -1462,9 +1491,6 @@ export async function _streamResponse({
                                 }
                             }
                             if (item.type === 'web_search_call') pushWebSearchCall(item);
-                            if (['compaction', 'compaction_summary', 'context_compaction'].includes(item.type)) {
-                                pushCompactionItem(item);
-                            }
                             // Salvage path: some streams emit reasoning only
                             // inside the final response.completed.output
                             // bundle (no per-item .done event). Dedup by id.
@@ -2245,12 +2271,7 @@ export async function sendViaWebSocket({
         let strippedResponseItems = 0;
         let skippedResponseItems = 0;
         let result;
-        const streamTimeouts = sendOpts?.expectCompaction === true
-            ? {
-                firstMeaningfulMs: WS_INTER_CHUNK_MS,
-                interChunkMs: WS_INTER_CHUNK_MS,
-            }
-            : null;
+        const streamTimeouts = null;
         try {
             if (warmupBody && typeof warmupBody === 'object' && attemptIndex === 0) {
                 const warmupFrame = { type: 'response.create', ...warmupBody };
@@ -2489,6 +2510,9 @@ export async function sendViaWebSocket({
         });
         // Extra WS-specific observability: transport + per-iteration delta bytes.
         try {
+            const transportCacheKeyHash = cacheKey
+                ? createHash('sha256').update(String(cacheKey)).digest('hex').slice(0, 12)
+                : null;
             const transportPayload = {
                 provider: traceProvider,
                 transport: 'websocket',
@@ -2504,9 +2528,7 @@ export async function sendViaWebSocket({
                 handshake_retry_classifiers: handshakeRetryClassifiers,
                 midstream_retries: attemptIndex,
                 response_id: result.responseId || null,
-                cache_key_hash: cacheKey
-                    ? createHash('sha256').update(String(cacheKey)).digest('hex').slice(0, 12)
-                    : null,
+                cache_key_hash: transportCacheKeyHash,
                 cache_lane_enabled: promptCacheLane?.enabled === true,
                 cache_lane_key_hash: promptCacheLane?.laneKeyHash || null,
                 cache_lane_max_in_flight: Number.isFinite(Number(promptCacheLane?.maxInFlight)) ? Number(promptCacheLane.maxInFlight) : null,
@@ -2538,6 +2560,33 @@ export async function sendViaWebSocket({
                 ...transportPayload,
                 payload: transportPayload,
             });
+            if (mode !== 'delta' || deltaReason) {
+                appendBridgeTrace({
+                    sessionId: poolKey,
+                    iteration,
+                    kind: 'cache_break',
+                    provider: traceProvider,
+                    model: liveModel,
+                    payload: {
+                        provider: traceProvider,
+                        model: liveModel,
+                        transport: 'websocket',
+                        ws_mode: mode,
+                        reason: mode === 'delta' ? deltaReason : (deltaReason || 'full_frame'),
+                        cache_key_hash: transportCacheKeyHash,
+                        cache_lane_key_hash: promptCacheLane?.laneKeyHash || null,
+                        request_has_previous_response_id: transportPayload.request_has_previous_response_id,
+                        chain_stripped_response_items: strippedResponseItems,
+                        chain_skipped_response_items: skippedResponseItems,
+                        chain_response_items: Array.isArray(result.responseItems) ? result.responseItems.length : 0,
+                        body_input_items: Array.isArray(requestBody.input) ? requestBody.input.length : null,
+                        frame_input_items: Array.isArray(frame.input) ? frame.input.length : null,
+                        frame_has_instructions: transportPayload.frame_has_instructions,
+                        keep_response_chain: keepResponseChain,
+                        tool_call_count: resultToolCallCount,
+                    },
+                });
+            }
         } catch {}
 
         releaseWebSocket({ entry, poolKey, keep: keepSocket });

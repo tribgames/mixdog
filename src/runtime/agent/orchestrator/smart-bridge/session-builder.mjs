@@ -7,17 +7,14 @@
  *   - `smart-bridge/bridge-llm.mjs` — internal callers
  *     (memory-cycle, scheduler, webhook) dispatching via
  *     `makeBridgeLlm`.
- *   - `src/agent/index.mjs` `case 'bridge'` — Lead-originated MCP
- *     bridge dispatches into user-workflow roles.
+ *   - Lead-originated agent dispatches into configured workflow agents.
  *
  * Before this helper, the two paths carried separate `createSession` +
  * `traceBridgePreset` blocks. Lead-direct dispatches silently skipped
- * the trace so cache-hit analysis missed every user-workflow role call.
+ * the trace so cache-hit analysis missed every public agent call.
  *
  * Preset resolution stays with each caller since they read from
- * different sources (MCP: user-workflow.json only; Smart Bridge:
- * hidden-role map first, then user-workflow.json). The helper takes
- * already-resolved primitives.
+ * different sources. The helper takes already-resolved primitives.
  */
 
 import { createSession } from '../session/manager.mjs';
@@ -31,7 +28,7 @@ import { loadConfig } from '../config.mjs';
  * @param {string}  opts.presetName    — resolved preset identifier
  * @param {object}  opts.preset        — resolved preset object from agent-config
  * @param {object}  opts.runtimeSpec   — resolveRuntimeSpec output; must carry .scopeKey / .lane
- * @param {string}  [opts.permission]  — 'read' | 'read-write' | null (preset/full default when unset)
+ * @param {string}  [opts.permission]  — 'none' | 'read' | 'read-write' | 'mcp' | 'full' | null
  * @param {string|null} [opts.cwd]     — absolute working dir; null is the fixed bridge sentinel meaning "no caller workspace context"
  * @param {string}  [opts.owner='bridge']
  * @param {string}  [opts.permissionMode] — Claude Code permissionMode forwarded from the MCP payload ('bypassPermissions', 'acceptEdits', 'plan', 'dontAsk', 'default')

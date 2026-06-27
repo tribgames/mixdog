@@ -35,6 +35,8 @@ import {
 import { recordReadSnapshot } from './read-snapshot-runtime.mjs';
 import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX } from './arg-guard.mjs';
 
+const MIXDOG_GREP_CASE_HINT_PROBE = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_GREP_CASE_HINT_PROBE || ''));
+
 function expandLegacyEscapedAlternationPattern(rawPattern) {
     if (typeof rawPattern !== 'string' || !rawPattern.includes('\\|')) return null;
     const parts = rawPattern.split('\\|').map((part) => part.trim()).filter(Boolean);
@@ -224,46 +226,6 @@ function parseGrepCountLine(line) {
     const path = text.slice(0, idx);
     if (!path) return null;
     return { path, count };
-}
-
-// Per-pattern file-count probe for array grby: runs ONE rg --files-with-matches
-// per pattern (reusing the same scope/glob/type/flags as the merged search) so
-// the summary line can surface patterns that matched zero files — otherwise the
-// merged result hides which member of the array contributed nothing.
-async function _perPatternFileCounts({ patterns, searchPath, globPatterns, caseInsensitive, multilineMode, fileType, workDir }) {
-    const results = await Promise.all(patterns.map(async (pattern) => {
-        try {
-            const rgArgs = buildGrepRgArgs({
-                patterns: [pattern],
-                searchPath,
-                globPatterns,
-                outputMode: 'files_with_matches',
-                caseInsensitive,
-                showLineNumbers: false,
-                beforeN: null,
-                afterN: null,
-                contextN: null,
-                multilineMode,
-                fileType,
-                onlyMatching: false,
-            });
-            const stdout = await runRg(rgArgs, { cwd: workDir });
-            // A boxed partial/truncated stdout means the count is not the true
-            // total — render '?' rather than a misleadingly-low or zero number.
-            if (stdout && typeof stdout === 'object' && (stdout.partial || stdout.truncated)) return null;
-            return String(stdout).split('\n').filter(Boolean).length;
-        } catch {
-            // Probe threw → count unknown, NOT zero.
-            return null;
-        }
-    }));
-    // Quote first (so newline/control chars can't inject footer lines), then
-    // truncate the quoted string to 40 chars — matches the no-match path.
-    const trunc = (p) => {
-        const q = JSON.stringify(p);
-        return q.length > 40 ? `${q.slice(0, 40)}...` : q;
-    };
-    return `\n# per-pattern: ${patterns.map((p, i) => `${trunc(p)}=${results[i] === null ? '?' : `${results[i]} files`}`).join(', ')}`;
 }
 
 function formatGrepOutput({ windowed, totalWindowed, totalKnown, headLimit, offset, outputMode, patterns: _patterns, beforeN, afterN, contextN, searchPath, grepResolvedPath: _grepResolvedPath, workDir, globPatterns: _globPatterns, fileType: _fileType, filenameOmitted = false, prefix = '', broadAdvisory: _broadAdvisory = true }) {
@@ -597,7 +559,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             // pre-offset matches) just means the window skipped past real
             // case-sensitive hits, so the hint would be misleading.
             const trueZeroMatch = offset === 0 && totalWindowed === 0;
-            if (trueZeroMatch && !caseInsensitive && patterns.length === 1 && /[A-Za-z]/.test(patterns[0])) {
+            if (MIXDOG_GREP_CASE_HINT_PROBE && trueZeroMatch && !caseInsensitive && patterns.length === 1 && /[A-Za-z]/.test(patterns[0])) {
                 try {
                     const probeArgs = buildGrepRgArgs({
                         patterns,
@@ -620,21 +582,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                 } catch { /* best-effort hint */ }
             }
         }
-        // Array-pattern visibility: append a per-pattern file-count summary so
-        // zero-hit members of the merged result are not silently hidden.
-        let perPatternSummary = '';
-        if (patterns.length > 1) {
-            perPatternSummary = await _perPatternFileCounts({
-                patterns,
-                searchPath,
-                globPatterns: normalizedGlobPatterns,
-                caseInsensitive,
-                multilineMode,
-                fileType,
-                workDir: rgSpawnCwd,
-            });
-        }
-        const out = body + rgPartialSuffix + perPatternSummary;
+        const out = body + rgPartialSuffix;
         const shownLines = headLimit === Infinity ? windowed : windowed.slice(0, headLimit);
         const remaining = Math.max(0, totalWindowed - shownLines.length);
         // Mirrors formatGrepOutput truncation / totalKnown semantics.
@@ -835,6 +783,8 @@ export async function executeGlobTool(args, workDir, options = {}) {
         return `Error: invalid offset ${JSON.stringify(args.offset)}; expected a non-negative integer`;
     }
     const offset = offsetCoerced === null || offsetCoerced === 0 ? 0 : offsetCoerced;
+    const rawSort = typeof args.sort === 'string' ? args.sort.trim() : '';
+    const sortMode = rawSort === 'mtime' ? 'mtime' : 'natural';
     // Internal-only ignore extension (see normalizeGlobArgs). Caller (e.g.
     // ai-wrapped-dispatch broad-cwd preflight) appends basename ignore globs
     // so head_limit bounds SOURCE entries rather than artifact noise.
@@ -860,7 +810,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
         .map((root) => normalizeOutputPath(resolvedForSearchRoot(root)))
         .sort()
         .join('\x01');
-    const cacheKey = buildGlobCacheKey({ patterns, basePath: cacheBasePath, headLimit, offset, extraIgnore: extraIgnoreGlobs });
+    const cacheKey = buildGlobCacheKey({ patterns, basePath: cacheBasePath, headLimit, offset, extraIgnore: extraIgnoreGlobs, sort: sortMode });
     const cached = cacheGet(cacheKey);
     if (cached !== null) return cached;
 
@@ -929,23 +879,26 @@ export async function executeGlobTool(args, workDir, options = {}) {
     }
 
     const unique = Array.from(new Set(allFiles));
-    // Bound the post-rg stat phase: a single hung stat (dead mount /
-    // unresponsive network path) must not pin glob until the 600s bridge stall
-    // watchdog. Per-stat 5s deadline → a hung entry is treated as stat-failed
-    // and dropped, while normal local stats (sub-ms) are unaffected.
-    const withStatAll = await statPathsForMtime(unique, workDir, 64, { deadlineMs: 5000 });
-    const withStat = withStatAll.filter((entry) => entry?.stat != null);
-    withStat.sort((a, b) => {
-        const dm = b.mtime - a.mtime;
-        if (dm !== 0) return dm;
-        return globMtimeTiePath(a).localeCompare(globMtimeTiePath(b));
-    });
-    const totalBeforeOffset = withStat.length;
-    const windowed = offset > 0 ? withStat.slice(offset) : withStat;
-    const capped = (headLimit === Infinity ? windowed : windowed.slice(0, headLimit)).map((entry) => {
-        const abs = entry.full || resolveAgainstCwd(entry.path, workDir);
-        return relativeSearchResultPath(abs, workDir);
-    });
+    let orderedPaths;
+    if (sortMode === 'mtime') {
+        // Opt-in mtime sorting is intentionally slower: it stats every match.
+        // Bound the post-rg stat phase so a hung mount cannot pin glob until
+        // the bridge stall watchdog fires.
+        const withStatAll = await statPathsForMtime(unique, workDir, 64, { deadlineMs: 5000 });
+        const withStat = withStatAll.filter((entry) => entry?.stat != null);
+        withStat.sort((a, b) => {
+            const dm = b.mtime - a.mtime;
+            if (dm !== 0) return dm;
+            return globMtimeTiePath(a).localeCompare(globMtimeTiePath(b));
+        });
+        orderedPaths = withStat.map((entry) => entry.full || resolveAgainstCwd(entry.path, workDir));
+    } else {
+        orderedPaths = unique.map((entry) => isAbsolute(entry) ? resolve(entry) : resolveAgainstCwd(entry, workDir));
+    }
+    const totalBeforeOffset = orderedPaths.length;
+    const windowed = offset > 0 ? orderedPaths.slice(offset) : orderedPaths;
+    const capped = (headLimit === Infinity ? windowed : windowed.slice(0, headLimit))
+        .map((abs) => relativeSearchResultPath(abs, workDir));
     const remaining = windowed.length - capped.length;
     const truncSuffix = accumTruncated
         ? '\n... [truncated at accumulation cap (50000)]'

@@ -1,21 +1,16 @@
 import {
-  TOOL_ASYNC_EXECUTION_CONTRACT,
-} from '../shared/background-tasks.mjs';
+  TOOL_SYNC_EXECUTION_CONTRACT,
+} from '../shared/tool-execution-contract.mjs';
 
 export const TOOL_DEFS = [
   {
     name: 'search',
     title: 'Mixdog Web Search',
-    description: `First-choice tool for web, documentation, external, or current-information questions. Use search when the answer depends on internet sources, vendor docs, releases, issues, APIs, or facts outside the repo. Always use mode:"async"; if the result is needed before continuing, pause the dependent path and wait for the async completion notification. Do not poll status/read except for manual recovery or an explicit user-requested control action. Do not use for repo-local code location; use explore/code_graph/grep instead. ${TOOL_ASYNC_EXECUTION_CONTRACT} Keeps Mixdog search caching, fan-out, and result formatting.`,
+    description: `First-choice tool for web, documentation, external, or current-information questions. Uses the configured Mixdog search provider/model. Use search when the answer depends on internet sources, vendor docs, releases, issues, APIs, or facts outside the repo. Do not use for repo-local code location; use explore/code_graph/grep instead. ${TOOL_SYNC_EXECUTION_CONTRACT} Keeps Mixdog search caching, fan-out, and result formatting.`,
     inputSchema: {
       type: 'object',
       properties: {
         query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Search query, or array for fan-out. Keep each query focused.' },
-        mode: { type: 'string', enum: ['async'], description: `Always use mode:"async". ${TOOL_ASYNC_EXECUTION_CONTRACT}` },
-        action: { type: 'string', enum: ['run', 'list', 'status', 'read', 'cancel'], description: 'Default run. list/status/read/cancel are manual recovery controls for async search tasks.' },
-        task_id: { type: 'string', description: 'Shared background task id for manual status/read/cancel recovery.' },
-        firstResponseTimeoutMs: { type: 'number', minimum: 0, description: 'Abort only when the Web Researcher produces no first stream/tool activity within this many ms. Default 120s. 0 disables this watchdog.' },
-        idleTimeoutMs: { type: 'number', minimum: 0, description: 'Stale watchdog after first Web Researcher stream/tool activity. Default 30m. 0 disables stale abort.' },
         site: { type: 'string', description: 'Optional site/domain filter.' },
         type: { type: 'string', enum: ['web', 'news', 'images'], description: 'Search type. Default web.' },
         maxResults: { type: 'number', minimum: 1, maximum: 20, description: 'Maximum results to return, 1-20.' },

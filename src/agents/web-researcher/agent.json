@@ -1,6 +1,0 @@
-{
-  "id": "web-researcher",
-  "name": "Web Researcher",
-  "description": "Web, documentation, and external reference research.",
-  "entry": "AGENT.md"
-}

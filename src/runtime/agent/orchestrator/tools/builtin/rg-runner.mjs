@@ -1,15 +1,18 @@
-import { spawn, execFileSync } from 'child_process';
+import { spawn, execFile } from 'child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { startChildGuardian } from '../../../../shared/child-guardian.mjs';
+
+const execFileAsync = promisify(execFile);
 
 let _rgExecutableResolved = null;
 
-function _resolveRgExecutable() {
+async function _resolveRgExecutable() {
     const isWin = process.platform === 'win32';
     try {
         const cmd = isWin ? 'where' : 'which';
-        const out = execFileSync(cmd, ['rg'], { encoding: 'utf8', windowsHide: true }).trim();
+        const { stdout: out } = await execFileAsync(cmd, ['rg'], { encoding: 'utf8', windowsHide: true });
         const first = out.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
         if (first && existsSync(first)) return first;
     } catch { /* fall through to PATH scan */ }
@@ -33,11 +36,27 @@ function _resolveRgExecutable() {
     return 'rg';
 }
 
+// Synchronous accessor for the spawn call sites — only valid AFTER
+// ensureRgResolved() has run (runRg/runRgWindowedLines await it first). Falls
+// back to the bare 'rg' if somehow called before resolution.
 function rgExecutable() {
-    if (_rgExecutableResolved === null) {
-        _rgExecutableResolved = _resolveRgExecutable();
+    return _rgExecutableResolved ?? 'rg';
+}
+
+// Async resolver: the `where`/`which` lookup used to run via execFileSync,
+// blocking the event loop ~90ms on the first grep/glob/find of a session
+// (freezing the TUI). Resolve asynchronously and cache the result; subsequent
+// calls return immediately.
+let _rgResolvePromise = null;
+async function ensureRgResolved() {
+    if (_rgExecutableResolved !== null) return _rgExecutableResolved;
+    if (!_rgResolvePromise) {
+        _rgResolvePromise = _resolveRgExecutable().then((resolved) => {
+            _rgExecutableResolved = resolved;
+            return resolved;
+        });
     }
-    return _rgExecutableResolved;
+    return _rgResolvePromise;
 }
 
 // When _resolveRgExecutable() exhausts `where`/`which` and the PATH scan and
@@ -48,13 +67,13 @@ function rgExecutable() {
 const RG_FALLBACK_FAIL_TTL_MS = 30000;
 let _rgFallbackUsable = null;
 let _rgFallbackFailAt = 0;
-function rgFallbackUsable() {
+async function rgFallbackUsable() {
     if (_rgFallbackUsable === true) return true;
     if (_rgFallbackUsable === false && (Date.now() - _rgFallbackFailAt) < RG_FALLBACK_FAIL_TTL_MS) {
         return false;
     }
     try {
-        execFileSync('rg', ['--version'], { stdio: 'ignore', windowsHide: true, timeout: 3000 });
+        await execFileAsync('rg', ['--version'], { windowsHide: true, timeout: 3000 });
         _rgFallbackUsable = true;
     } catch {
         _rgFallbackUsable = false;
@@ -65,10 +84,11 @@ function rgFallbackUsable() {
 
 // Throws a clear error only when the bare 'rg' fallback was reached AND it is
 // not actually runnable. A real resolved path short-circuits with no probe, so
-// behavior is unchanged whenever rg exists.
-function assertRgAvailable() {
-    if (rgExecutable() !== 'rg') return;
-    if (rgFallbackUsable()) return;
+// behavior is unchanged whenever rg exists. Async so the underlying lookups
+// (`where`/`which`, `rg --version`) never block the event loop.
+async function assertRgAvailable() {
+    if (await ensureRgResolved() !== 'rg') return;
+    if (await rgFallbackUsable()) return;
     const e = new Error('ripgrep (rg) not found on PATH — install ripgrep or add it to PATH');
     e.code = 'ERG_NOT_FOUND';
     throw e;
@@ -286,7 +306,7 @@ function spawnRg(argsList, execOptions) {
 }
 
 export async function runRg(argsList, execOptions = {}) {
-    assertRgAvailable();
+    await assertRgAvailable();
     try {
         return await spawnRg(argsList, execOptions);
     } catch (err) {
@@ -452,7 +472,7 @@ function spawnRgWindowedLines(argsList, execOptions, opts = {}) {
 }
 
 export async function runRgWindowedLines(argsList, execOptions = {}, opts = {}) {
-    assertRgAvailable();
+    await assertRgAvailable();
     try {
         return await spawnRgWindowedLines(argsList, execOptions, opts);
     } catch (err) {

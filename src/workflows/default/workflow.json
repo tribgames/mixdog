@@ -4,7 +4,6 @@
   "description": "Default Mixdog agent workflow.",
   "entry": "WORKFLOW.md",
   "agents": [
-    "web-researcher",
     "maintainer",
     "worker",
     "heavy-worker",

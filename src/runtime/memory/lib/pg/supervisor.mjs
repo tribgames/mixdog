@@ -64,6 +64,15 @@ const LOCK_POLL_MS     = 100;
 const LOCK_WARN_MS     = 5_000;
 const LOCK_WAIT_CODES  = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
 
+function envFlagEnabled(name) {
+  const raw = String(process.env[name] ?? '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'on' || raw === 'yes';
+}
+
+function attachOnlyMode() {
+  return envFlagEnabled('MIXDOG_PG_ATTACH_ONLY') || envFlagEnabled('MIXDOG_MEMORY_SECONDARY');
+}
+
 // ── File lock (O_EXCL pattern from dispatch-persist.mjs / run-mcp.mjs) ───────
 
 /**
@@ -356,6 +365,9 @@ async function _doEnsure(dataDir) {
     source: 'prelock',
   });
   if (prelockReuse) return prelockReuse;
+  if (attachOnlyMode()) {
+    throw new Error('secondary memory runtime requires an existing PG instance')
+  }
 
   // ── Acquire spawn lock to serialize initdb races ─────────────────────────
   const acquired = await acquireSpawnLock(dataDir, () => tryReusePgInstance({

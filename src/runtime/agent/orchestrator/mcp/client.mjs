@@ -1,6 +1,3 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -19,6 +16,7 @@ const AUTO_DETECT_PORTS = {
 const DEFAULT_MCP_CALL_TIMEOUT_MS = 0;
 // --- State ---
 const servers = new Map();
+let mcpSdkPromise = null;
 // Memo for mcpToolHasField(name, field) — keyed by `${toolName}|${field}`.
 // The lookup (regex parse + servers Map get + tools.find + schema property
 // inspection) runs on every MCP tool invocation but its result only changes
@@ -32,6 +30,19 @@ function _invalidateMcpToolFieldMemo() {
 function mcpLog(line) {
     if (process.env.MIXDOG_QUIET_MCP_LOG) return;
     process.stderr.write(line);
+}
+
+async function loadMcpSdk() {
+    mcpSdkPromise ??= Promise.all([
+        import('@modelcontextprotocol/sdk/client/index.js'),
+        import('@modelcontextprotocol/sdk/client/stdio.js'),
+        import('@modelcontextprotocol/sdk/client/streamableHttp.js'),
+    ]).then(([clientMod, stdioMod, httpMod]) => ({
+        Client: clientMod.Client,
+        StdioClientTransport: stdioMod.StdioClientTransport,
+        StreamableHTTPClientTransport: httpMod.StreamableHTTPClientTransport,
+    }));
+    return mcpSdkPromise;
 }
 // --- Public API ---
 /**
@@ -270,6 +281,7 @@ export async function disconnectAll() {
  */
 
 async function connectServer(name, cfg) {
+    const { Client, StdioClientTransport, StreamableHTTPClientTransport } = await loadMcpSdk();
     const client = new Client({ name: `mixdog-agent/${name}`, version: '1.0.0' });
     let transport;
     // Auto-detect: read port from a running service's port file

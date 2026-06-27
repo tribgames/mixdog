@@ -148,6 +148,24 @@ function chooseNextVerb(mode, fallback, current) {
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
+// Token-direction glyph, mirroring Claude Code's SpinnerModeGlyph switch:
+// up while uploading the request, down while receiving a response, and no
+// glyph at all for non-streaming modes (compacting/resuming/auto-clear) where
+// the arrow direction would be meaningless.
+function tokenModeGlyph(mode) {
+  switch (mode) {
+    case 'tool-input':
+    case 'tool-use':
+    case 'responding':
+    case 'thinking':
+      return DOWN_ARROW;
+    case 'requesting':
+      return UP_ARROW;
+    default:
+      return '';
+  }
+}
+
 export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens = 0, thinking = false, thinkingActiveSince = 0, mode = 'responding', columns = 80, marginTop = 1 }) {
   useAnimation({ interval: FRAME_MS });
   const now = Date.now();
@@ -250,8 +268,11 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   // thinking, tool-use, tool-input). Input token totals are not shown.
   const displayedOutputTokens = advanceCounter(displayedOutputRef, targetOutputTokens);
 
-  const tokenGlyph = mode === 'requesting' ? UP_ARROW : DOWN_ARROW;
-  const tokenText = displayedOutputTokens > 0 ? `${tokenGlyph} ${formatNumber(displayedOutputTokens)} tokens` : '';
+  const tokenGlyph = tokenModeGlyph(mode);
+  const tokenCountText = formatNumber(displayedOutputTokens);
+  const tokenText = displayedOutputTokens > 0
+    ? (tokenGlyph ? `${tokenGlyph} ${tokenCountText} tokens` : `${tokenCountText} tokens`)
+    : '';
   const tokenW = tokenText.length;
 
   // Progressive width gating (CC SpinnerAnimationRow): show status parts
@@ -267,15 +288,18 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
     ? 'thinking'
     : '';
   const thinkingStatusW = thinkingStatusText.length;
-  const wantsTimerAndTokens = elapsedMs > SHOW_TOKENS_AFTER_MS;
+  // Turn elapsed time is the headline metric here, not a thinking sub-stat, so
+  // it shows from 1s onward (formatDuration returns '' below 1s). Tokens keep
+  // Claude Code's short-turn gate so they only appear once the turn runs long.
+  const wantsTokens = elapsedMs > SHOW_TOKENS_AFTER_MS;
 
   // Claude Code gives thinking display priority for narrow widths, but renders
   // it after timer/tokens in the final byline.
   const showThinkingStatus = Boolean(thinkingStatusText) && avail > thinkingStatusW;
   const usedAfterThinking = showThinkingStatus ? thinkingStatusW + SEP_WIDTH : 0;
-  const showTimer = wantsTimerAndTokens && Boolean(timerLabel) && avail > usedAfterThinking + timerW;
+  const showTimer = Boolean(timerLabel) && avail > usedAfterThinking + timerW;
   const usedAfterTimer = usedAfterThinking + (showTimer ? timerW + SEP_WIDTH : 0);
-  const showTokens = wantsTimerAndTokens && tokenText && avail > usedAfterTimer + tokenW;
+  const showTokens = wantsTokens && tokenText && avail > usedAfterTimer + tokenW;
 
   // Build meta line segments — elapsed, tokens, thinking (Claude Code order).
   const segments = [];

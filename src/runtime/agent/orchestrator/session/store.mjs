@@ -9,6 +9,7 @@ import { randomBytes } from 'crypto';
 import { join } from 'path';
 import { Worker } from 'worker_threads';
 import { getPluginData } from '../config.mjs';
+import { isAgentOwner } from '../agent-owner.mjs';
 import { renameWithRetrySync, updateJsonAtomicSync, writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 
 const _lastSaveError = new Map(); // id -> { message, at }
@@ -278,19 +279,6 @@ function _clearDebounce(id) {
     if (t) { clearTimeout(t); _debounceTimers.delete(id); }
 }
 
-// Flush all debounced sessions synchronously on process exit / SIGTERM.
-// This prevents losing the last turn's tool-result writes.
-function _drainAllDebounced() {
-    for (const [id, t] of _debounceTimers) {
-        clearTimeout(t);
-        _debounceTimers.delete(id);
-        const cur = _savePending.get(id);
-        if (cur && cur.debouncing && cur.payload) {
-            try { _doSaveSync(cur.payload); } catch { /* best-effort */ }
-            _savePending.delete(id);
-        }
-    }
-}
 // Self-registered exit drain; bare 'exit' hook stays as idempotent backup. Use the more comprehensive
 // drainSessionStore so debounce + scheduled + writing payloads all flush.
 process.on('exit', drainSessionStore);
@@ -490,7 +478,21 @@ function _shouldDrop(id, opts) {
     const target = sessionPath(id);
     if (!existsSync(target)) return false;
     try {
-        const onDisk = JSON.parse(readFileSync(target, 'utf-8'));
+        const raw = readFileSync(target, 'utf-8');
+        // Tombstone check only needs `closed` and `generation`. Avoid a full
+        // JSON.parse of the entire session (which can be MBs on long chats and
+        // ran on every save). Fast-path a regex scan; only fall back to a full
+        // parse if the lightweight scan is inconclusive.
+        const closedMatch = /"closed"\s*:\s*(true|false)/.exec(raw);
+        if (closedMatch && closedMatch[1] === 'false') return false;
+        if (closedMatch && closedMatch[1] === 'true') {
+            const genMatch = /"generation"\s*:\s*(-?\d+)/.exec(raw);
+            const diskGen = genMatch ? Number(genMatch[1]) : 0;
+            return diskGen >= expected;
+        }
+        // No `closed` key found by scan — not a tombstone, so nothing to drop.
+        if (!closedMatch && !/"closed"/.test(raw)) return false;
+        const onDisk = JSON.parse(raw);
         const diskGen = typeof onDisk.generation === 'number' ? onDisk.generation : 0;
         return onDisk.closed === true && diskGen >= expected;
     } catch {
@@ -672,7 +674,7 @@ export function deleteSession(id) {
     return removed;
 }
 const DEFAULT_SESSION_TTL_MS = 5 * 60 * 1000; // 5 minutes idle — aligned with Anthropic 5m messages tier and OpenAI in-memory cache window
-// Completed bridge agents (idle/done/error) live until terminal reap — must
+// Completed agents (idle/done/error) live until terminal reap - must
 // match TERMINAL_REAP_MS / _scheduleBridgeReap (3_600_000) in index.mjs and
 // bridge-stall-watchdog.mjs so the store sweep is the durable 1h reaper.
 const BRIDGE_TERMINAL_TTL_MS = 60 * 60 * 1000;
@@ -807,9 +809,9 @@ export function sweepStaleSessions(ttlMs, options = {}) {
                 remaining++;
                 continue;
             }
-            // Sweep bridge-owned and ownerless (legacy) sessions; skip explicit
+            // Sweep agent-owned and ownerless (legacy) sessions; skip explicit
             // user sessions before touching heartbeat sidecars.
-            if (typeof row.owner === 'string' && row.owner.length > 0 && row.owner !== 'bridge') {
+            if (typeof row.owner === 'string' && row.owner.length > 0 && !isAgentOwner(row)) {
                 remaining++;
                 continue;
             }
@@ -829,7 +831,7 @@ export function sweepStaleSessions(ttlMs, options = {}) {
                 remaining++;
                 continue;
             }
-            const isCompletedBridge = row.owner === 'bridge'
+            const isCompletedBridge = isAgentOwner(row)
                 && BRIDGE_TERMINAL_STATUSES.has(row.status);
             const sessionMaxAge = isCompletedBridge ? BRIDGE_TERMINAL_TTL_MS : maxAge;
             if (now - lastActive > sessionMaxAge) {

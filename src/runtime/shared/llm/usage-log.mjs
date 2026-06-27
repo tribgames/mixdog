@@ -2,7 +2,7 @@
  * Unified LLM usage logger.
  *
  * Phase 2: Routes via appendBridgeTrace (HTTP buffer to memory-service)
- * instead of writing directly to bridge-trace.jsonl.
+ * instead of writing directly to the local trace jsonl.
  *
  * Signature unchanged — callers are unaffected.
  */

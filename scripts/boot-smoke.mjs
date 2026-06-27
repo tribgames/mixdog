@@ -64,15 +64,15 @@ const rows = [
     try {
       const status = runtime.toolsStatus();
       const active = new Set(status.activeTools || []);
-      for (const name of ['read','code_graph','grep','glob','list','apply_patch','explore','bridge','tool_search','shell']) {
+      for (const name of ['read','code_graph','grep','find','glob','list','apply_patch','explore','tool_search']) {
         if (!active.has(name)) throw new Error('missing ' + name + ' in ' + [...active].join(','));
       }
-      for (const name of ['bash','task']) {
+      for (const name of ['bash','task','agent','shell','recall','search','web_fetch','cwd']) {
         if (active.has(name)) throw new Error('unexpected ' + name + ' in ' + [...active].join(','));
       }
       const result = runtime.selectTools('shell');
-      if (!result.already.includes('shell') || !result.added.includes('task')) {
-        throw new Error('shell alias should keep shell active and add task: ' + JSON.stringify(result));
+      if (!result.added.includes('shell') || !result.added.includes('task')) {
+        throw new Error('shell alias should add shell and task: ' + JSON.stringify(result));
       }
       const nextActive = new Set(result.status.activeTools || []);
       for (const name of ['shell','task']) {

@@ -56,7 +56,7 @@ function cacheKey(provider) {
 function freshSnapshot(snapshot, ttlMs) {
   const cachedAt = num(snapshot?.cachedAt, 0);
   if (!cachedAt || Date.now() - cachedAt > ttlMs) return null;
-  if (snapshot?.balance || Array.isArray(snapshot?.quotaWindows)) return snapshot;
+  if (snapshot?.balance || Array.isArray(snapshot?.quotaWindows) || snapshot?.tokenUsage || snapshot?.unavailable) return snapshot;
   return null;
 }
 
@@ -175,6 +175,39 @@ function parseOpenAICosts(data) {
   };
 }
 
+function parseOpenAICompletionUsage(data) {
+  const buckets = Array.isArray(data?.data) ? data.data : [];
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cachedInputTokens = 0;
+  let requests = 0;
+  let seen = false;
+  for (const bucket of buckets) {
+    const results = Array.isArray(bucket?.results) ? bucket.results : [];
+    for (const result of results) {
+      inputTokens += num(result?.input_tokens, 0);
+      outputTokens += num(result?.output_tokens, 0);
+      cachedInputTokens += num(result?.input_cached_tokens, 0);
+      requests += num(result?.num_model_requests, 0);
+      seen = true;
+    }
+  }
+  if (!seen && Array.isArray(data?.data)) seen = true;
+  if (!seen) return null;
+  return {
+    provider: 'openai',
+    source: 'openai-organization-usage-completions',
+    tokenUsage: {
+      inputTokens,
+      outputTokens,
+      cachedInputTokens,
+      requests,
+      source: 'openai-organization-usage-completions',
+    },
+    cachedAt: Date.now(),
+  };
+}
+
 function parseOpenAICreditGrants(data) {
   const remainingUsd = num(data?.total_available ?? data?.totalAvailable ?? data?.available, null);
   if (remainingUsd === null) return null;
@@ -203,6 +236,13 @@ function parseOpenAICreditGrants(data) {
       },
     } : {}),
   };
+}
+
+function ymd(value) {
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
 
 function uniqueValues(values) {
@@ -237,6 +277,49 @@ async function fetchOpenAICreditGrantSnapshot(apiKey) {
   return null;
 }
 
+async function fetchOpenAIDashboardUsageSnapshot(sessionKey) {
+  if (!sessionKey) return null;
+  const headers = authHeaders(sessionKey, { Accept: 'application/json' });
+  let subscription = null;
+  let usage = null;
+  try {
+    subscription = await fetchJson('https://api.openai.com/dashboard/billing/subscription', { headers });
+  } catch {
+    subscription = null;
+  }
+  try {
+    const endDate = ymd(Date.now());
+    const startDate = ymd(Date.now() - 31 * 24 * 60 * 60_000);
+    usage = await fetchJson(`https://api.openai.com/dashboard/billing/usage?start_date=${startDate}&end_date=${endDate}`, { headers });
+  } catch {
+    usage = null;
+  }
+  const totalUsageCents = num(usage?.total_usage ?? usage?.totalUsage, null);
+  const usedUsd = totalUsageCents === null ? null : totalUsageCents / 100;
+  const limitUsd = num(
+    subscription?.hard_limit_usd
+      ?? subscription?.hardLimitUsd
+      ?? subscription?.system_hard_limit_usd
+      ?? subscription?.systemHardLimitUsd
+      ?? subscription?.soft_limit_usd
+      ?? subscription?.softLimitUsd,
+    null,
+  );
+  if (usedUsd === null && limitUsd === null) return null;
+  const balance = {
+    source: 'openai-dashboard-billing',
+  };
+  if (usedUsd !== null) balance.usedUsd = round(usedUsd, 4);
+  if (limitUsd !== null) balance.limitUsd = round(limitUsd, 4);
+  if (usedUsd !== null && limitUsd !== null) balance.remainingUsd = round(Math.max(0, limitUsd - usedUsd), 4);
+  return {
+    provider: 'openai',
+    source: 'openai-dashboard-billing',
+    balance,
+    cachedAt: Date.now(),
+  };
+}
+
 async function fetchOpenAICostSnapshot(apiKey) {
   if (!apiKey) return null;
   const start = Math.floor((Date.now() - 31 * 24 * 60 * 60_000) / 1000);
@@ -249,11 +332,115 @@ async function fetchOpenAICostSnapshot(apiKey) {
   return parseOpenAICosts(data);
 }
 
+async function fetchOpenAICompletionUsageSnapshot(apiKey) {
+  if (!apiKey) return null;
+  const start = Math.floor((Date.now() - 31 * 24 * 60 * 60_000) / 1000);
+  const url = new URL('https://api.openai.com/v1/organization/usage/completions');
+  url.searchParams.set('start_time', String(start));
+  url.searchParams.set('bucket_width', '1d');
+  url.searchParams.set('limit', '31');
+  const data = await fetchJson(url, {
+    headers: authHeaders(apiKey, { Accept: 'application/json' }),
+  });
+  return parseOpenAICompletionUsage(data);
+}
+
 async function fetchOpenAIUsageSnapshot() {
   const key = getAgentApiKey('openai');
   const credit = await fetchOpenAICreditGrantSnapshot(key);
   if (credit) return credit;
-  return await fetchOpenAICostSnapshot(key);
+  const dashboard = await fetchOpenAIDashboardUsageSnapshot(getOpenAIUsageSessionKey());
+  if (dashboard) return dashboard;
+  try {
+    const costs = await fetchOpenAICostSnapshot(key);
+    if (costs) return costs;
+  } catch (err) {
+    const status = num(err?.status, null);
+    if (status !== 401 && status !== 403 && status !== 404) throw err;
+  }
+  return await fetchOpenAICompletionUsageSnapshot(key);
+}
+
+function anthropicAdminKeys() {
+  return uniqueValues([
+    process.env.ANTHROPIC_ADMIN_API_KEY,
+    process.env.MIXDOG_ANTHROPIC_ADMIN_API_KEY,
+    process.env.ANTHROPIC_ADMIN_KEY,
+    getAgentApiKey('anthropic'),
+  ]);
+}
+
+function parseAnthropicCostReport(data) {
+  const buckets = Array.isArray(data?.data) ? data.data : [];
+  let usedUsd = 0;
+  let seen = false;
+  for (const bucket of buckets) {
+    const results = Array.isArray(bucket?.results) ? bucket.results : [];
+    for (const item of results) {
+      const currency = String(item?.currency || 'USD').toUpperCase();
+      if (currency && currency !== 'USD') continue;
+      const cents = num(item?.amount, null);
+      if (cents === null) continue;
+      usedUsd += cents / 100;
+      seen = true;
+    }
+  }
+  if (!seen && Array.isArray(data?.data)) seen = true;
+  if (!seen) return null;
+  return {
+    provider: 'anthropic',
+    source: 'anthropic-cost-report',
+    balance: {
+      usedUsd: round(usedUsd, 4),
+      source: 'anthropic-cost-report',
+    },
+    cachedAt: Date.now(),
+  };
+}
+
+async function fetchAnthropicCostSnapshot() {
+  const keys = anthropicAdminKeys();
+  if (!keys.length) return unavailableSnapshot('anthropic', { message: 'Set ANTHROPIC_ADMIN_API_KEY for usage/cost report' });
+  const start = new Date(Date.now() - 31 * 24 * 60 * 60_000).toISOString();
+  const url = new URL('https://api.anthropic.com/v1/organizations/cost_report');
+  url.searchParams.set('starting_at', start);
+  url.searchParams.set('bucket_width', '1d');
+  url.searchParams.set('limit', '31');
+  let firstAuthError = null;
+  for (const key of keys) {
+    for (const authMode of ['bearer', 'x-api-key']) {
+      try {
+        const headers = {
+          Accept: 'application/json',
+          'anthropic-version': '2023-06-01',
+          ...(authMode === 'bearer' ? { Authorization: `Bearer ${key}` } : { 'x-api-key': key }),
+        };
+        const data = await fetchJson(url, { headers });
+        return parseAnthropicCostReport(data) || unavailableSnapshot('anthropic', { message: 'Anthropic cost report returned no usage data' });
+      } catch (err) {
+        const status = num(err?.status, null);
+        if (status === 401 || status === 403 || status === 404) {
+          firstAuthError ||= err;
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+  return unavailableSnapshot('anthropic', firstAuthError || { message: 'Anthropic Admin API usage/cost auth failed' });
+}
+
+async function fetchGeminiUsageSnapshot() {
+  const key = getAgentApiKey('gemini');
+  if (!key) return null;
+  try {
+    await fetchJson(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`, {
+      headers: { Accept: 'application/json' },
+    });
+    return unavailableSnapshot('gemini', { message: 'Gemini API key valid; balance/usage is AI Studio or Cloud Billing only' });
+  } catch (err) {
+    return unavailableSnapshot('gemini', err);
+  }
 }
 
 function managementKey(provider) {
@@ -285,6 +472,28 @@ function moneyNumber(value) {
   return null;
 }
 
+function errorMessage(err) {
+  const body = err?.body;
+  const value = body?.error?.message ?? body?.error ?? body?.message ?? err?.message;
+  if (typeof value === 'string') return value.trim();
+  if (value && typeof value === 'object') {
+    try { return JSON.stringify(value).slice(0, 300); } catch {}
+  }
+  return '';
+}
+
+function unavailableSnapshot(provider, err) {
+  return {
+    provider,
+    source: 'provider-api-unavailable',
+    unavailable: {
+      status: num(err?.status, null),
+      message: errorMessage(err),
+    },
+    cachedAt: Date.now(),
+  };
+}
+
 function parseXaiPrepaidBalance(data) {
   const remainingUsd = moneyNumber(
     data?.total
@@ -311,11 +520,32 @@ function parseXaiPrepaidBalance(data) {
 async function fetchXaiUsageSnapshot() {
   const key = managementKey('xai');
   const team = teamId('xai');
-  if (!key || !team) return null;
+  if (!key || !team) return await fetchXaiPublicUsageSnapshot() || unavailableSnapshot('xai', { message: 'Set XAI_MANAGEMENT_API_KEY and XAI_TEAM_ID for prepaid balance' });
   const data = await fetchJson(`https://management-api.x.ai/v1/billing/teams/${encodeURIComponent(team)}/prepaid/balance`, {
     headers: authHeaders(key, { Accept: 'application/json' }),
   });
   return parseXaiPrepaidBalance(data);
+}
+
+async function fetchXaiPublicUsageSnapshot() {
+  const key = getAgentApiKey('xai');
+  if (!key) return null;
+  const urls = [
+    'https://api.x.ai/v1/usage',
+    'https://api.x.ai/v1/rate_limits',
+  ];
+  let firstError = null;
+  for (const url of urls) {
+    try {
+      const data = await fetchJson(url, { headers: authHeaders(key, { Accept: 'application/json' }) });
+      const parsed = parseXaiPrepaidBalance(data);
+      if (parsed) return { ...parsed, source: 'xai-public-usage-probe', balance: { ...parsed.balance, source: 'xai-public-usage-probe' } };
+      return unavailableSnapshot('xai', { message: `xAI public usage probe returned unsupported data from ${url}` });
+    } catch (err) {
+      firstError ||= err;
+    }
+  }
+  return unavailableSnapshot('xai', firstError || { message: 'xAI public usage probes failed' });
 }
 
 export async function fetchApiUsageSnapshot(provider, { force = false } = {}) {
@@ -329,10 +559,12 @@ export async function fetchApiUsageSnapshot(provider, { force = false } = {}) {
   try {
     if (id === 'deepseek') snapshot = await fetchDeepSeekUsageSnapshot();
     else if (id === 'openai') snapshot = await fetchOpenAIUsageSnapshot();
+    else if (id === 'anthropic') snapshot = await fetchAnthropicCostSnapshot();
+    else if (id === 'gemini') snapshot = await fetchGeminiUsageSnapshot();
     else if (id === 'xai') snapshot = await fetchXaiUsageSnapshot();
   } catch (err) {
     const status = num(err?.status, null);
-    if (status === 401 || status === 403 || status === 404) return null;
+    if (status === 401 || status === 403 || status === 404) return unavailableSnapshot(id, err);
     throw err;
   }
 

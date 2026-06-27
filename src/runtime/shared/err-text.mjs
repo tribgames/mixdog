@@ -83,8 +83,9 @@ export function presentErrorText(error, options = {}) {
   }
 
   const quotaRetry = /retryAfter=([^\s:]+)/i.exec(text);
-  if (/Anthropic OAuth.*(?:429|rate ?limit|quota)|(?:rate ?limit|quota).*\b429\b/i.test(text)) {
-    return `Anthropic quota/rate limit hit${quotaRetry?.[1] ? `; retry after ${quotaRetry[1]}` : ''}.`;
+  if (/\b429\b|rate[_ -]?limit|quota|too many requests|resource exhausted|insufficient_quota|quota_exceeded/i.test(text)) {
+    const provider = /Anthropic OAuth/i.test(text) ? 'Anthropic' : 'Provider';
+    return `${provider} quota/rate limit hit${quotaRetry?.[1] ? `; retry after ${quotaRetry[1]}` : ''}.`;
   }
 
   const firstResponse = /(?:bridge\s+)?first response stale\s*\((\d+)ms\)/i.exec(text);
@@ -92,7 +93,7 @@ export function presentErrorText(error, options = {}) {
     return `No first response from the ${subject} within ${formatDurationMs(firstResponse[1])}.`;
   }
 
-  const stale = /bridge task stale\s*\((\d+)ms[^)]*\)/i.exec(text)
+  const stale = /agent task stale\s*\((\d+)ms[^)]*\)/i.exec(text)
     || /task stale\s*\((\d+)ms[^)]*\)/i.exec(text);
   if (stale) {
     return `The ${subject} went stale after ${formatDurationMs(stale[1])} without new stream/tool progress.`;

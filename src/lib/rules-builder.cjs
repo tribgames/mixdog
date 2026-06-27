@@ -57,7 +57,7 @@ function readUnifiedConfig(dataDir) {
 }
 
 function stripFrontmatter(markdown) {
-  return String(markdown || '').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n*/, '').trim();
+  return String(markdown || '').replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, '').trim();
 }
 
 function normalizeOutputStyleName(value) {
@@ -199,20 +199,6 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
   const userWorkflowMd = readOptional(path.join(DATA_DIR, 'user-workflow.md'));
   if (userWorkflowMd) parts.push(`# User Workflow\n\n${userWorkflowMd}`);
 
-  const userWorkflowJsonPath = path.join(DATA_DIR, 'user-workflow.json');
-  try {
-    const json = JSON.parse(fs.readFileSync(userWorkflowJsonPath, 'utf8'));
-    if (json && Array.isArray(json.roles) && json.roles.length > 0) {
-      const lines = json.roles.map(r => {
-        const name = r.name || '';
-        const preset = r.preset || '';
-        const permission = r.permission || '';
-        return `- ${name}${preset ? ` (preset: ${preset})` : ''}${permission ? ` [${permission}]` : ''}`;
-      });
-      parts.push(`# User Workflow Roles\n\n${lines.join('\n')}`);
-    }
-  } catch { /* absent or invalid — skip */ }
-
   // Keep output style last so user/profile/workflow context cannot soften the
   // final formatting contract for user-visible replies.
   const outputStyle = loadOutputStyle({ PLUGIN_ROOT, DATA_DIR });
@@ -248,17 +234,6 @@ function buildBridgeInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
   // 2. Bridge common behavior.
   const common = readOptional(path.join(BRIDGE_DIR, '00-common.md'));
   if (common) parts.push(common);
-
-  // 3. User-defined work-role overrides (DATA_DIR/roles/*.md). Pool-wide.
-  const rolesDir = path.join(DATA_DIR, 'roles');
-  const collected = collectMarkdownFilesRecursive(rolesDir);
-  if (collected.length > 0) {
-    collected.sort();
-    const blocks = collected.map(f => readOptional(f)).filter(Boolean);
-    if (blocks.length > 0) {
-      parts.push(['# Agent roles', '', blocks.join('\n\n')].join('\n'));
-    }
-  }
 
   // userTitle / address form is intentionally NOT injected here — bridge
   // workers produce tool I/O, not user-facing replies, so the persona signal
@@ -298,7 +273,7 @@ function buildBridgeRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentRole }) 
     const collected = collectMarkdownFilesRecursive(dir);
     if (collected.length > 0) {
       collected.sort();
-      const blocks = collected.map(f => readOptional(f)).filter(Boolean);
+      const blocks = collected.map(f => stripFrontmatter(readOptional(f))).filter(Boolean);
       if (blocks.length > 0) {
         parts.push([`# Agent ${subdirForRole}`, '', blocks.join('\n\n')].join('\n'));
       }

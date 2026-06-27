@@ -311,6 +311,24 @@ function guardList(a) {
     return null;
 }
 
+function guardFind(a) {
+    if (!hasOwn(a, 'query') || typeof a.query !== 'string' || a.query.trim().length === 0) {
+        return `Error: find requires non-empty string "query" (got ${describeType(a.query)})`;
+    }
+    if (hasOwn(a, 'path') && !isString(a.path)) {
+        return `Error: find arg "path" must be a string (got ${describeType(a.path)})`;
+    }
+    if (hasOwn(a, 'head_limit') && a.head_limit !== undefined && a.head_limit !== null) {
+        if (!isFiniteInt(a.head_limit)) {
+            return `Error: find arg "head_limit" must be a finite integer (got ${describeType(a.head_limit)})`;
+        }
+        if (a.head_limit < 0) {
+            return `Error: find arg "head_limit" must be >= 0 (0 means no cap); got ${a.head_limit}`;
+        }
+    }
+    return null;
+}
+
 function guardGlob(a) {
     // path alias root; pattern aliases glob/name/file_pattern
     for (const k of ['path', 'root']) {
@@ -365,6 +383,7 @@ const GUARDS = {
     shell: guardShell,
     task: guardTask,
     list: guardList,
+    find: guardFind,
     glob: guardGlob,
     code_graph: guardCodeGraph,
 };

@@ -11,8 +11,8 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
-import { bold, colorEnabled, green, rgb } from './ansi.mjs';
+import { join } from 'node:path';
+import { bold, colorEnabled, rgb } from './ansi.mjs';
 import { createSessionStats } from './session-stats.mjs';
 import { forEachSessionRuntime } from '../runtime/agent/orchestrator/session/manager.mjs';
 import { listHiddenRoleNames } from '../runtime/agent/orchestrator/internal-roles.mjs';
@@ -47,6 +47,10 @@ const CYN = sgr('38;2;136;136;136');
 const GREY = sgr('38;2;136;136;136');
 const SHELL_JOBS_SEGMENT_CACHE_MS = 1000;
 const GATEWAY_QUOTA_STATUS_CACHE_MS = 500;
+// A cached usage snapshot is only trusted for usedPct display while it is
+// "live-fresh". Beyond this the stored usedPct is treated as outdated and the
+// usage segment is suppressed until the live gateway status refreshes it.
+const LIVE_USAGE_SNAPSHOT_MAX_AGE_MS = 10 * 60_000;
 const DEFAULT_HIDDEN_STATUSLINE_ROLES = Object.freeze(['explorer', 'cycle1-agent', 'cycle2-agent', 'cycle3-agent', 'scheduler-task', 'webhook-handler']);
 let _shellJobsSegmentCache = { ownerPid: 0, at: 0, value: '' };
 let _gatewayQuotaStatusCache = { key: '', at: 0, value: null };
@@ -90,9 +94,9 @@ function promptFootprintTokens(provider, stats) {
 function currentContextTokens(provider, stats) {
   const s = stats || createSessionStats();
   const source = String(s.currentContextSource || '').toLowerCase();
-  const explicit = source === 'estimated'
-    ? 0
-    : num(s.currentContextTokens ?? s.contextTokens ?? s.latestPromptTokens);
+  const estimated = num(s.currentEstimatedContextTokens);
+  const explicit = num(s.currentContextTokens ?? s.contextTokens ?? s.latestPromptTokens);
+  if (source === 'estimated') return estimated > 0 ? estimated : 0;
   if (explicit > 0) return explicit;
   const latestInput = num(s.latestInputTokens);
   const latestCacheRead = num(s.latestCachedTokens);
@@ -212,7 +216,7 @@ export async function renderStatusline({ provider = '', model = '', effort = '',
   try {
     return renderNativeStatusline({ provider, model, effort, fast, cwd, stats, sessionId, contextWindow, rawContextWindow, bridgeWorkers, bridgeJobs, clientHostPid });
   } catch {
-    return fallbackLine({ provider, model, effort, fast, cwd, stats });
+    return fallbackLine({ provider, model, effort, fast, cwd, stats, contextWindow });
   }
 }
 
@@ -224,7 +228,7 @@ function renderNativeStatusline({ provider = '', model = '', effort = '', fast =
   const contextTokens = currentContextTokens(provider, s);
   const resolvedContextWindow = modelContextWindow(provider, model, contextWindow);
   const ctxPct = resolvedContextWindow > 0 ? clampPct((contextTokens / resolvedContextWindow) * 100) : 0;
-  const gatewayStatus = loadGatewayQuotaStatus({ provider, sessionId, activeContextTokens: contextTokens, clientHostPid });
+  const gatewayStatus = loadGatewayQuotaStatus({ provider, model, effort, fast, contextWindow, rawContextWindow, sessionId, activeContextTokens: contextTokens, clientHostPid });
 
   const sep = ` ${D}│${R} `;
   const l1Parts = [];
@@ -235,7 +239,7 @@ function renderNativeStatusline({ provider = '', model = '', effort = '', fast =
   addL1(formatModelSegment({ provider, model, effort, fast, cols }));
   addL1(formatContextSegment(ctxPct, cols));
 
-  const quotaStatus = gatewayStatus || fallbackQuotaStatus({ provider, model });
+  const quotaStatus = mergeQuotaStatus(gatewayStatus, fallbackQuotaStatus({ provider, model }));
   const quotaSegments = quotaStatus
     ? formatGatewayLimitSegments(quotaStatus, { COLS: cols, D, R, GRN, YLW, RED, colourPct, epochMsToHHMM })
     : [];
@@ -266,9 +270,12 @@ function dataDir() {
   return process.env.MIXDOG_DATA_DIR || DEFAULT_STANDALONE_DATA_DIR;
 }
 
-function loadGatewayQuotaStatus({ provider, sessionId, activeContextTokens, clientHostPid } = {}) {
+function loadGatewayQuotaStatus({ provider, model, effort, fast, contextWindow, rawContextWindow, sessionId, activeContextTokens, clientHostPid } = {}) {
   const key = [
     String(provider || ''),
+    String(model || ''),
+    String(effort || ''),
+    fast === true ? 'fast' : '',
     String(sessionId || ''),
     String(clientHostPid || ''),
     Math.floor((Number(activeContextTokens) || 0) / 1024),
@@ -279,7 +286,19 @@ function loadGatewayQuotaStatus({ provider, sessionId, activeContextTokens, clie
   }
   let value = null;
   try {
-    const status = loadGatewayStatus({ sessionId, activeContextTokens, clientHostPid });
+    const status = loadGatewayStatus({
+      sessionId,
+      activeContextTokens,
+      clientHostPid,
+      currentRoute: {
+        provider,
+        model,
+        effort,
+        fast,
+        contextWindow,
+        rawContextWindow,
+      },
+    });
     if (!status) {
       _gatewayQuotaStatusCache = { key, at: now, value };
       return value;
@@ -287,6 +306,12 @@ function loadGatewayQuotaStatus({ provider, sessionId, activeContextTokens, clie
     const statusProvider = String(status.provider || '').trim();
     const cliProvider = String(provider || '').trim();
     if (cliProvider && statusProvider && statusProvider !== cliProvider) {
+      _gatewayQuotaStatusCache = { key, at: now, value };
+      return value;
+    }
+    const statusModel = String(status.model || '').trim();
+    const cliModel = String(model || '').trim();
+    if (cliModel && statusModel && statusModel !== cliModel) {
       _gatewayQuotaStatusCache = { key, at: now, value };
       return value;
     }
@@ -320,8 +345,17 @@ function fallbackQuotaStatus({ provider, model } = {}) {
     }
   } else if (normalizedProvider.includes('oauth')) {
     try {
-      usageSnapshot = readCachedOAuthUsageSnapshot(routeInfo);
+      usageSnapshot = readCachedOAuthUsageSnapshot(routeInfo, { allowStale: true });
     } catch {}
+  }
+  // First-entry guard: the disk cache can be up to 7 days old (allowStale).
+  // A stale snapshot still carries the OLD usedPct (e.g. last session's 99%
+  // on a 7D window whose resetAt is always in the future), which would render
+  // a wrong usage segment before the live gateway status fills in. Drop the
+  // usedPct-bearing windows when the snapshot is not live-fresh; balance and
+  // routeSpend are not usedPct-sensitive so they stay.
+  if (usageSnapshot && isStaleUsageSnapshot(usageSnapshot)) {
+    usageSnapshot = { ...usageSnapshot, quotaWindows: [] };
   }
   try {
     const limits = buildGatewayLimits(routeInfo, null, usageSnapshot);
@@ -349,6 +383,27 @@ function providerKindForQuota(provider) {
   if (p.includes('oauth')) return 'oauth';
   if (p === 'ollama' || p === 'lmstudio') return 'local';
   return 'api';
+}
+
+function isStaleUsageSnapshot(snapshot) {
+  const at = num(snapshot?.cachedAt);
+  if (!at) return true;
+  return Date.now() - at > LIVE_USAGE_SNAPSHOT_MAX_AGE_MS;
+}
+
+function mergeQuotaStatus(primary, fallback) {
+  if (!primary) return fallback || null;
+  if (!fallback) return primary;
+  return {
+    ...fallback,
+    ...primary,
+    quotaWindows: Array.isArray(primary.quotaWindows) && primary.quotaWindows.length
+      ? primary.quotaWindows
+      : (fallback.quotaWindows || []),
+    balance: primary.balance || fallback.balance || null,
+    routeSpend: primary.routeSpend || fallback.routeSpend || null,
+    providerKind: primary.providerKind || fallback.providerKind || providerKindForQuota(primary.provider || fallback.provider),
+  };
 }
 
 function formatModelSegment({ provider, model, effort, fast, cols }) {
@@ -654,19 +709,23 @@ function formatElapsed(ms) {
 }
 
 /** Minimal one-line footer used when the vendored renderer is unavailable. */
-function fallbackLine({ provider = '', model = '', effort = '', fast = false, cwd = '', stats } = {}) {
+export function fallbackStatusline({ provider = '', model = '', effort = '', fast = false, cwd = '', stats, contextWindow = 0 } = {}) {
+  return fallbackLine({ provider, model, effort, fast, cwd, stats, contextWindow });
+}
+
+function fallbackLine({ provider = '', model = '', effort = '', fast = false, cwd = '', stats, contextWindow = 0 } = {}) {
   const s = stats || createSessionStats();
-  const sep = statusSubtle(' | ');
-  const flags = [effort ? String(effort).toUpperCase() : '', fast === true ? 'FAST' : ''].filter(Boolean).join(' | ');
-  const id = statusAccent(`${provider}/${model}${flags ? ` | ${flags}` : ''}`);
-  const tokens = statusText(
-    `${fmt(s.inputTokens)} in / ${fmt(s.outputTokens)} out` +
-      (s.cachedTokens ? ` / ${fmt(s.cachedTokens)} read` : '') +
-      (s.cacheWriteTokens ? ` / ${fmt(s.cacheWriteTokens)} write` : ''),
-  );
-  const cost = s.costUsd > 0 ? green('$' + s.costUsd.toFixed(4)) : statusSubtle('$0.0000');
-  const dir = bold(basename(cwd || process.cwd()) || cwd);
-  return statusSubtle('> ') + [id, tokens, cost, dir].join(sep);
+  const cols = terminalColumns();
+  const contextTokens = currentContextTokens(provider, s);
+  const resolvedContextWindow = modelContextWindow(provider, model, contextWindow);
+  const ctxPct = resolvedContextWindow > 0 ? clampPct((contextTokens / resolvedContextWindow) * 100) : 0;
+  const sep = ` ${D}│${R} `;
+  const parts = [
+    formatModelSegment({ provider, model, effort, fast, cols }),
+    formatContextSegment(ctxPct, cols),
+  ].filter(Boolean);
+  if (!parts.length) return statusSubtle('> mixdog');
+  return parts.join(sep);
 }
 
 function num(v) {

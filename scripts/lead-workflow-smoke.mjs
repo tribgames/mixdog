@@ -9,12 +9,6 @@ const args = parseArgs(process.argv.slice(2));
 const timeoutMs = Number(args.get('timeout-ms') || 480000);
 const keep = args.get('keep') === true;
 const selectedScenario = String(args.get('scenario') || 'explicit-parallel');
-const RETRIEVAL_SCENARIOS = new Set([
-  'broad-locator-explore',
-  'known-symbol-direct',
-  'memory-recall',
-  'web-search',
-]);
 
 const SCENARIOS = {
   'explicit-parallel': {
@@ -28,7 +22,7 @@ ${projectDir}
 
 Goal: validate how the lead plans and batches independent work. Do not solve everything directly in the lead.
 
-Please use the bridge tool with async workers for the independent sections below. Spawn distinct tags early so the work can overlap, then wait for completion notifications and make a concise final report.
+Please use the agent tool with async workers for the independent sections below. Spawn distinct tags early so the work can overlap, then wait for completion notifications and make a concise final report.
 
 Independent sections:
 1. worker: update src/math.mjs to export subtract(a, b).
@@ -37,20 +31,20 @@ Independent sections:
 
 Use minimal exploration. Prefer grep/code_graph/apply_patch over broad reading. Keep each worker brief: maxLoopIterations 4 and idleTimeoutMs 120000 are enough.
 After worker results return, run npm run smoke in ${projectDir} if needed, then summarize:
-- whether bridge workers were used
-- which roles/tags ran
+- whether agent workers were used
+- which agents/tags ran
 - whether the smoke passed
 `.trim(),
     validate: validateMultiFileProject,
     expect: {
       minSpawns: 3,
-      minFirstIterBridgeCalls: 2,
+      minFirstIterAgentCalls: 2,
       requiredRoles: ['worker', 'debugger', 'reviewer'],
       requireFilesOk: true,
     },
   },
   'natural-multifile': {
-    description: 'Natural multi-file task with no hard bridge command; should still delegate useful independent work.',
+    description: 'Natural multi-file task with no hard agent command; should still delegate useful independent work.',
     setup: setupMultiFileProject,
     prompt: (projectDir) => `
 Work in this temporary project only:
@@ -68,7 +62,7 @@ Keep exploration tight and verify with npm run smoke.
     validate: validateMultiFileProject,
     expect: {
       minSpawns: 2,
-      minFirstIterBridgeCalls: 1,
+      minFirstIterAgentCalls: 1,
       minPreEditImplementationSpawns: 1,
       requiredAnyRoles: ['worker', 'debugger', 'reviewer'],
       requireFilesOk: true,
@@ -315,7 +309,7 @@ function compact(value, max = 700) {
   return raw.length > max ? `${raw.slice(0, max)}...` : raw;
 }
 
-function bridgeSummary(call) {
+function agentSummary(call) {
   const input = call?.input || call?.arguments || call?.args || {};
   return {
     id: call?.id || call?.callId || null,
@@ -352,24 +346,24 @@ function evaluate(summary, scenario) {
   if (Number.isFinite(expect.maxMutations) && summary.tools.mutations > expect.maxMutations) {
     failures.push(`expected mutations <= ${expect.maxMutations}, got ${summary.tools.mutations}`);
   }
-  if (Number.isFinite(expect.minSpawns) && summary.bridge.spawns < expect.minSpawns) {
-    failures.push(`expected at least ${expect.minSpawns} bridge spawns, got ${summary.bridge.spawns}`);
+  if (Number.isFinite(expect.minSpawns) && summary.agent.spawns < expect.minSpawns) {
+    failures.push(`expected at least ${expect.minSpawns} agent spawns, got ${summary.agent.spawns}`);
   }
-  if (Number.isFinite(expect.maxSpawns) && summary.bridge.spawns > expect.maxSpawns) {
-    failures.push(`expected at most ${expect.maxSpawns} bridge spawns, got ${summary.bridge.spawns}`);
+  if (Number.isFinite(expect.maxSpawns) && summary.agent.spawns > expect.maxSpawns) {
+    failures.push(`expected at most ${expect.maxSpawns} agent spawns, got ${summary.agent.spawns}`);
   }
-  if (Number.isFinite(expect.minFirstIterBridgeCalls) && summary.bridge.firstIterBridgeCount < expect.minFirstIterBridgeCalls) {
-    failures.push(`expected at least ${expect.minFirstIterBridgeCalls} bridge calls in first bridge iteration, got ${summary.bridge.firstIterBridgeCount}`);
+  if (Number.isFinite(expect.minFirstIterAgentCalls) && summary.agent.firstIterAgentCount < expect.minFirstIterAgentCalls) {
+    failures.push(`expected at least ${expect.minFirstIterAgentCalls} agent calls in first agent iteration, got ${summary.agent.firstIterAgentCount}`);
   }
-  if (Number.isFinite(expect.minPreEditImplementationSpawns) && summary.bridge.preEditImplementationSpawns < expect.minPreEditImplementationSpawns) {
-    failures.push(`expected at least ${expect.minPreEditImplementationSpawns} pre-edit implementation/debug bridge spawns, got ${summary.bridge.preEditImplementationSpawns}`);
+  if (Number.isFinite(expect.minPreEditImplementationSpawns) && summary.agent.preEditImplementationSpawns < expect.minPreEditImplementationSpawns) {
+    failures.push(`expected at least ${expect.minPreEditImplementationSpawns} pre-edit implementation/debug agent spawns, got ${summary.agent.preEditImplementationSpawns}`);
   }
   for (const role of expect.requiredRoles || []) {
-    if (!summary.bridge.roles.includes(role)) failures.push(`missing bridge role ${role}`);
+    if (!summary.agent.roles.includes(role)) failures.push(`missing agent role ${role}`);
   }
   if (Array.isArray(expect.requiredAnyRoles) && expect.requiredAnyRoles.length > 0) {
-    const hasAny = expect.requiredAnyRoles.some((role) => summary.bridge.roles.includes(role));
-    if (!hasAny) failures.push(`missing any bridge role from ${expect.requiredAnyRoles.join(', ')}`);
+    const hasAny = expect.requiredAnyRoles.some((role) => summary.agent.roles.includes(role));
+    if (!hasAny) failures.push(`missing any agent role from ${expect.requiredAnyRoles.join(', ')}`);
   }
   if (expect.requireFilesOk && !Object.values(summary.files || {}).every(Boolean)) {
     failures.push(`file validation failed: ${JSON.stringify(summary.files)}`);
@@ -454,7 +448,7 @@ async function runScenario(name) {
     const { result } = await runtime.ask(scenario.prompt(projectDir), {
       onToolCall(iter, calls) {
         for (const call of calls || []) {
-          const summary = bridgeSummary(call);
+          const summary = agentSummary(call);
           toolCalls.push({ iter, ...summary });
           record('toolCall', { iter, ...summary });
         }
@@ -484,13 +478,13 @@ async function runScenario(name) {
   }
 
   const elapsedMs = Math.round(performance.now() - startedAt);
-  const bridgeCalls = toolCalls.filter((call) => call.name === 'bridge');
+  const agentCalls = toolCalls.filter((call) => call.name === 'agent');
   const toolCounts = {};
   for (const call of toolCalls) {
     toolCounts[call.name] = (toolCounts[call.name] || 0) + 1;
   }
   const mutationCount = toolCalls.filter((call) => call.name === 'apply_patch').length;
-  const spawnCalls = bridgeCalls.filter((call) => call.type === 'spawn' || call.type === null);
+  const spawnCalls = agentCalls.filter((call) => call.type === 'spawn' || call.type === null);
   const mutationIters = toolCalls
     .filter((call) => call.name === 'apply_patch')
     .map((call) => Number(call.iter))
@@ -505,11 +499,11 @@ async function runScenario(name) {
   const preEditImplementationSpawns = firstMutationIter == null
     ? implementationSpawnCalls.length
     : implementationSpawnCalls.filter((call) => Number(call.iter) < firstMutationIter).length;
-  const distinctRoles = [...new Set(bridgeCalls.map((call) => call.role).filter(Boolean))];
-  const distinctTags = [...new Set(bridgeCalls.map((call) => call.tag).filter(Boolean))];
-  const firstBridgeIter = Math.min(...bridgeCalls.map((call) => Number(call.iter)).filter(Number.isFinite));
-  const firstIterBridgeCount = Number.isFinite(firstBridgeIter)
-    ? bridgeCalls.filter((call) => Number(call.iter) === firstBridgeIter).length
+  const distinctRoles = [...new Set(agentCalls.map((call) => call.role).filter(Boolean))];
+  const distinctTags = [...new Set(agentCalls.map((call) => call.tag).filter(Boolean))];
+  const firstAgentIter = Math.min(...agentCalls.map((call) => Number(call.iter)).filter(Number.isFinite));
+  const firstIterAgentCount = Number.isFinite(firstAgentIter)
+    ? agentCalls.filter((call) => Number(call.iter) === firstAgentIter).length
     : 0;
 
   const summary = {
@@ -522,11 +516,11 @@ async function runScenario(name) {
     projectDir,
     route: events.find((e) => e.kind === 'runtime')?.payload || null,
     prepareResults,
-    bridge: {
-      calls: bridgeCalls.length,
+    agent: {
+      calls: agentCalls.length,
       spawns: spawnCalls.length,
-      firstBridgeIter: Number.isFinite(firstBridgeIter) ? firstBridgeIter : null,
-      firstIterBridgeCount,
+      firstAgentIter: Number.isFinite(firstAgentIter) ? firstAgentIter : null,
+      firstIterAgentCount,
       firstMutationIter,
       implementationSpawns: implementationSpawnCalls.length,
       preEditImplementationSpawns,
@@ -578,9 +572,9 @@ async function main() {
         scenario: summary.scenario,
         passed: summary.passed,
         elapsedMs: summary.elapsedMs,
-        spawns: summary.bridge.spawns,
-        firstIterBridgeCount: summary.bridge.firstIterBridgeCount,
-        roles: summary.bridge.roles,
+        spawns: summary.agent.spawns,
+        firstIterAgentCount: summary.agent.firstIterAgentCount,
+        roles: summary.agent.roles,
         failures: summary.failures,
       })),
     }, null, 2));

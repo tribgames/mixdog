@@ -1,20 +1,17 @@
 /**
  * Internal hidden roles — Mixdog-managed, user-untouchable.
  *
- * Unlike user-workflow.json roles (which the user defines and edits freely),
- * these roles are NEVER exposed to callers of the `bridge` MCP tool. They are
+ * Unlike public workflow agents, these hidden roles are NEVER exposed to callers of the `agent` tool. They are
  * invoked only by internal handlers (explore / recall / search) and carry
  * their own system prompt + tool-set policy.
  *
  * Lookup order (bridge-llm.resolvePresetName):
  *   1. explicit preset arg
  *   2. opts.preset
- *   3. hidden-role registry (defaults/hidden-roles.json) <- Mixdog-internal
- *   4. user-workflow.json[role]                          ← user-owned
+ *   3. hidden-role registry (defaults/hidden-roles.json + systemFile frontmatter)
  *
- * Role definitions live in defaults/hidden-roles.json. Editing that file is a
- * Mixdog source change; users cannot break the dispatch path by touching their
- * workflow JSON.
+ * Role definitions live in defaults/hidden-roles.json and the referenced
+ * systemFile markdown frontmatter. Editing those files is a Mixdog source change.
  *
  * The preset names refer to entries seeded in mixdog-config.json (agent.presets)
  * via DEFAULT_PRESETS (see config.mjs). If the user deletes the referenced preset
@@ -36,8 +33,9 @@
  *                    declaratively instead of forcing every hidden role to 'read'.
  *
  * Tool schema profile:
- *   - 'unified'         : shared bridge tool schema for provider cache reuse.
- *   - 'llm-only'        : no tools exposed; pure transform/classifier roles.
+ *   - 'none' : no tools exposed; pure transform/classifier roles.
+ *   - 'read' : read/search/code-navigation tools only.
+ *   - 'full' : shared bridge tool schema for provider cache reuse.
  *
  * BP3 role-specific instruction metadata (consumed by rules-builder.cjs
  * buildBridgeRoleSpecificContent + collect.mjs):
@@ -53,15 +51,64 @@
 import { readFileSync, statSync } from 'fs'
 import { join } from 'path'
 import { mixdogRoot } from '../../shared/plugin-paths.mjs'
+import {
+  normalizeAgentPermissionOrNone,
+  parseMarkdownFrontmatter,
+} from '../../shared/markdown-frontmatter.mjs'
 
 // Resolve the path to defaults/hidden-roles.json once.
+const _MIXDOG_ROOT = mixdogRoot()
 const _HIDDEN_ROLES_PATH = (() => {
-  const root = mixdogRoot()
-  return join(root, 'defaults', 'hidden-roles.json')
+  return join(_MIXDOG_ROOT, 'defaults', 'hidden-roles.json')
 })()
 
 /** @type {{ mtime: number, map: object } | null} */
 let _hiddenRolesCache = null
+
+function _mtimeSafe(file) {
+  try { return statSync(file).mtimeMs } catch { return 0 }
+}
+
+function _hiddenRolesDependencyMtime() {
+  let mtime = _mtimeSafe(_HIDDEN_ROLES_PATH)
+  try {
+    const raw = JSON.parse(readFileSync(_HIDDEN_ROLES_PATH, 'utf8'))
+    for (const entry of (raw.roles || [])) {
+      const systemFile = typeof entry?.systemFile === 'string' ? entry.systemFile.trim() : ''
+      if (!systemFile) continue
+      mtime = Math.max(mtime, _mtimeSafe(join(_MIXDOG_ROOT, systemFile)))
+    }
+  } catch {}
+  return mtime
+}
+
+function _loadHiddenRoleFrontmatter(systemFile) {
+  const rel = typeof systemFile === 'string' ? systemFile.trim() : ''
+  if (!rel) return {}
+  try {
+    return parseMarkdownFrontmatter(readFileSync(join(_MIXDOG_ROOT, rel), 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+function _mergeHiddenRoleFrontmatter(entry) {
+  const fm = _loadHiddenRoleFrontmatter(entry.systemFile)
+  const merged = { ...entry }
+  const permission = normalizeAgentPermissionOrNone(fm.permission)
+  if (permission) merged.permission = permission
+  for (const key of ['toolSchemaProfile', 'kind', 'slot', 'maintKey', 'instructionDir']) {
+    if (typeof fm[key] === 'string' && fm[key].trim()) merged[key] = fm[key].trim()
+  }
+  for (const key of ['inboundEvent']) {
+    if (typeof fm[key] === 'string' && fm[key].trim()) {
+      const raw = fm[key].trim().toLowerCase()
+      if (raw === 'true') merged[key] = true
+      else if (raw === 'false') merged[key] = false
+    }
+  }
+  return merged
+}
 
 /**
  * Read and parse defaults/hidden-roles.json. Throws on missing/malformed.
@@ -71,7 +118,7 @@ function _loadHiddenRoles() {
     const raw = JSON.parse(readFileSync(_HIDDEN_ROLES_PATH, 'utf8'))
     const map = Object.create(null)
     for (const entry of (raw.roles || [])) {
-      if (entry && entry.name) map[entry.name] = Object.freeze({ ...entry })
+      if (entry && entry.name) map[entry.name] = Object.freeze(_mergeHiddenRoleFrontmatter(entry))
     }
     return Object.freeze(map)
   } catch (err) {
@@ -88,7 +135,7 @@ function _loadHiddenRoles() {
  */
 function _getHiddenRoles() {
   try {
-    const mtime = statSync(_HIDDEN_ROLES_PATH).mtimeMs
+    const mtime = _hiddenRolesDependencyMtime()
     if (_hiddenRolesCache && mtime <= _hiddenRolesCache.mtime) {
       return _hiddenRolesCache.map
     }
@@ -116,6 +163,7 @@ export function getHiddenRole(name) {
 /**
  * Resolve permission stamped on a bridge session. Hidden roles declared
  * `permission: 'read'` are read-locked — caller opts cannot upgrade them.
+ * Other built-in permissions include `none`, `read-write`, `mcp`, and `full`.
  */
 export function resolveBridgeSessionPermission(role, callerPermission) {
   const hidden = getHiddenRole(role)

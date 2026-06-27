@@ -1,16 +1,7 @@
 import { isAbsolute, resolve } from 'node:path';
 import { homedir } from 'node:os';
-import {
-  TOOL_ASYNC_EXECUTION_CONTRACT,
-  cancelBackgroundTask,
-  getBackgroundTask,
-  renderBackgroundTask,
-  renderBackgroundTaskList,
-  resolveExecutionMode,
-  startBackgroundTask,
-  taskIdFromArgs,
-} from '../runtime/shared/background-tasks.mjs';
 import { makeBridgeLlm } from '../runtime/agent/orchestrator/smart-bridge/bridge-llm.mjs';
+import { loadConfig } from '../runtime/agent/orchestrator/config.mjs';
 import { presentErrorText } from '../runtime/shared/err-text.mjs';
 
 // Ported from the original mixdog tool-defs.mjs `explore` entry.
@@ -22,16 +13,12 @@ export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: `분석용이 아니라 특정 파일, 함수, 심볼, 라인 등 관련 위치를 파악하기 위한 짧은 위치 탐색기로 사용하세요. First-choice tool for broad or unclear repo/code location questions. Use explore when you need to find where a feature, behavior, file group, or implementation area lives before reading exact files. Always use mode:"async"; never use mode:"sync". If the result is needed before continuing, pause the dependent path and wait for the async completion notification. Do not poll status/read; those controls are for manual recovery only. ${TOOL_ASYNC_EXECUTION_CONTRACT} Use code_graph/grep/glob instead only when you already have a specific symbol, term, file kind, or config key. One short location question.`,
+  description: 'Broad-scope locator only: 짧은 위치 탐색기. 분석이 아니라 관련 파일/함수/심볼/라인 좌표를 찾는 용도. Use code_graph/grep/glob first for known symbols/files; explore is for broad or unclear repo/code location questions. 독립 탐색은 query 배열로 한 번에 배치 실행하세요. Runs synchronously and returns the bounded result in this tool call.',
   inputSchema: {
     type: 'object',
     properties: {
-      query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'One short location question, or an array only for unrelated topics. Do not use for a known symbol/term/config key; use code_graph/grep first. Never pass a whole brief/context dump.' },
+      query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Short location question(s). Never pass a whole brief. Batch independent searches as an array.' },
       cwd: { type: 'string', description: 'Project/root directory to explore; narrow to the relevant repo or subtree.' },
-      mode: { type: 'string', enum: ['async'], description: `Always use mode:"async". ${TOOL_ASYNC_EXECUTION_CONTRACT}` },
-      action: { type: 'string', enum: ['run', 'list', 'status', 'read', 'cancel'], description: 'Default run. list/status/read/cancel are manual recovery controls for async explore tasks.' },
-      task_id: { type: 'string', description: 'Shared background task id for manual status/read/cancel recovery.' },
-      background: { type: 'boolean', description: 'Legacy alias for mode=async.' },
     },
     required: [],
     additionalProperties: false,
@@ -55,7 +42,7 @@ function escapeXml(str) {
 // reminder. The full no-verdict contract lives at system level
 // (rules/bridge/30-explorer.md).
 export function buildExplorerPrompt(query) {
-  return `<query>${escapeXml(query)}</query>\nReminder: output only anchor lines formatted as path:line — symbol/name — short reason, or EXPLORATION_FAILED. No preamble, bullets, numbering, headings, summary, code quotes, analysis, or verdicts.`;
+  return `<query>${escapeXml(query)}</query>\nReminder: output only anchor lines formatted as path:line — symbol/name — short reason, or EXPLORATION_FAILED. No preamble, bullets, numbering, headings, summary, code quotes, analysis, verdicts, ratings, or recommendations.`;
 }
 
 export function normalizeExploreQueries(rawQuery) {
@@ -105,7 +92,7 @@ function isFatalExploreError(error) {
   const name = String(error.name || '');
   if (/ProviderQuotaError|Auth|Authentication|Permission/i.test(name)) return true;
   const text = String(error.message || error.reason || error || '');
-  return /\b(?:quota|rate ?limit|unauthorized|authentication|forbidden|permission denied|invalid api key|token expired)\b/i.test(text);
+  return /\b(?:quota|quota_exceeded|insufficient_quota|rate[_ -]?limit|too many requests|resource exhausted|unauthorized|authentication|forbidden|permission denied|invalid api key|token expired)\b/i.test(text);
 }
 
 function fatalExploreError(settled) {
@@ -193,19 +180,6 @@ function cleanExplorerText(text) {
   return raw;
 }
 
-function controlExploreTask(action, args, ctx = {}) {
-  if (action === 'list') return ok(renderBackgroundTaskList({ surface: 'explore', context: ctx }));
-  const taskId = taskIdFromArgs(args);
-  if (!taskId) return fail('task_id is required');
-  const task = getBackgroundTask(taskId, { surface: 'explore', context: ctx });
-  if (!task) return fail(`task not found: ${taskId}`);
-  if (action === 'cancel') {
-    cancelBackgroundTask(taskId, 'cancelled by explore control');
-    return ok(renderBackgroundTask(task, { includeResult: true }));
-  }
-  return ok(renderBackgroundTask(task, { includeResult: action === 'read' }));
-}
-
 /**
  * Standalone explore executor.
  *
@@ -214,36 +188,12 @@ function controlExploreTask(action, args, ctx = {}) {
  * hidden roles use. Runs query items concurrently (Promise.allSettled), then
  * aggregates the findings into one bounded text result.
  *
- * Runs asynchronously by default: registers a shared background task and
- * delivers completion to the owner session.
+ * Runs synchronously and returns the bounded locator result in this tool call.
  *
- * @param {object} args         — tool args ({ query, cwd, background }).
+ * @param {object} args         — tool args ({ query, cwd }).
  * @param {object} ctx          — { callerCwd, callerSessionId }.
  */
 export async function runExplore(args = {}, ctx = {}) {
-  const action = clean(args.action || 'run').toLowerCase();
-  if (['list', 'status', 'read', 'cancel'].includes(action)) return controlExploreTask(action, args, ctx);
-
-  const mode = resolveExecutionMode(args, 'async');
-  if (mode === 'async') {
-    const queries = normalizeExploreQueries(args.query);
-    if (queries.length === 0) return fail('query is required (one or more non-empty strings)');
-    const task = startBackgroundTask({
-      surface: 'explore',
-      operation: 'explore',
-      label: queries[0].replace(/\s+/g, ' ').slice(0, 120),
-      input: { query: args.query, cwd: args.cwd || null },
-      context: ctx,
-      resultType: 'explore_task_result',
-      renderResult: responseText,
-      run: async () => {
-        const response = await runExploreSync(args, ctx);
-        if (response?.isError) throw new Error(responseText(response));
-        return response;
-      },
-    });
-    return ok(renderBackgroundTask(task));
-  }
   return runExploreSync(args, ctx);
 }
 
@@ -259,17 +209,17 @@ async function runExploreSync(args = {}, ctx = {}) {
   }
 
   const resolvedCwd = resolveExploreCwd(args.cwd, ctx.callerCwd);
+  const config = loadConfig({ secrets: false });
+  const llm = makeBridgeLlm({
+    role: 'explorer',
+    cwd: resolvedCwd,
+    brief: true,
+    parentSessionId: ctx.callerSessionId || null,
+    clientHostPid: ctx.clientHostPid || null,
+    config,
+  });
 
-  const settled = await Promise.allSettled(working.map((q) => {
-    const llm = makeBridgeLlm({
-      role: 'explorer',
-      cwd: resolvedCwd,
-      brief: true,
-      parentSessionId: ctx.callerSessionId || null,
-      clientHostPid: ctx.clientHostPid || null,
-    });
-    return llm({ prompt: buildExplorerPrompt(q) });
-  }));
+  const settled = await Promise.allSettled(working.map((q) => llm({ prompt: buildExplorerPrompt(q) })));
 
   const fatal = fatalExploreError(settled);
   if (fatal) return fail(presentErrorText(fatal, { surface: 'explore' }));

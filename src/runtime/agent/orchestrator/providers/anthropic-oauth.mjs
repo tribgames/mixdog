@@ -354,6 +354,18 @@ const EFFORT_BUDGET = {
     max: 32768,
 };
 
+const MIN_THINKING_BUDGET = 1024;
+const THINKING_OUTPUT_RESERVE = 1024;
+
+function clampThinkingBudgetTokens(value, maxTokens) {
+    const desired = Math.floor(Number(value));
+    const max = Math.floor(Number(maxTokens));
+    if (!Number.isFinite(desired) || desired <= 0 || !Number.isFinite(max)) return null;
+    const ceiling = max - THINKING_OUTPUT_RESERVE;
+    if (ceiling < MIN_THINKING_BUDGET) return null;
+    return Math.max(MIN_THINKING_BUDGET, Math.min(desired, ceiling));
+}
+
 // Tracks which unknown effort labels we've already logged so a repeated
 // session-level misconfig doesn't flood stderr with the same warning.
 const _LOGGED_UNKNOWN_EFFORT = new Set();
@@ -671,9 +683,11 @@ function _sanitizeInputSchema(schema, toolName) {
         if (addition) description = description ? `${description} ${addition}` : addition;
     }
     const mergedPropsCount = Object.keys(mergedProps).length;
-    process.stderr.write(
-        `[anthropic-oauth-sanitizer] tool="${toolName ?? ''}" compound="${compoundKey}" branches=${Array.isArray(compound) ? compound.length : 0} mergedProps=${mergedPropsCount}\n`
-    );
+    if (process.env.MIXDOG_DEBUG_SESSION_LOG) {
+        process.stderr.write(
+            `[anthropic-oauth-sanitizer] tool="${toolName ?? ''}" compound="${compoundKey}" branches=${Array.isArray(compound) ? compound.length : 0} mergedProps=${mergedPropsCount}\n`
+        );
+    }
     return {
         type: 'object',
         ...(description ? { description } : {}),
@@ -687,6 +701,11 @@ function toAnthropicTools(tools) {
         description: t.description,
         input_schema: _sanitizeInputSchema(t.inputSchema, t.name),
     }));
+}
+function nativeAnthropicTools(opts) {
+    return Array.isArray(opts?.nativeTools)
+        ? opts.nativeTools.filter(t => t && typeof t === 'object')
+        : [];
 }
 
 function toAnthropicMessages(messages) {
@@ -1354,20 +1373,23 @@ function buildRequestBody(messages, model, tools, sendOpts) {
 
     if (systemBlocks.length) body.system = systemBlocks;
 
-    if (tools?.length) {
+    const nativeTools = nativeAnthropicTools(opts);
+    if (tools?.length || nativeTools.length) {
         // No cache_control on tools — the systemBase BP already covers the
         // tools prefix via Anthropic's prompt cache prefix semantics (order:
         // tools → system → messages). Placing a separate BP here would waste
         // a slot that's better spent on messages tail.
-        body.tools = toAnthropicTools(tools);
+        body.tools = [...nativeTools, ...toAnthropicTools(tools || [])];
     }
 
     const thinkingBudgetTokens = Number(opts.thinkingBudgetTokens);
     if (Number.isFinite(thinkingBudgetTokens) && thinkingBudgetTokens > 0) {
-        body.thinking = { type: 'enabled', budget_tokens: Math.floor(thinkingBudgetTokens) };
+        const budgetTokens = clampThinkingBudgetTokens(thinkingBudgetTokens, maxTokens);
+        if (budgetTokens) body.thinking = { type: 'enabled', budget_tokens: budgetTokens };
     } else if (opts.effort) {
         if (EFFORT_BUDGET[opts.effort]) {
-            body.thinking = { type: 'enabled', budget_tokens: EFFORT_BUDGET[opts.effort] };
+            const budgetTokens = clampThinkingBudgetTokens(EFFORT_BUDGET[opts.effort], maxTokens);
+            if (budgetTokens) body.thinking = { type: 'enabled', budget_tokens: budgetTokens };
         } else if (!_LOGGED_UNKNOWN_EFFORT.has(opts.effort)) {
             _LOGGED_UNKNOWN_EFFORT.add(opts.effort);
             try {
@@ -1495,6 +1517,11 @@ export class AnthropicOAuthProvider {
     }
 
     async send(messages, model, tools, sendOpts) {
+        // Re-warm the kept-alive socket before the turn. preconnect() is a
+        // best-effort no-op while a socket is still hot (TTL gate), but after an
+        // idle gap longer than the keep-alive window it re-opens one in parallel
+        // with auth/body build so the POST below skips the cold TLS handshake.
+        preconnect('https://api.anthropic.com');
         // Defense-in-depth: enforce tool_use / tool_result pairing before
         // the Anthropic API call. The trim.mjs sanitize pass is normally
         // invoked by the budget trimmer in loop.mjs, but dispatches under

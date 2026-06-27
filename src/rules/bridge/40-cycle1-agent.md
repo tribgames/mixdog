@@ -1,3 +1,10 @@
+---
+permission: read
+toolSchemaProfile: none
+kind: maintenance
+maintKey: memory
+---
+
 # Role: cycle1-agent
 
 Turn numbered chat rows into memory chunks.

@@ -170,6 +170,8 @@ if (process.env.MIXDOG_CHANNELS_NO_CONNECT) {
 }
 const _isWorkerMode = process.env.MIXDOG_WORKER_MODE === '1'
 const _isCliOwnedMode = process.env.MIXDOG_CLI_OWNED === '1'
+const _isChannelDaemonMode = process.env.MIXDOG_CHANNEL_DAEMON === '1'
+const CHANNEL_DAEMON_IDLE_TTL_MS = Math.max(0, Number(process.env.MIXDOG_CHANNEL_IDLE_TTL_MS) || 60_000)
 const _bootLogEarly = path.join(
   DATA_DIR || path.join(os.tmpdir(), "mixdog"),
   "boot.log"
@@ -327,24 +329,56 @@ const INSTRUCTIONS = "";
 // never `connect()`ed to any transport, so `.notification()` silently
 // threw 'Not connected' inside the SDK and every call was dropped by an
 // outer `.catch(() => {})`. That regression is what this path replaces.
-function sendNotifyToParent(method, params) {
-  if (!process.send) {
-    try { process.stderr.write(`mixdog channels: notify dropped (no IPC): ${method}\n`); } catch {}
-    return;
-  }
-  // CC channel schema requires meta: Record<string,string> (channelNotification.ts).
-  // Coerce every meta value to string so a non-string (e.g. a Discord
-  // interaction.type number) can't fail zod and silently drop the notify.
-  // silent_to_agent stays boolean — an internal routing flag the daemon
-  // router / agentNotify consume (=== true) before the CC zod boundary.
-  let outParams = params;
+let _channelNotifyBusSeq = 0;
+const CHANNEL_NOTIFY_BUS_FILE = path.join(RUNTIME_ROOT, 'channel-notifications.jsonl');
+const CHANNEL_NOTIFY_BUS_MAX_BYTES = 5 * 1024 * 1024;
+
+function normalizeChannelNotifyParams(method, params) {
   if (method === 'notifications/claude/channel' && params && params.meta) {
     const m = {};
     for (const [k, v] of Object.entries(params.meta)) {
       if (v === undefined || v === null) continue;
       m[k] = k === 'silent_to_agent' ? (v === true || v === 'true') : String(v);
     }
-    outParams = { ...params, meta: m };
+    return { ...params, meta: m };
+  }
+  return params;
+}
+
+function publishChannelNotify(method, params) {
+  try {
+    fs.mkdirSync(RUNTIME_ROOT, { recursive: true });
+    try {
+      const st = fs.statSync(CHANNEL_NOTIFY_BUS_FILE);
+      if (st.size > CHANNEL_NOTIFY_BUS_MAX_BYTES) {
+        try { fs.unlinkSync(CHANNEL_NOTIFY_BUS_FILE + '.1'); } catch {}
+        try { fs.renameSync(CHANNEL_NOTIFY_BUS_FILE, CHANNEL_NOTIFY_BUS_FILE + '.1'); } catch {}
+      }
+    } catch {}
+    const item = {
+      id: `${Date.now()}-${process.pid}-${++_channelNotifyBusSeq}`,
+      ts: Date.now(),
+      pid: process.pid,
+      method,
+      params,
+    };
+    fs.appendFileSync(CHANNEL_NOTIFY_BUS_FILE, JSON.stringify(item) + '\n');
+  } catch (err) {
+    try { process.stderr.write(`mixdog channels: notify bus write failed: ${err && err.message || err}\n`); } catch {}
+  }
+}
+
+function sendNotifyToParent(method, params) {
+  // CC channel schema requires meta: Record<string,string> (channelNotification.ts).
+  // Coerce every meta value to string so a non-string (e.g. a Discord
+  // interaction.type number) can't fail zod and silently drop the notify.
+  // silent_to_agent stays boolean — an internal routing flag the daemon
+  // router / agentNotify consume (=== true) before the CC zod boundary.
+  const outParams = normalizeChannelNotifyParams(method, params);
+  publishChannelNotify(method, outParams);
+  if (!process.send) {
+    try { process.stderr.write(`mixdog channels: notify queued on bus (no IPC): ${method}\n`); } catch {}
+    return;
   }
   try {
     process.send({ type: 'notify', method, params: outParams });
@@ -612,6 +646,98 @@ const ACTIVE_OWNER_STALE_MS = 1e4;
 // never blocks process exit. Single JSON atomic write, no measurable load.
 const OWNER_HEARTBEAT_INTERVAL_MS = 5e3;
 let ownerHeartbeatTimer = null;
+let channelDaemonIdleTimer = null;
+let channelDaemonLastClientAt = Date.now();
+let channelDaemonBackgroundLogAt = 0;
+const CHANNEL_CLIENT_DIR = path.join(RUNTIME_ROOT, 'channel-clients');
+
+function pidAlive(pid) {
+  const n = Number(pid);
+  if (!Number.isInteger(n) || n <= 0) return false;
+  try {
+    process.kill(n, 0);
+    return true;
+  } catch (e) {
+    return e?.code === 'EPERM';
+  }
+}
+
+function countLiveChannelClients() {
+  let live = 0;
+  const now = Date.now();
+  try {
+    fs.mkdirSync(CHANNEL_CLIENT_DIR, { recursive: true });
+    for (const file of fs.readdirSync(CHANNEL_CLIENT_DIR)) {
+      if (!file.endsWith('.json')) continue;
+      const full = path.join(CHANNEL_CLIENT_DIR, file);
+      let item = null;
+      let st = null;
+      try {
+        st = fs.statSync(full);
+        item = JSON.parse(fs.readFileSync(full, 'utf8'));
+      } catch {
+        try { fs.unlinkSync(full); } catch {}
+        continue;
+      }
+      const pid = Number(item?.pid ?? file.replace(/\.json$/, ''));
+      const fresh = now - Math.max(Number(item?.updatedAt) || 0, st.mtimeMs) < 20_000;
+      if (pidAlive(pid) && fresh) {
+        live += 1;
+      } else {
+        try { fs.unlinkSync(full); } catch {}
+      }
+    }
+  } catch {}
+  return live;
+}
+
+function hasChannelBackgroundWork() {
+  if (!channelBridgeActive || !bridgeRuntimeConnected) return false;
+  if (config.webhook?.enabled === true) return true;
+  if (Array.isArray(config.events?.rules) && config.events.rules.length > 0) return true;
+  if (Array.isArray(config.nonInteractive) && config.nonInteractive.length > 0) return true;
+  if (Array.isArray(config.interactive) && config.interactive.length > 0) return true;
+  return false;
+}
+
+function checkChannelDaemonIdle() {
+  if (!_isChannelDaemonMode || CHANNEL_DAEMON_IDLE_TTL_MS <= 0) return;
+  const liveClients = countLiveChannelClients();
+  if (liveClients > 0) {
+    channelDaemonLastClientAt = Date.now();
+    return;
+  }
+  if (hasChannelBackgroundWork()) {
+    const now = Date.now();
+    if (now - channelDaemonBackgroundLogAt > 60_000) {
+      channelDaemonBackgroundLogAt = now;
+      try { process.stderr.write('[channels-worker] daemon idle: keeping alive for configured background work\n'); } catch {}
+    }
+    channelDaemonLastClientAt = Date.now();
+    return;
+  }
+  if (Date.now() - channelDaemonLastClientAt < CHANNEL_DAEMON_IDLE_TTL_MS) return;
+  try { process.stderr.write(`[channels-worker] daemon idle TTL elapsed (${CHANNEL_DAEMON_IDLE_TTL_MS}ms) — shutting down\n`); } catch {}
+  stop()
+    .then(() => process.exit(0))
+    .catch((e) => {
+      try { process.stderr.write(`[channels-worker] daemon idle shutdown failed: ${e?.message || e}\n`); } catch {}
+      process.exit(1);
+    });
+}
+
+function startChannelDaemonIdleMonitor() {
+  if (!_isChannelDaemonMode || CHANNEL_DAEMON_IDLE_TTL_MS <= 0 || channelDaemonIdleTimer) return;
+  channelDaemonLastClientAt = Date.now();
+  channelDaemonIdleTimer = setInterval(checkChannelDaemonIdle, 5000);
+  channelDaemonIdleTimer.unref?.();
+}
+
+function stopChannelDaemonIdleMonitor() {
+  if (!channelDaemonIdleTimer) return;
+  clearInterval(channelDaemonIdleTimer);
+  channelDaemonIdleTimer = null;
+}
 // Owner gating here is multi-process runtime coordination: only the active
 // bindingReady gates all send paths until the boot-time refreshBridgeOwnership
 // ({ restoreBinding: true }) call completes. Without this, scheduler/webhook
@@ -1733,7 +1859,7 @@ function injectAndRecord(channelId, name, content, options) {
   // self-corrects, but bridge roles commonly echo them and we don't want them
   // surfacing in Discord / Lead channel push.
   if (typeof content === 'string') content = stripSoftWarns(content);
-  // Skip-protocol guard: bridge agents (webhook-handler / scheduler-task)
+  // Skip-protocol guard: agents (webhook-handler / scheduler-task)
   // prefix `[meta:silent]` on the first line to opt out
   // of Lead inject for genuine no-op results (label-only events, dedup,
   // "nothing to report"). The body still goes to Discord for audit; only
@@ -2989,6 +3115,7 @@ async function init(_sharedMcp) {
   });
 }
 async function start() {
+  startChannelDaemonIdleMonitor();
   channelBridgeActive = true;
   writeBridgeState(true);
   if (_isCliOwnedMode) {
@@ -3012,6 +3139,7 @@ async function start() {
   })();
 }
 async function stop() {
+  stopChannelDaemonIdleMonitor();
   try { await stopVoiceWhisperServer(); } catch {}
   await stopOwnedRuntime("unified server stop");
   cleanupInstanceRuntimeFiles(INSTANCE_ID);

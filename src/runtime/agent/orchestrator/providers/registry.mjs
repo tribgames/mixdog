@@ -1,15 +1,15 @@
-import { OpenAICompatProvider, OPENAI_COMPAT_PRESETS } from './openai-compat.mjs';
-import { AnthropicProvider } from './anthropic.mjs';
-import { OpenCodeGoProvider } from './opencode-go.mjs';
-import { GeminiProvider } from './gemini.mjs';
-import { OpenAIOAuthProvider, hasOpenAIOAuthCredentials } from './openai-oauth.mjs';
-import { AnthropicOAuthProvider, hasAnthropicOAuthCredentials } from './anthropic-oauth.mjs';
-import { GrokOAuthProvider, hasGrokOAuthCredentials } from './grok-oauth.mjs';
-import { OpenAIDirectProvider } from './openai-ws.mjs';
+import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
+import {
+    hasAnthropicOAuthCredentials,
+    hasOpenAIOAuthCredentials,
+    hasGrokOAuthCredentials,
+} from './oauth-credential-probes.mjs';
 import { refreshCatalog as refreshMetadataCatalog, warmModelMetadataCatalogs } from './model-catalog.mjs';
-// OpenAI-compat provider names are self-declared by openai-compat.mjs via
+// OpenAI-compat provider names are self-declared by openai-compat-presets.mjs via
 // OPENAI_COMPAT_PRESETS. No parallel list maintained here.
 const providers = new Map();
+const providerCtors = new Map();
+const providerModulePromises = new Map();
 // Parallel map: provider name -> signature of the config it was built from.
 // Lets initProviders() skip reconstructing a provider whose config is byte-for-
 // byte identical to the live one, so lazy-init misses that re-run initProviders
@@ -37,6 +37,39 @@ function configSignature(cfg) {
         return null;
     }
 }
+
+async function loadProviderExport(cacheKey, spec, exportName) {
+    if (!providerModulePromises.has(cacheKey)) {
+        providerModulePromises.set(cacheKey, import(spec));
+    }
+    const mod = await providerModulePromises.get(cacheKey);
+    const value = mod?.[exportName];
+    if (typeof value !== 'function') throw new Error(`provider export missing: ${exportName}`);
+    providerCtors.set(cacheKey, value);
+    return value;
+}
+
+async function loadProviderCtor(name) {
+    if (name === 'anthropic') return loadProviderExport('anthropic', './anthropic.mjs', 'AnthropicProvider');
+    if (name === 'gemini') return loadProviderExport('gemini', './gemini.mjs', 'GeminiProvider');
+    if (name === 'openai-oauth') return loadProviderExport('openai-oauth', './openai-oauth.mjs', 'OpenAIOAuthProvider');
+    if (name === 'anthropic-oauth') return loadProviderExport('anthropic-oauth', './anthropic-oauth.mjs', 'AnthropicOAuthProvider');
+    if (name === 'grok-oauth') return loadProviderExport('grok-oauth', './grok-oauth.mjs', 'GrokOAuthProvider');
+    if (name === 'openai') return loadProviderExport('openai', './openai-ws.mjs', 'OpenAIDirectProvider');
+    if (name === 'opencode-go') return loadProviderExport('opencode-go', './opencode-go.mjs', 'OpenCodeGoProvider');
+    if (Object.prototype.hasOwnProperty.call(OPENAI_COMPAT_PRESETS, name)) {
+        return loadProviderExport('openai-compat', './openai-compat.mjs', 'OpenAICompatProvider');
+    }
+    throw new Error(`unknown enabled provider: ${name}`);
+}
+
+function instantiateProvider(name, Ctor, cfg) {
+    if (Object.prototype.hasOwnProperty.call(OPENAI_COMPAT_PRESETS, name) && name !== 'opencode-go') {
+        return new Ctor(name, cfg);
+    }
+    return new Ctor(cfg);
+}
+
 export async function initProviders(config) {
     // Invariant: never wipe the live registry based on an empty / all-disabled
     // config. Without this guard, a stale `loadAgentConfig()` (e.g. mid-reload
@@ -51,54 +84,30 @@ export async function initProviders(config) {
     }
     const next = new Map();
     const nextSignatures = new Map();
-    for (const [name, cfg] of entries) {
-        if (!cfg.enabled)
-            continue;
+    const enabledResults = await Promise.all(entries.map(async ([name, cfg]) => {
+        if (!cfg.enabled) return null;
         // Idempotent reuse: an enabled provider whose config signature is
         // unchanged from the live registry is carried forward as-is. Only
         // added or changed providers are (re)constructed below.
         const sig = configSignature(cfg);
         if (sig !== null && providers.has(name) && signatures.get(name) === sig) {
-            next.set(name, providers.get(name));
-            nextSignatures.set(name, sig);
-            continue;
+            return { name, inst: providers.get(name), sig };
         }
         try {
-            let inst;
-            if (name === 'anthropic') {
-                inst = new AnthropicProvider(cfg);
-            }
-            else if (name === 'gemini') {
-                inst = new GeminiProvider(cfg);
-            }
-            else if (name === 'openai-oauth') {
-                inst = new OpenAIOAuthProvider(cfg);
-            }
-            else if (name === 'anthropic-oauth') {
-                inst = new AnthropicOAuthProvider(cfg);
-            }
-            else if (name === 'grok-oauth') {
-                inst = new GrokOAuthProvider(cfg);
-            }
-            else if (name === 'openai') {
-                inst = new OpenAIDirectProvider(cfg);
-            }
-            else if (name === 'opencode-go') {
-                inst = new OpenCodeGoProvider(cfg);
-            }
-            else if (Object.prototype.hasOwnProperty.call(OPENAI_COMPAT_PRESETS, name)) {
-                inst = new OpenAICompatProvider(name, cfg);
-            }
-            else {
-                throw new Error(`unknown enabled provider: ${name}`);
-            }
-            next.set(name, inst);
-            if (sig !== null) nextSignatures.set(name, sig);
+            const Ctor = await loadProviderCtor(name);
+            const inst = instantiateProvider(name, Ctor, cfg);
+            return { name, inst, sig };
         }
         catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            throw new Error(`[provider] Failed to init "${name}": ${msg}`);
+            return { name, error: new Error(`[provider] Failed to init "${name}": ${msg}`) };
         }
+    }));
+    for (const result of enabledResults) {
+        if (!result) continue;
+        if (result.error) throw result.error;
+        next.set(result.name, result.inst);
+        if (result.sig !== null) nextSignatures.set(result.name, result.sig);
     }
     // Second guard: every entry was disabled. Same reasoning — keep the
     // existing registry rather than going dark.
@@ -136,19 +145,27 @@ export function getProvider(name) {
     // failure) — initProviders then skipped the entry entirely so there is
     // nothing for the preservation guard to carry forward. Re-probe the
     // credential each miss: if the credential is now valid, register the
-    // instance on the spot so subsequent calls hit the cached entry.
+    // instance on the spot when that provider module has already been loaded,
+    // so subsequent calls hit the cached entry without making registry import
+    // pay every provider runtime at boot.
     if (name === 'anthropic-oauth' && hasAnthropicOAuthCredentials()) {
-        const inst = new AnthropicOAuthProvider({});
+        const Ctor = providerCtors.get('anthropic-oauth');
+        if (!Ctor) return undefined;
+        const inst = new Ctor({});
         providers.set(name, inst);
         return inst;
     }
     if (name === 'openai-oauth' && hasOpenAIOAuthCredentials()) {
-        const inst = new OpenAIOAuthProvider({});
+        const Ctor = providerCtors.get('openai-oauth');
+        if (!Ctor) return undefined;
+        const inst = new Ctor({});
         providers.set(name, inst);
         return inst;
     }
     if (name === 'grok-oauth' && hasGrokOAuthCredentials()) {
-        const inst = new GrokOAuthProvider({});
+        const Ctor = providerCtors.get('grok-oauth');
+        if (!Ctor) return undefined;
+        const inst = new Ctor({});
         providers.set(name, inst);
         return inst;
     }

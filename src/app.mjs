@@ -9,6 +9,13 @@ const FLAG_OPTIONS = new Set(['--readonly', '--help', '-h', '--plain', '--react'
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
 const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
 
+// Many independent singletons self-register a process 'exit' drain (session
+// store, bash sessions, search/memory state, bridge trace, channel worker, …),
+// which legitimately exceeds Node's default 10-listener warning threshold in a
+// fully-loaded runtime. Raise the cap once at the CLI entry so a benign
+// MaxListenersExceededWarning never leaks into the user's terminal.
+try { process.setMaxListeners(Math.max(process.getMaxListeners(), 64)); } catch { /* ignore */ }
+
 function bootProfile(event, fields = {}) {
   if (!BOOT_PROFILE_ENABLED) return;
   const elapsedMs = performance.now() - BOOT_PROFILE_START;

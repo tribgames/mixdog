@@ -19,13 +19,23 @@ import { Markdown, StreamingMarkdown } from './Markdown.jsx';
 import { THEREFORE } from '../figures.mjs';
 import { formatDuration } from '../time-format.mjs';
 
-export const AssistantMessage = React.memo(function AssistantMessage({ text, streaming = false }) {
+export const AssistantMessage = React.memo(function AssistantMessage({ text, streaming = false, columns = 80 }) {
+  // The body column needs an EXPLICIT numeric width. Without it, ink/Yoga
+  // measures the wrapped markdown body before the row's available width is
+  // resolved and caches its height as a single row — so a multi-line assistant
+  // message renders only its LAST wrapped line (the head lines are clipped) and
+  // streaming height jitters as the measure flips. Reserve the 2-col gutter
+  // (BLACK CIRCLE in minWidth={2}) plus one right-edge safety cell. Letting an
+  // assistant line reach the terminal's last column can auto-wrap/scroll on
+  // Windows Terminal/conhost and make the next redraw appear to lose leading
+  // CJK characters even though the backing transcript is intact.
+  const bodyWidth = Math.max(1, Number(columns || 80) - 3);
   return (
     <Box flexDirection="row" marginTop={1}>
       <Box flexShrink={0} minWidth={2}>
         <Text color={theme.text}>{TURN_MARKER}</Text>
       </Box>
-      <Box flexDirection="column" flexGrow={1}>
+      <Box flexDirection="column" flexShrink={0} width={bodyWidth}>
         {streaming ? <StreamingMarkdown>{text}</StreamingMarkdown> : <Markdown>{text}</Markdown>}
       </Box>
     </Box>

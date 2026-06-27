@@ -46,6 +46,11 @@ function hintStyle(tone) {
   return { textColor: theme.inactive };
 }
 
+// Windows Terminal IME composition can clip a glyph that starts exactly at the
+// left edge of the editable text node. Keep one blank cell before the rendered
+// text and move the hardware/IME cursor by the same amount.
+const IME_LEFT_GUARD_COLUMNS = 1;
+
 function insertText(draft, input) {
   if (!input) return draft;
   return replaceSelection(draft, input);
@@ -172,10 +177,15 @@ export function PromptInput({
       if (!cursorEnabledRef.current) return null;
       const d = draftRef.current;
       const w = yogaNode?.getComputedWidth?.() ?? 0;
-      contentWidthRef.current = Math.max(1, w || contentWidthRef.current || 80);
-      return w > 0
-        ? caretPosition(d.value, d.cursor, w)
+      const guardColumns = w > IME_LEFT_GUARD_COLUMNS ? IME_LEFT_GUARD_COLUMNS : 0;
+      const contentWidth = Math.max(1, (w ? w - guardColumns : contentWidthRef.current) || 80);
+      contentWidthRef.current = contentWidth;
+      const caret = w > 0
+        ? caretPosition(d.value, d.cursor, contentWidth)
         : { row: 0, col: stringWidth(d.value.slice(0, d.cursor)) };
+      return w > 0
+        ? { ...caret, col: caret.col + guardColumns }
+        : caret;
     };
     return true;
   };
@@ -590,6 +600,7 @@ export function PromptInput({
 
   return (
     <Box ref={boxRef} flexDirection="row" flexGrow={1} flexShrink={1} backgroundColor={theme.background}>
+      <Box width={IME_LEFT_GUARD_COLUMNS} flexShrink={0} backgroundColor={theme.background} />
       <Text color={theme.text} wrap="hard">{renderedValue}</Text>
       {!value && hint ? (
         <Box marginLeft={-1}>

@@ -92,9 +92,19 @@ export function getLlmDispatcher() {
   return _globalInstalled ? undefined : _agent
 }
 
-// Origins already warmed (or warming) this process, so repeated provider
-// construction or multiple providers on the same host don't spam handshakes.
-const _preconnected = new Set()
+// Origins warmed (or warming) recently, with the timestamp of the last warm.
+// A time-based gate (instead of a permanent Set) lets us RE-warm a socket once
+// the kept-alive window has lapsed: a one-shot warm at provider construction
+// went cold after keepAliveTimeout (~60s idle between turns), so the first
+// request after a pause paid the full TLS handshake again. Re-warming just
+// before a turn keeps the hot-path send on a live socket.
+const _preconnectedAt = new Map()
+// Re-warm cadence: slightly below the keep-alive window so a socket is renewed
+// before it can lapse. Capped so an explicit short keepAlive still re-warms.
+function _preconnectTtlMs() {
+  const keepAlive = envInt('MIXDOG_LLM_KEEPALIVE_MS', 60_000)
+  return Math.max(5_000, keepAlive - 10_000)
+}
 
 /**
  * Best-effort warm a kept-alive socket to `origin` so the first real request
@@ -113,8 +123,10 @@ export function preconnect(origin) {
     try { url = new URL(origin) } catch { return }
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return
     const key = url.origin
-    if (_preconnected.has(key)) return
-    _preconnected.add(key)
+    const now = Date.now()
+    const last = _preconnectedAt.get(key) || 0
+    if (now - last < _preconnectTtlMs()) return
+    _preconnectedAt.set(key, now)
     // A throwaway HEAD lands a pooled socket without fetching a body. Any
     // failure (offline, DNS, 4xx/5xx) is irrelevant — the handshake is the
     // point, and the real request will surface genuine errors.
@@ -124,6 +136,10 @@ export function preconnect(origin) {
       signal: AbortSignal.timeout(10_000),
     })
       .then((res) => res.body?.dump?.())
-      .catch(() => { /* best-effort warmup; ignore */ })
+      .catch(() => {
+        // Warm failed — clear the timestamp so the next call can retry instead
+        // of waiting out the full TTL on a connection that never landed.
+        _preconnectedAt.delete(key)
+      })
   } catch { /* never let warmup break construction */ }
 }

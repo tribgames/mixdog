@@ -282,11 +282,4 @@ async function _executeDiagnosticsImpl(args, workDir) {
     }
 }
 
-function _isDir(p, workDir) {
-    try {
-        const abs = isAbsolute(p) ? p : pathResolve(workDir, p);
-        return statSync(abs).isDirectory();
-    } catch { return false; }
-}
-
 export default executeDiagnosticsTool;

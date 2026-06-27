@@ -12,6 +12,15 @@ import { ensureGraphBinary, findCachedGraphBinary } from './graph-binary-fetcher
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from './code-graph-tool-defs.mjs';
 import { markScopedCacheIncomplete } from '../session/cache/scoped-cache-outcome.mjs';
+import {
+  canonicalGraphCwd as _canonicalGraphCwd,
+  codeGraphCache as _codeGraphCache,
+  consumeCodeGraphDirtyPaths as _consumeCodeGraphDirtyPaths,
+  drainCodeGraphCache as drainCodeGraphCacheState,
+  getCodeGraphGen as _getCodeGraphGen,
+  registerCodeGraphDrain,
+} from './code-graph-state.mjs';
+export { markCodeGraphDirtyPaths } from './code-graph-state.mjs';
 
 const CODE_GRAPH_TTL_MS = 30_000;
 const CODE_GRAPH_MAX_FILES = 10_000;
@@ -37,9 +46,7 @@ const CODE_GRAPH_MEMORY_MAX_SOURCE_BYTES = Math.max(
   1 * 1024 * 1024,
   Math.floor((Number(process.env.MIXDOG_CODE_GRAPH_MEMORY_MAX_MB) || 48) * 1024 * 1024),
 );
-const _codeGraphCache = new Map();
 const _diskCodeGraphCache = new Map();
-const _codeGraphDirtyPaths = new Map();
 let _diskCodeGraphCacheLoaded = false;
 let _diskCodeGraphCacheFlushTimer = null;
 // Per-cwd manifest read at boot; per-cwd entries load on demand via
@@ -51,22 +58,6 @@ let _diskManifest = null;
 // spawn instead of fanning out. Entry removed on settle so the next caller
 // after a failure can retry.
 const _inflightAsyncBuilds = new Map();
-// Dirty-generation guard. markCodeGraphDirtyPaths() bumps the per-cwd
-// counter every time a write invalidates a root. A build captures the
-// generation at start and only commits its result (in-memory + disk) if
-// the generation is unchanged on completion. An in-flight worker build
-// that started BEFORE a write would otherwise repopulate _codeGraphCache
-// with the stale pre-edit graph AFTER markCodeGraphDirtyPaths cleared it,
-// and the TTL fast path would then serve that stale graph for up to
-// CODE_GRAPH_TTL_MS.
-const _codeGraphDirtyGen = new Map();
-function _getCodeGraphGen(graphCwd) {
-  return _codeGraphDirtyGen.get(graphCwd) || 0;
-}
-function _bumpCodeGraphGen(graphCwd) {
-  _codeGraphDirtyGen.set(graphCwd, (_codeGraphDirtyGen.get(graphCwd) || 0) + 1);
-}
-
 function _codeGraphDiskDir() {
   return join(getPluginData(), CODE_GRAPH_DISK_DIR);
 }
@@ -114,17 +105,6 @@ function _migrateLegacyDiskCache() {
   } catch (err) {
     process.stderr.write(`[code-graph] legacy cache migration failed: ${err?.message || err}\n`);
   }
-}
-
-function _canonicalGraphCwd(cwd) {
-  if (!cwd) throw new Error('code_graph requires cwd — caller did not provide a working directory');
-  const full = pathResolve(cwd);
-  return process.platform === 'win32' ? full.toLowerCase() : full;
-}
-
-function _canonicalGraphPath(p) {
-  const full = pathResolve(String(p || ''));
-  return process.platform === 'win32' ? full.toLowerCase() : full;
 }
 
 // Bump when the per-symbol record SHAPE changes (e.g. adding endLine). The
@@ -540,12 +520,16 @@ function _scheduleDiskCodeGraphCacheFlush() {
  * Cancels the 250ms scheduled-flush timer and runs _persistDiskCodeGraphCacheNow
  * directly so newly-built graphs land on disk regardless of exit timing.
  */
-export function drainCodeGraphCache() {
+function drainCodeGraphCacheNow() {
   if (_diskCodeGraphCacheFlushTimer) {
     clearTimeout(_diskCodeGraphCacheFlushTimer);
     _diskCodeGraphCacheFlushTimer = null;
     _persistDiskCodeGraphCacheNow();
   }
+}
+registerCodeGraphDrain(drainCodeGraphCacheNow);
+export function drainCodeGraphCache() {
+  drainCodeGraphCacheState();
 }
 
 /**
@@ -723,66 +707,6 @@ function _setDiskCodeGraphEntry(cwd, graph) {
   _scheduleDiskCodeGraphCacheFlush();
 }
 
-// P0: accept absolute written paths only; resolve affected indexed roots centrally.
-// Callers pass absolute paths only — no cwd parameter.
-export function markCodeGraphDirtyPaths(paths) {
-  const values = Array.isArray(paths) ? paths : [paths];
-  const cleaned = values
-    .filter(Boolean)
-    .map((p) => _canonicalGraphPath(p));
-  if (cleaned.length === 0) return;
-  // Mark every known indexed root that contains any of the written paths.
-  const knownRoots = new Set([..._codeGraphDirtyPaths.keys(), ..._codeGraphCache.keys()]);
-  const affectedRoots = new Set();
-  for (const absPath of cleaned) {
-    // P0: per-path tracking. Previous logic used the global affectedRoots.size,
-    // which meant once any earlier path matched an indexed root, every later
-    // unmatched path skipped the ancestor-chain derivation entirely.
-    let matchedThisPath = false;
-    for (const root of knownRoots) {
-      const canonRoot = _canonicalGraphPath(root);
-      if (absPath.startsWith(canonRoot + '/') || absPath.startsWith(canonRoot + '\\') || absPath === canonRoot) {
-        affectedRoots.add(root);
-        matchedThisPath = true;
-      }
-    }
-    // Derive project root from file's ancestor chain when this specific path
-    // matched no indexed root.
-    if (!matchedThisPath) {
-      let dir = dirname(absPath);
-      while (dir && dir !== dirname(dir)) {
-        if (existsSync(join(dir, 'package.json')) || existsSync(join(dir, '.git'))) {
-          affectedRoots.add(_canonicalGraphCwd(dir));
-          break;
-        }
-        dir = dirname(dir);
-      }
-    }
-  }
-  for (const root of affectedRoots) {
-    if (!_codeGraphDirtyPaths.has(root)) _codeGraphDirtyPaths.set(root, new Set());
-    const set = _codeGraphDirtyPaths.get(root);
-    for (const p of cleaned) set.add(p);
-    // P0: invalidate the in-memory TTL cache entry for any root that just
-    // received dirty paths. Otherwise buildCodeGraphAsync's TTL fast path
-    // returns the stale pre-edit graph for up to CODE_GRAPH_TTL_MS (30s)
-    // after every write, ignoring the dirty queue entirely.
-    const _canonRoot = _canonicalGraphCwd(root);
-    _codeGraphCache.delete(_canonRoot);
-    // Bump the dirty generation so any build that started before this
-    // write drops its now-stale result instead of repopulating the cache.
-    _bumpCodeGraphGen(_canonRoot);
-  }
-}
-
-function _consumeCodeGraphDirtyPaths(cwd) {
-  const key = _canonicalGraphCwd(cwd);
-  const set = _codeGraphDirtyPaths.get(key);
-  if (!set || set.size === 0) return [];
-  _codeGraphDirtyPaths.delete(key);
-  return [...set];
-}
-
 // Unicode-aware word-boundary wrapper for an already-regex-escaped
 // symbol. JS `\b` only fires at ASCII [A-Za-z0-9_] transitions, so
 // CJK / Cyrillic / Greek identifiers never matched the legacy shape.
@@ -820,14 +744,6 @@ function _getTokenSymbolsForNode(graph, node) {
   const tokens = _extractIdentifierTokens(text, node.lang);
   node.tokenSymbols = tokens;
   return tokens;
-}
-
-function _cloneSymbolTokenIndex(index) {
-  const out = new Map();
-  for (const [key, rels] of index || []) {
-    out.set(key, Array.isArray(rels) ? [...rels] : []);
-  }
-  return out;
 }
 
 // Legacy full-index builder. Kept callable for explicit prewarms, but
@@ -1474,19 +1390,6 @@ function _maskNonCodeText(text, lang) {
     i++;
   }
   return out.join('');
-}
-
-function _symbolMatchIndices(text, symbol, lang) {
-  const escaped = String(symbol || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  if (!escaped) return [];
-  const masked = _maskNonCodeText(text, lang);
-  const re = new RegExp(_unicodeBoundaryPattern(escaped, lang, symbol), 'gu');
-  const indices = [];
-  let match = null;
-  while ((match = re.exec(masked))) {
-    indices.push(match.index);
-  }
-  return indices;
 }
 
 function _getSourceTextForNode(graph, node, fallbackText = null) {
@@ -2446,11 +2349,6 @@ function _searchSymbolsByKeyword(graph, keyword, cwd, { language = null, limit =
   if (graph?.truncated) {
     lines.push(`WARN: graph truncated at CODE_GRAPH_MAX_FILES=${CODE_GRAPH_MAX_FILES} — matches may be incomplete. Re-run with a narrower cwd.`);
   }
-  // Sufficiency steer: this listing IS the symbol index. The next step is a
-  // STRUCTURED find_symbol on the best match (body:true → location + full body
-  // in ONE call), NOT a grep/read sweep across the matches. Once find_symbol
-  // answers the question, report.
-  lines.push(`# NEXT — pick the row that best fits and find_symbol it (body:true returns its location + full body in one call). These are the index; do NOT grep/read to hunt. If find_symbol answers it, report.`);
   return lines.join('\n');
 }
 
@@ -2649,21 +2547,6 @@ function _resolveReferenceLanguageNode(graph, symbol, rel, cwd, language = null)
   return node
     ? { kind: 'ok', node, file: node.rel }
     : { kind: 'symbol-not-present', node: null, file: null };
-}
-
-function _collapseReferenceLinesToCallers(referenceText) {
-  if (typeof referenceText !== 'string' || !referenceText.trim() || referenceText === '(no references)') {
-    return '(no callers)';
-  }
-  const files = new Set();
-  for (const line of referenceText.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const m = /^(.+?):\d+:\d+(?:[\s\t]+.*)?$/.exec(trimmed);
-    if (m) files.add(m[1]);
-  }
-  if (files.size === 0) return '(no callers)';
-  return [...files].sort().join('\n');
 }
 
 function _referenceKind(line, symbol, lang = null) {
@@ -2954,20 +2837,6 @@ function _formatTransitiveCallers(graph, rootSymbol, cwd, { language = null, dep
     lines.push(`# END — complete caller set delivered (page ${pg} of ${lastPage}): named callers PLUS timer/event/module-level call sites (the «…» leaves), each with file:line. No further callers/grep/read is needed.`);
   }
   return lines.join('\n');
-}
-
-function _referenceFiles(referenceText) {
-  if (typeof referenceText !== 'string' || !referenceText.trim() || referenceText === '(no references)') {
-    return [];
-  }
-  const files = new Set();
-  for (const line of referenceText.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const m = /^(.+?):\d+:\d+(?:[\s\t]+.*)?$/.exec(trimmed);
-    if (m) files.add(m[1]);
-  }
-  return [...files].sort();
 }
 
 function _parseReferenceEntries(referenceText) {

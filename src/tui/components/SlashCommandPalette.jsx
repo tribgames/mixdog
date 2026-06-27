@@ -43,7 +43,7 @@ function queryMatchesAlias(command, query) {
 
 function commandDisplayLabel(command, query) {
   const usage = String(command?.usage || command?.name || '').replace(/^\/+/, '');
-  const aliasText = queryMatchesAlias(command, query) && Array.isArray(command?.aliasUsage) && command.aliasUsage.length > 0
+  const aliasText = command?.showAliasUsage !== false && queryMatchesAlias(command, query) && Array.isArray(command?.aliasUsage) && command.aliasUsage.length > 0
     ? ` (${command.aliasUsage.join(', ')})`
     : '';
   const label = ACRONYM_LABELS.get(usage.toLowerCase()) || (usage ? `${usage.charAt(0).toUpperCase()}${usage.slice(1)}` : usage);

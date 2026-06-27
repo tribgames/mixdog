@@ -74,15 +74,17 @@ function updateConfigProvider(cfgMod, providerId, patch) {
   return cfgMod.loadConfig();
 }
 
-export async function providerSetup(config = {}) {
+export async function providerSetup(config = {}, options = {}) {
   const providers = config.providers || {};
+  const detectLocal = options?.detectLocal !== false;
+  const checkSecrets = options?.checkSecrets !== false;
   const api = API_PROVIDERS.map((p) => {
     const configured = providers[p.id] || {};
     const envName = AGENT_PROVIDER_ENV[p.id] || p.env;
     const env = Boolean(envName && process.env[envName]);
     const configuredEnabled = configured.enabled === true;
-    const stored = hasStoredSecret(SECRET_ACCOUNTS.agentApiKey(p.id));
-    const authenticated = env || stored || Boolean(getAgentApiKey(p.id));
+    const stored = checkSecrets ? hasStoredSecret(SECRET_ACCOUNTS.agentApiKey(p.id)) : false;
+    const authenticated = env || stored || (checkSecrets ? Boolean(getAgentApiKey(p.id)) : configuredEnabled);
     return {
       ...p,
       group: 'api',
@@ -98,11 +100,17 @@ export async function providerSetup(config = {}) {
   });
 
   const oauth = OAUTH_PROVIDERS.map((p) => {
-    const auth = typeof p.describe === 'function'
-      ? p.describe()
-      : { authenticated: Boolean(p.has()), status: Boolean(p.has()) ? 'Set' : 'Not Set', detail: p.desc };
-    const authenticated = Boolean(auth.authenticated);
     const configured = providers[p.id] || {};
+    const auth = checkSecrets
+      ? (typeof p.describe === 'function'
+        ? p.describe()
+        : { authenticated: Boolean(p.has()), status: Boolean(p.has()) ? 'Set' : 'Not Set', detail: p.desc })
+      : {
+        authenticated: configured.enabled === true,
+        status: configured.enabled === true ? 'Enabled' : 'Not Set',
+        detail: p.desc,
+      };
+    const authenticated = Boolean(auth.authenticated);
     return {
       id: p.id,
       name: p.name,
@@ -120,7 +128,7 @@ export async function providerSetup(config = {}) {
   const local = await Promise.all(LOCAL_PROVIDERS.map(async (p) => {
     const configured = providers[p.id] || {};
     const baseURL = configured.baseURL || p.url;
-    const detected = await detectLocalProvider(baseURL);
+    const detected = detectLocal ? await detectLocalProvider(baseURL) : false;
     const enabled = configured.enabled === true;
     return {
       id: p.id,

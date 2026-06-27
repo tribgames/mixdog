@@ -683,6 +683,9 @@ export class GrokOAuthProvider {
     }
 
     async send(messages, model, tools, sendOpts) {
+        // Re-warm a kept-alive socket before the turn (TTL-gated no-op while
+        // hot) so a post-idle request skips the cold TLS handshake.
+        preconnect(INFERENCE_BASE_URL);
         const useModel = normalizeGrokModelId(
             model || await ensureLatestGrokModel(this),
         );

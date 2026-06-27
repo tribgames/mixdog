@@ -7,14 +7,22 @@ function __mixdogMemoryLog(...args) {
 import { parentPort } from 'worker_threads'
 import { createRequire } from 'module'
 import { join } from 'path'
-import { pathToFileURL } from 'url'
 import { mkdirSync } from 'fs'
 import os from 'os'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import {
+  getConfiguredEmbeddingModelId,
+  getDefaultEmbeddingDevice,
+  getDefaultEmbeddingDtype,
+  getEmbeddingModelLoadOptions,
+  normalizeEmbeddingDtype,
+} from './embedding-model-config.mjs'
 
-const MODEL_ID = 'Xenova/bge-m3'
-const DEFAULT_DTYPE = 'q4'
+const MODEL_ID = getConfiguredEmbeddingModelId()
+const DEFAULT_DEVICE = getDefaultEmbeddingDevice(MODEL_ID)
+const DEFAULT_DTYPE = getDefaultEmbeddingDtype(MODEL_ID)
+const MODEL_LOAD_OPTIONS = getEmbeddingModelLoadOptions(MODEL_ID)
 const INTRA_OP_THREADS = 1
 const INTER_OP_THREADS = 1
 // Session-create graph optimization. ORT defaults to 'all' (full node fusion),
@@ -92,8 +100,8 @@ function patchOrtThreads() {
     const require = createRequire(import.meta.url)
     let ort = null
     try {
-      const transformersPkg = require.resolve('@huggingface/transformers/package.json')
-      const transformersRequire = createRequire(pathToFileURL(transformersPkg))
+      const transformersEntry = require.resolve('@huggingface/transformers')
+      const transformersRequire = createRequire(transformersEntry)
       ort = transformersRequire('onnxruntime-node')
     } catch {
       ort = require('onnxruntime-node')
@@ -129,12 +137,13 @@ async function loadExtractor() {
       env.cacheDir = MODEL_CACHE_DIR
       try { env.backends.onnx.wasm.numThreads = INTRA_OP_THREADS } catch {}
       const opts = {}
-      if (configuredDtype && configuredDtype !== 'fp32') {
+      Object.assign(opts, MODEL_LOAD_OPTIONS)
+      if (configuredDtype) {
         opts.dtype = configuredDtype
       }
       const startMs = Date.now()
       let extractor
-      const requestedDevice = String(process.env.MIXDOG_MEMORY_EMBED_DEVICE || 'auto').trim().toLowerCase()
+      const requestedDevice = String(process.env.MIXDOG_MEMORY_EMBED_DEVICE || DEFAULT_DEVICE).trim().toLowerCase()
       const preferGpu = requestedDevice === 'dml'
         || requestedDevice === 'gpu'
         || (requestedDevice === 'auto' && process.platform === 'win32')
@@ -268,8 +277,7 @@ async function processMessage(msg) {
         _embedInFlight = true
         if (_idleTimer) { clearTimeout(_idleTimer); _idleTimer = null }
         if (msg.dtype != null) {
-          const dt = String(msg.dtype).trim().toLowerCase()
-          configuredDtype = ['fp32', 'fp16', 'q8', 'q4'].includes(dt) ? dt : DEFAULT_DTYPE
+          configuredDtype = normalizeEmbeddingDtype(MODEL_ID, msg.dtype)
         }
         if (extractorPromise) {
           try {

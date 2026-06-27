@@ -3,6 +3,10 @@ import { homedir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { maxMtime, maxMtimeRecursive } from '../cache-mtime.mjs';
 import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
+import {
+    parseMarkdownFrontmatter,
+    readMarkdownDocument,
+} from '../../../shared/markdown-frontmatter.mjs';
 
 // --- mixdog asset roots (standalone CLI owns its own paths; never .claude) ---
 // Project-local:  <cwd>/.mixdog/<kind>
@@ -29,12 +33,9 @@ function mixdogAssetDirs(projectDir, kind) {
     dirs.push(mixdogGlobalDir(kind));
     return dirs;
 }
-// Built-in role-identity defaults for the well-known PUBLIC bridge roles.
-// Mirrors setup.html's WF_DEFAULT_ROLE_IDENTITY so the role-identity feature
-// works on a fresh install (no roles/<role>.md on disk) without forcing the
-// user to open the config UI first. A saved custom body in roles/<role>.md
-// always overrides these; unknown and hidden roles are absent here and so
-// inject nothing, leaving hidden roles fully Mixdog-managed.
+// Built-in fallback identity for the well-known public agent roles. Agent
+// markdown (project/global/built-in AGENT.md) wins; this only covers missing
+// custom agent docs so a fresh install still has useful role identity.
 export const DEFAULT_ROLE_IDENTITY = {
     'explore': 'You are an exploration agent. Your job is to map the codebase, narrow vague requests into concrete files or symbols, and return concise leads. Do not edit files.',
     'maintainer': 'You are a maintenance agent. Your job is to handle upkeep, cleanup audits, and background health work without occupying the Lead. Return final state, risks, and follow-up needs.',
@@ -82,18 +83,27 @@ export function loadAgentTemplate(name, cwd) {
     // missing the project entry is skipped; the global dir still applies so the
     // "no template found → null" contract is preserved via the readSafe loop.
     const agentDirs = mixdogAssetDirs(projectDir, 'agents');
-    const searchPaths = agentDirs.map((dir) => join(dir, `${name}.md`));
+    const pluginRoot = mixdogRoot();
+    const builtinAgentsDir = pluginRoot ? join(pluginRoot, 'agents') : null;
+    const searchPaths = uniquePaths([
+        ...agentDirs.flatMap((dir) => [
+            join(dir, `${name}.md`),
+            join(dir, name, 'AGENT.md'),
+        ]),
+        ...(builtinAgentsDir ? [
+            join(builtinAgentsDir, `${name}.md`),
+            join(builtinAgentsDir, name, 'AGENT.md'),
+        ] : []),
+    ]);
     // Freshness gate: the same agents/ dirs that hold the files.
-    const mtimePaths = [...agentDirs];
+    const mtimePaths = builtinAgentsDir ? [...agentDirs, builtinAgentsDir] : [...agentDirs];
     const mtime = maxMtimeRecursive(mtimePaths);
     const cached = _agentTemplateCache.get(key);
     if (cached && mtime <= cached.mtime) return cached.value;
     for (const p of searchPaths) {
         const content = readSafe(p);
         if (content) {
-            // Strip YAML frontmatter
-            const stripped = content.replace(/^---\n[\s\S]*?\n---\n*/, '');
-            const body = stripped.trim();
+            const { body } = readMarkdownDocument(content);
             _agentTemplateCache.set(key, { mtime, value: body });
             return body;
         }
@@ -130,7 +140,7 @@ export function collectSkills(cwd) {
                 const content = readSafe(filePath);
                 if (!content)
                     continue;
-                const fm = parseFrontmatter(content);
+                const fm = parseMarkdownFrontmatter(content);
                 if (!fm.name)
                     continue;
                 if (seen.has(fm.name))
@@ -335,60 +345,9 @@ export function collectMixdogMd(cwd) {
     return value;
 }
 
-// --- Role template loading (Phase B §4 — UI-managed) ---
-/**
- * Read <dataDir>/roles/<role>.md, parse frontmatter (name, description,
- * permission) and body. Returns { description, permission, body } or null.
- *
- * The role md is created/edited from the Config UI; runtime parses it on
- * each spawn and injects the result into the Tier 3 system-reminder via
- * composeSystemPrompt's `roleTemplate` slot.
- */
-// Role template cache — mtime-invalidated so UI edits are visible
-// on the very next createSession call without any TTL delay.
-const _roleTemplateCache = new Map();
-export function loadRoleTemplate(role, dataDir) {
-    if (!role || !dataDir) return null;
-    // Hidden/internal roles are Mixdog-managed and must never read a
-    // DATA_DIR/roles/<hidden>.md file: explorer and the maintenance roles get
-    // their identity from hidden rules only, so a stray file on disk must be
-    // ignored entirely (no body, no permission/description metadata).
-    if (isHiddenRole(role)) return null;
-    const key = `${role}|${dataDir}`;
-    const path = join(dataDir, 'roles', `${role}.md`);
-    const mtime = maxMtime([path]);
-    const cached = _roleTemplateCache.get(key);
-    if (cached && mtime <= cached.mtime) return cached.value;
-    // Absent vs present-but-empty: built-in default identity applies ONLY when
-    // the role file is ABSENT (loadRoleTemplate returns null). A file that
-    // exists — even frontmatter-only or with an empty body — returns a template
-    // so composeSystemPrompt injects its (possibly empty) body verbatim instead
-    // of falling back to the default.
-    if (!existsSync(path)) {
-        _roleTemplateCache.set(key, { mtime, value: null });
-        return null;
-    }
-    const content = readSafe(path) || '';
-    const fm = parseFrontmatter(content);
-    const body = content.replace(/^---\n[\s\S]*?\n---\n*/, '').trim();
-    const description = (fm.description || '').trim();
-    const rawPermission = (fm.permission || '').trim().toLowerCase();
-    const VALID_ROLE_PERMISSIONS = new Set(['read', 'read-write', 'mcp', 'full']);
-    // Fail closed: unknown permission values are rejected rather than silently
-    // falling through as full access.
-    const permission = VALID_ROLE_PERMISSIONS.has(rawPermission) ? rawPermission : null;
-    const template = {
-        description: description || null,
-        permission,
-        body: body || null,
-    };
-    _roleTemplateCache.set(key, { mtime, value: template });
-    return template;
-}
-
 // --- Role-scoped catalog loader ---
 // Emits a BP2 block scoped to the calling role:
-//   - Public/custom bridge agents: their own agents/<role>.md when present,
+//   - Public/custom agents: their own agents/<role>.md when present,
 //     plus the public bridge-worker contract.
 //   - Hidden roles: their own rules/bridge/<role>.md section only.
 //   - Null role: falls back to the full all-in-one block
@@ -421,6 +380,14 @@ function loadRoleClassification() {
 }
 
 const _scopedRoleCatalogCache = new Map();
+// Short-TTL gate for the catalog freshness stat. loadScopedRoleCatalog() ran
+// maxMtimeRecursive() over agents/ + rules/bridge/ on EVERY call (many per
+// turn across roles), so even a warm cache paid dozens of statSync per turn.
+// Mirror collectSkillsCached(): only re-stat after _CATALOG_MTIME_TTL_MS, and
+// trust the cached mtime within that window. Edits still propagate within ~1
+// stat interval, which is well under human-perceptible latency.
+const _scopedRoleCatalogMtimeCache = new Map();
+const _CATALOG_MTIME_TTL_MS = 2000;
 
 function loadHiddenRoleSnippets(pluginRoot) {
     try {
@@ -433,7 +400,7 @@ function loadHiddenRoleSnippets(pluginRoot) {
         for (const f of files) {
             const raw = readSafe(join(bridgeDir, f));
             if (!raw) continue;
-            const body = raw.replace(/^---\n[\s\S]*?\n---\n*/, '').trim();
+            const { body } = readMarkdownDocument(raw);
             if (!body) continue;
             const name = f.replace(/^\d+-/, '').replace(/\.md$/, '');
             pairs.push({ name, body });
@@ -454,7 +421,7 @@ function loadAgentSections(pluginRoot) {
     for (const f of files) {
         const raw = readSafe(join(agentsDir, f));
         if (!raw) continue;
-        const body = raw.replace(/^---\n[\s\S]*?\n---\n*/, '').trim();
+        const { body } = readMarkdownDocument(raw);
         if (!body) continue;
         const name = f.replace(/\.md$/, '');
         agentSections.push(`## ${name}\n\n${body}`);
@@ -490,12 +457,26 @@ export function loadScopedRoleCatalog(role, provider = null) {
     const pluginRoot = mixdogRoot();
     // Use maxMtimeRecursive so edits to .md files inside agents/ and
     // rules/bridge/ propagate — parent dir mtime is unchanged on
-    // Linux/macOS when only a nested file's content changes.
-    const mtime = pluginRoot ? maxMtimeRecursive([
-        join(pluginRoot, 'agents'),
-        join(pluginRoot, 'rules', 'bridge'),
-        join(pluginRoot, 'defaults', 'hidden-roles.json'),
-    ]) : 0;
+    // Linux/macOS when only a nested file's content changes. Gate the stat
+    // behind a short TTL so repeated same-turn calls reuse the last mtime
+    // instead of re-walking the trees on every invocation.
+    let mtime = 0;
+    if (pluginRoot) {
+        const mtimeCached = _scopedRoleCatalogMtimeCache.get(cacheKey);
+        if (mtimeCached && Date.now() - mtimeCached.checkedAt < _CATALOG_MTIME_TTL_MS) {
+            mtime = mtimeCached.mtime;
+        } else {
+            mtime = maxMtimeRecursive([
+                join(pluginRoot, 'agents'),
+                join(pluginRoot, 'rules', 'bridge'),
+                join(pluginRoot, 'defaults', 'hidden-roles.json'),
+            ]);
+            _scopedRoleCatalogMtimeCache.set(cacheKey, { mtime, checkedAt: Date.now() });
+            if (_scopedRoleCatalogMtimeCache.size > 16) {
+                _scopedRoleCatalogMtimeCache.delete(_scopedRoleCatalogMtimeCache.keys().next().value);
+            }
+        }
+    }
     if (cached && mtime <= cached.mtime) {
         return cached.value;
     }
@@ -550,7 +531,7 @@ export function loadScopedRoleCatalog(role, provider = null) {
             }
             // Inbound-event roles also need the skip-protocol rule so they
             // can opt their no-op outputs out of the Lead inject (BP1 would
-            // waste the bytes on unrelated bridge agents).
+            // waste the bytes on unrelated agents).
             if (roleIsInboundEvent) {
                 const skip = hiddenPairs.find(p => p.name === 'skip-protocol');
                 if (skip) bridgeRuleSectionsToEmit.push(`## ${skip.name}\n\n${skip.body}`);
@@ -612,7 +593,7 @@ export function loadScopedRoleCatalog(role, provider = null) {
 //   - opts.projectContext : mixdog.md user/project context, when present
 //   - opts.workflowContext : active workflow + agent catalog, captured at session start
 //   - opts.workspaceContext : cwd + project list snapshot, captured at session start
-//   - opts.role           : role name from user-workflow.json or hidden-role registry
+//   - opts.role           : agent role name or hidden-role registry name
 //   - opts.agentTemplate  : agents/<role>.md body when authored
 //   - opts.taskBrief      : Lead-issued task description (Sub only)
 //   - opts.hasSkills      : true → skills_list hint
@@ -675,7 +656,7 @@ export function composeSystemPrompt(opts) {
     if (opts.role && !opts.skipRoleReminder) {
         volatileParts.push('# role\n' + opts.role);
     }
-    const permission = opts.permission || opts.roleTemplate?.permission || null;
+    const permission = opts.permission || null;
     const permissionName = typeof permission === 'string'
         ? permission.trim().toLowerCase()
         : '';
@@ -684,13 +665,15 @@ export function composeSystemPrompt(opts) {
         let allow =
             permission === 'read'
                 ? 'read-only; apply_patch/shell rejected'
-                : permission === 'read-write'
-                    ? 'read + apply_patch/shell'
-                    : permission === 'mcp'
-                        ? 'MCP/internal retrieval tools only; file/shell mutation tools rejected'
-                    : permission === 'full'
-                        ? 'full — all tools'
-                        : 'unknown — treat as read-only';
+                : permission === 'none'
+                    ? 'no tools exposed; tool calls rejected'
+                    : permission === 'read-write'
+                        ? 'read + apply_patch/shell'
+                        : permission === 'mcp'
+                            ? 'MCP/internal retrieval tools only; file/shell mutation tools rejected'
+                            : permission === 'full'
+                                ? 'full — all tools'
+                                : 'unknown — treat as read-only';
         if (permission && typeof permission === 'object') {
             const allowList = Array.isArray(permission.allow)
                 ? permission.allow.map(v => String(v || '').trim()).filter(Boolean)
@@ -710,27 +693,12 @@ export function composeSystemPrompt(opts) {
         }
         volatileParts.push(`permission: ${permissionLabel} — ${allow}.`);
     }
-    // Role identity — the role template body (DATA_DIR/roles/<role>.md, edited
-    // in the config UI's Custom Workflow panel) is injected immediately ABOVE
-    // the task brief and labelled so the model reads "who am I" before "what to
-    // do". Empty/absent bodies (legacy role files, hidden roles without a
-    // roles/<name>.md) contribute nothing, preserving backward compatibility.
-    //
-    // Default install has no roles/<role>.md on disk, so loadRoleTemplate
-    // returns null and a public role would otherwise get NO identity. Fall back
-    // to the built-in default identity for the well-known public roles (kept in
-    // sync with setup.html's WF_DEFAULT_ROLE_IDENTITY) so the feature works out
-    // of the box; a saved custom body always wins, and unknown/hidden roles get
-    // nothing (hidden roles stay Mixdog-managed via their systemFile rules).
-    //
-    // Absent vs present-but-empty: when opts.roleTemplate is defined the role
-    // file EXISTS on disk — its body (possibly empty for a frontmatter-only or
-    // intentionally blanked file) is authoritative and the built-in default is
-    // NOT applied. The default applies only when roleTemplate is absent
-    // (undefined) — i.e. no role file at all.
-    const roleIdentity = opts.roleTemplate
-        ? String(opts.roleTemplate.body || '').trim()
-        : (DEFAULT_ROLE_IDENTITY[String(opts.role || '').trim().toLowerCase()] || '');
+    // Role identity comes from agent markdown. Custom project/global agent docs
+    // and built-in AGENT.md bodies all use the same frontmatter parser; fallback
+    // identity only covers missing public-agent docs.
+    const roleIdentity = String(opts.agentTemplate || '').trim()
+        || DEFAULT_ROLE_IDENTITY[String(opts.role || '').trim().toLowerCase()]
+        || '';
     if (roleIdentity) {
         volatileParts.push('# role-identity\n' + roleIdentity);
     }
@@ -762,16 +730,6 @@ function readSafe(path) {
     catch {
         return null;
     }
-}
-function parseFrontmatter(content) {
-    const match = content.match(/^---\n([\s\S]*?)\n---/);
-    if (!match)
-        return {};
-    const fm = match[1];
-    const name = fm.match(/^name:\s*["']?(.+?)["']?\s*$/m)?.[1]?.trim();
-    const description = fm.match(/^description:\s*["']?(.+?)["']?\s*$/m)?.[1]?.trim();
-    const permission = fm.match(/^permission:\s*["']?(.+?)["']?\s*$/m)?.[1]?.trim();
-    return { name, description, permission };
 }
 // depth cap: marketplaces/<plugin>/skills/ is depth 2 from pluginBase
 function walkForSkills(dir, result, depth = 0) {

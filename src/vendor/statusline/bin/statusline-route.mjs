@@ -17,6 +17,11 @@ function positiveInt(value) {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+// A cached oauth usage snapshot is only trusted for usedPct display while it is
+// "live-fresh". Beyond this the stored usedPct is treated as outdated and the
+// usage windows are suppressed until the live gateway status refreshes them.
+const LIVE_USAGE_SNAPSHOT_MAX_AGE_MS = 10 * 60_000;
+
 function isPidAlive(pid) {
   const n = positiveInt(pid);
   if (!n) return false;
@@ -86,6 +91,19 @@ function pctOf(value, total) {
 function cleanString(value) {
   const s = typeof value === 'string' ? value.trim() : '';
   return s || '';
+}
+
+// Mirror of route-meta.mjs providerKind(): classify a provider id into a kind
+// bucket. statusline-route.mjs derives its own status snapshot and calls this
+// the same way route-meta does, but never imported/defined it, so any route
+// status build threw `providerKind is not defined`.
+function providerKind(provider) {
+  const p = String(provider || '').toLowerCase();
+  if (!p) return 'unknown';
+  if (p === 'opencode-go') return 'quota-api';
+  if (p.includes('oauth')) return 'oauth';
+  if (p === 'ollama' || p === 'lmstudio') return 'local';
+  return 'api';
 }
 
 function slugSegment(value) {
@@ -237,7 +255,7 @@ function gatewaySessionStatus(sessionId, clientHostPid = null) {
 function sessionRouteFor(gateway, sessionId, clientHostPid = null) {
   const sid = cleanString(sessionId);
   if (!sid) return { route: gateway, sessionScoped: false };
-  const route = readGatewaySessionRoute(sid, { clientHostPid })
+  const route = readGatewaySessionRoute(sid, { clientHostPid, fallbackLegacy: true })
     || readLatestGatewayHostRoute(clientHostPid, { excludeSessionId: sid });
   if (!route || typeof route !== 'object') return { route: gateway, sessionScoped: false };
   const provider = cleanString(route.defaultProvider || route.provider);
@@ -273,10 +291,9 @@ function loadCachedModel(provider, model) {
 }
 
 function cachedQuotaWindowsFallback(provider, model) {
-  // Resolve quota windows for the CURRENT route only. The oauth usage cache is
-  // keyed by `${provider}${model}` (with a provider-only fallback key);
-  // never scan for the "most recent" entry across routes, or a sibling session
-  // on a different route would clobber this session's 5H/7D/reset display.
+  // OAuth quota is provider/account-scoped, not model-scoped. Prefer the
+  // current route key, then provider-wide cache, then the freshest same-provider
+  // route entry so a model switch keeps showing quota before the next live fetch.
   if (!provider || !model) return [];
   try {
     const cachePath = path.join(pluginDataDir(), 'gateway-oauth-usage-cache.json');
@@ -285,8 +302,19 @@ function cachedQuotaWindowsFallback(provider, model) {
     if (!routes) return [];
     const routeKey = `${String(provider).toLowerCase()}${String(model)}`;
     const providerOnlyKey = String(provider).toLowerCase();
-    const entry = routes[routeKey] || routes[providerOnlyKey];
-    return Array.isArray(entry?.quotaWindows) ? entry.quotaWindows : [];
+    const routePrefix = `${providerOnlyKey}`;
+    const entry = routes[routeKey] || routes[providerOnlyKey] || Object.entries(routes)
+      .filter(([key, value]) => key.startsWith(routePrefix) && Array.isArray(value?.quotaWindows))
+      .sort((a, b) => (Number(b[1]?.cachedAt) || 0) - (Number(a[1]?.cachedAt) || 0))[0]?.[1];
+    if (!Array.isArray(entry?.quotaWindows)) return [];
+    // First-entry guard: the persisted snapshot keeps the OLD usedPct (e.g. a
+    // prior session's 99% on a 7D window whose resetAt is always in the
+    // future). When the snapshot is no longer live-fresh, suppress the windows
+    // so a stale usedPct does not flash before the live gateway status fills in.
+    const cachedAt = Number(entry.cachedAt);
+    if (!Number.isFinite(cachedAt) || cachedAt <= 0) return [];
+    if (Date.now() - cachedAt > LIVE_USAGE_SNAPSHOT_MAX_AGE_MS) return [];
+    return entry.quotaWindows;
   } catch {
     return [];
   }
@@ -336,7 +364,22 @@ function configuredGatewayStatus(options = {}) {
   const cfgPath = path.join(pluginDataDir(), 'mixdog-config.json');
   const cfg = readJson(cfgPath);
   const gatewayBase = cfg?.gateway && typeof cfg.gateway === 'object' ? cfg.gateway : {};
-  const { route: gateway, sessionScoped } = sessionRouteFor(gatewayBase, options.sessionId, options.clientHostPid);
+  let { route: gateway, sessionScoped } = sessionRouteFor(gatewayBase, options.sessionId, options.clientHostPid);
+  const currentRoute = options?.currentRoute && typeof options.currentRoute === 'object' ? options.currentRoute : null;
+  const currentProvider = cleanString(currentRoute?.provider || currentRoute?.defaultProvider);
+  const currentModel = cleanString(currentRoute?.model || currentRoute?.defaultModel);
+  if ((!cleanString(gateway?.defaultProvider) || !cleanString(gateway?.defaultModel)) && currentProvider && currentModel) {
+    gateway = {
+      ...(gateway || {}),
+      mode: cleanString(gateway?.mode) || 'fixed',
+      defaultProvider: currentProvider,
+      defaultModel: currentModel,
+      ...(cleanString(currentRoute?.effort ?? currentRoute?.displayEffort) ? { effort: cleanString(currentRoute?.effort ?? currentRoute?.displayEffort) } : {}),
+      ...(cleanBool(currentRoute?.fast) !== null ? { fast: cleanBool(currentRoute.fast) } : {}),
+      ...(num(currentRoute?.contextWindow, null) ? { contextWindow: num(currentRoute.contextWindow, null) } : {}),
+      ...(num(currentRoute?.rawContextWindow, null) ? { rawContextWindow: num(currentRoute.rawContextWindow, null) } : {}),
+    };
+  }
   const modules = cfg?.modules && typeof cfg.modules === 'object' ? cfg.modules : {};
   if (modules.gateway && modules.gateway.enabled === false) return null;
   const inherit = cleanString(gateway.mode) === CLAUDE_CURRENT_MODE;
@@ -381,11 +424,17 @@ function configuredGatewayStatus(options = {}) {
     : inherit
     ? cleanBool(aliasTarget?.fast) ?? cleanBool(inherited?.fast) ?? cleanBool(gateway.fast) ?? cleanBool(preset?.fast) ?? false
     : cleanBool(gateway.fast) ?? cleanBool(preset?.fast) ?? false;
-  const contextMeta = routeContextMeta(provider, info, aliasTarget ? {} : (inherited || {}));
+  const routeMatchesCurrent = currentProvider === provider && currentModel === model;
+  const contextSeed = {
+    ...(inherited || {}),
+    ...(routeMatchesCurrent ? currentRoute || {} : {}),
+  };
+  const contextMeta = routeContextMeta(provider, info, aliasTarget ? {} : contextSeed);
   return {
     mode: inherit ? CLAUDE_CURRENT_MODE : '',
     provider,
     model,
+    providerKind: providerKind(provider),
     modelDisplay: statuslineDisplayForModel(
       provider,
       model,
@@ -468,8 +517,12 @@ export function loadGatewayStatus(options = {}) {
   const activeQuotaWindows = metricsMatch && Array.isArray(active.gateway_quota_windows)
     ? active.gateway_quota_windows
     : [];
+  const statusProvider = configured?.provider || active.gateway_provider;
+  const statusProviderKind = configured?.providerKind
+    || (routeMatchesConfigured ? cleanString(active.gateway_provider_kind) : '')
+    || providerKind(statusProvider);
   const activeStatus = {
-    provider: configured?.provider || active.gateway_provider,
+    provider: statusProvider,
     model: configured?.model || active.gateway_model,
     modelDisplay: configured?.modelDisplay
       || statuslineDisplayForModel(active.gateway_provider, active.gateway_model, {}, active.gateway_model_display)
@@ -485,7 +538,7 @@ export function loadGatewayStatus(options = {}) {
     quotaWindows: activeQuotaWindows.length ? activeQuotaWindows : (configuredStatus?.quotaWindows || []),
     balance: metricsMatch && active.gateway_balance && typeof active.gateway_balance === 'object' ? active.gateway_balance : (configuredStatus?.balance || null),
     routeSpend: metricsMatch && active.gateway_route_spend && typeof active.gateway_route_spend === 'object' ? active.gateway_route_spend : (configuredStatus?.routeSpend || null),
-    providerKind: active.gateway_provider_kind || '',
+    providerKind: statusProviderKind,
   };
   if (!configured) return activeStatus;
   return activeStatus;

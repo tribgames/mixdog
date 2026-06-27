@@ -45,6 +45,8 @@ export function formatToolStartProgress(name, args = {}) {
             return Array.isArray(a.pattern) ? `searching for ${_plural(a.pattern.length, 'pattern')}` : `searching for ${_t(a.pattern)}`;
         case 'glob':
             return Array.isArray(a.pattern) ? `finding ${_plural(a.pattern.length, 'glob')}` : `finding ${_t(a.pattern)}`;
+        case 'find':
+            return `finding ${_t(a.query || 'files')}`;
         case 'list':
             return a.mode === 'find' ? 'finding files' : `listing ${_t(a.path || 'cwd')}`;
         case 'code_graph':
@@ -57,12 +59,12 @@ export function formatToolStartProgress(name, args = {}) {
         case 'web_fetch':
             return Array.isArray(a.url) ? `fetching ${_plural(a.url.length, 'URL')}` : `fetching ${_t(a.url)}`;
 
-        // ── agent module: explore / bridge / models ──────────────────────
+        // ── agent module: explore / agent / models ───────────────────────
         case 'explore': {
             const n = Array.isArray(a.query) ? a.query.length : (a.query ? 1 : 0);
             return `exploring ${_plural(n, 'query', 'queries')}`;
         }
-        case 'bridge': {
+        case 'agent': {
             const route = [a.preset, [a.provider, a.model].filter(Boolean).join('/')].filter(Boolean).join(' ');
             const suffix = route ? ` (${_t(route, 32)})` : '';
             if (a.role) return `dispatching ${_t(a.role)}${suffix}`;

@@ -62,13 +62,6 @@ export function formatImageRef(id) {
   return `[Image #${id}]`;
 }
 
-export function parsePasteReferences(input) {
-  const re = /\[(?:Image|Pasted text|\.\.\.Truncated text) #(\d+)(?: \+\d+ lines)?\]/g;
-  return [...String(input || '').matchAll(re)]
-    .map((m) => ({ id: Number(m[1]) || 0, match: m[0], index: m.index || 0 }))
-    .filter((m) => m.id > 0);
-}
-
 export function imageReferenceIds(input) {
   const re = /\[Image #(\d+)\]/g;
   return new Set([...String(input || '').matchAll(re)].map((m) => Number(m[1]) || 0).filter(Boolean));

@@ -1,9 +1,11 @@
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
 import { readSection, updateSection, getAgentApiKey, AGENT_PROVIDER_ENV } from '../../shared/config.mjs';
-import { OPENAI_COMPAT_PRESETS } from './providers/openai-compat.mjs';
-import { hasAnthropicOAuthCredentials } from './providers/anthropic-oauth.mjs';
-import { hasOpenAIOAuthCredentials } from './providers/openai-oauth.mjs';
-import { hasGrokOAuthCredentials } from './providers/grok-oauth.mjs';
+import { OPENAI_COMPAT_PRESETS } from './providers/openai-compat-presets.mjs';
+import {
+    hasAnthropicOAuthCredentials,
+    hasOpenAIOAuthCredentials,
+    hasGrokOAuthCredentials,
+} from './providers/oauth-credential-probes.mjs';
 
 // Thin wrapper around resolvePluginData so callers in this orchestrator tree
 // can import a single helper without reaching into shared/.
@@ -60,11 +62,11 @@ function resolveAnthropicFamilyModel(family) {
 // Seed presets keyed by preset.name so workflow/maintenance references stay
 // consistent with the resolve-by-name lookup in presetKey().
 export const DEFAULT_PRESETS = Object.freeze([
-    Object.freeze({ id: 'haiku', name: 'HAIKU', type: 'bridge', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('haiku'), tools: 'full' }),
-    Object.freeze({ id: 'sonnet-mid', name: 'SONNET MID', type: 'bridge', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('sonnet'), effort: 'medium', tools: 'full' }),
-    Object.freeze({ id: 'sonnet-high', name: 'SONNET HIGH', type: 'bridge', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('sonnet'), effort: 'high', tools: 'full' }),
-    Object.freeze({ id: 'opus-mid', name: 'OPUS MID', type: 'bridge', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('opus'), effort: 'medium', tools: 'full' }),
-    Object.freeze({ id: 'opus-high', name: 'OPUS HIGH', type: 'bridge', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('opus'), effort: 'high', tools: 'full' }),
+    Object.freeze({ id: 'haiku', name: 'HAIKU', type: 'agent', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('haiku'), tools: 'full' }),
+    Object.freeze({ id: 'sonnet-mid', name: 'SONNET MID', type: 'agent', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('sonnet'), effort: 'medium', tools: 'full' }),
+    Object.freeze({ id: 'sonnet-high', name: 'SONNET HIGH', type: 'agent', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('sonnet'), effort: 'high', tools: 'full' }),
+    Object.freeze({ id: 'opus-mid', name: 'OPUS MID', type: 'agent', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('opus'), effort: 'medium', tools: 'full' }),
+    Object.freeze({ id: 'opus-high', name: 'OPUS HIGH', type: 'agent', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('opus'), effort: 'high', tools: 'full' }),
 ]);
 function buildDefaultConfig(options = {}) {
     const detectCredentials = options.detectCredentials !== false;
@@ -77,9 +79,8 @@ function buildDefaultConfig(options = {}) {
             apiKey: apiKey || undefined,
         };
     }
-    // OAuth provider detection delegates to each provider module so the
-    // canonical credential loader (loadTokens / loadCredentials) is the
-    // single source of truth. WebSocket transport is on by default —
+    // OAuth provider detection uses lightweight credential probes so config
+    // load does not import provider runtimes or SDKs. WebSocket transport is on by default —
     // measured ~96% cross-session cache hit with delta payloads. Users who
     // need to force SSE (e.g. a corporate proxy blocking WSS) can set
     // `websocket: false` in mixdog-config.json (agent.providers.openai-oauth).
@@ -87,8 +88,7 @@ function buildDefaultConfig(options = {}) {
     providers['anthropic-oauth'] = { enabled: detectCredentials ? hasAnthropicOAuthCredentials() : false };
     // Grok CLI OAuth ("Grok Build"). Like the other OAuth entries it is not
     // stored in mixdog-config.json — enabled at runtime from the presence of
-    // either token source (own store or ~/.grok/auth.json) via
-    // hasGrokOAuthCredentials().
+    // either token source (own store or ~/.grok/auth.json).
     providers['grok-oauth'] = { enabled: detectCredentials ? hasGrokOAuthCredentials() : false };
     // Local providers — opt-in via setup UI after HTTP ping confirms server is running
     providers.ollama = { enabled: false, baseURL: 'http://localhost:11434/v1' };
@@ -98,6 +98,25 @@ function buildDefaultConfig(options = {}) {
 
 function hasKeys(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0;
+}
+
+function normalizeSearchRoute(route) {
+    if (!route || typeof route !== 'object' || Array.isArray(route))
+        return null;
+    const provider = normalizeAgentProviderId(route.provider);
+    const model = String(route.model || '').trim();
+    if (!provider || !model)
+        return null;
+    const out = { provider, model };
+    const effort = String(route.effort || '').trim();
+    if (effort)
+        out.effort = effort;
+    if (route.fast === true)
+        out.fast = true;
+    const toolType = String(route.toolType || '').trim();
+    if (toolType)
+        out.toolType = toolType;
+    return out;
 }
 
 // Persist the agent section. `build` receives the section value read INSIDE
@@ -238,6 +257,8 @@ export function loadConfig(options = {}) {
                 .filter(Boolean)
                 .filter(p => p.id !== 'workflow-search');
             const workflowRoutes = raw.workflowRoutes && typeof raw.workflowRoutes === 'object' ? { ...raw.workflowRoutes } : {};
+            if (workflowRoutes.bridge && !workflowRoutes.agent) workflowRoutes.agent = workflowRoutes.bridge;
+            delete workflowRoutes.bridge;
             delete workflowRoutes.search;
             return {
                 providers: mergedProviders,
@@ -246,6 +267,7 @@ export function loadConfig(options = {}) {
                 default: raw.default || null,
                 maintenance: { ...DEFAULT_MAINTENANCE, ...rawMaint },
                 workflowRoutes,
+                searchRoute: normalizeSearchRoute(raw.searchRoute),
                 fastModels: raw.fastModels && typeof raw.fastModels === 'object' ? raw.fastModels : {},
                 modelSettings: raw.modelSettings && typeof raw.modelSettings === 'object' ? raw.modelSettings : {},
                 onboarding: raw.onboarding && typeof raw.onboarding === 'object' ? raw.onboarding : {},
@@ -255,7 +277,9 @@ export function loadConfig(options = {}) {
                 autoClear: { enabled: true, idleMs: 60 * 60 * 1000, ...raw.autoClear },
                 compaction: raw.compaction && typeof raw.compaction === 'object' ? { ...raw.compaction } : {},
                 trajectory: { enabled: true, ...raw.trajectory },
-                bridge: raw.bridge && typeof raw.bridge === 'object' ? raw.bridge : {},
+                runtime: raw.runtime && typeof raw.runtime === 'object'
+                    ? raw.runtime
+                    : (raw.bridge && typeof raw.bridge === 'object' ? raw.bridge : {}),
                 shell: raw.shell && typeof raw.shell === 'object' ? raw.shell : {},
             };
         }
@@ -269,6 +293,7 @@ export function loadConfig(options = {}) {
         default: null,
         maintenance: { ...DEFAULT_MAINTENANCE },
         workflowRoutes: {},
+        searchRoute: null,
         fastModels: {},
         modelSettings: {},
         onboarding: {},
@@ -278,7 +303,7 @@ export function loadConfig(options = {}) {
         autoClear: { enabled: true, idleMs: 60 * 60 * 1000 },
         compaction: {},
         trajectory: { enabled: true },
-        bridge: {},
+        runtime: {},
         shell: {},
     };
 }
@@ -325,6 +350,8 @@ export function saveConfig(config) {
     const workflowRoutes = config.workflowRoutes && typeof config.workflowRoutes === 'object'
         ? { ...config.workflowRoutes }
         : {};
+    if (workflowRoutes.bridge && !workflowRoutes.agent) workflowRoutes.agent = workflowRoutes.bridge;
+    delete workflowRoutes.bridge;
     delete workflowRoutes.search;
     const presets = Array.isArray(config.presets)
         ? config.presets.filter(p => p?.id !== 'workflow-search')
@@ -341,6 +368,7 @@ export function saveConfig(config) {
         default: config.default || null,
         maintenance: config.maintenance || {},
         workflowRoutes,
+        searchRoute: normalizeSearchRoute(config.searchRoute),
         fastModels: config.fastModels || {},
         modelSettings: config.modelSettings || {},
         onboarding: config.onboarding || {},
@@ -350,12 +378,13 @@ export function saveConfig(config) {
         autoClear: config.autoClear || {},
         compaction: config.compaction || {},
         trajectory: config.trajectory || {},
-        bridge: config.bridge || {},
+        runtime: config.runtime || config.bridge || {},
+        bridge: undefined,
         shell: config.shell || {},
     }));
 }
 // --- Preset helpers ---
-// preset shape: { id, name, type: 'bridge', provider, model, effort?, fast?, tools? }
+// preset shape: { id, name, type: 'agent', provider, model, effort?, fast?, tools? }
 const AGENT_PROVIDER_ALIASES = Object.freeze({
     'openai-api': 'openai',
     'gemini-api': 'gemini',
@@ -380,7 +409,7 @@ function normalizePreset(preset) {
     const model = String(preset.model || '').trim();
     const provider = normalizeAgentProviderId(preset.provider);
     if (!name || !model || !provider) return null;
-    const out = { id, name, type: 'bridge', provider, model };
+    const out = { id, name, type: 'agent', provider, model };
     if (preset.effort)
         out.effort = String(preset.effort).trim();
     if (preset.fast === true && FAST_CAPABLE_PRESET_PROVIDERS.has(provider))

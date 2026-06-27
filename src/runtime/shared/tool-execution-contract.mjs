@@ -17,12 +17,15 @@ function positivePid(value) {
 }
 
 export function normalizeToolNotifyContext(context = {}) {
-  const callerSessionId = clean(context.callerSessionId || context.routingSessionId || context.sessionId);
+  const explicitCallerSessionId = clean(context.callerSessionId || context.sessionId);
+  const explicitRoutingSessionId = clean(context.routingSessionId);
+  const callerSessionId = explicitCallerSessionId || explicitRoutingSessionId;
+  const routingSessionId = explicitRoutingSessionId || callerSessionId;
   const clientHostPid = positivePid(context.clientHostPid);
   return {
     notifyFn: typeof context.notifyFn === 'function' ? context.notifyFn : null,
     callerSessionId: callerSessionId || null,
-    routingSessionId: callerSessionId || null,
+    routingSessionId: routingSessionId || null,
     clientHostPid,
   };
 }
@@ -30,8 +33,8 @@ export function normalizeToolNotifyContext(context = {}) {
 export function toolCompletionInstruction({ surface = 'tool', id, status, detail } = {}) {
   const label = surface === 'shell'
     ? 'shell task'
-    : surface === 'bridge'
-      ? 'bridge agent'
+    : surface === 'agent'
+      ? 'agent task'
       : `${surface} execution`;
   const statusText = status ? ` (${status}${detail ? `, ${detail}` : ''})` : '';
   return `The async ${label} ${id || ''} has finished${statusText} - review this result in your next step.`;
@@ -53,8 +56,26 @@ export function toolCompletionMeta({
     status: status || null,
     instruction: instruction || toolCompletionInstruction({ surface, id, status }),
     ...(ctx.callerSessionId ? { caller_session_id: ctx.callerSessionId } : {}),
+    ...(ctx.routingSessionId && ctx.routingSessionId !== ctx.callerSessionId ? { routing_session_id: ctx.routingSessionId } : {}),
     ...(ctx.clientHostPid ? { client_host_pid: String(ctx.clientHostPid) } : {}),
   };
+}
+
+export function modelVisibleToolCompletionMessage(text, meta = {}) {
+  const message = String(text || '').trim();
+  if (!message) return '';
+  const instruction = clean(meta?.instruction);
+  const type = clean(meta?.type || meta?.execution_surface || 'tool_completion');
+  const id = clean(meta?.execution_id);
+  const status = clean(meta?.status);
+  const header = `Async ${type}${id ? ` ${id}` : ''}${status ? ` ${status}` : ''} finished.`;
+  const quoted = message.split(/\r?\n/).map((line) => `> ${line}`).join('\n');
+  return [
+    instruction || header,
+    '',
+    'Result:',
+    quoted,
+  ].join('\n');
 }
 
 export function notifyToolCompletion({
@@ -81,12 +102,20 @@ export function notifyToolCompletion({
   });
 
   if (typeof ctx.notifyFn === 'function') {
-    Promise.resolve(ctx.notifyFn(message, meta)).catch((err) => {
+    try {
+      const notifyResult = ctx.notifyFn(message, meta);
+      if (notifyResult === false) return false;
+      Promise.resolve(notifyResult).catch((err) => {
+        try {
+          process.stderr.write(`[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`);
+        } catch {}
+      });
+      return true;
+    } catch (err) {
       try {
         process.stderr.write(`[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`);
       } catch {}
-    });
-    return true;
+    }
   }
 
   if (ctx.callerSessionId && typeof enqueueFallback === 'function') {

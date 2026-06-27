@@ -222,9 +222,11 @@ export function Picker({
   // Keep the label column fixed across menus. Per-picker overrides are still
   // allowed for intentionally compact surfaces such as providers/resume.
   const labelWidth = clampLabelWidth(labelWidthOverride ?? DEFAULT_LABEL_WIDTH, columns);
-  const hasMeta = metaWidthOverride != null || visible.some((item) => item.meta || item.modelProfile || item.metaParts);
+  const hasMarker = items.some((item) => item.marker || item.checked === true || item.checked === false);
+  const markerWidth = hasMarker ? 2 : 0;
+  const hasMeta = metaWidthOverride != null || items.some((item) => item.meta || item.modelProfile || item.metaParts);
   const metaWidth = hasMeta ? clampMetaWidth(metaWidthOverride, columns, labelWidth) : 0;
-  const descriptionWidth = Math.max(0, columns - indexOffset - labelWidth - (hasMeta ? metaWidth + 14 : 12));
+  const descriptionWidth = Math.max(0, columns - indexOffset - markerWidth - labelWidth - (hasMeta ? metaWidth + 14 : 12));
   const panelDescription = truncateText(description, Math.max(0, columns - 4));
 
   return (
@@ -256,6 +258,9 @@ export function Picker({
               key={item.value}
               indexText={showIndex ? `${idx + 1}.` : ''}
               indexWidth={indexWidth}
+              marker={item.marker || (item.checked === true ? '✓' : item.checked === false ? ' ' : '')}
+              markerColor={item.markerColor}
+              markerWidth={markerWidth}
               label={item.label}
               labelSuffix={item.labelSuffix}
               labelSuffixColor={item.labelSuffixColor}
@@ -286,11 +291,12 @@ export function Picker({
   );
 }
 
-const ItemRow = React.memo(function ItemRow({ indexText, indexWidth, label, labelSuffix, labelSuffixColor, meta, metaParts, description, labelWidth, metaWidth, descriptionWidth, showMeta, isSelected }) {
+const ItemRow = React.memo(function ItemRow({ indexText, indexWidth, marker, markerColor, markerWidth, label, labelSuffix, labelSuffixColor, meta, metaParts, description, labelWidth, metaWidth, descriptionWidth, showMeta, isSelected }) {
   const rawSuffix = String(labelSuffix || '');
   const suffix = rawSuffix ? truncateText(rawSuffix, labelWidth) : '';
   const suffixGap = suffix && stringWidth(suffix) < labelWidth ? ' ' : '';
   const suffixWidth = suffix ? stringWidth(suffixGap) + stringWidth(suffix) : 0;
+  const displayMarker = truncateText(marker, markerWidth);
   const displayLabel = truncateText(label, Math.max(0, labelWidth - suffixWidth));
   const labelPadding = ' '.repeat(Math.max(0, labelWidth - stringWidth(displayLabel) - suffixWidth));
   const displayMeta = truncateText(meta, metaWidth);
@@ -302,6 +308,11 @@ const ItemRow = React.memo(function ItemRow({ indexText, indexWidth, label, labe
       {indexWidth > 0 ? (
         <Text color={theme.subtle}>
           {padCells(indexText, indexWidth)}{' '}
+        </Text>
+      ) : null}
+      {markerWidth > 0 ? (
+        <Text color={marker ? (markerColor || theme.success) : theme.text}>
+          {padCells(displayMarker, markerWidth)}
         </Text>
       ) : null}
       <Text color={theme.text}>{displayLabel}</Text>

@@ -122,6 +122,23 @@ function snapshotUsage(snapshot) {
   };
 }
 
+function snapshotTokenUsage(snapshot) {
+  const value = snapshot?.tokenUsage;
+  if (!value || typeof value !== 'object') return null;
+  const inputTokens = num(value.inputTokens ?? value.input_tokens, 0);
+  const outputTokens = num(value.outputTokens ?? value.output_tokens, 0);
+  const cachedInputTokens = num(value.cachedInputTokens ?? value.cached_input_tokens, 0);
+  const requests = num(value.requests ?? value.numModelRequests ?? value.num_model_requests, 0);
+  if (!inputTokens && !outputTokens && !cachedInputTokens && !requests) return null;
+  return {
+    inputTokens,
+    outputTokens,
+    cachedInputTokens,
+    requests,
+    source: clean(value.source) || clean(snapshot?.source) || 'provider-api',
+  };
+}
+
 function displayWindow(w) {
   const label = String(w?.label || 'USE').toUpperCase();
   if (num(w?.remainingUsd, null) !== null) return `${label} ${money(w.remainingUsd)}`;
@@ -148,6 +165,42 @@ function providerDescription(id, group) {
     case 'lmstudio': return 'Local LM Studio server';
     default: return group === 'local' ? 'Local provider' : group === 'oauth' ? 'Subscription quota' : 'API billing';
   }
+}
+
+function snapshotUnavailable(snapshot) {
+  const value = snapshot?.unavailable;
+  return value && typeof value === 'object' ? value : null;
+}
+
+function apiUnavailableDetail(id, snapshot) {
+  const providerId = String(id || '').toLowerCase();
+  const unavailable = snapshotUnavailable(snapshot);
+  const message = clean(unavailable?.message);
+  if (providerId === 'openai') {
+    if (/invalid|incorrect api key|unauthorized/i.test(message)) return `OpenAI usage probe failed: ${message}`;
+    if (/api\.usage\.read|insufficient permissions/i.test(message)) {
+      return 'OpenAI spend needs api.usage.read; remaining credit is web UI only';
+    }
+    if (message) return `OpenAI usage probe failed: ${message}; remaining credit is web UI only`;
+    return 'OpenAI API does not expose remaining credit; org spend needs api.usage.read';
+  }
+  if (providerId === 'anthropic') {
+    if (message) return `Anthropic cost probe: ${message}`;
+    return 'Anthropic balance is Console-only; usage needs ANTHROPIC_ADMIN_API_KEY';
+  }
+  if (providerId === 'gemini') return 'Gemini balance is AI Studio/Cloud Billing only; no key-scope probe';
+  if (providerId === 'xai') return message || 'xAI balance needs XAI_MANAGEMENT_API_KEY and XAI_TEAM_ID';
+  if (providerId === 'deepseek') return message ? `DeepSeek balance unavailable: ${message}` : 'DeepSeek balance unavailable';
+  return message || 'Usage not exposed';
+}
+
+function applyApiUnavailable(row, id, snapshot) {
+  row.status = 'hidden';
+  row.source = snapshotUnavailable(snapshot) ? 'provider-api-unavailable' : 'provider-hidden';
+  row.sourceLabel = 'unavailable';
+  row.primary = '';
+  row.detail = apiUnavailableDetail(id, snapshot);
+  return row;
 }
 
 function rowTone(row) {
@@ -263,6 +316,19 @@ function applyKnownUsage(row, known) {
   return row;
 }
 
+function applyTokenUsage(row, usage) {
+  if (!usage) return row;
+  const totalTokens = num(usage.inputTokens, 0) + num(usage.outputTokens, 0);
+  row.status = 'partial';
+  row.source = usage.source || 'provider-api';
+  row.sourceLabel = 'usage';
+  row.primary = `${compactNumber(totalTokens)} tokens`;
+  row.detail = `${compactNumber(usage.inputTokens)} in · ${compactNumber(usage.outputTokens)} out${usage.requests ? ` · ${compactNumber(usage.requests)} req` : ''}`;
+  row.includeInTotal = false;
+  row.totalBucket = null;
+  return row;
+}
+
 function applyWindowQuota(row, windows, { source = 'quota', detail = 'quota windows' } = {}) {
   const normalized = normaliseWindows(windows, source);
   if (!normalized.length) return false;
@@ -341,6 +407,7 @@ export async function createUsageDashboard(config = {}, options = {}) {
   const rows = [];
   const checkedAt = Date.now();
   const refresh = options.refresh === true;
+  const preview = options.preview === true;
   const emit = (checking = true) => emitUsageDashboard(
     options,
     usageDashboardSnapshot(rows, { checkedAt, refresh, checking }),
@@ -358,6 +425,10 @@ export async function createUsageDashboard(config = {}, options = {}) {
     rows.push(row);
     emit(true);
 
+    if (preview) {
+      return row;
+    }
+
     if (!row.authenticated) {
       row.status = 'missing';
       row.source = 'not-configured';
@@ -366,6 +437,7 @@ export async function createUsageDashboard(config = {}, options = {}) {
       row.detail = 'Configure auth';
     } else {
       let hasQuota = false;
+      let apiUsageSnapshot = null;
       if (item.id === 'opencode-go') {
         const usageStatus = openCodeGoUsageConfigStatus(config);
         try {
@@ -400,9 +472,12 @@ export async function createUsageDashboard(config = {}, options = {}) {
         }
       } else {
         const snapshot = await apiSnapshot(item.id, options);
+        apiUsageSnapshot = snapshot;
         const known = snapshotRemaining(snapshot);
         const usage = snapshotUsage(snapshot);
+        const tokenUsage = snapshotTokenUsage(snapshot);
         const windows = normaliseWindows(snapshot?.quotaWindows, clean(snapshot?.source) || 'provider-api');
+        const estimated = localBudget(providerCfg);
         row.updatedAt = num(snapshot?.cachedAt, null);
         if (known) {
           applyKnownRemaining(row, known, { estimated: false });
@@ -413,17 +488,26 @@ export async function createUsageDashboard(config = {}, options = {}) {
             source: clean(snapshot?.source) || 'provider-api',
             detail: 'provider quota',
           });
+        } else if (estimated) {
+          applyKnownRemaining(row, estimated, { estimated: true });
+          hasQuota = true;
         } else if (usage) {
           applyKnownUsage(row, usage);
+          hasQuota = true;
+        } else if (tokenUsage) {
+          applyTokenUsage(row, tokenUsage);
+          hasQuota = true;
+        }
+      }
+      if (!row.includeInTotal && !hasQuota) {
+        const estimated = localBudget(providerCfg);
+        if (estimated) {
+          applyKnownRemaining(row, estimated, { estimated: true });
           hasQuota = true;
         }
       }
       if (item.id !== 'opencode-go' && !row.includeInTotal && !hasQuota) {
-        row.status = 'hidden';
-        row.source = 'provider-hidden';
-        row.sourceLabel = 'hidden';
-        row.primary = '';
-        row.detail = 'Usage not exposed';
+        applyApiUnavailable(row, item.id, apiUsageSnapshot);
       }
     }
     row.tone = rowTone(row);
@@ -442,6 +526,10 @@ export async function createUsageDashboard(config = {}, options = {}) {
     row.tone = rowTone(row);
     rows.push(row);
     emit(true);
+
+    if (preview) {
+      return row;
+    }
 
     if (!row.authenticated) {
       row.status = 'missing';
@@ -504,7 +592,7 @@ export async function createUsageDashboard(config = {}, options = {}) {
 
   await Promise.all([...apiTasks, ...oauthTasks]);
 
-  const dashboard = usageDashboardSnapshot(rows, { checkedAt, refresh, checking: false });
+  const dashboard = usageDashboardSnapshot(rows, { checkedAt, refresh, checking: preview });
   emitUsageDashboard(options, dashboard);
   return dashboard;
 }

@@ -114,13 +114,13 @@ export function buildGrepRgArgs(parts) {
     return rgArgs;
 }
 
-export function buildGlobCacheKey({ patterns, basePath, headLimit, offset, extraIgnore }) {
+export function buildGlobCacheKey({ patterns, basePath, headLimit, offset, extraIgnore, sort }) {
     // extraIgnore (rg ignore globs from _extraIgnoreDirs) alters which files
     // match, so it MUST partake in the key — otherwise calls that differ only
     // by extra ignores collide and return stale over-/under-filtered results.
     // Sorted so the same ignore set in any order maps to one key.
     const extra = Array.isArray(extraIgnore) && extraIgnore.length ? [...extraIgnore].sort().join('\x01') : '';
-    return ['glob', patterns.join('\x01'), basePath, headLimit ?? '', offset ?? '', extra].join('|');
+    return ['glob', patterns.join('\x01'), basePath, headLimit ?? '', offset ?? '', sort || 'natural', extra].join('|');
 }
 
 export function buildListCacheKey(parts) {
