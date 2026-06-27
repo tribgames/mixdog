@@ -703,15 +703,17 @@ export function composeSystemPrompt(opts) {
         volatileParts.push('# role-identity\n' + roleIdentity);
     }
     if (opts.taskBrief) volatileParts.push('# task-brief\n' + opts.taskBrief);
-    if (opts.workspaceContext && typeof opts.workspaceContext === 'string' && opts.workspaceContext.trim()) {
-        volatileParts.push(opts.workspaceContext.trim());
-    }
+    // workspaceContext (current cwd + discovered project list) is intentionally
+    // NOT injected: it inlines the cwd/project layout into the prompt, which the
+    // model does not need (tools read the live cwd at call time) and which would
+    // otherwise re-fragment the cache / go stale after an in-place cwd switch.
     if (opts.coreMemoryContext && typeof opts.coreMemoryContext === 'string' && opts.coreMemoryContext.trim()) {
         volatileParts.push('# Core Memory\n' + opts.coreMemoryContext.trim());
     }
-    if (opts.cwd && typeof opts.cwd === 'string' && opts.cwd.trim()) {
-        volatileParts.push(`cwd: ${opts.cwd.trim()}`);
-    }
+    // cwd is intentionally NOT embedded in the prompt context. A mid-session
+    // cwd switch must not mutate the prompt (which would fragment the cache and
+    // previously triggered a session rebuild that dropped history). Tools read
+    // the live cwd at call time, so the model never needs it inlined here.
     volatileParts.push(shellEnvironmentReminder());
     const volatileTail = volatileParts.length > 0
         ? volatileParts.join('\n\n')

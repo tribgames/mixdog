@@ -241,7 +241,7 @@ function hasAgentResponseResult(value) {
   if (!text) return false;
   if (/^(?:undefined|null)$/i.test(text)) return false;
   if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(text)) return false;
-  const isBridgeEnvelope = /^(?:agent task:|background task\b|agent mode:|agent message queued\b|agent close:)/i.test(text)
+  const isBridgeEnvelope = /^(?:agent task:|background task\b|agent message queued\b|agent close:)/i.test(text)
     || (/^task_id:\s*\S+/mi.test(text) && /^(?:surface|operation|status):\s*/mi.test(text));
   if (!isBridgeEnvelope) return true;
   let sawBlank = false;
@@ -255,7 +255,7 @@ function hasAgentResponseResult(value) {
     if (/^(?:undefined|null)$/i.test(trimmed)) continue;
     if (/^<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
     if (!sawBlank && /^(?:agent task|background task|agent message queued\b|agent close:|task_id|surface|operation|label|status|type|target|role|agent|preset|model|effort|fast|limits|started|finished|error|notification|queueDepth):?\s*/i.test(trimmed)) continue;
-    if (!sawBlank && /^(?:agent mode|agents|tasks):\s*/i.test(trimmed)) continue;
+    if (!sawBlank && /^(?:agents|tasks):\s*/i.test(trimmed)) continue;
     if (/^\(no agents or tasks\)$/i.test(trimmed)) continue;
     if (!sawBlank && /^-\s+\S+/i.test(trimmed)) continue;
     return true;

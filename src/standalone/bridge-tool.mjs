@@ -2,12 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  TOOL_ASYNC_EXECUTION_CONTRACT,
   cancelBackgroundTask,
   cleanupBackgroundTasks,
   getBackgroundTask,
   listBackgroundTasks,
-  resolveExecutionMode,
   startBackgroundTask,
   taskIdFromArgs,
 } from '../runtime/shared/background-tasks.mjs';
@@ -49,12 +47,11 @@ export const BRIDGE_TOOL = {
     openWorldHint: true,
     bridgeHidden: true,
   },
-  description: `Delegate scoped work to workflow agents. Always use mode:"async" for model handoffs; never use mode:"sync". Spawn independent agents in parallel with distinct tags, then keep doing Lead-side work that does not need their result. If the result is needed before continuing, pause the dependent path and wait for the async completion notification. Do not poll status/read or interfere after spawn; status/read are manual recovery or explicit user-requested controls only. ${TOOL_ASYNC_EXECUTION_CONTRACT}`,
+  description: 'Delegate scoped work to workflow agents. Agent handoffs always start background tasks and return task IDs immediately. Spawn independent agents in parallel with distinct tags, then keep doing Lead-side work that does not need their result. If the result is needed before continuing, pause the dependent path and wait for the completion notification. Do not poll status/read or interfere after spawn; status/read are manual recovery or explicit user-requested controls only.',
   inputSchema: {
     type: 'object',
     properties: {
       type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: 'Action. Default spawn; send follows up to an existing tag/session. status/read are manual recovery controls, not normal polling.' },
-      mode: { type: 'string', enum: ['async'], description: `Always use mode:"async". ${TOOL_ASYNC_EXECUTION_CONTRACT}` },
       task_id: { type: 'string', description: 'Manual status/read/cancel recovery task ID; not needed for normal async completion.' },
       agent: { type: 'string', description: 'Workflow agent id to run.' },
       tag: { type: 'string', description: 'Stable agent handle; distinct tag per parallel agent.' },
@@ -97,11 +94,6 @@ function normalizeAgentName(value) {
   if (id === 'review') return 'reviewer';
   if (id === 'debug') return 'debugger';
   return id;
-}
-
-export function resolveBridgeExecutionMode(args = {}, context = {}, defaultMode = 'async') {
-  const fallback = context.invocationSource !== 'user-command' ? 'async' : defaultMode;
-  return resolveExecutionMode(args, fallback);
 }
 
 function readAgentFrontmatterPermission(role, dataDir) {
@@ -283,7 +275,6 @@ function renderResult(value) {
     const lines = [];
 
     if (Array.isArray(value.workers) || Array.isArray(value.jobs)) {
-      lines.push(`agent mode: ${value.bridgeMode || 'async'}`);
       const workers = Array.isArray(value.workers) ? value.workers : [];
       lines.push(`agents: ${workers.length}`);
       for (const worker of workers) {
@@ -305,7 +296,7 @@ function renderResult(value) {
 
     if (value.task_id) {
       lines.push(`agent task: ${value.task_id}`);
-      lines.push(`status: ${value.status}${value.mode ? ` (${value.mode})` : ''}`);
+      lines.push(`status: ${value.status}`);
       if (value.type) lines.push(`type: ${value.type}`);
       if (value.tag || value.sessionId) lines.push(`target: ${value.tag || '-'} ${value.sessionId || ''}`.trim());
       if (value.role) lines.push(`agent: ${value.role}`);
@@ -365,25 +356,12 @@ function renderResult(value) {
   return JSON.stringify(value, null, 2);
 }
 
-export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: defaultCwd, defaultMode: initialMode }) {
+export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: defaultCwd }) {
   const tags = new Map();
   const tagRoles = new Map();
   const tagCwds = new Map();
   const reapTimers = new Map();
   let tagSeq = 0;
-  // Inline normalization here (normalizeMode is defined below — avoid
-  // use-before-def). When nothing is injected, the Lead defaults to async.
-  let defaultMode = (String(initialMode ?? 'async').toLowerCase() === 'async') ? 'async' : 'sync';
-
-  function normalizeMode(value) {
-    const mode = clean(value).toLowerCase();
-    return mode === 'async' ? 'async' : 'sync';
-  }
-
-  function modeFor(args = {}, context = {}) {
-    return resolveBridgeExecutionMode(args, context, defaultMode);
-  }
-
   function workerIndexPath() {
     return dataDir ? resolve(dataDir, WORKER_INDEX_FILE) : null;
   }
@@ -1352,7 +1330,7 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       const callerCwd = clean(context.cwd || context.callerCwd);
       const scopedContext = bridgeScope(args, context);
       const notifyContext = context;
-      if (type === 'list') return renderResult({ bridgeMode: defaultMode, workers: list({ scanSessions: wantsSessionScan(args), context: scopedContext }), jobs: listJobs(scopedContext) });
+      if (type === 'list') return renderResult({ workers: list({ scanSessions: wantsSessionScan(args), context: scopedContext }), jobs: listJobs(scopedContext) });
       if (type === 'status') return renderResult(renderJob(getJob(args, scopedContext), false));
       if (type === 'read') return renderResult(renderJob(getJob(args, scopedContext), true));
       if (type === 'cleanup') return renderResult(cleanup(args, scopedContext));
@@ -1361,12 +1339,8 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       if (type === 'send') {
         const respawnArgs = coldRespawnArgs(args, scopedContext);
         if (respawnArgs) {
-          if (modeFor(args, context) === 'async') {
-            const job = startDeferredSpawnJob(respawnArgs, callerCwd, context, notifyContext, { respawned: true });
-            return renderResult({ mode: 'async', respawned: true, ...renderJob(job, false) });
-          }
-          const prepared = await prepareSpawn(respawnArgs, callerCwd, context);
-          return renderResult({ respawned: true, ...(await runSpawn(prepared, notifyContext)) });
+          const job = startDeferredSpawnJob(respawnArgs, callerCwd, context, notifyContext, { respawned: true });
+          return renderResult({ respawned: true, ...renderJob(job, false) });
         }
         const prepared = await prepareSend(args, scopedContext);
         if (isSessionBusy(prepared.sessionId) && typeof mgr.enqueuePendingMessage === 'function') {
@@ -1379,28 +1353,21 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
             queueDepth,
           });
         }
-        if (modeFor(args, context) === 'async') {
-          const job = startJob('send', {
-            tag: tagForSession(prepared.sessionId),
-            sessionId: prepared.sessionId,
-            role: prepared.session.role || null,
-            provider: prepared.session.provider || null,
-            model: prepared.session.model || null,
-            preset: prepared.session.presetName || null,
-            effort: prepared.session.effort || null,
-            fast: prepared.session.fast === true,
-          }, () => runSend(prepared, notifyContext), notifyContext);
-          return renderResult({ mode: 'async', ...renderJob(job, false) });
-        }
-        return renderResult(await runSend(prepared, notifyContext));
+        const job = startJob('send', {
+          tag: tagForSession(prepared.sessionId),
+          sessionId: prepared.sessionId,
+          role: prepared.session.role || null,
+          provider: prepared.session.provider || null,
+          model: prepared.session.model || null,
+          preset: prepared.session.presetName || null,
+          effort: prepared.session.effort || null,
+          fast: prepared.session.fast === true,
+        }, () => runSend(prepared, notifyContext), notifyContext);
+        return renderResult(renderJob(job, false));
       }
       if (type === 'spawn') {
-        if (modeFor(args, context) === 'async') {
-          const job = startDeferredSpawnJob(args, callerCwd, context, notifyContext);
-          return renderResult({ mode: 'async', ...renderJob(job, false) });
-        }
-        const prepared = await prepareSpawn(args, callerCwd, context);
-        return renderResult(await runSpawn(prepared, notifyContext));
+        const job = startDeferredSpawnJob(args, callerCwd, context, notifyContext);
+        return renderResult(renderJob(job, false));
       }
       throw new Error(`agent: unknown type "${type}"`);
     } catch (err) {
@@ -1415,7 +1382,6 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       const scopedContext = bridgeScope({}, context);
       const pid = terminalPidForContext(scopedContext);
       return {
-        bridgeMode: defaultMode,
         workers: list({ scanSessions: false, context: scopedContext }),
         jobs: listJobs(scopedContext),
         scope: pid ? { clientHostPid: pid } : { allTerminals: true },
@@ -1425,15 +1391,6 @@ export function createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: default
       const scopedContext = bridgeScope({ recover: true }, context);
       refreshTagsFromSessions({ scanSessions: true, context: scopedContext });
       return list({ scanSessions: false, context: scopedContext });
-    },
-    getDefaultMode: () => defaultMode,
-    setDefaultMode: (mode) => {
-      defaultMode = normalizeMode(mode);
-      return defaultMode;
-    },
-    toggleDefaultMode: () => {
-      defaultMode = defaultMode === 'sync' ? 'async' : 'sync';
-      return defaultMode;
     },
     closeAll,
   };

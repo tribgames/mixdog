@@ -7,8 +7,15 @@ import {
 } from './context-utils.mjs';
 
 export const SUMMARY_PREFIX = 'A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done and avoid duplicating it; treat the summary as authoritative context for continuing the task. You also retain the preserved recent turns that follow.';
-export const DEFAULT_COMPACTION_BUFFER_TOKENS = 20_000;
-export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.05;
+// Trigger == boundary by default: the effective context window already carves a
+// 5% headroom off the raw model window (effectiveContextWindowPercent=95), and
+// that headroom is the room compaction itself needs to run. A second buffer
+// here would deduct 5% twice (raw 1M → boundary 950k → trigger 903k), firing
+// compaction ~9.5% early. Default the buffer to 0 so the single configured
+// headroom is the trigger line; explicit compaction.bufferTokens / bufferPercent
+// still apply when a caller opts into early compaction.
+export const DEFAULT_COMPACTION_BUFFER_TOKENS = 0;
+export const DEFAULT_COMPACTION_BUFFER_RATIO = 0;
 export const MAX_COMPACTION_BUFFER_RATIO = 0.25;
 export const DEFAULT_COMPACTION_KEEP_TOKENS = 8_000;
 export const SUMMARY_OUTPUT_TOKENS = 4_096;
@@ -713,46 +720,39 @@ function fitSemanticSummaryMessage(oldHistory, summary, remainingTokens, semanti
     return tryFit('');
 }
 
-function makeRecallFastTrackSummaryMessage(oldHistory, recallText, recallMeta = {}, preservedFacts = '') {
+// Recall fast-track (compact type 2) does no LLM summarization — it just emits
+// the chunked history in order. Keep the message clean: the mandatory anchor
+// header (so selectCompactionWindow / clear-preserve / TUI can recognize the
+// compact message) plus the chunk text itself. No "Preserved Facts" extraction,
+// no "Recall Fast-Track Context" heading, no "(no recall hits)" filler.
+function makeRecallFastTrackSummaryMessage(oldHistory, recallText, recallMeta = {}) {
     const header = compactHeader(oldHistory);
     header.push(`compact_type=${COMPACT_TYPE_RECALL_FASTTRACK} source=recall-fasttrack query_sha=${recallMeta.querySha || 'none'}`);
-    const facts = String(preservedFacts || '').trim();
     const recall = String(recallText || '').trim();
     const parts = [header.join('\n')];
-    if (facts) parts.push(facts);
-    parts.push([
-        '## Recall Fast-Track Context',
-        recall || '(no recall hits)',
-    ].join('\n'));
+    if (recall) parts.push(recall);
     return makeSummaryMessage(parts.join('\n\n'));
 }
 
-function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remainingTokens, recallMeta = {}, preservedFacts = '') {
-    const tryFit = (factsText) => {
-        const minimal = makeRecallFastTrackSummaryMessage(oldHistory, '', recallMeta, factsText);
-        if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
-        const text = String(recallText || '').trim();
-        if (!text) return minimal;
-        let lo = 0;
-        let hi = text.length;
-        let best = minimal;
-        while (lo <= hi) {
-            const mid = Math.floor((lo + hi) / 2);
-            const candidate = makeRecallFastTrackSummaryMessage(oldHistory, text.slice(0, mid), recallMeta, factsText);
-            if (estimateMessagesTokens([candidate]) <= remainingTokens) {
-                best = candidate;
-                lo = mid + 1;
-            } else {
-                hi = mid - 1;
-            }
+function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remainingTokens, recallMeta = {}) {
+    const minimal = makeRecallFastTrackSummaryMessage(oldHistory, '', recallMeta);
+    if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
+    const text = String(recallText || '').trim();
+    if (!text) return minimal;
+    let lo = 0;
+    let hi = text.length;
+    let best = minimal;
+    while (lo <= hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        const candidate = makeRecallFastTrackSummaryMessage(oldHistory, text.slice(0, mid), recallMeta);
+        if (estimateMessagesTokens([candidate]) <= remainingTokens) {
+            best = candidate;
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
         }
-        return best;
-    };
-    if (preservedFacts) {
-        const withFacts = tryFit(preservedFacts);
-        if (withFacts) return withFacts;
     }
-    return tryFit('');
+    return best;
 }
 
 function combinedSignal(parent, timeoutMs) {
@@ -887,7 +887,7 @@ export function recallFastTrackCompactMessages(messages, budgetTokens, opts = {}
     const recallMeta = {
         querySha: opts.querySha || null,
     };
-    const summaryMessage = fitRecallFastTrackSummaryMessage(oldHistory, recallText, budget - mandatoryCost, recallMeta, selected.preservedFacts);
+    const summaryMessage = fitRecallFastTrackSummaryMessage(oldHistory, recallText, budget - mandatoryCost, recallMeta);
     if (!summaryMessage) {
         throw new Error(`recallFastTrackCompactMessages: summary cannot fit remaining budget=${budget - mandatoryCost}`);
     }

@@ -21,8 +21,8 @@ Use `task`, `task_id`, and `Agent` in user-facing text and docs.
 /agents
 /agent
 /agent list
-/agent spawn <agent> [sync|async] <prompt>
-/agent send <tag|sessionId> [sync|async] <message>
+/agent spawn <agent> <prompt>
+/agent send <tag|sessionId> <message>
 /agent status <task_id>
 /agent read <task_id>
 /agent cancel <task_id|tag|sessionId>
@@ -40,7 +40,6 @@ Common inputs:
 
 - `type`: `spawn`, `send`, `list`, `status`, `read`, `cancel`, `close`, or
   `cleanup`.
-- `mode`: always `async` for model handoffs.
 - `agent` or `role`: workflow agent ID.
 - `tag`: stable handle for a parallel agent.
 - `prompt` or `message`: scoped task brief.
@@ -80,7 +79,6 @@ queueDepth: 1
 List output uses:
 
 ```text
-agent mode: async
 agents: 1
 tasks: 1
 ```

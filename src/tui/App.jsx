@@ -63,7 +63,7 @@ const SLASH_COMMANDS = [
   { name: 'workflow', usage: '/workflow', description: 'Switch the active workflow' },
   { name: 'outputstyle', usage: '/OutputStyle', aliases: ['output-style', 'style'], aliasUsage: ['style'], showAliasUsage: false, params: '[name]', description: 'Switch Lead output style' },
   { name: 'agents', usage: '/agents', description: 'Show available workflow agents' },
-  { name: 'agent', usage: '/agent', params: '[sync|async|list|status|read|cleanup|cancel|close]', description: 'Manage active agents and async tasks' },
+  { name: 'agent', usage: '/agent', params: '[list|status|read|cleanup|cancel|close]', description: 'Manage active agents and async tasks' },
   { name: 'effort', usage: '/effort', params: '[level]', description: 'Set reasoning effort for the current model' },
   { name: 'fast', usage: '/fast', params: '[on|off]', description: 'Toggle Fast mode for the current model' },
   { name: 'mcp', usage: '/mcp', description: 'Manage MCP servers and tools' },
@@ -192,15 +192,15 @@ function parseBridgeControl(text) {
   if (action === 'list' || action === 'cleanup') return { type: action };
   if (action === 'spawn') {
     const agent = value;
-    if (!agent) return { error: 'usage: /agent spawn <agent> [sync|async] <prompt>' };
+    if (!agent) return { error: 'usage: /agent spawn <agent> <prompt>' };
     const parsed = parseBridgeFreeform(parts.slice(2));
-    if (!parsed.message) return { error: 'usage: /agent spawn <agent> [sync|async] <prompt>' };
+    if (!parsed.message) return { error: 'usage: /agent spawn <agent> <prompt>' };
     return { type: 'spawn', agent, ...parsed };
   }
   if (action === 'send') {
-    if (!value) return { error: 'usage: /agent send <target> [sync|async] <message>' };
+    if (!value) return { error: 'usage: /agent send <target> <message>' };
     const parsed = parseBridgeFreeform(parts.slice(2));
-    if (!parsed.message) return { error: 'usage: /agent send <target> [sync|async] <message>' };
+    if (!parsed.message) return { error: 'usage: /agent send <target> <message>' };
     return value.startsWith('sess_')
       ? { type: 'send', sessionId: value, ...parsed }
       : { type: 'send', tag: value, ...parsed };
@@ -217,11 +217,6 @@ function parseBridgeFreeform(parts) {
   let i = 0;
   for (; i < parts.length; i += 1) {
     const token = parts[i];
-    const lower = token.toLowerCase();
-    if (lower === 'sync' || lower === 'async') {
-      out.mode = lower;
-      continue;
-    }
     const kv = /^([a-zA-Z][\w-]*)=(.+)$/.exec(token);
     if (kv && ['tag', 'preset', 'provider', 'model', 'effort', 'cwd'].includes(kv[1])) {
       out[kv[1]] = kv[2];
@@ -1387,11 +1382,6 @@ export function App({ store, initialStatusLine = '' }) {
   }, []);
 
   useInput((input, key) => {
-    if (key.ctrl && (input === 'b' || input === 'B')) {
-      if (hasTextEntryPrompt || (!picker && String(promptValueRef.current || '').length > 0)) return;
-      store.toggleBridgeMode?.();
-      return;
-    }
     if (key.ctrl && (input === 'c' || input === 'C')) {
       // Match normal terminal behavior as closely as possible. If app-owned
       // mouse selection is explicitly enabled, Ctrl+C copies that selection;
@@ -2308,28 +2298,9 @@ export function App({ store, initialStatusLine = '' }) {
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
-    const mode = state.bridgeMode || 'async';
     setPicker({
-      title: `Agent Tasks (current: ${mode})`,
+      title: 'Agent Tasks',
       items: [
-        {
-          value: 'sync',
-          label: 'Sync mode',
-          marker: mode === 'sync' ? '●' : '○',
-          markerColor: mode === 'sync' ? theme.success : theme.inactive,
-          description: 'agent calls wait for completion',
-          _action: 'mode',
-          _mode: 'sync',
-        },
-        {
-          value: 'async',
-          label: 'Async mode',
-          marker: mode === 'async' ? '●' : '○',
-          markerColor: mode === 'async' ? theme.success : theme.inactive,
-          description: 'agent calls return task IDs',
-          _action: 'mode',
-          _mode: 'async',
-        },
         {
           value: 'list',
           label: 'List agents/tasks',
@@ -2347,11 +2318,6 @@ export function App({ store, initialStatusLine = '' }) {
       ],
       onSelect: (_value, item) => {
         setPicker(null);
-        if (item._action === 'mode') {
-          const next = store.setBridgeMode?.(item._mode);
-          store.pushNotice(`Agent mode set to ${next || item._mode}`, 'info');
-          return;
-        }
         if (item._action === 'control') {
           void store.bridgeControl?.(item._args)
             .catch((e) => store.pushNotice(`agent failed: ${e?.message || e}`, 'error'));
@@ -2512,7 +2478,7 @@ export function App({ store, initialStatusLine = '' }) {
         {
           value: 'bridge',
           label: 'Agent Tasks',
-          description: `default ${state.bridgeMode || 'async'} · ${bridgeAgentText} · ${bridgeScopeLabel}`,
+          description: `${bridgeAgentText} · ${bridgeScopeLabel}`,
         },
         {
           value: 'tools',
@@ -2791,7 +2757,6 @@ export function App({ store, initialStatusLine = '' }) {
     state.rawContextWindow,
     state.sessionId,
     state.toolMode,
-    state.bridgeMode,
     state.bridgeWorkers,
     state.bridgeJobs,
     state.provider,
@@ -4909,12 +4874,7 @@ export function App({ store, initialStatusLine = '' }) {
             .catch((e) => store.pushNotice(`agent failed: ${e?.message || e}`, 'error'));
           return true;
         }
-        if (mode !== 'sync' && mode !== 'async') {
-          store.pushNotice('usage: /agent [sync|async|list|status|read|cleanup|cancel|close]', 'warn');
-          return true;
-        }
-        const next = store.setBridgeMode?.(mode);
-        store.pushNotice(`Agent mode set to ${next || mode}`, 'info');
+        store.pushNotice('usage: /agent [list|status|read|cleanup|cancel|close]', 'warn');
         return true;
       }
       case 'mcp':
@@ -5454,10 +5414,9 @@ export function App({ store, initialStatusLine = '' }) {
   // ~120fps streaming reconciles). Memoize on the bridge slices so it only
   // recomputes when bridge state actually changes, not on every assistant delta.
   const bridgeRevision = useMemo(() => JSON.stringify({
-    mode: state.bridgeMode || '',
     workers: (state.bridgeWorkers || []).map((w) => [w.tag, w.status, w.stage, w.sessionId]).slice(0, 20),
     jobs: (state.bridgeJobs || []).map((j) => [j.task_id, j.status, j.tag, j.sessionId, j.startedAt, j.finishedAt, j.error]).slice(0, 20),
-  }), [state.bridgeMode, state.bridgeWorkers, state.bridgeJobs]);
+  }), [state.bridgeWorkers, state.bridgeJobs]);
 
   // ── Transcript viewport height ──────────────────────────────────────────
   // ROOT-CAUSE FIX: the transcript must live in a box with an EXPLICIT numeric

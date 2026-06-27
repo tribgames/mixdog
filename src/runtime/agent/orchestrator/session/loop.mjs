@@ -168,13 +168,6 @@ const { evaluatePermission: _evaluatePermission } = _require(_hooksLib);
 const MCP_TOOL_PREFIX = 'mcp__plugin_mixdog_mixdog__';
 const COMPACT_SAFETY_PERCENT = 1.00;
 const COMPACT_BUFFER_MAX_WINDOW_FRACTION = 0.25;
-// Stricter budget used for the one-shot retry after a provider rejects a send
-// with a context-window-exceeded error. 0.60×contextWindow forces older
-// non-system history into a tighter compact summary when the pre-send estimate
-// under-counted provider-side bytes (tool schemas, framing,
-// provider-internal token accounting). Used exactly once per send; see the
-// retry block around provider.send below.
-const OVERFLOW_RETRY_COMPACT_PERCENT = 0.60;
 
 function estimateMessagesTokensSafe(messages) {
     try { return estimateMessagesTokens(messages); }
@@ -1661,232 +1654,34 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             response = await provider.send(messages, model, sendTools.length ? sendTools : undefined, opts);
         } catch (sendErr) {
             // Context-window-exceeded is a deterministic refusal: the request is
-            // simply too large. Retry ONCE with a stricter budget using the
-            // same summary-based compaction path. It never falls back to
-            // destructive trim/drop: if system + current turn + compact marker
-            // cannot fit, surface overflow. Unrelated errors (network, stall,
-            // auth, etc.) re-throw untouched — they are handled by the
-            // provider/bridge retry layers.
+            // simply too large. Per explicit design, do NOT attempt an in-loop
+            // re-compaction retry — surface the overflow immediately so the
+            // caller (and the user) get a clear, deterministic signal and can
+            // run /compact or /clear. Unrelated errors (network, stall, auth,
+            // etc.) re-throw untouched — handled by provider/bridge retry layers.
             if (
                 !isContextOverflowError(sendErr)
                 || !(sessionRef && typeof sessionRef.contextWindow === 'number')
             ) {
                 throw sendErr;
             }
-            const overflowPolicy = resolveWorkerCompactPolicy(sessionRef, sendTools.length ? sendTools : tools);
-            const overflowBase = overflowPolicy?.boundaryTokens || sessionRef.contextWindow;
-            const overflowStrictBudget = Math.floor(overflowBase * OVERFLOW_RETRY_COMPACT_PERCENT);
-            const overflowBudget = Math.max(1, Math.min(
-                overflowBase,
-                overflowPolicy?.triggerTokens || overflowBase,
-                overflowStrictBudget || overflowBase,
-            ));
-            const overflowReserve = overflowPolicy?.reserveTokens || estimateRequestReserveTokens(sendTools.length ? sendTools : tools);
-            const beforeCount = messages.length;
-            let beforeBytes = null;
-            try { beforeBytes = Buffer.byteLength(JSON.stringify(messages), 'utf8'); } catch { beforeBytes = null; }
+            const overflowReserve = estimateRequestReserveTokens(sendTools.length ? sendTools : tools);
             const messageTokensEst = estimateMessagesTokensSafe(messages);
-            let recompacted;
-            let overflowSemanticResult = null;
-            let overflowSemanticError = null;
-            let overflowRecallResult = null;
-            let overflowRecallError = null;
-            try {
-                if (!overflowPolicy?.auto) {
-                    throw new Error('auto compact is disabled for overflow retry');
-                }
-                if (overflowPolicy.recallFastTrack) {
-                    try {
-                        overflowRecallResult = await runRecallFastTrackCompact({
-                            sessionRef,
-                            messages,
-                            compactBudgetTokens: overflowBudget,
-                            compactPolicy: overflowPolicy,
-                            sessionId,
-                            signal,
-                        });
-                        recompacted = Array.isArray(overflowRecallResult?.messages)
-                            ? overflowRecallResult.messages
-                            : null;
-                        if (!recompacted) throw new Error('recall-fasttrack compact produced no messages');
-                    } catch (err) {
-                        overflowRecallError = err;
-                        throw err;
-                    }
-                } else if (overflowPolicy.semantic) {
-                    try {
-                        overflowSemanticResult = await semanticCompactMessages(
-                            provider,
-                            messages,
-                            model,
-                            overflowBudget,
-                            {
-                                reserveTokens: overflowReserve,
-                                providerName: sessionRef.provider || provider?.name || null,
-                                sessionId,
-                                signal,
-                                sendOpts: opts,
-                                promptCacheKey: opts.promptCacheKey || null,
-                                providerCacheKey: opts.providerCacheKey || null,
-                                timeoutMs: overflowPolicy.semanticTimeoutMs,
-                                tailTurns: overflowPolicy.tailTurns,
-                                keepTokens: overflowPolicy.keepTokens,
-                                preserveRecentTokens: overflowPolicy.preserveRecentTokens,
-                                force: true,
-                            },
-                        );
-                        recompacted = Array.isArray(overflowSemanticResult?.messages)
-                            ? overflowSemanticResult.messages
-                            : null;
-                        if (!recompacted) throw new Error('semantic compact produced no messages');
-                        if (overflowSemanticResult?.usage) {
-                            lastUsage = addUsage(lastUsage, overflowSemanticResult.usage);
-                            if (!firstTurnUsage) firstTurnUsage = normalizeUsage(overflowSemanticResult.usage);
-                            if (sessionId && opts.onUsageDelta) {
-                                try {
-                                    opts.onUsageDelta({
-                                        sessionId,
-                                        iterationIndex: nextIteration,
-                                        deltaInput: overflowSemanticResult.usage.inputTokens || 0,
-                                        deltaOutput: overflowSemanticResult.usage.outputTokens || 0,
-                                        deltaCachedRead: overflowSemanticResult.usage.cachedTokens || 0,
-                                        deltaCacheWrite: overflowSemanticResult.usage.cacheWriteTokens || 0,
-                                        source: 'semantic_compact',
-                                        ts: Date.now(),
-                                    });
-                                } catch { /* best-effort */ }
-                            }
-                        }
-                    } catch (err) {
-                        overflowSemanticError = err;
-                        throw err;
-                    }
-                } else {
-                    throw new Error(`compact type ${overflowPolicy.compactType || overflowPolicy.type || DEFAULT_COMPACT_TYPE} is unavailable for overflow retry`);
-                }
-            } catch (compactErr) {
-                traceBridgeCompact({
-                    sessionId,
-                    iteration: nextIteration,
-                    stage: 'overflow_retry',
-                    prune_count: 0,
-                    compact_changed: false,
-                    input_prefix_hash: messagePrefixHash(messages),
-                    before_count: beforeCount,
-                    after_count: messages.length,
-                    before_bytes: beforeBytes,
-                    after_bytes: beforeBytes,
-                    context_window: overflowPolicy?.contextWindow || sessionRef.contextWindow,
-                    budget_tokens: overflowBudget,
-                    reserve_tokens: overflowReserve,
-                    message_tokens_est: messageTokensEst,
-                    provider: sessionRef.provider,
-                    model: sessionRef.model || model,
-                    error: compactErr && compactErr.message ? compactErr.message : String(compactErr),
-                    error_code: 'BRIDGE_CONTEXT_OVERFLOW',
-                });
-                emitCompactEvent(opts, {
-                    sessionId,
-                    stage: 'overflow_retry',
-                    trigger: 'overflow',
-                    status: 'failed',
-                    compactType: compactEventType(overflowPolicy),
-                    beforeTokens: messageTokensEst,
-                    afterTokens: messageTokensEst,
-                    beforeMessages: beforeCount,
-                    afterMessages: messages.length,
-                    boundaryTokens: overflowPolicy?.boundaryTokens || sessionRef.contextWindow,
-                    targetBudgetTokens: overflowBudget,
-                    reserveTokens: overflowReserve,
-                    semantic: overflowPolicy?.semantic === true,
-                    recallFastTrack: overflowPolicy?.recallFastTrack === true,
-                    pruneCount: 0,
-                    error: compactErr && compactErr.message ? compactErr.message : String(compactErr),
-                });
-                throw bridgeContextOverflowError({
-                    stage: 'overflow_retry',
-                    sessionId,
-                    sessionRef,
-                    model,
-                    budgetTokens: overflowBudget,
-                    reserveTokens: overflowReserve,
-                    messageTokensEst,
-                }, compactErr);
-            }
-            const compactChanged = messagesArrayChanged(messages, recompacted);
-            const pruneCount = Math.max(beforeCount - recompacted.length, 0);
-            messages.length = 0;
-            messages.push(...recompacted);
-            let afterBytes = null;
-            try { afterBytes = Buffer.byteLength(JSON.stringify(messages), 'utf8'); } catch { afterBytes = null; }
-            traceBridgeCompact({
-                sessionId,
-                iteration: nextIteration,
-                stage: 'overflow_retry',
-                prune_count: pruneCount,
-                compact_changed: compactChanged,
-                input_prefix_hash: messagePrefixHash(messages),
-                before_count: beforeCount,
-                after_count: messages.length,
-                before_bytes: beforeBytes,
-                after_bytes: afterBytes,
-                context_window: overflowPolicy?.contextWindow || sessionRef.contextWindow,
-                budget_tokens: overflowBudget,
-                reserve_tokens: overflowReserve,
-                message_tokens_est: messageTokensEst,
-                provider: sessionRef.provider,
-                model: sessionRef.model || model,
-            });
-            rememberCompactTelemetry(sessionRef, overflowPolicy, {
-                stage: 'overflow_retry',
-                beforeTokens: messageTokensEst,
-                afterTokens: estimateMessagesTokensSafe(messages),
-                compactChanged,
-                pruneCount,
-                semanticCompact: overflowSemanticResult?.semantic === true,
-                semanticError: overflowSemanticError?.message || null,
-                recallFastTrack: overflowRecallResult?.recallFastTrack === true,
-                recallFastTrackError: overflowRecallError?.message || null,
-            });
-            emitCompactEvent(opts, {
-                sessionId,
-                stage: 'overflow_retry',
-                trigger: 'overflow',
-                status: compactChanged || pruneCount > 0 ? 'compacted' : 'no_change',
-                compactType: compactEventType(overflowPolicy),
-                beforeTokens: messageTokensEst,
-                afterTokens: estimateMessagesTokensSafe(messages),
-                beforeMessages: beforeCount,
-                afterMessages: messages.length,
-                boundaryTokens: overflowPolicy?.boundaryTokens || sessionRef.contextWindow,
-                targetBudgetTokens: overflowBudget,
-                reserveTokens: overflowReserve,
-                changed: compactChanged,
-                semantic: overflowSemanticResult?.semantic === true,
-                recallFastTrack: overflowRecallResult?.recallFastTrack === true,
-                pruneCount,
-            });
-            // The transcript prefix changed; the server-side conversation anchor
-            // (previous_response_id / WS continuation) is now invalid. Drop
-            // providerState so the retry starts a fresh chain instead of
-            // tripping a silent cache miss or hard mismatch.
-            providerState = undefined;
-            opts.providerState = undefined;
-            // Drop eager-dispatch state before the retry send. A tool_use
-            // streamed by the failed first send could otherwise orphan its
-            // eager result or be double-dispatched; force the retry's tools
-            // through the serial post-send path with a clean matching slate.
-            opts.onToolCall = undefined;
-            pending.clear();
-            _eagerInFlightSigs.clear();
             try {
                 process.stderr.write(
                     `[loop] context overflow on send (sess=${sessionId || 'unknown'} iter=${nextIteration}); ` +
-                    `retrying once at budget=${overflowBudget} reserve=${overflowReserve} ` +
-                    `messages=${messages.length}\n`,
+                    `surfacing overflow (no auto re-compact) messages=${messages.length}\n`,
                 );
             } catch { /* best-effort */ }
-            response = await provider.send(messages, model, sendTools.length ? sendTools : undefined, opts);
+            throw bridgeContextOverflowError({
+                stage: 'send',
+                sessionId,
+                sessionRef,
+                model,
+                budgetTokens: sessionRef.contextWindow,
+                reserveTokens: overflowReserve,
+                messageTokensEst,
+            }, sendErr);
         }
         opts.onToolCall = undefined;
         // Capture opaque state for the next turn (may be undefined — that's

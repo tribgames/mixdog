@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compactToolSearchDescription, defaultDeferredToolNames, TOOL_SEARCH_TOOL } from '../src/mixdog-session-runtime.mjs';
 import { buildExplorerPrompt, EXPLORE_TOOL, MAX_FANOUT_QUERIES, normalizeExploreQueries } from '../src/standalone/explore-tool.mjs';
-import { BRIDGE_TOOL, createStandaloneBridge, resolveBridgeExecutionMode } from '../src/standalone/bridge-tool.mjs';
+import { BRIDGE_TOOL, createStandaloneBridge } from '../src/standalone/bridge-tool.mjs';
 import { createStandaloneChannelWorker } from '../src/standalone/channel-worker.mjs';
 import { OpenAIOAuthProvider } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { contentHasImage, sanitizeContentForStoredHistory } from '../src/runtime/agent/orchestrator/providers/media-normalization.mjs';
@@ -281,27 +281,6 @@ if (!/exactly one window family/i.test(readWindowErr || '')) {
   throw new Error(`read mixed-window guard failed: err=${readWindowErr} args=${JSON.stringify(mixedReadWindow)}`);
 }
 
-const modelDefaultAsync = resolveBridgeExecutionMode(
-  {},
-  { invocationSource: 'model-tool' },
-  'sync',
-);
-if (modelDefaultAsync !== 'async') throw new Error(`agent model-tool default mode should be async, got ${modelDefaultAsync}`);
-
-const explicitSync = resolveBridgeExecutionMode(
-  { wait: true, mode: 'sync', async: false },
-  { invocationSource: 'model-tool' },
-  'sync',
-);
-if (explicitSync !== 'sync') throw new Error(`agent explicit sync mode should be honored, got ${explicitSync}`);
-
-const userSync = resolveBridgeExecutionMode(
-  { wait: true },
-  { invocationSource: 'user-command' },
-  'async',
-);
-if (userSync !== 'sync') throw new Error(`agent user-command wait mode should be sync, got ${userSync}`);
-
 for (const command of [
   'git status --short',
   'git diff -- src/mixdog-session-runtime.mjs',
@@ -399,8 +378,8 @@ for (const name of ['apply_patch', 'agent', 'shell']) {
 }
 
 const bridgeProps = BRIDGE_TOOL.inputSchema?.properties || {};
-if (!bridgeProps.mode || bridgeProps.wait) throw new Error('agent schema should expose mode but not legacy wait');
-if (!/(?:Prefer async by default|Always use mode:"async")/i.test(BRIDGE_TOOL.description || '') || !/distinct tags/i.test(BRIDGE_TOOL.description || '') || !/completion notification/i.test(BRIDGE_TOOL.description || '') || !/do not (?:call|poll) status\/read/i.test(BRIDGE_TOOL.description || '')) {
+if (bridgeProps.mode || bridgeProps.wait) throw new Error('agent schema should not expose execution mode controls');
+if (!/always start background tasks/i.test(BRIDGE_TOOL.description || '') || !/distinct tags/i.test(BRIDGE_TOOL.description || '') || !/completion notification/i.test(BRIDGE_TOOL.description || '') || !/do not (?:call|poll) status\/read/i.test(BRIDGE_TOOL.description || '')) {
   throw new Error('agent description must preserve async tagged delegation contract');
 }
 const bridgeSmoke = createStandaloneBridge({
@@ -543,7 +522,7 @@ try {
       return true;
     },
   };
-  const notifyStart = await bridgeNotifySmoke.execute({ type: 'spawn', mode: 'async', agent: 'worker', tag: 'notify-smoke', prompt: 'notify smoke' }, notifyContext);
+  const notifyStart = await bridgeNotifySmoke.execute({ type: 'spawn', agent: 'worker', tag: 'notify-smoke', prompt: 'notify smoke' }, notifyContext);
   if (!/agent task:/i.test(String(notifyStart)) || !/status: running/i.test(String(notifyStart))) {
     throw new Error(`agent async notify smoke did not start task:\n${notifyStart}`);
   }

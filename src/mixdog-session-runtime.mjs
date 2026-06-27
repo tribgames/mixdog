@@ -2337,18 +2337,25 @@ export async function createMixdogSessionRuntime({
     process.env.MIXDOG_SESSION_CWD = currentCwd;
     writeLastSessionCwd(currentCwd);
     if (session) session.cwd = currentCwd;
-    if (changed && markRefresh && session?.id) sessionNeedsCwdRefresh = true;
+    // cwd changes NEVER recreate the session: a mid-conversation cwd switch must
+    // preserve the full message history (and the BP1–BP3 prompt cache). We only
+    // retarget the live session's cwd in place; tool execution already reads the
+    // current cwd per turn. `cwd` is intentionally absent from the prompt
+    // context (see composeSystemPrompt), so there is nothing prompt-side to
+    // refresh either. `markRefresh`/`changed` are kept only for signature
+    // compatibility with existing callers.
+    void changed;
+    void markRefresh;
     return currentCwd;
   }
 
   async function refreshSessionForCwdIfNeeded(reason = 'cwd-change') {
-    if (!session?.id || !sessionNeedsCwdRefresh) return session;
-    const previousId = session.id;
-    statusRoutes?.clearGatewaySessionRoute?.(previousId);
-    mgr.closeSession(previousId, reason);
-    session = null;
+    // No-op: cwd changes are applied in place by applyResolvedCwd and never
+    // tear down the session. Retained as a stable hook for ask()'s pre-turn
+    // call so the surrounding turn flow is unchanged.
+    void reason;
     sessionNeedsCwdRefresh = false;
-    return await createCurrentSession();
+    return session;
   }
 
   function buildWorkspaceContext() {
@@ -2483,9 +2490,6 @@ export async function createMixdogSessionRuntime({
     return { name, config: { command, args, cwd: resolvedCwd } };
   }
 
-  const persistedBridgeMode = (() => {
-    try { return (sharedCfgMod.readSection('agent') || {}).bridgeMode; } catch { return undefined; }
-  })();
   const bridgeStartedAt = performance.now();
   const bridge = createStandaloneBridge({
     cfgMod,
@@ -2493,20 +2497,18 @@ export async function createMixdogSessionRuntime({
     mgr,
     dataDir: cfgMod.getPluginData(),
     cwd,
-    defaultMode: persistedBridgeMode ?? 'async',
   });
   bootProfile('bridge:ready', { ms: (performance.now() - bridgeStartedAt).toFixed(1) });
   const bridgeStatusState = () => {
     try {
       const status = bridge.getStatus?.({ clientHostPid: session?.clientHostPid || process.pid }) || {};
       return {
-        bridgeMode: bridge.getDefaultMode?.() || status.bridgeMode || 'async',
         bridgeWorkers: Array.isArray(status.workers) ? status.workers : [],
         bridgeJobs: Array.isArray(status.jobs) ? status.jobs : [],
         bridgeScope: status.scope || null,
       };
     } catch {
-      return { bridgeMode: bridge.getDefaultMode?.() || 'async', bridgeWorkers: [], bridgeJobs: [], bridgeScope: null };
+      return { bridgeWorkers: [], bridgeJobs: [], bridgeScope: null };
     }
   };
   const channelsStartedAt = performance.now();
@@ -3404,7 +3406,7 @@ function parsedProviderModelVersion(id) {
   scheduleProviderWarmup();
   scheduleChannelStart();
 
-  function contextStatusCacheKeyFor({ messages, tools, bridgeMode }) {
+  function contextStatusCacheKeyFor({ messages, tools }) {
     const compaction = session?.compaction || {};
     const lastMessage = messages[messages.length - 1] || null;
     return {
@@ -3414,7 +3416,6 @@ function parsedProviderModelVersion(id) {
       model: route.model,
       cwd: currentCwd,
       mode,
-      bridgeMode,
       messages,
       messageCount: messages.length,
       lastMessage,
@@ -3487,9 +3488,6 @@ function parsedProviderModelVersion(id) {
     get toolMode() {
       return mode;
     },
-    get bridgeMode() {
-      return bridge.getDefaultMode();
-    },
     get autoClear() {
       return normalizeAutoClearConfig(config.autoClear);
     },
@@ -3517,8 +3515,7 @@ function parsedProviderModelVersion(id) {
     contextStatus() {
       const messages = Array.isArray(session?.messages) ? session.messages : [];
       const tools = Array.isArray(session?.tools) ? session.tools : [];
-      const bridgeMode = bridge.getDefaultMode();
-      const cacheKey = contextStatusCacheKeyFor({ messages, tools, bridgeMode });
+      const cacheKey = contextStatusCacheKeyFor({ messages, tools });
       if (contextStatusCacheValue && sameContextStatusCacheKey(cacheKey, contextStatusCacheKey)) {
         return contextStatusCacheValue;
       }
@@ -3566,7 +3563,6 @@ function parsedProviderModelVersion(id) {
         model: route.model,
         cwd: currentCwd,
         toolMode: mode,
-        bridgeMode,
         contextWindow: displayWindow || effectiveWindow || null,
         effectiveContextWindow: effectiveWindow || null,
         rawContextWindow: rawWindow || null,
@@ -4205,16 +4201,6 @@ function parsedProviderModelVersion(id) {
       if (session?.id) mgr.closeSession(session.id, 'cli-mode-switch');
       await recreateCurrentSessionIfReady();
       return mode;
-    },
-    setBridgeMode(nextMode) {
-      const applied = bridge.setDefaultMode(nextMode);
-      try { sharedCfgMod.updateSection('agent', (s) => ({ ...(s || {}), bridgeMode: applied })); } catch {}
-      return applied;
-    },
-    toggleBridgeMode() {
-      const applied = bridge.toggleDefaultMode();
-      try { sharedCfgMod.updateSection('agent', (s) => ({ ...(s || {}), bridgeMode: applied })); } catch {}
-      return applied;
     },
     bridgeStatus() {
       return bridgeStatusState();

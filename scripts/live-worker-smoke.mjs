@@ -37,7 +37,7 @@ async function main() {
   const workflowRules = readFileSync('src/workflows/default/WORKFLOW.md', 'utf8');
   assert(/Use `agent` for scoped implementation/i.test(leadToolRules), 'lead rules must direct scoped work to agents');
   assert(/delegat(?:es|ing) them concurrently/i.test(workflowRules), 'workflow rules must keep independent work parallel');
-  assert(/Always use mode:"async"/i.test(BRIDGE_TOOL.description || '') && /distinct tags/i.test(BRIDGE_TOOL.description || '') && /completion notification/i.test(BRIDGE_TOOL.description || ''), 'agent tool description must expose async parallel tags');
+  assert(/always start background tasks/i.test(BRIDGE_TOOL.description || '') && /distinct tags/i.test(BRIDGE_TOOL.description || '') && /completion notification/i.test(BRIDGE_TOOL.description || ''), 'agent tool description must expose async parallel tags');
 
   mkdirSync(dataDir, { recursive: true });
   await initProviders({ 'openai-oauth': { enabled: true } });

@@ -74,34 +74,28 @@ assert(recallFastTrackForced.recallFastTrack === true, 'recall fast-track compac
 assert(recallFastTrackForced.compactType === COMPACT_TYPE_RECALL_FASTTRACK, 'recall fast-track compact should report compact type 2');
 assert(findSummary(recallFastTrackForced.messages), 'recall fast-track compact should insert an anchored summary');
 
+// Context overflow on send is surfaced immediately as a deterministic
+// BRIDGE_CONTEXT_OVERFLOW error. The loop MUST NOT attempt an in-loop
+// re-compaction retry — no compact provider call, no second send.
 const overflowRetryMessages = [{ role: 'system', content: 'system rules stay mandatory' }];
 let overflowIndex = 0;
 while (estimateMessagesTokens(overflowRetryMessages) + 512 < 8_800) {
-  overflowRetryMessages.push({ role: 'user', content: `older overflow retry request ${overflowIndex}: ${'important detail '.repeat(90)}` });
-  overflowRetryMessages.push({ role: 'assistant', content: `older overflow retry answer ${overflowIndex}: ${'implementation note '.repeat(90)}` });
+  overflowRetryMessages.push({ role: 'user', content: `older overflow request ${overflowIndex}: ${'important detail '.repeat(90)}` });
+  overflowRetryMessages.push({ role: 'assistant', content: `older overflow answer ${overflowIndex}: ${'implementation note '.repeat(90)}` });
   overflowIndex += 1;
 }
-overflowRetryMessages.push({ role: 'user', content: 'current overflow retry task must stay verbatim' });
-const overflowInitialPressure = estimateMessagesTokens(overflowRetryMessages) + 512;
-assert(overflowInitialPressure < 10_800, `overflow retry fixture must stay below normal trigger: pressure=${overflowInitialPressure}`);
-assert(overflowInitialPressure > 7_200, `overflow retry fixture must exceed strict retry budget before compaction: pressure=${overflowInitialPressure}`);
+overflowRetryMessages.push({ role: 'user', content: 'current overflow task must stay verbatim' });
 let overflowSendCount = 0;
 let overflowCompactSendCount = 0;
-let overflowRetryPressure = 0;
 const overflowProvider = {
   name: 'overflow-smoke',
-  async send(sentMessages, _model, _tools, opts = {}) {
+  async send(_sentMessages, _model, _tools, opts = {}) {
     if (String(opts?.sessionId || '').endsWith(':compact')) {
       overflowCompactSendCount += 1;
-      return {
-        content: '## Goal\n- recover from overflow retry\n\n## Progress\n### Done\n- older overflow retry turns summarized\n\n### In Progress\n- current overflow retry task must stay verbatim\n\n### Blocked\n- (none)\n\n## Next Steps\n- retry the provider request\n\n## Critical Context\n- overflow retry smoke fixture\n\n## Relevant Files\n- scripts/compact-smoke.mjs: overflow retry semantic compact coverage',
-        usage: { inputTokens: estimateMessagesTokens(sentMessages), outputTokens: 64 },
-      };
+      return { content: 'unexpected compact call' };
     }
     overflowSendCount += 1;
-    if (overflowSendCount === 1) throw new Error('input tokens exceeds the context window');
-    overflowRetryPressure = estimateMessagesTokens(sentMessages) + 512;
-    return { content: '<final-answer>overflow retry recovered</final-answer>', usage: { inputTokens: overflowRetryPressure, outputTokens: 1 } };
+    throw new Error('input tokens exceeds the context window');
   },
 };
 const overflowSession = {
@@ -114,9 +108,15 @@ const overflowSession = {
   compactBoundaryTokens: 12_000,
   compaction: { auto: true, semantic: true },
 };
-await agentLoop(overflowProvider, overflowRetryMessages, 'fake-model', [], null, process.cwd(), { session: overflowSession, sessionId: overflowSession.id });
-assert(overflowSendCount === 2, `overflow retry should send exactly twice, sent=${overflowSendCount}`);
-assert(overflowCompactSendCount === 1, `overflow retry should use configured semantic compact once, sent=${overflowCompactSendCount}`);
-assert(overflowRetryPressure <= 7_200, `overflow retry must use stricter 60% budget: pressure=${overflowRetryPressure}`);
+let overflowError = null;
+try {
+  await agentLoop(overflowProvider, overflowRetryMessages, 'fake-model', [], null, process.cwd(), { session: overflowSession, sessionId: overflowSession.id });
+} catch (err) {
+  overflowError = err;
+}
+assert(overflowError, 'context overflow on send should surface an error, not be silently recovered');
+assert(overflowError?.code === 'BRIDGE_CONTEXT_OVERFLOW', `overflow should surface BRIDGE_CONTEXT_OVERFLOW, got ${overflowError?.code || overflowError?.message}`);
+assert(overflowSendCount === 1, `overflow should send exactly once with no retry, sent=${overflowSendCount}`);
+assert(overflowCompactSendCount === 0, `overflow must not trigger an in-loop re-compaction, compactSends=${overflowCompactSendCount}`);
 
 process.stdout.write('compact smoke passed ✓\n');

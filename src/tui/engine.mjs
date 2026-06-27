@@ -714,7 +714,6 @@ export async function createEngineSession({
     if (!force && bridgeStatusCache && now - bridgeStatusCacheAt < BRIDGE_STATUS_CACHE_MS) return bridgeStatusCache;
     const status = runtime.bridgeStatus?.() || {};
     bridgeStatusCache = {
-      bridgeMode: runtime.bridgeMode || status.bridgeMode || 'async',
       bridgeWorkers: Array.isArray(status.bridgeWorkers) ? status.bridgeWorkers : [],
       bridgeJobs: Array.isArray(status.bridgeJobs) ? status.bridgeJobs : [],
       bridgeScope: status.bridgeScope || null,
@@ -745,7 +744,6 @@ export async function createEngineSession({
   const initialRouteState = routeState();
   bootProfile('engine:route-state-ready', { ms: (performance.now() - routeStateStartedAt).toFixed(1) });
   const initialBridgeState = {
-    bridgeMode: runtime.bridgeMode || 'async',
     bridgeWorkers: [],
     bridgeJobs: [],
     bridgeScope: null,
@@ -2082,17 +2080,6 @@ export async function createEngineSession({
           set({ ...routeState(), toolMode: runtime.toolMode, stats: { ...state.stats } });
         })
         .catch((error) => pushNotice(toolErrorDisplay(error, 'tool'), 'error'));
-    },
-    toggleBridgeMode: () => {
-      const mode = runtime.toggleBridgeMode();
-      set(bridgeStatusState({ force: true }));
-      pushNotice(`Agent mode -> ${mode}`, 'info');
-      return mode;
-    },
-    setBridgeMode: (mode) => {
-      const next = runtime.setBridgeMode(mode);
-      set(bridgeStatusState({ force: true }));
-      return next;
     },
     getAutoClear: () => autoClearState(),
     setAutoClear: (input = {}) => {
