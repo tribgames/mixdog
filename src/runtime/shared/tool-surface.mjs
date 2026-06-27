@@ -1354,10 +1354,16 @@ export function formatAggregateDetail(summaries) {
         removed: 0,
         seen: false,
         render: (m) => {
+          // The aggregate header already carries the action + file count
+          // (e.g. "Edited 2 files"), so the detail row shows only the merged
+          // line delta. Fall back to the action + file/count summary only when
+          // there is no +/- delta to show (e.g. pure create/delete).
+          const delta = formatLineDelta(m);
+          if (delta) return delta;
           const count = m.fileCount + m.files.size;
           const action = m.actions.size === 1 ? [...m.actions][0] : 'Updated';
           const target = count === 1 && m.fileCount === 0 ? [...m.files][0] : `${count} ${pluralize(count, 'File')}`;
-          return compactParts([`${action} ${target}`, formatLineDelta(m)]);
+          return `${action} ${target}`;
         },
       });
       if (update.file) metric.files.add(update.file);

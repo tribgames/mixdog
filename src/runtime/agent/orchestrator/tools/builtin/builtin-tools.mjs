@@ -17,7 +17,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read known file path(s). Use line+context for a small window; pass a path array for independent files.',
+        description: 'Read known file path(s). Use line+context for a small window. Batch independent inputs as an array in one call; if not expressible as an array, issue parallel calls in the same turn.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -30,7 +30,7 @@ export const BUILTIN_TOOLS = [
                             minItems: 1,
                         },
                     ],
-                    description: 'File path only, or array of file paths. Dirs use list.',
+                    description: 'File path only, or array of file paths (batch independent files in one call). Dirs use list.',
                 },
                 line: { type: 'number', minimum: 1, description: 'Anchor line. Do not combine with offset/limit.' },
                 context: { type: 'number', minimum: 0, maximum: 200, description: 'Lines around line. Use only with line; max 200.' },
@@ -101,7 +101,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Search text or regex within a known file or directory.',
+        description: 'Search text or regex within a known file or directory. Batch independent inputs as an array in one call; if not expressible as an array, issue parallel calls in the same turn.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -110,7 +110,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Literal/substring or ripgrep regex. Array = OR terms. Legacy `\\|` in a single string is accepted as OR.',
+                    description: 'Literal/substring or ripgrep regex. Array = OR terms (batch alternatives in one call). Legacy `\\|` in a single string is accepted as OR.',
                 },
                 path: { type: 'string', description: 'One file or directory only; for many paths use common parent + glob.' },
                 glob: {
@@ -118,7 +118,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Glob filter(s).',
+                    description: 'Glob filter(s); batch independent filters as an array in one call.',
                 },
                 output_mode: { type: 'string', enum: ['files_with_matches', 'content', 'count'], description: 'Default content.' },
                 head_limit: { type: 'number', description: 'Max result lines.' },
@@ -131,7 +131,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Mixdog Glob',
         annotations: { title: 'Mixdog Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Find files by known glob pattern. Returns rg natural order without per-file stat.',
+        description: 'Find files by known glob pattern. Returns rg natural order without per-file stat. Batch independent inputs as an array in one call; if not expressible as an array, issue parallel calls in the same turn.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -140,14 +140,14 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Glob pattern, or array of patterns.',
+                    description: 'Glob pattern, or array of patterns (batch independent patterns in one call).',
                 },
                 path: {
                     anyOf: [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Base directory, or array of base directories.',
+                    description: 'Base directory, or array of base directories (batch independent roots in one call).',
                 },
                 head_limit: { type: 'number', description: 'Max entries.' },
                 offset: { type: 'number', description: 'Skip N entries for paging.' },
@@ -159,7 +159,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Mixdog Find Files',
         annotations: { title: 'Mixdog Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Fuzzy-find files by partial path/name. Returns candidate paths only.',
+        description: 'Fuzzy-find files by partial path/name. Returns candidate paths only. For independent lookups, issue parallel calls in the same turn.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -174,7 +174,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'Mixdog List Directory',
         annotations: { title: 'Mixdog List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'List directory entries from a known directory. Use glob for broad file discovery.',
+        description: 'List directory entries from a known directory. Use glob for broad file discovery. For independent directories, issue parallel calls in the same turn.',
         inputSchema: {
             type: 'object',
             properties: {

@@ -13,7 +13,7 @@ export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: 'Broad-scope locator only: 짧은 위치 탐색기. 분석이 아니라 관련 파일/함수/심볼/라인 좌표를 찾는 용도. Use code_graph/grep/glob first for known symbols/files; explore is for broad or unclear repo/code location questions. 독립 탐색은 query 배열로 한 번에 배치 실행하세요. Runs synchronously and returns the bounded result in this tool call.',
+  description: 'Broad-scope locator only: a short location finder. Finds related file/function/symbol/line coordinates, not analysis. Use code_graph/grep/glob first for known symbols/files; explore is for broad or unclear repo/code location questions. Batch independent searches as an array in one call; if not expressible as an array, issue parallel calls in the same turn. Runs synchronously and returns the bounded result in this tool call.',
   inputSchema: {
     type: 'object',
     properties: {
