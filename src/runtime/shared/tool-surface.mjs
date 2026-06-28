@@ -306,6 +306,7 @@ export function displayToolName(name, args = {}) {
       return 'Read';
     case 'apply_patch': {
       const parsed = parseToolArgs(args);
+      if (parsed && parsed.dry_run === true) return 'Check';
       return parsed && parsed.old_string === '' ? 'Create' : 'Update';
     }
     case 'shell':
@@ -1122,6 +1123,17 @@ export function toolWorkUnit(name, args = {}, category = '') {
       return unitDescriptor('Read', { count: queryCount(a, 'uri', 'uris') || 1, noun: 'resource' });
     case 'apply_patch': {
       const creating = a.old_string === '';
+      // A dry_run patch validates the diff WITHOUT writing any file, so the
+      // header must not claim "Editing/Edited" (which made a pure validation
+      // look like a real edit). Surface it as "Checking/Checked" instead.
+      if (a.dry_run === true) {
+        return unitDescriptor('Patch', {
+          count: patchFileCount(a) || 1,
+          active: 'Checking',
+          done: 'Checked',
+          noun: 'file',
+        });
+      }
       return unitDescriptor('Patch', {
         count: patchFileCount(a) || 1,
         active: creating ? 'Creating' : 'Editing',
@@ -1237,10 +1249,18 @@ export function toolWorkUnit(name, args = {}, category = '') {
   }
 }
 
-export function formatToolActionHeader(name, args = {}, { pending = false, count = 1, category = '' } = {}) {
+function lifecycleVerb(unit, pending, { stableVerbWidth = false } = {}) {
+  const active = String(unit.active || '');
+  const done = String(unit.done || '');
+  const verb = pending ? active : done;
+  if (!stableVerbWidth) return verb;
+  return verb.padEnd(Math.max(active.length, done.length), ' ');
+}
+
+export function formatToolActionHeader(name, args = {}, { pending = false, count = 1, category = '', stableVerbWidth = false } = {}) {
   const unit = toolWorkUnit(name, args, category);
   const n = Math.max(1, Number(unit.count || count || 1));
-  const verb = pending ? unit.active : unit.done;
+  const verb = lifecycleVerb(unit, pending, { stableVerbWidth });
   return `${verb} ${n} ${pluralize(n, unit.noun, unit.pluralNoun)}`;
 }
 
@@ -1295,7 +1315,7 @@ function aggregateDescriptor(key, value) {
  * Build a comma-separated header from per-category counts.
  * e.g. "Read 6 items, Searched 5 items, Called 1 agent"
  */
-export function formatAggregateHeader(categories, { pending = false, order = null } = {}) {
+export function formatAggregateHeader(categories, { pending = false, order = null, stableVerbWidth = false } = {}) {
   const categoryKeys = Object.keys(categories || {});
   const preferred = Array.isArray(order) && order.length ? order : categoryKeys;
   const seen = new Set();
@@ -1312,7 +1332,7 @@ export function formatAggregateHeader(categories, { pending = false, order = nul
   return ordered
     .map((cat) => {
       const item = aggregateDescriptor(cat, categories[cat]);
-      const label = pending ? item.active : item.done;
+      const label = lifecycleVerb(item, pending, { stableVerbWidth });
       return `${label} ${item.count} ${pluralize(item.count, item.noun, item.pluralNoun)}`;
     })
     .join(', ');

@@ -47,10 +47,13 @@ const CYN = sgr('38;2;136;136;136');
 const GREY = sgr('38;2;136;136;136');
 const SHELL_JOBS_SEGMENT_CACHE_MS = 1000;
 const GATEWAY_QUOTA_STATUS_CACHE_MS = 500;
-// A cached usage snapshot is only trusted for usedPct display while it is
-// "live-fresh". Beyond this the stored usedPct is treated as outdated and the
-// usage segment is suppressed until the live gateway status refreshes it.
-const LIVE_USAGE_SNAPSHOT_MAX_AGE_MS = 10 * 60_000;
+// Keep the last known usage snapshot visible while idle. The runtime still
+// refreshes OAuth usage in the background, but if that refresh is delayed or
+// fails, the statusline should not blink/drop the usage segment; it should hold
+// the last captured 5H/7D values from THIS process until a newer snapshot
+// replaces them. Snapshots from a previous launch stay hidden during boot so the
+// statusline starts empty until the current session captures usage once.
+const STATUSLINE_PROCESS_STARTED_AT_MS = Date.now() - Math.floor((Number(process.uptime?.()) || 0) * 1000);
 const DEFAULT_HIDDEN_STATUSLINE_ROLES = Object.freeze(['explorer', 'cycle1-agent', 'cycle2-agent', 'cycle3-agent', 'scheduler-task', 'webhook-handler']);
 let _shellJobsSegmentCache = { ownerPid: 0, at: 0, value: '' };
 let _gatewayQuotaStatusCache = { key: '', at: 0, value: null };
@@ -348,14 +351,14 @@ function fallbackQuotaStatus({ provider, model } = {}) {
       usageSnapshot = readCachedOAuthUsageSnapshot(routeInfo, { allowStale: true });
     } catch {}
   }
-  // First-entry guard: the disk cache can be up to 7 days old (allowStale).
-  // A stale snapshot still carries the OLD usedPct (e.g. last session's 99%
-  // on a 7D window whose resetAt is always in the future), which would render
-  // a wrong usage segment before the live gateway status fills in. Drop the
-  // usedPct-bearing windows when the snapshot is not live-fresh; balance and
-  // routeSpend are not usedPct-sensitive so they stay.
-  if (usageSnapshot && isStaleUsageSnapshot(usageSnapshot)) {
-    usageSnapshot = { ...usageSnapshot, quotaWindows: [] };
+  // Boot guard: do not render previous-launch usage before the current runtime
+  // has captured at least one snapshot. Once a snapshot is captured in this
+  // process, keep it visible while idle even if refreshes are delayed.
+  if (usageSnapshot) {
+    const cachedAt = num(usageSnapshot.cachedAt, 0);
+    if (!cachedAt || cachedAt < STATUSLINE_PROCESS_STARTED_AT_MS) {
+      usageSnapshot = { ...usageSnapshot, quotaWindows: [] };
+    }
   }
   try {
     const limits = buildGatewayLimits(routeInfo, null, usageSnapshot);
@@ -383,12 +386,6 @@ function providerKindForQuota(provider) {
   if (p.includes('oauth')) return 'oauth';
   if (p === 'ollama' || p === 'lmstudio') return 'local';
   return 'api';
-}
-
-function isStaleUsageSnapshot(snapshot) {
-  const at = num(snapshot?.cachedAt);
-  if (!at) return true;
-  return Date.now() - at > LIVE_USAGE_SNAPSHOT_MAX_AGE_MS;
 }
 
 function mergeQuotaStatus(primary, fallback) {

@@ -427,14 +427,14 @@ export function PromptInput({
         commitDraft({ value: '', cursor: 0, selectionAnchor: null });
         return;
       }
+      if (restoreQueuedToDraft()) {
+        return;
+      }
       if (interruptActive) {
         const restoredText = onInterrupt?.('');
         if (typeof restoredText === 'string') {
           commitDraft({ value: restoredText, cursor: restoredText.length, selectionAnchor: null });
         }
-        return;
-      }
-      if (restoreQueuedToDraft()) {
         return;
       }
       onEscape?.('', { phase: 'empty' });

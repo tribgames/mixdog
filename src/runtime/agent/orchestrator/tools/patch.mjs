@@ -527,6 +527,56 @@ function classifyEntry(entry) {
   return 'modify';
 }
 
+function parsedEntryTargetKey(entry, basePath) {
+  if (classifyEntry(entry) !== 'modify') return '';
+  const headerName = entry.oldFileName || entry.newFileName;
+  if (!headerName || DEV_NULL.test(headerName)) return '';
+  const fullPath = resolveEntryPath(basePath, headerName);
+  return process.platform === 'win32' ? fullPath.toLowerCase() : fullPath;
+}
+
+function mergeDuplicateParsedModifyEntries(parsed, basePath) {
+  const out = [];
+  const byTarget = new Map();
+  let changed = false;
+  for (const entry of parsed || []) {
+    const key = parsedEntryTargetKey(entry, basePath);
+    if (!key) {
+      out.push(entry);
+      continue;
+    }
+    const existing = byTarget.get(key);
+    if (!existing) {
+      byTarget.set(key, entry);
+      out.push(entry);
+      continue;
+    }
+    existing.hunks.push(...(entry.hunks || []));
+    changed = true;
+  }
+  return { parsed: out, changed };
+}
+
+function unifiedRange(start, lines) {
+  const s = Math.max(0, Number(start) || 0);
+  const n = Math.max(0, Number(lines) || 0);
+  return `${s},${n}`;
+}
+
+function renderParsedUnifiedPatch(parsed) {
+  const out = [];
+  for (const entry of parsed || []) {
+    out.push(`--- ${entry.oldFileName || '/dev/null'}`);
+    out.push(`+++ ${entry.newFileName || '/dev/null'}`);
+    for (const hunk of entry.hunks || []) {
+      const section = hunk.section ? ` ${hunk.section}` : '';
+      out.push(`@@ -${unifiedRange(hunk.oldStart, hunk.oldLines)} +${unifiedRange(hunk.newStart, hunk.newLines)} @@${section}`);
+      for (const line of hunk.lines || []) out.push(line);
+    }
+  }
+  return `${out.join('\n')}\n`;
+}
+
 function isPatchErrorText(text) {
   return /^Error:/i.test(String(text ?? '').trimStart());
 }
@@ -1240,8 +1290,15 @@ async function dispatchNativePatch({ entries, basePath, nativePatchStr, fuzz, re
     : `${verbLabel} ${countLabel(writtenEntries.length, 'File')} (Native)${dryRun ? ' Dry Run' : ''}`;
   const lines = [summary];
   for (const entry of writtenEntries) {
-    const detail = `+${countLabel(entry.added || 0, 'Line')} · -${countLabel(entry.removed || 0, 'Line')}`;
-    lines.push(`  OK ${kindLabel(entry.kind)} ${entry.displayPath} — ${detail}`);
+    const added = entry.added || 0;
+    const removed = entry.removed || 0;
+    const parts = [];
+    if (added > 0) parts.push(`+${countLabel(added, 'Line')}`);
+    if (removed > 0) parts.push(`-${countLabel(removed, 'Line')}`);
+    const detail = parts.join(' · ');
+    lines.push(detail
+      ? `  OK ${kindLabel(entry.kind)} ${entry.displayPath} — ${detail}`
+      : `  OK ${kindLabel(entry.kind)} ${entry.displayPath}`);
   }
   for (const f of stats.failures || []) {
     lines.push(`  SKIP ${f.path || '(unknown)'} — ${f.reason}${formatNativeFailureContext(parsed, basePath, f.path, { fuzz })}`);
@@ -2660,6 +2717,13 @@ async function apply_patch(args, cwd, options = {}) {
   }
   if (!v4aRenameOnly && (!Array.isArray(parsed) || parsed.length === 0)) {
     return 'Error: patch contained no file sections';
+  }
+  if (!v4aRenameOnly) {
+    const merged = mergeDuplicateParsedModifyEntries(parsed, basePath);
+    if (merged.changed) {
+      parsed = merged.parsed;
+      normalizedPatchStr = renderParsedUnifiedPatch(parsed);
+    }
   }
 
   // Pre-validate paths / duplicates / symlink escapes — throws on any

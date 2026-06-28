@@ -17,11 +17,11 @@ function positiveInt(value) {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-// A cached oauth usage snapshot is only trusted for usedPct display while it is
-// "live-fresh". Beyond this the stored usedPct is treated as outdated and the
-// usage windows are suppressed until the live gateway status refreshes them.
-const LIVE_USAGE_SNAPSHOT_MAX_AGE_MS = 10 * 60_000;
-
+// Keep the last known OAuth usage snapshot visible while idle. Live refreshes
+// replace it when available, but a delayed/failed refresh must not make the
+// statusline usage segment disappear. Previous-launch snapshots stay hidden
+// during boot until the current process captures usage once.
+const STATUSLINE_PROCESS_STARTED_AT_MS = Date.now() - Math.floor((Number(process.uptime?.()) || 0) * 1000);
 function isPidAlive(pid) {
   const n = positiveInt(pid);
   if (!n) return false;
@@ -307,13 +307,11 @@ function cachedQuotaWindowsFallback(provider, model) {
       .filter(([key, value]) => key.startsWith(routePrefix) && Array.isArray(value?.quotaWindows))
       .sort((a, b) => (Number(b[1]?.cachedAt) || 0) - (Number(a[1]?.cachedAt) || 0))[0]?.[1];
     if (!Array.isArray(entry?.quotaWindows)) return [];
-    // First-entry guard: the persisted snapshot keeps the OLD usedPct (e.g. a
-    // prior session's 99% on a 7D window whose resetAt is always in the
-    // future). When the snapshot is no longer live-fresh, suppress the windows
-    // so a stale usedPct does not flash before the live gateway status fills in.
+    // Boot guard: do not render previous-launch usage before the current runtime
+    // has captured at least one snapshot. Once captured in this process, hold it
+    // instead of blanking it during idle/network gaps.
     const cachedAt = Number(entry.cachedAt);
-    if (!Number.isFinite(cachedAt) || cachedAt <= 0) return [];
-    if (Date.now() - cachedAt > LIVE_USAGE_SNAPSHOT_MAX_AGE_MS) return [];
+    if (!Number.isFinite(cachedAt) || cachedAt < STATUSLINE_PROCESS_STARTED_AT_MS) return [];
     return entry.quotaWindows;
   } catch {
     return [];

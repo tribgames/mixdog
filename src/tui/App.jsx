@@ -657,10 +657,25 @@ function transcriptItemVariantKey(item) {
 // flushes — so the values stay 100% identical to the uncached implementation.
 const transcriptRowsCache = new WeakMap();
 
+// Streaming assistant items re-estimate their height every flush (~8ms). Tiny
+// per-character / incomplete-markdown fluctuation (a transient `\n\n` block gap,
+// a half-formed table border) made `totalRows` change on almost every flush,
+// which re-ran the windowing + scroll-preservation effect and visibly jumped
+// ("툭툭 튀는") the viewport. Quantize the streaming estimate UP to a small row
+// granularity so sub-quantum growth does not churn the row total. This is always
+// an over-estimate (safe: over-estimate only widens the scroll window; it never
+// clips visible text) and the value is identical in both the structure signature
+// and the row-index build, so they can never diverge.
+const STREAMING_ROW_QUANTUM = 2;
+function streamingEstimateRows(item, columns, toolOutputExpanded) {
+  const raw = Math.max(1, Math.ceil(estimateTranscriptItemRows(item, columns, toolOutputExpanded)));
+  return Math.ceil(raw / STREAMING_ROW_QUANTUM) * STREAMING_ROW_QUANTUM;
+}
+
 function estimateTranscriptItemRowsCached(item, columns, toolOutputExpanded) {
   if (!item) return Math.max(1, Math.ceil(estimateTranscriptItemRows(item, columns, toolOutputExpanded)));
   if (item.kind === 'assistant' && item.streaming) {
-    return Math.max(1, Math.ceil(estimateTranscriptItemRows(item, columns, toolOutputExpanded)));
+    return streamingEstimateRows(item, columns, toolOutputExpanded);
   }
   const variantKey = transcriptItemVariantKey(item);
   const toolExpanded = toolOutputExpanded ? 1 : 0;
@@ -731,7 +746,7 @@ function transcriptStructureSignature(items, columns, toolOutputExpanded) {
     // Streaming assistant: include only the estimated row count, not the text,
     // so per-character growth that does not change height keeps the memo warm.
     if (it.kind === 'assistant' && it.streaming) {
-      sig += `;a${it.id}:${estimateTranscriptItemRows(it, columns, toolOutputExpanded)}`;
+      sig += `;a${it.id}:${streamingEstimateRows(it, columns, toolOutputExpanded)}`;
       continue;
     }
     // Completed item: reuse the cached sigPart while the variant key (every
@@ -896,6 +911,7 @@ export function App({ store, initialStatusLine = '' }) {
   const onboardingRef = useRef({ defaultRoute: null, workflowRoutes: {}, providerModels: [] });
   const providerModelsCacheRef = useRef({ models: null, at: 0 });
   const searchModelsCacheRef = useRef({ models: null, at: 0 });
+  const modelPickerRequestRef = useRef(0);
   const clearModelCaches = useCallback((scope = 'all') => {
     if (scope === 'all' || scope === 'provider') {
       providerModelsCacheRef.current = { models: null, at: 0 };
@@ -1108,20 +1124,6 @@ export function App({ store, initialStatusLine = '' }) {
   const cancelTranscriptFollow = useCallback(() => {
     followingRef.current = false;
   }, []);
-
-  const glideTranscriptToBottom = useCallback((rowDelta, maxRows, currentPosition = 0) => {
-    const from = Math.max(0, Number(currentPosition) || 0);
-    const held = Math.min(from + Math.max(0, Number(rowDelta) || 0), Math.max(0, Number(maxRows) || 0));
-    const applied = held - from;
-    if (applied <= 0) return false;
-    followingRef.current = true;
-    scrollTargetRef.current = 0;
-    scrollPositionRef.current = held;
-    preservedScrollDeltaRef.current += applied;
-    setScrollOffset(Math.round(held));
-    startSmoothScroll();
-    return true;
-  }, [startSmoothScroll]);
 
   const resetTranscriptScroll = useCallback(() => {
     cancelTranscriptFollow();
@@ -1952,10 +1954,15 @@ export function App({ store, initialStatusLine = '' }) {
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
+    const modelPickerRequest = ++modelPickerRequestRef.current;
+    let modelPickerClosed = false;
+    let activeModelProvider = null;
+    const isActiveModelPicker = () => !modelPickerClosed && modelPickerRequestRef.current === modelPickerRequest;
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     const returnLabel = String(options.returnLabel || 'Agents');
     const returnOnNestedCancel = options.returnOnNestedCancel === true;
     const cancelModelPicker = () => {
+      modelPickerClosed = true;
       if (returnTo) returnTo();
       else setPicker(null);
     };
@@ -1964,6 +1971,8 @@ export function App({ store, initialStatusLine = '' }) {
     let providerModels = Array.isArray(cacheRef.current.models)
       ? cacheRef.current.models
       : [];
+    let refreshModelsPromise = null;
+    let renderedQuickModels = false;
     if (!providerModels.length || options.refreshModels === true) {
       setPicker({
         title: options.title || 'Model',
@@ -1974,7 +1983,16 @@ export function App({ store, initialStatusLine = '' }) {
       });
       await new Promise((resolve) => setTimeout(resolve, 0));
       try {
-        providerModels = await loadModels({ force: options.refreshModels === true });
+        if (options.refreshModels !== true && options.cacheRef !== 'search') {
+          refreshModelsPromise = Promise.resolve(loadModels({ force: false }));
+          providerModels = await loadModels({ quick: true });
+          renderedQuickModels = Array.isArray(providerModels) && providerModels.length > 0;
+          if (!renderedQuickModels) {
+            providerModels = await refreshModelsPromise;
+          }
+        } else {
+          providerModels = await loadModels({ force: options.refreshModels === true });
+        }
         cacheRef.current = { models: providerModels, at: Date.now() };
       } catch (e) {
         store.pushNotice(`could not list models: ${e?.message || e}`, 'error');
@@ -1993,7 +2011,7 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
 
-    const models = normalizeModelOptions(providerModels);
+    let models = normalizeModelOptions(providerModels);
     const activeRoute = options.currentRoute || {
       provider: state.provider,
       model: state.model,
@@ -2001,8 +2019,10 @@ export function App({ store, initialStatusLine = '' }) {
       fast: state.fast,
     };
     const renderModelPicker = () => {
+      activeModelProvider = null;
       const openProviderModelsPicker = (provider) => {
         if (!provider) return;
+        activeModelProvider = provider;
         const providerModels = models.filter((model) => model.provider === provider);
         const preferredEffort = (values = []) => {
           const allowed = values.filter(Boolean);
@@ -2131,6 +2151,7 @@ export function App({ store, initialStatusLine = '' }) {
         const applyModel = (item) => {
           const selected = item?._model || models.find((m) => m.provider === item?._provider && m.id === item?._modelId);
           if (!selected) return;
+          modelPickerClosed = true;
           const effort = coerceEffort(selected);
           const routeInput = {
             provider: selected.provider,
@@ -2139,12 +2160,13 @@ export function App({ store, initialStatusLine = '' }) {
             ...(selected.fastCapable ? { fast: getSelectedFast(selected) } : {}),
           };
           if (typeof options.onSelectRoute === 'function') {
+            const savePromise = Promise.resolve(options.onSelectRoute(routeInput, selected, effort));
             if (typeof options.onImmediateSelect === 'function') {
               options.onImmediateSelect(routeInput, selected, effort);
             } else {
               setPicker(null);
             }
-            void Promise.resolve(options.onSelectRoute(routeInput, selected, effort))
+            void savePromise
               .then((result) => {
                 if (result) clearModelCaches('all');
                 if (typeof options.onAfterSelect === 'function') options.onAfterSelect();
@@ -2212,6 +2234,20 @@ export function App({ store, initialStatusLine = '' }) {
     };
 
     renderModelPicker();
+    if (renderedQuickModels && refreshModelsPromise) {
+      void refreshModelsPromise
+        .then((freshModels) => {
+          if (!isActiveModelPicker()) return;
+          if (!Array.isArray(freshModels) || freshModels.length === 0) return;
+          providerModels = freshModels;
+          models = normalizeModelOptions(providerModels);
+          cacheRef.current = { models: providerModels, at: Date.now() };
+          if (activeModelProvider === null) {
+            renderModelPicker();
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   const openSearchPicker = (options = {}) => {
@@ -2229,8 +2265,9 @@ export function App({ store, initialStatusLine = '' }) {
       returnTo,
       returnLabel: options.returnLabel || 'Settings',
       returnOnNestedCancel: options.returnOnNestedCancel === true,
-      onImmediateSelect: returnTo ? null : (routeInput) => {
-        openSearchPicker({ routeOverride: routeInput });
+      onImmediateSelect: () => {
+        if (returnTo) returnTo();
+        else setPicker(null);
       },
       onSelectRoute: async (routeInput) => {
         const result = await store.setSearchRoute?.(routeInput);
@@ -2241,7 +2278,7 @@ export function App({ store, initialStatusLine = '' }) {
         store.pushNotice(`Search model set to ${routeLabel(result)}`, 'info');
         return result;
       },
-      onAfterSelect: returnTo || null,
+      onAfterSelect: null,
     });
   };
 
@@ -5821,20 +5858,25 @@ export function App({ store, initialStatusLine = '' }) {
     const currentOffset = Math.max(0, Number(scrollOffset) || 0);
     const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
     const pinnedToBottom = currentTarget <= 0 && currentPosition <= 0 && currentOffset <= 0;
-    const shouldGlideFollow = rowDelta > 0
-      && maxRows > 0
-      && (followingRef.current || pinnedToBottom);
-    if (shouldGlideFollow) {
-      glideTranscriptToBottom(rowDelta, maxRows, currentPosition);
-      return;
-    }
-    if (pinnedToBottom) {
-      // Pinned to the bottom and NOT following: new rows just push the viewport
-      // up instantly (snap-follow via justifyContent:flex-end). Shrink/clear
-      // also falls through here as a no-op.
+    const shouldFollowBottom = followingRef.current || pinnedToBottom;
+    if (shouldFollowBottom) {
+      // Claude Code-style bottom follow: while pinned to the newest output,
+      // do NOT animate row growth. The viewport is already bottom-aligned by
+      // justifyContent:flex-end; injecting a temporary positive scroll offset
+      // during streaming makes the transcript jump down/up and can clip the
+      // currently generated assistant text. Keep all scroll refs at zero so
+      // character generation stays visually stable.
+      followingRef.current = false;
+      stopSmoothScroll();
+      scrollTargetRef.current = 0;
+      scrollPositionRef.current = 0;
+      if (currentOffset !== 0) setScrollOffset(0);
       return;
     }
 
+    // User is reading older transcript. Preserve their visual anchor by folding
+    // row growth/shrink into the manual scroll offset instead of snapping back
+    // to the bottom.
     const nextTarget = Math.max(0, Math.min(maxRows, currentTarget + rowDelta));
     const appliedDelta = nextTarget - currentTarget;
     if (appliedDelta === 0) return;
@@ -5844,7 +5886,7 @@ export function App({ store, initialStatusLine = '' }) {
     scrollPositionRef.current = Math.max(0, Math.min(maxRows, currentPosition + appliedDelta));
     preservedScrollDeltaRef.current += appliedDelta;
     setScrollOffset(Math.max(0, Math.round(Math.min(maxRows, currentOffset + appliedDelta))));
-  }, [transcriptWindow.totalRows, transcriptWindow.maxScrollRows, scrollOffset, stopSmoothScroll, glideTranscriptToBottom]);
+  }, [transcriptWindow.totalRows, transcriptWindow.maxScrollRows, scrollOffset, stopSmoothScroll]);
   useLayoutEffect(() => {
     const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
     const next = {

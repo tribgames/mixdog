@@ -33,6 +33,7 @@ import {
 } from './standalone/provider-admin.mjs';
 import { createUsageDashboard } from './standalone/usage-dashboard.mjs';
 import { fetchOAuthUsageSnapshot } from './runtime/agent/orchestrator/providers/oauth-usage.mjs';
+import { getModelMetadataSync } from './runtime/agent/orchestrator/providers/model-catalog.mjs';
 import {
   isResponsesFreeformTool,
   toResponsesCustomTool,
@@ -675,8 +676,21 @@ function toolSpecForMode(mode) {
   return mode === 'readonly' ? ['tools:readonly'] : 'full';
 }
 
+function deferredSurfaceModeForLead(mode) {
+  return mode === 'readonly' ? 'readonly' : 'lead';
+}
+
 function clean(value) {
   return String(value ?? '').trim();
+}
+
+// A resolved model meta carries catalog-derived fields (contextWindow, pricing,
+// capabilities, …). The lookupModelMeta() fallback for an unknown id is the
+// bare shape `{ id, provider }`, so "more than id/provider" reliably tells a
+// real catalog hit apart from that placeholder.
+function modelMetaLooksResolved(meta) {
+  if (!meta || typeof meta !== 'object') return false;
+  return Object.keys(meta).some((key) => key !== 'id' && key !== 'provider');
 }
 
 const OUTPUT_STYLE_ORDER = ['default', 'simple', 'extreme-simple'];
@@ -909,6 +923,21 @@ function resolveRoute(config, { provider, model, effort, fast } = {}) {
     effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort),
     fast: hasExplicitFast ? explicitFast : (hasOwn(saved, 'fast') ? saved.fast === true : fastPreferenceFor(config, p, m)),
   };
+}
+
+function isLikelyRawModelId(value) {
+  const model = clean(value);
+  if (!model || model.length > 160) return false;
+  if (/\s/.test(model)) return false;
+  return /^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/.test(model);
+}
+
+function validateRequestedModelSelector(config, requested = {}) {
+  const model = clean(requested.model);
+  if (!model) return;
+  if (findPreset(config, model)) return;
+  if (isLikelyRawModelId(model)) return;
+  throw new Error(`Invalid model selector "${model}". Use a preset or a model id; free-form text cannot be used as a model.`);
 }
 
 function ensureProviderEnabled(config, provider) {
@@ -1392,6 +1421,11 @@ function normalizeWorkflowRoute(routeLike, fallback = {}) {
   const provider = clean(routeLike?.provider) || clean(fallback.provider);
   const model = clean(routeLike?.model) || clean(fallback.model);
   if (!provider || !model) return null;
+  // Defensive: a workflow/agent route must carry a real model id. Reject values
+  // that are obviously free-form text (whitespace, prose) so a bad string can
+  // never be persisted as a preset/workflow route. Normal model ids pass
+  // isLikelyRawModelId unchanged.
+  if (!isLikelyRawModelId(model)) return null;
   const effort = normalizeEffortInput(routeLike?.effort ?? fallback.effort);
   const fast = routeLike?.fast ?? fallback.fast;
   return {
@@ -2862,7 +2896,7 @@ export async function createMixdogSessionRuntime({
       : [];
     const tools = filterDisallowedTools(previewTools, LEAD_DISALLOWED_TOOLS);
     const surface = { tools: Array.isArray(tools) ? tools.slice() : [] };
-    applyDeferredToolSurface(surface, mode, standaloneTools, { provider: route.provider });
+    applyDeferredToolSurface(surface, deferredSurfaceModeForLead(mode), standaloneTools, { provider: route.provider });
     return surface;
   }
 
@@ -2877,7 +2911,11 @@ export async function createMixdogSessionRuntime({
     const selected = Array.isArray(preSessionToolSurface.deferredSelectedTools)
       ? preSessionToolSurface.deferredSelectedTools
       : [];
-    if (selected.length) selectDeferredTools(session, selected, mode);
+    const discovered = Array.isArray(preSessionToolSurface.deferredDiscoveredTools)
+      ? preSessionToolSurface.deferredDiscoveredTools
+      : [];
+    const replay = [...new Set([...selected, ...discovered])];
+    if (replay.length) selectDeferredTools(session, replay, deferredSurfaceModeForLead(mode));
   }
   internalTools.setInternalToolsProvider({
     tools: standaloneTools,
@@ -3266,6 +3304,36 @@ function parsedProviderModelVersion(id) {
     return sortProviderModels((rows || []).map(hydrateProviderModelRow));
   }
 
+  function quickProviderModelRows() {
+    const pickerConfig = displayConfig();
+    const rows = [];
+    const seen = new Set();
+    const addRoute = (routeLike = {}) => {
+      const provider = clean(routeLike.provider);
+      const model = clean(routeLike.model);
+      if (!provider || !model) return;
+      const key = `${provider}:${model}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const row = providerModelCacheRow(provider, {
+        id: model,
+        name: routeLike.modelDisplay || routeLike.display || model,
+        display: routeLike.modelDisplay || routeLike.display || model,
+        latest: routeLike.latest === true,
+        supportsReasoning: !!routeLike.effort,
+        mode: 'chat',
+      });
+      rows.push(row);
+      modelMetaByRoute.set(modelMetaKey(provider, model), row);
+    };
+
+    addRoute(route);
+    for (const preset of pickerConfig.presets || []) addRoute(preset);
+    for (const workflowRoute of Object.values(pickerConfig.workflowRoutes || {})) addRoute(workflowRoute);
+    for (const agentRoute of Object.values(pickerConfig.agents || {})) addRoute(agentRoute);
+    return providerModelsFromCacheRows(rows);
+  }
+
   function addQuickSearchModel(rows, seen, provider, model) {
     const providerName = normalizeSearchProviderId(provider);
     const modelId = clean(model?.id || model);
@@ -3449,9 +3517,13 @@ function parsedProviderModelVersion(id) {
     return results;
   }
 
-  async function collectProviderModels({ force = false } = {}) {
+  async function collectProviderModels({ force = false, quick = false } = {}) {
     if (!force && Array.isArray(providerModelsCache.models)) {
       return providerModelsFromCacheRows(providerModelsCache.models);
+    }
+    if (!force && quick) {
+      warmProviderModelCache();
+      return quickProviderModelRows();
     }
     if (!providerModelsPromise) {
       providerModelsPromise = loadProviderModelsFresh()
@@ -3596,7 +3668,7 @@ function parsedProviderModelVersion(id) {
         configurable: true,
         writable: true,
       });
-      applyDeferredToolSurface(session, mode, standaloneTools, { provider: route.provider });
+      applyDeferredToolSurface(session, deferredSurfaceModeForLead(mode), standaloneTools, { provider: route.provider });
       applyPreSessionToolSelection();
       writeStatuslineRoute(statusRoutes, session, route);
       hooks.emit('session:create', { sessionId: session.id, provider: route.provider, model: route.model, toolMode: mode, cwd: currentCwd });
@@ -4408,7 +4480,10 @@ function parsedProviderModelVersion(id) {
       return cfgMod.listPresets(displayConfig());
     },
     async listProviderModels(options = {}) {
-      return await collectProviderModels({ force: options.force === true || options.refresh === true });
+      return await collectProviderModels({
+        force: options.force === true || options.refresh === true,
+        quick: options.quick === true,
+      });
     },
     getSearchRoute() {
       searchRoute = normalizeSearchRouteConfig(config.searchRoute) || normalizeSearchRouteConfig(searchRoute);
@@ -4895,6 +4970,8 @@ function parsedProviderModelVersion(id) {
     },
     async setRoute(next) {
       const requested = { ...(next || {}) };
+      validateRequestedModelSelector(config, requested);
+      const providerExplicitlyRequested = clean(next?.provider) !== '';
       if (requested.effort === undefined && !requested.provider && !requested.model && hasOwn(route, 'effort')) {
         requested.effort = route.effort;
       }
@@ -4904,6 +4981,18 @@ function parsedProviderModelVersion(id) {
       let selectedRoute = resolveRoute(config, requested);
       await reg.initProviders(ensureProviderEnabled(config, selectedRoute.provider));
       const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
+      // Guard (A안 / strict reject): a free-text string must never become the
+      // lead model. When the caller did not pin a provider, the route did not
+      // match a preset, and the model is unknown to both the live provider
+      // catalog (modelMeta is still the {id,provider} placeholder) and the
+      // offline catalog, refuse BEFORE any config write so a partial save
+      // (saveModelSettings/adoptConfig/persistLeadRoute) can never land.
+      if (!providerExplicitlyRequested
+        && !selectedRoute.preset
+        && !modelMetaLooksResolved(modelMeta)
+        && !getModelMetadataSync(selectedRoute.model, selectedRoute.provider)) {
+        throw new Error(`unknown model: ${selectedRoute.provider}/${selectedRoute.model}`);
+      }
       const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta);
       selectedRoute = { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false };
       adoptConfig(saveModelSettings(cfgMod, selectedRoute, { fastCapable, baseConfig: config }), { hasSecrets: configHasSecrets });
@@ -5126,7 +5215,7 @@ function parsedProviderModelVersion(id) {
       await refreshRouteEffort();
       session.effort = route.effectiveEffort || null;
       session.cwd = currentCwd;
-      applyDeferredToolSurface(session, mode, standaloneTools, { provider: route.provider });
+      applyDeferredToolSurface(session, deferredSurfaceModeForLead(mode), standaloneTools, { provider: route.provider });
       invalidatePreSessionToolSurface();
       invalidateContextStatusCache();
       sessionNeedsCwdRefresh = false;

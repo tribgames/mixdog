@@ -1214,6 +1214,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     let firstTurnUsage;
     let response;
     let contractNudges = 0;
+    let contextOverflowRetryUsed = false;
     const opts = sendOpts || {};
     const sessionId = opts.sessionId || null;
     const signal = opts.signal || null;
@@ -1302,6 +1303,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             process.stderr.write(`[loop] hard iteration cap ${maxLoopIterations} reached (sess=${sessionId || 'unknown'}); stopping loop.\n`);
             break;
         }
+        // Claude Code parity: drain queued steering/prompts BEFORE the
+        // pre-send compact check. The compact decision must see the exact
+        // message set that the next provider.send would receive, including
+        // tool results plus any queued user input/notifications.
+        drainSteeringIntoMessages('pre-send');
         const compactPolicy = resolveWorkerCompactPolicy(sessionRef, tools);
         if (compactPolicy?.auto) {
             // Snapshot pre-compact shape so compact_meta can record the actual
@@ -1573,12 +1579,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 });
             }
         }
-        // A pre-send compaction pass can take long enough for the user (or a
-        // background completion notification) to enqueue more input. Drain once
-        // immediately before provider.send so that input is included in the very
-        // next request instead of sitting in the queue until after the model has
-        // already answered the pre-compaction prompt.
-        drainSteeringIntoMessages('pre-send');
         const nextIteration = iterations + 1;
         opts.iteration = nextIteration;
         opts.providerState = providerState;
@@ -1690,12 +1690,13 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         try {
             response = await provider.send(messages, model, sendTools.length ? sendTools : undefined, opts);
         } catch (sendErr) {
-            // Context-window-exceeded is a deterministic refusal: the request is
-            // simply too large. Per explicit design, do NOT attempt an in-loop
-            // re-compaction retry — surface the overflow immediately so the
-            // caller (and the user) get a clear, deterministic signal and can
-            // run /compact or /clear. Unrelated errors (network, stall, auth,
-            // etc.) re-throw untouched — handled by provider/agent retry layers.
+            // Context-window-exceeded is a deterministic refusal from the API.
+            // Claude Code recovers these reactively by compacting and retrying
+            // in the same active turn. MixDog's proactive estimator can miss a
+            // provider-specific overhead spike, so do one reactive retry by
+            // marking the live session over-threshold and looping back through
+            // the normal pre-send auto-compact path. If compaction/retry still
+            // fails, surface the overflow normally.
             if (
                 !isContextOverflowError(sendErr)
                 || !(sessionRef && typeof sessionRef.contextWindow === 'number')
@@ -1704,10 +1705,32 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             }
             const overflowReserve = estimateRequestReserveTokens(sendTools.length ? sendTools : tools);
             const messageTokensEst = estimateMessagesTokensSafe(messages);
+            const compactPolicyForRetry = resolveWorkerCompactPolicy(sessionRef, sendTools.length ? sendTools : tools);
+            if (!contextOverflowRetryUsed && compactPolicyForRetry?.auto) {
+                contextOverflowRetryUsed = true;
+                const forcedPressureTokens = Math.max(
+                    Number(compactPolicyForRetry?.triggerTokens || 0),
+                    Number(compactPolicyForRetry?.boundaryTokens || sessionRef.contextWindow || 0),
+                    Number(messageTokensEst || 0) + overflowReserve,
+                    Number(sessionRef.lastContextTokens || 0),
+                );
+                const compactAt = Number(sessionRef?.compaction?.lastChangedAt ?? sessionRef?.compaction?.lastCompactAt ?? 0) || 0;
+                sessionRef.lastContextTokens = Math.max(1, Math.floor(forcedPressureTokens));
+                sessionRef.lastContextTokensUpdatedAt = Math.max(Date.now(), compactAt + 1);
+                sessionRef.lastContextTokensStaleAfterCompact = false;
+                opts.onToolCall = undefined;
+                try {
+                    process.stderr.write(
+                        `[loop] context overflow on send (sess=${sessionId || 'unknown'} iter=${nextIteration}); ` +
+                        `reactive compact retry messages=${messages.length}\n`,
+                    );
+                } catch { /* best-effort */ }
+                continue;
+            }
             try {
                 process.stderr.write(
                     `[loop] context overflow on send (sess=${sessionId || 'unknown'} iter=${nextIteration}); ` +
-                    `surfacing overflow (no auto re-compact) messages=${messages.length}\n`,
+                    `surfacing overflow after reactive compact retry messages=${messages.length}\n`,
                 );
             } catch { /* best-effort */ }
             throw agentContextOverflowError({
@@ -1721,6 +1744,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             }, sendErr);
         }
         opts.onToolCall = undefined;
+        contextOverflowRetryUsed = false;
         // Capture opaque state for the next turn (may be undefined — that's
         // the stateless contract for providers that don't use continuation).
         providerState = response?.providerState ?? undefined;

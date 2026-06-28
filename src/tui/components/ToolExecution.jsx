@@ -154,7 +154,7 @@ function shellResultElapsed(value) {
 }
 
 function statusCopy(name, label, count, doneCount, pending, isError, args = {}) {
-  return formatToolActionHeader(name, args, { pending, count });
+  return formatToolActionHeader(name, args, { pending, count, stableVerbWidth: true });
 }
 
 function fitResultLine(line, columns) {
@@ -530,7 +530,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     // bounce between "Reading 1 item" and "Reading 4 items". Final counts and
     // result summaries appear only after completion.
     const headerOrder = Array.isArray(args?.categoryOrder) ? args.categoryOrder : null;
-    const headerText = formatAggregateHeader(displayCategories || {}, { pending: headerPending, order: headerOrder });
+    const headerText = formatAggregateHeader(displayCategories || {}, { pending: headerPending, order: headerOrder, stableVerbWidth: true });
     let detailText;
     if (hasResult) {
       detailText = rt;
@@ -552,9 +552,18 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     // shrinks back" on the right edge as counts/results land.
     const rightReserve = Math.max(stringWidth(hintText), stringWidth(headerMetaText));
     const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - rightReserve);
+    const trailingText = headerMetaText || (showHeaderExpandHint ? hintText : '');
+    const trailingColor = headerMetaText ? theme.subtle : TOOL_HINT_DONE_COLOR;
     const clippedHeader = stringWidth(headerText) > avail
       ? truncateToWidth(headerText, avail)
       : headerText;
+    // Pin the trailing hint/elapsed to a FIXED column: pad the header body out
+    // to `avail` so the trailing slot always starts at the same x, regardless of
+    // whether a summary/count landed. Without this the hint slides left/right as
+    // the body width changes (the "() 버전이랑 왔다갔다하며 튀는" jitter).
+    const aggHeaderPad = trailingText
+      ? ' '.repeat(Math.max(0, avail - stringWidth(clippedHeader)))
+      : '';
     // Keep the aggregate card at a fixed height (header + one detail row) for
     // its whole lifecycle. Pending cards have no result yet, so reserve the
     // detail row up front instead of growing from 1→2 rows when the summary
@@ -579,8 +588,8 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
           </Box>
           <Text wrap="truncate">
             <Text bold color={theme.text}>{clippedHeader}</Text>
-            {headerMetaText ? <Text color={theme.subtle}>{headerMetaText}</Text> : null}
-            {showHeaderExpandHint ? <Text color={TOOL_HINT_DONE_COLOR}>{hintText}</Text> : null}
+            {aggHeaderPad ? <Text>{aggHeaderPad}</Text> : null}
+            {trailingText ? <Text color={trailingColor}>{trailingText}</Text> : null}
           </Text>
         </Box>
         {detailLines.length > 0 ? (
@@ -719,6 +728,8 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const hintReserveText = ` ${BULLET_OPERATOR} ${hintReserveLabel}`;
   const rightReserve = Math.max(stringWidth(hintReserveText), stringWidth(headerMetaText));
   const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - rightReserve);
+  const trailingText = headerMetaText || (showHeaderExpandHint ? hintText : '');
+  const trailingColor = headerMetaText ? theme.subtle : expandHintColor;
   let labelOut;
   let summaryOut;
   if (stringWidth(labelText) >= avail) {
@@ -735,6 +746,14 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
       : '';
     summaryOut = truncatedSummary ? ` (${truncatedSummary})` : '';
   }
+  // Pin the trailing hint/elapsed to a FIXED column: pad the label+summary body
+  // out to `avail` so the trailing slot always begins at the same x. Without
+  // this the hint slides as the summary `(...)` appears/disappears across value
+  // updates (the "() 버전이랑 왔다갔다하며 튀는" jitter the user reported).
+  const headerBodyWidth = stringWidth(labelOut) + stringWidth(summaryOut);
+  const headerPad = trailingText
+    ? ' '.repeat(Math.max(0, avail - headerBodyWidth))
+    : '';
   return (
     <Box flexDirection="column" marginTop={attached ? 0 : 1}>
       <Box flexDirection="row">
@@ -744,8 +763,8 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
         <Text wrap="truncate">
           <Text bold color={theme.text}>{labelOut}</Text>
           {summaryOut ? <Text color={theme.text}>{summaryOut}</Text> : null}
-          {headerMetaText ? <Text color={theme.subtle}>{headerMetaText}</Text> : null}
-          {showHeaderExpandHint ? <Text color={expandHintColor}>{hintText}</Text> : null}
+          {headerPad ? <Text>{headerPad}</Text> : null}
+          {trailingText ? <Text color={trailingColor}>{trailingText}</Text> : null}
         </Text>
       </Box>
 

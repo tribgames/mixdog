@@ -56,6 +56,17 @@ function routeKey(routeInfo = {}) {
   return `${providerKey(routeInfo)}\u0001${String(routeInfo?.model || '')}`;
 }
 
+function cacheModelId(value) {
+  const model = cleanString(value);
+  if (!model) return null;
+  // Route cache keys are model identifiers, not free-form display/user text.
+  // A malformed route once copied a user prompt into the provider-wide OAuth
+  // cache; keeping cache keys/display model IDs single-token prevents that
+  // poison from persisting or winning provider fallback lookups.
+  if (model.length > 160 || /\s/.test(model)) return null;
+  return model;
+}
+
 function cachePath() {
   return join(resolvePluginData(), CACHE_FILE);
 }
@@ -609,17 +620,26 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
       return null;
     }
 
-    const normalized = {
+    const model = cacheModelId(routeInfo?.model) || cacheModelId(snapshot.model);
+    const providerSnapshot = {
       ...snapshot,
       provider: routeInfo?.provider || snapshot.provider || provider,
-      model: routeInfo?.model || snapshot.model || null,
       cachedAt: Date.now(),
     };
-    memoryCache.set(key, normalized);
-    memoryCache.set(providerOnly, normalized);
-    writeSnapshotCache(key, normalized);
-    writeSnapshotCache(providerOnly, normalized);
-    return normalized;
+    delete providerSnapshot.model;
+
+    const routeSnapshot = model
+      ? { ...providerSnapshot, model }
+      : providerSnapshot;
+
+    if (model) {
+      const normalizedKey = `${provider}\u0001${model}`;
+      memoryCache.set(normalizedKey, routeSnapshot);
+      writeSnapshotCache(normalizedKey, routeSnapshot);
+    }
+    memoryCache.set(providerOnly, providerSnapshot);
+    writeSnapshotCache(providerOnly, providerSnapshot);
+    return routeSnapshot;
   })().finally(() => {
     inflight.delete(key);
   });

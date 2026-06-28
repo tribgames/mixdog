@@ -510,7 +510,12 @@ function queuePriorityValue(value) {
 }
 
 function defaultQueuePriority(mode) {
-  return mode === 'task-notification' ? 'next' : 'later';
+  // Claude Code parity (messageQueueManager.ts):
+  // - user/bashed prompt input defaults to `next`, so it can be attached at the
+  //   next model-send boundary while a turn is active.
+  // - task notifications default to `later`, unless the caller explicitly marks
+  //   them urgent (e.g. interactive shell stall/completion).
+  return mode === 'task-notification' ? 'later' : 'next';
 }
 
 function isQueuedEntryEditable(entry) {
@@ -522,6 +527,12 @@ function isQueuedEntryVisible(entry) {
   // task completions stay in the internal pending queue, but should never look
   // like commands typed by the user while they wait to be drained.
   return isQueuedEntryEditable(entry);
+}
+
+function isSlashQueuedEntry(entry) {
+  if (entry?.skipSlashCommands) return false;
+  const text = promptContentText(entry?.content ?? entry?.text ?? '');
+  return text.trim().startsWith('/');
 }
 
 function firstQueueLine(text) {
@@ -645,7 +656,15 @@ function isExecutionNotification(event, text, parsed) {
 function agentArgsWithResultMetadata(args, parsed) {
   if (!parsed) return args;
   const next = { ...(args && typeof args === 'object' ? args : {}) };
-  if (parsed.type) next.type = parsed.type;
+  const requestedAction = String(next.type || next.action || next.mode || '').trim().toLowerCase();
+  if (parsed.type) {
+    // Job status envelopes report the original job type (usually "spawn").
+    // Preserve the user's current agent tool action ("status", "read", …) so
+    // manual checks render as "Reviewer status" instead of another
+    // "Spawning Reviewer" card. Keep the job type as metadata for detail.
+    if (!requestedAction || /^(notification|result|completion)$/i.test(requestedAction)) next.type = parsed.type;
+    else next.jobType = parsed.type;
+  }
   if (parsed.status) next.status = parsed.status;
   if (parsed.taskId) next.task_id = parsed.taskId;
   if (parsed.role) next.role = parsed.role;
@@ -1741,6 +1760,7 @@ export async function createEngineSession({
       mode,
       priority,
       key: options.key || null,
+      skipSlashCommands: options.skipSlashCommands === true,
       displayText: mode === 'task-notification' ? notificationDisplayText(displayText) : String(displayText || ''),
     };
   }
@@ -1774,12 +1794,14 @@ export async function createEngineSession({
     return true;
   }
 
-  function dequeueQueueBatch(maxPriority = 'later') {
+  function dequeueQueueBatch(maxPriority = 'later', options = {}) {
     if (pending.length === 0) return [];
     const max = queuePriorityValue(maxPriority);
+    const predicate = typeof options.predicate === 'function' ? options.predicate : () => true;
     let bestPriority = Infinity;
     let targetMode = null;
     for (const entry of pending) {
+      if (!predicate(entry)) continue;
       const p = queuePriorityValue(entry.priority);
       if (p > max) continue;
       if (p < bestPriority) {
@@ -1791,7 +1813,7 @@ export async function createEngineSession({
     const batch = [];
     for (let i = 0; i < pending.length;) {
       const entry = pending[i];
-      if ((entry.mode || 'prompt') === targetMode && queuePriorityValue(entry.priority) === bestPriority) {
+      if (predicate(entry) && (entry.mode || 'prompt') === targetMode && queuePriorityValue(entry.priority) === bestPriority) {
         batch.push(entry);
         pending.splice(i, 1);
       } else {
@@ -1851,7 +1873,11 @@ export async function createEngineSession({
   }
 
   function drainPendingSteering() {
-    const batch = dequeueQueueBatch('next');
+    // Claude Code query.ts mid-turn drain:
+    // getCommandsByMaxPriority('next') and exclude slash commands. Slash
+    // commands must run through the normal command processor after the turn,
+    // not be sent to the model as plain text.
+    const batch = dequeueQueueBatch('next', { predicate: (entry) => !isSlashQueuedEntry(entry) });
     if (batch.length === 0) return [];
     const out = batch
       .map((entry) => {
@@ -1970,16 +1996,10 @@ export async function createEngineSession({
       const t = promptDisplayText(text, options).trim();
       if (!t || state.commandBusy) return false;
       const mode = options.mode || 'prompt';
-     // Plain user input entered while a turn is busy must NOT steer into the
-     // active turn. Steering (priority 'next') depends on drain points inside
-     // the agent loop (pre-send / final-pre-send) that are not available during
-     // the gap between the first provider send and the first response; input
-     // that lands there is misaligned at the turn boundary and causes the
-     // ongoing turn to be cancelled. Use the default queue priority ('later')
-     // so the input is safely dequeued after the current turn finishes as a
-     // regular follow-up. Explicit options.priority overrides still win for
-     // callers (e.g. task-notifications) that intentionally request steering.
-     const priority = options.priority || (state.busy && mode === 'prompt' ? defaultQueuePriority(mode) : undefined);
+     // Claude Code parity: prompt input queued while a turn is active keeps the
+     // default `next` priority, so it is injected at the next tool/model
+     // boundary. Explicit options.priority still wins.
+     const priority = options.priority;
       const queueOptions = {
         ...options,
         mode,
@@ -2440,11 +2460,27 @@ export async function createEngineSession({
     },
     setSearchRoute: async (opts) => {
       if (state.commandBusy) return null;
+      const beforeRouteState = routeState();
+      const optimisticSearchRoute = opts?.provider && opts?.model
+        ? {
+            provider: String(opts.provider).trim(),
+            model: String(opts.model).trim(),
+            ...(opts.effort ? { effort: opts.effort } : {}),
+            ...(opts.fast === true ? { fast: true } : {}),
+            ...(opts.toolType ? { toolType: opts.toolType } : {}),
+          }
+        : null;
       set({ commandBusy: true });
       try {
+        if (optimisticSearchRoute?.provider && optimisticSearchRoute.model) {
+          set({ searchRoute: optimisticSearchRoute });
+        }
         const result = await runtime.setSearchRoute?.(opts);
         set({ ...routeState(), stats: { ...state.stats } });
         return result;
+      } catch (e) {
+        set({ searchRoute: beforeRouteState.searchRoute || null });
+        throw e;
       } finally {
         set({ commandBusy: false });
       }
@@ -2643,12 +2679,36 @@ export async function createEngineSession({
     },
     setRoute: async (opts) => {
       if (state.commandBusy) return false;
+      const beforeRouteState = routeState();
+      const optimisticProvider = String(opts?.provider || (opts?.model ? state.provider : '') || '').trim();
+      const optimisticModel = String(opts?.model || '').trim();
       set({ commandBusy: true });
       try {
+        if (optimisticProvider && optimisticModel) {
+          set({
+            provider: optimisticProvider,
+            model: optimisticModel,
+            effort: opts?.effort ?? null,
+            fast: opts?.fast === true,
+          });
+        }
         await runtime.setRoute(opts);
         resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...state.stats } });
         return true;
+      } catch (e) {
+        set({
+          provider: beforeRouteState.provider,
+          model: beforeRouteState.model,
+          effort: beforeRouteState.effort,
+          effortOptions: beforeRouteState.effortOptions,
+          fast: beforeRouteState.fast,
+          fastCapable: beforeRouteState.fastCapable,
+          contextWindow: beforeRouteState.contextWindow,
+          rawContextWindow: beforeRouteState.rawContextWindow,
+          effectiveContextWindowPercent: beforeRouteState.effectiveContextWindowPercent,
+        });
+        throw e;
       } finally {
         set({ commandBusy: false });
       }

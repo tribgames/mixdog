@@ -593,7 +593,7 @@ for (const name of ['shell', 'task', 'agent', 'recall', 'search', 'web_fetch', '
 
 const leadDefaults = defaultDeferredToolNames(smokeCatalog, 'lead');
 if (leadDefaults.size !== 16) {
-  throw new Error(`lead default surface should stay 16 tools, got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
+  throw new Error(`lead default surface should stay 16 tools for this static catalog, got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
 }
 for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'shell', 'task', 'apply_patch', 'explore', 'agent', 'recall', 'search', 'web_fetch', 'Skill', 'tool_search']) {
   assertHas(leadDefaults, name);

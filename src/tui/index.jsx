@@ -189,26 +189,40 @@ export async function runTui({ provider, model, toolMode } = {}) {
   }
 
   const restoreStderr = installTuiStderrGuard();
-  let store;
-  try {
-    store = await createEngineSession({ provider, model, toolMode });
-    bootProfile('store:ready', { ms: (performance.now() - startedAt).toFixed(1) });
-  } catch (error) {
-    restoreStderr();
-    process.stderr.write(`mixdog: ${error?.message || error}\n`);
-    return 1;
-  }
+  const restorePrimedInput = () => {}; // stdin raw mode is owned by Ink's useInput effects
+  let restored = false;
+  const restoreTerminal = () => {
+    if (restored) return;
+    restored = true;
+    restorePrimedInput();
+    try { process.stdout.write(`${TERMINAL_MODE_RESET}\x1b[0 q\x1b[?1049l${TERMINAL_MODE_RESET}`); } catch { /* ignore */ }
+  };
 
-  // Enter the alternate screen buffer for a true fullscreen UI: the input bar
-  // pins to the physical bottom (App uses height={rows}) and, on exit, the
-  // shell's original screen is restored untouched. \x1b[?1049h enters alt
-  // screen; then clear it and home the cursor so we start from a clean top.
+  // Enter the alternate screen buffer before session/runtime boot so no stale
+  // shell rows are visible while the statusline/TUI data warms up. The first
+  // real Ink frame may still arrive after createEngineSession(), but the user
+  // sees a clean fullscreen surface immediately instead of the previous terminal
+  // contents bleeding through the bottom status area.
   process.stdout.write(`${TERMINAL_MODE_RESET_HIDDEN_CURSOR}\x1b[?1049h${TERMINAL_MODE_RESET_HIDDEN_CURSOR}\x1b[2J\x1b[H`);
 
   // Use a blinking BAR cursor (DECSCUSR 5) — a thin caret behind the text, not a
   // fat block. PromptInput parks this hardware cursor at the insertion point via
   // useCursor; the terminal also anchors IME composition to it.
   process.stdout.write('\x1b[5 q'); // blinking bar
+
+  process.on('exit', restoreTerminal);
+
+  let store;
+  try {
+    store = await createEngineSession({ provider, model, toolMode });
+    bootProfile('store:ready', { ms: (performance.now() - startedAt).toFixed(1) });
+  } catch (error) {
+    restoreTerminal();
+    try { process.off('exit', restoreTerminal); } catch { /* ignore */ }
+    restoreStderr();
+    process.stderr.write(`mixdog: ${error?.message || error}\n`);
+    return 1;
+  }
 
   // Keep mouse handling app-owned by default: native terminal selections are
   // cleared by the fullscreen redraws that happen while a turn streams. Users
@@ -218,16 +232,6 @@ export async function runTui({ provider, model, toolMode } = {}) {
   if (mouseTracking) {
     process.stdout.write(MOUSE_TRACKING_ON);
   }
-  const restorePrimedInput = () => {}; // stdin raw mode is owned by Ink's useInput effects
-
-  let restored = false;
-  const restoreTerminal = () => {
-    if (restored) return;
-    restored = true;
-    restorePrimedInput();
-    try { process.stdout.write(`${TERMINAL_MODE_RESET}\x1b[0 q\x1b[?1049l${TERMINAL_MODE_RESET}`); } catch { /* ignore */ }
-  };
-  process.on('exit', restoreTerminal);
   let storeDisposed = false;
   const disposeStoreOnce = async (reason = 'cli-react-exit') => {
     if (storeDisposed) return;
