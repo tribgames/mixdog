@@ -1970,11 +1970,16 @@ export async function createEngineSession({
       const t = promptDisplayText(text, options).trim();
       if (!t || state.commandBusy) return false;
       const mode = options.mode || 'prompt';
-      // Plain user input entered while a turn is busy should steer the active
-      // turn at the next safe provider-send boundary. This is boundary-only
-      // (not a provider/tool hard interrupt), and explicit priority overrides
-      // still win for callers that want post-turn follow-up semantics.
-      const priority = options.priority || (state.busy && mode === 'prompt' ? 'next' : undefined);
+     // Plain user input entered while a turn is busy must NOT steer into the
+     // active turn. Steering (priority 'next') depends on drain points inside
+     // the agent loop (pre-send / final-pre-send) that are not available during
+     // the gap between the first provider send and the first response; input
+     // that lands there is misaligned at the turn boundary and causes the
+     // ongoing turn to be cancelled. Use the default queue priority ('later')
+     // so the input is safely dequeued after the current turn finishes as a
+     // regular follow-up. Explicit options.priority overrides still win for
+     // callers (e.g. task-notifications) that intentionally request steering.
+     const priority = options.priority || (state.busy && mode === 'prompt' ? defaultQueuePriority(mode) : undefined);
       const queueOptions = {
         ...options,
         mode,

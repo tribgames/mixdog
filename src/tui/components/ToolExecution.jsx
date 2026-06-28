@@ -181,6 +181,10 @@ function isAgentTool(normalizedName) {
   return normalizedName === 'agent';
 }
 
+const SKILL_SURFACE_NAMES = new Set([
+  'skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill',
+]);
+
 function isBackgroundTaskTool(normalizedName) {
   return new Set(['explore', 'search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']).has(String(normalizedName || '').toLowerCase());
 }
@@ -600,6 +604,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // ── Normal (non-aggregate) tool card ────────────────────────────
   const { label, summary, normalizedName, args: parsedArgs } = formatToolSurface(name, args);
   const isShellSurface = isShellTool(normalizedName, label);
+  const isSkillSurface = SKILL_SURFACE_NAMES.has(String(normalizedName || '').toLowerCase());
   const backgroundMeta = !pending && hasResult && isBackgroundTaskTool(normalizedName)
     ? parseBackgroundTaskResult(rt)
     : null;
@@ -666,7 +671,13 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const isAgentResult = !isBackgroundResult && !pending && isAgentTool(normalizedName) && hasResult;
   const isAgentResponse = isAgentResult && hasAgentResponseResult(rt);
   const isAgentMetadataResult = isAgentResult && !isAgentResponse;
-  const visibleDetailLines = isAgentMetadataResult ? [] : detailLines;
+  // Skill loads carry the skill name in the header already
+  // ("Loaded 1 skill (name)"); the collapsed detail row just repeats it, so
+  // drop it and keep the card a single line. Expanding (ctrl+o) still shows the
+  // full skill body via the raw-result path.
+  const visibleDetailLines = (isAgentMetadataResult || (isSkillSurface && !showRawResult))
+    ? []
+    : detailLines;
   const finalStatusColor = toolStatusColor({ pending, groupCount, failedCount, terminalStatus });
   const dotColor = isShellSurface && shellStatus === 'running' ? theme.subtle : finalStatusColor;
   const dotText = pending && !blinkExpired && !blinkOn ? ' ' : TURN_MARKER;

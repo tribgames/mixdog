@@ -309,8 +309,10 @@ export function displayToolName(name, args = {}) {
       return parsed && parsed.old_string === '' ? 'Create' : 'Update';
     }
     case 'shell':
+    case 'bash':
     case 'bash_session':
     case 'shell_command':
+    case 'job_wait':
       return 'Run';
     case 'task':
       return 'Task';
@@ -407,8 +409,10 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'apply_patch':
       return summarizePatch(a.patch, a.base_path);
     case 'shell':
+    case 'bash':
     case 'bash_session':
     case 'shell_command':
+    case 'job_wait':
       return truncateCommand(a.description || a.command || a.cmd || '', max);
     case 'task':
       return compactParts([a.action || a.type || 'task', a.task_id || '']);
@@ -826,8 +830,10 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       return `${n} ${pluralize(n, 'Entry', 'Entries')}`;
     }
     case 'shell':
+    case 'bash':
     case 'bash_session':
-    case 'shell_command': {
+    case 'shell_command':
+    case 'job_wait': {
       if (!trimmed) return '(No Output)';
       const job = /^\[(?:task_id|job):\s*([^\]]+)\]/mi.exec(text);
       const status = /^\[status:\s*([^\]]+)\]/mi.exec(text);
@@ -1177,11 +1183,15 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'use_skill':
       return unitDescriptor('Skill', { count: queryCount(a, 'name', 'skill', 'skill_name', 'query', 'q') || 1, noun: 'skill' });
     case 'reply':
+      return unitDescriptor('Channel', { count: queryCount(a, 'messages', 'messageId', 'text') || 1, noun: 'message' });
     case 'react':
+      return unitDescriptor('Channel', { count: queryCount(a, 'emoji', 'messageId') || 1, active: 'Reacting', done: 'Reacted', noun: 'reaction' });
     case 'edit_message':
+      return unitDescriptor('Channel', { count: queryCount(a, 'messageId', 'text') || 1, active: 'Editing', done: 'Edited', noun: 'message' });
     case 'activate_channel_bridge':
+      return unitDescriptor('Channel', { active: 'Toggling', done: 'Toggled', noun: 'channel bridge' });
     case 'inject_command':
-      return unitDescriptor('Channel', { count: queryCount(a, 'messages', 'messageId', 'command', 'text') || 1, noun: 'message' });
+      return unitDescriptor('Channel', { count: queryCount(a, 'command', 'text', 'name') || 1, active: 'Injecting', done: 'Injected', noun: 'command' });
     case 'trigger_schedule':
       return unitDescriptor('Schedule', { count: queryCount(a, 'name', 'id') || 1, noun: 'schedule' });
     case 'code_graph': {
@@ -1198,6 +1208,30 @@ export function toolWorkUnit(name, args = {}, category = '') {
       return unitDescriptor('Setup', { active: 'Asking', done: 'Asked', noun: 'user' });
     case 'update_plan':
       return unitDescriptor('Setup', { active: 'Updating', done: 'Updated', noun: 'plan' });
+    case 'diagnostics':
+      return unitDescriptor('Setup', { active: 'Checking', done: 'Checked', noun: 'diagnostic' });
+    case 'open_config':
+      return unitDescriptor('Setup', { active: 'Opening', done: 'Opened', noun: 'config' });
+    case 'provider_status':
+      return unitDescriptor('Setup', { active: 'Checking', done: 'Checked', noun: 'provider' });
+    case 'channel_status':
+      return unitDescriptor('Setup', { active: 'Checking', done: 'Checked', noun: 'channel' });
+    case 'schedule_status':
+      return unitDescriptor('Setup', { active: 'Checking', done: 'Checked', noun: 'schedule' });
+    case 'schedule_control':
+      return unitDescriptor('Setup', { active: 'Updating', done: 'Updated', noun: 'schedule' });
+    case 'reload_config':
+      return unitDescriptor('Setup', { active: 'Reloading', done: 'Reloaded', noun: 'config' });
+    case 'list_mcp_resources':
+      return unitDescriptor('Setup', { active: 'Listing', done: 'Listed', noun: 'MCP resource' });
+    case 'list_mcp_resource_templates':
+      return unitDescriptor('Setup', { active: 'Listing', done: 'Listed', noun: 'MCP resource template' });
+    case 'cwd': {
+      const action = String(a.action || a.type || '').toLowerCase();
+      return action === 'set'
+        ? unitDescriptor('Setup', { active: 'Setting', done: 'Set', noun: 'working directory', pluralNoun: 'working directories' })
+        : unitDescriptor('Setup', { active: 'Checking', done: 'Checked', noun: 'working directory', pluralNoun: 'working directories' });
+    }
     default:
       return unitDescriptor(cat, { count: queryCount(a, 'items', 'targets', 'query', 'path', 'name', 'id', 'action') || 1 });
   }

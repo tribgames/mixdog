@@ -56,7 +56,7 @@ function applyBriefCap(text) {
 // Unified-shard policy — most agent sessions (Pool B + Pool C) share the
 // same tool schema so BP_1 is bit-identical across roles and one provider-side
 // cache shard serves every caller. Per-role behaviour is steered by:
-//   1. role-scoped BP3 instructions from agents/<role>.md and
+//   1. role-scoped BP2 instructions from agents/<role>.md and
 //      rules/agent/<role>.md
 //   2. call-time guards (loop.mjs write-block + ai-wrapped-dispatch
 //      recursion break)
@@ -202,12 +202,12 @@ export function makeAgentDispatch(opts = {}) {
             role,
             opts.permission ?? (isPoolC ? (hidden?.permission || 'read') : null),
         );
-        // Pool C hidden-role instructions live in BP3 role-scoped context
+        // Pool C hidden-role instructions live in BP2 role-scoped context
         // (loaded by loadScopedRoleInstructions from rules/agent/*.md).
         //
-        // User message = pure query. Stable workflow/role-specific context
-        // rides in BP3; only the query varies per call, so provider
-        // cache reuses the shared prefix.
+        // User message = pure query. Stable role rules ride in BP2; stable
+        // memory/meta rides in BP3; only the query varies per call, so
+        // provider cache reuses the shared prefix.
         //
         // Stateless ephemeral session — created fresh per call, never
         // pooled or resumed. Cache prefix matching happens at the provider

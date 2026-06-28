@@ -2,13 +2,14 @@
  * Agent Runtime — Cache Strategy
  *
  * Provider-level cache policy. Anthropic supports explicit cache_control
- * breakpoints (up to 4 per request) — we use all 4 slots. Non-breakpoint
- * providers rely on server-side automatic prefix matching or observation.
+ * breakpoints (up to 4 per request) — we spend them on the stable system /
+ * session prefix plus the reusable message tail. Non-breakpoint providers
+ * rely on provider-managed prefix routing or provider-local cache objects.
  *
  * Anthropic 4-BP layout:
- *   BP_1  system#1  (1h)  — baseRules; shared agent/Lead rules
- *   BP_2  system#2  (1h)  — reserved stable system layer
- *   BP_3  tier3     (1h)  — role-varying stable session marker (sentinel system-reminder)
+ *   BP_1  system#1  (1h)  — shared tool policy + compact skill manifest
+ *   BP_2  system#2  (1h)  — role/system rules (Lead / agent / hidden role)
+ *   BP_3  tier3     (1h)  — stable memory/meta marker (sentinel system-reminder)
  *   BP_4  messages  (1h/5m) — sliding tool_result / prior user-text tail
  *
  * Tool schemas still sit before system in the provider prompt prefix. We do
@@ -16,15 +17,15 @@
  * the preceding tool prefix via Anthropic prefix caching semantics. Keeping
  * agent worker tool schemas byte-stable is therefore still load-bearing.
  *
- * Tier 3 gets its own BP because workflow/role-specific context is
- * stable within the session. The sliding messages BP handles tool_result
- * accumulation without pinning volatile task/env text into the 1h tier.
+ * Tier 3 gets its own BP because memory/meta context is stable within the
+ * session. The sliding messages BP handles tool_result accumulation and
+ * per-call task/event data without pinning volatile text into the 1h tier.
  *
  * Non-breakpoint providers:
  *   - OpenAI (public): prompt_cache_key + prompt_cache_retention=24h
  *   - OpenAI OAuth (Codex): prompt_cache_key only (server in-memory 5-10min)
- *   - Gemini: implicit caching does NOT report cachedContentTokenCount on
- *     3.5+. Explicit cachedContents API required for measurable cache hits.
+ *   - Gemini: provider-managed explicit cachedContents with 1h TTL, plus
+ *     implicit caching as a fallback when the prefix is below cache minimums.
  *   - xAI: x-grok-conv-id (server routing pin) + prompt_cache_key on
  *     Responses API. Treat as key-prefix, not implicit.
  *   - DeepSeek / OpenCode Go: automatic KV/prefix cache; observe provider
@@ -85,10 +86,10 @@ export function resolveCacheStrategy(role) {
         return { tools: 'none', system: 'none', tier3: 'none', messages: 'none' };
     }
     if (getHiddenRole(role)) {
-        return { tools: '1h', system: '1h', tier3: '1h', messages: '5m' };
+        return { tools: 'none', system: '1h', tier3: '1h', messages: '5m' };
     }
     // Public agents: resumable up to 1h for same-task reuse -> 1h tail.
-    return { tools: '1h', system: '1h', tier3: '1h', messages: '1h' };
+    return { tools: 'none', system: '1h', tier3: '1h', messages: '1h' };
 }
 
 /**
@@ -103,6 +104,7 @@ export function resolveCacheStrategy(role) {
 // Provider cache capability kinds:
 //   'explicit-breakpoint' — explicit provider-side cache_control writes
 //   'key-prefix'          — provider-managed shard keyed by cache key/session
+//   'managed-explicit'    — provider object creates/attaches explicit caches
 //   'implicit-observed'   — cache hits are observable but not guaranteed warm
 //   'none'                — no API-level cache knob/metric
 const PROVIDER_CACHE_CAPABILITY = Object.freeze({
@@ -112,7 +114,7 @@ const PROVIDER_CACHE_CAPABILITY = Object.freeze({
     'openai-oauth':    'key-prefix',
     'xai':             'key-prefix',
     'grok-oauth':      'key-prefix',
-    'gemini':          'implicit-observed',
+    'gemini':          'managed-explicit',
     'deepseek':        'implicit-observed',
     'opencode-go':     'implicit-observed',
 });
@@ -123,7 +125,9 @@ export function cacheCapabilityForProvider(provider) {
 
 export function shouldMarkWarmForProvider(provider) {
     const capability = cacheCapabilityForProvider(provider);
-    return capability === 'explicit-breakpoint' || capability === 'key-prefix';
+    return capability === 'explicit-breakpoint'
+        || capability === 'key-prefix'
+        || capability === 'managed-explicit';
 }
 
 export function shouldRecordObservedForProvider(provider) {

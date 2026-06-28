@@ -39,7 +39,7 @@ import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs'
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { appendAgentTrace } from '../agent-trace.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
-import { maxMtime, maxMtimeRecursive } from '../cache-mtime.mjs';
+import { maxMtimeRecursive } from '../cache-mtime.mjs';
 import { getHiddenRole, getRoleInstructionDir } from '../internal-roles.mjs';
 import {
     buildGatewayLimits,
@@ -60,16 +60,16 @@ const _rulesBuilder = (() => {
     try { return _require('../../../../lib/rules-builder.cjs'); } catch { return null; }
 })();
 
-// agentRules is the agent shared prefix (shared rules + agent common rules +
-// user agent configs). It's rebuilt from disk
-// by rules-builder.cjs on every call; since createSession fires on every
-// Pool B/C agent turn, that's a lot of redundant readFileSync + concat.
-// BP1/BP3 cache — invalidated by source file mtime, not a timer.
-// Cheap: O(sentinel-count) stat calls on each agent turn, no I/O otherwise.
-// BP1 cache — single shared entry. buildAgentInjectionContent is
-// role-agnostic (true cross-role common), so every agent role reuses the
-// same prefix bytes.
+// BP1/BP2/BP3 prompt-layer caches — invalidated by source file mtime, not a
+// timer. Cheap: O(sentinel-count) stat calls on each session creation, no file
+// I/O when warm.
+let _sharedRulesCache = null;
+let _sharedRulesMtime = 0;
 const _agentRulesCacheByProfile = new Map();
+let _leadRulesCache = null;
+let _leadRulesMtime = 0;
+let _leadMetaCache = null;
+let _leadMetaMtime = 0;
 let _codeGraphRuntimePromise = null;
 let _agentLoopPromise = null;
 let _bashSessionRuntimePromise = null;
@@ -92,14 +92,33 @@ function _closeBashSessionLazy(sessionId, reason) {
         .then((mod) => { if (typeof mod.closeBashSession === 'function') mod.closeBashSession(sessionId, reason); })
         .catch(() => {});
 }
+function _buildSharedRules() {
+    if (!_rulesBuilder || typeof _rulesBuilder.buildSharedToolContent !== 'function') return '';
+    const PLUGIN_ROOT = mixdogRoot();
+    const RULES_DIR = join(PLUGIN_ROOT, 'rules');
+    const mtime = maxMtimeRecursive([
+        join(RULES_DIR, 'shared'),
+    ]);
+    if (_sharedRulesCache !== null && mtime <= _sharedRulesMtime) {
+        return _sharedRulesCache;
+    }
+    try {
+        const built = _rulesBuilder.buildSharedToolContent({ PLUGIN_ROOT, DATA_DIR: resolvePluginData() });
+        _sharedRulesCache = built;
+        _sharedRulesMtime = mtime;
+        return built;
+    } catch (e) {
+        throw new Error(`[session] shared tool rules build failed: ${e.message}`);
+    }
+}
+
 function _buildAgentRules(profile = 'full') {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildAgentInjectionContent !== 'function') return '';
+    if (!_rulesBuilder || typeof _rulesBuilder.buildAgentRoleContent !== 'function') return '';
     const key = String(profile || 'full');
     const PLUGIN_ROOT = mixdogRoot();
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
     const mtime = maxMtimeRecursive([
-        join(RULES_DIR, 'shared'),
         join(RULES_DIR, 'agent'),
         join(DATA_DIR, 'mixdog-config.json'),
     ]);
@@ -108,51 +127,64 @@ function _buildAgentRules(profile = 'full') {
         return cached.value;
     }
     try {
-        const built = key === 'retrieval' && typeof _rulesBuilder.buildAgentRetrievalInjectionContent === 'function'
-            ? _rulesBuilder.buildAgentRetrievalInjectionContent({ PLUGIN_ROOT, DATA_DIR })
-            : _rulesBuilder.buildAgentInjectionContent({ PLUGIN_ROOT, DATA_DIR });
+        const built = _rulesBuilder.buildAgentRoleContent({ PLUGIN_ROOT, DATA_DIR, profile: key });
         _agentRulesCacheByProfile.set(key, { mtime, value: built });
         return built;
     } catch (e) {
-        throw new Error(`[session] agent common rules build failed: ${e.message}`);
+        throw new Error(`[session] agent role rules build failed: ${e.message}`);
     }
 }
 
-let _leadRulesCache = null;
-let _leadRulesMtime = 0;
 function _buildLeadRules() {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildInjectionContent !== 'function') return '';
+    if (!_rulesBuilder || typeof _rulesBuilder.buildLeadRoleContent !== 'function') return '';
     const PLUGIN_ROOT = mixdogRoot();
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
-    const mtime = Math.max(maxMtime([
-        PLUGIN_ROOT,
-        DATA_DIR,
-    ]), maxMtimeRecursive([
-        join(RULES_DIR, 'shared'),
+    const mtime = maxMtimeRecursive([
+        join(RULES_DIR, 'lead'),
+        join(DATA_DIR, 'mixdog-config.json'),
+    ]);
+    if (_leadRulesCache !== null && mtime <= _leadRulesMtime) {
+        return _leadRulesCache;
+    }
+    try {
+        const built = _rulesBuilder.buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR });
+        _leadRulesCache = built;
+        _leadRulesMtime = mtime;
+        return built;
+    } catch (e) {
+        throw new Error(`[session] lead role rules build failed: ${e.message}`);
+    }
+}
+
+function _buildLeadMetaContext() {
+    if (!_rulesBuilder || typeof _rulesBuilder.buildLeadMetaContent !== 'function') return '';
+    const PLUGIN_ROOT = mixdogRoot();
+    const DATA_DIR = resolvePluginData();
+    const RULES_DIR = join(PLUGIN_ROOT, 'rules');
+    const mtime = maxMtimeRecursive([
         join(RULES_DIR, 'lead'),
         join(DATA_DIR, 'history'),
         join(DATA_DIR, 'mixdog-config.json'),
         join(DATA_DIR, 'user-workflow.md'),
         join(PLUGIN_ROOT, 'output-styles'),
         join(DATA_DIR, 'output-styles'),
-    ]));
-    if (_leadRulesCache !== null && mtime <= _leadRulesMtime) {
-        return _leadRulesCache;
+    ]);
+    if (_leadMetaCache !== null && mtime <= _leadMetaMtime) {
+        return _leadMetaCache;
     }
     try {
-        const built = _rulesBuilder.buildInjectionContent({ PLUGIN_ROOT, DATA_DIR });
-        _leadRulesCache = built;
-        _leadRulesMtime = mtime;
+        const built = _rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR });
+        _leadMetaCache = built;
+        _leadMetaMtime = mtime;
         return built;
     } catch (e) {
-        throw new Error(`[session] lead rules build failed: ${e.message}`);
+        throw new Error(`[session] lead meta context build failed: ${e.message}`);
     }
 }
 
-// BP3 role-specific cache — keyed by role. webhook / schedule / hidden
-// retrieval roles each have their own scoped instruction set; other roles
-// return ''.
+// BP4-adjacent role-specific data cache — keyed by role. webhook / schedule
+// roles each have their own scoped instruction set; other roles return ''.
 const _roleSpecificCache = new Map(); // role → { value, mtime }
 function _buildRoleSpecific(currentRole) {
     if (!_rulesBuilder || typeof _rulesBuilder.buildAgentRoleSpecificContent !== 'function') return '';
@@ -945,8 +977,9 @@ async function runSessionCompaction(session, opts = {}) {
 // dispatches (agent/maintenance/mcp/scheduler/webhook) targeting the
 // same provider land in a single server-side cache shard, so the
 // shared prefix (tools + system + pool system prompt) is reused
-// regardless of role. Per-role / per-session differentiation lives in
-// the message tail, which is naturally separated by content hashing.
+// regardless of role. Per-role / per-session differentiation lives after the
+// system prefix (BP3 system-reminder / later messages), which is naturally
+// separated by provider-side content hashing.
 const PROVIDER_ALIAS = {
     'openai-oauth': 'codex',      // ChatGPT subscription (Codex backend)
     'anthropic-oauth': 'claude',  // Claude Max subscription
@@ -1288,25 +1321,24 @@ export function createSession(opts) {
     const resolvedRole = opts.role || profile?.taskType || null;
     const hiddenRole = getHiddenRole(resolvedRole);
     const isRetrievalRole = hiddenRole?.kind === 'retrieval';
-    // Agent sessions expose a fixed skill meta-tool schema and resolve
-    // concrete skills at tool-call time. Skipping discovery here keeps Pool C
-    // fan-out from doing cwd/global skill IO on every spawn.
-    const skills = (opts.skipSkills || ownerIsAgent) ? [] : collectSkillsCached(opts.cwd);
+    // Skill schema is fixed; the compact manifest is discovered once through
+    // the mtime-cached frontmatter index so BP1 tells every role which Skill()
+    // names are available without loading full SKILL.md bodies.
+    const skills = opts.skipSkills ? [] : collectSkillsCached(opts.cwd);
 
-    // Agent shared prefix (bit-identical across roles). Hidden roles reuse the
-    // same shared agent rules so the cache shard stays stable across agent
-    // callers. User-defined schedules/webhooks are baked
-    // into BP1 as a single fixed-value monolithic block so every role shares
-    // one cache shard. A user edit invalidates BP1 once and the new prefix
-    // re-warms across all roles together.
+    // BP1 is shared tool policy (+ compact skill manifest in compose). BP2 is
+    // role/system rules. User-defined schedules/webhooks ride as normal user
+    // context below so event data does not rewrite BP3 memory/meta.
     const agentRulesRole = opts.role || profile?.taskType || null;
     const agentRulesProfile = isRetrievalRole ? 'retrieval' : 'full';
     const skipAgentRules = opts.skipAgentRules === true;
-    const injectedRules = skipAgentRules ? '' : (ownerIsAgent ? _buildAgentRules(agentRulesProfile) : _buildLeadRules());
+    const injectedRules = skipAgentRules ? '' : _buildSharedRules();
+    const roleRules = skipAgentRules ? '' : (ownerIsAgent ? _buildAgentRules(agentRulesProfile) : _buildLeadRules());
+    const metaContext = skipAgentRules ? '' : (ownerIsAgent ? '' : _buildLeadMetaContext());
     const roleSpecific = ownerIsAgent && !skipAgentRules ? _buildRoleSpecific(agentRulesRole) : '';
     // Agent sessions must not inherit role/profile/preset tool narrowing: Pool
-    // B and Pool C share one bit-identical tool schema for BP_1/BP_2 cache
-    // reuse, and permission differences are enforced only at call time. Raw
+    // B and Pool C share one bit-identical tool schema to maximize provider
+    // prefix reuse, and permission differences are enforced only at call time. Raw
     // non-agent callers keep the historical profile.tools / preset.tools
     // behaviour.
     const toolSpec = ownerIsAgent
@@ -1358,14 +1390,15 @@ export function createSession(opts) {
     const { baseRules, stableSystemContext, sessionMarker, volatileTail } = composeSystemPrompt({
         userPrompt: opts.systemPrompt,
         agentRules: injectedRules || undefined,
-        roleSpecific: roleSpecific || undefined,
+        roleRules: roleRules || undefined,
+        metaContext: metaContext || undefined,
         skipRoleCatalog: !ownerIsAgent,
         profile: profile || undefined,
         role: resolvedRole,
         workflowContext: opts.workflowContext || null,
         workspaceContext: opts.workspaceContext || null,
         coreMemoryContext: opts.coreMemoryContext || null,
-        skillManifest: ownerIsAgent ? null : buildSkillManifest(skills),
+        skillManifest: buildSkillManifest(skills),
         tools: toolsForRouting,
         bashIsPersistent: ownerIsAgent && toolsForRouting.some(t => t?.name === 'shell'),
         // Effective cwd rides in tier3Reminder so explore-like tools know
@@ -1375,14 +1408,13 @@ export function createSession(opts) {
         provider: providerName || null,
     });
     // 4-BP layout (see composeSystemPrompt docs):
-    //   system block #1 = baseRules    — BP1 (1h) shared across ALL roles
-    //   system block #2 = stableSystemContext — BP2 (1h) reserved stable system layer
-    //   first <system-reminder> user   = sessionMarker — BP3 (1h) role md + stable role/session context
-    //   second <system-reminder> user  = volatileTail  — rides near BP4 (5m)
+    //   system block #1 = baseRules — BP1 (1h) shared tool policy + skills
+    //   system block #2 = stableSystemContext — BP2 (1h) role/system rules
+    //   first <system-reminder> user = sessionMarker — BP3 (1h) memory/meta
+    //   later normal messages        = BP4/tail (task, role data, tool history)
     // Anthropic multi-block system pins each block with cache_control.
-    // OpenAI gets a stable provider cache key/session prefix. Gemini relies
-    // on implicit prompt caching only, so hits are observed, not treated as a
-    // guaranteed warm shard.
+    // OpenAI/xAI get stable provider cache keys/session prefixes. Gemini
+    // manages explicit cachedContents inside its provider.
     if (baseRules) {
         messages.push({ role: 'system', content: baseRules });
     }
@@ -1395,6 +1427,10 @@ export function createSession(opts) {
     }
     if (volatileTail) {
         messages.push({ role: 'user', content: `<system-reminder>\n${volatileTail}\n</system-reminder>` });
+        messages.push({ role: 'assistant', content: '.' });
+    }
+    if (roleSpecific) {
+        messages.push({ role: 'user', content: `<system-reminder>\n${roleSpecific}\n</system-reminder>` });
         messages.push({ role: 'assistant', content: '.' });
     }
     if (opts.files?.length) {

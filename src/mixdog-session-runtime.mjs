@@ -34,6 +34,10 @@ import {
 import { createUsageDashboard } from './standalone/usage-dashboard.mjs';
 import { fetchOAuthUsageSnapshot } from './runtime/agent/orchestrator/providers/oauth-usage.mjs';
 import {
+  isResponsesFreeformTool,
+  toResponsesCustomTool,
+} from './runtime/agent/orchestrator/providers/custom-tool-wire.mjs';
+import {
   channelSetup,
   deleteChannel,
   deleteSchedule,
@@ -1655,6 +1659,7 @@ function toolRow(tool, activeNames = new Set()) {
 }
 
 function openAILoadableToolSpec(tool) {
+  if (isResponsesFreeformTool(tool)) return toResponsesCustomTool(tool);
   return {
     type: 'function',
     name: clean(tool?.name),
@@ -2662,26 +2667,6 @@ export async function createMixdogSessionRuntime({
     }
   }
 
-  // Build the optional "# User Profile" block for the system reminder from the
-  // stored /profile config. Returns '' when nothing is set so callers can skip
-  // injection cleanly. title → preferred form of address; language (non-system)
-  // → an explicit "respond in <language>" instruction.
-  function buildProfileContext(profileLike) {
-    const profile = cfgMod.normalizeProfileConfig(profileLike);
-    const lines = [];
-    if (profile.title) {
-      lines.push(`The user prefers to be addressed as "${profile.title}".`);
-    }
-    if (profile.language && profile.language !== 'system') {
-      const entry = cfgMod.profileLanguageEntry(profile.language);
-      if (entry?.prompt) {
-        lines.push(`Always respond in ${entry.prompt} unless the user writes in another language or asks otherwise.`);
-      }
-    }
-    if (!lines.length) return '';
-    return `# User Profile\n${lines.join('\n')}`;
-  }
-
   function skillContent(name) {
     const content = typeof contextMod.loadSkillContent === 'function'
       ? contextMod.loadSkillContent(name, currentCwd)
@@ -3579,11 +3564,6 @@ function parsedProviderModelVersion(id) {
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const workflowContext = workflowContextBlock(config, dataDir);
       const workspaceContext = buildWorkspaceContext();
-      // Profile context for the system reminder (BP3). The value is computed
-      // here and ready to inject; prompt-side wiring is intentionally left to
-      // the caller — pass `profileContext` into sessionOpts below and have
-      // composeSystemPrompt push it into sessionMarker to activate it.
-      const profileContext = buildProfileContext(config.profile);
       const sessionOpts = {
         provider: route.provider,
         model: route.model,
@@ -3600,13 +3580,11 @@ function parsedProviderModelVersion(id) {
         coreMemoryContext,
         workflowContext,
         workspaceContext,
-        // profileContext, // ← wire-up hook: uncomment to inject /profile into the prompt
         fast: route.fast === true,
         compaction: config.compaction && typeof config.compaction === 'object'
           ? normalizeCompactionConfig(config.compaction, { memoryEnabled: memoryEnabled() })
           : undefined,
       };
-      void profileContext; // referenced only by the wire-up hook above for now
       if (hasOwn(route, 'effort') || route.effectiveEffort) {
         sessionOpts.effort = route.effectiveEffort || null;
       }

@@ -23,6 +23,7 @@ import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import stringWidth from 'string-width';
 import { theme, TURN_MARKER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
+import { normalizeToolName } from '../runtime/shared/tool-surface.mjs';
 import { AssistantMessage, UserMessage, ThinkingMessage, NoticeMessage } from './components/Message.jsx';
 import { ToolExecution } from './components/ToolExecution.jsx';
 import { Spinner } from './components/Spinner.jsx';
@@ -429,6 +430,10 @@ function copyToClipboard(text) {
   });
 }
 
+const SKILL_SURFACE_NAMES = new Set([
+  'skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill',
+]);
+
 function isFullyFailedToolItem(item) {
   if (!item || item.kind !== 'tool') return false;
   const count = Math.max(1, Number(item.count || 1));
@@ -470,14 +475,6 @@ const TRANSCRIPT_WINDOW_OVERSCAN_ROWS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_OV
 
 const TRANSCRIPT_WINDOW_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS', 180);
 const SELECTION_PAINT_INTERVAL_MS = positiveIntEnv('MIXDOG_TUI_SELECTION_PAINT_MS', 24);
-// When pinned to the bottom, NEW transcript items (e.g. a streamed `●` answer
-// line followed by a tool card) arrive in separate render frames, so each one
-// reflowed the bottom-anchored viewport on its own — the "투툭" double jump.
-// Instead we hold the viewport still (offset by the added rows) and, once new
-// items stop landing for this quiet window, glide back to the bottom in ONE
-// smooth rise so a text+tool burst reads as a single motion. Env-tunable to 0
-// to restore the old instant-follow behavior.
-const TRANSCRIPT_FOLLOW_COALESCE_MS = positiveIntEnv('MIXDOG_TUI_FOLLOW_COALESCE_MS', 100);
 
 function selectionRectsEqual(a, b) {
   if (a === b) return true;
@@ -579,7 +576,13 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
       //     NOT shown, so its line count must not inflate the estimate.
       //   - EXPANDED: header(1) + detail-gutter(1) + the wrapped raw result rows.
       const expanded = toolOutputExpanded || item.expanded;
-      if (!expanded) return 2;
+      if (!expanded) {
+        // Skill loads render as a single header row when collapsed (the detail
+        // row repeats the header name, so ToolExecution drops it). Match that
+        // here so the scroll window stays in lockstep and does not over-reserve.
+        if (!item.aggregate && SKILL_SURFACE_NAMES.has(String(normalizeToolName(item.name) || '').toLowerCase())) return 1;
+        return 2;
+      }
       const resultText = item.rawResult || item.result;
       const resultRows = resultText ? estimateWrappedRows(resultText, columns, 8) : 1;
       return 2 + resultRows;
@@ -840,15 +843,11 @@ export function App({ store, initialStatusLine = '' }) {
   const scrollAnimationRef = useRef(null);
   const transcriptTotalRowsRef = useRef(0);
   const preservedScrollDeltaRef = useRef(0);
-  // followingRef = the viewport is auto-gliding back to the bottom after new
-  // items landed (distinct from a user wheel/keyboard scroll-up). lastItemsCountRef
-  // lets the pinned-follow effect tell a NEW ITEM apart from pure streaming growth
-  // of an existing item, so only item additions get the coalesced smooth rise.
+  // Auto-follow is separate from manual scroll. While true, new transcript rows
+  // (new items or streaming text wrapping to another line) are folded into the
+  // same glide back to the bottom.
   const followingRef = useRef(false);
   const lastItemsCountRef = useRef(0);
-  // Debounce timer that fires once new items stop landing, then glides the
-  // pinned viewport back to the bottom in one smooth motion.
-  const followCoalesceTimerRef = useRef(null);
   // picker = null | { type, title, items, onSelect }
   // Rendered as an option panel attached directly above the bottom prompt.
   const pickerOpenedFromEnterRef = useRef(false);
@@ -1096,8 +1095,6 @@ export function App({ store, initialStatusLine = '' }) {
       if (Math.abs(target - next) < 0.12) {
         scrollPositionRef.current = target;
         setScrollOffset(Math.max(0, Math.round(target)));
-        // A completed glide to the bottom ends the coalesced-follow cycle. Safe
-        // to clear unconditionally: wheel/keyboard smooth scrolls never set it.
         followingRef.current = false;
         stopSmoothScroll();
         return;
@@ -1108,25 +1105,31 @@ export function App({ store, initialStatusLine = '' }) {
     scrollAnimationRef.current.unref?.();
   }, [stopSmoothScroll]);
 
-  // Cancel an in-flight coalesced-follow cycle (the hold-then-glide that lets a
-  // text line + tool card rise together). Called when the user takes manual
-  // scroll control or when we hard-reset to the bottom, so the pending glide
-  // never yanks the viewport out from under them.
-  const cancelFollowCoalesce = useCallback(() => {
-    if (followCoalesceTimerRef.current) {
-      clearTimeout(followCoalesceTimerRef.current);
-      followCoalesceTimerRef.current = null;
-    }
+  const cancelTranscriptFollow = useCallback(() => {
     followingRef.current = false;
   }, []);
 
+  const glideTranscriptToBottom = useCallback((rowDelta, maxRows, currentPosition = 0) => {
+    const from = Math.max(0, Number(currentPosition) || 0);
+    const held = Math.min(from + Math.max(0, Number(rowDelta) || 0), Math.max(0, Number(maxRows) || 0));
+    const applied = held - from;
+    if (applied <= 0) return false;
+    followingRef.current = true;
+    scrollTargetRef.current = 0;
+    scrollPositionRef.current = held;
+    preservedScrollDeltaRef.current += applied;
+    setScrollOffset(Math.round(held));
+    startSmoothScroll();
+    return true;
+  }, [startSmoothScroll]);
+
   const resetTranscriptScroll = useCallback(() => {
-    cancelFollowCoalesce();
+    cancelTranscriptFollow();
     stopSmoothScroll();
     scrollPositionRef.current = 0;
     scrollTargetRef.current = 0;
     setScrollOffset(0);
-  }, [stopSmoothScroll, cancelFollowCoalesce]);
+  }, [stopSmoothScroll, cancelTranscriptFollow]);
 
   const rememberSelectionTextSoon = useCallback(() => {
     if (selectionTextTimerRef.current) return;
@@ -1230,8 +1233,8 @@ export function App({ store, initialStatusLine = '' }) {
     const target = Math.max(0, Math.min(maxTarget, scrollTargetRef.current + deltaRows));
     const appliedDelta = target - scrollTargetRef.current;
     // Any manual wheel/keyboard scroll takes precedence over an in-flight
-    // coalesced follow: drop the pending hold/glide so the user's intent wins.
-    if (appliedDelta !== 0) cancelFollowCoalesce();
+    // transcript follow: drop the glide so the user's intent wins.
+    if (appliedDelta !== 0) cancelTranscriptFollow();
     scrollTargetRef.current = target;
     if (appliedDelta !== 0 && selectionLayoutRef.current) {
       selectionLayoutRef.current = { ...selectionLayoutRef.current, scrollOffset: target };
@@ -1256,7 +1259,7 @@ export function App({ store, initialStatusLine = '' }) {
     stopSmoothScroll();
     scrollPositionRef.current = target;
     setScrollOffset(Math.round(target));
-  }, [startSmoothScroll, stopSmoothScroll, paintSelectionRect, selectionPointAtCurrentScroll, withSelectionClip, cancelFollowCoalesce]);
+  }, [startSmoothScroll, stopSmoothScroll, paintSelectionRect, selectionPointAtCurrentScroll, withSelectionClip, cancelTranscriptFollow]);
 
   const passthroughCtrlWheelZoom = useCallback(() => {
     if (!stdout?.write) return;
@@ -1440,44 +1443,19 @@ export function App({ store, initialStatusLine = '' }) {
     return () => { inkInput.off('input', onData); };
   }, [inkInput, isRawModeSupported, store, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll]);
 
-  // Detect new-item arrivals while pinned and ARM the coalesced follow BEFORE
-  // the totalRows layout effect runs (both fire on the same commit, and
-  // useLayoutEffect runs in declaration order). Arming here first means the
-  // hold in the totalRows effect already sees followingRef=true on the very
-  // first item of a turn, so even a lone text line is held and then glided —
-  // no instant snap on item #1 followed by a hold on item #2 (which would read
-  // as two motions). The actual viewport hold + debounced glide live in the
-  // totalRows effect below; here we only decide whether we're following.
+  // Item-count changes are the only time we can arm follow before row totals are
+  // recomputed. Pure streaming height growth is handled in the row-delta effect.
   useLayoutEffect(() => {
     const count = state.items.length;
     const previousCount = lastItemsCountRef.current;
     lastItemsCountRef.current = count;
-    if (dragRef.current.active) return;
-    // A user who scrolled up (and is not mid-glide) keeps their place.
-    if (scrollTargetRef.current > 0 && !followingRef.current) return;
-    // Item removed / cleared / first paint / feature disabled: snap, no glide.
-    if (count <= previousCount || previousCount === 0 || TRANSCRIPT_FOLLOW_COALESCE_MS <= 0) {
+    if (count < previousCount || previousCount === 0) {
       resetTranscriptScroll();
       return;
     }
-    // New item(s) landed while pinned: enter (or extend) the follow cycle. The
-    // totalRows effect holds the viewport by the added rows; the debounce fires
-    // ONE smooth glide back to the bottom once arrivals settle, so a text+tool
-    // burst rises together. Setting the env to 0 restores instant-follow.
-    followingRef.current = true;
-    if (followCoalesceTimerRef.current) clearTimeout(followCoalesceTimerRef.current);
-    followCoalesceTimerRef.current = setTimeout(() => {
-      followCoalesceTimerRef.current = null;
-      if (dragRef.current.active) { followingRef.current = false; return; }
-      scrollTargetRef.current = 0;
-      startSmoothScroll();
-    }, TRANSCRIPT_FOLLOW_COALESCE_MS);
-    followCoalesceTimerRef.current.unref?.();
-  }, [state.items.length, resetTranscriptScroll, startSmoothScroll]);
-
-  useEffect(() => () => {
-    if (followCoalesceTimerRef.current) clearTimeout(followCoalesceTimerRef.current);
-  }, []);
+    if (count === previousCount || dragRef.current.active) return;
+    if (scrollTargetRef.current <= 0 || followingRef.current) followingRef.current = true;
+  }, [state.items.length, resetTranscriptScroll]);
 
   // `exiting` removes the inline caret (PromptInput draws none when disabled) and
   // freezes input for the teardown frame, so the final frame is clean before ink
@@ -5842,21 +5820,18 @@ export function App({ store, initialStatusLine = '' }) {
     const currentPosition = Math.max(0, Number(scrollPositionRef.current) || 0);
     const currentOffset = Math.max(0, Number(scrollOffset) || 0);
     const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
-    if (currentTarget <= 0 && currentPosition <= 0 && currentOffset <= 0) {
-      // Pinned to the bottom. Normally new rows just push the viewport up
-      // instantly (snap-follow). During a coalesced-follow cycle we instead
-      // HOLD the viewport by scrolling UP exactly as many rows as were added,
-      // so the freshly-landed text/tool stays just out of view until the
-      // debounce fires one smooth glide back down. Only hold on GROWTH;
-      // shrink/clear falls through to the normal (no-op here) path.
-      if (followingRef.current && rowDelta > 0 && maxRows > 0) {
-        const hold = Math.min(rowDelta, maxRows);
-        stopSmoothScroll();
-        scrollTargetRef.current = hold;
-        scrollPositionRef.current = hold;
-        preservedScrollDeltaRef.current += hold;
-        setScrollOffset(Math.round(hold));
-      }
+    const pinnedToBottom = currentTarget <= 0 && currentPosition <= 0 && currentOffset <= 0;
+    const shouldGlideFollow = rowDelta > 0
+      && maxRows > 0
+      && (followingRef.current || pinnedToBottom);
+    if (shouldGlideFollow) {
+      glideTranscriptToBottom(rowDelta, maxRows, currentPosition);
+      return;
+    }
+    if (pinnedToBottom) {
+      // Pinned to the bottom and NOT following: new rows just push the viewport
+      // up instantly (snap-follow via justifyContent:flex-end). Shrink/clear
+      // also falls through here as a no-op.
       return;
     }
 
@@ -5869,7 +5844,7 @@ export function App({ store, initialStatusLine = '' }) {
     scrollPositionRef.current = Math.max(0, Math.min(maxRows, currentPosition + appliedDelta));
     preservedScrollDeltaRef.current += appliedDelta;
     setScrollOffset(Math.max(0, Math.round(Math.min(maxRows, currentOffset + appliedDelta))));
-  }, [transcriptWindow.totalRows, transcriptWindow.maxScrollRows, scrollOffset, stopSmoothScroll]);
+  }, [transcriptWindow.totalRows, transcriptWindow.maxScrollRows, scrollOffset, stopSmoothScroll, glideTranscriptToBottom]);
   useLayoutEffect(() => {
     const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
     const next = {

@@ -41,6 +41,7 @@ import {
     PROVIDER_WS_HANDSHAKE_TIMEOUT_MS,
     PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS,
 } from '../stall-policy.mjs';
+import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
 
 globalThis.__mixdogOpenaiWsRuntimeLoaded = true;
 
@@ -995,6 +996,15 @@ export function _logicalResponseItemMatch(inputItem, responseItem) {
         if (inputCallId && responseCallId) return inputCallId === responseCallId;
         return _normalizeArguments(inputItem.arguments) === _normalizeArguments(responseItem.arguments);
     }
+    if (responseType === 'custom_tool_call') {
+        if (inputType !== 'custom_tool_call') return false;
+        const inputCallId = String(inputItem.call_id || '');
+        const responseCallId = String(responseItem.call_id || '');
+        const inputName = String(inputItem.name || '');
+        const responseName = String(responseItem.name || '');
+        if (inputCallId && responseCallId) return inputCallId === responseCallId && inputName === responseName;
+        return inputName === responseName && String(inputItem.input || '') === String(responseItem.input || '');
+    }
     if (responseType === 'message') {
         const inputRole = inputItem.role || (inputType === 'message' ? 'assistant' : '');
         const responseRole = responseItem.role || 'assistant';
@@ -1300,6 +1310,13 @@ export async function _streamResponse({
             return {};
         }
     };
+    const pushCustomToolCall = (item) => {
+        const call = customToolCallFromResponseItem(item);
+        if (!call || toolCalls.some((existing) => existing.id === call.id)) return;
+        toolCalls.push(call);
+        midState.emittedToolCall = true;
+        try { onToolCall?.(call); } catch {}
+    };
     const pushToolSearchCall = (item) => {
         if (!item || item.type !== 'tool_search_call') return;
         const callId = item.call_id || item.id || '';
@@ -1587,6 +1604,10 @@ export async function _streamResponse({
                     try { onStreamDelta?.(); } catch {}
                     onMeaningfulOutput();
                     break;
+                case 'response.custom_tool_call_input.delta':
+                    try { onStreamDelta?.(); } catch {}
+                    onMeaningfulOutput();
+                    break;
                 case 'response.function_call_arguments.done': {
                     const itemId = event.item_id || '';
                     const pending = pendingCalls.get(itemId);
@@ -1638,6 +1659,10 @@ export async function _streamResponse({
                         pushToolSearchCall(event.item);
                         onMeaningfulOutput();
                     }
+                    if (event.item?.type === 'custom_tool_call') {
+                        pushCustomToolCall(event.item);
+                        onMeaningfulOutput();
+                    }
                     break;
                 case 'response.completed': {
                     const completedServiceTier = event.response?.service_tier || event.response?.serviceTier || '';
@@ -1680,6 +1705,7 @@ export async function _streamResponse({
                             }
                             if (item.type === 'web_search_call') pushWebSearchCall(item);
                             if (item.type === 'tool_search_call') pushToolSearchCall(item);
+                            if (item.type === 'custom_tool_call') pushCustomToolCall(item);
                             // Salvage path: some streams emit reasoning only
                             // inside the final response.completed.output
                             // bundle (no per-item .done event). Dedup by id.

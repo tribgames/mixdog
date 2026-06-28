@@ -195,15 +195,15 @@ export function buildSkillToolDefs(skills, { ownerIsAgentSession = false } = {})
     return _skillToolDefsCache;
 }
 // --- Role-scoped instruction loader ---
-// Emits a BP3 block scoped to the calling role:
+// Emits a BP2 role/system block scoped to the calling role:
 //   - Public/custom agents: their own agents/<role>.md when present,
 //     plus the public agent-worker contract.
 //   - Hidden roles: their own rules/agent/<role>.md section only.
 //   - Null role: falls back to the full all-in-one block
 //     (explicit-cache unified-shard path).
 //
-// Role-specific markdown intentionally rides BP3, behind the shared system
-// prefix, so cache breakpoints move from common/stable to role-varying.
+// Role-specific markdown intentionally rides BP2, behind the shared BP1 tool
+// and skill manifest prefix, so role changes do not disturb the common layer.
 //
 // Classification is dynamic — hidden retrieval/maintenance sets come from the
 // `kind` field in internal-roles.mjs. Any other non-null role is public/custom.
@@ -275,9 +275,9 @@ function loadAgentSections(pluginRoot) {
     return agentSections;
 }
 
-// Empty by design: scoped role markdown no longer rides BP2. Keeping the set
-// in place preserves the old branch point for a future provider-specific
-// experiment without changing today's cache layout.
+// Empty by design: scoped role markdown already rides BP2 for every provider.
+// Keeping the set in place preserves the old branch point for a future
+// provider-specific experiment without changing today's cache layout.
 const EXPLICIT_CACHE_PROVIDERS = new Set();
 
 // Inbound-event maintenance roles that report results back to Lead are
@@ -334,7 +334,7 @@ export function loadScopedRoleInstructions(role, provider = null) {
         const hiddenPairs = loadHiddenRoleSnippets(pluginRoot);
 
         // Pick which agent-rule sections + agents/<role>.md sections to emit
-        // based on role classification. Self-only emit keeps BP3 minimal.
+        // based on role classification. Self-only emit keeps BP2 minimal.
         let agentRuleSectionsToEmit = null; // null -> drop the agent-rule block entirely
         let agentSectionsToEmit = agentSections; // default: full (unknown-role fallback)
         if (useUnified) {
@@ -342,12 +342,12 @@ export function loadScopedRoleInstructions(role, provider = null) {
             // instruction surface. Cross-role calls hit the same provider-side prefix
             // shard, eliminating the role-shard miss seen on Pool C
             // transitions for codex/openai. This branch is disabled by the
-            // empty provider set above; BP3 remains the active role surface.
+            // empty provider set above; BP2 remains the active role surface.
             agentRuleSectionsToEmit = hiddenPairs.map(p => `## ${p.name}\n\n${p.body}`);
             agentSectionsToEmit = agentSections;
         } else if (role && classification.retrieval.has(role)) {
             // Retrieval roles (explorer) get their own contract section
-            // (rules/agent/30-explorer.md) in BP3.
+            // (rules/agent/30-explorer.md) in BP2.
             const self = hiddenPairs.find(p => p.name === role);
             agentRuleSectionsToEmit = self ? [`## ${self.name}\n\n${self.body}`] : [];
             agentSectionsToEmit = agentSections.filter(s =>
@@ -375,7 +375,7 @@ export function loadScopedRoleInstructions(role, provider = null) {
         } else if (role) {
             // Public/custom role — self-only agents/<role>.md when present,
             // not the full hidden/maintenance bundle. The universal agent
-            // contract rides BP1 (rules/agent/00-common.md).
+            // contract rides BP2 (rules/agent/00-common.md).
             agentRuleSectionsToEmit = [];
             agentSectionsToEmit = agentSections.filter(s => s.startsWith(`## ${role}\n`));
         } else {
@@ -403,33 +403,13 @@ export function loadScopedRoleInstructions(role, provider = null) {
 // --- Compose system prompt — 4-BP cache layout ---
 // Returns { baseRules, stableSystemContext, sessionMarker, volatileTail } mapping
 // directly to the breakpoint plan:
-//   BP1 (1h, system block #1) = baseRules      — agent common rules, filtered
-//   BP2 (1h, system block #2) = stableSystemContext — reserved stable system layer
-//   BP3 (1h, first <system-reminder> user)     = sessionMarker (role md + stable role/session context)
-//   BP4 (5m, messages tail)                    = volatileTail (compact memory)
+//   BP1 (1h, system block #1) = baseRules — shared tool policy + compact skill manifest
+//   BP2 (1h, system block #2) = stableSystemContext — Lead/agent/hidden role system
+//   BP3 (1h, first <system-reminder> user) = sessionMarker — stable memory/meta context
+//   BP4 (5m/1h, messages tail) = live user/task/tool message tail
 //
-// Design note — why volatile per-call context sits in BP4, not BP3:
-//   BP3 is reserved for file-authored/user-authored markdown context:
-//   scoped role md (agents/<role>.md, rules/agent/<role>.md), skill
-//   manifests, and role-specific schedule/webhook instruction md. The live
-//   task itself is sent as the actual user turn, so BP4 stays free of task
-//   duplicates.
-//   Role semantics live in the selected role/rule surface, and permission is
-//   enforced by the exposed tool set rather than repeated as prompt text.
-//
-// BP1 inputs:
-//   - opts.agentRules    : rules-builder buildAgentInjectionContent output
-//                           (Pool B roles share bit-identical prefix)
-//   - opts.userPrompt     : explicit systemPrompt override from callsite
-//
-// BP3 role-md inputs:
-//   - loadScopedRoleInstructions(opts.role, opts.provider)
-//
-// BP3/BP4 inputs:
-//   - opts.workflowContext : active workflow + agent catalog, captured at session start
-//   - opts.workspaceContext : cwd + project list snapshot, captured at session start
-//   - opts.role           : agent role name or hidden-role registry name
-//   - opts.coreMemoryContext : compact core memory context
+// Dynamic schedule/webhook/task payloads stay in normal user messages so
+// changing one event does not rewrite the stable memory layer.
 //
 // `profile.skip` still filters specific buckets (claudemd, skills, memory)
 // for backward compatibility with existing profiles.
@@ -437,61 +417,51 @@ export function composeSystemPrompt(opts) {
     const profile = opts.profile || null;
     const _skip = profile?.skip || {};
 
-    // ── BP1: baseRules (system block #1, 1h cache) ─────────────────────
-    // Agent common rules + explicit systemPrompt override. Contains
-    // agentRules (MCP instructions, Pool B shared rules, _shared/tool
-    // efficiency). Identical across ALL roles — BP1 shared pool-wide.
+    // ── BP1: shared tool/skill layer ────────────────────────────────────
     const baseParts = [];
     if (opts.agentRules) baseParts.push(opts.agentRules);
-    if (opts.userPrompt) baseParts.push(opts.userPrompt);
+    if (!_skip.skills && opts.skillManifest && typeof opts.skillManifest === 'string' && opts.skillManifest.trim()) {
+        baseParts.push(opts.skillManifest.trim());
+    }
     const baseRules = baseParts.join('\n\n---\n\n');
 
-    // ── BP2: reserved stable system layer ───────────────────────────────
-    // Per-role/user-authored markdown rides in BP3 as user context, matching
-    // Claude Code's "memory files are context, not system prompt" behavior.
-    // Keep BP2 empty unless we have a truly common/stable system layer.
-    const stableSystemContext = '';
-
-    // ── BP3 role markdown context ───────────────────────────────────────
+    // ── BP2: role/system layer ─────────────────────────────────────────
     const roleInstructionContext = opts.skipRoleCatalog
         ? ''
         : loadScopedRoleInstructions(opts.role || null, opts.provider || null);
+    const stableSystemParts = [];
+    if (opts.roleRules) stableSystemParts.push(opts.roleRules);
+    if (opts.userPrompt) stableSystemParts.push(opts.userPrompt);
+    if (roleInstructionContext) stableSystemParts.push(roleInstructionContext);
+    const stableSystemContext = stableSystemParts.join('\n\n---\n\n');
 
-    // ── BP3: sessionMarker (first <system-reminder> user msg, 1h cache) ─
-    // Claude Code-style file/user-authored context, active workflow, plus
-    // stable role-specific task instructions. The
-    // <!-- bp3-sentinel --> tag is what Anthropic's findTier3Index() matches
-    // on to claim a 1h BP3 slot.
+    // ── BP3: stable memory/meta layer ──────────────────────────────────
+    // The <!-- bp3-sentinel --> tag is what Anthropic's findTier3Index()
+    // matches on to claim a 1h BP3 slot.
     const sessionMarkerParts = [];
-    if (roleInstructionContext) {
-        sessionMarkerParts.push(roleInstructionContext);
-    }
-    if (opts.roleSpecific) {
-        sessionMarkerParts.push(opts.roleSpecific);
-    }
-    if (!_skip.skills && opts.skillManifest && typeof opts.skillManifest === 'string' && opts.skillManifest.trim()) {
-        sessionMarkerParts.push(opts.skillManifest.trim());
+    if (opts.metaContext && typeof opts.metaContext === 'string' && opts.metaContext.trim()) {
+        sessionMarkerParts.push(opts.metaContext.trim());
     }
     if (opts.workflowContext && typeof opts.workflowContext === 'string' && opts.workflowContext.trim()) {
         sessionMarkerParts.push(opts.workflowContext.trim());
+    }
+    if (!_skip.memory && opts.coreMemoryContext && typeof opts.coreMemoryContext === 'string' && opts.coreMemoryContext.trim()) {
+        sessionMarkerParts.push('# Core Memory\n' + opts.coreMemoryContext.trim());
     }
     const sessionMarker = sessionMarkerParts.length
         ? '<!-- bp3-sentinel -->\n' + sessionMarkerParts.join('\n\n')
         : '';
 
-    // ── BP4-adjacent: volatileTail (second user <system-reminder>, 5m) ──
-    // Only compact carry-over context remains here. Raw role, permission, and
-    // task labels are intentionally omitted: role selection already shapes the
-    // session/rules/tools, permissions are enforced structurally, and the task
-    // body is sent as the actual user turn by askSession().
+    // ── BP4: live message tail ─────────────────────────────────────────
+    // Raw role, permission, and task labels are intentionally omitted: role
+    // selection already shapes the session/rules/tools, permissions are
+    // enforced structurally, and the task body is sent as the actual user turn
+    // by askSession().
     const volatileParts = [];
     // workspaceContext (current cwd + discovered project list) is intentionally
     // NOT injected: it inlines the cwd/project layout into the prompt, which the
     // model does not need (tools read the live cwd at call time) and which would
     // otherwise re-fragment the cache / go stale after an in-place cwd switch.
-    if (opts.coreMemoryContext && typeof opts.coreMemoryContext === 'string' && opts.coreMemoryContext.trim()) {
-        volatileParts.push('# Core Memory\n' + opts.coreMemoryContext.trim());
-    }
     const volatileTail = volatileParts.length > 0
         ? volatileParts.join('\n\n')
         : '';

@@ -33,7 +33,7 @@ function taskId(text) {
 }
 
 async function main() {
-  const leadToolRules = readFileSync('src/rules/lead/00-tool-lead.md', 'utf8');
+  const leadToolRules = readFileSync('src/rules/lead/lead-tool.md', 'utf8');
   const workflowRules = readFileSync('src/workflows/default/WORKFLOW.md', 'utf8');
   assert(/Use `agent` for scoped implementation/i.test(leadToolRules), 'lead rules must direct scoped work to agents');
   assert(/delegat(?:es|ing) them concurrently/i.test(workflowRules), 'workflow rules must keep independent work parallel');

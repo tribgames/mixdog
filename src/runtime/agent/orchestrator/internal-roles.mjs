@@ -37,14 +37,14 @@
  *   - 'read' : read/search/code-navigation tools only.
  *   - 'full' : shared agent tool schema for provider cache reuse.
  *
- * BP3 role-specific instruction metadata (consumed by rules-builder.cjs
+ * Role-specific instruction metadata (consumed by rules-builder.cjs
  * buildAgentRoleSpecificContent + collect.mjs):
  *   - inboundEvent   : role reports results back to Lead and must carry the
  *                      skip-protocol rule (rules/agent/20-skip-protocol.md)
- *                      in its BP2 catalog so no-op outputs opt out of the Lead
+ *                      in its BP2 role-rule block so no-op outputs opt out of the Lead
  *                      inject.
  *   - instructionDir : DATA_DIR subdir whose *.md tree is folded into the
- *                      role's BP3 role-specific block (webhook-handler →
+ *                      role's BP4-adjacent user/task data (webhook-handler →
  *                      webhooks, scheduler-task → schedules).
  */
 
@@ -191,7 +191,7 @@ export function listHiddenRoleNames() {
 
 /**
  * List hidden role names matching a given kind ('retrieval' | 'maintenance').
- * Consumed by collect.mjs to drive BP2 cache shard classification dynamically
+ * Consumed by collect.mjs to drive BP2 role-shard classification dynamically
  * instead of hard-coding role-name sets.
  */
 export function listHiddenRolesByKind(kind) {
@@ -216,7 +216,7 @@ export function getRoleCatalogShareAgents(name) {
 
 /**
  * True when a hidden role reports results back to Lead and must carry the
- * skip-protocol rule in its BP2 catalog. Replaces the hard-coded
+ * skip-protocol rule in its BP2 role-rule block. Replaces the hard-coded
  * INBOUND_EVENT_ROLES set in collect.mjs.
  */
 export function isInboundEventRole(name) {
@@ -225,8 +225,8 @@ export function isInboundEventRole(name) {
 }
 
 /**
- * Return the DATA_DIR subdir whose *.md tree folds into a role's BP3
- * role-specific block, or null when the role declares none. Replaces the
+ * Return the DATA_DIR subdir whose *.md tree rides as BP4-adjacent
+ * user/task data, or null when the role declares none. Replaces the
  * webhook/scheduler ternary in rules-builder.cjs buildAgentRoleSpecificContent.
  */
 export function getRoleInstructionDir(name) {

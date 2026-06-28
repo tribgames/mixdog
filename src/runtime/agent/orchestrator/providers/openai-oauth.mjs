@@ -40,6 +40,13 @@ import {
     normalizeContentForOpenAIResponses,
     splitToolContentForOpenAIResponses,
 } from './media-normalization.mjs';
+import {
+    customToolCallFromResponseItem,
+    customToolInputFromArguments,
+    isCustomToolCallRecord,
+    isResponsesFreeformTool,
+    toResponsesCustomTool,
+} from './custom-tool-wire.mjs';
 // --- Constants ---
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const CODEX_OAUTH_ORIGINATOR = 'codex_cli_rs';
@@ -546,6 +553,7 @@ function _contentTextParts(content, type = 'input_text') {
 function convertMessagesToResponsesInput(messages, opts = {}) {
     const out = [];
     const pendingToolMedia = [];
+    const customToolCallNameById = new Map();
     const flushToolMedia = () => {
         if (!pendingToolMedia.length) return;
         out.push({ role: 'user', content: pendingToolMedia.splice(0) });
@@ -564,6 +572,16 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
                 continue;
             }
             const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
+            if (customToolCallNameById.has(m.toolCallId || '')) {
+                out.push({
+                    type: 'custom_tool_call_output',
+                    call_id: m.toolCallId || '',
+                    name: customToolCallNameById.get(m.toolCallId || '') || undefined,
+                    output,
+                });
+                if (mediaContent) pendingToolMedia.push(...mediaContent);
+                continue;
+            }
             out.push({
                 type: 'function_call_output',
                 call_id: m.toolCallId || '',
@@ -588,6 +606,14 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
                         call_id: tc.id,
                         execution: 'client',
                         arguments: tc.arguments || {},
+                    });
+                } else if (isCustomToolCallRecord(tc)) {
+                    if (tc.id) customToolCallNameById.set(tc.id, tc.name || '');
+                    out.push({
+                        type: 'custom_tool_call',
+                        call_id: tc.id,
+                        name: tc.name,
+                        input: customToolInputFromArguments(tc.name, tc.arguments),
                     });
                 } else {
                     out.push({
@@ -618,6 +644,7 @@ function toOpenAIResponsesTool(t) {
             parameters: t.inputSchema,
         };
     }
+    if (isResponsesFreeformTool(t)) return toResponsesCustomTool(t);
     return {
         type: 'function',
         name: t.name,
@@ -998,6 +1025,12 @@ export async function sendViaHttpSse({
         toolCalls.push(call);
         emitToolCall(call);
     };
+    const pushCustomToolCall = (item) => {
+        const call = customToolCallFromResponseItem(item);
+        if (!call || toolCalls.some(t => t.id === call.id)) return;
+        toolCalls.push(call);
+        emitToolCall(call);
+    };
     const meaningful = () => {
         if (ttftMs == null) ttftMs = Date.now() - sseStartedAt;
         try { onStreamDelta?.(); } catch {}
@@ -1049,6 +1082,9 @@ export async function sendViaHttpSse({
                 meaningful();
                 break;
             }
+            case 'response.custom_tool_call_input.delta':
+                meaningful();
+                break;
             case 'response.output_item.done': {
                 const item = event.item || {};
                 pushReasoningItem(item);
@@ -1065,6 +1101,9 @@ export async function sendViaHttpSse({
                     }
                 } else if (item.type === 'tool_search_call') {
                     pushToolSearchCall(item);
+                } else if (item.type === 'custom_tool_call') {
+                    pushCustomToolCall(item);
+                    meaningful();
                 }
                 break;
             }
@@ -1094,6 +1133,9 @@ export async function sendViaHttpSse({
                         pushWebSearchCall(item);
                     } else if (item.type === 'tool_search_call') {
                         pushToolSearchCall(item);
+                    } else if (item.type === 'custom_tool_call') {
+                        pushCustomToolCall(item);
+                        meaningful();
                     } else if (item.type === 'function_call') {
                         // Match the still-pending placeholder by item id, or
                         // an already-recorded call by its canonical call_id —

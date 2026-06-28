@@ -1297,22 +1297,22 @@ function resolveCacheTtls(opts) {
         return fallback;
     };
     // BP budget (4 total):
-    //   BP1 baseRules    — 1h (shared across ALL roles)
-    //   BP2 stableSystem — 1h (reserved role-independent system layer)
-    //   BP3 tier3        — 1h (sessionMarker: stable role/session body)
+    //   BP1 baseRules    — 1h (shared tool policy + compact skill manifest)
+    //   BP2 stableSystem — 1h (role/system rules)
+    //   BP3 tier3        — 1h (sessionMarker: stable memory/meta body)
     //   BP4 messages     — 1h sliding tail (tool_result cache across iter)
     // tools BP is dropped — system BP covers the tools prefix via
     // Anthropic's prompt cache prefix semantics (order: tools → system
     // → messages).
     // tier3 defaults to 1h (stable) — sessionMarker content is stable per
-    // (workflow/role-specific context) tuple and Anthropic only spends the BP
+    // memory/meta tuple and Anthropic only spends the BP
     // slot when findTier3Index() actually finds a <system-reminder> block,
     // so this default is free for sessions that don't carry one. Previously
     // null here meant any caller that skipped agent runtime resolve (CLI,
     // raw agent spawn) silently lost the tier3 cache layer even
     // though their message layout supported it.
     return {
-        tools: pick('tools', CACHE_TTL_STABLE),
+        tools: pick('tools', null),
         system: pick('system', CACHE_TTL_STABLE),
         tier3: pick('tier3', CACHE_TTL_STABLE),
         messages: pick('messages', CACHE_TTL_STABLE),
@@ -1322,7 +1322,7 @@ function resolveCacheTtls(opts) {
 // Tier 3 is injected by session/manager as a user message wrapped in
 // `<system-reminder>` whose body starts with the explicit sentinel
 // `<!-- bp3-sentinel -->` (emitted by collect.mjs:composeSystemPrompt only
-// when stable role/session context is present). The sentinel is mandatory:
+// when stable memory/meta context is present). The sentinel is mandatory:
 // volatileTail may also be wrapped in `<system-reminder>` but varies per-call,
 // so a plain prefix match would pin volatile data to the 1h BP3 slot and
 // explode the cache.

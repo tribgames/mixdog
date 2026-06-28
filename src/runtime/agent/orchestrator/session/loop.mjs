@@ -1170,7 +1170,8 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
         return result;
     }
     if (name === 'apply_patch') {
-        return executePatchTool(name, args, cwd, { sessionId: callerSessionId });
+        const patchArgs = typeof args === 'string' ? { patch: args } : args;
+        return executePatchTool(name, patchArgs, cwd, { sessionId: callerSessionId });
     }
     if (isBuiltinTool(name)) {
         // clientHostPid threaded for the same per-terminal job-scope reason as

@@ -4,22 +4,26 @@
  * mixdog rules builder.
  *
  * Three surfaces:
- *   - buildInjectionContent              — Lead session
- *   - buildAgentInjectionContent        — agent session BP1 (true cross-role common)
- *   - buildAgentRoleSpecificContent     — agent session BP3 (role-specific instructions)
+ *   - buildSharedToolContent            — BP1: shared tool policy
+ *   - buildLeadRoleContent              — BP2: Lead role/system rules
+ *   - buildAgentRoleContent             — BP2: agent role/system rules
+ *   - buildLeadMetaContent              — BP3: Lead memory/meta context
+ *   - buildAgentRoleSpecificContent     — BP4-adjacent user/task data
+ *   - buildInjectionContent             — legacy joined Lead session content
+ *   - buildAgentInjectionContent        — legacy joined agent content
  *
  * 4-BP cache layout (composeSystemPrompt):
- *   BP1 = agent BP1 content (this file's buildAgentInjectionContent) — every role identical
- *   BP2 = reserved stable system layer — role-independent only
- *   BP3 = stable session marker: role md + workflow/role-specific instructions
- *   BP4 = compact carry-over memory only (5m volatile when present)
+ *   BP1 = shared tool policy + compact skill manifest
+ *   BP2 = role/system rules (Lead / agent / hidden role)
+ *   BP3 = stable memory/meta context
+ *   BP4 = live user/task messages and compacted tail
  *
  * Source files (rules/):
  *   - shared/01-tool.md              — universal tool policy (Lead + agent BP1, identical full set)
- *   - lead/00-tool-lead.md           — Lead-specific control-tower / delegation / ToolSearch guidance
+ *   - lead/lead-tool.md             — Lead-specific control-tower / delegation / ToolSearch guidance
  *   - lead/01-04                     — Lead workflow / channels / team / general
  *   - output-styles/<name>.md        — Lead output style, selected by config outputStyle
- *   - agent/00-common.md             — agent common behavior + universal worker contract (BP1)
+ *   - agent/00-common.md             — agent common behavior + universal worker contract (BP2)
  *   - agent/10..50-*.md              — per-hidden-role bodies (consumed by loadScopedRoleInstructions)
  *
  * Core memory snapshot and session recap are injected separately by
@@ -54,6 +58,85 @@ function readUnifiedConfig(dataDir) {
     return unified && typeof unified === 'object' ? unified : {};
   } catch {}
   return {};
+}
+
+function readAgentConfig(dataDir) {
+  const unified = readUnifiedConfig(dataDir);
+  return unified.agent && typeof unified.agent === 'object' ? unified.agent : unified;
+}
+
+const PROFILE_LANGUAGE_PROMPTS = Object.freeze({
+  en: 'English',
+  ko: 'Korean (한국어)',
+  ja: 'Japanese (日本語)',
+  'zh-Hans': 'Simplified Chinese (简体中文)',
+  'zh-Hant': 'Traditional Chinese (繁體中文)',
+  es: 'Spanish (Español)',
+  fr: 'French (Français)',
+  de: 'German (Deutsch)',
+  pt: 'Portuguese (Português)',
+  ru: 'Russian (Русский)',
+  it: 'Italian (Italiano)',
+  vi: 'Vietnamese (Tiếng Việt)',
+  th: 'Thai (ภาษาไทย)',
+  id: 'Indonesian (Bahasa Indonesia)',
+  hi: 'Hindi (हिन्दी)',
+  ar: 'Arabic (العربية)',
+  tr: 'Turkish (Türkçe)',
+  pl: 'Polish (Polski)',
+  nl: 'Dutch (Nederlands)',
+  uk: 'Ukrainian (Українська)',
+});
+
+const PROFILE_TITLE_MAX = 64;
+
+function normalizeProfileConfig(value = {}) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const title = String(raw.title ?? raw.name ?? '').trim().slice(0, PROFILE_TITLE_MAX);
+  const requested = String(raw.language ?? raw.lang ?? 'system').trim();
+  const language = requested === 'system' || PROFILE_LANGUAGE_PROMPTS[requested] ? requested : 'system';
+  return { title, language };
+}
+
+function systemLocaleId(locale) {
+  let parsed = null;
+  try { parsed = new Intl.Locale(locale || ''); } catch {}
+  const language = parsed?.language || String(locale || '').split(/[-_]/)[0] || '';
+  if (language === 'zh') {
+    const script = parsed?.script;
+    const region = parsed?.region;
+    return script === 'Hant' || ['HK', 'MO', 'TW'].includes(region) ? 'zh-Hant' : 'zh-Hans';
+  }
+  return PROFILE_LANGUAGE_PROMPTS[language] ? language : null;
+}
+
+function profileLanguagePrompt(language) {
+  const selected = String(language || 'system');
+  if (selected !== 'system') {
+    return PROFILE_LANGUAGE_PROMPTS[selected]
+      ? { prompt: PROFILE_LANGUAGE_PROMPTS[selected], source: 'profile', locale: null }
+      : null;
+  }
+  const locale = Intl.DateTimeFormat().resolvedOptions().locale || '';
+  const id = systemLocaleId(locale);
+  if (!id || !PROFILE_LANGUAGE_PROMPTS[id]) return null;
+  return { prompt: PROFILE_LANGUAGE_PROMPTS[id], source: 'system-locale', locale };
+}
+
+function buildProfilePreferencesContent(dataDir) {
+  const profile = normalizeProfileConfig(readAgentConfig(dataDir).profile);
+  const language = profileLanguagePrompt(profile.language);
+  const lines = [];
+  if (profile.title) {
+    lines.push(`- Address the user as "${profile.title}".`);
+  }
+  if (language?.prompt) {
+    const source = language.source === 'system-locale' && language.locale
+      ? ` from system locale ${language.locale}`
+      : '';
+    lines.push(`- Default user-facing response language${source}: ${language.prompt}. Use it for all user-facing prose, including pre-tool preambles, progress updates, questions, final reports, and notices. Follow another language if the user writes in it or explicitly asks for it. Keep code, paths, commands, symbols, API names, and exact errors verbatim.`);
+  }
+  return lines.length ? `# Profile Preferences\n\n${lines.join('\n')}` : '';
 }
 
 function stripFrontmatter(markdown) {
@@ -91,8 +174,8 @@ function loadOutputStyle({ PLUGIN_ROOT, DATA_DIR }) {
 }
 
 /**
- * Resolve the DATA_DIR subdir whose *.md instruction tree folds into a hidden
- * role's BP3 role-specific block, from the role's `instructionDir` metadata in
+ * Resolve the DATA_DIR subdir whose *.md instruction tree is sent as
+ * BP4-adjacent user/task data, from the role's `instructionDir` metadata in
  * defaults/hidden-roles.json. Returns null when the role declares none.
  *
  * Mirrors internal-roles.mjs getRoleInstructionDir — rules-builder is CommonJS
@@ -154,32 +237,55 @@ function composeUserAddressBullet(memoryConfig) {
   return `- User address form: ${userTitle} (use this address form exactly as written; do not combine it with any other name or honorific)`;
 }
 
-/**
- * Build the Lead injection content.
- */
-function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
-  const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
-  const SHARED_DIR = path.join(RULES_DIR, 'shared');
-  const LEAD_DIR = path.join(RULES_DIR, 'lead');
-  const HISTORY_DIR = path.join(DATA_DIR, 'history');
+function splitLeadGeneral(general, addressBullet = '') {
+  const lines = String(general || '').split(/\r?\n/);
+  const roleLines = [];
+  const metaLines = [];
+  let inMeta = false;
+  for (const line of lines) {
+    if (/language used by the user/i.test(line)) {
+      if (!inMeta) {
+        metaLines.push('# General');
+        metaLines.push('');
+        inMeta = true;
+      }
+      metaLines.push(line);
+    } else {
+      roleLines.push(line);
+    }
+  }
+  if (addressBullet) {
+    if (!inMeta) {
+      metaLines.push('# General');
+      metaLines.push('');
+      inMeta = true;
+    }
+    metaLines.push(addressBullet);
+  }
+  return {
+    role: roleLines.join('\n').trim(),
+    meta: metaLines.join('\n').trim(),
+  };
+}
 
+function buildSharedToolContent({ PLUGIN_ROOT }) {
+  const SHARED_DIR = path.join(PLUGIN_ROOT, 'rules', 'shared');
+  return readOptional(path.join(SHARED_DIR, '01-tool.md'));
+}
+
+function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR }) {
+  const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
+  const LEAD_DIR = path.join(RULES_DIR, 'lead');
   const memoryConfig = readConfigSection(DATA_DIR, 'memory');
+  const addressBullet = composeUserAddressBullet(memoryConfig);
+  const general = readOptional(path.join(LEAD_DIR, '01-general.md'));
+  const generalSplit = splitLeadGeneral(general, addressBullet);
   const parts = [];
 
-  // Language policy now lives in lead/01-general.md (Lead-only). Agent
-  // sessions keep their own English contract (agent/00-common.md) without a
-  // conflicting "follow user language" line.
-  const general = readOptional(path.join(LEAD_DIR, '01-general.md'));
-  if (general) {
-    const addressBullet = composeUserAddressBullet(memoryConfig);
-    parts.push(addressBullet ? `${general}\n${addressBullet}` : general);
-  }
-
-  const tool = readOptional(path.join(SHARED_DIR, '01-tool.md'));
-  if (tool) parts.push(tool);
-
-  const toolLead = readOptional(path.join(LEAD_DIR, '00-tool-lead.md'));
+  const toolLead = readOptional(path.join(LEAD_DIR, 'lead-tool.md'));
   if (toolLead) parts.push(toolLead);
+
+  if (generalSplit.role) parts.push(generalSplit.role);
 
   const channels = readOptional(path.join(LEAD_DIR, '02-channels.md'));
   if (channels) parts.push(channels);
@@ -187,18 +293,33 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
   const workflow = readOptional(path.join(LEAD_DIR, '04-workflow.md'));
   if (workflow) parts.push(workflow);
 
+  return parts.join('\n\n');
+}
+
+function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR }) {
+  const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
+  const LEAD_DIR = path.join(RULES_DIR, 'lead');
+  const HISTORY_DIR = path.join(DATA_DIR, 'history');
+  const memoryConfig = readConfigSection(DATA_DIR, 'memory');
+  const addressBullet = composeUserAddressBullet(memoryConfig);
+  const general = readOptional(path.join(LEAD_DIR, '01-general.md'));
+  const generalSplit = splitLeadGeneral(general, addressBullet);
+  const parts = [];
+
+  const profilePreferences = buildProfilePreferencesContent(DATA_DIR);
+  if (profilePreferences) parts.push(profilePreferences);
+
+  if (generalSplit.meta) parts.push(generalSplit.meta);
+
   const userProfile = readOptional(path.join(HISTORY_DIR, 'user.md'));
   if (userProfile) parts.push(`# User Profile\n\n${userProfile}`);
 
   const botPersona = readOptional(path.join(HISTORY_DIR, 'bot.md'));
   if (botPersona) parts.push(`# Bot Persona\n\n${botPersona}`);
 
-  // User workflow context — low-token, optional
   const userWorkflowMd = readOptional(path.join(DATA_DIR, 'user-workflow.md'));
   if (userWorkflowMd) parts.push(`# User Workflow\n\n${userWorkflowMd}`);
 
-  // Keep output style last so user/profile/workflow context cannot soften the
-  // final formatting contract for user-visible replies.
   const outputStyle = loadOutputStyle({ PLUGIN_ROOT, DATA_DIR });
   if (outputStyle) parts.push(outputStyle);
 
@@ -206,9 +327,27 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
 }
 
 /**
- * BP1 — true cross-role common. Identical for every agent role; the
- * role-specific stuff (per-event webhook instructions, per-task schedule
- * instructions, hidden role tool detail) lives in BP3 instead.
+ * Build the Lead injection content.
+ */
+function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
+  const parts = [];
+
+  const tool = buildSharedToolContent({ PLUGIN_ROOT, DATA_DIR });
+  if (tool) parts.push(tool);
+
+  const role = buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR });
+  if (role) parts.push(role);
+
+  const meta = buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR });
+  if (meta) parts.push(meta);
+
+  return parts.join('\n\n');
+}
+
+/**
+ * Legacy joined agent injection. New sessions consume shared tool policy as
+ * BP1 and buildAgentRoleContent() as BP2; this export remains for older smoke
+ * tests / callers that expect the combined shape.
  *
  * @param {object} opts
  * @param {string} opts.PLUGIN_ROOT
@@ -216,31 +355,27 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
  * @returns {string}
  */
 function buildAgentInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
-  const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
-  const SHARED_DIR = path.join(RULES_DIR, 'shared');
-  const AGENT_DIR = path.join(RULES_DIR, 'agent');
   const parts = [];
 
-  // Universal tool policy — same full set Lead receives. No shared language
-  // policy here: agent language is governed by agent/00-common.md
-  // ("Use English for agent task communication").
-  const tool = readOptional(path.join(SHARED_DIR, '01-tool.md'));
+  const tool = buildSharedToolContent({ PLUGIN_ROOT, DATA_DIR });
   if (tool) parts.push(tool);
 
-  // Agent common behavior.
-  const common = readOptional(path.join(AGENT_DIR, '00-common.md'));
-  if (common) parts.push(common);
-
-  // userTitle / address form is intentionally NOT injected here — agent
-  // workers produce tool I/O, not user-facing replies, so the persona signal
-  // only biases response language/tone without serving a purpose. Lead BP1
-  // (buildInjectionContent above) still carries it.
+  const role = buildAgentRoleContent({ PLUGIN_ROOT, DATA_DIR });
+  if (role) parts.push(role);
 
   return parts.join('\n\n');
 }
 
+function buildAgentRoleContent({ PLUGIN_ROOT, profile = 'full' }) {
+  if (String(profile || 'full') === 'retrieval') {
+    return buildAgentRetrievalInjectionContent();
+  }
+  const AGENT_DIR = path.join(PLUGIN_ROOT, 'rules', 'agent');
+  return readOptional(path.join(AGENT_DIR, '00-common.md'));
+}
+
 /**
- * BP1 for narrow hidden retrieval roles. These roles already carry a separate
+ * BP2 role rules for narrow hidden retrieval roles. These roles already carry a separate
  * read-only tool schema shard, so keeping the full agent worker prefix does
  * not improve cross-role cache reuse and only adds unrelated shell/edit/git
  * guidance.
@@ -261,14 +396,13 @@ function buildAgentRetrievalInjectionContent() {
 }
 
 /**
- * BP3 role-specific instructions. Only the calling role's own task / tool
- * detail body emits — webhook-handler gets webhooks/<all-events>/, scheduler
- * gets schedules/<all-tasks>/, hidden retrieval roles get their own tool
- * detail. Other roles return ''.
+ * BP4-adjacent role-specific data. Only the calling role's own task / tool
+ * detail body emits — webhook-handler gets webhooks/<all-events>/ and
+ * scheduler gets schedules/<all-tasks>/. Other roles return ''.
  *
  * NOTE: webhook-event narrowing (one event per call) requires the inbound
- * payload's event id at compose time; not implemented yet, so all 4 webhook
- * instructions still bake into webhook-handler BP3 for now.
+ * payload's event id at compose time; not implemented yet, so all webhook
+ * instruction files still ride with the webhook-handler user/task context.
  *
  * @param {object} opts
  * @param {string} opts.PLUGIN_ROOT
@@ -301,6 +435,10 @@ function buildAgentRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentRole }) {
 }
 
 module.exports = {
+  buildSharedToolContent,
+  buildLeadRoleContent,
+  buildLeadMetaContent,
+  buildAgentRoleContent,
   buildInjectionContent,
   buildAgentInjectionContent,
   buildAgentRetrievalInjectionContent,

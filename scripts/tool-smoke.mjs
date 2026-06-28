@@ -7,7 +7,7 @@ import { __renderToolSearchForTest, compactToolSearchDescription, defaultDeferre
 import { buildExplorerPrompt, EXPLORE_TOOL, MAX_FANOUT_QUERIES, normalizeExploreQueries } from '../src/standalone/explore-tool.mjs';
 import { AGENT_TOOL, createStandaloneAgent } from '../src/standalone/agent-tool.mjs';
 import { createStandaloneChannelWorker } from '../src/standalone/channel-worker.mjs';
-import { OpenAIOAuthProvider } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
+import { OpenAIOAuthProvider, buildRequestBody, sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { _logicalResponseItemMatch, _resolveOpenAiPromptCacheRatePolicy } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
 import { _mergePendingMessageEntries, closeSession, createSession, drainPendingMessages, enqueuePendingMessage } from '../src/runtime/agent/orchestrator/session/manager.mjs';
 import {
@@ -19,6 +19,12 @@ import {
   sanitizeContentForStoredHistory,
 } from '../src/runtime/agent/orchestrator/providers/media-normalization.mjs';
 import { initProviders } from '../src/runtime/agent/orchestrator/providers/registry.mjs';
+import {
+  cacheCapabilityForProvider,
+  resolveCacheStrategy,
+  shouldMarkWarmForProvider,
+  shouldRecordObservedForProvider,
+} from '../src/runtime/agent/orchestrator/agent-runtime/cache-strategy.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { validateBuiltinArgs } from '../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
@@ -161,6 +167,34 @@ function assertOk(name, result, pattern = null) {
     !_logicalResponseItemMatch({ ...compactedReplayFunctionCall, call_id: 'call_tool_2' }, originalFunctionCall),
     'function_call replay must not match a different call_id',
   );
+  const originalCustomCall = {
+    type: 'custom_tool_call',
+    call_id: 'call_patch_1',
+    name: 'apply_patch',
+    input: '*** Begin Patch\n*** Add File: a.txt\n+ok\n*** End Patch\n',
+  };
+  assert(
+    _logicalResponseItemMatch({ ...originalCustomCall, input: '[mixdog compacted patch]' }, originalCustomCall),
+    'custom_tool_call replay should match by call_id/name even when history compacts patch input',
+  );
+  assert(
+    !_logicalResponseItemMatch({ ...originalCustomCall, call_id: 'call_patch_2' }, originalCustomCall),
+    'custom_tool_call replay must not match a different call_id',
+  );
+}
+
+{
+  const publicStrategy = resolveCacheStrategy('worker');
+  assert(publicStrategy.tools === 'none', `Anthropic tools must not spend a cache_control BP: ${JSON.stringify(publicStrategy)}`);
+  assert(publicStrategy.system === '1h' && publicStrategy.tier3 === '1h' && publicStrategy.messages === '1h', `public cache tiers changed unexpectedly: ${JSON.stringify(publicStrategy)}`);
+  assert(cacheCapabilityForProvider('anthropic-oauth') === 'explicit-breakpoint', 'Anthropic OAuth should remain explicit-breakpoint');
+  assert(cacheCapabilityForProvider('openai-oauth') === 'key-prefix', 'OpenAI OAuth should remain key-prefix');
+  assert(cacheCapabilityForProvider('xai') === 'key-prefix', 'xAI should remain key-prefix');
+  assert(cacheCapabilityForProvider('grok-oauth') === 'key-prefix', 'Grok OAuth should remain key-prefix');
+  assert(cacheCapabilityForProvider('gemini') === 'managed-explicit', 'Gemini should be provider-managed explicit cachedContents');
+  assert(shouldMarkWarmForProvider('gemini') === true, 'Gemini provider-managed cache should count as warmable');
+  assert(shouldRecordObservedForProvider('gemini') === false, 'Gemini is no longer implicit-observed only');
+  assert(shouldRecordObservedForProvider('deepseek') === true, 'DeepSeek should remain observed-only');
 }
 
 {
@@ -828,6 +862,28 @@ if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;
     } finally {
       closeSession(skillSession.id, 'tool-smoke');
     }
+    const agentSkillSession = createSession({
+      provider: 'openai-oauth',
+      model: 'tool-smoke-model',
+      owner: AGENT_OWNER,
+      role: 'worker',
+      cwd: skillManifestTmp,
+      permission: 'read-write',
+    });
+    try {
+      const systemVisible = (agentSkillSession.messages || [])
+        .filter((m) => m?.role === 'system')
+        .map((m) => String(m.content || ''))
+        .join('\n');
+      if (!/available-skills/i.test(systemVisible) || !/demo-skill/i.test(systemVisible)) {
+        throw new Error(`agent BP1 must carry compact skill manifest: ${systemVisible.slice(0, 1200)}`);
+      }
+      if (!/# Tool Use/i.test(systemVisible) || !/# Agent Constraints/i.test(systemVisible)) {
+        throw new Error(`agent system layers must carry BP1 tool policy and BP2 role rules: ${systemVisible.slice(0, 1200)}`);
+      }
+    } finally {
+      closeSession(agentSkillSession.id, 'tool-smoke');
+    }
   } finally {
     rmSync(skillManifestTmp, { recursive: true, force: true });
   }
@@ -838,6 +894,7 @@ if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;
     role: 'explorer',
     cwd: root,
     permission: 'read',
+    skipSkills: true,
     schemaAllowedTools: ['code_graph', 'find', 'glob', 'list', 'grep', 'read'],
   });
   try {
@@ -853,8 +910,8 @@ if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;
     if (!/Read-only retrieval role/i.test(visible) || /# environment/i.test(visible) || /git operations deferred to Lead/i.test(visible)) {
       throw new Error(`explorer hidden retrieval context should stay slim: ${visible.slice(0, 1200)}`);
     }
-    if (/# Role: explorer/i.test(systemVisible) || !/# Role: explorer/i.test(userReminderVisible) || !/Locator only/i.test(userReminderVisible)) {
-      throw new Error(`explorer role md must ride BP3 user reminder, not BP2 system: system=${systemVisible.slice(0, 600)} user=${userReminderVisible.slice(0, 600)}`);
+    if (!/# Role: explorer/i.test(systemVisible) || /# Role: explorer/i.test(userReminderVisible) || !/Locator only/i.test(systemVisible)) {
+      throw new Error(`explorer role md must ride BP2 system, not BP3 user reminder: system=${systemVisible.slice(0, 600)} user=${userReminderVisible.slice(0, 600)}`);
     }
     const visibleBytes = Buffer.byteLength(visible, 'utf8');
     if (visibleBytes > 1800) {
@@ -874,6 +931,10 @@ if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;
   });
   try {
     const visible = (workerSession.messages || []).map((m) => String(m.content || '')).join('\n');
+    const userReminderVisible = (workerSession.messages || [])
+      .filter((m) => m?.role === 'user')
+      .map((m) => String(m.content || ''))
+      .join('\n');
     if (/(^|\n)# role\n/i.test(visible) || /(^|\n)permission:/i.test(visible)) {
       throw new Error(`agent context must not repeat raw role/permission labels: ${visible.slice(0, 1200)}`);
     }
@@ -883,8 +944,8 @@ if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;
     if (/# task-brief/i.test(visible)) {
       throw new Error(`agent context must not repeat task brief: ${visible.slice(0, 1200)}`);
     }
-    if (/available-skills/i.test(visible)) {
-      throw new Error(`agent context must not inject skill manifest: ${visible.slice(0, 1200)}`);
+    if (/available-skills/i.test(userReminderVisible)) {
+      throw new Error(`agent skill manifest must stay in system BP1, not user reminders: ${userReminderVisible.slice(0, 1200)}`);
     }
     if (/(^|\n)# environment/i.test(visible)) {
       throw new Error(`agent context must not inject environment reminder: ${visible.slice(0, 1200)}`);
@@ -934,9 +995,92 @@ if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;
     closeSession(writeAgentSession.id, 'tool-smoke');
   }
 }
-const patchDescription = PATCH_TOOL_DEFS[0]?.inputSchema?.properties?.patch?.description || '';
+const patchTool = PATCH_TOOL_DEFS[0];
+const patchDescription = patchTool?.inputSchema?.properties?.patch?.description || '';
 if (!/V4A/i.test(patchDescription) || !/one (?:file )?block per target file/i.test(patchDescription) || !/exact current context/i.test(patchDescription)) {
-  throw new Error('apply_patch schema must keep V4A, per-target block, and exact-context guidance');
+  throw new Error('apply_patch JSON fallback schema must keep V4A, per-target block, and exact-context guidance');
+}
+if (!/FREEFORM tool/i.test(patchTool?.freeformDescription || '') || patchTool?.freeform?.type !== 'grammar' || patchTool?.freeform?.syntax !== 'lark') {
+  throw new Error(`apply_patch must expose Codex-style freeform grammar metadata: ${JSON.stringify(patchTool)}`);
+}
+for (const requiredGrammarLine of [
+  'start: begin_patch hunk+ end_patch',
+  'add_hunk: "*** Add File: " filename LF add_line+',
+  'change_move: "*** Move to: " filename LF',
+  '%import common.LF',
+]) {
+  if (!patchTool.freeform.definition.includes(requiredGrammarLine)) {
+    throw new Error(`apply_patch freeform grammar missing Codex line: ${requiredGrammarLine}`);
+  }
+}
+{
+  const rawPatch = '*** Begin Patch\n*** Add File: custom-wire.txt\n+ok\n*** End Patch\n';
+  const body = buildRequestBody(
+    [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'patch please' },
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'call_patch_1', name: 'apply_patch', arguments: { patch: rawPatch }, nativeType: 'custom_tool_call' }],
+      },
+      { role: 'tool', toolCallId: 'call_patch_1', content: 'OK' },
+    ],
+    'gpt-5.5',
+    PATCH_TOOL_DEFS,
+    {},
+  );
+  const wirePatchTool = body.tools?.find((tool) => tool.name === 'apply_patch');
+  if (wirePatchTool?.type !== 'custom' || wirePatchTool?.format?.syntax !== 'lark') {
+    throw new Error(`OpenAI Responses apply_patch must serialize as a custom grammar tool: ${JSON.stringify(wirePatchTool)}`);
+  }
+  if (!/FREEFORM tool/i.test(wirePatchTool.description || '')) {
+    throw new Error(`OpenAI Responses apply_patch must use Codex freeform description: ${JSON.stringify(wirePatchTool)}`);
+  }
+  const customCall = body.input?.find((item) => item.type === 'custom_tool_call');
+  const customOutput = body.input?.find((item) => item.type === 'custom_tool_call_output');
+  if (customCall?.input !== rawPatch || customCall?.call_id !== 'call_patch_1') {
+    throw new Error(`custom apply_patch replay must keep raw patch input: ${JSON.stringify(body.input)}`);
+  }
+  if (customOutput?.call_id !== 'call_patch_1' || customOutput?.output !== 'OK') {
+    throw new Error(`custom apply_patch output must replay as custom_tool_call_output: ${JSON.stringify(body.input)}`);
+  }
+}
+{
+  const rawPatch = '*** Begin Patch\n*** Add File: custom-parser.txt\n+ok\n*** End Patch\n';
+  const encoder = new TextEncoder();
+  const frames = [
+    { type: 'response.created', response: { id: 'resp_custom_patch', model: 'gpt-5.5' } },
+    { type: 'response.custom_tool_call_input.delta', delta: rawPatch.slice(0, 16) },
+    { type: 'response.output_item.done', item: { type: 'custom_tool_call', call_id: 'call_patch_sse', name: 'apply_patch', input: rawPatch } },
+    { type: 'response.completed', response: { id: 'resp_custom_patch', model: 'gpt-5.5', usage: { input_tokens: 1, output_tokens: 1 }, output: [] } },
+  ];
+  const bodyText = frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join('');
+  let emitted = null;
+  const response = await sendViaHttpSse({
+    auth: { access_token: 'fake-token', account_id: '' },
+    body: { model: 'gpt-5.5', input: [], stream: true },
+    opts: {},
+    onToolCall: (call) => { emitted = call; },
+    externalSignal: null,
+    poolKey: 'tool-smoke-custom-patch',
+    cacheKey: 'tool-smoke-custom-patch',
+    iteration: 1,
+    useModel: 'gpt-5.5',
+    fetchFn: async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(bodyText));
+        controller.close();
+      },
+    }), { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+  });
+  const call = response.toolCalls?.[0];
+  if (call?.nativeType !== 'custom_tool_call' || call?.name !== 'apply_patch' || call?.arguments?.patch !== rawPatch) {
+    throw new Error(`custom apply_patch SSE parser must produce internal patch args: ${JSON.stringify(response.toolCalls)}`);
+  }
+  if (emitted?.arguments?.patch !== rawPatch) {
+    throw new Error(`custom apply_patch SSE parser must eager-emit patch args: ${JSON.stringify(emitted)}`);
+  }
 }
 const readPathDescription = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.inputSchema?.properties?.path?.description || '';
 if (!/File path or array/i.test(readPathDescription) || !/Dirs use list/i.test(readPathDescription)) {
@@ -1040,6 +1184,22 @@ if (!nativeSelectResult.nativeToolSearch?.openaiTools?.some((tool) => tool?.name
 }
 if (!nativeSelectResult.nativeToolSearch?.toolReferences?.includes('shell')) {
   throw new Error(`native tool_search must return Anthropic tool references: ${JSON.stringify(nativeSelectResult.nativeToolSearch)}`);
+}
+const nativePatchSearchSession = {
+  tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name) && tool?.name !== 'apply_patch'),
+  deferredToolCatalog: smokeCatalog.slice(),
+  deferredSelectedTools: [...fullDefaults].filter((name) => name !== 'apply_patch'),
+  deferredDiscoveredTools: [],
+  deferredProviderMode: 'native',
+  deferredNativeTools: true,
+};
+const nativePatchSelectResult = JSON.parse(__renderToolSearchForTest({ select: 'apply_patch' }, nativePatchSearchSession, 'full'));
+const nativePatchTool = nativePatchSelectResult.nativeToolSearch?.openaiTools?.find((tool) => tool?.name === 'apply_patch');
+if (nativePatchTool?.type !== 'custom' || nativePatchTool?.format?.syntax !== 'lark') {
+  throw new Error(`native tool_search must preserve apply_patch as OpenAI custom freeform: ${JSON.stringify(nativePatchSelectResult.nativeToolSearch)}`);
+}
+if (nativePatchTool.defer_loading === true || nativePatchTool.parameters) {
+  throw new Error(`native tool_search custom apply_patch must not be downgraded to deferred function schema: ${JSON.stringify(nativePatchTool)}`);
 }
 const nativeRunQuerySession = {
   tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),

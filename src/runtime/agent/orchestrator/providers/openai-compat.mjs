@@ -28,6 +28,13 @@ import {
     splitToolContentForOpenAIChat,
     splitToolContentForOpenAIResponses,
 } from './media-normalization.mjs';
+import {
+    customToolCallFromResponseItem,
+    customToolInputFromArguments,
+    isCustomToolCallRecord,
+    isResponsesFreeformTool,
+    toResponsesCustomTool,
+} from './custom-tool-wire.mjs';
 import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
 export { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
 const PRESETS = OPENAI_COMPAT_PRESETS;
@@ -933,6 +940,7 @@ function toResponsesTools(tools) {
                 parameters: t.inputSchema,
             };
         }
+        if (isResponsesFreeformTool(t)) return toResponsesCustomTool(t);
         return {
             type: 'function',
             name: t.name,
@@ -973,6 +981,9 @@ function parseResponsesToolCalls(response, label) {
                 name: item.name,
                 arguments: parseCompletedToolCallArgumentsJson(item.arguments, label, { id: item.call_id || item.id, name: item.name, finishReason }),
             });
+        } else if (item?.type === 'custom_tool_call') {
+            const call = customToolCallFromResponseItem(item);
+            if (call) out.push(call);
         } else if (item?.type === 'tool_search_call') {
             out.push({
                 id: item.call_id || item.id,
@@ -1047,7 +1058,7 @@ function collectCompatResponseSearchSources(response) {
     }
     return { citations, webSearchCalls };
 }
-function toResponsesInputMessage(m, pendingToolMedia = null) {
+function toResponsesInputMessage(m, pendingToolMedia = null, customToolCallNameById = null) {
     if (m.role === 'tool') {
         if (Array.isArray(m.nativeToolSearch?.openaiTools)) {
             return {
@@ -1059,6 +1070,16 @@ function toResponsesInputMessage(m, pendingToolMedia = null) {
             };
         }
         const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
+        if (customToolCallNameById?.has(m.toolCallId || '')) {
+            const item = {
+                type: 'custom_tool_call_output',
+                call_id: m.toolCallId || '',
+                name: customToolCallNameById.get(m.toolCallId || '') || undefined,
+                output,
+            };
+            if (mediaContent && pendingToolMedia) pendingToolMedia.push(...mediaContent);
+            return item;
+        }
         const item = {
             type: 'function_call_output',
             call_id: m.toolCallId || '',
@@ -1077,6 +1098,14 @@ function toResponsesInputMessage(m, pendingToolMedia = null) {
                     call_id: tc.id,
                     execution: 'client',
                     arguments: tc.arguments || {},
+                });
+            } else if (isCustomToolCallRecord(tc)) {
+                if (tc.id && customToolCallNameById) customToolCallNameById.set(tc.id, tc.name || '');
+                items.push({
+                    type: 'custom_tool_call',
+                    call_id: tc.id,
+                    name: tc.name,
+                    input: customToolInputFromArguments(tc.name, tc.arguments),
                 });
             } else {
                 items.push({
@@ -1122,6 +1151,7 @@ function toXaiResponsesInput(messages, providerState, options = {}) {
     }
     const input = [];
     const pendingToolMedia = [];
+    const customToolCallNameById = new Map();
     const flushToolMedia = () => {
         if (!pendingToolMedia.length) return;
         input.push({ role: 'user', content: pendingToolMedia.splice(0) });
@@ -1129,7 +1159,7 @@ function toXaiResponsesInput(messages, providerState, options = {}) {
     for (const m of messages.slice(startIndex)) {
         if (!includeSystem && m.role === 'system') continue;
         if (m.role !== 'tool') flushToolMedia();
-        const converted = toResponsesInputMessage(m, pendingToolMedia);
+        const converted = toResponsesInputMessage(m, pendingToolMedia, customToolCallNameById);
         if (Array.isArray(converted)) input.push(...converted);
         else input.push(converted);
     }

@@ -48,17 +48,37 @@ function assertCleanOutput(name, value, { maxLines = 3, maxBullets = 3, allowedL
 const defaultStyle = readFileSync(join(root, 'src', 'output-styles', 'default.md'), 'utf8');
 for (const required of [
   'name: default',
-  '2-3 bullet engineering reports',
-  'Uniformity beats local cleverness.',
-  'Default final reports use 2-3 flat bullets',
-  '`바뀐 점`, `확인한 것`,',
-  'Do not truncate substantive explanations just to fit one sentence',
-  'Explore/retrieval results are evidence only',
+  'Claude Code-style concise replies',
+  'Be short and direct.',
+  'Lead with the answer or action',
+  'For code work, report what changed and decisive verification',
+  'Relax brevity for security',
 ]) {
   assert(defaultStyle.includes(required), `default.md missing: ${required}`);
 }
 assert(!defaultStyle.includes('Claude Code-compact'), 'default.md must not reference the old compact style name');
 assert(!defaultStyle.includes('Hard cap user-visible replies'), 'default.md must not hard-cap replies to two short sentences');
+assert(!defaultStyle.includes('Default final reports use 2-3 flat bullets'), 'default.md must not remain the report preset');
+
+const simpleStyle = readFileSync(join(root, 'src', 'output-styles', 'simple.md'), 'utf8');
+for (const required of [
+  'name: simple',
+  'Concise engineering summaries',
+  'Default final reports use 2-3 flat bullets',
+  '`바뀐 점`, `확인한 것`,',
+  'Synthesize agent or retrieval results',
+  'Do not hide blockers',
+]) {
+  assert(simpleStyle.includes(required), `simple.md missing: ${required}`);
+}
+for (const [name, style] of Object.entries({
+  default: defaultStyle,
+  simple: simpleStyle,
+  extreme: readFileSync(join(root, 'src', 'output-styles', 'extreme-simple.md'), 'utf8'),
+})) {
+  assert(!style.includes('pre-tool preamble'), `${name} output style must not own language preamble rules`);
+  assert(!style.includes('selected/default user language'), `${name} output style must not duplicate profile language rules`);
+}
 
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-output-style-smoke-'));
 try {
@@ -69,11 +89,18 @@ try {
   assert(outputStyleIndex > leadRules.lastIndexOf('# User Workflow'), 'Lead output style must be injected after workflow/user context');
 
   mkdirSync(join(dataDir, 'output-styles'), { recursive: true });
-  writeFileSync(join(dataDir, 'mixdog-config.json'), JSON.stringify({ outputStyle: 'custom-smoke' }));
+  writeFileSync(join(dataDir, 'mixdog-config.json'), JSON.stringify({
+    agent: { profile: { title: '재영님', language: 'system' } },
+    outputStyle: 'custom-smoke',
+  }));
   writeFileSync(join(dataDir, 'output-styles', 'custom-smoke.md'), '---\nname: custom-smoke\n---\n\n# Custom Output Style\n\ncustom smoke style\n');
   const customRules = rulesBuilder.buildInjectionContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
   assert(customRules.includes('# Custom Output Style'), 'configured outputStyle must select custom style');
-  assert(!customRules.includes('Default engineering replies use compact report bullets'), 'custom outputStyle should not append default style');
+  assert(!customRules.includes('Claude Code-style concise replies'), 'custom outputStyle should not append default style');
+  const profileMeta = rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
+  assert(profileMeta.includes('Address the user as "재영님".'), 'profile title must inject into Lead BP3 meta');
+  assert(/Default user-facing response language from system locale/.test(profileMeta), 'system profile language must resolve from system locale');
+  assert(profileMeta.includes('including pre-tool preambles'), 'profile language must cover pre-tool preambles');
 } finally {
   rmSync(dataDir, { recursive: true, force: true });
 }

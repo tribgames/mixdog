@@ -15,9 +15,11 @@ import { normalizeContentForAnthropic } from './media-normalization.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 
-// 4-BP cache policy aligned with anthropic-oauth — tools + system + tier3
-// + messages-tail. 1h TTL requires the extended-cache-ttl beta header,
-// which we set on the client via defaultHeaders below.
+// 4-BP cache policy aligned with anthropic-oauth — system + tier3 +
+// messages-tail. Tool schemas sit before system and are covered by the system
+// breakpoint, so they do not spend a separate cache_control slot. 1h TTL
+// requires the extended-cache-ttl beta header, which we set on the client via
+// defaultHeaders below.
 const CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };
 const CACHE_TTL_VOLATILE = { type: 'ephemeral' };
 
@@ -67,11 +69,26 @@ function resolveCacheTtls(opts) {
         return fallback;
     };
     return {
-        tools: pick('tools', CACHE_TTL_STABLE),
+        tools: pick('tools', null),
         system: pick('system', CACHE_TTL_STABLE),
         tier3: pick('tier3', CACHE_TTL_STABLE),
         messages: pick('messages', CACHE_TTL_STABLE),
     };
+}
+
+function buildSystemBlocks(systemTexts, cacheControl, maxCacheBlocks = 2) {
+    const texts = Array.isArray(systemTexts)
+        ? systemTexts.map(s => typeof s === 'string' ? s.trim() : '').filter(Boolean)
+        : [];
+    const blocks = texts.map(text => ({ type: 'text', text }));
+    if (cacheControl) {
+        let remaining = Math.max(0, Math.min(2, Number(maxCacheBlocks) || 0));
+        for (let i = blocks.length - 1; i >= 0 && remaining > 0; i--) {
+            blocks[i] = { ...blocks[i], cache_control: cacheControl };
+            remaining -= 1;
+        }
+    }
+    return blocks;
 }
 
 const MODELS = [
@@ -439,14 +456,14 @@ export class AnthropicProvider {
 
         const systemMsgs = messages.filter(m => m.role === 'system');
         const chatMsgs = messages.filter(m => m.role !== 'system');
-        const systemText = systemMsgs.map(m => m.content).join('\n\n') || undefined;
+        const systemBlocks = buildSystemBlocks(systemMsgs.map(m => m.content), ttls.system, 2);
 
         // 4-BP budget: aligned with anthropic-oauth. tools BP is dropped —
         // system BP covers the tools prefix via Anthropic prefix semantics
         // (order: tools → system → messages). That frees 1 slot for
         // messages-tail.
         const toolsBpUsed = 0;
-        const systemBpUsed = ttls.system && systemText ? 1 : 0;
+        const systemBpUsed = ttls.system ? systemBlocks.filter(b => b.cache_control).length : 0;
         const tier3Idx = ttls.tier3 ? findTier3Index(chatMsgs) : -1;
         const tier3BpUsed = tier3Idx >= 0 ? 1 : 0;
         const usedSlots = toolsBpUsed + systemBpUsed + tier3BpUsed;
@@ -474,11 +491,7 @@ export class AnthropicProvider {
         const params = {
             model: useModel,
             max_tokens: maxTokens,
-            system: systemText
-                ? [ttls.system
-                    ? { type: 'text', text: systemText, cache_control: ttls.system }
-                    : { type: 'text', text: systemText }]
-                : undefined,
+            system: systemBlocks.length ? systemBlocks : undefined,
             messages: anthropicMessages,
         };
         const nativeTools = nativeAnthropicTools(opts);

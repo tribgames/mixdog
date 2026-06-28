@@ -6,6 +6,7 @@ import {
     providerTimeoutError,
 } from '../stall-policy.mjs';
 import { populateHttpStatusFromMessage } from './retry-classifier.mjs';
+import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
 
 function truncatedCompatStreamError(label, detail) {
     return Object.assign(
@@ -606,6 +607,12 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
         state.toolCalls.push(call);
         emitCompatToolCallOnce(state, call, onToolCall);
     };
+    const pushCustomToolCall = (item) => {
+        const call = customToolCallFromResponseItem(item);
+        if (!call || state.toolCalls.some((existing) => existing.id === call.id)) return;
+        state.toolCalls.push(call);
+        emitCompatToolCallOnce(state, call, onToolCall);
+    };
     switch (event.type) {
         case 'response.created':
             if (event.response?.model) state.model = event.response.model;
@@ -630,6 +637,9 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
             try { onStreamDelta?.(); } catch {}
             break;
         case 'response.function_call_arguments.delta':
+            try { onStreamDelta?.(); } catch {}
+            break;
+        case 'response.custom_tool_call_input.delta':
             try { onStreamDelta?.(); } catch {}
             break;
         case 'response.function_call_arguments.done': {
@@ -671,6 +681,8 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
                 }
             } else if (item.type === 'tool_search_call') {
                 pushToolSearchCall(item);
+            } else if (item.type === 'custom_tool_call') {
+                pushCustomToolCall(item);
             }
             try { onStreamDelta?.(); } catch {}
             break;
