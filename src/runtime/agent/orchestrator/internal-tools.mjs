@@ -1,5 +1,5 @@
 /**
- * Internal tool registry — in-process tools exposed to external LLMs via bridge.
+ * Internal tool registry — in-process tools exposed to external LLMs via the agent runtime.
  *
  * Populated by agent/index.mjs.handleToolCall when the server injects a
  * context carrying { toolExecutor, internalTools }. The executor dispatches
@@ -9,7 +9,7 @@
  * Orchestrator modules (session/manager.mjs, session/loop.mjs) import from
  * here instead of going through mcp/client.mjs for internal tools.
  *
- * Permission enforcement: bridge-worker tool calls (including internal tools)
+ * Permission enforcement: agent-worker tool calls (including internal tools)
  * are gated by _checkWorkerPermission() in session/loop.mjs BEFORE reaching
  * executeTool() → executeInternalTool(). No duplicate check is needed here;
  * the loop is the single enforcement point for all dispatch paths.

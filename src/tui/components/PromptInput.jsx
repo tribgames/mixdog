@@ -47,9 +47,10 @@ function hintStyle(tone) {
 }
 
 // Windows Terminal IME composition can clip a glyph that starts exactly at the
-// left edge of the editable text node. Keep one blank cell before the rendered
-// text and move the hardware/IME cursor by the same amount.
-const IME_LEFT_GUARD_COLUMNS = 1;
+// left edge of the editable text node. The rounded prompt box already adds a
+// paddingX of 1, so the typing start can sit directly against that padding
+// without an extra guard column.
+const IME_LEFT_GUARD_COLUMNS = 0;
 
 function insertText(draft, input) {
   if (!input) return draft;

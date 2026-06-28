@@ -12,23 +12,6 @@ function snapshotBodyWasReturnedByRead(snapshot) {
     return String(snapshot?.source || '').startsWith('read');
 }
 
-// Optional context-budget for a whole-file read: `max_lines:N` requests a
-// TIGHTER head+tail elision than the default 600-line / 200+100 cap, to bound
-// lead-context cost when only a glance is needed. Returns null (= default) when
-// unset. No heuristic guessing — the budget is explicit and reuses the existing
-// smartReadTruncate head/tail invariant. (`budget:'compact'` is a SEPARATE,
-// pre-existing knob handled upstream in read-tool.mjs applyCompactReadBudget —
-// it remaps a whole-file read to mode:'count' stats, not head+tail content.)
-function resolveReadBudget(args) {
-    const ml = Number(args?.max_lines);
-    if (Number.isFinite(ml) && ml > 0) {
-        const maxLines = Math.trunc(ml);
-        const headLines = Math.max(1, Math.ceil(maxLines * 0.7));
-        return { maxLines, headLines, tailLines: Math.max(0, maxLines - headLines) };
-    }
-    return null;
-}
-
 function withSymbolReadNote(text, args) {
     const note = typeof args?._symbolReadNote === 'string' ? args._symbolReadNote.trim() : '';
     if (!note || typeof text !== 'string') return text;
@@ -159,9 +142,6 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     // emits a compact truncation marker when rendered bytes overflow
     // READ_MAX_OUTPUT_BYTES.
     const limit = parseLineLimitArg(args.limit, wantFull ? Infinity : 2000);
-    // Context-budget (compact / max_lines) — only meaningful on a whole-file
-    // read (no range, not full). Ignored otherwise.
-    const _readBudget = (!hasRangeArgs && !wantFull) ? resolveReadBudget(args) : null;
     let st;
     let _statErr;
     try {
@@ -265,7 +245,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         }
         return _ipynbOut;
     }
-    const cacheKey = `read|${fullPath}|${st.mtimeMs}|${st.size}|${hasOffsetArg ? offset : 'd'}|${hasLimitArg ? limit : 'd'}|${wantFull ? 'f' : 's'}|${_readBudget ? `b${_readBudget.maxLines}` : 'd'}`;
+    const cacheKey = `read|${fullPath}|${st.mtimeMs}|${st.size}|${hasOffsetArg ? offset : 'd'}|${hasLimitArg ? limit : 'd'}|${wantFull ? 'f' : 's'}`;
     // Race-guard helper: same-mtime same-size rapid rewrite (NTFS / exFAT 1 s
     // resolution) can pass mtimeMs+size yet differ in content. When the cache
     // entry stores a contentPrefixHash, recompute the current prefix and bail
@@ -496,19 +476,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
                 ? await streamSmartReadSummary(fullPath, st, 'read_smart_stream')
                 : null;
             if (_streamSmart?.text) {
-                let out = _streamSmart.text;
-                // Honor a compact/max_lines budget on a large file: the stream
-                // already elided to head 200/tail 100; re-apply the tighter
-                // head+tail so the lead sees only the requested glance.
-                if (_readBudget) {
-                    // Use the file's REAL line count from the stream pass
-                    // (snapshotMeta.fileLineCount — the result has no top-level
-                    // totalLines), not the already-elided output's row count: the
-                    // re-budget marker otherwise reports "[TRUNCATED - 301 lines]"
-                    // for a 3800-line file.
-                    const _rebud = smartReadTruncate(out, _streamSmart.snapshotMeta?.fileLineCount || out.split('\n').length, st.size, filePath, _readBudget);
-                    if (_rebud?.truncated) out = _rebud.text;
-                }
+                const out = _streamSmart.text;
                 const snapshotMeta = _streamSmart.snapshotMeta || {
                     source: 'read_smart_stream',
                     ranges: [],
@@ -625,7 +593,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         // green-light an overwrite against bytes the read never returned.
         let _byteCapTruncated = false;
         const smart = (!hasRangeArgs && !wantFull && typeof smartReadTruncate === 'function')
-            ? smartReadTruncate(rendered, lineCount, st.size, filePath, _readBudget)
+            ? smartReadTruncate(rendered, lineCount, st.size, filePath)
             : null;
         let _smartTruncated = false;
         let _smartVisibleRanges = null;

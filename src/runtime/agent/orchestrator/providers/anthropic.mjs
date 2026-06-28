@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { loadConfig } from '../config.mjs';
 import { sanitizeToolPairs, sanitizeAnthropicContentPairs } from '../session/context-utils.mjs';
 import { classifyError, withRetry } from './retry-classifier.mjs';
-import { traceBridgeUsage } from '../bridge-trace.mjs';
+import { traceAgentUsage } from '../agent-trace.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
     createTimeoutSignal,
@@ -195,16 +195,28 @@ function _sanitizeInputSchema(schema, toolName) {
 }
 
 function toAnthropicTools(tools) {
-    return tools.map((t) => ({
-        name: t.name,
-        description: t.description,
-        input_schema: _sanitizeInputSchema(t.inputSchema, t.name),
-    }));
+    return tools.map((t) => {
+        const out = {
+            name: t.name,
+            description: t.description,
+            input_schema: _sanitizeInputSchema(t.inputSchema, t.name),
+        };
+        if (t.deferLoading === true || t.defer_loading === true) out.defer_loading = true;
+        return out;
+    });
 }
 function nativeAnthropicTools(opts) {
     return Array.isArray(opts?.nativeTools)
         ? opts.nativeTools.filter(t => t && typeof t === 'object')
         : [];
+}
+function deferredAnthropicTools(activeTools, opts) {
+    if (opts?.session?.deferredNativeTools !== true) return [];
+    const active = new Set((activeTools || []).map((tool) => String(tool?.name || '').trim()).filter(Boolean));
+    const catalog = Array.isArray(opts.session.deferredToolCatalog) ? opts.session.deferredToolCatalog : [];
+    return catalog
+        .filter((tool) => tool?.name && !active.has(String(tool.name)))
+        .map((tool) => ({ ...tool, deferLoading: true }));
 }
 function toAnthropicMessages(messages) {
     // Marker-free lowering. cache_control is applied AFTER sanitization by
@@ -238,10 +250,15 @@ function toAnthropicMessages(messages) {
         }
         if (m.role === 'tool') {
             const last = result[result.length - 1];
+            const refs = Array.isArray(m.nativeToolSearch?.toolReferences)
+                ? m.nativeToolSearch.toolReferences.map((name) => String(name || '').trim()).filter(Boolean)
+                : [];
             const block = {
                 type: 'tool_result',
                 tool_use_id: m.toolCallId || '',
-                content: normalizeContentForAnthropic(m.content),
+                content: refs.length
+                    ? refs.map((name) => ({ type: 'tool_reference', tool_name: name }))
+                    : normalizeContentForAnthropic(m.content),
             };
             if (last?.role === 'user' && Array.isArray(last.content)) {
                 last.content.push(block);
@@ -372,7 +389,7 @@ export class AnthropicProvider {
     constructor(config) {
         this.config = config;
         this.name = config.name || 'anthropic';
-        const betaHeaders = config.disableBetaHeaders ? null : buildAnthropicBetaHeaders();
+        const betaHeaders = config.disableBetaHeaders ? null : buildAnthropicBetaHeaders({ toolSearch: true });
         this.client = new Anthropic({
             apiKey: config.apiKey || process.env.ANTHROPIC_API_KEY,
             ...(config.baseURL ? { baseURL: config.baseURL } : {}),
@@ -386,7 +403,7 @@ export class AnthropicProvider {
             const newKey = cfg?.apiKey || this.config.apiKey || (this.name === 'anthropic' ? process.env.ANTHROPIC_API_KEY : null);
             if (newKey) {
                 this.config = { ...(this.config || {}), ...(cfg || {}), apiKey: newKey };
-                const betaHeaders = this.config.disableBetaHeaders ? null : buildAnthropicBetaHeaders();
+                const betaHeaders = this.config.disableBetaHeaders ? null : buildAnthropicBetaHeaders({ toolSearch: true });
                 this.client = new Anthropic({
                     apiKey: newKey,
                     ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
@@ -468,7 +485,7 @@ export class AnthropicProvider {
         if (tools?.length || nativeTools.length) {
             // No cache_control on tools — the system BP covers tools via
             // Anthropic prefix semantics (order: tools → system → messages).
-            params.tools = [...nativeTools, ...toAnthropicTools(tools || [])];
+            params.tools = [...nativeTools, ...toAnthropicTools([...(tools || []), ...deferredAnthropicTools(tools || [], opts)])];
         }
         // Effort → extended thinking budget. Gateway inherit mode may pass the
         // exact Claude Code budget from the incoming Anthropic request.
@@ -502,7 +519,7 @@ export class AnthropicProvider {
         // emitting SSE deltas must not be killed by a fixed total-lifetime timer.
         // Mirrors the OAuth provider (Option A). Bounded instead by the
         // per-attempt first-byte/HTTP-response timeout, the SSE idle watchdog,
-        // the bridge stall watchdog, and externalSignal (client disconnect /
+        // the agent stall watchdog, and externalSignal (client disconnect /
         // replaced-by-newer-request). totalSignal is a pure pass-through.
         const externalSignal = opts.signal || null;
         const totalTimeout = createPassthroughSignal(externalSignal);
@@ -516,6 +533,7 @@ export class AnthropicProvider {
         const betaHeaders = {
             'anthropic-beta': buildAnthropicBetaHeaders({
                 fastMode: this.fastModeBetaHeaderLatched,
+                toolSearch: true,
             }),
         };
 
@@ -533,7 +551,7 @@ export class AnthropicProvider {
             const liveModel = parseResult.model || useModel;
 
             if (usageRaw || input || output || cacheRead || cacheWrite) {
-                traceBridgeUsage({
+                traceAgentUsage({
                     sessionId: opts.sessionId || opts.session?.id || null,
                     iteration: Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null,
                     inputTokens: input,

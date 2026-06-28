@@ -5,22 +5,22 @@
  *
  * Three surfaces:
  *   - buildInjectionContent              — Lead session
- *   - buildBridgeInjectionContent        — bridge session BP1 (true cross-role common)
- *   - buildBridgeRoleSpecificContent     — bridge session BP3 (role-specific instructions)
+ *   - buildAgentInjectionContent        — agent session BP1 (true cross-role common)
+ *   - buildAgentRoleSpecificContent     — agent session BP3 (role-specific instructions)
  *
  * 4-BP cache layout (composeSystemPrompt):
- *   BP1 = bridge BP1 content (this file's buildBridgeInjectionContent) — every role identical
- *   BP2 = scoped role catalog (collect.mjs loadScopedRoleCatalog) — role family / self
- *   BP3 = project context + role marker + permission + role-specific instructions
- *   BP4 = task brief + memory recap (5m volatile)
+ *   BP1 = agent BP1 content (this file's buildAgentInjectionContent) — every role identical
+ *   BP2 = reserved stable system layer — role-independent only
+ *   BP3 = stable session marker: role md + workflow/role-specific instructions
+ *   BP4 = compact carry-over memory only (5m volatile when present)
  *
  * Source files (rules/):
- *   - shared/01-tool.md              — universal tool policy (Lead + bridge BP1, identical full set)
+ *   - shared/01-tool.md              — universal tool policy (Lead + agent BP1, identical full set)
  *   - lead/00-tool-lead.md           — Lead-specific control-tower / delegation / ToolSearch guidance
  *   - lead/01-04                     — Lead workflow / channels / team / general
  *   - output-styles/<name>.md        — Lead output style, selected by config outputStyle
- *   - bridge/00-common.md            — bridge common behavior + universal worker contract (BP1)
- *   - bridge/10..50-*.md             — per-hidden-role bodies (consumed by loadScopedRoleCatalog)
+ *   - agent/00-common.md             — agent common behavior + universal worker contract (BP1)
+ *   - agent/10..50-*.md              — per-hidden-role bodies (consumed by loadScopedRoleInstructions)
  *
  * Core memory snapshot and session recap are injected separately by
  * hooks/session-start.cjs from the memory worker (pgdata) (Lead only).
@@ -166,8 +166,8 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
   const memoryConfig = readConfigSection(DATA_DIR, 'memory');
   const parts = [];
 
-  // Language policy now lives in lead/01-general.md (Lead-only). Bridge/agent
-  // sessions keep their own English contract (bridge/00-common.md) without a
+  // Language policy now lives in lead/01-general.md (Lead-only). Agent
+  // sessions keep their own English contract (agent/00-common.md) without a
   // conflicting "follow user language" line.
   const general = readOptional(path.join(LEAD_DIR, '01-general.md'));
   if (general) {
@@ -206,7 +206,7 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
 }
 
 /**
- * BP1 — true cross-role common. Identical for every bridge role; the
+ * BP1 — true cross-role common. Identical for every agent role; the
  * role-specific stuff (per-event webhook instructions, per-task schedule
  * instructions, hidden role tool detail) lives in BP3 instead.
  *
@@ -215,28 +215,49 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
  * @param {string} opts.DATA_DIR
  * @returns {string}
  */
-function buildBridgeInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
+function buildAgentInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
   const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
   const SHARED_DIR = path.join(RULES_DIR, 'shared');
-  const BRIDGE_DIR = path.join(RULES_DIR, 'bridge');
+  const AGENT_DIR = path.join(RULES_DIR, 'agent');
   const parts = [];
 
   // Universal tool policy — same full set Lead receives. No shared language
-  // policy here: bridge/agent language is governed by bridge/00-common.md
+  // policy here: agent language is governed by agent/00-common.md
   // ("Use English for agent task communication").
   const tool = readOptional(path.join(SHARED_DIR, '01-tool.md'));
   if (tool) parts.push(tool);
 
-  // Bridge common behavior.
-  const common = readOptional(path.join(BRIDGE_DIR, '00-common.md'));
+  // Agent common behavior.
+  const common = readOptional(path.join(AGENT_DIR, '00-common.md'));
   if (common) parts.push(common);
 
-  // userTitle / address form is intentionally NOT injected here — bridge
+  // userTitle / address form is intentionally NOT injected here — agent
   // workers produce tool I/O, not user-facing replies, so the persona signal
   // only biases response language/tone without serving a purpose. Lead BP1
   // (buildInjectionContent above) still carries it.
 
   return parts.join('\n\n');
+}
+
+/**
+ * BP1 for narrow hidden retrieval roles. These roles already carry a separate
+ * read-only tool schema shard, so keeping the full agent worker prefix does
+ * not improve cross-role cache reuse and only adds unrelated shell/edit/git
+ * guidance.
+ *
+ * @returns {string}
+ */
+function buildAgentRetrievalInjectionContent() {
+  return [
+    '# Tool Use',
+    '',
+    '- Batch independent read-only lookups in the same tool turn.',
+    '- Use code_graph for symbols/dependencies, grep for exact text, find/glob/list for files, and read only known paths/windows.',
+    '',
+    '# Agent Constraints',
+    '',
+    '- Read-only retrieval role: do not edit files, run shell, or use git.',
+  ].join('\n');
 }
 
 /**
@@ -255,7 +276,7 @@ function buildBridgeInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
  * @param {string|null} opts.currentRole
  * @returns {string}
  */
-function buildBridgeRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentRole }) {
+function buildAgentRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentRole }) {
   if (!currentRole) return '';
   const parts = [];
 
@@ -281,6 +302,7 @@ function buildBridgeRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentRole }) 
 
 module.exports = {
   buildInjectionContent,
-  buildBridgeInjectionContent,
-  buildBridgeRoleSpecificContent,
+  buildAgentInjectionContent,
+  buildAgentRetrievalInjectionContent,
+  buildAgentRoleSpecificContent,
 };

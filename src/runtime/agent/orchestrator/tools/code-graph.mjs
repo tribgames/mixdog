@@ -555,7 +555,7 @@ export function prewarmCodeGraph(cwd) {
  * Symbol-aware prewarm. After graph build, populate the lazy per-symbol
  * candidate cache for each name in `symbols` so the first find_symbol
  * lookup on those names skips the ~50ms O(N) node scan. Best paired
- * with bridge prefetch args (prefetch.callers / prefetch.references)
+ * with agent prefetch args (prefetch.callers / prefetch.references)
  * that already name the symbols the worker plans to query. Fire-and-
  * forget; caller does not await.
  */
@@ -753,7 +753,7 @@ function _getTokenSymbolsForNode(graph, node) {
 // which lazily builds only the requested (language, symbol) bucket.
 // Full build was the dominant cold-process cost (~1-2s on refs/'s
 // 7000-node × ~50-tokens graph) and provided no benefit for the typical
-// 1-3 lookups per bridge worker.
+// 1-3 lookups per agent worker.
 function _ensureSymbolTokenIndex(graph) {
   if (!graph?._symbolTokenIndex) return;
   if (!graph._symbolTokenIndexDirty && graph._symbolTokenIndex.size > 0) return;
@@ -2301,6 +2301,91 @@ function _collectKeywordSymbolNames(graph, keyword, { language = null } = {}) {
   return out;
 }
 
+function _keywordMatchesSymbolName(name, lowerKey, keyTokens) {
+  const sym = String(name || '').trim();
+  if (!sym || !lowerKey) return false;
+  if (_contiguousMatchTokenAligned(sym, lowerKey)) return true;
+  return keyTokens.length >= 2 && _orderedTokenMatch(sym.toLowerCase(), keyTokens);
+}
+
+function _nativeSymbolHit(node, sym) {
+  const line = Number(sym?.line ?? sym?.startLine);
+  if (!Number.isFinite(line) || line < 1) return null;
+  const endLine = Number(sym?.endLine);
+  return {
+    rel: node.rel,
+    lang: node.lang,
+    line,
+    col: Number(sym?.startCol) || Number(sym?.col) || 1,
+    endLine: Number.isFinite(endLine) && endLine >= line ? endLine : null,
+    declarationLike: true,
+    matchCount: 1,
+    content: '',
+    context: [],
+  };
+}
+
+function _collectNativeKeywordSymbolEntries(graph, keyword, { language = null } = {}) {
+  const lowerKey = String(keyword || '').toLowerCase();
+  if (!lowerKey) return [];
+  const keyTokens = _tokenizeKeyword(keyword);
+  const byName = new Map();
+  for (const node of graph?.nodes?.values?.() || []) {
+    if (language && node.lang !== language) continue;
+    const symbols = Array.isArray(node?.symbols) ? node.symbols : [];
+    if (!symbols.length) continue;
+    for (const sym of symbols) {
+      const name = String(sym?.name || '').trim();
+      if (!_keywordMatchesSymbolName(name, lowerKey, keyTokens)) continue;
+      const hit = _nativeSymbolHit(node, sym);
+      if (!hit) continue;
+      if (!byName.has(name)) byName.set(name, []);
+      byName.get(name).push(hit);
+    }
+  }
+  const entries = [];
+  for (const [name, hits] of byName.entries()) {
+    const sorted = _sortSymbolHits(hits);
+    entries.push({
+      name,
+      hit: _pickCalleeDeclHit(sorted) || sorted[0] || null,
+      resolved: sorted.length > 0,
+    });
+  }
+  entries.sort((a, b) => {
+    const ka = _keywordSymbolSortKey(a.name, keyword);
+    const kb = _keywordSymbolSortKey(b.name, keyword);
+    if (ka && !kb) return -1;
+    if (!ka && kb) return 1;
+    if (!ka && !kb) return a.name.localeCompare(b.name);
+    for (let i = 0; i < 3; i += 1) {
+      if (ka[i] !== kb[i]) return ka[i] - kb[i];
+    }
+    return a.name.localeCompare(b.name);
+  });
+  return entries;
+}
+
+function _collectCheapKeywordSymbolEntries(graph, keyword, { language = null } = {}) {
+  const lowerKey = String(keyword || '').toLowerCase();
+  if (!lowerKey) return [];
+  const keyTokens = _tokenizeKeyword(keyword);
+  const entries = [];
+  for (const node of graph?.nodes?.values?.() || []) {
+    if (language && node.lang !== language) continue;
+    if (Array.isArray(node?.symbols) && node.symbols.length) continue;
+    const sourceText = _getSourceTextForNode(graph, node);
+    for (const sym of _collectCheapSymbols(sourceText, node.lang)) {
+      const name = String(sym?.name || '').trim();
+      if (!_keywordMatchesSymbolName(name, lowerKey, keyTokens)) continue;
+      const hit = _nativeSymbolHit(node, sym);
+      if (!hit) continue;
+      entries.push({ name, hit, resolved: true });
+    }
+  }
+  return entries;
+}
+
 function _formatSearchSymbolRow(name, hit) {
   const loc = hit ? _formatSymbolHitLocation(hit) : '(unresolved)';
   const next = `next: find_symbol({symbol:"${name}"})`;
@@ -2311,16 +2396,13 @@ function _searchSymbolsByKeyword(graph, keyword, cwd, { language = null, limit =
   const clean = String(keyword || '').trim();
   if (!clean) return '(no keyword)';
   const cap = Math.max(1, Math.min(100, Math.floor(Number(limit) || 30)));
-  const allNames = _collectKeywordSymbolNames(graph, clean, { language });
-  if (!allNames.length) {
+  const nativeEntries = _collectNativeKeywordSymbolEntries(graph, clean, { language });
+  const cheapEntries = _collectCheapKeywordSymbolEntries(graph, clean, { language });
+  const entries = [...nativeEntries, ...cheapEntries];
+  if (!entries.length) {
     const nodeCount = graph?.nodes?.size ?? 0;
     return `(no symbol keyword matches in cwd=${cwd})\ngraph: nodes=${nodeCount}${language ? `, language=${language}` : ''}`;
   }
-  const entries = allNames.map((name) => {
-    const hits = _sortSymbolHits(_findSymbolHits(graph, name, { language }));
-    const hit = _pickCalleeDeclHit(hits) || hits[0] || null;
-    return { name, hit, resolved: Boolean(hit) };
-  });
   entries.sort((a, b) => {
     const rank = Number(b.resolved) - Number(a.resolved);
     if (rank !== 0) return rank;
@@ -2338,7 +2420,7 @@ function _searchSymbolsByKeyword(graph, keyword, cwd, { language = null, limit =
   const resolvedEntries = entries.filter((e) => e.resolved);
   const unresolvedNames = entries.filter((e) => !e.resolved).map((e) => e.name);
   const shownResolved = resolvedEntries.slice(0, cap);
-  const lines = [`# search keyword=${clean} matches=${allNames.length} shown=${shownResolved.length}`];
+  const lines = [`# search keyword=${clean} matches=${entries.length} shown=${shownResolved.length}`];
   for (const { name, hit } of shownResolved) {
     lines.push(_formatSearchSymbolRow(name, hit));
   }

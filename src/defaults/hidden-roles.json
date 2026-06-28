@@ -3,7 +3,7 @@
     {
       "name": "explorer",
       "slot": "explore",
-      "systemFile": "rules/bridge/30-explorer.md",
+      "systemFile": "rules/agent/30-explorer.md",
       "description": "Filesystem navigation agent invoked by the `explore` MCP tool",
       "invokedBy": "explore",
       "toolSchemaProfile": "read",
@@ -14,7 +14,7 @@
     {
       "name": "cycle1-agent",
       "slot": "cycle1",
-      "systemFile": "rules/bridge/40-cycle1-agent.md",
+      "systemFile": "rules/agent/40-cycle1-agent.md",
       "description": "Chunker/classifier invoked by memory-cycle runCycle1",
       "invokedBy": "cycle1",
       "maintKey": "memory",
@@ -26,7 +26,7 @@
     {
       "name": "cycle2-agent",
       "slot": "cycle2",
-      "systemFile": "rules/bridge/41-cycle2-agent.md",
+      "systemFile": "rules/agent/41-cycle2-agent.md",
       "description": "Root re-scorer invoked by memory-cycle runCycle2",
       "invokedBy": "cycle2",
       "maintKey": "memory",
@@ -38,7 +38,7 @@
     {
       "name": "cycle3-agent",
       "slot": "cycle3",
-      "systemFile": "rules/bridge/42-cycle3-agent.md",
+      "systemFile": "rules/agent/42-cycle3-agent.md",
       "description": "Core memory reviewer invoked by memory-cycle runCycle3",
       "invokedBy": "cycle3",
       "maintKey": "memory",

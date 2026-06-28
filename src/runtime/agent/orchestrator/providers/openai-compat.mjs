@@ -9,11 +9,11 @@ import {
     parseCompletedToolCallArgumentsJson,
 } from './openai-compat-stream.mjs';
 import { enrichModels, getModelMetadataSync } from './model-catalog.mjs';
-import { appendBridgeTrace, traceBridgeUsage } from '../bridge-trace.mjs';
+import { appendAgentTrace, traceAgentUsage } from '../agent-trace.mjs';
 import {
     resolveProviderCacheKey,
     resolveProviderPromptCacheLane,
-} from '../smart-bridge/cache-strategy.mjs';
+} from '../agent-runtime/cache-strategy.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
     PROVIDER_GENERATE_TOTAL_TIMEOUT_MS,
@@ -23,7 +23,6 @@ import {
 } from '../stall-policy.mjs';
 import { traceHash, stableTraceStringify, summarizeTraceTools, traceTextShape } from './trace-utils.mjs';
 import {
-    contentHasImage,
     normalizeContentForOpenAIChat,
     normalizeContentForOpenAIResponses,
     splitToolContentForOpenAIChat,
@@ -483,7 +482,7 @@ function acquireXaiResponsesCacheLane({ key, maxInFlight, signal, timeoutMs }) {
 function traceXaiCacheLane(opts, payload) {
     if (!compatCacheTraceEnabled('xai')) return;
     try {
-        appendBridgeTrace({
+        appendAgentTrace({
             sessionId: opts?.sessionId || opts?.session?.id || null,
             iteration: Number.isFinite(Number(opts?.iteration)) ? Number(opts.iteration) : null,
             kind: 'cache_lane',
@@ -756,7 +755,7 @@ function traceXaiResponsesCacheContext(args) {
         const payload = xaiResponsesFingerprintPayload(args);
         const sessionId = args?.opts?.sessionId || args?.opts?.session?.id || null;
         const iteration = Number.isFinite(Number(args?.opts?.iteration)) ? Number(args.opts.iteration) : null;
-        appendBridgeTrace({
+        appendAgentTrace({
             sessionId,
             iteration,
             kind: 'cache_context',
@@ -769,7 +768,7 @@ function traceXaiResponsesCacheContext(args) {
                 anomaly: 'xai_mid_turn_cold_cache',
                 reason: 'previous_response_id_present_but_cached_tokens_low',
             };
-            appendBridgeTrace({
+            appendAgentTrace({
                 sessionId,
                 iteration,
                 kind: 'cache_anomaly',
@@ -914,10 +913,6 @@ function toOpenAIMessages(messages, providerName, options = {}) {
     return out;
 }
 
-function messagesHaveImageContent(messages) {
-    return (messages || []).some((m) => contentHasImage(m?.content));
-}
-
 function toOpenAITools(tools) {
     return tools.map((t) => ({
         type: 'function',
@@ -929,12 +924,22 @@ function toOpenAITools(tools) {
     }));
 }
 function toResponsesTools(tools) {
-    return tools.map((t) => ({
-        type: 'function',
-        name: t.name,
-        description: t.description,
-        parameters: t.inputSchema,
-    }));
+    return tools.map((t) => {
+        if (t?.name === 'tool_search') {
+            return {
+                type: 'tool_search',
+                execution: 'client',
+                description: t.description,
+                parameters: t.inputSchema,
+            };
+        }
+        return {
+            type: 'function',
+            name: t.name,
+            description: t.description,
+            parameters: t.inputSchema,
+        };
+    });
 }
 function nativeResponsesTools(opts) {
     return Array.isArray(opts?.nativeTools)
@@ -962,12 +967,22 @@ function parseResponsesToolCalls(response, label) {
     // malformed-JSON failure here is deterministic, not mid-stream truncation.
     const finishReason = response?.status || 'completed';
     for (const item of response?.output || []) {
-        if (item?.type !== 'function_call') continue;
-        out.push({
-            id: item.call_id || item.id,
-            name: item.name,
-            arguments: parseCompletedToolCallArgumentsJson(item.arguments, label, { id: item.call_id || item.id, name: item.name, finishReason }),
-        });
+        if (item?.type === 'function_call') {
+            out.push({
+                id: item.call_id || item.id,
+                name: item.name,
+                arguments: parseCompletedToolCallArgumentsJson(item.arguments, label, { id: item.call_id || item.id, name: item.name, finishReason }),
+            });
+        } else if (item?.type === 'tool_search_call') {
+            out.push({
+                id: item.call_id || item.id,
+                name: 'tool_search',
+                arguments: item.arguments && typeof item.arguments === 'object'
+                    ? item.arguments
+                    : parseCompletedToolCallArgumentsJson(item.arguments || '{}', label, { id: item.call_id || item.id, name: 'tool_search', finishReason }),
+                nativeType: 'tool_search_call',
+            });
+        }
     }
     return out.length ? out : undefined;
 }
@@ -1034,6 +1049,15 @@ function collectCompatResponseSearchSources(response) {
 }
 function toResponsesInputMessage(m, pendingToolMedia = null) {
     if (m.role === 'tool') {
+        if (Array.isArray(m.nativeToolSearch?.openaiTools)) {
+            return {
+                type: 'tool_search_output',
+                call_id: m.toolCallId || '',
+                status: 'completed',
+                execution: 'client',
+                tools: m.nativeToolSearch.openaiTools,
+            };
+        }
         const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
         const item = {
             type: 'function_call_output',
@@ -1047,12 +1071,21 @@ function toResponsesInputMessage(m, pendingToolMedia = null) {
         const items = [];
         if (m.content) items.push({ role: 'assistant', content: normalizeContentForOpenAIResponses(m.content, { role: 'assistant' }) });
         for (const tc of m.toolCalls) {
-            items.push({
-                type: 'function_call',
-                call_id: tc.id,
-                name: tc.name,
-                arguments: JSON.stringify(tc.arguments || {}),
-            });
+            if (tc.nativeType === 'tool_search_call' || tc.name === 'tool_search') {
+                items.push({
+                    type: 'tool_search_call',
+                    call_id: tc.id,
+                    execution: 'client',
+                    arguments: tc.arguments || {},
+                });
+            } else {
+                items.push({
+                    type: 'function_call',
+                    call_id: tc.id,
+                    name: tc.name,
+                    arguments: JSON.stringify(tc.arguments || {}),
+                });
+            }
         }
         return items;
     }
@@ -1172,7 +1205,7 @@ export class OpenAICompatProvider {
         const useModel = model || this.defaultModel;
         const opts = sendOpts || {};
         if (this.name === 'xai' && useXaiResponsesApi(opts, this.config)) {
-            if (useXaiResponsesWebSocket(opts, this.config) && !messagesHaveImageContent(messages)) {
+            if (useXaiResponsesWebSocket(opts, this.config)) {
                 return await this._doSendXaiResponsesWebSocket(messages, useModel, tools, opts);
             }
             return await this._doSendXaiResponses(messages, useModel, tools, opts);
@@ -1310,7 +1343,7 @@ export class OpenAICompatProvider {
         if (response.usage) {
             const inputTokens = Number(response.usage.prompt_tokens ?? response.usage.input_tokens ?? 0);
             const cachedTokens = extractCompatCachedTokens(response.usage);
-            traceBridgeUsage({
+            traceAgentUsage({
                 sessionId: opts.sessionId || opts.session?.id || null,
                 iteration: Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null,
                 inputTokens,
@@ -1387,7 +1420,7 @@ export class OpenAICompatProvider {
         const nativeTools = nativeResponsesTools(opts);
         if (tools?.length || nativeTools.length) params.tools = [...nativeTools, ...toResponsesTools(tools || [])];
         // SSE transport: report 'requesting' until the stream opens, then
-        // per-chunk onStreamDelta feeds the bridge stall watchdog.
+        // per-chunk onStreamDelta feeds the agent stall watchdog.
         try { opts.onStageChange?.('requesting'); } catch { /* heartbeat best-effort */ }
         const reasoningEffort = normalizeXaiReasoningEffort(opts.xaiReasoningEffort
             ?? opts.effort
@@ -1481,7 +1514,7 @@ export class OpenAICompatProvider {
         if (response.usage) {
             const inputTokens = Number(response.usage.input_tokens ?? response.usage.prompt_tokens ?? 0);
             const cachedTokens = extractCompatCachedTokens(response.usage);
-            traceBridgeUsage({
+            traceAgentUsage({
                 sessionId: opts.sessionId || opts.session?.id || null,
                 iteration: Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null,
                 inputTokens,

@@ -4,7 +4,7 @@
  * Writes one JSONL line per measurement point to
  * `history/model-profile.jsonl` (mirrors `retrieval-trace.jsonl`). Meant for
  * the embedding provider. Fire-and-forget: any I/O error is swallowed so
- * instrumentation never breaks a live bridge or memory-cycle call.
+ * instrumentation never breaks a live agent or memory-cycle call.
  *
  * Schema:
  *   {

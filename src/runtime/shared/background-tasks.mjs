@@ -41,7 +41,7 @@ export function resolveExecutionMode(args = {}, defaultMode = 'sync') {
 
 export function executionModeSchemaDescription(defaultMode = 'sync') {
   const defaultText = defaultMode === 'async' ? 'Default async.' : 'Default sync.';
-  return `Execution mode: sync returns the result in this call; async returns a task_id immediately and sends an owner-session notification on completion. ${defaultText}`;
+  return `sync = inline result; async = task_id + completion notification. ${defaultText}`;
 }
 
 export function taskIdFromArgs(args = {}) {

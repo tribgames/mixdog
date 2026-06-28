@@ -1,11 +1,11 @@
 export const TOOL_SYNC_EXECUTION_CONTRACT =
-  'Runs synchronously and returns the bounded result in this tool call.';
+  'Runs synchronously in this tool call.';
 
 export const TOOL_ASYNC_EXECUTION_CONTRACT =
-  'Async execution returns immediately; completion is delivered as an owner-session notification. Status/read/wait tools are for manual recovery or explicit blocking control only.';
+  'Async returns task_id; completion notification follows. status/read/wait are manual recovery or blocking only.';
 
 export const TOOL_MANUAL_CONTROL_CONTRACT =
-  'Use manual wait/peek/read/status only when you need explicit blocking, recovery, inspection, or cancellation.';
+  'Manual wait/read/status/cancel only for explicit blocking or recovery.';
 
 function clean(value) {
   return String(value ?? '').trim();

@@ -144,7 +144,6 @@ const FAILED_NOTICE_ACTIONS = new Map([
   ['auth-forget', 'forget auth'],
   ['auto-clear', 'update auto-clear'],
   ['autoclear', 'update auto-clear'],
-  ['bridge', 'run agent command'],
   ['agent', 'run agent command'],
   ['channels', 'load channels'],
   ['channels update', 'update channels'],
@@ -326,7 +325,7 @@ function splitBridgeEnvelope(text) {
   };
 }
 
-function bridgeJobStatusText(parsed) {
+function agentJobStatusText(parsed) {
   if (!parsed) return '';
   const parts = [];
   if (parsed.status) parts.push(`status: ${parsed.status}`);
@@ -334,14 +333,14 @@ function bridgeJobStatusText(parsed) {
   return parts.join(' · ');
 }
 
-function bridgeJobResultText(text, parsed = parseBridgeJob(text)) {
+function agentJobResultText(text, parsed = parseAgentJob(text)) {
   const value = String(text ?? '').trim();
   if (!value) return '';
   if (parsed?.taskId) {
     const { body } = splitBridgeEnvelope(value);
     const cleanBody = stripSyntheticAgentTags(body);
     if (cleanBody) return cleanBody;
-    return bridgeJobStatusText(parsed);
+    return agentJobStatusText(parsed);
   }
   return stripSyntheticAgentTags(value) || value;
 }
@@ -427,15 +426,15 @@ function parseSyntheticAgentMessage(text) {
       isError: /^(failed|error|timeout|cancelled|killed)$/i.test(status) || (exit && exit !== '0' && exit !== 'n/a'),
     };
   }
-  const bridgeJob = parseBridgeJob(value);
-  if (bridgeJob?.taskId) {
-    const label = bridgeJob.status || 'notification';
-    const result = bridgeJobResultText(value, bridgeJob);
+  const agentJob = parseAgentJob(value);
+  if (agentJob?.taskId) {
+    const label = agentJob.status || 'notification';
+    const result = agentJobResultText(value, agentJob);
     return {
       name: 'agent',
       label,
-      args: bridgeArgsWithResultMetadata({ type: bridgeJob.type || 'notification', description: 'agent notification' }, bridgeJob),
-      result: result || bridgeJobStatusText(bridgeJob) || 'agent notification',
+      args: agentArgsWithResultMetadata({ type: agentJob.type || 'notification', description: 'agent notification' }, agentJob),
+      result: result || agentJobStatusText(agentJob) || 'agent notification',
       isError: /^(failed|error|timeout|cancelled|killed)$/i.test(label),
     };
   }
@@ -478,7 +477,7 @@ function parseToolArgs(args) {
 
 const yieldToRenderer = () => new Promise((resolve) => setImmediate(resolve));
 
-function parseBridgeJob(text) {
+function parseAgentJob(text) {
   const value = String(text || '');
   const idMatch = /^agent task:\s*([^\s]+)/m.exec(value) || /^task_id:\s*([^\s]+)/m.exec(value);
   if (!idMatch) return null;
@@ -530,8 +529,8 @@ function firstQueueLine(text) {
 }
 
 function notificationDisplayText(text) {
-  const parsed = parseBridgeJob(text);
-  const result = bridgeJobResultText(text, parsed);
+  const parsed = parseAgentJob(text);
+  const result = agentJobResultText(text, parsed);
   const synthetic = parseSyntheticAgentMessage(text);
   return firstQueueLine(synthetic?.result || result || text) || 'agent notification';
 }
@@ -643,7 +642,7 @@ function isExecutionNotification(event, text, parsed) {
   return Boolean(parsed?.taskId && /^(?:agent task:|task_id:)/mi.test(String(text || '')));
 }
 
-function bridgeArgsWithResultMetadata(args, parsed) {
+function agentArgsWithResultMetadata(args, parsed) {
   if (!parsed) return args;
   const next = { ...(args && typeof args === 'object' ? args : {}) };
   if (parsed.type) next.type = parsed.type;
@@ -685,20 +684,20 @@ export async function createEngineSession({
   const cwd = runtime.cwd || process.cwd();
   const stateStartedAt = performance.now();
   const autoClearState = () => runtime.getAutoClear?.() || runtime.autoClear || { enabled: true, idleMs: 60 * 60 * 1000 };
-  const BRIDGE_STATUS_CACHE_MS = 250;
-  let bridgeStatusCache = null;
-  let bridgeStatusCacheAt = 0;
-  const bridgeStatusState = ({ force = false } = {}) => {
+  const AGENT_STATUS_CACHE_MS = 250;
+  let agentStatusCache = null;
+  let agentStatusCacheAt = 0;
+  const agentStatusState = ({ force = false } = {}) => {
     const now = Date.now();
-    if (!force && bridgeStatusCache && now - bridgeStatusCacheAt < BRIDGE_STATUS_CACHE_MS) return bridgeStatusCache;
-    const status = runtime.bridgeStatus?.() || {};
-    bridgeStatusCache = {
-      bridgeWorkers: Array.isArray(status.bridgeWorkers) ? status.bridgeWorkers : [],
-      bridgeJobs: Array.isArray(status.bridgeJobs) ? status.bridgeJobs : [],
-      bridgeScope: status.bridgeScope || null,
+    if (!force && agentStatusCache && now - agentStatusCacheAt < AGENT_STATUS_CACHE_MS) return agentStatusCache;
+    const status = runtime.agentStatus?.() || {};
+    agentStatusCache = {
+      agentWorkers: Array.isArray(status.agentWorkers) ? status.agentWorkers : [],
+      agentJobs: Array.isArray(status.agentJobs) ? status.agentJobs : [],
+      agentScope: status.agentScope || null,
     };
-    bridgeStatusCacheAt = now;
-    return bridgeStatusCache;
+    agentStatusCacheAt = now;
+    return agentStatusCache;
   };
   const routeState = () => ({
     sessionId: runtime.id,
@@ -722,10 +721,10 @@ export async function createEngineSession({
   const routeStateStartedAt = performance.now();
   const initialRouteState = routeState();
   bootProfile('engine:route-state-ready', { ms: (performance.now() - routeStateStartedAt).toFixed(1) });
-  const initialBridgeState = {
-    bridgeWorkers: [],
-    bridgeJobs: [],
-    bridgeScope: null,
+  const initialAgentState = {
+    agentWorkers: [],
+    agentJobs: [],
+    agentScope: null,
   };
   let state = {
     items: [],
@@ -739,7 +738,7 @@ export async function createEngineSession({
     lastTurn: null,
     stats: createSessionStats(),
     ...initialRouteState,
-    ...initialBridgeState,
+    ...initialAgentState,
     toolMode: runtime.toolMode,
     cwd,
   };
@@ -891,7 +890,7 @@ export async function createEngineSession({
     set({
       ...routeState(),
       stats: { ...state.stats },
-      ...bridgeStatusState(),
+      ...agentStatusState(),
     });
   }, 2000);
   runtimePulseTimer.unref?.();
@@ -909,17 +908,17 @@ export async function createEngineSession({
   const pendingNotificationKeys = new Set();
   const displayedExecutionNotificationKeys = new Set();
 
-  function updateBridgeJobCard(itemId, text, isError = false) {
-    const parsed = parseBridgeJob(text);
+  function updateAgentJobCard(itemId, text, isError = false) {
+    const parsed = parseAgentJob(text);
     const current = state.items.find((it) => it.id === itemId);
-    const rawDisplayText = bridgeJobResultText(text, parsed) || String(text ?? '').trim();
+    const rawDisplayText = agentJobResultText(text, parsed) || String(text ?? '').trim();
     const displayText = isError ? toolErrorDisplay(rawDisplayText, 'agent') : rawDisplayText;
     patchItem(itemId, {
       result: displayText,
       text: displayText,
       isError,
       errorCount: isError ? 1 : 0,
-      ...(parsed ? { args: bridgeArgsWithResultMetadata(current?.args, parsed) } : {}),
+      ...(parsed ? { args: agentArgsWithResultMetadata(current?.args, parsed) } : {}),
     });
   }
 
@@ -928,7 +927,7 @@ export async function createEngineSession({
       if (disposed) return;
       const text = String(event?.content ?? event?.text ?? event ?? '').trim();
       if (!text) return;
-      const parsed = parseBridgeJob(text);
+      const parsed = parseAgentJob(text);
       const notificationKey = notificationQueueKey(event, text, parsed);
       if (isExecutionNotification(event, text, parsed)) {
         const firstDelivery = !notificationKey || !displayedExecutionNotificationKeys.has(notificationKey);
@@ -940,11 +939,11 @@ export async function createEngineSession({
             key: notificationKey || undefined,
           });
         }
-        if (parsed?.taskId) set(bridgeStatusState({ force: true }));
+        if (parsed?.taskId) set(agentStatusState({ force: true }));
         return true;
       }
       if (parsed?.taskId) {
-        set(bridgeStatusState({ force: true }));
+        set(agentStatusState({ force: true }));
       }
       enqueue(text, {
         mode: 'task-notification',
@@ -1080,7 +1079,7 @@ export async function createEngineSession({
       return true;
     }
 
-    // Non-aggregate (legacy bridge-job cards, etc.)
+    // Non-aggregate (legacy agent-job cards, etc.)
     const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, results: [] };
     group.completed = Math.min(group.count, group.completed + 1);
     group.errors += isError ? 1 : 0;
@@ -1097,14 +1096,14 @@ export async function createEngineSession({
       completedAt: Date.now(),
     };
     if (group.count <= 1) {
-      const parsedBridge = parseBridgeJob(rawText);
-      if (parsedBridge) {
-        patch.args = bridgeArgsWithResultMetadata(state.items.find((it) => it.id === card.itemId)?.args, parsedBridge);
-        set(bridgeStatusState({ force: true }));
+      const parsedAgent = parseAgentJob(rawText);
+      if (parsedAgent) {
+        patch.args = agentArgsWithResultMetadata(state.items.find((it) => it.id === card.itemId)?.args, parsedAgent);
+        set(agentStatusState({ force: true }));
       }
     }
     patchItem(card.itemId, patch);
-    if (group.count <= 1) updateBridgeJobCard(card.itemId, rawText, isError);
+    if (group.count <= 1) updateAgentJobCard(card.itemId, rawText, isError);
     card.done = true;
     if (callId) done.add(callId);
     return true;
@@ -1719,7 +1718,7 @@ export async function createEngineSession({
         stats: { ...state.stats },
         ...routeState(),
         toolMode: runtime.toolMode,
-        ...bridgeStatusState({ force: true }),
+        ...agentStatusState({ force: true }),
       });
     }
     return cancelled ? 'cancelled' : 'done';
@@ -2049,6 +2048,11 @@ export async function createEngineSession({
       set({ autoClear: next });
       return next;
     },
+    getProfile: () => runtime.getProfile?.() || { title: '', language: 'system', languages: [] },
+    setProfile: (input = {}) => {
+      const next = runtime.setProfile?.(input) || runtime.getProfile?.() || null;
+      return next;
+    },
     getCompactionSettings: () => {
       return runtime.getCompactionSettings?.() || {};
     },
@@ -2096,11 +2100,11 @@ export async function createEngineSession({
         set({ commandBusy: false });
       }
     },
-    bridgeControl: async (args = {}) => {
+    agentControl: async (args = {}) => {
       if (state.commandBusy) return null;
       set({ commandBusy: true });
       try {
-        const result = await runtime.bridgeControl(args);
+        const result = await runtime.agentControl(args);
         const text = String(result ?? '').trim();
         const itemId = nextId();
         pushItem({
@@ -2115,8 +2119,8 @@ export async function createEngineSession({
           completedCount: 0,
           startedAt: Date.now(),
         });
-        updateBridgeJobCard(itemId, text, /^error:/i.test(text));
-        set(bridgeStatusState({ force: true }));
+        updateAgentJobCard(itemId, text, /^error:/i.test(text));
+        set(agentStatusState({ force: true }));
         return result;
       } finally {
         set({ commandBusy: false });
@@ -2360,7 +2364,7 @@ export async function createEngineSession({
       const startedAt = Date.now();
       set({ commandBusy: true, commandStatus: { active: true, verb: 'Compacting conversation', startedAt, mode: 'compacting' } });
       try {
-        const result = await runtime.compact({ recoverBridge: true });
+        const result = await runtime.compact({ recoverAgent: true });
         syncContextStats({ allowEstimated: true });
         set({ ...routeState(), stats: { ...state.stats } });
         if (result) {
@@ -2650,7 +2654,7 @@ export async function createEngineSession({
       set({ commandBusy: true });
       clearToastTimers();
       try {
-        await runtime.clear({ recoverBridge: true });
+        await runtime.clear({ recoverAgent: true });
         resetStatsAndSyncContext();
         set({ items: replaceItems([]), toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, ...routeState(), stats: { ...state.stats } });
         lastUserActivityAt = Date.now();

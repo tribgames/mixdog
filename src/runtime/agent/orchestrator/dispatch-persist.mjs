@@ -266,7 +266,7 @@ export function addPending(dataDir, handle, tool, queries, callerSessionId, clie
 /**
  * Best-effort check: is there at least one non-expired in-flight dispatch
  * recorded for this dataDir? Used by the scheduler's idle-state probe so
- * background tasks stay suppressed while a bridge dispatch is still
+ * background tasks stay suppressed while an agent dispatch is still
  * running. Never throws.
  */
 export function hasPending(dataDir) {

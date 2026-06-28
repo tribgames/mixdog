@@ -123,15 +123,15 @@ async function init(client) {
 }
 
 // ---------------------------------------------------------------------------
-// Bridge-specific analytic tables (added post-init via initBridgeTables)
+// Agent-specific analytic tables (added post-init via initAgentTables)
 // ---------------------------------------------------------------------------
 
 // Called once per openTraceDatabase boot (after the advisory lock is released).
 // Safe to call concurrently — all DDL is IF NOT EXISTS.
-export async function initBridgeTables(client) {
-  // ── bridge_calls: one row per tool invocation ─────────────────────────────
+export async function initAgentTables(client) {
+  // ── agent_calls: one row per tool invocation ─────────────────────────────
   await client.query(`
-    CREATE TABLE IF NOT EXISTS bridge_calls (
+    CREATE TABLE IF NOT EXISTS agent_calls (
       id           BIGSERIAL PRIMARY KEY,
       session_id   TEXT        NOT NULL,
       iteration    INT,
@@ -142,18 +142,18 @@ export async function initBridgeTables(client) {
       tool_args    JSONB
     )
   `)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_bc_session   ON bridge_calls (session_id, iteration)`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_bc_ts        ON bridge_calls USING BRIN (ts)`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_bc_tool_name ON bridge_calls (tool_name)`)
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_session   ON agent_calls (session_id, iteration)`)
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_ts        ON agent_calls USING BRIN (ts)`)
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_tool_name ON agent_calls (tool_name)`)
   // Expression indexes covering the two actual query patterns (md5 dedup + path lookup).
   // The old GIN index had no @> callers and was write-heavy; dropped in favour of these.
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_bc_args_md5  ON bridge_calls (session_id, tool_name, md5(tool_args::text))`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_bc_args_path ON bridge_calls (session_id, tool_name, (tool_args->>'path'), ts, id)`)
-  await client.query(`DROP INDEX IF EXISTS idx_bc_args`)
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_args_md5  ON agent_calls (session_id, tool_name, md5(tool_args::text))`)
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_args_path ON agent_calls (session_id, tool_name, (tool_args->>'path'), ts, id)`)
+  await client.query(`DROP INDEX IF EXISTS idx_ac_args`)
 
-  // ── bridge_llm: one row per LLM usage event ───────────────────────────────
+  // ── agent_llm: one row per LLM usage event ───────────────────────────────
   await client.query(`
-    CREATE TABLE IF NOT EXISTS bridge_llm (
+    CREATE TABLE IF NOT EXISTS agent_llm (
       id                 BIGSERIAL PRIMARY KEY,
       session_id         TEXT        NOT NULL,
       iteration          INT,
@@ -167,13 +167,13 @@ export async function initBridgeTables(client) {
       response_id        TEXT
     )
   `)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_bl_session ON bridge_llm (session_id, iteration)`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_bl_ts      ON bridge_llm USING BRIN (ts)`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_bl_model   ON bridge_llm (model)`)
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_al_session ON agent_llm (session_id, iteration)`)
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_al_ts      ON agent_llm USING BRIN (ts)`)
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_al_model   ON agent_llm (model)`)
 
-  // ── bridge_sessions: denormalised summary upserted on each insert ─────────
+  // ── agent_sessions: denormalised summary upserted on each insert ─────────
   await client.query(`
-    CREATE TABLE IF NOT EXISTS bridge_sessions (
+    CREATE TABLE IF NOT EXISTS agent_sessions (
       session_id          TEXT        PRIMARY KEY,
       role                TEXT,
       model               TEXT,
@@ -189,7 +189,7 @@ export async function initBridgeTables(client) {
 }
 
 // ---------------------------------------------------------------------------
-// insertBridgeCalls — batch insert tool rows + upsert session summary
+// insertAgentCalls — batch insert tool rows + upsert session summary
 // ---------------------------------------------------------------------------
 const TOOL_ARGS_MAX_BYTES = 65536  // 64 KB cap; oversized → sha256 + truncated preview
 
@@ -207,7 +207,7 @@ function _capToolArgsSync(args) {
   return { _oversized: true, sha256: _createHash('sha256').update(raw).digest('hex'), preview: raw.slice(0, 512) }
 }
 
-export async function insertBridgeCalls(db, events) {
+export async function insertAgentCalls(db, events) {
   if (!Array.isArray(events) || events.length === 0) return { calls: 0, llm: 0 }
   const toolRows = []
   const llmRows  = []
@@ -237,7 +237,7 @@ export async function insertBridgeCalls(db, events) {
 
   // Wrap all three inserts in a single transaction — one flush/fsync.
   // checkedConnect ensures search_path = trace, public on fresh connections;
-  // raw _pool.connect() leaves search_path at PG default and bridge_* lookups
+  // raw _pool.connect() leaves search_path at PG default and agent_* lookups
   // resolve in the wrong schema.
   const client = await checkedConnect(db._pool, 'trace')
   try {
@@ -245,7 +245,7 @@ export async function insertBridgeCalls(db, events) {
 
   if (toolRows.length > 0) {
     await client.query(
-      `INSERT INTO bridge_calls (session_id,iteration,ts,tool_name,tool_kind,tool_ms,tool_args)
+      `INSERT INTO agent_calls (session_id,iteration,ts,tool_name,tool_kind,tool_ms,tool_args)
        SELECT u.session_id, u.iteration::int, u.ts::timestamptz,
               u.tool_name, u.tool_kind, u.tool_ms::int, u.tool_args::jsonb
        FROM unnest($1::text[],$2::int[],$3::text[],$4::text[],$5::text[],$6::int[],$7::text[])
@@ -264,7 +264,7 @@ export async function insertBridgeCalls(db, events) {
 
   if (llmRows.length > 0) {
     await client.query(
-      `INSERT INTO bridge_llm (session_id,iteration,ts,model,input_tokens,output_tokens,cached_tokens,cache_write_tokens,prompt_tokens,response_id)
+      `INSERT INTO agent_llm (session_id,iteration,ts,model,input_tokens,output_tokens,cached_tokens,cache_write_tokens,prompt_tokens,response_id)
        SELECT u.session_id, u.iteration::int, u.ts::timestamptz,
               u.model, u.input_tokens::int, u.output_tokens::int,
               u.cached_tokens::int, u.cache_write_tokens::int,
@@ -330,7 +330,7 @@ export async function insertBridgeCalls(db, events) {
     })
   }
 
-  // Coalesce bridge_sessions upserts: batch all sessions in one unnest INSERT.
+  // Coalesce agent_sessions upserts: batch all sessions in one unnest INSERT.
   // Also within the same transaction.
   if (sessionMap.size > 0) {
     const sids = [], roles = [], models = [], ts0s = [], ts1s = [],
@@ -343,7 +343,7 @@ export async function insertBridgeCalls(db, events) {
       tinputs.push(String(s.total_input)); toutputs.push(String(s.total_output))
     }
     await client.query(`
-      INSERT INTO bridge_sessions (session_id, role, model, started_at, last_seen_at, tool_calls, llm_calls, max_iteration, total_input_tokens, total_output_tokens)
+      INSERT INTO agent_sessions (session_id, role, model, started_at, last_seen_at, tool_calls, llm_calls, max_iteration, total_input_tokens, total_output_tokens)
       SELECT u.session_id, u.role, u.model,
              u.started_at::timestamptz, u.last_seen_at::timestamptz,
              u.tool_calls::int, u.llm_calls::int, u.max_iteration::int,
@@ -351,15 +351,15 @@ export async function insertBridgeCalls(db, events) {
       FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::int[],$7::int[],$8::int[],$9::text[],$10::text[])
            AS u(session_id,role,model,started_at,last_seen_at,tool_calls,llm_calls,max_iteration,total_input_tokens,total_output_tokens)
       ON CONFLICT (session_id) DO UPDATE SET
-        role                = COALESCE(EXCLUDED.role, bridge_sessions.role),
-        model               = COALESCE(EXCLUDED.model, bridge_sessions.model),
-        started_at          = LEAST(bridge_sessions.started_at, EXCLUDED.started_at),
-        last_seen_at        = GREATEST(bridge_sessions.last_seen_at, EXCLUDED.last_seen_at),
-        tool_calls          = bridge_sessions.tool_calls + EXCLUDED.tool_calls,
-        llm_calls           = bridge_sessions.llm_calls  + EXCLUDED.llm_calls,
-        max_iteration       = GREATEST(bridge_sessions.max_iteration, EXCLUDED.max_iteration),
-        total_input_tokens  = bridge_sessions.total_input_tokens  + EXCLUDED.total_input_tokens,
-        total_output_tokens = bridge_sessions.total_output_tokens + EXCLUDED.total_output_tokens
+        role                = COALESCE(EXCLUDED.role, agent_sessions.role),
+        model               = COALESCE(EXCLUDED.model, agent_sessions.model),
+        started_at          = LEAST(agent_sessions.started_at, EXCLUDED.started_at),
+        last_seen_at        = GREATEST(agent_sessions.last_seen_at, EXCLUDED.last_seen_at),
+        tool_calls          = agent_sessions.tool_calls + EXCLUDED.tool_calls,
+        llm_calls           = agent_sessions.llm_calls  + EXCLUDED.llm_calls,
+        max_iteration       = GREATEST(agent_sessions.max_iteration, EXCLUDED.max_iteration),
+        total_input_tokens  = agent_sessions.total_input_tokens  + EXCLUDED.total_input_tokens,
+        total_output_tokens = agent_sessions.total_output_tokens + EXCLUDED.total_output_tokens
     `, [sids, roles, models, ts0s, ts1s, tcalls, lcalls, maxiters, tinputs, toutputs])
   }
 
@@ -519,8 +519,8 @@ export async function openTraceDatabase(dataDir) {
     } finally {
       client.release()
     }
-    // Bridge-specific analytic tables — idempotent, no advisory lock needed.
-    await initBridgeTables(db)
+    // Agent-specific analytic tables — idempotent, no advisory lock needed.
+    await initAgentTables(db)
 
     dbs.set(key, db)
 

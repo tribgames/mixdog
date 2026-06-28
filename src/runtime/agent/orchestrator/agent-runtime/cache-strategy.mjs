@@ -1,19 +1,24 @@
 /**
- * Smart Bridge — Cache Strategy
+ * Agent Runtime — Cache Strategy
  *
  * Provider-level cache policy. Anthropic supports explicit cache_control
  * breakpoints (up to 4 per request) — we use all 4 slots. Non-breakpoint
  * providers rely on server-side automatic prefix matching or observation.
  *
- * Anthropic 4-BP layout (public/CLI):
- *   BP_1  tools      (1h)  — tool schemas, stable per schema profile
- *   BP_2  system     (1h)  — Tier 2 shared rules
- *   BP_3  tier3      (1h)  — role/permission meta (messages[1] system-reminder)
- *   BP_4  messages   (1h)  — last message only; sliding extends prefix loss-free
+ * Anthropic 4-BP layout:
+ *   BP_1  system#1  (1h)  — baseRules; shared agent/Lead rules
+ *   BP_2  system#2  (1h)  — reserved stable system layer
+ *   BP_3  tier3     (1h)  — role-varying stable session marker (sentinel system-reminder)
+ *   BP_4  messages  (1h/5m) — sliding tool_result / prior user-text tail
  *
- * Tier 3 gets its own BP because role meta is stable per dispatch, so a
- * dedicated slot gives a reliable hit across the entire tool loop while
- * the sliding messages BP handles volatile tool_result accumulation.
+ * Tool schemas still sit before system in the provider prompt prefix. We do
+ * not spend a separate cache_control slot on tools; the first system BP covers
+ * the preceding tool prefix via Anthropic prefix caching semantics. Keeping
+ * agent worker tool schemas byte-stable is therefore still load-bearing.
+ *
+ * Tier 3 gets its own BP because workflow/role-specific context is
+ * stable within the session. The sliding messages BP handles tool_result
+ * accumulation without pinning volatile task/env text into the 1h tier.
  *
  * Non-breakpoint providers:
  *   - OpenAI (public): prompt_cache_key + prompt_cache_retention=24h
@@ -34,7 +39,7 @@ import { getHiddenRole } from '../internal-roles.mjs';
 /**
  * One-shot, LLM-only maintenance hidden roles (cycle1/cycle2/cycle3-agent):
  * a fresh stateless session is created per call, asked exactly once, and
- * closed (bridge-llm.mjs) — the per-batch user prompt can NEVER be reused.
+ * closed (agent-dispatch.mjs) — the per-batch user prompt can NEVER be reused.
  * Writing a message-tail cache breakpoint on it just pays the 1.25x write
  * premium for content read back 0 times. Identified by the declarative
  * (kind:'maintenance' + toolSchemaProfile:'llm-only') pair rather than

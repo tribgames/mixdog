@@ -3,7 +3,7 @@
  * for Claude Max subscription access.
  *
  * Raw HTTP + SSE streaming, reuses message/tool conversion patterns
- * from anthropic.mjs. Bridge-trace instrumented.
+ * from anthropic.mjs. agent-trace instrumented.
  */
 import { readFileSync, existsSync, statSync } from 'fs';
 import { join } from 'path';
@@ -11,10 +11,10 @@ import { homedir } from 'os';
 import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
 import {
-    traceBridgeFetch,
-    traceBridgeSse,
-    traceBridgeUsage,
-} from '../bridge-trace.mjs';
+    traceAgentFetch,
+    traceAgentSse,
+    traceAgentUsage,
+} from '../agent-trace.mjs';
 import { createAbortController } from '../../../shared/abort-controller.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
@@ -272,7 +272,7 @@ const OAUTH_TOKEN_TIMEOUT_MS = 30_000;
 // Mixdog keeps that upstream client contract for OAuth routing. Haiku is not
 // gated and ignores this prefix.
 const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude.";
-const OAUTH_BETA_HEADERS = 'oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,extended-cache-ttl-2025-04-11';
+const OAUTH_BETA_HEADERS = 'oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,extended-cache-ttl-2025-04-11,advanced-tool-use-2025-11-20';
 const DEFAULT_CLI_VERSION = '2.1.77';
 
 function resolveCliVersion() {
@@ -696,16 +696,28 @@ function _sanitizeInputSchema(schema, toolName) {
 }
 
 function toAnthropicTools(tools) {
-    return tools.map(t => ({
-        name: t.name,
-        description: t.description,
-        input_schema: _sanitizeInputSchema(t.inputSchema, t.name),
-    }));
+    return tools.map(t => {
+        const out = {
+            name: t.name,
+            description: t.description,
+            input_schema: _sanitizeInputSchema(t.inputSchema, t.name),
+        };
+        if (t.deferLoading === true || t.defer_loading === true) out.defer_loading = true;
+        return out;
+    });
 }
 function nativeAnthropicTools(opts) {
     return Array.isArray(opts?.nativeTools)
         ? opts.nativeTools.filter(t => t && typeof t === 'object')
         : [];
+}
+function deferredAnthropicTools(activeTools, opts) {
+    if (opts?.session?.deferredNativeTools !== true) return [];
+    const active = new Set((activeTools || []).map((tool) => String(tool?.name || '').trim()).filter(Boolean));
+    const catalog = Array.isArray(opts.session.deferredToolCatalog) ? opts.session.deferredToolCatalog : [];
+    return catalog
+        .filter((tool) => tool?.name && !active.has(String(tool.name)))
+        .map((tool) => ({ ...tool, deferLoading: true }));
 }
 
 function toAnthropicMessages(messages) {
@@ -742,10 +754,15 @@ function toAnthropicMessages(messages) {
 
         if (m.role === 'tool') {
             const last = result[result.length - 1];
+            const refs = Array.isArray(m.nativeToolSearch?.toolReferences)
+                ? m.nativeToolSearch.toolReferences.map((name) => String(name || '').trim()).filter(Boolean)
+                : [];
             const block = {
                 type: 'tool_result',
                 tool_use_id: m.toolCallId || '',
-                content: normalizeContentForAnthropic(m.content),
+                content: refs.length
+                    ? refs.map((name) => ({ type: 'tool_reference', tool_name: name }))
+                    : normalizeContentForAnthropic(m.content),
             };
             if (last?.role === 'user' && Array.isArray(last.content)) {
                 last.content.push(block);
@@ -880,7 +897,7 @@ function applyAnthropicCacheMarkers(sanitizedMessages, { messageTtl = CACHE_TTL_
 function _captureMidstreamAbort(state, reason) {
     if (!state) return;
     const reasonName = reason?.name || '';
-    if (reasonName === 'BridgeStallAbortError' || reasonName === 'StreamStalledAbortError') {
+    if (reasonName === 'AgentStallAbortError' || reasonName === 'StreamStalledAbortError') {
         state.watchdogAbort = reasonName;
     } else {
         state.userAbort = true;
@@ -942,7 +959,7 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
     const resetIdleTimer = () => {
         // OFF by default. When disabled the
         // idle timer never arms, so the stream is never killed on inactivity;
-        // the bridge stall watchdog (600s) remains the dead-stream backstop.
+        // the agent stall watchdog (600s) remains the dead-stream backstop.
         if (!PROVIDER_SSE_IDLE_WATCHDOG_ENABLED) return;
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
@@ -1023,7 +1040,7 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
                 if (line.startsWith(':')) {
                     // SSE comment frame (Anthropic `:ping` keepalive). The HTML Standard SSE
                     // spec says comments are silently ignored, but we surface them here so
-                    // the bridge-stall-watchdog sees the stream is still alive during Opus
+                    // the agent stall watchdog sees the stream is still alive during Opus
                     // extended-thinking pauses. No content is emitted — this only refreshes
                     // the runtime's lastStreamDeltaAt timestamp.
                     try { onStreamDelta?.(); } catch {}
@@ -1248,9 +1265,9 @@ export function _classifyMidstreamError(err, state) {
     if (status === 401 || status === 403 || status === 429) return null;
 
     const name = err?.name || '';
-    if (name === 'BridgeStallAbortError') return 'bridge_stall';
+    if (name === 'AgentStallAbortError') return 'agent_stall';
     if (name === 'StreamStalledAbortError') return 'stream_stalled';
-    if (state.watchdogAbort === 'BridgeStallAbortError') return 'bridge_stall';
+    if (state.watchdogAbort === 'AgentStallAbortError') return 'agent_stall';
     if (state.watchdogAbort === 'StreamStalledAbortError') return 'stream_stalled';
 
     const code = err?.code || err?.cause?.code || '';
@@ -1281,18 +1298,18 @@ function resolveCacheTtls(opts) {
     };
     // BP budget (4 total):
     //   BP1 baseRules    — 1h (shared across ALL roles)
-    //   BP2 roleCatalog  — 1h (shared across ALL roles)
-    //   BP3 tier3        — 1h (sessionMarker: mixdog.md + stable role body)
+    //   BP2 stableSystem — 1h (reserved role-independent system layer)
+    //   BP3 tier3        — 1h (sessionMarker: stable role/session body)
     //   BP4 messages     — 1h sliding tail (tool_result cache across iter)
     // tools BP is dropped — system BP covers the tools prefix via
     // Anthropic's prompt cache prefix semantics (order: tools → system
     // → messages).
     // tier3 defaults to 1h (stable) — sessionMarker content is stable per
-    // (role, permission, project) tuple and Anthropic only spends the BP
+    // (workflow/role-specific context) tuple and Anthropic only spends the BP
     // slot when findTier3Index() actually finds a <system-reminder> block,
     // so this default is free for sessions that don't carry one. Previously
-    // null here meant any caller that skipped smart bridge resolve (CLI,
-    // raw bridge spawn) silently lost the tier3 cache layer even
+    // null here meant any caller that skipped agent runtime resolve (CLI,
+    // raw agent spawn) silently lost the tier3 cache layer even
     // though their message layout supported it.
     return {
         tools: pick('tools', CACHE_TTL_STABLE),
@@ -1305,10 +1322,10 @@ function resolveCacheTtls(opts) {
 // Tier 3 is injected by session/manager as a user message wrapped in
 // `<system-reminder>` whose body starts with the explicit sentinel
 // `<!-- bp3-sentinel -->` (emitted by collect.mjs:composeSystemPrompt only
-// when stable mixdog.md/role-specific context is present). The sentinel is mandatory:
-// volatileTail (role/permission/taskBrief/memoryRecap) is also wrapped in
-// `<system-reminder>` but varies per-call, so a plain prefix match would
-// pin per-call data to the 1h BP3 slot and explode the cache.
+// when stable role/session context is present). The sentinel is mandatory:
+// volatileTail may also be wrapped in `<system-reminder>` but varies per-call,
+// so a plain prefix match would pin volatile data to the 1h BP3 slot and
+// explode the cache.
 const BP3_SENTINEL = '<!-- bp3-sentinel -->';
 function findTier3Index(chatMsgs) {
     for (let i = 0; i < chatMsgs.length; i++) {
@@ -1374,12 +1391,13 @@ function buildRequestBody(messages, model, tools, sendOpts) {
     if (systemBlocks.length) body.system = systemBlocks;
 
     const nativeTools = nativeAnthropicTools(opts);
-    if (tools?.length || nativeTools.length) {
+    const deferredTools = deferredAnthropicTools(tools || [], opts);
+    if (tools?.length || nativeTools.length || deferredTools.length) {
         // No cache_control on tools — the systemBase BP already covers the
         // tools prefix via Anthropic's prompt cache prefix semantics (order:
         // tools → system → messages). Placing a separate BP here would waste
         // a slot that's better spent on messages tail.
-        body.tools = [...nativeTools, ...toAnthropicTools(tools || [])];
+        body.tools = [...nativeTools, ...toAnthropicTools([...(tools || []), ...deferredTools])];
     }
 
     const thinkingBudgetTokens = Number(opts.thinkingBudgetTokens);
@@ -1558,7 +1576,7 @@ export class AnthropicOAuthProvider {
         //       (PROVIDER_HTTP_RESPONSE_TIMEOUT_MS) for a socket that never sends a
         //       first byte (truly wedged),
         //   (b) externalSignal (client disconnect / replaced-by-newer-request), and
-        //   (c) the bridge stall watchdog (STALL_ABORT_S, 600s, progress-based) plus
+        //   (c) the agent stall watchdog (STALL_ABORT_S, 600s, progress-based) plus
         //       the optional SSE idle watchdog for a stream that goes dead mid-flight.
         // totalSignal is therefore a pure pass-through of externalSignal with no timer.
         const totalTimeout = createPassthroughSignal(externalSignal);
@@ -1614,6 +1632,7 @@ export class AnthropicOAuthProvider {
                         'anthropic-beta': buildAnthropicBetaHeaders({
                             base: OAUTH_BETA_HEADERS,
                             fastMode: this.fastModeBetaHeaderLatched,
+                            toolSearch: true,
                         }),
                         'anthropic-dangerous-direct-browser-access': 'true',
                         'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
@@ -1625,7 +1644,7 @@ export class AnthropicOAuthProvider {
                     dispatcher: getLlmDispatcher(),
                 });
 
-                traceBridgeFetch({
+                traceAgentFetch({
                     sessionId,
                     headersMs: Date.now() - fetchStartedAt,
                     httpStatus: response.status,
@@ -1783,7 +1802,7 @@ export class AnthropicOAuthProvider {
 
                 const ttftMs = midState.ttftAt ? midState.ttftAt - sseStartedAt : null;
                 const liveModel = result.model || useModel;
-                traceBridgeSse({
+                traceAgentSse({
                     sessionId,
                     sseParseMs: Date.now() - sseStartedAt,
                     ttftMs,
@@ -1792,7 +1811,7 @@ export class AnthropicOAuthProvider {
                     transport: 'sse',
                 });
 
-                traceBridgeUsage({
+                traceAgentUsage({
                     sessionId,
                     iteration,
                     inputTokens: result.usage?.inputTokens || 0,

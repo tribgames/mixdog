@@ -304,7 +304,7 @@ function _modelsDevMetadataSync(id, provider) {
  *   2. disk cache one-shot read if memory is cold (first call after boot),
  *   3. null if neither is available (async loadCatalog will fill later).
  *
- * Used by hot-path loggers (bridge-trace usage row) that must not await.
+ * Used by hot-path loggers (agent-trace usage row) that must not await.
  * The disk fallback is a single ~5ms blocking read on cold start; all
  * subsequent calls hit memory. TTL is intentionally ignored here — stale
  * catalog beats no catalog, and the async path refreshes on schedule.

@@ -32,6 +32,26 @@ function logLine(path, line) {
   }
 }
 
+const CHANNEL_WORKER_EXIT_CLEANUPS = new Set();
+let channelWorkerExitHookInstalled = false;
+
+function registerChannelWorkerExitCleanup(cleanup) {
+  if (typeof cleanup !== 'function') return () => {};
+  CHANNEL_WORKER_EXIT_CLEANUPS.add(cleanup);
+  if (!channelWorkerExitHookInstalled) {
+    channelWorkerExitHookInstalled = true;
+    process.once('exit', () => {
+      for (const fn of Array.from(CHANNEL_WORKER_EXIT_CLEANUPS)) {
+        try { fn(); } catch {}
+      }
+      CHANNEL_WORKER_EXIT_CLEANUPS.clear();
+    });
+  }
+  return () => {
+    CHANNEL_WORKER_EXIT_CLEANUPS.delete(cleanup);
+  };
+}
+
 function runtimeRoot() {
   return process.env.MIXDOG_RUNTIME_ROOT ? resolve(process.env.MIXDOG_RUNTIME_ROOT) : join(tmpdir(), 'mixdog');
 }
@@ -116,7 +136,7 @@ export function createStandaloneChannelWorker({
   let inProcessMod = null;
   let inProcessStartPromise = null;
   let nextCallId = 1;
-  let parentExitHookInstalled = false;
+  let parentExitCleanup = null;
   const pending = new Map();
   const ownedChildPids = new Set();
   const logPath = join(dataDir, 'channels-worker-standalone.log');
@@ -132,6 +152,7 @@ export function createStandaloneChannelWorker({
   let notifyBusTimer = null;
   let notifyBusOffset = 0;
   let clientHeartbeatTimer = null;
+  let clientHeartbeatExitCleanup = null;
 
   function writeClientHeartbeat() {
     try {
@@ -149,10 +170,15 @@ export function createStandaloneChannelWorker({
     writeClientHeartbeat();
     clientHeartbeatTimer = setInterval(writeClientHeartbeat, 5000);
     clientHeartbeatTimer.unref?.();
-    process.once('exit', stopClientHeartbeat);
+    clientHeartbeatExitCleanup ||= registerChannelWorkerExitCleanup(stopClientHeartbeat);
   }
 
   function stopClientHeartbeat() {
+    if (clientHeartbeatExitCleanup) {
+      const unregister = clientHeartbeatExitCleanup;
+      clientHeartbeatExitCleanup = null;
+      unregister();
+    }
     if (clientHeartbeatTimer) {
       clearInterval(clientHeartbeatTimer);
       clientHeartbeatTimer = null;
@@ -253,6 +279,7 @@ export function createStandaloneChannelWorker({
     releaseSingletonOwner(ownerPath, ownerPid);
     ownerClaim = null;
     ownerPid = process.pid;
+    uninstallParentExitHook();
   }
 
   function rejectPending(error) {
@@ -535,9 +562,9 @@ export function createStandaloneChannelWorker({
   }
 
   function installParentExitHook() {
-    if (parentExitHookInstalled) return;
-    parentExitHookInstalled = true;
-    process.once('exit', () => {
+    if (parentExitCleanup) return;
+    parentExitCleanup = registerChannelWorkerExitCleanup(() => {
+      parentExitCleanup = null;
       if (!daemonEnabled) {
         for (const pid of Array.from(ownedChildPids)) {
           forceKillTreeSync(pid);
@@ -546,6 +573,13 @@ export function createStandaloneChannelWorker({
       }
       ownedChildPids.clear();
     });
+  }
+
+  function uninstallParentExitHook() {
+    if (!parentExitCleanup) return;
+    const unregister = parentExitCleanup;
+    parentExitCleanup = null;
+    unregister();
   }
 
   function unrefChildHandles(target) {
@@ -594,6 +628,7 @@ export function createStandaloneChannelWorker({
       unrefChildHandles(target);
       ownerClaim = null;
       ownerPid = process.pid;
+      uninstallParentExitHook();
       return Promise.resolve(true);
     }
     if (!waitForExit) {
@@ -608,6 +643,7 @@ export function createStandaloneChannelWorker({
           stopPromise = null;
           unrefChildHandles(target);
           releaseOwner();
+          uninstallParentExitHook();
           resolve(ok);
         };
         const sendTimer = setTimeout(() => finish(false), 250);
@@ -633,6 +669,7 @@ export function createStandaloneChannelWorker({
         stopPromise = null;
         stopNotifyBus();
         releaseOwner();
+        uninstallParentExitHook();
         resolve(ok);
       };
       const termTimer = setTimeout(() => {

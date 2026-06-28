@@ -53,7 +53,7 @@ function formatDurationMs(value) {
 function subjectForSurface(surface) {
   const value = String(surface || '').toLowerCase();
   if (value.includes('search') || value.includes('web')) return 'web search agent';
-  if (value.includes('bridge') || value.includes('agent') || value.includes('task')) return 'agent';
+  if (value.includes('agent') || value.includes('task')) return 'agent';
   return 'tool';
 }
 
@@ -75,7 +75,7 @@ export function presentErrorText(error, options = {}) {
   text = oneLine(stripErrorPrefix(text));
   if (!text) return 'Unknown error';
 
-  if (/\bBRIDGE_CONTEXT_OVERFLOW\b|bridge context overflow|latest turn cannot fit|context budget|context window/i.test(text)) {
+  if (/\bAGENT_CONTEXT_OVERFLOW\b|agent context overflow|latest turn cannot fit|context budget|context window/i.test(text)) {
     return 'Context too large.';
   }
   if (/\bcompact(?:ion)?\b.*\b(?:failed|error|overflow)\b|\b(?:failed|error)\b.*\bcompact(?:ion)?\b/i.test(text)) {
@@ -88,7 +88,7 @@ export function presentErrorText(error, options = {}) {
     return `${provider} quota/rate limit hit${quotaRetry?.[1] ? `; retry after ${quotaRetry[1]}` : ''}.`;
   }
 
-  const firstResponse = /(?:bridge\s+)?first response stale\s*\((\d+)ms\)/i.exec(text);
+  const firstResponse = /(?:agent\s+)?first response stale\s*\((\d+)ms\)/i.exec(text);
   if (firstResponse) {
     return `No first response from the ${subject} within ${formatDurationMs(firstResponse[1])}.`;
   }

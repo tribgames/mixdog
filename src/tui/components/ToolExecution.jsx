@@ -696,10 +696,18 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const hintLabel = showHeaderExpandHint ? `ctrl+o ${expanded ? 'collapse' : 'expand'}` : '';
   const hintText = hintLabel ? ` ${BULLET_OPERATOR} ${hintLabel}` : '';
   const headerMetaText = pending && elapsed ? ` (${elapsed} elapsed)` : '';
-  const avail = Math.max(
-    1,
-    (Number(columns) || 80) - 1 - gutter - stringWidth(hintText) - stringWidth(headerMetaText),
-  );
+  // The expand hint (post-completion) and the elapsed meta (pending) occupy the
+  // SAME trailing region but never at the same time. Subtracting both widths
+  // made `avail` shrink/grow across the pending→completed transition, so the
+  // label/summary clip point shifted and the header text "jumped out then
+  // snapped back" right as a tool finished or cards merged. Reserve the wider of
+  // the two for the whole lifecycle (matching the aggregate card's rightReserve)
+  // so `avail` stays fixed and nothing reflows. The hint slot is reserved even
+  // while pending so its later appearance does not push the body either.
+  const hintReserveLabel = `ctrl+o ${expanded ? 'collapse' : 'expand'}`;
+  const hintReserveText = ` ${BULLET_OPERATOR} ${hintReserveLabel}`;
+  const rightReserve = Math.max(stringWidth(hintReserveText), stringWidth(headerMetaText));
+  const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - rightReserve);
   let labelOut;
   let summaryOut;
   if (stringWidth(labelText) >= avail) {

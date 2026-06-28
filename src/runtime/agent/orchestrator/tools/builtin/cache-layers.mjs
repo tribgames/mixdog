@@ -5,6 +5,7 @@ import { deleteReadRangeIndexForPath } from './read-range-index.mjs';
 import { resolveAgainstCwd } from './path-utils.mjs';
 
 const RESULT_CACHE = new Map(); // key → { ts, value, paths, scopes, readSnapshotMeta, contentPrefixHash, bytes }
+const RESULT_CACHE_INFLIGHT = new Map(); // key → Promise<value>
 const RESULT_CACHE_TTL_MS = 30_000;
 const RESULT_CACHE_MAX_ENTRIES = 200;
 const RESULT_CACHE_MAX_BYTES = (() => {
@@ -140,6 +141,22 @@ export function cacheSet(key, value, meta = {}) {
     }
 }
 
+export async function runResultCacheInFlight(key, compute) {
+    const cached = cacheGet(key);
+    if (cached !== null) return cached;
+    const existing = RESULT_CACHE_INFLIGHT.get(key);
+    if (existing) return await existing;
+    const promise = Promise.resolve()
+        .then(() => compute())
+        .finally(() => {
+            if (RESULT_CACHE_INFLIGHT.get(key) === promise) {
+                RESULT_CACHE_INFLIGHT.delete(key);
+            }
+        });
+    RESULT_CACHE_INFLIGHT.set(key, promise);
+    return await promise;
+}
+
 function rawContentCacheDelete(key) {
     const entry = RAW_CONTENT_CACHE.get(key);
     if (entry?.rawBuf) RAW_CONTENT_CACHE_BYTES = Math.max(0, RAW_CONTENT_CACHE_BYTES - entry.rawBuf.length);
@@ -230,7 +247,7 @@ export async function statPathsForMtime(paths, workDir, concurrency = 64, opts =
     // Hard per-stat deadline (0 = disabled, legacy behaviour). A hung stat
     // (dead mount / unresponsive network path) must not pin a worker forever;
     // on expiry the entry resolves to null (stat-failed) so glob's post-rg stat
-    // phase is bounded instead of running to the 600s bridge watchdog.
+    // phase is bounded instead of running to the 600s agent watchdog.
     const deadlineMs = Number(opts.deadlineMs) > 0 ? Number(opts.deadlineMs) : 0;
     // Injectable stat impl for testing hung-FS behaviour deterministically.
     const statImpl = typeof opts._statImpl === 'function' ? opts._statImpl : fsPromises.stat;
@@ -293,7 +310,7 @@ export async function lstatPathsForMtime(paths, workDir, concurrency = 64, opts 
     // Hard per-lstat deadline (0 = disabled, legacy behaviour). A hung lstat
     // (dead mount / unresponsive network path) must not pin a worker forever;
     // on expiry the entry resolves to null (stat-failed) so list's stat phase
-    // is bounded instead of running to the 600s bridge watchdog.
+    // is bounded instead of running to the 600s agent watchdog.
     const deadlineMs = Number(opts.deadlineMs) > 0 ? Number(opts.deadlineMs) : 0;
     // Injectable lstat impl for testing hung-FS behaviour deterministically.
     const lstatImpl = typeof opts._lstatImpl === 'function' ? opts._lstatImpl : fsPromises.lstat;
@@ -342,6 +359,7 @@ export async function lstatPathsForMtime(paths, workDir, concurrency = 64, opts 
 
 function cacheInvalidateAll() {
     RESULT_CACHE.clear();
+    RESULT_CACHE_INFLIGHT.clear();
     RESULT_CACHE_BYTES = 0;
     STAT_CACHE.clear();
     RAW_CONTENT_CACHE.clear();
@@ -356,6 +374,7 @@ function cacheInvalidatePaths(paths) {
         cacheInvalidateAll();
         return;
     }
+    RESULT_CACHE_INFLIGHT.clear();
     for (const [key, entry] of RESULT_CACHE) {
         if (cacheEntryOverlapsPaths(entry, affectedPaths)) {
             resultCacheDelete(key);

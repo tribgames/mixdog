@@ -190,7 +190,7 @@ export function getAllProviders() {
 }
 // Background catalog warm-up. Each provider's listModels() either hits its
 // own cached model list (no-op) or fires a single HTTP refresh. Called from
-// agent.init() after providers are registered so the first bridge LLM call
+// agent.init() after providers are registered so the first agent dispatch call
 // (e.g. cycle1 on session start) does not pay the catalog refresh latency
 // inline. Fire-and-forget: failures are logged inside each provider.
 export function warmupCatalogs() {

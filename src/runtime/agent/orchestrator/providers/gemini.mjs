@@ -2,7 +2,7 @@ import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import { loadConfig } from '../config.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { withRetry } from './retry-classifier.mjs';
-import { traceBridgeUsage, appendBridgeTrace } from '../bridge-trace.mjs';
+import { traceAgentUsage, appendAgentTrace } from '../agent-trace.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
     PROVIDER_MAX_BEFORE_WARN_MS,
@@ -1065,7 +1065,7 @@ export class GeminiProvider {
         const canAttachState = !!state?.cacheName && cacheLiveMs > 0 && modelMatches && prefixMatches;
         const canReuseState = canAttachState && cacheLiveMs > 6 * 60 * 1000 && itersSinceCreate < refreshEveryN;
         try {
-            appendBridgeTrace({
+            appendAgentTrace({
                 sessionId: opts.sessionId || opts.session?.id || null,
                 iteration: currentIter,
                 kind: 'gemini_cache_decision',
@@ -1099,7 +1099,7 @@ export class GeminiProvider {
         const estimatedTokens = _estimateGeminiCacheTokens(systemInstruction, geminiTools, contents);
         if (estimatedTokens < minTokens) {
             try {
-                appendBridgeTrace({
+                appendAgentTrace({
                     sessionId: opts.sessionId || opts.session?.id || null,
                     iteration: currentIter,
                     kind: 'gemini_cache_skip',
@@ -1131,7 +1131,7 @@ export class GeminiProvider {
         const globalCache = _getGeminiGlobalCache(globalCacheKey, now);
         if (globalCache) {
             try {
-                appendBridgeTrace({
+                appendAgentTrace({
                     sessionId: opts.sessionId || opts.session?.id || null,
                     iteration: currentIter,
                     kind: 'gemini_cache_global_hit',
@@ -1151,7 +1151,7 @@ export class GeminiProvider {
             const created = await inFlightCreate.catch(() => null);
             if (created?.cacheName) {
                 try {
-                    appendBridgeTrace({
+                    appendAgentTrace({
                         sessionId: opts.sessionId || opts.session?.id || null,
                         iteration: currentIter,
                         kind: 'gemini_cache_global_wait_hit',
@@ -1205,7 +1205,7 @@ export class GeminiProvider {
             if (!res.ok) {
                 const text = await res.text().catch(() => '');
                 try {
-                    appendBridgeTrace({
+                    appendAgentTrace({
                         sessionId: opts.sessionId || opts.session?.id || null,
                         iteration: currentIter,
                         kind: 'gemini_cache_create_fail',
@@ -1225,7 +1225,7 @@ export class GeminiProvider {
             if (!cacheName) return null;
             const cacheTokenSize = Number(data?.usageMetadata?.totalTokenCount || 0) || 0;
             try {
-                appendBridgeTrace({
+                appendAgentTrace({
                     sessionId: opts.sessionId || opts.session?.id || null,
                     iteration: currentIter,
                     kind: 'gemini_cache_create_ok',
@@ -1581,7 +1581,7 @@ export class GeminiProvider {
             const outputTokens = (um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0);
             if (cachedContent && inputTokens > 0 && cachedTokens <= 0) {
                 try {
-                    appendBridgeTrace({
+                    appendAgentTrace({
                         sessionId: opts.sessionId || opts.session?.id || null,
                         iteration: Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null,
                         kind: 'gemini_cache_anomaly',
@@ -1597,7 +1597,7 @@ export class GeminiProvider {
                     });
                 } catch {}
             }
-            traceBridgeUsage({
+            traceAgentUsage({
                 sessionId: opts.sessionId || opts.session?.id || null,
                 iteration: Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null,
                 inputTokens,
@@ -1625,7 +1625,7 @@ export class GeminiProvider {
                     // Use the already-computed cachedTokens (with
                     // cache-create fallback applied) rather than the raw
                     // metadata field, so the returned usage matches what
-                    // traceBridgeUsage recorded for this same call.
+                    // traceAgentUsage recorded for this same call.
                     cachedTokens,
                     // Gemini promptTokenCount is total (cachedContentTokenCount
                     // is a subset). Alias directly into promptTokens.

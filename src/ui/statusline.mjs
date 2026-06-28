@@ -117,7 +117,7 @@ function modelContextWindow(provider, model, explicitContextWindow = 0) {
   return FALLBACK_CONTEXT_WINDOW;
 }
 
-function normalizeBridgeWorkerForStatusline(worker = {}) {
+function normalizeAgentWorkerForStatusline(worker = {}) {
   const tag = String(worker.tag || worker.role || worker.name || '').trim();
   if (!tag) return null;
   const statusText = String(worker.stage || worker.status || '').toLowerCase();
@@ -133,7 +133,7 @@ function normalizeBridgeWorkerForStatusline(worker = {}) {
   };
 }
 
-function normalizeBridgeJobForStatusline(job = {}) {
+function normalizeAgentJobForStatusline(job = {}) {
   const statusText = String(job.status || job.stage || '').toLowerCase();
   if (!statusText) return null;
   const taskId = String(job.task_id || job.taskId || '').trim();
@@ -169,15 +169,15 @@ function normalizeBridgeJobForStatusline(job = {}) {
   };
 }
 
-function bridgeStatuslinePayload(bridgeWorkers = [], bridgeJobs = []) {
+function agentStatuslinePayload(agentWorkers = [], agentJobs = []) {
   const byTag = new Map();
   const finishedJobs = [];
-  for (const worker of Array.isArray(bridgeWorkers) ? bridgeWorkers : []) {
-    const row = normalizeBridgeWorkerForStatusline(worker);
+  for (const worker of Array.isArray(agentWorkers) ? agentWorkers : []) {
+    const row = normalizeAgentWorkerForStatusline(worker);
     if (row) byTag.set(row.tag, row);
   }
-  for (const job of Array.isArray(bridgeJobs) ? bridgeJobs : []) {
-    const row = normalizeBridgeJobForStatusline(job);
+  for (const job of Array.isArray(agentJobs) ? agentJobs : []) {
+    const row = normalizeAgentJobForStatusline(job);
     if (!row) continue;
     if (row.status === 'finished') {
       finishedJobs.push(row);
@@ -212,9 +212,9 @@ function bridgeStatuslinePayload(bridgeWorkers = [], bridgeJobs = []) {
  * @param {string} [opts.sessionId]
  * @returns {Promise<string>}
  */
-export async function renderStatusline({ provider = '', model = '', effort = '', fast = false, cwd = '', stats, sessionId, contextWindow = 0, rawContextWindow = 0, bridgeWorkers = [], bridgeJobs = [], clientHostPid = process.pid } = {}) {
+export async function renderStatusline({ provider = '', model = '', effort = '', fast = false, cwd = '', stats, sessionId, contextWindow = 0, rawContextWindow = 0, agentWorkers = [], agentJobs = [], clientHostPid = process.pid } = {}) {
   try {
-    return renderNativeStatusline({ provider, model, effort, fast, cwd, stats, sessionId, contextWindow, rawContextWindow, bridgeWorkers, bridgeJobs, clientHostPid });
+    return renderNativeStatusline({ provider, model, effort, fast, cwd, stats, sessionId, contextWindow, rawContextWindow, agentWorkers, agentJobs, clientHostPid });
   } catch {
     return fallbackLine({ provider, model, effort, fast, cwd, stats, contextWindow });
   }
@@ -222,7 +222,7 @@ export async function renderStatusline({ provider = '', model = '', effort = '',
 
 // --- helpers -----------------------------------------------------------------
 
-function renderNativeStatusline({ provider = '', model = '', effort = '', fast = false, stats, sessionId, contextWindow = 0, rawContextWindow = 0, bridgeWorkers = [], bridgeJobs = [], clientHostPid = process.pid } = {}) {
+function renderNativeStatusline({ provider = '', model = '', effort = '', fast = false, stats, sessionId, contextWindow = 0, rawContextWindow = 0, agentWorkers = [], agentJobs = [], clientHostPid = process.pid } = {}) {
   const cols = terminalColumns();
   const s = stats || createSessionStats();
   const contextTokens = currentContextTokens(provider, s);
@@ -245,11 +245,11 @@ function renderNativeStatusline({ provider = '', model = '', effort = '', fast =
     : [];
   for (const seg of quotaSegments) addL1(seg);
 
-  const bridgePayload = bridgeStatuslinePayload([
-    ...(Array.isArray(bridgeWorkers) ? bridgeWorkers : []),
+  const agentPayload = agentStatuslinePayload([
+    ...(Array.isArray(agentWorkers) ? agentWorkers : []),
     ...activeHiddenRoleWorkers({ sessionId, clientHostPid }),
-  ], bridgeJobs);
-  const { maintenance, runningWorkers } = classifyBridgeWorkers(bridgePayload.workers);
+  ], agentJobs);
+  const { maintenance, runningWorkers } = classifyAgentWorkers(agentPayload.workers);
   if (maintenance.length) addL1(maintenance.join(' '));
   addL1(formatShellJobsSegment({ clientHostPid }));
 
@@ -507,7 +507,7 @@ function epochMsToHHMM(ms) {
   return d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
-function classifyBridgeWorkers(workers = []) {
+function classifyAgentWorkers(workers = []) {
   const maintenance = [];
   const runningWorkers = [];
   const seenMaintenance = new Set();
@@ -576,7 +576,7 @@ function activeHiddenRoleWorkers({ sessionId = '', clientHostPid = 0 } = {}) {
       const status = String(session?.status || stage || '').trim().toLowerCase();
       if (!isActiveHiddenStatus(stage || status)) continue;
       rows.push({
-        tag: String(session?.bridgeTag || `${role}:${id || rows.length}`).trim(),
+        tag: String(session?.agentTag || `${role}:${id || rows.length}`).trim(),
         role,
         status: 'running',
         stage: stage || status || 'running',

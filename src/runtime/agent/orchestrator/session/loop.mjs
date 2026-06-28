@@ -5,7 +5,7 @@ import { executeBashSessionTool } from '../tools/bash-session.mjs';
 import { executePatchTool } from '../tools/patch.mjs';
 import { executeInternalTool, isInternalTool } from '../internal-tools.mjs';
 import { collectSkillsCached, loadSkillContent } from '../context/collect.mjs';
-import { traceBridgeLoop, traceBridgeTool, traceBridgeToolFailure, traceBridgeCompact, estimateProviderPayloadBytes, messagePrefixHash } from '../bridge-trace.mjs';
+import { traceAgentLoop, traceAgentTool, traceAgentToolFailure, traceAgentCompact, estimateProviderPayloadBytes, messagePrefixHash } from '../agent-trace.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { markSessionToolCall, updateSessionStage, SessionClosedError, getSessionAbortSignal, enqueuePendingMessage } from './manager.mjs';
 import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';
@@ -25,7 +25,7 @@ import {
     drainSessionCycle1,
 } from './compact.mjs';
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
-import { classifyBashFileLookupCommand, classifyBridgeWorkerGitMutationCommand, stripSoftWarns } from '../tool-loop-guard.mjs';
+import { classifyBashFileLookupCommand, classifyAgentWorkerGitMutationCommand, stripSoftWarns } from '../tool-loop-guard.mjs';
 import { maybeOffloadToolResult } from './tool-result-offload.mjs';
 import { tryReadCached, setReadCached, invalidatePathForSession, markPostEdit, consumePostEditMark, clearReadDedupSession, extractTouchedPathsFromPatch, tryScopedToolCached, setScopedToolCached, clearScopedToolsForSession, clearScopedToolsForSessionPaths, invalidatePrefetchCache } from './read-dedup.mjs';
 import { createScopedCacheOutcome } from './cache/scoped-cache-outcome.mjs';
@@ -120,9 +120,10 @@ const WORKER_DENIED_TOOLS = new Set([
 function _preDispatchDeny(call, toolKind, sessionRef) {
     const name = call?.name;
     if (typeof name !== 'string' || !name) return null;
-    const _bridgeOwned = sessionRef?.scope?.startsWith?.('bridge:') || isAgentOwner(sessionRef);
+    const _agentOwned = sessionRef?.scope?.startsWith?.('agent:')
+        || isAgentOwner(sessionRef);
     const _controlPlaneTool = WORKER_DENIED_TOOLS.has(name);
-    if (_bridgeOwned && _controlPlaneTool) {
+    if (_agentOwned && _controlPlaneTool) {
         return `Error: control-plane tool "${name}" is Lead-only and not available to agent workers.`;
     }
     const noToolRole = sessionRef?.role === 'cycle1-agent' || sessionRef?.role === 'cycle2-agent';
@@ -235,18 +236,18 @@ function mergeSteeringEntries(entries) {
     return { content: parts, text: displayText || steeringContentText(parts), count: normalized.length };
 }
 
-class BridgeContextOverflowError extends Error {
+class AgentContextOverflowError extends Error {
     constructor({ stage, sessionId, provider, model, contextWindow, budgetTokens, reserveTokens, messageTokensEst }, cause) {
         const target = [provider, model].filter(Boolean).join('/') || 'target model';
         const causeMsg = cause && cause.message ? `: ${cause.message}` : '';
         super(
-            `bridge context overflow (${target}, stage=${stage || 'compact'}): ` +
+            `agent context overflow (${target}, stage=${stage || 'compact'}): ` +
             `latest turn cannot fit target context budget=${budgetTokens ?? 'unknown'} ` +
             `reserve=${reserveTokens ?? 'unknown'} contextWindow=${contextWindow ?? 'unknown'} ` +
             `messageTokensEst=${messageTokensEst ?? 'unknown'}${causeMsg}`,
         );
-        this.name = 'BridgeContextOverflowError';
-        this.code = 'BRIDGE_CONTEXT_OVERFLOW';
+        this.name = 'AgentContextOverflowError';
+        this.code = 'AGENT_CONTEXT_OVERFLOW';
         this.sessionId = sessionId || null;
         this.provider = provider || null;
         this.model = model || null;
@@ -258,8 +259,8 @@ class BridgeContextOverflowError extends Error {
     }
 }
 
-function bridgeContextOverflowError({ stage, sessionId, sessionRef, model, budgetTokens, reserveTokens, messageTokensEst }, cause) {
-    return new BridgeContextOverflowError({
+function agentContextOverflowError({ stage, sessionId, sessionRef, model, budgetTokens, reserveTokens, messageTokensEst }, cause) {
+    return new AgentContextOverflowError({
         stage,
         sessionId,
         provider: sessionRef?.provider || null,
@@ -416,7 +417,7 @@ function _checkWorkerPermission(toolName, toolInput, sessionRef) {
         if (cmdClass) {
             return `Error: agent worker shell file lookup blocked (${cmdClass}). Use Mixdog MCP read/grep/glob/list directly; shell is only for build/test/run/git-style commands.`;
         }
-        const gitClass = classifyBridgeWorkerGitMutationCommand(toolInput?.command);
+        const gitClass = classifyAgentWorkerGitMutationCommand(toolInput?.command);
         if (gitClass) {
             return `Error: agent worker git operation blocked (${gitClass}). Git operations are deferred to Lead.`;
         }
@@ -426,7 +427,7 @@ function _checkWorkerPermission(toolName, toolInput, sessionRef) {
     // bypass-proof hard-deny patterns (UNC paths, /etc, C:/Windows, etc.)
     // and the user's settings.json deny rules still apply. Previously a
     // missing permissionMode short-circuited to null and the worker
-    // ran ungated — a model could dispatch a bridge to read or write
+    // ran ungated — a model could dispatch an agent to read or write
     // protected paths even when the same call would have been denied for
     // the parent. Callers that genuinely need bypassPermissions can still
     // forward it explicitly via session-builder; this only closes the
@@ -542,8 +543,7 @@ function envTokenInt(name) {
     return positiveTokenInt(process.env[name]);
 }
 function resolveSemanticCompactSetting(sessionRef, cfg = {}) {
-    const env = process.env.MIXDOG_BRIDGE_COMPACT_SEMANTIC;
-    if (env !== undefined) return envFlag('MIXDOG_BRIDGE_COMPACT_SEMANTIC', true);
+    if (process.env.MIXDOG_AGENT_COMPACT_SEMANTIC !== undefined) return envFlag('MIXDOG_AGENT_COMPACT_SEMANTIC', true);
     if (cfg.semantic === false || cfg.semantic === 'false' || cfg.semantic === 'off') return false;
     if (cfg.semantic === true || cfg.semantic === 'true' || cfg.semantic === 'on') return true;
     // The compact type is already explicit (`semantic` by default). Honor it
@@ -552,7 +552,7 @@ function resolveSemanticCompactSetting(sessionRef, cfg = {}) {
 }
 
 function resolveCompactTypeSetting(_sessionRef, cfg = {}) {
-    const configured = process.env.MIXDOG_BRIDGE_COMPACT_TYPE
+    const configured = process.env.MIXDOG_AGENT_COMPACT_TYPE
         ?? process.env.MIXDOG_COMPACT_TYPE
         ?? cfg.type
         ?? cfg.compactType
@@ -642,14 +642,14 @@ function resolveCompactBufferRatio(cfg = {}) {
             ?? cfg.bufferPct
             ?? cfg.bufferRatio
             ?? cfg.bufferFraction
-            ?? process.env.MIXDOG_BRIDGE_COMPACT_BUFFER_PERCENT
-            ?? process.env.MIXDOG_BRIDGE_COMPACT_BUFFER_RATIO,
+            ?? process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT
+            ?? process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO,
         DEFAULT_COMPACTION_BUFFER_RATIO,
     );
 }
 function resolveCompactBufferTokens(boundaryTokens, cfg = {}) {
     const configured = positiveTokenInt(cfg.bufferTokens ?? cfg.buffer)
-        || envTokenInt('MIXDOG_BRIDGE_COMPACT_BUFFER_TOKENS')
+        || envTokenInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')
         || 0;
     const boundary = positiveTokenInt(boundaryTokens);
     if (!boundary) return configured || DEFAULT_COMPACTION_BUFFER_TOKENS;
@@ -667,7 +667,7 @@ function resolveCompactTargetRatio(cfg = {}) {
         ?? cfg.targetPct
         ?? cfg.targetRatio
         ?? cfg.targetFraction
-        ?? process.env.MIXDOG_BRIDGE_COMPACT_TARGET_PERCENT
+        ?? process.env.MIXDOG_AGENT_COMPACT_TARGET_PERCENT
         ?? process.env.MIXDOG_COMPACT_TARGET_PERCENT
         ?? COMPACT_TARGET_RATIO;
     const n = Number(raw);
@@ -678,15 +678,15 @@ function resolveCompactTargetTokens(boundaryTokens, cfg = {}) {
     const boundary = positiveTokenInt(boundaryTokens);
     if (!boundary) return null;
     const explicit = positiveTokenInt(cfg.targetTokens ?? cfg.target)
-        || envTokenInt('MIXDOG_BRIDGE_COMPACT_TARGET_TOKENS')
+        || envTokenInt('MIXDOG_AGENT_COMPACT_TARGET_TOKENS')
         || envTokenInt('MIXDOG_COMPACT_TARGET_TOKENS');
     if (explicit) return Math.max(1, Math.min(boundary, explicit));
     const minTarget = Math.min(boundary, positiveTokenInt(cfg.targetMinTokens ?? cfg.minTargetTokens)
-        || envTokenInt('MIXDOG_BRIDGE_COMPACT_TARGET_MIN_TOKENS')
+        || envTokenInt('MIXDOG_AGENT_COMPACT_TARGET_MIN_TOKENS')
         || envTokenInt('MIXDOG_COMPACT_TARGET_MIN_TOKENS')
         || COMPACT_TARGET_MIN_TOKENS);
     const maxTarget = Math.min(boundary, positiveTokenInt(cfg.targetMaxTokens ?? cfg.maxTargetTokens)
-        || envTokenInt('MIXDOG_BRIDGE_COMPACT_TARGET_MAX_TOKENS')
+        || envTokenInt('MIXDOG_AGENT_COMPACT_TARGET_MAX_TOKENS')
         || envTokenInt('MIXDOG_COMPACT_TARGET_MAX_TOKENS')
         || COMPACT_TARGET_MAX_TOKENS);
     const byRatio = Math.max(1, Math.floor(boundary * resolveCompactTargetRatio(cfg)));
@@ -694,13 +694,13 @@ function resolveCompactTargetTokens(boundaryTokens, cfg = {}) {
 }
 function resolveCompactKeepTokens(cfg = {}) {
     return positiveTokenInt(cfg.keepTokens ?? cfg.keep?.tokens ?? cfg.preserveRecentTokens)
-        || envTokenInt('MIXDOG_BRIDGE_COMPACT_KEEP_TOKENS')
+        || envTokenInt('MIXDOG_AGENT_COMPACT_KEEP_TOKENS')
         || DEFAULT_COMPACTION_KEEP_TOKENS;
 }
 function resolveWorkerCompactPolicy(sessionRef, tools) {
     if (!sessionRef) return null;
     const cfg = sessionRef.compaction || {};
-    const auto = cfg.auto !== false && envFlag('MIXDOG_BRIDGE_COMPACT_AUTO', true);
+    const auto = cfg.auto !== false && envFlag('MIXDOG_AGENT_COMPACT_AUTO', true);
     if (!auto) return { auto: false };
     const contextWindow = positiveTokenInt(sessionRef.contextWindow ?? cfg.contextWindow);
     const explicitBoundary = positiveTokenInt(sessionRef.compactBoundaryTokens ?? cfg.boundaryTokens);
@@ -717,7 +717,7 @@ function resolveWorkerCompactPolicy(sessionRef, tools) {
     const bufferRatio = compactBoundaryTokens ? (bufferTokens / compactBoundaryTokens) : resolveCompactBufferRatio(cfg);
     const triggerTokens = autoTriggerTokens || Math.max(1, compactBoundaryTokens - bufferTokens);
     const configuredReserve = positiveTokenInt(cfg.reservedTokens)
-        || envTokenInt('MIXDOG_BRIDGE_COMPACT_RESERVED_TOKENS')
+        || envTokenInt('MIXDOG_AGENT_COMPACT_RESERVED_TOKENS')
         || 0;
     const requestReserve = estimateRequestReserveTokens(tools);
     const keepTokens = resolveCompactKeepTokens(cfg);
@@ -726,7 +726,7 @@ function resolveWorkerCompactPolicy(sessionRef, tools) {
         auto: true,
         type: compactType,
         compactType,
-        prune: cfg.prune === true || envFlag('MIXDOG_BRIDGE_COMPACT_PRUNE', false),
+        prune: cfg.prune === true || envFlag('MIXDOG_AGENT_COMPACT_PRUNE', false),
         boundaryTokens: compactBoundaryTokens,
         triggerTokens,
         bufferTokens,
@@ -739,10 +739,10 @@ function resolveWorkerCompactPolicy(sessionRef, tools) {
         autoCompactTokenLimit: positiveTokenInt(sessionRef.autoCompactTokenLimit ?? cfg.autoCompactTokenLimit),
         semantic: compactTypeIsSemantic(compactType) && resolveSemanticCompactSetting(sessionRef, cfg),
         recallFastTrack: compactTypeIsRecallFastTrack(compactType),
-        semanticTimeoutMs: positiveTokenInt(cfg.timeoutMs) || envTokenInt('MIXDOG_BRIDGE_COMPACT_TIMEOUT_MS') || 30_000,
-        tailTurns: positiveTokenInt(cfg.tailTurns) || envTokenInt('MIXDOG_BRIDGE_COMPACT_TAIL_TURNS') || 2,
+        semanticTimeoutMs: positiveTokenInt(cfg.timeoutMs) || envTokenInt('MIXDOG_AGENT_COMPACT_TIMEOUT_MS') || 30_000,
+        tailTurns: positiveTokenInt(cfg.tailTurns) || envTokenInt('MIXDOG_AGENT_COMPACT_TAIL_TURNS') || 2,
         keepTokens,
-        preserveRecentTokens: positiveTokenInt(cfg.preserveRecentTokens) || envTokenInt('MIXDOG_BRIDGE_COMPACT_PRESERVE_RECENT_TOKENS') || keepTokens,
+        preserveRecentTokens: positiveTokenInt(cfg.preserveRecentTokens) || envTokenInt('MIXDOG_AGENT_COMPACT_PRESERVE_RECENT_TOKENS') || keepTokens,
         reserveTokens: requestReserve + configuredReserve,
         requestReserveTokens: requestReserve,
         configuredReserveTokens: configuredReserve,
@@ -856,7 +856,7 @@ function emitCompactEvent(opts, event = {}) {
 function compactEventType(policy, fallback = DEFAULT_COMPACT_TYPE) {
     return policy?.compactType || policy?.type || fallback;
 }
-const SKILL_TOOL_NAMES = new Set(['skills_list', 'skill_view', 'skill_execute']);
+const SKILL_TOOL_NAMES = new Set(['Skill', 'skills_list', 'skill_view']);
 const SPECIAL_TOOL_NAMES = new Set(['bash_session', 'apply_patch', 'code_graph']);
 const BASH_SESSION_HEADER_RE = /\[session: ([^\]\r\n]+)\]/;
 const STORED_TOOL_ARG_BODY_KEY_RE = /^(?:content|old_string|new_string|patch|rewrite)$/i;
@@ -972,12 +972,33 @@ function buildSkillsListResponse(cwd) {
 function viewSkill(cwd, name) {
     if (!name) return 'Error: skill name is required';
     const content = loadSkillContent(name, cwd);
-    return content || `Error: skill "${name}" not found`;
+    if (!content) return `Error: skill "${name}" not found`;
+    return `<skill>\n<name>${String(name).replace(/[<>&]/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]))}</name>\n${content}\n</skill>`;
 }
-function executeSkill(cwd, name, _args) {
-    if (!name) return 'Error: skill name is required';
-    const content = loadSkillContent(name, cwd);
-    return content || `Error: skill "${name}" not found`;
+
+function parseNativeToolSearchPayload(toolName, result) {
+    if (toolName !== 'tool_search' || typeof result !== 'string') return null;
+    try {
+        const parsed = JSON.parse(result);
+        const native = parsed?.nativeToolSearch;
+        if (!native || typeof native !== 'object') return null;
+        const toolReferences = Array.isArray(native.toolReferences)
+            ? native.toolReferences.map((name) => String(name || '').trim()).filter(Boolean)
+            : [];
+        const openaiTools = Array.isArray(native.openaiTools)
+            ? native.openaiTools.filter((tool) => tool && typeof tool === 'object')
+            : [];
+        if (!toolReferences.length && !openaiTools.length) return null;
+        return {
+            toolReferences,
+            openaiTools,
+            summary: typeof native.summary === 'string' && native.summary
+                ? native.summary
+                : `Loaded deferred tools: ${toolReferences.join(', ') || openaiTools.map((tool) => tool.name).filter(Boolean).join(', ')}`,
+        };
+    } catch {
+        return null;
+    }
 }
 function extractBashSessionId(result) {
     if (typeof result !== 'string') return null;
@@ -985,7 +1006,7 @@ function extractBashSessionId(result) {
     return match ? match[1] : null;
 }
 
-export function buildBridgeBashSessionArgs(args, sessionRef) {
+export function buildAgentBashSessionArgs(args, sessionRef) {
     if (!isAgentOwner(sessionRef)) return null;
     // run_in_background is a detached one-shot job, incompatible with the
     // persistent bash session. Fall through to the background-job path
@@ -1078,14 +1099,14 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
             // Hooks are policy extensions. A broken hook must not wedge the agent loop.
         }
     }
+    if (name === 'Skill') {
+        return viewSkill(cwd, args?.name);
+    }
     if (name === 'skills_list') {
         return buildSkillsListResponse(cwd);
     }
     if (name === 'skill_view') {
         return viewSkill(cwd, args?.name);
-    }
-    if (name === 'skill_execute') {
-        return executeSkill(cwd, args?.name, args?.args);
     }
     if (isMcpTool(name)) {
         // 24h trace data shows ~24% of external MCP calls are cwd-sensitive
@@ -1118,14 +1139,14 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
         });
     }
     if (name === 'shell') {
-        const routedArgs = buildBridgeBashSessionArgs(args, sessionRef);
+        const routedArgs = buildAgentBashSessionArgs(args, sessionRef);
         if (!routedArgs) {
             // clientHostPid scopes background shell-jobs to the dispatching
-            // terminal's claude.exe pid (bridge sessions store it on sessionRef);
+            // terminal's claude.exe pid (agent sessions store it on sessionRef);
             // without it resolveJobOwnerHostPid falls back to the daemon-global env.
             return executeBuiltinTool(name, args, cwd, completionToolOpts);
         }
-        // Thread the session's AbortSignal so bridge type=close can interrupt the
+        // Thread the session's AbortSignal so agent type=close can interrupt the
         // persistent child process. getSessionAbortSignal is imported at top of
         // loop.mjs from manager.mjs; callerSessionId identifies the controller.
         let _bashAbortSignal = null;
@@ -1270,7 +1291,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         ? sessionRef.maxLoopIterations
         : MAX_LOOP_ITERATIONS;
     // Tool execution must use the session cwd even when the caller omitted the
-    // legacy positional cwd argument. Bridge workers always carry their cwd on
+    // legacy positional cwd argument. Agent workers always carry their cwd on
     // sessionRef; falling through to pwd()/process.cwd() resolves relatives
     // against the host/plugin root instead of the worker workspace.
     cwd = cwd || sessionRef?.cwd || undefined;
@@ -1425,7 +1446,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     }
                     summaryChanged = messagesArrayChanged(compactInputMessages, compacted);
                 } catch (compactErr) {
-                    traceBridgeCompact({
+                    traceAgentCompact({
                         sessionId,
                         iteration: iterations + 1,
                         stage: 'pre_send',
@@ -1444,7 +1465,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         provider: sessionRef.provider,
                         model: sessionRef.model || model,
                         error: compactErr && compactErr.message ? compactErr.message : String(compactErr),
-                        error_code: 'BRIDGE_CONTEXT_OVERFLOW',
+                        error_code: 'AGENT_CONTEXT_OVERFLOW',
                     });
                     emitCompactEvent(opts, {
                         sessionId,
@@ -1467,7 +1488,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         durationMs: Date.now() - compactStartedAt,
                         error: compactErr && compactErr.message ? compactErr.message : String(compactErr),
                     });
-                    throw bridgeContextOverflowError({
+                    throw agentContextOverflowError({
                         stage: 'pre_send',
                         sessionId,
                         sessionRef,
@@ -1509,7 +1530,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 });
                 let afterBytes = null;
                 try { afterBytes = Buffer.byteLength(JSON.stringify(messages), 'utf8'); } catch { afterBytes = null; }
-                traceBridgeCompact({
+                traceAgentCompact({
                     sessionId,
                     iteration: iterations + 1,
                     stage: 'pre_send',
@@ -1673,7 +1694,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // re-compaction retry — surface the overflow immediately so the
             // caller (and the user) get a clear, deterministic signal and can
             // run /compact or /clear. Unrelated errors (network, stall, auth,
-            // etc.) re-throw untouched — handled by provider/bridge retry layers.
+            // etc.) re-throw untouched — handled by provider/agent retry layers.
             if (
                 !isContextOverflowError(sendErr)
                 || !(sessionRef && typeof sessionRef.contextWindow === 'number')
@@ -1688,7 +1709,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     `surfacing overflow (no auto re-compact) messages=${messages.length}\n`,
                 );
             } catch { /* best-effort */ }
-            throw bridgeContextOverflowError({
+            throw agentContextOverflowError({
                 stage: 'send',
                 sessionId,
                 sessionRef,
@@ -1703,7 +1724,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // the stateless contract for providers that don't use continuation).
         providerState = response?.providerState ?? undefined;
         iterations = nextIteration;
-        traceBridgeLoop({
+        traceAgentLoop({
             sessionId,
             iteration: iterations,
             sendMs: Date.now() - sendStartedAt,
@@ -1730,7 +1751,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // signal) — bail before processing any of its output.
         throwIfAborted();
         // Incremental metric persistence (fix A): push per-iteration token delta
-        // immediately so watchdog / bridge type=list sees live totals mid-turn.
+        // immediately so watchdog / agent type=list sees live totals mid-turn.
         if (sessionId && opts.onUsageDelta && response.usage) {
             try {
                 opts.onUsageDelta({
@@ -1749,7 +1770,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             } catch { /* best-effort — never break the loop */ }
         }
         // No tool calls. For PUBLIC agents, the agent contract
-        // (rules/bridge/00-common.md) requires either a tool call or a
+        // (rules/agent/00-common.md) requires either a tool call or a
         // `<final-answer>` wrapped reply.
         // A text-only turn without those tags violates the contract (e.g.
         // Opus 4.6 emits 'Now I'll polish…' preamble before its first tool
@@ -1980,7 +2001,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     // safety boundary for any tool_use that still reaches
                     // the loop. _preDispatchDeny is the SHARED helper used
                     // by both the eager dispatch path (startEagerTool) and
-                    // this serial path — keeps the bridge-owned control-
+                    // this serial path — keeps the agent-owned control-
                     // plane reject, role guards, wrapper guards, and
                     // permission guards consistent across both paths.
                     const _denyMsg = _preDispatchDeny(call, toolKind, sessionRef);
@@ -2150,6 +2171,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // failure push a synthetic Error: tool result for this call.id
             // and skip the cache writes for it.
             let _postProcessOk = true;
+            let _nativeToolSearch = null;
             try {
                 // Offload thresholds are keyed by BARE tool name
                 // (INLINE_THRESHOLD_BY_TOOL: grep=20k, bash=30k, read=Infinity, ...),
@@ -2157,9 +2179,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 // Otherwise an mcp__..__grep name misses its 20k grep cap and
                 // silently falls back to the 50k default — per-tool limits ignored.
                 const _toolBare = _stripMcpPrefix(call.name);
+                _nativeToolSearch = parseNativeToolSearchPayload(call.name, result);
+                if (_nativeToolSearch?.summary) result = _nativeToolSearch.summary;
                 result = await maybeOffloadToolResult(sessionId, call.id, _toolBare, result);
                 result = compressToolResult(call.name, call.arguments, result, { sessionId, toolKind });
-                traceBridgeTool({
+                traceAgentTool({
                     sessionId,
                     iteration: iterations,
                     toolName: call.name,
@@ -2203,6 +2227,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     content: result,
                     toolCallId: call.id,
                     toolKind: _resultKind,
+                    ...(_nativeToolSearch ? { nativeToolSearch: _nativeToolSearch } : {}),
                 });
             } catch (postErr) {
                 _postProcessOk = false;
@@ -2211,7 +2236,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 // too for a clean retry (mirrors the failed-exec path above).
                 if (call?.id) restoreToolCallBodyForId(_assistantTurnMsg, calls, call.id);
                 const _postMsg = `Error: tool result post-processing failed for "${call.name}": ${postErr instanceof Error ? postErr.message : String(postErr)}`;
-                traceBridgeToolFailure({
+                traceAgentToolFailure({
                     sessionId,
                     iteration: iterations,
                     toolName: call.name,

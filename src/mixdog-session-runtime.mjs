@@ -3,8 +3,8 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
-import { ensureProjectMixdogMd, ensureStandaloneEnvironment } from './standalone/seeds.mjs';
-import { createStandaloneBridge } from './standalone/bridge-tool.mjs';
+import { ensureStandaloneEnvironment } from './standalone/seeds.mjs';
+import { createStandaloneAgent } from './standalone/agent-tool.mjs';
 import { isAgentOwner } from './runtime/agent/orchestrator/agent-owner.mjs';
 import { EXPLORE_TOOL, runExplore } from './standalone/explore-tool.mjs';
 import { createStandaloneChannelWorker } from './standalone/channel-worker.mjs';
@@ -121,9 +121,8 @@ function splitMarkdownSections(text) {
 function reminderSectionBucket(section) {
   const heading = String(section.match(/^#\s+([^\n]+)/)?.[1] || '').trim().toLowerCase();
   if (heading.includes('core memory')) return 'memory';
-  if (heading.includes('mixdog-project-context') || heading.includes('project-context')) return 'project';
   if (heading.includes('active workflow') || heading.includes('available agents') || heading.includes('workflow')) return 'workflow';
-  if (heading.includes('workspace') || heading === 'role' || heading.includes('role-identity') || heading.includes('task-brief')) return 'workspace';
+  if (heading.includes('workspace')) return 'workspace';
   if (heading.includes('environment')) return 'environment';
   return 'other';
 }
@@ -142,7 +141,6 @@ function summarizeContextMessages(messages) {
     assistant: { count: 0, tokens: 0 },
     toolResults: { count: 0, tokens: 0 },
     reminders: { count: 0, tokens: 0, otherTokens: 0 },
-    project: { tokens: 0 },
     workflow: { tokens: 0 },
     memory: { tokens: 0 },
     workspace: { tokens: 0 },
@@ -341,15 +339,15 @@ export const TOOL_SEARCH_TOOL = {
     destructiveHint: false,
     idempotentHint: true,
     openWorldHint: false,
-    bridgeHidden: true,
+    agentHidden: true,
   },
-  description: 'Search the current standalone tool surface and select deferred tools/skills for the task. Use before unfamiliar or currently inactive tools.',
+  description: 'Search deferred tools; confident queries load matches.',
   inputSchema: {
     type: 'object',
     properties: {
-      query: { type: 'string', description: 'Optional search text, e.g. shell, agent, memory, skill, mcp.' },
-      select: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Tool/skill names to activate, as comma-separated text or an array.' },
-      limit: { type: 'number', description: 'Maximum matches to return.' },
+      query: { type: 'string', description: 'Search text; confident hits load. select:a,b forces exact names.' },
+      select: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Force exact tool names.' },
+      limit: { type: 'number', description: 'Max matches.' },
     },
     additionalProperties: false,
   },
@@ -364,9 +362,9 @@ const CHANNEL_STATUS_TOOL = {
     destructiveHint: false,
     idempotentHint: true,
     openWorldHint: false,
-    bridgeHidden: true,
+    agentHidden: true,
   },
-  description: 'List standalone Discord/channel/schedule/webhook configuration status. Read-only and never returns secrets.',
+  description: 'List channel/schedule/webhook status. No secrets.',
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 };
 
@@ -379,15 +377,37 @@ const CWD_TOOL = {
     destructiveHint: false,
     idempotentHint: false,
     openWorldHint: false,
-    bridgeHidden: true,
+    agentHidden: true,
   },
-  description: 'Show or set the standalone session working directory. Use before repo-local work when the target folder may differ. Default get; action=set requires path.',
+  description: 'Show/set session cwd. Use before repo-local work.',
   inputSchema: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['get', 'set'], description: 'Default get, or set when path is provided.' },
-      path: { type: 'string', description: 'Directory path for action=set. Relative paths resolve from the current cwd.' },
+      action: { type: 'string', enum: ['get', 'set'], description: 'Default get.' },
+      path: { type: 'string', description: 'Directory for set.' },
     },
+    additionalProperties: false,
+  },
+};
+
+export const SKILL_TOOL = {
+  name: 'Skill',
+  title: 'Skill',
+  annotations: {
+    title: 'Skill',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+    agentHidden: false,
+  },
+  description: 'Load a named SKILL.md into context.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'Skill name.' },
+    },
+    required: ['name'],
     additionalProperties: false,
   },
 };
@@ -422,6 +442,7 @@ const DEFERRED_DEFAULT_FULL_TOOLS = Object.freeze([
   'list',
   'explore',
   'apply_patch',
+  'Skill',
   'tool_search',
 ]);
 const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
@@ -432,6 +453,7 @@ const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
   'glob',
   'list',
   'explore',
+  'Skill',
   'tool_search',
 ]);
 const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
@@ -450,6 +472,7 @@ const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   'search',
   'web_fetch',
   'cwd',
+  'Skill',
   'tool_search',
 ]);
 const READONLY_TOOL_NAMES = new Set([
@@ -467,16 +490,17 @@ const READONLY_TOOL_NAMES = new Set([
   'channel_status',
   'schedule_status',
   'fetch',
+  'Skill',
 ]);
-const BRIDGE_HIDDEN_WRAPPER_TOOLS = new Set(['explore', 'search']);
+const AGENT_HIDDEN_WRAPPER_TOOLS = new Set(['explore', 'search']);
 
 function applyStandaloneToolDefaults(tool) {
-  if (!tool || !BRIDGE_HIDDEN_WRAPPER_TOOLS.has(tool.name)) return tool;
+  if (!tool || !AGENT_HIDDEN_WRAPPER_TOOLS.has(tool.name)) return tool;
   return {
     ...tool,
     annotations: {
       ...(tool.annotations || {}),
-      bridgeHidden: true,
+      agentHidden: true,
     },
   };
 }
@@ -499,6 +523,63 @@ const DEFERRED_SELECT_ALIASES = {
   code: ['code_graph'],
   shell: ['shell', 'task'],
 };
+const TOOL_SEARCH_SAFE_AUTO_ALIASES = new Set([
+  'shell',
+  'web',
+  'search',
+  'agent',
+  'provider',
+  'providers',
+  'channel',
+  'schedule',
+  'memory',
+]);
+const TOOL_SEARCH_AMBIGUOUS_AUTO_QUERIES = new Set([
+  'status',
+  'state',
+  'info',
+  'list',
+  'show',
+  'config',
+]);
+const TOOL_SEARCH_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'for',
+  'from',
+  'how',
+  'i',
+  'in',
+  'is',
+  'me',
+  'need',
+  'of',
+  'on',
+  'please',
+  'the',
+  'to',
+  'tool',
+  'tools',
+  'use',
+  'using',
+  'with',
+]);
+const TOOL_SEARCH_ROW_ALIASES = Object.freeze({
+  agent: ['delegate', 'subagent', 'worker', 'parallel agent', 'background agent', 'reviewer', 'explorer'],
+  channel_status: ['channel status', 'discord status', 'channel config'],
+  cwd: ['cwd', 'working directory', 'current directory', 'project root', 'folder'],
+  memory: ['save memory', 'store memory', 'delete memory', 'forget memory', 'memory status'],
+  provider_status: ['provider status', 'auth status', 'model status', 'oauth status', 'provider config'],
+  recall: ['recall', 'previous work', 'past work', 'prior context', 'history', 'resume context'],
+  schedule_status: ['schedule status', 'cron status'],
+  search: ['web search', 'internet search', 'current info', 'latest info', 'online search', 'docs search'],
+  shell: ['run command', 'execute command', 'terminal', 'powershell', 'bash', 'run tests', 'test command', 'build command', 'npm', 'node', 'git'],
+  task: ['background task', 'async task', 'wait task', 'cancel task', 'task status'],
+  web_fetch: ['fetch url', 'fetch page', 'open url', 'web page', 'read url', 'docs page'],
+});
 
 function normalizeToolMode(mode) {
   const value = String(mode || '').trim().toLowerCase();
@@ -1370,7 +1451,7 @@ function summarizeWorkflowRoutes(config) {
   const routes = config?.workflowRoutes && typeof config.workflowRoutes === 'object' ? config.workflowRoutes : {};
   const out = {};
   for (const slot of WORKFLOW_ROUTE_SLOTS) {
-    const route = routes[slot] || (slot === 'agent' ? routes.bridge : null);
+    const route = routes[slot];
     if (route?.provider && route?.model) out[slot] = normalizeWorkflowRoute(route);
   }
   return out;
@@ -1436,18 +1517,26 @@ function currentSessionRecallRows(session, query, { limit = 10 } = {}) {
 
 function parseToolSelection(value) {
   if (Array.isArray(value)) return value.map(clean).filter(Boolean);
-  return String(value || '')
+  if (value && typeof value !== 'string' && typeof value[Symbol.iterator] === 'function') {
+    return [...value].map(clean).filter(Boolean);
+  }
+  return String(value || '').replace(/^select\s*:/i, '')
     .split(/[,\s]+/)
     .map(clean)
     .filter(Boolean);
+}
+
+function parseToolSearchQuerySelection(query) {
+  const match = clean(query).match(/^select\s*:\s*(.+)$/i);
+  return match ? parseToolSelection(match[1]) : [];
 }
 
 function toolKind(tool) {
   const name = clean(tool?.name);
   if (name.startsWith('mcp__')) return 'mcp';
   if (name.startsWith('skill:') || tool?.annotations?.mixdogKind === 'skill') return 'skill';
-  if (name.startsWith('skill_') || name === 'skills_list') return 'skill';
-  if (tool?.annotations?.bridgeHidden) return 'control';
+  if (name === 'Skill' || name.startsWith('skill_') || name === 'skills_list' || name === 'skill_view') return 'skill';
+  if (tool?.annotations?.agentHidden) return 'control';
   if (['apply_patch', 'shell'].includes(name)) return 'mutation';
   return 'tool';
 }
@@ -1508,6 +1597,17 @@ function activeToolForSurface(tool) {
   return JSON.parse(JSON.stringify(tool));
 }
 
+function deferredProviderMode(provider) {
+  const p = clean(provider).toLowerCase();
+  if (p === 'gemini') return 'full';
+  if (p === 'anthropic' || p === 'anthropic-oauth'
+    || p === 'openai' || p === 'openai-oauth'
+    || p === 'xai' || p === 'grok-oauth') {
+    return 'native';
+  }
+  return 'legacy';
+}
+
 function filterDisallowedTools(tools, disallowed = []) {
   if (!Array.isArray(disallowed) || disallowed.length === 0) return tools;
   const deny = new Set(disallowed.map((name) => clean(name)).filter(Boolean));
@@ -1554,67 +1654,35 @@ function toolRow(tool, activeNames = new Set()) {
   };
 }
 
-function skillSearchRows(skills = [], activeNames = new Set()) {
-  const rows = [];
-  const seen = new Set();
-  for (const skill of Array.isArray(skills) ? skills : []) {
-    const skillName = clean(skill?.name);
-    if (!skillName || seen.has(skillName)) continue;
-    seen.add(skillName);
-    rows.push({
-      name: `skill:${skillName}`,
-      skillName,
-      kind: 'skill',
-      usage: 0,
-      active: activeNames.has(skillName),
-      description: compactToolSearchDescription(skill?.description),
-      filePath: skill?.filePath || null,
-    });
-  }
-  return rows;
+function openAILoadableToolSpec(tool) {
+  return {
+    type: 'function',
+    name: clean(tool?.name),
+    description: clean(tool?.description),
+    defer_loading: true,
+    parameters: tool?.inputSchema && typeof tool.inputSchema === 'object'
+      ? tool.inputSchema
+      : { type: 'object', properties: {} },
+  };
 }
 
-function matchSkillSelection(raw, skillRows, toolNames = new Set()) {
-  const value = clean(raw);
-  if (!value) return null;
-  const lower = value.toLowerCase();
-  const byPseudo = new Map(skillRows.map((row) => [String(row.name).toLowerCase(), row]));
-  const byName = new Map(skillRows.map((row) => [String(row.skillName).toLowerCase(), row]));
-  if (lower.startsWith('skill:')) return byPseudo.get(lower) || { missingSkill: value.slice('skill:'.length) };
-  if (!toolNames.has(value) && !toolNames.has(lower)) return byName.get(lower) || null;
-  return null;
-}
-
-function selectToolSearchSkills(session, selectedNames, skillRows, { loadSkillContent } = {}, toolNames = new Set()) {
-  const claimed = new Set();
-  const loaded = [];
-  const already = [];
-  const missing = [];
-  const active = new Set(Array.isArray(session?.deferredLoadedSkills) ? session.deferredLoadedSkills : []);
-  for (const raw of selectedNames || []) {
-    const match = matchSkillSelection(raw, skillRows, toolNames);
-    if (!match) continue;
-    claimed.add(raw);
-    if (match.missingSkill) {
-      missing.push(match.missingSkill);
-      continue;
-    }
-    const skillName = match.skillName;
-    if (!skillName) continue;
-    if (active.has(skillName)) {
-      already.push(skillName);
-      continue;
-    }
-    const content = typeof loadSkillContent === 'function' ? loadSkillContent(skillName) : null;
-    if (!content) {
-      missing.push(skillName);
-      continue;
-    }
-    active.add(skillName);
-    loaded.push({ name: skillName, content });
+function toolSearchNativePayload(catalog, names) {
+  const selected = new Set((names || []).map(clean).filter(Boolean));
+  if (!selected.size) return null;
+  const tools = [];
+  const refs = [];
+  for (const tool of catalog || []) {
+    const name = clean(tool?.name);
+    if (!name || !selected.has(name)) continue;
+    refs.push(name);
+    tools.push(openAILoadableToolSpec(tool));
   }
-  if (session) session.deferredLoadedSkills = [...active].sort((a, b) => String(a).localeCompare(String(b)));
-  return { claimed, loaded, already, missing, active };
+  if (!refs.length) return null;
+  return {
+    toolReferences: refs,
+    openaiTools: tools,
+    summary: `Loaded deferred tools: ${refs.join(', ')}`,
+  };
 }
 
 function toolSearchTokens(value) {
@@ -1623,29 +1691,136 @@ function toolSearchTokens(value) {
     .filter(Boolean);
 }
 
+function toolSearchMeaningfulTokens(value) {
+  return toolSearchTokens(value).filter((token) => !TOOL_SEARCH_STOP_WORDS.has(token));
+}
+
 function toolSearchText(row) {
   const text = `${row.name} ${String(row.name || '').replace(/_/g, ' ')} ${row.kind} ${row.description} ${row.active ? 'active' : 'deferred'}`;
   return `${text} ${text.replace(/[-.]+/g, '_')}`.toLowerCase();
 }
 
+function toolSearchRowAliases(name) {
+  return TOOL_SEARCH_ROW_ALIASES[clean(name)] || [];
+}
+
+function toolSearchRank(row, query) {
+  const raw = clean(query).toLowerCase();
+  if (!raw) return { score: 0, reasons: [] };
+  const name = clean(row?.name).toLowerCase();
+  const prettyName = name.replace(/_/g, ' ');
+  const haystack = toolSearchText(row);
+  const aliases = toolSearchRowAliases(name);
+  const aliasText = aliases.join(' ').toLowerCase();
+  const queryTokens = toolSearchMeaningfulTokens(raw);
+  const nameTokens = new Set(toolSearchTokens(`${name} ${prettyName}`));
+  const aliasTokens = new Set(toolSearchTokens(aliasText));
+  let score = 0;
+  const reasons = [];
+  if (raw === name || raw === prettyName) {
+    score += 120;
+    reasons.push('exact-name');
+  }
+  if (aliases.some((alias) => raw === alias || raw === alias.replace(/[_-]+/g, ' '))) {
+    score += 100;
+    reasons.push('exact-alias');
+  }
+  if (haystack.includes(raw)) {
+    score += 34;
+    reasons.push('phrase');
+  }
+  for (const alias of aliases) {
+    const normalizedAlias = alias.toLowerCase();
+    if (normalizedAlias && raw.includes(normalizedAlias)) {
+      score += 58;
+      reasons.push('alias-phrase');
+      break;
+    }
+  }
+  let matchedTokens = 0;
+  for (const token of queryTokens) {
+    if (nameTokens.has(token) || name.includes(token)) {
+      score += 24;
+      matchedTokens += 1;
+      continue;
+    }
+    if (aliasTokens.has(token) || aliasText.includes(token)) {
+      score += 18;
+      matchedTokens += 1;
+      continue;
+    }
+    if (haystack.includes(token)) {
+      score += 7;
+      matchedTokens += 1;
+    }
+  }
+  if (queryTokens.length && matchedTokens === queryTokens.length) {
+    score += Math.min(18, queryTokens.length * 6);
+    reasons.push('all-tokens');
+  }
+  if (clean(row?.kind).toLowerCase() === raw) score += 10;
+  if (score > 0) score += Math.min(6, Math.floor(measuredToolUsage(name) / 150));
+  return { score, reasons };
+}
+
 function toolSearchMatches(row, query) {
   const raw = clean(query).toLowerCase();
   if (!raw) return true;
-  const haystack = toolSearchText(row);
-  if (haystack.includes(raw)) return true;
-  const tokens = toolSearchTokens(raw);
-  if (tokens.length === 0) return haystack.includes(raw);
-  return tokens.some((token) => haystack.includes(token));
+  return toolSearchRank(row, raw).score > 0;
 }
 
-function toolSearchAutoLoadMatches(row, query) {
+function rankedToolSearchRows(rows, query) {
   const raw = clean(query).toLowerCase();
-  if (!raw) return false;
-  const haystack = toolSearchText(row);
-  if (haystack.includes(raw)) return true;
-  const tokens = toolSearchTokens(raw);
-  if (tokens.length <= 1) return toolSearchMatches(row, query);
-  return tokens.every((token) => haystack.includes(token));
+  if (!raw) return rows;
+  return rows
+    .map((row) => {
+      const ranked = toolSearchRank(row, raw);
+      return { ...row, score: ranked.score, reasons: ranked.reasons };
+    })
+    .filter((row) => row.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (a.active !== b.active) return a.active ? 1 : -1;
+      if (b.usage !== a.usage) return b.usage - a.usage;
+      return String(a.name).localeCompare(String(b.name));
+    });
+}
+
+function queryHasAnyPhrase(query, phrases) {
+  const text = clean(query).toLowerCase().replace(/[_-]+/g, ' ');
+  return phrases.some((phrase) => text.includes(phrase));
+}
+
+function autoToolSelectionNames(query, rows) {
+  const raw = clean(query).toLowerCase();
+  if (!raw || TOOL_SEARCH_AMBIGUOUS_AUTO_QUERIES.has(raw)) return [];
+  if (TOOL_SEARCH_SAFE_AUTO_ALIASES.has(raw) && DEFERRED_SELECT_ALIASES[raw]) {
+    return DEFERRED_SELECT_ALIASES[raw];
+  }
+  if (queryHasAnyPhrase(raw, ['save memory', 'store memory', 'delete memory', 'forget memory', 'memory status', '기억 저장', '메모리 저장'])) {
+    return ['memory'];
+  }
+  if (queryHasAnyPhrase(raw, ['run', 'execute', 'test', 'tests', 'build', 'terminal', 'command', 'powershell', 'bash', 'shell', 'npm', 'node', 'git', '실행', '테스트', '빌드', '터미널', '쉘'])) {
+    return ['shell', 'task'];
+  }
+  if (queryHasAnyPhrase(raw, ['web', 'internet', 'online', 'current info', 'latest', 'news', 'browse', 'docs', 'documentation', '웹', '인터넷', '최신', '뉴스', '문서'])) {
+    return ['search', 'web_fetch'];
+  }
+  if (queryHasAnyPhrase(raw, ['recall', 'remember', 'memory previous', 'previous', 'history', 'past', 'prior', 'earlier', 'resume', '이전', '기억', '히스토리'])) {
+    return ['recall'];
+  }
+  if (queryHasAnyPhrase(raw, ['delegate', 'subagent', 'worker', 'parallel agent', 'background agent', 'reviewer', 'explorer', '에이전트', '워커', '병렬'])) {
+    return ['agent'];
+  }
+  if (queryHasAnyPhrase(raw, ['working directory', 'project root', 'current directory', 'cwd'])) {
+    return ['cwd'];
+  }
+  const ranked = rankedToolSearchRows(rows, raw);
+  const top = ranked[0];
+  if (!top) return [];
+  const reasons = new Set(top.reasons || []);
+  if (reasons.has('exact-name') || reasons.has('exact-alias')) return [top.name];
+  return [];
 }
 
 function expandSelectionNames(names) {
@@ -1660,14 +1835,37 @@ function expandSelectionNames(names) {
   return [...new Set(out)];
 }
 
-function autoToolSelectionNames(query, rows, toolNames, limit) {
-  const raw = clean(query).toLowerCase();
-  const alias = DEFERRED_SELECT_ALIASES[raw];
-  if (alias) return alias.filter((name) => toolNames.has(name)).slice(0, limit);
-  return rows
-    .filter((row) => toolNames.has(row.name) && toolSearchAutoLoadMatches(row, query))
-    .slice(0, limit)
-    .map((row) => row.name);
+function storedDeferredToolNames(session) {
+  for (const source of [session?.deferredDiscoveredTools, session?.deferredSelectedTools]) {
+    const names = parseToolSelection(source);
+    if (names.length) return names;
+  }
+  return [];
+}
+
+function canonicalDeferredToolNames(catalog, names) {
+  const byName = new Map();
+  for (const tool of catalog || []) {
+    const name = clean(tool?.name);
+    if (!name) continue;
+    byName.set(name, name);
+    byName.set(name.toLowerCase(), name);
+  }
+  const out = [];
+  for (const raw of expandSelectionNames(names)) {
+    const name = clean(raw);
+    const canonical = byName.get(name) || byName.get(name.toLowerCase());
+    if (canonical) out.push(canonical);
+  }
+  return sortedNamesByMeasuredUsage(new Set(out));
+}
+
+function setDeferredToolState(session, names) {
+  if (!session) return [];
+  const selected = sortedNamesByMeasuredUsage(new Set(parseToolSelection(names)));
+  session.deferredDiscoveredTools = selected;
+  session.deferredSelectedTools = selected;
+  return selected;
 }
 
 function isReadonlySelectable(tool) {
@@ -1679,8 +1877,9 @@ function isReadonlySelectable(tool) {
   return false;
 }
 
-function applyDeferredToolSurface(session, mode, extraTools = []) {
+function applyDeferredToolSurface(session, mode, extraTools = [], options = {}) {
   if (!session || !Array.isArray(session.tools)) return session;
+  const providerMode = deferredProviderMode(options.provider || session.provider);
   const byName = new Map();
   for (const tool of [...session.tools, ...(extraTools || [])]) {
     const name = clean(tool?.name);
@@ -1689,14 +1888,34 @@ function applyDeferredToolSurface(session, mode, extraTools = []) {
   }
   const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
   const defaultNames = defaultDeferredToolNames(catalog, mode);
+  const storedNames = providerMode === 'native' ? [] : storedDeferredToolNames(session);
+  let selectedNames = providerMode === 'full'
+    ? sortedNamesByMeasuredUsage(catalog.map((tool) => clean(tool?.name)).filter(Boolean))
+    : [];
+  if (providerMode !== 'full') {
+    selectedNames = storedNames.length ? canonicalDeferredToolNames(catalog, storedNames) : [];
+    if (!selectedNames.length || providerMode === 'native') selectedNames = sortedNamesByMeasuredUsage(defaultNames);
+  }
+  const selected = new Set(selectedNames);
   session.deferredToolCatalog = catalog;
   session.deferredToolUsage = MEASURED_TOOL_USAGE;
-  session.deferredSelectedTools = sortedNamesByMeasuredUsage(defaultNames);
+  session.deferredDefaultTools = sortedNamesByMeasuredUsage(defaultNames);
+  session.deferredProviderMode = providerMode;
+  session.deferredNativeTools = providerMode === 'native';
   session.tools.length = 0;
+  const active = [];
   for (const tool of catalog) {
-    if (!defaultNames.has(clean(tool?.name))) continue;
+    if (!selected.has(clean(tool?.name))) continue;
     if (mode === 'readonly' && !isReadonlySelectable(tool)) continue;
     session.tools.push(tool);
+    active.push(clean(tool?.name));
+  }
+  if (providerMode === 'native') {
+    const discovered = canonicalDeferredToolNames(catalog, session.deferredDiscoveredTools || []);
+    session.deferredSelectedTools = active;
+    session.deferredDiscoveredTools = discovered.filter((name) => !selected.has(name));
+  } else {
+    setDeferredToolState(session, active);
   }
   return session;
 }
@@ -1705,88 +1924,100 @@ function selectDeferredTools(session, names, mode) {
   const catalog = Array.isArray(session?.deferredToolCatalog)
     ? session.deferredToolCatalog
     : (Array.isArray(session?.tools) ? session.tools : []);
-  const active = new Set((session?.tools || []).map((tool) => tool?.name).filter(Boolean));
-  const byName = new Map(catalog.map((tool) => [tool?.name, tool]).filter(([name]) => name));
+  const active = new Set((session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean));
+  const native = session?.deferredProviderMode === 'native' || session?.deferredNativeTools === true;
+  const discovered = new Set(Array.isArray(session?.deferredDiscoveredTools) ? session.deferredDiscoveredTools : []);
+  const byName = new Map();
+  for (const tool of catalog) {
+    const name = clean(tool?.name);
+    if (!name) continue;
+    byName.set(name, tool);
+    byName.set(name.toLowerCase(), tool);
+  }
   const added = [];
   const already = [];
   const blocked = [];
   const missing = [];
-  for (const name of expandSelectionNames(names)) {
-    const tool = byName.get(name);
+  for (const rawName of expandSelectionNames(names)) {
+    const requestedName = clean(rawName);
+    const tool = byName.get(requestedName) || byName.get(requestedName.toLowerCase());
+    const name = clean(tool?.name);
     if (!tool) {
-      missing.push(name);
+      missing.push(requestedName);
       continue;
     }
     if (mode === 'readonly' && !isReadonlySelectable(tool)) {
       blocked.push({ name, reason: 'readonly mode' });
       continue;
     }
-    if (active.has(name)) {
+    if (active.has(name) || discovered.has(name)) {
       already.push(name);
       continue;
     }
-    session.tools.push(tool);
-    active.add(name);
+    if (native) {
+      discovered.add(name);
+    } else {
+      session.tools.push(tool);
+      active.add(name);
+    }
     added.push(name);
   }
-  session.deferredSelectedTools = sortedNamesByMeasuredUsage(active);
-  return { added, already, blocked, missing };
+  if (native) {
+    session.deferredDiscoveredTools = sortedNamesByMeasuredUsage(discovered);
+    session.deferredSelectedTools = sortedNamesByMeasuredUsage(active);
+  } else {
+    setDeferredToolState(session, active);
+  }
+  return { added, already, blocked, missing, native };
 }
 
-function renderToolSearch(args = {}, session, mode = 'full', options = {}) {
+function renderToolSearch(args = {}, session, mode = 'full') {
   const catalog = Array.isArray(session?.deferredToolCatalog)
     ? session.deferredToolCatalog
     : (Array.isArray(session?.tools) ? session.tools : []);
-  const activeNames = new Set((session?.tools || []).map((tool) => tool?.name).filter(Boolean));
-  const query = clean(args.query).toLowerCase();
-  const selectedNames = parseToolSelection(args.select);
+  const rawQuery = clean(args.query);
+  const explicitSelectedNames = parseToolSelection(args.select);
+  const querySelectedNames = explicitSelectedNames.length ? [] : parseToolSearchQuerySelection(rawQuery);
+  const forcedSelectedNames = explicitSelectedNames.length ? explicitSelectedNames : querySelectedNames;
+  const query = querySelectedNames.length ? '' : rawQuery.toLowerCase();
   const limit = Math.max(1, Math.min(50, Number(args.limit) || 20));
-  const toolNames = new Set(catalog.map((tool) => clean(tool?.name)).filter(Boolean));
-  for (const name of [...toolNames]) toolNames.add(String(name).toLowerCase());
-  const initialLoadedSkills = new Set(Array.isArray(session?.deferredLoadedSkills) ? session.deferredLoadedSkills : []);
-  const initialSkillRows = skillSearchRows(options.skills, initialLoadedSkills);
-  const initialRows = [
-    ...catalog.map((tool) => toolRow(tool, activeNames)),
-    ...initialSkillRows,
-  ].filter((row) => row.name);
-  const skillSelection = selectedNames.length
-    ? selectToolSearchSkills(session, selectedNames, initialSkillRows, options, toolNames)
-    : { claimed: new Set(), loaded: [], already: [], missing: [], active: initialLoadedSkills };
-  const toolSelectedNames = selectedNames.filter((name) => !skillSelection.claimed.has(name));
-  const explicitToolSelection = toolSelectedNames.length ? selectDeferredTools(session, toolSelectedNames, mode) : null;
-  const autoToolNames = (!selectedNames.length && query)
-    ? autoToolSelectionNames(query, initialRows, toolNames, limit)
+  const initialActiveNames = new Set((session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean));
+  const initialRows = catalog.map((tool) => toolRow(tool, initialActiveNames)).filter((row) => row.name);
+  const autoSelectedNames = (!forcedSelectedNames.length && query)
+    ? autoToolSelectionNames(query, initialRows)
     : [];
-  const autoToolSelection = autoToolNames.length ? selectDeferredTools(session, autoToolNames, mode) : null;
-  const toolSelection = explicitToolSelection || autoToolSelection;
-  const nextActiveNames = new Set((session?.tools || []).map((tool) => tool?.name).filter(Boolean));
-  const nextLoadedSkills = new Set(Array.isArray(session?.deferredLoadedSkills) ? session.deferredLoadedSkills : [...skillSelection.active]);
+  const selectedNames = forcedSelectedNames.length ? forcedSelectedNames : autoSelectedNames;
+  const toolSelection = selectedNames.length ? selectDeferredTools(session, selectedNames, mode) : null;
+  const selectionMode = forcedSelectedNames.length ? 'select' : (autoSelectedNames.length ? 'auto' : null);
+  const nextActiveNames = new Set((session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean));
   const rows = [
     ...catalog.map((tool) => toolRow(tool, nextActiveNames)),
-    ...skillSearchRows(options.skills, nextLoadedSkills),
   ].filter((row) => row.name);
   const matches = query
-    ? rows.filter((row) => toolSearchMatches(row, query))
+    ? rankedToolSearchRows(rows, query)
     : rows;
-  const selected = (toolSelection || skillSelection.loaded.length || skillSelection.already.length || skillSelection.missing.length)
+  const selected = toolSelection
     ? {
+        mode: selectionMode,
         tools: toolSelection,
-        skills: {
-          loaded: skillSelection.loaded.map((skill) => skill.name),
-          already: skillSelection.already,
-          missing: skillSelection.missing,
-        },
       }
+    : null;
+  const nativeToolSearch = toolSelection?.native
+    ? toolSearchNativePayload(catalog, toolSelection.added)
     : null;
   return JSON.stringify({
     selected,
+    ...(nativeToolSearch ? { nativeToolSearch } : {}),
     totalMatches: matches.length,
     matches: matches.slice(0, limit),
-    loadedSkills: skillSelection.loaded,
     activeTools: sortedNamesByMeasuredUsage(nextActiveNames),
-    activeSkills: [...nextLoadedSkills].sort((a, b) => String(a).localeCompare(String(b))),
-    note: 'standalone: tool_search loads deferred tool/MCP schemas for the next model iteration; skill:* selections return SKILL.md content in loadedSkills.',
+    discoveredTools: sortedNamesByMeasuredUsage(session?.deferredDiscoveredTools || []),
+    note: 'query ranks matches and auto-loads high-confidence deferred tools; select exact tool names, or query select:a,b, to force load.',
   }, null, 2);
+}
+
+export function __renderToolSearchForTest(args = {}, session = {}, mode = 'full') {
+  return renderToolSearch(args, session, mode);
 }
 
 function resolveCwdPath(currentCwd, value) {
@@ -1811,7 +2042,6 @@ export async function createMixdogSessionRuntime({
     rootDir: STANDALONE_ROOT,
     dataDir: STANDALONE_DATA_DIR,
   });
-  ensureProjectMixdogMd({ cwd });
   bootProfile('standalone-env:ready', { ms: (performance.now() - standaloneStartedAt).toFixed(1) });
 
   const importsStartedAt = performance.now();
@@ -2195,14 +2425,23 @@ export async function createMixdogSessionRuntime({
   let providerSetupWarmupTimer = null;
   let providerWarmupTimer = null;
   let providerModelWarmupTimer = null;
+  let codeGraphPrewarmTimer = null;
+  let codeGraphPrewarmInFlight = false;
+  let codeGraphPrewarmQueuedCwd = '';
   let statuslineUsageWarmupTimer = null;
+  let statuslineUsageRefreshTimer = null;
   let activeTurnCount = 0;
   let firstTurnCompleted = false;
   const sessionPrewarmDelayMs = envDelayMs('MIXDOG_SESSION_PREWARM_DELAY_MS', 50, { min: 0, max: 10_000 });
   const providerSetupWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_SETUP_WARMUP_DELAY_MS', 300, { min: 0, max: 60_000 });
   const providerWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_WARMUP_DELAY_MS', 1_500, { min: 0, max: 60_000 });
   const providerModelWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS', 15_000, { min: 0, max: 120_000 });
+  const codeGraphPrewarmDelayMs = envDelayMs('MIXDOG_CODE_GRAPH_PREWARM_DELAY_MS', 250, { min: 0, max: 60_000 });
   const statuslineUsageWarmupDelayMs = envDelayMs('MIXDOG_STATUSLINE_USAGE_WARMUP_DELAY_MS', 800, { min: 0, max: 60_000 });
+  // Idle keep-alive: re-fetch usage before the statusline's 10-min staleness cut
+  // (LIVE_USAGE_SNAPSHOT_MAX_AGE_MS) so the usage segment does not disappear
+  // while the session sits idle with no turns to trigger a refresh.
+  const statuslineUsageRefreshDelayMs = envDelayMs('MIXDOG_STATUSLINE_USAGE_REFRESH_MS', 240_000, { min: 30_000, max: 540_000 });
   const channelStartDelayMs = envDelayMs('MIXDOG_CHANNEL_START_DELAY_MS', 10_000, { min: 0, max: 120_000 });
   const backgroundBusyRetryMs = envDelayMs('MIXDOG_BACKGROUND_BUSY_RETRY_MS', 1_000, { min: 50, max: 10_000 });
   const sessionPrewarmEnabled = !envFlag('MIXDOG_DISABLE_SESSION_PREWARM')
@@ -2214,6 +2453,7 @@ export async function createMixdogSessionRuntime({
       || envPresent('MIXDOG_PROVIDER_WARMUP_DELAY_MS')
       || envPresent('MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS')
     );
+  const codeGraphPrewarmEnabled = !envFlag('MIXDOG_DISABLE_CODE_GRAPH_PREWARM');
   const modelMetaByRoute = new Map();
   const notificationListeners = new Set();
   let providerModelsCache = { models: null, at: 0 };
@@ -2329,13 +2569,62 @@ export async function createMixdogSessionRuntime({
     };
   }
 
+  function scheduleCodeGraphPrewarm(delayMs = codeGraphPrewarmDelayMs, reason = 'cwd') {
+    if (!codeGraphPrewarmEnabled) {
+      bootProfile('code-graph:prewarm-skipped', { reason: 'disabled' });
+      return;
+    }
+    if (closeRequested) return;
+    codeGraphPrewarmQueuedCwd = currentCwd;
+    if (codeGraphPrewarmTimer) return;
+    codeGraphPrewarmTimer = setTimeout(() => {
+      codeGraphPrewarmTimer = null;
+      if (closeRequested) return;
+      if (activeTurnCount > 0 || sessionCreatePromise) {
+        bootProfile('code-graph:prewarm-deferred', { reason: activeTurnCount > 0 ? 'turn-active' : 'session-create' });
+        scheduleCodeGraphPrewarm(backgroundBusyRetryMs, 'busy');
+        return;
+      }
+      if (codeGraphPrewarmInFlight) {
+        bootProfile('code-graph:prewarm-deferred', { reason: 'in-flight' });
+        scheduleCodeGraphPrewarm(backgroundBusyRetryMs, 'in-flight');
+        return;
+      }
+      const prewarmCwd = codeGraphPrewarmQueuedCwd || currentCwd;
+      codeGraphPrewarmQueuedCwd = '';
+      codeGraphPrewarmInFlight = true;
+      const startedAt = performance.now();
+      bootProfile('code-graph:prewarm:start', { cwd: prewarmCwd, reason });
+      void getCodeGraphModule()
+        .then((mod) => {
+          if (typeof mod?.prewarmCodeGraphIfProject !== 'function') return false;
+          return mod.prewarmCodeGraphIfProject(prewarmCwd);
+        })
+        .then((scheduled) => bootProfile(scheduled ? 'code-graph:prewarm:scheduled' : 'code-graph:prewarm:no-project', {
+          cwd: prewarmCwd,
+          ms: (performance.now() - startedAt).toFixed(1),
+        }))
+        .catch((error) => bootProfile('code-graph:prewarm:failed', {
+          cwd: prewarmCwd,
+          ms: (performance.now() - startedAt).toFixed(1),
+          error: error?.message || String(error),
+        }))
+        .finally(() => {
+          codeGraphPrewarmInFlight = false;
+          if (codeGraphPrewarmQueuedCwd && !closeRequested) {
+            scheduleCodeGraphPrewarm(backgroundBusyRetryMs, 'queued');
+          }
+        });
+    }, delayMs);
+    codeGraphPrewarmTimer.unref?.();
+  }
+
   function applyResolvedCwd(nextCwd, { markRefresh = true } = {}) {
     const resolved = resolve(nextCwd);
     const stat = statSync(resolved);
     if (!stat.isDirectory()) throw new Error(`cwd: not a directory: ${resolved}`);
     const changed = resolve(currentCwd) !== resolved;
     currentCwd = resolved;
-    ensureProjectMixdogMd({ cwd: currentCwd });
     process.env.MIXDOG_SESSION_CWD = currentCwd;
     writeLastSessionCwd(currentCwd);
     if (session) session.cwd = currentCwd;
@@ -2348,6 +2637,7 @@ export async function createMixdogSessionRuntime({
     // compatibility with existing callers.
     void changed;
     void markRefresh;
+    scheduleCodeGraphPrewarm(changed ? 0 : codeGraphPrewarmDelayMs, changed ? 'cwd-change' : 'cwd');
     return currentCwd;
   }
 
@@ -2372,12 +2662,38 @@ export async function createMixdogSessionRuntime({
     }
   }
 
+  // Build the optional "# User Profile" block for the system reminder from the
+  // stored /profile config. Returns '' when nothing is set so callers can skip
+  // injection cleanly. title → preferred form of address; language (non-system)
+  // → an explicit "respond in <language>" instruction.
+  function buildProfileContext(profileLike) {
+    const profile = cfgMod.normalizeProfileConfig(profileLike);
+    const lines = [];
+    if (profile.title) {
+      lines.push(`The user prefers to be addressed as "${profile.title}".`);
+    }
+    if (profile.language && profile.language !== 'system') {
+      const entry = cfgMod.profileLanguageEntry(profile.language);
+      if (entry?.prompt) {
+        lines.push(`Always respond in ${entry.prompt} unless the user writes in another language or asks otherwise.`);
+      }
+    }
+    if (!lines.length) return '';
+    return `# User Profile\n${lines.join('\n')}`;
+  }
+
   function skillContent(name) {
     const content = typeof contextMod.loadSkillContent === 'function'
       ? contextMod.loadSkillContent(name, currentCwd)
       : null;
     if (!content) throw new Error(`skill not found: ${name}`);
     return { name, content };
+  }
+
+  function skillToolContent(name) {
+    const skill = skillContent(name);
+    const escapedName = String(skill.name || '').replace(/[<>&]/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]));
+    return `<skill>\n<name>${escapedName}</name>\n${skill.content}\n</skill>`;
   }
 
   function addProjectSkill(input = {}) {
@@ -2492,25 +2808,25 @@ export async function createMixdogSessionRuntime({
     return { name, config: { command, args, cwd: resolvedCwd } };
   }
 
-  const bridgeStartedAt = performance.now();
-  const bridge = createStandaloneBridge({
+  const agentToolStartedAt = performance.now();
+  const agentTool = createStandaloneAgent({
     cfgMod,
     reg,
     mgr,
     dataDir: cfgMod.getPluginData(),
     cwd,
   });
-  bootProfile('bridge:ready', { ms: (performance.now() - bridgeStartedAt).toFixed(1) });
-  const bridgeStatusState = () => {
+  bootProfile('agent:ready', { ms: (performance.now() - agentToolStartedAt).toFixed(1) });
+  const agentStatusState = () => {
     try {
-      const status = bridge.getStatus?.({ clientHostPid: session?.clientHostPid || process.pid }) || {};
+      const status = agentTool.getStatus?.({ clientHostPid: session?.clientHostPid || process.pid }) || {};
       return {
-        bridgeWorkers: Array.isArray(status.workers) ? status.workers : [],
-        bridgeJobs: Array.isArray(status.jobs) ? status.jobs : [],
-        bridgeScope: status.scope || null,
+        agentWorkers: Array.isArray(status.workers) ? status.workers : [],
+        agentJobs: Array.isArray(status.jobs) ? status.jobs : [],
+        agentScope: status.scope || null,
       };
     } catch {
-      return { bridgeWorkers: [], bridgeJobs: [], bridgeScope: null };
+      return { agentWorkers: [], agentJobs: [], agentScope: null };
     }
   };
   const channelsStartedAt = performance.now();
@@ -2533,13 +2849,14 @@ export async function createMixdogSessionRuntime({
   const toolsStartedAt = performance.now();
   const standaloneTools = [
     TOOL_SEARCH_TOOL,
+    SKILL_TOOL,
     CWD_TOOL,
     EXPLORE_TOOL,
     ...(searchToolDefs?.TOOL_DEFS || []).filter((tool) => tool?.name === 'search' || tool?.name === 'web_fetch'),
     ...(memoryToolDefs?.TOOL_DEFS || []).filter((tool) => tool?.name === 'recall' || tool?.name === 'memory'),
     ...(channelToolDefs?.TOOL_DEFS || []).filter((tool) => channels.isChannelTool(tool?.name)),
     ...(codeGraphToolDefs?.CODE_GRAPH_TOOL_DEFS || []).filter((tool) => tool?.name === 'code_graph'),
-    ...bridge.tools,
+    ...agentTool.tools,
     PROVIDER_STATUS_TOOL,
     CHANNEL_STATUS_TOOL,
   ].map(applyStandaloneToolDefaults);
@@ -2560,7 +2877,7 @@ export async function createMixdogSessionRuntime({
       : [];
     const tools = filterDisallowedTools(previewTools, LEAD_DISALLOWED_TOOLS);
     const surface = { tools: Array.isArray(tools) ? tools.slice() : [] };
-    applyDeferredToolSurface(surface, mode, standaloneTools);
+    applyDeferredToolSurface(surface, mode, standaloneTools, { provider: route.provider });
     return surface;
   }
 
@@ -2607,14 +2924,7 @@ export async function createMixdogSessionRuntime({
         return await codeGraphMod.executeCodeGraphTool(name, args || {}, args?.cwd || callerCwd);
       }
       if (name === 'tool_search') {
-        return renderToolSearch(args, activeToolSurface(), mode, {
-          skills: typeof contextMod.collectSkillsCached === 'function'
-            ? contextMod.collectSkillsCached(currentCwd)
-            : [],
-          loadSkillContent: (skillName) => (typeof contextMod.loadSkillContent === 'function'
-            ? contextMod.loadSkillContent(skillName, currentCwd)
-            : null),
-        });
+        return renderToolSearch(args, activeToolSurface(), mode);
       }
       if (name === 'explore') {
         const callerSessionId = callerCtx?.callerSessionId || session?.id || null;
@@ -2635,9 +2945,12 @@ export async function createMixdogSessionRuntime({
         }
         return JSON.stringify({ cwd: currentCwd, sessionId: session?.id || null }, null, 2);
       }
+      if (name === 'Skill') {
+        return skillToolContent(args?.name);
+      }
       if (name === 'agent') {
         const callerSessionId = callerCtx?.callerSessionId || session?.id || null;
-        return await bridge.execute(args, {
+        return await agentTool.execute(args, {
           callerCwd,
           invocationSource: 'model-tool',
           callerSessionId,
@@ -3225,6 +3538,11 @@ function parsedProviderModelVersion(id) {
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const workflowContext = workflowContextBlock(config, dataDir);
       const workspaceContext = buildWorkspaceContext();
+      // Profile context for the system reminder (BP3). The value is computed
+      // here and ready to inject; prompt-side wiring is intentionally left to
+      // the caller — pass `profileContext` into sessionOpts below and have
+      // composeSystemPrompt push it into sessionMarker to activate it.
+      const profileContext = buildProfileContext(config.profile);
       const sessionOpts = {
         provider: route.provider,
         model: route.model,
@@ -3241,11 +3559,13 @@ function parsedProviderModelVersion(id) {
         coreMemoryContext,
         workflowContext,
         workspaceContext,
+        // profileContext, // ← wire-up hook: uncomment to inject /profile into the prompt
         fast: route.fast === true,
         compaction: config.compaction && typeof config.compaction === 'object'
           ? normalizeCompactionConfig(config.compaction, { memoryEnabled: memoryEnabled() })
           : undefined,
       };
+      void profileContext; // referenced only by the wire-up hook above for now
       if (hasOwn(route, 'effort') || route.effectiveEffort) {
         sessionOpts.effort = route.effectiveEffort || null;
       }
@@ -3257,7 +3577,7 @@ function parsedProviderModelVersion(id) {
         configurable: true,
         writable: true,
       });
-      applyDeferredToolSurface(session, mode, standaloneTools);
+      applyDeferredToolSurface(session, mode, standaloneTools, { provider: route.provider });
       applyPreSessionToolSelection();
       writeStatuslineRoute(statusRoutes, session, route);
       hooks.emit('session:create', { sessionId: session.id, provider: route.provider, model: route.model, toolMode: mode, cwd: currentCwd });
@@ -3378,9 +3698,41 @@ function parsedProviderModelVersion(id) {
         bootProfile('statusline-usage:warm-ready', { provider: clean(route?.provider) });
       } catch (error) {
         bootProfile('statusline-usage:warm-failed', { error: error?.message || String(error) });
+      } finally {
+        scheduleStatuslineUsageRefresh();
       }
     }, delayMs);
     statuslineUsageWarmupTimer.unref?.();
+  }
+
+  // Idle keep-alive loop: periodically re-fetch the OAuth usage snapshot so its
+  // cachedAt stays "live-fresh" and the statusline usage segment does not vanish
+  // after LIVE_USAGE_SNAPSHOT_MAX_AGE_MS while the session is idle. Turn-driven
+  // refreshes (recordStandaloneStatusTelemetry) already cover active sessions.
+  function scheduleStatuslineUsageRefresh(delayMs = statuslineUsageRefreshDelayMs) {
+    const providerId = clean(route?.provider);
+    if (!providerId || !providerId.includes('oauth')) return;
+    if (statuslineUsageRefreshTimer || closeRequested) return;
+    statuslineUsageRefreshTimer = setTimeout(async () => {
+      statuslineUsageRefreshTimer = null;
+      if (closeRequested) return;
+      if (activeTurnCount > 0 || sessionCreatePromise) {
+        // Active turns refresh usage on their own; just re-arm the idle loop.
+        scheduleStatuslineUsageRefresh();
+        return;
+      }
+      try {
+        ensureConfigForRouteProvider();
+        await ensureProvidersReady(ensureProviderEnabled(config, route.provider));
+        if (closeRequested) return;
+        refreshStatuslineUsageSnapshot(route);
+      } catch {
+        // Usage display must never affect the session runtime.
+      } finally {
+        scheduleStatuslineUsageRefresh();
+      }
+    }, delayMs);
+    statuslineUsageRefreshTimer.unref?.();
   }
 
   function scheduleChannelStart(delayMs = channelStartDelayMs) {
@@ -3430,10 +3782,17 @@ function parsedProviderModelVersion(id) {
     lazySession: true,
     prewarmSession: sessionPrewarmEnabled,
     providerWarmup: providerWarmupEnabled,
+    codeGraphPrewarm: codeGraphPrewarmEnabled,
   });
   scheduleLeadSessionPrewarm();
+  scheduleCodeGraphPrewarm(codeGraphPrewarmDelayMs, 'startup');
   scheduleProviderSetupWarmup();
   scheduleProviderWarmup();
+  // Warm the provider model catalog in the background, but keep it on its own
+  // delay so short-lived detached runtimes can exit before /models I/O starts.
+  // Operators that want earlier catalog warming can lower
+  // MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS explicitly.
+  scheduleProviderModelWarmup();
   scheduleStatuslineUsageWarmup();
   scheduleChannelStart();
 
@@ -3707,6 +4066,33 @@ function parsedProviderModelVersion(id) {
     getAutoClear() {
       return normalizeAutoClearConfig(config.autoClear);
     },
+    // --- User profile (/profile statusline command) ---------------------
+    // getProfile returns the normalized { title, language } plus the resolved
+    // language catalog entry and the full language list for the picker UI.
+    getProfile() {
+      const profile = cfgMod.normalizeProfileConfig(config.profile);
+      return {
+        ...profile,
+        languageEntry: cfgMod.profileLanguageEntry(profile.language),
+        languages: cfgMod.PROFILE_LANGUAGES,
+      };
+    },
+    // setProfile patches title and/or language and persists. Unknown language
+    // ids normalize back to 'system'. Prompt-side injection is wired separately
+    // (composeSystemPrompt) — this only owns the stored value.
+    setProfile(input = {}) {
+      const current = cfgMod.normalizeProfileConfig(config.profile);
+      const next = { ...current };
+      if (hasOwn(input, 'title') || hasOwn(input, 'name')) {
+        next.title = input.title ?? input.name ?? '';
+      }
+      if (hasOwn(input, 'language') || hasOwn(input, 'lang')) {
+        next.language = input.language ?? input.lang ?? 'system';
+      }
+      const normalized = cfgMod.normalizeProfileConfig(next);
+      saveConfigAndAdopt({ ...config, profile: normalized });
+      return this.getProfile();
+    },
     getCompactionSettings() {
       return normalizeCompactionConfig(config.compaction, { memoryEnabled: memoryEnabled() });
     },
@@ -3829,12 +4215,11 @@ function parsedProviderModelVersion(id) {
       }
 
       for (const slot of WORKFLOW_ROUTE_SLOTS) {
-        const normalized = normalizeWorkflowRoute(workflowInput[slot] || (slot === 'agent' ? workflowInput.bridge : null));
+        const normalized = normalizeWorkflowRoute(workflowInput[slot]);
         if (!normalized) continue;
         workflowRoutes[slot] = normalized;
         presets = upsertWorkflowPreset(presets, slot, normalized);
       }
-      delete workflowRoutes.bridge;
 
       nextConfig.presets = presets;
       nextConfig.workflowRoutes = workflowRoutes;
@@ -4210,8 +4595,8 @@ function parsedProviderModelVersion(id) {
       const cleared = await mgr.clearSessionMessages(session.id, options);
       if (!cleared) return false;
       session = typeof cleared === 'object' ? cleared : (mgr.getSession(session.id) || session);
-      if (options.recoverBridge === true) {
-        try { bridge.recoverWorkers?.({ clientHostPid: session?.clientHostPid || process.pid }); } catch {}
+      if (options.recoverAgent === true) {
+        try { agentTool.recoverWorkers?.({ clientHostPid: session?.clientHostPid || process.pid }); } catch {}
       }
       invalidateContextStatusCache();
       return true;
@@ -4220,8 +4605,8 @@ function parsedProviderModelVersion(id) {
       if (!session?.id) return null;
       const result = await mgr.compactSessionMessages(session.id);
       session = mgr.getSession(session.id) || session;
-      if (options.recoverBridge === true) {
-        try { bridge.recoverWorkers?.({ clientHostPid: session?.clientHostPid || process.pid }); } catch {}
+      if (options.recoverAgent === true) {
+        try { agentTool.recoverWorkers?.({ clientHostPid: session?.clientHostPid || process.pid }); } catch {}
       }
       invalidateContextStatusCache();
       return result;
@@ -4233,15 +4618,15 @@ function parsedProviderModelVersion(id) {
       await recreateCurrentSessionIfReady();
       return mode;
     },
-    bridgeStatus() {
-      return bridgeStatusState();
+    agentStatus() {
+      return agentStatusState();
     },
     get clientHostPid() {
       return session?.clientHostPid || process.pid;
     },
-    bridgeControl(args = {}) {
+    agentControl(args = {}) {
       const callerSessionId = session?.id || null;
-      return bridge.execute(args, {
+      return agentTool.execute(args, {
         callerCwd: currentCwd,
         invocationSource: 'user-command',
         callerSessionId,
@@ -4271,6 +4656,7 @@ function parsedProviderModelVersion(id) {
         activeCount: rows.filter((row) => row.active).length,
         tools,
         activeTools: sortedNamesByMeasuredUsage(activeNames),
+        discoveredTools: sortedNamesByMeasuredUsage(surface?.deferredDiscoveredTools || []),
       };
     },
     selectTools(names) {
@@ -4508,6 +4894,7 @@ function parsedProviderModelVersion(id) {
         : selectedRoute);
       await refreshRouteEffort(modelMeta);
       refreshStatuslineUsageSnapshot(route);
+      scheduleStatuslineUsageRefresh();
       if (session) {
         const updated = mgr.updateSessionRoute?.(session.id, {
           provider: route.provider,
@@ -4588,13 +4975,21 @@ function parsedProviderModelVersion(id) {
         clearTimeout(providerModelWarmupTimer);
         providerModelWarmupTimer = null;
       }
+      if (codeGraphPrewarmTimer) {
+        clearTimeout(codeGraphPrewarmTimer);
+        codeGraphPrewarmTimer = null;
+      }
       if (statuslineUsageWarmupTimer) {
         clearTimeout(statuslineUsageWarmupTimer);
         statuslineUsageWarmupTimer = null;
       }
+      if (statuslineUsageRefreshTimer) {
+        clearTimeout(statuslineUsageRefreshTimer);
+        statuslineUsageRefreshTimer = null;
+      }
       try { cancelBackgroundTasks({ reason, notify: false }); } catch {}
       const channelStop = channels.stop(reason, detach ? { waitForExit: false } : undefined);
-      try { bridge.closeAll(reason); } catch {}
+      try { agentTool.closeAll(reason); } catch {}
       let mcpStop = null;
       try { mcpStop = mcpClient.disconnectAll?.(); } catch {}
       const openaiWsStop = globalThis.__mixdogOpenaiWsRuntimeLoaded === true
@@ -4708,7 +5103,7 @@ function parsedProviderModelVersion(id) {
       await refreshRouteEffort();
       session.effort = route.effectiveEffort || null;
       session.cwd = currentCwd;
-      applyDeferredToolSurface(session, mode, standaloneTools);
+      applyDeferredToolSurface(session, mode, standaloneTools, { provider: route.provider });
       invalidatePreSessionToolSurface();
       invalidateContextStatusCache();
       sessionNeedsCwdRefresh = false;

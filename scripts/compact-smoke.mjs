@@ -75,7 +75,7 @@ assert(recallFastTrackForced.compactType === COMPACT_TYPE_RECALL_FASTTRACK, 'rec
 assert(findSummary(recallFastTrackForced.messages), 'recall fast-track compact should insert an anchored summary');
 
 // Context overflow on send is surfaced immediately as a deterministic
-// BRIDGE_CONTEXT_OVERFLOW error. The loop MUST NOT attempt an in-loop
+// AGENT_CONTEXT_OVERFLOW error. The loop MUST NOT attempt an in-loop
 // re-compaction retry — no compact provider call, no second send.
 const overflowRetryMessages = [{ role: 'system', content: 'system rules stay mandatory' }];
 let overflowIndex = 0;
@@ -115,7 +115,7 @@ try {
   overflowError = err;
 }
 assert(overflowError, 'context overflow on send should surface an error, not be silently recovered');
-assert(overflowError?.code === 'BRIDGE_CONTEXT_OVERFLOW', `overflow should surface BRIDGE_CONTEXT_OVERFLOW, got ${overflowError?.code || overflowError?.message}`);
+assert(overflowError?.code === 'AGENT_CONTEXT_OVERFLOW', `overflow should surface AGENT_CONTEXT_OVERFLOW, got ${overflowError?.code || overflowError?.message}`);
 assert(overflowSendCount === 1, `overflow should send exactly once with no retry, sent=${overflowSendCount}`);
 assert(overflowCompactSendCount === 0, `overflow must not trigger an in-loop re-compaction, compactSends=${overflowCompactSendCount}`);
 

@@ -308,7 +308,12 @@ export default class Output {
         // [mixdog fork] Snapshot per-row, column-indexed cell values so the App
         // can compute word boundaries (double-click select) without retaining
         // this Output instance, which is created fresh per render and discarded.
-        const plainRows = sel ? undefined : output.map((row) => (row || []).map((cell) => (cell?.value ?? '')));
+        // ALWAYS build this, even while a selection rect is active: gating it on
+        // `!sel` froze the snapshot at the frame the first selection appeared, so
+        // every later double-click read STALE cell rows (wrong/empty words) until
+        // the selection cleared. Applying the selection above only rewrites cell
+        // `styles`, never `value`, so reading `value` here stays correct.
+        const plainRows = output.map((row) => (row || []).map((cell) => (cell?.value ?? '')));
         const generatedOutput = output
             .map(line => {
             // See https://github.com/vadimdemedes/ink/pull/564#issuecomment-1637022742

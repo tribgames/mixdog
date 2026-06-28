@@ -79,34 +79,6 @@ async function _readReachPreflight(rawPath, workDir, helpers) {
     catch (e) { return `Error: ${e?.message || e}`; }
 }
 
-function capPositiveNumber(value, max, fallback = max) {
-    const n = Number(value);
-    if (!Number.isFinite(n) || n <= 0) return fallback;
-    return Math.min(max, Math.max(1, Math.trunc(n)));
-}
-
-function applyCompactReadBudget(entry) {
-    if (!entry || String(entry.budget || '').toLowerCase() !== 'compact') return entry;
-    const next = { ...entry };
-    const isFullMode = !next.mode || next.mode === 'full';
-    const hasLine = next.line !== undefined && next.line !== null;
-    const hasRange = next.offset !== undefined || next.limit !== undefined;
-    const hasPathLine = hasLineCoordinate(next.path);
-    if (hasLine && (next.context === undefined || next.context === null || Number(next.context) > 20)) {
-        next.context = 20;
-    }
-    if (hasRange && (next.limit === undefined || next.limit === null || Number(next.limit) > 120)) {
-        next.limit = 120;
-    }
-    if ((next.mode === 'head' || next.mode === 'tail') && (next.n === undefined || next.n === null || Number(next.n) > 80)) {
-        next.n = capPositiveNumber(next.n, 80, 80);
-    }
-    if (isFullMode && !hasLine && !hasRange && !hasPathLine && next.full !== true) {
-        next.mode = 'count';
-    }
-    return next;
-}
-
 export async function executeReadTool(args, workDir, readStateScope, executeChildBuiltinTool, options = {}, helpers = {}) {
     const {
         classifyResultKind,
@@ -217,10 +189,7 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
             if (r?.line !== undefined) entry.line = r.line;
             if (r?.context !== undefined) entry.context = r.context;
             if (r?.full !== undefined) entry.full = r.full;
-            if (r?.budget !== undefined) entry.budget = r.budget;
-            entry = applyCompactReadBudget(entry);
             entry = normaliseReadLineWindowArgs(entry, workDir);
-            entry = applyCompactReadBudget(entry);
             return entry;
         });
         const _invertedRawEntry = rawEntries.find((e) => e && e._invertedRangeError);
@@ -269,10 +238,7 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
             if (args.line !== undefined) entry.line = args.line;
             if (args.context !== undefined) entry.context = args.context;
             if (args.full !== undefined) entry.full = args.full;
-            if (args.budget !== undefined) entry.budget = args.budget;
-            entry = applyCompactReadBudget(entry);
             entry = normaliseReadLineWindowArgs(entry, workDir);
-            entry = applyCompactReadBudget(entry);
             return entry;
         });
         const _invertedStrEntry = entries.find((e) => e && e._invertedRangeError);
@@ -450,9 +416,9 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
         args.path = normalizeInputPath(args.path);
         // Symbol reads are span-driven. Models (notably gpt-5.5) co-send the whole
         // schema filled with placeholder/zero values (offset:0, limit:0, line:0,
-        // context:0, pages:'', max_lines:0, mode, budget) alongside symbol, which
+        // context:0, pages:'', mode) alongside symbol, which
         // otherwise makes the symbol branch think a window was requested and falls
-        // back to a 0-window read. Treat those zero/empty/mode/budget params as
+        // back to a 0-window read. Treat those zero/empty/mode params as
         // absent so the whole symbol body returns in ONE call; a MEANINGFUL window
         // (offset>0 / limit>0 / non-empty pages / real line) is kept and overrides.
         if (typeof args.symbol === 'string' && args.symbol.trim()) {
@@ -460,11 +426,8 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
             if (args.limit === 0) delete args.limit;
             if (args.line === 0) delete args.line;
             if (args.pages === '') delete args.pages;
-            if (args.max_lines === 0) delete args.max_lines;
-            if (args.budget !== undefined) delete args.budget;
             if (args.mode !== undefined) delete args.mode;
         }
-        args = applyCompactReadBudget(args);
         const sym = typeof args.symbol === 'string' ? args.symbol.trim() : '';
         if (sym) {
             const hasOffset = args.offset !== undefined && args.offset !== null;
@@ -515,7 +478,6 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
         }
         args = normaliseReadLineWindowArgs(args, workDir);
         if (args._invertedRangeError) return args._invertedRangeError;
-        args = applyCompactReadBudget(args);
     }
     // Mode routing. A window already dropped any conflicting head/tail/summary
     // glance above (so the window is served by executeSingleReadTool); what

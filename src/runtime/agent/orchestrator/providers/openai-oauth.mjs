@@ -22,13 +22,13 @@ import {
     buildStableProviderPromptCacheKey,
     resolveProviderPromptCacheLane,
     resolveProviderCacheKey,
-} from '../smart-bridge/cache-strategy.mjs';
+} from '../agent-runtime/cache-strategy.mjs';
 import {
-    appendBridgeTrace,
-    traceBridgeFetch,
-    traceBridgeSse,
-    traceBridgeUsage,
-} from '../bridge-trace.mjs';
+    appendAgentTrace,
+    traceAgentFetch,
+    traceAgentSse,
+    traceAgentUsage,
+} from '../agent-trace.mjs';
 import {
     PROVIDER_GENERATE_TOTAL_TIMEOUT_MS,
     PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
@@ -37,7 +37,6 @@ import {
 import { populateHttpStatusFromMessage } from './retry-classifier.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import {
-    contentHasImage,
     normalizeContentForOpenAIResponses,
     splitToolContentForOpenAIResponses,
 } from './media-normalization.mjs';
@@ -554,6 +553,16 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
     for (const m of messages) {
         if (!m || m.role === 'system') continue;
         if (m.role === 'tool') {
+            if (Array.isArray(m.nativeToolSearch?.openaiTools)) {
+                out.push({
+                    type: 'tool_search_output',
+                    call_id: m.toolCallId || '',
+                    status: 'completed',
+                    execution: 'client',
+                    tools: m.nativeToolSearch.openaiTools,
+                });
+                continue;
+            }
             const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
             out.push({
                 type: 'function_call_output',
@@ -573,12 +582,21 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
             // reasoning in `input` triggers "Duplicate item".
             if (m.content) out.push({ role: 'assistant', content: normalizeContentForOpenAIResponses(m.content, { role: 'assistant' }) });
             for (const tc of m.toolCalls) {
-                out.push({
-                    type: 'function_call',
-                    call_id: tc.id,
-                    name: tc.name,
-                    arguments: JSON.stringify(tc.arguments),
-                });
+                if (tc.nativeType === 'tool_search_call' || tc.name === 'tool_search') {
+                    out.push({
+                        type: 'tool_search_call',
+                        call_id: tc.id,
+                        execution: 'client',
+                        arguments: tc.arguments || {},
+                    });
+                } else {
+                    out.push({
+                        type: 'function_call',
+                        call_id: tc.id,
+                        name: tc.name,
+                        arguments: JSON.stringify(tc.arguments),
+                    });
+                }
             }
             continue;
         }
@@ -591,8 +609,21 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
     return out;
 }
 
-function messagesHaveImageContent(messages) {
-    return (messages || []).some((m) => contentHasImage(m?.content));
+function toOpenAIResponsesTool(t) {
+    if (t?.name === 'tool_search') {
+        return {
+            type: 'tool_search',
+            execution: 'client',
+            description: t.description,
+            parameters: t.inputSchema,
+        };
+    }
+    return {
+        type: 'function',
+        name: t.name,
+        description: t.description,
+        parameters: t.inputSchema,
+    };
 }
 
 export function buildRequestBody(messages, model, tools, sendOpts) {
@@ -644,12 +675,7 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     // Add tools. `nativeTools` are server-hosted Responses tools (for
     // example web_search) and must be passed through without wrapping them as
     // function tools.
-    const functionTools = tools?.length ? tools.map(t => ({
-            type: 'function',
-            name: t.name,
-            description: t.description,
-            parameters: t.inputSchema,
-        })) : [];
+    const functionTools = tools?.length ? tools.map(toOpenAIResponsesTool) : [];
     const nativeTools = Array.isArray(opts.nativeTools)
         ? opts.nativeTools.filter(t => t && typeof t === 'object')
         : [];
@@ -844,7 +870,7 @@ export async function sendViaHttpSse({
         headerTimeout.cleanup();
     }
 
-    traceBridgeFetch({
+    traceAgentFetch({
         sessionId: poolKey,
         headersMs: Date.now() - fetchStartedAt,
         httpStatus: response.status,
@@ -950,6 +976,28 @@ export async function sendViaHttpSse({
             });
         }
     };
+    const pushToolSearchCall = (item) => {
+        if (!item || item.type !== 'tool_search_call') return;
+        const callId = item.call_id || item.id || '';
+        if (!callId || toolCalls.some(t => t.id === callId)) return;
+        let args = {};
+        if (item.arguments && typeof item.arguments === 'object') {
+            args = item.arguments;
+        } else if (typeof item.arguments === 'string' && item.arguments.trim()) {
+            try {
+                const parsed = JSON.parse(item.arguments);
+                if (parsed && typeof parsed === 'object') args = parsed;
+            } catch {}
+        }
+        const call = {
+            id: callId,
+            name: 'tool_search',
+            arguments: args,
+            nativeType: 'tool_search_call',
+        };
+        toolCalls.push(call);
+        emitToolCall(call);
+    };
     const meaningful = () => {
         if (ttftMs == null) ttftMs = Date.now() - sseStartedAt;
         try { onStreamDelta?.(); } catch {}
@@ -1015,6 +1063,8 @@ export async function sendViaHttpSse({
                             emitToolCall(tc);
                         }
                     }
+                } else if (item.type === 'tool_search_call') {
+                    pushToolSearchCall(item);
                 }
                 break;
             }
@@ -1042,6 +1092,8 @@ export async function sendViaHttpSse({
                         pushReasoningItem(item);
                     } else if (item.type === 'web_search_call') {
                         pushWebSearchCall(item);
+                    } else if (item.type === 'tool_search_call') {
+                        pushToolSearchCall(item);
                     } else if (item.type === 'function_call') {
                         // Match the still-pending placeholder by item id, or
                         // an already-recorded call by its canonical call_id —
@@ -1162,7 +1214,7 @@ export async function sendViaHttpSse({
     }
 
     const liveModel = model || useModel;
-    traceBridgeSse({
+    traceAgentSse({
         sessionId: poolKey,
         sseParseMs: Date.now() - sseStartedAt,
         ttftMs,
@@ -1171,7 +1223,7 @@ export async function sendViaHttpSse({
         transport: 'sse',
     });
     if (usage) {
-        traceBridgeUsage({
+        traceAgentUsage({
             sessionId: poolKey,
             iteration,
             inputTokens: usage.inputTokens || 0,
@@ -1295,7 +1347,7 @@ export class OpenAIOAuthProvider {
             try {
                 const _refreshT0 = Date.now();
                 const _expiringInMs = (latest?.expires_at ?? 0) - Date.now();
-                if (process.env.MIXDOG_DEBUG_BRIDGE) { process.stderr.write(`[bridge-trace] auth-refresh-needed expiringInMs=${_expiringInMs}\n`); }
+                if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] auth-refresh-needed expiringInMs=${_expiringInMs}\n`); }
                 process.stderr.write(`[openai-oauth] Token ${reason}, refreshing...\n`);
                 let refreshed;
                 try {
@@ -1312,7 +1364,7 @@ export class OpenAIOAuthProvider {
                     if (!freshTok) throw refreshErr;
                     refreshed = await refreshTokens(freshTok.refresh_token);
                 }
-                if (process.env.MIXDOG_DEBUG_BRIDGE) { process.stderr.write(`[bridge-trace] auth-refresh-done elapsed=${Date.now() - _refreshT0}ms ok=${!!refreshed}\n`); }
+                if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] auth-refresh-done elapsed=${Date.now() - _refreshT0}ms ok=${!!refreshed}\n`); }
                 if (!refreshed) throw new Error('refresh returned null');
                 process.stderr.write(`[openai-oauth] Token refreshed, expires in ${Math.round(((refreshed.expires_at || Date.now()) - Date.now()) / 1000)}s\n`);
                 return refreshed;
@@ -1344,7 +1396,7 @@ export class OpenAIOAuthProvider {
         const externalSignal = opts.signal || null;
         const _sendSessionId = opts.sessionId || '(none)';
         const _sendRole = opts.role || '(none)';
-        if (process.env.MIXDOG_DEBUG_BRIDGE) { process.stderr.write(`[bridge-trace] auth-start sessionHash=${createHash('sha256').update(String(_sendSessionId)).digest('hex').slice(0, 8)} role=${_sendRole} expiringInMs=${this.tokens?.expires_at ? this.tokens.expires_at - Date.now() : 'unknown'}\n`); }
+        if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] auth-start sessionHash=${createHash('sha256').update(String(_sendSessionId)).digest('hex').slice(0, 8)} role=${_sendRole} expiringInMs=${this.tokens?.expires_at ? this.tokens.expires_at - Date.now() : 'unknown'}\n`); }
         // Build request body in parallel with auth resolution. ensureAuth is
         // a no-op fast-path on cached tokens, but a refresh round-trip can
         // take 300ms+; the body build (message serialisation) overlaps cleanly.
@@ -1364,7 +1416,6 @@ export class OpenAIOAuthProvider {
         const _authP = this.ensureAuth();
         let auth = await _authP;
         const body = await _bodyP;
-        const hasImageContent = messagesHaveImageContent(messages);
         // poolKey ≠ cacheKey by design (see openai-oauth-ws.mjs header note).
         // poolKey is per-session so parallel reviewer/worker callers each
         // get their own socket bucket — a sibling cannot grab a mid-turn
@@ -1406,7 +1457,7 @@ export class OpenAIOAuthProvider {
             this._forceHttpFallbackUntil = Date.now() + ttlMs;
         };
         const dispatchHttp = async (reason, originalErr = null, { sticky = false } = {}) => {
-            appendBridgeTrace({
+            appendAgentTrace({
                 sessionId: poolKey,
                 iteration,
                 kind: 'transport_fallback',
@@ -1422,7 +1473,13 @@ export class OpenAIOAuthProvider {
                     error_classifier: originalErr?.retryClassifier || originalErr?.midstreamClassifier || null,
                 },
             });
-            process.stderr.write(`[openai-oauth] WebSocket unhealthy (${reason}); falling back to HTTP/SSE\n`);
+            if (reason === 'forced') {
+                if (_envFlag('MIXDOG_OPENAI_OAUTH_LOG_FORCED_FALLBACK', false)) {
+                    process.stderr.write('[openai-oauth] WebSocket bypassed (forced); using HTTP/SSE\n');
+                }
+            } else {
+                process.stderr.write(`[openai-oauth] WebSocket unhealthy (${reason}); falling back to HTTP/SSE\n`);
+            }
             const result = await sendHttp({
                 auth,
                 body,
@@ -1439,8 +1496,8 @@ export class OpenAIOAuthProvider {
                 fetchFn: opts._fetchFn,
             });
             if (sticky) markStickyHttpFallback();
-            if (process.env.MIXDOG_DEBUG_BRIDGE) {
-                process.stderr.write(`[bridge-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok transport=http-fallback\n`);
+            if (process.env.MIXDOG_DEBUG_AGENT) {
+                process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok transport=http-fallback\n`);
             }
             return recordLiveModel(result);
         };
@@ -1462,17 +1519,16 @@ export class OpenAIOAuthProvider {
         });
         if (opts.forceHttpFallback === true
             || httpFallbackActive()
-            || hasImageContent
             || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)) {
-            return dispatchHttp(hasImageContent ? 'image_content' : 'forced');
+            return dispatchHttp('forced');
         }
 
         // Prefer WebSocket for hot cache/delta transport; fall back to HTTP/SSE
         // after retry-exhausted handshake/acquire/no-first-event failures.
         try {
-            if (process.env.MIXDOG_DEBUG_BRIDGE) { process.stderr.write(`[bridge-trace] provider-send-start model=${useModel} role=${_sendRole} sessionHash=${createHash('sha256').update(String(_sendSessionId)).digest('hex').slice(0, 8)} iteration=${iteration ?? '(none)'}\n`); }
+            if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] provider-send-start model=${useModel} role=${_sendRole} sessionHash=${createHash('sha256').update(String(_sendSessionId)).digest('hex').slice(0, 8)} iteration=${iteration ?? '(none)'}\n`); }
             const result = await dispatchWs(false);
-            if (process.env.MIXDOG_DEBUG_BRIDGE) { process.stderr.write(`[bridge-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok\n`); }
+            if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok\n`); }
             return recordLiveModel(result);
         } catch (err) {
             const status = err?.httpStatus;
@@ -1485,12 +1541,12 @@ export class OpenAIOAuthProvider {
             const liveTextEmitted = err?.liveTextEmitted === true || err?.unsafeToRetry === true;
             if ((status === 401 || status === 403) && !liveTextEmitted) {
                 process.stderr.write(`[openai-oauth-ws] ${status} — forcing refresh and retrying once over WS\n`);
-                if (process.env.MIXDOG_DEBUG_BRIDGE) { process.stderr.write(`[bridge-trace] provider-${status}-retry attempt=1\n`); }
+                if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] provider-${status}-retry attempt=1\n`); }
                 this._refreshFallbackUntil = 0;
                 auth = await this.ensureAuth({ forceRefresh: true, reason: String(status) });
                 try {
                     const result = await dispatchWs(true);
-                    if (process.env.MIXDOG_DEBUG_BRIDGE) { process.stderr.write(`[bridge-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok\n`); }
+                    if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok\n`); }
                     return recordLiveModel(result);
                 } catch (retryErr) {
                     if (_shouldUseOpenAIHttpFallback(retryErr, externalSignal)) {

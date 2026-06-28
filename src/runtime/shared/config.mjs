@@ -220,7 +220,7 @@ export function updateSection(section, updater) {
 // false (default), file tools are cwd-scoped — matches the setup UI's
 // out-of-the-box "OFF" toggle so a fresh install is restrictive until the
 // user explicitly opts in. This ONLY controls the main-agent path gate —
-// bridge role Edit/Write to HOME paths always go through Discord approval
+// agent role Edit/Write to HOME paths always go through Discord approval
 // regardless (enforced in hooks/pre-tool-subagent.cjs).
 const CAPABILITY_DEFAULTS = Object.freeze({ homeAccess: false })
 

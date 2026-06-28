@@ -155,7 +155,7 @@ function _sessionSummary(session) {
         cwd: session.cwd || '',
         provider: session.provider || null,
         model: session.model || null,
-        bridgeTag: session.bridgeTag || null,
+        agentTag: session.agentTag || null,
         task_id: session.task_id || session.taskId || null,
         permission: session.permission || null,
         toolPermission: session.toolPermission || null,
@@ -185,7 +185,7 @@ function _normalizeSummaryRow(row) {
         cwd: row.cwd || '',
         provider: row.provider || null,
         model: row.model || null,
-        bridgeTag: row.bridgeTag || null,
+        agentTag: row.agentTag || null,
         task_id: row.task_id || null,
         permission: row.permission || null,
         toolPermission: row.toolPermission || null,
@@ -697,9 +697,9 @@ export function deleteSession(id) {
 const DEFAULT_SESSION_TTL_MS = 5 * 60 * 1000; // 5 minutes idle — aligned with Anthropic 5m messages tier and OpenAI in-memory cache window
 // Completed agents (idle/done/error) live until terminal reap - must
 // match TERMINAL_REAP_MS / _scheduleBridgeReap (3_600_000) in index.mjs and
-// bridge-stall-watchdog.mjs so the store sweep is the durable 1h reaper.
-const BRIDGE_TERMINAL_TTL_MS = 60 * 60 * 1000;
-const BRIDGE_TERMINAL_STATUSES = new Set(['idle', 'done', 'error']);
+// agent stall watchdog, so the store sweep is the durable 1h reaper.
+const AGENT_TERMINAL_TTL_MS = 60 * 60 * 1000;
+const AGENT_TERMINAL_STATUSES = new Set(['idle', 'done', 'error']);
 // Hard wall-clock ceiling for sessions stuck in status='running'. The
 // stream-watchdog should abort stalled streams within ~120s, but if it misses
 // one (process crash, watchdog not started, provider never returned), this
@@ -852,9 +852,9 @@ export function sweepStaleSessions(ttlMs, options = {}) {
                 remaining++;
                 continue;
             }
-            const isCompletedBridge = isAgentOwner(row)
-                && BRIDGE_TERMINAL_STATUSES.has(row.status);
-            const sessionMaxAge = isCompletedBridge ? BRIDGE_TERMINAL_TTL_MS : maxAge;
+            const isCompletedAgent = isAgentOwner(row)
+                && AGENT_TERMINAL_STATUSES.has(row.status);
+            const sessionMaxAge = isCompletedAgent ? AGENT_TERMINAL_TTL_MS : maxAge;
             if (now - lastActive > sessionMaxAge) {
                 try { markSessionClosed(row.id, 'idle-sweep'); }
                 catch (err) {

@@ -86,7 +86,7 @@ async function _initClient(client, schema) {
 }
 
 // Wrapper around pool.connect() that runs per-client init before returning.
-// Exported so external callers (e.g. trace-store.insertBridgeCalls) can obtain
+// Exported so external callers (e.g. trace-store.insertAgentCalls) can obtain
 // a connection with search_path already set; raw _pool.connect() leaves it at
 // the PG default and unqualified table lookups resolve in the wrong schema.
 export async function checkedConnect(pgPool, schema) {

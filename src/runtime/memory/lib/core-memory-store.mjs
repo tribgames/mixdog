@@ -16,7 +16,7 @@ function __mixdogMemoryLog(...args) {
 
 import { getDatabase, embeddingToSql } from './memory.mjs'
 import { cachedEmbedTextBatch } from './memory-embed.mjs'
-import { callBridgeLlm } from './agent-ipc.mjs'
+import { callAgentDispatch } from './agent-ipc.mjs'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { checkedConnect } from './pg/adapter.mjs'
 
@@ -169,7 +169,7 @@ async function _llmJudgeMerge(existing, incoming) {
     `EXISTING: ${existing.element} — ${String(existing.summary || '')}\n` +
     `INCOMING: ${incoming.element} — ${String(incoming.summary || '')}`
   try {
-    const raw = await callBridgeLlm({
+    const raw = await callAgentDispatch({
       role: 'cycle2-agent',
       taskType: 'maintenance',
       mode: 'core-merge-judge',

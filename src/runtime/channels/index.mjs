@@ -227,7 +227,7 @@ try {
 // GC stale ephemeral session files. closeSession plants a closed=true
 // tombstone, but bench / smoke / probe drivers historically created sessions
 // without ever calling closeSession, leaving 175-byte placeholders behind.
-// 7-day TTL is safe because live bridge sessions touch their JSON file on
+// 7-day TTL is safe because live agent sessions touch their JSON file on
 // every ask iteration, so any file older than 7 days is provably abandoned.
 const _SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
 const _STALE_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1856,14 +1856,14 @@ function injectAndRecord(channelId, name, content, options) {
   // outbound body. Markers are
   // intentionally prepended onto tool RESULTS upstream (tool-loop-guard.mjs
   // build*Warn) so the model
-  // self-corrects, but bridge roles commonly echo them and we don't want them
+  // self-corrects, but agent roles commonly echo them and we don't want them
   // surfacing in Discord / Lead channel push.
   if (typeof content === 'string') content = stripSoftWarns(content);
   // Skip-protocol guard: agents (webhook-handler / scheduler-task)
   // prefix `[meta:silent]` on the first line to opt out
   // of Lead inject for genuine no-op results (label-only events, dedup,
   // "nothing to report"). The body still goes to Discord for audit; only
-  // the Lead-context inject is suppressed. See rules/bridge/20-skip-protocol.md.
+  // the Lead-context inject is suppressed. See rules/agent/20-skip-protocol.md.
   if (typeof content === 'string') {
     const m = content.match(/^\s*\[meta:silent\][^\n]*\n?([\s\S]*)$/);
     if (m) {
@@ -1955,7 +1955,7 @@ function wireWebhookHandlers() {
       + ". Relay the finding to the user naturally — summarize clearly, call out any issues, and note what needs a decision.";
     const notifyFn = (text, meta = {}) => {
       if (!text) return;
-      // Webhook skip protocol: when the bridge worker emits a `[meta:silent]`
+      // Webhook skip protocol: when the agent worker emits a `[meta:silent]`
       // marker (optionally behind model/role tag prefixes), the event is a
       // no-op (label-only, dedup, "nothing to report"). Drop the message
       // entirely — neither Lead inject nor Discord forward — instead of the
@@ -2105,7 +2105,7 @@ try {
           }
         }
         // No matching pending request — leave the signal on disk so a
-        // bridge role hook (or other consumer) gets a chance to claim it.
+        // agent role hook (or other consumer) gets a chance to claim it.
         if (!oldestKey || !oldestEntry) return;
         if (oldestEntry.channelId && oldestEntry.messageId) {
           try {

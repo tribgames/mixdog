@@ -348,8 +348,8 @@ export const PROVIDER_STATUS_TOOL = {
     destructiveHint: false,
     idempotentHint: true,
     openWorldHint: false,
-    bridgeHidden: true,
+    agentHidden: true,
   },
-  description: 'List mixdog provider authentication/configuration status. This never returns secret values.',
+  description: 'List provider auth/config status. No secrets.',
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 };

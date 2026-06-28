@@ -130,7 +130,7 @@ export {
 } from './builtin/cache-layers.mjs';
 export { atomicWrite } from './builtin/atomic-write.mjs';
 // ---------------------------------------------------------------------------
-// User-cwd persistence bridge: hook writes user-cwd.txt on SessionStart so
+// User-cwd persistence hook: writes user-cwd.txt on SessionStart so
 // the MCP server (spawned from cache dir) resolves the correct sandbox root.
 // Helper extracted to src/shared/user-cwd.mjs so server-main.mjs can import
 // the same primitive without circular-import risk.

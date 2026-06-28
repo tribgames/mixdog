@@ -6,12 +6,12 @@ const MIN_PROVIDER_TIMEOUT_MS = 30_000;
 export const STALL_TICK_MS = 15_000;
 export const DEFAULT_STALL_WARN_S = 300;
 export const DEFAULT_STALL_ABORT_S = 600;
-// First-byte (no-stream-delta) abort for the bridge stall watchdog. A wedged
+// First-byte (no-stream-delta) abort for the agent stall watchdog. A wedged
 // socket can sit at stage=requesting with zero server events. The 30s deadline
 // trialed here false-aborted slow high-reasoning first bytes (e.g. gpt-5.5
 // XHIGH, which can legitimately think >30s before the first delta) and, paired
 // with dispatch auto-retry, produced premature aborts + duplicate re-dispatches.
-// Auto-retry is now removed (bridge-retry.mjs MAX_ATTEMPTS = 1), so a single
+// Auto-retry is now removed, so a single
 // attempt must get a generous first-byte window: 300s (5 min). Env-overridable.
 export const DEFAULT_STALL_FIRST_BYTE_ABORT_S = (() => {
     const raw = process.env.MIXDOG_STALL_FIRST_BYTE_ABORT_S;
@@ -96,7 +96,7 @@ export const PROVIDER_HTTP_RESPONSE_TIMEOUT_MS = resolveTimeoutMs(
 
 // Stream idle watchdog is OFF by default — matches Claude Code native
 // behaviour (its watchdog is gated behind CLAUDE_ENABLE_STREAM_WATCHDOG).
-// The bridge stall watchdog (STALL_ABORT_S, 600s) is the backstop for
+// The agent stall watchdog (STALL_ABORT_S, 600s) is the backstop for
 // genuinely dead streams; this short inter-chunk idle watchdog only adds
 // value when explicitly enabled, and otherwise prematurely kills slow
 // high-reasoning streams. Enable with MIXDOG_ENABLE_STREAM_WATCHDOG=1.
@@ -143,15 +143,15 @@ export const PROVIDER_RETRY_JITTER_RATIO = (() => {
     return 0.2;
 })();
 
-export function resolveBridgeStallThresholds(role, env = process.env) {
+export function resolveAgentStallThresholds(role, env = process.env) {
     const cfg = role ? getHiddenRole(role) : null;
     const cfgAbort = cfg?.stallCap?.idleSeconds > 0 ? cfg.stallCap.idleSeconds : STALL_ABORT_S;
     const envOverride = envThresholdSeconds(env);
     const abort = envOverride != null ? envOverride : cfgAbort;
-    // Mid-stream "slow" warning disabled — a bridge stall now notifies ONLY at
+    // Mid-stream "slow" warning disabled — an agent stall now notifies ONLY at
     // the abort deadline (10 min default). warn === abort means the watchdog's
     // warn branch (verdict 'ok' && stale >= warn) can never fire before 'stall',
-    // so the only notification a stalled bridge worker emits is at the deadline.
+    // so the only notification a stalled agent worker emits is at the deadline.
     const warn = abort;
     // First-byte deadline: a request still in 'requesting' that never produced a
     // single SSE delta is hung, not slow-reasoning. Abort on this shorter deadline
@@ -160,7 +160,7 @@ export function resolveBridgeStallThresholds(role, env = process.env) {
     return { warn, abort, firstByteAbort };
 }
 
-export function resolveBridgeToolThresholdSeconds(role, thresholdSeconds) {
+export function resolveAgentToolThresholdSeconds(role, thresholdSeconds) {
     const cfg = role ? getHiddenRole(role) : null;
     if (cfg?.stallCap?.toolRunningSeconds > 0) return cfg.stallCap.toolRunningSeconds;
     return thresholdSeconds;
@@ -206,7 +206,7 @@ export function createTimeoutSignal(parentSignal, timeoutMs, label) {
 // replaced-by-newer-request). Used for the streaming generation phase, where a fixed
 // total-lifetime cap would false-abort a stream that is still emitting SSE deltas; the
 // streaming phase is bounded instead by the per-attempt first-byte timeout, the parent
-// signal, and the bridge stall watchdog (STALL_ABORT_S, progress-based). cleanup()
+// signal, and the agent stall watchdog (STALL_ABORT_S, progress-based). cleanup()
 // detaches the parent listener so no listener leaks on the (long-lived) parent signal.
 export function createPassthroughSignal(parentSignal) {
     if (!parentSignal) return { signal: null, cleanup: () => {} };

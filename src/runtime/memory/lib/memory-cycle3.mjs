@@ -23,7 +23,7 @@ import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
-import { callBridgeLlm } from './agent-ipc.mjs'
+import { callAgentDispatch } from './agent-ipc.mjs'
 import { listCore, editCore, deleteCore, CORE_SUMMARY_MAX } from './core-memory-store.mjs'
 import { loadCurrentRulesDigest } from './memory-cycle2.mjs'
 import { embedText } from './embedding-provider.mjs'
@@ -34,7 +34,7 @@ function resourceDir() {
   return process.env.MIXDOG_ROOT || fileURLToPath(new URL('../../../..', import.meta.url))
 }
 
-async function invokeLlm(prompt, mode, preset, timeout, llmCall = callBridgeLlm) {
+async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispatch) {
   return await llmCall({
     role: 'cycle3-agent',
     taskType: 'maintenance',

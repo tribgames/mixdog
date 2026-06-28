@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
-import { callBridgeLlm } from './agent-ipc.mjs'
+import { callAgentDispatch } from './agent-ipc.mjs'
 import {
   syncRootEmbedding, deleteRootEmbedding, flushEmbeddingDirty,
 } from './memory-embed.mjs'
@@ -45,7 +45,7 @@ function resourceDir() {
   return process.env.MIXDOG_ROOT || fileURLToPath(new URL('../../../..', import.meta.url))
 }
 
-async function invokeLlm(prompt, mode, preset, timeout, llmCall = callBridgeLlm) {
+async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispatch) {
   return await llmCall({
     role: 'cycle2-agent',
     taskType: 'maintenance',
@@ -339,7 +339,7 @@ function _pickKeeper(a, b) {
 async function _llmJudgePair(summaryA, summaryB, siblingContext = [], options = {}) {
   const signal = options?.signal
   throwIfAborted(signal)
-  const llmCall = typeof options?.callLlm === 'function' ? options.callLlm : callBridgeLlm
+  const llmCall = typeof options?.callLlm === 'function' ? options.callLlm : callAgentDispatch
   const siblings = Array.isArray(siblingContext) && siblingContext.length > 0
     ? `\n\nSibling near-matches (recall context only — do not absorb these into the verdict):\n${siblingContext.slice(0, 5).map((p, i) => `${i + 1}. ${String(p.a?.summary ?? '')} ↔ ${String(p.b?.summary ?? '')}`).join('\n')}`
     : ''
@@ -804,7 +804,7 @@ async function sonnetCascade(candidates, rulesDigest, options = {}) {
   // when no binding exists, which would defeat the cascade. SONNET HIGH
   // matches the worker pool's default preset id from agent-config.
   const preset = options.cascadePreset || 'SONNET HIGH'
-  const llmCall = typeof options?.callLlm === 'function' ? options.callLlm : callBridgeLlm
+  const llmCall = typeof options?.callLlm === 'function' ? options.callLlm : callAgentDispatch
   let raw
   try {
     raw = await llmCall({

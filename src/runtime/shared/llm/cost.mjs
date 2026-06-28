@@ -1,5 +1,5 @@
 /**
- * Per-call cost estimator for bridge-trace usage rows.
+ * Per-call cost estimator for agent-trace usage rows.
  *
  * Pricing is pulled from the LiteLLM catalog (already warmed by providers/
  * agent bootstrap). All four token slots — input / output / cacheRead /

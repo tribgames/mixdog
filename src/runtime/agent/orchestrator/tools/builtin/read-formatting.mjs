@@ -42,22 +42,15 @@ function rangeFromRenderedReadRows(rows, fallbackStartLine = 1) {
     };
 }
 
-// Optional `budget` { maxLines, headLines, tailLines } lets a caller request a
-// TIGHTER head+tail elision than the 600-line / 200+100 default (e.g. read
-// budget:'compact' or max_lines:N) to bound lead-context cost. Omitted -> the
-// standard caps, so existing 4-arg callers are byte-for-byte unchanged.
-export function smartReadTruncate(renderedWithLineNos, totalLines, fileBytes, filePath = '', budget = null) {
-    const maxLines = budget?.maxLines ?? SMART_READ_MAX_LINES;
-    const headLines = budget?.headLines ?? SMART_READ_HEAD_LINES;
-    const tailLines = budget?.tailLines ?? SMART_READ_TAIL_LINES;
+export function smartReadTruncate(renderedWithLineNos, totalLines, fileBytes, filePath = '') {
     const overByBytes = fileBytes > SMART_READ_MAX_BYTES;
-    const overByLines = totalLines > maxLines;
+    const overByLines = totalLines > SMART_READ_MAX_LINES;
     if (!overByBytes && !overByLines) {
         return { text: renderedWithLineNos, truncated: false, totalLines, ranges: null };
     }
     const rows = renderedWithLineNos.split('\n');
-    const headCount = Math.min(headLines, rows.length);
-    const tailStart = Math.max(headCount, rows.length - tailLines);
+    const headCount = Math.min(SMART_READ_HEAD_LINES, rows.length);
+    const tailStart = Math.max(headCount, rows.length - SMART_READ_TAIL_LINES);
     const elidedRows = tailStart - headCount;
     if (elidedRows <= 0) {
         return { text: renderedWithLineNos, truncated: false, totalLines, ranges: null };

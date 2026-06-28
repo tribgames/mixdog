@@ -28,7 +28,7 @@ import { getInternalTools, executeInternalTool } from '../internal-tools.mjs';
 import { BUILTIN_TOOLS } from '../tools/builtin/builtin-tools.mjs';
 import { PATCH_TOOL_DEFS } from '../tools/patch-tool-defs.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../tools/code-graph-tool-defs.mjs';
-import { collectSkillsCached, buildSkillToolDefs, loadAgentTemplate, composeSystemPrompt, collectMixdogMd } from '../context/collect.mjs';
+import { collectSkillsCached, buildSkillManifest, buildSkillToolDefs, composeSystemPrompt } from '../context/collect.mjs';
 import { saveSession, saveSessionAsync, loadSession, listStoredSessionSummaries, sweepStaleSessions, markSessionClosed, publishHeartbeat, deleteHeartbeat, setLiveSession } from './store.mjs';
 import { clearReadDedupSession, tryPrefetchCached, setPrefetchCached } from './read-dedup.mjs';
 import { clearOffloadSession } from './tool-result-offload.mjs';
@@ -37,10 +37,10 @@ import { createAbortController } from '../../../shared/abort-controller.mjs';
 import { logLlmCall } from '../../../shared/llm/usage-log.mjs';
 import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
-import { appendBridgeTrace } from '../bridge-trace.mjs';
+import { appendAgentTrace } from '../agent-trace.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { maxMtime, maxMtimeRecursive } from '../cache-mtime.mjs';
-import { getRoleInstructionDir, isHiddenRole } from '../internal-roles.mjs';
+import { getHiddenRole, getRoleInstructionDir } from '../internal-roles.mjs';
 import {
     buildGatewayLimits,
     recordGatewayUsageEvent,
@@ -60,17 +60,16 @@ const _rulesBuilder = (() => {
     try { return _require('../../../../lib/rules-builder.cjs'); } catch { return null; }
 })();
 
-// bridgeRules is the bridge shared prefix (shared rules + bridge common rules +
+// agentRules is the agent shared prefix (shared rules + agent common rules +
 // user agent configs). It's rebuilt from disk
 // by rules-builder.cjs on every call; since createSession fires on every
-// Pool B/C bridge turn, that's a lot of redundant readFileSync + concat.
+// Pool B/C agent turn, that's a lot of redundant readFileSync + concat.
 // BP1/BP3 cache — invalidated by source file mtime, not a timer.
-// Cheap: O(sentinel-count) stat calls on each bridge turn, no I/O otherwise.
-// BP1 cache — single shared entry. buildBridgeInjectionContent is
-// role-agnostic (true cross-role common), so every bridge role reuses the
+// Cheap: O(sentinel-count) stat calls on each agent turn, no I/O otherwise.
+// BP1 cache — single shared entry. buildAgentInjectionContent is
+// role-agnostic (true cross-role common), so every agent role reuses the
 // same prefix bytes.
-let _bridgeRulesCache = null;
-let _bridgeRulesMtime = 0;
+const _agentRulesCacheByProfile = new Map();
 let _codeGraphRuntimePromise = null;
 let _agentLoopPromise = null;
 let _bashSessionRuntimePromise = null;
@@ -93,26 +92,29 @@ function _closeBashSessionLazy(sessionId, reason) {
         .then((mod) => { if (typeof mod.closeBashSession === 'function') mod.closeBashSession(sessionId, reason); })
         .catch(() => {});
 }
-function _buildBridgeRules() {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildBridgeInjectionContent !== 'function') return '';
+function _buildAgentRules(profile = 'full') {
+    if (!_rulesBuilder || typeof _rulesBuilder.buildAgentInjectionContent !== 'function') return '';
+    const key = String(profile || 'full');
     const PLUGIN_ROOT = mixdogRoot();
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
     const mtime = maxMtimeRecursive([
         join(RULES_DIR, 'shared'),
-        join(RULES_DIR, 'bridge'),
+        join(RULES_DIR, 'agent'),
         join(DATA_DIR, 'mixdog-config.json'),
     ]);
-    if (_bridgeRulesCache !== null && mtime <= _bridgeRulesMtime) {
-        return _bridgeRulesCache;
+    const cached = _agentRulesCacheByProfile.get(key);
+    if (cached && mtime <= cached.mtime) {
+        return cached.value;
     }
     try {
-        const built = _rulesBuilder.buildBridgeInjectionContent({ PLUGIN_ROOT, DATA_DIR });
-        _bridgeRulesCache = built;
-        _bridgeRulesMtime = mtime;
+        const built = key === 'retrieval' && typeof _rulesBuilder.buildAgentRetrievalInjectionContent === 'function'
+            ? _rulesBuilder.buildAgentRetrievalInjectionContent({ PLUGIN_ROOT, DATA_DIR })
+            : _rulesBuilder.buildAgentInjectionContent({ PLUGIN_ROOT, DATA_DIR });
+        _agentRulesCacheByProfile.set(key, { mtime, value: built });
         return built;
     } catch (e) {
-        throw new Error(`[session] bridge common rules build failed: ${e.message}`);
+        throw new Error(`[session] agent common rules build failed: ${e.message}`);
     }
 }
 
@@ -153,7 +155,7 @@ function _buildLeadRules() {
 // return ''.
 const _roleSpecificCache = new Map(); // role → { value, mtime }
 function _buildRoleSpecific(currentRole) {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildBridgeRoleSpecificContent !== 'function') return '';
+    if (!_rulesBuilder || typeof _rulesBuilder.buildAgentRoleSpecificContent !== 'function') return '';
     if (!currentRole) return '';
     const PLUGIN_ROOT = mixdogRoot();
     const DATA_DIR = resolvePluginData();
@@ -172,7 +174,7 @@ function _buildRoleSpecific(currentRole) {
         return entry.value;
     }
     try {
-        const built = _rulesBuilder.buildBridgeRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentRole });
+        const built = _rulesBuilder.buildAgentRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentRole });
         _roleSpecificCache.set(currentRole, { mtime, value: built });
         return built;
     } catch (e) {
@@ -180,27 +182,27 @@ function _buildRoleSpecific(currentRole) {
     }
 }
 
-// Smart Bridge is optional — injected via setSmartBridge() during plugin init
+// Agent Runtime is optional — injected via setAgentRuntime() during plugin init
 // so session creation never depends on a circular import. If never injected,
 // createSession simply falls back to classic preset-only behavior.
-let _smartBridgeApi = null;
-let _smartBridgeWarned = false;
+let _agentRuntimeApi = null;
+let _agentRuntimeWarned = false;
 
 /**
- * Inject the Smart Bridge singleton. Called once by agent/index.mjs init()
- * after initSmartBridge(). Safe to call multiple times — later calls
+ * Inject the Agent Runtime singleton. Called once by agent/index.mjs init()
+ * after initAgentRuntime(). Safe to call multiple times — later calls
  * replace the previous reference.
  */
-export function setSmartBridge(api) {
-    _smartBridgeApi = api || null;
+export function setAgentRuntime(api) {
+    _agentRuntimeApi = api || null;
 }
 
-function getSmartBridgeSync() {
-    return _smartBridgeApi;
+function getAgentRuntimeSync() {
+    return _agentRuntimeApi;
 }
 
 /**
- * Thrown when a session is closed while a call is in-flight. Callers (bridge
+ * Thrown when a session is closed while a call is in-flight. Callers (agent
  * handler, CLI) should render this as "cancelled" rather than a hard error.
  */
 export class SessionClosedError extends Error {
@@ -218,7 +220,7 @@ export class SessionClosedError extends Error {
 const HEARTBEAT_THROTTLE_MS = 60_000; // 60s
 
 // Merge externally-connected MCP tools with the plugin's in-process tools
-// (registered by agent's toolExecutor bridge). Internal tools are exposed
+// (registered by agent's toolExecutor adapter). Internal tools are exposed
 // under their bare names — no mcp__ prefix, since the dispatcher in
 // server.mjs handles them directly without a transport.
 // Sorted deterministically by name — protects BP_1 hash stability from
@@ -235,7 +237,7 @@ function _getMcpTools() {
         inputSchema: t.inputSchema || { type: 'object', properties: {} },
         // Keep annotations so the permission filter / role invariants can
         // tell read-only from write-capable internal tools, and so
-        // bridgeHidden can be read during deny filtering.
+        // agentHidden can be read during deny filtering.
         annotations: t.annotations || {},
     }));
     return [...mcp, ...internal].sort((a, b) => {
@@ -260,7 +262,7 @@ function _getMcpTools() {
 // adding a new toolset id here is a localised change.
 //
 // Unified-shard policy — the session's tool array normally never narrows
-// with permission or role. Bridge sessions share the same schema so BP_1
+// with permission or role. Agent sessions share the same schema so BP_1
 // stays bit-identical and the provider-side cache shard is shared
 // workspace-wide. Rare specialist roles may pass schemaAllowedTools from a
 // declarative hidden-role toolSchemaProfile to keep their first-turn routing
@@ -314,13 +316,13 @@ const ALL_BUILTIN_SESSION_TOOLS = orderSessionTools(_dedupByName([
     ...CODE_GRAPH_TOOL_DEFS,
 ]));
 
-function resolveSessionTools(toolSpec, skills, { ownerIsBridge = false } = {}) {
+function resolveSessionTools(toolSpec, skills, { ownerIsAgentSession = false } = {}) {
     const mcp = _getMcpTools();
-    // Bridge sessions freeze the 3 skill meta-tools into the schema
+    // Agent sessions freeze the skill meta-tool into the schema
     // unconditionally — concrete skill resolution is cwd-scoped at tool-call
     // time (loop.mjs), so the schema bytes stay bit-identical across roles /
     // cwds and the provider cache shard does not fragment.
-    const skillTools = buildSkillToolDefs(skills, { ownerIsBridge });
+    const skillTools = buildSkillToolDefs(skills, { ownerIsAgentSession });
     return _computeBaseTools(toolSpec, mcp, skillTools);
 }
 
@@ -344,8 +346,8 @@ function _dedupByName(tools) {
     return [...seen.values()];
 }
 
-// Bridge visibility is declared per-tool via annotations.bridgeHidden.
-// Tools with bridgeHidden:true are stripped from bridge sessions at schema
+// Agent visibility is declared per-tool via annotations.agentHidden.
+// Tools with agentHidden:true are stripped from agent sessions at schema
 // build time (see deny filtering below). No code-level name list needed.
 
 function _computeBaseTools(toolSpec, mcp, skillTools) {
@@ -386,7 +388,7 @@ function _computeBaseTools(toolSpec, mcp, skillTools) {
                     // Name-pattern match: picks up `search` and any future tool
                     // whose name contains `search`. `recall` and `explore` deliberately do NOT match
                     // — they need `tools:mcp` (full mcp surface) or their own
-                    // toolset id if a role wants targeted retrieval. Public bridge
+                    // toolset id if a role wants targeted retrieval. Public agent
                     // roles never reach the wrapper bodies regardless: see the
                     // isBlockedPublicWrapperCall guard in session/loop.mjs.
                     addMany(mcp.filter(t => /search/i.test(t?.name || '')));
@@ -481,15 +483,15 @@ function compactBufferRatioForSession(session) {
             ?? cfg.bufferPct
             ?? cfg.bufferRatio
             ?? cfg.bufferFraction
-            ?? process.env.MIXDOG_BRIDGE_COMPACT_BUFFER_PERCENT
-            ?? process.env.MIXDOG_BRIDGE_COMPACT_BUFFER_RATIO,
+            ?? process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT
+            ?? process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO,
         DEFAULT_COMPACTION_BUFFER_RATIO,
     );
 }
 function compactBufferTokensForSession(session, boundaryTokens) {
     const cfg = session?.compaction || {};
     const explicit = positiveContextWindow(cfg.bufferTokens ?? cfg.buffer)
-        || positiveContextWindow(process.env.MIXDOG_BRIDGE_COMPACT_BUFFER_TOKENS)
+        || positiveContextWindow(process.env.MIXDOG_AGENT_COMPACT_BUFFER_TOKENS)
         || 0;
     return compactionBufferTokensForBoundary(boundaryTokens, {
         explicitTokens: explicit,
@@ -501,8 +503,8 @@ const COMPACT_TARGET_RATIO = 0.02;
 const COMPACT_TARGET_MIN_TOKENS = 4_000;
 const COMPACT_TARGET_MAX_TOKENS = 16_000;
 function compactTargetRatio() {
-    const raw = process.env.MIXDOG_COMPACT_TARGET_PERCENT
-        ?? process.env.MIXDOG_BRIDGE_COMPACT_TARGET_PERCENT
+    const raw = process.env.MIXDOG_AGENT_COMPACT_TARGET_PERCENT
+        ?? process.env.MIXDOG_COMPACT_TARGET_PERCENT
         ?? COMPACT_TARGET_RATIO;
     const n = Number(raw);
     if (!Number.isFinite(n) || n <= 0) return COMPACT_TARGET_RATIO;
@@ -512,8 +514,8 @@ function compactTargetTokensForBoundary(boundaryTokens) {
     const boundary = positiveContextWindow(boundaryTokens);
     if (!boundary) return null;
     const explicit = positiveContextWindow(
-        process.env.MIXDOG_COMPACT_TARGET_TOKENS
-            ?? process.env.MIXDOG_BRIDGE_COMPACT_TARGET_TOKENS,
+        process.env.MIXDOG_AGENT_COMPACT_TARGET_TOKENS
+            ?? process.env.MIXDOG_COMPACT_TARGET_TOKENS,
     );
     if (explicit) return Math.max(1, Math.min(boundary, explicit));
     const minTarget = Math.min(boundary, positiveContextWindow(process.env.MIXDOG_COMPACT_TARGET_MIN_TOKENS) || COMPACT_TARGET_MIN_TOKENS);
@@ -599,16 +601,16 @@ function compactTargetBudget(boundaryTokens, reserveTokens, _sourceTokens = null
 }
 function semanticCompactionEnabledForSession(session) {
     const cfg = session?.compaction || {};
+    if (process.env.MIXDOG_AGENT_COMPACT_SEMANTIC !== undefined) return envFlag('MIXDOG_AGENT_COMPACT_SEMANTIC', true);
     if (process.env.MIXDOG_COMPACT_SEMANTIC !== undefined) return envFlag('MIXDOG_COMPACT_SEMANTIC', true);
-    if (process.env.MIXDOG_BRIDGE_COMPACT_SEMANTIC !== undefined) return envFlag('MIXDOG_BRIDGE_COMPACT_SEMANTIC', true);
     if (cfg.semantic === false || cfg.semantic === 'false' || cfg.semantic === 'off') return false;
     if (cfg.semantic === true || cfg.semantic === 'true' || cfg.semantic === 'on' || cfg.semantic === 'auto') return true;
     return true;
 }
 function compactTypeForSession(session) {
     const cfg = session?.compaction || {};
-    const configured = process.env.MIXDOG_COMPACT_TYPE
-        ?? process.env.MIXDOG_BRIDGE_COMPACT_TYPE
+    const configured = process.env.MIXDOG_AGENT_COMPACT_TYPE
+        ?? process.env.MIXDOG_COMPACT_TYPE
         ?? cfg.type
         ?? cfg.compactType
         ?? cfg.compact_type;
@@ -940,7 +942,7 @@ async function runSessionCompaction(session, opts = {}) {
     };
 }
 // Provider-scoped unified cache key. Goal: all orchestrator-internal
-// dispatches (bridge/maintenance/mcp/scheduler/webhook) targeting the
+// dispatches (agent/maintenance/mcp/scheduler/webhook) targeting the
 // same provider land in a single server-side cache shard, so the
 // shared prefix (tools + system + pool system prompt) is reused
 // regardless of role. Per-role / per-session differentiation lives in
@@ -1217,29 +1219,29 @@ async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
     return `${warnLine}<prefetch>\n${parts.join('\n\n')}\n</prefetch>`;
 }
 
-// --- bridge spawn (createSession) ---
+// --- agent spawn (createSession) ---
 // opts can pass either a `preset` object (from config.presets) or raw provider/model.
 // Preset shape: { name, provider, model, effort?, fast?, tools? }
 //
-// Smart Bridge integration:
+// Agent Runtime integration:
 //   opts.taskType / opts.role / opts.profileId — enables profile-aware routing.
 //     Rule-based SmartRouter resolves these synchronously; the resolved
 //     profile controls context filtering (skip.skills/memory/etc) and cache
 //     strategy. If no rule matches, falls back to classic preset behavior.
 //   opts.profile — pre-resolved profile (bypasses router; used by async
-//     callers who already ran SmartBridge.resolve()).
+//     callers who already ran AgentRuntime.resolve()).
 //   opts.providerCacheOpts — pre-resolved cache options merged into ask() sendOpts.
 export function createSession(opts) {
     const presetObj = opts.preset && typeof opts.preset === 'object' ? opts.preset : null;
 
-    // --- Smart Bridge profile resolution (best-effort, sync) ---
+    // --- Agent Runtime profile resolution (best-effort, sync) ---
     let profile = opts.profile || null;
     let providerCacheOpts = opts.providerCacheOpts || null;
     if (!profile && (opts.taskType || opts.role || opts.profileId)) {
-        const smartBridge = getSmartBridgeSync();
-        if (smartBridge) {
+        const agentRuntime = getAgentRuntimeSync();
+        if (agentRuntime) {
             try {
-                const resolved = smartBridge.resolveSync({
+                const resolved = agentRuntime.resolveSync({
                     taskType: opts.taskType,
                     role: opts.role,
                     profileId: opts.profileId,
@@ -1251,10 +1253,10 @@ export function createSession(opts) {
                     providerCacheOpts = resolved.providerCacheOpts;
                 }
             } catch (e) {
-                // Smart Bridge error — log once, fall back to classic behavior.
-                if (!_smartBridgeWarned) {
-                    _smartBridgeWarned = true;
-                    process.stderr.write(`[session] smart bridge resolve failed: ${e.message}\n`);
+                // Agent Runtime error — log once, fall back to classic behavior.
+                if (!_agentRuntimeWarned) {
+                    _agentRuntimeWarned = true;
+                    process.stderr.write(`[session] agent runtime resolve failed: ${e.message}\n`);
                 }
             }
         }
@@ -1282,35 +1284,37 @@ export function createSession(opts) {
         throw new Error(`Provider "${providerName}" not found or not enabled`);
     const id = `sess_${process.pid}_${nextId++}_${Date.now()}_${randomBytes(16).toString('hex')}`;
     const messages = [];
+    const ownerIsAgent = isAgentOwner(opts.owner);
     const resolvedRole = opts.role || profile?.taskType || null;
-    const agentTemplateName = opts.agent || (resolvedRole && !isHiddenRole(resolvedRole) ? resolvedRole : null);
-    const agentTemplate = agentTemplateName ? loadAgentTemplate(agentTemplateName, opts.cwd) : null;
-    const skills = opts.skipSkills ? [] : collectSkillsCached(opts.cwd);
+    const hiddenRole = getHiddenRole(resolvedRole);
+    const isRetrievalRole = hiddenRole?.kind === 'retrieval';
+    // Agent sessions expose a fixed skill meta-tool schema and resolve
+    // concrete skills at tool-call time. Skipping discovery here keeps Pool C
+    // fan-out from doing cwd/global skill IO on every spawn.
+    const skills = (opts.skipSkills || ownerIsAgent) ? [] : collectSkillsCached(opts.cwd);
 
-    // Bridge shared prefix (bit-identical across roles). Hidden roles reuse the
-    // same shared bridge rules so the cache shard stays stable across bridge
+    // Agent shared prefix (bit-identical across roles). Hidden roles reuse the
+    // same shared agent rules so the cache shard stays stable across agent
     // callers. User-defined schedules/webhooks are baked
     // into BP1 as a single fixed-value monolithic block so every role shares
     // one cache shard. A user edit invalidates BP1 once and the new prefix
     // re-warms across all roles together.
-    const bridgeRulesRole = opts.role || profile?.taskType || null;
-    const ownerIsAgent = isAgentOwner(opts.owner);
-    const injectedRules = opts.skipBridgeRules ? '' : (ownerIsAgent ? _buildBridgeRules() : _buildLeadRules());
-    const roleSpecific = ownerIsAgent && !opts.skipBridgeRules ? _buildRoleSpecific(bridgeRulesRole) : '';
-    // mixdog.md user/project context (global + cwd ancestors, broad-to-specific).
-    const projectContext = collectMixdogMd(opts.cwd);
-
-    // Bridge sessions must not inherit role/profile/preset tool narrowing: Pool
+    const agentRulesRole = opts.role || profile?.taskType || null;
+    const agentRulesProfile = isRetrievalRole ? 'retrieval' : 'full';
+    const skipAgentRules = opts.skipAgentRules === true;
+    const injectedRules = skipAgentRules ? '' : (ownerIsAgent ? _buildAgentRules(agentRulesProfile) : _buildLeadRules());
+    const roleSpecific = ownerIsAgent && !skipAgentRules ? _buildRoleSpecific(agentRulesRole) : '';
+    // Agent sessions must not inherit role/profile/preset tool narrowing: Pool
     // B and Pool C share one bit-identical tool schema for BP_1/BP_2 cache
     // reuse, and permission differences are enforced only at call time. Raw
-    // non-bridge callers keep the historical profile.tools / preset.tools
+    // non-agent callers keep the historical profile.tools / preset.tools
     // behaviour.
     const toolSpec = ownerIsAgent
         ? 'full'
         : (Array.isArray(profile?.tools) ? profile.tools : toolPreset);
 
     // Prompt permission is metadata only. Preset tool restrictions must NOT
-    // enter the prompt, or they split the shared bridge cache tail; they map
+    // enter the prompt, or they split the shared agent cache tail; they map
     // to toolPermission below and are enforced only at call time.
     const permission = opts.permission
         || null;
@@ -1318,7 +1322,7 @@ export function createSession(opts) {
         || profile?.permission
         || permissionFromToolSpec(toolPreset)
         || null;
-    let toolsForRouting = resolveSessionTools(toolSpec, skills, { ownerIsBridge: ownerIsAgent });
+    let toolsForRouting = resolveSessionTools(toolSpec, skills, { ownerIsAgentSession: ownerIsAgent });
     // Fail-closed permission intersection: when a session declares an explicit
     // object-form permission, intersect the
     // resolved tool list with the permission's allow/deny lists. If the
@@ -1351,36 +1355,29 @@ export function createSession(opts) {
         }
     }
 
-    const { baseRules, roleCatalog, sessionMarker, volatileTail } = composeSystemPrompt({
+    const { baseRules, stableSystemContext, sessionMarker, volatileTail } = composeSystemPrompt({
         userPrompt: opts.systemPrompt,
-        bridgeRules: injectedRules || undefined,
+        agentRules: injectedRules || undefined,
         roleSpecific: roleSpecific || undefined,
         skipRoleCatalog: !ownerIsAgent,
-        agentTemplate: agentTemplate || undefined,
-        hasSkills: skills.length > 0,
         profile: profile || undefined,
         role: resolvedRole,
-        skipRoleReminder: opts.skipRoleReminder || false,
-        permission,
-        taskBrief: opts.taskBrief || null,
         workflowContext: opts.workflowContext || null,
         workspaceContext: opts.workspaceContext || null,
         coreMemoryContext: opts.coreMemoryContext || null,
-        projectContext: projectContext || null,
+        skillManifest: ownerIsAgent ? null : buildSkillManifest(skills),
         tools: toolsForRouting,
         bashIsPersistent: ownerIsAgent && toolsForRouting.some(t => t?.name === 'shell'),
         // Effective cwd rides in tier3Reminder so explore-like tools know
         // their search root without needing to shove "Override cwd:" into
         // the user message body (that used to fragment the shard prefix).
         cwd: opts.cwd || null,
-        // BP2 catalog policy — explicit-cache providers see the unified
-        // all-roles catalog; implicit-prefix-hash providers keep self-only.
         provider: providerName || null,
     });
     // 4-BP layout (see composeSystemPrompt docs):
     //   system block #1 = baseRules    — BP1 (1h) shared across ALL roles
-    //   system block #2 = roleCatalog  — BP2 (1h) scoped role catalog
-    //   first <system-reminder> user   = sessionMarker — BP3 (1h) mixdog.md + stable role body
+    //   system block #2 = stableSystemContext — BP2 (1h) reserved stable system layer
+    //   first <system-reminder> user   = sessionMarker — BP3 (1h) role md + stable role/session context
     //   second <system-reminder> user  = volatileTail  — rides near BP4 (5m)
     // Anthropic multi-block system pins each block with cache_control.
     // OpenAI gets a stable provider cache key/session prefix. Gemini relies
@@ -1389,8 +1386,8 @@ export function createSession(opts) {
     if (baseRules) {
         messages.push({ role: 'system', content: baseRules });
     }
-    if (roleCatalog) {
-        messages.push({ role: 'system', content: roleCatalog });
+    if (stableSystemContext) {
+        messages.push({ role: 'system', content: stableSystemContext });
     }
     if (sessionMarker) {
         messages.push({ role: 'user', content: `<system-reminder>\n${sessionMarker}\n</system-reminder>` });
@@ -1415,7 +1412,7 @@ export function createSession(opts) {
     //     beats the shared-schema cache win.
     //   - opts.disallowedTools : per-call caller override (Anthropic
     //     BuiltInAgentDefinition pattern)
-    //   - annotations.bridgeHidden : declarative per-tool flag (tools.json
+    //   - annotations.agentHidden : declarative per-tool flag (tools.json
     //     and internal tool defs). Pool A (Lead) still sees all tools.
     //
     const hasCallerAllow = Array.isArray(opts.schemaAllowedTools);
@@ -1439,20 +1436,20 @@ export function createSession(opts) {
     }
     if (ownerIsAgent) {
         const before = tools.length;
-        tools = tools.filter(t => !t?.annotations?.bridgeHidden);
+        tools = tools.filter(t => !t?.annotations?.agentHidden);
         if (tools.length !== before && process.env.MIXDOG_DEBUG_SESSION_LOG) {
-            process.stderr.write(`[session] bridgeHidden stripped ${before - tools.length} tools\n`);
+            process.stderr.write(`[session] agentHidden stripped ${before - tools.length} tools\n`);
         }
     }
 
-    // Bridge tool canonicalization: keep route-sensitive tools in policy order
+    // Agent tool canonicalization: keep route-sensitive tools in policy order
     // while preserving deterministic MCP/skill order for BP1 shard stability.
     if (ownerIsAgent) {
         tools = orderSessionTools(tools);
     }
 
     // Unified-shard policy — no broad role-specific schema filter. Keep
-    // bridge schemas shared unless a hidden-role schema profile explicitly
+    // agent schemas shared unless a hidden-role schema profile explicitly
     // passes schemaAllowedTools for a small specialist; broad role
     // whitelists would fragment the cache shard.
     if (resolvedRole && process.env.MIXDOG_DEBUG_SESSION_LOG) {
@@ -1500,40 +1497,40 @@ export function createSession(opts) {
         owner: opts.owner || 'user',
         mcpPid: process.pid,
         scopeKey: opts.scopeKey || null,
-        lane: opts.lane || 'bridge',
+        lane: opts.lane || 'agent',
         cwd: opts.cwd,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         lastHeartbeatAt: null,
         totalInputTokens: 0,
         totalOutputTokens: 0,
-        // Refreshed on each completed ask() — surfaced by bridge type=list for
+        // Refreshed on each completed ask() — surfaced by agent type=list for
         // debugging + consumed by store.mjs's idle-sweep to reclaim stalled
-        // bridge sessions past RUNNING_STALL_MS.
+        // agent sessions past RUNNING_STALL_MS.
         lastUsedAt: Date.now(),
         tokensCumulative: 0,
         role: opts.role || null,
         taskType: opts.taskType || null,
         maxLoopIterations: Number.isFinite(opts.maxLoopIterations) ? opts.maxLoopIterations : null,
-        // Bridge tag (auto worker{n} on spawn) persisted so the forked status
+        // Agent tag (auto worker{n} on spawn) persisted so the forked status
         // process (statusline) + aggregator can read it from the session JSON.
         // In-process send/close still resolve via _tagSessionRegistry.
-        bridgeTag: opts.bridgeTag || null,
+        agentTag: opts.agentTag || null,
         // Prompt permission is separate from runtime toolPermission so preset
-        // restrictions do not fragment the bridge cache prefix.
+        // restrictions do not fragment the agent cache prefix.
         permission: permission || null,
         toolPermission: toolPermission || null,
-        // Origin tag written into every bridge-trace usage row so analytics
+        // Origin tag written into every agent-trace usage row so analytics
         // can slice by (sourceType, sourceName) — e.g. maintenance/cycle1,
         // scheduler/daily-standup, webhook/github-push, lead/worker.
         sourceType: opts.sourceType || null,
         sourceName: opts.sourceName || null,
         // Provider-scoped unified cache key — one shard per provider,
-        // shared across all roles / sources (bridge/maintenance/mcp/
+        // shared across all roles / sources (agent/maintenance/mcp/
         // scheduler/webhook). Role or source-specific context must be
         // injected into the message tail, not the shared prefix.
         promptCacheKey: providerCacheKey(presetObj?.provider || opts.provider, opts.cacheKeyOverride),
-        // Bridge shell continuity: when a bridge session explicitly opts into
+        // Agent shell continuity: when an agent session explicitly opts into
         // persistent shell state (`bash` with `persistent:true`, or direct
         // `bash_session`), the minted bash_session id is stored here so later
         // opted-in `bash` calls can reuse the same shell state.
@@ -1542,7 +1539,7 @@ export function createSession(opts) {
         // orchestrator session so closeSession can kill them all, not just
         // the most recently recorded one.
         allBashSessionIds: [],
-        // Smart Bridge metadata — optional. Applied on every ask() to merge
+        // Agent Runtime metadata — optional. Applied on every ask() to merge
         // profile-driven cache settings into provider sendOpts.
         profileId: profile?.id || null,
         permissionMode: opts.permissionMode ?? null,
@@ -1558,7 +1555,7 @@ export function createSession(opts) {
 }
 
 // ── Runtime liveness map ──────────────────────────────────────────────
-// In-memory only. Tracks per-session stage + stream heartbeat so bridge type=list
+// In-memory only. Tracks per-session stage + stream heartbeat so agent type=list
 // can surface whether a session is actually alive vs stuck. Never persisted —
 // heartbeats would otherwise churn the session JSON on every SSE delta.
 // Entry shape: {
@@ -1678,7 +1675,7 @@ export function markSessionAskStart(id) {
     // Publish heartbeat immediately so the status aggregator picks the
     // session up in the connecting / requesting window. Without this the
     // .hb file only landed on the first stream chunk — producing a 3–10s
-    // (xhigh: 30s+) invisible gap where bridge sessions ran but the CC
+    // (xhigh: 30s+) invisible gap where agent sessions ran but the CC
     // statusline showed no maintenance/agent badge. STREAM_FRESH_MS (5 min)
     // still drops a session whose provider truly never returns a chunk;
     // markSessionStreamDelta keeps refreshing once chunks arrive.
@@ -1867,7 +1864,7 @@ export async function persistIterationMetrics(delta) {
         // includes cached_read / cache_write in its terminal usage rollup).
         session.totalCachedReadTokens = (session.totalCachedReadTokens || 0) + (deltaCachedRead || 0);
         session.totalCacheWriteTokens = (session.totalCacheWriteTokens || 0) + (deltaCacheWrite || 0);
-        // Window snapshot updated per iteration so bridge type=list reflects the
+        // Window snapshot updated per iteration so agent type=list reflects the
         // most-recent provider-reported input size even for short dispatches
         // that finish before askSession's terminal save lands.
         session.lastInputTokens = deltaInput || 0;
@@ -1990,8 +1987,8 @@ export function getSessionLastProgressAt(sessionId) {
 
 /**
  * Link a parent AbortSignal to a sub-session's controller so that aborting
- * the parent (fan-out deadline or caller ESC) tears down the bridge role's
- * provider call promptly. Safe to call after prepareBridgeSession but before
+ * the parent (fan-out deadline or caller ESC) tears down the agent role's
+ * provider call promptly. Safe to call after prepareAgentSession but before
  * askSession completes. No-op if the session runtime isn't found.
  *
  * @param {string} sessionId — the sub-session to abort
@@ -2069,7 +2066,7 @@ export async function _api_call_with_interrupt(sessionId, fn) {
 // Per-session mutex: queues concurrent askSession calls to prevent message loss
 const _sessionLocks = new Map();
 // Per-session pending-message queue (Claude Code `pendingMessages` pattern).
-// A `bridge type=send` to a worker whose turn is still in flight ENQUEUES the
+// A `agent type=send` to a worker whose turn is still in flight ENQUEUES the
 // message here instead of rejecting; askSession drains the queue after each
 // turn and runs the messages as the next user turn(s), preserving order — the
 // queued send runs AFTER the in-flight prompt, which also closes the spawn
@@ -2082,11 +2079,16 @@ const _sessionLocks = new Map();
 // Keeping the queue outside the session JSON avoids racing session saves that
 // loaded before the send arrived.
 //
-// Map<sessionId, string[]>. Shared with index.mjs's bridge send handler via
-// the enqueue/drain accessors below — one queue contract, two call sites.
+// Map<sessionId, Array<string|{text?:string,content:any}>>. Shared with
+// index.mjs's agent send handler via the enqueue/drain accessors below — one
+// queue contract, two call sites. Rich content is kept in memory for the live
+// relay path; the disk mirror stores only a text fallback so image bytes do not
+// leak into the pending-message JSON.
 const _sessionPendingMessages = new Map();
 const PENDING_MESSAGES_FILE = 'session-pending-messages.json';
 const PENDING_MESSAGES_MODE = 0o600;
+const _pendingPersistBuffers = new Map();
+let _pendingPersistImmediate = null;
 
 function pendingMessagesPath() {
     return join(resolvePluginData(), PENDING_MESSAGES_FILE);
@@ -2115,14 +2117,53 @@ function normalizePendingStore(raw) {
     return out;
 }
 
-function persistPendingMessage(sessionId, message) {
+function normalizePendingMessageEntry(entry) {
+    if (typeof entry === 'string') {
+        const text = entry.trim();
+        return text ? { content: text, text } : null;
+    }
+    if (Array.isArray(entry)) {
+        if (entry.length === 0) return null;
+        const text = promptContentText(entry).trim();
+        return { content: entry, text };
+    }
+    if (!entry || typeof entry !== 'object') return null;
+    const content = Object.prototype.hasOwnProperty.call(entry, 'content') ? entry.content : null;
+    if (content == null) return null;
+    const text = typeof entry.text === 'string' ? entry.text.trim() : promptContentText(content).trim();
+    if (Array.isArray(content)) return content.length > 0 ? { content, text } : null;
+    if (typeof content === 'string') {
+        const value = content.trim();
+        return value ? { content: value, text: text || value } : null;
+    }
+    const fallback = promptContentText(content).trim();
+    return fallback ? { content: fallback, text: text || fallback } : null;
+}
+
+function pendingMessageText(entry) {
+    const normalized = normalizePendingMessageEntry(entry);
+    return normalized ? String(normalized.text || promptContentText(normalized.content) || '').trim() : '';
+}
+
+function pendingMessageQueueEntry(entry) {
+    const normalized = normalizePendingMessageEntry(entry);
+    if (!normalized) return null;
+    if (typeof normalized.content === 'string' && normalized.content === normalized.text) return normalized.content;
+    return { content: normalized.content, text: normalized.text || promptContentText(normalized.content).trim() };
+}
+
+function persistPendingMessages(sessionId, messages) {
     if (!isValidPendingSessionId(sessionId)) return 0;
+    const persistedMessages = (Array.isArray(messages) ? messages : [messages])
+        .map(pendingMessageText)
+        .filter(Boolean);
+    if (persistedMessages.length === 0) return 0;
     let depth = 0;
     try {
         updateJsonAtomicSync(pendingMessagesPath(), (raw) => {
             const next = normalizePendingStore(raw);
             const q = Array.isArray(next.sessions[sessionId]) ? next.sessions[sessionId] : [];
-            q.push(message);
+            q.push(...persistedMessages);
             next.sessions[sessionId] = q;
             next.updatedAt = Date.now();
             depth = q.length;
@@ -2132,6 +2173,43 @@ function persistPendingMessage(sessionId, message) {
         try { process.stderr.write(`[session] pending-message persist failed sessionId=${sessionId}: ${err?.message || err}\n`); } catch {}
     }
     return depth;
+}
+
+function flushPendingMessagePersistsSync() {
+    if (_pendingPersistImmediate) {
+        try { clearImmediate(_pendingPersistImmediate); } catch {}
+        _pendingPersistImmediate = null;
+    }
+    if (_pendingPersistBuffers.size === 0) return;
+    const batches = [..._pendingPersistBuffers.entries()];
+    _pendingPersistBuffers.clear();
+    for (const [sid, messages] of batches) {
+        persistPendingMessages(sid, messages);
+    }
+}
+
+function schedulePendingMessagePersist(sessionId, message) {
+    if (!isValidPendingSessionId(sessionId)) return 0;
+    const persistedMessage = pendingMessageText(message);
+    if (!persistedMessage) return 0;
+    const q = _pendingPersistBuffers.get(sessionId) || [];
+    q.push(persistedMessage);
+    _pendingPersistBuffers.set(sessionId, q);
+    if (!_pendingPersistImmediate) {
+        _pendingPersistImmediate = setImmediate(() => {
+            _pendingPersistImmediate = null;
+            flushPendingMessagePersistsSync();
+        });
+    }
+    return q.length;
+}
+
+function takeBufferedPendingMessages(sessionId) {
+    if (!isValidPendingSessionId(sessionId)) return [];
+    const buffered = _pendingPersistBuffers.get(sessionId);
+    if (!buffered || buffered.length === 0) return [];
+    _pendingPersistBuffers.delete(sessionId);
+    return buffered.slice();
 }
 
 function drainPersistedPendingMessages(sessionId) {
@@ -2154,27 +2232,35 @@ function drainPersistedPendingMessages(sessionId) {
 }
 
 export function enqueuePendingMessage(sessionId, message) {
-    if (!sessionId || typeof message !== 'string' || !message) return 0;
+    const entry = pendingMessageQueueEntry(message);
+    if (!sessionId || !entry) return 0;
     let q = _sessionPendingMessages.get(sessionId);
     if (!q) { q = []; _sessionPendingMessages.set(sessionId, q); }
-    q.push(message);
-    const persistedDepth = persistPendingMessage(sessionId, message);
-    return Math.max(q.length, persistedDepth || 0);
+    q.push(entry);
+    const bufferedDepth = schedulePendingMessagePersist(sessionId, entry);
+    return Math.max(q.length, bufferedDepth || 0);
 }
 export function drainPendingMessages(sessionId) {
     const q = _sessionPendingMessages.get(sessionId);
     const memory = q && q.length > 0 ? q.slice() : [];
     _sessionPendingMessages.delete(sessionId);
-    const persisted = drainPersistedPendingMessages(sessionId);
-    if (memory.length === 0) return modelVisiblePendingMessages(persisted);
-    if (persisted.length === 0) return modelVisiblePendingMessages(memory);
-    const prefixMatches = memory.every((m, i) => persisted[i] === m);
-    if (prefixMatches) return modelVisiblePendingMessages([...memory, ...persisted.slice(memory.length)]);
-    const out = persisted.slice();
-    for (const m of memory) {
-        if (!out.includes(m)) out.push(m);
+    const persisted = [...takeBufferedPendingMessages(sessionId), ...drainPersistedPendingMessages(sessionId)];
+    const memoryVisible = modelVisiblePendingMessages(memory);
+    const persistedVisible = modelVisiblePendingMessages(persisted);
+    if (memoryVisible.length === 0) return persistedVisible;
+    if (persistedVisible.length === 0) return memoryVisible;
+    const persistedTexts = persistedVisible.map(pendingMessageText);
+    const prefixMatches = memoryVisible.every((m, i) => persistedTexts[i] === pendingMessageText(m));
+    if (prefixMatches) return [...memoryVisible, ...persistedVisible.slice(memoryVisible.length)];
+    const out = persistedVisible.slice();
+    const seen = new Set(persistedTexts);
+    for (const m of memoryVisible) {
+        const text = pendingMessageText(m);
+        if (!text || seen.has(text)) continue;
+        out.push(m);
+        seen.add(text);
     }
-    return modelVisiblePendingMessages(out);
+    return out;
 }
 
 function promptContentText(content) {
@@ -2209,8 +2295,44 @@ function prefixUserTurnContent(content, contextBlock) {
 
 function modelVisiblePendingMessages(messages) {
     return (Array.isArray(messages) ? messages : [])
-        .filter((message) => typeof message === 'string' && message.length > 0)
-        .filter((message) => !isInternalRuntimeNotificationText(message));
+        .map(pendingMessageQueueEntry)
+        .filter(Boolean)
+        .filter((message) => !isInternalRuntimeNotificationText(
+            message && typeof message === 'object' && Object.prototype.hasOwnProperty.call(message, 'content')
+                ? message.content
+                : message,
+        ));
+}
+
+export function _mergePendingMessageEntries(entries) {
+    const normalized = (Array.isArray(entries) ? entries : [])
+        .map(normalizePendingMessageEntry)
+        .filter(Boolean);
+    if (normalized.length === 0) return null;
+    const displayText = normalized.map((entry) => entry.text || promptContentText(entry.content))
+        .filter((text) => String(text || '').trim())
+        .join('\n');
+    if (normalized.every((entry) => typeof entry.content === 'string')) {
+        return {
+            content: normalized.map((entry) => entry.content).filter(Boolean).join('\n'),
+            text: displayText,
+            count: normalized.length,
+        };
+    }
+    const parts = [];
+    for (const entry of normalized) {
+        if (typeof entry.content === 'string') {
+            if (entry.content.trim()) parts.push({ type: 'text', text: entry.content });
+        } else if (Array.isArray(entry.content)) {
+            parts.push(...entry.content);
+        } else {
+            const text = promptContentText(entry.content);
+            if (text.trim()) parts.push({ type: 'text', text });
+        }
+        parts.push({ type: 'text', text: '\n' });
+    }
+    while (parts.length && parts[parts.length - 1]?.type === 'text' && parts[parts.length - 1]?.text === '\n') parts.pop();
+    return { content: parts, text: displayText || promptContentText(parts), count: normalized.length };
 }
 
 function isInternalRuntimeNotificationText(content) {
@@ -2309,18 +2431,19 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
     // result, mirroring how a live chat returns the latest turn).
     let _result;
     // Local FIFO of follow-up prompts drained from the pending-message queue
-    // after each turn — keeps queued `bridge type=send` messages in order.
+    // after each turn — keeps queued `agent type=send` messages in order.
     const _pendingTail = [];
     // Hoisted so the outer finally (which runs once after the whole turn loop)
     // can compare against the last turn's generation.
     let askGeneration = 0;
     try {
       // Turn loop (pendingMessages pattern): run the current prompt, then drain
-      // any `bridge type=send` messages that were queued while this turn was in
+      // any `agent type=send` messages that were queued while this turn was in
       // flight and run them — in order — as the next user turn(s). Because the
       // queued send always lands AFTER the in-flight prompt here, ordering is
       // preserved and the spawn/connecting startup race disappears.
       for (;;) {
+        let _pwstTurnDrained = null;
         // After the first turn, the next prompt comes from the drained queue.
         // (On the first iteration _pendingTail is empty and `prompt` is the
         // caller's original message.)
@@ -2426,8 +2549,8 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             const outgoing = [...historyMessages, { role: 'user', content: _userTurnContent }];
             // Per-turn injected-context trace row (complements kind:"usage").
             // Cheap byte-length accounting — no hashing, no payload bodies.
-            // Honors the same MIXDOG_BRIDGE_TRACE_DISABLE gate as usage rows;
-            // appendBridgeTrace is a no-op when that env is set.
+            // Honors the same MIXDOG_AGENT_TRACE_DISABLE gate as usage rows;
+            // appendAgentTrace is a no-op when that env is set.
             try {
                 const _ctxBytes = Buffer.byteLength(context || '', 'utf8');
                 const _prefetchBytes = Buffer.byteLength(explicitPrefetchResult || '', 'utf8');
@@ -2435,7 +2558,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 const _userTurnBytes = promptContentBytes(_userTurnContent);
                 const _messagesBytes = Buffer.byteLength(JSON.stringify(historyMessages || []), 'utf8');
                 const _totalBytes = _userTurnBytes + _messagesBytes;
-                appendBridgeTrace({
+                appendAgentTrace({
                     kind: 'context',
                     sessionId,
                     model: session.model,
@@ -2469,7 +2592,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     // Mid-turn steering drain. agentLoop calls this at every
                     // tool-batch boundary (before the next provider.send) and
                     // injects any returned strings as user turns — so input
-                    // (user typing, `bridge type=send`) that arrives WHILE a
+                    // (user typing, `agent type=send`) that arrives WHILE a
                     // long multi-tool turn is in flight is picked up on the
                     // model's very next iteration instead of waiting for the
                     // whole task to finish. The post-turn _pendingTail drain
@@ -2500,7 +2623,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     signal,
                     providerState: session.providerState ?? undefined,
                     session,
-                    // Smart Bridge cache settings — merged last so session overrides
+                    // Agent Runtime cache settings — merged last so session overrides
                     // don't get overridden by defaults. When session has no profile,
                     // providerCacheOpts is null and this spread is a no-op.
                     ...(session.providerCacheOpts || {}),
@@ -2612,14 +2735,14 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 session.lastContextTokensUpdatedAt = Date.now();
                 session.lastContextTokensStaleAfterCompact = false;
             }
-            // Smart Bridge cache stats — record hit/miss after every successful
-            // ask so the registry reflects all bridge traffic, not just
-            // maintenance cycles. Guarded against any smart-bridge error so
+            // Agent Runtime cache stats — record hit/miss after every successful
+            // ask so the registry reflects all agent traffic, not just
+            // maintenance cycles. Guarded against any agent-runtime error so
             // metric recording never breaks the ask itself.
             let prefixHashForLog = null;
-            if (session.profileId && result.usage && _smartBridgeApi) {
+            if (session.profileId && result.usage && _agentRuntimeApi) {
                 try {
-                    const profile = _smartBridgeApi.getProfile(session.profileId);
+                    const profile = _agentRuntimeApi.getProfile(session.profileId);
                     if (profile) {
                         // Collect every leading system-role message (BP1, BP2, ...)
                         // until the first non-system message so the registry hash
@@ -2629,12 +2752,12 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                             if (m?.role !== 'system') break;
                             systemMsgs.push(typeof m.content === 'string' ? m.content : '');
                         }
-                        _smartBridgeApi.recordCall(profile, session.provider, {
+                        _agentRuntimeApi.recordCall(profile, session.provider, {
                             systemPrompt: systemMsgs,
                             tools: session.tools || [],
                             usage: result.usage,
                         });
-                        const entry = _smartBridgeApi.registry?.data?.profiles?.[session.profileId]?.[session.provider];
+                        const entry = _agentRuntimeApi.registry?.data?.profiles?.[session.profileId]?.[session.provider];
                         prefixHashForLog = entry?.prefixHash || null;
                     }
                 } catch {}
@@ -2693,6 +2816,21 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             if (result.providerState !== undefined) {
                 session.providerState = result.providerState;
             }
+            const terminalResultPreview = {
+                ...result,
+                trimmed: messagesDropped > 0,
+                messagesDropped,
+            };
+            _pwstTurnDrained = drainPendingMessages(sessionId);
+            if (_pwstTurnDrained.length === 0 && typeof askOpts?.onTerminalResult === 'function') {
+                try {
+                    askOpts.onTerminalResult(terminalResultPreview, {
+                        sessionId,
+                        beforeSave: true,
+                        durationMs: Date.now() - _askStartedAt,
+                    });
+                } catch { /* best-effort early completion relay */ }
+            }
             // Claude Code parity: auto-compact runs at the start of the next
             // query/provider send (agentLoop pre-send), not after the previous
             // answer. This lets queued follow-up prompts resume immediately;
@@ -2708,11 +2846,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 markSessionEmptyFinal(sessionId);
             }
             markSessionDone(sessionId, { empty: isEmptyFinal });
-            _result = {
-                ...result,
-                trimmed: messagesDropped > 0,
-                messagesDropped,
-            };
+            _result = terminalResultPreview;
         } catch (err) {
             if (err instanceof SessionClosedError) {
                 const currentRuntime = _runtimeState.get(sessionId);
@@ -2751,12 +2885,12 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             throw err;
         }
         // ── Turn complete. Drain the pending-message queue (Claude Code
-        //    pendingMessages): any `bridge type=send` that arrived while this
+        //    pendingMessages): any `agent type=send` that arrived while this
         //    turn was in flight runs next, in order, as a follow-up user turn.
         //    The mutex is still held, so a send racing this drain either landed
         //    before (picked up here) or enqueues for the next loop. When the
         //    queue is empty we return the latest turn's result. ──
-        const _drained = drainPendingMessages(sessionId);
+        const _drained = _pwstTurnDrained || drainPendingMessages(sessionId);
         if (_drained.length > 0) {
             // Same merge rule as the mid-turn steering drain (loop.mjs) and
             // the TUI engine.mjs drain(): a single drain batch is joined with
@@ -2764,11 +2898,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // Keeps every steering/follow-up path on identical
             // merge-then-deliver semantics. Anything that arrives AFTER this
             // drain enqueues for the next loop pass and is merged there.
-            const _mergedTail = _drained
-                .filter((m) => typeof m === 'string' && m.length > 0)
-                .join('\n');
-            if (_mergedTail.length > 0) {
-                _pendingTail.push(_mergedTail);
+            const _mergedTail = _mergePendingMessageEntries(_drained);
+            if (_mergedTail?.content) {
+                _pendingTail.push(_mergedTail.content);
                 const refreshed = loadSession(sessionId);
                 if (refreshed && refreshed.closed !== true) {
                     activeSession = refreshed;
@@ -2781,7 +2913,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
       }
     } finally {
         // Clear the controller only if it's still ours (closeSession may have
-        // swapped it). Leave the rest of the runtime entry intact so bridge type=list
+        // swapped it). Leave the rest of the runtime entry intact so agent type=list
         // can still surface the final stage (done/error/cancelling).
         const entry = _runtimeState.get(sessionId);
         if (entry && entry.generation === askGeneration) {
@@ -2792,7 +2924,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         unlock();
     }
 }
-// Session lookup by scopeKey — used by CLI bridge to resume a pinned
+// Session lookup by scopeKey — used by CLI agent to resume a pinned
 // scope session when the caller passes --scope (agent/<name>).
 export function findSessionByScopeKey(scopeKey) {
     if (!scopeKey) return null;
@@ -2819,15 +2951,16 @@ export async function resumeSession(sessionId, preset) {
     // otherwise fall back to preset.tools. Same resolution order as
     // createSession so resume and spawn produce identical BP_1 shapes.
     const oldTools = session.tools || [];
-    const skills = collectSkillsCached(session.cwd);
+    const ownerIsAgent = isAgentOwner(session);
+    const skills = ownerIsAgent ? [] : collectSkillsCached(session.cwd);
     let toolSpec = preset || session.preset || 'full';
-    if (session.profileId && _smartBridgeApi?.getProfile) {
+    if (session.profileId && _agentRuntimeApi?.getProfile) {
         try {
-            const profile = _smartBridgeApi.getProfile(session.profileId);
+            const profile = _agentRuntimeApi.getProfile(session.profileId);
             if (Array.isArray(profile?.tools)) toolSpec = profile.tools;
         } catch { /* ignore lookup failures, keep preset fallback */ }
     }
-    session.tools = resolveSessionTools(toolSpec, skills, { ownerIsBridge: isAgentOwner(session) });
+    session.tools = resolveSessionTools(toolSpec, skills, { ownerIsAgentSession: ownerIsAgent });
     const newTools = session.tools;
     const missing = oldTools.filter(t => !newTools.find(n => n.name === t.name));
     if (missing.length) {
@@ -2845,7 +2978,7 @@ export function listSessions(opts = {}) {
     const sessions = listStoredSessionSummaries();
     const hiddenIds = new Set([..._runtimeState.entries()].filter(([, e]) => e.listHidden).map(([id]) => id));
     // Tombstoned sessions (closed===true) are excluded unless the caller opts in
-    // (e.g. bridge list includeClosed:true).
+    // (e.g. agent list includeClosed:true).
     return sessions.filter(s => !hiddenIds.has(s.id) && (includeClosed || s.closed !== true));
 }
 // --- Clear messages (keep system prompt + provider/model/cwd) ---
@@ -3006,7 +3139,7 @@ export async function updateSessionStatus(id, status) {
     const session = loadSession(id);
     if (!session) return false;
     // Respect tombstones — don't resurrect a closed session just to update a
-    // status label (bridge handler emits running→idle/error around askSession).
+    // status label (agent handler emits running→idle/error around askSession).
     if (session.closed === true) return false;
     session.status = status;
     session.updatedAt = Date.now();

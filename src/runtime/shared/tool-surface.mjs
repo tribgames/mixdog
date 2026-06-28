@@ -620,10 +620,11 @@ function parseLineDelta(delta) {
 
 function formatLineDelta(totals) {
   if (!totals?.seen) return '';
-  const parts = [];
-  if (totals.added) parts.push(`+${totals.added} Lines`);
-  if (totals.removed) parts.push(`-${totals.removed} Lines`);
-  return parts.join(STATUS_SEPARATOR) || '±0 Lines';
+  // Always show added and removed as separate cumulative counts (never merged
+  // into a single ±0), so the header reads e.g. "+5 Lines · -0 Lines".
+  const added = Number(totals.added) || 0;
+  const removed = Number(totals.removed) || 0;
+  return [`+${added} Lines`, `-${removed} Lines`].join(STATUS_SEPARATOR);
 }
 
 function parseUpdateSummary(text) {
@@ -920,7 +921,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
         return lines > 0 ? `${lines} ${pluralize(lines, 'Skill')}` : null;
       }
       if (target) {
-        const verb = normalized === 'skill_view' ? 'Loaded' : 'Used';
+        const verb = normalized === 'skill' || normalized === 'skill_view' ? 'Loaded' : 'Used';
         return `${verb} ${truncateToolText(target, 80)}`;
       }
       return trimmed ? firstAgentResultLine(text) || null : null;

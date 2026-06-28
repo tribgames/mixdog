@@ -48,8 +48,8 @@ function defaultTraceFiles() {
   return unique(dirs.flatMap((dir) => [
     resolve(dir, 'history', 'agent-trace.jsonl.1'),
     resolve(dir, 'history', 'agent-trace.jsonl'),
-    resolve(dir, 'history', 'bridge-trace.jsonl.1'),
-    resolve(dir, 'history', 'bridge-trace.jsonl'),
+    resolve(dir, 'history', 'agent-trace.jsonl.1'),
+    resolve(dir, 'history', 'agent-trace.jsonl'),
   ]));
 }
 
@@ -126,6 +126,7 @@ function stats(nums) {
   const sum = arr.reduce((a, b) => a + b, 0);
   return {
     n: arr.length,
+    sum,
     avg: Math.round(sum / arr.length),
     p50: percentile(arr, 50),
     p90: percentile(arr, 90),
@@ -169,6 +170,11 @@ function topStatsBy(rows, groupName, valueName, minValue = null) {
     .sort((a, b) => b.max - a.max || b.p90 - a.p90 || b.n - a.n);
 }
 
+function topStatsByTotal(rows, groupName, valueName, minValue = null) {
+  return topStatsBy(rows, groupName, valueName, minValue)
+    .sort((a, b) => b.sum - a.sum || b.max - a.max || b.p90 - a.p90 || b.n - a.n);
+}
+
 function printCounts(label, obj, max = 12) {
   const parts = Object.entries(obj).slice(0, max).map(([k, v]) => `${k}:${v}`);
   console.log(`${label}: ${parts.join(', ') || '(none)'}`);
@@ -208,8 +214,10 @@ const report = {
   kinds: kindCounts,
   transport: {
     modes: countBy(transportRows, (row) => field(row, 'ws_mode') || field(row, 'transport') || '(unknown)'),
+    rate_policies: countBy(transportRows.filter((row) => field(row, 'cache_lane_rate_policy')), (row) => field(row, 'cache_lane_rate_policy')),
     delta_reasons: countBy(transportRows.filter((row) => field(row, 'chain_delta_reason')), (row) => field(row, 'chain_delta_reason')),
     cache_lane_rate_wait_ms: stats(values(transportRows, 'cache_lane_rate_wait_ms')),
+    cache_lane_rate_reacquire_wait_ms: stats(values(transportRows, 'cache_lane_rate_reacquire_wait_ms')),
     cache_lane_wait_ms: stats(values(transportRows, 'cache_lane_wait_ms')),
     cache_lane_slow: cacheSlowRows.length,
     fallback: countBy(fallbackRows, (row) => field(row, 'reason') || field(row, 'fallback_reason') || '(unknown)'),
@@ -224,6 +232,7 @@ const report = {
   tools: {
     slow_ms: slowMs,
     by_tool: topStatsBy(toolRows, 'tool_name', 'tool_ms'),
+    by_tool_total: topStatsByTotal(toolRows, 'tool_name', 'tool_ms'),
     slow_by_tool: topStatsBy(toolRows, 'tool_name', 'tool_ms', slowMs),
   },
   cache_breaks: {
@@ -277,9 +286,11 @@ if (kindFilter) console.log(`filter: kind=${kindFilter}`);
 console.log(`sources: ${report.sources.join(', ') || '(none)'}`);
 printCounts('kinds', report.kinds);
 printCounts('transport modes', report.transport.modes);
+printCounts('cache lane rate policies', report.transport.rate_policies);
 printCounts('delta/full reasons', report.transport.delta_reasons);
 printCounts('transport fallback', report.transport.fallback);
 console.log(`cache lane rate wait: ${formatStats(report.transport.cache_lane_rate_wait_ms)}`);
+console.log(`cache lane rate reacquire wait: ${formatStats(report.transport.cache_lane_rate_reacquire_wait_ms)}`);
 console.log(`cache lane queue wait: ${formatStats(report.transport.cache_lane_wait_ms)}`);
 console.log(`cache lane slow rows: ${report.transport.cache_lane_slow}`);
 console.log(`ttft: ${formatStats(report.sse.ttft_ms)}`);
@@ -287,6 +298,11 @@ console.log(`sse parse: ${formatStats(report.sse.sse_parse_ms)}`);
 console.log(`fetch headers: ${formatStats(report.fetch.headers_ms)}`);
 console.log(`cache breaks: ${report.cache_breaks.count}`);
 printCounts('cache break reasons', report.cache_breaks.reasons);
+console.log('tools by total time:');
+for (const row of report.tools.by_tool_total.slice(0, 12)) {
+  console.log(`- ${row.key}: n=${row.n} total=${Math.round(row.sum)}ms avg=${row.avg}ms p90=${row.p90}ms max=${row.max}ms`);
+}
+if (report.tools.by_tool_total.length === 0) console.log('- (none)');
 console.log('slow tools:');
 for (const row of report.tools.slow_by_tool.slice(0, 12)) {
   console.log(`- ${row.key}: n=${row.n} avg=${row.avg}ms p90=${row.p90}ms max=${row.max}ms`);

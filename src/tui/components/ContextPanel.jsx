@@ -171,7 +171,7 @@ function ContextUsageView({ detail, columns }) {
   const barWidth = Math.max(12, Math.min(34, innerWidth - stringWidth(summaryText) - stringWidth(pctText) - 5));
   const builtInToolTokens = bucketTokens(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other']);
   const builtInToolCount = bucketCount(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other']);
-  const projectTokens = semanticTokens(semantic, ['project', 'workspace', 'environment', 'other']);
+  const sessionTokens = semanticTokens(semantic, ['workspace', 'environment', 'other']);
   const compactionLine = metricValue([
     compaction.stage && compaction.stage !== 'pending' ? compaction.stage : '',
     compaction.state,
@@ -192,7 +192,7 @@ function ContextUsageView({ detail, columns }) {
     { label: 'MCP', tokens: bucketTokens(schema, ['mcp']), meta: `${mcp.connected || 0}/${mcp.configured || 0} servers` },
     { label: 'Skills', tokens: bucketTokens(schema, ['skills']), meta: `${extensions.skills || 0} skills` },
     { label: 'Memory', tokens: semanticTokens(semantic, ['memory']) + bucketTokens(schema, ['memory']), meta: 'core + recall tools' },
-    { label: 'Project', tokens: projectTokens, meta: 'mixdog.md · workspace' },
+    { label: 'Session', tokens: sessionTokens, meta: 'workspace · environment' },
     { label: 'Workflow', tokens: semanticTokens(semantic, ['workflow']) + bucketTokens(schema, ['agents']), meta: 'workflow · agents' },
     { label: 'System', tokens: semanticTokens(semantic, ['system']), meta: 'rules · role catalog' },
     { label: 'Overhead', tokens: finiteNumber(request.overheadTokens), meta: 'request frame' },

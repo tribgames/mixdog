@@ -74,11 +74,11 @@ export function normalizeStatusLine(text) {
     .replaceAll(`${RESET} ${SUBTLE}│${RESET} `, ` ${SUBTLE}│${RESET} `);
 }
 
-function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision = '', bridgeWorkers = [], bridgeJobs = [], initialLine = '' }) {
+function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], initialLine = '' }) {
   const [line, setLine] = useState(() => normalizeStatusLine(initialLine || localFallbackStatusLine({ provider, model, effort, fast })));
   const [refreshTick, setRefreshTick] = useState(0);
 
-  const statuslineArgs = { sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, bridgeWorkers, bridgeJobs };
+  const statuslineArgs = { sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, agentWorkers, agentJobs };
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -117,7 +117,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
       alive = false;
       clearTimeout(timer);
     };
-  }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, bridgeRevision, bridgeWorkers, bridgeJobs, refreshTick]);
+  }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, agentRevision, agentWorkers, agentJobs, refreshTick]);
 
   return (
     <Box flexDirection="column" width="100%" height={2} overflow="hidden" paddingLeft={2} marginBottom={1} backgroundColor={theme.background}>

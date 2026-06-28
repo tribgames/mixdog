@@ -63,7 +63,6 @@ const SLASH_COMMANDS = [
   { name: 'workflow', usage: '/workflow', description: 'Switch the active workflow' },
   { name: 'outputstyle', usage: '/OutputStyle', aliases: ['output-style', 'style'], aliasUsage: ['style'], showAliasUsage: false, params: '[name]', description: 'Switch Lead output style' },
   { name: 'agents', usage: '/agents', description: 'Show available workflow agents' },
-  { name: 'agent', usage: '/agent', params: '[list|status|read|cleanup|cancel|close]', description: 'Manage active agents and async tasks' },
   { name: 'effort', usage: '/effort', params: '[level]', description: 'Set reasoning effort for the current model' },
   { name: 'fast', usage: '/fast', params: '[on|off]', description: 'Toggle Fast mode for the current model' },
   { name: 'mcp', usage: '/mcp', description: 'Manage MCP servers and tools' },
@@ -75,6 +74,7 @@ const SLASH_COMMANDS = [
   { name: 'schedules', usage: '/schedules', description: 'Manage schedules' },
   { name: 'webhooks', usage: '/webhooks', description: 'Manage inbound webhooks' },
   { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings' },
+  { name: 'profile', usage: '/profile', description: 'Set your title and response language' },
   { name: 'quit', usage: '/quit', aliases: ['exit', 'q'], aliasUsage: ['exit', 'q'], description: 'Quit the TUI' },
 ];
 
@@ -184,7 +184,7 @@ function formatSessionMessageCount(count) {
   return `${Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0} msg${n === 1 ? '' : 's'}`;
 }
 
-function parseBridgeControl(text) {
+function parseAgentControl(text) {
   const parts = String(text || '').trim().split(/\s+/).filter(Boolean);
   const action = (parts[0] || '').toLowerCase();
   if (!['spawn', 'send', 'list', 'status', 'read', 'cleanup', 'cancel', 'close'].includes(action)) return null;
@@ -193,13 +193,13 @@ function parseBridgeControl(text) {
   if (action === 'spawn') {
     const agent = value;
     if (!agent) return { error: 'usage: /agent spawn <agent> <prompt>' };
-    const parsed = parseBridgeFreeform(parts.slice(2));
+    const parsed = parseAgentFreeform(parts.slice(2));
     if (!parsed.message) return { error: 'usage: /agent spawn <agent> <prompt>' };
     return { type: 'spawn', agent, ...parsed };
   }
   if (action === 'send') {
     if (!value) return { error: 'usage: /agent send <target> <message>' };
-    const parsed = parseBridgeFreeform(parts.slice(2));
+    const parsed = parseAgentFreeform(parts.slice(2));
     if (!parsed.message) return { error: 'usage: /agent send <target> <message>' };
     return value.startsWith('sess_')
       ? { type: 'send', sessionId: value, ...parsed }
@@ -212,7 +212,7 @@ function parseBridgeControl(text) {
   return { type: action, tag: value };
 }
 
-function parseBridgeFreeform(parts) {
+function parseAgentFreeform(parts) {
   const out = {};
   let i = 0;
   for (; i < parts.length; i += 1) {
@@ -470,6 +470,14 @@ const TRANSCRIPT_WINDOW_OVERSCAN_ROWS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_OV
 
 const TRANSCRIPT_WINDOW_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS', 180);
 const SELECTION_PAINT_INTERVAL_MS = positiveIntEnv('MIXDOG_TUI_SELECTION_PAINT_MS', 24);
+// When pinned to the bottom, NEW transcript items (e.g. a streamed `●` answer
+// line followed by a tool card) arrive in separate render frames, so each one
+// reflowed the bottom-anchored viewport on its own — the "투툭" double jump.
+// Instead we hold the viewport still (offset by the added rows) and, once new
+// items stop landing for this quiet window, glide back to the bottom in ONE
+// smooth rise so a text+tool burst reads as a single motion. Env-tunable to 0
+// to restore the old instant-follow behavior.
+const TRANSCRIPT_FOLLOW_COALESCE_MS = positiveIntEnv('MIXDOG_TUI_FOLLOW_COALESCE_MS', 100);
 
 function selectionRectsEqual(a, b) {
   if (a === b) return true;
@@ -563,10 +571,17 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
       return 1 + estimateWrappedRows(item.text, columns, 3) + estimateMarkdownExtraRows(item.text);
     case 'tool': {
       if (isFullyFailedToolItem(item)) return 0;
-      const resultText = (toolOutputExpanded || item.expanded) && item.rawResult ? item.rawResult : item.result;
-      const resultRows = resultText
-        ? (toolOutputExpanded || item.expanded ? estimateWrappedRows(resultText, columns, 8) : Math.min(8, estimateWrappedRows(resultText, columns, 8)))
-        : 1;
+      // Match ToolExecution's real layout so the estimated height does not jump
+      // when a tool result lands mid-scroll (which made the scroll-preservation
+      // effect over-correct and "튀게" the viewport):
+      //   - COLLAPSED: header(1) + exactly ONE detail row (the collapsed
+      //     status/summary line, or a reserved placeholder). The raw result is
+      //     NOT shown, so its line count must not inflate the estimate.
+      //   - EXPANDED: header(1) + detail-gutter(1) + the wrapped raw result rows.
+      const expanded = toolOutputExpanded || item.expanded;
+      if (!expanded) return 2;
+      const resultText = item.rawResult || item.result;
+      const resultRows = resultText ? estimateWrappedRows(resultText, columns, 8) : 1;
       return 2 + resultRows;
     }
     case 'notice':
@@ -825,6 +840,15 @@ export function App({ store, initialStatusLine = '' }) {
   const scrollAnimationRef = useRef(null);
   const transcriptTotalRowsRef = useRef(0);
   const preservedScrollDeltaRef = useRef(0);
+  // followingRef = the viewport is auto-gliding back to the bottom after new
+  // items landed (distinct from a user wheel/keyboard scroll-up). lastItemsCountRef
+  // lets the pinned-follow effect tell a NEW ITEM apart from pure streaming growth
+  // of an existing item, so only item additions get the coalesced smooth rise.
+  const followingRef = useRef(false);
+  const lastItemsCountRef = useRef(0);
+  // Debounce timer that fires once new items stop landing, then glides the
+  // pinned viewport back to the bottom in one smooth motion.
+  const followCoalesceTimerRef = useRef(null);
   // picker = null | { type, title, items, onSelect }
   // Rendered as an option panel attached directly above the bottom prompt.
   const pickerOpenedFromEnterRef = useRef(false);
@@ -1874,9 +1898,9 @@ export function App({ store, initialStatusLine = '' }) {
     } else if (slot === 'memory') {
       if (/haiku|mini|nano|flash|fast/.test(text)) score += 20;
       if (/opus|max/.test(text)) score -= 4;
-    } else if (slot === 'explorer' || slot === 'bridge') {
+    } else if (slot === 'explorer' || slot === 'agent') {
       if (/sonnet|gpt-5|mini|haiku|flash/.test(text)) score += 12;
-      if (/opus/.test(text)) score += slot === 'bridge' ? 3 : -2;
+      if (/opus/.test(text)) score += slot === 'agent' ? 3 : -2;
     }
     if (model.supportsFunctionCalling) score += 2;
     return score;
@@ -1890,7 +1914,7 @@ export function App({ store, initialStatusLine = '' }) {
 
   const buildWorkflowDefaults = (models, defaultRoute) => ({
     lead: defaultRoute,
-    bridge: chooseRecommendedModel(models, 'bridge', defaultRoute),
+    agent: chooseRecommendedModel(models, 'agent', defaultRoute),
     explorer: chooseRecommendedModel(models, 'explorer', defaultRoute),
     memory: chooseRecommendedModel(models, 'memory', defaultRoute),
   });
@@ -2431,7 +2455,7 @@ export function App({ store, initialStatusLine = '' }) {
       onSelect: (_value, item) => {
         setPicker(null);
         if (item._action === 'control') {
-          void store.bridgeControl?.(item._args)
+          void store.agentControl?.(item._args)
             .catch((e) => store.pushNotice(`agent failed: ${e?.message || e}`, 'error'));
         }
       },
@@ -2547,21 +2571,21 @@ export function App({ store, initialStatusLine = '' }) {
     const plugins = store.pluginsStatus?.() || { count: 0 };
     const skills = store.skillsStatus?.() || { count: 0 };
     const channelWorker = store.getChannelWorkerStatus?.();
-    const bridgeRows = [
-      ...(Array.isArray(state.bridgeWorkers) ? state.bridgeWorkers : []),
-      ...(Array.isArray(state.bridgeJobs) ? state.bridgeJobs : []),
+    const agentRows = [
+      ...(Array.isArray(state.agentWorkers) ? state.agentWorkers : []),
+      ...(Array.isArray(state.agentJobs) ? state.agentJobs : []),
     ];
-    const bridgeActive = bridgeRows
+    const agentActive = agentRows
       .map((row) => ({
         tag: clean(row?.tag || row?.role || row?.type || row?.task_id || ''),
         status: clean(row?.status || row?.stage || ''),
       }))
       .filter((row) => row.tag && row.status && !/idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i.test(row.status));
-    const bridgeAgentText = bridgeActive.length
-      ? `${bridgeActive.length} Active (${summarizeTags(bridgeActive.map((row) => row.tag))})`
+    const agentText = agentActive.length
+      ? `${agentActive.length} Active (${summarizeTags(agentActive.map((row) => row.tag))})`
       : 'No Active Agents';
-    const bridgeScopeLabel = state.bridgeScope?.clientHostPid
-      ? `this terminal · pid ${state.bridgeScope.clientHostPid}`
+    const agentScopeLabel = state.agentScope?.clientHostPid
+      ? `this terminal · pid ${state.agentScope.clientHostPid}`
       : (state.clientHostPid ? `this terminal · pid ${state.clientHostPid}` : 'this terminal');
     setProviderPrompt(null);
     setChannelPrompt(null);
@@ -2588,9 +2612,9 @@ export function App({ store, initialStatusLine = '' }) {
           description: state.cwd,
         },
         {
-          value: 'bridge',
+          value: 'agent',
           label: 'Agent Tasks',
-          description: `${bridgeAgentText} · ${bridgeScopeLabel}`,
+          description: `${agentText} · ${agentScopeLabel}`,
         },
         {
           value: 'tools',
@@ -2869,8 +2893,8 @@ export function App({ store, initialStatusLine = '' }) {
     state.rawContextWindow,
     state.sessionId,
     state.toolMode,
-    state.bridgeWorkers,
-    state.bridgeJobs,
+    state.agentWorkers,
+    state.agentJobs,
     state.provider,
     state.model,
     state.effort,
@@ -2996,6 +3020,19 @@ export function App({ store, initialStatusLine = '' }) {
         .finally(() => openSettingsPicker());
     };
     const items = [
+      {
+        value: 'profile',
+        label: 'Profile',
+        meta: (() => {
+          try {
+            const p = store.getProfile?.();
+            const lang = p?.languageEntry?.label || 'System';
+            return p?.title ? `${p.title} · ${lang}` : lang;
+          } catch { return 'System'; }
+        })(),
+        description: 'Your title and response language.',
+        _action: 'profile',
+      },
       {
         value: 'autoclear',
         label: 'Auto-clear',
@@ -3152,6 +3189,7 @@ export function App({ store, initialStatusLine = '' }) {
       onSelect: (_value, item) => {
         setPicker(null);
         if (item._action === 'autoclear') openAutoClearPicker({ returnTo: openSettingsPicker });
+        else if (item._action === 'profile') openProfilePicker({ returnTo: openSettingsPicker });
         else if (item._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
         else if (item._action === 'compact-type') {
           const nextType = compactType === 'recall-fasttrack' ? 'semantic' : 'recall-fasttrack';
@@ -3729,7 +3767,7 @@ export function App({ store, initialStatusLine = '' }) {
     };
     const routes = onboardingRef.current.workflowRoutes || {};
     const slots = [
-      ['bridge', 'Agent', 'agent dispatch route'],
+      ['agent', 'Agent', 'agent dispatch route'],
       ['explorer', 'Explorer', 'code graph, file reading, repo exploration'],
       ['memory', 'Memory', 'memory cycles and curation'],
     ];
@@ -4827,6 +4865,85 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
+  const openProfilePicker = (options = {}) => {
+    const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    let profile = null;
+    try {
+      profile = store.getProfile?.() || null;
+    } catch {
+      profile = null;
+    }
+    const languages = Array.isArray(profile?.languages) && profile.languages.length
+      ? profile.languages
+      : [{ id: 'system', label: 'System (locale)' }];
+    const currentLangId = profile?.language || 'system';
+    const currentLang = languages.find((lang) => lang.id === currentLangId) || languages[0];
+    const titleValue = String(profile?.title || '').trim();
+    const cycleLanguage = (direction = 1) => {
+      const idx = Math.max(0, languages.findIndex((lang) => lang.id === currentLangId));
+      const next = languages[(idx + direction + languages.length) % languages.length];
+      try {
+        store.setProfile?.({ language: next.id });
+        store.pushNotice(`Language set to ${next.label}`, 'info');
+      } catch (e) {
+        store.pushNotice(`profile update failed: ${e?.message || e}`, 'error');
+      }
+      openProfilePicker({ returnTo });
+    };
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setContextPanel(null);
+    closeUsagePanel();
+    setPicker({
+      title: 'Profile',
+      description: 'How the assistant addresses you and which language it replies in.',
+      help: '↑/↓ Select · ←/→ Change · Enter Edit · Esc Close',
+      indexMode: 'always',
+      labelWidth: 12,
+      metaWidth: 20,
+      items: [
+        {
+          value: 'title',
+          label: 'Title',
+          meta: titleValue || '(not set)',
+          description: 'Preferred form of address. Enter to edit.',
+          _action: 'title',
+        },
+        {
+          value: 'language',
+          label: 'Language',
+          meta: currentLang?.label || 'System (locale)',
+          description: 'Response language. ←/→ to change, Enter to cycle.',
+          _action: 'language',
+        },
+      ],
+      onLeft: (item) => {
+        if (item?._action === 'language') cycleLanguage(-1);
+      },
+      onRight: (item) => {
+        if (item?._action === 'language') cycleLanguage(1);
+      },
+      onSelect: (_value, item) => {
+        if (item?._action === 'title') {
+          setPicker(null);
+          setSettingsPrompt({
+            kind: 'profile-title',
+            label: 'Profile · Title',
+            hint: 'How should the assistant address you? Leave blank to clear.',
+          });
+        } else if (item?._action === 'language') {
+          cycleLanguage(1);
+        }
+      },
+      onCancel: () => {
+        setPicker(null);
+        if (returnTo) returnTo();
+      },
+    });
+  };
+
   const runSlashCommand = (cmd, arg = '') => {
     cmd = normalizeSlashCommandName(cmd);
     if (cmd !== 'context' && cmd !== 'status') setContextPanel(null);
@@ -4970,25 +5087,6 @@ export function App({ store, initialStatusLine = '' }) {
       case 'tools':
         openToolsPicker(arg.trim());
         return true;
-      case 'agent': {
-        const mode = arg.trim().toLowerCase();
-        if (!mode) {
-          openBridgePicker();
-          return true;
-        }
-        const control = parseBridgeControl(arg);
-        if (control?.error) {
-          store.pushNotice(control.error, 'warn');
-          return true;
-        }
-        if (control) {
-          void store.bridgeControl?.(control)
-            .catch((e) => store.pushNotice(`agent failed: ${e?.message || e}`, 'error'));
-          return true;
-        }
-        store.pushNotice('usage: /agent [list|status|read|cleanup|cancel|close]', 'warn');
-        return true;
-      }
       case 'mcp':
         openMcpPicker();
         return true;
@@ -5128,6 +5226,9 @@ export function App({ store, initialStatusLine = '' }) {
       case 'settings':
       case 'config':
         openSettingsPicker();
+        return true;
+      case 'profile':
+        openProfilePicker();
         return true;
       case 'quit':
         requestExit();
@@ -5344,6 +5445,17 @@ export function App({ store, initialStatusLine = '' }) {
           void openSettingsPicker();
           return true;
         }
+        if (settingsPrompt.kind === 'profile-title') {
+          try {
+            store.setProfile?.({ title: commandText });
+            store.pushNotice(commandText ? `Title set to "${commandText.trim()}"` : 'Title cleared', 'info');
+          } catch (e) {
+            store.pushNotice(`profile update failed: ${e?.message || e}`, 'error');
+          }
+          setSettingsPrompt(null);
+          openProfilePicker();
+          return true;
+        }
         if (settingsPrompt.kind === 'plugin-add') {
           if (!commandText) {
             store.pushNotice('plugin URL/path is required', 'warn');
@@ -5530,14 +5642,14 @@ export function App({ store, initialStatusLine = '' }) {
   }, []);
 
   const resizeEpoch = resizeState.epoch;
-  // bridgeRevision is a cheap change-detection key for downstream consumers, but
+  // agentRevision is a cheap change-detection key for downstream consumers, but
   // JSON.stringify over the worker/job arrays ran on EVERY render (including the
-  // ~120fps streaming reconciles). Memoize on the bridge slices so it only
-  // recomputes when bridge state actually changes, not on every assistant delta.
-  const bridgeRevision = useMemo(() => JSON.stringify({
-    workers: (state.bridgeWorkers || []).map((w) => [w.tag, w.status, w.stage, w.sessionId]).slice(0, 20),
-    jobs: (state.bridgeJobs || []).map((j) => [j.task_id, j.status, j.tag, j.sessionId, j.startedAt, j.finishedAt, j.error]).slice(0, 20),
-  }), [state.bridgeWorkers, state.bridgeJobs]);
+  // ~120fps streaming reconciles). Memoize on the agent slices so it only
+  // recomputes when agent state actually changes, not on every assistant delta.
+  const agentRevision = useMemo(() => JSON.stringify({
+    workers: (state.agentWorkers || []).map((w) => [w.tag, w.status, w.stage, w.sessionId]).slice(0, 20),
+    jobs: (state.agentJobs || []).map((j) => [j.task_id, j.status, j.tag, j.sessionId, j.startedAt, j.finishedAt, j.error]).slice(0, 20),
+  }), [state.agentWorkers, state.agentJobs]);
 
   // ── Transcript viewport height ──────────────────────────────────────────
   // ROOT-CAUSE FIX: the transcript must live in a box with an EXPLICIT numeric
@@ -6027,7 +6139,7 @@ export function App({ store, initialStatusLine = '' }) {
             <QueuedCommands queued={state.queued} columns={frameColumns} />
           ) : null}
           <Box
-            marginTop={promptMetaVisible || queuedVisible ? 0 : (floatingPanelRows > 0 ? 0 : 1)}
+            marginTop={queuedVisible ? 0 : (floatingPanelRows > 0 ? 0 : 1)}
             width="100%"
             borderStyle="round"
             borderColor={theme.promptBorder}
@@ -6050,9 +6162,9 @@ export function App({ store, initialStatusLine = '' }) {
           contextWindow={state.contextWindow}
           rawContextWindow={state.rawContextWindow}
           resizeEpoch={resizeEpoch}
-          bridgeRevision={bridgeRevision}
-          bridgeWorkers={state.bridgeWorkers}
-          bridgeJobs={state.bridgeJobs}
+          agentRevision={agentRevision}
+          agentWorkers={state.agentWorkers}
+          agentJobs={state.agentJobs}
           initialLine={initialStatusLine}
         />
       </Box>

@@ -93,7 +93,7 @@ runNode(['--input-type=module', '-e', `
     model: 'gpt-5.5',
     contextWindow: 950000,
     stats: { currentContextTokens: 0 },
-    bridgeJobs: [{ task_id: 'task_statusline_smoke', status: 'running', tag: 'bench-agent', startedAt: new Date().toISOString() }],
+    agentJobs: [{ task_id: 'task_statusline_smoke', status: 'running', tag: 'bench-agent', startedAt: new Date().toISOString() }],
   });
   if (!line.includes('Running') || !line.includes('bench-agent')) throw new Error('statusline must render live agent task state: ' + JSON.stringify(line));
 `], 'statusline live agent task smoke', { env: isolatedStatuslineEnv });

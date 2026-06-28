@@ -66,7 +66,7 @@ function proxyConfigured() {
  * The shared singleton dispatcher for LLM API requests. Created on first use.
  *
  * keepAliveTimeout (~60s) keeps a socket warm across the typical idle gap
- * between bridge turns; connections caps concurrent sockets per origin so a
+ * between agent turns; connections caps concurrent sockets per origin so a
  * burst of parallel calls can't open an unbounded number of handshakes.
  *
  * Returns `undefined` when a proxy / any custom (non-default) global dispatcher

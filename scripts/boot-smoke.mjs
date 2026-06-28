@@ -64,7 +64,7 @@ const rows = [
     try {
       const status = runtime.toolsStatus();
       const active = new Set(status.activeTools || []);
-      for (const name of ['read','code_graph','grep','find','glob','list','apply_patch','explore','tool_search']) {
+      for (const name of ['read','code_graph','grep','find','glob','list','apply_patch','explore','Skill','tool_search']) {
         if (!active.has(name)) throw new Error('missing ' + name + ' in ' + [...active].join(','));
       }
       for (const name of ['bash','task','agent','shell','recall','search','web_fetch','cwd']) {
@@ -75,8 +75,10 @@ const rows = [
         throw new Error('shell alias should add shell and task: ' + JSON.stringify(result));
       }
       const nextActive = new Set(result.status.activeTools || []);
+      const nextDiscovered = new Set(result.status.discoveredTools || []);
       for (const name of ['shell','task']) {
-        if (!nextActive.has(name)) throw new Error('selected tool missing ' + name + ' in ' + [...nextActive].join(','));
+        const selected = result.native === true ? nextDiscovered : nextActive;
+        if (!selected.has(name)) throw new Error('selected tool missing ' + name + ' in ' + [...selected].join(','));
       }
       console.log('runtime_tools active=' + status.activeCount + '/' + status.count + ' selected=' + result.added.join(','));
     } finally {

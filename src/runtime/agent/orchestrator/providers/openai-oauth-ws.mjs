@@ -28,11 +28,11 @@ import { errText } from '../../../shared/err-text.mjs';
 import { createHash, randomBytes } from 'crypto';
 import {
     extractCachedTokens,
-    traceBridgeFetch,
-    traceBridgeSse,
-    traceBridgeUsage,
-    appendBridgeTrace,
-} from '../bridge-trace.mjs';
+    traceAgentFetch,
+    traceAgentSse,
+    traceAgentUsage,
+    appendAgentTrace,
+} from '../agent-trace.mjs';
 import { jitterDelayMs, populateHttpStatusFromMessage } from './retry-classifier.mjs';
 import {
     PROVIDER_RETRY_MAX_ATTEMPTS,
@@ -88,7 +88,7 @@ const HANDSHAKE_MAX_ATTEMPTS = PROVIDER_RETRY_MAX_ATTEMPTS;
 const HANDSHAKE_BACKOFF_BASE_MS = 500;
 const HANDSHAKE_BACKOFF_CAP_MS = 5000;
 // WS socket pool buckets are keyed by `poolKey` (the per-call sessionId)
-// to isolate parallel bridge invocations — each gets its own socket so
+// to isolate parallel agent invocations — each gets its own socket so
 // a second caller cannot grab a sibling's mid-turn entry (Codex would
 // otherwise reject the new response.create with "No tool output found
 // for function call ..."). The Codex handshake `session_id` header/URL
@@ -121,6 +121,11 @@ function _positiveInt(value, fallback = 0) {
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
+function _nonNegativeInt(value, fallback = 0) {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+}
+
 function _cacheLaneHash(value) {
     return createHash('sha256').update(String(value || '')).digest('hex').slice(0, 12);
 }
@@ -146,12 +151,42 @@ function _openAiPromptCacheLaneQueueTimeoutMs(sendOpts = {}) {
 }
 
 function _openAiPromptCacheLaneRateLimitPerMin(sendOpts = {}) {
-    return _positiveInt(
+    return _nonNegativeInt(
         sendOpts?.openaiCacheLaneRateLimitPerMin
             ?? sendOpts?.promptCacheLaneRateLimitPerMin
             ?? process.env.MIXDOG_OPENAI_CACHE_LANE_RPM
             ?? process.env.MIXDOG_OPENAI_CACHE_KEY_RPM,
         12,
+    );
+}
+
+function _openAiPromptCacheLaneDeltaRateLimitPerMin(sendOpts = {}) {
+    return _nonNegativeInt(
+        sendOpts?.openaiCacheLaneDeltaRateLimitPerMin
+            ?? sendOpts?.promptCacheLaneDeltaRateLimitPerMin
+            ?? process.env.MIXDOG_OPENAI_CACHE_LANE_DELTA_RPM
+            ?? process.env.MIXDOG_OPENAI_CACHE_DELTA_RPM,
+        60,
+    );
+}
+
+function _openAiPromptCacheLaneDeltaMaxItems(sendOpts = {}) {
+    return _nonNegativeInt(
+        sendOpts?.openaiCacheLaneDeltaMaxItems
+            ?? sendOpts?.promptCacheLaneDeltaMaxItems
+            ?? process.env.MIXDOG_OPENAI_CACHE_LANE_DELTA_MAX_ITEMS
+            ?? process.env.MIXDOG_OPENAI_CACHE_DELTA_MAX_ITEMS,
+        8,
+    );
+}
+
+function _openAiPromptCacheLaneDeltaMaxTokens(sendOpts = {}) {
+    return _nonNegativeInt(
+        sendOpts?.openaiCacheLaneDeltaMaxTokens
+            ?? sendOpts?.promptCacheLaneDeltaMaxTokens
+            ?? process.env.MIXDOG_OPENAI_CACHE_LANE_DELTA_MAX_TOKENS
+            ?? process.env.MIXDOG_OPENAI_CACHE_DELTA_MAX_TOKENS,
+        20_000,
     );
 }
 
@@ -238,12 +273,13 @@ function _sleepWithSignal(ms, signal) {
     });
 }
 
-async function _reserveOpenAiPromptCacheLaneRate({ key, limitPerMin, signal }) {
+async function _reserveOpenAiPromptCacheLaneRate({ key, limitPerMin, signal, beforeWait }) {
     if (!limitPerMin || limitPerMin <= 0) {
         return { rateLimitPerMin: 0, rateWaitMs: 0, rateWindowCount: 0 };
     }
     const state = _getOpenAiPromptCacheLaneRateState(key);
     const startedAt = Date.now();
+    let beforeWaitCalled = false;
     while (true) {
         const now = Date.now();
         _pruneOpenAiPromptCacheLaneRateState(state, now);
@@ -256,8 +292,55 @@ async function _reserveOpenAiPromptCacheLaneRate({ key, limitPerMin, signal }) {
             };
         }
         const waitMs = Math.max(25, state.starts[0] + OPENAI_PROMPT_CACHE_LANE_RATE_WINDOW_MS - now);
+        if (!beforeWaitCalled && typeof beforeWait === 'function') {
+            beforeWaitCalled = true;
+            await beforeWait({
+                waitMs,
+                rateLimitPerMin: limitPerMin,
+                rateWindowCount: state.starts.length,
+            });
+        }
         await _sleepWithSignal(waitMs, signal);
     }
+}
+
+export function _resolveOpenAiPromptCacheRatePolicy(sendOpts = {}, info = {}) {
+    const mode = String(info?.mode || '').toLowerCase();
+    const frameInputItems = Number(info?.frameInputItems);
+    const deltaTokens = Number(info?.deltaTokens);
+    const hasPreviousResponseId = info?.hasPreviousResponseId === true;
+    const fullLimitPerMin = _openAiPromptCacheLaneRateLimitPerMin(sendOpts);
+    const deltaLimitPerMin = _openAiPromptCacheLaneDeltaRateLimitPerMin(sendOpts);
+    const deltaMaxItems = _openAiPromptCacheLaneDeltaMaxItems(sendOpts);
+    const deltaMaxTokens = _openAiPromptCacheLaneDeltaMaxTokens(sendOpts);
+    const itemCount = Number.isFinite(frameInputItems) ? frameInputItems : null;
+    const tokenCount = Number.isFinite(deltaTokens) ? deltaTokens : null;
+    const smallDeltaItems = itemCount == null || deltaMaxItems <= 0 || itemCount <= deltaMaxItems;
+    const smallDeltaTokens = tokenCount == null || deltaMaxTokens <= 0 || tokenCount <= deltaMaxTokens;
+
+    if (mode === 'delta' && hasPreviousResponseId && smallDeltaItems && smallDeltaTokens) {
+        return {
+            policy: deltaLimitPerMin > 0 ? 'delta_relaxed' : 'delta_unlimited',
+            limitPerMin: deltaLimitPerMin,
+            fullLimitPerMin,
+            deltaLimitPerMin,
+            deltaMaxItems,
+            deltaMaxTokens,
+            frameInputItems: itemCount,
+            deltaTokens: tokenCount,
+        };
+    }
+
+    return {
+        policy: mode === 'delta' ? 'delta_guarded' : 'full_guard',
+        limitPerMin: fullLimitPerMin,
+        fullLimitPerMin,
+        deltaLimitPerMin,
+        deltaMaxItems,
+        deltaMaxTokens,
+        frameInputItems: itemCount,
+        deltaTokens: tokenCount,
+    };
 }
 
 function _removeQueuedOpenAiPromptCacheLaneRequest(state, request) {
@@ -341,29 +424,10 @@ async function _withOpenAiPromptCacheLane({ auth, cacheKey, sendOpts, poolKey, i
     }
     const laneKey = `openai-prompt:${traceProvider || 'openai'}:${useModel || 'default'}:${cacheKey}`;
     const laneKeyHash = _cacheLaneHash(laneKey);
-    const rateMeta = await _reserveOpenAiPromptCacheLaneRate({
-        key: laneKey,
-        limitPerMin: _openAiPromptCacheLaneRateLimitPerMin(sendOpts),
-        signal: externalSignal,
-    });
-    if (rateMeta.rateWaitMs > 0) {
-        appendBridgeTrace({
-            sessionId: poolKey,
-            iteration,
-            kind: 'cache_lane',
-            provider: traceProvider,
-            model: useModel,
-            event: 'rate_wait',
-            lane_key_hash: laneKeyHash,
-            rate_limit_per_min: rateMeta.rateLimitPerMin,
-            rate_wait_ms: rateMeta.rateWaitMs,
-            rate_window_count: rateMeta.rateWindowCount,
-        });
-    }
     const state = _getOpenAiPromptCacheLaneState(laneKey, maxInFlight);
     const queued = state.active >= state.maxInFlight;
     if (queued) {
-        appendBridgeTrace({
+        appendAgentTrace({
             sessionId: poolKey,
             iteration,
             kind: 'cache_lane',
@@ -377,60 +441,139 @@ async function _withOpenAiPromptCacheLane({ auth, cacheKey, sendOpts, poolKey, i
         });
     }
     const timeoutMs = _openAiPromptCacheLaneQueueTimeoutMs(sendOpts);
-    const handle = await _acquireOpenAiPromptCacheLane({ key: laneKey, maxInFlight, signal: externalSignal, timeoutMs });
+    let handle = await _acquireOpenAiPromptCacheLane({ key: laneKey, maxInFlight, signal: externalSignal, timeoutMs });
+    let handleActive = true;
     const laneMeta = {
         enabled: true,
         laneKeyHash,
         maxInFlight,
-        rateLimitPerMin: rateMeta.rateLimitPerMin,
-        rateWaitMs: rateMeta.rateWaitMs,
-        rateWindowCount: rateMeta.rateWindowCount,
+        ratePolicy: 'pending',
+        rateLimitPerMin: 0,
+        rateWaitMs: 0,
+        rateWindowCount: 0,
+        rateReleasedForWait: false,
+        rateReacquireWaitMs: 0,
         queued: queued || handle.queued === true,
         waitMs: handle.waitedMs,
         activeAfterAcquire: handle.activeCount,
         queueDepthAfterAcquire: handle.queueDepth,
+        async reserveRate(info = {}) {
+            if (laneMeta.ratePolicy !== 'pending') return laneMeta;
+            const policy = _resolveOpenAiPromptCacheRatePolicy(sendOpts, info);
+            let releasedForRateWait = false;
+            const rateMeta = await _reserveOpenAiPromptCacheLaneRate({
+                key: laneKey,
+                limitPerMin: policy.limitPerMin,
+                signal: externalSignal,
+                beforeWait: () => {
+                    if (!handleActive) return;
+                    handle.release();
+                    handleActive = false;
+                    releasedForRateWait = true;
+                },
+            });
+            let reacquireWaitMs = 0;
+            if (releasedForRateWait) {
+                const reacquired = await _acquireOpenAiPromptCacheLane({
+                    key: laneKey,
+                    maxInFlight,
+                    signal: externalSignal,
+                    timeoutMs,
+                });
+                handle = reacquired;
+                handleActive = true;
+                reacquireWaitMs = reacquired.waitedMs;
+                laneMeta.queued = laneMeta.queued || reacquired.queued === true;
+                laneMeta.waitMs = (Number(laneMeta.waitMs) || 0) + reacquireWaitMs;
+                laneMeta.activeAfterAcquire = reacquired.activeCount;
+                laneMeta.queueDepthAfterAcquire = reacquired.queueDepth;
+            }
+            Object.assign(laneMeta, {
+                ratePolicy: policy.policy,
+                rateLimitPerMin: rateMeta.rateLimitPerMin,
+                rateWaitMs: rateMeta.rateWaitMs,
+                rateWindowCount: rateMeta.rateWindowCount,
+                rateReleasedForWait: releasedForRateWait,
+                rateReacquireWaitMs: reacquireWaitMs,
+                rateFullLimitPerMin: policy.fullLimitPerMin,
+                rateDeltaLimitPerMin: policy.deltaLimitPerMin,
+                rateDeltaMaxItems: policy.deltaMaxItems,
+                rateDeltaMaxTokens: policy.deltaMaxTokens,
+                ratePolicyFrameInputItems: policy.frameInputItems,
+                ratePolicyDeltaTokens: policy.deltaTokens,
+            });
+            if (rateMeta.rateWaitMs > 0) {
+                appendAgentTrace({
+                    sessionId: poolKey,
+                    iteration,
+                    kind: 'cache_lane',
+                    provider: traceProvider,
+                    model: useModel,
+                    event: 'rate_wait',
+                    lane_key_hash: laneKeyHash,
+                    rate_policy: laneMeta.ratePolicy,
+                    rate_limit_per_min: rateMeta.rateLimitPerMin,
+                    rate_wait_ms: rateMeta.rateWaitMs,
+                    rate_window_count: rateMeta.rateWindowCount,
+                    released_for_rate_wait: releasedForRateWait,
+                    reacquire_wait_ms: reacquireWaitMs,
+                    frame_input_items: policy.frameInputItems,
+                    delta_tokens: policy.deltaTokens,
+                });
+            }
+            return laneMeta;
+        },
     };
-    const slowTraceMs = _openAiPromptCacheLaneSlowTraceMs(sendOpts);
-    const slowWaitMs = Math.max(Number(laneMeta.rateWaitMs) || 0, Number(laneMeta.waitMs) || 0);
-    if (slowTraceMs > 0 && slowWaitMs >= slowTraceMs) {
-        appendBridgeTrace({
-            sessionId: poolKey,
-            iteration,
-            kind: 'cache_lane_slow',
-            provider: traceProvider,
-            model: useModel,
-            event: laneMeta.rateWaitMs > 0 && laneMeta.waitMs > 0
-                ? 'rate_and_queue_wait'
-                : laneMeta.rateWaitMs > 0
-                    ? 'rate_wait'
-                    : 'queue_wait',
-            lane_key_hash: laneKeyHash,
-            payload: {
+    try {
+        return await fn(laneMeta);
+    } finally {
+        const slowTraceMs = _openAiPromptCacheLaneSlowTraceMs(sendOpts);
+        const slowWaitMs = Math.max(Number(laneMeta.rateWaitMs) || 0, Number(laneMeta.waitMs) || 0);
+        if (slowTraceMs > 0 && slowWaitMs >= slowTraceMs) {
+            appendAgentTrace({
+                sessionId: poolKey,
+                iteration,
+                kind: 'cache_lane_slow',
+                provider: traceProvider,
+                model: useModel,
                 event: laneMeta.rateWaitMs > 0 && laneMeta.waitMs > 0
                     ? 'rate_and_queue_wait'
                     : laneMeta.rateWaitMs > 0
                         ? 'rate_wait'
                         : 'queue_wait',
-                provider: traceProvider,
-                model: useModel,
                 lane_key_hash: laneKeyHash,
-                threshold_ms: slowTraceMs,
-                max_wait_ms: slowWaitMs,
-                rate_limit_per_min: laneMeta.rateLimitPerMin,
-                rate_wait_ms: laneMeta.rateWaitMs,
-                rate_window_count: laneMeta.rateWindowCount,
-                max_in_flight: laneMeta.maxInFlight,
-                queued: laneMeta.queued,
-                wait_ms: laneMeta.waitMs,
-                active_after_acquire: laneMeta.activeAfterAcquire,
-                queue_depth_after_acquire: laneMeta.queueDepthAfterAcquire,
-            },
-        });
-    }
-    try {
-        return await fn(laneMeta);
-    } finally {
-        handle.release();
+                payload: {
+                    event: laneMeta.rateWaitMs > 0 && laneMeta.waitMs > 0
+                        ? 'rate_and_queue_wait'
+                        : laneMeta.rateWaitMs > 0
+                            ? 'rate_wait'
+                            : 'queue_wait',
+                    provider: traceProvider,
+                    model: useModel,
+                    lane_key_hash: laneKeyHash,
+                    threshold_ms: slowTraceMs,
+                    max_wait_ms: slowWaitMs,
+                    rate_policy: laneMeta.ratePolicy,
+                    rate_limit_per_min: laneMeta.rateLimitPerMin,
+                    rate_wait_ms: laneMeta.rateWaitMs,
+                    rate_window_count: laneMeta.rateWindowCount,
+                    released_for_rate_wait: laneMeta.rateReleasedForWait,
+                    reacquire_wait_ms: laneMeta.rateReacquireWaitMs,
+                    rate_full_limit_per_min: laneMeta.rateFullLimitPerMin,
+                    rate_delta_limit_per_min: laneMeta.rateDeltaLimitPerMin,
+                    rate_delta_max_items: laneMeta.rateDeltaMaxItems,
+                    rate_delta_max_tokens: laneMeta.rateDeltaMaxTokens,
+                    rate_policy_frame_input_items: laneMeta.ratePolicyFrameInputItems,
+                    rate_policy_delta_tokens: laneMeta.ratePolicyDeltaTokens,
+                    max_in_flight: laneMeta.maxInFlight,
+                    queued: laneMeta.queued,
+                    wait_ms: laneMeta.waitMs,
+                    active_after_acquire: laneMeta.activeAfterAcquire,
+                    queue_depth_after_acquire: laneMeta.queueDepthAfterAcquire,
+                },
+            });
+        }
+        if (handleActive) handle.release();
     }
 }
 
@@ -569,8 +712,8 @@ function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey }
             ? OPENAI_WS_URL
             : CODEX_WS_URL;
     const _wsOpenStart = Date.now();
-    if (process.env.MIXDOG_DEBUG_BRIDGE) {
-        process.stderr.write(`[bridge-trace] ws-open-start url=${baseUrl} tokenHash=${createHash('sha256').update(String(sessionToken)).digest('hex').slice(0, 8)} ts=${_wsOpenStart}\n`);
+    if (process.env.MIXDOG_DEBUG_AGENT) {
+        process.stderr.write(`[agent-trace] ws-open-start url=${baseUrl} tokenHash=${createHash('sha256').update(String(sessionToken)).digest('hex').slice(0, 8)} ts=${_wsOpenStart}\n`);
     }
     const url = baseUrl + (sessionToken ? `?session_id=${encodeURIComponent(String(sessionToken))}` : '');
     return new Promise((resolve, reject) => {
@@ -592,8 +735,8 @@ function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey }
         const socket = new WebSocket(url, { headers, handshakeTimeout: WS_HANDSHAKE_TIMEOUT_MS });
         acquireTimer = setTimeout(() => {
             if (settled) return;
-            if (process.env.MIXDOG_DEBUG_BRIDGE) {
-                process.stderr.write(`[bridge-trace] ws-open-fail kind=acquire_timeout timeoutMs=${WS_ACQUIRE_TIMEOUT_MS} elapsed=${Date.now() - _wsOpenStart}ms\n`);
+            if (process.env.MIXDOG_DEBUG_AGENT) {
+                process.stderr.write(`[agent-trace] ws-open-fail kind=acquire_timeout timeoutMs=${WS_ACQUIRE_TIMEOUT_MS} elapsed=${Date.now() - _wsOpenStart}ms\n`);
             }
             try { socket.terminate(); } catch {}
             settle(false, Object.assign(
@@ -610,14 +753,14 @@ function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey }
             } catch {}
         });
         socket.once('open', () => {
-            if (process.env.MIXDOG_DEBUG_BRIDGE) {
-                process.stderr.write(`[bridge-trace] ws-open-ok elapsed=${Date.now() - _wsOpenStart}ms\n`);
+            if (process.env.MIXDOG_DEBUG_AGENT) {
+                process.stderr.write(`[agent-trace] ws-open-ok elapsed=${Date.now() - _wsOpenStart}ms\n`);
             }
             settle(true, { socket, turnState: capturedHeaders.turnState });
         });
         socket.once('error', (err) => {
-            if (process.env.MIXDOG_DEBUG_BRIDGE) {
-                process.stderr.write(`[bridge-trace] ws-open-fail kind=error msg=${String(err?.message || err).slice(0, 120)} elapsed=${Date.now() - _wsOpenStart}ms\n`);
+            if (process.env.MIXDOG_DEBUG_AGENT) {
+                process.stderr.write(`[agent-trace] ws-open-fail kind=error msg=${String(err?.message || err).slice(0, 120)} elapsed=${Date.now() - _wsOpenStart}ms\n`);
             }
             try { socket.terminate(); } catch {}
             settle(false, err instanceof Error ? err : Object.assign(new Error(errText(err) || 'openai-oauth WS error'), { wsErrorEvent: true, original: err }));
@@ -640,8 +783,8 @@ function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey }
             let body = '';
             res.on('data', c => { if (body.length < 2048) body += c.toString('utf-8'); });
             res.on('end', () => {
-                if (process.env.MIXDOG_DEBUG_BRIDGE) {
-                    process.stderr.write(`[bridge-trace] ws-open-fail kind=http status=${status} body=${body.slice(0, 120)} elapsed=${Date.now() - _wsOpenStart}ms\n`);
+                if (process.env.MIXDOG_DEBUG_AGENT) {
+                    process.stderr.write(`[agent-trace] ws-open-fail kind=http status=${status} body=${body.slice(0, 120)} elapsed=${Date.now() - _wsOpenStart}ms\n`);
                 }
                 try { socket.terminate(); } catch {}
                 settle(false, Object.assign(new Error(`${_wsErrLabel(auth?.type === 'xai' ? 'xai' : auth?.type === 'openai-direct' ? 'openai-direct' : 'openai-oauth')} handshake ${status}: ${body.slice(0, 200)}`), { httpStatus: status, httpBody: body }));
@@ -662,8 +805,8 @@ function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey }
 
 async function acquireWebSocket({ auth, poolKey, cacheKey, forceFresh, externalSignal }) {
     const _acqStart = Date.now();
-    if (process.env.MIXDOG_DEBUG_BRIDGE) {
-        process.stderr.write(`[bridge-trace] acquire-start poolKey=${poolKey} cacheKey=${cacheKey} forceFresh=${forceFresh} externalAborted=${!!externalSignal?.aborted} ts=${_acqStart}\n`);
+    if (process.env.MIXDOG_DEBUG_AGENT) {
+        process.stderr.write(`[agent-trace] acquire-start poolKey=${poolKey} cacheKey=${cacheKey} forceFresh=${forceFresh} externalAborted=${!!externalSignal?.aborted} ts=${_acqStart}\n`);
     }
     if (externalSignal?.aborted) {
         const reason = externalSignal.reason;
@@ -691,15 +834,15 @@ async function acquireWebSocket({ auth, poolKey, cacheKey, forceFresh, externalS
             if (idle.lastInputPrefixHash === undefined) idle.lastInputPrefixHash = null;
             if (idle.lastRequestInput === undefined) idle.lastRequestInput = null;
             if (idle.lastResponseItems === undefined) idle.lastResponseItems = null;
-            if (process.env.MIXDOG_DEBUG_BRIDGE) {
-                process.stderr.write(`[bridge-trace] acquire-reuse poolKey=${poolKey} openSockets=${arr.length} elapsed=${Date.now() - _acqStart}ms\n`);
+            if (process.env.MIXDOG_DEBUG_AGENT) {
+                process.stderr.write(`[agent-trace] acquire-reuse poolKey=${poolKey} openSockets=${arr.length} elapsed=${Date.now() - _acqStart}ms\n`);
             }
             return { entry: idle, reused: true };
         }
         // All entries busy and bucket at cap: fall through to ephemeral socket.
         if (arr.length >= MAX_POOLED_SOCKETS_PER_KEY) {
-            if (process.env.MIXDOG_DEBUG_BRIDGE) {
-                process.stderr.write(`[bridge-trace] acquire-ephemeral cacheKey=${cacheKey} reason=cap elapsed=${Date.now() - _acqStart}ms\n`);
+            if (process.env.MIXDOG_DEBUG_AGENT) {
+                process.stderr.write(`[agent-trace] acquire-ephemeral cacheKey=${cacheKey} reason=cap elapsed=${Date.now() - _acqStart}ms\n`);
             }
             const ephSessionToken = _mintSessionToken(cacheKey, auth);
             const { socket, turnState } = await _openSocket({ auth, sessionToken: ephSessionToken, turnState: null, externalSignal, cacheKey });
@@ -734,8 +877,8 @@ async function acquireWebSocket({ auth, poolKey, cacheKey, forceFresh, externalS
     // returns "No tool output found for function call …". turnState only
     // propagates within a single entry across its own iterations.
     const sessionToken = _mintSessionToken(cacheKey, auth);
-    if (process.env.MIXDOG_DEBUG_BRIDGE) {
-        process.stderr.write(`[bridge-trace] acquire-new tokenHash=${createHash('sha256').update(String(sessionToken)).digest('hex').slice(0, 8)} elapsed=${Date.now() - _acqStart}ms\n`);
+    if (process.env.MIXDOG_DEBUG_AGENT) {
+        process.stderr.write(`[agent-trace] acquire-new tokenHash=${createHash('sha256').update(String(sessionToken)).digest('hex').slice(0, 8)} elapsed=${Date.now() - _acqStart}ms\n`);
     }
     const { socket, turnState } = await _openSocket({ auth, sessionToken, turnState: null, externalSignal, cacheKey });
     const entry = {
@@ -826,15 +969,31 @@ function _contentPartsEqual(a, b) {
     return _stableStringify(aa) === _stableStringify(bb);
 }
 
-function _logicalResponseItemMatch(inputItem, responseItem) {
+export function _logicalResponseItemMatch(inputItem, responseItem) {
     if (!inputItem || !responseItem) return false;
     const inputType = inputItem.type || (inputItem.role === 'assistant' ? 'message' : '');
     const responseType = responseItem.type || '';
     if (responseType === 'function_call') {
-        return inputType === 'function_call'
-            && String(inputItem.call_id || '') === String(responseItem.call_id || '')
-            && String(inputItem.name || '') === String(responseItem.name || '')
+        if (inputType !== 'function_call') return false;
+        const inputCallId = String(inputItem.call_id || '');
+        const responseCallId = String(responseItem.call_id || '');
+        const inputName = String(inputItem.name || '');
+        const responseName = String(responseItem.name || '');
+        if (inputCallId && responseCallId) {
+            // call_id is the server-side anchor. The replayed history may carry
+            // locally compacted arguments, but previous_response_id already
+            // points at the canonical output item.
+            return inputCallId === responseCallId && inputName === responseName;
+        }
+        return inputName === responseName
             && _normalizeArguments(inputItem.arguments) === _normalizeArguments(responseItem.arguments);
+    }
+    if (responseType === 'tool_search_call') {
+        if (inputType !== 'tool_search_call') return false;
+        const inputCallId = String(inputItem.call_id || '');
+        const responseCallId = String(responseItem.call_id || '');
+        if (inputCallId && responseCallId) return inputCallId === responseCallId;
+        return _normalizeArguments(inputItem.arguments) === _normalizeArguments(responseItem.arguments);
     }
     if (responseType === 'message') {
         const inputRole = inputItem.role || (inputType === 'message' ? 'assistant' : '');
@@ -884,6 +1043,7 @@ function _isReplayLikeHead(item, responseItem) {
     const responseType = responseItem.type || '';
     if (responseType === 'message') return inputType === 'message';
     if (responseType === 'function_call') return inputType === 'function_call';
+    if (responseType === 'tool_search_call') return inputType === 'tool_search_call';
     return inputType === responseType;
 }
 
@@ -1130,6 +1290,30 @@ export async function _streamResponse({
             for (const url of action.urls) pushCitation({ url, title: action.query || '' });
         }
     };
+    const parseToolSearchArgs = (value) => {
+        if (value && typeof value === 'object') return value;
+        if (typeof value !== 'string' || !value.trim()) return {};
+        try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch {
+            return {};
+        }
+    };
+    const pushToolSearchCall = (item) => {
+        if (!item || item.type !== 'tool_search_call') return;
+        const callId = item.call_id || item.id || '';
+        if (!callId || toolCalls.some((call) => call.id === callId)) return;
+        const call = {
+            id: callId,
+            name: 'tool_search',
+            arguments: parseToolSearchArgs(item.arguments),
+            nativeType: 'tool_search_call',
+        };
+        toolCalls.push(call);
+        midState.emittedToolCall = true;
+        try { onToolCall?.(call); } catch {}
+    };
     const logReasoningDeltaSuppression = () => {
         if (!logSuppressedReasoningDeltas) return;
         const total = reasoningTextDeltaCount + reasoningSummaryTextDeltaCount + reasoningOtherDeltaCount;
@@ -1173,8 +1357,8 @@ export async function _streamResponse({
         const armPreStreamWatchdog = () => {
             if (idleTimer) clearTimeout(idleTimer);
             idleTimer = setTimeout(() => {
-                if (process.env.MIXDOG_DEBUG_BRIDGE) {
-                    process.stderr.write(`[bridge-trace] ws-timeout kind=first-byte afterMs=${preResponseCreatedMs}\n`);
+                if (process.env.MIXDOG_DEBUG_AGENT) {
+                    process.stderr.write(`[agent-trace] ws-timeout kind=first-byte afterMs=${preResponseCreatedMs}\n`);
                 }
                 traceWsTimeout('first_byte_timeout', preResponseCreatedMs);
                 const err = new Error(`WS stream: no first server event within ${preResponseCreatedMs}ms`);
@@ -1218,7 +1402,7 @@ export async function _streamResponse({
                     saw_response_created: midState.sawResponseCreated === true,
                     first_meaningful_seen: firstMeaningfulSeen === true,
                 };
-                appendBridgeTrace({
+                appendAgentTrace({
                     sessionId: midState.sessionId || null,
                     iteration: Number.isFinite(iteration) ? iteration : null,
                     kind: 'ws_timeout',
@@ -1243,8 +1427,8 @@ export async function _streamResponse({
             if (firstMeaningfulSeen || firstMeaningfulMs <= 0) return;
             clearFirstMeaningfulWatchdog();
             firstMeaningfulTimer = setTimeout(() => {
-                if (process.env.MIXDOG_DEBUG_BRIDGE) {
-                    process.stderr.write(`[bridge-trace] ws-timeout kind=first-meaningful afterMs=${firstMeaningfulMs}\n`);
+                if (process.env.MIXDOG_DEBUG_AGENT) {
+                    process.stderr.write(`[agent-trace] ws-timeout kind=first-meaningful afterMs=${firstMeaningfulMs}\n`);
                 }
                 traceWsTimeout('first_meaningful_timeout', firstMeaningfulMs);
                 const err = new Error(`WS stream: no meaningful output within ${firstMeaningfulMs}ms after response.created`);
@@ -1259,8 +1443,8 @@ export async function _streamResponse({
         const resetInterChunk = () => {
             if (interChunkTimer) clearTimeout(interChunkTimer);
             interChunkTimer = setTimeout(() => {
-                if (process.env.MIXDOG_DEBUG_BRIDGE) {
-                    process.stderr.write(`[bridge-trace] ws-timeout kind=inter-chunk afterMs=${interChunkMs}\n`);
+                if (process.env.MIXDOG_DEBUG_AGENT) {
+                    process.stderr.write(`[agent-trace] ws-timeout kind=inter-chunk afterMs=${interChunkMs}\n`);
                 }
                 traceWsTimeout('inter_chunk_timeout', interChunkMs);
                 terminalError = new Error(`WS stream: inter-chunk inactivity for ${interChunkMs}ms`);
@@ -1323,7 +1507,7 @@ export async function _streamResponse({
         messageHandler = (data) => {
             resetIdle();
             // Do NOT call onStreamDelta for every frame — metadata/keepalive frames
-            // must not reset bridge-stall-watchdog's lastStreamDeltaAt. Only
+            // must not reset the agent stall watchdog's lastStreamDeltaAt. Only
             // meaningful output (text delta / tool call) updates that timestamp.
             const text = typeof data === 'string' ? data : data.toString('utf-8');
             const event = _parseEvent(text);
@@ -1354,8 +1538,8 @@ export async function _streamResponse({
                     try {
                         if (!_firstDeltaEmitted) {
                             _firstDeltaEmitted = true;
-                            if (process.env.MIXDOG_DEBUG_BRIDGE) {
-                                process.stderr.write(`[bridge-trace] ws-first-delta sinceStreaming=${Date.now() - _streamingStart}ms\n`);
+                            if (process.env.MIXDOG_DEBUG_AGENT) {
+                                process.stderr.write(`[agent-trace] ws-first-delta sinceStreaming=${Date.now() - _streamingStart}ms\n`);
                             }
                         }
                         onStreamDelta?.();
@@ -1450,6 +1634,10 @@ export async function _streamResponse({
                     // server-side prompt cache prefix warm.
                     if (event.item?.type === 'reasoning') pushReasoningItem(event.item);
                     if (event.item?.type === 'web_search_call') pushWebSearchCall(event.item);
+                    if (event.item?.type === 'tool_search_call') {
+                        pushToolSearchCall(event.item);
+                        onMeaningfulOutput();
+                    }
                     break;
                 case 'response.completed': {
                     const completedServiceTier = event.response?.service_tier || event.response?.serviceTier || '';
@@ -1491,6 +1679,7 @@ export async function _streamResponse({
                                 }
                             }
                             if (item.type === 'web_search_call') pushWebSearchCall(item);
+                            if (item.type === 'tool_search_call') pushToolSearchCall(item);
                             // Salvage path: some streams emit reasoning only
                             // inside the final response.completed.output
                             // bundle (no per-item .done event). Dedup by id.
@@ -1704,11 +1893,11 @@ export async function _streamResponse({
                 // Tag: was this a user/caller abort, or a watchdog abort?
                 // Mid-stream retry must skip user aborts but may retry watchdog
                 // aborts. The caller-owned AbortController surfaces through
-                // externalSignal; bridge-stall-watchdog signals via a reason
-                // object whose name === 'BridgeStallAbortError'. stream-watchdog
+                // externalSignal; the agent stall watchdog signals via a reason
+                // object whose name === 'AgentStallAbortError'. stream-watchdog
                 // uses StreamStalledAbortError. Anything else → treat as user.
                 const reasonName = reason?.name || '';
-                if (reasonName === 'BridgeStallAbortError'
+                if (reasonName === 'AgentStallAbortError'
                     || reasonName === 'StreamStalledAbortError') {
                     midState.watchdogAbort = reasonName;
                 } else {
@@ -1797,7 +1986,7 @@ export function _classifyHandshakeError(err) {
  * after completion would replay a finished turn.
  *
  * Retry buckets:
- *   'bridge_stall'       — BridgeStallAbortError from bridge-stall-watchdog
+ *   'agent_stall'        — AgentStallAbortError from agent stall watchdog
  *   'stream_stalled'     — StreamStalledAbortError from stream-watchdog
  *   'ws_1006'            — abnormal close (connection lost)
  *   'ws_1011'            — server unexpected condition
@@ -1837,7 +2026,7 @@ export function _classifyMidstreamError(err, state) {
     // leaves the caller with an orphaned tool_use that the next turn cannot
     // pair to a tool_result, which the provider rejects with a hard 400.
     // The duplicate-side-effect risk is preferable to deterministic worker
-    // death, especially for detached bridges that re-dispatch idempotently.
+    // death, especially for detached agents that re-dispatch idempotently.
     if (state.emittedToolCall) {
         const _cc = Number(err?.wsCloseCode || state.wsCloseCode || 0);
         if (!(_cc === 1000 && state.sawResponseCreated && !state.sawCompleted)) return null;
@@ -1893,13 +2082,13 @@ export function _classifyMidstreamError(err, state) {
     }
 
     const name = err?.name || '';
-    if (name === 'BridgeStallAbortError') return _allowMidstreamRetry('bridge_stall', attemptIndex);
+    if (name === 'AgentStallAbortError') return _allowMidstreamRetry('agent_stall', attemptIndex);
     if (name === 'StreamStalledAbortError') return _allowMidstreamRetry('stream_stalled', attemptIndex);
 
     // Watchdog abort surfaced via externalSignal handler → err is the reason
     // itself. state.watchdogAbort captures the class name when the error
     // shape was preserved but the name was stripped by some wrapper.
-    if (state.watchdogAbort === 'BridgeStallAbortError') return _allowMidstreamRetry('bridge_stall', attemptIndex);
+    if (state.watchdogAbort === 'AgentStallAbortError') return _allowMidstreamRetry('agent_stall', attemptIndex);
     if (state.watchdogAbort === 'StreamStalledAbortError') return _allowMidstreamRetry('stream_stalled', attemptIndex);
 
     // WS close codes: prefer the decorated property, fall back to state.
@@ -2010,8 +2199,8 @@ export async function _acquireWithRetry({
         }
         try {
             if (attempt > 1) {
-                if (process.env.MIXDOG_DEBUG_BRIDGE) {
-                    process.stderr.write(`[bridge-trace] ws-handshake-attempt n=${attempt}\n`);
+                if (process.env.MIXDOG_DEBUG_AGENT) {
+                    process.stderr.write(`[agent-trace] ws-handshake-attempt n=${attempt}\n`);
                 }
             }
             return await _acquire({ auth, poolKey, cacheKey, forceFresh, externalSignal });
@@ -2192,7 +2381,7 @@ export async function sendViaWebSocket({
             const classifiers = [...handshakeRetryClassifiers];
             if (classifier && !classifiers.includes(classifier)) classifiers.push(classifier);
             if (err?.httpStatus != null || classifier || handshakeRetries > 0 || classifiers.length > 0) {
-                traceBridgeFetch({
+                traceAgentFetch({
                     sessionId: poolKey,
                     headersMs: Date.now() - handshakeStart,
                     httpStatus: Number(err?.httpStatus || 0),
@@ -2225,7 +2414,7 @@ export async function sendViaWebSocket({
             entry.lastRequestInput = carryForwardCache.lastRequestInput;
             entry.lastResponseItems = carryForwardCache.lastResponseItems;
         }
-        traceBridgeFetch({
+        traceAgentFetch({
             sessionId: poolKey,
             headersMs: Date.now() - handshakeStart,
             httpStatus: reused ? 0 : 101,
@@ -2274,6 +2463,12 @@ export async function sendViaWebSocket({
         const streamTimeouts = null;
         try {
             if (warmupBody && typeof warmupBody === 'object' && attemptIndex === 0) {
+                await promptCacheLane?.reserveRate?.({
+                    mode: 'full',
+                    frameInputItems: Array.isArray(warmupBody.input) ? warmupBody.input.length : null,
+                    deltaTokens: _estimateFrameTokens({ type: 'response.create', ...warmupBody }),
+                    hasPreviousResponseId: false,
+                });
                 const warmupFrame = { type: 'response.create', ...warmupBody };
                 await _sendFrameFn(entry, warmupFrame);
                 const warmupStart = Date.now();
@@ -2327,7 +2522,7 @@ export async function sendViaWebSocket({
                         output_tokens: warmupResult.usage?.outputTokens || 0,
                         prompt_tokens: warmupResult.usage?.promptTokens || 0,
                     };
-                    appendBridgeTrace({
+                    appendAgentTrace({
                         sessionId: poolKey,
                         iteration,
                         kind: 'cache_warmup',
@@ -2350,6 +2545,12 @@ export async function sendViaWebSocket({
             strippedResponseItems = delta.strippedResponseItems || 0;
             skippedResponseItems = delta.skippedResponseItems || 0;
             deltaTokens = _estimateFrameTokens(frame);
+            await promptCacheLane?.reserveRate?.({
+                mode,
+                frameInputItems: Array.isArray(frame.input) ? frame.input.length : null,
+                deltaTokens,
+                hasPreviousResponseId: typeof frame.previous_response_id === 'string' && frame.previous_response_id.length > 0,
+            });
 
             // Re-check abort after acquire/warmup — narrow window where
             // externalSignal could fire between successful acquire and
@@ -2364,8 +2565,8 @@ export async function sendViaWebSocket({
             }
             await _sendFrameFn(entry, frame);
 
-            if (process.env.MIXDOG_DEBUG_BRIDGE) {
-                process.stderr.write(`[bridge-trace] ws-streaming-start sinceAcquire=${Date.now() - handshakeStart}ms\n`);
+            if (process.env.MIXDOG_DEBUG_AGENT) {
+                process.stderr.write(`[agent-trace] ws-streaming-start sinceAcquire=${Date.now() - handshakeStart}ms\n`);
             }
             try { onStageChange?.('streaming'); } catch {}
             result = await _streamFn({
@@ -2450,7 +2651,7 @@ export async function sendViaWebSocket({
             throw _stampLiveText(err);
         }
         const liveModel = result.model || useModel;
-        traceBridgeSse({
+        traceAgentSse({
             sessionId: poolKey,
             sseParseMs: Date.now() - sseStart,
             provider: traceProvider,
@@ -2494,7 +2695,7 @@ export async function sendViaWebSocket({
 
         const requestedServiceTier = body?.service_tier || null;
         const responseServiceTier = result.serviceTier || result.usage?.raw?.service_tier || null;
-        traceBridgeUsage({
+        traceAgentUsage({
             sessionId: poolKey,
             iteration,
             inputTokens: result.usage?.inputTokens || 0,
@@ -2531,10 +2732,15 @@ export async function sendViaWebSocket({
                 cache_key_hash: transportCacheKeyHash,
                 cache_lane_enabled: promptCacheLane?.enabled === true,
                 cache_lane_key_hash: promptCacheLane?.laneKeyHash || null,
+                cache_lane_rate_policy: promptCacheLane?.ratePolicy || null,
                 cache_lane_max_in_flight: Number.isFinite(Number(promptCacheLane?.maxInFlight)) ? Number(promptCacheLane.maxInFlight) : null,
                 cache_lane_rate_limit_per_min: Number.isFinite(Number(promptCacheLane?.rateLimitPerMin)) ? Number(promptCacheLane.rateLimitPerMin) : null,
+                cache_lane_rate_full_limit_per_min: Number.isFinite(Number(promptCacheLane?.rateFullLimitPerMin)) ? Number(promptCacheLane.rateFullLimitPerMin) : null,
+                cache_lane_rate_delta_limit_per_min: Number.isFinite(Number(promptCacheLane?.rateDeltaLimitPerMin)) ? Number(promptCacheLane.rateDeltaLimitPerMin) : null,
                 cache_lane_rate_wait_ms: Number.isFinite(Number(promptCacheLane?.rateWaitMs)) ? Number(promptCacheLane.rateWaitMs) : null,
                 cache_lane_rate_window_count: Number.isFinite(Number(promptCacheLane?.rateWindowCount)) ? Number(promptCacheLane.rateWindowCount) : null,
+                cache_lane_rate_released_for_wait: promptCacheLane?.rateReleasedForWait === true,
+                cache_lane_rate_reacquire_wait_ms: Number.isFinite(Number(promptCacheLane?.rateReacquireWaitMs)) ? Number(promptCacheLane.rateReacquireWaitMs) : null,
                 cache_lane_wait_ms: Number.isFinite(Number(promptCacheLane?.waitMs)) ? Number(promptCacheLane.waitMs) : null,
                 cache_lane_queued: promptCacheLane?.queued === true,
                 cache_lane_active: Number.isFinite(Number(promptCacheLane?.activeAfterAcquire)) ? Number(promptCacheLane.activeAfterAcquire) : null,
@@ -2553,7 +2759,7 @@ export async function sendViaWebSocket({
                 keep_socket: keepSocket,
                 keep_response_chain: keepResponseChain,
             };
-            appendBridgeTrace({
+            appendAgentTrace({
                 sessionId: poolKey,
                 iteration,
                 kind: 'transport',
@@ -2561,7 +2767,7 @@ export async function sendViaWebSocket({
                 payload: transportPayload,
             });
             if (mode !== 'delta' || deltaReason) {
-                appendBridgeTrace({
+                appendAgentTrace({
                     sessionId: poolKey,
                     iteration,
                     kind: 'cache_break',

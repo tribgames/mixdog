@@ -3,16 +3,26 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compactToolSearchDescription, defaultDeferredToolNames, TOOL_SEARCH_TOOL } from '../src/mixdog-session-runtime.mjs';
+import { __renderToolSearchForTest, compactToolSearchDescription, defaultDeferredToolNames, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../src/mixdog-session-runtime.mjs';
 import { buildExplorerPrompt, EXPLORE_TOOL, MAX_FANOUT_QUERIES, normalizeExploreQueries } from '../src/standalone/explore-tool.mjs';
-import { BRIDGE_TOOL, createStandaloneBridge } from '../src/standalone/bridge-tool.mjs';
+import { AGENT_TOOL, createStandaloneAgent } from '../src/standalone/agent-tool.mjs';
 import { createStandaloneChannelWorker } from '../src/standalone/channel-worker.mjs';
 import { OpenAIOAuthProvider } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
-import { contentHasImage, sanitizeContentForStoredHistory } from '../src/runtime/agent/orchestrator/providers/media-normalization.mjs';
+import { _logicalResponseItemMatch, _resolveOpenAiPromptCacheRatePolicy } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
+import { _mergePendingMessageEntries, closeSession, createSession, drainPendingMessages, enqueuePendingMessage } from '../src/runtime/agent/orchestrator/session/manager.mjs';
+import {
+  contentHasImage,
+  normalizeContentForAnthropic,
+  normalizeContentForGeminiParts,
+  normalizeContentForOpenAIChat,
+  normalizeContentForOpenAIResponses,
+  sanitizeContentForStoredHistory,
+} from '../src/runtime/agent/orchestrator/providers/media-normalization.mjs';
 import { initProviders } from '../src/runtime/agent/orchestrator/providers/registry.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { validateBuiltinArgs } from '../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
+import { runResultCacheInFlight } from '../src/runtime/agent/orchestrator/tools/builtin/cache-layers.mjs';
 import { executeCodeGraphTool } from '../src/runtime/agent/orchestrator/tools/code-graph.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs';
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
@@ -20,9 +30,14 @@ import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-t
 import { TOOL_DEFS as MEMORY_TOOL_DEFS } from '../src/runtime/memory/tool-defs.mjs';
 import { TOOL_DEFS as SEARCH_TOOL_DEFS } from '../src/runtime/search/tool-defs.mjs';
 import { TOOL_DEFS as CHANNEL_TOOL_DEFS } from '../src/runtime/channels/tool-defs.mjs';
-import { classifyBridgeWorkerGitMutationCommand } from '../src/runtime/agent/orchestrator/tool-loop-guard.mjs';
+import { classifyAgentWorkerGitMutationCommand } from '../src/runtime/agent/orchestrator/tool-loop-guard.mjs';
+import { AGENT_OWNER } from '../src/runtime/agent/orchestrator/agent-owner.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
 
 function assertOk(name, result, pattern = null) {
   const text = String(result || '');
@@ -36,8 +51,121 @@ function assertOk(name, result, pattern = null) {
 }
 
 {
-  const prevTraceDisable = process.env.MIXDOG_BRIDGE_TRACE_DISABLE;
-  process.env.MIXDOG_BRIDGE_TRACE_DISABLE = '1';
+  const sid = `tool-smoke-rich-pending-${process.pid}-${Date.now()}`.replace(/[^A-Za-z0-9_-]/g, '_');
+  const richContent = [
+    { type: 'text', text: 'look at this' },
+    { type: 'image', data: 'abc', mimeType: 'image/png' },
+  ];
+  const depth = enqueuePendingMessage(sid, { text: 'look at this\n[Image]', content: richContent });
+  assert(depth >= 1, `rich pending enqueue should return queue depth, got ${depth}`);
+  const drained = drainPendingMessages(sid);
+  assert(drained.length === 1, `rich pending drain should dedupe memory+persisted entries, got ${drained.length}`);
+  assert(Array.isArray(drained[0]?.content), `rich pending drain should preserve content array: ${JSON.stringify(drained)}`);
+  assert(drained[0].content.some((part) => part?.type === 'image' && part?.data === 'abc'), `rich pending drain lost image part: ${JSON.stringify(drained)}`);
+  const merged = _mergePendingMessageEntries([...drained, 'plain follow-up']);
+  assert(Array.isArray(merged?.content), `rich pending merge should preserve structured content: ${JSON.stringify(merged)}`);
+  assert(merged.content.some((part) => part?.type === 'image' && part?.data === 'abc'), `rich pending merge lost image part: ${JSON.stringify(merged)}`);
+  assert(
+    merged.content.some((part) => part?.type === 'text' && /plain follow-up/.test(part.text || '')),
+    `rich pending merge should keep later text follow-up: ${JSON.stringify(merged)}`,
+  );
+  assert(drainPendingMessages(sid).length === 0, 'rich pending drain should remove persisted fallback after first drain');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert(drainPendingMessages(sid).length === 0, 'rich pending async mirror must not resurrect an already-drained message');
+}
+
+{
+  const sid = `tool-smoke-async-pending-${process.pid}-${Date.now()}`.replace(/[^A-Za-z0-9_-]/g, '_');
+  enqueuePendingMessage(sid, 'persisted pending text');
+  await new Promise((resolve) => setImmediate(resolve));
+  const drained = drainPendingMessages(sid);
+  assert(drained.length === 1 && drained[0] === 'persisted pending text', `async pending mirror should persist fallback text: ${JSON.stringify(drained)}`);
+}
+
+{
+  let computes = 0;
+  const key = `tool-smoke-inflight-${Date.now()}-${Math.random()}`;
+  const [a, b] = await Promise.all([
+    runResultCacheInFlight(key, async () => {
+      computes += 1;
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      return 'shared-result';
+    }),
+    runResultCacheInFlight(key, async () => {
+      computes += 1;
+      return 'duplicate-result';
+    }),
+  ]);
+  assert(computes === 1, `in-flight result cache should compute once, computed ${computes}`);
+  assert(a === 'shared-result' && b === 'shared-result', 'in-flight result cache should share the first result');
+}
+
+{
+  const fullPolicy = _resolveOpenAiPromptCacheRatePolicy({}, {
+    mode: 'full',
+    frameInputItems: 40,
+    deltaTokens: 9000,
+    hasPreviousResponseId: false,
+  });
+  assert(fullPolicy.policy === 'full_guard' && fullPolicy.limitPerMin === 12, `full cache lane should keep 12rpm guard: ${JSON.stringify(fullPolicy)}`);
+
+  const deltaPolicy = _resolveOpenAiPromptCacheRatePolicy({}, {
+    mode: 'delta',
+    frameInputItems: 1,
+    deltaTokens: 9000,
+    hasPreviousResponseId: true,
+  });
+  assert(deltaPolicy.policy === 'delta_relaxed' && deltaPolicy.limitPerMin === 60, `small delta should use relaxed cache lane rpm: ${JSON.stringify(deltaPolicy)}`);
+
+  const largeDeltaPolicy = _resolveOpenAiPromptCacheRatePolicy({}, {
+    mode: 'delta',
+    frameInputItems: 20,
+    deltaTokens: 9000,
+    hasPreviousResponseId: true,
+  });
+  assert(largeDeltaPolicy.policy === 'delta_guarded' && largeDeltaPolicy.limitPerMin === 12, `large delta should fall back to full guard: ${JSON.stringify(largeDeltaPolicy)}`);
+
+  const customDeltaPolicy = _resolveOpenAiPromptCacheRatePolicy({ openaiCacheLaneDeltaRateLimitPerMin: 90 }, {
+    mode: 'delta',
+    frameInputItems: 1,
+    deltaTokens: 9000,
+    hasPreviousResponseId: true,
+  });
+  assert(customDeltaPolicy.limitPerMin === 90, `custom delta rpm should be honored: ${JSON.stringify(customDeltaPolicy)}`);
+
+  const unlimitedDeltaPolicy = _resolveOpenAiPromptCacheRatePolicy({ openaiCacheLaneDeltaRateLimitPerMin: 0 }, {
+    mode: 'delta',
+    frameInputItems: 1,
+    deltaTokens: 9000,
+    hasPreviousResponseId: true,
+  });
+  assert(unlimitedDeltaPolicy.policy === 'delta_unlimited' && unlimitedDeltaPolicy.limitPerMin === 0, `delta rpm=0 should disable delta rate wait: ${JSON.stringify(unlimitedDeltaPolicy)}`);
+
+  const originalFunctionCall = {
+    type: 'function_call',
+    call_id: 'call_tool_1',
+    name: 'shell',
+    arguments: JSON.stringify({ command: 'Get-Content -Path src/runtime/agent/orchestrator/session/loop.mjs' }),
+  };
+  const compactedReplayFunctionCall = {
+    type: 'function_call',
+    call_id: 'call_tool_1',
+    name: 'shell',
+    arguments: JSON.stringify({ command: '[mixdog compacted 74 bytes]' }),
+  };
+  assert(
+    _logicalResponseItemMatch(compactedReplayFunctionCall, originalFunctionCall),
+    'function_call replay should match by call_id/name even when history compacts arguments',
+  );
+  assert(
+    !_logicalResponseItemMatch({ ...compactedReplayFunctionCall, call_id: 'call_tool_2' }, originalFunctionCall),
+    'function_call replay must not match a different call_id',
+  );
+}
+
+{
+  const prevTraceDisable = process.env.MIXDOG_AGENT_TRACE_DISABLE;
+  process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
   try {
     const provider = new OpenAIOAuthProvider({});
     provider.ensureAuth = async () => ({ access_token: 'fake-token' });
@@ -61,10 +189,10 @@ function assertOk(name, result, pattern = null) {
       ],
       'gpt-5.5',
       [],
-      { _sendViaWebSocketFn: fakeWs, _sendViaHttpSseFn: fakeHttp, sessionId: 'tool-smoke-image-fallback' },
+      { _sendViaWebSocketFn: fakeWs, _sendViaHttpSseFn: fakeHttp, sessionId: 'tool-smoke-image-ws' },
     );
     if (provider._forceHttpFallback) {
-      throw new Error('image fallback must not poison future OpenAI OAuth sends');
+      throw new Error('image WS send must not poison future OpenAI OAuth sends');
     }
     const storedImageTurnContent = sanitizeContentForStoredHistory(imageTurnContent);
     if (contentHasImage(storedImageTurnContent)) {
@@ -81,13 +209,102 @@ function assertOk(name, result, pattern = null) {
       [],
       { _sendViaWebSocketFn: fakeWs, _sendViaHttpSseFn: fakeHttp, sessionId: 'tool-smoke-plain-after-image' },
     );
-    if (calls.join(',') !== 'http,ws') {
-      throw new Error(`image fallback should not force next text send over HTTP: ${calls.join(',')}`);
+    await provider.send(
+      [
+        { role: 'system', content: 'sys' },
+        { role: 'user', content: 'forced HTTP fallback probe' },
+      ],
+      'gpt-5.5',
+      [],
+      { _sendViaWebSocketFn: fakeWs, _sendViaHttpSseFn: fakeHttp, forceHttpFallback: true, sessionId: 'tool-smoke-forced-http-fallback' },
+    );
+    if (calls.join(',') !== 'ws,ws,http') {
+      throw new Error(`image should use WS first while forced fallback still uses HTTP: ${calls.join(',')}`);
     }
   } finally {
-    if (prevTraceDisable == null) delete process.env.MIXDOG_BRIDGE_TRACE_DISABLE;
-    else process.env.MIXDOG_BRIDGE_TRACE_DISABLE = prevTraceDisable;
+    if (prevTraceDisable == null) delete process.env.MIXDOG_AGENT_TRACE_DISABLE;
+    else process.env.MIXDOG_AGENT_TRACE_DISABLE = prevTraceDisable;
   }
+}
+
+{
+  const anthropicImages = normalizeContentForAnthropic([
+    { type: 'input_image', image_url: 'data:image/png;base64,abc' },
+    { type: 'image_url', image_url: { url: 'https://example.com/a.png' } },
+    { type: 'input_image', file_id: 'file_123' },
+    { type: 'input_text', text: 'look' },
+  ]);
+  assert(
+    anthropicImages[0]?.type === 'image'
+      && anthropicImages[0]?.source?.type === 'base64'
+      && anthropicImages[0]?.source?.media_type === 'image/png'
+      && anthropicImages[0]?.source?.data === 'abc',
+    `Anthropic data-url image normalization failed: ${JSON.stringify(anthropicImages[0])}`,
+  );
+  assert(
+    anthropicImages[1]?.type === 'image'
+      && anthropicImages[1]?.source?.type === 'url'
+      && anthropicImages[1]?.source?.url === 'https://example.com/a.png',
+    `Anthropic URL image normalization failed: ${JSON.stringify(anthropicImages[1])}`,
+  );
+  assert(
+    anthropicImages[2]?.type === 'image'
+      && anthropicImages[2]?.source?.type === 'file'
+      && anthropicImages[2]?.source?.file_id === 'file_123',
+    `Anthropic file image normalization failed: ${JSON.stringify(anthropicImages[2])}`,
+  );
+  const storedFileImage = sanitizeContentForStoredHistory([{ type: 'input_image', file_id: 'file_123' }]);
+  assert(!contentHasImage(storedFileImage), `stored file image history must be sanitized: ${JSON.stringify(storedFileImage)}`);
+}
+
+{
+  const geminiImages = normalizeContentForGeminiParts([
+    { type: 'input_image', image_url: 'data:image/png;base64,abc' },
+    { type: 'image_url', image_url: { url: 'https://example.com/a.png' } },
+    { fileData: { mimeType: 'image/jpeg', fileUri: 'https://generativelanguage.googleapis.com/v1beta/files/abc' } },
+    { type: 'input_image', file_id: 'file_123' },
+  ]);
+  assert(
+    geminiImages[0]?.inlineData?.mimeType === 'image/png'
+      && geminiImages[0]?.inlineData?.data === 'abc',
+    `Gemini data-url image normalization failed: ${JSON.stringify(geminiImages[0])}`,
+  );
+  assert(
+    geminiImages[1]?.fileData?.fileUri === 'https://example.com/a.png',
+    `Gemini URL image normalization failed: ${JSON.stringify(geminiImages[1])}`,
+  );
+  assert(
+    geminiImages[2]?.fileData?.mimeType === 'image/jpeg'
+      && geminiImages[2]?.fileData?.fileUri === 'https://generativelanguage.googleapis.com/v1beta/files/abc',
+    `Gemini fileData image normalization failed: ${JSON.stringify(geminiImages[2])}`,
+  );
+  assert(
+    /unsupported image file_id for Gemini/.test(geminiImages[3]?.text || ''),
+    `Gemini incompatible file_id must be explicit text, got: ${JSON.stringify(geminiImages[3])}`,
+  );
+}
+
+{
+  const grokChatImages = normalizeContentForOpenAIChat([
+    { type: 'image_url', image_url: { url: 'https://example.com/a.png' } },
+    { type: 'input_image', file_id: 'file_123' },
+  ]);
+  assert(
+    grokChatImages[0]?.type === 'image_url'
+      && grokChatImages[0]?.image_url?.url === 'https://example.com/a.png',
+    `OpenAI-compatible URL image normalization failed: ${JSON.stringify(grokChatImages[0])}`,
+  );
+  assert(
+    /unsupported image file_id for OpenAI Chat-compatible/.test(grokChatImages[1]?.text || ''),
+    `OpenAI-compatible chat file_id must be explicit text, got: ${JSON.stringify(grokChatImages[1])}`,
+  );
+  const grokResponsesImages = normalizeContentForOpenAIResponses([
+    { type: 'input_image', file_id: 'file_123' },
+  ]);
+  assert(
+    grokResponsesImages[0]?.type === 'input_image' && grokResponsesImages[0]?.file_id === 'file_123',
+    `OpenAI-compatible Responses file_id normalization failed: ${JSON.stringify(grokResponsesImages[0])}`,
+  );
 }
 
 const listOut = await executeBuiltinTool('list', { path: 'scripts', head_limit: 20 }, root);
@@ -100,6 +317,13 @@ const grepOut = await executeBuiltinTool('grep', {
   head_limit: 10,
 }, root);
 assertOk('grep', grepOut, /smoke\.mjs/);
+
+const redundantAllFilesGlobGrepOut = await executeBuiltinTool('grep', {
+  pattern: 'standalone mixdog CLI/TUI coding agent',
+  glob: '**/*',
+  head_limit: 10,
+}, root);
+assertOk('grep redundant all-files glob', redundantAllFilesGlobGrepOut, /scripts[\\/](?:boot-smoke|tool-smoke|smoke)\.mjs|src[\\/]help\.mjs/);
 
 const implicitRefsGlobOut = await executeBuiltinTool('glob', {
   pattern: '**/agent-session.ts',
@@ -286,7 +510,7 @@ for (const command of [
   'git diff -- src/mixdog-session-runtime.mjs',
   'Write-Output "git push"',
 ]) {
-  const blocked = classifyBridgeWorkerGitMutationCommand(command);
+  const blocked = classifyAgentWorkerGitMutationCommand(command);
   if (blocked) throw new Error(`agent git guard should allow readonly/non-command form ${JSON.stringify(command)}; got ${blocked}`);
 }
 for (const [command, expected] of [
@@ -297,7 +521,7 @@ for (const [command, expected] of [
   ['cmd /c git commit -m smoke', 'git commit'],
   ['powershell -Command "git stash"', 'git stash'],
 ]) {
-  const blocked = classifyBridgeWorkerGitMutationCommand(command);
+  const blocked = classifyAgentWorkerGitMutationCommand(command);
   if (blocked !== expected) throw new Error(`agent git guard mismatch for ${JSON.stringify(command)}: got ${blocked}, expected ${expected}`);
 }
 
@@ -317,15 +541,16 @@ const smokeCatalog = [
   ...SEARCH_TOOL_DEFS,
   ...CHANNEL_TOOL_DEFS,
   EXPLORE_TOOL,
-  BRIDGE_TOOL,
+  AGENT_TOOL,
+  SKILL_TOOL,
   TOOL_SEARCH_TOOL,
 ].filter(Boolean);
 
 const fullDefaults = defaultDeferredToolNames(smokeCatalog, 'full');
-if (fullDefaults.size !== 9) {
-  throw new Error(`full default surface should stay 9 tools, got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`);
+if (fullDefaults.size !== 10) {
+  throw new Error(`full default surface should stay 10 tools, got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'apply_patch', 'explore', 'tool_search']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'apply_patch', 'explore', 'Skill', 'tool_search']) {
   assertHas(fullDefaults, name);
 }
 for (const name of ['shell', 'task', 'agent', 'recall', 'search', 'web_fetch', 'cwd']) {
@@ -333,11 +558,14 @@ for (const name of ['shell', 'task', 'agent', 'recall', 'search', 'web_fetch', '
 }
 
 const leadDefaults = defaultDeferredToolNames(smokeCatalog, 'lead');
-if (leadDefaults.size !== 15) {
-  throw new Error(`lead default surface should stay 15 tools, got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
+if (leadDefaults.size !== 16) {
+  throw new Error(`lead default surface should stay 16 tools, got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'shell', 'task', 'apply_patch', 'explore', 'agent', 'recall', 'search', 'web_fetch', 'tool_search']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'shell', 'task', 'apply_patch', 'explore', 'agent', 'recall', 'search', 'web_fetch', 'Skill', 'tool_search']) {
   assertHas(leadDefaults, name);
+}
+if (TOOL_SEARCH_TOOL.annotations?.agentHidden !== true) {
+  throw new Error('tool_search must stay Lead-only / standalone-only; agent sessions keep fixed schemas without deferred loading');
 }
 function toolSchemaSize(tool) {
   const desc = String(tool?.description || '');
@@ -367,22 +595,22 @@ for (const [name, cap] of [
 }
 
 const readonlyDefaults = defaultDeferredToolNames(smokeCatalog, 'readonly');
-if (readonlyDefaults.size !== 8) {
-  throw new Error(`readonly default surface should stay 8 tools, got ${readonlyDefaults.size}: ${[...readonlyDefaults].join(', ')}`);
+if (readonlyDefaults.size !== 9) {
+  throw new Error(`readonly default surface should stay 9 tools, got ${readonlyDefaults.size}: ${[...readonlyDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'explore', 'tool_search']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'explore', 'Skill', 'tool_search']) {
   assertHas(readonlyDefaults, name);
 }
 for (const name of ['apply_patch', 'agent', 'shell']) {
   assertLacks(readonlyDefaults, name);
 }
 
-const bridgeProps = BRIDGE_TOOL.inputSchema?.properties || {};
-if (bridgeProps.mode || bridgeProps.wait) throw new Error('agent schema should not expose execution mode controls');
-if (!/always start background tasks/i.test(BRIDGE_TOOL.description || '') || !/distinct tags/i.test(BRIDGE_TOOL.description || '') || !/completion notification/i.test(BRIDGE_TOOL.description || '') || !/do not (?:call|poll) status\/read/i.test(BRIDGE_TOOL.description || '')) {
+const agentProps = AGENT_TOOL.inputSchema?.properties || {};
+if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not expose execution mode controls');
+if (!/always start background tasks/i.test(AGENT_TOOL.description || '') || !/distinct tags/i.test(AGENT_TOOL.description || '') || !/completion notification/i.test(AGENT_TOOL.description || '') || !/do not (?:call|poll) status\/read/i.test(AGENT_TOOL.description || '')) {
   throw new Error('agent description must preserve async tagged delegation contract');
 }
-const bridgeSmoke = createStandaloneBridge({
+const agentSmoke = createStandaloneAgent({
   cfgMod: {
     loadConfig: () => ({ providers: {}, presets: [] }),
     resolveRuntimeSpec: () => { throw new Error('agent smoke should not resolve runtime for read/list errors'); },
@@ -397,13 +625,13 @@ const bridgeSmoke = createStandaloneBridge({
   cwd: root,
   defaultMode: 'async',
 });
-const bridgeMissingJob = await bridgeSmoke.execute({ type: 'read', task_id: 'task_missing_smoke' }, { invocationSource: 'model-tool', cwd: root });
-if (!/^Error[\s:[]/.test(String(bridgeMissingJob)) || !/task_missing_smoke/.test(String(bridgeMissingJob))) {
-  throw new Error(`agent missing task must return Error result:\n${bridgeMissingJob}`);
+const agentMissingJob = await agentSmoke.execute({ type: 'read', task_id: 'task_missing_smoke' }, { invocationSource: 'model-tool', cwd: root });
+if (!/^Error[\s:[]/.test(String(agentMissingJob)) || !/task_missing_smoke/.test(String(agentMissingJob))) {
+  throw new Error(`agent missing task must return Error result:\n${agentMissingJob}`);
 }
-const bridgeBadType = await bridgeSmoke.execute({ type: 'definitely_bad_type' }, { invocationSource: 'model-tool', cwd: root });
-if (!/^Error[\s:[]/.test(String(bridgeBadType)) || !/unknown type/i.test(String(bridgeBadType))) {
-  throw new Error(`agent unknown type must return Error result:\n${bridgeBadType}`);
+const agentBadType = await agentSmoke.execute({ type: 'definitely_bad_type' }, { invocationSource: 'model-tool', cwd: root });
+if (!/^Error[\s:[]/.test(String(agentBadType)) || !/unknown type/i.test(String(agentBadType))) {
+  throw new Error(`agent unknown type must return Error result:\n${agentBadType}`);
 }
 
 async function waitForSmoke(predicate, label, timeoutMs = 1000) {
@@ -475,17 +703,17 @@ setInterval(() => {}, 10000);
   rmSync(channelWorkerTmp, { recursive: true, force: true });
 }
 
-const bridgeNotifyTmp = mkdtempSync(join(tmpdir(), 'mixdog-bridge-notify-'));
+const agentNotifyTmp = mkdtempSync(join(tmpdir(), 'mixdog-agent-notify-'));
 try {
   const ownerNotifications = [];
   const workerQueued = [];
-  const bridgeNotifySmoke = createStandaloneBridge({
+  const agentNotifySmoke = createStandaloneAgent({
     cfgMod: {
       loadConfig: () => ({
         providers: { 'openai-oauth': { enabled: true } },
         presets: [{ id: 'sonnet-high', name: 'sonnet-high', provider: 'openai-oauth', model: 'smoke-model', type: 'agent', tools: 'full' }],
       }),
-      resolveRuntimeSpec: () => ({ scopeKey: 'smoke-notify', lane: 'bridge' }),
+      resolveRuntimeSpec: () => ({ scopeKey: 'smoke-notify', lane: 'agent' }),
     },
     reg: { initProviders },
     mgr: {
@@ -497,6 +725,7 @@ try {
           execution_id: 'task_shell_notify_smoke',
           status: 'completed',
         });
+        askOpts.onTerminalResult?.({ content: 'worker completed' }, { sessionId, beforeSave: true });
         return { content: 'worker completed' };
       },
       enqueuePendingMessage: (sessionId, message) => {
@@ -508,7 +737,7 @@ try {
       closeSession: () => false,
       hideSessionFromList: () => false,
     },
-    dataDir: bridgeNotifyTmp,
+    dataDir: agentNotifyTmp,
     cwd: root,
     defaultMode: 'async',
   });
@@ -522,7 +751,7 @@ try {
       return true;
     },
   };
-  const notifyStart = await bridgeNotifySmoke.execute({ type: 'spawn', agent: 'worker', tag: 'notify-smoke', prompt: 'notify smoke' }, notifyContext);
+  const notifyStart = await agentNotifySmoke.execute({ type: 'spawn', agent: 'worker', tag: 'notify-smoke', prompt: 'notify smoke' }, notifyContext);
   if (!/agent task:/i.test(String(notifyStart)) || !/status: running/i.test(String(notifyStart))) {
     throw new Error(`agent async notify smoke did not start task:\n${notifyStart}`);
   }
@@ -531,19 +760,27 @@ try {
       && workerQueued.some((event) => /task_shell_notify_smoke/.test(event.message)),
     'agent child background completion routing',
   );
-  await bridgeNotifySmoke.execute({ type: 'cleanup', force: true }, notifyContext);
+  await waitForSmoke(
+    () => ownerNotifications.some((event) => /worker completed/.test(event.text)),
+    'agent early completion routing',
+  );
+  const agentCompletionCount = ownerNotifications.filter((event) => /worker completed/.test(event.text)).length;
+  if (agentCompletionCount !== 1) {
+    throw new Error(`agent early completion should suppress duplicate final notify, got ${agentCompletionCount}: ${JSON.stringify(ownerNotifications)}`);
+  }
+  await agentNotifySmoke.execute({ type: 'cleanup', force: true }, notifyContext);
 } finally {
-  rmSync(bridgeNotifyTmp, { recursive: true, force: true });
+  rmSync(agentNotifyTmp, { recursive: true, force: true });
 }
 if (EXPLORE_TOOL.annotations?.readOnlyHint !== true || EXPLORE_TOOL.annotations?.destructiveHint === true) {
   throw new Error('explore must stay read-only so readonly surfaces can use it');
 }
 const exploreProps = EXPLORE_TOOL.inputSchema?.properties || {};
-if (!/(?:Broad-scope locator only|First-choice tool for broad or unclear repo\/code location questions)/i.test(EXPLORE_TOOL.description || '') || !/(?:code_graph\/grep\/glob first|Use code_graph\/grep\/glob instead only when)/i.test(EXPLORE_TOOL.description || '')) {
-  throw new Error('explore description must preserve broad-locator and direct-tool-first guidance');
+if (!/Locate code anchors/i.test(EXPLORE_TOOL.description || '') || !/path:line/i.test(EXPLORE_TOOL.description || '') || (EXPLORE_TOOL.description || '').length > 90) {
+  throw new Error('explore description must stay compact and anchor-oriented');
 }
-if (!/Never pass a whole brief/i.test(exploreProps.query?.description || '') || !/relevant repo or subtree/i.test(exploreProps.cwd?.description || '')) {
-  throw new Error('explore schema must preserve query narrowness and cwd narrowing guidance');
+if (!/query array/i.test(exploreProps.query?.description || '') || !/Project\/root/i.test(exploreProps.cwd?.description || '')) {
+  throw new Error('explore schema must stay compact and preserve query/cwd shape');
 }
 const normalizedExplore = normalizeExploreQueries('["where is model selection?","  ","which file owns agent async?"]');
 if (normalizedExplore.length !== 2 || normalizedExplore[0] !== 'where is model selection?') {
@@ -554,12 +791,155 @@ const explorerPrompt = buildExplorerPrompt('where is <agent> & status?');
 if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;') || /verdicts, ratings, or recommendations/.test(explorerPrompt) === false) {
   throw new Error(`explorer prompt contract failed: ${explorerPrompt}`);
 }
+{
+  await initProviders({ 'openai-oauth': { enabled: true } });
+  const skillManifestTmp = mkdtempSync(join(tmpdir(), 'mixdog-skill-manifest-'));
+  try {
+    const skillDir = join(skillManifestTmp, '.mixdog', 'skills', 'demo-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), [
+      '---',
+      'name: demo-skill',
+      'description: Use when validating compact skill manifest matching.',
+      '---',
+      '',
+      '# Demo Skill',
+      '',
+      'Use this skill for manifest smoke tests.',
+      '',
+    ].join('\n'));
+    const skillSession = createSession({
+      provider: 'openai-oauth',
+      model: 'tool-smoke-model',
+      owner: 'cli',
+      role: 'lead',
+      cwd: skillManifestTmp,
+      permission: 'read-write',
+    });
+    try {
+      const visible = (skillSession.messages || []).map((m) => String(m.content || '')).join('\n');
+      if (!/available-skills/i.test(visible) || !/demo-skill/i.test(visible) || !/Skill\(\{"name":"<skill-name>"\}\)/.test(visible)) {
+        throw new Error(`lead skill manifest missing compact skill listing: ${visible.slice(0, 1200)}`);
+      }
+      const skillToolNames = (skillSession.tools || []).map((tool) => tool?.name).filter(Boolean);
+      if (!skillToolNames.includes('Skill')) {
+        throw new Error(`lead skill manifest session must expose Skill loader: ${skillToolNames.join(', ')}`);
+      }
+    } finally {
+      closeSession(skillSession.id, 'tool-smoke');
+    }
+  } finally {
+    rmSync(skillManifestTmp, { recursive: true, force: true });
+  }
+  const explorerSession = createSession({
+    provider: 'openai-oauth',
+    model: 'tool-smoke-model',
+    owner: AGENT_OWNER,
+    role: 'explorer',
+    cwd: root,
+    permission: 'read',
+    schemaAllowedTools: ['code_graph', 'find', 'glob', 'list', 'grep', 'read'],
+  });
+  try {
+    const visible = (explorerSession.messages || []).map((m) => String(m.content || '')).join('\n');
+    const systemVisible = (explorerSession.messages || [])
+      .filter((m) => m?.role === 'system')
+      .map((m) => String(m.content || ''))
+      .join('\n');
+    const userReminderVisible = (explorerSession.messages || [])
+      .filter((m) => m?.role === 'user')
+      .map((m) => String(m.content || ''))
+      .join('\n');
+    if (!/Read-only retrieval role/i.test(visible) || /# environment/i.test(visible) || /git operations deferred to Lead/i.test(visible)) {
+      throw new Error(`explorer hidden retrieval context should stay slim: ${visible.slice(0, 1200)}`);
+    }
+    if (/# Role: explorer/i.test(systemVisible) || !/# Role: explorer/i.test(userReminderVisible) || !/Locator only/i.test(userReminderVisible)) {
+      throw new Error(`explorer role md must ride BP3 user reminder, not BP2 system: system=${systemVisible.slice(0, 600)} user=${userReminderVisible.slice(0, 600)}`);
+    }
+    const visibleBytes = Buffer.byteLength(visible, 'utf8');
+    if (visibleBytes > 1800) {
+      throw new Error(`explorer hidden retrieval context too large: ${visibleBytes} bytes`);
+    }
+  } finally {
+    closeSession(explorerSession.id, 'tool-smoke');
+  }
+  const workerSession = createSession({
+    provider: 'openai-oauth',
+    model: 'tool-smoke-model',
+    owner: AGENT_OWNER,
+    role: 'worker',
+    cwd: root,
+    permission: 'read-write',
+    taskBrief: 'Implement a scoped smoke check.',
+  });
+  try {
+    const visible = (workerSession.messages || []).map((m) => String(m.content || '')).join('\n');
+    if (/(^|\n)# role\n/i.test(visible) || /(^|\n)permission:/i.test(visible)) {
+      throw new Error(`agent context must not repeat raw role/permission labels: ${visible.slice(0, 1200)}`);
+    }
+    if (/# role-identity/i.test(visible)) {
+      throw new Error(`agent context must not repeat role identity: ${visible.slice(0, 1200)}`);
+    }
+    if (/# task-brief/i.test(visible)) {
+      throw new Error(`agent context must not repeat task brief: ${visible.slice(0, 1200)}`);
+    }
+    if (/available-skills/i.test(visible)) {
+      throw new Error(`agent context must not inject skill manifest: ${visible.slice(0, 1200)}`);
+    }
+    if (/(^|\n)# environment/i.test(visible)) {
+      throw new Error(`agent context must not inject environment reminder: ${visible.slice(0, 1200)}`);
+    }
+    const workerToolNames = (workerSession.tools || []).map((tool) => tool?.name).filter(Boolean);
+    if (workerToolNames.includes('tool_search')) {
+      throw new Error(`agent session schema must not expose deferred tool_search: ${workerToolNames.join(', ')}`);
+    }
+    if (!workerToolNames.includes('Skill')) {
+      throw new Error(`agent session schema must keep fixed skill meta-tool Skill: ${workerToolNames.join(', ')}`);
+    }
+    for (const name of ['skills_list', 'skill_view', 'skill_execute']) {
+      if (workerToolNames.includes(name)) {
+        throw new Error(`agent session schema must not expose legacy skill tool ${name}: ${workerToolNames.join(', ')}`);
+      }
+    }
+  } finally {
+    closeSession(workerSession.id, 'tool-smoke');
+  }
+  const readAgentSession = createSession({
+    provider: 'openai-oauth',
+    model: 'tool-smoke-model',
+    owner: AGENT_OWNER,
+    role: 'worker',
+    cwd: root,
+    permission: 'read',
+  });
+  const writeAgentSession = createSession({
+    provider: 'openai-oauth',
+    model: 'tool-smoke-model',
+    owner: AGENT_OWNER,
+    role: 'worker',
+    cwd: root,
+    permission: 'read-write',
+  });
+  try {
+    const readTools = (readAgentSession.tools || []).map((tool) => tool?.name).filter(Boolean);
+    const writeTools = (writeAgentSession.tools || []).map((tool) => tool?.name).filter(Boolean);
+    if (readTools.includes('tool_search') || writeTools.includes('tool_search')) {
+      throw new Error(`agent session fixed schemas must omit tool_search: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
+    }
+    if (JSON.stringify(readTools) !== JSON.stringify(writeTools)) {
+      throw new Error(`agent session schema must not split by permission: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
+    }
+  } finally {
+    closeSession(readAgentSession.id, 'tool-smoke');
+    closeSession(writeAgentSession.id, 'tool-smoke');
+  }
+}
 const patchDescription = PATCH_TOOL_DEFS[0]?.inputSchema?.properties?.patch?.description || '';
 if (!/V4A/i.test(patchDescription) || !/one (?:file )?block per target file/i.test(patchDescription) || !/exact current context/i.test(patchDescription)) {
   throw new Error('apply_patch schema must keep V4A, per-target block, and exact-context guidance');
 }
 const readPathDescription = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.inputSchema?.properties?.path?.description || '';
-if (!/file path only/i.test(readPathDescription)) {
+if (!/File path or array/i.test(readPathDescription) || !/Dirs use list/i.test(readPathDescription)) {
   throw new Error('read schema must keep directory-vs-file guidance');
 }
 const readDescription = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.description || '';
@@ -568,11 +948,11 @@ if (!/known file path\(s\)/i.test(readDescription) || !/line\+context/i.test(rea
 }
 const codeGraphDescription = CODE_GRAPH_TOOL_DEFS[0]?.description || '';
 const codeGraphProps = CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties || {};
-if (!/known files\/symbols/i.test(codeGraphDescription) || !/Use find\/glob for file discovery/i.test(codeGraphDescription)) {
-  throw new Error('code_graph description must stay structure-oriented and defer file discovery to find/glob');
+if (!/Code structure/i.test(codeGraphDescription) || !/symbols/i.test(codeGraphDescription) || codeGraphDescription.length > 90) {
+  throw new Error('code_graph description must stay compact and structure-oriented');
 }
-if (!/Operation:/i.test(codeGraphProps.mode?.description || '') || !/Directory scope is only for references\/callers/i.test(codeGraphProps.file?.description || '')) {
-  throw new Error('code_graph schema must explain mode and file scoping');
+if (!/^Operation\.$/i.test(codeGraphProps.mode?.description || '') || !/^Source file\.$/i.test(codeGraphProps.file?.description || '')) {
+  throw new Error('code_graph schema must keep compact field descriptions');
 }
 const recallTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'recall');
 const recallProps = recallTool?.inputSchema?.properties || {};
@@ -603,8 +983,118 @@ if (!/Use after search/i.test(webFetchTool?.description || '') || !webFetchProps
 if (!/offset/i.test(webFetchProps.startIndex?.description || '') || !/Maximum characters/i.test(webFetchProps.maxLength?.description || '')) {
   throw new Error('web_fetch schema must describe paging window fields');
 }
-if (!/tools\/skills/i.test(TOOL_SEARCH_TOOL.description || '') || !/deferred/i.test(TOOL_SEARCH_TOOL.description || '') || !TOOL_SEARCH_TOOL.inputSchema?.properties?.select) {
+if (!/deferred tools/i.test(TOOL_SEARCH_TOOL.description || '') || !TOOL_SEARCH_TOOL.inputSchema?.properties?.select) {
   throw new Error('tool_search schema must preserve selection guidance and select field');
+}
+const toolSearchSession = {
+  tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
+  deferredToolCatalog: smokeCatalog.slice(),
+  deferredSelectedTools: [...fullDefaults],
+};
+const searchOnlyResult = JSON.parse(__renderToolSearchForTest({ query: 'shell' }, toolSearchSession, 'full'));
+for (const name of ['shell', 'task']) {
+  if (!searchOnlyResult.selected?.tools?.added?.includes(name)) {
+    throw new Error(`tool_search high-confidence query should auto-load ${name}: ${JSON.stringify(searchOnlyResult.selected)}`);
+  }
+}
+if (!searchOnlyResult.activeTools.includes('shell') || !searchOnlyResult.activeTools.includes('task')) {
+  throw new Error(`tool_search query should activate legacy selected tools: ${searchOnlyResult.activeTools.join(',')}`);
+}
+const bulkSelectResult = JSON.parse(__renderToolSearchForTest({ query: 'select:shell,recall' }, toolSearchSession, 'full'));
+for (const name of ['shell', 'task', 'recall']) {
+  if (!bulkSelectResult.activeTools.includes(name)) {
+    throw new Error(`tool_search bulk select missing ${name}: ${JSON.stringify(bulkSelectResult)}`);
+  }
+}
+const prefixedSelectSession = {
+  tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
+  deferredToolCatalog: smokeCatalog.slice(),
+  deferredSelectedTools: [...fullDefaults],
+};
+const prefixedSelectResult = JSON.parse(__renderToolSearchForTest({ select: 'select:shell,recall' }, prefixedSelectSession, 'full'));
+if (!prefixedSelectResult.activeTools.includes('shell') || !prefixedSelectResult.activeTools.includes('recall')) {
+  throw new Error(`tool_search select field should accept select: prefix: ${JSON.stringify(prefixedSelectResult)}`);
+}
+if (!Array.isArray(toolSearchSession.deferredDiscoveredTools) || !toolSearchSession.deferredDiscoveredTools.includes('shell')) {
+  throw new Error('tool_search must persist discovered tool state on the session');
+}
+const nativeToolSearchSession = {
+  tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
+  deferredToolCatalog: smokeCatalog.slice(),
+  deferredSelectedTools: [...fullDefaults],
+  deferredDiscoveredTools: [],
+  deferredProviderMode: 'native',
+  deferredNativeTools: true,
+};
+const nativeSelectResult = JSON.parse(__renderToolSearchForTest({ select: 'shell,recall' }, nativeToolSearchSession, 'full'));
+if (nativeSelectResult.activeTools.includes('shell') || nativeSelectResult.activeTools.includes('recall')) {
+  throw new Error(`native tool_search must not mutate active tool schemas: ${JSON.stringify(nativeSelectResult)}`);
+}
+for (const name of ['shell', 'task', 'recall']) {
+  if (!nativeSelectResult.discoveredTools.includes(name)) {
+    throw new Error(`native tool_search missing discovered ${name}: ${JSON.stringify(nativeSelectResult)}`);
+  }
+}
+if (!nativeSelectResult.nativeToolSearch?.openaiTools?.some((tool) => tool?.name === 'shell' && tool?.defer_loading === true)) {
+  throw new Error(`native tool_search must return OpenAI loadable deferred tools: ${JSON.stringify(nativeSelectResult.nativeToolSearch)}`);
+}
+if (!nativeSelectResult.nativeToolSearch?.toolReferences?.includes('shell')) {
+  throw new Error(`native tool_search must return Anthropic tool references: ${JSON.stringify(nativeSelectResult.nativeToolSearch)}`);
+}
+const nativeRunQuerySession = {
+  tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
+  deferredToolCatalog: smokeCatalog.slice(),
+  deferredSelectedTools: [...fullDefaults],
+  deferredDiscoveredTools: [],
+  deferredProviderMode: 'native',
+  deferredNativeTools: true,
+};
+const nativeRunQueryResult = JSON.parse(__renderToolSearchForTest({ query: 'run tests' }, nativeRunQuerySession, 'full'));
+for (const name of ['shell', 'task']) {
+  if (!nativeRunQueryResult.discoveredTools.includes(name)) {
+    throw new Error(`native tool_search run/tests query should discover ${name}: ${JSON.stringify(nativeRunQueryResult)}`);
+  }
+}
+if (nativeRunQueryResult.activeTools.includes('shell') || nativeRunQueryResult.activeTools.includes('task')) {
+  throw new Error(`native tool_search query must not mutate active schemas: ${JSON.stringify(nativeRunQueryResult)}`);
+}
+const nativeWebQuerySession = {
+  tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
+  deferredToolCatalog: smokeCatalog.slice(),
+  deferredSelectedTools: [...fullDefaults],
+  deferredDiscoveredTools: [],
+  deferredProviderMode: 'native',
+  deferredNativeTools: true,
+};
+const nativeWebQueryResult = JSON.parse(__renderToolSearchForTest({ query: 'web docs' }, nativeWebQuerySession, 'full'));
+for (const name of ['search', 'web_fetch']) {
+  if (!nativeWebQueryResult.discoveredTools.includes(name)) {
+    throw new Error(`native tool_search web/docs query should discover ${name}: ${JSON.stringify(nativeWebQueryResult)}`);
+  }
+}
+const nativeRecallQuerySession = {
+  tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
+  deferredToolCatalog: smokeCatalog.slice(),
+  deferredSelectedTools: [...fullDefaults],
+  deferredDiscoveredTools: [],
+  deferredProviderMode: 'native',
+  deferredNativeTools: true,
+};
+const nativeRecallQueryResult = JSON.parse(__renderToolSearchForTest({ query: 'memory previous' }, nativeRecallQuerySession, 'full'));
+if (!nativeRecallQueryResult.discoveredTools.includes('recall') || nativeRecallQueryResult.discoveredTools.includes('memory')) {
+  throw new Error(`native tool_search memory previous should discover recall only: ${JSON.stringify(nativeRecallQueryResult)}`);
+}
+const ambiguousStatusSession = {
+  tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
+  deferredToolCatalog: smokeCatalog.slice(),
+  deferredSelectedTools: [...fullDefaults],
+  deferredDiscoveredTools: [],
+  deferredProviderMode: 'native',
+  deferredNativeTools: true,
+};
+const ambiguousStatusResult = JSON.parse(__renderToolSearchForTest({ query: 'status' }, ambiguousStatusSession, 'full'));
+if (ambiguousStatusResult.selected || ambiguousStatusResult.discoveredTools.length) {
+  throw new Error(`tool_search ambiguous status query must not auto-load: ${JSON.stringify(ambiguousStatusResult)}`);
 }
 const replyTool = CHANNEL_TOOL_DEFS.find((tool) => tool.name === 'reply');
 if (!/configured channel/i.test(replyTool?.description || '') || !/local .*paths/i.test(replyTool?.inputSchema?.properties?.files?.description || '')) {
@@ -617,8 +1107,8 @@ if (!/NOT for URLs/i.test(fetchTool?.description || '') || !/web_fetch/i.test(fe
 const grepTool = BUILTIN_TOOLS.find((tool) => tool.name === 'grep');
 const grepPatternDescription = grepTool?.inputSchema?.properties?.pattern?.description || '';
 const grepPathDescription = grepTool?.inputSchema?.properties?.path?.description || '';
-if (!/(array for OR|array = OR)/i.test(grepPatternDescription) || !/one file or directory/i.test(grepPathDescription)) {
-  throw new Error('grep schema must keep array-OR and one-path guidance');
+if (!/Array = OR/i.test(grepPatternDescription) || !/^File or directory\.$/i.test(grepPathDescription)) {
+  throw new Error('grep schema must keep compact pattern/path guidance');
 }
 
 const longToolSearchText = compactToolSearchDescription(`${patchDescription}\n${patchDescription}`);

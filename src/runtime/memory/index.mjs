@@ -88,7 +88,7 @@ import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs'
 import { runCycle1, runCycle2, runCycle3, runUnifiedGate, parseInterval, syncRootEmbedding, applySimpleStatus, applyUpdate, applyMerge, CYCLE2_ACTIVE_TARGET_CAP } from './lib/memory-cycle.mjs'
 import { loadConfig as loadAgentConfig } from '../agent/orchestrator/config.mjs'
 import { initProviders } from '../agent/orchestrator/providers/registry.mjs'
-import { makeBridgeLlm } from '../agent/orchestrator/smart-bridge/bridge-llm.mjs'
+import { makeAgentDispatch } from '../agent/orchestrator/agent-runtime/agent-dispatch.mjs'
 import { getInFlightCycle1 } from './lib/memory-cycle1.mjs'
 import { claimAndMarkScheduledCycle, makeCycleRequestSignature, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry } from './lib/memory-cycle-requests.mjs'
 import { searchRelevantHybrid } from './lib/memory-recall-store.mjs'
@@ -99,7 +99,7 @@ import { computeEntryScore } from './lib/memory-score.mjs'
 import { runFullBackfill } from './lib/memory-ops-policy.mjs'
 import { listCore, addCore, editCore, deleteCore, compactCoreIds, CORE_SUMMARY_MAX } from './lib/core-memory-store.mjs'
 import { resolveProjectId, resolveProjectScope } from './lib/project-id-resolver.mjs'
-import { openTraceDatabase, closeTraceDatabase, insertTraceEvents, enqueueTraceEvents, insertBridgeCalls, registerTraceExitDrain } from './lib/trace-store.mjs'
+import { openTraceDatabase, closeTraceDatabase, insertTraceEvents, enqueueTraceEvents, insertAgentCalls, registerTraceExitDrain } from './lib/trace-store.mjs'
 import { updateJsonAtomicSync, writeJsonAtomicSync } from '../shared/atomic-file.mjs'
 import { resolvePluginData } from '../shared/plugin-paths.mjs'
 const IS_MEMORY_ENTRY = !!process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
@@ -549,13 +549,13 @@ async function _initStore() {
   } else {
     __mixdogMemoryLog('[memory-service] secondary mode; skipping llm worker\n')
   }
-  // Initialize the in-process provider registry so cycle1 can run the bridge
-  // LLM locally (makeBridgeLlm → session manager → provider.send). In
+  // Initialize the in-process provider registry so cycle1 can run the agent dispatch
+  // LLM locally (makeAgentDispatch → session manager → provider.send). In
   // standalone the memory worker runs as a detached HTTP daemon whose parent
-  // has disconnected IPC, so the legacy callBridgeLlm() IPC path is dead on
+  // has disconnected IPC, so the legacy callAgentDispatch() IPC path is dead on
   // arrival. Mirror the channels worker boot (channels/index.mjs:
   // loadAgentConfig() + initProviders) so the registry is populated before any
-  // cycle1 dispatch. The gate MUST match _startCycle1Run's makeBridgeLlm
+  // cycle1 dispatch. The gate MUST match _startCycle1Run's makeAgentDispatch
   // injection condition: cycle1 may dispatch in-process whenever cycles are
   // enabled OR the llm worker is enabled (both exclude secondary mode), so
   // registering only under the llm-worker gate would leave a hole where
@@ -1107,36 +1107,36 @@ function _initTranscriptWatcher() {
 const CYCLE1_HEALTH_OVERDUE_MS = 5 * 60_000
 const CYCLE1_AUTO_RESTART_COOLDOWN_MS = 5 * 60_000
 
-// In-process cycle1 LLM adapter. The memory daemon runs makeBridgeLlm()
+// In-process cycle1 LLM adapter. The memory daemon runs makeAgentDispatch()
 // locally (provider registry is initialized in _initStore), so cycle1 never
-// has to route over the dead IPC bridge (agent-ipc.mjs callBridgeLlm). The
+// has to route over the dead IPC agent path (agent-ipc.mjs callAgentDispatch). The
 // factory is built once (role/taskType are fixed) and the returned function
 // is reshaped to cycle1's call signature: cycle1 invokes
 // `callLlm({ role, taskType, mode, preset, timeout, cwd }, userMessage)` and
-// expects a raw string, while makeBridgeLlm's function takes a single
-// `{ prompt }` object. The adapter bridges the two — preset/cwd resolution is
-// handled inside makeBridgeLlm via role (cycle1-agent → maint.memory slot).
-let _cycle1BridgeLlm = null
+// expects a raw string, while makeAgentDispatch's function takes a single
+// `{ prompt }` object. The adapter maps the two — preset/cwd resolution is
+// handled inside makeAgentDispatch via role (cycle1-agent → maint.memory slot).
+let _cycle1AgentDispatch = null
 function getCycle1CallLlm() {
-  if (!_cycle1BridgeLlm) {
-    _cycle1BridgeLlm = makeBridgeLlm({
+  if (!_cycle1AgentDispatch) {
+    _cycle1AgentDispatch = makeAgentDispatch({
       role: 'cycle1-agent',
       taskType: 'maintenance',
       sourceType: 'memory-cycle',
-      // cycle1 parses the full raw line-format response; the bridge brief cap
+      // cycle1 parses the full raw line-format response; the agent brief cap
       // (12KB) would truncate a large valid response and append prose, causing
       // partial parsing / omitted / invalid chunks. Opt out so the cycle1
-      // no-truncation contract is preserved through makeBridgeLlm.
+      // no-truncation contract is preserved through makeAgentDispatch.
       brief: false,
     })
   }
   return async (opts = {}, userMessage) => {
     // Preserve cycle1's timeout contract: cycle1 derives `opts.timeout` from
-    // config / caller deadline and expects it to bound the call. makeBridgeLlm
+    // config / caller deadline and expects it to bound the call. makeAgentDispatch
     // takes it as a per-call `idleTimeoutMs` (stale watchdog). Map it through;
-    // omit when absent/0 so bridge defaults apply.
+    // omit when absent/0 so agent defaults apply.
     const callTimeout = Number(opts?.timeout)
-    return _cycle1BridgeLlm({
+    return _cycle1AgentDispatch({
       prompt: String(userMessage ?? ''),
       preset: opts?.preset || undefined,
       ...(Number.isFinite(callTimeout) && callTimeout > 0 ? { idleTimeoutMs: callTimeout } : {}),
@@ -1159,7 +1159,7 @@ async function recordCycle1Result(result) {
 }
 
 function _startCycle1Run(config = {}, options = {}) {
-  // Default to the in-process bridge LLM so every cycle1 path — scheduled,
+  // Default to the in-process agent dispatch so every cycle1 path — scheduled,
   // auto-restart, periodic, manual (action:cycle1), backfill drain, rebuild —
   // dispatches locally and the dead IPC fallback in memory-cycle1.mjs is never
   // reached. Explicit options.callLlm (if a caller ever passes one) wins.
@@ -2003,7 +2003,7 @@ async function handleSearch(args, signal) {
     // Emit a recall trace event so getTraceWithEntries() can correlate
     // this search with the top-ranked memory entry.  One event per
     // handleSearch call (not per returned row) — cheapest meaningful link.
-    // parent_span_id left null: the bridge-side span id is only known after
+    // parent_span_id left null: the agent-side span id is only known after
     // the DB insert of the loop/tool events, which happens async on the
     // client side and is not available here.
     if (_traceDb && filtered.length > 0) {
@@ -3305,9 +3305,9 @@ const httpServer = http.createServer(async (req, res) => {
       enqueueTraceEvents(_traceDb, body.events)
       // Use `queued` — events are async; `inserted` would imply durability.
       sendJson(res, { ok: true, queued: body.events.length })
-      // Fire-and-forget into focused bridge analytic tables.
-      insertBridgeCalls(_traceDb, body.events).catch(e =>
-        __mixdogMemoryLog(`[trace] insertBridgeCalls error: ${e?.message}\n`)
+      // Fire-and-forget into focused agent analytic tables.
+      insertAgentCalls(_traceDb, body.events).catch(e =>
+        __mixdogMemoryLog(`[trace] insertAgentCalls error: ${e?.message}\n`)
       )
     } catch (e) {
       sendJson(res, { ok: false, error: e.message }, 500)
@@ -3350,7 +3350,7 @@ const httpServer = http.createServer(async (req, res) => {
   // DEV-ONLY cycle1 chunking bench. Gated by env MIXDOG_DEV_BENCH=1 so
    // production is untouched (route returns 404 when unset). Mirrors cycle1's
    // exact fetch query + per-session windowing, then runs each window through
-   // buildCycle1ChunkPrompt + callBridgeLlm + parseCycle1LineFormat. STRICT
+   // buildCycle1ChunkPrompt + callAgentDispatch + parseCycle1LineFormat. STRICT
    // read-only — no UPDATE, no transaction, no commit.
   if (req.method === 'POST' && req.url === '/dev/cycle1-bench') {
     // Gate: env MIXDOG_DEV_BENCH=1 OR a runtime flag file, so it can be
@@ -3380,8 +3380,8 @@ const httpServer = http.createServer(async (req, res) => {
         : null
 
       // Lazy-load LLM + chunking helpers so production boot pays nothing.
-      // Use the same in-process bridge LLM adapter as real cycle1 — the legacy
-      // agent-ipc callBridgeLlm() path is dead in the detached standalone
+      // Use the same in-process agent dispatch adapter as real cycle1 — the legacy
+      // agent-ipc callAgentDispatch() path is dead in the detached standalone
       // memory daemon (no connected IPC), so the dev bench must mirror prod.
       const [{ buildCycle1ChunkPrompt, parseCycle1LineFormat }, { resolveMaintenancePreset }] = await Promise.all([
         import('./lib/memory-cycle1.mjs'),

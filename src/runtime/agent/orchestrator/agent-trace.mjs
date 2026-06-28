@@ -48,7 +48,7 @@ const MIXDOG_SLOW_TOOL_TRACE_NAMES = new Set(
 // is unnecessary — rotation is a best-effort size guard. First flush always
 // checks; subsequent checks wait at least this many ms. Tune via env
 // MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS (default 60000 ms, positive integer).
-const MIXDOG_BRIDGE_TRACE_ROTATE_CHECK_MS = (() => {
+const MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS = (() => {
     const v = parseInt(process.env.MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS, 10);
     return Number.isFinite(v) && v > 0 ? v : 60000;
 })();
@@ -61,7 +61,7 @@ function _rotateLocalTraceIfNeeded(path) {
         if (stat && stat.size > _LOCAL_TRACE_MAX_BYTES) {
             try { renameSync(path, `${path}.1`); }
             catch (err) {
-                warnBridgeOnce('agent-trace:local-rotate', `[agent-trace] local rotate failed (${err?.message})`);
+                warnAgentOnce('agent-trace:local-rotate', `[agent-trace] local rotate failed (${err?.message})`);
             }
         }
     } catch {
@@ -70,11 +70,10 @@ function _rotateLocalTraceIfNeeded(path) {
 }
 
 function _resolveLocalTracePath() {
-    if (process.env.MIXDOG_AGENT_TRACE_LOCAL_DISABLE === '1' || process.env.MIXDOG_BRIDGE_TRACE_LOCAL_DISABLE === '1') return null;
+    if (process.env.MIXDOG_AGENT_TRACE_LOCAL_DISABLE === '1') return null;
     if (_localTracePath) return _localTracePath;
     try {
         _localTracePath = process.env.MIXDOG_AGENT_TRACE_PATH
-            || process.env.MIXDOG_BRIDGE_TRACE_PATH
             || join(getPluginData(), 'history', 'agent-trace.jsonl');
         // R4 data-at-rest: trace rows may carry tool payloads / prompts;
         // clamp dir to owner-only on POSIX (advisory on Windows).
@@ -96,7 +95,7 @@ function _appendLocalTrace(row) {
             _localTraceTimer.unref?.();
         }
     } catch (err) {
-        warnBridgeOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
+        warnAgentOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
     }
 }
 
@@ -119,12 +118,12 @@ function _flushLocalTrace() {
         // Throttle rotation stat checks to avoid unnecessary statSync calls
         // on every flush. First flush (_lastRotateCheckMs === 0) always checks.
         const now = Date.now();
-        if (_lastRotateCheckMs === 0 || now - _lastRotateCheckMs >= MIXDOG_BRIDGE_TRACE_ROTATE_CHECK_MS) {
+        if (_lastRotateCheckMs === 0 || now - _lastRotateCheckMs >= MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS) {
             _rotateLocalTraceIfNeeded(path);
             _lastRotateCheckMs = now;
         }
     } catch (err) {
-        warnBridgeOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
+        warnAgentOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
         return;
     }
     // mode only applies on file creation; existing files keep their mode.
@@ -132,7 +131,7 @@ function _flushLocalTrace() {
     _localTraceFlushInFlight = true;
     appendFile(path, chunk, { encoding: 'utf8', mode: 0o600 })
         .catch((err) => {
-            warnBridgeOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
+            warnAgentOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
         })
         .finally(() => {
             _localTraceFlushInFlight = false;
@@ -155,13 +154,13 @@ function _flushLocalTraceSync() {
     _localTraceBuffer = [];
     try {
         const now = Date.now();
-        if (_lastRotateCheckMs === 0 || now - _lastRotateCheckMs >= MIXDOG_BRIDGE_TRACE_ROTATE_CHECK_MS) {
+        if (_lastRotateCheckMs === 0 || now - _lastRotateCheckMs >= MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS) {
             _rotateLocalTraceIfNeeded(path);
             _lastRotateCheckMs = now;
         }
         appendFileSync(path, chunk, { encoding: 'utf8', mode: 0o600 });
     } catch (err) {
-        warnBridgeOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
+        warnAgentOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
     }
 }
 
@@ -220,11 +219,11 @@ async function _flush() {
                 signal: AbortSignal.timeout(5000),
             });
             if (!resp.ok) {
-                warnBridgeOnce('agent-trace:flush-error', `[agent-trace] /admin/trace-record returned ${resp.status} — dropping batch`);
+                warnAgentOnce('agent-trace:flush-error', `[agent-trace] /admin/trace-record returned ${resp.status} — dropping batch`);
             }
         } catch (err) {
             _serviceUrl = null;
-            warnBridgeOnce('agent-trace:flush-fetch', `[agent-trace] flush fetch failed (${err?.message}) — dropping batch`);
+            warnAgentOnce('agent-trace:flush-fetch', `[agent-trace] flush fetch failed (${err?.message}) — dropping batch`);
         }
         if (_buffer.length >= _FLUSH_BATCH_SIZE) {
             // More pending — schedule another flush immediately
@@ -250,22 +249,22 @@ function _scheduleFlush(immediate = false) {
     }
 }
 
-async function drainBridgeTrace() {
+async function drainAgentTrace() {
     if (!_resolveServiceUrl()) return;
     if (_flushTimer) { clearTimeout(_flushTimer); _flushTimer = null; }
     for (let i = 0; i < 10 && _buffer.length > 0; i++) {
         await _flush();
     }
 }
-process.on('exit', drainBridgeTrace);
+process.on('exit', drainAgentTrace);
 
 function normalizeSessionId(sessionId) {
     return sessionId ? String(sessionId) : 'no-session';
 }
 
-function appendBridgeTrace(record = {}) {
+function appendAgentTrace(record = {}) {
     // Test isolation — when run-all-tests.mjs sets this env, skip entirely.
-    if (process.env.MIXDOG_AGENT_TRACE_DISABLE === '1' || process.env.MIXDOG_BRIDGE_TRACE_DISABLE === '1') return;
+    if (process.env.MIXDOG_AGENT_TRACE_DISABLE === '1') return;
     try {
         // Coerce ts to epoch ms integer at enqueue time
         let ts = record.ts || Date.now();
@@ -284,14 +283,14 @@ function appendBridgeTrace(record = {}) {
 
         if (_buffer.length >= _BUFFER_MAX) {
             _buffer.shift(); // drop oldest
-            warnBridgeOnce('agent-trace:buffer-full', '[agent-trace] buffer full (2000) — dropping oldest event');
+            warnAgentOnce('agent-trace:buffer-full', '[agent-trace] buffer full (2000) — dropping oldest event');
         }
         _appendLocalTrace(row);
         _buffer.push(row);
         _scheduleFlush(_buffer.length >= _FLUSH_BATCH_SIZE);
     }
     catch {
-        // Never break bridge execution for telemetry
+        // Never break agent execution for telemetry
     }
 }
 
@@ -318,7 +317,7 @@ function extractCachedTokens(usage) {
     return 0;
 }
 
-function warnBridgeOnce(key, message) {
+function warnAgentOnce(key, message) {
     if (!key || WARNED_KEYS.has(key)) return;
     WARNED_KEYS.add(key);
     try {
@@ -329,9 +328,9 @@ function warnBridgeOnce(key, message) {
     }
 }
 
-function traceBridgeLoop({ sessionId, iteration, sendMs, messageCount, bodyBytesEst }) {
-    if (process.env.MIXDOG_BRIDGE_TRACE_VERBOSE !== '1') return;
-    appendBridgeTrace({
+function traceAgentLoop({ sessionId, iteration, sendMs, messageCount, bodyBytesEst }) {
+    if (process.env.MIXDOG_AGENT_TRACE_VERBOSE !== '1') return;
+    appendAgentTrace({
         sessionId,
         iteration,
         kind: 'loop',
@@ -355,7 +354,7 @@ function messagePrefixHash(messages) {
     }
 }
 
-function traceBridgeCompact({
+function traceAgentCompact({
     sessionId,
     iteration,
     stage,
@@ -375,8 +374,8 @@ function traceBridgeCompact({
     error,
     error_code,
 }) {
-    if (process.env.MIXDOG_BRIDGE_TRACE_VERBOSE !== '1') return;
-    appendBridgeTrace({
+    if (process.env.MIXDOG_AGENT_TRACE_VERBOSE !== '1') return;
+    appendAgentTrace({
         sessionId,
         iteration,
         kind: 'compact_meta',
@@ -503,7 +502,7 @@ function _scheduleToolFailureFlush(delayMs = _TOOL_FAILURE_FLUSH_MS) {
 
 function _maybeRotateToolFailureLog(path) {
     const now = Date.now();
-    if (_lastToolFailureRotateCheckMs !== 0 && now - _lastToolFailureRotateCheckMs < MIXDOG_BRIDGE_TRACE_ROTATE_CHECK_MS) return;
+    if (_lastToolFailureRotateCheckMs !== 0 && now - _lastToolFailureRotateCheckMs < MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS) return;
     _rotateLocalTraceIfNeeded(path);
     _lastToolFailureRotateCheckMs = now;
 }
@@ -518,7 +517,7 @@ function _appendToolFailureRow(row) {
             _scheduleToolFailureFlush();
         }
     } catch (err) {
-        warnBridgeOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
+        warnAgentOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
     }
 }
 
@@ -539,12 +538,12 @@ function _flushToolFailures() {
     try {
         _maybeRotateToolFailureLog(path);
     } catch (err) {
-        warnBridgeOnce('tool-failure-log:rotate', `[tool-failure-log] rotate check failed (${err?.message})`);
+        warnAgentOnce('tool-failure-log:rotate', `[tool-failure-log] rotate check failed (${err?.message})`);
     }
     _toolFailureFlushInFlight = true;
     appendFile(path, chunk, { encoding: 'utf8', mode: 0o600 })
         .catch((err) => {
-            warnBridgeOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
+            warnAgentOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
         })
         .finally(() => {
             _toolFailureFlushInFlight = false;
@@ -566,7 +565,7 @@ function _flushToolFailuresSync() {
         _maybeRotateToolFailureLog(path);
         appendFileSync(path, chunk, { encoding: 'utf8', mode: 0o600 });
     } catch (err) {
-        warnBridgeOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
+        warnAgentOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
     }
 }
 
@@ -595,8 +594,8 @@ function classifyToolFailure(resultText, toolName) {
     return 'runtime/failure';
 }
 
-function traceBridgeToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, model, cwd, resultText, resultKind = 'error' }) {
-    if (process.env.MIXDOG_BRIDGE_TRACE_DISABLE === '1') return;
+function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, model, cwd, resultText, resultKind = 'error' }) {
+    if (process.env.MIXDOG_AGENT_TRACE_DISABLE === '1') return;
     if (!_resolveToolFailurePath()) return;
     try {
         const cleanText = _redactLogText(String(resultText ?? ''));
@@ -620,21 +619,21 @@ function traceBridgeToolFailure({ sessionId, iteration, toolName, toolKind, tool
         };
         _appendToolFailureRow(row);
     } catch (err) {
-        warnBridgeOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
+        warnAgentOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
     }
 }
 
-function traceBridgeTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, resultKind, model, resultText, cwd }) {
+function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, resultKind, model, resultText, cwd }) {
     const nextCallCount = countJsonNextCalls(resultText);
     const resultBytesEst = typeof resultText === 'string' ? Buffer.byteLength(resultText, 'utf8') : 0;
     const resultLinesEst = typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0;
     const numericToolMs = Number(toolMs);
     const summarizedArgs = summarizeToolArgs(toolName, toolArgs);
-    // Flat shape — fields named exactly as the bridge_calls PG columns so
-    // insertBridgeCalls can pick them up by direct property access without
+    // Flat shape — fields named exactly as the agent_calls PG columns so
+    // insertAgentCalls can pick them up by direct property access without
     // a payload-unwrap step. result_kind has no column and rides as plain
     // sibling metadata for downstream consumers.
-    appendBridgeTrace({
+    appendAgentTrace({
         sessionId,
         iteration,
         kind: 'tool',
@@ -655,7 +654,7 @@ function traceBridgeTool({ sessionId, iteration, toolName, toolKind, toolMs, too
         && numericToolMs >= MIXDOG_SLOW_TOOL_TRACE_MS
         && (MIXDOG_SLOW_TOOL_TRACE_ALL || MIXDOG_SLOW_TOOL_TRACE_NAMES.size === 0 || MIXDOG_SLOW_TOOL_TRACE_NAMES.has(String(toolName || '')))
     ) {
-        appendBridgeTrace({
+        appendAgentTrace({
             sessionId,
             iteration,
             kind: 'tool_slow',
@@ -677,7 +676,7 @@ function traceBridgeTool({ sessionId, iteration, toolName, toolKind, toolMs, too
         });
     }
     if (resultKind === 'error') {
-        traceBridgeToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, model, cwd, resultText, resultKind });
+        traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, model, cwd, resultText, resultKind });
     }
 }
 
@@ -685,13 +684,13 @@ function traceBridgeTool({ sessionId, iteration, toolName, toolKind, toolMs, too
 // where compression actually changed the byte count, so `gain` analytics
 // can sum savings_pct over a window (mirrors RTK's `rtk gain` model
 // without an external binary). No-op rows are dropped at the call site.
-export function traceBridgeCompress({ sessionId, toolName, before, after }) {
+export function traceAgentCompress({ sessionId, toolName, before, after }) {
     // bytes_before/after/savings_pct moved into payload because the
     // trace_events table only carries known top-level columns (id, ts,
     // session_id, kind, tool_name, payload, ...) — fields outside that
     // set are silently dropped at insert time. payload is jsonb so any
     // shape survives. Aggregation: SELECT (payload->>'bytes_before')::int.
-    appendBridgeTrace({
+    appendAgentTrace({
         sessionId,
         kind: 'compress',
         tool_name: toolName,
@@ -707,8 +706,8 @@ export function traceBridgeCompress({ sessionId, toolName, before, after }) {
 // tool calls observed. Lets a consumer compute Lead-side multi-tool
 // adoption ratio (calls > 1 / total turns) directly from trace rows
 // instead of re-parsing every assistant message body.
-export function traceBridgeBatch({ sessionId, toolCallCount }) {
-    appendBridgeTrace({
+export function traceAgentBatch({ sessionId, toolCallCount }) {
+    appendAgentTrace({
         sessionId,
         kind: 'batch',
         tool_call_count: toolCallCount,
@@ -716,7 +715,7 @@ export function traceBridgeBatch({ sessionId, toolCallCount }) {
 }
 
 function traceStreamStalled({ sessionId, info }) {
-    appendBridgeTrace({
+    appendAgentTrace({
         sessionId,
         kind: 'stream_stalled',
         stale_seconds: info.staleSeconds,
@@ -726,7 +725,7 @@ function traceStreamStalled({ sessionId, info }) {
 }
 
 function traceStreamAborted({ sessionId, info }) {
-    appendBridgeTrace({
+    appendAgentTrace({
         sessionId,
         kind: 'stream_aborted',
         stale_seconds: info.staleSeconds,
@@ -735,12 +734,12 @@ function traceStreamAborted({ sessionId, info }) {
     });
 }
 
-function traceBridgePreset({ sessionId, role, presetName, model, provider, parentSessionId }) {
+function traceAgentPreset({ sessionId, role, presetName, model, provider, parentSessionId }) {
     // Fires once per dispatch right after the preset has been resolved and
     // its runtime spec (provider/model) assembled. Useful for after-the-fact
     // routing analysis: "which role landed on which preset / provider / model
     // on this request?"
-    appendBridgeTrace({
+    appendAgentTrace({
         sessionId,
         kind: 'preset_assign',
         role: role || null,
@@ -751,7 +750,7 @@ function traceBridgePreset({ sessionId, role, presetName, model, provider, paren
     });
 }
 
-function traceBridgeFetch({ sessionId, headersMs, httpStatus, handshakeRetries, handshakeRetryClassifiers, provider, model, transport }) {
+function traceAgentFetch({ sessionId, headersMs, httpStatus, handshakeRetries, handshakeRetryClassifiers, provider, model, transport }) {
     const payload = {
         headers_ms: headersMs,
         http_status: httpStatus,
@@ -765,7 +764,7 @@ function traceBridgeFetch({ sessionId, headersMs, httpStatus, handshakeRetries, 
     if (Array.isArray(handshakeRetryClassifiers) && handshakeRetryClassifiers.length > 0) {
         payload.handshake_retry_classifiers = handshakeRetryClassifiers;
     }
-    appendBridgeTrace({
+    appendAgentTrace({
         sessionId,
         kind: 'fetch',
         headers_ms: headersMs,
@@ -779,8 +778,8 @@ function traceBridgeFetch({ sessionId, headersMs, httpStatus, handshakeRetries, 
     });
 }
 
-function traceBridgeSse({ sessionId, sseParseMs, ttftMs, provider, model, transport }) {
-    appendBridgeTrace({
+function traceAgentSse({ sessionId, sseParseMs, ttftMs, provider, model, transport }) {
+    appendAgentTrace({
         sessionId,
         kind: 'sse',
         sse_parse_ms: sseParseMs,
@@ -798,7 +797,7 @@ function traceBridgeSse({ sessionId, sseParseMs, ttftMs, provider, model, transp
     });
 }
 
-function traceBridgeUsage({ sessionId, iteration, inputTokens, outputTokens, cachedTokens, cacheWriteTokens, promptTokens, model, modelDisplay, responseId, rawUsage, provider, serviceTier, requestKind }) {
+function traceAgentUsage({ sessionId, iteration, inputTokens, outputTokens, cachedTokens, cacheWriteTokens, promptTokens, model, modelDisplay, responseId, rawUsage, provider, serviceTier, requestKind }) {
     const inclusive = isInclusiveProvider(provider);
     const inTok = inputTokens || 0;
     const cacheRead = cachedTokens || 0;
@@ -810,7 +809,7 @@ function traceBridgeUsage({ sessionId, iteration, inputTokens, outputTokens, cac
             ? Math.max(inTok, cacheRead + cacheWrite)
             : inTok + cacheRead + cacheWrite);
     const resolvedServiceTier = serviceTier || rawUsage?.service_tier || rawUsage?.serviceTier || null;
-    appendBridgeTrace({
+    appendAgentTrace({
         sessionId,
         iteration,
         kind: 'usage_raw',
@@ -840,20 +839,20 @@ function traceBridgeUsage({ sessionId, iteration, inputTokens, outputTokens, cac
 }
 
 export {
-    appendBridgeTrace,
-    drainBridgeTrace,
+    appendAgentTrace,
+    drainAgentTrace,
     estimateProviderPayloadBytes,
     extractCachedTokens,
     messagePrefixHash,
-    traceBridgeFetch,
-    traceBridgeLoop,
-    traceBridgePreset,
-    traceBridgeSse,
-    traceBridgeTool,
-    traceBridgeToolFailure,
-    traceBridgeCompact,
-    traceBridgeUsage,
+    traceAgentFetch,
+    traceAgentLoop,
+    traceAgentPreset,
+    traceAgentSse,
+    traceAgentTool,
+    traceAgentToolFailure,
+    traceAgentCompact,
+    traceAgentUsage,
     traceStreamAborted,
     traceStreamStalled,
-    warnBridgeOnce,
+    warnAgentOnce,
 };

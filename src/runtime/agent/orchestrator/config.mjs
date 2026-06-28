@@ -19,7 +19,7 @@ export function getPluginData() {
 // llm/index.mjs and setup-server.mjs so UI/runtime cannot drift from config.
 //
 // Every hidden maintenance slot carries a CONCRETE preset here, so
-// resolvePresetName() (bridge-llm) always resolves a model directly from
+// resolvePresetName() (agent-dispatch) always resolves a model directly from
 // `maint[slot]` — no shared `defaultPreset` fallback is needed or used.
 // Memory cycles + Lead helper fan-out (explore/cycle1/cycle2/cycle3) and
 // entry-driven dispatch (scheduler/webhook) all default to `haiku`. The three
@@ -43,6 +43,56 @@ export const DEFAULT_MAINTENANCE = Object.freeze({
 // are not shown as shared rows, but still inherit the haiku default above when
 // an entry omits its own model.
 export const MAINTENANCE_SLOTS = Object.freeze(['explore', 'memory']);
+
+// --- User profile (statusline /profile) -------------------------------------
+// Supported response languages for the /profile picker. `system` is the default
+// sentinel: it leaves the language unset so the model follows the user's locale
+// / written language (no forced "Always respond in X" injection). Each entry is
+// { id, label, prompt } — `prompt` is the human language name the prompt-side
+// wiring uses for "Always respond in <prompt>." Keep `system` first.
+export const PROFILE_LANGUAGES = Object.freeze([
+    { id: 'system', label: 'System (locale)', prompt: null },
+    { id: 'en', label: 'English', prompt: 'English' },
+    { id: 'ko', label: '한국어', prompt: 'Korean (한국어)' },
+    { id: 'ja', label: '日本語', prompt: 'Japanese (日本語)' },
+    { id: 'zh-Hans', label: '中文（简体）', prompt: 'Simplified Chinese (简体中文)' },
+    { id: 'zh-Hant', label: '中文（繁體）', prompt: 'Traditional Chinese (繁體中文)' },
+    { id: 'es', label: 'Español', prompt: 'Spanish (Español)' },
+    { id: 'fr', label: 'Français', prompt: 'French (Français)' },
+    { id: 'de', label: 'Deutsch', prompt: 'German (Deutsch)' },
+    { id: 'pt', label: 'Português', prompt: 'Portuguese (Português)' },
+    { id: 'ru', label: 'Русский', prompt: 'Russian (Русский)' },
+    { id: 'it', label: 'Italiano', prompt: 'Italian (Italiano)' },
+    { id: 'vi', label: 'Tiếng Việt', prompt: 'Vietnamese (Tiếng Việt)' },
+    { id: 'th', label: 'ภาษาไทย', prompt: 'Thai (ภาษาไทย)' },
+    { id: 'id', label: 'Bahasa Indonesia', prompt: 'Indonesian (Bahasa Indonesia)' },
+    { id: 'hi', label: 'हिन्दी', prompt: 'Hindi (हिन्दी)' },
+    { id: 'ar', label: 'العربية', prompt: 'Arabic (العربية)' },
+    { id: 'tr', label: 'Türkçe', prompt: 'Turkish (Türkçe)' },
+    { id: 'pl', label: 'Polski', prompt: 'Polish (Polski)' },
+    { id: 'nl', label: 'Nederlands', prompt: 'Dutch (Nederlands)' },
+    { id: 'uk', label: 'Українська', prompt: 'Ukrainian (Українська)' },
+]);
+
+const PROFILE_LANGUAGE_IDS = new Set(PROFILE_LANGUAGES.map((lang) => lang.id));
+const PROFILE_TITLE_MAX = 64;
+
+// Resolve a stored profile (or raw config fragment) into a stable shape:
+//   { title: string, language: <valid id> }
+// Unknown language ids fall back to 'system'; titles are trimmed/capped.
+export function normalizeProfileConfig(value = {}) {
+    const raw = value && typeof value === 'object' ? value : {};
+    const title = String(raw.title ?? raw.name ?? '').trim().slice(0, PROFILE_TITLE_MAX);
+    const requested = String(raw.language ?? raw.lang ?? 'system').trim();
+    const language = PROFILE_LANGUAGE_IDS.has(requested) ? requested : 'system';
+    return { title, language };
+}
+
+// Look up the catalog entry for a stored language id (defaults to 'system').
+export function profileLanguageEntry(languageId) {
+    const id = String(languageId || 'system');
+    return PROFILE_LANGUAGES.find((lang) => lang.id === id) || PROFILE_LANGUAGES[0];
+}
 
 // Map short Anthropic family labels to the full model ids used by the API.
 // Honors ANTHROPIC_DEFAULT_{OPUS|SONNET|HAIKU}_MODEL env overrides.
@@ -188,7 +238,7 @@ export function loadConfig(options = {}) {
                 migratedMaintenance = true;
             }
             // Self-ref guard: mcpServers.mixdog / mcpServers["trib-plugin"]
-            // would self-spawn through the in-process tool bridge. Strip on
+            // would self-spawn through the in-process tool adapter. Strip on
             // ingress so user-edited configs cannot brick the agent boot.
             const mcpServers = (raw.mcpServers && typeof raw.mcpServers === 'object') ? { ...raw.mcpServers } : {};
             if (mcpServers['mixdog'] || mcpServers['trib-plugin']) {
@@ -257,8 +307,6 @@ export function loadConfig(options = {}) {
                 .filter(Boolean)
                 .filter(p => p.id !== 'workflow-search');
             const workflowRoutes = raw.workflowRoutes && typeof raw.workflowRoutes === 'object' ? { ...raw.workflowRoutes } : {};
-            if (workflowRoutes.bridge && !workflowRoutes.agent) workflowRoutes.agent = workflowRoutes.bridge;
-            delete workflowRoutes.bridge;
             delete workflowRoutes.search;
             return {
                 providers: mergedProviders,
@@ -274,12 +322,11 @@ export function loadConfig(options = {}) {
                 agents: raw.agents && typeof raw.agents === 'object' ? raw.agents : {},
                 workflow: raw.workflow && typeof raw.workflow === 'object' ? { active: String(raw.workflow.active || 'default') } : { active: 'default' },
                 agentMaintenance: { enabled: true, interval: '1h', ...raw.agentMaintenance },
+                profile: normalizeProfileConfig(raw.profile),
                 autoClear: { enabled: true, idleMs: 60 * 60 * 1000, ...raw.autoClear },
                 compaction: raw.compaction && typeof raw.compaction === 'object' ? { ...raw.compaction } : {},
                 trajectory: { enabled: true, ...raw.trajectory },
-                runtime: raw.runtime && typeof raw.runtime === 'object'
-                    ? raw.runtime
-                    : (raw.bridge && typeof raw.bridge === 'object' ? raw.bridge : {}),
+                runtime: raw.runtime && typeof raw.runtime === 'object' ? raw.runtime : {},
                 shell: raw.shell && typeof raw.shell === 'object' ? raw.shell : {},
             };
         }
@@ -300,6 +347,7 @@ export function loadConfig(options = {}) {
         agents: {},
         workflow: { active: 'default' },
         agentMaintenance: { enabled: true, interval: '1h' },
+        profile: normalizeProfileConfig(null),
         autoClear: { enabled: true, idleMs: 60 * 60 * 1000 },
         compaction: {},
         trajectory: { enabled: true },
@@ -350,8 +398,6 @@ export function saveConfig(config) {
     const workflowRoutes = config.workflowRoutes && typeof config.workflowRoutes === 'object'
         ? { ...config.workflowRoutes }
         : {};
-    if (workflowRoutes.bridge && !workflowRoutes.agent) workflowRoutes.agent = workflowRoutes.bridge;
-    delete workflowRoutes.bridge;
     delete workflowRoutes.search;
     const presets = Array.isArray(config.presets)
         ? config.presets.filter(p => p?.id !== 'workflow-search')
@@ -375,11 +421,11 @@ export function saveConfig(config) {
         agents: config.agents || {},
         workflow: config.workflow || { active: 'default' },
         agentMaintenance: config.agentMaintenance || {},
+        profile: normalizeProfileConfig(config.profile),
         autoClear: config.autoClear || {},
         compaction: config.compaction || {},
         trajectory: config.trajectory || {},
-        runtime: config.runtime || config.bridge || {},
-        bridge: undefined,
+        runtime: config.runtime || {},
         shell: config.shell || {},
     }));
 }
@@ -445,20 +491,20 @@ export function listPresets(config) {
 // (both cache shards are identical there), while swapping the model itself
 // legitimately needs a fresh session (cache shard is model-specific). Two
 // presets mapping to the same (provider, model) therefore collapse into
-// one Bridge session, so opus-mid / opus-max no longer fragment the pool.
+// one Agent session, so opus-mid / opus-max no longer fragment the pool.
 //
-//   bridge lane: "bridge:<agentId>:<provider>:<model>"  — per Sub role
-//   other lane:  "bridge:<provider>:<model>"            — shared utility
+//   agent lane: "agent:<agentId>:<provider>:<model>"  — per Sub role
+//   other lane: "agent:<provider>:<model>"            — shared utility
 export function resolveRuntimeSpec(preset, ctx) {
-    const lane = ctx.lane || 'bridge';
+    const lane = ctx.lane || 'agent';
     const provider = String(preset?.provider || '').trim() || 'unknown';
     const model = String(preset?.model || '').trim() || '_';
     let scopeKey;
-    if (lane === 'bridge') {
-        if (!ctx.agentId) throw new Error('bridge lane requires agentId');
-        scopeKey = `bridge:${ctx.agentId}:${provider}:${model}`;
+    if (lane === 'agent') {
+        if (!ctx.agentId) throw new Error('agent lane requires agentId');
+        scopeKey = `agent:${ctx.agentId}:${provider}:${model}`;
     } else {
-        scopeKey = `bridge:${provider}:${model}`;
+        scopeKey = `agent:${provider}:${model}`;
     }
     return { lane, scopeKey, reuse: true, preset };
 }

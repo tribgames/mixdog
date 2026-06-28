@@ -6,7 +6,7 @@ function __mixdogMemoryLog(...args) {
 
 import { cleanMemoryText } from './memory.mjs'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
-import { callBridgeLlm } from './agent-ipc.mjs'
+import { callAgentDispatch } from './agent-ipc.mjs'
 import {
   flushEmbeddingDirty, inferChunkProjectId,
 } from './memory-embed.mjs'
@@ -514,7 +514,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
     }
 
     const userMessage = buildCycle1ChunkPrompt(rows)
-    const llmCall = typeof options?.callLlm === 'function' ? options.callLlm : callBridgeLlm
+    const llmCall = typeof options?.callLlm === 'function' ? options.callLlm : callAgentDispatch
 
     let raw
     const _tLlm = Date.now()
@@ -525,7 +525,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
         mode: 'cycle1',
         preset,
         timeout,
-        // Pin cwd to null so every memory cycle call hits the same bridge cache shard.
+        // Pin cwd to null so every memory cycle call hits the same agent cache shard.
         cwd: null,
       }, userMessage)
     } catch (err) {

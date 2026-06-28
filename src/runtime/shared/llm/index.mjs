@@ -2,8 +2,8 @@
  * Shared LLM helpers (post v0.6.46).
  *
  * The legacy `callLLM` dispatcher and direct CLI/HTTP runners have been
- * removed — every LLM call now flows through `bridge-llm.mjs`
- * (`makeBridgeLlm({ taskType })`) and, for memory maintenance specifically,
+ * removed — every LLM call now flows through `agent-dispatch.mjs`
+ * (`makeAgentDispatch({ taskType })`) and, for memory maintenance specifically,
  * through `maintenance-llm.mjs`'s thin wrapper.
  *
  * Only preset resolution remains here: memory-cycle and future backend

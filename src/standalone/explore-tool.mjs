@@ -1,24 +1,25 @@
 import { isAbsolute, resolve } from 'node:path';
 import { homedir } from 'node:os';
-import { makeBridgeLlm } from '../runtime/agent/orchestrator/smart-bridge/bridge-llm.mjs';
+import { makeAgentDispatch } from '../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
 import { loadConfig } from '../runtime/agent/orchestrator/config.mjs';
+import { initProviders } from '../runtime/agent/orchestrator/providers/registry.mjs';
 import { presentErrorText } from '../runtime/shared/err-text.mjs';
 
 // Ported from the original mixdog tool-defs.mjs `explore` entry.
 // `aiWrapped` is dropped: in the standalone build there is no aiWrapped
 // dispatch hub — execution is wired directly in the runtime executor below
-// via makeBridgeLlm. The standalone surface is synchronous: it returns a
+// via makeAgentDispatch. The standalone surface is synchronous: it returns a
 // bounded locator result in this tool call.
 export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: 'Broad-scope locator only: a short location finder. Finds related file/function/symbol/line coordinates, not analysis. Use code_graph/grep/glob first for known symbols/files; explore is for broad or unclear repo/code location questions. Batch independent searches as an array in one call; if not expressible as an array, issue parallel calls in the same turn. Runs synchronously and returns the bounded result in this tool call.',
+  description: 'Locate code anchors. Returns path:line candidates. Batch queries.',
   inputSchema: {
     type: 'object',
     properties: {
-      query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Short location question(s). Never pass a whole brief. Batch independent searches as an array.' },
-      cwd: { type: 'string', description: 'Project/root directory to explore; narrow to the relevant repo or subtree.' },
+      query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Location query/query array.' },
+      cwd: { type: 'string', description: 'Project/root directory.' },
     },
     required: [],
     additionalProperties: false,
@@ -32,6 +33,12 @@ export const EXPLORE_OUTPUT_CHAR_CAP = 24_000;
 const EXPLORE_TRUNCATION_MARKER = '\n\n[explore: output truncated; narrow cwd or split queries to see more]';
 // Bound fan-out so a hostile/poisoned query array cannot spawn unbounded subs.
 export const MAX_FANOUT_QUERIES = 8;
+const EXPLORE_RESULT_CACHE_MAX_ENTRIES = 64;
+const EXPLORE_RESULT_CACHE_TTL_MS = (() => {
+  const raw = Number(process.env.MIXDOG_EXPLORE_RESULT_CACHE_TTL_MS);
+  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 5 * 60_000;
+})();
+const EXPLORE_RESULT_CACHE = new Map(); // key -> { ts, value?, promise? }
 
 function escapeXml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -40,7 +47,7 @@ function escapeXml(str) {
 // Mirrors buildExplorerPrompt from the original ai-wrapped-dispatch: each
 // explorer receives ONLY its own query, with a trailing descriptive-only
 // reminder. The full no-verdict contract lives at system level
-// (rules/bridge/30-explorer.md).
+// (rules/agent/30-explorer.md).
 export function buildExplorerPrompt(query) {
   return `<query>${escapeXml(query)}</query>\nReminder: output only anchor lines formatted as path:line — symbol/name — short reason, or EXPLORATION_FAILED. No preamble, bullets, numbering, headings, summary, code quotes, analysis, verdicts, ratings, or recommendations.`;
 }
@@ -141,6 +148,90 @@ function clean(value) {
   return String(value ?? '').trim();
 }
 
+function exploreResultCacheEnabled() {
+  return EXPLORE_RESULT_CACHE_TTL_MS > 0
+    && !/^(?:0|false|off|no)$/i.test(String(process.env.MIXDOG_EXPLORE_RESULT_CACHE || '1'));
+}
+
+function exploreResultCacheKey({ cwd, presetName, query }) {
+  return JSON.stringify({
+    cwd: String(cwd || ''),
+    presetName: String(presetName || ''),
+    query: String(query || ''),
+  });
+}
+
+function findConfigPreset(config, presetName) {
+  const wanted = clean(presetName);
+  if (!wanted) return null;
+  return (Array.isArray(config?.presets) ? config.presets : [])
+    .find((preset) => clean(preset?.id) === wanted || clean(preset?.name) === wanted)
+    || null;
+}
+
+async function ensureExploreProviderReady(config) {
+  const preset = findConfigPreset(config, config?.maintenance?.explore);
+  const provider = clean(preset?.provider);
+  if (!provider) return;
+  const providers = { ...(config?.providers || {}) };
+  providers[provider] = { ...(providers[provider] || {}), enabled: true };
+  await initProviders(providers);
+}
+
+function scheduleExploreCodeGraphPrewarm(cwd) {
+  if (/^(?:1|true|on|yes)$/i.test(String(process.env.MIXDOG_DISABLE_EXPLORE_CODE_GRAPH_PREWARM || ''))) return;
+  void import('../runtime/agent/orchestrator/tools/code-graph.mjs')
+    .then((mod) => mod?.prewarmCodeGraphIfProject?.(cwd))
+    .catch(() => { /* best-effort */ });
+}
+
+function getCachedExploreResult(key) {
+  if (!exploreResultCacheEnabled()) return null;
+  const entry = EXPLORE_RESULT_CACHE.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > EXPLORE_RESULT_CACHE_TTL_MS) {
+    EXPLORE_RESULT_CACHE.delete(key);
+    return null;
+  }
+  if (typeof entry.value === 'string') {
+    EXPLORE_RESULT_CACHE.delete(key);
+    EXPLORE_RESULT_CACHE.set(key, entry);
+    return entry.value;
+  }
+  return null;
+}
+
+async function runExploreCached(key, compute) {
+  const cached = getCachedExploreResult(key);
+  if (cached !== null) return cached;
+  if (!exploreResultCacheEnabled()) return await compute();
+  const pending = EXPLORE_RESULT_CACHE.get(key)?.promise;
+  if (pending) return await pending;
+  const promise = Promise.resolve()
+    .then(() => compute())
+    .then((value) => {
+      const text = typeof value === 'string' ? value : responseText(value);
+      const cleaned = cleanExplorerText(text);
+      if (cleaned && cleaned !== 'EXPLORATION_FAILED') {
+        EXPLORE_RESULT_CACHE.set(key, { ts: Date.now(), value: text });
+        while (EXPLORE_RESULT_CACHE.size > EXPLORE_RESULT_CACHE_MAX_ENTRIES) {
+          const oldest = EXPLORE_RESULT_CACHE.keys().next().value;
+          if (!oldest) break;
+          EXPLORE_RESULT_CACHE.delete(oldest);
+        }
+      } else {
+        EXPLORE_RESULT_CACHE.delete(key);
+      }
+      return value;
+    })
+    .catch((err) => {
+      EXPLORE_RESULT_CACHE.delete(key);
+      throw err;
+    });
+  EXPLORE_RESULT_CACHE.set(key, { ts: Date.now(), promise });
+  return await promise;
+}
+
 function responseText(response) {
   if (typeof response === 'string') return response;
   const parts = Array.isArray(response?.content) ? response.content : [];
@@ -184,7 +275,7 @@ function cleanExplorerText(text) {
  * Standalone explore executor.
  *
  * Dispatches the hidden `explorer` read-only filesystem role (one ephemeral
- * sub-session per query) via makeBridgeLlm — the same path recall/search-style
+ * sub-session per query) via makeAgentDispatch — the same path recall/search-style
  * hidden roles use. Runs query items concurrently (Promise.allSettled), then
  * aggregates the findings into one bounded text result.
  *
@@ -209,8 +300,11 @@ async function runExploreSync(args = {}, ctx = {}) {
   }
 
   const resolvedCwd = resolveExploreCwd(args.cwd, ctx.callerCwd);
-  const config = loadConfig({ secrets: false });
-  const llm = makeBridgeLlm({
+  scheduleExploreCodeGraphPrewarm(resolvedCwd);
+  const config = loadConfig();
+  await ensureExploreProviderReady(config);
+  const presetName = config?.maintenance?.explore || '';
+  const llm = makeAgentDispatch({
     role: 'explorer',
     cwd: resolvedCwd,
     brief: true,
@@ -219,7 +313,10 @@ async function runExploreSync(args = {}, ctx = {}) {
     config,
   });
 
-  const settled = await Promise.allSettled(working.map((q) => llm({ prompt: buildExplorerPrompt(q) })));
+  const settled = await Promise.allSettled(working.map((q) => {
+    const key = exploreResultCacheKey({ cwd: resolvedCwd, presetName, query: q });
+    return runExploreCached(key, () => llm({ prompt: buildExplorerPrompt(q) }));
+  }));
 
   const fatal = fatalExploreError(settled);
   if (fatal) return fail(presentErrorText(fatal, { surface: 'explore' }));

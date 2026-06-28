@@ -1,13 +1,13 @@
 /**
  * Unified LLM usage logger.
  *
- * Phase 2: Routes via appendBridgeTrace (HTTP buffer to memory-service)
+ * Phase 2: Routes via appendAgentTrace (HTTP buffer to memory-service)
  * instead of writing directly to the local trace jsonl.
  *
  * Signature unchanged — callers are unaffected.
  */
 
-import { appendBridgeTrace } from '../../agent/orchestrator/bridge-trace.mjs';
+import { appendAgentTrace } from '../../agent/orchestrator/agent-trace.mjs';
 
 /**
  * Append a usage entry to the trace store.
@@ -34,7 +34,7 @@ function warnMissingProviderOnce(key) {
 export function logLlmCall(entry, opts = {}) {
     try {
         if (!entry.provider) warnMissingProviderOnce(entry.model || '?');
-        appendBridgeTrace({
+        appendAgentTrace({
             ts: entry.ts || Date.now(),
             kind: 'usage',
             ...entry,

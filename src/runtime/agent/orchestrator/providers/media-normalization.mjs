@@ -17,6 +17,14 @@ function imageInfo(block) {
     return null;
 }
 
+function geminiInlineInfo(block) {
+    if (!block || typeof block !== 'object') return null;
+    const inline = block.inlineData || block.inline_data;
+    const data = inline?.data;
+    if (typeof data !== 'string' || !data) return null;
+    return { data, mimeType: cleanMimeType(inline.mimeType || inline.mime_type || inline.mediaType || inline.media_type) };
+}
+
 function imageUrlFromPart(block) {
     if (!block || typeof block !== 'object') return null;
     if (block.type === 'image_url') {
@@ -29,8 +37,35 @@ function imageUrlFromPart(block) {
         if (typeof value === 'string') return value;
         if (value && typeof value.url === 'string') return value.url;
     }
+    if (block.type === 'image' && block.source?.type === 'url' && typeof block.source.url === 'string') {
+        return block.source.url;
+    }
     const info = imageInfo(block);
     return info ? `data:${info.mimeType};base64,${info.data}` : null;
+}
+
+function imageFileUriFromPart(block) {
+    if (!block || typeof block !== 'object') return null;
+    const fileData = block.fileData || block.file_data;
+    const fileUri = fileData?.fileUri || fileData?.file_uri;
+    if (typeof fileUri === 'string' && fileUri) {
+        return { fileUri, mimeType: cleanMimeType(fileData.mimeType || fileData.mime_type || fileData.mediaType || fileData.media_type) };
+    }
+    if (block.type === 'image' && typeof block.uri === 'string' && block.uri) {
+        return { fileUri: block.uri, mimeType: cleanMimeType(block.mime_type || block.mimeType || block.media_type || block.mediaType) };
+    }
+    return null;
+}
+
+function imageFileIdFromPart(block) {
+    if (!block || typeof block !== 'object') return null;
+    if (block.type === 'input_image' && typeof block.file_id === 'string' && block.file_id) {
+        return block.file_id;
+    }
+    if (block.type === 'image' && block.source?.type === 'file' && typeof block.source.file_id === 'string' && block.source.file_id) {
+        return block.source.file_id;
+    }
+    return null;
 }
 
 function imageInfoFromDataUrl(url) {
@@ -68,14 +103,14 @@ function jsonFallbackFromPart(block) {
     const text = textFromPart(block);
     if (text) return text;
     if (!block || typeof block !== 'object') return block == null ? '' : String(block);
-    if (imageUrlFromPart(block)) return '';
+    if (imageUrlFromPart(block) || imageFileIdFromPart(block) || imageFileUriFromPart(block) || geminiInlineInfo(block)) return '';
     return stringifyFallback(block);
 }
 
 export function contentHasImage(content) {
     const parts = contentParts(content);
     if (!parts) return false;
-    return parts.some((part) => !!imageUrlFromPart(part));
+    return parts.some((part) => !!imageUrlFromPart(part) || !!imageFileIdFromPart(part) || !!imageFileUriFromPart(part) || !!geminiInlineInfo(part));
 }
 
 export function contentToText(content, fallback = '') {
@@ -87,16 +122,17 @@ export function contentToText(content, fallback = '') {
 }
 
 function storedHistoryImagePlaceholder(part) {
-    const info = imageInfo(part);
+    const info = imageInfo(part) || geminiInlineInfo(part);
     const url = imageUrlFromPart(part);
-    const mimeType = info?.mimeType || imageMimeFromDataUrl(url) || (part?.type === 'image' ? DEFAULT_IMAGE_MIME : '');
+    const fileUri = imageFileUriFromPart(part);
+    const mimeType = info?.mimeType || imageMimeFromDataUrl(url) || fileUri?.mimeType || (part?.type === 'image' ? DEFAULT_IMAGE_MIME : '');
     return `[Image omitted from stored history${mimeType ? `: ${mimeType}` : ''}]`;
 }
 
 function sanitizePartForStoredHistory(part) {
     if (typeof part === 'string') return part;
     if (!part || typeof part !== 'object') return part;
-    if (part.type === 'image' || part.type === 'image_url' || part.type === 'input_image' || imageUrlFromPart(part)) {
+    if (part.type === 'image' || part.type === 'image_url' || part.type === 'input_image' || imageUrlFromPart(part) || imageFileIdFromPart(part) || imageFileUriFromPart(part) || geminiInlineInfo(part)) {
         return { type: 'text', text: storedHistoryImagePlaceholder(part) };
     }
     if (Array.isArray(part.content)) {
@@ -137,8 +173,28 @@ export function normalizeContentForAnthropic(content) {
             if (part.cache_control) out.cache_control = part.cache_control;
             return out;
         }
+        const fileId = imageFileIdFromPart(part);
+        if (fileId) {
+            return { type: 'image', source: { type: 'file', file_id: fileId } };
+        }
+        const url = imageUrlFromPart(part);
+        const dataUrlInfo = imageInfoFromDataUrl(url);
+        if (dataUrlInfo) {
+            return {
+                type: 'image',
+                source: {
+                    type: 'base64',
+                    media_type: dataUrlInfo.mimeType,
+                    data: dataUrlInfo.data,
+                },
+            };
+        }
+        if (url) {
+            return { type: 'image', source: { type: 'url', url } };
+        }
         if (part?.type === 'image') {
             if (part.source?.type === 'url' && typeof part.source.url === 'string') return part;
+            if (part.source?.type === 'file' && typeof part.source.file_id === 'string') return part;
             return { type: 'text', text: `[unsupported image content: ${stringifyFallback(part)}]` };
         }
         if (part?.type === 'tool_result') {
@@ -163,6 +219,16 @@ export function normalizeContentForOpenAIChat(content, { role = 'user' } = {}) {
     if (!parts) return content;
     const out = [];
     for (const part of parts) {
+        const fileId = imageFileIdFromPart(part);
+        if (fileId) {
+            out.push({ type: 'text', text: `[unsupported image file_id for OpenAI Chat-compatible request: ${fileId}]` });
+            continue;
+        }
+        const fileUri = imageFileUriFromPart(part);
+        if (fileUri) {
+            out.push({ type: 'image_url', image_url: { url: fileUri.fileUri } });
+            continue;
+        }
         const url = imageUrlFromPart(part);
         if (url) {
             out.push({ type: 'image_url', image_url: { url } });
@@ -185,6 +251,16 @@ export function normalizeContentForOpenAIResponses(content, { role = 'user' } = 
     }
     const out = [];
     for (const part of parts) {
+        const fileId = imageFileIdFromPart(part);
+        if (fileId) {
+            out.push({ type: 'input_image', file_id: fileId });
+            continue;
+        }
+        const fileUri = imageFileUriFromPart(part);
+        if (fileUri) {
+            out.push({ type: 'input_image', image_url: fileUri.fileUri });
+            continue;
+        }
         const url = imageUrlFromPart(part);
         if (url) {
             out.push({ type: 'input_image', image_url: url });
@@ -205,6 +281,21 @@ export function normalizeContentForGeminiParts(content) {
     }
     const out = [];
     for (const part of parts) {
+        const inlineInfo = geminiInlineInfo(part);
+        if (inlineInfo) {
+            out.push({ inlineData: { mimeType: inlineInfo.mimeType, data: inlineInfo.data } });
+            continue;
+        }
+        const fileUri = imageFileUriFromPart(part);
+        if (fileUri) {
+            out.push({ fileData: { mimeType: fileUri.mimeType, fileUri: fileUri.fileUri } });
+            continue;
+        }
+        const fileId = imageFileIdFromPart(part);
+        if (fileId) {
+            out.push({ text: `[unsupported image file_id for Gemini request: ${fileId}]` });
+            continue;
+        }
         const info = imageInfo(part);
         if (info) {
             out.push({ inlineData: { mimeType: info.mimeType, data: info.data } });

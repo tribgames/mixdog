@@ -6,8 +6,8 @@
  * standalone utilities remain:
  *   • classifyBashFileLookupCommand — detects a `bash` call whose first token is
  *     a file-lookup that has a dedicated in-process tool (read/grep/find/glob/list).
- *     Used by the bridge-worker permission gate to block the shell route.
- *   • classifyBridgeWorkerGitMutationCommand — detects bridge-worker shell
+ *     Used by the agent-worker permission gate to block the shell route.
+ *   • classifyAgentWorkerGitMutationCommand — detects agent-worker shell
  *     calls that try to run git operations reserved for Lead.
  *   • stripSoftWarns — strips legacy soft-warn marker blocks from outbound
  *     bodies so older transcripts that still carry them stay clean.
@@ -196,7 +196,7 @@ function isShellCommandArgFlag(wrapper, flag) {
     return false;
 }
 
-export function classifyBridgeWorkerGitMutationCommand(command) {
+export function classifyAgentWorkerGitMutationCommand(command) {
     if (typeof command !== 'string' || !command.trim()) return null;
     const tokens = shellTokenizeLoose(command);
     for (let i = 0; i < tokens.length; i += 1) {
@@ -208,7 +208,7 @@ export function classifyBridgeWorkerGitMutationCommand(command) {
                 if (SHELL_SEPARATORS.has(flag)) break;
                 if (!isShellCommandArgFlag(token, flag)) continue;
                 const nested = tokens.slice(j + 1).join(' ');
-                const nestedHit = classifyBridgeWorkerGitMutationCommand(nested || '');
+                const nestedHit = classifyAgentWorkerGitMutationCommand(nested || '');
                 if (nestedHit) return nestedHit;
                 break;
             }

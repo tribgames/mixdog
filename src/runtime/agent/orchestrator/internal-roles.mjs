@@ -5,7 +5,7 @@
  * invoked only by internal handlers (explore / recall / search) and carry
  * their own system prompt + tool-set policy.
  *
- * Lookup order (bridge-llm.resolvePresetName):
+ * Lookup order (agent-dispatch.resolvePresetName):
  *   1. explicit preset arg
  *   2. opts.preset
  *   3. hidden-role registry (defaults/hidden-roles.json + systemFile frontmatter)
@@ -29,18 +29,18 @@
  *                    guard with the same error string public read-only roles see.
  *   - 'read-write' : full tool surface — used by hidden roles that legitimately
  *                    mutate state (scheduler-task launches commands,
- *                    webhook-handler persists payloads). bridge-llm honors this
+ *                    webhook-handler persists payloads). agent-dispatch honors this
  *                    declaratively instead of forcing every hidden role to 'read'.
  *
  * Tool schema profile:
  *   - 'none' : no tools exposed; pure transform/classifier roles.
  *   - 'read' : read/search/code-navigation tools only.
- *   - 'full' : shared bridge tool schema for provider cache reuse.
+ *   - 'full' : shared agent tool schema for provider cache reuse.
  *
  * BP3 role-specific instruction metadata (consumed by rules-builder.cjs
- * buildBridgeRoleSpecificContent + collect.mjs):
+ * buildAgentRoleSpecificContent + collect.mjs):
  *   - inboundEvent   : role reports results back to Lead and must carry the
- *                      skip-protocol rule (rules/bridge/20-skip-protocol.md)
+ *                      skip-protocol rule (rules/agent/20-skip-protocol.md)
  *                      in its BP2 catalog so no-op outputs opt out of the Lead
  *                      inject.
  *   - instructionDir : DATA_DIR subdir whose *.md tree is folded into the
@@ -161,11 +161,11 @@ export function getHiddenRole(name) {
 }
 
 /**
- * Resolve permission stamped on a bridge session. Hidden roles declared
+ * Resolve permission stamped on a agent session. Hidden roles declared
  * `permission: 'read'` are read-locked — caller opts cannot upgrade them.
  * Other built-in permissions include `none`, `read-write`, `mcp`, and `full`.
  */
-export function resolveBridgeSessionPermission(role, callerPermission) {
+export function resolveAgentSessionPermission(role, callerPermission) {
   const hidden = getHiddenRole(role)
   if (hidden && hidden.permission === 'read') return 'read'
   if (callerPermission != null && callerPermission !== '') return callerPermission
@@ -174,7 +174,7 @@ export function resolveBridgeSessionPermission(role, callerPermission) {
 }
 
 /**
- * Boolean check — useful for branching inside bridge-llm / session-manager.
+ * Boolean check — useful for branching inside agent-dispatch / session-manager.
  */
 export function isHiddenRole(name) {
   if (!name) return false
@@ -227,7 +227,7 @@ export function isInboundEventRole(name) {
 /**
  * Return the DATA_DIR subdir whose *.md tree folds into a role's BP3
  * role-specific block, or null when the role declares none. Replaces the
- * webhook/scheduler ternary in rules-builder.cjs buildBridgeRoleSpecificContent.
+ * webhook/scheduler ternary in rules-builder.cjs buildAgentRoleSpecificContent.
  */
 export function getRoleInstructionDir(name) {
   const hidden = getHiddenRole(name)

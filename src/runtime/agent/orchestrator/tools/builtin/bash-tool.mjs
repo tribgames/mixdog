@@ -60,7 +60,7 @@ export function _trackedDriftNoteAfter(_scope, _pre) {
 // AbortSignal (e.g. the MCP/request signal threaded through options.abortSignal).
 // Returns null when neither is present so existing session-only behavior is
 // preserved unchanged. Uses AbortSignal.any when available; falls back to a
-// manual controller + listener bridge otherwise. The returned signal aborts as
+// manual controller + listener path otherwise. The returned signal aborts as
 // soon as either input signal aborts, which propagates to execShellCommand /
 // executeBashSessionTool and triggers the same child-kill path the session
 // signal already drives.
@@ -343,7 +343,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             // the background task finished (no polling tool is auto-driven). The
             // notify ctx is threaded down from the MCP dispatch frame
             // (server-main agentContext / _dispatchByModule) the same way the
-            // bridge/explore-style tools receive notifyFn/routingSessionId/clientHostPid.
+            // agent/explore-style tools receive notifyFn/routingSessionId/clientHostPid.
             // Missing notifyFn (e.g. a non-MCP caller) degrades to a stderr
             // diagnostic inside watchBackgroundShellJob — never fails the spawn.
             try {

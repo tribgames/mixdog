@@ -33,7 +33,7 @@
  */
 
 import * as nodeUtil from 'node:util';
-import { traceBridgeCompress, traceBridgeBatch } from '../bridge-trace.mjs';
+import { traceAgentCompress, traceAgentBatch } from '../agent-trace.mjs';
 import { BUILTIN_TOOLS } from './builtin.mjs';
 import { PATCH_TOOL_DEFS } from './patch-tool-defs.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from './code-graph-tool-defs.mjs';
@@ -137,7 +137,7 @@ function normalizeTrailingNewlines(text) {
     return text.replace(/\n+$/, '\n');
 }
 
-// Retained as named exports for non-tool-result consumers (bridge
+// Retained as named exports for non-tool-result consumers (agent
 // aggregated worker bodies in ai-wrapped-dispatch). These functions are
 // NO LONGER part of the tool-result compression chain — that chain is
 // lossless-only.
@@ -192,7 +192,7 @@ export function compressToolResult(toolName, args, result, ctx) {
     out = normalizeTrailingNewlines(out);
     if (out.length >= before) return result;
     if (ctx?.sessionId) {
-        try { traceBridgeCompress({ sessionId: ctx.sessionId, toolName, before, after: out.length }); } catch { /* trace best-effort */ }
+        try { traceAgentCompress({ sessionId: ctx.sessionId, toolName, before, after: out.length }); } catch { /* trace best-effort */ }
     }
     return out;
 }
@@ -205,7 +205,7 @@ export function compressToolResult(toolName, args, result, ctx) {
 export function recordToolBatch(sessionId, toolCallCount) {
     const n = Number(toolCallCount);
     if (!sessionId || !Number.isFinite(n) || n <= 0) return;
-    try { traceBridgeBatch({ sessionId, toolCallCount: n }); } catch { /* trace best-effort */ }
+    try { traceAgentBatch({ sessionId, toolCallCount: n }); } catch { /* trace best-effort */ }
 }
 
 export const _internals = {

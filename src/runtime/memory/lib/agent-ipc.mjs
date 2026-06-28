@@ -1,9 +1,9 @@
 /**
- * agent-ipc.mjs — IPC client for bridge LLM calls from the memory worker.
+ * agent-ipc.mjs — IPC client for agent dispatch calls from the memory worker.
  *
- * The memory worker runs in its own fork, while the bridge / provider
+ * The memory worker runs in its own fork, while the agent runtime / provider
  * registry lives in-process in the parent server. cycle1 / cycle2 can't
- * call makeBridgeLlm() locally (provider map is empty here), so we route
+ * call makeAgentDispatch() locally (provider map is empty here), so we route
  * every LLM call over IPC:
  *
  *   memory → parent :  { type: 'agent_ipc_request',  callId, tool, params }
@@ -36,10 +36,10 @@ function nextCallId() {
 }
 
 /**
- * Send an agent-bridge LLM request to the parent. Throws if IPC is
+ * Send an agent-agent dispatch request to the parent. Throws if IPC is
  * unavailable (worker not forked) or the parent reports an error.
  *
- * @param {object} opts           bridge-llm construction options
+ * @param {object} opts           agent-dispatch construction options
  * @param {string} [opts.role]
  * @param {string} [opts.taskType]
  * @param {string} [opts.mode]
@@ -49,7 +49,7 @@ function nextCallId() {
  * @param {string} prompt          user message
  * @returns {Promise<string>}      raw assistant content
  */
-export function callBridgeLlm(opts = {}, prompt) {
+export function callAgentDispatch(opts = {}, prompt) {
   if (!process.send || !process.connected) {
     return Promise.reject(new Error('agent-ipc: IPC channel unavailable (no process.send / not connected)'))
   }
@@ -84,7 +84,7 @@ export function callBridgeLlm(opts = {}, prompt) {
       process.send({
         type: 'agent_ipc_request',
         callId,
-        tool: 'bridge_llm',
+        tool: 'agent_dispatch',
         params: {
           role: opts.role || null,
           taskType: opts.taskType || null,

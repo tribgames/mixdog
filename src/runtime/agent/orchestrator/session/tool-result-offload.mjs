@@ -127,7 +127,7 @@ export async function maybeOffloadToolResult(sessionId, toolCallId, toolName, re
 // tool-results/<sessionId>/*.txt entry, rmdirs the directory, and drops
 // the sessionId entry from the module-level counter Map so a long-running
 // mcp-server process doesn't accumulate per-session state across the
-// lifetime of the bridge.
+// lifetime of the agent runtime.
 export async function clearOffloadSession(sessionId) {
     if (!sessionId) return;
     _offloadCounters.delete(sessionId);

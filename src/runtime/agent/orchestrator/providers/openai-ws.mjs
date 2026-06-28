@@ -18,7 +18,7 @@ import { enrichModels } from './model-catalog.mjs';
 import {
     resolveProviderCacheKey,
     resolveProviderPromptCacheLane,
-} from '../smart-bridge/cache-strategy.mjs';
+} from '../agent-runtime/cache-strategy.mjs';
 
 const OPENAI_DIRECT_PRIORITY_MODEL_PATTERNS = Object.freeze([
     /^gpt-5\.5(?:-\d{4}|$)/,

@@ -2,7 +2,7 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { BRIDGE_TOOL, createStandaloneBridge } from '../src/standalone/bridge-tool.mjs';
+import { AGENT_TOOL, createStandaloneAgent } from '../src/standalone/agent-tool.mjs';
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { initProviders } from '../src/runtime/agent/orchestrator/providers/registry.mjs';
@@ -37,7 +37,7 @@ async function main() {
   const workflowRules = readFileSync('src/workflows/default/WORKFLOW.md', 'utf8');
   assert(/Use `agent` for scoped implementation/i.test(leadToolRules), 'lead rules must direct scoped work to agents');
   assert(/delegat(?:es|ing) them concurrently/i.test(workflowRules), 'workflow rules must keep independent work parallel');
-  assert(/always start background tasks/i.test(BRIDGE_TOOL.description || '') && /distinct tags/i.test(BRIDGE_TOOL.description || '') && /completion notification/i.test(BRIDGE_TOOL.description || ''), 'agent tool description must expose async parallel tags');
+  assert(/always start background tasks/i.test(AGENT_TOOL.description || '') && /distinct tags/i.test(AGENT_TOOL.description || '') && /completion notification/i.test(AGENT_TOOL.description || ''), 'agent tool description must expose async parallel tags');
 
   mkdirSync(dataDir, { recursive: true });
   await initProviders({ 'openai-oauth': { enabled: true } });
@@ -61,7 +61,7 @@ async function main() {
       };
     },
     resolveRuntimeSpec(preset, ctx) {
-      return { lane: 'bridge', scopeKey: `smoke:${ctx.agentId}`, provider: preset.provider, model: preset.model };
+      return { lane: 'agent', scopeKey: `smoke:${ctx.agentId}`, provider: preset.provider, model: preset.model };
     },
   };
   const reg = { initProviders };
@@ -127,14 +127,14 @@ async function main() {
     getSessionLastProgressAt,
     askSession: fakeAskSession,
   };
-  const bridge = createStandaloneBridge({ cfgMod, reg, mgr, dataDir, cwd: root, defaultMode: 'async' });
+  const agentRunner = createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: root, defaultMode: 'async' });
 
   async function waitJob(out, pattern, label) {
     const id = taskId(out);
     assert(id, `missing task ID for ${label}: ${out}`);
     let last = '';
     for (let i = 0; i < 40; i += 1) {
-      last = await bridge.execute({ type: 'read', task_id: id }, { invocationSource: 'model-tool', cwd: root });
+      last = await agentRunner.execute({ type: 'read', task_id: id }, { invocationSource: 'model-tool', cwd: root });
       if (pattern.test(last)) return last;
       if (/^Error[\s:[]/.test(last) || /status: error/.test(last)) break;
       await sleep(100);
@@ -144,13 +144,13 @@ async function main() {
 
   async function waitAgentTag(tag, label) {
     for (let i = 0; i < 20; i += 1) {
-      if (listSessions().some((session) => session?.bridgeTag === tag && !session.closed)) return;
+      if (listSessions().some((session) => session?.agentTag === tag && !session.closed)) return;
       await sleep(25);
     }
     throw new Error(`${label} did not register agent tag ${tag}`);
   }
 
-  const spawnOut = await bridge.execute({
+  const spawnOut = await agentRunner.execute({
     type: 'spawn',
     role: 'worker',
     tag: 'impl1',
@@ -159,7 +159,7 @@ async function main() {
   }, { invocationSource: 'model-tool', cwd: root });
   await waitJob(spawnOut, /worker wrote feature/, 'worker write');
 
-  const sendOut = await bridge.execute({
+  const sendOut = await agentRunner.execute({
     type: 'send',
     tag: 'impl1',
     message: 'run verification: inspect feature.txt using bash',
@@ -167,14 +167,14 @@ async function main() {
   assert(/agent task:/.test(sendOut), `completed worker send should be async task, got ${sendOut}`);
   await waitJob(sendOut, /beta from worker/, 'worker verify');
 
-  const reviewOut = await bridge.execute({
+  const reviewOut = await agentRunner.execute({
     type: 'spawn',
     role: 'reviewer',
     tag: 'rev1',
     cwd: root,
     prompt: 'review feature.txt for the worker change',
   }, { invocationSource: 'model-tool', cwd: root });
-  const debugOut = await bridge.execute({
+  const debugOut = await agentRunner.execute({
     type: 'spawn',
     role: 'debugger',
     tag: 'dbg1',
@@ -185,21 +185,21 @@ async function main() {
   await waitJob(debugOut, /debugger TODO/, 'debugger');
 
   const parallelSpawns = await Promise.all([
-    bridge.execute({
+    agentRunner.execute({
       type: 'spawn',
       role: 'worker',
       tag: 'parWorker',
       cwd: root,
       prompt: 'parallel slow worker task',
     }, { invocationSource: 'model-tool', cwd: root }),
-    bridge.execute({
+    agentRunner.execute({
       type: 'spawn',
       role: 'reviewer',
       tag: 'parReviewer',
       cwd: root,
       prompt: 'parallel slow review task',
     }, { invocationSource: 'model-tool', cwd: root }),
-    bridge.execute({
+    agentRunner.execute({
       type: 'spawn',
       role: 'debugger',
       tag: 'parDebugger',
@@ -215,7 +215,7 @@ async function main() {
   ]);
   assert(maxActiveAsks >= 2, `agents did not overlap; maxActiveAsks=${maxActiveAsks}`);
 
-  const busyOut = await bridge.execute({
+  const busyOut = await agentRunner.execute({
     type: 'spawn',
     role: 'worker',
     tag: 'busy1',
@@ -223,7 +223,7 @@ async function main() {
     prompt: 'long busy worker task',
   }, { invocationSource: 'model-tool', cwd: root });
   await waitAgentTag('busy1', 'busy worker');
-  const queued = await bridge.execute({
+  const queued = await agentRunner.execute({
     type: 'send',
     tag: 'busy1',
     message: 'follow-up while still busy',
@@ -231,10 +231,10 @@ async function main() {
   assert(/agent message queued/.test(queued), `busy send should queue, got ${queued}`);
   await waitJob(busyOut, /ack worker/, 'busy worker');
 
-  const missing = await bridge.execute({ type: 'read', task_id: 'task_missing_live_smoke' }, { invocationSource: 'model-tool', cwd: root });
+  const missing = await agentRunner.execute({ type: 'read', task_id: 'task_missing_live_smoke' }, { invocationSource: 'model-tool', cwd: root });
   assert(/^Error[\s:[]/.test(missing), 'missing agent task should be Error result');
   assert(readFileSync(join(root, 'feature.txt'), 'utf8').includes('beta from worker'), 'final file missing worker edit');
-  bridge.closeAll('live-worker-smoke-end');
+  agentRunner.closeAll('live-worker-smoke-end');
   process.stdout.write('live worker smoke passed\n');
 }
 

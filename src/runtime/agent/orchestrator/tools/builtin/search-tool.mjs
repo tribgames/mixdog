@@ -30,6 +30,7 @@ import {
 import {
     cacheGet,
     cacheSet,
+    runResultCacheInFlight,
     statPathsForMtime,
 } from './cache-layers.mjs';
 import { recordReadSnapshot } from './read-snapshot-runtime.mjs';
@@ -180,6 +181,14 @@ function splitGlobString(value) {
     }
     flush();
     return out;
+}
+
+function isRedundantAllFilesGlob(value) {
+    const g = canonicalizeGlobSlashes(String(value || '').trim())
+        .replace(/^\.\//, '')
+        .replace(/^\/+/, '')
+        .replace(/\/+$/, '');
+    return g === '**/*' || g === '**';
 }
 
 function resolveSearchScope(root, workDir) {
@@ -340,7 +349,9 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     // ripgrep `--glob` uses forward slashes on all platforms; canonicalize
     // `\`→`/` (win32 only) so a `**\*.ts` filter matches instead of being
     // parsed as an escape sequence.
-    const normalizedGlobPatterns = uniqueStrings(globPatterns.map(canonicalizeGlobSlashes));
+    const normalizedGlobPatterns = uniqueStrings(globPatterns
+        .map(canonicalizeGlobSlashes)
+        .filter((g) => !isRedundantAllFilesGlob(g)));
 
     const ALLOWED_OUTPUT_MODES = new Set(['files_with_matches', 'content', 'count']);
     const rawOutputMode = typeof args.output_mode === 'string' ? args.output_mode.trim() : '';
@@ -446,6 +457,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     // drift detection. So only the fresh-compute path (below) records a read.
     if (cached !== null) return cached;
 
+    return await runResultCacheInFlight(cacheKey, async () => {
     let grepStat;
     try { grepStat = statSync(grepResolvedPath); }
     catch (err) {
@@ -697,6 +709,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         const msg = stderr || err?.message || String(err);
         return `Error: ${msg.slice(0, 500)}`;
     }
+    });
 }
 
 export async function executeGlobTool(args, workDir, options = {}) {
@@ -814,6 +827,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
     const cached = cacheGet(cacheKey);
     if (cached !== null) return cached;
 
+    return await runResultCacheInFlight(cacheKey, async () => {
     const globGroups = [...groups.entries()];
 
     const allFiles = [];
@@ -883,7 +897,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
     if (sortMode === 'mtime') {
         // Opt-in mtime sorting is intentionally slower: it stats every match.
         // Bound the post-rg stat phase so a hung mount cannot pin glob until
-        // the bridge stall watchdog fires.
+        // the agent stall watchdog fires.
         const withStatAll = await statPathsForMtime(unique, workDir, 64, { deadlineMs: 5000 });
         const withStat = withStatAll.filter((entry) => entry?.stat != null);
         withStat.sort((a, b) => {
@@ -932,4 +946,5 @@ export async function executeGlobTool(args, workDir, options = {}) {
         try { options.onProgress(`found ${totalBeforeOffset} files`); } catch { /* best-effort */ }
     }
     return out;
+    });
 }

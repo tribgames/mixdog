@@ -1,7 +1,7 @@
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { homedir } from 'os';
-import { dirname, join, resolve } from 'path';
-import { maxMtime, maxMtimeRecursive } from '../cache-mtime.mjs';
+import { join, resolve } from 'path';
+import { maxMtimeRecursive } from '../cache-mtime.mjs';
 import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import {
     parseMarkdownFrontmatter,
@@ -33,90 +33,12 @@ function mixdogAssetDirs(projectDir, kind) {
     dirs.push(mixdogGlobalDir(kind));
     return dirs;
 }
-// Built-in fallback identity for the well-known public agent roles. Agent
-// markdown (project/global/built-in AGENT.md) wins; this only covers missing
-// custom agent docs so a fresh install still has useful role identity.
-export const DEFAULT_ROLE_IDENTITY = {
-    'explore': 'You are an exploration agent. Your job is to map the codebase, narrow vague requests into concrete files or symbols, and return concise leads. Do not edit files.',
-    'maintainer': 'You are a maintenance agent. Your job is to handle upkeep, cleanup audits, and background health work without occupying the Lead. Return final state, risks, and follow-up needs.',
-    'worker': 'You are an implementation agent. Your job is to make the scoped code change quickly and safely, not to fully verify the product. Run only lightweight, targeted self-checks needed to avoid handing off obviously broken code. Broad verification belongs to the Lead/reviewer.',
-    'heavy-worker': 'You are a heavy implementation agent for vague, open-ended, or multi-file changes. Your job is to make the scoped change with enough local design judgment to keep files coherent, while keeping validation lightweight. Do not run broad/full verification unless explicitly requested; report what remains for Lead/reviewer.',
-    'reviewer': 'You are a correctness reviewer. Your job is to decide whether the change is ship-ready. Report only blocking correctness issues, or return SHIP-READY. Do not perform style review, broad refactors, or extra implementation.',
-    'debugger': 'You are a debugging specialist. Your job is to diagnose root cause, minimal repro, and the smallest safe fix direction. Do not implement. Return evidence-backed cause and proposed fix scope, or clearly state what remains unknown.',
-};
-
-function shellEnvironmentReminder() {
-    const platform = process.platform || 'unknown';
-    const arch = process.arch || 'unknown';
-    if (platform === 'win32') {
-        return [
-            '# environment',
-            `os: Windows (${platform}/${arch})`,
-            'default_shell: PowerShell',
-            'shell tool: PowerShell syntax is the default. Use shell:"powershell" for PowerShell commands, or shell:"bash" only when intentionally using Git Bash/POSIX syntax.',
-        ].join('\n');
-    }
-    return [
-        '# environment',
-        `os: ${platform}/${arch}`,
-        'default_shell: POSIX /bin/sh',
-        'shell tool: POSIX shell syntax is the default. Use shell:"bash" for POSIX commands; use shell:"powershell" only when pwsh syntax is intentional and installed.',
-    ].join('\n');
-}
-// --- Agent template loading ---
-/**
- * Load an agent MD file (Worker.md, Reviewer.md, etc.) as session instructions.
- * Strips frontmatter, returns the body.
- */
-// Agent template cache — mtime-invalidated per (name, cwd).
-const _agentTemplateCache = new Map();
-export function loadAgentTemplate(name, cwd) {
-    // When cwd is null/missing (bridge maintenance callers like cycle1-agent
-    // pass cwd:null on purpose so provider-cache shards don't fork per MCP
-    // launch dir), skip the project-scoped template lookup entirely — DO NOT
-    // fall back to process.cwd(), which would leak the launcher's working
-    // directory into the cache key and fragment the shard per caller workspace.
-    const projectDir = (typeof cwd === 'string' && cwd.length > 0) ? cwd : null;
-    const key = `${name}|${projectDir ?? '__noproject__'}`;
-    // Search paths for agent files (mixdog-owned only; never .claude).
-    // Project-local <cwd>/.mixdog/agents first, then user-global. When cwd is
-    // missing the project entry is skipped; the global dir still applies so the
-    // "no template found → null" contract is preserved via the readSafe loop.
-    const agentDirs = mixdogAssetDirs(projectDir, 'agents');
-    const pluginRoot = mixdogRoot();
-    const builtinAgentsDir = pluginRoot ? join(pluginRoot, 'agents') : null;
-    const searchPaths = uniquePaths([
-        ...agentDirs.flatMap((dir) => [
-            join(dir, `${name}.md`),
-            join(dir, name, 'AGENT.md'),
-        ]),
-        ...(builtinAgentsDir ? [
-            join(builtinAgentsDir, `${name}.md`),
-            join(builtinAgentsDir, name, 'AGENT.md'),
-        ] : []),
-    ]);
-    // Freshness gate: the same agents/ dirs that hold the files.
-    const mtimePaths = builtinAgentsDir ? [...agentDirs, builtinAgentsDir] : [...agentDirs];
-    const mtime = maxMtimeRecursive(mtimePaths);
-    const cached = _agentTemplateCache.get(key);
-    if (cached && mtime <= cached.mtime) return cached.value;
-    for (const p of searchPaths) {
-        const content = readSafe(p);
-        if (content) {
-            const { body } = readMarkdownDocument(content);
-            _agentTemplateCache.set(key, { mtime, value: body });
-            return body;
-        }
-    }
-    _agentTemplateCache.set(key, { mtime, value: null });
-    return null;
-}
 /**
  * Collect available skills (frontmatter only — token efficient).
  * Full content loaded on demand via loadSkillContent().
  */
 export function collectSkills(cwd) {
-    // When cwd is null/missing (e.g. bridge maintenance callers that pass
+    // When cwd is null/missing (e.g. agent maintenance callers that pass
     // cwd:null on purpose so provider-cache shards don't fork per caller
     // workspace), skip project-scoped skills entirely — DO NOT fall back
     // to process.cwd(), which would leak the MCP launch dir into the
@@ -198,14 +120,47 @@ export function loadSkillContent(name, cwd) {
         return null;
     return readSafe(skill.filePath);
 }
+
+function compactSkillManifestText(value, max = 180) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    return text.length > max ? `${text.slice(0, Math.max(1, max - 3))}...` : text;
+}
+
 /**
- * Build slim skill tool definitions (Hermes-style 3-tool split).
- * The skill catalogue is served at runtime via `skills_list` rather than
- * inlined into tool descriptions, keeping per-session schema bytes small.
+ * Build the compact skill manifest shown to the model.
+ * Full SKILL.md content is still loaded only through Skill(name).
+ */
+export function buildSkillManifest(skills, { limit = 80 } = {}) {
+    const list = (Array.isArray(skills) ? skills : [])
+        .map((skill) => ({
+            name: String(skill?.name || '').trim(),
+            description: compactSkillManifestText(skill?.description || ''),
+        }))
+        .filter((skill) => skill.name)
+        .sort((a, b) => a.name.localeCompare(b.name));
+    if (!list.length) return '';
+    const max = Math.max(1, Number(limit) || 80);
+    const visible = list.slice(0, max);
+    const lines = [
+        '# available-skills',
+        'Call Skill({"name":"<skill-name>"}) when a skill description matches the task. Load the skill before following its workflow.',
+        '<available_skills>',
+        ...visible.map((skill) => `- ${skill.name}: ${skill.description || 'No description.'}`),
+        ...(list.length > visible.length ? [`- ... ${list.length - visible.length} more skills omitted`] : []),
+        '</available_skills>',
+    ];
+    return lines.join('\n');
+}
+
+/**
+ * Build the fixed skill loader meta-tool.
+ * A tiny stable schema keeps provider cache keys steady; concrete skill
+ * listings/content are resolved at call time.
  *
- * The structure is constant regardless of how many skills are in scope —
- * the 3-tool shape only shows up when `skills.length > 0`, and the slot
- * contents never change. Memoise so every createSession doesn't rebuild
+ * The structure is constant regardless of how many skills are in scope.
+ * Non-agent sessions only expose the loader when a skill exists; agent
+ * sessions always expose it so the schema shape stays fixed. Memoise so
+ * every createSession doesn't rebuild
  * identical objects (trivial work, but the allocation noise shows up in
  * repeated Pool C fan-out).
  */
@@ -213,46 +168,25 @@ let _skillToolDefsCache = null;
 /**
  * @param {Array} skills       — discovered skill frontmatter list (may be empty)
  * @param {object} [opts]
- * @param {boolean} [opts.ownerIsBridge=false]
- *   Bridge sessions ALWAYS include the 3 meta-tools regardless of the current
+ * @param {boolean} [opts.ownerIsAgentSession=false]
+ *   Agent sessions ALWAYS include the meta-tool regardless of the current
  *   cwd's skill inventory — the concrete skill list is resolved at tool-call
  *   time (cwd-scoped) so the tool schema stays bit-identical across roles /
  *   cwds and the provider cache shard does not fragment.
- *   Non-bridge sessions keep the historical "empty when skills.length===0"
+ *   Non-agent sessions keep the historical "empty when skills.length===0"
  *   behaviour.
  */
-export function buildSkillToolDefs(skills, { ownerIsBridge = false } = {}) {
-    if (!ownerIsBridge && !skills.length) return [];
+export function buildSkillToolDefs(skills, { ownerIsAgentSession = false } = {}) {
+    if (!ownerIsAgentSession && !skills.length) return [];
     if (_skillToolDefsCache) return _skillToolDefsCache;
     _skillToolDefsCache = [
         {
-            name: 'skills_list',
-            description: 'List available skills with short descriptions. Call before skill_view or skill_execute.',
-            inputSchema: {
-                type: 'object',
-                properties: {},
-                required: [],
-            },
-        },
-        {
-            name: 'skill_view',
-            description: 'Return the full body of a skill by name (without executing).',
+            name: 'Skill',
+            description: 'Load a named SKILL.md into context.',
             inputSchema: {
                 type: 'object',
                 properties: {
                     name: { type: 'string', description: 'Skill name' },
-                },
-                required: ['name'],
-            },
-        },
-        {
-            name: 'skill_execute',
-            description: 'Load and execute a skill. Skill body is injected into context.',
-            inputSchema: {
-                type: 'object',
-                properties: {
-                    name: { type: 'string', description: 'Skill name' },
-                    args: { type: 'object', description: 'Optional arguments passed to the skill', additionalProperties: true },
                 },
                 required: ['name'],
             },
@@ -260,104 +194,16 @@ export function buildSkillToolDefs(skills, { ownerIsBridge = false } = {}) {
     ];
     return _skillToolDefsCache;
 }
-// --- Collect mixdog.md user/project context ---
-/**
- * Read Mixdog-owned user context files in broad-to-specific order:
- *   1. <pluginData>/mixdog.md        (standalone default: ~/.mixdog/data/mixdog.md)
- *   2. <ancestor>/Mixdog.md          (from filesystem root down to cwd)
- *   3. <ancestor>/.mixdog/mixdog.md  (from filesystem root down to cwd)
- *
- * This mirrors Claude Code's "memory files are context, not system prompt"
- * model while keeping Mixdog's internal rules in code/rules-builder.
- */
-const _mixdogMdCache = new Map();
-function uniquePaths(paths) {
-    const seen = new Set();
-    const out = [];
-    for (const p of paths) {
-        const key = p ? resolve(p).toLowerCase() : '';
-        if (!p || seen.has(key)) continue;
-        seen.add(key);
-        out.push(p);
-    }
-    return out;
-}
-function mixdogContextFileCandidates(dir) {
-    return [
-        join(dir, 'mixdog.md'),
-        join(dir, 'Mixdog.md'),
-    ];
-}
-function mixdogProjectContextFileCandidates(dir) {
-    return [
-        ...mixdogContextFileCandidates(dir),
-        ...mixdogContextFileCandidates(join(dir, '.mixdog')),
-    ];
-}
-function mixdogGlobalContextPaths() {
-    let dataRoot;
-    try {
-        dataRoot = resolvePluginData();
-    } catch {
-        dataRoot = process.env.MIXDOG_DATA_DIR || join(mixdogHome(), 'data');
-    }
-    return uniquePaths(mixdogContextFileCandidates(dataRoot));
-}
-function mixdogProjectContextPaths(cwd) {
-    const projectDir = (typeof cwd === 'string' && cwd.length > 0) ? resolve(cwd) : null;
-    if (!projectDir) return [];
-    const dirs = [];
-    let cur = projectDir;
-    while (true) {
-        dirs.unshift(cur);
-        const parent = dirname(cur);
-        if (parent === cur) break;
-        cur = parent;
-    }
-    return uniquePaths(dirs.flatMap(mixdogProjectContextFileCandidates));
-}
-export function collectMixdogMd(cwd) {
-    // When cwd is null/missing (bridge maintenance calls deliberately pass
-    // cwd:null so provider-cache shards don't fork per caller workspace),
-    // include only user-global context and never fall back to process.cwd().
-    const key = (typeof cwd === 'string' && cwd.length > 0) ? resolve(cwd) : '__global__';
-    const searchPaths = uniquePaths([
-        ...mixdogGlobalContextPaths(),
-        ...mixdogProjectContextPaths(cwd),
-    ]);
-    const mtimePaths = uniquePaths([
-        ...searchPaths,
-        ...searchPaths.map(p => dirname(p)),
-    ]);
-    const mtime = maxMtime(mtimePaths);
-    const cached = _mixdogMdCache.get(key);
-    if (cached && mtime <= cached.mtime) return cached.value;
-
-    const sections = [];
-    for (const filePath of searchPaths) {
-        const content = readSafe(filePath);
-        if (content) {
-            sections.push(`<mixdog_instructions path="${filePath}">\n${content}\n</mixdog_instructions>`);
-        }
-    }
-    const value = sections.join('\n\n');
-    _mixdogMdCache.set(key, { mtime, value });
-    return value;
-}
-
-// --- Role-scoped catalog loader ---
-// Emits a BP2 block scoped to the calling role:
+// --- Role-scoped instruction loader ---
+// Emits a BP3 block scoped to the calling role:
 //   - Public/custom agents: their own agents/<role>.md when present,
-//     plus the public bridge-worker contract.
-//   - Hidden roles: their own rules/bridge/<role>.md section only.
+//     plus the public agent-worker contract.
+//   - Hidden roles: their own rules/agent/<role>.md section only.
 //   - Null role: falls back to the full all-in-one block
 //     (explicit-cache unified-shard path).
 //
-// BP2 is no longer bit-identical cross-role — the provider cache shards by
-// role group (public / each retrieval hidden / each maintenance hidden),
-// trading a small number of additional shards for ~68% fewer prefix bytes
-// on the public-role hot path. Role identity still rides the sessionMarker
-// user message separately (see composeSystemPrompt).
+// Role-specific markdown intentionally rides BP3, behind the shared system
+// prefix, so cache breakpoints move from common/stable to role-varying.
 //
 // Classification is dynamic — hidden retrieval/maintenance sets come from the
 // `kind` field in internal-roles.mjs. Any other non-null role is public/custom.
@@ -369,7 +215,7 @@ import {
 } from '../internal-roles.mjs';
 
 function loadRoleClassification() {
-    // Not cached — called only on catalog rebuild (mtime-busted), and
+    // Not cached — called only on instruction rebuild (mtime-busted), and
     // listHiddenRolesByKind now reads from the mtime-aware cache inside
     // internal-roles.mjs so the classification always reflects the current
     // hidden-roles.json on disk.
@@ -379,26 +225,26 @@ function loadRoleClassification() {
     };
 }
 
-const _scopedRoleCatalogCache = new Map();
-// Short-TTL gate for the catalog freshness stat. loadScopedRoleCatalog() ran
-// maxMtimeRecursive() over agents/ + rules/bridge/ on EVERY call (many per
+const _scopedRoleInstructionsCache = new Map();
+// Short-TTL gate for the role-instruction freshness stat. loadScopedRoleInstructions() ran
+// maxMtimeRecursive() over agents/ + rules/agent/ on EVERY call (many per
 // turn across roles), so even a warm cache paid dozens of statSync per turn.
-// Mirror collectSkillsCached(): only re-stat after _CATALOG_MTIME_TTL_MS, and
+// Mirror collectSkillsCached(): only re-stat after _ROLE_INSTRUCTIONS_MTIME_TTL_MS, and
 // trust the cached mtime within that window. Edits still propagate within ~1
 // stat interval, which is well under human-perceptible latency.
-const _scopedRoleCatalogMtimeCache = new Map();
-const _CATALOG_MTIME_TTL_MS = 2000;
+const _scopedRoleInstructionsMtimeCache = new Map();
+const _ROLE_INSTRUCTIONS_MTIME_TTL_MS = 2000;
 
 function loadHiddenRoleSnippets(pluginRoot) {
     try {
-        const bridgeDir = join(pluginRoot, 'rules', 'bridge');
-        if (!existsSync(bridgeDir)) return [];
-        const files = readdirSync(bridgeDir)
+        const agentRulesDir = join(pluginRoot, 'rules', 'agent');
+        if (!existsSync(agentRulesDir)) return [];
+        const files = readdirSync(agentRulesDir)
             .filter(f => f.endsWith('.md') && f !== '00-common.md')
             .sort();
         const pairs = [];
         for (const f of files) {
-            const raw = readSafe(join(bridgeDir, f));
+            const raw = readSafe(join(agentRulesDir, f));
             if (!raw) continue;
             const { body } = readMarkdownDocument(raw);
             if (!body) continue;
@@ -429,51 +275,43 @@ function loadAgentSections(pluginRoot) {
     return agentSections;
 }
 
-// Empty by design — measurement (dev/role-shard-probe.mjs +
-// dev/prefix-bytes-probe.mjs, 2026-04-29 trace) showed that even on
-// providers with explicit cache breakpoints, BP2 hit-cost dominates
-// cold-load cost at >10 calls/hr. Per-role scoped catalogs cut the
-// average BP2 prefix from 33 KB to <1 KB (~95% reduction), at the
-// price of ~5x more cold loads — a clear net win at observed call
-// volumes (~791 calls/hr, distinct 5 roles/hr). Implicit-prefix-hash
-// providers (deepseek, xai, lmstudio, ollama) prefer the smaller
-// scoped prefix anyway. Leaving the set in place (rather than deleting
-// the branch) so a future provider with different cache economics can
-// be added back without re-introducing the dead code.
+// Empty by design: scoped role markdown no longer rides BP2. Keeping the set
+// in place preserves the old branch point for a future provider-specific
+// experiment without changing today's cache layout.
 const EXPLICIT_CACHE_PROVIDERS = new Set();
 
 // Inbound-event maintenance roles that report results back to Lead are
 // declared via `inboundEvent: true` in defaults/hidden-roles.json and read
 // through isInboundEventRole(). Such roles must follow
-// rules/bridge/20-skip-protocol.md so genuine no-ops (label-only events,
+// rules/agent/20-skip-protocol.md so genuine no-ops (label-only events,
 // dedup, "nothing to report") prefix their output with `[meta:silent]` and the
 // dispatch layer suppresses the Lead inject. Other roles (cycle1/cycle2 memory
 // maintenance, retrieval roles) never emit toward Lead.
 
-export function loadScopedRoleCatalog(role, provider = null) {
+export function loadScopedRoleInstructions(role, provider = null) {
     const useUnified = !!(provider && EXPLICIT_CACHE_PROVIDERS.has(provider));
     const cacheKey = useUnified ? '__unified__' : (role || '__all__');
-    const cached = _scopedRoleCatalogCache.get(cacheKey);
+    const cached = _scopedRoleInstructionsCache.get(cacheKey);
     const pluginRoot = mixdogRoot();
     // Use maxMtimeRecursive so edits to .md files inside agents/ and
-    // rules/bridge/ propagate — parent dir mtime is unchanged on
+    // rules/agent/ propagate — parent dir mtime is unchanged on
     // Linux/macOS when only a nested file's content changes. Gate the stat
     // behind a short TTL so repeated same-turn calls reuse the last mtime
     // instead of re-walking the trees on every invocation.
     let mtime = 0;
     if (pluginRoot) {
-        const mtimeCached = _scopedRoleCatalogMtimeCache.get(cacheKey);
-        if (mtimeCached && Date.now() - mtimeCached.checkedAt < _CATALOG_MTIME_TTL_MS) {
+        const mtimeCached = _scopedRoleInstructionsMtimeCache.get(cacheKey);
+        if (mtimeCached && Date.now() - mtimeCached.checkedAt < _ROLE_INSTRUCTIONS_MTIME_TTL_MS) {
             mtime = mtimeCached.mtime;
         } else {
             mtime = maxMtimeRecursive([
                 join(pluginRoot, 'agents'),
-                join(pluginRoot, 'rules', 'bridge'),
+                join(pluginRoot, 'rules', 'agent'),
                 join(pluginRoot, 'defaults', 'hidden-roles.json'),
             ]);
-            _scopedRoleCatalogMtimeCache.set(cacheKey, { mtime, checkedAt: Date.now() });
-            if (_scopedRoleCatalogMtimeCache.size > 16) {
-                _scopedRoleCatalogMtimeCache.delete(_scopedRoleCatalogMtimeCache.keys().next().value);
+            _scopedRoleInstructionsMtimeCache.set(cacheKey, { mtime, checkedAt: Date.now() });
+            if (_scopedRoleInstructionsMtimeCache.size > 16) {
+                _scopedRoleInstructionsMtimeCache.delete(_scopedRoleInstructionsMtimeCache.keys().next().value);
             }
         }
     }
@@ -495,58 +333,55 @@ export function loadScopedRoleCatalog(role, provider = null) {
         const agentSections = loadAgentSections(pluginRoot);
         const hiddenPairs = loadHiddenRoleSnippets(pluginRoot);
 
-        // Pick which bridge-rule sections + agents/<role>.md sections to emit
-        // based on role classification. Self-only emit keeps BP2 minimal.
-        let bridgeRuleSectionsToEmit = null; // null → drop the bridge-rule block entirely
+        // Pick which agent-rule sections + agents/<role>.md sections to emit
+        // based on role classification. Self-only emit keeps BP3 minimal.
+        let agentRuleSectionsToEmit = null; // null -> drop the agent-rule block entirely
         let agentSectionsToEmit = agentSections; // default: full (unknown-role fallback)
         if (useUnified) {
             // Explicit-cache providers — every role sees the same all-in-one
-            // catalog. Cross-role calls hit the same provider-side prefix
+            // instruction surface. Cross-role calls hit the same provider-side prefix
             // shard, eliminating the role-shard miss seen on Pool C
-            // transitions for codex/openai. BP3 sessionMarker still carries
-            // role identity, so behavior parity is preserved.
-            bridgeRuleSectionsToEmit = hiddenPairs.map(p => `## ${p.name}\n\n${p.body}`);
+            // transitions for codex/openai. This branch is disabled by the
+            // empty provider set above; BP3 remains the active role surface.
+            agentRuleSectionsToEmit = hiddenPairs.map(p => `## ${p.name}\n\n${p.body}`);
             agentSectionsToEmit = agentSections;
         } else if (role && classification.retrieval.has(role)) {
             // Retrieval roles (explorer) get their own contract section
-            // (rules/bridge/30-explorer.md) riding BP2 — a deliberate
-            // cache-shard split from `worker`: brief-level descriptive-only
-            // constraints proved insufficient (haiku still rendered verdicts on
-            // evaluative queries), so the contract must sit at system level.
+            // (rules/agent/30-explorer.md) in BP3.
             const self = hiddenPairs.find(p => p.name === role);
-            bridgeRuleSectionsToEmit = self ? [`## ${self.name}\n\n${self.body}`] : [];
+            agentRuleSectionsToEmit = self ? [`## ${self.name}\n\n${self.body}`] : [];
             agentSectionsToEmit = agentSections.filter(s =>
                 [...roleSharesCatalog].some(name => s.startsWith(`## ${name}\n`)));
         } else if (role && classification.maintenance.has(role)) {
             const self = hiddenPairs.find(p => p.name === role);
-            bridgeRuleSectionsToEmit = [];
+            agentRuleSectionsToEmit = [];
             if (self) {
-                bridgeRuleSectionsToEmit.push(`## ${self.name}\n\n${self.body}`);
+                agentRuleSectionsToEmit.push(`## ${self.name}\n\n${self.body}`);
             } else {
-                // Fallback: maintenance role without rules/bridge/*.md entry —
+                // Fallback: maintenance role without rules/agent/*.md entry —
                 // pull self body from agents/<role>.md instead so newly-added
-                // hidden roles work without needing a duplicate bridge file.
+                // hidden roles work without needing a duplicate agent rule file.
                 const fromAgent = agentSections.find(s => s.startsWith(`## ${role}\n`));
-                if (fromAgent) bridgeRuleSectionsToEmit.push(fromAgent);
+                if (fromAgent) agentRuleSectionsToEmit.push(fromAgent);
             }
             // Inbound-event roles also need the skip-protocol rule so they
             // can opt their no-op outputs out of the Lead inject (BP1 would
             // waste the bytes on unrelated agents).
             if (roleIsInboundEvent) {
                 const skip = hiddenPairs.find(p => p.name === 'skip-protocol');
-                if (skip) bridgeRuleSectionsToEmit.push(`## ${skip.name}\n\n${skip.body}`);
+                if (skip) agentRuleSectionsToEmit.push(`## ${skip.name}\n\n${skip.body}`);
             }
             agentSectionsToEmit = [];
         } else if (role) {
             // Public/custom role — self-only agents/<role>.md when present,
-            // not the full hidden/maintenance bundle. The universal bridge
-            // contract rides BP1 (rules/bridge/00-common.md).
-            bridgeRuleSectionsToEmit = [];
+            // not the full hidden/maintenance bundle. The universal agent
+            // contract rides BP1 (rules/agent/00-common.md).
+            agentRuleSectionsToEmit = [];
             agentSectionsToEmit = agentSections.filter(s => s.startsWith(`## ${role}\n`));
         } else {
-            // Null role — full catalog emitted (explicit-cache providers that
+            // Null role — full instruction surface emitted (explicit-cache providers that
             // shard by __all__ key).
-            bridgeRuleSectionsToEmit = hiddenPairs.map(p => `## ${p.name}\n\n${p.body}`);
+            agentRuleSectionsToEmit = hiddenPairs.map(p => `## ${p.name}\n\n${p.body}`);
             // agentSectionsToEmit already set to full agentSections above.
         }
 
@@ -554,11 +389,11 @@ export function loadScopedRoleCatalog(role, provider = null) {
         if (agentSectionsToEmit.length) {
             blocks.push(`# Agent Role Catalog\n\n${agentSectionsToEmit.join('\n\n---\n\n')}`);
         }
-        if (bridgeRuleSectionsToEmit && bridgeRuleSectionsToEmit.length) {
-            blocks.push(`# Bridge Role Rules\n\n${bridgeRuleSectionsToEmit.join('\n\n---\n\n')}`);
+        if (agentRuleSectionsToEmit && agentRuleSectionsToEmit.length) {
+            blocks.push(`# Agent Role Rules\n\n${agentRuleSectionsToEmit.join('\n\n---\n\n')}`);
         }
         const value = blocks.join('\n\n---\n\n');
-        _scopedRoleCatalogCache.set(cacheKey, { mtime, value });
+        _scopedRoleInstructionsCache.set(cacheKey, { mtime, value });
         return value;
     } catch {
         return '';
@@ -566,37 +401,34 @@ export function loadScopedRoleCatalog(role, provider = null) {
 }
 
 // --- Compose system prompt — 4-BP cache layout ---
-// Returns { baseRules, roleCatalog, sessionMarker, volatileTail } mapping
+// Returns { baseRules, stableSystemContext, sessionMarker, volatileTail } mapping
 // directly to the breakpoint plan:
-//   BP1 (1h, system block #1) = baseRules      — bridge common rules, filtered
-//   BP2 (1h, system block #2) = roleCatalog    — scoped role catalog
-//   BP3 (1h, first <system-reminder> user)     = sessionMarker (mixdog.md + stable role body)
-//   BP4 (5m, messages tail)                    = volatileTail (role + permission + task-brief)
+//   BP1 (1h, system block #1) = baseRules      — agent common rules, filtered
+//   BP2 (1h, system block #2) = stableSystemContext — reserved stable system layer
+//   BP3 (1h, first <system-reminder> user)     = sessionMarker (role md + stable role/session context)
+//   BP4 (5m, messages tail)                    = volatileTail (compact memory)
 //
-// Design note — why role/permission sit in BP4, not BP3:
-//   BP3 is reserved for user-authored mixdog.md context and role-specific task
-//   bodies that are stable within the bridge session (webhook/schedule/hidden
-//   retrieval details). A cross-role burst within the same project should
-//   still share BP1+BP2, while BP4 picks up the per-call role / permission /
-//   task variance. Tool-routing hints are static cross-role, so they live in
-//   shared bridge rules rather than being regenerated per call.
+// Design note — why volatile per-call context sits in BP4, not BP3:
+//   BP3 is reserved for file-authored/user-authored markdown context:
+//   scoped role md (agents/<role>.md, rules/agent/<role>.md), skill
+//   manifests, and role-specific schedule/webhook instruction md. The live
+//   task itself is sent as the actual user turn, so BP4 stays free of task
+//   duplicates.
+//   Role semantics live in the selected role/rule surface, and permission is
+//   enforced by the exposed tool set rather than repeated as prompt text.
 //
 // BP1 inputs:
-//   - opts.bridgeRules    : rules-builder buildBridgeInjectionContent output
+//   - opts.agentRules    : rules-builder buildAgentInjectionContent output
 //                           (Pool B roles share bit-identical prefix)
 //   - opts.userPrompt     : explicit systemPrompt override from callsite
 //
-// BP2 inputs:
-//   - loadScopedRoleCatalog(opts.role, opts.provider)
+// BP3 role-md inputs:
+//   - loadScopedRoleInstructions(opts.role, opts.provider)
 //
 // BP3/BP4 inputs:
-//   - opts.projectContext : mixdog.md user/project context, when present
 //   - opts.workflowContext : active workflow + agent catalog, captured at session start
 //   - opts.workspaceContext : cwd + project list snapshot, captured at session start
 //   - opts.role           : agent role name or hidden-role registry name
-//   - opts.agentTemplate  : agents/<role>.md body when authored
-//   - opts.taskBrief      : Lead-issued task description (Sub only)
-//   - opts.hasSkills      : true → skills_list hint
 //   - opts.coreMemoryContext : compact core memory context
 //
 // `profile.skip` still filters specific buckets (claudemd, skills, memory)
@@ -606,103 +438,53 @@ export function composeSystemPrompt(opts) {
     const _skip = profile?.skip || {};
 
     // ── BP1: baseRules (system block #1, 1h cache) ─────────────────────
-    // Bridge common rules + explicit systemPrompt override. Contains
-    // bridgeRules (MCP instructions, Pool B shared rules, _shared/tool
+    // Agent common rules + explicit systemPrompt override. Contains
+    // agentRules (MCP instructions, Pool B shared rules, _shared/tool
     // efficiency). Identical across ALL roles — BP1 shared pool-wide.
     const baseParts = [];
-    if (opts.bridgeRules) baseParts.push(opts.bridgeRules);
+    if (opts.agentRules) baseParts.push(opts.agentRules);
     if (opts.userPrompt) baseParts.push(opts.userPrompt);
     const baseRules = baseParts.join('\n\n---\n\n');
 
-    // ── BP2: roleCatalog (system block #2, 1h cache) ────────────────────
-    // Cross-role-stable layer: scoped agents/<role>.md catalog. User-authored
-    // mixdog.md context rides in BP3 as a user context message, matching
+    // ── BP2: reserved stable system layer ───────────────────────────────
+    // Per-role/user-authored markdown rides in BP3 as user context, matching
     // Claude Code's "memory files are context, not system prompt" behavior.
-    // Role / permission markers are emitted in BP4 instead so a cross-role
-    // burst within the same project shares the stable prefix.
-    const roleCatalogScoped = opts.skipRoleCatalog
+    // Keep BP2 empty unless we have a truly common/stable system layer.
+    const stableSystemContext = '';
+
+    // ── BP3 role markdown context ───────────────────────────────────────
+    const roleInstructionContext = opts.skipRoleCatalog
         ? ''
-        : loadScopedRoleCatalog(opts.role || null, opts.provider || null);
-    const catalogParts = [];
-    if (roleCatalogScoped) catalogParts.push(roleCatalogScoped);
-    const roleCatalog = catalogParts.join('\n\n');
+        : loadScopedRoleInstructions(opts.role || null, opts.provider || null);
 
     // ── BP3: sessionMarker (first <system-reminder> user msg, 1h cache) ─
-    // Claude Code-style user-authored context (mixdog.md), active workflow,
-    // plus stable role-specific task instructions — webhook event body,
-    // schedule task body, hidden retrieval tool detail. The
+    // Claude Code-style file/user-authored context, active workflow, plus
+    // stable role-specific task instructions. The
     // <!-- bp3-sentinel --> tag is what Anthropic's findTier3Index() matches
     // on to claim a 1h BP3 slot.
     const sessionMarkerParts = [];
-    if (opts.projectContext) {
-        sessionMarkerParts.push('# mixdog-project-context\n' + opts.projectContext);
-    }
-    if (opts.workflowContext && typeof opts.workflowContext === 'string' && opts.workflowContext.trim()) {
-        sessionMarkerParts.push(opts.workflowContext.trim());
+    if (roleInstructionContext) {
+        sessionMarkerParts.push(roleInstructionContext);
     }
     if (opts.roleSpecific) {
         sessionMarkerParts.push(opts.roleSpecific);
+    }
+    if (!_skip.skills && opts.skillManifest && typeof opts.skillManifest === 'string' && opts.skillManifest.trim()) {
+        sessionMarkerParts.push(opts.skillManifest.trim());
+    }
+    if (opts.workflowContext && typeof opts.workflowContext === 'string' && opts.workflowContext.trim()) {
+        sessionMarkerParts.push(opts.workflowContext.trim());
     }
     const sessionMarker = sessionMarkerParts.length
         ? '<!-- bp3-sentinel -->\n' + sessionMarkerParts.join('\n\n')
         : '';
 
     // ── BP4-adjacent: volatileTail (second user <system-reminder>, 5m) ──
-    // Per-call variance: role marker, permission, task brief, and compact
-    // core memory. Keeping role/permission here (rather than in BP2) means
-    // cross-role bursts on the same project share BP1+BP2+BP3 entirely —
-    // only this 5m volatile tail picks up the per-call variance.
+    // Only compact carry-over context remains here. Raw role, permission, and
+    // task labels are intentionally omitted: role selection already shapes the
+    // session/rules/tools, permissions are enforced structurally, and the task
+    // body is sent as the actual user turn by askSession().
     const volatileParts = [];
-    if (opts.role && !opts.skipRoleReminder) {
-        volatileParts.push('# role\n' + opts.role);
-    }
-    const permission = opts.permission || null;
-    const permissionName = typeof permission === 'string'
-        ? permission.trim().toLowerCase()
-        : '';
-    if (permission && permissionName !== 'full') {
-        let permissionLabel = String(permission);
-        let allow =
-            permission === 'read'
-                ? 'read-only; apply_patch/shell rejected'
-                : permission === 'none'
-                    ? 'no tools exposed; tool calls rejected'
-                    : permission === 'read-write'
-                        ? 'read + apply_patch/shell'
-                        : permission === 'mcp'
-                            ? 'MCP/internal retrieval tools only; file/shell mutation tools rejected'
-                            : permission === 'full'
-                                ? 'full — all tools'
-                                : 'unknown — treat as read-only';
-        if (permission && typeof permission === 'object') {
-            const allowList = Array.isArray(permission.allow)
-                ? permission.allow.map(v => String(v || '').trim()).filter(Boolean)
-                : [];
-            const denyList = Array.isArray(permission.deny)
-                ? permission.deny.map(v => String(v || '').trim()).filter(Boolean)
-                : [];
-            const parts = [];
-            if (allowList.length) parts.push(`allow: ${allowList.join(', ')}`);
-            if (denyList.length) parts.push(`deny: ${denyList.join(', ')}`);
-            permissionLabel = parts.length ? parts.join('; ') : 'custom tool permission';
-            allow = allowList.length
-                ? 'only listed tools are available'
-                : denyList.length
-                    ? 'listed tools are rejected'
-                    : 'custom allow/deny policy';
-        }
-        volatileParts.push(`permission: ${permissionLabel} — ${allow}.`);
-    }
-    // Role identity comes from agent markdown. Custom project/global agent docs
-    // and built-in AGENT.md bodies all use the same frontmatter parser; fallback
-    // identity only covers missing public-agent docs.
-    const roleIdentity = String(opts.agentTemplate || '').trim()
-        || DEFAULT_ROLE_IDENTITY[String(opts.role || '').trim().toLowerCase()]
-        || '';
-    if (roleIdentity) {
-        volatileParts.push('# role-identity\n' + roleIdentity);
-    }
-    if (opts.taskBrief) volatileParts.push('# task-brief\n' + opts.taskBrief);
     // workspaceContext (current cwd + discovered project list) is intentionally
     // NOT injected: it inlines the cwd/project layout into the prompt, which the
     // model does not need (tools read the live cwd at call time) and which would
@@ -710,16 +492,11 @@ export function composeSystemPrompt(opts) {
     if (opts.coreMemoryContext && typeof opts.coreMemoryContext === 'string' && opts.coreMemoryContext.trim()) {
         volatileParts.push('# Core Memory\n' + opts.coreMemoryContext.trim());
     }
-    // cwd is intentionally NOT embedded in the prompt context. A mid-session
-    // cwd switch must not mutate the prompt (which would fragment the cache and
-    // previously triggered a session rebuild that dropped history). Tools read
-    // the live cwd at call time, so the model never needs it inlined here.
-    volatileParts.push(shellEnvironmentReminder());
     const volatileTail = volatileParts.length > 0
         ? volatileParts.join('\n\n')
         : '';
 
-    return { baseRules, roleCatalog, sessionMarker, volatileTail };
+    return { baseRules, stableSystemContext, sessionMarker, volatileTail };
 }
 // --- Helpers ---
 function readSafe(path) {

@@ -591,6 +591,21 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
 
 function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesToolCalls, responseOutputText, onStreamDelta, onToolCall, onTextDelta }) {
     if (!event || typeof event.type !== 'string') return;
+    const pushToolSearchCall = (item) => {
+        if (!item || item.type !== 'tool_search_call') return;
+        const callId = item.call_id || item.id || '';
+        if (!callId || state.toolCalls.some((call) => call.id === callId)) return;
+        const call = {
+            id: callId,
+            name: 'tool_search',
+            arguments: item.arguments && typeof item.arguments === 'object'
+                ? item.arguments
+                : parseCompletedToolCallArgumentsJson(item.arguments || '{}', label, { id: callId, name: 'tool_search', finishReason: 'done' }),
+            nativeType: 'tool_search_call',
+        };
+        state.toolCalls.push(call);
+        emitCompatToolCallOnce(state, call, onToolCall);
+    };
     switch (event.type) {
         case 'response.created':
             if (event.response?.model) state.model = event.response.model;
@@ -654,6 +669,8 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
                     state.toolCalls.push(call);
                     emitCompatToolCallOnce(state, call, onToolCall);
                 }
+            } else if (item.type === 'tool_search_call') {
+                pushToolSearchCall(item);
             }
             try { onStreamDelta?.(); } catch {}
             break;
