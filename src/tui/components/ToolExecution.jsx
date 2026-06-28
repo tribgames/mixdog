@@ -578,7 +578,12 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     // Mirror estimateTranscriptItemRows: a non-aggregate skill surface collapses
     // to a single header row; everything else reserves header + one detail row.
     const placeholderNormalizedName = String(formatToolSurface(name, args)?.normalizedName || '').toLowerCase();
-    const placeholderSingleRow = !aggregate && SKILL_SURFACE_NAMES.has(placeholderNormalizedName);
+    // Skill surfaces AND agent surfaces both collapse to a single header row in
+    // estimateTranscriptItemRows (agent cards drop their ⎿ body entirely), so
+    // the pending-delay placeholder must reserve exactly 1 row for them too —
+    // otherwise the card paints 2 blank rows for ~1s then snaps to 1 ("튐").
+    const placeholderSingleRow = !aggregate
+      && (SKILL_SURFACE_NAMES.has(placeholderNormalizedName) || isAgentTool(placeholderNormalizedName));
     return (
       <Box flexDirection="column" marginTop={attached ? 0 : 1}>
         <Text> </Text>
@@ -749,7 +754,6 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
 
   const isAgentResult = !isBackgroundResult && !pending && isAgentTool(normalizedName) && hasResult;
   const isAgentResponse = isAgentResult && hasAgentResponseResult(rt);
-  const isAgentMetadataResult = isAgentResult && !isAgentResponse;
   // Every agent card is a single header row when collapsed: spawn/send/response/
   // status/list/cancel/close/cleanup all fold their context into the header
   // label, so the ⎿ detail body (response summary, "agents: N …" worker list,
@@ -763,7 +767,10 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // ("Heavy Worker (Opus 4.8)"); the collapsed body just echoed the response
   // summary ("All green. Done."), so drop it and keep the card a single line.
   // ctrl+o expand (showRawResult) still surfaces the full response body.
-  const visibleDetailLines = (isAgentMetadataResult || ((isAgentSurfaceCard || isSkillSurface) && !showRawResult))
+  // Suppression is COLLAPSED-ONLY: agent/skill cards hide their ⎿ body when
+  // collapsed, but once the user expands (showRawResult) the raw body — the
+  // response, the "agents: N …" worker list, the status metadata — must render.
+  const visibleDetailLines = ((isAgentSurfaceCard || isSkillSurface) && !showRawResult)
     ? []
     : detailLines;
   const finalStatusColor = toolStatusColor({ pending, groupCount, failedCount, terminalStatus });
@@ -783,10 +790,17 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const summaryText = isAgentResponse || isBackgroundResponse
     ? ''
     : toolSearchSummary || (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary);
-  // Agent cards hide their collapsed body but still expose ctrl+o expand when
-  // there is a raw result to reveal (response body, worker list, status meta).
-  const agentHasExpandableBody = isAgentSurfaceCard && !pending && hasResult;
-  const showHeaderExpandHint = (hasHiddenDetail || agentHasExpandableBody)
+  // Agent cards hide their collapsed body but still expose ctrl+o expand only
+  // when expanding would actually reveal something: an agent response body, or a
+  // multiline / clipped raw result (e.g. the "agents: N …" worker list). A
+  // status-only single-line metadata result has nothing extra to show, so it
+  // gets no hint.
+  const agentHasExpandableBody = isAgentSurfaceCard && !pending && hasResult
+    && (isAgentResponse || totalLines > 1 || firstResultLineClipped);
+  // Agent cards gate the hint solely on agentHasExpandableBody — never on
+  // hasHiddenDetail, which goes true for any single-line resultSummary and would
+  // wrongly show ctrl+o on a status-only one-liner that has nothing to expand.
+  const showHeaderExpandHint = (isAgentSurfaceCard ? agentHasExpandableBody : hasHiddenDetail)
     && normalizedName !== 'tool_search'
     && !isShellSurface
     && !isBackgroundMetadataResult;

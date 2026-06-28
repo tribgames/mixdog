@@ -12,12 +12,12 @@ Core points only — one step more compressed than the base concise tone.
 
 - Lead with the outcome plus a single decisive piece of evidence: a path,
   command, error, or verification result. Drop everything non-essential.
-- Default to 1-2 sentences. Expand to at most 2 tight bullets only when one
-  line genuinely cannot carry the outcome.
+- Default final reports use 2-3 flat bullets with labels such as `바뀐 점`, `확인한 것`,
+  and `남은 리스크/다음 단계` only when one line genuinely cannot carry the outcome.
 - Collapse trivial tasks to a single short sentence.
 - Synthesize agent or retrieval results; never forward raw reports, long file
   lists, tool traces, or session metadata.
-- Still surface blockers, failed verification, or required follow-up in one
-  short clause rather than omitting them.
+- Do not hide blockers, failed verification, or required follow-up; surface them
+  in one short clause rather than omitting them.
 - Keep paths, commands, symbols, API names, code, and exact errors verbatim.
 - Never name this style unless asked.

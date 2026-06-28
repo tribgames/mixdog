@@ -207,25 +207,39 @@ async function main() {
   assert(initProvidersCalls === callsBeforeChange + 1,
     `config change must trigger exactly one re-init; before=${callsBeforeChange} after=${initProvidersCalls}`);
 
-  // --- 3c: stale (slow OLD-config) init must NOT overwrite a newer config ---
-  // A(old) init is SLOW; before it finishes, B(new) is requested. The per-
-  // provider serialize + latest-generation guard must ensure the registry ends
-  // on B(new) and the stale A(old) init never lands last.
+  // --- 3c: A(slow) -> B(superseded) -> C(latest) ---
+  // Three rapid-fire config generations on the same provider:
+  //   A: baseUrl 'gen-a', init is SLOW (200ms)
+  //   B: baseUrl 'gen-b', requested while A is still running → SUPERSEDED by C
+  //   C: baseUrl 'gen-c', the LATEST config, init fast (20ms)
+  // Two invariants the guard must hold:
+  //   (i)  the registry ends on the LATEST config (C) — no stale init lands last
+  //   (ii) NO spawn (incl. the superseded B) runs prepareSpawn/askSession before
+  //        the LATEST init that was current at its request time has completed.
+  //        A superseded request must not resolve early against an unprepared
+  //        provider — it must transitively wait for C.
   const raceRoot = mkdtempSync(join(tmpdir(), 'mixdog-agent-race-'));
   const raceDataDir = join(raceRoot, '.mixdog-data');
   mkdirSync(raceDataDir, { recursive: true });
-  let lastAppliedConfig = null;
+  let lastAppliedConfig = null;      // last config initProviders() actually applied
+  let raceInitCalls = 0;
+  let providerReadyGen = null;       // signature most recently made live
+  const askViolations = [];
   const raceReg = {
     getProvider() { return undefined; }, // always force the init path
     async initProviders(config) {
+      raceInitCalls += 1;
       const url = config?.['openai-oauth']?.baseUrl || 'base';
-      // OLD config is deliberately slow, NEW config is fast — without
-      // serialization the slow OLD init would resolve last and clobber NEW.
-      await sleep(url.includes('old') ? 200 : 20);
+      await sleep(url === 'gen-a' ? 200 : 20); // A slow, others fast
       lastAppliedConfig = url;
+      providerReadyGen = url;
     },
   };
-  let raceConfig = { providers: { 'openai-oauth': { enabled: true, baseUrl: 'old' } } };
+  let raceConfig = { providers: { 'openai-oauth': { enabled: true, baseUrl: 'gen-a' } } };
+  // Each spawn records which config gen was the LATEST at its spawn time; the
+  // fake askSession asserts the provider is ready (init completed) before it
+  // runs. If a spawn proceeds before ANY init completed, providerReadyGen is
+  // null → violation.
   const raceCfgMod = {
     loadConfig() {
       return {
@@ -238,23 +252,60 @@ async function main() {
       return { lane: 'agent', scopeKey: `race:${ctx.agentId}`, provider: preset.provider, model: preset.model };
     },
   };
-  const raceAgent = createStandaloneAgent({ cfgMod: raceCfgMod, reg: raceReg, mgr, dataDir: raceDataDir, cwd: raceRoot });
-  // Fire OLD (slow) then immediately switch config to NEW (fast) and fire it.
-  const oldOut = await raceAgent.execute({
-    type: 'spawn', role: 'worker', tag: 'raceOld', cwd: raceRoot, prompt: 'race old',
+  async function raceAsk(sessionId, prompt) {
+    // Provider MUST be ready (some init completed) before any spawn runs.
+    if (providerReadyGen === null) {
+      askViolations.push(`${prompt}: ran before any provider init completed`);
+    }
+    const session = getSession(sessionId);
+    if (session) { session.status = 'running'; session.lastStreamDeltaAt = Date.now(); }
+    try { await sleep(10); return { content: `ack worker (${providerReadyGen})` }; }
+    finally { if (session) { session.status = 'idle'; session.lastStreamDeltaAt = Date.now(); } }
+  }
+  const raceMgr = { ...mgr, askSession: raceAsk };
+  const raceAgent = createStandaloneAgent({ cfgMod: raceCfgMod, reg: raceReg, mgr: raceMgr, dataDir: raceDataDir, cwd: raceRoot });
+  // Fire A (slow), then B and C back-to-back while A is still running. B is
+  // superseded by C before A's chain link releases.
+  const aOut = await raceAgent.execute({
+    type: 'spawn', role: 'worker', tag: 'raceA', cwd: raceRoot, prompt: 'race A',
+    spawnPrepTimeoutMs: 0, // testing init serialization, not the prep cap
   }, { invocationSource: 'model-tool', cwd: raceRoot });
-  raceConfig = { providers: { 'openai-oauth': { enabled: true, baseUrl: 'new' } } };
-  const newOut = await raceAgent.execute({
-    type: 'spawn', role: 'worker', tag: 'raceNew', cwd: raceRoot, prompt: 'race new',
+  // Let A's deferred job reach ensureProvider and START its slow (200ms) init,
+  // so B/C arrive while A's init is genuinely in flight — this is what makes the
+  // "slow A completes and would clobber the newer config" path real. With the
+  // per-provider serialization, the latest (C) still lands last.
+  await sleep(60);
+  raceConfig = { providers: { 'openai-oauth': { enabled: true, baseUrl: 'gen-b' } } };
+  const bOut = await raceAgent.execute({
+    type: 'spawn', role: 'worker', tag: 'raceB', cwd: raceRoot, prompt: 'race B',
+    spawnPrepTimeoutMs: 0,
+  }, { invocationSource: 'model-tool', cwd: raceRoot });
+  raceConfig = { providers: { 'openai-oauth': { enabled: true, baseUrl: 'gen-c' } } };
+  const cOut = await raceAgent.execute({
+    type: 'spawn', role: 'worker', tag: 'raceC', cwd: raceRoot, prompt: 'race C',
+    spawnPrepTimeoutMs: 0,
   }, { invocationSource: 'model-tool', cwd: raceRoot });
   await Promise.all([
-    waitJob(oldOut, /ack worker/, 'race old'),
-    waitJob(newOut, /ack worker/, 'race new'),
+    waitJob(aOut, /ack worker/, 'race A'),
+    waitJob(bOut, /ack worker/, 'race B'),
+    waitJob(cOut, /ack worker/, 'race C'),
   ]);
-  // Give any (incorrectly) un-serialized slow OLD init time to land last.
+  // Give any (incorrectly) un-serialized slow A init time to land last.
   await sleep(250);
-  assert(lastAppliedConfig === 'new',
-    `stale slow init overwrote newer config; lastApplied=${lastAppliedConfig}`);
+  // (i) registry ends on the latest config C.
+  assert(lastAppliedConfig === 'gen-c',
+    `stale init overwrote newer config; lastApplied=${lastAppliedConfig}`);
+  // (ii) no spawn ran before the provider was ready (incl. superseded B).
+  assert(askViolations.length === 0,
+    `spawn ran before latest provider init completed: ${askViolations.join('; ')}`);
+  // The superseded B must have observed a READY provider that is the latest
+  // (gen-c), never gen-a/gen-b stale-then-proceed.
+  const bResult = await raceAgent.execute({ type: 'read', task_id: taskId(bOut) }, { invocationSource: 'model-tool', cwd: raceRoot });
+  assert(/ack worker \(gen-c\)/.test(bResult),
+    `superseded B must proceed only after latest (gen-c) init; got ${bResult}`);
+  // B and C must NOT have triggered their own separate inits landing last — the
+  // dedup must keep total inits small (A + the latest C = 2; B is dropped).
+  assert(raceInitCalls <= 2, `superseded gen must not add an extra init; raceInitCalls=${raceInitCalls}`);
   raceAgent.closeAll('agent-parallel-smoke-race-end');
   rmSync(raceRoot, { recursive: true, force: true });
 

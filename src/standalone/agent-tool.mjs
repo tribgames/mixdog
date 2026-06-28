@@ -892,16 +892,8 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
   // newer config (goal c only fears slow-but-completing inits) — so proceeding
   // once the gate expires is safe. Defaults to the spawn-prep cap; 0 disables.
   const PROVIDER_CHAIN_GATE_MS = DEFAULT_SPAWN_PREP_TIMEOUT_MS;
-  function gateOnPrior(prior) {
-    const settled = prior.catch(() => {});
-    if (!(PROVIDER_CHAIN_GATE_MS > 0)) return settled;
-    return new Promise((resolve) => {
-      let done = false;
-      const finish = () => { if (!done) { done = true; resolve(); } };
-      const timer = setTimeout(finish, PROVIDER_CHAIN_GATE_MS);
-      timer.unref?.();
-      settled.then(() => { clearTimeout(timer); finish(); }, () => { clearTimeout(timer); finish(); });
-    });
+  function providerRegistered(provider) {
+    return typeof reg.getProvider !== 'function' || Boolean(reg.getProvider(provider));
   }
   function effectiveProviderConfig(config, provider) {
     const providers = { ...(config.providers || {}) };
@@ -922,10 +914,21 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     catch { body = String(Date.now()); } // unserializable → force a fresh init
     return `${provider}\u0000${body}`;
   }
+  function gateOnPrior(prior) {
+    const settled = Promise.resolve(prior).catch(() => {});
+    if (!(PROVIDER_CHAIN_GATE_MS > 0)) return settled;
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(); } };
+      const timer = setTimeout(finish, PROVIDER_CHAIN_GATE_MS);
+      timer.unref?.();
+      settled.then(() => { clearTimeout(timer); finish(); }, () => { clearTimeout(timer); finish(); });
+    });
+  }
   function ensureProvider(config, provider) {
     const effective = effectiveProviderConfig(config, provider);
     const sigKey = providerInitSignature(provider, effective);
-    const registered = () => (typeof reg.getProvider !== 'function' || reg.getProvider(provider));
+    const registered = () => providerRegistered(provider);
     const s = providerStateFor(provider);
     // Completed-skip: this exact effective config is already live for this
     // provider. A config change flips sigKey so we fall through; a torn-down

@@ -119,11 +119,16 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     };
   }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, agentRevision, agentWorkers, agentJobs, refreshTick]);
 
+  const lines = line ? line.split('\n').slice(0, 2) : [' ', ' '];
+  // Footer footprint stays 3 rows total (height 3, no marginBottom) so the
+  // parent reservation (STATUSLINE_ROWS) and the input box above are unchanged.
+  // Internally we keep line 1 at the top row and push line 2 one row lower via
+  // a spacer, reusing what used to be the bottom margin row.
   return (
-    <Box flexDirection="column" width="100%" height={2} overflow="hidden" paddingLeft={2} marginBottom={1} backgroundColor={theme.background}>
-      {(line ? line.split('\n').slice(0, 2) : [' ', ' ']).map((l, i) => (
-        <Text key={i} wrap="truncate">{l || ' '}</Text>
-      ))}
+    <Box flexDirection="column" width="100%" height={3} overflow="hidden" paddingLeft={2} backgroundColor={theme.background}>
+      <Text wrap="truncate">{lines[0] || ' '}</Text>
+      <Box height={1} />
+      <Text wrap="truncate">{lines[1] || ' '}</Text>
     </Box>
   );
 }

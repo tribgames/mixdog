@@ -57,7 +57,6 @@ const SLASH_COMMANDS = [
   { name: 'autoclear', usage: '/autoclear', description: 'Reduce cache-miss cost after long idle gaps' },
   { name: 'resume', usage: '/resume', description: 'Resume a saved chat' },
   { name: 'context', usage: '/context', description: 'Show current context surface' },
-  { name: 'status', usage: '/status', description: 'Open runtime status dashboard' },
   { name: 'usage', usage: '/usage', params: '[refresh]', description: 'Show total provider quota / balance' },
   { name: 'model', usage: '/model', description: 'Switch model for subsequent turns' },
   { name: 'search', usage: '/search', description: 'Set the web search provider/model' },
@@ -595,10 +594,12 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
         // Skill loads render as a single header row when collapsed (the detail
         // row repeats the header name, so ToolExecution drops it). Match that
         // here so the scroll window stays in lockstep and does not over-reserve.
-        // Every COMPLETED agent card (spawn/send/response/status/list/cancel/…)
-        // collapses to a single header row — ToolExecution drops the ⎿ body for
-        // all of them — so reserve exactly 1 row when collapsed.
-        if (isSkillSurface || (!pending && isAgentSurface && hasResult)) return 1;
+        // EVERY agent card is a single header row whether pending or completed —
+        // ToolExecution drops the ⎿ body for all of them AND the pending-delay
+        // placeholder reserves only 1 row for agent surfaces — so reserve
+        // exactly 1 row regardless of pending/hasResult. Otherwise the estimate
+        // (2) and the real render (1) diverge and the viewport jumps.
+        if (isSkillSurface || isAgentSurface) return 1;
         return 2;
       }
       // Expanded but no raw body to reveal: still a single header row.
@@ -1791,12 +1792,14 @@ export function App({ store, initialStatusLine = '' }) {
     if (key === 'opencode-go') return 'OpenCode Go API';
     if (key === 'ollama') return 'Ollama';
     if (key === 'lmstudio') return 'LM Studio';
+    if (key === 'default') return 'Default';
     return provider || 'Provider';
   };
 
   const providerDisplayRank = (provider) => {
     const key = String(provider || '').toLowerCase();
     const ranks = {
+      default: 0,
       'openai-oauth': 10,
       'anthropic-oauth': 20,
       'grok-oauth': 30,
@@ -2660,97 +2663,6 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
-  const openStatusPicker = () => {
-    const tools = store.toolsStatus?.() || { activeCount: 0, count: 0 };
-    const mcp = store.mcpStatus?.() || { connectedCount: 0, configuredCount: 0, failedCount: 0 };
-    const hooks = store.hooksStatus?.() || { ruleCount: 0, recent: [] };
-    const plugins = store.pluginsStatus?.() || { count: 0 };
-    const skills = store.skillsStatus?.() || { count: 0 };
-    const channelWorker = store.getChannelWorkerStatus?.();
-    const agentRows = [
-      ...(Array.isArray(state.agentWorkers) ? state.agentWorkers : []),
-      ...(Array.isArray(state.agentJobs) ? state.agentJobs : []),
-    ];
-    const agentActive = agentRows
-      .map((row) => ({
-        tag: clean(row?.tag || row?.role || row?.type || row?.task_id || ''),
-        status: clean(row?.status || row?.stage || ''),
-      }))
-      .filter((row) => row.tag && row.status && !/idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i.test(row.status));
-    const agentText = agentActive.length
-      ? `${agentActive.length} Active (${summarizeTags(agentActive.map((row) => row.tag))})`
-      : 'No Active Agents';
-    const agentScopeLabel = state.agentScope?.clientHostPid
-      ? `this terminal · pid ${state.agentScope.clientHostPid}`
-      : (state.clientHostPid ? `this terminal · pid ${state.clientHostPid}` : 'this terminal');
-    setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
-    setSettingsPrompt(null);
-    setPicker(null);
-    setContextPanel({
-      kind: 'status',
-      title: 'Status',
-      rows: [
-        {
-          value: 'route',
-          label: 'Route',
-          description: `${state.provider}/${state.model} · ${state.effort ? effortDisplayLabel(state.effort) : 'Auto'}${state.fast ? ' · Fast' : ''}`,
-        },
-        {
-          value: 'chat',
-          label: 'Chat',
-          description: state.sessionId ? 'active' : '(none)',
-        },
-        {
-          value: 'cwd',
-          label: 'Working dir',
-          description: state.cwd,
-        },
-        {
-          value: 'agent',
-          label: 'Agent Tasks',
-          description: `${agentText} · ${agentScopeLabel}`,
-        },
-        {
-          value: 'tools',
-          label: 'Tools',
-          description: `${tools.activeCount || 0}/${tools.count || 0} active · mode ${tools.mode || state.toolMode}`,
-        },
-        {
-          value: 'memory',
-          label: 'Memory',
-          description: 'runtime controls available',
-        },
-        {
-          value: 'mcp',
-          label: 'MCP',
-          description: `${mcp.connectedCount || 0}/${mcp.configuredCount || 0} connected${mcp.failedCount ? ` · ${mcp.failedCount} failed` : ''}`,
-        },
-        {
-          value: 'hooks',
-          label: 'Hooks',
-          description: `${hooks.ruleCount || 0} rules · ${(hooks.recent || []).length} recent events`,
-        },
-        {
-          value: 'plugins',
-          label: 'Plugins',
-          description: `${plugins.count || 0} detected`,
-        },
-        {
-          value: 'skills',
-          label: 'Skills',
-          description: `${skills.count || 0} available`,
-        },
-        {
-          value: 'channels',
-          label: 'Channels',
-          description: channelWorker?.running ? `runtime running · pid ${channelWorker.pid}` : 'runtime stopped',
-        },
-      ],
-    });
-  };
-
   const openUsagePanel = (arg = '') => {
     const refresh = /(?:^|\s)(?:refresh|--refresh|-r|true)(?:\s|$)/i.test(String(arg || ''));
     const requestId = usageRequestRef.current + 1;
@@ -2981,7 +2893,6 @@ export function App({ store, initialStatusLine = '' }) {
       openContextPicker();
       return;
     }
-    if (contextPanel?.kind === 'status') openStatusPicker();
   }, [
     contextPanel?.kind,
     state.stats,
@@ -3238,12 +3149,6 @@ export function App({ store, initialStatusLine = '' }) {
         description: `${skills.count || 0} available`,
         _action: 'skills',
       },
-      {
-        value: 'runtime-status',
-        label: 'Runtime status',
-        description: 'open read-only overview dashboard',
-        _action: 'status',
-      },
     ];
     setProviderPrompt(null);
     setChannelPrompt(null);
@@ -3318,7 +3223,6 @@ export function App({ store, initialStatusLine = '' }) {
         else if (item._action === 'plugins') openPluginsPicker();
         else if (item._action === 'hooks') openHooksPicker();
         else if (item._action === 'skills') openSkillsPicker();
-        else if (item._action === 'status') openStatusPicker();
       },
       onCancel: () => {
         setPicker(null);
@@ -5042,7 +4946,7 @@ export function App({ store, initialStatusLine = '' }) {
 
   const runSlashCommand = (cmd, arg = '') => {
     cmd = normalizeSlashCommandName(cmd);
-    if (cmd !== 'context' && cmd !== 'status') setContextPanel(null);
+    if (cmd !== 'context') setContextPanel(null);
     if (cmd !== 'usage') closeUsagePanel();
     switch (cmd) {
       case 'clear':
@@ -5309,9 +5213,6 @@ export function App({ store, initialStatusLine = '' }) {
         } else {
           openResumePicker();
         }
-        return true;
-      case 'status':
-        openStatusPicker();
         return true;
       case 'usage':
         openUsagePanel(arg);
@@ -5761,7 +5662,7 @@ export function App({ store, initialStatusLine = '' }) {
   //                  − live status     (thinking / spinner / TurnDone)
   //                  − queued prompts  (marginTop 1 + N rows, only when queued)
   //                  − input box       (marginTop 1 + 2 border + 1 content)
-  //                  − statusline      (reserved L1 + L2 + marginBottom)
+  //                  − statusline      (reserved L1 + spacer + L2; total 3 rows)
   //
   // Every sibling outside the viewport must be accounted for here; otherwise
   // the total tree height exceeds the terminal and the input box gets pushed.
