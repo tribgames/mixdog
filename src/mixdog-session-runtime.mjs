@@ -3002,12 +3002,53 @@ export async function createMixdogSessionRuntime({
     return config;
   }
 
+  // Persisting mixdog-config.json is heavy: it takes a cross-process file
+  // lock, does an atomic temp+rename, and on win32 shells out to icacls
+  // (an external process, multiple times per write) to enforce an owner-only
+  // ACL. Doing that synchronously on EVERY option toggle froze the TUI main
+  // thread, so adjusting a picker felt laggy and unresponsive. We split the
+  // two concerns: adopt the new config in-memory IMMEDIATELY (so getProfile/
+  // getAutoClear/etc. and the UI read fresh values on the same tick), and
+  // DEBOUNCE the actual disk write so a burst of toggles collapses into a
+  // single persist after input settles. The security model is unchanged —
+  // cfgMod.saveConfig still strips apiKey (keychain-only) and still applies
+  // the owner-only ACL; we only changed WHEN it runs, never HOW.
+  let pendingConfigToSave = null;
+  let configSaveTimer = null;
+  const CONFIG_SAVE_DEBOUNCE_MS = 150;
+  function flushConfigSave() {
+    if (configSaveTimer) {
+      clearTimeout(configSaveTimer);
+      configSaveTimer = null;
+    }
+    if (pendingConfigToSave === null) return;
+    const snapshot = pendingConfigToSave;
+    pendingConfigToSave = null;
+    try {
+      cfgMod.saveConfig(snapshot);
+    } catch (err) {
+      process.stderr.write(`[config] debounced saveConfig failed: ${err?.message || err}\n`);
+    }
+  }
   function saveConfigAndAdopt(nextConfig, { hasSecrets = configHasSecrets } = {}) {
-    cfgMod.saveConfig(nextConfig);
-    return adoptConfig(nextConfig, { hasSecrets });
+    // In-memory adopt is synchronous and first so callers that read back the
+    // value immediately (e.g. setProfile -> getProfile) see the new state.
+    const adopted = adoptConfig(nextConfig, { hasSecrets });
+    // Persist the adopted object; coalesce rapid successive changes into one
+    // disk write after CONFIG_SAVE_DEBOUNCE_MS of quiet.
+    pendingConfigToSave = config;
+    if (configSaveTimer) clearTimeout(configSaveTimer);
+    configSaveTimer = setTimeout(flushConfigSave, CONFIG_SAVE_DEBOUNCE_MS);
+    configSaveTimer.unref?.();
+    return adopted;
   }
 
   function reloadFullConfig() {
+    // A pending debounced write holds the only copy of the latest change.
+    // Flush it before re-reading from disk so loadConfig() observes (and the
+    // subsequent adopt preserves) that change instead of reverting to a stale
+    // on-disk snapshot.
+    flushConfigSave();
     return adoptConfig(cfgMod.loadConfig(), { hasSecrets: true });
   }
 
@@ -4959,6 +5000,10 @@ function parsedProviderModelVersion(id) {
     async close(reason = 'cli-exit', options = {}) {
       const detach = options?.detach === true || options?.wait === false || options?.waitForExit === false;
       closeRequested = true;
+      // Persist any change that is still sitting in the debounce window so a
+      // toggle made right before exit is not lost. Synchronous + best-effort:
+      // teardown must continue even if the final write fails.
+      try { flushConfigSave(); } catch {}
       if (channelStartTimer) {
         clearTimeout(channelStartTimer);
         channelStartTimer = null;
