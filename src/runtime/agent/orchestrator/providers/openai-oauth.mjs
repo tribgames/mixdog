@@ -36,6 +36,7 @@ import {
 } from '../stall-policy.mjs';
 import { populateHttpStatusFromMessage } from './retry-classifier.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
+import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
 import {
     normalizeContentForOpenAIResponses,
     splitToolContentForOpenAIResponses,
@@ -743,12 +744,22 @@ function _envPositiveInt(name, fallback) {
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
+// Completed function_call.arguments parse for the Codex Responses stream.
+// Native convergence (Codex / claude-code / opencode): a function_call item
+// arrives only on a completion/done signal, so a non-empty-but-malformed
+// arguments string is deterministic bad JSON — NOT mid-stream truncation.
+// Empty/whitespace input legitimately means "no arguments" → {}. A non-empty
+// string that fails JSON.parse is surfaced as an invalid-args MARKER (instead
+// of being silently swallowed to {}) so the dispatch loop turns it into an
+// is_error tool_result and the model self-corrects in the same turn.
 function _parseJsonObject(value) {
+    const text = typeof value === 'string' ? value : (value == null ? '' : String(value));
+    if (text.trim() === '') return {};
     try {
-        const parsed = JSON.parse(value || '{}');
+        const parsed = JSON.parse(text);
         return parsed && typeof parsed === 'object' ? parsed : {};
-    } catch {
-        return {};
+    } catch (err) {
+        return makeInvalidToolArgsMarker(text, err instanceof Error ? err.message : String(err));
     }
 }
 
@@ -1011,10 +1022,11 @@ export async function sendViaHttpSse({
         if (item.arguments && typeof item.arguments === 'object') {
             args = item.arguments;
         } else if (typeof item.arguments === 'string' && item.arguments.trim()) {
-            try {
-                const parsed = JSON.parse(item.arguments);
-                if (parsed && typeof parsed === 'object') args = parsed;
-            } catch {}
+            // Non-empty but malformed tool_search arguments are deterministic
+            // bad JSON (the item is only emitted on completion). Surface an
+            // invalid-args marker instead of swallowing to {} so the model can
+            // self-correct in the same turn.
+            args = _parseJsonObject(item.arguments);
         }
         const call = {
             id: callId,

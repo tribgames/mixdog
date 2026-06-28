@@ -151,7 +151,7 @@ function compactWindowForRouteLike(route) {
   const explicit = num(route.autoCompactTokenLimit ?? route.auto_compact_token_limit);
   const raw = num(route.rawContextWindow ?? route.raw_context_window ?? route.contextWindow ?? route.context_window);
   const context = num(route.contextWindow ?? route.context_window);
-  const pct = num(route.effectiveContextWindowPercent ?? route.effective_context_window_percent) || 95;
+  const pct = num(route.effectiveContextWindowPercent ?? route.effective_context_window_percent) || 90;
   const effective = context || (raw > 0 ? Math.max(1, Math.floor(raw * Math.min(100, pct) / 100)) : 0);
   if (explicit > 0 && effective > 0) return Math.min(explicit, effective);
   if (explicit > 0) return explicit;

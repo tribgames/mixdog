@@ -954,7 +954,7 @@ function nativeResponsesTools(opts) {
         ? opts.nativeTools.filter(t => t && typeof t === 'object')
         : [];
 }
-function parseToolCalls(choice, label) {
+export function parseToolCalls(choice, label) {
     const calls = choice.message?.tool_calls;
     if (!calls?.length)
         return undefined;
@@ -969,7 +969,7 @@ function parseToolCalls(choice, label) {
         arguments: parseCompletedToolCallArgumentsJson(tc.function.arguments, label, { id: tc.id, name: tc.function.name, finishReason }),
     }));
 }
-function parseResponsesToolCalls(response, label) {
+export function parseResponsesToolCalls(response, label) {
     const out = [];
     // A Responses tool call is only parsed off a completed/done item, so any
     // malformed-JSON failure here is deterministic, not mid-stream truncation.

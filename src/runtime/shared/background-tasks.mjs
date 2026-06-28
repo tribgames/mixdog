@@ -19,6 +19,14 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 const tasks = new Map();
 let seq = 0;
 
+// Owner-injected fallback used by notifyToolCompletion: when no notifyFn is
+// available (or it declines), enqueue the completion onto the caller session so
+// the owner is never left waiting on a canonical completion that never arrives.
+let _enqueueFallback = null;
+export function setBackgroundTaskEnqueueFallback(fn) {
+  _enqueueFallback = typeof fn === 'function' ? fn : null;
+}
+
 function clean(value) {
   return String(value ?? '').trim();
 }
@@ -167,7 +175,7 @@ export function startBackgroundTask(options = {}) {
   task.promise = Promise.resolve()
     .then(() => options.run?.())
     .then((result) => {
-      completeBackgroundTask(task.taskId, { status: 'completed', result });
+      completeBackgroundTask(task.taskId, { status: 'completed', result, terminalReason: 'run-resolved' });
       return result;
     })
     .catch((error) => {
@@ -175,6 +183,7 @@ export function startBackgroundTask(options = {}) {
       completeBackgroundTask(task.taskId, {
         status: 'failed',
         error,
+        terminalReason: 'run-rejected',
       });
       return null;
     });
@@ -241,7 +250,14 @@ function resultTextForTask(task) {
   if (task.resultText) return task.resultText;
   if (task.result !== undefined) {
     if (typeof task.renderResult === 'function') {
-      try { return String(task.renderResult(task.result, task) || ''); } catch {}
+      try {
+        const rendered = String(task.renderResult(task.result, task) || '');
+        if (rendered) return rendered;
+      } catch (err) {
+        // Don't silently swallow a renderer throw: fall through to the JSON
+        // fallback below so the completion notification still carries a body.
+        try { process.stderr.write(`[background-${task.surface}] renderResult failed: ${err?.message || err}\n`); } catch {}
+      }
     }
     if (typeof task.result === 'string') return task.result;
     try { return JSON.stringify(task.result, null, 2); } catch {}
@@ -257,6 +273,7 @@ export function completeBackgroundTask(taskId, {
   resultType,
   instruction,
   notify = true,
+  terminalReason = null,
 } = {}) {
   const task = getBackgroundTask(taskId);
   if (!task) return null;
@@ -265,6 +282,7 @@ export function completeBackgroundTask(taskId, {
   task.status = normalizeStatus(status);
   task.finishedAtMs = now;
   task.finishedAt = new Date(now).toISOString();
+  if (terminalReason) task.terminalReason = terminalReason;
   if (result !== undefined) task.result = result;
   if (resultText != null) task.resultText = compactText(resultText);
   if (error != null) task.error = presentErrorText(error, { surface: task.surface });
@@ -274,8 +292,17 @@ export function completeBackgroundTask(taskId, {
 }
 
 export function notifyTaskCompletion(task, instruction) {
-  if (!task || task.notified === true) return false;
+  if (!task) return false;
   if (!TERMINAL_STATUSES.has(task.status)) return false;
+  // `notified` tracks whether *any* completion notification was sent (e.g. an
+  // early header-only preview from the agent surface). A later call that can
+  // finally include the result body must still fire once, otherwise the owner
+  // only ever sees the bodyless preview. Gate on `notifiedWithBody` so the
+  // body-carrying notification is delivered exactly once.
+  const body = resultTextForTask(task);
+  const hasBody = Boolean(body);
+  if (task.notifiedWithBody === true) return false;
+  if (task.notified === true && !hasBody) return false;
   const text = renderBackgroundTask(task, { includeResult: true });
   const sent = notifyToolCompletion({
     surface: task.surface,
@@ -285,10 +312,41 @@ export function notifyTaskCompletion(task, instruction) {
     resultType: task.resultType || `${task.surface}_task_result`,
     instruction,
     context: task.notifyContext,
+    enqueueFallback: _enqueueFallback || undefined,
     logPrefix: `background-${task.surface}`,
   });
-  if (sent) task.notified = true;
+  if (sent) {
+    task.notified = true;
+    if (hasBody) task.notifiedWithBody = true;
+  }
   return sent;
+}
+
+// Safety net for the "task stuck in running" failure mode: when an upstream
+// owner (e.g. the agent surface) knows a job has reached a terminal state but
+// the normal run-resolved path did not mark the task — typically because a
+// post-result step (session save) hung or threw before the task promise could
+// settle — this forces the task to a terminal state and fires the completion
+// notification. Idempotent: a no-op once the task is already terminal.
+export function reconcileBackgroundTask(taskId, {
+  status = 'completed',
+  result,
+  resultText,
+  error,
+  instruction,
+  terminalReason = 'reconciled',
+} = {}) {
+  const task = getBackgroundTask(taskId);
+  if (!task) return null;
+  if (TERMINAL_STATUSES.has(task.status)) return task;
+  return completeBackgroundTask(task.taskId, {
+    status,
+    result,
+    resultText,
+    error,
+    instruction,
+    terminalReason,
+  });
 }
 
 export function notifyBackgroundTaskProgress(taskOrId, {
@@ -317,6 +375,7 @@ export function notifyBackgroundTaskProgress(taskOrId, {
     resultType: resultType || `${task.surface}_task_progress`,
     instruction,
     context: task.notifyContext,
+    enqueueFallback: _enqueueFallback || undefined,
     logPrefix: `background-${task.surface}`,
   });
   if (sent && once) task.progressNotifiedKeys.add(progressKey);
@@ -361,7 +420,14 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
   }
   if (includeResult) {
     const body = resultTextForTask(task);
-    if (body) lines.push('', body);
+    if (body) {
+      lines.push('', body);
+    } else if (TERMINAL_STATUSES.has(task.status) && task.status === 'completed') {
+      // Terminal-completed task with no extractable body: surface a placeholder
+      // instead of silently omitting the result so the owner isn't left with a
+      // header-only card that looks truncated.
+      lines.push('', '(no result body — use read for full output)');
+    }
   }
   return lines.filter((line) => line !== null).join('\n');
 }

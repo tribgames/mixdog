@@ -218,6 +218,11 @@ async function _flush() {
                 body: JSON.stringify({ events: batch }),
                 signal: AbortSignal.timeout(5000),
             });
+            // Always drain the body. An undrained response body keeps the
+            // underlying keep-alive socket referenced, which can hold the event
+            // loop open and make a short-lived process (smoke scripts / one-shot
+            // agent tasks) appear to hang for seconds after its work is done.
+            try { await resp.arrayBuffer(); } catch { /* body already gone */ }
             if (!resp.ok) {
                 warnAgentOnce('agent-trace:flush-error', `[agent-trace] /admin/trace-record returned ${resp.status} — dropping batch`);
             }

@@ -9,10 +9,10 @@
  * Orchestrator modules (session/manager.mjs, session/loop.mjs) import from
  * here instead of going through mcp/client.mjs for internal tools.
  *
- * Permission enforcement: agent-worker tool calls (including internal tools)
- * are gated by _checkWorkerPermission() in session/loop.mjs BEFORE reaching
- * executeTool() → executeInternalTool(). No duplicate check is needed here;
- * the loop is the single enforcement point for all dispatch paths.
+ * Permission enforcement has been removed (every tool call is trusted). The
+ * only remaining dispatch-time gate is the architectural scoping in
+ * _preDispatchDeny() in session/loop.mjs (agent-worker control-plane reject +
+ * no-tool role guard) — not a permission check. No gating is needed here.
  */
 
 let _executor = null;
@@ -23,7 +23,6 @@ let _bootReady = false;
 let _bootResolver = null;
 const _bootPromise = new Promise((r) => { _bootResolver = r; });
 export function markBootReady() { if (_bootReady) return; _bootReady = true; _bootResolver(); }
-export async function awaitBootReady(timeoutMs = 2000) { if (_bootReady) return; await Promise.race([_bootPromise, new Promise((r) => setTimeout(r, timeoutMs))]); }
 
 // Per-tool executor overrides. Populated by addInternalTools() for extra
 // internal tools that bypass the main dispatch (tools.json + dispatchTool).

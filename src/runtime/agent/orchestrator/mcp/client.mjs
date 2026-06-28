@@ -264,7 +264,6 @@ export function mcpToolHasField(name, field) {
 /**
  * Disconnect all MCP servers.
  */
-export const drainMcpClients = disconnectAll;
 export async function disconnectAll() {
     for (const [name, server] of servers) {
         try {
@@ -275,11 +274,6 @@ export async function disconnectAll() {
     }
     _invalidateMcpToolFieldMemo();
 }
-/**
- * Load MCP server configs from a JSON file.
- * Supports both `{ mcpServers: { ... } }` and flat `{ name: { ... } }` format.
- */
-
 async function connectServer(name, cfg) {
     const { Client, StdioClientTransport, StreamableHTTPClientTransport } = await loadMcpSdk();
     const client = new Client({ name: `mixdog-agent/${name}`, version: '1.0.0' });

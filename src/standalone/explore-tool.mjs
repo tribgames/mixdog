@@ -14,7 +14,7 @@ export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: 'Locate code anchors. Returns path:line candidates. Batch queries.',
+  description: 'Locate code anchors first to narrow broad work. Returns path:line candidates. Batch.',
   inputSchema: {
     type: 'object',
     properties: {

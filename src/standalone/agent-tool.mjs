@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -7,6 +7,8 @@ import {
   getBackgroundTask,
   listBackgroundTasks,
   renderBackgroundTask,
+  reconcileBackgroundTask,
+  setBackgroundTaskEnqueueFallback,
   startBackgroundTask,
   taskIdFromArgs,
 } from '../runtime/shared/background-tasks.mjs';
@@ -64,12 +66,12 @@ export const AGENT_TOOL = {
       context: { type: 'string', description: 'Extra agent context.' },
       firstResponseTimeoutMs: { type: 'number', minimum: 0, description: 'No first activity watchdog ms. 0 disables.' },
       idleTimeoutMs: { type: 'number', minimum: 0, description: 'Idle watchdog ms. 0 disables.' },
+      spawnPrepTimeoutMs: { type: 'number', minimum: 0, description: 'Spawn prep (provider/session build) cap ms. 0 disables.' },
     },
     additionalProperties: true,
   },
 };
 
-const TERMINAL_REAP_MS = 60 * 60_000;
 const WORKER_INDEX_FILE = 'agent-workers.json';
 function envTimeoutMs(name, fallback) {
   const raw = process.env[name];
@@ -78,9 +80,29 @@ function envTimeoutMs(name, fallback) {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
 }
 
+// Grace window during which a terminated/idle worker row is kept around so the
+// same terminal can re-use (or cleanly re-spawn) the same tag. Cached as a
+// constant like the other timeouts; override with MIXDOG_AGENT_TERMINAL_REAP_MS.
+const TERMINAL_REAP_MS = envTimeoutMs('MIXDOG_AGENT_TERMINAL_REAP_MS', 60 * 60_000);
 const DEFAULT_FIRST_RESPONSE_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_FIRST_RESPONSE_TIMEOUT_MS', 120_000);
 const DEFAULT_STALE_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_STALE_TIMEOUT_MS', 30 * 60_000);
+// Independent hard cap for the spawn *prep* phase (ensureProvider /
+// prepareAgentSession / catalog+rules load). Kept separate from the
+// first-response watchdog so that explicitly disabling the watchdog
+// (firstResponseTimeoutMs:0) does not leave prep able to hang forever and make
+// a whole fanout look stuck. Set MIXDOG_AGENT_SPAWN_PREP_TIMEOUT_MS=0 to fully
+// disable the cap and restore strictly-unbounded prep.
+const DEFAULT_SPAWN_PREP_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_SPAWN_PREP_TIMEOUT_MS', 120_000);
 const ACTIVE_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'running', 'cancelling']);
+
+// Process-wide TTL cache for agent AGENT.md frontmatter permission. The file
+// rarely changes, but readAgentFrontmatterPermission() otherwise pays several
+// existsSync()+readFileSync() calls on EVERY spawn — multiplied across a
+// parallel fanout that is pure redundant synchronous I/O on the event loop,
+// which blocks every other concurrent spawn. Short TTL keeps edits picked up
+// quickly while collapsing burst reads.
+const _frontmatterPermCache = new Map(); // key -> { value, atMs }
+const FRONTMATTER_PERM_CACHE_TTL_MS = envTimeoutMs('MIXDOG_AGENT_FRONTMATTER_TTL_MS', 5_000);
 
 function clean(value) {
   return String(value ?? '').trim();
@@ -103,6 +125,11 @@ function normalizeAgentName(value) {
 function readAgentFrontmatterPermission(role, dataDir) {
   const cleanRole = clean(role);
   if (!cleanRole) return null;
+  const cacheKey = `${dataDir || ''}\u0000${cleanRole}`;
+  const cached = _frontmatterPermCache.get(cacheKey);
+  if (cached && Date.now() - cached.atMs < FRONTMATTER_PERM_CACHE_TTL_MS) {
+    return cached.value;
+  }
   const candidates = [];
   if (dataDir) {
     candidates.push(join(dataDir, 'agents', cleanRole, 'AGENT.md'));
@@ -110,13 +137,15 @@ function readAgentFrontmatterPermission(role, dataDir) {
   }
   candidates.push(join(STANDALONE_SOURCE_ROOT, 'agents', cleanRole, 'AGENT.md'));
   candidates.push(join(STANDALONE_SOURCE_ROOT, 'agents', `${cleanRole}.md`));
+  let resolved = null;
   for (const file of candidates) {
     if (!existsSync(file)) continue;
     const fm = parseMarkdownFrontmatter(readFileSync(file, 'utf8'));
     const permission = normalizeAgentPermissionOrNone(fm.permission);
-    if (permission) return permission;
+    if (permission) { resolved = permission; break; }
   }
-  return null;
+  _frontmatterPermCache.set(cacheKey, { value: resolved, atMs: Date.now() });
+  return resolved;
 }
 
 function positiveInt(value) {
@@ -302,6 +331,7 @@ function renderResult(value) {
       lines.push(`agent task: ${value.task_id}`);
       lines.push(`status: ${value.status}`);
       if (value.type) lines.push(`type: ${value.type}`);
+      if (value.reused) lines.push('reused: true');
       if (value.tag || value.sessionId) lines.push(`target: ${value.tag || '-'} ${value.sessionId || ''}`.trim());
       if (value.role) lines.push(`agent: ${value.role}`);
       if (value.provider && value.model) lines.push(`model: ${value.provider}/${value.model}`);
@@ -331,6 +361,7 @@ function renderResult(value) {
     if (value.queued) {
       return [
         'agent message queued',
+        value.reused ? 'reused: true' : null,
         `target: ${value.tag || '-'} ${value.sessionId || ''}`.trim(),
         value.role ? `agent: ${value.role}` : null,
         `queueDepth: ${value.queueDepth ?? 1}`,
@@ -367,7 +398,6 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
   const reapTimers = new Map();
   const workerIndexMutators = [];
   let workerIndexFlushTimer = null;
-  let tagSeq = 0;
   function workerIndexPath() {
     return dataDir ? resolve(dataDir, WORKER_INDEX_FILE) : null;
   }
@@ -427,15 +457,42 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       .filter(keepWorkerRow);
   }
 
-  function readWorkerRows(context = {}) {
+  // Mtime-keyed parse cache for the worker index. A single spawn calls
+  // refreshTagsFromSessions()/resolveTag()/nextTag() which each re-read and
+  // re-JSON.parse this file; across a parallel fanout that is O(spawns^2)
+  // synchronous reads of the same bytes on the event loop. Cache the parsed,
+  // normalized rows and reuse them while the file mtime+size is unchanged.
+  // Writes bump _workerRowsCacheDirty so the very next read re-parses.
+  let _workerRowsCache = null; // { mtimeMs, size, rows }
+  let _workerRowsCacheDirty = true;
+  function invalidateWorkerRowsCache() {
+    _workerRowsCacheDirty = true;
+  }
+  function readAllWorkerRows() {
     const file = workerIndexPath();
-    if (!file || !existsSync(file)) return [];
-    try {
-      const rows = normalizeWorkerRows(JSON.parse(readFileSync(file, 'utf8')));
-      return rows.filter((row) => rowMatchesContext(row, context));
-    } catch {
-      return [];
+    if (!file) return [];
+    let st = null;
+    try { st = statSync(file); } catch { _workerRowsCache = null; return []; }
+    if (!_workerRowsCacheDirty
+      && _workerRowsCache
+      && _workerRowsCache.mtimeMs === st.mtimeMs
+      && _workerRowsCache.size === st.size) {
+      return _workerRowsCache.rows;
     }
+    let rows = [];
+    try {
+      rows = normalizeWorkerRows(JSON.parse(readFileSync(file, 'utf8')));
+    } catch {
+      rows = [];
+    }
+    _workerRowsCache = { mtimeMs: st.mtimeMs, size: st.size, rows };
+    _workerRowsCacheDirty = false;
+    return rows;
+  }
+  function readWorkerRows(context = {}) {
+    const rows = readAllWorkerRows();
+    if (rows.length === 0) return rows;
+    return rows.filter((row) => rowMatchesContext(row, context));
   }
 
   function workerRowsForUpdate(cur) {
@@ -446,7 +503,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     const file = workerIndexPath();
     if (!file || typeof mutator !== 'function') return null;
     try {
-      return updateJsonAtomicSync(file, (cur) => {
+      const result = updateJsonAtomicSync(file, (cur) => {
         const byKey = new Map();
         for (const row of workerRowsForUpdate(cur)) {
           const key = workerRowKey(row);
@@ -460,6 +517,10 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         }
         return { version: 1, updatedAt: new Date().toISOString(), workers };
       }, { lock: true });
+      // This process just rewrote the index; force the next read to re-parse
+      // even if the new mtime/size happen to collide with the cached stat.
+      invalidateWorkerRowsCache();
+      return result;
     } catch {
       return null;
     }
@@ -619,6 +680,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
 
   function resolveTag(target, context = {}, options = {}) {
     const scanSessions = options.scanSessions === true;
+    const excludeTerminalTraces = options.excludeTerminalTraces === true;
     refreshTagsFromSessions({ scanSessions, context });
     const value = clean(target);
     if (!value) return null;
@@ -628,7 +690,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       const row = readWorkerRows(context).find((item) => item.sessionId === value);
       return row ? value : null;
     }
-    const matches = agentSessionEntries({ scanSessions, context })
+    const matches = agentSessionEntries({ scanSessions, context, excludeTerminalTraces })
       .filter((entry) => entry.tag === value);
     if (matches.length === 1) return matches[0].session.id;
     if (matches.length > 1) {
@@ -655,7 +717,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     return null;
   }
 
-  function agentSessionEntries({ scanSessions = false, context = {} } = {}) {
+  function agentSessionEntries({ scanSessions = false, context = {}, excludeTerminalTraces = false } = {}) {
     const rows = [];
     const seen = new Set();
     const add = (session, fallbackTag = '') => {
@@ -671,6 +733,17 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       const sessionId = clean(row?.sessionId);
       if (!tag || !sessionId || !rowMatchesContext(row, context)) return;
       if (seen.has(sessionId)) return;
+      // Collision/resolution enumeration only: a row that is in a terminal
+      // (or idle-but-finished) state AND has no live session behind it is just
+      // a lingering trace kept around for the reap grace window. Such a trace
+      // must NOT block a fresh spawn of the same tag, and must let
+      // coldRespawnArgs() recover the role. Display enumeration (list) leaves
+      // excludeTerminalTraces=false so finished workers still appear.
+      if (excludeTerminalTraces
+        && isTerminalWorkerStatus(row.status || row.stage)
+        && !getLiveSession(sessionId)) {
+        return;
+      }
       seen.add(sessionId);
       rows.push({ tag, session: workerRowToSession(row), indexRow: row });
     };
@@ -690,10 +763,24 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
 
   function nextTag(role, context = {}) {
     refreshTagsFromSessions({ context });
-    let tag;
-    do {
-      tag = `${clean(role) || 'agent'}${++tagSeq}`;
-    } while (resolveTag(tag, context));
+    // Auto tags are role + a per-role local index with NO hyphen
+    // ("worker3", "heavy-worker7", or "agent1" when the role is unset). The
+    // index is the max existing `^role(\d+)$` + 1, escaping the role so a
+    // hyphenated role ("heavy-worker") is matched literally. Keep incrementing
+    // on any live collision.
+    const base = clean(role) || 'agent';
+    const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`^${escaped}(\\d+)$`);
+    let maxN = 0;
+    for (const existing of tags.keys()) {
+      const match = re.exec(existing);
+      if (!match) continue;
+      const n = Number(match[1]);
+      if (Number.isFinite(n) && n > maxN) maxN = n;
+    }
+    let n = maxN + 1;
+    let tag = `${base}${n}`;
+    while (resolveTag(tag, context)) tag = `${base}${++n}`;
     return tag;
   }
 
@@ -766,10 +853,136 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     return ACTIVE_STAGES.has(session?.status || '');
   }
 
-  async function ensureProvider(config, provider) {
+  // Provider init de-dup. Four goals that must not conflict:
+  //   (a) a parallel spawn fanout that all targets the SAME provider with the
+  //       SAME effective config performs at most ONE initProviders() pass
+  //       instead of N serially-awaited registry rebuilds,
+  //   (b) a provider CONFIG CHANGE still reaches initProviders() so the
+  //       registry's own signature guard can re-initialize it,
+  //   (c) two DIFFERENT config signatures for the same provider never init
+  //       concurrently — otherwise a slow init of the OLD config could land
+  //       after a fast init of the NEW config and revert the live registry to
+  //       stale config, and
+  //   (d) a SUPERSEDED request never resolves before the provider is actually
+  //       ready: even when its own (stale) init is dropped to satisfy (c), the
+  //       caller (a spawn about to run prepareSpawn) must still WAIT for the
+  //       latest init to finish, or it would proceed against an unprepared /
+  //       stale provider.
+  //
+  // Skip cache + in-flight collapse are keyed on `provider + signature(effective
+  // config)`. To satisfy (c) we SERIALIZE all inits per provider on a chain
+  // promise and re-check the latest-requested signature inside the chain: a
+  // request superseded by a newer signature drops its own init. To satisfy (d)
+  // such a dropped request does not resolve immediately — it awaits the
+  // provider's latest settled init (tracked as a rolling "ready" promise) so the
+  // caller only proceeds once the newest config is live.
+  // Per-provider state. `chain` serializes the ACTUAL initProviders() calls so
+  // two different config signatures never run concurrently (goal c). `latestGen`
+  // / `latestSig` track the newest requested config. `ready` is a rolling
+  // deferred that resolves only when the LATEST requested init has completed —
+  // a superseded caller awaits the ready deferred captured at call time, and
+  // when a newer request arrives the older deferred ADOPTS the newer one, so a
+  // superseded caller transitively waits for the latest init (goal d).
+  const _providerState = new Map(); // provider -> state
+  const _providerInitPending = new Map(); // provider -> { sigKey, promise } identical-sig collapse
+  // Upper bound on how long a queued init waits for the PRIOR chain link before
+  // proceeding anyway. A prior init that HANGS (never settles) must not poison
+  // the chain and wedge every later request behind it. A hung init can never
+  // *complete* against the registry, so it cannot land-after and clobber a
+  // newer config (goal c only fears slow-but-completing inits) — so proceeding
+  // once the gate expires is safe. Defaults to the spawn-prep cap; 0 disables.
+  const PROVIDER_CHAIN_GATE_MS = DEFAULT_SPAWN_PREP_TIMEOUT_MS;
+  function gateOnPrior(prior) {
+    const settled = prior.catch(() => {});
+    if (!(PROVIDER_CHAIN_GATE_MS > 0)) return settled;
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(); } };
+      const timer = setTimeout(finish, PROVIDER_CHAIN_GATE_MS);
+      timer.unref?.();
+      settled.then(() => { clearTimeout(timer); finish(); }, () => { clearTimeout(timer); finish(); });
+    });
+  }
+  function effectiveProviderConfig(config, provider) {
     const providers = { ...(config.providers || {}) };
     providers[provider] = { ...(providers[provider] || {}), enabled: true };
-    await reg.initProviders(providers);
+    return providers;
+  }
+  function providerStateFor(provider) {
+    let s = _providerState.get(provider);
+    if (!s) {
+      s = { chain: Promise.resolve(), completedSig: null, latestSig: null, latestGen: 0, ready: null };
+      _providerState.set(provider, s);
+    }
+    return s;
+  }
+  function providerInitSignature(provider, effectiveProviders) {
+    let body;
+    try { body = JSON.stringify(effectiveProviders); }
+    catch { body = String(Date.now()); } // unserializable → force a fresh init
+    return `${provider}\u0000${body}`;
+  }
+  function ensureProvider(config, provider) {
+    const effective = effectiveProviderConfig(config, provider);
+    const sigKey = providerInitSignature(provider, effective);
+    const registered = () => (typeof reg.getProvider !== 'function' || reg.getProvider(provider));
+    const s = providerStateFor(provider);
+    // Completed-skip: this exact effective config is already live for this
+    // provider. A config change flips sigKey so we fall through; a torn-down
+    // provider (no longer registered) also does.
+    if (s.completedSig === sigKey && registered()) return Promise.resolve();
+    // Identical-sig collapse: a request with the SAME sigKey is already in
+    // flight — share its caller promise.
+    const pending = _providerInitPending.get(provider);
+    if (pending && pending.sigKey === sigKey) return pending.promise;
+    // New generation. Repoint the rolling `ready` deferred to THIS gen and make
+    // the previous gen's deferred ADOPT the new one, so any superseded caller
+    // awaiting an older deferred transitively waits for the newest init (d).
+    const gen = ++s.latestGen;
+    s.latestSig = sigKey;
+    const prevReady = s.ready;
+    let resolveReady;
+    const readyPromise = new Promise((r) => { resolveReady = r; });
+    s.ready = { gen, promise: readyPromise, resolve: resolveReady };
+    if (prevReady && prevReady.gen < gen) {
+      try { prevReady.resolve(readyPromise); } catch { /* already settled */ }
+    }
+    // Serialize the ACTUAL init behind the prior chain link (gated so a hung
+    // prior cannot wedge the chain). A superseded gen's chain link settles
+    // quickly — it never awaits a later gen — so there is no deadlock.
+    const prior = s.chain;
+    const chainLink = gateOnPrior(prior).then(async () => {
+      if (s.latestGen !== gen) {
+        // Superseded before we ran: drop our (stale) init entirely (goal c).
+        // Our `ready` deferred already adopts the newer gen, so the caller below
+        // still waits for the latest init. Settle now to release the chain.
+        return;
+      }
+      try {
+        if (!(s.completedSig === sigKey && registered())) {
+          await reg.initProviders(effective);
+          s.completedSig = sigKey;
+        }
+      } finally {
+        // ALWAYS release this gen's waiters once we are the latest — even on a
+        // registry init failure. Adopting (superseded) callers chained onto this
+        // deferred would otherwise hang forever; instead they proceed and their
+        // own createSession()/prep-timeout surfaces the unprepared provider.
+        resolveReady();
+      }
+    });
+    // Next chain link waits on us (settled, never poisoned).
+    s.chain = chainLink.catch(() => {});
+    // The CALLER awaits the ready deferred (resolves only when the LATEST init
+    // for this provider completes), not just the chain link — so a superseded
+    // caller blocks until the newest config is live (goal d). chainLink is
+    // awaited first so a registry init error surfaces to this caller.
+    const callerPromise = chainLink.then(() => readyPromise).finally(() => {
+      const cur = _providerInitPending.get(provider);
+      if (cur && cur.promise === callerPromise) _providerInitPending.delete(provider);
+    });
+    _providerInitPending.set(provider, { sigKey, promise: callerPromise });
+    return callerPromise;
   }
 
   function resolvePreset(config, args) {
@@ -947,16 +1160,25 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
 
   function pendingSpawnMeta(args = {}, extras = {}) {
     const role = normalizeAgentName(args.agent || args.role);
+    // Best-effort resolve the default preset so the pending "Spawn …" card can
+    // already show the model (e.g. "Spawn Heavy Worker (Opus 4.8)") even when
+    // the caller did not pass an explicit provider/model. Never throw: fall back
+    // to whatever raw args carry.
+    let resolved = null;
+    if (!clean(args.model) || !clean(args.provider)) {
+      try { resolved = resolvePreset(cfgMod.loadConfig(), args)?.preset || null; }
+      catch { resolved = null; }
+    }
     return {
       ...(extras || {}),
       tag: clean(args.tag) || null,
       sessionId: null,
       role: role || null,
-      preset: clean(args.preset) || null,
-      provider: clean(args.provider) || null,
-      model: clean(args.model) || null,
-      effort: clean(args.effort) || null,
-      fast: args.fast === true ? true : null,
+      preset: clean(args.preset) || presetKey(resolved) || null,
+      provider: clean(args.provider) || clean(resolved?.provider) || null,
+      model: clean(args.model) || clean(resolved?.model) || null,
+      effort: clean(args.effort) || clean(resolved?.effort) || null,
+      fast: args.fast === true ? true : (resolved?.fast === true ? true : null),
     };
   }
 
@@ -993,6 +1215,12 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       return false;
     }
   }
+
+  // Wire the canonical completion fallback to this agent surface's owner-session
+  // enqueue so notifyTaskCompletion can deliver via callerSessionId when no
+  // notifyFn is present or it declines. Registered once per agent (the closure
+  // captures mgr); signatures align: (callerSessionId, message, meta).
+  setBackgroundTaskEnqueueFallback((sessionId, text, meta) => enqueueCompletionMessage(sessionId, text, meta));
 
   function workerNotifyFn(workerSessionId, notifyContext = {}) {
     const workerId = clean(workerSessionId);
@@ -1032,7 +1260,13 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       result: resultValue,
       resultType: job.resultType || 'agent_task_result',
     };
-    const text = renderBackgroundTask(snapshot, { includeResult: true });
+    // An early notification is only a header-only *preview*: it fires before
+    // the worker's session is persisted to signal the running→completed
+    // transition. It deliberately carries NO result body — the canonical
+    // notifyTaskCompletion delivers the body exactly once via the
+    // reconcile/finally path, so omitting it here keeps notifications
+    // exact-once with no duplicate body.
+    const text = renderBackgroundTask(snapshot, { includeResult: false });
     const meta = {
       type: snapshot.resultType,
       execution_surface: 'agent',
@@ -1054,7 +1288,11 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     if (!delivered && ownerSessionId) {
       delivered = enqueueCompletionMessage(ownerSessionId, text, meta);
     }
-    if (delivered) job._earlyCompletionNotified = true;
+    if (delivered) {
+      // Mark only that a header-only preview fired. The canonical
+      // notifyTaskCompletion still owns the single body-carrying notification.
+      job._earlyCompletionNotified = true;
+    }
     return delivered;
   }
 
@@ -1094,7 +1332,43 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
 
   function startDeferredSpawnJob(args, callerCwd, context, notifyContext, extras = {}) {
     return startJob('spawn', pendingSpawnMeta(args, extras), async (job) => {
-      const prepared = await prepareSpawn(args, callerCwd, context);
+      // prepareSpawn (ensureProvider/prepareAgentSession) runs before runSpawn
+      // installs its progress watchdog, so a blocking prep step would hang
+      // outside any timeout protection. Guard the prep phase with its OWN
+      // independent cap (spawnPrepTimeoutMs / MIXDOG_AGENT_SPAWN_PREP_TIMEOUT_MS)
+      // rather than the first-response watchdog: a caller that explicitly sets
+      // firstResponseTimeoutMs:0 wants no *model* activity watchdog, but should
+      // still not be able to wedge a whole fanout on a hung prep step. Set the
+      // prep cap to 0 (or args.spawnPrepTimeoutMs:0) to opt back into strictly
+      // unbounded prep.
+      const prepDeadlineMs = resolveWatchdogMs(args.spawnPrepTimeoutMs, DEFAULT_SPAWN_PREP_TIMEOUT_MS);
+      let prepared;
+      if (prepDeadlineMs > 0) {
+        let prepTimer = null;
+        let timedOut = false;
+        // If prep wins the race we use its result. If the timeout wins, the
+        // prepareSpawn promise may still resolve later with a fully-built
+        // session/tag/route — attach a cleanup so the late-arriving prepared is
+        // torn down, otherwise the orphaned tag would collide on re-spawn.
+        const prepPromise = prepareSpawn(args, callerCwd, context);
+        prepPromise.then((late) => {
+          if (timedOut) closePreparedSpawn(late, 'agent-spawn-prep-timeout');
+        }, () => {});
+        const timeout = new Promise((_resolve, reject) => {
+          prepTimer = setTimeout(() => {
+            timedOut = true;
+            reject(new Error(`agent spawn prep timed out (${prepDeadlineMs}ms) before model request`));
+          }, prepDeadlineMs);
+          prepTimer.unref?.();
+        });
+        try {
+          prepared = await Promise.race([prepPromise, timeout]);
+        } finally {
+          if (prepTimer) clearTimeout(prepTimer);
+        }
+      } else {
+        prepared = await prepareSpawn(args, callerCwd, context);
+      }
       mergeJobMeta(job, preparedSpawnMeta(prepared, extras));
       upsertWorkerSessionDeferred(prepared.session, prepared.tag, {
         ...preparedSpawnMeta(prepared, extras),
@@ -1162,7 +1436,14 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     await ensureProvider(config, preset.provider);
 
     const tag = clean(args.tag) || nextTag(role, context);
-    if (resolveTag(tag, context, { scanSessions: wantsSessionScan(args) })) throw new Error(`agent spawn: tag "${tag}" already exists`);
+    // Only a *live* same-tag session in this terminal blocks a fresh spawn.
+    // A terminal/idle trace left behind for the reap grace window is excluded
+    // (excludeTerminalTraces) so the same tag can be cleanly re-spawned — the
+    // execute() spawn branch routes genuine reuse (busy/idle-live) before we
+    // ever get here.
+    if (resolveTag(tag, context, { scanSessions: wantsSessionScan(args), excludeTerminalTraces: true })) {
+      throw new Error(`agent spawn: tag "${tag}" already exists`);
+    }
     const baseCwd = resolve(callerCwd || defaultCwd || process.cwd());
     const workerCwd = clean(args.cwd) ? resolve(baseCwd, args.cwd) : baseCwd;
     const prompt = withCwdHeader(await resolvePrompt(args, workerCwd), workerCwd);
@@ -1236,11 +1517,14 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         notifyFn: workerNotifyFn(session.id, notifyContext || {}),
         ...(job ? {
           onTerminalResult: (terminalResult) => {
+            if (job) job._terminalResultValue = completionValue(terminalResult);
             notifyOwnerAgentCompletionEarly(job, completionValue(terminalResult), notifyContext || {});
           },
         } : {}),
       });
-      if (job?._earlyCompletionNotified === true) job.notified = true;
+      // The early preview no longer promises body suppression, so the canonical
+      // notifyTaskCompletion is left to fire exactly once with output via the
+      // resolve/reconcile/finally path.
       return completionValue(result);
     } catch (error) {
       finalStatus = 'error';
@@ -1258,6 +1542,20 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         stage: finalStatus,
         finishedAt: new Date().toISOString(),
       });
+      // Safety net: if a post-result step (session save) hung or threw after the
+      // worker already produced a terminal result, the task could otherwise be
+      // stranded in `running`. Reconcile it to a terminal state using the
+      // captured result so the owner gets a completion notification + the
+      // statusline clears. Idempotent once the task is already terminal.
+      if (job && job._terminalResultValue !== undefined) {
+        try {
+          reconcileBackgroundTask(job.taskId, {
+            status: finalStatus === 'error' ? 'failed' : 'completed',
+            result: job._terminalResultValue,
+            terminalReason: 'agent-finally-reconcile',
+          });
+        } catch {}
+      }
       scheduleReap(session.id);
     }
   }
@@ -1302,11 +1600,13 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         notifyFn: workerNotifyFn(sessionId, notifyContext || {}),
         ...(job ? {
           onTerminalResult: (terminalResult) => {
+            if (job) job._terminalResultValue = completionValue(terminalResult);
             notifyOwnerAgentCompletionEarly(job, completionValue(terminalResult), notifyContext || {});
           },
         } : {}),
       });
-      if (job?._earlyCompletionNotified === true) job.notified = true;
+      // Early preview no longer suppresses the canonical body notification;
+      // notifyTaskCompletion fires once with output via resolve/reconcile.
       return completionValue(result);
     } catch (error) {
       finalStatus = 'error';
@@ -1318,12 +1618,52 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         stage: finalStatus,
         finishedAt: new Date().toISOString(),
       });
+      // Safety net mirror of runSpawn: reconcile a stranded task if a post-result
+      // step hung/threw after a terminal result was already produced.
+      if (job && job._terminalResultValue !== undefined) {
+        try {
+          reconcileBackgroundTask(job.taskId, {
+            status: finalStatus === 'error' ? 'failed' : 'completed',
+            result: job._terminalResultValue,
+            terminalReason: 'agent-finally-reconcile',
+          });
+        } catch {}
+      }
       scheduleReap(sessionId);
     }
   }
 
   async function send(args) {
     return await runSend(await prepareSend(args));
+  }
+
+  // Shared send dispatch for an already-resolved live session. Used by the
+  // `send` branch AND by the `spawn` branch when an explicit tag maps to a
+  // live session (reuse path). Busy sessions queue the prompt; idle ones run a
+  // background send job that continues the existing session (context kept).
+  function dispatchToExistingSession(prepared, notifyContext, extras = {}) {
+    if (isSessionBusy(prepared.sessionId) && typeof mgr.enqueuePendingMessage === 'function') {
+      const queueDepth = mgr.enqueuePendingMessage(prepared.sessionId, prepared.prompt);
+      return renderResult({
+        queued: true,
+        ...extras,
+        tag: tagForSession(prepared.sessionId),
+        sessionId: prepared.sessionId,
+        role: prepared.session.role || null,
+        queueDepth,
+      });
+    }
+    const job = startJob('send', {
+      tag: tagForSession(prepared.sessionId),
+      sessionId: prepared.sessionId,
+      role: prepared.session.role || null,
+      provider: prepared.session.provider || null,
+      model: prepared.session.model || null,
+      preset: prepared.session.presetName || null,
+      effort: prepared.session.effort || null,
+      fast: prepared.session.fast === true,
+    }, (job) => runSend(prepared, notifyContext, job), notifyContext);
+    return renderResult({ ...extras, ...renderJob(job, false) });
   }
 
   function close(args, context = {}) {
@@ -1397,7 +1737,11 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
 
   function coldRespawnArgs(args = {}, context = {}) {
     const target = clean(args.tag || args.sessionId);
-    if (!target || target.startsWith('sess_') || resolveTag(target, context)) return null;
+    // A live same-tag session (busy/idle) means "reuse", not "cold respawn", so
+    // bail. But a terminal/closed trace lingering in the reap grace window must
+    // NOT block recovery — exclude it so a finished worker's tag can be cleanly
+    // re-spawned with its recovered role.
+    if (!target || target.startsWith('sess_') || resolveTag(target, context, { excludeTerminalTraces: true })) return null;
     const recoveredRole = clean(args.agent || args.role) || tagRoles.get(target);
     if (!recoveredRole) return null;
     return {
@@ -1410,6 +1754,20 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       cwd: args.cwd ?? tagCwds.get(target) ?? undefined,
       respawned: true,
     };
+  }
+
+  // True only when a tag has a lingering trace (worker-index row or recorded
+  // role) but no live session in this terminal — i.e. a finished worker still
+  // inside the reap grace window. The `send` path relies on args.agent usually
+  // being absent to gate coldRespawnArgs(), but spawn always carries an agent,
+  // so spawn must check the trace explicitly before treating a tag as a
+  // re-spawn (otherwise a brand-new tag would be mislabeled `respawned`).
+  function hasTerminalTrace(tag, context = {}) {
+    const value = clean(tag);
+    if (!value || value.startsWith('sess_')) return false;
+    if (resolveTag(value, context, { excludeTerminalTraces: true })) return false; // live -> reuse, not trace
+    if (tagRoles.has(value)) return true;
+    return readWorkerRows(context).some((row) => clean(row.tag) === value);
   }
 
   async function execute(args = {}, context = {}) {
@@ -1431,29 +1789,51 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
           return renderResult({ respawned: true, ...renderJob(job, false) });
         }
         const prepared = await prepareSend(args, scopedContext);
-        if (isSessionBusy(prepared.sessionId) && typeof mgr.enqueuePendingMessage === 'function') {
-          const queueDepth = mgr.enqueuePendingMessage(prepared.sessionId, prepared.prompt);
-          return renderResult({
-            queued: true,
-            tag: tagForSession(prepared.sessionId),
-            sessionId: prepared.sessionId,
-            role: prepared.session.role || null,
-            queueDepth,
-          });
-        }
-        const job = startJob('send', {
-          tag: tagForSession(prepared.sessionId),
-          sessionId: prepared.sessionId,
-          role: prepared.session.role || null,
-          provider: prepared.session.provider || null,
-          model: prepared.session.model || null,
-          preset: prepared.session.presetName || null,
-          effort: prepared.session.effort || null,
-          fast: prepared.session.fast === true,
-        }, (job) => runSend(prepared, notifyContext, job), notifyContext);
-        return renderResult(renderJob(job, false));
+        return dispatchToExistingSession(prepared, notifyContext);
       }
       if (type === 'spawn') {
+        // Unified 4-tier reuse priority, but only when the caller pins an
+        // explicit tag. Auto (nextTag) spawns always create a fresh session.
+        //   1) terminal/closed trace only  -> coldRespawnArgs() clean re-spawn
+        //   2) live + busy                 -> queue the prompt (no collision)
+        //   3) live + idle                 -> continue existing session (reuse)
+        //   4) genuinely new tag           -> fresh deferred spawn
+        const explicitTag = clean(args.tag);
+        if (explicitTag) {
+          // (1) Tag survives only as a terminal/closed worker-index trace (no
+          // live session). coldRespawnArgs() recovers the role and re-spawns a
+          // clean session under the same tag. Spawn always carries `agent`, so
+          // coldRespawnArgs() alone cannot distinguish "lingering trace" from
+          // "brand-new tag" — gate it on an actual trace first.
+          const respawnArgs = hasTerminalTrace(explicitTag, scopedContext)
+            ? coldRespawnArgs(args, scopedContext)
+            : null;
+          if (respawnArgs) {
+            const job = startDeferredSpawnJob(respawnArgs, callerCwd, context, notifyContext, { respawned: true });
+            return renderResult({ respawned: true, ...renderJob(job, false) });
+          }
+          // Resolve a LIVE same-tag session in this terminal (busy or idle).
+          let liveSessionId = null;
+          try {
+            liveSessionId = resolveTag(explicitTag, scopedContext, {
+              scanSessions: wantsSessionScan(args),
+              excludeTerminalTraces: true,
+            });
+          } catch {
+            // Ambiguous across terminals — fall through to the normal spawn
+            // path which surfaces the same error consistently.
+            liveSessionId = null;
+          }
+          if (liveSessionId && getLiveSession(liveSessionId)) {
+            // (2)/(3) Reuse the existing session: continue the conversation via
+            // the send path so dialogue/context are preserved. resolvePrompt /
+            // coldRespawnArgs already accept prompt ?? message, so a spawn-style
+            // `prompt` arg maps cleanly onto the send path.
+            const prepared = await prepareSend({ ...args, tag: explicitTag }, scopedContext);
+            return dispatchToExistingSession(prepared, notifyContext, { reused: true });
+          }
+        }
+        // (4) Genuinely new (or auto) tag -> fresh deferred spawn.
         const job = startDeferredSpawnJob(args, callerCwd, context, notifyContext);
         return renderResult(renderJob(job, false));
       }

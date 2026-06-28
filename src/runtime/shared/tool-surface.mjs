@@ -187,7 +187,7 @@ function displayAgentName(value) {
   return AGENT_DISPLAY_NAMES.get(key) || titleizeDisplayName(text);
 }
 
-function displayModelName(model) {
+export function displayModelName(model) {
   const text = String(model || '').trim();
   if (!text) return '';
   const raw = text.includes('/') ? (text.split('/').filter(Boolean).at(-1) || text) : text;
@@ -659,6 +659,10 @@ function looksLineOriented(text) {
 }
 
 function summarizeUpdateResult(text, args) {
+  // A dry_run patch validates without writing, so the collapsed detail must not
+  // claim a real mutation ("Updated/Created/Deleted foo.js"). Map every action
+  // to "Checked" wording, matching the dry-run header (Checking/Checked).
+  const isDryRun = parseToolArgs(args)?.dry_run === true;
   const changed = [];
   for (const line of String(text ?? '').split('\n')) {
     const ok = /^\s*OK\s+(modify|add|delete|create)\s+(.+?)\s*$/i.exec(line);
@@ -675,7 +679,9 @@ function summarizeUpdateResult(text, args) {
   }
   if (changed.length === 1) {
     const item = changed[0];
-    const action = item.action === 'delete' ? 'Deleted' : item.action === 'add' || item.action === 'create' || item.action === 'created' ? 'Created' : 'Updated';
+    const action = isDryRun
+      ? 'Checked'
+      : item.action === 'delete' ? 'Deleted' : item.action === 'add' || item.action === 'create' || item.action === 'created' ? 'Created' : 'Updated';
     return compactParts([`${action} ${displayToolPath(item.path)}`, item.delta]);
   }
   if (changed.length > 1) {
@@ -686,12 +692,12 @@ function summarizeUpdateResult(text, args) {
       acc.seen = acc.seen || delta.seen;
       return acc;
     }, { added: 0, removed: 0, seen: false });
-    return compactParts([`Updated ${changed.length} Files`, formatLineDelta(totals)]);
+    return compactParts([`${isDryRun ? 'Checked' : 'Updated'} ${changed.length} Files`, formatLineDelta(totals)]);
   }
 
   const parsedArgs = parseToolArgs(args);
   const target = parsedArgs.path ?? parsedArgs.file ?? parsedArgs.file_path ?? '';
-  if (target) return `Updated ${displayToolPath(target)}`;
+  if (target) return `${isDryRun ? 'Checked' : 'Updated'} ${displayToolPath(target)}`;
   return null;
 }
 
@@ -1169,7 +1175,7 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'recall':
     case 'recall_memory':
     case 'search_memories':
-      return unitDescriptor('Memory', { count: queryCount(a, 'query', 'queries', 'text', 'input') || 1, noun: 'query', pluralNoun: 'queries' });
+      return unitDescriptor('Memory', { count: queryCount(a, 'query', 'queries', 'text', 'input') || 1, noun: 'memory item', pluralNoun: 'memory items' });
     case 'remember':
     case 'save_memory':
     case 'update_memory':

@@ -11,6 +11,7 @@ import { getPluginData } from '../config.mjs';
 import { ensureGraphBinary, findCachedGraphBinary } from './graph-binary-fetcher.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from './code-graph-tool-defs.mjs';
+import { acquire as acquireChildSpawnSlot } from '../../../shared/child-spawn-gate.mjs';
 import { markScopedCacheIncomplete } from '../session/cache/scoped-cache-outcome.mjs';
 import {
   canonicalGraphCwd as _canonicalGraphCwd,
@@ -636,6 +637,15 @@ export async function buildCodeGraphAsync(cwd, signal = null) {
     let settled = false;
     let timeout = null;
     let _onSignalAbort = null;
+    // child-spawn-gate slot held on the MAIN THREAD for the whole graph-build
+    // worker lifetime. The native mixdog-graph child is spawned from inside
+    // the worker thread (which has its own, non-shared module state), so the
+    // gate cannot be acquired at the spawn site without forking a second,
+    // uncoordinated semaphore. We accept a slightly WIDER hold window than the
+    // bare binary spawn — the worker also does sync fs walk / parse glue — as
+    // the explicit tradeoff for keeping native graph spawns counted against the
+    // same single semaphore as rg. Released exactly once in settle().
+    let _releaseSlot = null;
     const settle = (val) => {
       if (settled) return;
       settled = true;
@@ -644,11 +654,17 @@ export async function buildCodeGraphAsync(cwd, signal = null) {
         try { signal.removeEventListener('abort', _onSignalAbort); } catch {}
         _onSignalAbort = null;
       }
+      if (_releaseSlot) { try { _releaseSlot(); } catch {} _releaseSlot = null; }
       _inflightAsyncBuilds.delete(graphCwd);
       if (val instanceof Error) reject(val);
       else resolve(val);
     };
-    try {
+    // Acquire the gate slot BEFORE spawning the worker. Over-saturation queues
+    // here (excess builds wait) while the cap's worth run; an abort while still
+    // queued rejects acquire → settle(error) with no worker created/leaked.
+    acquireChildSpawnSlot(signal || null).then((release) => {
+      _releaseSlot = release;
+      if (settled) { release(); _releaseSlot = null; return; }
       const workerUrl = new URL('./code-graph-prewarm-worker.mjs', import.meta.url);
       _worker = new Worker(workerUrl, {
         workerData: { cwd },
@@ -690,7 +706,7 @@ export async function buildCodeGraphAsync(cwd, signal = null) {
         } catch (e) { settle(e instanceof Error ? e : new Error(String(e))); }
       });
       w.once('error', (e) => settle(e instanceof Error ? e : new Error(String(e))));
-    } catch (e) { settle(e instanceof Error ? e : new Error(String(e))); }
+    }, (e) => settle(e instanceof Error ? e : new Error(String(e))));
   });
   _inflightAsyncBuilds.set(graphCwd, promise);
   return promise;
@@ -3097,6 +3113,15 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
   let retried = false;
 
   // Inner spawn + promise — extracted so we can retry once on EAGAIN.
+  //
+  // child-spawn-gate is NOT acquired here. This function runs inside the
+  // code-graph prewarm WORKER THREAD (via _buildCodeGraph), and worker_threads
+  // do not share module-level state with the main thread — acquiring here would
+  // create a SECOND, independent semaphore that never coordinates with the
+  // main-thread rg gate. Instead the gate is held on the MAIN THREAD across the
+  // whole graph-build worker's lifetime (see buildCodeGraphAsync). The binary
+  // child is spawned exclusively from this worker path, so one main-side slot
+  // per worker correctly bounds native graph spawns against rg.
   const _spawnOnce = () => new Promise((resolve, reject) => {
     // When stdinLines is supplied (--files mode), stream one JSON object per
     // line to the child's STDIN — the reused nodes' metadata — so Rust can
@@ -3113,10 +3138,12 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
     let stderrText = '';
     const STDERR_CAP = 8 * 1024;
     let settled = false;
+    let timedOut = false;
 
     // ── timeout + kill helpers (mirrors rg-runner's _killRgProc/_escalateRgKill) ──
     let timeoutTimer = null;
     let killGraceTimer = null;
+    let forceSettleTimer = null;
 
     const _procGone = () => proc.exitCode != null || proc.signalCode != null;
 
@@ -3159,15 +3186,35 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
         clearTimeout(killGraceTimer);
         killGraceTimer = null;
       }
+      if (forceSettleTimer) {
+        clearTimeout(forceSettleTimer);
+        forceSettleTimer = null;
+      }
     };
 
-    // Arm timeout — unref so it doesn't keep the process alive.
+    // Arm timeout — unref so it doesn't keep the process alive. On timeout we
+    // start SIGTERM→grace→force-kill but do NOT settle yet: the promise stays
+    // pending until the child's 'close' fires (so the build worker — and the
+    // main-thread gate slot it holds — is only released once the process is
+    // actually gone). A separate force-settle deadline guarantees the promise
+    // still resolves if 'close' never arrives. Mirrors rg-runner exactly.
     timeoutTimer = setTimeout(() => {
+      timeoutTimer = null;
+      timedOut = true;
       _killProc();
-      if (settled) return;
-      settled = true;
-      _clearTimers();
-      reject(new Error(`[code-graph] mixdog-graph timed out after ${timeoutMs}ms`));
+      // Hard backstop: if 'close' never fires after the kill escalation,
+      // escalate again and settle so we never hang (and never release the
+      // gate while the child is provably still alive without a final attempt).
+      if (forceSettleTimer) clearTimeout(forceSettleTimer);
+      forceSettleTimer = setTimeout(() => {
+        forceSettleTimer = null;
+        if (settled) return;
+        _escalateKill();
+        settled = true;
+        _clearTimers();
+        reject(new Error(`[code-graph] mixdog-graph timed out after ${timeoutMs}ms`));
+      }, 5000);
+      if (forceSettleTimer.unref) forceSettleTimer.unref();
     }, timeoutMs);
     if (timeoutTimer.unref) timeoutTimer.unref();
 
@@ -3193,6 +3240,12 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
       if (settled) return;
       settled = true;
       _clearTimers();
+      if (timedOut) {
+        // Our timeout kill won the race: the child is gone now, so the gate
+        // slot releases here (not at timeout-fire time). Report as a timeout.
+        reject(new Error(`[code-graph] mixdog-graph timed out after ${timeoutMs}ms`));
+        return;
+      }
       if (code !== 0) {
         reject(new Error(`[code-graph] mixdog-graph exited ${code}: ${stderrText.trim().slice(0, 200)}`));
         return;

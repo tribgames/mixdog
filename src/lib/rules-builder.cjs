@@ -3,14 +3,14 @@
 /**
  * mixdog rules builder.
  *
- * Three surfaces:
+ * Exported surfaces:
  *   - buildSharedToolContent            — BP1: shared tool policy
  *   - buildLeadRoleContent              — BP2: Lead role/system rules
  *   - buildAgentRoleContent             — BP2: agent role/system rules
+ *   - buildAgentRetrievalInjectionContent — BP2: narrow read-only retrieval role
  *   - buildLeadMetaContent              — BP3: Lead memory/meta context
  *   - buildAgentRoleSpecificContent     — BP4-adjacent user/task data
  *   - buildInjectionContent             — legacy joined Lead session content
- *   - buildAgentInjectionContent        — legacy joined agent content
  *
  * 4-BP cache layout (composeSystemPrompt):
  *   BP1 = shared tool policy + compact skill manifest

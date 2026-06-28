@@ -78,6 +78,23 @@ export function modelVisibleToolCompletionMessage(text, meta = {}) {
   ].join('\n');
 }
 
+// Shared enqueue-fallback helper used by both the synchronous fallback path and
+// the asynchronous notifyFn reject/false-resolve rescue path. Only enqueues when
+// a caller session and fallback fn are present. Returns true only on a non-false,
+// non-zero fallback result; logs and returns false on throw.
+function tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id) {
+  if (!ctx.callerSessionId || typeof enqueueFallback !== 'function') return false;
+  try {
+    const enq = enqueueFallback(ctx.callerSessionId, message, meta);
+    return enq !== false && enq !== 0;
+  } catch (err) {
+    try {
+      process.stderr.write(`[${logPrefix}] async completion fallback enqueue failed: id=${id || 'unknown'} err=${err?.message || err}\n`);
+    } catch {}
+  }
+  return false;
+}
+
 export function notifyToolCompletion({
   surface = 'tool',
   id,
@@ -101,16 +118,33 @@ export function notifyToolCompletion({
     context: ctx,
   });
 
+  // Try the upstream owner notifyFn first. A `false` return means the owner
+  // *declined* delivery and a throw means it failed outright — in both cases we
+  // do NOT return early but fall through to the enqueueFallback path so the
+  // completion can still reach the caller session. Only a successful (non-false)
+  // notifyFn short-circuits as delivered.
   if (typeof ctx.notifyFn === 'function') {
     try {
       const notifyResult = ctx.notifyFn(message, meta);
-      if (notifyResult === false) return false;
-      Promise.resolve(notifyResult).catch((err) => {
-        try {
-          process.stderr.write(`[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`);
-        } catch {}
-      });
-      return true;
+      if (notifyResult !== false) {
+        // Optimistically report delivered (keeps this fn synchronous). But a
+        // notifyFn that returns a Promise can still reject — or resolve to an
+        // explicit false/0 (declined/failed) — *after* we returned. In that
+        // case rescue the completion via enqueueFallback so the owner isn't
+        // left without a notification. The normal success path (truthy
+        // resolve) never enqueues, preserving exact-once delivery.
+        Promise.resolve(notifyResult).then((settled) => {
+          if (settled === false || settled === 0) {
+            tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
+          }
+        }).catch((err) => {
+          try {
+            process.stderr.write(`[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`);
+          } catch {}
+          tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
+        });
+        return true;
+      }
     } catch (err) {
       try {
         process.stderr.write(`[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`);
@@ -118,16 +152,9 @@ export function notifyToolCompletion({
     }
   }
 
-  if (ctx.callerSessionId && typeof enqueueFallback === 'function') {
-    try {
-      enqueueFallback(ctx.callerSessionId, message, meta);
-      return true;
-    } catch (err) {
-      try {
-        process.stderr.write(`[${logPrefix}] async completion fallback enqueue failed: id=${id || 'unknown'} err=${err?.message || err}\n`);
-      } catch {}
-    }
-  }
-
-  return false;
+  // Fallback enqueue (used when notifyFn is absent, declined, or threw). Respect
+  // the fallback's own success signal: an explicit false/0 return means the
+  // enqueue failed, so report failure and leave room for a retry rather than
+  // marking the task notified.
+  return tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
 }

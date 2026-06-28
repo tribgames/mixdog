@@ -585,6 +585,13 @@ export function execShellCommand({
         cwd,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
+        // NOTE (child-spawn-gate): intentionally NOT routed through
+        // src/runtime/shared/child-spawn-gate.mjs. bash/pwsh commands can run
+        // for minutes (or auto-background), so holding a finite gate slot for
+        // the whole lifetime would let a few long shells starve rg/code_graph —
+        // the opposite of the gate's intent. TODO: if shell saturation becomes
+        // a problem, gate only the brief spawn burst (release on first output /
+        // adoption), not the full run.
         // POSIX: detached gives the child its own process group so treeKill can
         // signal the whole group. The child is still CLI-owned because we do
         // not unref it after adoption. Windows detached has different console

@@ -1,27 +1,6 @@
 import { statSync, readdirSync } from 'fs';
 
 /**
- * Return the maximum mtimeMs across all given paths.
- * Missing / unreadable paths are silently skipped (treated as mtime 0).
- * Pass file paths or directory paths; statSync on a directory returns the
- * mtime of the directory entry itself (updated when children are
- * added/removed), while file mtime covers content changes.
- * Use maxMtimeRecursive for cases where file-content edits within a
- * directory must also invalidate the cache (parent dir mtime is unchanged
- * on Linux/macOS when only a file's content changes).
- *
- * @param {string[]} paths
- * @returns {number}
- */
-export function maxMtime(paths) {
-    let max = 0;
-    for (const p of paths) {
-        try { const m = statSync(p).mtimeMs; if (m > max) max = m; } catch { /* missing — skip */ }
-    }
-    return max;
-}
-
-/**
  * Return the maximum mtimeMs across all given paths, recursing into
  * directories up to `depth` levels. Directory entries contribute their own
  * mtime so child add/remove events invalidate caches. Only .md and .json files

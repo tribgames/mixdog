@@ -4,16 +4,14 @@
  * Scheduler instance (which would create a module cycle).
  *
  * channels/index.mjs registers a listener at boot that forwards into
- * scheduler.noteActivity(). ai-wrapped-dispatch (and any other
- * orchestrator-side producers) call notifyActivity() near the point
- * where work is kicked off.
+ * scheduler.noteActivity(). Producers signal activity via setListener's
+ * forwarded pings.
  *
- * Boot race: if notifyActivity() fires before channels boot registers
- * the listener, we buffer the most-recent ping and replay it on
- * setListener. Only one timestamp is buffered — "most recent activity
- * was at T" is all scheduler.mjs needs.
- *
- * All failures are swallowed — an activity ping is never load-bearing.
+ * Boot race: a ping that fires before channels boot registers the listener
+ * is buffered (most-recent wins) and replayed on setListener. Only one
+ * timestamp is buffered — "most recent activity was at T" is all
+ * scheduler.mjs needs. All failures are swallowed — a ping is never
+ * load-bearing.
  */
 
 let _listener = null;
@@ -26,13 +24,4 @@ export function setListener(fn) {
     _pendingPingAt = null;
     try { _listener(ts); } catch { /* best-effort */ }
   }
-}
-
-export function notifyActivity() {
-  const ts = Date.now();
-  if (_listener) {
-    try { _listener(ts); } catch { /* best-effort */ }
-    return;
-  }
-  _pendingPingAt = ts;  // buffer one, most recent wins
 }

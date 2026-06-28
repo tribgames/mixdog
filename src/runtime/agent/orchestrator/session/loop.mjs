@@ -25,12 +25,13 @@ import {
     drainSessionCycle1,
 } from './compact.mjs';
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
-import { classifyBashFileLookupCommand, classifyAgentWorkerGitMutationCommand, stripSoftWarns } from '../tool-loop-guard.mjs';
+import { stripSoftWarns } from '../tool-loop-guard.mjs';
 import { maybeOffloadToolResult } from './tool-result-offload.mjs';
 import { tryReadCached, setReadCached, invalidatePathForSession, markPostEdit, consumePostEditMark, clearReadDedupSession, extractTouchedPathsFromPatch, tryScopedToolCached, setScopedToolCached, clearScopedToolsForSession, clearScopedToolsForSessionPaths, invalidatePrefetchCache } from './read-dedup.mjs';
 import { createScopedCacheOutcome } from './cache/scoped-cache-outcome.mjs';
 import { modelVisibleToolCompletionMessage } from '../../../shared/tool-execution-contract.mjs';
 import { createHash } from 'crypto';
+import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../providers/openai-compat-stream.mjs';
 
 // Tool-name classification for cross-turn read dedup.
 // Strips the MCP prefix so direct calls and MCP-wrapped calls share the
@@ -90,17 +91,16 @@ function _intraTurnSig(name, args) {
     return createHash('sha256').update(`${name}:${_canonicalArgs(args)}`).digest('hex').slice(0, 16);
 }
 
-// Shared pre-dispatch deny — single source of truth for role/scope/permission
-// rejects. Called by BOTH the eager dispatch path (startEagerTool) and the
-// serial dispatch path (executeTool body). Returns null when the call is
-// allowed to proceed; otherwise returns the Error string the serial path
-// would emit. The eager caller ignores the message body and just treats
-// non-null as "do not start eager".
+// Shared pre-dispatch deny — single source of truth for the remaining
+// control-plane / role scoping rejects. Called by BOTH the eager dispatch
+// path (startEagerTool) and the serial dispatch path (executeTool body).
+// Returns null when the call is allowed to proceed; otherwise returns the
+// Error string the serial path would emit. The eager caller ignores the
+// message body and just treats non-null as "do not start eager".
 //
-// Predicates are kept in the same order as the legacy serial branch so a
-// agent-owned control-plane tool fails on _agentOwned+_controlPlaneTool
-// FIRST (not on permission/wrapper checks) — matches the prior wording.
-// Agent workers are sandboxed to code/research tools. They must never reach
+// This is NOT a permission gate — runtime permission enforcement was removed
+// (every tool call is trusted). What remains is architectural scoping:
+// agent workers are sandboxed to code/research tools. They must never reach
 // owner/host control surfaces: session management, the ENTIRE channels module
 // (Discord messaging, schedules, webhook/config, channel-bridge toggle,
 // command injection), or host input injection. Explicit name list (no imports)
@@ -130,23 +130,6 @@ function _preDispatchDeny(call, toolKind, sessionRef) {
     if (noToolRole) {
         return `Error: tool "${name}" is not available in role "${sessionRef.role}". Re-emit the answer as pipe-separated text per the role's output format (first character a digit, NO tool_use blocks, NO JSON, NO prose, NO apology).`;
     }
-    if (isBlockedHiddenWrapperCall(name, sessionRef)) {
-        return `Error: tool "${name}" is the wrapper your role (${sessionRef?.role || 'hidden'}) backs. Calling it would spawn another hidden agent of the same kind — use direct read/grep/glob/code_graph instead.`;
-    }
-    const effectivePermission = effectiveToolPermission(sessionRef);
-    const permissionBlocked = isBlockedByPermission(name, toolKind, effectivePermission);
-    if (permissionBlocked && effectivePermission === 'none') {
-        return `Error: tool "${name}" is not available on this session (permission=none). Re-emit the answer without tool_use blocks.`;
-    }
-    if (permissionBlocked && effectivePermission === 'mcp') {
-        return `Error: tool "${name}" is not available on this session (permission=mcp). Use MCP/internal retrieval tools only.`;
-    }
-    if (permissionBlocked && effectivePermission === 'read') {
-        return `Error: tool "${name}" is not available on this session (permission=read). Use Mixdog MCP read/grep/glob/recall/search/explore instead.`;
-    }
-    if (permissionBlocked && effectivePermission && typeof effectivePermission === 'object') {
-        return `Error: tool "${name}" is not permitted on this session by the role's allow/deny permission policy.`;
-    }
     return null;
 }
 /** Exported for smoke tests — same runtime deny as the agent loop. */
@@ -156,16 +139,9 @@ export function preDispatchDenyForSession(sessionRef, call, toolKind = 'builtin'
 import { compressToolResult, recordToolBatch } from '../tools/result-compression.mjs';
 
 
-import { isHiddenRole } from '../internal-roles.mjs';
-import { createRequire } from 'module';
 import { readFileSync as _readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, resolve as resolvePath, isAbsolute } from 'path';
-// Load the CJS permission evaluator. The hooks/ directory lives above
-// src/runtime/agent/orchestrator/session/, so we walk up from __dirname.
-const _require = createRequire(import.meta.url);
-const _hooksLib = resolvePath(dirname(fileURLToPath(import.meta.url)), '../../../../hooks/lib/permission-evaluator.cjs');
-const { evaluatePermission: _evaluatePermission } = _require(_hooksLib);
 const MCP_TOOL_PREFIX = 'mcp__plugin_mixdog_mixdog__';
 const COMPACT_SAFETY_PERCENT = 1.00;
 const COMPACT_BUFFER_MAX_WINDOW_FRACTION = 0.25;
@@ -373,28 +349,6 @@ function _ensureTranscriptPairing(msgs, sessionId) {
     }
 }
 
-// Write-class tools that a permission=read session must not execute. The
-// schema still advertises them to keep one unified shard; this runtime set
-// is the fail-safe reject at call time.
-const READ_BLOCKED_TOOLS = new Set([
-    'shell', 'bash_session',
-    'apply_patch',
-]);
-const MCP_ONLY_ALLOWED_KINDS = new Set(['mcp', 'internal', 'skill']);
-// Wrappers that hidden retrieval roles back. Hidden roles MUST NOT call
-// these or they spawn another hidden agent of the same kind — nested chain
-// + token burn. Block at call time; the role's rule prompt also says so.
-const RETRIEVAL_WRAPPERS = new Set(['recall', 'search', 'explore']);
-// Hidden roles that may call specific retrieval wrappers. Default policy
-// blocks all hidden→wrapper calls; roles listed here have a documented
-// need:
-//   - scheduler-task / webhook-handler: state-changing agents whose
-//     tasks routinely require both reach-back into past context
-//     (`recall`) and fresh external info (`search`).
-const HIDDEN_ROLE_WRAPPER_ALLOWLIST = {
-    'scheduler-task': new Set(['recall', 'search']),
-    'webhook-handler': new Set(['recall', 'search']),
-};
 // Eager-dispatch: tools with readOnlyHint:true in their declaration are safe
 // to execute during SSE parsing so tool work overlaps with the rest of the
 // stream. Writes, bash, MCP and skills stay serial after send() returns.
@@ -402,95 +356,6 @@ function isEagerDispatchable(name, tools) {
     if (!Array.isArray(tools)) return false;
     const def = tools.find(t => t?.name === name);
     return def?.annotations?.readOnlyHint === true;
-}
-// ── Agent-worker permission enforcement ───────────────────────────────────────
-// Mirrors the PreToolUse hook evaluation for tool calls that originate inside a
-// worker session. Worker dispatch previously bypassed the hook pipeline
-// entirely; this guard closes that gap by running the same evaluator inline.
-//
-// `ask` is treated as deny here — forwarding `ask` decisions to the channel
-// UI approval flow needs bidirectional prompt plumbing that does not exist.
-function _checkWorkerPermission(toolName, toolInput, sessionRef) {
-    const bareToolName = _stripMcpPrefix(toolName);
-    if (isAgentOwner(sessionRef) && bareToolName === 'shell') {
-        const cmdClass = classifyBashFileLookupCommand(toolInput?.command);
-        if (cmdClass) {
-            return `Error: agent worker shell file lookup blocked (${cmdClass}). Use Mixdog MCP read/grep/glob/list directly; shell is only for build/test/run/git-style commands.`;
-        }
-        const gitClass = classifyAgentWorkerGitMutationCommand(toolInput?.command);
-        if (gitClass) {
-            return `Error: agent worker git operation blocked (${gitClass}). Git operations are deferred to Lead.`;
-        }
-    }
-    // Even when no explicit permissionMode is propagated to the worker, run
-    // the evaluator under the most restrictive baseline ('default') so the
-    // bypass-proof hard-deny patterns (UNC paths, /etc, C:/Windows, etc.)
-    // and the user's settings.json deny rules still apply. Previously a
-    // missing permissionMode short-circuited to null and the worker
-    // ran ungated — a model could dispatch an agent to read or write
-    // protected paths even when the same call would have been denied for
-    // the parent. Callers that genuinely need bypassPermissions can still
-    // forward it explicitly via session-builder; this only closes the
-    // silent default-to-bypass path.
-    const permissionMode = sessionRef?.permissionMode || 'default';
-    // Prefix bare mixdog tool names so the evaluator path-logic handles them correctly.
-    const fullName = toolName.startsWith(MCP_TOOL_PREFIX) || toolName.startsWith('mcp__')
-        ? toolName
-        : `${MCP_TOOL_PREFIX}${toolName}`;
-    const projectDir = sessionRef?.cwd || undefined;
-    const userCwd = sessionRef?.cwd || undefined;
-    try {
-        const { decision, reason } = _evaluatePermission({
-            toolName: fullName,
-            toolInput: toolInput || {},
-            permissionMode,
-            projectDir,
-            userCwd,
-        });
-        if (decision === 'deny' || decision === 'ask') {
-            return `Error: tool "${toolName}" blocked by permission evaluator (decision=${decision}): ${reason}`;
-        }
-    } catch (err) {
-        // Evaluator errors must not crash the loop — log and allow.
-        try { process.stderr.write(`[permission-evaluator] error: ${err?.message}\n`); } catch {}
-    }
-    return null;
-}
-function effectiveToolPermission(sessionRef) {
-    return sessionRef?.toolPermission || sessionRef?.permission || null;
-}
-function isBlockedByPermission(toolName, toolKind, permission) {
-    if (permission === 'none') return true;
-    if (permission === 'mcp') return !MCP_ONLY_ALLOWED_KINDS.has(toolKind);
-    if (permission === 'read') return READ_BLOCKED_TOOLS.has(toolName);
-    // Object-form {allow,deny} permission (role template / profile). The
-    // schema-level intersection in createSession only narrows the ADVERTISED
-    // tool list; it is not a runtime execution boundary. Enforce the same
-    // allow/deny here as the fail-safe so a tool call for a non-advertised
-    // (denied / out-of-allow) tool is rejected at dispatch time, matching
-    // the string-form ('read'/'mcp') guards. Names are compared bare +
-    // lowercased to mirror createSession's allow/deny set construction.
-    if (permission && typeof permission === 'object') {
-        const name = String(_stripMcpPrefix(toolName) || '').toLowerCase();
-        const deny = Array.isArray(permission.deny) && permission.deny.length > 0
-            ? permission.deny.map(n => String(n).toLowerCase())
-            : null;
-        if (deny && deny.includes(name)) return true;
-        const allow = Array.isArray(permission.allow) && permission.allow.length > 0
-            ? permission.allow.map(n => String(n).toLowerCase())
-            : null;
-        if (allow && !allow.includes(name)) return true;
-        return false;
-    }
-    return false;
-}
-function isBlockedHiddenWrapperCall(toolName, sessionRef) {
-    if (!RETRIEVAL_WRAPPERS.has(toolName)) return false;
-    if (!isAgentOwner(sessionRef)) return false;
-    if (!isHiddenRole(sessionRef?.role)) return false;
-    const allow = HIDDEN_ROLE_WRAPPER_ALLOWLIST[sessionRef.role];
-    if (allow && allow.has(toolName)) return false;
-    return true;
 }
 function messagesArrayChanged(before, after) {
     if (!Array.isArray(before) || !Array.isArray(after)) return before !== after;
@@ -1613,6 +1478,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         let _mutationEpoch = 0;
         const startEagerTool = (call) => {
             if (!call?.id || pending.has(call.id) || !isEagerDispatchable(call.name, tools)) return null;
+            // Never eager-execute a call whose arguments failed to parse
+            // (invalid-args marker). It has no usable arguments; the serial
+            // body handles it via the invalid-args feedback path.
+            if (isInvalidToolArgsMarker(call.arguments)) return null;
             const _sig = _intraTurnSig(call.name, call.arguments);
             if (_eagerInFlightSigs.has(_sig)) return null;
             // Repeat-failure guard also gates eager dispatch (reviewer-flagged):
@@ -1633,8 +1502,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             _eagerInFlightSigs.set(_sig, call.id);
             entry.promise = (async () => {
                 try {
-                    const permBlocked = _checkWorkerPermission(call.name, call.arguments, sessionRef);
-                    if (permBlocked !== null) return { ok: true, value: permBlocked };
                     return { ok: true, value: await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn }) };
                 } catch (error) {
                     return { ok: false, error };
@@ -1970,13 +1837,29 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             let _scopedCacheHit = null;
             let _executeOk = false;
             let _resultKind = 'normal';
-            if (sessionId && _isReadTool(call.name)) {
+            // Invalid-args guard (native convergence): the provider parser tags
+            // a tool call whose arguments JSON could not be parsed with an
+            // invalid-args marker instead of throwing or swallowing to {}.
+            // Such a call must NOT execute — there are no usable arguments and
+            // permission/cache checks are meaningless. Skip straight to the
+            // error-feedback path so the model gets an is_error tool_result and
+            // re-issues the call with valid JSON in the same turn.
+            const _invalidArgs = isInvalidToolArgsMarker(call.arguments);
+            if (_invalidArgs) {
+                // no cache lookup for an un-parseable call
+            } else if (sessionId && _isReadTool(call.name)) {
                 _readCacheHit = tryReadCached({ sessionId, args: call.arguments, cwd });
             } else if (sessionId && _isScopedCacheableTool(call.name)) {
                 _scopedCacheHit = tryScopedToolCached({ sessionId, toolName: _stripMcpPrefix(call.name), args: call.arguments, cwd });
             }
             try {
-                if (_readCacheHit !== null) {
+                if (_invalidArgs) {
+                    toolStartedAt = Date.now();
+                    toolEndedAt = toolStartedAt;
+                    result = formatInvalidToolArgsResult(call);
+                    _resultKind = 'error';
+                    _executeOk = false;
+                } else if (_readCacheHit !== null) {
                     toolStartedAt = Date.now();
                     toolEndedAt = toolStartedAt;
                     const _body = _readCacheHit.content;
@@ -2021,39 +1904,32 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     }
                 } else {
                     toolStartedAt = Date.now();
-                    // Runtime permission guard. Schema profiles may hide
+                    // Runtime pre-dispatch deny. Schema profiles may hide
                     // tools for routing efficiency, but this remains the
-                    // safety boundary for any tool_use that still reaches
-                    // the loop. _preDispatchDeny is the SHARED helper used
-                    // by both the eager dispatch path (startEagerTool) and
-                    // this serial path — keeps the agent-owned control-
-                    // plane reject, role guards, wrapper guards, and
-                    // permission guards consistent across both paths.
+                    // control-plane boundary for any tool_use that still
+                    // reaches the loop. _preDispatchDeny is the SHARED helper
+                    // used by both the eager dispatch path (startEagerTool)
+                    // and this serial path — keeps the agent-owned control-
+                    // plane reject and no-tool role guards consistent across
+                    // both paths.
                     const _denyMsg = _preDispatchDeny(call, toolKind, sessionRef);
                     if (_denyMsg !== null) {
                         result = _denyMsg;
                         toolEndedAt = Date.now();
                         _resultKind = 'error';
                     } else {
-                        const permBlocked = _checkWorkerPermission(call.name, call.arguments, sessionRef);
-                        if (permBlocked !== null) {
-                            result = permBlocked;
-                            toolEndedAt = Date.now();
+                        result = await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn });
+                        toolEndedAt = Date.now();
+                        // Boundary: tool-return string convention → structural kind.
+                        // The only prefix check in this codebase; downstream layers
+                        // operate on _resultKind.
+                        if (classifyResultKind(result) === 'error') {
                             _resultKind = 'error';
+                            _executeOk = false;
                         } else {
-                            result = await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn });
-                            toolEndedAt = Date.now();
-                            // Boundary: tool-return string convention → structural kind.
-                            // The only prefix check in this codebase; downstream layers
-                            // operate on _resultKind.
-                            if (classifyResultKind(result) === 'error') {
-                                _resultKind = 'error';
-                                _executeOk = false;
-                            } else {
-                                _executeOk = true;
-                            }
-                            // _resultKind stays 'normal' when tool returned a non-error string.
+                            _executeOk = true;
                         }
+                        // _resultKind stays 'normal' when tool returned a non-error string.
                     }
                 }
                 } // close: else branch of _readCacheHit check

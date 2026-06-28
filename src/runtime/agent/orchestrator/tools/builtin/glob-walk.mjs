@@ -118,12 +118,10 @@ export function compileSimpleGlob(pattern) {
 // simpler and matches the noise patterns developers actually create.
 export const NOISE_DIR_NAMES = new Set([
     'node_modules', '.git',
-    'dist', 'build', 'out', 'target',
     '.next', '.nuxt', '.svelte-kit',
     '.cache', '.parcel-cache', '.turbo',
     'venv', '.venv', '__pycache__', '.pytest_cache',
-    '.gradle', 'coverage',
-    'refs',
+    '.gradle',
 ]);
 
 export const MAX_WALK_ENTRIES = 200_000;

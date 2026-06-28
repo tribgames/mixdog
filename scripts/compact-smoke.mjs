@@ -14,8 +14,8 @@ function findSummary(messages) {
 
 const bootstrapContextMessages = [
   { role: 'system', content: 'base rules stay exact' },
-  { role: 'user', content: '<system-reminder>\n<!-- bp3-sentinel -->\nproject/session rules stay exact\n</system-reminder>' },
-  { role: 'assistant', content: '.' },
+  { role: 'system', content: 'role/system rules stay exact' },
+  { role: 'system', content: 'project/session memory/meta stay exact', cacheTier: 'tier3' },
   { role: 'user', content: '<system-reminder>\nvolatile cwd C:\\Project\\mixdog stays exact\n</system-reminder>' },
   { role: 'assistant', content: '.' },
   { role: 'user', content: 'fresh real task has no prior compactable history' },
@@ -74,9 +74,12 @@ assert(recallFastTrackForced.recallFastTrack === true, 'recall fast-track compac
 assert(recallFastTrackForced.compactType === COMPACT_TYPE_RECALL_FASTTRACK, 'recall fast-track compact should report compact type 2');
 assert(findSummary(recallFastTrackForced.messages), 'recall fast-track compact should insert an anchored summary');
 
-// Context overflow on send is surfaced immediately as a deterministic
-// AGENT_CONTEXT_OVERFLOW error. The loop MUST NOT attempt an in-loop
-// re-compaction retry — no compact provider call, no second send.
+// Context overflow on send triggers ONE reactive compact-retry: the loop
+// marks the session over-threshold and re-enters the pre-send auto-compact
+// path, which runs a single semantic compaction (one compact-provider send)
+// and re-sends once. If the retry still overflows, the deterministic
+// AGENT_CONTEXT_OVERFLOW error is surfaced (main send count 2, compact
+// provider send count 1).
 const overflowRetryMessages = [{ role: 'system', content: 'system rules stay mandatory' }];
 let overflowIndex = 0;
 while (estimateMessagesTokens(overflowRetryMessages) + 512 < 8_800) {
@@ -116,7 +119,7 @@ try {
 }
 assert(overflowError, 'context overflow on send should surface an error, not be silently recovered');
 assert(overflowError?.code === 'AGENT_CONTEXT_OVERFLOW', `overflow should surface AGENT_CONTEXT_OVERFLOW, got ${overflowError?.code || overflowError?.message}`);
-assert(overflowSendCount === 1, `overflow should send exactly once with no retry, sent=${overflowSendCount}`);
-assert(overflowCompactSendCount === 0, `overflow must not trigger an in-loop re-compaction, compactSends=${overflowCompactSendCount}`);
+assert(overflowSendCount === 2, `overflow should send twice (original + one reactive compact-retry), sent=${overflowSendCount}`);
+assert(overflowCompactSendCount === 1, `reactive compact-retry should run exactly one in-loop semantic compaction, compactSends=${overflowCompactSendCount}`);
 
 process.stdout.write('compact smoke passed ✓\n');

@@ -99,11 +99,6 @@ function pruneStalePluginDataLogSiblings(
   return { removed, kept: candidates.length - removed };
 }
 
-/** @deprecated use pruneStalePluginDataLogSiblings */
-function prunePluginDataLogFiles(dataDir, maxFiles) {
-  return pruneStalePluginDataLogSiblings(dataDir, maxFiles);
-}
-
 const SESSION_START_CRITICAL_LOG = 'session-start-critical.log';
 const SESSION_START_CRITICAL_MAX_BYTES = 64 * 1024;
 const SESSION_START_CRITICAL_KEEP_BYTES = 64 * 1024;
@@ -154,10 +149,8 @@ module.exports = {
   isMixdogDebugEnabled,
   isStalePluginLogSibling,
   pruneStalePluginDataLogSiblings,
-  prunePluginDataLogFiles,
   appendSessionStartCriticalLog,
   sessionStartCriticalFallback,
   DEFAULT_STALE_LOG_SIBLING_MAX,
-  DEFAULT_PLUGIN_LOG_MAX_FILES: DEFAULT_STALE_LOG_SIBLING_MAX,
   SESSION_START_CRITICAL_LOG,
 };

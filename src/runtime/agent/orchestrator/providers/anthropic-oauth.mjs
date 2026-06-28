@@ -292,12 +292,19 @@ function requiresSystemPrefix(model) {
 // content (even the prefix concatenated with extra text in the same block)
 // falls into the standard pool and Opus/Sonnet return 429. Splitting into
 // two blocks — [prefix, rest] — keeps both routing and user instructions.
-function buildSystemBlocks(systemText, model, cacheControl, maxCacheBlocks = 2) {
-    // systemText is an array of strings — each element becomes its own Anthropic
-    // content block with its own cache_control breakpoint (BP1 + BP2).
-    // Invariant: callers must pass an array; scalar strings are not accepted.
-    const texts = Array.isArray(systemText)
-        ? systemText.map(s => typeof s === 'string' ? s.trim() : '').filter(Boolean)
+function buildSystemBlocks(systemMsgs, model, systemTtl, tier3Ttl) {
+    // systemMsgs is an array of { content, cacheTier } — each non-empty element
+    // becomes its own Anthropic content block with its own cache_control
+    // breakpoint. Blocks tagged cacheTier:'tier3' (BP3 sessionMarker) take the
+    // tier3 TTL; every other block (BP1 baseRules / BP2 stableSystem) takes the
+    // system TTL. Invariant: callers must pass an array.
+    const items = Array.isArray(systemMsgs)
+        ? systemMsgs
+            .map(m => ({
+                text: typeof m?.content === 'string' ? m.content.trim() : '',
+                tier: m?.cacheTier === 'tier3' ? 'tier3' : 'system',
+            }))
+            .filter(it => it.text)
         : [];
     const gated = requiresSystemPrefix(model);
 
@@ -305,22 +312,24 @@ function buildSystemBlocks(systemText, model, cacheControl, maxCacheBlocks = 2) 
     if (gated) {
         blocks.push({ type: 'text', text: CLAUDE_CODE_SYSTEM_PREFIX });
     }
-    for (let i = 0; i < texts.length; i++) {
-        let body = texts[i];
+    for (let i = 0; i < items.length; i++) {
+        let body = items[i].text;
         // Strip a duplicated Claude Code prefix from the first block if present.
         if (gated && i === 0 && body.startsWith(CLAUDE_CODE_SYSTEM_PREFIX)) {
             body = body.slice(CLAUDE_CODE_SYSTEM_PREFIX.length).trim();
             if (!body) continue;
         }
-        blocks.push({ type: 'text', text: body });
+        blocks.push({ type: 'text', text: body, _tier: items[i].tier });
     }
-    if (cacheControl) {
-        let remaining = Math.max(0, Math.min(2, Number(maxCacheBlocks) || 0));
-        for (let i = blocks.length - 1; i >= 0 && remaining > 0; i--) {
-            if (blocks[i]?.text === CLAUDE_CODE_SYSTEM_PREFIX) continue;
-            blocks[i] = { ...blocks[i], cache_control: cacheControl };
-            remaining -= 1;
-        }
+    // Apply per-tier cache_control. BP1/BP2 -> systemTtl, BP3 -> tier3Ttl. The
+    // gating prefix block is never cached (Anthropic routes on its exact bytes).
+    // tier3Ttl === null leaves the 3rd block uncached (e.g. maintenance roles).
+    for (const b of blocks) {
+        const tier = b._tier;
+        delete b._tier;
+        if (b.text === CLAUDE_CODE_SYSTEM_PREFIX) continue;
+        const ttl = tier === 'tier3' ? tier3Ttl : systemTtl;
+        if (ttl) b.cache_control = ttl;
     }
     return blocks;
 }
@@ -782,17 +791,15 @@ function toAnthropicMessages(messages) {
 // sanitizeAnthropicContentPairs has already run (and must NOT run again
 // after this), the blocks we mark here are exactly the blocks the provider
 // sees, so the cache breakpoint is stable across turns.
-//   tier3:        the user message whose first text block / string content
-//                 startsWith '<system-reminder>' AND includes BP3_SENTINEL —
-//                 mark its last content block with tier3Ttl.
 //   message-anchor: prefer a safe tool_result tail, then a previous real user
 //                   text turn if another slot remains. Synthetic
 //                   <system-reminder> messages and current pure-text prompts
 //                   are excluded so first-turn prompts do not create a fresh
 //                   BP4 write on every new session.
-// messageTtl === null disables the tail; tier3Ttl === null disables tier3.
+// messageTtl === null disables the tail. BP3 (tier3) now rides a system block,
+// so it is no longer marked here.
 // ANTHROPIC_MSG_SLOTS=0 is honoured upstream by passing messageTtl = null.
-function applyAnthropicCacheMarkers(sanitizedMessages, { messageTtl = CACHE_TTL_VOLATILE, messageSlots = 1, tier3Ttl = null } = {}) {
+function applyAnthropicCacheMarkers(sanitizedMessages, { messageTtl = CACHE_TTL_VOLATILE, messageSlots = 1 } = {}) {
     if (!Array.isArray(sanitizedMessages) || sanitizedMessages.length === 0) {
         return sanitizedMessages;
     }
@@ -806,29 +813,20 @@ function applyAnthropicCacheMarkers(sanitizedMessages, { messageTtl = CACHE_TTL_
         return '';
     };
     const isSystemReminder = (content) => firstText(content).startsWith('<system-reminder>');
-    const isTier3SystemReminder = (content) => {
-        const text = firstText(content);
-        return text.startsWith('<system-reminder>') && text.includes(BP3_SENTINEL);
-    };
 
     const markLast = (msg, ttl) => {
         if (!msg) return;
         msg.content = appendCacheControl(msg.content, ttl);
     };
     const ttlRank = (ttl) => ttl?.ttl === '1h' ? 2 : 1;
-    const canMarkMessageIdx = (idx, tier3Idx) => {
-        // Anthropic requires 1h cache_control blocks to appear before 5m
-        // blocks. If tier3 is a later 1h marker, do not put a 5m marker before
-        // it. Gateway Anthropic routes set messages:'1h', so this guard mostly
-        // protects raw/default callers.
+    const canMarkMessageIdx = (idx) => {
+        // System-reminder messages (volatileTail / roleSpecific BP4) vary
+        // per-call, so never pin them with a 1h marker. The 1h system blocks
+        // (BP1/BP2/BP3) already satisfy Anthropic's "1h before 5m" ordering.
         if (idx < 0) return false;
         const msg = sanitizedMessages[idx];
         if (ttlRank(messageTtl) > ttlRank(CACHE_TTL_VOLATILE)
-            && isSystemReminder(msg?.content)
-            && !isTier3SystemReminder(msg?.content)) {
-            return false;
-        }
-        if (tier3Idx >= 0 && idx < tier3Idx && ttlRank(messageTtl) < ttlRank(tier3Ttl)) {
+            && isSystemReminder(msg?.content)) {
             return false;
         }
         return true;
@@ -863,29 +861,16 @@ function applyAnthropicCacheMarkers(sanitizedMessages, { messageTtl = CACHE_TTL_
         return -1;
     };
 
-    // tier3 — locate the sentinel-tagged system-reminder user message.
-    let tier3MsgIdx = -1;
-    if (tier3Ttl !== null) {
-        for (let i = 0; i < sanitizedMessages.length; i++) {
-            const m = sanitizedMessages[i];
-            if (m?.role === 'user' && isTier3SystemReminder(m.content)) {
-                tier3MsgIdx = i;
-                break;
-            }
-        }
-        if (tier3MsgIdx >= 0) markLast(sanitizedMessages[tier3MsgIdx], tier3Ttl);
-    }
-
     if (messageTtl !== null) {
         const slots = Math.max(0, Math.min(4, Number(messageSlots) || 0));
-        const marked = new Set(tier3MsgIdx >= 0 ? [tier3MsgIdx] : []);
+        const marked = new Set();
         const candidates = [latestToolResultTailIdx(), previousUserTextAnchorIdx()];
         for (const idx of candidates) {
             if (slots <= 0) break;
-            if (idx < 0 || marked.has(idx) || !canMarkMessageIdx(idx, tier3MsgIdx)) continue;
+            if (idx < 0 || marked.has(idx) || !canMarkMessageIdx(idx)) continue;
             markLast(sanitizedMessages[idx], messageTtl);
             marked.add(idx);
-            if (marked.size - (tier3MsgIdx >= 0 ? 1 : 0) >= slots) break;
+            if (marked.size >= slots) break;
         }
     }
 
@@ -1305,12 +1290,11 @@ function resolveCacheTtls(opts) {
     // Anthropic's prompt cache prefix semantics (order: tools → system
     // → messages).
     // tier3 defaults to 1h (stable) — sessionMarker content is stable per
-    // memory/meta tuple and Anthropic only spends the BP
-    // slot when findTier3Index() actually finds a <system-reminder> block,
-    // so this default is free for sessions that don't carry one. Previously
-    // null here meant any caller that skipped agent runtime resolve (CLI,
-    // raw agent spawn) silently lost the tier3 cache layer even
-    // though their message layout supported it.
+    // memory/meta tuple and the BP slot is only spent when a 3rd
+    // (cacheTier:'tier3') system block is actually present, so this default is
+    // free for sessions that don't carry one. Previously null here meant any
+    // caller that skipped agent runtime resolve (CLI, raw agent spawn)
+    // silently lost the tier3 cache layer even though it supported one.
     return {
         tools: pick('tools', null),
         system: pick('system', CACHE_TTL_STABLE),
@@ -1319,47 +1303,30 @@ function resolveCacheTtls(opts) {
     };
 }
 
-// Tier 3 is injected by session/manager as a user message wrapped in
-// `<system-reminder>` whose body starts with the explicit sentinel
-// `<!-- bp3-sentinel -->` (emitted by collect.mjs:composeSystemPrompt only
-// when stable memory/meta context is present). The sentinel is mandatory:
-// volatileTail may also be wrapped in `<system-reminder>` but varies per-call,
-// so a plain prefix match would pin volatile data to the 1h BP3 slot and
-// explode the cache.
-const BP3_SENTINEL = '<!-- bp3-sentinel -->';
-function findTier3Index(chatMsgs) {
-    for (let i = 0; i < chatMsgs.length; i++) {
-        const m = chatMsgs[i];
-        if (m?.role === 'user' && typeof m.content === 'string'
-            && m.content.startsWith('<system-reminder>')
-            && m.content.includes(BP3_SENTINEL)) {
-            return i;
-        }
-    }
-    return -1;
-}
+// BP3 (tier3) is injected by session/manager as its own `system` role block —
+// the 3rd system block, tagged `cacheTier:'tier3'`. buildSystemBlocks applies
+// the tier3 1h cache_control to that block; BP1/BP2 take the system TTL. No
+// `<system-reminder>` user message / sentinel scan is involved anymore.
 
 function buildRequestBody(messages, model, tools, sendOpts) {
     const systemMsgs = messages.filter(m => m.role === 'system');
     const chatMsgs = messages.filter(m => m.role !== 'system');
-    // Pass each system message text as its own entry so the Anthropic body
-    // gets N separate content blocks — each can have its own BP
-    // independent of the others.
-    const systemTexts = systemMsgs.map(m => m.content);
     const maxTokens = resolveMaxTokens(model);
     const opts = sendOpts || {};
     const ttls = resolveCacheTtls(opts);
-    const systemBlocks = buildSystemBlocks(systemTexts, model, ttls?.system, 2);
+    // Each system message becomes its own Anthropic content block with its own
+    // breakpoint: BP1 baseRules + BP2 stableSystem at ttls.system, BP3
+    // sessionMarker (cacheTier:'tier3') at ttls.tier3.
+    const systemBlocks = buildSystemBlocks(systemMsgs, model, ttls?.system, ttls?.tier3);
 
     // 4-BP budget layout. tools BP is dropped — system BP covers the
     // tools prefix via Anthropic's prompt cache prefix semantics
-    // (order: tools → system → messages). That frees slots for
-    // tier3 + messages-tail.
-    const systemBpUsed = ttls.system ? systemBlocks.filter(b => b.cache_control).length : 0;
+    // (order: tools → system → messages). That frees slots for the
+    // messages-tail. The system blocks now hold BP1/BP2/BP3 (tier3), so the
+    // tier3 breakpoint is accounted for inside systemBpUsed.
+    const systemBpUsed = systemBlocks.filter(b => b.cache_control).length;
     const toolsBpUsed = 0;
-    const tier3Idx = ttls.tier3 ? findTier3Index(chatMsgs) : -1;
-    const tier3BpUsed = tier3Idx >= 0 ? 1 : 0;
-    const usedSlots = toolsBpUsed + systemBpUsed + tier3BpUsed;
+    const usedSlots = toolsBpUsed + systemBpUsed;
     // Env override for BP strategy. ANTHROPIC_MSG_SLOTS=0 disables message
     // caching entirely. Any value >=1 first marks the previous user text turn
     // so consecutive requests share a breakpoint; a second free slot marks the
@@ -1375,10 +1342,9 @@ function buildRequestBody(messages, model, tools, sendOpts) {
     // marked block. NEVER sanitize again after this (see send path).
     // msgSlots === 0 (ANTHROPIC_MSG_SLOTS=0, or no free slot) → tail disabled.
     const tailTtl = msgSlots > 0 ? ttls.messages : null;
-    const tier3Ttl = tier3Idx >= 0 ? ttls.tier3 : null;
     const anthropicMessages = applyAnthropicCacheMarkers(
         toAnthropicMessages(chatMsgs),
-        { messageTtl: tailTtl, messageSlots: msgSlots, tier3Ttl },
+        { messageTtl: tailTtl, messageSlots: msgSlots },
     );
 
     const body = {

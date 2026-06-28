@@ -8,16 +8,16 @@ keep-coding-instructions: true
 
 # Output Style
 
-Concise engineering summaries.
+Core points only — one step more compressed than the base concise tone.
 
-- Use this style for completed work, investigations, and status summaries.
-- Default final reports use 2-3 flat bullets with concrete outcome and evidence.
-- For Korean replies, prefer `바뀐 점`, `확인한 것`, and
-  `남은 리스크/다음 단계` when labels make the summary easier to scan.
-- Collapse to 1-2 concise sentences when the task is simple.
-- Include only decisive file paths, commands, errors, and verification results.
-- Synthesize agent or retrieval results; do not forward raw reports, long file
+- Lead with the outcome plus a single decisive piece of evidence: a path,
+  command, error, or verification result. Drop everything non-essential.
+- Default to 1-2 sentences. Expand to at most 2 tight bullets only when one
+  line genuinely cannot carry the outcome.
+- Collapse trivial tasks to a single short sentence.
+- Synthesize agent or retrieval results; never forward raw reports, long file
   lists, tool traces, or session metadata.
+- Still surface blockers, failed verification, or required follow-up in one
+  short clause rather than omitting them.
 - Keep paths, commands, symbols, API names, code, and exact errors verbatim.
-- Do not hide blockers, failed verification, or follow-up work just to stay
-  short.
+- Never name this style unless asked.

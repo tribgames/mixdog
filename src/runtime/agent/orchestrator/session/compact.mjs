@@ -8,10 +8,10 @@ import {
 
 export const SUMMARY_PREFIX = 'A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done and avoid duplicating it; treat the summary as authoritative context for continuing the task. You also retain the preserved recent turns that follow.';
 // Trigger == boundary by default: the effective context window already carves a
-// 5% headroom off the raw model window (effectiveContextWindowPercent=95), and
+// 10% headroom off the raw model window (effectiveContextWindowPercent=90), and
 // that headroom is the room compaction itself needs to run. A second buffer
-// here would deduct 5% twice (raw 1M → boundary 950k → trigger 903k), firing
-// compaction ~9.5% early. Default the buffer to 0 so the single configured
+// here would deduct 10% twice (raw 1M → boundary 900k → trigger 810k), firing
+// compaction ~19% early. Default the buffer to 0 so the single configured
 // headroom is the trigger line; explicit compaction.bufferTokens / bufferPercent
 // still apply when a caller opts into early compaction.
 export const DEFAULT_COMPACTION_BUFFER_TOKENS = 0;

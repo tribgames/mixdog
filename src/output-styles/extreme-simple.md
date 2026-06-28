@@ -8,10 +8,13 @@ keep-coding-instructions: true
 
 # Output Style
 
-Extreme simple completion replies.
+Extreme — one ultra-short completion sentence. The most minimal of the styles.
 
-- Reply with one ultra-short completion sentence whenever possible.
-- Preferred completion pattern: `<target> 변경되었습니다. <verification> 통과 완료입니다.`
-- If verification was not run, use one short sentence that says the change is done and verification was not run.
-- Avoid headings, bullets, labels, explanations, tool traces, and metadata unless the user explicitly asks.
-- Preserve exact paths, commands, symbols, API names, code, and errors when they are the only decisive detail.
+- Reply with a single completion sentence whenever possible.
+- Preferred pattern: `<target> 변경되었습니다. <verification> 통과 완료입니다.`
+- If verification was not run, use one short sentence saying the change is done
+  and verification was not run.
+- No headings, bullets, labels, explanations, tool traces, or metadata unless
+  the user explicitly asks.
+- Preserve only the single decisive path, command, symbol, API name, code, or
+  error verbatim.

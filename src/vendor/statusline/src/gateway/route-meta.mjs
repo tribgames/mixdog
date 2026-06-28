@@ -103,7 +103,7 @@ function defaultEffectiveContextWindowPercent(_provider) {
   // models.dev, or native provider catalogs). Reserve a small universal
   // headroom for output/tool/system tokens while keeping the raw model window
   // visible separately.
-  return 95;
+  return 90;
 }
 
 function effectiveContextWindowPercent(provider, info = {}, seed = {}) {

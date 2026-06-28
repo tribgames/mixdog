@@ -4,6 +4,8 @@
 - For source lookup, use `find` for partial file/path clues, `glob` for known
   patterns, `grep` for exact text, `list` for directories, and `read` for known
   paths. Keep `code_graph` for structural, symbol, or dependency questions.
+- Prefer leading work with the right scout: `explore` to narrow broad work
+  locations, `search` for web/external info, `recall` for past context.
 - Fan out independent read-only lookup calls when useful. Use `read` path
   arrays for known independent files.
 - Put related multi-file edits in one `apply_patch` call. Do not run

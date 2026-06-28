@@ -250,6 +250,12 @@ export class SessionClosedError extends Error {
     }
 }
 const HEARTBEAT_THROTTLE_MS = 60_000; // 60s
+// Cap how long the terminal unwind blocks on the post-result session save.
+// The result is already produced (and relayed for agent surfaces) before this
+// save, so a stalled disk write must not hold askSession() open — otherwise the
+// owning background task is stranded in `running` and its completion
+// notification never fires. A slow write finishes in the background.
+const TERMINAL_SAVE_TIMEOUT_MS = nonNegativeIntEnv('MIXDOG_TERMINAL_SAVE_TIMEOUT_MS', 5_000);
 
 // Merge externally-connected MCP tools with the plugin's in-process tools
 // (registered by agent's toolExecutor adapter). Internal tools are exposed
@@ -556,10 +562,10 @@ function compactTargetTokensForBoundary(boundaryTokens) {
     return Math.max(1, Math.min(boundary, maxTarget, Math.max(minTarget, byRatio)));
 }
 function defaultEffectiveContextWindowPercent(provider) {
-    // Gateway/statusline route metadata reserves a universal 5% headroom from
+    // Gateway/statusline route metadata reserves a universal 10% headroom from
     // the raw catalog window. Keep session compaction on the same effective
     // capacity so /context, the TUI statusline, and gateway telemetry agree.
-    return 95;
+    return 90;
 }
 function resolveSessionContextMeta(provider, model, seed = {}) {
     const info = typeof provider?.getCachedModelInfo === 'function'
@@ -978,8 +984,8 @@ async function runSessionCompaction(session, opts = {}) {
 // same provider land in a single server-side cache shard, so the
 // shared prefix (tools + system + pool system prompt) is reused
 // regardless of role. Per-role / per-session differentiation lives after the
-// system prefix (BP3 system-reminder / later messages), which is naturally
-// separated by provider-side content hashing.
+// system prefix (BP3 sessionMarker system block / later messages), which is
+// naturally separated by provider-side content hashing.
 const PROVIDER_ALIAS = {
     'openai-oauth': 'codex',      // ChatGPT subscription (Codex backend)
     'anthropic-oauth': 'claude',  // Claude Max subscription
@@ -996,9 +1002,10 @@ function providerCacheKey(provider, override) {
 }
 
 // ── Prefetch permission guard ─────────────────────────────────────────────────
-// Mirrors _checkWorkerPermission in loop.mjs for tool calls that originate
-// in the prefetch path (outside the agent loop). Returns an error string if
-// blocked, or null if allowed.
+// Runs the shared permission evaluator for tool calls that originate in the
+// prefetch path (outside the agent loop). Permission enforcement is disabled
+// (the evaluator always returns allow), so this is effectively a pass-through
+// kept for API compatibility. Returns an error string if blocked, or null.
 const _permEvalForPrefetch = (() => {
     const _req = createRequire(import.meta.url);
     try {
@@ -1009,9 +1016,8 @@ const _permEvalForPrefetch = (() => {
 })();
 function _guardedPrefetchTool(toolName, toolArgs, session) {
     if (!_permEvalForPrefetch) return null;
-    // Same baseline as _checkWorkerPermission: when no explicit mode is
-    // attached to the session, run the evaluator under 'default' so the
-    // bypass-proof hard-deny patterns still apply during prefetch dispatch.
+    // When no explicit mode is attached to the session, run the evaluator
+    // under 'default'. The evaluator now always allows, so this never blocks.
     const permissionMode = session?.permissionMode || 'default';
     const projectDir = session?.cwd || undefined;
     const userCwd = session?.cwd || undefined;
@@ -1410,11 +1416,15 @@ export function createSession(opts) {
     // 4-BP layout (see composeSystemPrompt docs):
     //   system block #1 = baseRules — BP1 (1h) shared tool policy + skills
     //   system block #2 = stableSystemContext — BP2 (1h) role/system rules
-    //   first <system-reminder> user = sessionMarker — BP3 (1h) memory/meta
+    //   system block #3 = sessionMarker — BP3 (1h) memory/meta + Profile
+    //     Preferences (language/name). It rides as a real `system` block so
+    //     locale/name directives are pinned firmly and do not drift to English
+    //     after a few turns the way a `user <system-reminder>` reminder did.
     //   later normal messages        = BP4/tail (task, role data, tool history)
-    // Anthropic multi-block system pins each block with cache_control.
-    // OpenAI/xAI get stable provider cache keys/session prefixes. Gemini
-    // manages explicit cachedContents inside its provider.
+    // Anthropic multi-block system pins each block with cache_control (BP3 is
+    // the 3rd system block and carries the tier3 1h marker). OpenAI/xAI get
+    // stable provider cache keys/session prefixes. Gemini manages explicit
+    // cachedContents inside its provider.
     if (baseRules) {
         messages.push({ role: 'system', content: baseRules });
     }
@@ -1422,8 +1432,11 @@ export function createSession(opts) {
         messages.push({ role: 'system', content: stableSystemContext });
     }
     if (sessionMarker) {
-        messages.push({ role: 'user', content: `<system-reminder>\n${sessionMarker}\n</system-reminder>` });
-        messages.push({ role: 'assistant', content: '.' });
+        // cacheTier:'tier3' tells the Anthropic providers to pin THIS system
+        // block with the tier3 1h cache_control (BP3) — distinct from the
+        // BP1/BP2 system TTL. Harmless on non-Anthropic providers (they ignore
+        // the field and serialize content as a normal system instruction).
+        messages.push({ role: 'system', content: sessionMarker, cacheTier: 'tier3' });
     }
     if (volatileTail) {
         messages.push({ role: 'user', content: `<system-reminder>\n${volatileTail}\n</system-reminder>` });
@@ -2871,7 +2884,35 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // query/provider send (agentLoop pre-send), not after the previous
             // answer. This lets queued follow-up prompts resume immediately;
             // if they need compaction, their own spinner shows compacting first.
-            await saveSessionAsync(session, { expectedGeneration: askGeneration });
+            // Bounded, best-effort terminal save. The result is already produced
+            // and (for agent surfaces) relayed via onTerminalResult above. If the
+            // disk write stalls, blocking the terminal unwind here would strand the
+            // owning background task in `running` and suppress its completion
+            // notification. Cap the wait; let a slow write finish in the
+            // background instead of holding askSession() open indefinitely.
+            {
+                const savePromise = saveSessionAsync(session, { expectedGeneration: askGeneration });
+                let saveTimer = null;
+                const saveTimeout = new Promise((resolveTimeout) => {
+                    saveTimer = setTimeout(() => resolveTimeout('__save_timeout__'), TERMINAL_SAVE_TIMEOUT_MS);
+                    saveTimer.unref?.();
+                });
+                try {
+                    const outcome = await Promise.race([
+                        savePromise.then(() => '__save_ok__', (err) => { throw err; }),
+                        saveTimeout,
+                    ]);
+                    if (outcome === '__save_timeout__') {
+                        try { process.stderr.write(`[session] terminal save exceeded ${TERMINAL_SAVE_TIMEOUT_MS}ms; continuing best-effort (${sessionId})\n`); } catch {}
+                        // Don't drop the write — let it settle in the background.
+                        savePromise.catch((err) => {
+                            try { process.stderr.write(`[session] deferred terminal save failed: ${err?.message || err}\n`); } catch {}
+                        });
+                    }
+                } finally {
+                    if (saveTimer) { try { clearTimeout(saveTimer); } catch {} }
+                }
+            }
             activeSession = session;
             runtime.session = session;
             // Tag empty-synthesis BEFORE markSessionDone so the watchdog
@@ -3080,21 +3121,11 @@ export async function clearSessionMessages(sessionId, options = {}) {
         const m = messages[i];
         if (!m) continue;
         if (m.role === 'system') {
+            // BP1/BP2/BP3 all ride `role:'system'` blocks now (BP3 sessionMarker
+            // moved off the `<system-reminder>` user wrapper), so the stable
+            // memory/meta layer is preserved here unconditionally — no sentinel
+            // scan / dummy-assistant pairing needed anymore.
             keep.push(m);
-            continue;
-        }
-        const stableContext =
-            m.role === 'user'
-            && typeof m.content === 'string'
-            && m.content.startsWith('<system-reminder>')
-            && m.content.includes('<!-- bp3-sentinel -->');
-        if (stableContext) {
-            keep.push(m);
-            const next = messages[i + 1];
-            if (next?.role === 'assistant' && String(next.content || '').trim() === '.') {
-                keep.push(next);
-                i += 1;
-            }
             continue;
         }
         if (preserveCompactSummary

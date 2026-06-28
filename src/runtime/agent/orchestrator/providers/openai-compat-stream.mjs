@@ -15,245 +15,30 @@ function truncatedCompatStreamError(label, detail) {
     );
 }
 
-// Permanent (non-retryable) tool-call arguments parse failure. Unlike a
-// truncated stream, this is raised only once a completion/finish signal has
-// been observed for the call — the model emitted complete-but-malformed JSON,
-// which is deterministic: re-requesting the same turn yields the same bad
-// payload. Mark unsafeToRetry so classifyError() routes it permanent and the
-// shared retry wrapper never reissues.
-function badToolCallArgumentsError(label, detail) {
-    return Object.assign(
-        new Error(`${label} tool_call arguments JSON parse failed${detail ? `: ${detail}` : ''}`),
-        { name: 'ToolCallArgumentsParseError', code: 'TOOL_CALL_ARGS_PARSE', unsafeToRetry: true },
-    );
+// Invalid-tool-args marker. Native-provider convergence (Codex / claude-code /
+// opencode): completed-but-malformed tool_call arguments JSON must NOT throw
+// (kills the turn) NOR be silently swallowed to `{}`. Instead the parse
+// failure is carried as data on the tool call's `arguments` slot so the
+// dispatch loop can turn it into an is_error tool_result and let the model
+// re-issue the call with valid JSON in the SAME turn (follow-up retry).
+//   { __invalidToolArgs: true, __rawArguments: <raw string>, __parseError: <msg> }
+export function makeInvalidToolArgsMarker(rawArguments, parseError) {
+    return {
+        __invalidToolArgs: true,
+        __rawArguments: typeof rawArguments === 'string' ? rawArguments : String(rawArguments ?? ''),
+        __parseError: typeof parseError === 'string' ? parseError : String(parseError ?? 'parse error'),
+    };
 }
-
-// Salvage malformed tool_call argument JSON emitted by weaker models.
-//
-// Observed failure mode (deepseek-v4-flash and similar): a string value is
-// emitted as an unquoted scalar with the surrounding quotes dropped, e.g.
-//   {"pattern": dispatchAiWrapped, "path": "src/agent"}
-//                ^^^^^^^^^^^^^^^^^ should be "dispatchAiWrapped"
-//   {"query": claude-code PromptInput borderRight, "site": "github.com"}
-//             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ should be one string
-// The structure is otherwise well-formed. This is deterministic and common in
-// code-search workloads where the model passes identifiers/symbols as values.
-//
-// Strategy: walk the text tracking object/array context and JSON strings
-// (honoring backslash escapes). OUTSIDE a string, only value slots are repaired.
-// A value slot is the token after `:` in an object, after `[` in an array, after
-// `,` in an array, or after `,` followed by the next object key. If the value is
-// not already a complete JSON scalar/container, quote the whole unquoted scalar
-// up to the next syntactic value boundary. Characters inside string literals are
-// never touched, so a `:` or `,` appearing inside a legitimately-quoted value
-// can't trigger a rewrite.
-//
-// Returns the parsed object on success, or null if salvage did not produce
-// valid JSON (caller then falls through to the original error path).
-function salvageBarewordJson(text) {
-    if (typeof text !== 'string' || !text.length) return null;
-    let out = '';
-    let inStr = false;
-    let i = 0;
-    const n = text.length;
-    const stack = [];
-    // expectValue=true means the next non-space char begins a value slot
-    // (just after `:` `[` `,` or at the very start).
-    let expectValue = true;
-    const matchingClose = (open) => open === '{' ? '}' : (open === '[' ? ']' : '');
-    const skipWs = (pos) => {
-        while (pos < n && /\s/.test(text[pos])) pos++;
-        return pos;
-    };
-    const scanStringEnd = (pos) => {
-        if (text[pos] !== '"') return -1;
-        for (let j = pos + 1; j < n; j++) {
-            if (text[j] === '\\') { j++; continue; }
-            if (text[j] === '"') return j;
-        }
-        return -1;
-    };
-    const isBoundaryAfter = (pos) => {
-        const j = skipWs(pos);
-        return j >= n || text[j] === ',' || text[j] === '}' || text[j] === ']';
-    };
-    const quotedKeyAfterComma = (commaPos) => {
-        let j = skipWs(commaPos + 1);
-        if (text[j] !== '"') return false;
-        const end = scanStringEnd(j);
-        if (end < 0) return false;
-        j = skipWs(end + 1);
-        return text[j] === ':';
-    };
-    const quotedKeyAt = (pos) => {
-        const end = scanStringEnd(pos);
-        if (end < 0) return false;
-        return text[skipWs(end + 1)] === ':';
-    };
-    const structuralEnd = (pos) => {
-        const open = text[pos];
-        const close = matchingClose(open);
-        if (!close) return -1;
-        const local = [open];
-        let localInStr = false;
-        for (let j = pos + 1; j < n; j++) {
-            const ch = text[j];
-            if (localInStr) {
-                if (ch === '\\') { j++; continue; }
-                if (ch === '"') localInStr = false;
-                continue;
-            }
-            if (ch === '"') { localInStr = true; continue; }
-            if (ch === '{' || ch === '[') { local.push(ch); continue; }
-            if (ch === '}' || ch === ']') {
-                if (matchingClose(local[local.length - 1]) !== ch) return -1;
-                local.pop();
-                if (!local.length) return j;
-            }
-        }
-        return -1;
-    };
-    // Find where the unquoted scalar value at `pos` ends. Returns the boundary
-    // index, or -1 when the surrounding object structure itself is malformed
-    // (so salvage must fail rather than quote over it and change structure).
-    //
-    // Bracket/brace depth is tracked so a `,` or `:` that belongs to regex/glob
-    // value text (e.g. `[,:]`, `{a,b,c}`) is correctly kept INSIDE the scalar,
-    // while depth-0 object-member separators are treated as structure. Quotes are
-    // NOT treated as string delimiters here: we are inside an unquoted value, so
-    // any `"` is literal value text (e.g. a regex char class `["']`), and the
-    // whole run is re-quoted via JSON.stringify by appendQuotedScalar.
-    const scalarEnd = (pos) => {
-        const ctx = stack[stack.length - 1] || '';
-        let depth = 0;
-        for (let j = pos; j < n; j++) {
-            const ch = text[j];
-            if (ch === '[' || ch === '{') { depth++; continue; }
-            if (ch === ']' || ch === '}') {
-                if (depth > 0) { depth--; continue; }
-                return j; // depth-0 closer ends our container, so ends the value
-            }
-            if (depth > 0) continue; // inside nested brackets — part of the value
-            // A depth-0 quoted key before any separator means a comma is missing
-            // between members: malformed object structure, not value text.
-            if (ctx === '{' && ch === '"' && quotedKeyAt(j)) return -1;
-            if (ctx === '{' && ch === ':') {
-                const before = text.slice(pos, j);
-                const next = skipWs(j + 1);
-                // A depth-0 colon with whitespace on either side looks like an
-                // object member separator that was swallowed into the scalar
-                // because a comma is missing (e.g. `foo b: 1`, `foo : 1`).
-                // Keep compact colon-bearing scalars such as `C:/x`, `http://x`,
-                // or `key:value` recoverable.
-                if (!before.trim() || /\s/.test(before) || next !== j + 1) return -1;
-            }
-            if (ch === ',') {
-                if (ctx === '[') return j; // array element separator
-                if (ctx === '{') return quotedKeyAfterComma(j) ? j : -1;
-                return j;
-            }
-        }
-        return n;
-    };
-    const appendQuotedScalar = (start, end) => {
-        const run = text.slice(start, end);
-        const leadLen = run.length - run.trimStart().length;
-        const trailLen = run.length - run.trimEnd().length;
-        const lead = run.slice(0, leadLen);
-        const body = run.slice(leadLen, run.length - trailLen);
-        const trail = trailLen ? run.slice(run.length - trailLen) : '';
-        if (!body) return false;
-        out += lead + JSON.stringify(body) + trail;
-        return true;
-    };
-    const readJsonScalar = (pos) => {
-        const tail = text.slice(pos);
-        const literal = /^(?:true|false|null)\b/.exec(tail);
-        if (literal && isBoundaryAfter(pos + literal[0].length)) return literal[0].length;
-        const number = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(tail);
-        if (number && isBoundaryAfter(pos + number[0].length)) return number[0].length;
-        return 0;
-    };
-    while (i < n) {
-        const c = text[i];
-        if (inStr) {
-            out += c;
-            if (c === '\\') { // copy the escaped char verbatim
-                if (i + 1 < n) { out += text[i + 1]; i += 2; continue; }
-            } else if (c === '"') {
-                inStr = false;
-            }
-            i++;
-            continue;
-        }
-        if (c === '"') { inStr = true; out += c; expectValue = false; i++; continue; }
-        if (c === ':') { out += c; expectValue = true; i++; continue; }
-        if (c === '{') {
-            stack.push(c);
-            out += c;
-            expectValue = false;
-            i++;
-            continue;
-        }
-        if (c === '[') {
-            if (expectValue) {
-                const end = structuralEnd(i);
-                if (end >= 0 && isBoundaryAfter(end + 1)) {
-                    const segment = text.slice(i, end + 1);
-                    try { JSON.parse(segment); out += segment; i = end + 1; expectValue = false; continue; } catch {}
-                }
-                const valueEnd = scalarEnd(i);
-                if (valueEnd < 0) return null;
-                if (!appendQuotedScalar(i, valueEnd)) return null;
-                i = valueEnd;
-                expectValue = false;
-                continue;
-            }
-            stack.push(c);
-            out += c;
-            expectValue = c === '[';
-            i++;
-            continue;
-        }
-        if (c === ',') {
-            out += c;
-            expectValue = stack[stack.length - 1] === '[' || quotedKeyAfterComma(i);
-            i++;
-            continue;
-        }
-        if (c === '}' || c === ']') {
-            if (matchingClose(stack[stack.length - 1]) === c) stack.pop();
-            out += c;
-            expectValue = false;
-            i++;
-            continue;
-        }
-        if (/\s/.test(c)) { out += c; i++; continue; }
-        // Non-space, non-structural char in a value slot.
-        if (expectValue) {
-            const scalarLen = readJsonScalar(i);
-            if (scalarLen) {
-                out += text.slice(i, i + scalarLen);
-                i += scalarLen;
-                expectValue = false;
-                continue;
-            }
-            const end = scalarEnd(i);
-            if (end < 0) return null;
-            if (!appendQuotedScalar(i, end)) return null;
-            i = end;
-            expectValue = false;
-            continue;
-        }
-        out += c;
-        i++;
-    }
-    if (inStr) return null; // unbalanced string — don't risk a bad parse
-    try {
-        return JSON.parse(out);
-    } catch {
-        return null;
-    }
+export function isInvalidToolArgsMarker(value) {
+    return !!value && typeof value === 'object' && value.__invalidToolArgs === true;
+}
+/** Model-facing tool_result text for a tool call whose arguments failed to
+ * parse. Mirrors opencode `The arguments provided to the tool are invalid` and
+ * Codex `failed to parse function arguments` — instructs an in-turn retry. */
+export function formatInvalidToolArgsResult(call) {
+    const name = call?.name || 'tool';
+    const detail = call?.arguments?.__parseError || 'arguments were not valid JSON';
+    return `The arguments provided to \`${name}\` are invalid JSON and could not be parsed: ${detail}. Re-issue this tool call with valid JSON arguments.`;
 }
 
 /** Completed tool_call.arguments must be valid JSON; empty/missing → {}.
@@ -268,15 +53,7 @@ export function parseCompletedToolCallArgumentsJson(raw, label, meta) {
     const src = text === '' ? '{}' : text;
     try {
         return JSON.parse(src);
-    } catch {
-        // Salvage the common weak-model failure: a string value emitted as a
-        // bare (unquoted) word. Deterministic and structure-preserving, so a
-        // successful salvage yields the exact arguments the model intended.
-        const salvaged = salvageBarewordJson(text);
-        if (salvaged !== null) {
-            try { process.stderr.write(`[toolcall-salvage] label=${label} recovered bareword JSON (len=${text.length})\n`); } catch {}
-            return salvaged;
-        }
+    } catch (err) {
         const preview = text.length <= 64
             ? text
             : text.slice(0, 32) + '...' + text.slice(-32);
@@ -292,10 +69,13 @@ export function parseCompletedToolCallArgumentsJson(raw, label, meta) {
         // Invariant: a completion/finish signal was observed for this tool call
         // (finish_reason present, or a per-call/response "done" event fired), so
         // the arguments are NOT mid-stream-truncated — they are complete but
-        // malformed. Surface a permanent parse error; only an unfinished stream
-        // (no finishReason) is the retryable truncation case.
+        // malformed. Native convergence: return an invalid-args MARKER (not a
+        // throw) so the dispatch loop feeds the parse error back to the model as
+        // a tool_result and the model self-corrects in the same turn. Only an
+        // unfinished stream (no finishReason) stays the retryable truncation
+        // case — that transient behavior is deliberately preserved.
         if (meta?.finishReason) {
-            throw badToolCallArgumentsError(label, detailParts.join(' '));
+            return makeInvalidToolArgsMarker(text, err instanceof Error ? err.message : String(err));
         }
         throw truncatedCompatStreamError(label, detailParts.join(' '));
     }

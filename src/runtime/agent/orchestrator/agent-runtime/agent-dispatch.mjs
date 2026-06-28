@@ -190,10 +190,10 @@ export function makeAgentDispatch(opts = {}) {
         // Unified dispatch: Pool B/C share bit-identical tools + system prompt
         // unless a hidden role declares a narrow toolSchemaProfile. Per-role
         // differentiation lives in scoped role rules / stable session context;
-        // raw role and permission labels are not repeated in the prompt. The
-        // read-only contract is still enforced at call time via loop.mjs's
-        // READ_BLOCKED_TOOLS guard; schema profiles are a routing-efficiency
-        // layer, not safety.
+        // raw role and permission labels are not repeated in the prompt.
+        // Runtime permission enforcement was removed (every tool call is
+        // trusted); schema profiles remain a routing-efficiency layer that
+        // narrows the advertised tool list, not a runtime safety gate.
         const hidden = getHiddenRole(role);
         const isPoolC = Boolean(hidden);
         // Permission: read-declared hidden roles are locked in

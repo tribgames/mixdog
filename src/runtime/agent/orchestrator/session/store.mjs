@@ -99,7 +99,6 @@ function _isPreviewNoise(text) {
     if (!value) return true;
     if (value.startsWith('<system-reminder>')) return true;
     if (/^Reference files:/i.test(value)) return true;
-    if (value.includes('<!-- bp3-sentinel -->')) return true;
     return false;
 }
 

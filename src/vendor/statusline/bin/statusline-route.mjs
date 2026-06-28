@@ -181,7 +181,7 @@ function boundedPercent(value, fallback = null) {
 }
 
 function defaultEffectiveContextWindowPercent(_provider) {
-  return 95;
+  return 90;
 }
 
 function routeContextMeta(provider, info = {}, inherited = {}) {

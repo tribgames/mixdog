@@ -20,6 +20,7 @@ import {
   summarizeToolResult as surfaceSummarizeToolResult,
   formatAggregateHeader,
   formatToolActionHeader,
+  displayModelName,
 } from '../../runtime/shared/tool-surface.mjs';
 
 const MIN_RESULT_LINE_CHARS = 24;
@@ -211,23 +212,56 @@ function titleizeAgentName(value) {
     .join(' ');
 }
 
+function agentModelLabel(args) {
+  return displayModelName(args?.model || args?.modelDisplay || args?.model_display || args?.displayModel || '');
+}
+
+function withModel(label, args) {
+  const model = agentModelLabel(args);
+  return model ? `${label} (${model})` : label;
+}
+
+function agentTagLabel(args) {
+  // The real spawn tag (engine fills parsedArgs.tag from the envelope target).
+  // Never fall back to task_id — only the human-meaningful spawn tag belongs in
+  // the header parentheses.
+  return String(args?.tag || '').trim();
+}
+
+function withModelAndTag(label, args) {
+  const model = agentModelLabel(args);
+  const tag = agentTagLabel(args);
+  const inner = [model, tag].filter(Boolean).join(', ');
+  return inner ? `${label} (${inner})` : label;
+}
+
+// Append a role name to a base action word without leaving a trailing space
+// when the role is unknown (no generic "Agent" fallback).
+function joinActionRole(action, role) {
+  return role ? `${action} ${role}` : action;
+}
+
 function agentResponseTitle(args) {
   const name = titleizeAgentName(args?.agent || args?.role || args?.subagent_type || args?.name || '');
-  return `${name || 'Agent'} response`;
+  // The agent role + model identify the responder; the response summary itself
+  // is hidden in the collapsed card (ctrl+o expand still shows the full body).
+  // No generic "Agent" fallback — render just "Response" when the role is empty.
+  return withModelAndTag(joinActionRole('Response', name), args);
 }
 
 function agentActionTitle(args) {
   const name = titleizeAgentName(args?.agent || args?.role || args?.subagent_type || args?.name || '');
-  const agent = name || 'Agent';
   const action = String(args?.type || args?.action || '').toLowerCase();
-  const status = String(args?.status || '').toLowerCase();
-  if (action === 'spawn') return /^(running|pending|queued)$/i.test(status) ? `Spawning ${agent}` : `Spawned ${agent}`;
-  if (action === 'send') return /^(running|pending|queued)$/i.test(status) ? `Sending to ${agent}` : `Sent to ${agent}`;
+  // Fixed action verbs regardless of running/completed status. No generic
+  // "Agent" fallback for the role: when the role is unknown render the action
+  // word alone ("Spawn") instead of "Spawn Agent".
+  if (action === 'spawn') return withModelAndTag(joinActionRole('Spawn', name), args);
+  if (action === 'send') return withModelAndTag(joinActionRole('Send', name), args);
   if (action === 'list') return 'Agent status';
-  if (action === 'cancel') return status && !/unknown/i.test(status) ? 'Cancelled Agent' : 'Cancel Agent';
-  if (action === 'close') return status && !/unknown/i.test(status) ? 'Closed Agent' : 'Close Agent';
-  if (action === 'cleanup') return 'Cleaned Agent State';
-  if (action === 'read' || action === 'status') return `${agent} status`;
+  if (action === 'cancel') return withModelAndTag(joinActionRole('Cancel', name), args);
+  if (action === 'close') return withModelAndTag(joinActionRole('Close', name), args);
+  if (action === 'cleanup') return withModelAndTag(joinActionRole('Cleanup', name), args);
+  if (action === 'read' || action === 'status') return withModelAndTag(joinActionRole('Status', name), args);
   return '';
 }
 
@@ -236,8 +270,16 @@ function agentActionSummary(args, summary) {
   if (!text) return '';
   const name = titleizeAgentName(args?.agent || args?.role || args?.subagent_type || args?.name || '');
   if (name && text === name) return '';
-  if (name && text.startsWith(`${name} · `)) return text.slice(name.length + 3).trim();
-  return text;
+  let rest = name && text.startsWith(`${name} · `) ? text.slice(name.length + 3).trim() : text;
+  // The role/model/tag surface summary ("Heavy Worker · Opus 4.8") is now folded
+  // into the header label itself ("Spawn Heavy Worker (Opus 4.8, tag)"), so drop
+  // the model and tag tokens from the parenthesized summary to avoid showing
+  // them twice.
+  const model = agentModelLabel(args);
+  if (model && rest === model) return '';
+  const tag = agentTagLabel(args);
+  if (tag && rest === tag) return '';
+  return rest;
 }
 
 function hasAgentResponseResult(value) {
@@ -522,7 +564,28 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     return () => clearInterval(timer);
   }, [pending, pendingDisplayReady, startedAtMs]);
 
-  if (pending && !pendingDisplayReady) return null;
+  // While a freshly-started tool is still inside its pending-show delay we used
+  // to `return null` (0 rendered rows). But estimateTranscriptItemRows() in
+  // App.jsx counts a collapsed tool item from the moment it is pushed (1 row for
+  // a skill surface, 2 rows otherwise), so the scroll/window math reserved that
+  // height while the component painted 0. The moment the delay elapsed (or the
+  // tool completed) the real card popped in, the rendered transcript grew and
+  // shoved the content above it — the "new tool card jumps up/down as it
+  // settles" bug. Reserve the SAME height the estimator predicts with blank
+  // content instead, so the card occupies a constant height for its whole
+  // lifecycle and nothing reflows when the real header/detail fill in place.
+  if (pending && !pendingDisplayReady) {
+    // Mirror estimateTranscriptItemRows: a non-aggregate skill surface collapses
+    // to a single header row; everything else reserves header + one detail row.
+    const placeholderNormalizedName = String(formatToolSurface(name, args)?.normalizedName || '').toLowerCase();
+    const placeholderSingleRow = !aggregate && SKILL_SURFACE_NAMES.has(placeholderNormalizedName);
+    return (
+      <Box flexDirection="column" marginTop={attached ? 0 : 1}>
+        <Text> </Text>
+        {placeholderSingleRow ? null : <Text> </Text>}
+      </Box>
+    );
+  }
 
   // ── Aggregate card ──────────────────────────────────────────────
   if (aggregate) {
@@ -557,13 +620,9 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     const clippedHeader = stringWidth(headerText) > avail
       ? truncateToWidth(headerText, avail)
       : headerText;
-    // Pin the trailing hint/elapsed to a FIXED column: pad the header body out
-    // to `avail` so the trailing slot always starts at the same x, regardless of
-    // whether a summary/count landed. Without this the hint slides left/right as
-    // the body width changes (the "() 버전이랑 왔다갔다하며 튀는" jitter).
-    const aggHeaderPad = trailingText
-      ? ' '.repeat(Math.max(0, avail - stringWidth(clippedHeader)))
-      : '';
+    // Trailing content (elapsed while pending, ctrl+o hint when done) always
+    // sits immediately after the header body — no fixed right-edge pin — so it
+    // never jumps to the right edge and snaps back on the pending→done flip.
     // Keep the aggregate card at a fixed height (header + one detail row) for
     // its whole lifecycle. Pending cards have no result yet, so reserve the
     // detail row up front instead of growing from 1→2 rows when the summary
@@ -588,7 +647,6 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
           </Box>
           <Text wrap="truncate">
             <Text bold color={theme.text}>{clippedHeader}</Text>
-            {aggHeaderPad ? <Text>{aggHeaderPad}</Text> : null}
             {trailingText ? <Text color={trailingColor}>{trailingText}</Text> : null}
           </Text>
         </Box>
@@ -668,23 +726,44 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const nonShellDetail = backgroundMetadataDetail || (/^(Cancelled|Failed|Finished)$/i.test(resultSummary || '') && agentCompletionDetail
     ? agentCompletionDetail
     : syncElapsedDetail) || agentDetail || imageDetail || genericDetail;
+  // A pending non-aggregate tool used to drop its detail row entirely
+  // (collapsedDetail = ''), so the card rendered as a single header row. But
+  // estimateTranscriptItemRows() in App.jsx reserves 2 rows for a collapsed
+  // non-aggregate tool (1 only for skill surfaces). That left a 1-row gap that
+  // closed the instant the result landed — the surviving "튐". Reserve the same
+  // dim placeholder detail row the aggregate card uses (`Running`) for the whole
+  // pending lifecycle so the height stays fixed at header + one detail row and
+  // the final summary just fills in place. Skill surfaces collapse to a single
+  // row in BOTH the estimate and the render (visibleDetailLines drops the row
+  // for isSkillSurface below), so they get no placeholder.
+  const pendingDetailPlaceholder = pending && !isSkillSurface ? 'Running' : '';
   const collapsedDetail = pending
-    ? ''
+    ? pendingDetailPlaceholder
     : isShellSurface
       ? mergeTerminalDetail(shellStatus, resultSummary)
       : mergeTerminalDetail(terminalStatus, nonShellDetail);
   const showRawResult = expanded && hasResult && !isBackgroundMetadataResult;
   const detailLines = showRawResult ? lines : (collapsedDetail ? [collapsedDetail] : []);
-  const detailColor = theme.text;
+  const isPendingPlaceholderDetail = !showRawResult && Boolean(pendingDetailPlaceholder);
+  const detailColor = isPendingPlaceholderDetail ? theme.subtle : theme.text;
 
   const isAgentResult = !isBackgroundResult && !pending && isAgentTool(normalizedName) && hasResult;
   const isAgentResponse = isAgentResult && hasAgentResponseResult(rt);
   const isAgentMetadataResult = isAgentResult && !isAgentResponse;
+  // Every agent card is a single header row when collapsed: spawn/send/response/
+  // status/list/cancel/close/cleanup all fold their context into the header
+  // label, so the ⎿ detail body (response summary, "agents: N …" worker list,
+  // status metadata) is dropped unless the user expands with ctrl+o.
+  const isAgentSurfaceCard = isAgentTool(normalizedName);
   // Skill loads carry the skill name in the header already
   // ("Loaded 1 skill (name)"); the collapsed detail row just repeats it, so
   // drop it and keep the card a single line. Expanding (ctrl+o) still shows the
   // full skill body via the raw-result path.
-  const visibleDetailLines = (isAgentMetadataResult || (isSkillSurface && !showRawResult))
+  // Agent responses now identify the responder in the header itself
+  // ("Heavy Worker (Opus 4.8)"); the collapsed body just echoed the response
+  // summary ("All green. Done."), so drop it and keep the card a single line.
+  // ctrl+o expand (showRawResult) still surfaces the full response body.
+  const visibleDetailLines = (isAgentMetadataResult || ((isAgentSurfaceCard || isSkillSurface) && !showRawResult))
     ? []
     : detailLines;
   const finalStatusColor = toolStatusColor({ pending, groupCount, failedCount, terminalStatus });
@@ -704,7 +783,13 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const summaryText = isAgentResponse || isBackgroundResponse
     ? ''
     : toolSearchSummary || (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary);
-  const showHeaderExpandHint = hasHiddenDetail && normalizedName !== 'tool_search' && !isShellSurface && !isAgentMetadataResult && !isBackgroundMetadataResult;
+  // Agent cards hide their collapsed body but still expose ctrl+o expand when
+  // there is a raw result to reveal (response body, worker list, status meta).
+  const agentHasExpandableBody = isAgentSurfaceCard && !pending && hasResult;
+  const showHeaderExpandHint = (hasHiddenDetail || agentHasExpandableBody)
+    && normalizedName !== 'tool_search'
+    && !isShellSurface
+    && !isBackgroundMetadataResult;
   const expandHintColor = TOOL_HINT_DONE_COLOR;
 
   // Build a single-line header that never wraps: reserve width for the fixed
@@ -746,14 +831,11 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
       : '';
     summaryOut = truncatedSummary ? ` (${truncatedSummary})` : '';
   }
-  // Pin the trailing hint/elapsed to a FIXED column: pad the label+summary body
-  // out to `avail` so the trailing slot always begins at the same x. Without
-  // this the hint slides as the summary `(...)` appears/disappears across value
-  // updates (the "() 버전이랑 왔다갔다하며 튀는" jitter the user reported).
-  const headerBodyWidth = stringWidth(labelOut) + stringWidth(summaryOut);
-  const headerPad = trailingText
-    ? ' '.repeat(Math.max(0, avail - headerBodyWidth))
-    : '';
+  // Keep trailing content (pending elapsed / completed ctrl+o hint) attached
+  // directly after the body for the whole lifecycle. The fixed-column pin
+  // previously used for elapsed is what made the trailing text jump to the right
+  // edge and snap back on the pending→done flip, so there is no pad. `avail`
+  // stays reserved (rightReserve) so the body clip point never reflows.
   return (
     <Box flexDirection="column" marginTop={attached ? 0 : 1}>
       <Box flexDirection="row">
@@ -763,7 +845,6 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
         <Text wrap="truncate">
           <Text bold color={theme.text}>{labelOut}</Text>
           {summaryOut ? <Text color={theme.text}>{summaryOut}</Text> : null}
-          {headerPad ? <Text>{headerPad}</Text> : null}
           {trailingText ? <Text color={trailingColor}>{trailingText}</Text> : null}
         </Text>
       </Box>

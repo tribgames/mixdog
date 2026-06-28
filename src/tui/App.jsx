@@ -434,6 +434,14 @@ const SKILL_SURFACE_NAMES = new Set([
   'skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill',
 ]);
 
+function isAgentResponseResultText(text) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+  if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(value)) return false;
+  if (/^(?:background task\b|agent task:|task_id:)/i.test(value) && !/\n\s*\n[\s\S]*\S/.test(value)) return false;
+  return true;
+}
+
 function isFullyFailedToolItem(item) {
   if (!item || item.kind !== 'tool') return false;
   const count = Math.max(1, Number(item.count || 1));
@@ -575,15 +583,27 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
       //     status/summary line, or a reserved placeholder). The raw result is
       //     NOT shown, so its line count must not inflate the estimate.
       //   - EXPANDED: header(1) + detail-gutter(1) + the wrapped raw result rows.
+      const normalizedName = String(normalizeToolName(item.name) || '').toLowerCase();
+      const count = Math.max(1, Number(item.count || 1));
+      const done = Math.max(0, Math.min(count, Number(item.completedCount || (item.result == null ? 0 : count))));
+      const pending = done < count;
+      const isSkillSurface = !item.aggregate && SKILL_SURFACE_NAMES.has(normalizedName);
+      const isAgentSurface = normalizedName === 'agent';
+      const hasResult = item.result != null && Boolean(String(item.result || '').trim());
       const expanded = toolOutputExpanded || item.expanded;
-      if (!expanded) {
+      if (!expanded || pending) {
         // Skill loads render as a single header row when collapsed (the detail
         // row repeats the header name, so ToolExecution drops it). Match that
         // here so the scroll window stays in lockstep and does not over-reserve.
-        if (!item.aggregate && SKILL_SURFACE_NAMES.has(String(normalizeToolName(item.name) || '').toLowerCase())) return 1;
+        // Every COMPLETED agent card (spawn/send/response/status/list/cancel/…)
+        // collapses to a single header row — ToolExecution drops the ⎿ body for
+        // all of them — so reserve exactly 1 row when collapsed.
+        if (isSkillSurface || (!pending && isAgentSurface && hasResult)) return 1;
         return 2;
       }
-      const resultText = item.rawResult || item.result;
+      // Expanded but no raw body to reveal: still a single header row.
+      if (isAgentSurface && !hasResult) return 1;
+      const resultText = item.aggregate ? (item.rawResult || item.result) : item.result;
       const resultRows = resultText ? estimateWrappedRows(resultText, columns, 8) : 1;
       return 2 + resultRows;
     }
@@ -850,7 +870,8 @@ export function App({ store, initialStatusLine = '' }) {
   const [resizeState, setResizeState] = useState(() => ({ ...terminalSize(stdout), epoch: 0 }));
   // scrollOffset = how many transcript ROWS we've scrolled UP from the bottom
   // (0 = pinned to the latest, showing the newest content). Mouse wheel adjusts
-  // it; a new turn / new items snap back to 0 (handled below).
+  // it; accepted prompts only arm bottom-follow; the snap happens when the
+  // transcript actually grows.
   const [scrollOffset, setScrollOffset] = useState(0);
   const scrollPositionRef = useRef(0);
   const scrollTargetRef = useRef(0);
@@ -1132,6 +1153,16 @@ export function App({ store, initialStatusLine = '' }) {
     scrollTargetRef.current = 0;
     setScrollOffset(0);
   }, [stopSmoothScroll, cancelTranscriptFollow]);
+
+  const armTranscriptFollow = useCallback(() => {
+    // Do not mutate scrollOffset here. During prompt submit the transcript rows
+    // have not necessarily been committed yet; resetting immediately makes a
+    // long transcript jump to the bottom, then jump again when the new row is
+    // appended. Keep the current viewport stable and let the row-delta effect
+    // perform the single bottom-follow when the transcript actually grows.
+    followingRef.current = true;
+    stopSmoothScroll();
+  }, [stopSmoothScroll]);
 
   const rememberSelectionTextSoon = useCallback(() => {
     if (selectionTextTimerRef.current) return;
@@ -5564,8 +5595,9 @@ export function App({ store, initialStatusLine = '' }) {
           }
           const prompt = `$${skillName}${commandText ? ` ${commandText}` : ''}`;
           setSettingsPrompt(null);
-          resetTranscriptScroll();
-          return store.submit(prompt);
+          const accepted = store.submit(prompt);
+          if (accepted) armTranscriptFollow();
+          return accepted;
         }
       } catch (e) {
         store.pushNotice(`settings update failed: ${e?.message || e}`, 'error');
@@ -5584,7 +5616,6 @@ export function App({ store, initialStatusLine = '' }) {
       if (accepted !== false) clearPastedImagesSnapshot();
       return accepted;
     }
-    resetTranscriptScroll();
     const imageRefs = imageReferenceIds(text);
     const imageSnapshot = Object.fromEntries(Object.entries(pastedImagesRef.current || {})
       .filter(([id]) => imageRefs.has(Number(id))));
@@ -5596,6 +5627,7 @@ export function App({ store, initialStatusLine = '' }) {
       onCommitted: hasImageSnapshot ? () => clearPastedImagesSnapshot(imageSnapshot) : null,
     });
     if (accepted) {
+      armTranscriptFollow();
       if (imageRefs.size === 0 || (!hasImageSnapshot && !state.busy)) clearPastedImagesSnapshot();
       else if (state.busy && hasImageSnapshot) clearPastedImagesSnapshot(imageSnapshot);
     }
@@ -5858,7 +5890,8 @@ export function App({ store, initialStatusLine = '' }) {
     const currentOffset = Math.max(0, Number(scrollOffset) || 0);
     const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
     const pinnedToBottom = currentTarget <= 0 && currentPosition <= 0 && currentOffset <= 0;
-    const shouldFollowBottom = followingRef.current || pinnedToBottom;
+    const followOnGrowth = followingRef.current && rowDelta > 0;
+    const shouldFollowBottom = followOnGrowth || pinnedToBottom;
     if (shouldFollowBottom) {
       // Claude Code-style bottom follow: while pinned to the newest output,
       // do NOT animate row growth. The viewport is already bottom-aligned by

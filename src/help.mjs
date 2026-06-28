@@ -8,7 +8,7 @@ export const HELP_LINES = [
   '  mixdog [--provider <name>] [--model <name>] [--readonly]',
   '  mixdog --help',
   '',
-  'Slash commands (inside the REPL):',
+  'Slash commands (inside mixdog):',
   '  /help              show this help',
   '  /clear             reset the conversation and clear the screen',
   '  /compact           compact older conversation context',

@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { homedir } from 'os';
-import { join, resolve } from 'path';
+import { join } from 'path';
 import { maxMtimeRecursive } from '../cache-mtime.mjs';
 import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import {
@@ -405,7 +405,7 @@ export function loadScopedRoleInstructions(role, provider = null) {
 // directly to the breakpoint plan:
 //   BP1 (1h, system block #1) = baseRules — shared tool policy + compact skill manifest
 //   BP2 (1h, system block #2) = stableSystemContext — Lead/agent/hidden role system
-//   BP3 (1h, first <system-reminder> user) = sessionMarker — stable memory/meta context
+//   BP3 (1h, system block #3) = sessionMarker — stable memory/meta context
 //   BP4 (5m/1h, messages tail) = live user/task/tool message tail
 //
 // Dynamic schedule/webhook/task payloads stay in normal user messages so
@@ -436,8 +436,10 @@ export function composeSystemPrompt(opts) {
     const stableSystemContext = stableSystemParts.join('\n\n---\n\n');
 
     // ── BP3: stable memory/meta layer ──────────────────────────────────
-    // The <!-- bp3-sentinel --> tag is what Anthropic's findTier3Index()
-    // matches on to claim a 1h BP3 slot.
+    // sessionMarker is injected by session/manager as its own `system` role
+    // block (the 3rd system block). It carries the tier3 1h cache_control on
+    // the Anthropic providers and pins language/name (Profile Preferences)
+    // instructions as a real system directive rather than a user reminder.
     const sessionMarkerParts = [];
     if (opts.metaContext && typeof opts.metaContext === 'string' && opts.metaContext.trim()) {
         sessionMarkerParts.push(opts.metaContext.trim());
@@ -449,7 +451,7 @@ export function composeSystemPrompt(opts) {
         sessionMarkerParts.push('# Core Memory\n' + opts.coreMemoryContext.trim());
     }
     const sessionMarker = sessionMarkerParts.length
-        ? '<!-- bp3-sentinel -->\n' + sessionMarkerParts.join('\n\n')
+        ? sessionMarkerParts.join('\n\n')
         : '';
 
     // ── BP4: live message tail ─────────────────────────────────────────
@@ -479,25 +481,4 @@ function readSafe(path) {
     catch {
         return null;
     }
-}
-// depth cap: marketplaces/<plugin>/skills/ is depth 2 from pluginBase
-function walkForSkills(dir, result, depth = 0) {
-    if (depth > 3) return;
-    try {
-        const entries = readdirSync(dir, { withFileTypes: true });
-        for (const entry of entries) {
-            if (entry.name === 'node_modules')
-                continue;
-            const full = join(dir, entry.name);
-            if (entry.isDirectory()) {
-                if (entry.name === 'skills') {
-                    result.push(full);
-                }
-                else {
-                    walkForSkills(full, result, depth + 1);
-                }
-            }
-        }
-    }
-    catch { /* ignore */ }
 }

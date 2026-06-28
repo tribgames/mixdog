@@ -36,7 +36,6 @@ import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-t
 import { TOOL_DEFS as MEMORY_TOOL_DEFS } from '../src/runtime/memory/tool-defs.mjs';
 import { TOOL_DEFS as SEARCH_TOOL_DEFS } from '../src/runtime/search/tool-defs.mjs';
 import { TOOL_DEFS as CHANNEL_TOOL_DEFS } from '../src/runtime/channels/tool-defs.mjs';
-import { classifyAgentWorkerGitMutationCommand } from '../src/runtime/agent/orchestrator/tool-loop-guard.mjs';
 import { AGENT_OWNER } from '../src/runtime/agent/orchestrator/agent-owner.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -537,26 +536,6 @@ const mixedReadWindow = {
 const readWindowErr = validateBuiltinArgs('read', mixedReadWindow);
 if (!/exactly one window family/i.test(readWindowErr || '')) {
   throw new Error(`read mixed-window guard failed: err=${readWindowErr} args=${JSON.stringify(mixedReadWindow)}`);
-}
-
-for (const command of [
-  'git status --short',
-  'git diff -- src/mixdog-session-runtime.mjs',
-  'Write-Output "git push"',
-]) {
-  const blocked = classifyAgentWorkerGitMutationCommand(command);
-  if (blocked) throw new Error(`agent git guard should allow readonly/non-command form ${JSON.stringify(command)}; got ${blocked}`);
-}
-for (const [command, expected] of [
-  ['git push', 'git push'],
-  ['git -C . commit -m smoke', 'git commit'],
-  ['npm test && git add -A', 'git add'],
-  ['bash -lc "git push"', 'git push'],
-  ['cmd /c git commit -m smoke', 'git commit'],
-  ['powershell -Command "git stash"', 'git stash'],
-]) {
-  const blocked = classifyAgentWorkerGitMutationCommand(command);
-  if (blocked !== expected) throw new Error(`agent git guard mismatch for ${JSON.stringify(command)}: got ${blocked}, expected ${expected}`);
 }
 
 function assertHas(set, name) {

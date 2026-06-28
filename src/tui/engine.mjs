@@ -345,6 +345,40 @@ function agentJobResultText(text, parsed = parseAgentJob(text)) {
   return stripSyntheticAgentTags(value) || value;
 }
 
+function parseAgentResultEnvelope(text, fallback = {}) {
+  const value = String(text ?? '').trim();
+  if (!/^agent result\b/i.test(value)) return null;
+  const [head = '', ...restLines] = value.split('\n');
+  const body = stripSyntheticAgentTags(restLines.join('\n'));
+  const attrs = {};
+  const attrRe = /([a-zA-Z][\w-]*)=("[^"]*"|'[^']*'|\S+)/g;
+  let match;
+  while ((match = attrRe.exec(head))) {
+    attrs[match[1].toLowerCase()] = String(match[2] || '').replace(/^["']|["']$/g, '');
+  }
+  const providerModel = /\s([a-zA-Z0-9_.-]+)\/([^\s]+)\s*$/i.exec(head);
+  const role = attrs.agent || attrs.role || fallback.role || fallback.agent || '';
+  return {
+    name: 'agent',
+    label: String(fallback.status || attrs.status || 'completed').toLowerCase(),
+    args: {
+      type: 'result',
+      status: fallback.status || attrs.status || 'completed',
+      task_id: fallback.taskId || attrs.task_id || attrs.taskid || undefined,
+      tag: fallback.tag || attrs.tag || undefined,
+      agent: role || undefined,
+      role: role || undefined,
+      provider: fallback.provider || attrs.provider || providerModel?.[1] || undefined,
+      model: fallback.model || attrs.model || providerModel?.[2] || undefined,
+      preset: fallback.preset || attrs.preset || undefined,
+      effort: fallback.effort || attrs.effort || undefined,
+      fast: fallback.fast ?? attrs.fast,
+    },
+    result: body || agentJobStatusText({ status: fallback.status || attrs.status || 'completed', taskId: fallback.taskId || attrs.task_id || attrs.taskid || '' }),
+    isError: /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(fallback.status || attrs.status || ''),
+  };
+}
+
 function parseBackgroundTaskEnvelope(text) {
   const value = String(text ?? '').trim();
   if (!/^background task\b/i.test(value)) return null;
@@ -362,6 +396,19 @@ function parseBackgroundTaskEnvelope(text) {
   const name = surface === 'explore' || surface === 'search' || surface === 'shell' || surface === 'agent' ? surface : 'task';
   const status = String(fields.status || '').toLowerCase();
   const taskId = fields.task_id || fields.taskid || '';
+  const agentResult = parseAgentResultEnvelope(body, {
+    status,
+    taskId,
+    tag: fields.tag || fields.label || '',
+    role: fields.role || fields.agent || '',
+    agent: fields.agent || '',
+    provider: fields.provider || '',
+    model: fields.model || '',
+    preset: fields.preset || '',
+    effort: fields.effort || '',
+    fast: fields.fast,
+  });
+  if (agentResult) return agentResult;
   return {
     name,
     label: status || 'notification',
@@ -372,12 +419,39 @@ function parseBackgroundTaskEnvelope(text) {
       surface,
       operation: fields.operation || undefined,
       label: fields.label || undefined,
+      tag: fields.tag || undefined,
+      agent: fields.agent || fields.role || undefined,
+      role: fields.role || fields.agent || undefined,
+      provider: fields.provider || undefined,
+      model: fields.model || undefined,
+      preset: fields.preset || undefined,
+      effort: fields.effort || undefined,
+      fast: fields.fast || undefined,
       startedAt: fields.started || fields.startedat || undefined,
       finishedAt: fields.finished || fields.finishedat || undefined,
     },
     result: body || [status ? `status: ${status}` : '', taskId ? `task_id: ${taskId}` : ''].filter(Boolean).join(' · ') || 'background task',
     isError: /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status) || /^error:/i.test(body),
   };
+}
+
+function isStatusOnlyAgentCompletionNotification(text) {
+  const background = parseBackgroundTaskEnvelope(text);
+  if (background?.name === 'agent' && /^(completed|cancelled|canceled)$/i.test(background.label || '') && !hasAgentResponseResultText(background.result)) {
+    return true;
+  }
+  const parsed = parseAgentJob(text);
+  const result = agentJobResultText(text, parsed);
+  return Boolean(parsed?.taskId)
+    && /^(completed|cancelled|canceled)$/i.test(parsed.status || '')
+    && !hasAgentResponseResultText(result);
+}
+
+function hasAgentResponseResultText(text) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+  if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(value)) return false;
+  return !/^(?:background task\b|agent task:|task_id:)/i.test(value);
 }
 
 function bracketField(text, name) {
@@ -411,6 +485,8 @@ function parseSyntheticAgentMessage(text) {
       result: finalAnswer,
     };
   }
+  const agentResult = parseAgentResultEnvelope(value);
+  if (agentResult) return agentResult;
   const backgroundTask = parseBackgroundTaskEnvelope(value);
   if (backgroundTask) return backgroundTask;
   const shellTaskId = bracketField(value, 'task_id');
@@ -539,6 +615,16 @@ function firstQueueLine(text) {
   return String(text || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
 }
 
+function shortTextFingerprint(text) {
+  const value = String(text || '').trim();
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 function notificationDisplayText(text) {
   const parsed = parseAgentJob(text);
   const result = agentJobResultText(text, parsed);
@@ -638,17 +724,40 @@ function callCommitCallbacks(entries) {
 
 function notificationQueueKey(event, text, parsed) {
   const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  const synthetic = parseSyntheticAgentMessage(text);
+  if (synthetic?.name === 'agent' && String(synthetic.args?.type || '').toLowerCase() === 'result') {
+    const taskId = String(synthetic.args?.task_id || '').trim();
+    const executionId = String(meta.execution_id || '').trim();
+    const tag = String(synthetic.args?.tag || '').trim();
+    const resultId = taskId
+      ? `task:${taskId}`
+      : executionId
+        ? `exec:${executionId}`
+        : tag
+          ? `tag:${tag}:${shortTextFingerprint(synthetic.result || text)}`
+          : '';
+    const role = String(synthetic.args?.agent || synthetic.args?.role || '').trim();
+    if (resultId || role) return ['agent-result', resultId, role].filter(Boolean).join(':');
+  }
   const id = String(meta.execution_id || parsed?.taskId || '').trim();
   if (!id) return '';
   const type = String(meta.type || '').trim();
   const status = String(meta.status || parsed?.status || '').trim();
   const fallbackKind = String(text || '').split('\n', 1)[0]?.trim() || 'notification';
-  return [id, type || fallbackKind, status].filter(Boolean).join(':');
+  // Distinguish a body-carrying completion from a header-only preview that
+  // shares the same id/type/status. An early agent preview can arrive before
+  // the session is persisted (no result body); the canonical notification that
+  // follows DOES carry the body. Without this dimension the bodyless preview
+  // would claim the dedupe key and suppress the real result. A blank-line gap
+  // separates the task header block from the result body in the envelope.
+  const hasBody = /\n\s*\n[\s\S]*\S/.test(String(text || '')) ? 'b1' : 'b0';
+  return [id, type || fallbackKind, status, hasBody].filter(Boolean).join(':');
 }
 
 function isExecutionNotification(event, text, parsed) {
   const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
   if (meta.execution_id || meta.execution_surface) return true;
+  if (parseAgentResultEnvelope(text)) return true;
   if (parseBackgroundTaskEnvelope(text)) return true;
   return Boolean(parsed?.taskId && /^(?:agent task:|task_id:)/mi.test(String(text || '')));
 }
@@ -949,6 +1058,10 @@ export async function createEngineSession({
       const parsed = parseAgentJob(text);
       const notificationKey = notificationQueueKey(event, text, parsed);
       if (isExecutionNotification(event, text, parsed)) {
+        if (isStatusOnlyAgentCompletionNotification(text)) {
+          if (parsed?.taskId) set(agentStatusState({ force: true }));
+          return true;
+        }
         const firstDelivery = !notificationKey || !displayedExecutionNotificationKeys.has(notificationKey);
         if (firstDelivery) {
           if (notificationKey) displayedExecutionNotificationKeys.add(notificationKey);

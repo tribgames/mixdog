@@ -11,8 +11,9 @@
 - Pick the agent role defined in the User Workflow section that fits the task
   (worker, heavy-worker, reviewer, debugger, …) when spawning.
 - After spawning async agent(s), END THE TURN immediately. Do not poll
-  status/read, send check-ins, or loop waiting — the completion notification
-  resumes you. status/read are manual recovery only, never progress checks.
+  status/read, guess the outcome, or start dependent work — treat the result as
+  unknown until the completion notification resumes you. status/read are manual
+  recovery only, never progress checks.
 - Unless instructed otherwise, wait for the spawned agent(s); once their results
   are collected, automatically continue with the next turn.
 - When an agent returns, always synthesize its result into a concise report for

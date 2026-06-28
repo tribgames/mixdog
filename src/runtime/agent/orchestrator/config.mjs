@@ -368,8 +368,8 @@ export function loadConfig(options = {}) {
  * maintenance/...) are replaced from the passed snapshot (last-writer-wins);
  * only unmanaged keys are rebased on the in-lock current. Safe only for a
  * caller holding a fresh full config. For a single-field change, patch in-lock
- * via persistAgentConfig((current) => ({ ...current, <field> })) — see
- * setDefaultPreset — so a concurrent instance's edits are not reverted.
+ * via persistAgentConfig((current) => ({ ...current, <field> })) so a
+ * concurrent instance's edits are not reverted.
  */
 export function saveConfig(config) {
     // Strip ephemeral defaults from providers but preserve any unknown
@@ -507,18 +507,4 @@ export function resolveRuntimeSpec(preset, ctx) {
         scopeKey = `agent:${provider}:${model}`;
     }
     return { lane, scopeKey, reuse: true, preset };
-}
-
-export function setDefaultPreset(config, key) {
-    const preset = getPreset(config, key);
-    if (!preset)
-        throw new Error(`preset "${key}" not found`);
-    const nextDefault = presetKey(preset);
-    // Patch only `default` under the file lock. saveConfig(config) would
-    // rewrite the whole agent section from this possibly-stale snapshot and
-    // could revert a concurrent instance's preset edits; an in-lock single
-    // field patch cannot.
-    persistAgentConfig((current) => ({ ...current, default: nextDefault }));
-    config.default = nextDefault;
-    return preset;
 }

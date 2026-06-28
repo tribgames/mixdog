@@ -9,7 +9,7 @@
  * Anthropic 4-BP layout:
  *   BP_1  system#1  (1h)  — shared tool policy + compact skill manifest
  *   BP_2  system#2  (1h)  — role/system rules (Lead / agent / hidden role)
- *   BP_3  tier3     (1h)  — stable memory/meta marker (sentinel system-reminder)
+ *   BP_3  system#3  (1h)  — stable memory/meta marker (sessionMarker system block; tier3)
  *   BP_4  messages  (1h/5m) — sliding tool_result / prior user-text tail
  *
  * Tool schemas still sit before system in the provider prompt prefix. We do

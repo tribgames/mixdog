@@ -42,6 +42,8 @@
     "smoke:loop:report": "node scripts/smoke-loop-report.mjs",
     "smoke:tools": "node scripts/tool-smoke.mjs",
     "smoke:output": "node scripts/output-style-smoke.mjs",
+    "test:toolcall": "node --test scripts/toolcall-args-test.mjs",
+    "test:providers": "node --test scripts/provider-toolcall-test.mjs",
     "failures": "node scripts/tool-failures.mjs",
     "trace:llm": "node scripts/llm-trace-summary.mjs",
     "build:tui": "node scripts/build-tui.mjs"

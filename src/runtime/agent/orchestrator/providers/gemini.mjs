@@ -943,7 +943,7 @@ function toGeminiContents(messages) {
     return contents;
 }
 
-function parseToolCalls(parts) {
+export function parseToolCalls(parts) {
     const calls = parts.filter((p) => 'functionCall' in p && !!p.functionCall);
     if (!calls.length)
         return undefined;

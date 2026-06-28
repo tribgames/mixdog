@@ -2,9 +2,96 @@ import { spawn, execFile } from 'child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { startChildGuardian } from '../../../../shared/child-guardian.mjs';
+import os from 'node:os';
+import { acquire as acquireChildSpawnSlot } from '../../../../shared/child-spawn-gate.mjs';
 
 const execFileAsync = promisify(execFile);
+
+// ── rg orphan-reap policy (accepted risk) ────────────────────────────────
+// The previous design started a 1:1 node child-guardian per rg spawn so a
+// hard daemon kill (SIGKILL, no chance to run our own cleanup) could not leave
+// an rg orphaned. That per-process guardian is exactly what over-saturated the
+// box (each grep doubled the process count), so it has been REMOVED here and
+// deliberately NOT replaced with another per-rg guardian.
+//
+// Accepted residual risk: on a hard daemon SIGKILL an in-flight rg can briefly
+// outlive the daemon. This is judged acceptable because (a) on every NORMAL
+// path rg is reaped by this module's own timeout → SIGTERM → grace → force-kill
+// plus the force-settle backstop, so it is always collected when the daemon is
+// alive to settle the promise; (b) rg is a short-lived, self-terminating
+// (bounded by the 20s timeout) read-only process, not a long-running server; a
+// stray instance exits on its own shortly after. A shared/OS-job-based reaper
+// (one guardian for the whole daemon, or a Windows Job Object / POSIX process
+// group kill on daemon teardown) is the right long-term fix but is out of scope
+// for this change and intentionally not added per-spawn.
+
+// ── rg --threads cap ─────────────────────────────────────────────────────
+// Each rg process otherwise fans out across EVERY core; with several agents
+// running grep at once the box over-saturates and the whole batch trips the
+// 20s deadline together. Cap rg's worker threads to a fraction of the host so
+// concurrent greps share the machine. Internal dynamic default; env override
+// only — deliberately NOT exposed on any tool schema / parameter surface.
+function _rgThreadCap() {
+    const override = Number(process.env.MIXDOG_RG_THREADS);
+    if (Number.isFinite(override) && override >= 1) return Math.floor(override);
+    let cpus = 0;
+    try { cpus = os.cpus()?.length || 0; } catch { cpus = 0; }
+    return Math.max(2, Math.ceil((cpus || 4) / 4));
+}
+
+// Single source of truth for "did the caller already pin rg's thread count?".
+// Detects every form rg accepts: separated (`-j`, `--threads`) where the count
+// is the NEXT arg, short-attached (`-j8`), and long-attached (`--threads=8`).
+// Used by both the _withRgThreads injection guard and the EAGAIN retry guard
+// so the two never disagree.
+function _hasRgThreadArg(argsList) {
+    for (const a of argsList) {
+        if (typeof a !== 'string') continue;
+        if (a === '-j' || a === '--threads') return true;
+        if (/^-j\d+$/.test(a)) return true;
+        if (a.startsWith('--threads=')) return true;
+    }
+    return false;
+}
+
+// Inject `--threads N` unless the caller already pinned thread count
+// (`-j`/`--threads`/`-jN`/`--threads=N`, e.g. the EAGAIN `-j 1` retry). Does
+// not mutate; may return the ORIGINAL array unchanged when already
+// thread-pinned (callers must not assume a fresh copy).
+function _withRgThreads(argsList) {
+    if (_hasRgThreadArg(argsList)) return argsList;
+    return ['--threads', String(_rgThreadCap()), ...argsList];
+}
+
+// Build the EAGAIN single-thread retry args. If the caller already pinned a
+// thread count we strip the existing flag(s) first, then prepend `-j 1`, so the
+// retry is unambiguously single-threaded (never `-j 8 ... -j 1`). Drops both the
+// separated form (`-j N` / `--threads N` → flag + following count) and the
+// attached forms (`-jN` / `--threads=N`).
+function _rgEagainRetryArgs(argsList) {
+    const out = [];
+    for (let i = 0; i < argsList.length; i++) {
+        const a = argsList[i];
+        if (a === '-j' || a === '--threads') { i++; continue; } // skip flag + its count
+        if (typeof a === 'string' && (/^-j\d+$/.test(a) || a.startsWith('--threads='))) continue;
+        out.push(a);
+    }
+    return ['-j', '1', ...out];
+}
+
+// True only when the args are ALREADY exactly single-threaded — i.e. an EAGAIN
+// retry would change nothing. Matches the separated `-j 1` / `--threads 1` form
+// and the attached `-j1` / `--threads=1` form. Any other thread pin (e.g. -j8)
+// is NOT "single-thread pinned": the retry should still run and downshift it.
+function _isRgSingleThreadPinned(argsList) {
+    for (let i = 0; i < argsList.length; i++) {
+        const a = argsList[i];
+        if (typeof a !== 'string') continue;
+        if ((a === '-j' || a === '--threads') && String(argsList[i + 1]).trim() === '1') return true;
+        if (a === '-j1' || a === '--threads=1') return true;
+    }
+    return false;
+}
 
 let _rgExecutableResolved = null;
 
@@ -188,14 +275,19 @@ function _armRgForceSettle({ timeoutMs, isSettled, timers, proc, onForceSettle }
 // surfaced as empty stdout so callers can render "(no matches)" uniformly.
 function spawnRg(argsList, execOptions) {
     const timeoutMs = Number(execOptions?.timeout ?? 20000);
-    return new Promise((resolve, reject) => {
-        const proc = spawn(rgExecutable(), argsList, {
+    const gateSignal = execOptions?.abortSignal || execOptions?.signal || null;
+    // Gate the spawn (not the whole call) so over-saturation queues here while
+    // the cap's worth of rg keep running. The rg timeout timer is armed AFTER
+    // spawn below, so queue-wait time is excluded from the 20s deadline. No
+    // node guardian is started: rg owns its full SIGTERM→grace→force-kill +
+    // force-settle teardown, so the 1:1 guardian process was pure overhead.
+    return acquireChildSpawnSlot(gateSignal).then((releaseSlot) => new Promise((resolve, reject) => {
+        const proc = spawn(rgExecutable(), _withRgThreads(argsList), {
             cwd: execOptions?.cwd,
             env: execOptions?.env || process.env,
             windowsHide: true,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
-        startChildGuardian({ childPid: proc.pid, label: 'rg-runner' });
         let stdout = '';
         let stderr = '';
         let timedOut = false;
@@ -302,7 +394,9 @@ function spawnRg(argsList, execOptions) {
             e.stderr = stderr;
             reject(e);
         });
-    });
+    // Release the gate slot exactly once on ANY settle path (resolve/reject:
+    // close, error, or force-settle). releaseSlot is idempotent.
+    }).finally(() => releaseSlot()));
 }
 
 export async function runRg(argsList, execOptions = {}) {
@@ -311,8 +405,12 @@ export async function runRg(argsList, execOptions = {}) {
         return await spawnRg(argsList, execOptions);
     } catch (err) {
         const msg = String(err?.message || err?.stderr || '');
-        if (/EAGAIN/i.test(msg) && !argsList.includes('-j')) {
-            return spawnRg(['-j', '1', ...argsList], execOptions);
+        // Retry single-threaded on EAGAIN. Skip only when the caller already
+        // pinned threads AND that pin is already -j 1 (nothing to gain); any
+        // other pin (-j8/--threads=N) is rewritten to a clean -j 1 by
+        // _rgEagainRetryArgs so we never emit conflicting thread flags.
+        if (/EAGAIN/i.test(msg) && !_isRgSingleThreadPinned(argsList)) {
+            return spawnRg(_rgEagainRetryArgs(argsList), execOptions);
         }
         throw err;
     }
@@ -324,14 +422,17 @@ function spawnRgWindowedLines(argsList, execOptions, opts = {}) {
     const lineLimit = Number.isFinite(opts.limit) ? Math.max(0, Math.floor(Number(opts.limit) || 0)) : Infinity;
     const summaryLimit = Math.max(0, Math.floor(Number(opts.summaryLimit) || 0));
     const collectLimit = lineLimit === Infinity ? Infinity : Math.max(lineLimit, summaryLimit);
-    return new Promise((resolve, reject) => {
-        const proc = spawn(rgExecutable(), argsList, {
+    const gateSignal = execOptions?.abortSignal || execOptions?.signal || null;
+    // Same gate + thread-cap + no-guardian treatment as spawnRg; queue-wait is
+    // excluded from the rg timeout (armed after spawn). releaseSlot is fired
+    // once via .finally on every settle path.
+    return acquireChildSpawnSlot(gateSignal).then((releaseSlot) => new Promise((resolve, reject) => {
+        const proc = spawn(rgExecutable(), _withRgThreads(argsList), {
             cwd: execOptions?.cwd,
             env: execOptions?.env || process.env,
             windowsHide: true,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
-        startChildGuardian({ childPid: proc.pid, label: 'rg-runner-windowed' });
         let buffer = '';
         let stderr = '';
         let skipped = 0;
@@ -468,7 +569,7 @@ function spawnRgWindowedLines(argsList, execOptions, opts = {}) {
             e.stderr = stderr;
             reject(e);
         });
-    });
+    }).finally(() => releaseSlot()));
 }
 
 export async function runRgWindowedLines(argsList, execOptions = {}, opts = {}) {
@@ -477,8 +578,8 @@ export async function runRgWindowedLines(argsList, execOptions = {}, opts = {}) 
         return await spawnRgWindowedLines(argsList, execOptions, opts);
     } catch (err) {
         const msg = String(err?.message || err?.stderr || '');
-        if (/EAGAIN/i.test(msg) && !argsList.includes('-j')) {
-            return spawnRgWindowedLines(['-j', '1', ...argsList], execOptions, opts);
+        if (/EAGAIN/i.test(msg) && !_isRgSingleThreadPinned(argsList)) {
+            return spawnRgWindowedLines(_rgEagainRetryArgs(argsList), execOptions, opts);
         }
         throw err;
     }

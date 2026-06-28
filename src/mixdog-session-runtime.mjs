@@ -1207,6 +1207,8 @@ const SEARCH_CAPABLE_PROVIDERS = new Set([
   'anthropic',
   'anthropic-oauth',
 ]);
+const SEARCH_DEFAULT_PROVIDER = 'default';
+const SEARCH_DEFAULT_MODEL = 'default';
 const SEARCH_PROVIDER_ALIASES = Object.freeze({
   'openai-api': 'openai',
   'xai-api': 'xai',
@@ -1439,6 +1441,11 @@ function normalizeWorkflowRoute(routeLike, fallback = {}) {
 function normalizeSearchProviderId(provider) {
   const id = clean(provider);
   return SEARCH_PROVIDER_ALIASES[id] || id;
+}
+
+function isDefaultSearchRouteConfig(routeLike = {}) {
+  return normalizeSearchProviderId(routeLike?.provider) === SEARCH_DEFAULT_PROVIDER
+    && clean(routeLike?.model).toLowerCase() === SEARCH_DEFAULT_MODEL;
 }
 
 function isSearchCapableProvider(provider) {
@@ -2236,10 +2243,28 @@ export async function createMixdogSessionRuntime({
     return ['web_search', 'web_search_preview'];
   }
 
+  function currentMainSearchModelMeta() {
+    if (!route?.provider || !route?.model) return null;
+    return { ...route, id: route.model, display: route.model, name: route.model };
+  }
+
   function nativeSearchRoutes() {
     const cfg = ensureFullConfig();
     searchRoute = normalizeSearchRouteConfig(cfg.searchRoute) || normalizeSearchRouteConfig(searchRoute);
     if (!searchRoute) return [];
+    if (isDefaultSearchRouteConfig(searchRoute)) {
+      const mainModel = currentMainSearchModelMeta();
+      if (!mainModel || !searchCapableFor(route.provider, mainModel)) return [];
+      return [{
+        key: `default\n${route.provider}\n${route.model}`,
+        provider: normalizeSearchProviderId(route.provider),
+        model: route.model,
+        source: 'default-search-route',
+        effort: route.effectiveEffort || route.effort || null,
+        fast: route.fast === true,
+        toolType: searchRoute.toolType || null,
+      }];
+    }
     const providerName = normalizeSearchProviderId(searchRoute.provider);
     if (!isSearchCapableProvider(providerName)) return [];
     return [{
@@ -2301,6 +2326,9 @@ export async function createMixdogSessionRuntime({
   async function runNativeWebSearch(searchArgs = {}, { signal } = {}) {
     const candidates = nativeSearchRoutes();
     if (!candidates.length) {
+      if (isDefaultSearchRouteConfig(searchRoute)) {
+        throw new Error(`default search route requires the current main model to support native web search (${route?.provider || 'unknown'}/${route?.model || 'unknown'})`);
+      }
       throw new Error('search route is not configured; open /search to choose a search provider/model');
     }
     const errors = [];
@@ -2474,7 +2502,12 @@ export async function createMixdogSessionRuntime({
   const sessionPrewarmDelayMs = envDelayMs('MIXDOG_SESSION_PREWARM_DELAY_MS', 50, { min: 0, max: 10_000 });
   const providerSetupWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_SETUP_WARMUP_DELAY_MS', 300, { min: 0, max: 60_000 });
   const providerWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_WARMUP_DELAY_MS', 1_500, { min: 0, max: 60_000 });
-  const providerModelWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS', 15_000, { min: 0, max: 120_000 });
+  // Background model-catalog prefetch delay. Kept short so the first `/model`
+  // open finds a warm cache instead of paying a cold full network load. The
+  // work is async + unref'd, so short-lived detached runtimes still exit
+  // cleanly without waiting on it. Operators can raise it via env if a
+  // detached runtime must avoid the /models round-trip entirely.
+  const providerModelWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS', 2_000, { min: 0, max: 120_000 });
   const codeGraphPrewarmDelayMs = envDelayMs('MIXDOG_CODE_GRAPH_PREWARM_DELAY_MS', 250, { min: 0, max: 60_000 });
   const statuslineUsageWarmupDelayMs = envDelayMs('MIXDOG_STATUSLINE_USAGE_WARMUP_DELAY_MS', 800, { min: 0, max: 60_000 });
   // Idle keep-alive: re-fetch usage before the statusline's 10-min staleness cut
@@ -2492,6 +2525,14 @@ export async function createMixdogSessionRuntime({
       || envPresent('MIXDOG_PROVIDER_WARMUP_DELAY_MS')
       || envPresent('MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS')
     );
+  // Boot-time model-catalog prefetch is intentionally decoupled from the
+  // heavier providerWarmupEnabled gate (which stays opt-in for provider
+  // *init* side effects). Fetching the model list in the background after a
+  // short delay is cheap, fire-and-forget, and unref'd, so it is ON by
+  // default — otherwise the FIRST `/model` open always paid a cold full
+  // network load. Operators can still disable it explicitly.
+  const modelPrefetchEnabled = !envFlag('MIXDOG_DISABLE_PROVIDER_WARMUP')
+    && !envFlag('MIXDOG_DISABLE_MODEL_PREFETCH');
   const codeGraphPrewarmEnabled = !envFlag('MIXDOG_DISABLE_CODE_GRAPH_PREWARM');
   const modelMetaByRoute = new Map();
   const notificationListeners = new Set();
@@ -3365,10 +3406,30 @@ function parsedProviderModelVersion(id) {
     });
   }
 
+  function addDefaultSearchModel(rows, seen = new Set()) {
+    const mainModel = currentMainSearchModelMeta();
+    if (!mainModel || !searchCapableFor(route.provider, mainModel)) return;
+    const key = `${SEARCH_DEFAULT_PROVIDER}:${SEARCH_DEFAULT_MODEL}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push({
+      id: SEARCH_DEFAULT_MODEL,
+      provider: SEARCH_DEFAULT_PROVIDER,
+      display: 'Default',
+      name: 'Default',
+      description: `Use current main model: ${route.provider}/${route.model}`,
+      supportsWebSearch: true,
+      searchCapable: true,
+      searchToolType: 'web_search',
+      mode: 'chat',
+    });
+  }
+
   function quickSearchProviderModelRows() {
     const pickerConfig = displayConfig();
     const rows = [];
     const seen = new Set();
+    addDefaultSearchModel(rows, seen);
     for (const [name, providerConfig] of Object.entries(pickerConfig.providers || {})) {
       const providerName = normalizeSearchProviderId(name);
       if (!providerConfig?.enabled || !isSearchCapableProvider(providerName)) continue;
@@ -3383,7 +3444,8 @@ function parsedProviderModelVersion(id) {
         display: configuredSearch.model,
       });
     }
-    if (route?.provider && route?.model && searchCapableFor(route.provider, route)) {
+    const mainModel = currentMainSearchModelMeta();
+    if (mainModel && searchCapableFor(route.provider, mainModel)) {
       addQuickSearchModel(rows, seen, route.provider, {
         id: route.model,
         display: route.model,
@@ -3403,17 +3465,33 @@ function parsedProviderModelVersion(id) {
       })));
   }
 
+  function searchRowsWithDefault(rows = []) {
+    const out = [];
+    const seen = new Set();
+    addDefaultSearchModel(out, seen);
+    for (const row of rows || []) {
+      const providerName = normalizeSearchProviderId(row?.provider);
+      const modelId = clean(row?.id || row?.model);
+      if (providerName === SEARCH_DEFAULT_PROVIDER && modelId.toLowerCase() === SEARCH_DEFAULT_MODEL) continue;
+      const key = `${providerName}:${modelId}`;
+      if (!providerName || !modelId || seen.has(key)) continue;
+      seen.add(key);
+      out.push(row);
+    }
+    return out;
+  }
+
   async function collectSearchProviderModels({ force = false } = {}) {
     if (!force && Array.isArray(searchProviderModelsCache.models)) {
-      return providerModelsFromCacheRows(searchProviderModelsCache.models);
+      return providerModelsFromCacheRows(searchRowsWithDefault(searchProviderModelsCache.models));
     }
     if (!force && Array.isArray(providerModelsCache.models)) {
-      const rows = searchModelsFromRows(providerModelsCache.models);
+      const rows = searchRowsWithDefault(searchModelsFromRows(providerModelsCache.models));
       searchProviderModelsCache = { models: rows, at: Date.now() };
       return providerModelsFromCacheRows(rows);
     }
     if (!force) {
-      const rows = quickSearchProviderModelRows();
+      const rows = searchRowsWithDefault(quickSearchProviderModelRows());
       searchProviderModelsCache = { models: rows, at: Date.now() };
       return providerModelsFromCacheRows(rows);
     }
@@ -3474,6 +3552,7 @@ function parsedProviderModelVersion(id) {
     }));
     const results = [];
     const seen = new Set();
+    addDefaultSearchModel(results, seen);
     for (const row of providerResults.flat()) {
       const key = `${normalizeSearchProviderId(row.provider)}:${row.id}`;
       if (seen.has(key)) continue;
@@ -3751,7 +3830,7 @@ function parsedProviderModelVersion(id) {
   }
 
   function scheduleProviderModelWarmup(delayMs = providerModelWarmupDelayMs) {
-    if (!providerWarmupEnabled) return;
+    if (!modelPrefetchEnabled) return;
     if (providerModelWarmupTimer || closeRequested) return;
     providerModelWarmupTimer = setTimeout(() => {
       providerModelWarmupTimer = null;
@@ -4498,6 +4577,20 @@ function parsedProviderModelVersion(id) {
         selectedRoute = normalizeSearchRouteConfig({ ...next, provider: searchRoute.provider });
       }
       if (!selectedRoute) throw new Error('search route requires provider and model');
+      if (isDefaultSearchRouteConfig(selectedRoute)) {
+        ensureFullConfig();
+        const routeToSave = normalizeSearchRouteConfig({
+          provider: SEARCH_DEFAULT_PROVIDER,
+          model: SEARCH_DEFAULT_MODEL,
+          ...(selectedRoute.toolType ? { toolType: selectedRoute.toolType } : {}),
+        });
+        const nextConfig = { ...config };
+        nextConfig.searchRoute = routeToSave;
+        saveConfigAndAdopt(nextConfig);
+        searchRoute = normalizeSearchRouteConfig(config.searchRoute);
+        invalidateProviderCaches();
+        return searchRoute;
+      }
       if (!isSearchCapableProvider(selectedRoute.provider)) {
         throw new Error(`provider "${selectedRoute.provider}" does not support Mixdog native search`);
       }

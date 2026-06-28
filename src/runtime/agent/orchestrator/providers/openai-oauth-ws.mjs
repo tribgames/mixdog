@@ -34,6 +34,7 @@ import {
     appendAgentTrace,
 } from '../agent-trace.mjs';
 import { jitterDelayMs, populateHttpStatusFromMessage } from './retry-classifier.mjs';
+import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
 import {
     PROVIDER_RETRY_MAX_ATTEMPTS,
     PROVIDER_WS_ACQUIRE_TIMEOUT_MS,
@@ -1187,6 +1188,24 @@ function _wsErrLabel(p) {
     if (p === 'openai-direct' || p === 'openai') return 'OpenAI WS';
     return 'Codex WS';
 }
+// tool_search_call.arguments parse. Module-scope (exported) for direct test
+// coverage. Native convergence (Codex / claude-code / opencode): same policy
+// as the function_call_arguments.done path and openai-oauth _parseJsonObject —
+// object passes through; null/non-string/empty/whitespace → {} (no args); a
+// non-empty string that fails JSON.parse is deterministic bad JSON, surfaced
+// as an invalid-args MARKER (not silently swallowed to {}) so the dispatch
+// loop returns an is_error tool_result and the model self-corrects in the same
+// turn.
+export function parseToolSearchArgs(value) {
+    if (value && typeof value === 'object') return value;
+    if (typeof value !== 'string' || !value.trim()) return {};
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (err) {
+        return makeInvalidToolArgsMarker(value, err instanceof Error ? err.message : String(err));
+    }
+}
 export async function _streamResponse({
     entry,
     externalSignal,
@@ -1298,16 +1317,6 @@ export async function _streamResponse({
         if (action.url) pushCitation({ url: action.url, title: action.query || '' });
         if (Array.isArray(action.urls)) {
             for (const url of action.urls) pushCitation({ url, title: action.query || '' });
-        }
-    };
-    const parseToolSearchArgs = (value) => {
-        if (value && typeof value === 'object') return value;
-        if (typeof value !== 'string' || !value.trim()) return {};
-        try {
-            const parsed = JSON.parse(value);
-            return parsed && typeof parsed === 'object' ? parsed : {};
-        } catch {
-            return {};
         }
     };
     const pushCustomToolCall = (item) => {
@@ -1611,8 +1620,23 @@ export async function _streamResponse({
                 case 'response.function_call_arguments.done': {
                     const itemId = event.item_id || '';
                     const pending = pendingCalls.get(itemId);
+                    // function_call_arguments.done is a completion signal:
+                    // empty/whitespace → no args ({}); a non-empty string that
+                    // fails JSON.parse is deterministic bad JSON. Native
+                    // convergence: surface an invalid-args MARKER (not silent
+                    // {}) so the dispatch loop returns an is_error tool_result
+                    // and the model re-issues valid JSON in the same turn.
                     let args = {};
-                    try { args = JSON.parse(event.arguments || '{}'); } catch {}
+                    {
+                        const _argText = typeof event.arguments === 'string' ? event.arguments : '';
+                        if (_argText.trim() !== '') {
+                            try {
+                                args = JSON.parse(_argText);
+                            } catch (err) {
+                                args = makeInvalidToolArgsMarker(_argText, err instanceof Error ? err.message : String(err));
+                            }
+                        }
+                    }
                     enrichFunctionCallResponseItem({
                         itemId,
                         callId: pending?.callId || event.call_id || '',
