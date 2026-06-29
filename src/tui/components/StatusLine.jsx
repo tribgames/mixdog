@@ -24,6 +24,22 @@ function loadStatuslineModule() {
 const RESET = '\x1b[0m';
 const STATUSLINE_RENDER_DEBOUNCE_MS = 150;
 const STATUSLINE_REFRESH_MS = 2000;
+const STATUSLINE_ACTIVE_REFRESH_MS = 250;
+
+function isTerminalStatus(statusText) {
+  return /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/.test(String(statusText || '').toLowerCase());
+}
+
+function hasRunningStatuslineWorkers(agentWorkers = [], agentJobs = []) {
+  for (const worker of Array.isArray(agentWorkers) ? agentWorkers : []) {
+    const tag = String(worker?.tag || worker?.role || worker?.name || '').trim();
+    if (tag && !isTerminalStatus(worker?.stage || worker?.status)) return true;
+  }
+  for (const job of Array.isArray(agentJobs) ? agentJobs : []) {
+    if (/running/i.test(String(job?.status || job?.stage || ''))) return true;
+  }
+  return false;
+}
 
 function ansiRgb(value, fallback) {
   const match = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(String(value || '').replace(/\s+/g, ''));
@@ -79,14 +95,15 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   const [refreshTick, setRefreshTick] = useState(0);
 
   const statuslineArgs = { sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, agentWorkers, agentJobs };
+  const refreshMs = hasRunningStatuslineWorkers(agentWorkers, agentJobs) ? STATUSLINE_ACTIVE_REFRESH_MS : STATUSLINE_REFRESH_MS;
 
   useEffect(() => {
     const timer = setInterval(() => {
       setRefreshTick((tick) => (tick + 1) % 1_000_000);
-    }, STATUSLINE_REFRESH_MS);
+    }, refreshMs);
     timer.unref?.();
     return () => clearInterval(timer);
-  }, []);
+  }, [refreshMs]);
 
   useEffect(() => {
     let alive = true;
@@ -120,14 +137,11 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, agentRevision, agentWorkers, agentJobs, refreshTick]);
 
   const lines = line ? line.split('\n').slice(0, 2) : [' ', ' '];
-  // Footer footprint stays 3 rows total (height 3, no marginBottom) so the
-  // parent reservation (STATUSLINE_ROWS) and the input box above are unchanged.
-  // Internally we keep line 1 at the top row and push line 2 one row lower via
-  // a spacer, reusing what used to be the bottom margin row.
+  // Footer footprint stays 3 rows total, but L2 sits directly under L1 without
+  // an internal spacer; the remaining row is kept as outer breathing room.
   return (
     <Box flexDirection="column" width="100%" height={3} overflow="hidden" paddingLeft={2} backgroundColor={theme.background}>
       <Text wrap="truncate">{lines[0] || ' '}</Text>
-      <Box height={1} />
       <Text wrap="truncate">{lines[1] || ' '}</Text>
     </Box>
   );

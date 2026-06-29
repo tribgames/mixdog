@@ -25,7 +25,6 @@
   },
   "files": [
     "README.md",
-    "docs/",
     "scripts/",
     "src/",
     "vendor/"

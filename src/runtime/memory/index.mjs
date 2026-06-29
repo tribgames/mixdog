@@ -3354,7 +3354,7 @@ const httpServer = http.createServer(async (req, res) => {
    // read-only — no UPDATE, no transaction, no commit.
   if (req.method === 'POST' && req.url === '/dev/cycle1-bench') {
     // Gate: env MIXDOG_DEV_BENCH=1 OR a runtime flag file, so it can be
-    // toggled without restarting Claude Code (env only reaches the worker
+    // toggled without restarting the host agent (env only reaches the worker
     // on a full CC restart, not via dev-sync full-restart).
     const _devBenchOn = process.env.MIXDOG_DEV_BENCH === '1'
       || (DATA_DIR && fs.existsSync(path.join(DATA_DIR, '.dev-bench-enabled')))

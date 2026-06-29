@@ -396,6 +396,7 @@ function parseBackgroundTaskEnvelope(text) {
   const name = surface === 'explore' || surface === 'search' || surface === 'shell' || surface === 'agent' ? surface : 'task';
   const status = String(fields.status || '').toLowerCase();
   const taskId = fields.task_id || fields.taskid || '';
+  const errorText = fields.error || '';
   const agentResult = parseAgentResultEnvelope(body, {
     status,
     taskId,
@@ -427,11 +428,12 @@ function parseBackgroundTaskEnvelope(text) {
       preset: fields.preset || undefined,
       effort: fields.effort || undefined,
       fast: fields.fast || undefined,
+      error: errorText || undefined,
       startedAt: fields.started || fields.startedat || undefined,
       finishedAt: fields.finished || fields.finishedat || undefined,
     },
-    result: body || [status ? `status: ${status}` : '', taskId ? `task_id: ${taskId}` : ''].filter(Boolean).join(' · ') || 'background task',
-    isError: /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status) || /^error:/i.test(body),
+    result: body || (errorText ? (/^error\s*:/i.test(errorText) ? errorText : `Error: ${errorText}`) : [status ? `status: ${status}` : '', taskId ? `task_id: ${taskId}` : ''].filter(Boolean).join(' · ')) || 'background task',
+    isError: /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status) || /^error:/i.test(body) || Boolean(errorText),
   };
 }
 
@@ -586,7 +588,7 @@ function queuePriorityValue(value) {
 }
 
 function defaultQueuePriority(mode) {
-  // Claude Code parity (messageQueueManager.ts):
+  // Queue priority defaults:
   // - user/bashed prompt input defaults to `next`, so it can be attached at the
   //   next model-send boundary while a turn is active.
   // - task notifications default to `later`, unless the caller explicitly marks
@@ -1837,7 +1839,7 @@ export async function createEngineSession({
       const turnStatus = cancelled ? 'cancelled' : 'done';
       // Pin the post-think summary into the transcript right after this turn's
       // output so it scrolls up with the answer and stays in the scrollback,
-      // mirroring Claude Code. (Previously TurnDone rendered only in the
+      // in scrollback. (Previously TurnDone rendered only in the
       // bottom-fixed live-status slot and vanished on the next turn.)
       if (!reclaimed) {
         pushItem({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus, outputTokens: finalOutputTokens, thinkingElapsedMs, verb: pickDoneVerb(turnIndex) });
@@ -1942,7 +1944,7 @@ export async function createEngineSession({
     draining = true;
     try {
       while (pending.length > 0) {
-        // Drain one priority/mode bucket at a time, matching Claude Code's
+        // Drain one priority/mode bucket at a time (unified command queue):
         // unified command queue semantics: prompt steering stays editable and
         // task notifications stay non-editable but model-visible.
         const batch = dequeueQueueBatch('later');
@@ -1986,7 +1988,7 @@ export async function createEngineSession({
   }
 
   function drainPendingSteering() {
-    // Claude Code query.ts mid-turn drain:
+    // Mid-turn steering drain:
     // getCommandsByMaxPriority('next') and exclude slash commands. Slash
     // commands must run through the normal command processor after the turn,
     // not be sent to the model as plain text.
@@ -2109,7 +2111,7 @@ export async function createEngineSession({
       const t = promptDisplayText(text, options).trim();
       if (!t || state.commandBusy) return false;
       const mode = options.mode || 'prompt';
-     // Claude Code parity: prompt input queued while a turn is active keeps the
+     // Prompt input queued while a turn is active keeps the
      // default `next` priority, so it is injected at the next tool/model
      // boundary. Explicit options.priority still wins.
      const priority = options.priority;

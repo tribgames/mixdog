@@ -422,6 +422,9 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
     const body = resultTextForTask(task);
     if (body) {
       lines.push('', body);
+    } else if (TERMINAL_STATUSES.has(task.status) && task.error) {
+      const errorText = String(task.error || '').trim();
+      lines.push('', /^error\s*:/i.test(errorText) ? errorText : `Error: ${errorText}`);
     } else if (TERMINAL_STATUSES.has(task.status) && task.status === 'completed') {
       // Terminal-completed task with no extractable body: surface a placeholder
       // instead of silently omitting the result so the owner isn't left with a

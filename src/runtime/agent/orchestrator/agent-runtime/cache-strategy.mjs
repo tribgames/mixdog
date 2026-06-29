@@ -23,7 +23,7 @@
  *
  * Non-breakpoint providers:
  *   - OpenAI (public): prompt_cache_key + prompt_cache_retention=24h
- *   - OpenAI OAuth (Codex): prompt_cache_key only (server in-memory 5-10min)
+ *   - OpenAI OAuth: prompt_cache_key only (server in-memory 5-10min)
  *   - Gemini: provider-managed explicit cachedContents with 1h TTL, plus
  *     implicit caching as a fallback when the prefix is below cache minimums.
  *   - xAI: x-grok-conv-id (server routing pin) + prompt_cache_key on
@@ -192,7 +192,7 @@ function cleanString(value) {
 
 function normalizePromptCacheNamespace(value) {
     const s = String(value || '').trim() || 'mixdog-shared';
-    // Keep the key boring for OpenAI/Codex's 64-char prompt_cache_key cap while
+    // Keep the key boring for OpenAI OAuth's 64-char prompt_cache_key cap while
     // preserving user overrides as much as possible.
     return s.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'mixdog-shared';
 }
@@ -367,7 +367,7 @@ export function buildProviderCacheOpts(provider, sessionId, role) {
     }
     if (provider === 'openai') {
         // Public OpenAI API: prompt_cache_retention extends prefix retention.
-        // openai-oauth (Codex) rejects the header — falls through to default.
+        // openai-oauth rejects the header — falls through to default.
         return { cacheRetention: '24h' };
     }
     return {};

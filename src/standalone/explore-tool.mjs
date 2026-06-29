@@ -14,11 +14,11 @@ export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: 'Locate code anchors first to narrow broad work. Returns path:line candidates. Batch.',
+  description: 'Repo anchor locator. Use for broad/uncertain paths. Array only for independent targets.',
   inputSchema: {
     type: 'object',
     properties: {
-      query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Location query/query array.' },
+        query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Narrow locator query; array only for independent targets.' },
       cwd: { type: 'string', description: 'Project/root directory.' },
     },
     required: [],

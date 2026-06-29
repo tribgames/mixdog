@@ -467,7 +467,7 @@ function latestCodexRateLimitsFromRollout() {
 }
 
 function latestClaudeStatuslineUsage() {
-  // Standalone CLI must not borrow Claude Code's rendered statusline cache.
+  // Standalone CLI must not borrow a host-agent rendered statusline cache.
   // Anthropic quota should come from the OAuth usage endpoint above.
   return null;
 }
@@ -496,7 +496,7 @@ async function fetchOpenAICodexUsage(providerObj) {
     'OpenAI-Beta': 'responses=experimental',
     Accept: 'application/json',
   }));
-  if (!res.ok) throw new Error(`codex usage ${res.status}`);
+  if (!res.ok) throw new Error(`openai-oauth usage ${res.status}`);
   const data = await res.json();
   return normalizeOpenAIWhamUsage(data) || latestCodexRateLimitsFromRollout();
 }

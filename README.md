@@ -55,11 +55,6 @@ Inside the TUI, use `/providers` to configure model access, `/model` to switch
 models, `/workflow` to select a workflow, `/agents` to inspect available
 workflow agents, and `/agent` to manage active agent tasks.
 
-## Documentation
-
-- [Feature Map](docs/features.md)
-- [Agent Tasks](docs/agent-tasks.md)
-
 ## Project Layout
 
 ```text

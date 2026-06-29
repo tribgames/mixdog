@@ -1,4 +1,4 @@
-// Optional-sharp image resize / downsample helper. Mirrors Claude Code's
+// Optional-sharp image resize / downsample helper. Mirrors reference
 // imageResizer.ts (maybeResizeAndDownsampleImageBuffer +
 // readImageWithTokenBudget) so a `read` on an image returns a viewable,
 // budget-bounded image block instead of refusing oversized originals.

@@ -410,7 +410,7 @@ function resolveNgrokBin() {
   // are candidate sources. process.env is the shell-start snapshot; registry
   // is the live user definition. Each candidate is tried in order and the
   // first that resolves to an existing file wins. This recovers two distinct
-  // post-setx cases without a Claude Code restart:
+  // post-setx cases without a host-agent restart:
   //   (a) env unset, registry set    — fresh install + setx after process start
   //   (b) env set to stale old path, registry set to new — user moved or
   //       re-installed ngrok and setx'd the new path; the old env value would

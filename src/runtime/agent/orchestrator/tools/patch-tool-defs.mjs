@@ -26,7 +26,7 @@ export const PATCH_TOOL_DEFS = [
     name: 'apply_patch',
     title: 'Mixdog Apply Patch',
     annotations: { title: 'Mixdog Apply Patch', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, compressible: false, compressibleLossless: true },
-    description: 'Apply file patches. Prefer Codex/V4A envelope with exact current context.',
+    description: 'Apply file patches. Prefer V4A envelope with exact current context.',
     freeformDescription: APPLY_PATCH_FREEFORM_DESCRIPTION,
     freeform: {
       type: 'grammar',

@@ -1,11 +1,10 @@
 /**
  * components/MarkdownTable.jsx — GFM table → ink Box layout.
  *
- * Ported from Claude Code (refs/claude-code/src/components/MarkdownTable.tsx),
- * adapted for this CLI:
+ * GFM table layout for ink:
  *   - <Ansi> → <Text> (ink 7 has no <Ansi>; <Text> passes ANSI escapes through).
  *   - useTerminalSize() → ink useStdout().stdout.columns.
- *   - stringWidth / wrapAnsi from the npm packages (same libs CC vendors).
+ *   - stringWidth / wrapAnsi from npm packages.
  *   - formatCell uses our format-token.formatToken (no highlight arg).
  *
  * The width-fitting algorithm (ideal vs min widths, proportional shrink, hard
@@ -24,7 +23,7 @@ const MAX_ROW_LINES = 4;
 const ANSI_BOLD_START = '\x1b[1m';
 const ANSI_BOLD_END = '\x1b[22m';
 
-/** Wrap text to width, ANSI-aware, returning lines (CC wrapText). */
+ /** Wrap text to width, ANSI-aware, returning lines. */
 function wrapText(text, width, options) {
   if (width <= 0) return [text];
   const trimmedText = String(text).trimEnd();

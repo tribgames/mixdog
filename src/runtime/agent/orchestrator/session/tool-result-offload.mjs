@@ -12,7 +12,7 @@ const TOOL_RESULT_SEARCH_THRESHOLD_CHARS = 50_000;
 const TOOL_RESULT_GREP_THRESHOLD_CHARS = 20_000;
 export const TOOL_RESULT_OFFLOAD_PREFIX = '[tool output offloaded:';
 
-// Per-tool persistence limits mirror Claude Code's per-tool maxResultSizeChars
+// Per-tool persistence limits mirror reference per-tool maxResultSizeChars
 // rather than a single global value: Grep persists at 20k (CC GrepTool), Glob
 // and list/find_* at the 50k system default (CC DEFAULT_MAX_RESULT_SIZE_CHARS;
 // tighter than CC Glob's 100k by design), and shell/bash_session/task at 30k

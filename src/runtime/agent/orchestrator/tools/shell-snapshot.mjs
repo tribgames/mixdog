@@ -8,7 +8,7 @@
 // pyenv / mise / asdf / direnv setup the user gets in their interactive
 // terminal — without paying a fresh login-shell startup on every call.
 //
-// Mirrors Claude Code upstream (src/utils/bash/ShellSnapshot.ts:413,
+// Mirrors upstream shell snapshot pattern (reference ShellSnapshot.ts:413,
 // createAndSaveSnapshot). Simpler scope: bash and zsh only, no embedded
 // search-tool injection (mixdog ships its own grep/glob helpers).
 
@@ -34,7 +34,7 @@ const _cache = new Map();
 // command. Cleared on process exit (process-scoped Set).
 const _failedShells = new Set();
 
-// Mirrors Claude Code's cleanupRegistry pattern (refs/claude-code/utils/
+// Mirrors reference cleanupRegistry pattern (utils/
 // cleanupRegistry.ts + ShellSnapshot.ts:534-545). Snapshot files are
 // session-scoped and must be unlinked on graceful shutdown — otherwise
 // they pile up forever (each rc-file mtime change creates a new file).
@@ -155,7 +155,7 @@ function _runSnapshot(shellPath, snapshotPath, configFileExists) {
   return new Promise((resolve) => {
     const script = getSnapshotScript(shellPath, snapshotPath, configFileExists);
     let stderrBuf = '';
-    // Mirror Claude Code (refs/claude-code/utils/bash/ShellSnapshot.ts:458):
+    // Mirror reference implementation (bash/ShellSnapshot.ts:458):
     // `-c -l` (login non-interactive). Earlier `-ic` (interactive command)
     // forced bash-completion to load — Git's completion loader spawns `find`
     // in subshells (__git_find_on_cmdline etc.) which detach on Windows when
@@ -163,7 +163,7 @@ function _runSnapshot(shellPath, snapshotPath, configFileExists) {
     // mode runs .bash_profile / .profile (which typically sources .bashrc)
     // without triggering completion init. The script also explicitly sources
     // the rc file, so the interactive-guard `[[ $- == *i* ]] && return` is
-    // accepted as a known tradeoff (matches Claude Code's choice).
+    // accepted as a known tradeoff (matches the reference choice).
     const child = spawn(shellPath, ['-c', '-l', script], {
       // P3 fix: blank prompts so an interactive sourcing in -ic does not
       // print PS1 / PS2 / RPROMPT / PROMPT noise to stderr (which our

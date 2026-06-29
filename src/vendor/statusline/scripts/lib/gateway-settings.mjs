@@ -139,7 +139,7 @@ export function setAnthropicBaseUrl(url, { dryRun = false, autoCompactWindow = n
 
 // RUNTIME base-url sync for live /model changes.
 //
-// Claude Code re-applies settings.env into process.env while the session is
+// The host client re-applies settings.env into process.env while the session is
 // alive, but deleting ANTHROPIC_BASE_URL does not unset the already-present
 // process env key. For native Claude choices, write the official Anthropic base
 // URL instead. For mixdog choices, write the local gateway URL. This helper is
@@ -190,8 +190,8 @@ export function syncAnthropicBaseUrl(url, { dryRun = false, requireExisting = tr
 }
 
 // RUNTIME compact-window sync (Stage 4) — used by the gateway request path when
-// the routed model's context window changes at runtime (/model switch). Claude
-// Code watches settings.json (chokidar) and re-applies env to process.env
+// the routed model's context window changes at runtime (/model switch). The host
+// client watches settings.json (chokidar) and re-applies env to process.env
 // without restart, and getEffectiveContextWindowSize reads process.env live, so
 // rewriting CLAUDE_CODE_AUTO_COMPACT_WINDOW here makes the auto-compact
 // threshold track the live model next turn.

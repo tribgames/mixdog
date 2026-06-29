@@ -1,11 +1,11 @@
-// Per-tool live-status message builder (ported from claude-code's progress
+// Per-tool live-status message builder (ported from a reference agent's progress
 // generalization / getActivityDescription). Dependency-light and
 // side-effect-free: given a tool name + its raw args, return a short
 // human-readable "what's happening now" string. Used by the central dispatch
 // path to emit a single start-of-tool progress notification. Every tool gets a
 // meaningful verb; `running ${name}` is only the last-resort fallback.
 //
-// Verbs are kept symmetric with claude-code's wording: Read→"reading",
+// Verbs are kept symmetric with common agent wording: Read→"reading",
 // Edit→"editing", Write→"writing", Grep→"searching for", Glob→"finding",
 // web search→"searching web for", web fetch→"fetching".
 

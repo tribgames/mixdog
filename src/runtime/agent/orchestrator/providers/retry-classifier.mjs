@@ -44,7 +44,7 @@ const PERMANENT_STATUSES = new Set([400, 404, 405, 410, 415, 422])
 // payload but no explicit status code — we sniff the text and assign the most
 // likely HTTP equivalent so the retry layer can use the same rules.
 const MESSAGE_PATTERNS = [
-  // OpenAI/Codex sometimes surfaces generic backend failures only as
+  // OpenAI OAuth/API sometimes surfaces generic backend failures only as
   // message text plus a request ID, with no HTTP status on the WS event.
   { regex: /(?:an error occurred while processing your request|please include the request id)/i, status: 503 },
   // Overload / transient 5xx — server is asking us to back off. The `\b`

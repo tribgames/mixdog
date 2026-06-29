@@ -12,7 +12,7 @@ export const SMART_READ_TAIL_LINES = 100;
 export const READ_CONTEXT_ADVISORY_BYTES = 40 * 1024;
 export const READ_MAX_RENDERED_LINE_CHARS = 2_000;
 // Claude-Code parity: the read line-prefix separator is `→` (the `→`
-// arrow), matching Claude Code's default cat -n format `<n>→<content>`. It
+// arrow), matching default cat -n format `<n>→<content>`. It
 // MUST be a NON-WHITESPACE glyph: a tab/space separator collides with the
 // content's own leading indentation, so a model hand-reconstructing an edit
 // old_string cannot tell the separator from the indent and produces

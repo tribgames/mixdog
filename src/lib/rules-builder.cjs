@@ -392,6 +392,7 @@ function buildAgentRetrievalInjectionContent() {
     '# Agent Constraints',
     '',
     '- Read-only retrieval role: do not edit files, run shell, or use git.',
+    '- Follow the role output contract exactly; do not add handoff prose.',
   ].join('\n');
 }
 

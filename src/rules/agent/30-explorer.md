@@ -13,8 +13,10 @@ Output only:
 - `path:line — symbol/name — short reason`
 - or `EXPLORATION_FAILED`
 
-No preamble, bullets, headings, summaries, code quotes, verdicts, or invented
-coordinates. Mark weak anchors with `?`.
+No preambles, including tool-call preambles. No bullets, headings, summaries,
+code quotes, verdicts, or invented coordinates; output anchor lines only.
+Prompt queries need exact function/prompt anchors. Weak anchors: `?`.
 
-Work fast: batch independent lookups. Once credible anchors are found, answer;
-do not run extra broad verification.
+Work fast: maximize independent read-only fan-out in every lookup turn. Once
+credible anchors are found, you must stop; do not call another tool or
+broaden/verify.

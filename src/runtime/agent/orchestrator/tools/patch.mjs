@@ -1768,7 +1768,7 @@ function longestCommonSubstringLen(a, b, cap = 4000) {
 }
 
 // Normalize common typographic code-points to their ASCII equivalents, then
-// trim. Mirrors the Rust mixdog-patch normalize_typographic() and Codex
+// trim. Mirrors the Rust mixdog-patch normalize_typographic() and V4A
 // apply_patch's normalise() so V4A->unified anchor resolution stays consistent
 // across engines: an ASCII-authored patch can still anchor on source that
 // carries curly quotes, em/en dashes, NBSP and other exotic spaces.
@@ -2700,7 +2700,7 @@ async function apply_patch(args, cwd, options = {}) {
     parsed = parsePatch(normalizedPatchStr);
   } catch (err) {
     if (!canFallbackCountedUnified(patchStr, requestedFormat, err)) {
-      throw new Error(`apply_patch: parse failed — ${err?.message || String(err)}; prefer Codex/V4A envelope for multi-hunk edits (no @@ line counts)`);
+      throw new Error(`apply_patch: parse failed — ${err?.message || String(err)}; prefer V4A envelope for multi-hunk edits (no @@ line counts)`);
     }
     try {
       inputPatchStr = await convertUnifiedCountedToUnifiedPatchViaV4A(patchStr, basePath, v4aConvertOpts);

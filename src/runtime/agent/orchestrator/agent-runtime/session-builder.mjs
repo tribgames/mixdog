@@ -31,7 +31,7 @@ import { loadConfig } from '../config.mjs';
  * @param {string}  [opts.permission]  — 'none' | 'read' | 'read-write' | 'mcp' | 'full' | null
  * @param {string|null} [opts.cwd]     — absolute working dir; null is the fixed agent sentinel meaning "no caller workspace context"
  * @param {string}  [opts.owner='agent']
- * @param {string}  [opts.permissionMode] — Claude Code permissionMode forwarded from the MCP payload ('bypassPermissions', 'acceptEdits', 'plan', 'dontAsk', 'default')
+ * @param {string}  [opts.permissionMode] — permissionMode forwarded from the MCP payload ('bypassPermissions', 'acceptEdits', 'plan', 'dontAsk', 'default')
  * @param {string[]} [opts.schemaAllowedTools] — schema-level allowlist from a hidden-role toolSchemaProfile
  * @param {string}  [opts.sourceType]
  * @param {string}  [opts.sourceName]
@@ -39,7 +39,6 @@ import { loadConfig } from '../config.mjs';
  * @param {number}  [opts.maxLoopIterations]
  * @param {string}  [opts.parentSessionId]
  * @param {string|null} [opts.ownerSessionId] - owning Mixdog MCP instance id for statusline isolation
- * @param {boolean} [opts.skipRoleReminder=false] — Pool C suppresses Tier 3 reminder
  * @returns {{ session: object, effectiveCwd: string|null }}
  */
 export function prepareAgentSession({
@@ -59,7 +58,6 @@ export function prepareAgentSession({
     ownerSessionId,
     clientHostPid,
     agentTag,
-    skipRoleReminder = false,
     cacheKeyOverride,
     schemaAllowedTools,
 }) {
@@ -100,7 +98,6 @@ export function prepareAgentSession({
     if (agentTag) sessionOpts.agentTag = agentTag;
     if (effectivePermission) sessionOpts.permission = effectivePermission;
     if (permissionMode) sessionOpts.permissionMode = permissionMode;
-    if (skipRoleReminder) sessionOpts.skipRoleReminder = true;
     if (cacheKeyOverride) sessionOpts.cacheKeyOverride = cacheKeyOverride;
     if (Array.isArray(schemaAllowedTools)) {
         sessionOpts.schemaAllowedTools = schemaAllowedTools;

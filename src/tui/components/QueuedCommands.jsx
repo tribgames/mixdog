@@ -1,7 +1,7 @@
 /**
  * components/QueuedCommands.jsx — queued steering prompts.
  *
- * Forked from Claude Code's PromptInputQueuedCommands: lines the user typed
+ * Queued steering prompts: lines the user typed
  * while a turn is busy wait here as dim rows, pinned just above the input box
  * (part of the input cluster) instead of polluting the transcript. Each queued
  * line is promoted to a real transcript user row only when it starts executing

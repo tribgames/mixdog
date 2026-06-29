@@ -296,7 +296,7 @@ export async function executeTreeTool(args, workDir, options = {}) {
     return out;
 }
 
-// Fuzzy filename search (Codex file-search / nucleo style): collect the file
+ // Fuzzy filename search (nucleo-style): collect the file
 // list via `rg --files`, then rank by subsequence score. `list.fuzzy` still
 // routes here for hidden backward compatibility, but the model-facing tool is
 // `find`.

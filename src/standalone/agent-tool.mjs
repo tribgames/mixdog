@@ -64,9 +64,6 @@ export const AGENT_TOOL = {
       file: { type: 'string', description: 'Prompt file.' },
       cwd: { type: 'string', description: 'Working directory.' },
       context: { type: 'string', description: 'Extra agent context.' },
-      firstResponseTimeoutMs: { type: 'number', minimum: 0, description: 'No first activity watchdog ms. 0 disables.' },
-      idleTimeoutMs: { type: 'number', minimum: 0, description: 'Idle watchdog ms. 0 disables.' },
-      spawnPrepTimeoutMs: { type: 'number', minimum: 0, description: 'Spawn prep (provider/session build) cap ms. 0 disables.' },
     },
     additionalProperties: true,
   },
@@ -88,10 +85,9 @@ const DEFAULT_FIRST_RESPONSE_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_FIRST_RESPO
 const DEFAULT_STALE_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_STALE_TIMEOUT_MS', 30 * 60_000);
 // Independent hard cap for the spawn *prep* phase (ensureProvider /
 // prepareAgentSession / catalog+rules load). Kept separate from the
-// first-response watchdog so that explicitly disabling the watchdog
-// (firstResponseTimeoutMs:0) does not leave prep able to hang forever and make
-// a whole fanout look stuck. Set MIXDOG_AGENT_SPAWN_PREP_TIMEOUT_MS=0 to fully
-// disable the cap and restore strictly-unbounded prep.
+// first-response watchdog so prep cannot hang a whole fanout before the model
+// request starts. Set MIXDOG_AGENT_SPAWN_PREP_TIMEOUT_MS=0 to fully disable the
+// cap and restore strictly-unbounded prep.
 const DEFAULT_SPAWN_PREP_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_SPAWN_PREP_TIMEOUT_MS', 120_000);
 const ACTIVE_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'running', 'cancelling']);
 
@@ -337,11 +333,9 @@ function renderResult(value) {
       if (value.provider && value.model) lines.push(`model: ${value.provider}/${value.model}`);
       if (value.effort) lines.push(`effort: ${value.effort}`);
       if (value.fast === true || value.fast === false) lines.push(`fast: ${value.fast ? 'on' : 'off'}`);
-      if (value.maxLoopIterations || value.idleTimeoutMs || value.firstResponseTimeoutMs) {
+      if (value.maxLoopIterations) {
         const limitParts = [];
         if (value.maxLoopIterations) limitParts.push(`loop=${value.maxLoopIterations}`);
-        if (value.firstResponseTimeoutMs) limitParts.push(`first=${Math.round(value.firstResponseTimeoutMs / 1000)}s`);
-        if (value.idleTimeoutMs) limitParts.push(`stale=${Math.round(value.idleTimeoutMs / 1000)}s`);
         lines.push(`limits: ${limitParts.join(' ')}`);
       }
       if (value.stage || value.workerStatus) lines.push(`agent: ${value.workerStatus || 'unknown'}/${value.stage || 'unknown'}`);
@@ -1101,8 +1095,6 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       effort: task.effort || null,
       fast: task.fast === true || task.fast === false ? task.fast : null,
       maxLoopIterations: task.maxLoopIterations || null,
-      idleTimeoutMs: task.idleTimeoutMs || null,
-      firstResponseTimeoutMs: task.firstResponseTimeoutMs || null,
       startedAt: task.startedAt,
       finishedAt: task.finishedAt || null,
       error: task.error || null,
@@ -1134,8 +1126,6 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       effort: meta.effort || null,
       fast: meta.fast === true || meta.fast === false ? meta.fast : null,
       maxLoopIterations: meta.maxLoopIterations || null,
-      idleTimeoutMs: meta.idleTimeoutMs || null,
-      firstResponseTimeoutMs: meta.firstResponseTimeoutMs || null,
       startedAt: job.startedAt,
       finishedAt: job.finishedAt || null,
       error: job.error || null,
@@ -1156,8 +1146,6 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       effort: prepared.preset.effort || null,
       fast: prepared.preset.fast === true,
       maxLoopIterations: prepared.maxLoopIterations || null,
-      idleTimeoutMs: prepared.idleTimeoutMs || null,
-      firstResponseTimeoutMs: prepared.firstResponseTimeoutMs || null,
     };
   }
 
@@ -1336,15 +1324,10 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
   function startDeferredSpawnJob(args, callerCwd, context, notifyContext, extras = {}) {
     return startJob('spawn', pendingSpawnMeta(args, extras), async (job) => {
       // prepareSpawn (ensureProvider/prepareAgentSession) runs before runSpawn
-      // installs its progress watchdog, so a blocking prep step would hang
-      // outside any timeout protection. Guard the prep phase with its OWN
-      // independent cap (spawnPrepTimeoutMs / MIXDOG_AGENT_SPAWN_PREP_TIMEOUT_MS)
-      // rather than the first-response watchdog: a caller that explicitly sets
-      // firstResponseTimeoutMs:0 wants no *model* activity watchdog, but should
-      // still not be able to wedge a whole fanout on a hung prep step. Set the
-      // prep cap to 0 (or args.spawnPrepTimeoutMs:0) to opt back into strictly
-      // unbounded prep.
-      const prepDeadlineMs = resolveWatchdogMs(args.spawnPrepTimeoutMs, DEFAULT_SPAWN_PREP_TIMEOUT_MS);
+      // installs its progress watchdog, so guard prep with an internal env-
+      // backed cap rather than exposing per-call timeout knobs on the agent
+      // tool surface.
+      const prepDeadlineMs = DEFAULT_SPAWN_PREP_TIMEOUT_MS;
       let prepared;
       if (prepDeadlineMs > 0) {
         let prepTimer = null;
@@ -1452,8 +1435,8 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     const prompt = withCwdHeader(await resolvePrompt(args, workerCwd), workerCwd);
     const runtimeSpec = cfgMod.resolveRuntimeSpec(preset, { lane: 'agent', agentId: tag });
     const maxLoopIterations = positiveInt(args.maxLoopIterations) || null;
-    const idleTimeoutMs = resolveWatchdogMs(args.idleTimeoutMs, DEFAULT_STALE_TIMEOUT_MS);
-    const firstResponseTimeoutMs = resolveWatchdogMs(args.firstResponseTimeoutMs, DEFAULT_FIRST_RESPONSE_TIMEOUT_MS);
+    const idleTimeoutMs = DEFAULT_STALE_TIMEOUT_MS;
+    const firstResponseTimeoutMs = DEFAULT_FIRST_RESPONSE_TIMEOUT_MS;
     const { session, effectiveCwd } = prepareAgentSession({
       role,
       presetName,
@@ -1584,8 +1567,8 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     const { args, session, sessionId, prompt } = prepared;
     const watchdog = startProgressIdleWatchdog(
       sessionId,
-      resolveWatchdogMs(args.idleTimeoutMs, DEFAULT_STALE_TIMEOUT_MS),
-      resolveWatchdogMs(args.firstResponseTimeoutMs, DEFAULT_FIRST_RESPONSE_TIMEOUT_MS),
+      DEFAULT_STALE_TIMEOUT_MS,
+      DEFAULT_FIRST_RESPONSE_TIMEOUT_MS,
     );
     const tag = tagForSession(sessionId);
     let finalStatus = 'idle';

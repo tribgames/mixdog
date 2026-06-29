@@ -6,7 +6,7 @@
  *
  * Pinned into the transcript right after a turn's output (an `item.kind ===
  * 'turndone'` entry), so it scrolls up with the answer and stays in the
- * scrollback — mirroring Claude Code's post-think summary line. It leaves a
+ * scrollback as a post-think summary line. It leaves a
  * quiet, dim record of how long the turn took next to the answer it belongs to.
  */
 import React from 'react';

@@ -6,6 +6,23 @@ import { performance } from 'node:perf_hooks';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VALUE_OPTIONS = new Set(['--provider', '--model']);
 const FLAG_OPTIONS = new Set(['--readonly', '--help', '-h', '--plain', '--react']);
+const HEADLESS_ROLE_ALIASES = new Map([
+  ['explorer', 'explore'],
+  ['explore', 'explore'],
+  ['maint', 'maintainer'],
+  ['maintenance', 'maintainer'],
+  ['maintainer', 'maintainer'],
+  ['worker', 'worker'],
+  ['heavy', 'heavy-worker'],
+  ['heavyworker', 'heavy-worker'],
+  ['heavy-worker', 'heavy-worker'],
+  ['review', 'reviewer'],
+  ['reviewer', 'reviewer'],
+  ['debug', 'debugger'],
+  ['debugger', 'debugger'],
+  ['web', 'web-researcher'],
+  ['web-researcher', 'web-researcher'],
+]);
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
 const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
 
@@ -38,6 +55,41 @@ function unknownOption(argv) {
     if (String(arg || '').startsWith('-')) return arg;
   }
   return null;
+}
+
+function positionalArgs(argv) {
+  const out = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (VALUE_OPTIONS.has(arg)) {
+      i += 1;
+      continue;
+    }
+    if (FLAG_OPTIONS.has(arg)) continue;
+    if (String(arg || '').startsWith('-')) continue;
+    out.push(arg);
+  }
+  return out;
+}
+
+function normalizeHeadlessRole(value) {
+  const key = String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+  return HEADLESS_ROLE_ALIASES.get(key) || null;
+}
+
+export function parseHeadlessRoleCommand(argv = []) {
+  const args = positionalArgs(argv);
+  if (args.length === 0) return null;
+
+  if (String(args[0] || '').toLowerCase() === 'role') {
+    return { error: 'usage: mixdog <role> <message...>' };
+  }
+
+  const role = normalizeHeadlessRole(args[0]);
+  if (!role) return null;
+  const message = args.slice(1).join(' ').trim();
+  if (!message) return { error: `usage: mixdog ${args[0]} <message...>` };
+  return { role, message };
 }
 
 /**
@@ -80,6 +132,22 @@ export async function run(argv = []) {
   if (argv.includes('--react')) {
     process.stderr.write('mixdog: --react was removed; run `mixdog` for the canonical TUI.\n');
     return 1;
+  }
+
+  const headless = parseHeadlessRoleCommand(argv);
+  if (headless?.error) {
+    process.stderr.write(`mixdog: ${headless.error}\n`);
+    return 1;
+  }
+  if (headless) {
+    const { runHeadlessRole } = await import('./headless-role.mjs');
+    return await runHeadlessRole({
+      role: headless.role,
+      message: headless.message,
+      provider: opts.provider,
+      model: opts.model,
+      cwd: process.cwd(),
+    });
   }
 
   // Default: the canonical React/Ink TUI over the mixdog session runtime.

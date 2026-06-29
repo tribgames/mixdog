@@ -53,7 +53,7 @@ const SHELL_OUTPUT_DISK_CAP = 100 * 1024 * 1024;
 
 // Background-task disk watchdog cadence. The size guard polls the spilled
 // stdout/stderr files every interval and SIGKILLs the child once the
-// combined size exceeds SHELL_OUTPUT_DISK_CAP. 5 s matches Claude Code's
+// combined size exceeds SHELL_OUTPUT_DISK_CAP. 5 s matches reference agent
 // upstream cadence — short enough that a runaway loop is caught within a
 // few seconds, long enough that the stat overhead is negligible.
 const SIZE_WATCHDOG_INTERVAL_MS = 1_000;

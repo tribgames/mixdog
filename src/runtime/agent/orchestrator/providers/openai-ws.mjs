@@ -1,7 +1,7 @@
 /**
  * OpenAI Direct API — WebSocket transport via Responses API.
  *
- * Uses the same `sendViaWebSocket` plumbing as openai-oauth (Codex), with two
+ * Uses the same `sendViaWebSocket` plumbing as openai-oauth, with two
  * differences encoded in the `auth.type === 'openai-direct'` branch inside
  * openai-oauth-ws.mjs:
  *   1. Authorization header: Bearer <OPENAI_API_KEY> (no account_id, no
@@ -67,13 +67,13 @@ export class OpenAIDirectProvider {
             promptCacheLane,
         });
         // Public OpenAI API priority support is documented separately from the
-        // Codex OAuth catalog. Keep this provider's service-tier decision local
-        // so gpt-5.4-mini can opt into Priority even when the Codex catalog does
+        // openai-oauth catalog. Keep this provider's service-tier decision local
+        // so gpt-5.4-mini can opt into Priority even when the OAuth catalog does
         // not advertise a Fast tier for its OAuth endpoint.
         applyOpenAIDirectFastTier(body, useModel, opts);
         // Public Responses API supports prompt_cache_retention='24h' at no
         // extra cost (same cached_input_tokens billing as the default 5–10
-        // min in-memory cache). Codex/oauth rejects the parameter, so it's
+        // min in-memory cache). openai-oauth rejects the parameter, so it's
         // injected only on the direct path. See openai-oauth.mjs:290-294
         // for the rationale.
         body.prompt_cache_retention = '24h';
@@ -85,7 +85,7 @@ export class OpenAIDirectProvider {
         // cacheKey (prompt_cache_key) only groups the server-side prefix-cache
         // shard — safe to share across sessions, unlike the sessionId poolKey
         // above. buildRequestBody derives it from the base namespace plus a
-        // model/system/tools hash, mirroring the Codex OAuth path while keeping
+        // model/system/tools hash, mirroring the openai-oauth path while keeping
         // public OpenAI's 24h retention below.
         const cacheKey = body.prompt_cache_key || resolveProviderCacheKey(opts, 'openai');
         const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;

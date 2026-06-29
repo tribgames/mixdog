@@ -47,6 +47,8 @@ const CYN = sgr('38;2;136;136;136');
 const GREY = sgr('38;2;136;136;136');
 const SHELL_JOBS_SEGMENT_CACHE_MS = 1000;
 const GATEWAY_QUOTA_STATUS_CACHE_MS = 500;
+const WORKER_SPINNER_FRAMES = Object.freeze(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']);
+const WORKER_SPINNER_FRAME_MS = 160;
 // Keep the last known usage snapshot visible while idle. The runtime still
 // refreshes OAuth usage in the background, but if that refresh is delayed or
 // fails, the statusline should not blink/drop the usage segment; it should hold
@@ -68,8 +70,13 @@ function summarizeWorkerTags(tags, limit = 3) {
   return `${cleanTags.slice(0, limit).join(', ')}, +${cleanTags.length - limit}`;
 }
 
+function workerSpinnerFrame(now = Date.now()) {
+  const index = Math.floor(now / WORKER_SPINNER_FRAME_MS) % WORKER_SPINNER_FRAMES.length;
+  return WORKER_SPINNER_FRAMES[index] || WORKER_SPINNER_FRAMES[0];
+}
+
 /**
- * Build the Claude-Code-shaped JSON the vendored renderer reads, from our REPL
+ * Build the status-line JSON the vendored renderer reads, from our REPL
  * state. Only the fields `renderStatusLine()` actually consumes are emitted:
  *   - display_name              → model name (L1)
  *   - effort.level              → effort string
@@ -257,7 +264,7 @@ function renderNativeStatusline({ provider = '', model = '', effort = '', fast =
   addL1(formatShellJobsSegment({ clientHostPid }));
 
   if (runningWorkers.length) {
-    addL2(`${GRN}●${R} ${B}${runningWorkers.length} Running${R} ${D}(${R}${B}${summarizeWorkerTags(runningWorkers)}${R}${D})${R}`);
+    addL2(`${GRN}${workerSpinnerFrame()}${R} ${B}${runningWorkers.length} Running${R} ${D}(${R}${B}${summarizeWorkerTags(runningWorkers)}${R}${D})${R}`);
   }
   const l1 = l1Parts.join(sep) || 'mixdog';
   const l2 = l2Parts.join(sep);

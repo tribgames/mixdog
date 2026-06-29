@@ -1,7 +1,7 @@
 /**
  * components/AnsiText.jsx — render ANSI SGR text as ink <Text> spans.
  *
- * Claude Code parses ANSI into styled Text nodes instead of relying on raw
+ * Parses ANSI into styled Text nodes instead of relying on raw
  * escape passthrough. This keeps markdown emphasis/code colors stable when an
  * inner span resets color back to the default.
  */

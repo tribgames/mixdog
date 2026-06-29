@@ -260,7 +260,7 @@ function useXaiResponsesWebSocketWarmup(opts, config, { previousResponseId, inst
     return String(instructions || '').length >= 2048 || (Array.isArray(rawTools) && rawTools.length >= 10);
 }
 
-// Match OpenAI/Codex cache-lane semantics: default to 12 stable shards (via
+// Match OpenAI OAuth/API cache-lane semantics: default to 12 stable shards (via
 // resolveProviderPromptCacheLane) and serialize each final shard. This gives
 // Grok/xAI 10+ worker fanout without concurrent same-key cache contention.
 const XAI_RESPONSES_CACHE_LANE_DEFAULT_MAX_IN_FLIGHT = 1;

@@ -6,7 +6,7 @@ import { getProvider, providerInputExcludesCache } from '../providers/registry.m
 import { getModelMetadataSync } from '../providers/model-catalog.mjs';
 import { fetchOAuthUsageSnapshot } from '../providers/oauth-usage.mjs';
 // Image content is kept in-memory and in the model-visible history so multi-turn
-// recognition matches Claude Code (live transcript always retains images). The
+// recognition matches reference agent behavior (live transcript always retains images). The
 // stored-history placeholder swap now happens only at disk-serialization time
 // inside the session store, so it is no longer imported here.
 import {
@@ -611,7 +611,7 @@ function resolveSessionContextMeta(provider, model, seed = {}) {
     // "summary cannot fit") and the turn can no longer be resumed.
     // Leave it null unless the provider/catalog/seed supplies an explicit
     // limit; the downstream buffer logic (default 10%, capped 25%) then
-    // triggers compaction with headroom, matching Claude Code's threshold.
+    // triggers compaction with headroom, matching the reference auto-compact threshold.
     const autoCompactTokenLimit = explicitCompactLimit || null;
     const compactBoundaryTokens = contextWindow;
     return {
@@ -987,7 +987,7 @@ async function runSessionCompaction(session, opts = {}) {
 // system prefix (BP3 sessionMarker system block / later messages), which is
 // naturally separated by provider-side content hashing.
 const PROVIDER_ALIAS = {
-    'openai-oauth': 'codex',      // ChatGPT subscription (Codex backend)
+    'openai-oauth': 'codex',      // ChatGPT subscription (OpenAI OAuth backend)
     'anthropic-oauth': 'claude',  // Claude Max subscription
     'openai': 'openai',
     'anthropic': 'anthropic',
@@ -2114,7 +2114,7 @@ export async function _api_call_with_interrupt(sessionId, fn) {
 
 // Per-session mutex: queues concurrent askSession calls to prevent message loss
 const _sessionLocks = new Map();
-// Per-session pending-message queue (Claude Code `pendingMessages` pattern).
+// Per-session pending-message queue (in-flight send enqueue pattern).
 // A `agent type=send` to a worker whose turn is still in flight ENQUEUES the
 // message here instead of rejecting; askSession drains the queue after each
 // turn and runs the messages as the next user turn(s), preserving order — the
@@ -2411,7 +2411,7 @@ function isInternalCancelledAssistantMessage(message) {
 
 function sanitizeSessionMessagesForModel(messages) {
     // Drop internal runtime-notification turns and cancelled-assistant stubs so
-    // they never reach the model, but KEEP image content intact. Claude Code
+    // they never reach the model, but KEEP image content intact. Reference-agent
     // parity: the live transcript and every model request retain attached
     // images across turns; only the compaction-summary call strips them. The
     // disk-stored session JSON replaces image bytes with a text placeholder at
@@ -2818,7 +2818,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 const cacheReadTokens = result.usage.cachedTokens || 0;
                 const cacheWriteTokens = result.usage.cacheWriteTokens || 0;
                 // Unified total-prompt field. Anthropic = input+cache_read+cache_write
-                // (additive); OpenAI/Codex/Gemini = input_tokens already includes the
+                // (additive); OpenAI OAuth/API/Gemini = input_tokens already includes the
                 // cached portion (inclusive), so the fallback must not double-count.
                 const { isInclusiveProvider, computeCostUsd } = await import('../../../shared/llm/cost.mjs');
                 const inclusive = isInclusiveProvider(session.provider);
@@ -2858,7 +2858,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 recordStandaloneStatusTelemetry(session, result, Date.now() - _askStartedAt);
             }
             // Persist opaque providerState for future stateful providers.
-            // No provider currently emits it (Codex OAuth is stateless per
+            // No provider currently emits it (openai-oauth is stateless per
             // contract), so this branch is dormant — kept so a future
             // Responses-API provider with stable continuation can plug in
             // without reworking the session shape.
@@ -2880,7 +2880,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     });
                 } catch { /* best-effort early completion relay */ }
             }
-            // Claude Code parity: auto-compact runs at the start of the next
+            // Auto-compact runs at the start of the next
             // query/provider send (agentLoop pre-send), not after the previous
             // answer. This lets queued follow-up prompts resume immediately;
             // if they need compaction, their own spinner shows compacting first.
@@ -2961,8 +2961,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             markSessionError(sessionId, err && err.message ? err.message : String(err));
             throw err;
         }
-        // ── Turn complete. Drain the pending-message queue (Claude Code
-        //    pendingMessages): any `agent type=send` that arrived while this
+        // ── Turn complete. Drain the pending-message queue: any `agent type=send` that arrived while this
         //    turn was in flight runs next, in order, as a follow-up user turn.
         //    The mutex is still held, so a send racing this drain either landed
         //    before (picked up here) or enqueues for the next loop. When the

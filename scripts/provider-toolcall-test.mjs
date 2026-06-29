@@ -2,8 +2,7 @@
 // Regression tests pinning the cross-provider "native tool_call extraction"
 // contract: when a provider's native parser is fed a well-formed tool_call
 // payload, it MUST surface the call in our canonical toolCalls shape
-// ({ id, name, arguments }). Mirrors codex-rs sse/responses.rs #[cfg(test)]
-// style — synthetic inputs fed directly to the exported parser, asserting the
+// ({ id, name, arguments }). Synthetic inputs fed directly to the exported parser, asserting the
 // resulting outcome. No network, no model. Each provider also gets one
 // negative case (no native tool_call → undefined / empty).
 //
@@ -13,12 +12,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    _toResponsesToolsForTest,
+    _toXaiResponsesInputForTest,
     parseToolCalls as compatParseToolCalls,
     parseResponsesToolCalls as compatParseResponsesToolCalls,
 } from '../src/runtime/agent/orchestrator/providers/openai-compat.mjs';
 import { isInvalidToolArgsMarker } from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
 import { parseToolCalls as geminiParseToolCalls } from '../src/runtime/agent/orchestrator/providers/gemini.mjs';
 import { parseSSEStream as anthropicParseSSEStream } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
+import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
 
 // --- Helpers ---------------------------------------------------------------
 
@@ -135,6 +137,36 @@ test('openai-compat (responses): malformed function_call args → invalid-args m
     assert.equal(isInvalidToolArgsMarker(out[0].arguments), true);
 });
 
+test('openai-compat/xai Responses: freeform apply_patch downgrades to function schema', () => {
+    const tools = _toResponsesToolsForTest(PATCH_TOOL_DEFS);
+    const patch = tools.find((tool) => tool.name === 'apply_patch');
+    assert.equal(patch.type, 'function');
+    assert.equal(patch.format, undefined);
+    assert.equal(patch.parameters?.properties?.patch?.type, 'string');
+    assert.deepEqual(patch.parameters?.required, ['patch']);
+});
+
+test('openai-compat/xai Responses: custom_tool_call history replays as function_call', () => {
+    const rawPatch = '*** Begin Patch\n*** Add File: xai-history.txt\n+ok\n*** End Patch\n';
+    const { input } = _toXaiResponsesInputForTest([
+        { role: 'user', content: 'patch please' },
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'call_patch_1', name: 'apply_patch', arguments: { patch: rawPatch }, nativeType: 'custom_tool_call' }],
+        },
+        { role: 'tool', toolCallId: 'call_patch_1', content: 'OK' },
+    ], null, { model: 'grok-composer-2.5-fast' });
+    assert.equal(input.some((item) => item.type === 'custom_tool_call'), false);
+    assert.equal(input.some((item) => item.type === 'custom_tool_call_output'), false);
+    const call = input.find((item) => item.type === 'function_call' && item.name === 'apply_patch');
+    assert.equal(call.call_id, 'call_patch_1');
+    assert.deepEqual(JSON.parse(call.arguments), { patch: rawPatch });
+    const output = input.find((item) => item.type === 'function_call_output');
+    assert.equal(output.call_id, 'call_patch_1');
+    assert.equal(output.output, 'OK');
+});
+
 // === 2. gemini =============================================================
 // parseToolCalls(parts)   gemini.mjs:946  (exported — `export` keyword only).
 // id is a content hash → assert the `gemini_` prefix, not the exact value.
@@ -210,7 +242,7 @@ test('anthropic(-oauth): text-only stream → no toolCalls', async () => {
 // extracting it (forbidden: no logic change). The WS path's _streamResponse
 // (openai-oauth-ws.mjs:1190) IS exported but requires a live `entry.socket`
 // EventEmitter and resolves only on response.completed — driving it needs a
-// full fake-socket harness, well beyond "inject synthetic input to a parser".
+// full fake-socket test rig, well beyond "inject synthetic input to a parser".
 //
 // Their canonical Responses function_call shape (call_id/name/arguments) and
 // custom_tool_call handling are the SAME wire contract already asserted via

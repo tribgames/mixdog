@@ -1,5 +1,5 @@
 /**
- * App.jsx — the React/ink chat application (Claude-Code-style).
+ * App.jsx — the React/ink chat application.
  *
  * Layout (top → bottom):
  *   welcome banner
@@ -23,7 +23,7 @@ import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import stringWidth from 'string-width';
 import { theme, TURN_MARKER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
-import { normalizeToolName } from '../runtime/shared/tool-surface.mjs';
+import { normalizeToolName, parseToolArgs } from '../runtime/shared/tool-surface.mjs';
 import { AssistantMessage, UserMessage, ThinkingMessage, NoticeMessage } from './components/Message.jsx';
 import { ToolExecution } from './components/ToolExecution.jsx';
 import { Spinner } from './components/Spinner.jsx';
@@ -400,7 +400,7 @@ function nativeClipboardCommand(text) {
   return { cmd: 'xclip', args: ['-selection', 'clipboard'], input: text };
 }
 
-// Copy text to the OS clipboard using Claude Code's shape: send OSC 52 to the
+// Copy text to the OS clipboard: send OSC 52 to the
 // terminal, then use a native helper as a local safety net. OSC 52 preserves
 // Unicode via base64; the Windows helper avoids clip.exe's code-page mojibake.
 function copyToClipboard(text) {
@@ -443,6 +443,12 @@ function isAgentResponseResultText(text) {
 
 function isFullyFailedToolItem(item) {
   if (!item || item.kind !== 'tool') return false;
+  const args = item.args && typeof item.args === 'object' ? item.args : {};
+  const hasTaskId = Boolean(args.task_id || args.taskId);
+  const status = String(args.status || '').toLowerCase();
+  if (hasTaskId && /^(failed|error|timeout|cancelled|canceled|killed)$/.test(status)) {
+    return false;
+  }
   const count = Math.max(1, Number(item.count || 1));
   const done = Math.max(0, Math.min(count, Number(item.completedCount || (item.result == null ? 0 : count))));
   const explicit = Number(item.errorCount);
@@ -482,6 +488,34 @@ const TRANSCRIPT_WINDOW_OVERSCAN_ROWS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_OV
 
 const TRANSCRIPT_WINDOW_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS', 180);
 const SELECTION_PAINT_INTERVAL_MS = positiveIntEnv('MIXDOG_TUI_SELECTION_PAINT_MS', 24);
+
+// Parse a boolean env var that DEFAULTS ON. Any of 0/false/off/no (case-
+// insensitive, trimmed) disables it; everything else (including unset) leaves it
+// on. Used as the kill switch for the app-level measured-height feature below.
+function boolEnvDefaultTrue(name) {
+  const raw = process.env[name];
+  if (raw == null) return true;
+  const v = String(raw).trim().toLowerCase();
+  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
+}
+
+// App-level measured transcript heights (virtual-scroll height cache). When ON (default), each mounted transcript
+// row's REAL Yoga
+// getComputedHeight() replaces the row-count ESTIMATE in the scroll/window math,
+// so wheel scrolling moves REAL rows and stops juddering ("덜컥거림") on estimate
+// error (markdown tables, wrapped long tokens, tool-card growth). Off-screen
+// (never-measured) items keep the estimate; the overscan band absorbs that
+// residual in the overscan band.
+//
+// ESCAPE HATCH: set MIXDOG_TUI_TRANSCRIPT_MEASURED to 0/false/off/no to fall
+// back to the pure-estimate behavior. The measured path depends on two
+// invariants that the estimate is now hand-tuned to satisfy (see
+// estimateTranscriptItemRows: the tool branch includes the ToolExecution
+// wrapper marginTop so estimate≈measured and no row "settles" by +1), and on
+// anchor-aware scroll preservation (see the row-delta effect). If either drifts
+// after a UI change and the transcript starts jumping on measure, flip this off
+// to restore the previous estimate-only behavior with zero other code changes.
+const TRANSCRIPT_MEASURED_ROWS = boolEnvDefaultTrue('MIXDOG_TUI_TRANSCRIPT_MEASURED');
 
 function selectionRectsEqual(a, b) {
   if (a === b) return true;
@@ -561,6 +595,62 @@ function estimateMarkdownExtraRows(text) {
   return extra;
 }
 
+const BACKGROUND_TASK_TOOL_NAMES = new Set(['explore', 'search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']);
+
+function isBackgroundTaskToolName(normalizedName) {
+  return BACKGROUND_TASK_TOOL_NAMES.has(String(normalizedName || '').toLowerCase());
+}
+
+function parseBackgroundTaskResultForRows(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const allLines = text.split('\n');
+  const start = allLines.findIndex((line) => line.trim() === 'background task');
+  if (start < 0) return null;
+  const rest = allLines.slice(start + 1);
+  const blank = rest.findIndex((line) => !line.trim());
+  const headLines = blank >= 0 ? rest.slice(0, blank) : rest;
+  const body = blank >= 0 ? rest.slice(blank + 1).join('\n').trim() : '';
+  const fields = {};
+  for (const line of headLines) {
+    const match = /^([a-zA-Z][\w-]*):\s*(.*)$/.exec(line.trim());
+    if (match) fields[match[1].toLowerCase()] = match[2].trim();
+  }
+  const status = String(fields.status || '').toLowerCase();
+  return {
+    status,
+    body,
+    hasResponse: Boolean(body) && !/^(running|pending|queued)$/i.test(status),
+  };
+}
+
+function isBackgroundTaskResponseArgsForRows(normalizedName, args = {}) {
+  if (!isBackgroundTaskToolName(normalizedName)) return false;
+  const type = String(args?.type || args?.action || '').toLowerCase();
+  const status = String(args?.status || '').toLowerCase();
+  return type === 'result' || type === 'completion' || (/^(completed|failed|cancelled|canceled)$/i.test(status) && Boolean(args?.task_id));
+}
+
+// ToolExecution derives its background-task classification from
+// formatToolSurface(name, args).args — i.e. parseToolArgs(args), which unwraps a
+// JSON string or a `{ input: {...} }` envelope into the flat arg object. The
+// row estimate / variant key must read the SAME parsed shape, otherwise a tool
+// whose raw `args` is a JSON string or input-wrapped object is mis-classified
+// here (raw `args.type` is undefined) while ToolExecution treats it as a
+// background response — desyncing the reserved height. Parse once, cheaply, and
+// reuse for both the estimate branch and the variant key. parseToolArgs already
+// guards malformed input (returns {} / { value } without throwing).
+function backgroundArgsForRows(rawArgs) {
+  const parsed = parseToolArgs(rawArgs);
+  return parsed && typeof parsed === 'object' ? parsed : {};
+}
+
+function estimateToolRenderedResultRows(value) {
+  const text = String(value ?? '').replace(/\s+$/, '');
+  if (!text) return 1;
+  return Math.max(1, text.split('\n').length);
+}
+
 function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
   if (!item) return 1;
   switch (item.kind) {
@@ -575,38 +665,69 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
       return 1 + estimateWrappedRows(item.text, columns, 3) + estimateMarkdownExtraRows(item.text);
     case 'tool': {
       if (isFullyFailedToolItem(item)) return 0;
-      // Match ToolExecution's real layout so the estimated height does not jump
-      // when a tool result lands mid-scroll (which made the scroll-preservation
-      // effect over-correct and "튀게" the viewport):
-      //   - COLLAPSED: header(1) + exactly ONE detail row (the collapsed
-      //     status/summary line, or a reserved placeholder). The raw result is
-      //     NOT shown, so its line count must not inflate the estimate.
-      //   - EXPANDED: header(1) + detail-gutter(1) + the wrapped raw result rows.
+      // Match ToolExecution's real layout so the estimated height equals the
+      // MEASURED height — otherwise the row "settles" by a row the moment the
+      // app-level measured path replaces the estimate (the +1 jump). Every
+      // ToolExecution card is wrapped in `<Box marginTop={attached ? 0 : 1}>`
+      // and `Item` always passes attached={false} for tools, so the rendered
+      // card ALWAYS carries a 1-row top margin. Yoga folds that margin into the
+      // measured wrapper height, so the estimate MUST include it too. Layout:
+      //   - COLLAPSED/PENDING: margin(1) + header(1) + detail(1), except skill
+      //     surfaces which drop the ⎿ detail row → margin(1) + header(1).
+      //   - EXPANDED: margin(1) + header(1) + the raw/detail result rows.
+      // The pending pre-delay placeholder (ToolExecution returns blank Texts)
+      // mirrors these exactly: skill → 2 rows, everything else → 3 rows.
+      const TOOL_MARGIN_TOP = 1;
       const normalizedName = String(normalizeToolName(item.name) || '').toLowerCase();
       const count = Math.max(1, Number(item.count || 1));
       const done = Math.max(0, Math.min(count, Number(item.completedCount || (item.result == null ? 0 : count))));
       const pending = done < count;
       const isSkillSurface = !item.aggregate && SKILL_SURFACE_NAMES.has(normalizedName);
       const isAgentSurface = normalizedName === 'agent';
-      const hasResult = item.result != null && Boolean(String(item.result || '').trim());
+      const rt = item.result == null ? null : String(item.result).replace(/\s+$/, '');
+      const rawRt = item.rawResult == null ? null : String(item.rawResult).replace(/\s+$/, '');
+      const hasResult = item.result != null && Boolean(String(rt || '').trim());
+      const hasRawResult = item.rawResult != null && Boolean(String(rawRt || '').trim());
       const expanded = toolOutputExpanded || item.expanded;
       if (!expanded || pending) {
-        // Skill loads render as a single header row when collapsed (the detail
-        // row repeats the header name, so ToolExecution drops it). Match that
-        // here so the scroll window stays in lockstep and does not over-reserve.
-        // EVERY agent card is a single header row whether pending or completed —
-        // ToolExecution drops the ⎿ body for all of them AND the pending-delay
-        // placeholder reserves only 1 row for agent surfaces — so reserve
-        // exactly 1 row regardless of pending/hasResult. Otherwise the estimate
-        // (2) and the real render (1) diverge and the viewport jumps.
-        if (isSkillSurface || isAgentSurface) return 1;
-        return 2;
+        // Skill surfaces drop the ⎿ detail row (ToolExecution sets
+        // visibleDetailLines=[] for isSkillSurface), so margin + header only.
+        if (isSkillSurface) return TOOL_MARGIN_TOP + 1;
+        // Agent surfaces and every other collapsed/pending tool keep exactly one
+        // detail row (the pending placeholder, the agent brief, or the collapsed
+        // summary line), so margin + header + one detail row.
+        return TOOL_MARGIN_TOP + 1 + 1;
       }
-      // Expanded but no raw body to reveal: still a single header row.
-      if (isAgentSurface && !hasResult) return 1;
-      const resultText = item.aggregate ? (item.rawResult || item.result) : item.result;
-      const resultRows = resultText ? estimateWrappedRows(resultText, columns, 8) : 1;
-      return 2 + resultRows;
+      // Expanded agent card with no raw body to reveal: ToolExecution still
+      // shows one agent-brief detail line, so margin + header + one detail row.
+      if (isAgentSurface && !hasResult) return TOOL_MARGIN_TOP + 1 + 1;
+      // Expanded skill card with no raw body still suppresses the repeated
+      // detail row, same as collapsed skill cards.
+      if (isSkillSurface && !hasResult) return TOOL_MARGIN_TOP + 1;
+      if (item.aggregate) {
+        // Match ToolExecution aggregate rendering exactly:
+        // expanded cards only show multiline raw output when a rawResult exists;
+        // otherwise the normal detail/result is fitted into a single detail row.
+        if (hasRawResult) {
+          const resultRows = estimateToolRenderedResultRows(rawRt);
+          return TOOL_MARGIN_TOP + 1 + resultRows;
+        }
+        return TOOL_MARGIN_TOP + 1 + 1;
+      } else {
+        const backgroundMeta = hasResult && isBackgroundTaskToolName(normalizedName)
+          ? parseBackgroundTaskResultForRows(rt)
+          : null;
+        const isBackgroundResult = hasResult && isBackgroundTaskToolName(normalizedName);
+        const isBackgroundResponse = isBackgroundResult
+          && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgsForRows(normalizedName, backgroundArgsForRows(item.args)));
+        const isBackgroundMetadataResult = isBackgroundResult && !isBackgroundResponse && Boolean(backgroundMeta);
+        if (isBackgroundMetadataResult) {
+          return isSkillSurface ? TOOL_MARGIN_TOP + 1 : TOOL_MARGIN_TOP + 1 + 1;
+        }
+        const resultText = backgroundMeta?.hasResponse ? backgroundMeta.body : rt;
+        const resultRows = estimateToolRenderedResultRows(resultText);
+        return TOOL_MARGIN_TOP + 1 + resultRows;
+      }
     }
     case 'notice':
       return 1 + estimateWrappedRows(item.text, columns, 6);
@@ -640,6 +761,92 @@ function upperBound(values, target) {
   return lo;
 }
 
+// Anchor-aware scroll-preservation delta for measured-height corrections.
+//
+// The viewport is bottom-anchored, so `scrollOffset` counts ROWS UP FROM THE
+// BOTTOM and the absolute row at the viewport TOP edge is the reading anchor:
+//   anchorRow = totalRows - scrollOffset - viewRows.
+// When item heights change between commits (a new item appended at the bottom,
+// OR an older item's REAL measured height replacing its estimate), naively
+// folding the WHOLE totalRows delta into scrollOffset over-preserves: a height
+// correction that happens ABOVE the anchor would wrongly shove the viewport,
+// and successive corrections cascade into visible jumps as the user scrolls
+// into unmeasured history.
+//
+// Instead, map the anchor (an item index + offset within it) through the prev
+// frame's prefix rows to the cur frame's prefix rows. Changes ABOVE the anchor
+// move `prefix[idx]` and are absorbed so the anchor item stays put (no jump);
+// changes BELOW/at the anchor (bottom append, a result landing under the
+// reading position) shift the bottom and are fully folded into scrollOffset so
+// the top content stays stationary. Returns the row delta to ADD to the current
+// scrollOffset. Falls back to the whole-total delta when the prefix tables are
+// missing or the item indices cannot be aligned (item removal / mid-list insert
+// — rare for an append-mostly transcript), which is the previous behavior.
+function anchorPreserveDelta({
+  prevPrefix,
+  curPrefix,
+  prevTotal,
+  curTotal,
+  scrollOffset,
+  viewRows,
+  fallbackDelta,
+}) {
+  if (!Array.isArray(prevPrefix) || !Array.isArray(curPrefix)) return fallbackDelta;
+  const prevItemCount = prevPrefix.length - 1;
+  const curItemCount = curPrefix.length - 1;
+  if (prevItemCount < 1 || curItemCount < 1) return fallbackDelta;
+  // Anchor = absolute row at the viewport top edge in the PREV coordinate.
+  const anchorRowPrev = Math.max(0, Math.min(prevTotal, prevTotal - scrollOffset - viewRows));
+  let idx = upperBound(prevPrefix, anchorRowPrev) - 1;
+  if (idx < 0) idx = 0;
+  if (idx > prevItemCount - 1) idx = prevItemCount - 1;
+  // The anchor item must exist at the SAME index in the cur frame. Appends are
+  // at the end, so an older anchor idx aligns; if the item count shrank past it
+  // (removal) or the cur table is too short, bail to the safe whole-delta path.
+  if (idx > curItemCount - 1) return fallbackDelta;
+  const prevStart = prevPrefix[idx];
+  const curStart = curPrefix[idx];
+  if (!Number.isFinite(prevStart) || !Number.isFinite(curStart)) return fallbackDelta;
+  const offsetInItem = anchorRowPrev - prevStart;
+  const curItemHeight = Math.max(0, curPrefix[idx + 1] - curStart);
+  const clampedOffset = Math.max(0, Math.min(offsetInItem, curItemHeight));
+  const anchorRowCur = curStart + clampedOffset;
+  const desiredScrollOffset = curTotal - viewRows - anchorRowCur;
+  return desiredScrollOffset - scrollOffset;
+}
+
+// Cheap, stable height fingerprint for a text blob. Row estimates depend on the
+// LINE SHAPE (how many '\n'-separated lines and how each wraps), not just the
+// raw character count, so a same-LENGTH edit that redistributes newlines or
+// swaps content for a differently-wrapping string would otherwise be collapsed
+// by a length-only key and serve a STALE row count / structure signature.
+// Capture three cheap, order-sensitive signals: total display-relevant length,
+// the newline count (line-shape), and an FNV-1a 32-bit rolling hash of the
+// content (collision-resistant enough for cache validation, O(n) once, never
+// embeds the whole string in the signature). null/undefined → a stable sentinel
+// so a null→"" transition is never confused with unchanged.
+function fnv1a32(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    // h *= 16777619, kept in 32-bit unsigned space.
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h >>> 0;
+}
+
+function textShapeFingerprint(value) {
+  if (value == null) return 'z';
+  const text = String(value);
+  const len = text.length;
+  if (len === 0) return 'e';
+  let newlines = 0;
+  for (let i = 0; i < len; i++) {
+    if (text.charCodeAt(i) === 10) newlines++;
+  }
+  return `${len}.${newlines}.${fnv1a32(text).toString(36)}`;
+}
+
 // Per-item cache validation key. This MUST contain EVERY item field that
 // `estimateTranscriptItemRows` (and `isFullyFailedToolItem`, which it calls)
 // reads, so any height-affecting change invalidates both the row-count cache
@@ -648,20 +855,39 @@ function upperBound(values, target) {
 // cache's `toolExpanded` field). For tool items the estimate uses `rawResult`
 // when expanded and `result` otherwise, and the fully-failed check reads
 // count/completedCount/errorCount/isError plus whether `result` is null — all
-// captured here. `result` length is encoded as -1 when null so a null→"" change
-// (which flips the fully-failed `done` count) is never collapsed.
+// captured here. Background-task response classification also reads a tiny args
+// subset, so include it too. Text/result/rawResult are folded in as a cheap
+// SHAPE fingerprint (length + newline count + FNV-1a hash) rather than length
+// alone, so a same-length edit that changes newline distribution or content
+// (which changes the rendered row count) invalidates both the row cache and the
+// structure signature instead of serving a stale height. The normalized tool
+// NAME and `aggregate` are included because the tool estimate branches on the
+// surface (skill/agent/background) and on aggregate vs normal.
 function transcriptItemVariantKey(item) {
   const expanded = item.expanded ? 1 : 0;
   if (item.kind === 'tool') {
-    const resultLen = item.result == null ? -1 : String(item.result).length;
-    const rawLen = item.rawResult == null ? -1 : String(item.rawResult).length;
+    const resultShape = textShapeFingerprint(item.result);
+    const rawShape = textShapeFingerprint(item.rawResult);
     const count = Number(item.count ?? 0);
     const completed = item.completedCount === undefined ? 'u' : Number(item.completedCount);
     const errors = item.errorCount === undefined ? 'u' : Number(item.errorCount);
     const isError = item.isError ? 1 : 0;
-    return `x${expanded}:r${resultLen}:R${rawLen}:c${count}:d${completed}:e${errors}:E${isError}`;
+    const normalizedName = String(normalizeToolName(item.name) || '').toLowerCase();
+    const aggregate = item.aggregate ? 1 : 0;
+    // Read the PARSED args (same shape ToolExecution/estimate use) so a JSON
+    // string or `{ input: {...} }` envelope contributes its real type/action/
+    // status/task_id to the key — otherwise a patched item that only changes
+    // those (which flips background metadata↔response and the reserved height)
+    // would keep a stale variant key and serve a stale row count.
+    const bgArgs = backgroundArgsForRows(item.args);
+    const bgType = String(bgArgs.type || bgArgs.action || '');
+    const bgStatus = String(bgArgs.status || '');
+    const bgTaskId = bgArgs.task_id ? 1 : 0;
+    return `x${expanded}:n${normalizedName}:g${aggregate}:r${resultShape}:R${rawShape}:c${count}:d${completed}:e${errors}:E${isError}:bt${bgType}:bs${bgStatus}:bk${bgTaskId}`;
   }
-  return `x${expanded}:l${String(item.text ?? item.result ?? '').length}`;
+  // user/assistant/notice: row count depends on the text's line SHAPE (newline
+  // distribution + wrap), so fingerprint the content rather than length alone.
+  return `x${expanded}:s${textShapeFingerprint(item.text ?? item.result ?? '')}`;
 }
 
 // Per-item ESTIMATED ROW COUNT cache for buildTranscriptRowIndex. The prefix-sum
@@ -677,6 +903,35 @@ function transcriptItemVariantKey(item) {
 // Streaming assistant items are never cached — their height can change between
 // flushes — so the values stay 100% identical to the uncached implementation.
 const transcriptRowsCache = new WeakMap();
+
+// ── App-level MEASURED row heights (ScrollBox/useVirtualScroll-inspired
+// heightCache) ────────────────────────────────────────────────────────────────
+// Keyed on the transcript item OBJECT (stable until engine.mjs swaps it on a
+// patch — a patched item legitimately changed height, so a cache miss → re-
+// measure is correct). Stores the REAL Yoga getComputedHeight() of the row the
+// last time it was mounted, validated on the same (variantKey + columns +
+// toolExpanded) tuple as the estimate caches so a stale measurement can never be
+// served. The App writes this from a per-commit layout effect; the row-index
+// build reads it via measuredTranscriptRows() so the scroll/window math is in
+// REAL rows instead of estimated rows — which is what removes the scroll judder
+// when an item's true height (markdown table, wrapped long token, settled tool
+// card) differs from its estimate. Streaming assistant items are intentionally
+// NEVER measured here: their height churns every flush, so they keep the
+// quantized estimate (the bottom-follow path keeps them visually stable).
+const transcriptMeasuredRowsCache = new WeakMap();
+
+function measuredTranscriptRows(item, columns, toolOutputExpanded) {
+  if (!TRANSCRIPT_MEASURED_ROWS || !item) return null;
+  if (isFullyFailedToolItem(item)) return 0;
+  if (item.kind === 'assistant' && item.streaming) return null;
+  const entry = transcriptMeasuredRowsCache.get(item);
+  if (!entry) return null;
+  if (entry.rows <= 0) return null;
+  if (entry.columns !== columns) return null;
+  if (entry.toolExpanded !== (toolOutputExpanded ? 1 : 0)) return null;
+  if (entry.variantKey !== transcriptItemVariantKey(item)) return null;
+  return entry.rows;
+}
 
 // Streaming assistant items re-estimate their height every flush (~8ms). Tiny
 // per-character / incomplete-markdown fluctuation (a transient `\n\n` block gap,
@@ -695,6 +950,7 @@ function streamingEstimateRows(item, columns, toolOutputExpanded) {
 
 function estimateTranscriptItemRowsCached(item, columns, toolOutputExpanded) {
   if (!item) return Math.max(1, Math.ceil(estimateTranscriptItemRows(item, columns, toolOutputExpanded)));
+  if (isFullyFailedToolItem(item)) return 0;
   if (item.kind === 'assistant' && item.streaming) {
     return streamingEstimateRows(item, columns, toolOutputExpanded);
   }
@@ -720,7 +976,16 @@ function buildTranscriptRowIndex(items, { columns = 80, toolOutputExpanded = fal
   const prefixRows = new Array(allItems.length + 1);
   prefixRows[0] = 0;
   for (let i = 0; i < allItems.length; i++) {
-    const rowCount = estimateTranscriptItemRowsCached(allItems[i], columns, toolOutputExpanded);
+    // Prefer the app-level MEASURED height (real Yoga rows) when available; fall
+    // back to the estimate for items that are off-screen / never mounted. This
+    // is the core of the ScrollBox-inspired fix: the prefix-sum the scroll/window
+    // math is built on now tracks the REAL on-screen height of every visible
+    // row, so wheel scrolling no longer judders when an estimate is wrong.
+    const item = allItems[i];
+    const measured = measuredTranscriptRows(item, columns, toolOutputExpanded);
+    const rowCount = measured != null
+      ? measured
+      : estimateTranscriptItemRowsCached(item, columns, toolOutputExpanded);
     rows[i] = rowCount;
     prefixRows[i + 1] = prefixRows[i] + rowCount;
   }
@@ -751,9 +1016,10 @@ function buildTranscriptRowIndex(items, { columns = 80, toolOutputExpanded = fal
 // assistant items still recompute their estimated height every call because
 // their height can change between flushes. The cache key is validated on
 // the SAME `transcriptItemVariantKey` (id/kind/expanded + text/result length,
-// or for tool items rawResult length + count/completedCount/errorCount/isError)
-// plus `columns`, so any field `estimateTranscriptItemRows` reads is folded in
-// and a stale sigPart can never be served. This is critical: the consuming
+// or for tool items rawResult length + count/completedCount/errorCount/isError +
+// the background-task args subset) plus `columns`, so any field
+// `estimateTranscriptItemRows` reads is folded in and a stale sigPart can never
+// be served. This is critical: the consuming
 // row-index memo only rebuilds when THIS signature changes, so missing a
 // height-affecting field here would freeze a stale row count.
 const transcriptSigPartCache = new WeakMap();
@@ -880,6 +1146,54 @@ export function App({ store, initialStatusLine = '' }) {
   const scrollAnimationRef = useRef(null);
   const transcriptTotalRowsRef = useRef(0);
   const preservedScrollDeltaRef = useRef(0);
+  // Snapshot of the PREVIOUS commit's prefix-row table, used by the row-delta
+  // effect to preserve the reading anchor across measured-height corrections
+  // (see that effect for the math). A separate layout effect refreshes it AFTER
+  // the row-delta effect each commit, so the delta effect always reads the prior
+  // frame's prefix rows.
+  const transcriptPrevPrefixRowsRef = useRef(null);
+  // App-level measured row heights (ScrollBox/useVirtualScroll-inspired). The map of
+  // mounted item id → ink DOM element is read every commit to harvest each
+  // row's REAL Yoga height into transcriptMeasuredRowsCache. measuredRowsVersion
+  // is bumped whenever a height actually changes so the row-index/window memos
+  // recompute against the corrected heights (one-frame lag, absorbed by the
+  // overscan band).
+  const transcriptItemElsRef = useRef(new Map());
+  const transcriptMeasureRefCache = useRef(new Map());
+  // id → latest item object for this render. The callback ref reads from here so
+  // a reused (stable) callback never captures a stale item across patches.
+  const transcriptMeasureItemsRef = useRef(new Map());
+  const [measuredRowsVersion, setMeasuredRowsVersion] = useState(0);
+  // Stable per-item callback-ref factory: storing the element under the item id
+  // (and reading the live item object from transcriptMeasureItemsRef) avoids the
+  // ref-swap churn React would otherwise cause with an inline closure each
+  // render, while never serving a stale item: the callback resolves the current
+  // item by id at call time. The ref(null) path drops the element; the harvest
+  // reads getComputedHeight from whatever is mounted, so an unmount simply stops
+  // contributing (its last measurement stays cached on the item object).
+  const transcriptMeasureRef = useCallback((item) => {
+    if (!TRANSCRIPT_MEASURED_ROWS || !item || item.id == null) return undefined;
+    if (isFullyFailedToolItem(item)) {
+      transcriptMeasuredRowsCache.delete(item);
+      transcriptItemElsRef.current.delete(item.id);
+      transcriptMeasureItemsRef.current.delete(item.id);
+      return undefined;
+    }
+    const key = item.id;
+    transcriptMeasureItemsRef.current.set(key, item);
+    let fn = transcriptMeasureRefCache.current.get(key);
+    if (!fn) {
+      fn = (el) => {
+        if (el) {
+          transcriptItemElsRef.current.set(key, el);
+        } else {
+          transcriptItemElsRef.current.delete(key);
+        }
+      };
+      transcriptMeasureRefCache.current.set(key, fn);
+    }
+    return fn;
+  }, []);
   // Auto-follow is separate from manual scroll. While true, new transcript rows
   // (new items or streaming text wrapping to another line) are folded into the
   // same glide back to the bottom.
@@ -1538,7 +1852,7 @@ export function App({ store, initialStatusLine = '' }) {
     return true;
   }, [store, promptDraft, showPromptHint, clearPromptHint, installPastedImages]);
 
-  // ESC / Up handling (Claude Code parity — refs/claude-code/src/components/PromptInput/PromptInput.tsx):
+  // ESC / Up handling (prompt input):
   // - prompt-local overlays such as the slash palette close first.
   // - queued editable messages pop back into the prompt before clear/interrupt.
   // - non-empty prompt text is cleared by PromptInput and must never interrupt
@@ -1556,7 +1870,7 @@ export function App({ store, initialStatusLine = '' }) {
     if (meta.phase === 'empty') {
       return restoreQueuedToPrompt({ restoreDraft: true, showHint: false, currentText: text });
     }
-    // Idle + empty + nothing to restore: nothing (Claude Code: double-press from empty
+    // Idle + empty + nothing to restore: nothing (double-press from empty
     // opens message selector, but we don't have that feature yet).
     return false;
   }, [contextPanel, usagePanel, closeUsagePanel, restoreQueuedToPrompt, clearPromptHint, clearPastedImagesSnapshot]);
@@ -1573,7 +1887,7 @@ export function App({ store, initialStatusLine = '' }) {
     return nextText;
   }, [store, clearPromptHint, installPastedImages]);
 
-  // Ctrl+O toggles the global tool-output expansion, matching the Claude/Pi
+  // Ctrl+O toggles the global tool-output expansion, matching common terminal-chat
   // expectation that this is a view mode rather than a per-card hidden state.
   const toggleExpand = useCallback(() => {
     setToolOutputExpanded((expanded) => !expanded);
@@ -1781,8 +2095,8 @@ export function App({ store, initialStatusLine = '' }) {
 
   const providerDisplayName = (provider) => {
     const key = String(provider || '').toLowerCase();
-    if (key === 'openai-oauth') return 'Codex';
-    if (key === 'anthropic-oauth') return 'Claude Code';
+    if (key === 'openai-oauth') return 'OpenAI OAuth';
+    if (key === 'anthropic-oauth') return 'Anthropic OAuth';
     if (key === 'grok-oauth') return 'Grok Build';
     if (key === 'openai' || key === 'openai-api') return 'OpenAI API';
     if (key === 'anthropic' || key === 'anthropic-api') return 'Anthropic API';
@@ -5662,7 +5976,7 @@ export function App({ store, initialStatusLine = '' }) {
   //                  − live status     (thinking / spinner / TurnDone)
   //                  − queued prompts  (marginTop 1 + N rows, only when queued)
   //                  − input box       (marginTop 1 + 2 border + 1 content)
-  //                  − statusline      (reserved L1 + spacer + L2; total 3 rows)
+  //                  − statusline      (reserved L1 + L2 + outer gap; total 3 rows)
   //
   // Every sibling outside the viewport must be accounted for here; otherwise
   // the total tree height exceeds the terminal and the input box gets pushed.
@@ -5679,7 +5993,7 @@ export function App({ store, initialStatusLine = '' }) {
   const toastHint = latestToast ? latestToast.text : '';
   const inputHint = promptHint || toastHint;
   const inputHintTone = promptHint ? promptHintTone : (latestToast?.tone || 'info');
-  const promptMetaRows = !inputBoxHidden && liveSpinner ? 1 : 0;
+  const promptMetaRows = !inputBoxHidden && liveSpinner ? (slashPaletteOpen ? 1 : 2) : 0;
   const SCROLL_HINT_ROWS = 0;
   const LIVE_STATUS_ROWS = 0;
   // The standalone prompt box is 3 rows (round border + one input line). Normal
@@ -5753,8 +6067,8 @@ export function App({ store, initialStatusLine = '' }) {
   const transcriptRowIndex = useMemo(() => buildTranscriptRowIndex(state.items, {
     columns: frameColumns,
     toolOutputExpanded,
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: sig captures the relevant item changes
-  }), [transcriptStructureSig]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: sig captures the relevant item changes; measuredRowsVersion folds in app-level measured height corrections
+  }), [transcriptStructureSig, measuredRowsVersion]);
   const transcriptWindow = useMemo(() => transcriptRenderWindow(state.items, {
     scrollOffset,
     viewportHeight,
@@ -5779,12 +6093,88 @@ export function App({ store, initialStatusLine = '' }) {
     && !!inputHint
     && transcriptWindow.bottomSpacerRows === 0
     && transcriptWindow.endIndex >= state.items.length;
+  // ── App-level measured height harvest (ScrollBox/useVirtualScroll-inspired) ─
+  // Runs after EVERY commit (no deps): Yoga has just laid out the mounted rows,
+  // so each tracked item Box's getComputedHeight() is its REAL terminal height.
+  // Fold those into transcriptMeasuredRowsCache (validated on the same variant
+  // key the estimate caches use) and bump measuredRowsVersion only when a height
+  // actually changed — that re-runs the row-index/window memos against corrected
+  // heights, then the harvest finds nothing new and the loop settles (one frame,
+  // overscan-absorbed). Streaming
+  // assistant rows are skipped: their height churns every flush and the bottom-
+  // follow path already keeps them visually stable.
+  useLayoutEffect(() => {
+    if (!TRANSCRIPT_MEASURED_ROWS) return;
+    const els = transcriptItemElsRef.current;
+    if (!els || els.size === 0) return;
+    const liveItems = transcriptMeasureItemsRef.current;
+    const toolExpandedFlag = toolOutputExpanded ? 1 : 0;
+    let changed = false;
+    for (const [key, el] of els.entries()) {
+      const item = liveItems.get(key);
+      const yoga = el?.yogaNode;
+      if (!item || !yoga) continue;
+      if (isFullyFailedToolItem(item)) {
+        if (transcriptMeasuredRowsCache.delete(item)) changed = true;
+        continue;
+      }
+      if (item.kind === 'assistant' && item.streaming) continue;
+      // Width 0 = Yoga has not laid this node out yet this frame; skip so a
+      // transient 0 never poisons the cache (mirrors useVirtualScroll's
+      // getComputedWidth()>0 guard).
+      if (typeof yoga.getComputedWidth === 'function' && yoga.getComputedWidth() <= 0) continue;
+      const rawMeasured = Math.round(Number(yoga.getComputedHeight?.()) || 0);
+      if (rawMeasured <= 0) {
+        if (transcriptMeasuredRowsCache.delete(item)) changed = true;
+        continue;
+      }
+      const measured = Math.max(1, rawMeasured);
+      const variantKey = transcriptItemVariantKey(item);
+      const prev = transcriptMeasuredRowsCache.get(item);
+      if (prev
+        && prev.rows === measured
+        && prev.columns === frameColumns
+        && prev.toolExpanded === toolExpandedFlag
+        && prev.variantKey === variantKey) {
+        continue;
+      }
+      transcriptMeasuredRowsCache.set(item, {
+        rows: measured,
+        columns: frameColumns,
+        toolExpanded: toolExpandedFlag,
+        variantKey,
+      });
+      changed = true;
+    }
+    if (changed) setMeasuredRowsVersion((v) => (v + 1) % 1000000);
+    // Prune the id→item / id→callback maps to the currently-mounted set so they
+    // do not grow unbounded over a long session. `els` is the live mounted set
+    // (ref(null) deletes on unmount), so anything not in it is gone.
+    if (liveItems.size > els.size) {
+      for (const key of liveItems.keys()) {
+        if (!els.has(key)) liveItems.delete(key);
+      }
+    }
+    const refCache = transcriptMeasureRefCache.current;
+    if (refCache.size > els.size) {
+      for (const key of refCache.keys()) {
+        if (!els.has(key)) refCache.delete(key);
+      }
+    }
+  });
   useLayoutEffect(() => {
     const totalRows = Math.max(0, Number(transcriptWindow.totalRows) || 0);
     const previousTotalRows = Math.max(0, Number(transcriptTotalRowsRef.current) || 0);
     transcriptTotalRowsRef.current = totalRows;
     const rowDelta = totalRows - previousTotalRows;
-    if (previousTotalRows <= 0 || rowDelta === 0 || dragRef.current.active) return;
+    // Snapshot the prefix-row tables for anchor-aware preservation below. The
+    // PREV table is whatever the last commit stored; update the ref to the CUR
+    // table for the next commit. (Reads happen before the write so the delta
+    // effect always sees the prior frame.)
+    const curPrefix = transcriptRowIndex?.prefixRows || null;
+    const prevPrefix = transcriptPrevPrefixRowsRef.current;
+    transcriptPrevPrefixRowsRef.current = curPrefix;
+    if (previousTotalRows <= 0 || dragRef.current.active) return;
 
     const currentTarget = Math.max(0, Number(scrollTargetRef.current) || 0);
     const currentPosition = Math.max(0, Number(scrollPositionRef.current) || 0);
@@ -5792,9 +6182,9 @@ export function App({ store, initialStatusLine = '' }) {
     const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
     const pinnedToBottom = currentTarget <= 0 && currentPosition <= 0 && currentOffset <= 0;
     const followOnGrowth = followingRef.current && rowDelta > 0;
-    const shouldFollowBottom = followOnGrowth || pinnedToBottom;
+    const shouldFollowBottom = rowDelta > 0 && (followOnGrowth || pinnedToBottom);
     if (shouldFollowBottom) {
-      // Claude Code-style bottom follow: while pinned to the newest output,
+      // Bottom follow: while pinned to the newest output,
       // do NOT animate row growth. The viewport is already bottom-aligned by
       // justifyContent:flex-end; injecting a temporary positive scroll offset
       // during streaming makes the transcript jump down/up and can clip the
@@ -5810,8 +6200,23 @@ export function App({ store, initialStatusLine = '' }) {
 
     // User is reading older transcript. Preserve their visual anchor by folding
     // row growth/shrink into the manual scroll offset instead of snapping back
-    // to the bottom.
-    const nextTarget = Math.max(0, Math.min(maxRows, currentTarget + rowDelta));
+    // to the bottom. Use the ANCHOR-AWARE delta (not the whole-total delta): a
+    // height correction ABOVE the reading anchor is absorbed so the anchored
+    // item stays put, while a change BELOW/at the anchor (bottom append, a
+    // result landing under the reading position) is folded into scrollOffset so
+    // the top content stays stationary. This is what stops over-preservation and
+    // the cascading jump when scrolling into old, still-unmeasured history.
+    const viewRows = Math.max(1, Number(viewportHeight) || 1);
+    const preserveDelta = anchorPreserveDelta({
+      prevPrefix,
+      curPrefix,
+      prevTotal: previousTotalRows,
+      curTotal: totalRows,
+      scrollOffset: currentTarget,
+      viewRows,
+      fallbackDelta: rowDelta,
+    });
+    const nextTarget = Math.max(0, Math.min(maxRows, currentTarget + preserveDelta));
     const appliedDelta = nextTarget - currentTarget;
     if (appliedDelta === 0) return;
 
@@ -5820,7 +6225,7 @@ export function App({ store, initialStatusLine = '' }) {
     scrollPositionRef.current = Math.max(0, Math.min(maxRows, currentPosition + appliedDelta));
     preservedScrollDeltaRef.current += appliedDelta;
     setScrollOffset(Math.max(0, Math.round(Math.min(maxRows, currentOffset + appliedDelta))));
-  }, [transcriptWindow.totalRows, transcriptWindow.maxScrollRows, scrollOffset, stopSmoothScroll]);
+  }, [transcriptWindow.totalRows, transcriptWindow.maxScrollRows, transcriptRowIndex, viewportHeight, scrollOffset, stopSmoothScroll]);
   useLayoutEffect(() => {
     const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
     const next = {
@@ -5957,9 +6362,9 @@ export function App({ store, initialStatusLine = '' }) {
              const showRightMessage = attachInputHintToTurnDone
                && i === arr.length - 1
                && (item.kind === 'turndone' || item.kind === 'statusdone');
-             return (
+             const measureRef = transcriptMeasureRef(item);
+             const itemNode = (
                <Item
-                 key={item.id}
                  item={item}
                  prevKind={i > 0 ? arr[i - 1].kind : state.items[transcriptWindow.startIndex - 1]?.kind ?? null}
                  columns={frameColumns}
@@ -5968,6 +6373,18 @@ export function App({ store, initialStatusLine = '' }) {
                  rightTone={inputHintTone}
                  rightMessageWidth={transientStatusWidth || 24}
                />
+             );
+             // When measured-rows is on, wrap each row in a zero-cost flex column
+             // whose ref exposes the row's REAL Yoga height to the harvest effect.
+             // The wrapper adds no rows of its own (it shrink-wraps the child) and
+             // is omitted entirely when the feature is disabled so the default
+             // render tree is byte-for-byte unchanged on the off path.
+             return measureRef ? (
+               <Box key={item.id} ref={measureRef} flexDirection="column" flexShrink={0}>
+                 {itemNode}
+               </Box>
+             ) : (
+               <React.Fragment key={item.id}>{itemNode}</React.Fragment>
              );
            })}
            {transcriptWindow.bottomSpacerRows > 0 ? (

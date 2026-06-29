@@ -1,5 +1,5 @@
 /**
- * OpenAI Codex OAuth — WebSocket transport.
+ * OpenAI OAuth subscription — WebSocket transport.
  *
  * Single dispatch path for the openai-oauth provider (SSE removed in
  * v0.6.117). Uses the `responses_websockets=2026-02-06` beta WebSocket
@@ -91,13 +91,13 @@ const HANDSHAKE_BACKOFF_BASE_MS = 500;
 const HANDSHAKE_BACKOFF_CAP_MS = 5000;
 // WS socket pool buckets are keyed by `poolKey` (the per-call sessionId)
 // to isolate parallel agent invocations — each gets its own socket so
-// a second caller cannot grab a sibling's mid-turn entry (Codex would
+// a second caller cannot grab a sibling's mid-turn entry (openai-oauth would
 // otherwise reject the new response.create with "No tool output found
-// for function call ..."). The Codex handshake `session_id` header/URL
+// for function call ..."). The handshake `session_id` header/URL
 // uses `cacheKey` — a prefix-scoped cache key derived from the configured
 // provider namespace plus model/system/tools hash. Same-prefix sessions share
 // server-side prompt cache, while unrelated main/worker prefixes no longer
-// evict each other inside one static provider lane. Codex dedupes cache by
+// evict each other inside one static provider lane. The backend dedupes cache by
 // handshake session_id, not by body.prompt_cache_key alone (measured
 // 2026-04-19 after the v0.6.151 regression).
 const MAX_POOLED_SOCKETS_PER_KEY = 8;
@@ -108,10 +108,10 @@ const MAX_POOLED_SOCKETS_PER_KEY = 8;
 //          closing, ephemeral }
 const _wsPool = new Map();
 
-// Final prompt_cache_key/session_id lane guard for OpenAI/Codex transports.
+// Final prompt_cache_key/session_id lane guard for OpenAI OAuth transports.
 // The provider code may shard one logical prefix into N cache keys for 10+
 // total parallelism; inside each final key we still serialize requests because
-// live Codex probes show same-key concurrent WebSockets can randomly miss the
+// Live probes show same-key concurrent WebSockets can randomly miss the
 // server prompt cache even after warm-up.
 const _openAiPromptCacheLanes = new Map();
 const _openAiPromptCacheLaneRates = new Map();
@@ -694,14 +694,14 @@ function _buildHandshakeHeaders({ auth, sessionToken, turnState, cacheKey: _cach
     return headers;
 }
 
-// handshake session_id is the conversation slot Codex uses for in-memory
+// handshake session_id is the conversation slot openai-oauth uses for in-memory
 // prefix state. All orchestrator-internal dispatches for this provider share
 // the same cacheKey (built in manager.mjs via providerCacheKey()), so they
 // share the server-side prefix-cache shard across roles/sources.
 function _mintSessionToken(cacheKey, auth) {
     // xAI's public WebSocket endpoint uses the open connection plus
-    // response ids for continuation; unlike Codex, it does not need the
-    // Codex-specific session_id handshake shard.
+    // response ids for continuation; unlike openai-oauth, it does not need the
+    // OAuth-specific session_id handshake shard.
     if (auth?.type === 'xai') return null;
     return cacheKey || 'mixdog-default';
 }
@@ -812,7 +812,7 @@ async function acquireWebSocket({ auth, poolKey, cacheKey, forceFresh, externalS
     }
     if (externalSignal?.aborted) {
         const reason = externalSignal.reason;
-        throw reason instanceof Error ? reason : new Error('Codex WS acquire aborted');
+        throw reason instanceof Error ? reason : new Error('OpenAI OAuth WS acquire aborted');
     }
     if (poolKey && !forceFresh) {
         const arr = _wsPool.get(poolKey) || [];
@@ -874,7 +874,7 @@ async function acquireWebSocket({ auth, poolKey, cacheKey, forceFresh, externalS
             return { entry, reused: false };
         }
     }
-    // Parallel sockets must not inherit sibling turnState or the Codex server
+    // Parallel sockets must not inherit sibling turnState or the openai-oauth server
     // treats the new request as a continuation of another in-flight turn and
     // returns "No tool output found for function call …". turnState only
     // propagates within a single entry across its own iterations.
@@ -1186,10 +1186,10 @@ function _httpStatusFromWsClose(code, reason) {
 function _wsErrLabel(p) {
     if (p === 'xai') return 'xAI WS';
     if (p === 'openai-direct' || p === 'openai') return 'OpenAI WS';
-    return 'Codex WS';
+    return 'OpenAI OAuth WS';
 }
 // tool_search_call.arguments parse. Module-scope (exported) for direct test
-// coverage. Native convergence (Codex / claude-code / opencode): same policy
+// coverage. Native convergence (openai-oauth / anthropic-oauth / opencode): same policy
 // as the function_call_arguments.done path and openai-oauth _parseJsonObject —
 // object passes through; null/non-string/empty/whitespace → {} (no args); a
 // non-empty string that fails JSON.parse is deterministic bad JSON, surfaced
@@ -1240,7 +1240,7 @@ export async function _streamResponse({
     // from response.completed.response.output). The request still includes
     // `reasoning.encrypted_content` so the server keeps emitting the blobs,
     // but explicit input-side replay is INTENTIONALLY OMITTED in
-    // convertMessagesToResponsesInput (openai-oauth.mjs:233-238) — Codex
+    // convertMessagesToResponsesInput (openai-oauth.mjs:233-238) — openai-oauth
     // rejects the same `rs_*` id twice in one handshake session_id with a
     // "Duplicate item" error. Server-side conversation state already carries
     // the prefix forward across the WS_IDLE_MS window. The collected
@@ -1378,7 +1378,7 @@ export async function _streamResponse({
         // window is intentionally short (~25s). Once response.created (or
         // any other meaningful event) arrives, the timer is cancelled and
         // the longer inter-chunk inactivity watchdog takes over — silent
-        // gaps mid-reasoning (Codex spending 50s+ producing reasoning
+        // gaps mid-reasoning (openai-oauth spending 50s+ producing reasoning
         // tokens) are normal and should not abort the turn.
         const armPreStreamWatchdog = () => {
             if (idleTimer) clearTimeout(idleTimer);
@@ -1487,7 +1487,7 @@ export async function _streamResponse({
         };
         // Called on every event that carries real output tokens or tool
         // progress. `response.created` is only an ACK and must not count here:
-        // a wedged Codex stream can ACK immediately and then never produce
+        // a wedged openai-oauth stream can ACK immediately and then never produce
         // text/reasoning/tool deltas, holding the prompt-cache lane for the
         // full inter-chunk window.
         const onMeaningfulOutput = () => {
@@ -1675,7 +1675,7 @@ export async function _streamResponse({
                     // function_call / output_text already captured via their
                     // dedicated streaming events. The one shape we still need
                     // here is `reasoning` — carries encrypted_content that
-                    // must be replayed on the next input to keep the Codex
+                    // must be replayed on the next input to keep the openai-oauth
                     // server-side prompt cache prefix warm.
                     if (event.item?.type === 'reasoning') pushReasoningItem(event.item);
                     if (event.item?.type === 'web_search_call') pushWebSearchCall(event.item);
@@ -1700,7 +1700,7 @@ export async function _streamResponse({
                             inputTokens: u.input_tokens || 0,
                             outputTokens: u.output_tokens || 0,
                             cachedTokens: extractCachedTokens(u),
-                            // OpenAI Codex reports input_tokens as the total
+                            // openai-oauth reports input_tokens as the total
                             // prompt volume (cached portion is a subset, not
                             // additive). Alias into the cross-provider
                             // `promptTokens` field so downstream loggers have
@@ -1779,7 +1779,7 @@ export async function _streamResponse({
                     break;
                 }
                 case 'response.done': {
-                    // response.done is the terminal frame for some Codex
+                    // response.done is the terminal frame for some openai-oauth
                     // streams that never emit a separate response.completed.
                     // Route through the same completed/failed/incomplete
                     // normalization based on event.response.status so a
@@ -1903,7 +1903,7 @@ export async function _streamResponse({
                 const r = reason?.toString?.('utf-8') || '';
                 const httpStatus = _httpStatusFromWsClose(code, r);
                 terminalError = Object.assign(
-                    new Error(`Codex WS closed before response.completed (code=${code}${r ? `, reason=${r}` : ''})`),
+                    new Error(`OpenAI OAuth WS closed before response.completed (code=${code}${r ? `, reason=${r}` : ''})`),
                     { wsCloseCode: code, wsCloseReason: r, ...(httpStatus ? { httpStatus } : {}) },
                 );
             } else if (terminalError && !terminalError.wsCloseCode) {
@@ -1939,7 +1939,7 @@ export async function _streamResponse({
             abortHandler = () => {
                 if (done) return;
                 const reason = externalSignal.reason;
-                terminalError = reason instanceof Error ? reason : new Error('Codex WS aborted by session close');
+                terminalError = reason instanceof Error ? reason : new Error('OpenAI OAuth WS aborted by session close');
                 // Tag: was this a user/caller abort, or a watchdog abort?
                 // Mid-stream retry must skip user aborts but may retry watchdog
                 // aborts. The caller-owned AbortController surfaces through
@@ -1963,7 +1963,7 @@ export async function _streamResponse({
         socket.on('close', closeHandler);
         socket.on('error', errorHandler);
         armPreStreamWatchdog();
-        // Periodic client-side WS ping while the stream is active. Codex's
+        // Periodic client-side WS ping while the stream is active. The server's
         // server closes with 1011 "keepalive ping timeout" when it thinks the
         // peer is silent during long reasoning windows where no data frames
         // flow. Sending a ping every 18s from our side keeps the socket warm.
@@ -2213,7 +2213,7 @@ async function _sleepWithAbort(ms, externalSignal, sleepFn = _defaultSleep) {
         const onAbort = () => {
             clearTimeout(t);
             const reason = externalSignal.reason;
-            reject(reason instanceof Error ? reason : new Error('Codex WS retry backoff aborted'));
+            reject(reason instanceof Error ? reason : new Error('OpenAI OAuth WS retry backoff aborted'));
         };
         if (externalSignal.aborted) { onAbort(); return; }
         externalSignal.addEventListener('abort', onAbort, { once: true });
@@ -2245,7 +2245,7 @@ export async function _acquireWithRetry({
     for (let attempt = 1; attempt <= HANDSHAKE_MAX_ATTEMPTS; attempt++) {
         if (externalSignal?.aborted) {
             const reason = externalSignal.reason;
-            throw reason instanceof Error ? reason : new Error('Codex WS acquire aborted');
+            throw reason instanceof Error ? reason : new Error('OpenAI OAuth WS acquire aborted');
         }
         try {
             if (attempt > 1) {
@@ -2306,7 +2306,7 @@ export async function _acquireWithRetry({
                     const onAbort = () => {
                         clearTimeout(t);
                         const reason = externalSignal.reason;
-                        reject(reason instanceof Error ? reason : new Error('Codex WS acquire aborted'));
+                        reject(reason instanceof Error ? reason : new Error('OpenAI OAuth WS acquire aborted'));
                     };
                     if (externalSignal.aborted) { onAbort(); return; }
                     externalSignal.addEventListener('abort', onAbort, { once: true });
@@ -2391,7 +2391,7 @@ export async function sendViaWebSocket({
     // (sessionToken is null for xAI in _mintSessionToken); a forceFresh
     // socket on retry would otherwise drop prev_id and cold-start a new
     // server-side conversation, evicting every prefix the prior attempts
-    // warmed. Codex / openai-direct anchor by per-socket session_id, where
+    // warmed. openai-oauth / openai-direct anchor by per-socket session_id, where
     // this carry-forward would not help and is therefore gated to xAI.
     let carryForwardCache = null;
     const emittedProgress = [];
@@ -2713,7 +2713,7 @@ export async function sendViaWebSocket({
         const keepResponseChain = !!result.responseId && !result.incompleteReason;
         const keepSocket = true;
 
-        // Update cache state for the next iteration in this session. Codex
+        // Update cache state for the next iteration in this session. openai-oauth
         // keeps the previous response anchor even when the model emitted tool
         // calls: the next request is previous input + server output items
         // + tool results, and _computeDelta strips the first two parts so the

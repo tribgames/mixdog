@@ -1,15 +1,14 @@
 /**
  * markdown/format-token.mjs — token → ANSI string renderer.
  *
- * Ported from Claude Code (refs/claude-code/src/utils/markdown.ts: formatToken
- * + helpers), adapted for this CLI:
+ * Token → ANSI string renderer:
  *   - chalk is forced to truecolor (level 3) so colors render regardless of the
  *     ambient TTY detection (we control the surface).
  *   - The `permission`/code accent and blockquote bar come from our theme.mjs.
  *   - `code` (fenced) is emitted as plain text + EOL (no syntax highlighter
- *     dependency); `codespan` (inline) gets the accent color, like CC.
+ *     dependency); `codespan` (inline) gets the accent color.
  *   - `table` is NOT handled here — the React component (MarkdownTable.jsx)
- *     renders tables with proper ink Box layout, mirroring CC's hybrid split.
+ *     renders tables with proper ink Box layout (hybrid split).
  *   - Hyperlinks/issue-ref linkify are dropped (no OSC-8 dependency); link text
  *     is shown plainly with its URL.
  */
@@ -22,7 +21,7 @@ import { BLOCKQUOTE_BAR } from '../figures.mjs';
 // ink's <Text> passes these escapes through verbatim.
 const chalk = new Chalk({ level: 3 });
 
-// Use \n unconditionally (CC note: os.EOL's \r breaks segment mapping).
+// Use \n unconditionally (os.EOL's \r breaks segment mapping).
 const EOL = '\n';
 
 /** Parse an `rgb(r,g,b)` theme string into a chalk colorizer. */
@@ -32,7 +31,7 @@ function rgbColor(str) {
   return chalk.rgb(Number(m[1]), Number(m[2]), Number(m[3]));
 }
 
-const accent = rgbColor(theme.code); // inline code / codespan accent (CC permission)
+const accent = rgbColor(theme.code); // inline code / codespan accent
 const dim = rgbColor(theme.subtle);
 
 // marked 14 HTML-encodes token.text / codespan.text (`"` → `&quot;`, `&` →
@@ -55,7 +54,7 @@ function decodeEntities(s) {
 
 /**
  * Render a single marked token to an ANSI string.
- * Mirrors CC's formatToken switch verbatim (minus table / hyperlink deps).
+ * marked token switch (minus table / hyperlink deps).
  */
 export function formatToken(token, listDepth = 0, orderedListNumber = null, parent = null) {
   switch (token.type) {
@@ -140,7 +139,7 @@ export function formatToken(token, listDepth = 0, orderedListNumber = null, pare
   }
 }
 
-/* --- ordered-list numbering (CC: numberToLetter / numberToRoman) ---------- */
+/* --- ordered-list numbering ----------------------------------------------- */
 
 function numberToLetter(n) {
   let result = '';
@@ -177,7 +176,7 @@ function getListNumber(listDepth, orderedListNumber) {
 
 /**
  * Pad `content` to `targetWidth` per alignment. `displayWidth` is the visible
- * width of `content` (ANSI codes excluded). Ported verbatim from CC padAligned.
+ * width of `content` (ANSI codes excluded).
  */
 export function padAligned(content, displayWidth, targetWidth, align) {
   const padding = Math.max(0, targetWidth - displayWidth);

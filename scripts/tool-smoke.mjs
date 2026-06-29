@@ -6,10 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { __renderToolSearchForTest, compactToolSearchDescription, defaultDeferredToolNames, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../src/mixdog-session-runtime.mjs';
 import { buildExplorerPrompt, EXPLORE_TOOL, MAX_FANOUT_QUERIES, normalizeExploreQueries } from '../src/standalone/explore-tool.mjs';
 import { AGENT_TOOL, createStandaloneAgent } from '../src/standalone/agent-tool.mjs';
+import { parseHeadlessRoleCommand } from '../src/app.mjs';
+import { buildHeadlessSpawnArgs } from '../src/headless-role.mjs';
 import { createStandaloneChannelWorker } from '../src/standalone/channel-worker.mjs';
 import { OpenAIOAuthProvider, buildRequestBody, sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { _logicalResponseItemMatch, _resolveOpenAiPromptCacheRatePolicy } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
-import { _mergePendingMessageEntries, closeSession, createSession, drainPendingMessages, enqueuePendingMessage } from '../src/runtime/agent/orchestrator/session/manager.mjs';
+import { _mergePendingMessageEntries, closeSession, createSession, drainPendingMessages, enqueuePendingMessage, resumeSession } from '../src/runtime/agent/orchestrator/session/manager.mjs';
 import {
   contentHasImage,
   normalizeContentForAnthropic,
@@ -34,9 +36,15 @@ import { CODE_GRAPH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/co
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
 import { TOOL_DEFS as MEMORY_TOOL_DEFS } from '../src/runtime/memory/tool-defs.mjs';
+import { mergeSessionRowsIntoGlobal } from '../src/runtime/memory/lib/memory-session-merge.mjs';
 import { TOOL_DEFS as SEARCH_TOOL_DEFS } from '../src/runtime/search/tool-defs.mjs';
 import { TOOL_DEFS as CHANNEL_TOOL_DEFS } from '../src/runtime/channels/tool-defs.mjs';
 import { AGENT_OWNER } from '../src/runtime/agent/orchestrator/agent-owner.mjs';
+import { composeSystemPrompt } from '../src/runtime/agent/orchestrator/context/collect.mjs';
+import { setInternalToolsProvider } from '../src/runtime/agent/orchestrator/internal-tools.mjs';
+import { prepareAgentSession } from '../src/runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
+import { resolveHiddenRoleSchemaAllowedTools } from '../src/runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
+import { getHiddenRole, resolveAgentSessionPermission } from '../src/runtime/agent/orchestrator/internal-roles.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -620,6 +628,50 @@ for (const name of ['apply_patch', 'agent', 'shell']) {
 
 const agentProps = AGENT_TOOL.inputSchema?.properties || {};
 if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not expose execution mode controls');
+{
+  const heavyPrompt = composeSystemPrompt({
+    role: 'heavy-worker',
+    provider: 'anthropic-oauth',
+    agentRules: '# Tool Use',
+    skillManifest: '',
+  });
+  if (!heavyPrompt.stableSystemContext.includes('## heavy-worker') || !heavyPrompt.stableSystemContext.includes('Complex implementation agent')) {
+    throw new Error(`heavy-worker AGENT.md must be included in scoped role instructions: ${heavyPrompt.stableSystemContext}`);
+  }
+  const workerPrompt = composeSystemPrompt({
+    role: 'worker',
+    provider: 'anthropic-oauth',
+    agentRules: '# Tool Use',
+    skillManifest: '',
+  });
+  if (!workerPrompt.stableSystemContext.includes('## worker') || !workerPrompt.stableSystemContext.includes('Basic implementation agent')) {
+    throw new Error(`worker AGENT.md must be included in scoped role instructions: ${workerPrompt.stableSystemContext}`);
+  }
+}
+{
+  const shorthand = parseHeadlessRoleCommand(['reviewer', 'check', 'this']);
+  if (shorthand?.role !== 'reviewer' || shorthand?.message !== 'check this') {
+    throw new Error(`headless shorthand command parse failed: ${JSON.stringify(shorthand)}`);
+  }
+  const explicit = parseHeadlessRoleCommand(['role', 'debug', 'trace', 'failure']);
+  if (!explicit?.error || !/mixdog <role> <message/.test(explicit.error)) {
+    throw new Error(`headless role subcommand must be rejected: ${JSON.stringify(explicit)}`);
+  }
+  const tuiDefault = parseHeadlessRoleCommand([]);
+  if (tuiDefault !== null) {
+    throw new Error(`empty argv must keep TUI default: ${JSON.stringify(tuiDefault)}`);
+  }
+  const modelOnlySpawn = buildHeadlessSpawnArgs({
+    role: 'reviewer',
+    tag: 'headless-smoke',
+    cwd: root,
+    message: 'check this',
+    model: 'haiku',
+  });
+  if (modelOnlySpawn.model !== 'haiku' || modelOnlySpawn.provider) {
+    throw new Error(`headless model-only route must preserve --model without forcing provider: ${JSON.stringify(modelOnlySpawn)}`);
+  }
+}
 if (!/always start background tasks/i.test(AGENT_TOOL.description || '') || !/distinct tags/i.test(AGENT_TOOL.description || '') || !/completion notification/i.test(AGENT_TOOL.description || '') || !/do not (?:call|poll) status\/read/i.test(AGENT_TOOL.description || '')) {
   throw new Error('agent description must preserve async tagged delegation contract');
 }
@@ -724,7 +776,10 @@ try {
     cfgMod: {
       loadConfig: () => ({
         providers: { 'openai-oauth': { enabled: true } },
-        presets: [{ id: 'sonnet-high', name: 'sonnet-high', provider: 'openai-oauth', model: 'smoke-model', type: 'agent', tools: 'full' }],
+        presets: [
+          { id: 'sonnet-high', name: 'sonnet-high', provider: 'openai-oauth', model: 'smoke-model', type: 'agent', tools: 'full' },
+          { id: 'haiku', name: 'HAIKU', provider: 'openai-oauth', model: 'smoke-haiku', type: 'agent', tools: 'full' },
+        ],
       }),
       resolveRuntimeSpec: () => ({ scopeKey: 'smoke-notify', lane: 'agent' }),
     },
@@ -781,6 +836,10 @@ try {
   if (agentCompletionCount !== 1) {
     throw new Error(`agent early completion should suppress duplicate final notify, got ${agentCompletionCount}: ${JSON.stringify(ownerNotifications)}`);
   }
+  const modelOnlyStart = await agentNotifySmoke.execute({ type: 'spawn', agent: 'worker', tag: 'notify-model-smoke', prompt: 'notify model smoke', model: 'haiku' }, notifyContext);
+  if (!/model: openai-oauth\/smoke-haiku/i.test(String(modelOnlyStart))) {
+    throw new Error(`agent model-only spawn must resolve matching preset instead of role default:\n${modelOnlyStart}`);
+  }
   await agentNotifySmoke.execute({ type: 'cleanup', force: true }, notifyContext);
 } finally {
   rmSync(agentNotifyTmp, { recursive: true, force: true });
@@ -788,11 +847,14 @@ try {
 if (EXPLORE_TOOL.annotations?.readOnlyHint !== true || EXPLORE_TOOL.annotations?.destructiveHint === true) {
   throw new Error('explore must stay read-only so readonly surfaces can use it');
 }
+if (EXPLORE_TOOL.annotations?.agentHidden === true) {
+  throw new Error('explore must stay visible to agent sessions');
+}
 const exploreProps = EXPLORE_TOOL.inputSchema?.properties || {};
-if (!/Locate code anchors/i.test(EXPLORE_TOOL.description || '') || !/path:line/i.test(EXPLORE_TOOL.description || '') || (EXPLORE_TOOL.description || '').length > 90) {
+if (!/Repo anchor locator/i.test(EXPLORE_TOOL.description || '') || !/broad\/uncertain/i.test(EXPLORE_TOOL.description || '') || !/independent targets/i.test(EXPLORE_TOOL.description || '') || (EXPLORE_TOOL.description || '').length > 90) {
   throw new Error('explore description must stay compact and anchor-oriented');
 }
-if (!/query array/i.test(exploreProps.query?.description || '') || !/Project\/root/i.test(exploreProps.cwd?.description || '')) {
+if (!/Narrow locator query/i.test(exploreProps.query?.description || '') || !/independent targets/i.test(exploreProps.query?.description || '') || !/Project\/root/i.test(exploreProps.cwd?.description || '')) {
   throw new Error('explore schema must stay compact and preserve query/cwd shape');
 }
 const normalizedExplore = normalizeExploreQueries('["where is model selection?","  ","which file owns agent async?"]');
@@ -804,6 +866,19 @@ const explorerPrompt = buildExplorerPrompt('where is <agent> & status?');
 if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;') || /verdicts, ratings, or recommendations/.test(explorerPrompt) === false) {
   throw new Error(`explorer prompt contract failed: ${explorerPrompt}`);
 }
+setInternalToolsProvider({
+  executor: async () => 'tool-smoke internal tool',
+  tools: [
+    { name: 'memory', description: 'Destructive memory surface.', inputSchema: { type: 'object', properties: {} }, annotations: { destructiveHint: true } },
+    { name: 'recall', description: 'Memory recall surface.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },
+    { name: 'search', description: 'Web search surface.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true, openWorldHint: true } },
+    { name: 'reply', description: 'Channel reply surface.', inputSchema: { type: 'object', properties: {} }, annotations: { destructiveHint: true } },
+    { name: 'edit_message', description: 'Channel edit surface.', inputSchema: { type: 'object', properties: {} }, annotations: { destructiveHint: true } },
+    { name: 'web_fetch', description: 'Web fetch surface.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true, openWorldHint: true } },
+    { name: 'reload_config', description: 'Config reload surface.', inputSchema: { type: 'object', properties: {} }, annotations: { destructiveHint: true } },
+    { name: 'inject_command', description: 'Command injection surface.', inputSchema: { type: 'object', properties: {} }, annotations: { destructiveHint: true } },
+  ],
+});
 {
   await initProviders({ 'openai-oauth': { enabled: true } });
   const skillManifestTmp = mkdtempSync(join(tmpdir(), 'mixdog-skill-manifest-'));
@@ -854,11 +929,15 @@ if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;
         .filter((m) => m?.role === 'system')
         .map((m) => String(m.content || ''))
         .join('\n');
-      if (!/available-skills/i.test(systemVisible) || !/demo-skill/i.test(systemVisible)) {
-        throw new Error(`agent BP1 must carry compact skill manifest: ${systemVisible.slice(0, 1200)}`);
+      if (/available-skills/i.test(systemVisible) || /demo-skill/i.test(systemVisible) || /Skill\(/.test(systemVisible)) {
+        throw new Error(`agent BP1 must omit skill manifest when Skill tool is hidden: ${systemVisible.slice(0, 1200)}`);
       }
       if (!/# Tool Use/i.test(systemVisible) || !/# Agent Constraints/i.test(systemVisible)) {
         throw new Error(`agent system layers must carry BP1 tool policy and BP2 role rules: ${systemVisible.slice(0, 1200)}`);
+      }
+      const agentSkillToolNames = (agentSkillSession.tools || []).map((tool) => tool?.name).filter(Boolean);
+      if (agentSkillToolNames.includes('Skill')) {
+        throw new Error(`read-write agent must not expose Skill when BP1 manifest is omitted: ${agentSkillToolNames.join(', ')}`);
       }
     } finally {
       closeSession(agentSkillSession.id, 'tool-smoke');
@@ -933,8 +1012,8 @@ if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;
     if (workerToolNames.includes('tool_search')) {
       throw new Error(`agent session schema must not expose deferred tool_search: ${workerToolNames.join(', ')}`);
     }
-    if (!workerToolNames.includes('Skill')) {
-      throw new Error(`agent session schema must keep fixed skill meta-tool Skill: ${workerToolNames.join(', ')}`);
+    if (workerToolNames.includes('shell')) {
+      throw new Error(`read-write agent session schema must not expose shell: ${workerToolNames.join(', ')}`);
     }
     for (const name of ['skills_list', 'skill_view', 'skill_execute']) {
       if (workerToolNames.includes(name)) {
@@ -960,18 +1039,187 @@ if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;
     cwd: root,
     permission: 'read-write',
   });
+  const fullAgentSession = createSession({
+    provider: 'openai-oauth',
+    model: 'tool-smoke-model',
+    owner: AGENT_OWNER,
+    role: 'worker',
+    cwd: root,
+    permission: 'full',
+  });
+  const publicExploreSession = createSession({
+    provider: 'openai-oauth',
+    model: 'tool-smoke-model',
+    owner: AGENT_OWNER,
+    role: 'explore',
+    cwd: root,
+    permission: 'read',
+  });
   try {
     const readTools = (readAgentSession.tools || []).map((tool) => tool?.name).filter(Boolean);
     const writeTools = (writeAgentSession.tools || []).map((tool) => tool?.name).filter(Boolean);
+    const fullTools = (fullAgentSession.tools || []).map((tool) => tool?.name).filter(Boolean);
+    const publicExploreTools = (publicExploreSession.tools || []).map((tool) => tool?.name).filter(Boolean);
+    const expectedReadTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'explore'];
+    const expectedWriteTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore'];
+    if (JSON.stringify(readTools) !== JSON.stringify(expectedReadTools)) {
+      throw new Error(`read agent schema must be fixed allow-list: expected=${expectedReadTools.join(', ')} actual=${readTools.join(', ')}`);
+    }
+    if (JSON.stringify(writeTools) !== JSON.stringify(expectedWriteTools)) {
+      throw new Error(`read-write agent schema must be fixed allow-list: expected=${expectedWriteTools.join(', ')} actual=${writeTools.join(', ')}`);
+    }
     if (readTools.includes('tool_search') || writeTools.includes('tool_search')) {
       throw new Error(`agent session fixed schemas must omit tool_search: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
     }
-    if (JSON.stringify(readTools) !== JSON.stringify(writeTools)) {
-      throw new Error(`agent session schema must not split by permission: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
+    if (readTools.includes('shell') || writeTools.includes('shell')) {
+      throw new Error(`read/read-write agent schemas must omit shell: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
+    }
+    for (const name of ['shell', 'apply_patch', 'task', 'diagnostics', 'open_config', 'Skill']) {
+      if (readTools.includes(name)) {
+        throw new Error(`read agent schema must omit non-read tool ${name}: read=${readTools.join(', ')}`);
+      }
+    }
+    for (const name of ['apply_patch', 'task', 'diagnostics']) {
+      if (name === 'apply_patch' && !writeTools.includes(name)) {
+        throw new Error(`read-write agent schema must preserve apply_patch: write=${writeTools.join(', ')}`);
+      }
+      if (name !== 'apply_patch' && writeTools.includes(name)) {
+        throw new Error(`read-write agent schema must omit non-edit tool ${name}: write=${writeTools.join(', ')}`);
+      }
+    }
+    for (const name of ['open_config', 'Skill']) {
+      if (writeTools.includes(name)) {
+        throw new Error(`read-write agent schema must omit config/skill tool ${name}: write=${writeTools.join(', ')}`);
+      }
+    }
+    for (const name of ['memory', 'recall', 'search', 'reply', 'edit_message', 'web_fetch', 'reload_config', 'inject_command']) {
+      if (readTools.includes(name) || writeTools.includes(name)) {
+        throw new Error(`read/read-write agent schema must not expose full-runtime internal tool ${name}: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
+      }
+    }
+    if (!readTools.includes('explore') || !writeTools.includes('explore')) {
+      throw new Error(`read/read-write agent schemas must expose explore: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
+    }
+    if (!fullTools.includes('shell')) {
+      throw new Error(`full agent schema must retain shell: full=${fullTools.join(', ')}`);
+    }
+    if (!fullTools.includes('explore')) {
+      throw new Error(`full agent schema must expose explore: full=${fullTools.join(', ')}`);
+    }
+    if (publicExploreTools.includes('explore')) {
+      throw new Error(`public explore role must not expose recursive explore tool: ${publicExploreTools.join(', ')}`);
     }
   } finally {
     closeSession(readAgentSession.id, 'tool-smoke');
     closeSession(writeAgentSession.id, 'tool-smoke');
+    closeSession(fullAgentSession.id, 'tool-smoke');
+    closeSession(publicExploreSession.id, 'tool-smoke');
+  }
+  const resumeAgentSession = createSession({
+    provider: 'openai-oauth',
+    model: 'tool-smoke-model',
+    owner: AGENT_OWNER,
+    role: 'worker',
+    cwd: root,
+    permission: 'read-write',
+  });
+  try {
+    const resumed = await resumeSession(resumeAgentSession.id, 'full');
+    const resumedTools = (resumed?.tools || []).map((tool) => tool?.name).filter(Boolean);
+    const expectedWriteTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore'];
+    if (JSON.stringify(resumedTools) !== JSON.stringify(expectedWriteTools)) {
+      throw new Error(`resumed read-write agent schema must keep fixed allow-list: expected=${expectedWriteTools.join(', ')} actual=${resumedTools.join(', ')}`);
+    }
+  } finally {
+    closeSession(resumeAgentSession.id, 'tool-smoke');
+  }
+  const noneAgentSession = createSession({
+    provider: 'openai-oauth',
+    model: 'tool-smoke-model',
+    owner: AGENT_OWNER,
+    role: 'worker',
+    cwd: root,
+    permission: 'none',
+  });
+  try {
+    const resumedNone = await resumeSession(noneAgentSession.id, 'full');
+    const noneTools = (resumedNone?.tools || []).map((tool) => tool?.name).filter(Boolean);
+    if (noneTools.length !== 0) {
+      throw new Error(`resumed permission=none agent schema must stay empty: actual=${noneTools.join(', ')}`);
+    }
+  } finally {
+    closeSession(noneAgentSession.id, 'tool-smoke');
+  }
+  const objectPermissionSession = createSession({
+    provider: 'openai-oauth',
+    model: 'tool-smoke-model',
+    owner: AGENT_OWNER,
+    role: 'worker',
+    cwd: root,
+    permission: { allow: ['read', 'grep'], deny: ['grep'] },
+  });
+  try {
+    const resumedObject = await resumeSession(objectPermissionSession.id, 'full');
+    const objectTools = (resumedObject?.tools || []).map((tool) => tool?.name).filter(Boolean);
+    if (JSON.stringify(objectTools) !== JSON.stringify(['read'])) {
+      throw new Error(`resumed object-permission agent schema must reapply allow/deny and agent filters: actual=${objectTools.join(', ')}`);
+    }
+  } finally {
+    closeSession(objectPermissionSession.id, 'tool-smoke');
+  }
+  const hiddenRoles = JSON.parse(readFileSync(join(root, 'src', 'defaults', 'hidden-roles.json'), 'utf8')).roles || [];
+  const hiddenPreset = { id: 'hidden-smoke', name: 'hidden-smoke', type: 'agent', provider: 'openai-oauth', model: 'tool-smoke-model', tools: 'full' };
+  const hiddenRuntimeSpec = { scopeKey: 'hidden-role-smoke', lane: 'agent' };
+  const hiddenBadTools = new Set(['shell', 'task', 'diagnostics', 'open_config', 'Skill', 'memory', 'reply', 'edit_message', 'search', 'web_fetch', 'recall', 'reload_config', 'inject_command']);
+  const expectedForHiddenRole = (permission, schemaAllowedTools) => {
+    if (Array.isArray(schemaAllowedTools)) return schemaAllowedTools.slice();
+    if (permission === 'none') return [];
+    if (permission === 'read') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'explore'];
+    if (permission === 'read-write') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore'];
+    return null;
+  };
+  for (const entry of hiddenRoles) {
+    const role = String(entry?.name || '').trim();
+    if (!role) continue;
+    const hidden = getHiddenRole(role);
+    const permission = resolveAgentSessionPermission(role, hidden?.permission || null);
+    const schemaAllowedTools = resolveHiddenRoleSchemaAllowedTools(hidden);
+    const { session } = prepareAgentSession({
+      role,
+      presetName: 'hidden-smoke',
+      preset: hiddenPreset,
+      runtimeSpec: hiddenRuntimeSpec,
+      permission,
+      cwd: root,
+      sourceType: 'hidden-role-smoke',
+      sourceName: role,
+      schemaAllowedTools,
+    });
+    try {
+      const tools = (session.tools || []).map((tool) => tool?.name).filter(Boolean);
+      const resumed = await resumeSession(session.id, 'full');
+      const resumedTools = (resumed?.tools || []).map((tool) => tool?.name).filter(Boolean);
+      const expected = expectedForHiddenRole(permission, schemaAllowedTools);
+      if (expected && (JSON.stringify(tools) !== JSON.stringify(expected) || JSON.stringify(resumedTools) !== JSON.stringify(expected))) {
+        throw new Error(`hidden role ${role} schema mismatch: expected=${expected.join(', ')} tools=${tools.join(', ')} resumed=${resumedTools.join(', ')}`);
+      }
+      const leaked = tools.filter((name) => hiddenBadTools.has(name) && !(expected || []).includes(name));
+      if (leaked.length) {
+        throw new Error(`hidden role ${role} leaked forbidden full-runtime tools: ${leaked.join(', ')} from ${tools.join(', ')}`);
+      }
+      const systemVisible = (session.messages || [])
+        .filter((m) => m?.role === 'system')
+        .map((m) => String(m.content || ''))
+        .join('\n');
+      if (/available-skills|Skill\(/i.test(systemVisible)) {
+        throw new Error(`hidden role ${role} must not carry Skill manifest without Skill tool`);
+      }
+      if (/effective-cwd|Override cwd|# environment|# task-brief/i.test(systemVisible)) {
+        throw new Error(`hidden role ${role} must not carry cwd/environment/task-brief injection`);
+      }
+    } finally {
+      closeSession(session.id, 'tool-smoke');
+    }
   }
 }
 const patchTool = PATCH_TOOL_DEFS[0];
@@ -980,7 +1228,7 @@ if (!/V4A/i.test(patchDescription) || !/one (?:file )?block per target file/i.te
   throw new Error('apply_patch JSON fallback schema must keep V4A, per-target block, and exact-context guidance');
 }
 if (!/FREEFORM tool/i.test(patchTool?.freeformDescription || '') || patchTool?.freeform?.type !== 'grammar' || patchTool?.freeform?.syntax !== 'lark') {
-  throw new Error(`apply_patch must expose Codex-style freeform grammar metadata: ${JSON.stringify(patchTool)}`);
+  throw new Error(`apply_patch must expose freeform grammar metadata: ${JSON.stringify(patchTool)}`);
 }
 for (const requiredGrammarLine of [
   'start: begin_patch hunk+ end_patch',
@@ -989,7 +1237,7 @@ for (const requiredGrammarLine of [
   '%import common.LF',
 ]) {
   if (!patchTool.freeform.definition.includes(requiredGrammarLine)) {
-    throw new Error(`apply_patch freeform grammar missing Codex line: ${requiredGrammarLine}`);
+    throw new Error(`apply_patch freeform grammar missing required line: ${requiredGrammarLine}`);
   }
 }
 {
@@ -1014,7 +1262,7 @@ for (const requiredGrammarLine of [
     throw new Error(`OpenAI Responses apply_patch must serialize as a custom grammar tool: ${JSON.stringify(wirePatchTool)}`);
   }
   if (!/FREEFORM tool/i.test(wirePatchTool.description || '')) {
-    throw new Error(`OpenAI Responses apply_patch must use Codex freeform description: ${JSON.stringify(wirePatchTool)}`);
+    throw new Error(`OpenAI Responses apply_patch must use freeform description: ${JSON.stringify(wirePatchTool)}`);
   }
   const customCall = body.input?.find((item) => item.type === 'custom_tool_call');
   const customOutput = body.input?.find((item) => item.type === 'custom_tool_call_output');
@@ -1084,6 +1332,64 @@ if (!/when in doubt, recall first/i.test(recallTool?.description || '') || !reca
 }
 if (!/array for independent fan-out/i.test(recallProps.query?.description || '') || !/Project pool selector/i.test(recallProps.projectScope?.description || '')) {
   throw new Error('recall schema must explain fan-out query and project scope filters');
+}
+// Cross-session / raw recall surface: includeMembers stays a chunk-member
+// output knob, includeRaw exposes unchunked raw/episode turns, and sessionOnly
+// is the explicit opt-in that restores the old single-session hard scope.
+if (!/chunk members/i.test(recallProps.includeMembers?.description || '') || !/does not widen the search pool/i.test(recallProps.includeMembers?.description || '')) {
+  throw new Error('recall includeMembers must stay scoped to chunk-member output only');
+}
+if (!recallProps.includeRaw || !/raw\/episode/i.test(recallProps.includeRaw?.description || '')) {
+  throw new Error('recall schema must expose includeRaw for unchunked raw/episode turns');
+}
+if (!recallProps.sessionOnly || !/session only/i.test(recallProps.sessionOnly?.description || '')) {
+  throw new Error('recall schema must expose sessionOnly as the explicit single-session opt-in');
+}
+// Behaviour-level checks for the cross-session merge contract. These exercise
+// the pure mergeSessionRowsIntoGlobal() helper (no DB) so the starve-prevention
+// + dedupe + includeRaw-parity invariants are guarded, not just the schema.
+{
+  // 1) Starve prevention: a flood of session rows must NOT push global hybrid
+  //    hits off the first page. Global rows carry a real retrievalScore; the
+  //    session rows (score 0) must sort AFTER them under importance.
+  const globalHits = [
+    { id: 1, retrievalScore: 0.9, ts: 100 },
+    { id: 2, retrievalScore: 0.8, ts: 110 },
+  ];
+  const sessionFlood = Array.from({ length: 20 }, (_, i) => ({ id: 1000 + i, retrievalScore: 0, ts: 200 + i }));
+  const mergedImportance = mergeSessionRowsIntoGlobal(globalHits, sessionFlood, { sort: 'importance' });
+  if (mergedImportance.slice(0, 2).map((r) => r.id).join(',') !== '1,2') {
+    throw new Error(`session merge must not starve global first page under importance: ${JSON.stringify(mergedImportance.slice(0, 3))}`);
+  }
+  if (mergedImportance.length !== globalHits.length + sessionFlood.length) {
+    throw new Error('session merge must append all non-duplicate session rows');
+  }
+  // 2) Dedupe by id AND by global root member id (member/leaf double-output).
+  const globalWithMembers = [{ id: 5, retrievalScore: 0.7, ts: 100, members: [{ id: 51 }, { id: 52 }] }];
+  const sessionDupes = [
+    { id: 5, retrievalScore: 0, ts: 300 }, // dup root id
+    { id: 51, retrievalScore: 0, ts: 301 }, // dup member id
+    { id: 99, retrievalScore: 0, ts: 302 }, // genuinely new
+  ];
+  const mergedDedupe = mergeSessionRowsIntoGlobal(globalWithMembers, sessionDupes, { sort: 'importance' });
+  const dedupeIds = mergedDedupe.map((r) => Number(r.id)).sort((a, b) => a - b);
+  if (dedupeIds.join(',') !== '5,99') {
+    throw new Error(`session merge must dedupe root+member ids, leaving only new rows: ${JSON.stringify(dedupeIds)}`);
+  }
+  // 3) date sort keeps newest-first across the merged set.
+  const mergedDate = mergeSessionRowsIntoGlobal(
+    [{ id: 1, retrievalScore: 0.9, ts: 100 }],
+    [{ id: 2, retrievalScore: 0, ts: 999 }],
+    { sort: 'date' },
+  );
+  if (Number(mergedDate[0].id) !== 2) {
+    throw new Error(`session merge under date sort must order by ts desc: ${JSON.stringify(mergedDate)}`);
+  }
+  // 4) Empty session rows is a no-op passthrough (no crash, same array).
+  const passthrough = mergeSessionRowsIntoGlobal(globalHits, [], { sort: 'importance' });
+  if (passthrough.length !== globalHits.length) {
+    throw new Error('session merge with no session rows must be a passthrough');
+  }
 }
 const memoryTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'memory');
 const memoryProps = memoryTool?.inputSchema?.properties || {};
@@ -1165,6 +1471,7 @@ if (!nativeSelectResult.nativeToolSearch?.toolReferences?.includes('shell')) {
   throw new Error(`native tool_search must return Anthropic tool references: ${JSON.stringify(nativeSelectResult.nativeToolSearch)}`);
 }
 const nativePatchSearchSession = {
+  provider: 'openai-oauth',
   tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name) && tool?.name !== 'apply_patch'),
   deferredToolCatalog: smokeCatalog.slice(),
   deferredSelectedTools: [...fullDefaults].filter((name) => name !== 'apply_patch'),
@@ -1179,6 +1486,23 @@ if (nativePatchTool?.type !== 'custom' || nativePatchTool?.format?.syntax !== 'l
 }
 if (nativePatchTool.defer_loading === true || nativePatchTool.parameters) {
   throw new Error(`native tool_search custom apply_patch must not be downgraded to deferred function schema: ${JSON.stringify(nativePatchTool)}`);
+}
+const nativeGrokPatchSearchSession = {
+  provider: 'grok-oauth',
+  tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name) && tool?.name !== 'apply_patch'),
+  deferredToolCatalog: smokeCatalog.slice(),
+  deferredSelectedTools: [...fullDefaults].filter((name) => name !== 'apply_patch'),
+  deferredDiscoveredTools: [],
+  deferredProviderMode: 'native',
+  deferredNativeTools: true,
+};
+const nativeGrokPatchSelectResult = JSON.parse(__renderToolSearchForTest({ select: 'apply_patch' }, nativeGrokPatchSearchSession, 'full'));
+const nativeGrokPatchTool = nativeGrokPatchSelectResult.nativeToolSearch?.openaiTools?.find((tool) => tool?.name === 'apply_patch');
+if (nativeGrokPatchTool?.type !== 'function' || nativeGrokPatchTool?.format || nativeGrokPatchTool?.defer_loading !== true) {
+  throw new Error(`Grok native tool_search apply_patch must use JSON function schema, not OpenAI custom: ${JSON.stringify(nativeGrokPatchTool)}`);
+}
+if (nativeGrokPatchTool.parameters?.properties?.patch?.type !== 'string') {
+  throw new Error(`Grok native tool_search apply_patch must preserve patch JSON schema: ${JSON.stringify(nativeGrokPatchTool)}`);
 }
 const nativeRunQuerySession = {
   tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),

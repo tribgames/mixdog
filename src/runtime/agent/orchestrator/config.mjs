@@ -172,7 +172,7 @@ function normalizeSearchRoute(route) {
 // Persist the agent section. `build` receives the section value read INSIDE
 // the file lock (current on-disk state) and returns the full replacement.
 // Building from `current` rather than a snapshot taken before the lock keeps
-// the whole-section save linearizable: a concurrent writer (each Claude Code
+// the whole-section save linearizable: a concurrent writer (each host-agent
 // session runs its own server under MIXDOG_MULTI_INSTANCE) that lands between
 // our read and write is rebased onto, not silently clobbered (lost-update).
 function persistAgentConfig(build) {

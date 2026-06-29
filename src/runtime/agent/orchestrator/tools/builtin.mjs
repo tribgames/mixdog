@@ -309,7 +309,7 @@ process.on('exit', flushReadRangeIndexesSync);
 
 configureReadRangeIndexTelemetry({ trace: _ioTrace, hashText: _hashText });
 
-// Uniform tool-output cap (Codex `tool_output_token_limit` analogue): a SINGLE
+// Uniform tool-output cap (`tool_output_token_limit` analogue): a SINGLE
 // optional knob that bounds EVERY builtin string result before it enters the
 // lead context, on top of each tool's own caps. Default 0 = OFF (per-tool caps
 // only, no behaviour change). Set MIXDOG_TOOL_OUTPUT_MAX_BYTES (or pass
@@ -343,7 +343,7 @@ function capToolOutput(result, options = {}) {
     const bytes = Buffer.byteLength(result, 'utf8');
     if (bytes <= cap) return result;
     // Middle-truncate: keep head + tail (byte-accurate), drop the middle. Mirrors
-    // Codex middle truncation so the model still sees both ends of a runaway.
+    // Middle truncation so the model still sees both ends of a runaway.
     const half = Math.max(1, Math.floor(cap / 2) - 64);
     const head = _sliceToBytesFromStart(result, half);
     const tail = _sliceToBytesFromEnd(result, half);
@@ -372,7 +372,7 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
     const readStateScope = options?.readStateScope ?? options?.sessionId ?? null;
     const executeChildBuiltinTool = (childName, childArgs, childCwd = workDir, childOptions = null) =>
         executeBuiltinTool(childName, childArgs, childCwd, childOptions ? { ...options, ...childOptions } : options);
-    // Path policy: Claude Code's settings.json permissions (mcp__* allow) are the
+    // Path policy: host settings.json permissions (mcp__* allow) are the
     // sole arbiter for workspace-boundary decisions.
     const _toolResult = await (async () => {
     switch (toolName) {

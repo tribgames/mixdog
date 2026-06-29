@@ -1,12 +1,12 @@
 /**
  * components/ToolExecution.jsx — a tool call + its result.
  *
- * Ported from Claude Code's AssistantToolUseMessage.tsx / MessageResponse.tsx:
+ * Tool call + result layout:
  *   - The call line: `● Tool Name(summary)` where the dot is BLACK_CIRCLE
  *     (2-wide gutter), the tool name is the user-facing label and the argument
  *     summary sits in muted parentheses. NOT raw MCP/internal names.
  *   - The result hangs under a single dim `  ⎿  ` gutter — the gutter is placed
- *     once, not repeated per wrapped line (CC MessageResponse.tsx style).
+ *     once, not repeated per wrapped line.
  */
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
@@ -21,6 +21,8 @@ import {
   formatAggregateHeader,
   formatToolActionHeader,
   displayModelName,
+  summarizeAgentSurfaceBrief,
+  AGENT_SURFACE_BRIEF_MAX,
 } from '../../runtime/shared/tool-surface.mjs';
 
 const MIN_RESULT_LINE_CHARS = 24;
@@ -161,7 +163,7 @@ function statusCopy(name, label, count, doneCount, pending, isError, args = {}) 
 function fitResultLine(line, columns) {
   const max = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
   const text = String(line ?? '');
-  return text.length > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text;
+  return stringWidth(text) > max ? truncateToWidth(text, max) : text;
 }
 
 /** Trim text from the end (by display width) so it fits maxWidth, appending '…'. */
@@ -578,12 +580,9 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     // Mirror estimateTranscriptItemRows: a non-aggregate skill surface collapses
     // to a single header row; everything else reserves header + one detail row.
     const placeholderNormalizedName = String(formatToolSurface(name, args)?.normalizedName || '').toLowerCase();
-    // Skill surfaces AND agent surfaces both collapse to a single header row in
-    // estimateTranscriptItemRows (agent cards drop their ⎿ body entirely), so
-    // the pending-delay placeholder must reserve exactly 1 row for them too —
-    // otherwise the card paints 2 blank rows for ~1s then snaps to 1 ("튐").
-    const placeholderSingleRow = !aggregate
-      && (SKILL_SURFACE_NAMES.has(placeholderNormalizedName) || isAgentTool(placeholderNormalizedName));
+    // Skill surfaces collapse to a single header row; agent surfaces reserve
+    // header + one brief detail row (see estimateTranscriptItemRows).
+    const placeholderSingleRow = !aggregate && SKILL_SURFACE_NAMES.has(placeholderNormalizedName);
     return (
       <Box flexDirection="column" marginTop={attached ? 0 : 1}>
         <Text> </Text>
@@ -601,7 +600,15 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     const headerText = formatAggregateHeader(displayCategories || {}, { pending: headerPending, order: headerOrder, stableVerbWidth: true });
     let detailText;
     if (hasResult) {
-      detailText = rt;
+      // The aggregate card reserves EXACTLY ONE detail row when it is not
+      // expanded-with-raw (App.jsx estimateTranscriptItemRows counts
+      // margin + header + 1 detail row for the no-raw aggregate case). The
+      // summary `rt` can be multiline; a single <Text> containing '\n' renders
+      // MULTIPLE terminal rows, which desyncs the estimate and makes the card
+      // "settle" taller than reserved. Collapse to a single logical line
+      // (whitespace-normalized); fitResultLine below trims it to the column
+      // width so it can never exceed one terminal row.
+      detailText = String(rt).replace(/\s+/g, ' ').trim();
     } else {
       detailText = '';
     }
@@ -695,7 +702,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const maxResultChars = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
   const resultColor = theme.text;
   const firstResultLine = hasResult ? String(lines[0] ?? '') : '';
-  const firstResultLineClipped = hasResult && firstResultLine.length > maxResultChars;
+  const firstResultLineClipped = hasResult && stringWidth(firstResultLine) > maxResultChars;
   const hasHiddenDetail = !pending && hasResult && (totalLines > 1 || firstResultLineClipped || Boolean(resultSummary));
   const shellStatus = isShellSurface ? shellDisplayStatus({ pending, failedCount, isError, result: displayedResultText }) : '';
   const shellElapsed = isShellSurface ? (shellResultElapsed(displayedResultText) || elapsed) : '';
@@ -754,25 +761,29 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
 
   const isAgentResult = !isBackgroundResult && !pending && isAgentTool(normalizedName) && hasResult;
   const isAgentResponse = isAgentResult && hasAgentResponseResult(rt);
-  // Every agent card is a single header row when collapsed: spawn/send/response/
-  // status/list/cancel/close/cleanup all fold their context into the header
-  // label, so the ⎿ detail body (response summary, "agents: N …" worker list,
-  // status metadata) is dropped unless the user expands with ctrl+o.
   const isAgentSurfaceCard = isAgentTool(normalizedName);
+  const agentSurfaceBriefRaw = isAgentSurfaceCard && !showRawResult
+    ? summarizeAgentSurfaceBrief(name, parsedArgs, displayedResultText || '', { isError, isResponse: isAgentResponse })
+    : '';
+  const agentSurfaceBrief = agentSurfaceBriefRaw
+    ? truncateToWidth(agentSurfaceBriefRaw, Math.min(AGENT_SURFACE_BRIEF_MAX, maxResultChars))
+    : '';
   // Skill loads carry the skill name in the header already
   // ("Loaded 1 skill (name)"); the collapsed detail row just repeats it, so
   // drop it and keep the card a single line. Expanding (ctrl+o) still shows the
   // full skill body via the raw-result path.
-  // Agent responses now identify the responder in the header itself
-  // ("Heavy Worker (Opus 4.8)"); the collapsed body just echoed the response
-  // summary ("All green. Done."), so drop it and keep the card a single line.
-  // ctrl+o expand (showRawResult) still surfaces the full response body.
-  // Suppression is COLLAPSED-ONLY: agent/skill cards hide their ⎿ body when
-  // collapsed, but once the user expands (showRawResult) the raw body — the
-  // response, the "agents: N …" worker list, the status metadata — must render.
-  const visibleDetailLines = ((isAgentSurfaceCard || isSkillSurface) && !showRawResult)
-    ? []
-    : detailLines;
+  // Agent spawn/send/response cards show a tight brief under the ⎿ gutter when
+  // collapsed; ctrl+o expand still surfaces the full body.
+  let visibleDetailLines = detailLines;
+  if (isSkillSurface && !showRawResult) {
+    visibleDetailLines = [];
+  } else if (isAgentSurfaceCard && !showRawResult) {
+    const agentDetailFallback = collapsedDetail
+      || (pending ? (pendingDetailPlaceholder || 'Running') : 'Finished');
+    const agentDetailLine = agentSurfaceBrief
+      || truncateToWidth(String(agentDetailFallback), Math.min(AGENT_SURFACE_BRIEF_MAX, maxResultChars));
+    visibleDetailLines = [agentDetailLine];
+  }
   const finalStatusColor = toolStatusColor({ pending, groupCount, failedCount, terminalStatus });
   const dotColor = isShellSurface && shellStatus === 'running' ? theme.subtle : finalStatusColor;
   const dotText = pending && !blinkExpired && !blinkOn ? ' ' : TURN_MARKER;

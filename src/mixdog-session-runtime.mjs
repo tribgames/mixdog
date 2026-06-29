@@ -17,7 +17,6 @@ import {
   normalizeAgentPermissionOrNone,
   readMarkdownDocument,
 } from './runtime/shared/markdown-frontmatter.mjs';
-import { createWorkspaceRouter, formatWorkspaceSessionContext } from './runtime/shared/workspace-router.mjs';
 import { setConfiguredShell } from './runtime/agent/orchestrator/tools/builtin/shell-runtime.mjs';
 import {
   PROVIDER_STATUS_TOOL,
@@ -497,7 +496,7 @@ const READONLY_TOOL_NAMES = new Set([
   'fetch',
   'Skill',
 ]);
-const AGENT_HIDDEN_WRAPPER_TOOLS = new Set(['explore', 'search']);
+const AGENT_HIDDEN_WRAPPER_TOOLS = new Set(['search']);
 
 function applyStandaloneToolDefaults(tool) {
   if (!tool || !AGENT_HIDDEN_WRAPPER_TOOLS.has(tool.name)) return tool;
@@ -1699,8 +1698,14 @@ function toolRow(tool, activeNames = new Set()) {
   };
 }
 
-function openAILoadableToolSpec(tool) {
-  if (isResponsesFreeformTool(tool)) return toResponsesCustomTool(tool);
+function providerSupportsResponsesCustomTools(provider) {
+  const p = clean(provider).toLowerCase();
+  if (!p) return true;
+  return p === 'openai' || p === 'openai-oauth';
+}
+
+function openAILoadableToolSpec(tool, provider = '') {
+  if (providerSupportsResponsesCustomTools(provider) && isResponsesFreeformTool(tool)) return toResponsesCustomTool(tool);
   return {
     type: 'function',
     name: clean(tool?.name),
@@ -1712,7 +1717,7 @@ function openAILoadableToolSpec(tool) {
   };
 }
 
-function toolSearchNativePayload(catalog, names) {
+function toolSearchNativePayload(catalog, names, provider = '') {
   const selected = new Set((names || []).map(clean).filter(Boolean));
   if (!selected.size) return null;
   const tools = [];
@@ -1721,7 +1726,7 @@ function toolSearchNativePayload(catalog, names) {
     const name = clean(tool?.name);
     if (!name || !selected.has(name)) continue;
     refs.push(name);
-    tools.push(openAILoadableToolSpec(tool));
+    tools.push(openAILoadableToolSpec(tool, provider));
   }
   if (!refs.length) return null;
   return {
@@ -2049,7 +2054,7 @@ function renderToolSearch(args = {}, session, mode = 'full') {
       }
     : null;
   const nativeToolSearch = toolSelection?.native
-    ? toolSearchNativePayload(catalog, toolSelection.added)
+    ? toolSearchNativePayload(catalog, toolSelection.added, session?.provider)
     : null;
   return JSON.stringify({
     selected,
@@ -2486,7 +2491,6 @@ export async function createMixdogSessionRuntime({
   let sessionCreatePromise = null;
   let currentCwd = cwd;
   let sessionNeedsCwdRefresh = false;
-  const workspaceRouter = createWorkspaceRouter({ entryCwd: cwd });
   let closeRequested = false;
   let channelStartTimer = null;
   let providerSetupWarmupTimer = null;
@@ -2728,18 +2732,6 @@ export async function createMixdogSessionRuntime({
     void reason;
     sessionNeedsCwdRefresh = false;
     return session;
-  }
-
-  function buildWorkspaceContext() {
-    try {
-      return formatWorkspaceSessionContext(workspaceRouter.snapshot(currentCwd));
-    } catch (error) {
-      return [
-        '# Workspace',
-        `current cwd: ${currentCwd}`,
-        `project candidates: unavailable (${error?.message || String(error)})`,
-      ].join('\n');
-    }
   }
 
   function skillContent(name) {
@@ -3714,7 +3706,6 @@ function parsedProviderModelVersion(id) {
       if (closeRequested) throw new Error('runtime is closing');
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const workflowContext = workflowContextBlock(config, dataDir);
-      const workspaceContext = buildWorkspaceContext();
       const sessionOpts = {
         provider: route.provider,
         model: route.model,
@@ -3730,7 +3721,6 @@ function parsedProviderModelVersion(id) {
         cwd: currentCwd,
         coreMemoryContext,
         workflowContext,
-        workspaceContext,
         fast: route.fast === true,
         compaction: config.compaction && typeof config.compaction === 'object'
           ? normalizeCompactionConfig(config.compaction, { memoryEnabled: memoryEnabled() })

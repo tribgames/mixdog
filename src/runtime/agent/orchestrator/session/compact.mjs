@@ -909,7 +909,7 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
     const selected = selectCompactionWindow(sanitized, budget, opts);
     // Recall fast-track (type 2, toy mode): keep it dead simple. The chunked
     // recall text already carries the history, so the preserved tail is reduced
-    // to the recent USER messages only (Codex-style) — assistant turns and tool
+    // to the recent USER messages only (openai-oauth-style) — assistant turns and tool
     // outputs are dropped from the tail. Result shape: system rules → chunk
     // summary → recent user messages. Because the chunk is the history anchor,
     // an empty head is fine as long as we have recall text to emit.

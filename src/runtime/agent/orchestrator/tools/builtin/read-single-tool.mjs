@@ -338,7 +338,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             _recordReadSnapshot(fullPath, st, readStateScope, cachedEntry.readSnapshotMeta || { source: 'read_cached' });
             // G6: file_unchanged stub. The full body is already in the
             // prior tool_result; resending it wastes cache_creation
-            // tokens (Claude Code upstream measured ~18% on Read calls).
+            // tokens (reference upstream measured ~18% on Read calls).
             // The stub keeps the snapshot tracking intact (Edit
             // validation still works) while collapsing the response
             // payload. Falls back to the full body when the cached

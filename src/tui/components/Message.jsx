@@ -1,16 +1,16 @@
 /**
  * components/Message.jsx — transcript message rows.
  *
- * Ported from Claude Code:
- *   - AssistantTextMessage.tsx: `● <markdown>` where the dot is `BLACK_CIRCLE`
- *     in the `text` color (white, NOT claude-orange), in a 2-wide gutter, and
+ * Transcript message rows:
+ *   - Assistant: `● <markdown>` where the dot is `BLACK_CIRCLE`
+ *     in the `text` color (not the orange title accent), in a 2-wide gutter, and
  *     the markdown sits in a column box beside it (flexDirection row).
- *   - UserPromptMessage.tsx: text on a `userMessageBackground` background with
- *     `paddingRight={1}` (no prompt glyph — CC uses the bg to distinguish input
+ *   - User: text on a `userMessageBackground` background with
+ *     `paddingRight={1}` (no prompt glyph — the bg distinguishes input
  *     from assistant/tool rows).
  *
  * The dot uses `minWidth={2}` so wrapped markdown lines align under the text,
- * not under the dot (CC's NoSelect minWidth={2} behavior).
+ * not under the dot (2-wide gutter alignment).
  */
 import React from 'react';
 import { Box, Text, useAnimation } from 'ink';
@@ -46,7 +46,7 @@ export const UserMessage = React.memo(function UserMessage({ text, attached = fa
   // `attached` = the previous transcript row is also a user message (consecutive
   // steering prompts). Those stack flush together; a user message that follows
   // an assistant/tool row gets a one-row gap above it.
-  // The background band fills the row edge-to-edge (CC's user bubble reads as a
+  // The background band fills the row edge-to-edge (user bubble reads as a
   // full-width band, not a text-hugging tag). An explicit numeric width is more
   // robust than "100%" here — it guarantees the band even if a parent's width
   // context is ambiguous. paddingLeft aligns the body under the 2-col gutter.

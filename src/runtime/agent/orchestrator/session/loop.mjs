@@ -1168,7 +1168,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             process.stderr.write(`[loop] hard iteration cap ${maxLoopIterations} reached (sess=${sessionId || 'unknown'}); stopping loop.\n`);
             break;
         }
-        // Claude Code parity: drain queued steering/prompts BEFORE the
+        // Drain queued steering/prompts BEFORE the
         // pre-send compact check. The compact decision must see the exact
         // message set that the next provider.send would receive, including
         // tool results plus any queued user input/notifications.
@@ -1376,7 +1376,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     messages.length = 0;
                     messages.push(...compacted);
                     // Compacting/pruning the transcript invalidates the
-                    // server-side conversation anchor (xAI Responses / Codex
+                    // server-side conversation anchor (xAI Responses / openai-oauth
                     // WS rely on previous_response_id which points at a
                     // now-mutated prefix). Drop providerState so the next send
                     // starts a fresh chain.
@@ -1558,7 +1558,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             response = await provider.send(messages, model, sendTools.length ? sendTools : undefined, opts);
         } catch (sendErr) {
             // Context-window-exceeded is a deterministic refusal from the API.
-            // Claude Code recovers these reactively by compacting and retrying
+            // Recover context overflow reactively by compacting and retrying
             // in the same active turn. MixDog's proactive estimator can miss a
             // provider-specific overhead spike, so do one reactive retry by
             // marking the live session over-threshold and looping back through
@@ -1734,7 +1734,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // OpenAI Responses API replay payload (encrypted_content blobs);
         // providers that ignore it just see an extra field and drop it,
         // openai-oauth.convertMessagesToResponsesInput emits matching
-        // type:'reasoning' input items on the next turn to keep the Codex
+        // type:'reasoning' input items on the next turn to keep the openai-oauth
         // server-side cache prefix stable.
         const _assistantTurnMsg = {
             role: 'assistant',
@@ -1822,7 +1822,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             let toolStartedAt;
             let toolEndedAt;
             const toolKind = getToolKind(call.name);
-            // Cross-turn read dedup. Mirrors Anthropic Claude Code's
+            // Cross-turn read dedup. Mirrors a reference agent's
             // fileReadCache.ts: if the path's stat tuple (mtime/size/ino/dev)
             // is unchanged since a prior read in THIS session, return the cached
             // body instead of executing. Both scalar and array/object-array path

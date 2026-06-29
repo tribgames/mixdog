@@ -1,5 +1,5 @@
 /**
- * AbortController helpers — ported from the Claude Code CLI pattern.
+ * AbortController helpers — ported from a reference agent CLI pattern.
  *
  * `createAbortController()` raises the signal's max listener cap so long-running
  * sessions with many per-iteration handlers don't trip Node's default warning.

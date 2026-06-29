@@ -333,7 +333,7 @@ function compactBoundaryForRoute(routeInfo = {}, compact = null) {
   return rawContextWindow > 0 ? rawContextWindow : 0;
 }
 
-// Single source of truth for the value handed to Claude Code's
+// Single source of truth for the value synced to host env
 // CLAUDE_CODE_AUTO_COMPACT_WINDOW. BOTH the --enable-time write
 // (scripts/gateway-model.mjs) and the runtime sync (src/gateway/server.mjs)
 // must derive the window the SAME way, or they disagree on the value written to

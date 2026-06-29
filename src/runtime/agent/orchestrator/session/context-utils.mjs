@@ -55,7 +55,7 @@ export function estimateRequestReserveTokens(tools) {
 }
 const TOOL_MISSING_STUB = '[Older tool result unavailable after context compaction]';
 /**
- * Tool-pair sanitization (Hermes `_sanitize_tool_pairs`):
+ * Tool-pair sanitization (unmatched tool_use / tool_result repair):
  *   - Drop `tool` messages whose toolCallId has no surviving assistant tool_call.
  *   - For surviving assistant tool_calls whose results are missing, insert a
  *     stub tool message so the provider doesn't reject the request for

@@ -996,7 +996,7 @@ const OWNER_ROUTES = {
   },
   "/trigger-schedule": async (req, res, body) => {
     // Native fallback for `mcp__trigger_schedule` so out-of-band
-    // verification works when the MCP stdio bridge is down (Claude Code
+    // verification works when the MCP stdio bridge is down (host agent
     // disconnected, supervisor restart pending, etc.). Same authz as
     // /inject — x-owner-token must equal INSTANCE_ID.
     if (req.method !== "POST") { res.writeHead(405); res.end(JSON.stringify({ error: "POST required" })); return; }
@@ -1367,7 +1367,7 @@ function getBridgeOwnershipSnapshot() {
 // MIXDOG_PIN_OWNER=1 in the owning process writes `pinned:true` into
 // active-instance.json. Pinned owners ignore the 10 s stale window — they
 // only relinquish ownership when their OS process actually dies. Set per
-// session (env var on the Claude Code shell) to lock that Lead as the
+// session (env var on the host agent shell) to lock that Lead as the
 // schedule/webhook receiver across multi-session use.
 function canStealOwnership(active) {
   if (!active) return true;
@@ -2148,7 +2148,7 @@ try {
 backend.onInteraction = (interaction) => {
   // Channel-route permission reply. Custom_id format: perm-ch-{request_id}-{allow|session|deny}.
   // request_id is the 5-letter short ID CC generates via shortRequestId().
-  // Emit notifications/claude/channel/permission back to Claude Code; the race
+  // Emit notifications/claude/channel/permission back to the MCP host; the race
   // logic in interactiveHandler.ts resolves the pending request and dismisses
   // every other racer (local dialog, bridge, hook, classifier).
   if (interaction.customId?.startsWith("perm-ch-")) {
@@ -3310,16 +3310,16 @@ if (_isWorkerMode && process.send) {
       } catch { /* best-effort */ }
       return;
     }
-    // Claude Code permission request → Discord Allow/Deny prompt.
+    // Host permission request → Discord Allow/Deny prompt.
     // Parent (server.mjs) receives notifications/claude/channel/permission_request
-    // from Claude Code and forwards the params here. We post a buttoned message;
+    // from the MCP host and forwards the params here. We post a buttoned message;
     // button clicks are handled in backend.onInteraction and sent back to CC as
     // notifications/claude/channel/permission via sendNotifyToParent.
     if (msg && msg.type === 'permission_request_inbound') {
       try {
         const { request_id, tool_name, description, input_preview } = msg.params || {};
         // tool_input arrives via the passthrough() schema in server.mjs when
-        // Claude Code includes it in the permission_request notification.
+        // The host includes it in the permission_request notification.
         // Used to bind the pendingPermRequest to a specific file so two
         // concurrent Edit/Write requests cannot cross-approve via the
         // terminal signal.

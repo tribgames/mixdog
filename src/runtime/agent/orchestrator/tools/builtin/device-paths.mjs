@@ -1,4 +1,4 @@
-// G6: device path block list (Claude Code parity). Reading these paths
+// G6: device path block list (reference parity). Reading these paths
 // would either hang (waiting for stdin / tty) or produce infinite output
 // (/dev/zero, /dev/random). The device block list catches pseudo-files on
 // POSIX hosts that a user-allowed path can still hit.

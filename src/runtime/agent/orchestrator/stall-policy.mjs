@@ -94,7 +94,7 @@ export const PROVIDER_HTTP_RESPONSE_TIMEOUT_MS = resolveTimeoutMs(
     { minMs: 10_000, maxMs: PROVIDER_MAX_BEFORE_WARN_MS },
 );
 
-// Stream idle watchdog is OFF by default — matches Claude Code native
+// Stream idle watchdog is OFF by default — matches reference agent native
 // behaviour (its watchdog is gated behind CLAUDE_ENABLE_STREAM_WATCHDOG).
 // The agent stall watchdog (STALL_ABORT_S, 600s) is the backstop for
 // genuinely dead streams; this short inter-chunk idle watchdog only adds

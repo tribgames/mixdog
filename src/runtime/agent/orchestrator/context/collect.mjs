@@ -341,7 +341,7 @@ export function loadScopedRoleInstructions(role, provider = null) {
             // Explicit-cache providers — every role sees the same all-in-one
             // instruction surface. Cross-role calls hit the same provider-side prefix
             // shard, eliminating the role-shard miss seen on Pool C
-            // transitions for codex/openai. This branch is disabled by the
+            // transitions for openai-oauth/openai. This branch is disabled by the
             // empty provider set above; BP2 remains the active role surface.
             agentRuleSectionsToEmit = hiddenPairs.map(p => `## ${p.name}\n\n${p.body}`);
             agentSectionsToEmit = agentSections;

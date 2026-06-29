@@ -313,7 +313,7 @@ export function writeClaudeCodeCurrentSnapshot(ccJsonInput) {
 }
 
 export function formatClaudeCurrentChoiceLabel(route = readClaudeCodeCurrentRoute()) {
-  const parts = [`Claude Code current: ${route.modelDisplay || route.model || 'current model'}`];
+  const parts = [`Current selection: ${route.modelDisplay || route.model || 'current model'}`];
   if (route.effort) parts.push(String(route.effort).toUpperCase());
   if (route.fast === true) parts.push('fast');
   return parts.join(' · ');

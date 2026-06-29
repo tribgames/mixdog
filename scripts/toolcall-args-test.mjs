@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Regression tests pinning the native-provider (Codex / claude-code / opencode)
+// Regression tests pinning the native-provider (OpenAI-compat / claude-code / opencode)
 // tool_call arguments contract: completed-but-malformed arguments JSON is NEVER
 // thrown (which would kill the turn) NOR silently swallowed to {}. With a finish
 // signal observed it is surfaced as an invalid-args MARKER carried on the
@@ -7,7 +7,7 @@
 // as an is_error tool_result and the model self-corrects in the SAME turn.
 // Without a finish signal (mid-stream truncation) it remains a retryable
 // TruncatedStreamError — that transient behavior is deliberately preserved.
-// Mirrors codex-rs sse/responses.rs #[cfg(test)] style: synthetic inputs fed
+// Unit-test style: synthetic inputs fed
 // directly to the exported parser, asserting the resulting outcome — no
 // network, no model.
 import test from 'node:test';
@@ -57,7 +57,7 @@ test('C: bareword JSON with finishReason → invalid-args marker (no throw, no s
     assert.equal(out.__rawArguments, bareword);
     assert.equal(typeof out.__parseError, 'string');
     assert.ok(out.__parseError.length > 0, 'parse error message must be carried');
-    // Model-facing tool_result text mirrors opencode/Codex wording.
+    // Model-facing tool_result text uses the shared invalid-args template.
     const msg = formatInvalidToolArgsResult({ name: 'grep', arguments: out });
     assert.match(msg, /invalid JSON/);
     assert.match(msg, /Re-issue this tool call with valid JSON arguments/);

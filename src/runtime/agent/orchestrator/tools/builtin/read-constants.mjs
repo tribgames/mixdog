@@ -3,7 +3,7 @@ import { SMART_READ_MAX_BYTES } from './read-formatting.mjs';
 // Read tool caps.
 //
 // READ_MAX_SIZE_BYTES (10 MB) — fast-path file-size threshold mirroring
-// Claude Code's FAST_PATH_MAX_SIZE (readFileInRange.ts:44). Files at or below
+// Reference FAST_PATH_MAX_SIZE (readFileInRange.ts:44). Files at or below
 // this size use readFile + in-memory split by default, which CC measured at
 // ~2x faster than createReadStream + readline for typical source. Explicit
 // offset/limit windows on files above READ_STREAM_RANGE_MIN_BYTES take the
@@ -14,7 +14,7 @@ import { SMART_READ_MAX_BYTES } from './read-formatting.mjs';
 //
 // READ_WHOLE_FILE_MAX_BYTES (256 KiB) — soft threshold: default whole-file
 // reads larger than this prefer stream smart-elide + READ_MAX_OUTPUT_BYTES
-// truncation (Codex-style proceed) rather than refusing. Hard in-memory cap
+// truncation (proceed with cap) rather than refusing. Hard in-memory cap
 // for loading a full file remains READ_MAX_SIZE_BYTES (10 MiB).
 //
 // READ_MAX_OUTPUT_BYTES (30 KB) — output-truncation cap. Lead-facing default tightened from 50k. Mirrors CC's

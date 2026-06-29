@@ -16,7 +16,7 @@ import { sanitizeContentForStoredHistory } from '../providers/media-normalizatio
 const _lastSaveError = new Map(); // id -> { message, at }
 const SESSION_SUMMARY_INDEX_VERSION = 1;
 
-// Claude Code parity: the live in-memory session (and every model request)
+// The live in-memory session (and every model request)
 // retains attached image bytes across turns so multi-turn recognition works.
 // The persisted session JSON, however, replaces image content with a short
 // text placeholder at serialization time — keeping session files small without

@@ -573,6 +573,10 @@ export async function renderStatusLine(ccJsonInput) {
     if (cleanTags.length <= limit) return cleanTags.join(', ');
     return `${cleanTags.slice(0, limit).join(', ')}, +${cleanTags.length - limit}`;
   }
+  const workerSpinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  function workerSpinnerFrame(now = Date.now()) {
+    return workerSpinnerFrames[Math.floor(now / 120) % workerSpinnerFrames.length] || workerSpinnerFrames[0];
+  }
 
   const gatewayLimitSegments = formatGatewayLimitSegments(GATEWAY_STATUS, {
     COLS, D, R, RED, GRN, YLW, colourPct, epochMsToHHMM,
@@ -781,7 +785,7 @@ export async function renderStatusLine(ccJsonInput) {
   function addL2(seg) { if (seg) l2Parts.push(seg); }
 
   if (workCount > 0 && workOrder) {
-    addL2(`${GRN}●${R} ${B}${workCount} Running${R} ${D}(${R}${B}${summarizeWorkerTags(workOrder.split(','))}${R}${D})${R}`);
+    addL2(`${GRN}${workerSpinnerFrame()}${R} ${B}${workCount} Running${R} ${D}(${R}${B}${summarizeWorkerTags(workOrder.split(','))}${R}${D})${R}`);
   }
 
   if (idleWorkers.length) {

@@ -1,23 +1,19 @@
 /**
- * components/Spinner.jsx — the "thinking" indicator (Claude Code shape).
+ * components/Spinner.jsx — the "thinking" indicator.
  *
- * Ported from Claude Code's SpinnerAnimationRow + SpinnerGlyph + GlimmerMessage:
- *   - frames = [...DEFAULT_CHARACTERS, ...reverse] so it sweeps forward then
- *     back (CC SpinnerGlyph SPINNER_FRAMES).
- *   - the glyph sits in a `width={2}` box (CC's <Box height={1} width={2}>).
- *   - verb… verb shimmer: traveling highlight in claudeShimmer with
- *     mode-aware glimmer speed (CC GlimmerMessage).
+ * Spinner row layout:
+ *   - frames sweep forward then back.
+ *   - the glyph sits in a `width={2}` box.
+ *   - verb… verb shimmer: traveling highlight with mode-aware glimmer speed.
  *   - stall detection with exponential smoothing: intensity fades in/out over
- *     2s (CC useStalledAnimation).
- *   - thinking shimmer: left-to-right "thinking" label after delay (CC
- *     ThinkingShimmerText, inlined from useAnimationFrame).
+ *     2s fade.
+ *   - thinking shimmer: left-to-right "thinking" label after delay.
  *   - progressive width gating: timer/tokens/thinking shown left→right only if
- *     they fit after the previous segments (CC SpinnerAnimationRow).
+ *     they fit after the previous segments.
  *   - token counter animation: smooth increment toward the current turn's
- *     output token count, shown Claude Code style as a single "<glyph> N
- *     tokens" segment (CC SpinnerAnimationRow + SpinnerModeGlyph). The glyph
+ *     output token count as a single "<glyph> N tokens" segment. The glyph
  *     is mode-driven: up while requesting, down otherwise. Input totals hidden.
- *   - elided duration formatting (CC formatDuration: "0:25" after 60s).
+ *   - elided duration formatting ("0:25" after 60s).
  *   - mode prop: 'responding' | 'thinking' | 'tool-use' | 'tool-input' |
  *     'requesting' | 'compacting' | 'resuming' (default 'responding').
  */
@@ -29,17 +25,17 @@ import { DOWN_ARROW, UP_ARROW } from '../figures.mjs';
 import { formatDuration } from '../time-format.mjs';
 
 const FRAME_MS = 130;
-// CC plays the frames forward, then in reverse — a smooth there-and-back sweep.
+// Play frames forward, then in reverse — a smooth there-and-back sweep.
 const FRAMES = [...SPINNER_FRAMES, ...[...SPINNER_FRAMES].reverse()];
 
 // Stall: response must grow within this window or the glyph reddens.
 const STALL_TIMEOUT_MS = 3000;
-const STALL_FADE_MS = 2000; // CC fades red over 2s
-// Claude Code hides elapsed/token meta on short turns unless verbose/teammates
+const STALL_FADE_MS = 2000; // fade red over 2s
+// Hide elapsed/token meta on short turns unless verbose/teammates
 // are active. Mixdog has no spinner verbose/teammate row here, so mirror the
 // default 30s threshold.
 const SHOW_TOKENS_AFTER_MS = 30_000;
-// Thinking shimmer starts after this delay (CC THINKING_DELAY_MS).
+// Thinking shimmer starts after this delay.
 const THINKING_DELAY_MS = 3000;
 
 // One-way shimmer. The tail runs past the final character before restarting.
@@ -148,7 +144,7 @@ function chooseNextVerb(mode, fallback, current) {
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
-// Token-direction glyph, mirroring Claude Code's SpinnerModeGlyph switch:
+// Token-direction glyph by mode:
 // up while uploading the request, down while receiving a response, and no
 // glyph at all for non-streaming modes (compacting/resuming/auto-clear) where
 // the arrow direction would be meaningless.
@@ -177,7 +173,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   const displayVerbRef = useRef('');
   const displayVerbModeRef = useRef('');
   const nextVerbCheckRef = useRef(0);
-  // Stall smoothing refs (CC useStalledAnimation exponential fade)
+  // Stall smoothing refs (exponential fade)
   const stallSmoothRef = useRef(0);
   const lastStallTickRef = useRef(0);
 
@@ -192,7 +188,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
 
   const stallMs = now - lastGrowRef.current;
   const isStalled = targetOutputTokens > 0 && stallMs > STALL_TIMEOUT_MS;
-  // Stall smoothing: exponential fade toward target (CC useStalledAnimation)
+  // Stall smoothing: exponential fade toward target
   const rawIntensity = isStalled
     ? Math.min(1, (stallMs - STALL_TIMEOUT_MS) / STALL_FADE_MS)
     : 0;
@@ -213,7 +209,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
 
   const glyph = FRAMES[frame % FRAMES.length];
 
-  // Glyph color — interpolate toward red when stalled (CC SpinnerGlyph).
+  // Glyph color — interpolate toward red when stalled.
   const glyphColor = stalledIntensity > 0
     ? toRgbString(interpolateColor(
         SPINNER_GLYPH_RGB,
@@ -222,7 +218,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
       ))
     : theme.spinnerGlyph;
 
-  // --- Verb shimmer (CC GlimmerMessage traveling highlight) ---
+  // --- Verb shimmer (traveling highlight) ---
   if (displayVerbModeRef.current !== mode || !displayVerbRef.current) {
     displayVerbModeRef.current = mode;
     displayVerbRef.current = stableModeVerb(mode, verb);
@@ -261,8 +257,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
     return Math.round(ref.current);
   };
 
-  // Token counter animation — Claude Code shows a single "<glyph> N tokens"
-  // segment (SpinnerAnimationRow + SpinnerModeGlyph). N is the output/response
+  // Token counter animation — single "<glyph> N tokens" segment. N is the output/response
   // token count, smoothly incremented toward the current turn's value. The
   // glyph is mode-driven: up while requesting, down otherwise (responding,
   // thinking, tool-use, tool-input). Input token totals are not shown.
@@ -275,7 +270,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
     : '';
   const tokenW = tokenText.length;
 
-  // Progressive width gating (CC SpinnerAnimationRow): show status parts
+  // Progressive width gating: show status parts
   // left→right, each only if it fits after the previous ones. Timer/tokens are
   // hidden for short turns by default; thinking status can still show alone.
   const avail = columns - messageLen - 5; // glyph(2) + ' (' + ')'
@@ -290,10 +285,10 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   const thinkingStatusW = thinkingStatusText.length;
   // Turn elapsed time is the headline metric here, not a thinking sub-stat, so
   // it shows from 1s onward (formatDuration returns '' below 1s). Tokens keep
-  // Claude Code's short-turn gate so they only appear once the turn runs long.
+  // Short-turn gate: tokens only appear once the turn runs long.
   const wantsTokens = elapsedMs > SHOW_TOKENS_AFTER_MS;
 
-  // Claude Code gives thinking display priority for narrow widths, but renders
+  // Thinking display priority for narrow widths, but renders
   // it after timer/tokens in the final byline.
   const showThinkingStatus = Boolean(thinkingStatusText) && avail > thinkingStatusW;
   const usedAfterThinking = showThinkingStatus ? thinkingStatusW + SEP_WIDTH : 0;
@@ -301,7 +296,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   const usedAfterTimer = usedAfterThinking + (showTimer ? timerW + SEP_WIDTH : 0);
   const showTokens = wantsTokens && tokenText && avail > usedAfterTimer + tokenW;
 
-  // Build meta line segments — elapsed, tokens, thinking (Claude Code order).
+  // Build meta line segments — elapsed, tokens, thinking.
   const segments = [];
   if (showTimer) {
     segments.push(

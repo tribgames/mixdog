@@ -1,5 +1,5 @@
 /**
- * TUI duration formatting, matching Claude Code's formatDuration shape.
+ * TUI duration formatting (compact elapsed-time labels).
  *
  * Examples:
  *   42s

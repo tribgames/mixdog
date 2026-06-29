@@ -1,5 +1,5 @@
 /**
- * OpenAI ChatGPT OAuth (Codex) provider.
+ * OpenAI ChatGPT OAuth subscription provider.
  *
  * Dispatches over the WebSocket upgrade of chatgpt.com/backend-api/codex/
  * responses (responses_websockets=2026-02-06 beta). Authenticates via PKCE
@@ -53,11 +53,11 @@ const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const CODEX_OAUTH_ORIGINATOR = 'codex_cli_rs';
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses';
-// Version string baked into the models endpoint query — Codex rejects the
-// request without it. Keep close to the latest published Codex CLI because
+// Version string baked into the models endpoint query — the OAuth backend rejects the
+// request without it. Keep close to the latest published @openai/codex CLI because
 // older versions trigger a visibility-filtered catalog (e.g. only rollout
 // models). Bump when the real CLI bumps.
-// Codex backend gates new model exposures (e.g. gpt-5.5 only on >= 0.130.0)
+// OpenAI OAuth backend gates new model exposures (e.g. gpt-5.5 only on >= 0.130.0)
 // on the client_version header. Resolve dynamically from npm so newly-shipped
 // models surface within a day instead of waiting on a hardcoded bump here.
 // Cached 24h in-process; npm failure falls back to the floor below.
@@ -153,7 +153,7 @@ export function codexModelSupportsServiceTier(id, serviceTier) {
     return tiers.some(t => t?.id === serviceTier);
 }
 
-// Codex returns dated ids (gpt-5.4-mini-2026-03-17). Strip the trailing
+// OAuth catalog returns dated ids (gpt-5.4-mini-2026-03-17). Strip the trailing
 // -YYYY-MM-DD to get the version alias (gpt-5.4-mini). Unknown shapes pass
 // through unchanged.
 function _displayCodexModel(id) {
@@ -176,7 +176,7 @@ function _normalizeCodexModel(m) {
     const additionalSpeedTiers = Array.isArray(m?.additional_speed_tiers)
         ? m.additional_speed_tiers.map(t => String(t || '').trim()).filter(Boolean)
         : [];
-    // Codex doesn't use dated ids — everything is effectively a version alias.
+    // Catalog ids are version aliases without separate display dating.
     return {
         id,
         name: m?.display_name || id,
@@ -210,8 +210,8 @@ function _codexFamily(id) {
     return 'gpt';
 }
 
-// Compare two Codex ids by the X.Y version embedded in `gpt-X.Y`. Mirrors
-// anthropic-oauth's _compareVersion, but Codex ids have no trailing date so
+// Compare two model ids by the X.Y version embedded in `gpt-X.Y`. Mirrors
+// anthropic-oauth's _compareVersion; these ids have no trailing date so
 // the version lives in the dotted number, not a -YYYY-MM-DD suffix.
 function _compareVersion(a, b) {
     const na = (String(a).match(/gpt-(\d+)\.(\d+)/) || []).slice(1).map(Number);
@@ -229,7 +229,7 @@ function _isMainCodexFamily(family) {
 }
 
 // Mark the highest-version model per family as `latest: true`. VERSION-based
-// (Codex ids carry no `created`), mirroring anthropic-oauth's per-family pass.
+// (ids carry no `created`), mirroring anthropic-oauth's per-family pass.
 function _markLatestCodex(models) {
     const byFamily = new Map();
     for (const m of models) {
@@ -368,9 +368,9 @@ function _loadCodexCliTokens() {
     catch { /* fall through */ }
     return null;
 }
-// Own store is authoritative (accurate expires_at from refresh); the Codex CLI
+// Own store is authoritative (accurate expires_at from refresh); the ~/.codex CLI
 // store seeds the initial bootstrap. But the refresh-token lineage is shared
-// single-use with the Codex CLI, so when the CLI store is STRICTLY newer on
+// single-use with the official CLI, so when the CLI store is STRICTLY newer on
 // disk (an independent `codex login`/CLI refresh) we must adopt it instead of
 // replaying our consumed token. Freshest-wins, own preferred on a tie.
 function loadTokens() {
@@ -416,8 +416,8 @@ export function forgetOpenAIOAuthCredentials() {
     }
     return { removed };
 }
-// Write rotated tokens back to the Codex CLI store (~/.codex/auth.json) so the
-// Codex CLI picks up the rotation instead of replaying a consumed refresh_token
+// Write rotated tokens back to ~/.codex/auth.json so the official CLI
+// picks up the rotation instead of replaying a consumed refresh_token
 // from the shared single-use lineage. Mirrors anthropic-oauth's write-back.
 // Best-effort; the own store stays authoritative. Host-owned file: preserve all
 // other fields and don't re-permission it (no secret/mode).
@@ -431,13 +431,13 @@ function _writeBackCodexCliTokens(tokens) {
         slot.access_token = tokens.access_token;
         slot.refresh_token = tokens.refresh_token;
         raw.last_refresh = new Date().toISOString();
-        // Preserve the Codex CLI file's existing POSIX mode (writeJsonAtomicSync
+        // Preserve the ~/.codex file's existing POSIX mode (writeJsonAtomicSync
         // otherwise defaults to 0o600, re-permissioning a host-owned file).
         let mode;
         try { mode = statSync(path).mode & 0o777; } catch { /* keep helper default */ }
         writeJsonAtomicSync(path, raw, { lock: true, fsyncDir: true, mode });
     } catch (err) {
-        process.stderr.write(`[openai-oauth] Codex CLI store write-back failed: ${String(err?.message || err).slice(0, 200)}\n`);
+        process.stderr.write(`[openai-oauth] ~/.codex auth store write-back failed: ${String(err?.message || err).slice(0, 200)}\n`);
     }
 }
 function extractAccountId(token) {
@@ -453,7 +453,7 @@ function extractAccountId(token) {
     }
 }
 // Derive token expiry from the access_token's JWT `exp` claim (epoch ms), as a
-// fallback when the source store carries no explicit expires_at — e.g. the Codex
+// fallback when the source store carries no explicit expires_at — e.g. the
 // CLI's ~/.codex/auth.json records only last_refresh, so expires_at resolves to 0
 // and ensureAuth reads that as "never expires", disabling proactive refresh; the
 // token then only refreshes reactively after a request fails (and a WS handshake
@@ -491,7 +491,7 @@ async function refreshTokens(refreshToken) {
         });
         if (!res.ok) {
             const text = await res.text().catch(() => '');
-            // Distinguish a terminally-dead refresh token (consumed by the Codex
+            // Distinguish a terminally-dead refresh token (consumed by the official
             // CLI's single-use lineage) from transient failures, so the caller can
             // re-read disk and retry once with a newer token instead of
             // collapsing every failure to a generic null.
@@ -593,7 +593,7 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
         }
         flushToolMedia();
         if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
-            // Reasoning replay deliberately omitted: Codex rejects an
+            // Reasoning replay deliberately omitted: openai-oauth rejects an
             // `rs_*` reasoning item with the same id across the same
             // handshake session_id (in-memory conversation state lives
             // for the WS_IDLE_MS window even after a socket close).
@@ -663,10 +663,10 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         providerState: opts.providerState,
         model,
     });
-    // Match the body shape pi-mono and the official Codex CLI ship so the
+    // Match the body shape pi-mono and the official OpenAI CLI ship so the
     // server-side auto-cache routes correctly. text.verbosity / include /
     // tool_choice / parallel_tool_calls are all inert without side effects
-    // for most callers but their presence affects how Codex classifies the
+    // for most callers but their presence affects how the OAuth backend classifies the
     // request (and therefore whether the prompt cache is consulted).
     const include = ['reasoning.encrypted_content'];
     for (const item of Array.isArray(opts.nativeInclude) ? opts.nativeInclude : []) {
@@ -692,9 +692,9 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         body.max_output_tokens = Math.floor(maxOutputTokens);
     }
     if (opts.fast === true) {
-        // 'priority' is the only fast-class value the Codex OAuth backend
+        // 'priority' is the only fast-class value the OpenAI OAuth backend
         // accepts on the wire: 'fast' is hard-rejected ("Unsupported
-        // service_tier: fast", probed 2026-06-11). Match official Codex:
+        // service_tier: fast", probed 2026-06-11). Match official CLI behavior:
         // only send the request value when the model catalog advertises it.
         if (codexModelSupportsServiceTier(model, 'priority')) {
             body.service_tier = 'priority';
@@ -725,9 +725,9 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         cacheLaneShards: promptCacheLane.shards,
     });
     // NOTE: prompt_cache_retention is a public OpenAI Responses API parameter,
-    // but the Codex OAuth endpoint still rejects it ("Unsupported parameter:
+    // but the openai-oauth endpoint still rejects it ("Unsupported parameter:
     // prompt_cache_retention", re-probed 2026-06-22). Leave retention on the
-    // Codex server default; public OpenAI direct injects 24h separately.
+    // openai-oauth server default; public OpenAI direct injects 24h separately.
     return body;
 }
 
@@ -744,8 +744,8 @@ function _envPositiveInt(name, fallback) {
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
-// Completed function_call.arguments parse for the Codex Responses stream.
-// Native convergence (Codex / claude-code / opencode): a function_call item
+// Completed function_call.arguments parse for the OpenAI Responses stream.
+// Native convergence (openai-oauth / anthropic-oauth / opencode): a function_call item
 // arrives only on a completion/done signal, so a non-empty-but-malformed
 // arguments string is deterministic bad JSON — NOT mid-stream truncation.
 // Empty/whitespace input legitimately means "no arguments" → {}. A non-empty
@@ -1320,7 +1320,7 @@ export class OpenAIOAuthProvider {
     constructor(config) {
         this.config = config || {};
         this.tokens = loadTokens();
-        // Warm a kept-alive socket to the Codex responses API so the first
+        // Warm a kept-alive socket to the OAuth responses API so the first
         // request skips the cold TLS handshake. Best-effort; never throws.
         preconnect('https://chatgpt.com');
     }
@@ -1330,8 +1330,8 @@ export class OpenAIOAuthProvider {
     async ensureAuth({ forceRefresh = false, reason = 'preemptive' } = {}) {
         if (!this.tokens) this.tokens = loadTokens();
         if (!this.tokens)
-            throw new Error('OpenAI OAuth not authenticated. Run codex login first.');
-        // Pick up disk-rotated tokens (codex login, host refresh) the moment
+            throw new Error('OpenAI OAuth not authenticated. Run provider login or sign in via ~/.codex/auth.json.');
+        // Pick up disk-rotated tokens (CLI login, host refresh) the moment
         // the auth file is rewritten — without this, a fresh login is ignored
         // until the in-memory token hits its expiry skew.
         const diskMtime = _tokensMaxMtime();
@@ -1407,7 +1407,7 @@ export class OpenAIOAuthProvider {
                 try {
                     refreshed = await refreshTokens(latest.refresh_token);
                 } catch (refreshErr) {
-                    // invalid_grant: the Codex CLI rotated this single-use refresh
+                    // invalid_grant: the official CLI rotated this single-use refresh
                     // token between our disk read and this refresh. Re-read both
                     // stores and retry ONCE with the freshest different token.
                     if (!refreshErr?.isInvalidGrant) throw refreshErr;
@@ -1430,7 +1430,7 @@ export class OpenAIOAuthProvider {
                     process.stderr.write(`[openai-oauth] Refresh failed (${msg}); using still-valid current token\n`);
                     return latest;
                 }
-                throw new Error(`OpenAI OAuth token refresh failed (${msg}). Run codex login to re-authenticate.`);
+                throw new Error(`OpenAI OAuth token refresh failed (${msg}). Re-authenticate via provider login.`);
             }
         })().finally(() => { _oauthRefreshInFlight = null; });
 
@@ -1473,7 +1473,7 @@ export class OpenAIOAuthProvider {
         // poolKey ≠ cacheKey by design (see openai-oauth-ws.mjs header note).
         // poolKey is per-session so parallel reviewer/worker callers each
         // get their own socket bucket — a sibling cannot grab a mid-turn
-        // entry and trip Codex's "No tool call found for function call
+        // entry and trip the backend's "No tool call found for function call
         // output with call_id …" rejection. cacheKey is prefix-scoped
         // (base namespace + model/system/tools hash) and feeds both
         // `body.prompt_cache_key` and the handshake `session_id` header, so
@@ -1646,7 +1646,7 @@ export class OpenAIOAuthProvider {
         }
     }
     async listModels() {
-        // Dynamic lookup via Codex /backend-api/codex/models. Cached 24h.
+        // Dynamic lookup via /backend-api/codex/models. Cached 24h.
         // Endpoint returns rich metadata (context_window, reasoning levels,
         // visibility) that is more detailed than /v1/models.
         const cached = await _loadCodexModelCache();
@@ -1670,7 +1670,7 @@ export class OpenAIOAuthProvider {
                 },
                 dispatcher: getLlmDispatcher(),
             });
-            if (!res.ok) throw new Error(`codex list_models ${res.status}`);
+            if (!res.ok) throw new Error(`openai-oauth list_models ${res.status}`);
             const data = await res.json();
             const items = Array.isArray(data?.models) ? data.models : [];
             const normalized = items.map(m => _normalizeCodexModel(m));
@@ -1683,7 +1683,7 @@ export class OpenAIOAuthProvider {
             _lastCodexListModelsError = err?.message || String(err);
             process.stderr.write(`[openai-oauth] listModels fetch failed (${_lastCodexListModelsError})\n`);
             // No fallback catalog — empty list signals the UI to show a
-            // "catalog unavailable, retry" state. Codex has no equivalent to
+            // "catalog unavailable, retry" state. openai-oauth has no equivalent to
             // Anthropic's family tokens so there's no meaningful minimal list.
             return [];
         }
@@ -1855,7 +1855,7 @@ export async function beginOAuthLogin() {
                 return;
             }
             res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end('<html><body><h2>Codex login successful! You can close this tab.</h2></body></html>');
+            res.end('<html><body><h2>OpenAI OAuth login successful! You can close this tab.</h2></body></html>');
             try {
                 const tokens = await exchangeAuthorizationCode({ pkce, code });
                 finish(tokens);
@@ -1865,7 +1865,7 @@ export async function beginOAuthLogin() {
         });
         timeout = setTimeout(() => finish(null), LOGIN_TIMEOUT_MS);
         server.listen(CALLBACK_PORT, CALLBACK_HOST, async () => {
-            process.stderr.write(`\n[openai-oauth] Open this URL to log in to ChatGPT (Codex):\n${url.toString()}\n\n`);
+            process.stderr.write(`\n[openai-oauth] Open this URL to log in to ChatGPT (OpenAI OAuth):\n${url.toString()}\n\n`);
             try {
                 const { openInBrowser } = await import('../../../shared/open-url.mjs');
                 openInBrowser(url.toString());

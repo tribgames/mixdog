@@ -267,7 +267,7 @@ const OAUTH_SUCCESS_REDIRECT_URL = process.env.ANTHROPIC_OAUTH_SUCCESS_REDIRECT_
 const OAUTH_LOGIN_TIMEOUT_MS = 5 * 60_000;
 const OAUTH_TOKEN_TIMEOUT_MS = 30_000;
 
-// Anthropic OAuth contract for first-party Claude Code clients.
+// Anthropic OAuth contract for first-party OAuth clients.
 // Opus/Sonnet requests are gated on a specific system-prompt prefix.
 // Mixdog keeps that upstream client contract for OAuth routing. Haiku is not
 // gated and ignores this prefix.
@@ -281,14 +281,14 @@ function resolveCliVersion() {
 }
 
 function requiresSystemPrefix(model) {
-    // Opus / Sonnet require the Claude Code system prefix when authenticated
+    // Opus / Sonnet require the OAuth system prefix when authenticated
     // via OAuth. Haiku does not.
     return /^claude-(opus|sonnet)/i.test(String(model || ''));
 }
 
 // OAuth rate-limit pool routing is gated by the server inspecting the first
-// system block. When it reads exactly "You are Claude Code, Anthropic's
-// official CLI for Claude." it routes into the Claude Code pool; any other
+// system block. When it reads exactly the OAuth system prefix string it routes
+// into the first-party OAuth pool; any other
 // content (even the prefix concatenated with extra text in the same block)
 // falls into the standard pool and Opus/Sonnet return 429. Splitting into
 // two blocks — [prefix, rest] — keeps both routing and user instructions.
@@ -314,7 +314,7 @@ function buildSystemBlocks(systemMsgs, model, systemTtl, tier3Ttl) {
     }
     for (let i = 0; i < items.length; i++) {
         let body = items[i].text;
-        // Strip a duplicated Claude Code prefix from the first block if present.
+        // Strip a duplicated OAuth system prefix from the first block if present.
         if (gated && i === 0 && body.startsWith(CLAUDE_CODE_SYSTEM_PREFIX)) {
             body = body.slice(CLAUDE_CODE_SYSTEM_PREFIX.length).trim();
             if (!body) continue;

@@ -226,7 +226,7 @@ export function gatewayConfigForSessionBoot(globalGateway = {}, sessionId = null
       }
     }
   }
-  // 3. If Claude Code did not provide a reliable prior transcript on /new,
+  // 3. If the host session did not provide a reliable prior transcript on /new,
   // carry the last explicit route for this terminal only. This keeps multiple
   // terminals isolated without falling back to the process-global default.
   if (pid) {

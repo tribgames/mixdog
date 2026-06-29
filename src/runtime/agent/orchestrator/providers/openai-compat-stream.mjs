@@ -15,7 +15,7 @@ function truncatedCompatStreamError(label, detail) {
     );
 }
 
-// Invalid-tool-args marker. Native-provider convergence (Codex / claude-code /
+// Invalid-tool-args marker. Native-provider convergence (openai-oauth /
 // opencode): completed-but-malformed tool_call arguments JSON must NOT throw
 // (kills the turn) NOR be silently swallowed to `{}`. Instead the parse
 // failure is carried as data on the tool call's `arguments` slot so the
@@ -34,7 +34,7 @@ export function isInvalidToolArgsMarker(value) {
 }
 /** Model-facing tool_result text for a tool call whose arguments failed to
  * parse. Mirrors opencode `The arguments provided to the tool are invalid` and
- * Codex `failed to parse function arguments` — instructs an in-turn retry. */
+ * `failed to parse function arguments` — instructs an in-turn retry. */
 export function formatInvalidToolArgsResult(call) {
     const name = call?.name || 'tool';
     const detail = call?.arguments?.__parseError || 'arguments were not valid JSON';

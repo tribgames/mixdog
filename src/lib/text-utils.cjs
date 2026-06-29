@@ -7,7 +7,7 @@
  *
  * Single source of truth for the regex set that strips:
  *   - markdown fences, headers, list markers, bold
- *   - tool/system tags emitted by Claude Code (system-reminder, tool-use-id,
+ *   - tool/system tags from assistant transcripts (system-reminder, tool-use-id,
  *     local-command-*, etc.)
  *   - mixdog tags (channel, schedule-context, teammate-message)
  *   - URLs, emoji, "Ran X", "Process exited", and other transcript noise

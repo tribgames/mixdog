@@ -1,8 +1,7 @@
 /**
  * src/tui/spinner-verbs.mjs — playful "thinking" verbs for the spinner.
  *
- * Ported verbatim from Claude Code (refs/claude-code/src/constants/spinnerVerbs.ts
- * SPINNER_VERBS). Shown as `<Verb>… (Ns · ↑ N tokens)` while a turn runs.
+ * Playful spinner verbs. Shown as `<Verb>… (Ns · ↑ N tokens)` while a turn runs.
  */
 export const SPINNER_VERBS = [
   'Accomplishing', 'Actioning', 'Actualizing', 'Architecting', 'Baking', 'Beaming',

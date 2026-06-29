@@ -85,8 +85,7 @@ export const bgBlack = sgr('40');
 export const bgBlue = sgr('44');
 
 // --- Truecolor (24-bit) -----------------------------------------------------
-// Claude Code defines its palette as explicit rgb() values (refs/claude-code
-// src/utils/theme.ts darkTheme). 16-color SGR can't reproduce them, so we emit
+// The TUI palette uses explicit rgb() values. 16-color SGR can't reproduce them, so we emit
 // 24-bit SGR. Honors NO_COLOR / TTY exactly like the named helpers above.
 
 /** Foreground truecolor wrapper: `rgb(215,119,87)('x')`. */

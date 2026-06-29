@@ -472,7 +472,7 @@ export class AnthropicProvider {
             params.tools = [...nativeTools, ...toAnthropicTools([...(tools || []), ...deferredAnthropicTools(tools || [], opts)])];
         }
         // Effort → extended thinking budget. Gateway inherit mode may pass the
-        // exact Claude Code budget from the incoming Anthropic request.
+        // exact OAuth client budget from the incoming Anthropic request.
         const thinkingBudgetTokens = Number(opts.thinkingBudgetTokens);
         const requestedThinkingBudget = Number.isFinite(thinkingBudgetTokens) && thinkingBudgetTokens > 0
             ? thinkingBudgetTokens

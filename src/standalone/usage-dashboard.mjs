@@ -152,8 +152,8 @@ function displayWindow(w) {
 
 function providerDescription(id, group) {
   switch (String(id || '').toLowerCase()) {
-    case 'openai-oauth': return 'ChatGPT/Codex subscription quota';
-    case 'anthropic-oauth': return 'Claude Code subscription quota';
+    case 'openai-oauth': return 'OpenAI OAuth subscription quota';
+    case 'anthropic-oauth': return 'Anthropic OAuth subscription quota';
     case 'grok-oauth': return 'Grok Build subscription quota';
     case 'opencode-go': return 'OpenCode Go subscription quota';
     case 'openai': return 'OpenAI API billing';

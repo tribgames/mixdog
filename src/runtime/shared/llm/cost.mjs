@@ -13,7 +13,7 @@
 
 import { getModelMetadataSync } from '../../agent/orchestrator/providers/model-catalog.mjs';
 
-// OpenAI / Codex / Gemini report `input_tokens` as the total prompt token
+// OpenAI OAuth / OpenAI API / Gemini report `input_tokens` as the total prompt token
 // count *including* the cached portion (inclusive). Anthropic reports the
 // uncached remainder only and bills cached_read / cached_write as separate
 // additive slots (additive). Cost and prompt-total math has to branch on this.

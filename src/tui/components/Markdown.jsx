@@ -1,15 +1,14 @@
 /**
  * components/Markdown.jsx — markdown → ink, hybrid renderer.
  *
- * Ported from Claude Code (refs/claude-code/src/components/Markdown.tsx):
- *   - marked.lexer() produces the token stream (same lib + config as CC).
+ * Markdown → ink hybrid renderer:
+ *   - marked.lexer() produces the token stream.
  *   - Non-table tokens are rendered to ANSI strings via formatToken and emitted
- *     through <AnsiText>, matching CC's span-based <Ansi> behavior.
+ *     through <AnsiText> as styled spans.
  *   - Tables are rendered by the MarkdownTable component (proper Box layout).
- *   - Adjacent non-table tokens are coalesced into one <Text> (CC's
- *     nonTableContent buffer) so block spacing matches.
+ *   - Adjacent non-table tokens are coalesced into one <Text> so block spacing matches.
  *
- * Syntax highlighting from CC is dropped, but token cache + streaming-split are
+ * Syntax highlighting is omitted, but token cache + streaming-split are
  * kept so partial markdown does not repaint stable text on every delta.
  */
 import React, { useRef } from 'react';
@@ -70,8 +69,7 @@ function renderMarkdownElements(content) {
   let idx = 0;
   const flush = () => {
     if (buffer) {
-      // CC trims the coalesced non-table block (MarkdownBody: nonTableContent
-      // .trim()) so leading/trailing blank lines from token EOLs don't bleed
+      // Trim the coalesced non-table block so leading/trailing blank lines from token EOLs don't bleed
       // into the surrounding gap={1} spacing. defaultColor={theme.text}
       // keeps ANSI resets on the same dark-theme foreground instead of the
       // terminal profile's default foreground.

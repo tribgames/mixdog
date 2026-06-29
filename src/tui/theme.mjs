@@ -1,7 +1,7 @@
 /**
- * src/tui/theme.mjs — Claude Code dark palette for the React/ink TUI.
+ * src/tui/theme.mjs — dark palette for the React/ink TUI.
  *
- * Claude Code-inspired dark palette tuned for Windows Terminal.
+ * Dark palette tuned for Windows Terminal.
  * ink accepts `rgb(r,g,b)` strings directly on the `color`/`backgroundColor`
  * props, so these are plain strings (no escape wrapping needed — ink emits the
  * SGR and honors NO_COLOR/non-TTY itself).
@@ -25,31 +25,31 @@ export const theme = {
   statusText: 'rgb(198,198,198)',
   statusSubtle: 'rgb(168,168,168)',
   timerText: 'rgb(168,168,168)', // live elapsed timer — metadata weight, no bright accent
-  text: 'rgb(198,198,198)', // Claude Code-like primary text
+  text: 'rgb(198,198,198)', // primary text
   inverseText: 'rgb(0,0,0)', // text on an inverted (light) background
   inactive: 'rgb(136,136,136)', // secondary text
   subtle: 'rgb(140,140,140)', // helper text / quiet rules
   promptBorder: 'rgb(158,158,158)', // input border / prompt
-  success: 'rgb(28,150,78)', // muted Claude-like green accent
-  error: 'rgb(210,60,76)', // muted Claude-like red accent
+  success: 'rgb(28,150,78)', // muted green accent
+  error: 'rgb(210,60,76)', // muted red accent
   warning: 'rgb(204,157,44)', // muted amber
-  suggestion: 'rgb(47,127,255)', // dense Claude-like path/link blue
+  suggestion: 'rgb(47,127,255)', // path/link blue
   panelTitle: 'rgb(215,119,87)', // panel/picker titles stay orange
   permission: 'rgb(239,68,88)', // permission red
   code: 'rgb(47,127,255)', // inline code/link accent
   codeBlock: 'rgb(136,190,142)', // code block body
-  userMessageBackground: 'rgb(108,108,108)', // Claude Code prompt band
+  userMessageBackground: 'rgb(108,108,108)', // user prompt band
   userMessageBackgroundHover: 'rgb(120,120,120)', // hover variant
   fastMode: 'rgb(255,120,20)',
 };
 
-/* --- Glyphs (refs/claude-code/src/constants/figures.ts) ------------------- */
+/* --- Glyphs --------------------------------------------------------------- */
 import {
   BLACK_CIRCLE,
   RESULT_GUTTER_GLYPH,
 } from './figures.mjs';
 
-/** Turn marker — CC BLACK_CIRCLE (`⏺` on macOS; `●` elsewhere). */
+/** Turn marker — BLACK_CIRCLE (`⏺` on macOS; `●` elsewhere). */
 export const TURN_MARKER = BLACK_CIRCLE;
-/** Result-tree gutter — CC MessageResponse style `⎿`, ASCII only when requested. */
+/** Result-tree gutter — `⎿`, ASCII only when requested. */
 export const RESULT_GUTTER = `  ${RESULT_GUTTER_GLYPH}  `;
