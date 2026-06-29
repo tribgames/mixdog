@@ -38,9 +38,9 @@ export const API_PROVIDERS = Object.freeze([
 ]);
 
 export const OAUTH_PROVIDERS = Object.freeze([
-  Object.freeze({ id: 'openai-oauth', name: 'OpenAI OAuth', desc: '~/.codex/auth.json', has: hasOpenAIOAuthCredentials, describe: describeOpenAIOAuthCredentials, forget: forgetOpenAIOAuthCredentials, begin: beginOpenAIOAuthLogin, login: loginOpenAIOAuth }),
+  Object.freeze({ id: 'openai-oauth', name: 'OpenAI OAuth', desc: 'Mixdog OAuth credentials', has: hasOpenAIOAuthCredentials, describe: describeOpenAIOAuthCredentials, forget: forgetOpenAIOAuthCredentials, begin: beginOpenAIOAuthLogin, login: loginOpenAIOAuth }),
   Object.freeze({ id: 'anthropic-oauth', name: 'Anthropic OAuth', desc: 'Mixdog OAuth credentials', has: hasAnthropicOAuthCredentials, describe: describeAnthropicOAuthCredentials, forget: forgetAnthropicOAuthCredentials, begin: beginAnthropicOAuthLogin, login: loginAnthropicOAuth }),
-  Object.freeze({ id: 'grok-oauth', name: 'Grok', desc: '~/.grok/auth.json or browser OAuth (Grok Build)', has: hasGrokOAuthCredentials, describe: describeGrokOAuthCredentials, forget: forgetGrokOAuthCredentials, begin: beginGrokOAuthLogin, login: loginGrokOAuth }),
+  Object.freeze({ id: 'grok-oauth', name: 'Grok', desc: 'Mixdog OAuth credentials (Grok Build)', has: hasGrokOAuthCredentials, describe: describeGrokOAuthCredentials, forget: forgetGrokOAuthCredentials, begin: beginGrokOAuthLogin, login: loginGrokOAuth }),
 ]);
 
 export const LOCAL_PROVIDERS = Object.freeze([

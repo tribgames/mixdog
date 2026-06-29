@@ -3,10 +3,7 @@
  *
  * Authenticates against xAI's shared OAuth client via PKCE (discovery at
  * https://auth.x.ai/.well-known/openid-configuration). Credentials come from
- * either mixdog's own token store (grok-oauth.json) OR the Grok CLI's
- * ~/.grok/auth.json — the same dual-source pattern openai-oauth uses with
- * ~/.codex/auth.json — so an existing `grok` CLI login is picked up without a
- * second sign-in.
+ * Mixdog's own token store (grok-oauth.json).
  *
  * Inference + catalog merge two sources, routed per model:
  *   - api.x.ai/v1 (default): grok-4.x chat models and the web_search backend.
@@ -24,7 +21,6 @@ import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
 import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { enrichModels, getModelMetadataSync } from './model-catalog.mjs';
@@ -71,22 +67,11 @@ function isProxyOnlyModel(model) {
     return /^grok-composer/i.test(m) || PROXY_EXACT_MODELS.has(m);
 }
 
-// Use the REAL installed Grok CLI version for the proxy version gate
-// (x-grok-client-version), read from ~/.grok/version.json (or the version
-// stamped into models_cache.json). Cached; only falls back to a known-good
-// constant when neither local file is readable.
+// Use a Mixdog-controlled client version for the proxy version gate.
 let _grokCliVersionCache = null;
 function grokCliVersion() {
     if (_grokCliVersionCache) return _grokCliVersionCache;
-    const grokDir = join(homedir(), '.grok');
-    for (const [file, field] of [['version.json', 'version'], ['models_cache.json', 'grok_version']]) {
-        try {
-            const raw = JSON.parse(readFileSync(join(grokDir, file), 'utf-8'));
-            const v = String(raw?.[field] || raw?.stable_version || '').trim();
-            if (v) { _grokCliVersionCache = v; return v; }
-        } catch { /* try next source */ }
-    }
-    _grokCliVersionCache = GROK_CLI_VERSION_FALLBACK;
+    _grokCliVersionCache = String(process.env.MIXDOG_GROK_CLIENT_VERSION || '').trim() || GROK_CLI_VERSION_FALLBACK;
     return _grokCliVersionCache;
 }
 
@@ -131,11 +116,6 @@ const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
 const DISCOVERY_TIMEOUT_MS = 15_000;
 const TOKEN_TIMEOUT_MS = 30_000;
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
-
-// Grok CLI credential file. Composite top-level key is "<issuer>::<client_id>".
-function grokCliAuthPath() {
-    return join(homedir(), '.grok', 'auth.json');
-}
 
 // SSRF guard for any endpoint pulled from the discovery document or saved
 // tokens. xAI OAuth endpoints must be https on x.ai / *.x.ai — reject
@@ -189,8 +169,8 @@ function getOwnTokenPath() {
     return join(dir, 'grok-oauth.json');
 }
 
-// expires_at may arrive as a unix number (own store) or an ISO-8601 string
-// (Grok CLI auth.json). Normalize both to epoch milliseconds; 0 means unknown.
+// expires_at may arrive as a unix number or an ISO-8601 string. Normalize both
+// to epoch milliseconds; 0 means unknown.
 function _normalizeExpiresAt(value) {
     if (typeof value === 'string') {
         const ms = Date.parse(value);
@@ -215,6 +195,21 @@ function _expiryFromAccessToken(token) {
     } catch { return 0; }
 }
 
+function _identityFromAccessToken(token) {
+    try {
+        const parts = String(token || '').split('.');
+        if (parts.length !== 3) return {};
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+        const userId = payload?.user_id
+            || payload?.userId
+            || payload?.principal_id
+            || payload?.principalId
+            || payload?.sub
+            || '';
+        return userId ? { user_id: String(userId) } : {};
+    } catch { return {}; }
+}
+
 function _mtimeMs(path) {
     try { return statSync(path).mtimeMs; } catch { return 0; }
 }
@@ -232,42 +227,16 @@ function _loadOwnTokens() {
             refresh_token: raw.refresh_token,
             expires_at: _normalizeExpiresAt(raw.expires_at ?? raw.expiresAt) || _expiryFromAccessToken(raw.access_token),
             token_endpoint: raw.token_endpoint || null,
+            user_id: raw.user_id || raw.userId || _identityFromAccessToken(raw.access_token).user_id || '',
             source: 'own',
             mtimeMs: _mtimeMs(path),
         };
     } catch { return null; }
 }
 
-// Grok CLI store (~/.grok/auth.json). Read-only seed: the access token lives
-// under `key`, keyed by "<issuer>::<client_id>". We never write back here —
-// after the first refresh mixdog manages its own copy, mirroring how
-// openai-oauth treats ~/.codex/auth.json.
-function _loadGrokCliTokens() {
-    const path = grokCliAuthPath();
-    if (!existsSync(path)) return null;
-    try {
-        const raw = JSON.parse(readFileSync(path, 'utf-8'));
-        if (!raw || typeof raw !== 'object') return null;
-        // The Grok CLI keys every entry by "<issuer>::<client_id>" — look up
-        // exactly that. No scan-for-matching-client_id fallback: a different
-        // issuer under the same client_id is a different account/endpoint and
-        // must not be silently selected.
-        const entry = raw[`${ISSUER}::${CLIENT_ID}`];
-        if (!entry?.key || !entry?.refresh_token) return null;
-        return {
-            access_token: entry.key,
-            refresh_token: entry.refresh_token,
-            expires_at: _normalizeExpiresAt(entry.expires_at) || _expiryFromAccessToken(entry.key),
-            token_endpoint: null,
-            source: 'grok-cli',
-            mtimeMs: _mtimeMs(path),
-        };
-    } catch { return null; }
-}
-
-// Own store first (accurate expires_at). Fall back to the Grok CLI login.
+// Mixdog-owned token store only.
 function loadTokens() {
-    return _loadOwnTokens() || _loadGrokCliTokens();
+    return _loadOwnTokens();
 }
 
 function saveTokens(tokens) {
@@ -276,6 +245,7 @@ function saveTokens(tokens) {
         refresh_token: tokens.refresh_token,
         expires_at: tokens.expires_at || 0,
         token_endpoint: tokens.token_endpoint || null,
+        user_id: tokens.user_id || tokens.userId || _identityFromAccessToken(tokens.access_token).user_id || undefined,
     }, { lock: true, fsyncDir: true });
 }
 
@@ -287,8 +257,8 @@ function _scrubTokens(text) {
         .replace(/"key"\s*:\s*"[^"]+"/g, '"key":"[REDACTED]"');
 }
 
-// Public predicate used by config.buildDefaultConfig — enabled when either
-// token source carries credentials. Single truth: same loader the runtime uses.
+// Public predicate used by config.buildDefaultConfig — enabled when Mixdog's
+// token store carries credentials. Single truth: same loader the runtime uses.
 export function hasGrokOAuthCredentials() {
     try {
         const tokens = loadTokens();
@@ -300,17 +270,13 @@ export function describeGrokOAuthCredentials() {
     try {
         const tokens = loadTokens();
         if (!tokens?.access_token) {
-            return { authenticated: false, status: 'Not Set', detail: '~/.grok/auth.json or mixdog token store' };
+            return { authenticated: false, status: 'Not Set', detail: 'Mixdog token store' };
         }
         const hasRefresh = Boolean(tokens.refresh_token);
         const expiresAt = _normalizeExpiresAt(tokens.expires_at);
         const expiring = expiresAt > 0 && expiresAt < Date.now() + TOKEN_REFRESH_SKEW_MS;
         const expired = expiresAt > 0 && expiresAt <= Date.now();
-        const detail = tokens.source === 'own'
-            ? 'Mixdog token store'
-            : tokens.source === 'grok-cli'
-                ? '~/.grok/auth.json'
-                : (tokens.source || 'oauth');
+        const detail = tokens.source === 'own' ? 'Mixdog token store' : (tokens.source || 'oauth');
         if (!hasRefresh) {
             return {
                 authenticated: expiresAt === 0 || !expired,
@@ -334,54 +300,13 @@ export function forgetGrokOAuthCredentials() {
         unlinkSync(ownPath);
         removed = true;
     }
-    const cliPath = grokCliAuthPath();
-    if (existsSync(cliPath)) {
-        try {
-            const raw = JSON.parse(readFileSync(cliPath, 'utf-8'));
-            const key = `${ISSUER}::${CLIENT_ID}`;
-            if (raw?.[key]) {
-                delete raw[key];
-                writeJsonAtomicSync(cliPath, raw, { lock: true, fsyncDir: true });
-                removed = true;
-            }
-        } catch (err) {
-            throw new Error(`Grok OAuth reset failed for ${cliPath}: ${err?.message || err}`);
-        }
-    }
     return { removed };
-}
-
-// Write rotated tokens back to the Grok CLI store (~/.grok/auth.json) so the
-// CLI — and any other reader of this single-use refresh-token lineage — picks
-// up the rotation instead of replaying a now-consumed token. Mirrors
-// anthropic-oauth's credential write-back. Best-effort:
-// the own store is the authority, so a failed write-back never breaks a
-// successful refresh. Host-owned file: no secret/mode so we don't re-permission it.
-function _writeBackGrokCliTokens(refreshed) {
-    const path = grokCliAuthPath();
-    if (!existsSync(path)) return;
-    try {
-        const raw = JSON.parse(readFileSync(path, 'utf-8'));
-        const entry = raw?.[`${ISSUER}::${CLIENT_ID}`];
-        if (!entry || typeof entry !== 'object') return;
-        entry.key = refreshed.access_token;
-        entry.refresh_token = refreshed.refresh_token;
-        entry.expires_at = new Date(refreshed.expires_at || Date.now()).toISOString();
-        // Preserve the host file's existing POSIX mode — writeJsonAtomicSync
-        // otherwise defaults the replacement to 0o600, re-permissioning a file
-        // the Grok CLI owns.
-        let mode;
-        try { mode = statSync(path).mode & 0o777; } catch { /* keep helper default */ }
-        writeJsonAtomicSync(path, raw, { lock: true, fsyncDir: true, mode });
-    } catch (err) {
-        process.stderr.write(`[grok-oauth] CLI store write-back failed: ${_scrubTokens(err?.message || String(err)).slice(0, 200)}\n`);
-    }
 }
 
 let _refreshInFlight = null;
 async function refreshTokens(tokens) {
     if (!tokens?.refresh_token) {
-        throw new Error('[grok-oauth] refresh token not available — run the Grok CLI login or the Setup login again');
+        throw new Error('[grok-oauth] refresh token not available — run /auth grok-oauth or /providers in mixdog to re-authenticate');
     }
     const tokenEndpoint = tokens.token_endpoint
         ? assertTrustedXaiEndpoint(tokens.token_endpoint, 'token endpoint')
@@ -408,9 +333,7 @@ async function refreshTokens(tokens) {
         try { json = text ? JSON.parse(text) : null; } catch { /* handled below */ }
         if (!res.ok) {
             // 400/401 (or an explicit invalid_grant/revoked/reused body) means
-            // this refresh_token was already consumed by the CLI's single-use
-            // lineage. Tag it so refreshTokensWithFallback can adopt the CLI's
-            // newer token and retry instead of dead-ending.
+            // this refresh_token was revoked or already consumed.
             const isInvalidGrant = res.status === 400 || res.status === 401
                 || /invalid_grant|revoked|reused/i.test(text);
             throw Object.assign(
@@ -429,38 +352,12 @@ async function refreshTokens(tokens) {
                 ? Date.now() + json.expires_in * 1000
                 : _normalizeExpiresAt(json?.expires_at),
             token_endpoint: tokenEndpoint,
+            user_id: tokens.user_id || tokens.userId || _identityFromAccessToken(accessToken).user_id || '',
         };
-        // Write the CLI store first, own store last: the own store then carries
-        // the newest mtime, so ensureAuth's freshest-wins resync treats our own
-        // refresh as authoritative and doesn't needlessly flip back to the CLI.
-        _writeBackGrokCliTokens(refreshed);
         saveTokens(refreshed);
         return { ...refreshed, source: 'own', mtimeMs: _mtimeMs(getOwnTokenPath()) };
     } finally {
         timeout.cleanup();
-    }
-}
-
-// invalid_grant means our refresh_token was already consumed/rotated elsewhere
-// (the Grok CLI shares this single-use lineage). Re-read BOTH on-disk stores
-// and retry once with whichever carries a different (newer) refresh_token —
-// own-store still holds the dead one, so the CLI store is the likely source of
-// the rotation. Mirrors anthropic-oauth's refreshOAuthCredentialsWithFallback.
-async function refreshTokensWithFallback(tokens) {
-    try {
-        return await refreshTokens(tokens);
-    } catch (firstErr) {
-        if (!firstErr?.isInvalidGrant) throw firstErr;
-        process.stderr.write('[grok-oauth] invalid_grant — re-reading disk, retrying refresh\n');
-        // Prefer the freshest store first so we adopt the most recent CLI
-        // rotation and never replay an even older stale lineage before it.
-        const candidates = [_loadOwnTokens(), _loadGrokCliTokens()].filter(Boolean)
-            .sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0));
-        const fresh = candidates.find(c => c.refresh_token && c.refresh_token !== tokens.refresh_token);
-        if (!fresh) {
-            throw new Error('[grok-oauth] refresh token revoked and no newer token on disk — run the Grok CLI login or the Setup login again');
-        }
-        return await refreshTokens(fresh);
     }
 }
 
@@ -624,21 +521,16 @@ export class GrokOAuthProvider {
     async ensureAuth({ forceRefresh = false } = {}) {
         if (!this.tokens) this.tokens = loadTokens();
         if (!this.tokens) {
-            throw new Error('[grok-oauth] credentials not found — run the Grok CLI login or the Setup login first');
+            throw new Error('[grok-oauth] credentials not found — run /auth grok-oauth or /providers in mixdog first');
         }
-        // Freshest-wins resync across BOTH stores. The single-use refresh-token
-        // lineage is shared with the Grok CLI, so an independent CLI refresh must
-        // be adopted proactively — not only reactively on invalid_grant. A disk
-        // scan watermark guarantees termination: if the newest file isn't
-        // loadable (e.g. a logged-out host file beside a valid own store) we
-        // still record the scanned mtime so the same check can't re-fire forever.
+        // Pick up Mixdog-owned token updates without touching external CLI
+        // stores. The scan watermark guarantees the same unreadable write does
+        // not re-fire forever.
         const ownM = _mtimeMs(getOwnTokenPath());
-        const cliM = _mtimeMs(grokCliAuthPath());
-        const maxM = Math.max(ownM, cliM);
-        if (maxM > (this._lastDiskScan || 0) && maxM > (this.tokens.mtimeMs || 0)) {
-            const disk = (ownM >= cliM ? _loadOwnTokens() : _loadGrokCliTokens()) || loadTokens();
+        if (ownM > (this._lastDiskScan || 0) && ownM > (this.tokens.mtimeMs || 0)) {
+            const disk = _loadOwnTokens();
             if (disk?.access_token) this.tokens = disk;
-            this._lastDiskScan = maxM;
+            this._lastDiskScan = ownM;
         }
         const expiring = this.tokens.expires_at
             && this.tokens.expires_at < Date.now() + TOKEN_REFRESH_SKEW_MS;
@@ -646,7 +538,7 @@ export class GrokOAuthProvider {
             if (_refreshInFlight) {
                 this.tokens = await _refreshInFlight;
             } else {
-                _refreshInFlight = refreshTokensWithFallback(this.tokens)
+                _refreshInFlight = refreshTokens(this.tokens)
                     .finally(() => { _refreshInFlight = null; });
                 this.tokens = await _refreshInFlight;
             }
@@ -870,6 +762,7 @@ async function exchangeAuthorizationCode({ discovery, pkce, code }) {
             ? Date.now() + json.expires_in * 1000
             : _normalizeExpiresAt(json.expires_at),
         token_endpoint: discovery.token_endpoint,
+        user_id: _identityFromAccessToken(json.access_token).user_id || '',
     };
     saveTokens(tokens);
     return tokens;

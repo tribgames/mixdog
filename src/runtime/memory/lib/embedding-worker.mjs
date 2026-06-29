@@ -11,6 +11,7 @@ import { mkdirSync } from 'fs'
 import os from 'os'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { resolvePluginData } from '../../shared/plugin-paths.mjs'
 import {
   getConfiguredEmbeddingModelId,
   getDefaultEmbeddingDevice,
@@ -39,7 +40,7 @@ const execFileAsync = promisify(execFile)
 // MIXDOG_EMBED_LOAD_CORES overrides (default 1 = single core).
 const _envLoadCores = Number(process.env.MIXDOG_EMBED_LOAD_CORES)
 const LOAD_AFFINITY_CORES = Number.isInteger(_envLoadCores) && _envLoadCores >= 1 ? _envLoadCores : 1
-const MODEL_CACHE_DIR = join(process.env.HOME || process.env.USERPROFILE, '.cache', 'mixdog-memory', 'models')
+const MODEL_CACHE_DIR = join(resolvePluginData(), 'memory-models')
 // Idle dispose was previously 15 min. Production profiling showed the model
 // re-load cost (~3 s DirectML cold start) repeating ~880×/4 h because cycle1
 // gaps exceed 15 min in normal use. Default to keep-alive (0) so the model

@@ -1864,8 +1864,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 sessionRef,
                 model,
                 budgetTokens: sessionRef.contextWindow,
-                reserveTokens: overflowReserve,
-                messageTokensEst,
+                reserveTokens: compactPolicyForRetry?.reserveTokens,
+                messageTokensEst: estimateMessagesTokensSafe(messages),
             }, sendErr);
         }
         opts.onToolCall = undefined;

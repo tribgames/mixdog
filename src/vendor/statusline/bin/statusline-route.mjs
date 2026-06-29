@@ -199,7 +199,6 @@ function routeContextMeta(provider, info = {}, inherited = {}) {
     info.contextWindow,
     info.maxContextWindow,
     info.max_input_tokens,
-    inherited.contextWindow,
   );
   const effectiveContextWindowPercent = boundedPercent(
     inherited.effectiveContextWindowPercent
@@ -211,11 +210,13 @@ function routeContextMeta(provider, info = {}, inherited = {}) {
   const derivedContextWindow = rawContextWindow
     ? Math.max(1, Math.floor(rawContextWindow * boundedPercent(effectiveContextWindowPercent, 100) / 100))
     : null;
-  const contextWindow = firstPositiveWindow(
+  const explicitEffectiveContextWindow = firstPositiveWindow(
     inherited.contextWindow,
     inherited.displayContextWindow,
-    info.contextWindow,
-  ) ?? derivedContextWindow;
+    inherited.compactBoundaryTokens,
+    inherited.compact_boundary_tokens,
+  );
+  const contextWindow = explicitEffectiveContextWindow ?? derivedContextWindow;
   const explicitCompactLimit = num(
     inherited.autoCompactTokenLimit
       ?? inherited.auto_compact_token_limit

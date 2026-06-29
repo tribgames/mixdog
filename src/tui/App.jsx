@@ -30,6 +30,7 @@ import { formatToolSurface, normalizeToolName, parseToolArgs } from '../runtime/
 import { isBackgroundErrorOnlyBody } from '../runtime/shared/err-text.mjs';
 import { AssistantMessage, UserMessage, ThinkingMessage, NoticeMessage } from './components/Message.jsx';
 import { ToolExecution } from './components/ToolExecution.jsx';
+import { formatExpandedResult } from './components/tool-output-format.mjs';
 import { Spinner } from './components/Spinner.jsx';
 import { StatusDone, TurnDone } from './components/TurnDone.jsx';
 import { StatusLine } from './components/StatusLine.jsx';
@@ -832,10 +833,31 @@ function toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult) {
   return /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status);
 }
 
-function estimateToolRenderedResultRows(value) {
+function toolArgPathForRows(item) {
+  const a = backgroundArgsForRows(item?.args);
+  return a?.path ?? a?.file_path ?? a?.file ?? '';
+}
+
+function isShellSurfaceForRows(normalizedName) {
+  const n = String(normalizedName || '').toLowerCase();
+  return n === 'shell' || n === 'bash' || n === 'bash_session'
+    || n === 'shell_command' || n === 'job_wait';
+}
+
+// EXPANDED tool bodies are post-processed by formatExpandedResult (JSON pretty,
+// oversize guard, line-number split). It can add rows (JSON pretty) or drop them
+// (truncation marker), so the row estimate MUST run the SAME pipeline — counting
+// the raw `split('\n')` would desync windowing/scroll the moment the measured
+// path replaces the estimate. Pass pathArg/isShell so the count matches exactly.
+function estimateToolRenderedResultRows(value, { pathArg = '', isShell = false } = {}) {
   const text = String(value ?? '').replace(/\s+$/, '');
   if (!text) return 1;
-  return Math.max(1, text.split('\n').length);
+  try {
+    const rows = formatExpandedResult(text, { pathArg, isShell }).length;
+    return Math.max(1, rows);
+  } catch {
+    return Math.max(1, text.split('\n').length);
+  }
 }
 
 function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
@@ -897,7 +919,13 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
       // empty). Mirror ToolExecution's raw branch before no-result shortcuts so
       // expanded failure cards reserve enough height for the visible envelope.
       if (hasRawResult) {
-        return TOOL_MARGIN_TOP + 1 + estimateToolRenderedResultRows(rawRt);
+        // Aggregate cards pass no pathArg/isShell to ResultBody; non-aggregate
+        // cards do. Mirror that here so the formatExpandedResult row count matches
+        // the rendered body exactly (JSON pretty / line-number split can shift it).
+        const rawOpts = item.aggregate
+          ? {}
+          : { pathArg: toolArgPathForRows(item), isShell: isShellSurfaceForRows(normalizedName) };
+        return TOOL_MARGIN_TOP + 1 + estimateToolRenderedResultRows(rawRt, rawOpts);
       }
       // Expanded agent card with no raw body to reveal: ToolExecution still
       // shows one agent-brief detail line, so margin + header + one detail row.
@@ -930,7 +958,10 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
           return isSkillSurface ? TOOL_MARGIN_TOP + 1 : TOOL_MARGIN_TOP + 1 + 1;
         }
         const resultText = backgroundMeta?.hasResponse ? backgroundMeta.body : rt;
-        const resultRows = estimateToolRenderedResultRows(resultText);
+        const resultRows = estimateToolRenderedResultRows(resultText, {
+          pathArg: toolArgPathForRows(item),
+          isShell: isShellSurfaceForRows(normalizedName),
+        });
         return TOOL_MARGIN_TOP + 1 + resultRows;
       }
     }
@@ -966,11 +997,28 @@ function upperBound(values, target) {
   return lo;
 }
 
-// Absolute viewport-anchor resolution lives inline in the row-delta effect
-// (see App: transcriptAnchorRef). While the user reads older transcript, the
-// viewport top item id + row offset is captured once and the scroll offset is
-// re-derived from it every commit, so streaming tail growth below the anchor
-// can never shove the reading position (no incremental drift / fallback).
+// Resolve the absolute scroll offset that keeps a captured reading anchor
+// (viewport-top item id + row offset) at the same screen position for the
+// CURRENT prefix table. Returns null when the anchor cannot be aligned (item
+// gone / no prefix), so the caller keeps the existing offset. This is a pure
+// function so it can run BOTH synchronously during render (same-frame
+// correction — no blank band) AND in the post-commit layout effect (ref/state
+// sync). The viewport is bottom-anchored, so scrollOffset counts rows up from
+// the bottom: desired = totalRows - viewRows - anchorRowCur.
+function resolveAnchorScrollOffset({ anchor, items, curPrefix, totalRows, viewRows, maxRows }) {
+  if (!anchor || anchor.id == null) return null;
+  if (!Array.isArray(curPrefix) || curPrefix.length <= 1) return null;
+  const list = Array.isArray(items) ? items : [];
+  let idx = -1;
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i] && list[i].id === anchor.id) { idx = i; break; }
+  }
+  if (idx < 0 || idx > curPrefix.length - 2) return null;
+  const itemHeight = Math.max(0, (curPrefix[idx + 1] || 0) - (curPrefix[idx] || 0));
+  const clampedOffset = Math.max(0, Math.min(Number(anchor.offset) || 0, itemHeight));
+  const anchorRowCur = (curPrefix[idx] || 0) + clampedOffset;
+  return Math.max(0, Math.min(maxRows, totalRows - viewRows - anchorRowCur));
+}
 
 // Cheap, stable height fingerprint for a text blob. Row estimates depend on the
 // LINE SHAPE (how many '\n'-separated lines and how each wraps), not just the
@@ -1398,6 +1446,12 @@ export function App({ store, initialStatusLine = '' }) {
   // bottom so a fresh scroll-up starts a new anchor.
   const transcriptAnchorRef = useRef(null);
   const transcriptAnchorDirtyRef = useRef(false);
+  // Latest render's prefix-row table + dimensions, so a manual scroll can
+  // capture the reading anchor SYNCHRONOUSLY (in the wheel/key callback) instead
+  // of waiting for the post-commit effect — otherwise each scroll notch leaves
+  // the anchor "dirty" for one frame, and if streaming grows the transcript on
+  // that same frame the lock is not engaged yet and the view lurches.
+  const transcriptGeomRef = useRef({ prefixRows: null, totalRows: 0, viewRows: 1 });
   // App-level measured row heights (ScrollBox/useVirtualScroll-inspired). The map of
   // mounted item id → ink DOM element is read every commit to harvest each
   // row's REAL Yoga height into transcriptMeasuredRowsCache. measuredRowsVersion
@@ -1951,17 +2005,39 @@ export function App({ store, initialStatusLine = '' }) {
     // Any manual wheel/keyboard scroll takes precedence over an in-flight
     // transcript follow: drop the glide so the user's intent wins.
     if (appliedDelta !== 0) cancelTranscriptFollow();
-    // A manual scroll moves the reading position: invalidate the anchor lock so
-    // the row-delta effect re-captures the viewport-top item at the new offset.
+    scrollTargetRef.current = target;
+    // A manual scroll moves the reading position. Capture the new reading anchor
+    // SYNCHRONOUSLY from the latest published geometry so the very next render
+    // already locks to it — no one-frame "dirty" window where concurrent
+    // streaming growth could lurch the view. At/over the bottom, drop the anchor
+    // so the bottom-follow path owns the viewport again.
     if (appliedDelta !== 0) {
       if (target <= 0) {
         transcriptAnchorRef.current = null;
         transcriptAnchorDirtyRef.current = false;
       } else {
-        transcriptAnchorDirtyRef.current = true;
+        const geom = transcriptGeomRef.current || {};
+        const prefixRows = geom.prefixRows;
+        if (Array.isArray(prefixRows) && prefixRows.length > 1) {
+          const gTotal = Math.max(0, Number(geom.totalRows) || 0);
+          const gView = Math.max(1, Number(geom.viewRows) || 1);
+          const anchorRow = Math.max(0, Math.min(gTotal, gTotal - target - gView));
+          let idx = upperBound(prefixRows, anchorRow) - 1;
+          if (idx < 0) idx = 0;
+          if (idx > prefixRows.length - 2) idx = prefixRows.length - 2;
+          const items = geom.items || [];
+          const anchorItem = items[idx];
+          if (anchorItem && anchorItem.id != null) {
+            transcriptAnchorRef.current = { id: anchorItem.id, offset: Math.max(0, anchorRow - (prefixRows[idx] || 0)) };
+            transcriptAnchorDirtyRef.current = false;
+          } else {
+            transcriptAnchorDirtyRef.current = true;
+          }
+        } else {
+          transcriptAnchorDirtyRef.current = true;
+        }
       }
     }
-    scrollTargetRef.current = target;
     if (appliedDelta !== 0 && selectionLayoutRef.current) {
       selectionLayoutRef.current = { ...selectionLayoutRef.current, scrollOffset: target };
     }
@@ -7089,15 +7165,52 @@ export function App({ store, initialStatusLine = '' }) {
     toolOutputExpanded,
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: sig captures the relevant item changes; measuredRowsVersion folds in app-level measured height corrections
   }), [transcriptStructureSig, measuredRowsVersion]);
+  // ── Same-frame anchor lock ───────────────────────────────────────────────
+  // While the user reads older transcript (anchor captured, not dirty), resolve
+  // the scroll offset that keeps the anchored viewport-top row fixed for THIS
+  // frame's prefix table — SYNCHRONOUSLY, before windowing/marginBottom use it.
+  // Previously this correction lived only in the post-commit layout effect, so
+  // the frame that grew the streaming tail rendered with the STALE offset first
+  // (a blank band opened at the top) and only the NEXT frame snapped it shut.
+  // Computing it here folds the new totalRows and the corrected offset into the
+  // SAME render, so the completed line fills its space with no one-frame gap.
+  // Falls back to the live scrollOffset state when there is no active anchor
+  // (bottom-follow / pinned) or it cannot be aligned (anchor item gone).
+  const anchorLockActive = !!transcriptAnchorRef.current
+    && !transcriptAnchorDirtyRef.current
+    && !followingRef.current;
+  let renderScrollOffset = scrollOffset;
+  if (anchorLockActive) {
+    const lockViewRows = Math.max(1, Number(viewportHeight) || 1);
+    const lockTotalRows = Math.max(0, Number(transcriptRowIndex?.totalRows) || 0);
+    const lockMaxRows = Math.max(0, lockTotalRows - lockViewRows);
+    const locked = resolveAnchorScrollOffset({
+      anchor: transcriptAnchorRef.current,
+      items: state.items,
+      curPrefix: transcriptRowIndex?.prefixRows || null,
+      totalRows: lockTotalRows,
+      viewRows: lockViewRows,
+      maxRows: lockMaxRows,
+    });
+    if (locked != null) renderScrollOffset = locked;
+  }
   const transcriptWindow = useMemo(() => transcriptRenderWindow(state.items, {
-    scrollOffset,
+    scrollOffset: renderScrollOffset,
     viewportHeight,
     columns: frameColumns,
     toolOutputExpanded,
     rowIndex: transcriptRowIndex,
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: sig+scroll/viewport capture the relevant changes
-  }), [transcriptStructureSig, scrollOffset, viewportHeight, transcriptRowIndex]);
+  }), [transcriptStructureSig, renderScrollOffset, viewportHeight, transcriptRowIndex]);
   maxScrollRowsRef.current = transcriptWindow.maxScrollRows;
+  // Publish this frame's geometry so a manual scroll can capture the reading
+  // anchor synchronously (see captureTranscriptAnchorAt).
+  transcriptGeomRef.current = {
+    prefixRows: transcriptRowIndex?.prefixRows || null,
+    totalRows: Math.max(0, Number(transcriptWindow.totalRows) || 0),
+    viewRows: Math.max(1, Number(viewportHeight) || 1),
+    items: state.items || null,
+  };
   // The window memo is keyed on a structure signature that intentionally
   // ignores per-character growth of the streaming assistant text, so its
   // `items` slice can hold a STALE reference to the streaming item between
@@ -7251,21 +7364,22 @@ export function App({ store, initialStatusLine = '' }) {
       // Just captured at the current offset; nothing to correct this frame.
       return;
     }
-    if (!curPrefix || curPrefix.length <= 1) return;
-    // Resolve the anchored item's CURRENT position and re-derive scrollOffset.
-    let idx = -1;
-    for (let i = items.length - 1; i >= 0; i--) {
-      if (items[i] && items[i].id === anchor.id) { idx = i; break; }
-    }
-    if (idx < 0 || idx > curPrefix.length - 2) {
+    // Resolve the anchored item's CURRENT position with the SAME pure helper the
+    // render path uses, so the post-commit state sync can never disagree with the
+    // synchronous render correction (which already fixed the screen this frame).
+    const desired = resolveAnchorScrollOffset({
+      anchor,
+      items,
+      curPrefix,
+      totalRows,
+      viewRows,
+      maxRows,
+    });
+    if (desired == null) {
       // Anchor item gone (rare: removal/compaction). Re-capture next frame.
       transcriptAnchorDirtyRef.current = true;
       return;
     }
-    const itemHeight = Math.max(0, (curPrefix[idx + 1] || 0) - (curPrefix[idx] || 0));
-    const clampedOffset = Math.max(0, Math.min(anchor.offset, itemHeight));
-    const anchorRowCur = (curPrefix[idx] || 0) + clampedOffset;
-    const desired = Math.max(0, Math.min(maxRows, totalRows - viewRows - anchorRowCur));
     const appliedDelta = desired - currentTarget;
     if (appliedDelta === 0) return;
 

@@ -1,13 +1,7 @@
 import {
-  closeSync,
   existsSync,
-  openSync,
   readFileSync,
-  readdirSync,
-  readSync,
-  statSync,
 } from 'fs';
-import { homedir } from 'os';
 import { join } from 'path';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
@@ -20,9 +14,6 @@ const STALE_DISK_CACHE_TTL_MS = 7 * 24 * 60 * 60_000;
 const NEGATIVE_CACHE_TTL_MS = 5 * 60_000;
 const FETCH_TIMEOUT_MS = 4500;
 const WARN_TTL_MS = 5 * 60_000;
-const MAX_ROLLOUT_FILES = 8;
-const MAX_ROLLOUT_SCAN_FILES = 2500;
-const MAX_TAIL_BYTES = 2 * 1024 * 1024;
 
 const memoryCache = new Map();
 const inflight = new Map();
@@ -402,93 +393,16 @@ function normalizeAnthropicUsage(data, source = 'anthropic-oauth') {
   };
 }
 
-function tailFileText(file, maxBytes = MAX_TAIL_BYTES) {
-  let fd = null;
-  try {
-    const st = statSync(file);
-    const size = st.size || 0;
-    const start = Math.max(0, size - maxBytes);
-    const len = size - start;
-    const buf = Buffer.alloc(len);
-    fd = openSync(file, 'r');
-    readSync(fd, buf, 0, len, start);
-    return buf.toString('utf8');
-  } catch {
-    return '';
-  } finally {
-    if (fd != null) {
-      try { closeSync(fd); } catch {}
-    }
-  }
-}
-
-function newestRolloutFiles(root) {
-  const out = [];
-  const stack = [root];
-  let seen = 0;
-  while (stack.length && seen < MAX_ROLLOUT_SCAN_FILES) {
-    const dir = stack.pop();
-    let entries = [];
-    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
-    for (const ent of entries) {
-      if (seen++ >= MAX_ROLLOUT_SCAN_FILES) break;
-      const full = join(dir, ent.name);
-      if (ent.isDirectory()) {
-        stack.push(full);
-      } else if (ent.isFile() && /^rollout-.*\.jsonl$/i.test(ent.name)) {
-        try {
-          const st = statSync(full);
-          out.push({ file: full, mtimeMs: st.mtimeMs || 0 });
-        } catch {}
-      }
-    }
-  }
-  return out
-    .sort((a, b) => b.mtimeMs - a.mtimeMs)
-    .slice(0, MAX_ROLLOUT_FILES)
-    .map(x => x.file);
-}
-
-function latestCodexRateLimitsFromRollout() {
-  const root = join(homedir(), '.codex', 'sessions');
-  if (!existsSync(root)) return null;
-  for (const file of newestRolloutFiles(root)) {
-    const lines = tailFileText(file).split(/\r?\n/).filter(Boolean);
-    for (let i = lines.length - 1; i >= 0; i--) {
-      try {
-        const row = JSON.parse(lines[i]);
-        const rateLimits = row?.payload?.rate_limits || row?.rate_limits;
-        const snap = normalizeCodexRateLimits(rateLimits, 'openai-codex-rollout');
-        if (snap && hasFutureWindow(snap)) return snap;
-      } catch {}
-    }
-  }
-  return null;
-}
-
 function latestClaudeStatuslineUsage() {
   // Standalone CLI must not borrow a host-agent rendered statusline cache.
   // Anthropic quota should come from the OAuth usage endpoint above.
   return null;
 }
 
-function grokCliIdentity(accessToken = '') {
-  const raw = readJsonFile(join(homedir(), '.grok', 'auth.json'));
-  if (!raw || typeof raw !== 'object') return {};
-  const entries = Object.values(raw).filter(v => v && typeof v === 'object');
-  const exact = accessToken ? entries.find(v => v.key === accessToken || v.access_token === accessToken) : null;
-  const entry = exact || entries.find(v => v.key || v.access_token) || null;
-  if (!entry) return {};
-  return {
-    userId: entry.user_id || entry.userId || entry.principal_id || entry.principalId || '',
-    token: entry.key || entry.access_token || entry.accessToken || '',
-  };
-}
-
 async function fetchOpenAICodexUsage(providerObj) {
   const auth = await providerObj?.ensureAuth?.({ reason: 'usage' });
   const token = auth?.access_token || auth?.accessToken;
-  if (!token) return latestCodexRateLimitsFromRollout();
+  if (!token) return null;
   const res = await fetch('https://chatgpt.com/backend-api/wham/usage', fetchOptions({
     Authorization: `Bearer ${token}`,
     originator: 'codex_cli_rs',
@@ -498,7 +412,7 @@ async function fetchOpenAICodexUsage(providerObj) {
   }));
   if (!res.ok) throw new Error(`openai-oauth usage ${res.status}`);
   const data = await res.json();
-  return normalizeOpenAIWhamUsage(data) || latestCodexRateLimitsFromRollout();
+  return normalizeOpenAIWhamUsage(data);
 }
 
 async function fetchAnthropicUsage(providerObj) {
@@ -521,8 +435,7 @@ async function fetchGrokUsage(providerObj, routeInfo) {
   const auth = await providerObj?.ensureAuth?.({ reason: 'usage' });
   const token = auth?.access_token || auth?.accessToken || auth?.key;
   if (!token) return null;
-  const cliIdentity = grokCliIdentity(token);
-  const userId = auth?.user_id || auth?.userId || auth?.principal_id || auth?.principalId || cliIdentity.userId || '';
+  const userId = auth?.user_id || auth?.userId || auth?.principal_id || auth?.principalId || '';
   const cliHeaders = {
     Authorization: `Bearer ${token}`,
     'X-XAI-Token-Auth': 'xai-grok-cli',
@@ -607,7 +520,6 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
         snapshot = await fetchGrokUsage(providerObj, routeInfo);
       }
     } catch (err) {
-      if (provider === 'openai-oauth') snapshot = latestCodexRateLimitsFromRollout();
       if (provider === 'anthropic-oauth') snapshot = latestClaudeStatuslineUsage();
       if (!snapshot) {
         warnThrottled(log, `oauth-usage:${provider}`, `gateway ${provider} usage fetch unavailable: ${err?.message || err}`);

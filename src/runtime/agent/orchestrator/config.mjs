@@ -152,9 +152,9 @@ function buildDefaultConfig(options = {}) {
     // `websocket: false` in mixdog-config.json (agent.providers.openai-oauth).
     providers['openai-oauth'] = { enabled: detectCredentials ? hasOpenAIOAuthCredentials() : false, websocket: true };
     providers['anthropic-oauth'] = { enabled: detectCredentials ? hasAnthropicOAuthCredentials() : false };
-    // Grok CLI OAuth ("Grok Build"). Like the other OAuth entries it is not
+    // Grok OAuth ("Grok Build"). Like the other OAuth entries it is not
     // stored in mixdog-config.json — enabled at runtime from the presence of
-    // either token source (own store or ~/.grok/auth.json).
+    // Mixdog-owned credentials.
     providers['grok-oauth'] = { enabled: detectCredentials ? hasGrokOAuthCredentials() : false };
     // Local providers — opt-in via setup UI after HTTP ping confirms server is running
     providers.ollama = { enabled: false, baseURL: 'http://localhost:11434/v1' };

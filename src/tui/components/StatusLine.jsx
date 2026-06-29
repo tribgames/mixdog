@@ -140,24 +140,26 @@ function localContextPct({
   const source = String(s.currentContextSource || '').toLowerCase();
   const estimated = localNum(s.currentEstimatedContextTokens);
   if (estimated > 0) {
-    return Math.max(0, Math.min(100, (estimated / window) * 100));
+    return Math.max(0, (estimated / window) * 100);
   }
   if (source === 'estimated') return 0;
   let tokens = localNum(s.currentContextTokens ?? s.contextTokens);
   if (!tokens) return 0;
-  return Math.max(0, Math.min(100, (tokens / window) * 100));
+  return Math.max(0, (tokens / window) * 100);
 }
 
 function localContextSegmentFromPct(ctxPct = 0) {
   const { SUBTLE, SUCCESS, WARNING, ERROR } = statusColors();
   const cols = terminalColumns();
   const cells = cols >= 80 ? 14 : 0;
-  const pct = Math.max(0, Math.min(100, Number(ctxPct) || 0));
+  const raw = Number(ctxPct);
+  const pct = Number.isFinite(raw) ? Math.max(0, raw) : 0;
+  const barPct = Math.max(0, Math.min(100, pct));
   const fill = pct >= 90 ? ERROR : pct >= 70 ? WARNING : SUCCESS;
   const label = pct > 0 && pct < 1 ? String(Math.round(pct * 10) / 10) : String(Math.floor(pct));
   if (!cells) return `${fill}${label}%${RESET}`;
-  let filled = Math.floor(pct * cells / 100);
-  if (pct >= 1 && filled === 0) filled = 1;
+  let filled = Math.floor(barPct * cells / 100);
+  if (barPct >= 1 && filled === 0) filled = 1;
   filled = Math.max(0, Math.min(cells, filled));
   const bar = '▓'.repeat(filled) + '░'.repeat(cells - filled);
   const filledBar = bar.replace(/░/g, '');

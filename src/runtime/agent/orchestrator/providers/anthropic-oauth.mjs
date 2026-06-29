@@ -432,21 +432,19 @@ function _loadCredentialsFile(path) {
     }
 }
 
-// Cross-process safe write-back. Lockfile (O_EXCL) prevents two refreshers
-// from clobbering each other; atomic rename guarantees readers see either
-// the old or new file, never a half-written one. Used so refresh_token
-// rotation propagates to other readers of the same credentials file instead of
-// leaving them stuck on the previous
-// refresh_token. Mirrors openai-oauth.mjs:saveTokens.
+// Cross-process safe credential save. Lockfile (O_EXCL) prevents two Mixdog
+// refreshers from clobbering each other; atomic rename guarantees readers see
+// either the old or new file, never a half-written one. Used so refresh_token
+// rotation propagates to other Mixdog readers of the same credentials file
+// instead of leaving them stuck on the previous refresh_token.
 function _saveCredentialsFile(path, raw) {
-    // No `secret: true`: this may be an externally-owned credentials file.
-    // Mixdog only writes back the rotated refresh_token and must not rewrite
-    // parent directory permissions.
-    writeJsonAtomicSync(path, raw, { lock: true, fsyncDir: true, mode: 0o600 });
+    // Secret file, not parent-dir ACL mutation. `secret: true` clamps the file
+    // itself on Windows; it deliberately leaves the data dir inheritance alone.
+    writeJsonAtomicSync(path, raw, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
 }
 
-// Cheap stat-only probe so ensureAuth can detect host-rotated credentials
-// (claude login, logout/relogin) without paying a full JSON read every call.
+// Cheap stat-only probe so ensureAuth can detect Mixdog-updated credentials
+// without paying a full JSON read every call.
 function _credentialsMaxMtime() {
     let max = 0;
     for (const p of credentialCandidates()) {
@@ -480,7 +478,7 @@ export function describeAnthropicOAuthCredentials() {
     try {
         const creds = loadCredentials();
         if (!creds?.accessToken) {
-            return { authenticated: false, status: 'Not Set', detail: DEFAULT_CREDENTIALS_PATH };
+            return { authenticated: false, status: 'Not Set', detail: 'Mixdog OAuth credentials' };
         }
         const hasInferenceScope = Array.isArray(creds.scopes) && creds.scopes.includes('user:inference');
         const hasRefresh = Boolean(creds.refreshToken);
@@ -588,10 +586,10 @@ async function refreshOAuthCredentials(creds) {
             scopes: Array.isArray(json?.scope) ? json.scope : creds.scopes,
             subscriptionType: creds.subscriptionType,
         };
-        // Persist rotated tokens back so any other reader of the same
-        // credentials file picks up the new refresh_token.
-        // Without this, host's next refresh invalidates our copy and we
-        // loop on invalid_grant.
+        // Persist rotated tokens back so any other Mixdog reader of the same
+        // credentials file picks up the new refresh_token. Without this, a
+        // later process can replay an old single-use refresh token and loop on
+        // invalid_grant.
         if (creds.path && existsSync(creds.path)) {
             try {
                 const raw = JSON.parse(readFileSync(creds.path, 'utf-8'));
@@ -604,8 +602,8 @@ async function refreshOAuthCredentials(creds) {
                 };
                 _saveCredentialsFile(creds.path, raw);
             } catch (err) {
-                process.stderr.write(`[anthropic-oauth] credential write-back failed: ${_scrubTokens(err?.message || String(err)).slice(0, 200)}\n`);
-                throw new Error(`[oauth] credentials write-back failed: ${err?.message ?? String(err)}`);
+                process.stderr.write(`[anthropic-oauth] credential save failed: ${_scrubTokens(err?.message || String(err)).slice(0, 200)}\n`);
+                throw new Error(`[oauth] credentials save failed: ${err?.message ?? String(err)}`);
             }
         }
         return refreshed;
@@ -1417,9 +1415,9 @@ export class AnthropicOAuthProvider {
             throw new Error('Anthropic OAuth credentials not found. Run /auth anthropic-oauth or /providers in mixdog to authenticate.');
         }
 
-        // Pick up host-rotated tokens the moment the credentials file is
-        // rewritten — without this, a fresh `claude login` is ignored until
-        // the in-memory token's expiry skew triggers a refresh.
+        // Pick up Mixdog-updated tokens the moment the credentials file is
+        // rewritten — without this, a fresh /auth login in another process is
+        // ignored until the in-memory token's expiry skew triggers a refresh.
         const diskMtime = _credentialsMaxMtime();
         if (diskMtime > 0 && diskMtime > (this.credentials.mtimeMs || 0)) {
             const fresh = loadCredentials();

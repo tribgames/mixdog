@@ -3,7 +3,7 @@
  *
  * Dispatches over the WebSocket upgrade of chatgpt.com/backend-api/codex/
  * responses (responses_websockets=2026-02-06 beta). Authenticates via PKCE
- * OAuth or reuses ~/.codex/auth.json. Streaming/framing lives in
+ * OAuth using Mixdog-owned token storage. Streaming/framing lives in
  * openai-oauth-ws.mjs; this file owns auth, model catalog, request-body
  * shape, and HTTP/SSE fallback when WebSocket transport is unhealthy.
  */
@@ -11,7 +11,6 @@ import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
 import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { getPluginData } from '../config.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
@@ -272,7 +271,7 @@ function getOwnTokenPath() {
 }
 
 // Public predicate used by config.buildDefaultConfig — provider is enabled
-// when own tokens exist OR codex bootstrap auth is present. Single truth:
+// when own Mixdog tokens exist. Single truth:
 // same loader the runtime uses (loadTokens), no parallel hard-coded path probe.
 export function hasOpenAIOAuthCredentials() {
     try {
@@ -285,7 +284,7 @@ export function describeOpenAIOAuthCredentials() {
     try {
         const tokens = loadTokens();
         if (!tokens?.access_token) {
-            return { authenticated: false, status: 'Not Set', detail: '~/.codex/auth.json or mixdog token store' };
+            return { authenticated: false, status: 'Not Set', detail: 'Mixdog token store' };
         }
         const hasRefresh = Boolean(tokens.refresh_token);
         const expiresAt = _normalizeExpiresAt(tokens.expires_at ?? tokens.expiresAt);
@@ -314,7 +313,7 @@ function _normalizeExpiresAt(value) {
 }
 function _tokensMaxMtime() {
     let max = 0;
-    const paths = [getOwnTokenPath(), join(homedir(), '.codex', 'auth.json')];
+    const paths = [getOwnTokenPath()];
     for (const p of paths) {
         try {
             const s = statSync(p);
@@ -322,10 +321,6 @@ function _tokensMaxMtime() {
         } catch { /* not present — skip */ }
     }
     return max;
-}
-
-function _codexCliAuthPath() {
-    return join(homedir(), '.codex', 'auth.json');
 }
 function _loadOwnCodexTokens() {
     const ownPath = getOwnTokenPath();
@@ -338,7 +333,7 @@ function _loadOwnCodexTokens() {
                 ...own,
                 expires_at: _normalizeExpiresAt(own.expires_at ?? own.expiresAt) || _expiryFromAccessToken(own.access_token),
                 account_id: own.account_id || extractAccountId(own.access_token),
-                source: 'mixdog',
+                source: 'Mixdog token store',
                 _mtimeMs: stat.mtimeMs,
             };
         }
@@ -346,38 +341,8 @@ function _loadOwnCodexTokens() {
     catch { /* fall through */ }
     return null;
 }
-function _loadCodexCliTokens() {
-    const codexPath = _codexCliAuthPath();
-    if (!existsSync(codexPath)) return null;
-    try {
-        const stat = statSync(codexPath);
-        const data = JSON.parse(readFileSync(codexPath, 'utf-8'));
-        const tokens = data.tokens || data;
-        if (tokens.access_token && tokens.refresh_token) {
-            const expiresAt = _normalizeExpiresAt(data.expires_at ?? tokens.expires_at ?? data.expiresAt ?? tokens.expiresAt) || _expiryFromAccessToken(tokens.access_token);
-            return {
-                access_token: tokens.access_token,
-                refresh_token: tokens.refresh_token,
-                expires_at: expiresAt,
-                account_id: tokens.account_id || extractAccountId(tokens.access_token),
-                source: 'codex-cli',
-                _mtimeMs: stat.mtimeMs,
-            };
-        }
-    }
-    catch { /* fall through */ }
-    return null;
-}
-// Own store is authoritative (accurate expires_at from refresh); the ~/.codex CLI
-// store seeds the initial bootstrap. But the refresh-token lineage is shared
-// single-use with the official CLI, so when the CLI store is STRICTLY newer on
-// disk (an independent `codex login`/CLI refresh) we must adopt it instead of
-// replaying our consumed token. Freshest-wins, own preferred on a tie.
 function loadTokens() {
-    const own = _loadOwnCodexTokens();
-    const cli = _loadCodexCliTokens();
-    if (own && cli) return (cli._mtimeMs > own._mtimeMs) ? cli : own;
-    return own || cli;
+    return _loadOwnCodexTokens();
 }
 function saveTokens(tokens) {
     const target = getOwnTokenPath();
@@ -391,54 +356,7 @@ export function forgetOpenAIOAuthCredentials() {
         unlinkSync(ownPath);
         removed = true;
     }
-    const codexPath = _codexCliAuthPath();
-    if (existsSync(codexPath)) {
-        try {
-            const raw = JSON.parse(readFileSync(codexPath, 'utf-8'));
-            if (raw?.tokens && typeof raw.tokens === 'object') {
-                delete raw.tokens.access_token;
-                delete raw.tokens.refresh_token;
-                delete raw.tokens.id_token;
-                raw.last_refresh = new Date().toISOString();
-                writeJsonAtomicSync(codexPath, raw, { lock: true, fsyncDir: true });
-                removed = true;
-            } else if (raw?.access_token || raw?.refresh_token) {
-                delete raw.access_token;
-                delete raw.refresh_token;
-                delete raw.id_token;
-                raw.last_refresh = new Date().toISOString();
-                writeJsonAtomicSync(codexPath, raw, { lock: true, fsyncDir: true });
-                removed = true;
-            }
-        } catch (err) {
-            throw new Error(`OpenAI OAuth reset failed for ${codexPath}: ${err?.message || err}`);
-        }
-    }
     return { removed };
-}
-// Write rotated tokens back to ~/.codex/auth.json so the official CLI
-// picks up the rotation instead of replaying a consumed refresh_token
-// from the shared single-use lineage. Mirrors anthropic-oauth's write-back.
-// Best-effort; the own store stays authoritative. Host-owned file: preserve all
-// other fields and don't re-permission it (no secret/mode).
-function _writeBackCodexCliTokens(tokens) {
-    const path = _codexCliAuthPath();
-    if (!existsSync(path)) return;
-    try {
-        const raw = JSON.parse(readFileSync(path, 'utf-8'));
-        if (!raw || typeof raw !== 'object') return;
-        const slot = (raw.tokens && typeof raw.tokens === 'object') ? raw.tokens : raw;
-        slot.access_token = tokens.access_token;
-        slot.refresh_token = tokens.refresh_token;
-        raw.last_refresh = new Date().toISOString();
-        // Preserve the ~/.codex file's existing POSIX mode (writeJsonAtomicSync
-        // otherwise defaults to 0o600, re-permissioning a host-owned file).
-        let mode;
-        try { mode = statSync(path).mode & 0o777; } catch { /* keep helper default */ }
-        writeJsonAtomicSync(path, raw, { lock: true, fsyncDir: true, mode });
-    } catch (err) {
-        process.stderr.write(`[openai-oauth] ~/.codex auth store write-back failed: ${String(err?.message || err).slice(0, 200)}\n`);
-    }
 }
 function extractAccountId(token) {
     try {
@@ -453,11 +371,7 @@ function extractAccountId(token) {
     }
 }
 // Derive token expiry from the access_token's JWT `exp` claim (epoch ms), as a
-// fallback when the source store carries no explicit expires_at — e.g. the
-// CLI's ~/.codex/auth.json records only last_refresh, so expires_at resolves to 0
-// and ensureAuth reads that as "never expires", disabling proactive refresh; the
-// token then only refreshes reactively after a request fails (and a WS handshake
-// 401 can surface as an opaque transport error that the 401 path misses). Returns
+// fallback when the Mixdog token store carries no explicit expires_at. Returns
 // 0 for opaque (non-JWT) tokens. JWT `exp` is epoch SECONDS (RFC 7519).
 function _expiryFromAccessToken(token) {
     try {
@@ -510,11 +424,6 @@ async function refreshTokens(refreshToken) {
             expires_at: expiresAt,
             account_id: extractAccountId(json.access_token),
         };
-        // CLI store first, own store last: the own store keeps the newest mtime
-        // (and its accurate refresh expires_at), so freshest-wins loadTokens
-        // treats our refresh as authoritative while the CLI still picks up the
-        // rotated token.
-        _writeBackCodexCliTokens(tokens);
         saveTokens(tokens);
         return tokens;
     } catch (err) {
@@ -1330,15 +1239,14 @@ export class OpenAIOAuthProvider {
     async ensureAuth({ forceRefresh = false, reason = 'preemptive' } = {}) {
         if (!this.tokens) this.tokens = loadTokens();
         if (!this.tokens)
-            throw new Error('OpenAI OAuth not authenticated. Run provider login or sign in via ~/.codex/auth.json.');
-        // Pick up disk-rotated tokens (CLI login, host refresh) the moment
-        // the auth file is rewritten — without this, a fresh login is ignored
-        // until the in-memory token hits its expiry skew.
+            throw new Error('OpenAI OAuth not authenticated. Run /auth openai-oauth or /providers in mixdog.');
+        // Pick up Mixdog-owned token updates the moment the auth file is
+        // rewritten — without this, a fresh login is ignored until the in-memory
+        // token hits its expiry skew.
         const diskMtime = _tokensMaxMtime();
-        // Watermark guards termination: if the newest file on disk isn't loadable
-        // (e.g. a logged-out host auth.json beside a valid own store), loadTokens
-        // falls back to the older valid store; record the scanned mtime so this
-        // check can't re-fire on every ensureAuth().
+        // Watermark guards termination: if the rewritten file is temporarily
+        // unreadable/partial, record the scanned mtime so this check can't
+        // re-fire on every ensureAuth().
         if (diskMtime > 0 && diskMtime > (this._lastDiskScan || 0) && diskMtime > (this.tokens._mtimeMs || 0)) {
             const fresh = loadTokens();
             if (fresh?.access_token) {
@@ -1395,7 +1303,7 @@ export class OpenAIOAuthProvider {
                     this._refreshFallbackUntil = Date.now() + TOKEN_REFRESH_SKEW_MS;
                     return latest;
                 }
-                throw new Error('OpenAI OAuth refresh token not available. Run codex login to re-authenticate.');
+                throw new Error('OpenAI OAuth refresh token not available. Run /auth openai-oauth or /providers in mixdog to re-authenticate.');
             }
 
             try {
@@ -1403,21 +1311,7 @@ export class OpenAIOAuthProvider {
                 const _expiringInMs = (latest?.expires_at ?? 0) - Date.now();
                 if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] auth-refresh-needed expiringInMs=${_expiringInMs}\n`); }
                 process.stderr.write(`[openai-oauth] Token ${reason}, refreshing...\n`);
-                let refreshed;
-                try {
-                    refreshed = await refreshTokens(latest.refresh_token);
-                } catch (refreshErr) {
-                    // invalid_grant: the official CLI rotated this single-use refresh
-                    // token between our disk read and this refresh. Re-read both
-                    // stores and retry ONCE with the freshest different token.
-                    if (!refreshErr?.isInvalidGrant) throw refreshErr;
-                    process.stderr.write('[openai-oauth] invalid_grant — re-reading disk, retrying refresh\n');
-                    const candidates = [_loadOwnCodexTokens(), _loadCodexCliTokens()].filter(Boolean)
-                        .sort((a, b) => (b._mtimeMs || 0) - (a._mtimeMs || 0));
-                    const freshTok = candidates.find(c => c.refresh_token && c.refresh_token !== latest.refresh_token);
-                    if (!freshTok) throw refreshErr;
-                    refreshed = await refreshTokens(freshTok.refresh_token);
-                }
+                const refreshed = await refreshTokens(latest.refresh_token);
                 if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] auth-refresh-done elapsed=${Date.now() - _refreshT0}ms ok=${!!refreshed}\n`); }
                 if (!refreshed) throw new Error('refresh returned null');
                 process.stderr.write(`[openai-oauth] Token refreshed, expires in ${Math.round(((refreshed.expires_at || Date.now()) - Date.now()) / 1000)}s\n`);

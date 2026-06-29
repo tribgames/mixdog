@@ -25,6 +25,7 @@ import {
   AGENT_SURFACE_BRIEF_MAX,
 } from '../../runtime/shared/tool-surface.mjs';
 import { backgroundTaskFailureStatusLabel, isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';
+import { formatExpandedResult } from './tool-output-format.mjs';
 
 const MIN_RESULT_LINE_CHARS = 24;
 // Hard cap for the parenthesized header arg summary so a long path/query does
@@ -88,45 +89,35 @@ function renderDeltaText(text) {
   ));
 }
 
-// Read/grep style results arrive with a `<n>→<content>` line-number prefix from
-// the tool layer. Split that numeric gutter out so it can render in a dim color
-// column while the body keeps the normal text color — same approach for every
-// tool that emits this prefix, so expanded output looks uniform instead of a
-// flat run of `33→await build({` lines.
-const LINE_NUMBER_PREFIX_RE = /^(\s*)(\d+)(\u2192)(.*)$/;
-
-function renderResultLine(line, { raw }) {
-  const text = String(line ?? '');
-  const match = raw ? LINE_NUMBER_PREFIX_RE.exec(text) : null;
-  if (!match) return renderDeltaText(text);
-  const [, indent, num, arrow, rest] = match;
-  return (
-    <>
-      {indent || ''}
-      <Text color={theme.subtle}>{num}{arrow}</Text>
-      {renderDeltaText(rest)}
-    </>
-  );
-}
-
 // Shared multi-line result body: `└` on the first row, `│` continuation rail on
 // every following row, body text in one flex column so wrapping stays aligned
-// under the head gutter. `raw` toggles the wrap mode + line-number coloring used
-// by ctrl+o expanded output vs. the single collapsed summary line.
-function ResultBody({ lines, columns, color, raw }) {
-  if (!lines || lines.length === 0) return null;
+// under the head gutter.
+//
+// Two render paths:
+//   - COLLAPSED (raw=false): a single fitted summary line, diff(+/-) colored via
+//     renderDeltaText.
+//   - EXPANDED (raw=true): `rawText` is post-processed by formatExpandedResult
+//     (JSON pretty, line-number gutter split, syntax highlight, URL linkify,
+//     underline strip, oversize guard) into one ANSI string per line. ink <Text>
+//     passes those escapes through verbatim, so each row keeps its own coloring
+//     while the rail column stays aligned.
+function ResultBody({ lines, rawText, pathArg = '', isShell = false, columns, color, raw }) {
+  const renderLines = raw
+    ? formatExpandedResult(rawText, { pathArg, isShell })
+    : (lines || []);
+  if (!renderLines || renderLines.length === 0) return null;
   return (
     <Box flexDirection="row">
       <Box flexShrink={0} flexDirection="column">
-        {lines.map((_, i) => (
+        {renderLines.map((_, i) => (
           <Text key={i} color={theme.subtle}>{i === 0 ? RESULT_GUTTER : RESULT_GUTTER_CONT}</Text>
         ))}
       </Box>
       <Box flexDirection="column" flexShrink={1} flexGrow={1}>
-        {lines.map((line, i) => (
-          <Text key={i} color={color} wrap={raw ? 'wrap' : 'truncate'}>
+        {renderLines.map((line, i) => (
+          <Text key={i} color={raw ? undefined : color} wrap={raw ? 'wrap' : 'truncate'}>
             {raw
-              ? renderResultLine(line || ' ', { raw: true })
+              ? (line || ' ')
               : renderDeltaText(fitResultLine(line || ' ', columns))}
           </Text>
         ))}
@@ -600,7 +591,17 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const startedAtMs = Number(startedAt || 0);
   const completedAtMs = Number(completedAt || 0);
   const pendingAgeMs = pending && startedAtMs ? Math.max(0, Date.now() - startedAtMs) : 0;
-  const pendingDisplayReady = !pending || !startedAtMs || pendingDelayElapsed || pendingAgeMs >= TOOL_PENDING_SHOW_DELAY_MS;
+  // A card that is still pending but already has something to paint (a result
+  // landed, or at least one of an aggregate's parallel calls completed) must
+  // SKIP the blank placeholder: it was pushed early (engine ensureVisible on a
+  // result before the push-delay) so its startedAt is recent and pendingAgeMs <
+  // delay, but it has real header counts + a summary to show. Rendering the
+  // placeholder instead made an empty card scroll up first and only fill in as
+  // each parallel result arrived. Treating "has visible content" as ready lets
+  // the card appear already populated and simply grow taller as more results
+  // land — no empty band.
+  const hasVisibleProgress = doneCount > 0 || Boolean(String(rt || '').trim());
+  const pendingDisplayReady = !pending || !startedAtMs || pendingDelayElapsed || pendingAgeMs >= TOOL_PENDING_SHOW_DELAY_MS || hasVisibleProgress;
   // Keep the action verb in its active form until the engine explicitly seals
   // the tool block. Fast tool batches often complete before the next provider
   // iteration decides whether to call more tools or emit assistant text; flipping
@@ -768,6 +769,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
         </Box>
         <ResultBody
           lines={detailLines}
+          rawText={rawRt || ''}
           columns={columns}
           color={aggregateDetailColor}
           raw={showRawAggregate}
@@ -1005,6 +1007,9 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
 
       <ResultBody
         lines={visibleDetailLines}
+        rawText={hasDisplayResult ? displayedResultText : (rawRt || '')}
+        pathArg={toolArgPath}
+        isShell={isShellSurface}
         columns={columns}
         color={showRawResult ? resultColor : detailColor}
         raw={showRawResult}
