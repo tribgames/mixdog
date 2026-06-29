@@ -1484,7 +1484,7 @@ export async function createEngineSession({
         errorCount: errors,
         count: allCalls.length,
         completedCount: visualCompleted,
-        completedAt: Date.now(),
+        completedAt: Number(currentItem?.completedAt) || Date.now(),
       });
       card.done = true;
       if (callId) done.add(callId);
@@ -1923,7 +1923,11 @@ export async function createEngineSession({
           completedCount,
           Math.min(allCalls.length, Number(currentItem?.completedCount || 0)),
         );
-        patchItem(card.itemId, { completedCount: visualCompleted });
+        const patch = { completedCount: visualCompleted };
+        if (visualCompleted >= allCalls.length) {
+          patch.completedAt = Date.now();
+        }
+        patchItem(card.itemId, patch);
         return;
       }
       // Non-aggregate eager tools are rare; flipping completedCount without
