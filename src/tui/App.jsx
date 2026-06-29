@@ -113,10 +113,37 @@ function compareSlashCommands(a, b) {
   return String(a?.name || '').localeCompare(String(b?.name || ''), 'en', { sensitivity: 'base' });
 }
 
+/** Prompt-owned overlays absorb PageUp/PageDown and wheel scroll instead of the transcript. */
+function overlayBlocksGlobalTranscriptScroll(owner = {}) {
+  return !!(
+    owner.slashPaletteOpen ||
+    owner.picker ||
+    owner.toolApproval ||
+    owner.contextPanel ||
+    owner.usagePanel ||
+    owner.providerPrompt ||
+    owner.channelPrompt ||
+    owner.hookPrompt ||
+    owner.settingsPrompt
+  );
+}
+
 function normalizeSlashCommandName(cmd) {
   const name = String(cmd || '').toLowerCase();
   const command = SLASH_COMMANDS.find((item) => item.name === name || (item.aliases || []).includes(name));
   return command?.name || name;
+}
+
+function slashCommandTokenForPaletteAccept(command, draftValue = '') {
+  if (!command) return '';
+  const text = String(draftValue ?? '').trim();
+  const typedToken = text.startsWith('/') ? text.slice(1).split(/\s+/)[0]?.toLowerCase() : '';
+  const canonical = String(command.name || '').toLowerCase();
+  const aliases = (command.aliases || []).map((alias) => String(alias || '').toLowerCase());
+  if (typedToken && (typedToken === canonical || aliases.includes(typedToken))) {
+    return typedToken;
+  }
+  return command.name;
 }
 
 function slashCommandForName(cmd) {
@@ -1459,6 +1486,7 @@ export function App({ store, initialStatusLine = '' }) {
   const [slashDismissedFor, setSlashDismissedFor] = useState('');
   const [disabledSkills, setDisabledSkills] = useState(() => new Set());
   const slashPaletteRef = useRef({ open: false, count: 0 });
+  const scrollFocusRef = useRef({});
   const onboardingStartedRef = useRef(false);
   const onboardingRef = useRef({ defaultRoute: null, workflowRoutes: {}, providerModels: [] });
   const providerModelsCacheRef = useRef({ models: null, at: 0 });
@@ -2132,6 +2160,7 @@ export function App({ store, initialStatusLine = '' }) {
           }
           return;
         }
+        if (overlayBlocksGlobalTranscriptScroll(scrollFocusRef.current)) return;
         const STEP = 3; // rows per wheel notch; immediate updates feel steadier in Windows Terminal
         scrollTranscriptRows((up - down) * STEP);
       }
@@ -2370,11 +2399,13 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
     if (key.pageUp) {
+      if (overlayBlocksGlobalTranscriptScroll(scrollFocusRef.current)) return;
       const pageRows = Math.max(3, Math.floor((resizeState.rows ?? 24) * 0.6));
       scrollTranscriptRows(pageRows);
       return;
     }
     if (key.pageDown) {
+      if (overlayBlocksGlobalTranscriptScroll(scrollFocusRef.current)) return;
       const pageRows = Math.max(3, Math.floor((resizeState.rows ?? 24) * 0.6));
       scrollTranscriptRows(-pageRows);
       return;
@@ -5832,6 +5863,7 @@ export function App({ store, initialStatusLine = '' }) {
   };
 
   const runSlashCommand = (cmd, arg = '') => {
+    const rawName = String(cmd || '').toLowerCase();
     cmd = normalizeSlashCommandName(cmd);
     if (cmd !== 'context') setContextPanel(null);
     if (cmd !== 'usage') closeUsagePanel();
@@ -5841,7 +5873,11 @@ export function App({ store, initialStatusLine = '' }) {
           store.pushNotice('wait for the current turn to finish before /clear', 'warn');
           return false;
         }
-        void store.clear().then(() => {}).catch(e => store.pushNotice(`clear failed: ${e?.message || e}`, 'error'));
+        if (rawName === 'new') {
+          void store.newSession().then(() => {}).catch((e) => store.pushNotice(`new session failed: ${e?.message || e}`, 'error'));
+        } else {
+          void store.clear().then(() => {}).catch((e) => store.pushNotice(`clear failed: ${e?.message || e}`, 'error'));
+        }
         return true;
       case 'model':
         if (!arg) {
@@ -6496,6 +6532,17 @@ export function App({ store, initialStatusLine = '' }) {
     && slashDismissedFor !== promptDraft
     && slashCommands.length > 0;
   slashPaletteRef.current = { open: slashPaletteOpen, count: slashCommands.length };
+  scrollFocusRef.current = {
+    slashPaletteOpen,
+    picker: !!picker,
+    toolApproval: !!toolApproval,
+    contextPanel: !!contextPanel,
+    usagePanel: !!usagePanel,
+    providerPrompt: !!providerPrompt,
+    channelPrompt: !!channelPrompt,
+    hookPrompt: !!hookPrompt,
+    settingsPrompt: !!settingsPrompt,
+  };
 
   useEffect(() => {
     setSlashIndex((index) => Math.min(index, Math.max(0, slashCommands.length - 1)));
@@ -6570,7 +6617,7 @@ export function App({ store, initialStatusLine = '' }) {
     }
   }, [settingsPrompt, showPromptHint]);
 
-  const acceptSlashPalette = useCallback(() => {
+  const acceptSlashPalette = useCallback((draftValue = '') => {
     const command = slashCommands[slashIndex];
     if (!command) return false;
     pickerOpenedFromEnterRef.current = true;
@@ -6579,7 +6626,7 @@ export function App({ store, initialStatusLine = '' }) {
       pickerOpenedFromEnterTimerRef.current = null;
     }
     try {
-      return runSlashCommand(command.name, '');
+      return runSlashCommand(slashCommandTokenForPaletteAccept(command, draftValue), '');
     } finally {
       pickerOpenedFromEnterTimerRef.current = setTimeout(() => {
         pickerOpenedFromEnterRef.current = false;
@@ -6588,9 +6635,11 @@ export function App({ store, initialStatusLine = '' }) {
     }
   }, [slashCommands, slashIndex]);
 
-  const completeSlashPalette = useCallback(() => {
+  const completeSlashPalette = useCallback((draftValue = '') => {
     const command = slashCommands[slashIndex];
-    return command ? `/${command.name} ` : undefined;
+    if (!command) return undefined;
+    const token = slashCommandTokenForPaletteAccept(command, draftValue);
+    return token ? `/${token} ` : undefined;
   }, [slashCommands, slashIndex]);
 
   const cancelSlashPalette = useCallback((value = '') => {

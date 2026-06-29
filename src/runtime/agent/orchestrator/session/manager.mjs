@@ -34,6 +34,7 @@ import { clearReadDedupSession, tryPrefetchCached, setPrefetchCached } from './r
 import { clearOffloadSession } from './tool-result-offload.mjs';
 import { classifyResultKind } from './result-classification.mjs';
 import { createAbortController } from '../../../shared/abort-controller.mjs';
+import { isInternalRuntimeNotificationText as contractIsInternalRuntimeNotificationText } from '../../../shared/tool-execution-contract.mjs';
 import { logLlmCall } from '../../../shared/llm/usage-log.mjs';
 import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
@@ -1895,6 +1896,18 @@ export function getSessionRuntime(id) {
     return id ? (_runtimeState.get(id) || null) : null;
 }
 
+const _COMPACTION_BLOCKED_STAGES = new Set([
+    'connecting', 'requesting', 'streaming', 'tool_running', 'cancelling',
+]);
+
+export function isSessionCompactionBlocked(sessionId) {
+    if (!sessionId) return false;
+    const entry = _runtimeState.get(sessionId);
+    if (!entry || entry.closed === true) return false;
+    if (entry.controller && !entry.controller.signal?.aborted) return true;
+    return _COMPACTION_BLOCKED_STAGES.has(entry.stage);
+}
+
 export function getSessionProgressSnapshot(sessionId) {
     const entry = _runtimeState.get(sessionId);
     if (!entry) return null;
@@ -2658,21 +2671,10 @@ export function _mergePendingMessageEntries(entries) {
 }
 
 function isInternalRuntimeNotificationText(content) {
-    const text = promptContentText(content).trim();
-    if (!text) return false;
-    if (/<task-notification\b/i.test(text)) return true;
-    if (/^background task\b/i.test(text)
-        && /^task_id:\s*\S+/mi.test(text)
-        && /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b/mi.test(text)) {
-        return true;
-    }
-    if (/^task_id:\s*\S+/mi.test(text)
-        && /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b/mi.test(text)
-        && /^(?:surface|operation|type|target|role|agent|preset|model|effort|fast|notification):\s*/mi.test(text)) {
-        return true;
-    }
-    return false;
+    return contractIsInternalRuntimeNotificationText(promptContentText(content));
 }
+
+export const _isInternalRuntimeNotificationText = isInternalRuntimeNotificationText;
 
 function isInternalCancelledAssistantMessage(message) {
     if (!message || message.role !== 'assistant') return false;
@@ -2730,6 +2732,91 @@ function acquireSessionLock(sessionId) {
         if (entry.count === 0) _sessionLocks.delete(sessionId);
         release();
     });
+}
+
+function sessionMessagesSnapshotChanged(before, after) {
+    if (!Array.isArray(before) || !Array.isArray(after)) return before !== after;
+    if (before.length !== after.length) return true;
+    for (let i = 0; i < before.length; i += 1) {
+        if (before[i] !== after[i]) return true;
+        try {
+            if (JSON.stringify(before[i]) !== JSON.stringify(after[i])) return true;
+        } catch {
+            return true;
+        }
+    }
+    return false;
+}
+
+function isCompactedOutgoingFinalAssistantMessage(message) {
+    if (!message || message.role !== 'assistant') return false;
+    if (message.emptyFinal === true) return true;
+    return true;
+}
+
+function sessionMessagesAdvancedBeyondCompactedOutgoing(currentSanitized, compactedSanitized) {
+    if (!Array.isArray(currentSanitized) || !Array.isArray(compactedSanitized)) return false;
+    if (currentSanitized.length !== compactedSanitized.length + 1) return false;
+    const prefix = currentSanitized.slice(0, compactedSanitized.length);
+    if (sessionMessagesSnapshotChanged(compactedSanitized, prefix)) return false;
+    return isCompactedOutgoingFinalAssistantMessage(currentSanitized[currentSanitized.length - 1]);
+}
+
+export const _sessionMessagesAdvancedBeyondCompactedOutgoing = sessionMessagesAdvancedBeyondCompactedOutgoing;
+
+function applyCompactFailurePersistToSession(activeSession, {
+    priorSanitized,
+    sanitized,
+    messagesAdvanced,
+    error = null,
+}) {
+    if (!messagesAdvanced && !sessionMessagesSnapshotChanged(priorSanitized, sanitized)) return false;
+    if (!messagesAdvanced) {
+        activeSession.messages = sanitized;
+        activeSession.providerState = undefined;
+    }
+    activeSession.updatedAt = Date.now();
+    activeSession.lastUsedAt = Date.now();
+    if (activeSession.compaction && typeof activeSession.compaction === 'object'
+        && activeSession.compaction.lastStage === 'compacting') {
+        activeSession.compaction = {
+            ...activeSession.compaction,
+            lastStage: error?.code === 'AGENT_CONTEXT_OVERFLOW' ? 'overflow_failed' : 'failed',
+            lastCheckedAt: Date.now(),
+        };
+    }
+    return true;
+}
+
+export const _applyCompactFailurePersistToSession = applyCompactFailurePersistToSession;
+
+async function persistCompactedOutgoingAfterAskFailure({
+    sessionId,
+    activeSession,
+    askGeneration,
+    turnOutgoing,
+    error = null,
+}) {
+    if (!activeSession || activeSession.closed === true) return;
+    if (!Array.isArray(turnOutgoing) || turnOutgoing.length === 0) return;
+    const currentRuntime = _runtimeState.get(sessionId);
+    if (currentRuntime?.closed || currentRuntime?.generation !== askGeneration) return;
+    const sanitized = sanitizeSessionMessagesForModel(turnOutgoing);
+    const priorSanitized = sanitizeSessionMessagesForModel(
+        Array.isArray(activeSession.messages) ? activeSession.messages : [],
+    );
+    const messagesAdvanced = sessionMessagesAdvancedBeyondCompactedOutgoing(priorSanitized, sanitized);
+    const applied = applyCompactFailurePersistToSession(activeSession, {
+        priorSanitized,
+        sanitized,
+        messagesAdvanced,
+        error,
+    });
+    if (!applied) return;
+    try {
+        await saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
+    } catch { /* best-effort: preserve in-memory compaction even if disk is slow */ }
+    if (currentRuntime) currentRuntime.session = activeSession;
 }
 
 export async function askSession(sessionId, prompt, context, onToolCall, cwdOverride, explicitPrefetch, askOpts = {}) {
@@ -2798,6 +2885,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         // leaving stage='connecting' forever.
         let activeSession = preSession;
         let cancelledUserTurnContent = '';
+        let _turnOutgoing = null;
         try {
             const session = activeSession;
             const provider = getProvider(session.provider);
@@ -2883,6 +2971,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             }
             cancelledUserTurnContent = _userTurnContent;
             const outgoing = [...historyMessages, { role: 'user', content: _userTurnContent }];
+            _turnOutgoing = outgoing;
             // Per-turn injected-context trace row (complements kind:"usage").
             // Cheap byte-length accounting — no hashing, no payload bodies.
             // Honors the same MIXDOG_AGENT_TRACE_DISABLE gate as usage rows;
@@ -3230,6 +3319,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 // can render it as "cancelled" rather than a red failure.
                 throw err;
             }
+            await persistCompactedOutgoingAfterAskFailure({
+                sessionId,
+                activeSession,
+                askGeneration,
+                turnOutgoing: _turnOutgoing,
+                error: err,
+            });
             markSessionError(sessionId, err && err.message ? err.message : String(err));
             throw err;
         }
@@ -3452,6 +3548,9 @@ export async function compactSessionMessages(sessionId) {
     const session = loadSession(sessionId);
     if (!session) return null;
     if (session.closed === true) return null;
+    if (isSessionCompactionBlocked(sessionId)) {
+        return { changed: false, reason: 'compact skipped: turn in progress' };
+    }
     const result = await runSessionCompaction(session, {
         mode: 'manual',
         force: true,

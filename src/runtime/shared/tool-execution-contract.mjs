@@ -16,6 +16,101 @@ function positivePid(value) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+const NON_PERSISTENT_TOOL_STATUSES = new Set(['running', 'pending', 'queued']);
+const TERMINAL_TOOL_STATUSES = new Set([
+  'completed',
+  'failed',
+  'cancelled',
+  'canceled',
+  'error',
+  'timeout',
+  'done',
+  'success',
+]);
+
+function notificationResultBody(text) {
+  const match = /\n\s*\n([\s\S]*)$/.exec(String(text || ''));
+  return match ? String(match[1] || '').trim() : '';
+}
+
+function backgroundTaskHeaderStatus(text) {
+  const match = /^status:\s*(\S+)/mi.exec(String(text || ''));
+  return clean(match?.[1]).toLowerCase();
+}
+
+function notificationHead(text) {
+  const value = String(text || '').trim();
+  const match = /\n\s*\n/.exec(value);
+  if (!match) return value;
+  return value.slice(0, match.index).trim();
+}
+
+function isInternalTaskNotificationEnvelope(text) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+  if (/^background task\b/i.test(value)) return false;
+  if (/^<task-notification\b/i.test(value)) return true;
+  const head = notificationHead(value);
+  return /^<task-notification\b/i.test(head);
+}
+
+export function shouldPersistModelVisibleToolCompletion(text, meta = {}) {
+  const message = String(text || '').trim();
+  if (!message) return false;
+  if (isInternalTaskNotificationEnvelope(message)) return false;
+
+  const metaStatus = clean(meta?.status).toLowerCase();
+  if (NON_PERSISTENT_TOOL_STATUSES.has(metaStatus)) return false;
+
+  if (/^background task\b/i.test(message)) {
+    const headerStatus = backgroundTaskHeaderStatus(message) || metaStatus;
+    if (NON_PERSISTENT_TOOL_STATUSES.has(headerStatus)) return false;
+    if (!TERMINAL_TOOL_STATUSES.has(headerStatus) && !TERMINAL_TOOL_STATUSES.has(metaStatus)) return false;
+    return Boolean(notificationResultBody(message));
+  }
+
+  if (meta?.execution_id || meta?.execution_surface) {
+    if (NON_PERSISTENT_TOOL_STATUSES.has(metaStatus)) return false;
+    if (!TERMINAL_TOOL_STATUSES.has(metaStatus)) return false;
+    return Boolean(notificationResultBody(message));
+  }
+
+  if (/^(?:agent task:|task_id:)/mi.test(message)) {
+    if (NON_PERSISTENT_TOOL_STATUSES.has(metaStatus)) return false;
+    if (!TERMINAL_TOOL_STATUSES.has(metaStatus)) return false;
+    return Boolean(notificationResultBody(message));
+  }
+
+  return false;
+}
+
+const BRACKETED_SHELL_STATUS_RE = /^\[status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled|error|timeout|done|success)\]/im;
+
+function isBracketedShellNotificationEnvelope(text) {
+  const value = String(text ?? '').trim();
+  if (!value) return false;
+  if (!/^\[task_id:\s*\S+\]/im.test(value)) return false;
+  return BRACKETED_SHELL_STATUS_RE.test(value);
+}
+
+export function isInternalRuntimeNotificationText(text) {
+  const value = String(text ?? '').trim();
+  if (!value) return false;
+  if (isInternalTaskNotificationEnvelope(value)) return true;
+  if (isBracketedShellNotificationEnvelope(value)) return true;
+  if (/^background task\b/i.test(value)
+    && /^task_id:\s*\S+/mi.test(value)
+    && /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b/mi.test(value)) {
+    return true;
+  }
+  if (/^task_id:\s*\S+/mi.test(value)
+    && /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b/mi.test(value)
+    && /^(?:surface|operation|type|target|role|agent|preset|model|effort|fast|notification):\s*/mi.test(value)) {
+    return true;
+  }
+  return false;
+}
+
 export function normalizeToolNotifyContext(context = {}) {
   const explicitCallerSessionId = clean(context.callerSessionId || context.sessionId);
   const explicitRoutingSessionId = clean(context.routingSessionId);
@@ -64,12 +159,17 @@ export function toolCompletionMeta({
 export function modelVisibleToolCompletionMessage(text, meta = {}) {
   const message = String(text || '').trim();
   if (!message) return '';
+  if (!shouldPersistModelVisibleToolCompletion(message, meta)) return '';
   const instruction = clean(meta?.instruction);
   const type = clean(meta?.type || meta?.execution_surface || 'tool_completion');
   const id = clean(meta?.execution_id);
   const status = clean(meta?.status);
   const header = `Async ${type}${id ? ` ${id}` : ''}${status ? ` ${status}` : ''} finished.`;
-  const quoted = message.split(/\r?\n/).map((line) => `> ${line}`).join('\n');
+  const MODEL_VISIBLE_RESULT_BODY_MAX = 12_000;
+  const bounded = message.length > MODEL_VISIBLE_RESULT_BODY_MAX
+    ? `${message.slice(0, MODEL_VISIBLE_RESULT_BODY_MAX)}\n\n[result truncated for model context]`
+    : message;
+  const quoted = bounded.split(/\r?\n/).map((line) => `> ${line}`).join('\n');
   return [
     instruction || header,
     '',

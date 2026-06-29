@@ -54,48 +54,92 @@ export function estimateRequestReserveTokens(tools) {
     return estimateToolSchemaTokens(tools) + REQUEST_OVERHEAD_TOKENS;
 }
 const TOOL_MISSING_STUB = '[Older tool result unavailable after context compaction]';
+function collectAssistantToolCallIds(message) {
+    if (!message || message.role !== 'assistant') return [];
+    const ids = [];
+    const seen = new Set();
+    const add = (id) => {
+        if (!id || seen.has(id)) return;
+        seen.add(id);
+        ids.push(id);
+    };
+    if (Array.isArray(message.toolCalls)) {
+        for (const tc of message.toolCalls) add(tc?.id);
+    }
+    const blocksFrom = (blocks) => {
+        if (!Array.isArray(blocks)) return;
+        for (const b of blocks) {
+            if (b?.type === 'tool_use' && b.id) add(b.id);
+        }
+    };
+    blocksFrom(message.assistantBlocks);
+    blocksFrom(message.content);
+    return ids;
+}
 /**
  * Tool-pair sanitization (unmatched tool_use / tool_result repair):
+ *   - Drop malformed `tool` messages without toolCallId.
  *   - Drop `tool` messages whose toolCallId has no surviving assistant tool_call.
- *   - For surviving assistant tool_calls whose results are missing, insert a
- *     stub tool message so the provider doesn't reject the request for
- *     unmatched tool_use_id.
- * Messages ordering is preserved; stubs are inserted immediately after the
- * assistant message so the tool pair sits adjacent.
+ *   - For each surviving assistant tool_call, reattach the matching `tool`
+ *     message (if any) immediately after that assistant; duplicate ids prefer
+ *     the contiguous post-assistant block, then later matches, then earlier.
+ *   - For tool_calls with no matching result, insert a stub tool message so
+ *     the provider doesn't reject the request for unmatched tool_use_id.
+ * Non-tool message order is preserved; tool results are not duplicated.
  */
 export function sanitizeToolPairs(messages) {
     if (!Array.isArray(messages) || messages.length === 0) return messages;
     const assistantCallIds = new Set();
     for (const m of messages) {
-        if (m.role === 'assistant' && Array.isArray(m.toolCalls)) {
-            for (const tc of m.toolCalls) {
-                if (tc && tc.id) assistantCallIds.add(tc.id);
-            }
+        for (const id of collectAssistantToolCallIds(m)) assistantCallIds.add(id);
+    }
+    const pickToolResultForAssistant = (assistantIdx, toolCallId) => {
+        let i = assistantIdx + 1;
+        while (i < messages.length && messages[i]?.role === 'tool') {
+            const tm = messages[i];
+            if (tm.toolCallId === toolCallId) return tm;
+            i += 1;
         }
-    }
-    const toolById = new Map();
-    for (const m of messages) {
-        if (m.role === 'tool' && m.toolCallId) toolById.set(m.toolCallId, m);
-    }
-    const filtered = messages.filter(m => {
-        if (m.role !== 'tool') return true;
-        if (!m.toolCallId) return true;
-        return assistantCallIds.has(m.toolCallId);
-    });
+        let afterBlock = assistantIdx + 1;
+        while (afterBlock < messages.length && messages[afterBlock]?.role === 'tool') afterBlock += 1;
+        for (let j = afterBlock; j < messages.length; j += 1) {
+            const tm = messages[j];
+            if (tm?.role === 'tool' && tm.toolCallId === toolCallId) return tm;
+        }
+        for (let j = 0; j < assistantIdx; j += 1) {
+            const tm = messages[j];
+            if (tm?.role === 'tool' && tm.toolCallId === toolCallId) return tm;
+        }
+        return null;
+    };
+    const placedToolIds = new Set();
     const result = [];
-    for (const m of filtered) {
+    for (let idx = 0; idx < messages.length; idx += 1) {
+        const m = messages[idx];
+        if (m.role === 'tool') {
+            if (!m.toolCallId) continue;
+            if (!assistantCallIds.has(m.toolCallId)) continue;
+            if (placedToolIds.has(m.toolCallId)) continue;
+            continue;
+        }
         result.push(m);
-        if (m.role !== 'assistant' || !Array.isArray(m.toolCalls)) continue;
-        for (const tc of m.toolCalls) {
-            if (!tc?.id) continue;
-            const existing = toolById.get(tc.id);
-            if (existing && filtered.includes(existing)) continue;
-            const preserved = existing?.content;
+        if (m.role !== 'assistant') continue;
+        const callIds = collectAssistantToolCallIds(m);
+        if (callIds.length === 0) continue;
+        for (const callId of callIds) {
+            if (placedToolIds.has(callId)) continue;
+            const existing = pickToolResultForAssistant(idx, callId);
+            if (existing) {
+                result.push(existing);
+                placedToolIds.add(callId);
+                continue;
+            }
             result.push({
                 role: 'tool',
-                content: isOffloadedToolResultText(preserved) ? preserved : TOOL_MISSING_STUB,
-                toolCallId: tc.id,
+                content: TOOL_MISSING_STUB,
+                toolCallId: callId,
             });
+            placedToolIds.add(callId);
         }
     }
     return result;
@@ -177,8 +221,27 @@ export function sanitizeAnthropicContentPairs(messages) {
     if (!Array.isArray(messages)) return messages;
     const work = messages.slice();
     const out = [];
+    let pendingToolUseIds = new Set();
+    const stripOrphanToolResults = (userMsg, allowedIds) => {
+        if (userMsg?.role !== 'user' || !Array.isArray(userMsg.content)) return userMsg;
+        const hasToolResults = userMsg.content.some((b) => b?.type === 'tool_result');
+        if (!hasToolResults) return userMsg;
+        const filtered = userMsg.content.filter((b) => {
+            if (b?.type !== 'tool_result') return true;
+            if (!b.tool_use_id) return false;
+            return allowedIds.size > 0 && allowedIds.has(b.tool_use_id);
+        });
+        if (filtered.length === userMsg.content.length) return userMsg;
+        return { ...userMsg, content: filtered };
+    };
     for (let i = 0; i < work.length; i++) {
         let m = work[i];
+        if (m?.role === 'user' && Array.isArray(m.content)) {
+            const hadToolResults = m.content.some((b) => b?.type === 'tool_result');
+            m = stripOrphanToolResults(m, pendingToolUseIds);
+            work[i] = m;
+            if (hadToolResults) pendingToolUseIds = new Set();
+        }
         // Drop tool_use blocks without an id from assistant messages — these
         // come from partial streaming chunks that never finalised, and the
         // provider rejects them as `tool_use ids were found without
@@ -192,13 +255,22 @@ export function sanitizeAnthropicContentPairs(messages) {
                 work[i] = m;
             }
         }
+        if (m?.role === 'user' && Array.isArray(m.content) && m.content.length === 0) continue;
         out.push(m);
         if (m?.role !== 'assistant' || !Array.isArray(m.content)) continue;
         const toolUseIds = m.content
             .filter((b) => b?.type === 'tool_use' && b.id)
             .map((b) => b.id);
-        if (toolUseIds.length === 0) continue;
-        const next = work[i + 1];
+        if (toolUseIds.length === 0) {
+            pendingToolUseIds = new Set();
+            continue;
+        }
+        pendingToolUseIds = new Set(toolUseIds);
+        let next = work[i + 1];
+        if (next?.role === 'user' && Array.isArray(next.content)) {
+            next = stripOrphanToolResults(next, pendingToolUseIds);
+            work[i + 1] = next;
+        }
         const nextResultIds = (next?.role === 'user' && Array.isArray(next.content))
             ? new Set(
                 next.content

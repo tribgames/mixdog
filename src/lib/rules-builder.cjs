@@ -128,7 +128,7 @@ function buildProfilePreferencesContent(dataDir) {
   const language = profileLanguagePrompt(profile.language);
   const lines = [];
   if (profile.title) {
-    lines.push(`- Address the user as "${profile.title}".`);
+    lines.push(`- Use "${profile.title}" when directly addressing the user (greetings, answers, questions). Do not repeat it in routine progress updates or pre-tool preambles.`);
   }
   if (language?.prompt) {
     const source = language.source === 'system-locale' && language.locale

@@ -8,7 +8,7 @@ import { collectSkillsCached, loadSkillContent } from '../context/collect.mjs';
 import { traceAgentLoop, traceAgentTool, traceAgentToolFailure, traceAgentCompact, estimateProviderPayloadBytes, messagePrefixHash } from '../agent-trace.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { markSessionToolCall, updateSessionStage, SessionClosedError, getSessionAbortSignal, enqueuePendingMessage, bumpUsageMetricsEpoch } from './manager.mjs';
-import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';
+import { estimateMessagesTokens, estimateRequestReserveTokens, sanitizeToolPairs } from './context-utils.mjs';
 import {
     recallFastTrackCompactMessages,
     pruneToolOutputs,
@@ -347,6 +347,22 @@ function _ensureTranscriptPairing(msgs, sessionId) {
     if (popped > 0 && sessionId) {
         try { process.stderr.write(`[transcript-repair] sess=${sessionId} popped=${popped} dangling assistant tool_use\n`); } catch {}
     }
+}
+
+/**
+ * Pre-provider transcript repair for the agent loop. Reattach valid tool
+ * results (non-destructive) before any destructive orphan pairing cleanup.
+ * Mutates `messages` in place to preserve the session array reference.
+ */
+export function repairTranscriptBeforeProviderSend(messages, sessionId = null) {
+    if (!Array.isArray(messages)) return messages;
+    const sanitized = sanitizeToolPairs(messages);
+    if (sanitized !== messages) {
+        messages.length = 0;
+        messages.push(...sanitized);
+    }
+    _ensureTranscriptPairing(messages, sessionId);
+    return messages;
 }
 
 // Eager-dispatch: tools with readOnlyHint:true in their declaration are safe
@@ -844,6 +860,28 @@ function viewSkill(cwd, name) {
     return `<skill>\n<name>${String(name).replace(/[<>&]/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]))}</name>\n${content}\n</skill>`;
 }
 
+/** Normalize PostToolUse hook override values (legacy MCP text envelopes only). */
+export function normalizeHookUpdatedToolOutput(value) {
+    if (typeof value === 'string') return value;
+    if (value == null) return '';
+    if (typeof value === 'object' && Array.isArray(value.content)) {
+        const hasNonText = value.content.some((c) => c && typeof c === 'object' && c.type && c.type !== 'text');
+        if (hasNonText) return value;
+        return value.content
+            .map((c) => (c?.type === 'text' ? c.text || '' : JSON.stringify(c)))
+            .join('\n');
+    }
+    return value;
+}
+
+export function resolveToolResultAfterHook(originalResult, hookResult) {
+    if (!hookResult || typeof hookResult !== 'object' || hookResult.updatedToolOutput === undefined) {
+        return originalResult;
+    }
+    const updated = normalizeHookUpdatedToolOutput(hookResult.updatedToolOutput);
+    return updated === undefined ? originalResult : updated;
+}
+
 function parseNativeToolSearchPayload(toolName, result) {
     if (toolName !== 'tool_search' || typeof result !== 'string') return null;
     try {
@@ -1117,7 +1155,6 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
     }
     return formatUnknownBuiltinToolMessage(name, args, 'tool');
     })();
-    let __finalResult = __result;
     if (typeof afterToolHook === 'function') {
         try {
             const hookResult = await afterToolHook({
@@ -1128,15 +1165,12 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
                 toolCallId: executeOpts.toolCallId || null,
                 result: __result,
             });
-            if (hookResult && typeof hookResult === 'object' && Object.prototype.hasOwnProperty.call(hookResult, 'updatedToolOutput')) {
-                const updated = hookResult.updatedToolOutput;
-                __finalResult = typeof updated === 'string' ? updated : JSON.stringify(updated);
-            }
+            return resolveToolResultAfterHook(__result, hookResult);
         } catch {
             // PostToolUse hooks are best-effort; never let one break the tool result.
         }
     }
-    return __finalResult;
+    return __result;
 }
 /**
  * Agent loop: send → tool_call → execute → re-send → repeat until text.
@@ -1653,11 +1687,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             if (_streamEagerBlocked) return;
             startEagerTool(call);
         };
-        // Repair any dangling assistant tool_use left over from a prior
-        // abort/error path before the provider sees the transcript. No-op
-        // on the healthy iteration cycle (every assistant tool_use is
-        // followed by tool results in the same loop body below).
-        _ensureTranscriptPairing(messages, sessionId);
+        // Reattach separated tool results, then drop only truly dangling
+        // assistant/orphan pairs before the provider sees the transcript.
+        repairTranscriptBeforeProviderSend(messages, sessionId);
         // Strip soft-warn markers from prior tool results before the next
         // send. Marker bytes (Tool-budget(xN), Same-file reads(xN), etc.)
         // mutate every turn with dynamic counters, so leaving them in the

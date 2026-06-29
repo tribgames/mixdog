@@ -12,7 +12,10 @@ import { createStandaloneMemoryRuntime } from './standalone/memory-runtime-proxy
 import { createStandaloneHookBus } from './standalone/hook-bus.mjs';
 import { writeLastSessionCwd } from './runtime/shared/user-cwd.mjs';
 import { cancelBackgroundTasks } from './runtime/shared/background-tasks.mjs';
-import { modelVisibleToolCompletionMessage } from './runtime/shared/tool-execution-contract.mjs';
+import {
+  modelVisibleToolCompletionMessage,
+  shouldPersistModelVisibleToolCompletion,
+} from './runtime/shared/tool-execution-contract.mjs';
 import {
   normalizeAgentPermissionOrNone,
   readMarkdownDocument,
@@ -2630,16 +2633,28 @@ export async function createMixdogSessionRuntime({
   function notifyFnForSession(callerSessionId) {
     return (text, meta = {}) => {
       const handledByRuntimeListener = emitRuntimeNotification(text, meta);
-      // TUI sessions keep their own Claude-Code-style command queue via
-      // onNotification. Headless/API listeners may exist but not consume the
-      // event, so fall back unless a listener explicitly returns true.
-      if (!handledByRuntimeListener && callerSessionId && typeof mgr.enqueuePendingMessage === 'function') {
+      let enqueued = false;
+      // TUI sessions consume raw execution notifications for UI/task cards via
+      // onNotification, but those raw envelopes are internal-only in pending
+      // drain. Always mirror terminal completions with a model-visible wrapper
+      // while keeping the raw text for UI display.
+      if (callerSessionId && typeof mgr.enqueuePendingMessage === 'function'
+        && shouldPersistModelVisibleToolCompletion(text, meta)) {
         try {
           const visible = modelVisibleToolCompletionMessage(text, meta);
-          if (visible) return mgr.enqueuePendingMessage(callerSessionId, visible) > 0;
+          if (visible) enqueued = mgr.enqueuePendingMessage(callerSessionId, visible) > 0;
         } catch {}
       }
-      return handledByRuntimeListener;
+      // Headless/API listeners may exist but not consume the event; preserve
+      // the old fallback for non-terminal notifications only when unhandled.
+      if (!enqueued && !handledByRuntimeListener && callerSessionId
+        && typeof mgr.enqueuePendingMessage === 'function') {
+        try {
+          const visible = modelVisibleToolCompletionMessage(text, meta);
+          if (visible) enqueued = mgr.enqueuePendingMessage(callerSessionId, visible) > 0;
+        } catch {}
+      }
+      return enqueued || handledByRuntimeListener;
     };
   }
 
@@ -4912,6 +4927,9 @@ function parsedProviderModelVersion(id) {
     },
     async compact(options = {}) {
       if (!session?.id) return null;
+      if (activeTurnCount > 0) {
+        return { changed: false, reason: 'compact skipped: turn in progress' };
+      }
       const result = await mgr.compactSessionMessages(session.id);
       session = mgr.getSession(session.id) || session;
       if (options.recoverAgent === true) {

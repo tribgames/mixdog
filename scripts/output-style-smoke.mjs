@@ -48,7 +48,6 @@ function assertCleanOutput(name, value, { maxLines = 3, maxBullets = 3, allowedL
 const defaultStyle = readFileSync(join(root, 'src', 'output-styles', 'default.md'), 'utf8');
 for (const required of [
   'name: default',
-  'Claude Code-style concise replies',
   'Be short and direct.',
   'Lead with the answer or action',
   'For code work, report what changed and decisive verification',
@@ -64,7 +63,7 @@ const simpleStyle = readFileSync(join(root, 'src', 'output-styles', 'simple.md')
 for (const required of [
   'name: simple',
   'Concise engineering summaries',
-  'Default final reports use 2-3 flat bullets',
+  'Use labels such as',
   '`바뀐 점`, `확인한 것`,',
   'Synthesize agent or retrieval results',
   'Do not hide blockers',
@@ -96,9 +95,10 @@ try {
   writeFileSync(join(dataDir, 'output-styles', 'custom-smoke.md'), '---\nname: custom-smoke\n---\n\n# Custom Output Style\n\ncustom smoke style\n');
   const customRules = rulesBuilder.buildInjectionContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
   assert(customRules.includes('# Custom Output Style'), 'configured outputStyle must select custom style');
-  assert(!customRules.includes('Claude Code-style concise replies'), 'custom outputStyle should not append default style');
+  assert(!customRules.includes('Mixdog default — the standard concise tone'), 'custom outputStyle should not append default style');
   const profileMeta = rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
-  assert(profileMeta.includes('Address the user as "재영님".'), 'profile title must inject into Lead BP3 meta');
+  assert(profileMeta.includes('Use "재영님" when directly addressing the user'), 'profile title must inject into Lead BP3 meta');
+  assert(profileMeta.includes('Do not repeat it in routine progress updates or pre-tool preambles'), 'profile title must not encourage title in preambles');
   assert(/Default user-facing response language from system locale/.test(profileMeta), 'system profile language must resolve from system locale');
   assert(profileMeta.includes('including pre-tool preambles'), 'profile language must cover pre-tool preambles');
 } finally {

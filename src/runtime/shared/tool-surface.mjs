@@ -854,7 +854,8 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
           exit ? `Exit ${exit[1]}` : '',
         ]);
       }
-      return null;
+      const firstLine = trimmed.split('\n').map((line) => line.trim()).find(Boolean) || trimmed;
+      return truncateSingleLine(firstLine, 120);
     }
     case 'code_graph': {
       const match = /(\d+)\s+(references|definitions|symbols|callers|callees|results|matches)/i.exec(text);

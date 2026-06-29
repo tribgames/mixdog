@@ -168,3 +168,68 @@ test('async command hook reports spawn errors without crashing', async () => {
     else process.env.MIXDOG_HOOKS_FILE = prev;
   }
 });
+
+test('PostToolUse dispatch omits updatedToolOutput when hook does not override', async () => {
+  const root = tempRoot();
+  const hookScript = join(root, 'posttool-noop.mjs');
+  writeFileSync(hookScript, `console.log('{}');\n`, 'utf8');
+  const hooksFile = join(root, 'hooks.json');
+  writeJson(hooksFile, {
+    hooks: {
+      PostToolUse: [{
+        hooks: [{ type: 'command', command: process.execPath, args: [hookScript] }],
+      }],
+    },
+  });
+
+  const prev = process.env.MIXDOG_HOOKS_FILE;
+  process.env.MIXDOG_HOOKS_FILE = hooksFile;
+  try {
+    const bus = createStandaloneHookBus({ dataDir: root });
+    const result = await bus.dispatch('PostToolUse', {
+      session_id: 'sess_test',
+      cwd: root,
+      tool_name: 'list',
+      tool_response: 'entries',
+    });
+    assert.equal('updatedToolOutput' in result, false);
+  } finally {
+    if (prev == null) delete process.env.MIXDOG_HOOKS_FILE;
+    else process.env.MIXDOG_HOOKS_FILE = prev;
+  }
+});
+
+test('PostToolUse dispatch preserves empty-string updatedToolOutput override', async () => {
+  const root = tempRoot();
+  const hookScript = join(root, 'posttool-clear.mjs');
+  writeFileSync(hookScript, `
+console.log(JSON.stringify({ hookSpecificOutput: {
+  hookEventName: 'PostToolUse',
+  updatedToolOutput: ''
+}}));
+`, 'utf8');
+  const hooksFile = join(root, 'hooks.json');
+  writeJson(hooksFile, {
+    hooks: {
+      PostToolUse: [{
+        hooks: [{ type: 'command', command: process.execPath, args: [hookScript] }],
+      }],
+    },
+  });
+
+  const prev = process.env.MIXDOG_HOOKS_FILE;
+  process.env.MIXDOG_HOOKS_FILE = hooksFile;
+  try {
+    const bus = createStandaloneHookBus({ dataDir: root });
+    const result = await bus.dispatch('PostToolUse', {
+      session_id: 'sess_test',
+      cwd: root,
+      tool_name: 'list',
+      tool_response: 'entries',
+    });
+    assert.equal(result.updatedToolOutput, '');
+  } finally {
+    if (prev == null) delete process.env.MIXDOG_HOOKS_FILE;
+    else process.env.MIXDOG_HOOKS_FILE = prev;
+  }
+});

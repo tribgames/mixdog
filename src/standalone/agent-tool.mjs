@@ -27,6 +27,10 @@ import {
   evaluateAgentWatchdogAbort,
   resolveAgentWatchdogPolicy,
 } from '../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
+import {
+  appendAgentProgressKv,
+  buildAgentTaskProgressFields,
+} from './agent-task-status.mjs';
 import { AGENT_OWNER } from '../runtime/agent/orchestrator/agent-owner.mjs';
 import { clearGatewaySessionRoute, writeGatewaySessionRoute } from '../vendor/statusline/src/gateway/session-routes.mjs';
 
@@ -305,17 +309,18 @@ function renderResult(value) {
       const workers = Array.isArray(value.workers) ? value.workers : [];
       lines.push(`agents: ${workers.length}`);
       for (const worker of workers) {
-        const stale = Number.isFinite(worker.staleSeconds) ? ` stale=${worker.staleSeconds}s` : '';
         const tokens = worker.windowTokens ? ` ctx=${worker.windowTokens}${worker.windowCap ? `/${worker.windowCap}` : ''}` : '';
         const terminal = worker.clientHostPid ? ` term=${worker.clientHostPid}` : '';
-        lines.push(`- ${worker.tag} ${worker.role || 'agent'} ${worker.status || 'idle'}/${worker.stage || 'idle'} ${worker.provider}/${worker.model}${terminal}${stale}${tokens}`);
+        const base = `- ${worker.tag} ${worker.role || 'agent'} ${worker.status || 'idle'}/${worker.worker_stage || worker.stage || 'idle'} ${worker.provider}/${worker.model}${terminal}${tokens}`;
+        lines.push(appendAgentProgressKv(base, worker));
       }
       const jobs = Array.isArray(value.jobs) ? value.jobs : [];
       lines.push(`tasks: ${jobs.length}`);
       for (const job of jobs) {
         const target = job.tag || job.sessionId || '-';
         const terminal = job.clientHostPid ? ` term=${job.clientHostPid}` : '';
-        lines.push(`- ${job.task_id} ${job.type} ${job.status} target=${target}${terminal}${job.error ? ` error=${presentErrorText(job.error, { surface: 'agent' })}` : ''}`);
+        const base = `- ${job.task_id} ${job.type} ${job.status} target=${target}${terminal}${job.error ? ` error=${presentErrorText(job.error, { surface: 'agent' })}` : ''}`;
+        lines.push(appendAgentProgressKv(base, job));
       }
       if (workers.length === 0 && jobs.length === 0) lines.push('(no agents or tasks)');
       return lines.join('\n');
@@ -337,6 +342,12 @@ function renderResult(value) {
         lines.push(`limits: ${limitParts.join(' ')}`);
       }
       if (value.stage || value.workerStatus) lines.push(`agent: ${value.workerStatus || 'unknown'}/${value.stage || 'unknown'}`);
+      if (value.worker_stage) lines.push(`worker_stage: ${value.worker_stage}`);
+      if (value.last_progress) lines.push(`last_progress: ${value.last_progress}`);
+      if (Number.isFinite(value.silent_for)) lines.push(`silent_for: ${value.silent_for}s`);
+      if (value.watchdog) lines.push(`watchdog: ${value.watchdog}`);
+      if (Number.isFinite(value.queued_followups)) lines.push(`queued_followups: ${value.queued_followups}`);
+      if (value.diagnostic) lines.push(`diagnostic: ${value.diagnostic}`);
       if (value.startedAt) lines.push(`started: ${compactIso(value.startedAt)}`);
       if (value.finishedAt) lines.push(`finished: ${compactIso(value.finishedAt)}`);
       if (value.error) lines.push(`error: ${presentErrorText(value.error, { surface: 'agent' })}`);
@@ -1035,6 +1046,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       const stage = session.stage || (status === 'idle' || status === 'error' || status === 'closed'
         ? status
         : (runtime?.stage || status));
+      const progress = sessionProgressExtras(sessionId, session.role || null, now);
       rows.push({
         tag,
         sessionId,
@@ -1046,6 +1058,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         fast: session.fast === true,
         status,
         stage,
+        ...progress,
         createdAt: session.createdAt || null,
         updatedAt: session.updatedAt || null,
         lastUsedAt: session.lastUsedAt || null,
@@ -1063,17 +1076,43 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     return rows;
   }
 
+  function sessionProgressExtras(sessionId, role, now = Date.now(), taskStatus = null) {
+    if (!sessionId) return {};
+    const session = mgr.getSession(sessionId);
+    const runtime = mgr.getSessionRuntime?.(sessionId) || null;
+    const snapshot = typeof mgr.getSessionProgressSnapshot === 'function'
+      ? mgr.getSessionProgressSnapshot(sessionId)
+      : null;
+    const policy = role ? resolveAgentWatchdogPolicy(role) : null;
+    const queuedFollowups = typeof mgr.getSessionPendingMessageDepth === 'function'
+      ? mgr.getSessionPendingMessageDepth(sessionId)
+      : null;
+    return buildAgentTaskProgressFields({
+      now,
+      sessionStatus: session?.status || null,
+      runtimeStage: runtime?.stage || snapshot?.stage || session?.status || null,
+      snapshot,
+      runtime,
+      policy,
+      queuedFollowups,
+      taskStatus,
+      lastToolCall: runtime?.lastToolCall || null,
+    });
+  }
+
   function jobWorkerSnapshot(sessionId) {
     if (!sessionId) return null;
     const session = mgr.getSession(sessionId);
     if (!session) return null;
     const runtime = mgr.getSessionRuntime?.(sessionId);
     const status = session.closed === true ? 'closed' : (session.status || 'idle');
+    const progress = sessionProgressExtras(sessionId, session.role || null);
     return {
       workerStatus: status,
-      stage: runtime?.stage || status,
+      stage: progress.worker_stage || runtime?.stage || status,
       clientHostPid: session.clientHostPid || null,
       lastStreamDeltaAt: runtime?.lastStreamDeltaAt ? new Date(runtime.lastStreamDeltaAt).toISOString() : null,
+      ...progress,
     };
   }
 
@@ -1096,6 +1135,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       finishedAt: task.finishedAt || null,
       error: task.error || null,
       ...jobWorkerSnapshot(task.sessionId),
+      ...sessionProgressExtras(task.sessionId, task.role || null, Date.now(), task.status),
     }));
     return wantedPid ? rows.filter((row) => positiveInt(row.clientHostPid) === wantedPid) : rows;
   }
@@ -1110,6 +1150,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
 
   function renderJob(job, includeResult = false) {
     const meta = job.meta || {};
+    const progress = sessionProgressExtras(meta.sessionId, meta.role || null, Date.now(), job.status);
     return {
       task_id: job.taskId,
       type: job.operation,
@@ -1127,6 +1168,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       finishedAt: job.finishedAt || null,
       error: job.error || null,
       ...jobWorkerSnapshot(meta.sessionId),
+      ...progress,
       ...(includeResult && job.result !== undefined ? { result: job.result } : {}),
     };
   }

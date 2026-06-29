@@ -14,6 +14,7 @@ import {
   summarizeToolResult,
 } from '../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody, presentErrorText } from '../runtime/shared/err-text.mjs';
+import { modelVisibleToolCompletionMessage } from '../runtime/shared/tool-execution-contract.mjs';
 
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
 const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
@@ -238,21 +239,108 @@ function polishNoticeText(text) {
 function toolResultText(content) {
   if (content == null) return '';
   if (typeof content === 'string') return content;
-  const parts = Array.isArray(content)
-    ? content
-    : (content && typeof content === 'object' && Array.isArray(content.content) ? content.content : null);
-  if (parts) {
-    return parts.map((c) => {
-      if (typeof c === 'string') return c;
-      if (c?.type === 'image') return `[image: ${c.mimeType || c.mediaType || c.source?.media_type || 'image'}]`;
-      return c?.text ?? '';
-    }).filter(Boolean).join('\n');
-  }
   if (Array.isArray(content)) {
-    return content.map((c) => (typeof c === 'string' ? c : c?.text ?? '')).filter(Boolean).join('\n');
+    return content.map((c) => toolResultPartText(c)).filter((t) => t !== '').join('\n');
   }
-  if (typeof content === 'object' && typeof content.text === 'string') return content.text;
+  if (typeof content === 'object') {
+    if (Array.isArray(content.content)) {
+      const nested = content.content.map((c) => toolResultPartText(c)).filter((t) => t !== '').join('\n');
+      if (nested) return nested;
+    } else if (content.content != null && typeof content.content === 'object') {
+      const nested = toolResultPartText(content.content);
+      if (nested) return nested;
+    }
+    if (Array.isArray(content.parts)) {
+      const nested = content.parts.map((c) => toolResultPartText(c)).filter((t) => t !== '').join('\n');
+      if (nested) return nested;
+    }
+    const fromPart = toolResultPartText(content);
+    if (fromPart) return fromPart;
+    if (content?.type === 'tool_result') return '';
+    if (typeof content.text === 'string') return content.text;
+    if (typeof content.content === 'string') return content.content;
+  }
   try { return JSON.stringify(content); } catch { return String(content); }
+}
+
+const TOOL_RESULT_PART_MAX_DEPTH = 12;
+const TOOL_RESULT_JSON_FALLBACK_MAX = 480;
+
+function compactToolResultObjectFallback(obj) {
+  if (obj?.type === 'tool_result') return '';
+  try {
+    const json = JSON.stringify(obj);
+    if (!json || json === '{}') return '';
+    if (json.length <= TOOL_RESULT_JSON_FALLBACK_MAX) return json;
+    return `${json.slice(0, TOOL_RESULT_JSON_FALLBACK_MAX - 1)}…`;
+  } catch {
+    return String(obj);
+  }
+}
+
+function toolResultPartText(part, depth = 0) {
+  if (part == null) return '';
+  if (depth > TOOL_RESULT_PART_MAX_DEPTH) return '';
+  if (typeof part === 'string') return part;
+  if (part?.type === 'image' || part?.type === 'input_image') {
+    return `[image: ${part.mimeType || part.mediaType || part.source?.media_type || 'image'}]`;
+  }
+  if (part?.type === 'tool_result') {
+    const inner = part.content;
+    if (typeof inner === 'string') return inner;
+    if (Array.isArray(inner)) {
+      return inner.map((c) => toolResultPartText(c, depth + 1)).filter((t) => t !== '').join('\n');
+    }
+    if (inner != null && typeof inner === 'object') {
+      return toolResultPartText(inner, depth + 1);
+    }
+    return '';
+  }
+  if (part?.type === 'text' || part?.type === 'output_text' || part?.type === 'input_text') {
+    return part.text ?? '';
+  }
+  if (Array.isArray(part)) {
+    return part.map((c) => toolResultPartText(c, depth + 1)).filter((t) => t !== '').join('\n');
+  }
+  if (typeof part === 'object') {
+    if (Array.isArray(part.content)) {
+      const nested = part.content.map((c) => toolResultPartText(c, depth + 1)).filter((t) => t !== '').join('\n');
+      if (nested) return nested;
+    }
+    if (part.content != null && typeof part.content === 'object') {
+      const nested = toolResultPartText(part.content, depth + 1);
+      if (nested) return nested;
+    }
+    if (Array.isArray(part.parts)) {
+      const nested = part.parts.map((c) => toolResultPartText(c, depth + 1)).filter((t) => t !== '').join('\n');
+      if (nested) return nested;
+    }
+    if (typeof part.text === 'string' && part.text) return part.text;
+    if (typeof part.output === 'string' && part.output) return part.output;
+    if (typeof part.message === 'string' && part.message) return part.message;
+    if (typeof part.content === 'string') return part.content;
+    if (part.source?.type === 'base64' && part.source?.data) {
+      return `[image: ${part.source.media_type || part.source.mediaType || 'base64'}]`;
+    }
+    return compactToolResultObjectFallback(part);
+  }
+  return '';
+}
+
+function toolAggregateDetailFallback(detailText, rawResult) {
+  if (String(detailText || '').trim()) return detailText;
+  const raw = String(rawResult || '').replace(/\s+$/, '').trim();
+  if (!raw) return detailText;
+  const line = raw.split('\n').map((l) => l.trim()).find(Boolean) || '';
+  if (!line) return detailText;
+  return line.length > 160 ? `${line.slice(0, 157)}…` : line;
+}
+
+function toolGroupedDisplayFallback(resultText, text, rawText) {
+  if (String(resultText || '').trim()) return resultText;
+  const body = String(text || rawText || '').trim();
+  if (body) return text || rawText;
+  return resultText;
 }
 
 function toolErrorDisplay(value, surface = 'tool') {
@@ -365,6 +453,8 @@ function parseAgentResultEnvelope(text, fallback = {}) {
     isError: /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(fallback.status || attrs.status || ''),
   };
 }
+
+export { toolResultText, toolAggregateDetailFallback, toolGroupedDisplayFallback };
 
 export function parseBackgroundTaskEnvelope(text) {
   const value = String(text ?? '').trim();
@@ -738,6 +828,26 @@ function notificationQueueKey(event, text, parsed) {
   return [id, type || fallbackKind, status, hasBody].filter(Boolean).join(':');
 }
 
+/** Pure delivery plan for runtime.onNotification execution envelopes (tests + handler). */
+export function resolveTuiRuntimeNotificationDelivery(event, text) {
+  const trimmed = String(text ?? '').trim();
+  if (!trimmed) return { action: 'ignore' };
+  const parsed = parseAgentJob(trimmed);
+  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  if (!isExecutionNotification(event, trimmed, parsed)) {
+    return { action: 'enqueue', displayText: trimmed, modelContent: trimmed };
+  }
+  if (isStatusOnlyAgentCompletionNotification(trimmed)) {
+    return { action: 'status-only', displayText: trimmed, modelContent: '' };
+  }
+  const modelContent = modelVisibleToolCompletionMessage(trimmed, meta);
+  return {
+    action: 'execution-ui',
+    displayText: trimmed,
+    modelContent,
+  };
+}
+
 function isExecutionNotification(event, text, parsed) {
   const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
   if (meta.execution_id || meta.execution_surface) return true;
@@ -856,16 +966,42 @@ export async function createEngineSession({
     cwd,
   };
   bootProfile('engine:state-ready', { ms: (performance.now() - stateStartedAt).toFixed(1) });
+  let pendingSessionReset = false;
   const syncContextStats = ({ allowEstimated = false } = {}) => {
+    if (pendingSessionReset) return null;
     const ctx = runtime.contextStatus?.() || null;
     const hasProviderUsage = Number(state.stats.latestPromptTokens || state.stats.latestInputTokens || state.stats.inputTokens || 0) > 0;
+    const hasApiContextUsage = Number(ctx?.lastApiRequestTokens ?? ctx?.usage?.lastContextTokens ?? 0) > 0;
+    const hasTurnActivity = state.busy === true
+      || state.spinner != null
+      || state.thinking != null;
+    const shouldPublishEstimate = allowEstimated && (hasProviderUsage || hasApiContextUsage || hasTurnActivity);
     const estimatedTokens = Number(ctx?.currentEstimatedTokens || 0);
     const used = Number(ctx?.usedTokens || 0);
     if (!allowEstimated && !hasProviderUsage && ctx?.usedSource !== 'last_api_request') return ctx;
-    if (Number.isFinite(used) && used > 0) state.stats.currentContextTokens = Math.max(0, used);
-    else state.stats.currentContextTokens = 0;
-    state.stats.currentEstimatedContextTokens = Number.isFinite(estimatedTokens) ? Math.max(0, estimatedTokens) : 0;
-    state.stats.currentContextSource = ctx?.usedSource || (estimatedTokens > 0 ? 'estimated' : null);
+    if (shouldPublishEstimate) {
+      state.stats.currentEstimatedContextTokens = Number.isFinite(estimatedTokens) ? Math.max(0, estimatedTokens) : 0;
+      state.stats.currentContextSource = ctx?.usedSource || (estimatedTokens > 0 ? 'estimated' : null);
+      const publishedSource = String(state.stats.currentContextSource || '').toLowerCase();
+      if (publishedSource === 'last_api_request' && Number.isFinite(used) && used > 0) {
+        state.stats.currentContextTokens = Math.max(0, used);
+      } else if (publishedSource === 'estimated') {
+        state.stats.currentContextTokens = 0;
+      } else if (Number.isFinite(used) && used > 0) {
+        state.stats.currentContextTokens = Math.max(0, used);
+      } else {
+        state.stats.currentContextTokens = 0;
+      }
+    } else {
+      state.stats.currentEstimatedContextTokens = 0;
+      if (ctx?.usedSource === 'last_api_request' && Number.isFinite(used) && used > 0) {
+        state.stats.currentContextTokens = Math.max(0, used);
+        state.stats.currentContextSource = 'last_api_request';
+      } else {
+        state.stats.currentContextTokens = 0;
+        state.stats.currentContextSource = null;
+      }
+    }
     state.stats.currentContextUpdatedAt = Date.now();
     return ctx;
   };
@@ -1074,6 +1210,7 @@ export async function createEngineSession({
   let disposed = false;
   const runtimePulseTimer = setInterval(() => {
     if (disposed) return;
+    if (pendingSessionReset) return;
     syncContextStats({ allowEstimated: true });
     set({
       ...routeState(),
@@ -1117,19 +1254,17 @@ export async function createEngineSession({
       if (!text) return;
       const parsed = parseAgentJob(text);
       const notificationKey = notificationQueueKey(event, text, parsed);
-      if (isExecutionNotification(event, text, parsed)) {
-        if (isStatusOnlyAgentCompletionNotification(text)) {
-          if (parsed?.taskId) set(agentStatusState({ force: true }));
-          return true;
-        }
+      const delivery = resolveTuiRuntimeNotificationDelivery(event, text);
+      if (delivery.action === 'ignore') return;
+      if (delivery.action === 'status-only') {
+        if (parsed?.taskId) set(agentStatusState({ force: true }));
+        return true;
+      }
+      if (delivery.action === 'execution-ui') {
         const firstDelivery = !notificationKey || !displayedExecutionNotificationKeys.has(notificationKey);
         if (firstDelivery) {
           if (notificationKey) displayedExecutionNotificationKeys.add(notificationKey);
-          enqueue(text, {
-            mode: 'task-notification',
-            priority: 'next',
-            key: notificationKey || undefined,
-          });
+          pushUserOrSyntheticItem(delivery.displayText, nextId());
         }
         if (parsed?.taskId) set(agentStatusState({ force: true }));
         return true;
@@ -1137,10 +1272,13 @@ export async function createEngineSession({
       if (parsed?.taskId) {
         set(agentStatusState({ force: true }));
       }
-      enqueue(text, {
+      const modelContent = String(delivery.modelContent ?? delivery.displayText ?? text).trim();
+      if (!modelContent) return true;
+      enqueue(modelContent, {
         mode: 'task-notification',
         priority: 'next',
         key: notificationKey || undefined,
+        displayText: delivery.displayText || text,
       });
       return true;
     });
@@ -1163,6 +1301,10 @@ export async function createEngineSession({
         `${base}${uniqueReasons[0] ? ` · ${uniqueReasons[0]}` : ''}`,
         ...uniqueReasons.slice(1),
       ].join('\n');
+    }
+    for (const result of group.results || []) {
+      const line = String(result?.text || '').trim();
+      if (line) return result.text;
     }
     return '';
   }
@@ -1187,6 +1329,19 @@ export async function createEngineSession({
       chunks.push(`${chunks.length + 1}. ${label}\n${text}`);
     }
     return chunks.join('\n\n');
+  }
+
+  function aggregateDisplayDetail(summaries, allCalls) {
+    const fromSummaries = formatAggregateDetail(summaries);
+    if (String(fromSummaries || '').trim()) return fromSummaries;
+    let line = '';
+    for (const rec of allCalls || []) {
+      const text = String(rec?.resultText || '').replace(/\s+$/, '');
+      line = text.split('\n').map((l) => l.trim()).find(Boolean) || '';
+      if (line) break;
+    }
+    if (!line) return '';
+    return line.length > 160 ? `${line.slice(0, 157)}…` : line;
   }
 
   function aggregateBucketForCategory(category) {
@@ -1251,14 +1406,15 @@ export async function createEngineSession({
         const succeeded = completed - errors;
         detailText = succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`;
       } else {
-        detailText = formatAggregateDetail(summaries) || '';
+        detailText = aggregateDisplayDetail(summaries, allCalls);
       }
       const currentItem = state.items.find((it) => it.id === card.itemId);
       const visualCompleted = Math.max(completed, Math.min(allCalls.length, Number(currentItem?.completedCount || 0)));
       const rawResult = aggregateRawResult(allCalls);
+      const displayDetail = toolAggregateDetailFallback(detailText, rawResult);
       patchItem(card.itemId, {
-        result: detailText,
-        text: detailText,
+        result: displayDetail,
+        text: displayDetail,
         rawResult: rawResult || null,
         isError: errors > 0,
         errorCount: errors,
@@ -1278,9 +1434,10 @@ export async function createEngineSession({
     group.results.push({ text, isError });
     toolGroups.set(card.itemId, group);
     const resultText = groupedToolResultText(group);
+    const displayResult = toolGroupedDisplayFallback(resultText, text, rawText);
     const patch = {
-      result: resultText,
-      text: resultText,
+      result: displayResult,
+      text: displayResult,
       isError: group.errors > 0,
       errorCount: group.errors,
       count: group.count,
@@ -1288,6 +1445,8 @@ export async function createEngineSession({
       completedAt: Date.now(),
     };
     if (group.count <= 1) {
+      const body = String(text || rawText || '').trim();
+      if (body) patch.rawResult = text || rawText;
       const parsedAgent = parseAgentJob(rawText);
       if (parsedAgent) {
         patch.args = agentArgsWithResultMetadata(state.items.find((it) => it.id === card.itemId)?.args, parsedAgent);
@@ -1341,11 +1500,12 @@ export async function createEngineSession({
         const totalCompleted = remaining > 0 ? completed + remaining : completed;
         const errors = allCalls.filter((r) => r.isError).length;
         const summaries = aggregateSummaries(aggregate);
-        const detailText = formatAggregateDetail(summaries) || '';
+        const detailText = aggregateDisplayDetail(summaries, allCalls);
         const rawResult = aggregateRawResult(allCalls);
+        const displayDetail = toolAggregateDetailFallback(detailText, rawResult);
         patchItem(card.itemId, {
-          result: detailText,
-          text: detailText,
+          result: displayDetail,
+          text: displayDetail,
           rawResult: rawResult || null,
           isError: errors > 0,
           errorCount: errors,
@@ -1445,11 +1605,12 @@ export async function createEngineSession({
         if (allCalls.length === 0) continue;
         const errors = allCalls.filter((r) => r.isError).length;
         const summaries = aggregateSummaries(aggregate);
-        const detailText = formatAggregateDetail(summaries) || '';
+        const detailText = aggregateDisplayDetail(summaries, allCalls);
         const rawResult = aggregateRawResult(allCalls);
+        const displayDetail = toolAggregateDetailFallback(detailText, rawResult);
         patchItem(aggregate.itemId, {
-          result: detailText,
-          text: detailText,
+          result: displayDetail,
+          text: displayDetail,
           rawResult: rawResult || null,
           isError: errors > 0,
           count: allCalls.length,
@@ -2115,6 +2276,7 @@ export async function createEngineSession({
     try {
       await runtime.clear({ compactType: cfg.compactType || null, requireCompactSuccess: !!cfg.compactType });
       resetStats();
+      clearUiActivityBeforeContextSync();
       syncContextStats({ allowEstimated: true });
       set({
         items: replaceItems([]),
@@ -2171,6 +2333,60 @@ export async function createEngineSession({
     state.stats = createSessionStats();
     return state.stats;
   };
+  const clearUiActivityBeforeContextSync = () => {
+    state.items = replaceItems([]);
+    state.toasts = [];
+    state.queued = [];
+    state.thinking = null;
+    state.spinner = null;
+    state.lastTurn = null;
+    state.busy = false;
+  };
+  const resetTuiForPendingSessionReset = () => {
+    pendingSessionReset = true;
+    clearUiActivityBeforeContextSync();
+    resetStats();
+    state.stats.currentContextTokens = 0;
+    state.stats.currentEstimatedContextTokens = 0;
+    state.stats.currentContextSource = null;
+    state.stats.currentContextUpdatedAt = Date.now();
+  };
+  const snapshotTuiBeforeSessionReset = () => ({
+    items: state.items.slice(),
+    toasts: state.toasts.slice(),
+    queued: state.queued.slice(),
+    thinking: state.thinking,
+    spinner: state.spinner,
+    lastTurn: state.lastTurn,
+    busy: state.busy,
+    stats: { ...state.stats },
+    sessionId: state.sessionId,
+  });
+  const restoreTuiAfterFailedSessionReset = (snapshot) => {
+    if (!snapshot) return;
+    pendingSessionReset = false;
+    state.items = replaceItems(snapshot.items);
+    state.toasts = snapshot.toasts.slice();
+    state.queued = snapshot.queued.slice();
+    state.thinking = snapshot.thinking;
+    state.spinner = snapshot.spinner;
+    state.lastTurn = snapshot.lastTurn;
+    state.busy = snapshot.busy;
+    state.stats = { ...snapshot.stats };
+    syncContextStats({ allowEstimated: true });
+    set({
+      items: state.items,
+      toasts: state.toasts,
+      queued: state.queued,
+      thinking: state.thinking,
+      spinner: state.spinner,
+      lastTurn: state.lastTurn,
+      busy: state.busy,
+      ...routeState(),
+      stats: { ...state.stats },
+      ...agentStatusState(),
+    });
+  };
   const resetStatsAndSyncContext = () => {
     resetStats();
     syncContextStats({ allowEstimated: true });
@@ -2210,7 +2426,8 @@ export async function createEngineSession({
       if (state.commandBusy) return false;
       set({ commandBusy: true });
       try {
-        await runtime.setRoute({ model: m }, { applyToCurrentSession: false });
+        await runtime.setRoute({ model: m }, { applyToCurrentSession: true });
+        syncContextStats({ allowEstimated: true });
         set({ ...routeState(), stats: { ...state.stats } });
         return true;
       } finally {
@@ -2579,6 +2796,10 @@ export async function createEngineSession({
     },
     compact: async () => {
       if (state.commandBusy) return null;
+      if (state.busy) {
+        pushNotice('Compact skipped: turn in progress', 'info');
+        return { changed: false, reason: 'compact skipped: turn in progress' };
+      }
       const startedAt = Date.now();
       set({ commandBusy: true, commandStatus: { active: true, verb: 'Compacting conversation', startedAt, mode: 'compacting' } });
       try {
@@ -2879,7 +3100,11 @@ export async function createEngineSession({
       if (state.commandBusy) return false;
       set({ commandBusy: true });
       try {
-        await runtime.setRoute(opts, { applyToCurrentSession: false });
+        const routeOpts = opts && typeof opts === 'object' ? opts : {};
+        const applyToCurrentSession = routeOpts.applyToCurrentSession === false ? false : true;
+        const { applyToCurrentSession: _drop, ...nextRoute } = routeOpts;
+        await runtime.setRoute(nextRoute, { applyToCurrentSession });
+        if (applyToCurrentSession) syncContextStats({ allowEstimated: true });
         set({ ...routeState(), stats: { ...state.stats } });
         return true;
       } finally {
@@ -2891,13 +3116,31 @@ export async function createEngineSession({
       if (state.commandBusy) return false;
       set({ commandBusy: true });
       clearToastTimers();
+      const rollbackSnapshot = snapshotTuiBeforeSessionReset();
+      resetTuiForPendingSessionReset();
+      set({
+        items: state.items,
+        toasts: state.toasts,
+        queued: state.queued,
+        thinking: null,
+        spinner: null,
+        lastTurn: null,
+        sessionId: null,
+        stats: { ...state.stats },
+      });
       try {
         await runtime.clear({ recoverAgent: true });
+        clearUiActivityBeforeContextSync();
+        pendingSessionReset = false;
         resetStatsAndSyncContext();
         set({ items: replaceItems([]), toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, ...routeState(), stats: { ...state.stats } });
         lastUserActivityAt = Date.now();
         return true;
+      } catch (error) {
+        restoreTuiAfterFailedSessionReset(rollbackSnapshot);
+        throw error;
       } finally {
+        pendingSessionReset = false;
         set({ commandBusy: false });
       }
     },
@@ -2908,12 +3151,30 @@ export async function createEngineSession({
       if (state.commandBusy) return false;
       set({ commandBusy: true });
       clearToastTimers();
+      const rollbackSnapshot = snapshotTuiBeforeSessionReset();
+      resetTuiForPendingSessionReset();
+      set({
+        items: state.items,
+        toasts: state.toasts,
+        queued: state.queued,
+        thinking: null,
+        spinner: null,
+        lastTurn: null,
+        sessionId: null,
+        stats: { ...state.stats },
+      });
       try {
         await runtime.newSession();
+        clearUiActivityBeforeContextSync();
+        pendingSessionReset = false;
         resetStatsAndSyncContext();
         set({ items: replaceItems([]), toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, ...routeState(), stats: { ...state.stats } });
         return true;
+      } catch (error) {
+        restoreTuiAfterFailedSessionReset(rollbackSnapshot);
+        throw error;
       } finally {
+        pendingSessionReset = false;
         set({ commandBusy: false });
       }
     },

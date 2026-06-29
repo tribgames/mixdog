@@ -16,7 +16,7 @@ Delegation:
   to patch directly.
 - Delegation split: different code paths / entry points / file groups are
   separate scopes — implementation AND analysis, review, debugging split the
-  same way. With 2+ independent scopes, spawn them as parallel agents in the
+  same way. With 2+ independent scopes, spawn each scoped agent in the
   SAME turn, not one after another. Shared functions or cross-cutting concerns
   do NOT justify collapsing them into one delegation: split per path, and Lead
   verifies the cross-cutting parts (shared state, telemetry consistency, etc.)
@@ -43,7 +43,7 @@ Agent lifecycle:
   are collected, automatically continue with the next turn.
 
 Agent result handling:
-- Always fact-check agent responses before using them for decisions or
+- Cross-check material agent responses before using them for decisions or
   summarizing them to the user.
 - When an agent returns, always synthesize its result into a concise report for
   the user (outcome + key changes/evidence). Never forward the raw agent output.

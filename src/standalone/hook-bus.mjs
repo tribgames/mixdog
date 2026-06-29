@@ -998,15 +998,16 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
     try {
       const std = buildEventPayload(name, payload);
       const agg = await runEventHandlers(name, std);
-      return {
+      const out = {
         blocked: agg.blocked || undefined,
         reason: agg.reason || undefined,
         additionalContext: agg.additionalContext.length ? agg.additionalContext : undefined,
         systemMessage: agg.systemMessage || undefined,
         updatedInput: agg.updatedInput || undefined,
-        updatedToolOutput: agg.updatedToolOutput ?? undefined,
         handlersRun: agg.handlersRun || undefined,
       };
+      if (agg.updatedToolOutput != null) out.updatedToolOutput = agg.updatedToolOutput;
+      return out;
     } catch (error) {
       emit('hook:error', { name, error: error?.message || String(error) });
       return {};

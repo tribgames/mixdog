@@ -817,10 +817,13 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // row in BOTH the estimate and the render (visibleDetailLines drops the row
   // for isSkillSurface below), so they get no placeholder.
   const pendingDetailPlaceholder = pending && !isSkillSurface ? 'Running' : '';
+  const shellCollapsedSummary = isShellSurface && !pending && hasDisplayResult
+    ? (resultSummary || truncateToWidth(firstResultLine, Math.min(120, maxResultChars)))
+    : resultSummary;
   const collapsedDetail = pending
     ? pendingDetailPlaceholder
     : isShellSurface
-      ? mergeTerminalDetail(shellStatus, resultSummary)
+      ? mergeTerminalDetail(shellStatus, shellCollapsedSummary)
       : mergeTerminalDetail(terminalStatus, nonShellDetail);
   const backgroundMetadataExpandable = isBackgroundMetadataResult && hasRawResult && !pending;
   const showRawResult = expanded && (hasDisplayResult || hasRawResult)
@@ -885,9 +888,10 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // Agent cards gate the hint solely on agentHasExpandableBody — never on
   // hasHiddenDetail, which goes true for any single-line resultSummary and would
   // wrongly show ctrl+o on a status-only one-liner that has nothing to expand.
-  const showHeaderExpandHint = (isAgentSurfaceCard ? agentHasExpandableBody : (hasHiddenDetail || backgroundMetadataExpandable))
-    && normalizedName !== 'tool_search'
-    && !isShellSurface;
+  const shellHasExpandableBody = isShellSurface && !pending && hasDisplayResult
+    && (totalLines > 1 || firstResultLineClipped || Boolean(shellCollapsedSummary && shellCollapsedSummary !== firstResultLine));
+  const showHeaderExpandHint = (isShellSurface ? shellHasExpandableBody : (isAgentSurfaceCard ? agentHasExpandableBody : (hasHiddenDetail || backgroundMetadataExpandable)))
+    && normalizedName !== 'tool_search';
   const expandHintColor = TOOL_HINT_DONE_COLOR;
 
   // Build a single-line header that never wraps: reserve width for the fixed
