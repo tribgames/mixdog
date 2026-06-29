@@ -19,7 +19,11 @@ import { Markdown, StreamingMarkdown } from './Markdown.jsx';
 import { THEREFORE } from '../figures.mjs';
 import { formatDuration } from '../time-format.mjs';
 
-export const AssistantMessage = React.memo(function AssistantMessage({ text, streaming = false, columns = 80 }) {
+// `themeEpoch` is a memo-busting prop (threaded from App): the active theme
+// mutates `theme` in-place, so a /theme switch must re-render this memoized row
+// and recompute its markdown colors. It is forwarded into Markdown so the
+// token/AnsiText caches include it as a dep.
+export const AssistantMessage = React.memo(function AssistantMessage({ text, streaming = false, columns = 80, themeEpoch = 0 }) {
   // The body column needs an EXPLICIT numeric width. Without it, ink/Yoga
   // measures the wrapped markdown body before the row's available width is
   // resolved and caches its height as a single row — so a multi-line assistant
@@ -36,13 +40,13 @@ export const AssistantMessage = React.memo(function AssistantMessage({ text, str
         <Text color={theme.text}>{TURN_MARKER}</Text>
       </Box>
       <Box flexDirection="column" flexShrink={0} width={bodyWidth}>
-        {streaming ? <StreamingMarkdown>{text}</StreamingMarkdown> : <Markdown>{text}</Markdown>}
+        {streaming ? <StreamingMarkdown themeEpoch={themeEpoch}>{text}</StreamingMarkdown> : <Markdown themeEpoch={themeEpoch}>{text}</Markdown>}
       </Box>
     </Box>
   );
 });
 
-export const UserMessage = React.memo(function UserMessage({ text, attached = false, columns }) {
+export const UserMessage = React.memo(function UserMessage({ text, attached = false, columns, themeEpoch = 0 }) {
   // `attached` = the previous transcript row is also a user message (consecutive
   // steering prompts). Those stack flush together; a user message that follows
   // an assistant/tool row gets a one-row gap above it.

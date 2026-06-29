@@ -142,7 +142,7 @@ function balanceStreamingMarkdown(text) {
   return rendered;
 }
 
-export function Markdown({ children }) {
+export function Markdown({ children, themeEpoch = 0 }) {
   const elements = React.useMemo(() => {
     try {
       return renderMarkdownElements(children);
@@ -150,7 +150,9 @@ export function Markdown({ children }) {
       // Never throw into the render tree — fall back to raw text.
       return [<Text key="md_0" color={theme.text}>{String(children ?? '')}</Text>];
     }
-  }, [children]);
+  // themeEpoch is a memo dep so a /theme switch re-renders to ANSI with the new
+  // md* colors (formatToken re-resolves its colorizers on the active theme).
+  }, [children, themeEpoch]);
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -159,13 +161,13 @@ export function Markdown({ children }) {
   );
 }
 
-export function StreamingMarkdown({ children }) {
+export function StreamingMarkdown({ children, themeEpoch = 0 }) {
   const stablePrefixRef = useRef('');
   const text = String(children ?? '');
 
   if (!hasMarkdownSyntax(text)) {
     stablePrefixRef.current = '';
-    return <Markdown>{text}</Markdown>;
+    return <Markdown themeEpoch={themeEpoch}>{text}</Markdown>;
   }
 
   if (!text.startsWith(stablePrefixRef.current)) {
@@ -195,8 +197,8 @@ export function StreamingMarkdown({ children }) {
   const unstableSuffix = text.substring(stablePrefix.length);
   return (
     <Box flexDirection="column" gap={1}>
-      {stablePrefix ? <Markdown>{stablePrefix}</Markdown> : null}
-      {unstableSuffix ? <Markdown>{balanceStreamingMarkdown(unstableSuffix)}</Markdown> : null}
+      {stablePrefix ? <Markdown themeEpoch={themeEpoch}>{stablePrefix}</Markdown> : null}
+      {unstableSuffix ? <Markdown themeEpoch={themeEpoch}>{balanceStreamingMarkdown(unstableSuffix)}</Markdown> : null}
     </Box>
   );
 }

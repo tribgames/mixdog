@@ -7,7 +7,7 @@
  */
 import React from 'react';
 import { Text } from 'ink';
-import { theme } from '../theme.mjs';
+import { theme, getThemeVersion } from '../theme.mjs';
 
 const ANSI_RE = /\x1b\[([0-9;]*)m/g;
 
@@ -177,9 +177,13 @@ function parseAnsi(text, defaultColor) {
 }
 
 export function AnsiText({ children, defaultColor, wrap }) {
+  // ansiColorMap() reads live theme.* keys, so the parsed spans depend on the
+  // active theme. Include the theme version in the memo deps so a /theme switch
+  // re-parses with the new palette instead of reusing stale span colors.
+  const themeVersion = getThemeVersion();
   const spans = React.useMemo(
     () => parseAnsi(children, defaultColor),
-    [children, defaultColor],
+    [children, defaultColor, themeVersion],
   );
 
   return (

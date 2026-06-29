@@ -92,6 +92,10 @@ export function Picker({
   indexMode = 'auto',
   fillHeight = false,
   visibleCount = MAX_VISIBLE,
+  // Memo-busting epoch: ItemRow is React.memo and reads theme.* directly, so a
+  // live /theme switch (or picker preview) must re-render every row. Threading
+  // the epoch into each ItemRow breaks its shallow-equality on a theme change.
+  themeEpoch = 0,
 }) {
   const visibleLimit = Math.max(1, Math.floor(Number(visibleCount) || MAX_VISIBLE));
   const [selectedIndex, setSelectedIndex] = useState(() => Math.max(0, Math.min(Number(initialIndex) || 0, Math.max(0, items.length - 1))));
@@ -291,6 +295,7 @@ export function Picker({
               descriptionWidth={descriptionWidth}
               showMeta={hasMeta}
               isSelected={isSelected}
+              themeEpoch={themeEpoch}
             />
           );
         })}
@@ -310,7 +315,7 @@ export function Picker({
   );
 }
 
-const ItemRow = React.memo(function ItemRow({ indexText, indexWidth, marker, markerColor, markerWidth, label, labelSuffix, labelSuffixColor, meta, metaParts, description, labelWidth, metaWidth, descriptionWidth, showMeta, isSelected }) {
+const ItemRow = React.memo(function ItemRow({ indexText, indexWidth, marker, markerColor, markerWidth, label, labelSuffix, labelSuffixColor, meta, metaParts, description, labelWidth, metaWidth, descriptionWidth, showMeta, isSelected, themeEpoch = 0 }) {
   const rawSuffix = String(labelSuffix || '');
   const suffix = rawSuffix ? truncateText(rawSuffix, labelWidth) : '';
   const suffixGap = suffix && stringWidth(suffix) < labelWidth ? ' ' : '';

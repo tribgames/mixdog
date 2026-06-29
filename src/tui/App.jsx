@@ -560,16 +560,21 @@ function ToolHookDenialCard({ item, columns = 80 }) {
   );
 }
 
-const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpanded, rightMessage = '', rightTone = 'info', rightMessageWidth = 24 }) {
+// `themeEpoch` is read but not used in the body: it is a memo-busting prop. The
+// active theme mutates `theme` in-place, so a switch must force every mounted
+// transcript row (which reads theme.* directly) to re-render. Threading the
+// epoch through Item → AssistantMessage/UserMessage/ToolExecution breaks
+// React.memo's shallow equality on a theme change without a broad refactor.
+const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpanded, rightMessage = '', rightTone = 'info', rightMessageWidth = 24, themeEpoch = 0 }) {
   switch (item.kind) {
-    case 'user': return <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} />;
-    case 'assistant': return <AssistantMessage text={item.text} streaming={item.streaming} columns={columns} />;
+    case 'user': return <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} themeEpoch={themeEpoch} />;
+    case 'assistant': return <AssistantMessage text={item.text} streaming={item.streaming} columns={columns} themeEpoch={themeEpoch} />;
     case 'tool': {
       if (shouldSuppressFullyFailedToolItem(item)) return null;
       if (isHookApprovalDenialToolItem(item)) {
         return <ToolHookDenialCard item={item} columns={columns} />;
       }
-      return <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} headerFinalized={item.headerFinalized} />;
+      return <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} headerFinalized={item.headerFinalized} themeEpoch={themeEpoch} />;
     }
     case 'notice': return <NoticeMessage text={item.text} tone={item.tone} columns={columns} />;
     case 'turndone': return <TurnDone elapsedMs={item.elapsedMs} status={item.status} outputTokens={item.outputTokens} thinkingElapsedMs={item.thinkingElapsedMs} verb={item.verb} rightMessage={rightMessage} rightTone={rightTone} rightMessageWidth={rightMessageWidth} />;
@@ -725,28 +730,49 @@ function classifyMarkdownLineForGap(line, state) {
   }
   if (isMarkdownTableLine(line)) return 'table';
   if (/^#{1,6}\s/.test(trimmed)) return 'heading';
-  if (/^\s*([-*+]|\d+\.)\s/.test(line)) return 'list';
+  if (/^\s*([-*+]|\d+[.)])\s/.test(line)) return 'list';
   if (/^\s*>/.test(line)) return 'blockquote';
   if (/^\s*([-*_])\1{2,}\s*$/.test(trimmed)) return 'hr';
   return 'paragraph';
+}
+
+function markdownListMarkerSignature(line) {
+  const unordered = /^\s*([-*+])\s/.exec(line);
+  if (unordered) return `u:${unordered[1]}`;
+  const ordered = /^\s*\d+([.)])\s/.exec(line);
+  if (ordered) return `o:${ordered[1]}`;
+  return null;
+}
+
+function isMarkdownListContinuationLine(line, current) {
+  if (!current || current.unitType !== 'list') return false;
+  if (markdownListMarkerSignature(line)) return false;
+  const trimmed = String(line ?? '').trim();
+  if (!trimmed) return false;
+  return /^\s+/.test(line);
 }
 
 function markdownGapUnitType(kind) {
   if (kind === 'code' || kind === 'fence_open' || kind === 'fence_close') return 'code';
   if (kind === 'table') return 'table';
   if (kind === 'paragraph') return 'paragraph';
-  if (kind === 'list') return 'list';
+  if (kind === 'list' || kind === 'list_continuation') return 'list';
   if (kind === 'blockquote') return 'blockquote';
   if (kind === 'heading') return 'heading';
   if (kind === 'hr') return 'hr';
   return 'unknown';
 }
 
-function continuesMarkdownGapUnit(current, kind) {
+function continuesMarkdownGapUnit(current, kind, line) {
   if (!current) return false;
   const unitType = markdownGapUnitType(kind);
   if (current.unitType !== unitType) return false;
-  if (unitType === 'paragraph' || unitType === 'list' || unitType === 'blockquote' || unitType === 'table') return true;
+  if (unitType === 'paragraph' || unitType === 'blockquote' || unitType === 'table') return true;
+  if (unitType === 'list') {
+    if (kind === 'list_continuation') return true;
+    const signature = markdownListMarkerSignature(line);
+    return signature != null && signature === current.listSignature;
+  }
   if (unitType === 'code') return kind === 'code' || kind === 'fence_open' || kind === 'fence_close';
   return false;
 }
@@ -768,17 +794,24 @@ function countMarkdownBlockUnitsForGap(value) {
   };
 
   for (const line of lines) {
-    const kind = classifyMarkdownLineForGap(line, state);
+    let kind = classifyMarkdownLineForGap(line, state);
     if (kind === 'blank') {
       flush();
       continue;
     }
-    if (current && continuesMarkdownGapUnit(current, kind)) {
+    if (kind === 'paragraph' && isMarkdownListContinuationLine(line, current)) {
+      kind = 'list_continuation';
+    }
+    if (current && continuesMarkdownGapUnit(current, kind, line)) {
       current.lastKind = kind;
       continue;
     }
     flush();
-    current = { unitType: markdownGapUnitType(kind), lastKind: kind };
+    const unitType = markdownGapUnitType(kind);
+    current = { unitType, lastKind: kind };
+    if (unitType === 'list' && kind === 'list') {
+      current.listSignature = markdownListMarkerSignature(line);
+    }
   }
   flush();
   return units.length;
@@ -3382,7 +3415,6 @@ export function App({ store, initialStatusLine = '' }) {
       value: entry.id,
       label: entry.label || entry.id,
       marker: entry.id === currentId ? '✓' : '',
-      markerColor: theme.success,
       description: entry.description || 'color theme',
       _theme: entry,
     }));
@@ -6887,6 +6919,42 @@ export function App({ store, initialStatusLine = '' }) {
     jobs: (state.agentJobs || []).map((j) => [j.task_id, j.status, j.tag, j.sessionId, j.startedAt, j.finishedAt, j.error]).slice(0, 20),
   }), [state.agentWorkers, state.agentJobs]);
 
+  // StatusLine only reads a small stats subset; engine clones the full stats
+  // object on many updates. Memoize by field value so identical usage keeps
+  // the same object reference and React.memo / effect deps stay quiet.
+  const statuslineStats = useMemo(() => {
+    const s = state.stats || {};
+    return {
+      currentContextSource: s.currentContextSource ?? null,
+      currentEstimatedContextTokens: s.currentEstimatedContextTokens ?? 0,
+      currentContextTokens: s.currentContextTokens ?? 0,
+      contextTokens: s.contextTokens ?? 0,
+      latestPromptTokens: s.latestPromptTokens ?? 0,
+      latestInputTokens: s.latestInputTokens ?? 0,
+      latestCachedTokens: s.latestCachedTokens ?? 0,
+      latestCacheWriteTokens: s.latestCacheWriteTokens ?? 0,
+      inputTokens: s.inputTokens ?? 0,
+      cachedTokens: s.cachedTokens ?? 0,
+      cacheWriteTokens: s.cacheWriteTokens ?? 0,
+      promptTokens: s.promptTokens ?? 0,
+      turns: s.turns ?? 0,
+    };
+  }, [
+    state.stats?.currentContextSource,
+    state.stats?.currentEstimatedContextTokens,
+    state.stats?.currentContextTokens,
+    state.stats?.contextTokens,
+    state.stats?.latestPromptTokens,
+    state.stats?.latestInputTokens,
+    state.stats?.latestCachedTokens,
+    state.stats?.latestCacheWriteTokens,
+    state.stats?.inputTokens,
+    state.stats?.cachedTokens,
+    state.stats?.cacheWriteTokens,
+    state.stats?.promptTokens,
+    state.stats?.turns,
+  ]);
+
   // ── Transcript viewport height ──────────────────────────────────────────
   // ROOT-CAUSE FIX: the transcript must live in a box with an EXPLICIT numeric
   // height + overflow:hidden so ink's renderer actually clips off-screen rows
@@ -7380,6 +7448,7 @@ export function App({ store, initialStatusLine = '' }) {
                  rightMessage={showRightMessage ? inputHint : ''}
                  rightTone={inputHintTone}
                  rightMessageWidth={transientStatusWidth || 24}
+                 themeEpoch={state.themeEpoch || 0}
                />
              );
              // When measured-rows is on, wrap each row in a zero-cost flex column
@@ -7486,6 +7555,7 @@ export function App({ store, initialStatusLine = '' }) {
                 indexMode={picker.indexMode}
                 visibleCount={pickerVisibleRows}
                 fillHeight={expandedOptionPanel}
+                themeEpoch={state.themeEpoch || 0}
               />
             ) : contextPanel ? (
               <ContextPanel
@@ -7652,7 +7722,7 @@ export function App({ store, initialStatusLine = '' }) {
           effort={state.effort}
           fast={state.fast}
           cwd={state.cwd}
-          stats={state.stats}
+          stats={statuslineStats}
           contextWindow={state.contextWindow}
           rawContextWindow={state.rawContextWindow}
           resizeEpoch={resizeEpoch}
@@ -7661,6 +7731,7 @@ export function App({ store, initialStatusLine = '' }) {
           agentJobs={state.agentJobs}
           initialLine={initialStatusLine}
           workflow={state.workflow}
+          themeEpoch={state.themeEpoch || 0}
         />
       </Box>
     </Box>

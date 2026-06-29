@@ -255,7 +255,7 @@ function workflowModeLabel(workflow = {}) {
   return `${name} Mode`;
 }
 
-function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], initialLine = '', workflow = null }) {
+function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], initialLine = '', workflow = null, themeEpoch = 0 }) {
   const [line, setLine] = useState(() => normalizeStatusLine(initialLine || localBootStatusLine({
     provider,
     model,
@@ -275,6 +275,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   const bootFullRetryBackoffMsRef = useRef(STATUSLINE_BOOT_FULL_RETRY_MS);
   const renderEffectIdRef = useRef(0);
   const lastImmediateArgsRef = useRef(null);
+  const themeEpochRef = useRef(themeEpoch);
 
   const statuslineArgs = { sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, agentWorkers, agentJobs };
   statuslineArgsRef.current = statuslineArgs;
@@ -295,7 +296,17 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     renderEffectIdRef.current = effectId;
     const isCurrentEffect = () => alive && renderEffectIdRef.current === effectId;
     const args = statuslineArgsRef.current || statuslineArgs;
-    const snapLocalNow = bootFullDoneRef.current !== true
+    // A theme switch must re-tone the footer immediately: the stored `line`
+    // holds already-normalized ANSI with the OLD palette, so re-running
+    // normalizeStatusLine on it is a no-op. Force a fresh local rebuild (new
+    // palette) and reset bootFullDone so the next full render re-normalizes.
+    const themeChanged = themeEpochRef.current !== themeEpoch;
+    if (themeChanged) {
+      themeEpochRef.current = themeEpoch;
+      bootFullDoneRef.current = false;
+    }
+    const snapLocalNow = themeChanged
+      || bootFullDoneRef.current !== true
       || shouldSnapLocalStatusline(
         { ...args, agentRevision },
         lastImmediateArgsRef.current,
@@ -353,7 +364,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
       alive = false;
       clearTimeout(timer);
     };
-  }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, agentRevision, agentWorkers, agentJobs, refreshTick]);
+  }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, agentRevision, agentWorkers, agentJobs, refreshTick, themeEpoch]);
 
   const lines = line ? line.split('\n').slice(0, 2) : [' ', ' '];
   const workflowLabel = workflowModeLabel(workflow);
