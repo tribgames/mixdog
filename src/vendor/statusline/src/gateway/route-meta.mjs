@@ -418,7 +418,22 @@ export function summarizeGatewayUsage(routeInfo, providerOut, compact = null, du
   const routeSectionStartedAt = ensureRouteSection(routeInfo);
   const promptTokens = promptFootprintTokens(routeInfo?.provider, u);
   const boundaryTokens = contextUsageBoundary(routeInfo, compact);
-  const contextUsedPct = boundaryTokens > 0 ? round(promptTokens * 100 / boundaryTokens, 2) : null;
+  // Prefer the transcript-estimate footprint for the displayed pct: it is
+  // monotonic and window-bounded, unlike provider input_tokens which can swing
+  // wildly (and produce >1000% pct) on some providers (e.g. OpenAI gpt-5.5).
+  // compact.afterTokens / beforeTokens = estimateMessagesTokens(working)+reserve.
+  const estimateFootprintTokens = num(compact?.afterTokens, 0) || num(compact?.beforeTokens, 0);
+  let contextUsedPct = null;
+  if (boundaryTokens > 0) {
+    if (estimateFootprintTokens > 0) {
+      // Estimate-based numerator may legitimately exceed boundary -> real >100%.
+      contextUsedPct = round(estimateFootprintTokens * 100 / boundaryTokens, 2);
+    } else {
+      // Fallback to provider tokens; clamp to a sane ceiling since these are
+      // not reliably window-bounded.
+      contextUsedPct = Math.min(100, round(promptTokens * 100 / boundaryTokens, 2));
+    }
+  }
   const costUsd = usageCostUsd(routeInfo, u);
   const usageCompact = compact && typeof compact === 'object' ? { ...compact } : compact;
   return {

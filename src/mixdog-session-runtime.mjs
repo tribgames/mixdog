@@ -3737,10 +3737,35 @@ function parsedProviderModelVersion(id) {
         configurable: true,
         writable: true,
       });
+      // PostToolUse: bridge runtime tool completions to the standard hook bus.
+      // dispatch() returns a promise; the loop's afterToolHook caller already
+      // try/catches, so a rejection cannot escape the tool loop.
+      Object.defineProperty(session, 'afterToolHook', {
+        value: (input) => hooks.dispatch('PostToolUse', {
+          session_id: input?.sessionId,
+          cwd: input?.cwd,
+          tool_name: input?.name,
+          tool_input: input?.args,
+          tool_response: input?.result,
+        }),
+        enumerable: false,
+        configurable: true,
+        writable: true,
+      });
       applyDeferredToolSurface(session, deferredSurfaceModeForLead(mode), standaloneTools, { provider: route.provider });
       applyPreSessionToolSelection();
       writeStatuslineRoute(statusRoutes, session, route);
       hooks.emit('session:create', { sessionId: session.id, provider: route.provider, model: route.model, toolMode: mode, cwd: currentCwd });
+      // SessionStart: bridge to the standard Claude Code hook bus. Best-effort;
+      // a hook error must never break session creation. additionalContext from
+      // the dispatch result is intentionally not injected yet.
+      // TODO: inject dispatch().additionalContext into the new session context.
+      try {
+        const startSource = /resume/i.test(String(reason || ''))
+          ? 'resume'
+          : (/clear/i.test(String(reason || '')) ? 'clear' : 'startup');
+        await hooks.dispatch('SessionStart', { session_id: session.id, cwd: currentCwd, source: startSource });
+      } catch { /* best-effort: never break session create */ }
       bootProfile('session:create:ready', {
         ms: (performance.now() - startedAt).toFixed(1),
         reason,
@@ -4097,9 +4122,13 @@ function parsedProviderModelVersion(id) {
       );
       const compactBoundaryTokens = Number(session?.compactBoundaryTokens || session?.compaction?.boundaryTokens || 0);
       const displayWindow = compactBoundaryTokens || effectiveWindow;
-      const usedTokens = lastUsageStale
-        ? estimatedContextTokens
-        : Math.max(estimatedContextTokens, lastContextTokens || 0);
+      // The transcript estimate is the single source of truth for the displayed
+      // context footprint. Provider-reported input_tokens (lastContextTokens)
+      // swing non-monotonically and are not window-bounded on some providers
+      // (e.g. OpenAI gpt-5.5 Responses API), so they are kept only as secondary
+      // metadata (lastApiRequestTokens / usage.lastContextTokens) and never feed
+      // the gauge numerator.
+      const usedTokens = estimatedContextTokens;
       const freeTokens = displayWindow ? Math.max(0, displayWindow - usedTokens) : 0;
       const autoCompactTokenLimit = Number(session?.autoCompactTokenLimit || 0);
       const defaultCompactTriggerTokens = compactBoundaryTokens ? Math.max(1, compactBoundaryTokens) : 0;
@@ -4118,9 +4147,7 @@ function parsedProviderModelVersion(id) {
         rawContextWindow: rawWindow || null,
         effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
         usedTokens,
-        usedSource: lastContextTokens && !lastUsageStale && lastContextTokens >= estimatedContextTokens
-          ? 'last_api_request'
-          : 'estimated',
+        usedSource: 'estimated',
         currentEstimatedTokens: estimatedContextTokens,
         lastApiRequestTokens: lastContextTokens || 0,
         lastApiRequestStale: lastUsageStale,
@@ -4718,6 +4745,15 @@ function parsedProviderModelVersion(id) {
         await refreshSessionForCwdIfNeeded('cwd-change');
         if (!session?.id) await createCurrentSession('turn');
         hooks.emit('turn:start', { sessionId: session.id, prompt, cwd: currentCwd });
+        // UserPromptSubmit: bridge to the standard hook bus. A hook FAILURE
+        // must not block the turn, but a genuine blocked===true MUST throw.
+        let promptDispatch = null;
+        try {
+          promptDispatch = await hooks.dispatch('UserPromptSubmit', { session_id: session.id, cwd: currentCwd, prompt });
+        } catch { /* hook failure never blocks the turn */ }
+        if (promptDispatch?.blocked === true) {
+          throw new Error(`prompt blocked by hook: ${promptDispatch.reason || ''}`);
+        }
         const turnContext = [options.context || ''].map((part) => String(part || '').trim()).filter(Boolean).join('\n\n');
         const result = await mgr.askSession(
           session.id,
@@ -4754,6 +4790,11 @@ function parsedProviderModelVersion(id) {
         );
         session = mgr.getSession(session.id) || session;
         hooks.emit('turn:end', { sessionId: session.id, elapsedMs: Date.now() - startedAt });
+        // Stop: bridge to the standard hook bus. Best-effort; ignore result,
+        // never throw.
+        try {
+          await hooks.dispatch('Stop', { session_id: session.id, cwd: currentCwd });
+        } catch { /* best-effort: Stop hook must never break the turn */ }
         return { result, session };
       } catch (error) {
         hooks.emit('turn:error', { sessionId: session?.id || null, elapsedMs: Date.now() - startedAt, error: error?.message || String(error) });
