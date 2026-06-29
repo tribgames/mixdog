@@ -20,16 +20,28 @@ import {
   bold,
   italic,
   dim,
-  cyan,
-  gray,
-  yellow,
-  green,
   underline,
   strike as strikeStyle,
-  brightWhite,
   colorEnabled,
   visibleWidth,
+  rgb,
+  compose,
 } from './ansi.mjs';
+
+// Default Mixdog dark markdown semantics (mirrors src/tui/theme.mjs mixdogPalette md* keys).
+const PALETTE = {
+  heading1: rgb(215, 119, 87),
+  heading: rgb(240, 198, 116),
+  inlineCode: rgb(138, 190, 183),
+  link: rgb(47, 127, 255),
+  codeBlock: rgb(181, 189, 104),
+  fenceLabel: rgb(138, 190, 183),
+  listBullet: rgb(138, 190, 183),
+  quoteText: rgb(128, 128, 128),
+  diffAdd: rgb(0, 170, 75),
+  diffDel: rgb(220, 70, 88),
+  diffHunk: rgb(204, 157, 44),
+};
 
 /**
  * Render a markdown string to a terminal-styled string.
@@ -54,6 +66,8 @@ function renderUnsafe(src, opts) {
   let inFence = false;
   let fenceLang = '';
   let fenceBuf = [];
+  let fenceMarker = '';
+  let fenceMarkerLen = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -62,16 +76,24 @@ function renderUnsafe(src, opts) {
     if (fenceMatch && !inFence) {
       inFence = true;
       fenceLang = fenceMatch[3].trim();
+      fenceMarker = fenceMatch[2][0];
+      fenceMarkerLen = fenceMatch[2].length;
       fenceBuf = [];
       continue;
     }
     if (inFence) {
-      // A line of only backticks/tildes closes the fence.
-      if (/^(\s*)(`{3,}|~{3,})\s*$/.test(line)) {
+      const closeMatch = /^(\s*)([`~]+)\s*$/.exec(line);
+      const markerRun = closeMatch?.[2] ?? '';
+      const closes =
+        markerRun.length >= fenceMarkerLen &&
+        [...markerRun].every((ch) => ch === fenceMarker);
+      if (closes) {
         out.push(renderCodeBlock(fenceBuf, fenceLang, width));
         inFence = false;
         fenceLang = '';
         fenceBuf = [];
+        fenceMarker = '';
+        fenceMarkerLen = 0;
       } else {
         fenceBuf.push(line);
       }
@@ -98,7 +120,7 @@ function clampWidth(w) {
 function renderLine(line, width) {
   // Horizontal rule.
   if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
-    return dim('─'.repeat(Math.min(width, 60)));
+    return dim(rgb(128, 128, 128)('─'.repeat(Math.min(width, 60))));
   }
 
   // ATX heading.
@@ -106,30 +128,30 @@ function renderLine(line, width) {
   if (h) {
     const level = h[1].length;
     const text = renderInline(h[2]);
-    if (level === 1) return '\n' + bold(brightWhite('▌ ' + text));
-    if (level === 2) return '\n' + bold(cyan(text));
-    if (level === 3) return bold(text);
-    return bold(dim(text));
+    if (level === 1) return '\n' + compose(bold, PALETTE.heading1)('▌ ' + text);
+    if (level === 2) return '\n' + compose(bold, PALETTE.heading)(text);
+    if (level === 3) return compose(bold, PALETTE.heading)(text);
+    return compose(bold, dim)(text);
   }
 
   // Blockquote (possibly nested).
   const q = /^(\s*>+)\s?(.*)$/.exec(line);
   if (q) {
-    return dim('│ ') + dim(renderInline(q[2]));
+    return dim(PALETTE.quoteText('│ ')) + italic(PALETTE.quoteText(renderInline(q[2])));
   }
 
   // Bullet list.
   const b = /^(\s*)([-*+])\s+(.*)$/.exec(line);
   if (b) {
     const indent = b[1].replace(/\t/g, '  ');
-    return indent + yellow('•') + ' ' + renderInline(b[3]);
+    return indent + PALETTE.listBullet('•') + ' ' + renderInline(b[3]);
   }
 
   // Numbered list.
   const n = /^(\s*)(\d+)([.)])\s+(.*)$/.exec(line);
   if (n) {
     const indent = n[1].replace(/\t/g, '  ');
-    return indent + yellow(n[2] + '.') + ' ' + renderInline(n[4]);
+    return indent + PALETTE.listBullet(n[2] + '.') + ' ' + renderInline(n[4]);
   }
 
   // Plain paragraph line.
@@ -138,18 +160,54 @@ function renderLine(line, width) {
 
 function renderCodeBlock(bufLines, lang, width) {
   const inner = bufLines.length ? bufLines : [''];
+  const isDiff = isDiffFence(lang, inner);
   const contentWidth = Math.max(
     20,
     Math.min(width, inner.reduce((m, l) => Math.max(m, l.length), 0) + 2),
   );
-  const label = lang ? ` ${lang} ` : '';
-  const top = dim('┌' + (label ? gray(label) : '') + '─'.repeat(Math.max(0, contentWidth - visibleWidth(label) - 1)) + '┐');
+  const labelPlain = lang ? ` ${lang} ` : '';
+  const labelStyled = labelPlain ? PALETTE.fenceLabel(labelPlain) : '';
+  const ruleLen = Math.max(0, contentWidth - visibleWidth(labelPlain));
+  const top = dim('┌') + labelStyled + dim('─'.repeat(ruleLen) + '┐');
   const bottom = dim('└' + '─'.repeat(contentWidth) + '┘');
   const body = inner.map((l) => {
-    const text = colorEnabled() ? green(l) : l;
-    return dim('│ ') + text;
+    const text = colorFenceLine(l, isDiff);
+    const padTarget = Math.max(0, contentWidth - 1);
+    const padded = padVisible(text, padTarget);
+    return dim('│ ') + padded + dim('│');
   });
   return [top, ...body, bottom].join('\n');
+}
+
+function padVisible(text, targetWidth) {
+  const w = visibleWidth(text);
+  if (w >= targetWidth) return text;
+  return String(text ?? '') + ' '.repeat(targetWidth - w);
+}
+
+function isDiffFence(lang, lines) {
+  const tag = String(lang ?? '').trim().toLowerCase();
+  if (/^(diff|patch|udiff)$/.test(tag)) return true;
+  let hunk = false;
+  let delta = false;
+  for (const line of lines) {
+    const s = String(line ?? '');
+    if (/^@@/.test(s)) hunk = true;
+    if (/^\+/.test(s) && !/^\+\+\+/.test(s)) delta = true;
+    if (/^-/.test(s) && !/^---/.test(s)) delta = true;
+  }
+  return hunk && delta;
+}
+
+function colorFenceLine(line, isDiff) {
+  const s = String(line ?? '');
+  if (!colorEnabled()) return s;
+  if (!isDiff) return PALETTE.codeBlock(s);
+  if (/^@@/.test(s)) return PALETTE.diffHunk(s);
+  if (/^(\+\+\+|---)/.test(s)) return PALETTE.diffHunk(s);
+  if (/^\+/.test(s)) return PALETTE.diffAdd(s);
+  if (/^-/.test(s)) return PALETTE.diffDel(s);
+  return PALETTE.codeBlock(s);
 }
 
 // --- Inline ------------------------------------------------------------------
@@ -158,20 +216,21 @@ function renderCodeBlock(bufLines, lang, width) {
  * Render inline markdown spans. Order matters: we extract code spans first
  * (their contents are literal), then apply emphasis/link transforms to the rest.
  */
-function renderInline(text) {
+function renderInline(text, state) {
+  const st = state ?? { codeSpans: [] };
   let s = String(text ?? '');
 
   // Protect inline code spans from further formatting.
-  const codeSpans = [];
   s = s.replace(/`([^`]+)`/g, (_m, code) => {
-    const token = `\u0000C${codeSpans.length}\u0000`;
-    codeSpans.push(code);
+    const token = `\u0000C${st.codeSpans.length}\u0000`;
+    st.codeSpans.push(code);
     return token;
   });
 
   // Links: [text](url) -> text (url)
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, label, url) => {
-    return underline(label) + ' ' + dim('(' + url + ')');
+    const linkLabel = compose(underline, PALETTE.link)(renderInline(label, st));
+    return linkLabel + ' ' + dim('(' + url + ')');
   });
 
   // Bold: **x** or __x__
@@ -187,8 +246,8 @@ function renderInline(text) {
 
   // Restore code spans, styled.
   s = s.replace(/\u0000C(\d+)\u0000/g, (_m, idx) => {
-    const code = codeSpans[Number(idx)] ?? '';
-    return colorEnabled() ? cyan(code) : '`' + code + '`';
+    const code = st.codeSpans[Number(idx)] ?? '';
+    return colorEnabled() ? PALETTE.inlineCode(code) : '`' + code + '`';
   });
 
   return s;

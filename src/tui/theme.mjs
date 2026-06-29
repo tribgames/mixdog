@@ -62,6 +62,30 @@ const mixdogPalette = {
   mdQuoteBorder: 'rgb(128,128,128)', // blockquote bar
   mdHr: 'rgb(128,128,128)', // horizontal rule
   mdListBullet: 'rgb(138,190,183)', // list markers (pi accent)
+  // Markdown extras (fenced fences / inline links / emphasis) — warm dark base.
+  mdCodeBlockBorder: 'rgb(110,110,110)', // ``` fence + lang label rule
+  mdLink: 'rgb(47,127,255)', // link URL (suggestion blue)
+  mdLinkText: 'rgb(138,190,183)', // link label (teal accent)
+  mdStrong: 'rgb(235,159,127)', // **bold** warm amber
+  mdEmph: 'rgb(229,192,123)', // *italic* soft yellow
+  // Diff / patch rendering (OpenCode + Codex conventions, ANSI-safe).
+  mdDiffAdded: 'rgb(120,200,130)', // + lines (green)
+  mdDiffRemoved: 'rgb(224,108,117)', // - lines (red)
+  mdDiffHunk: 'rgb(130,139,184)', // @@ hunk markers
+  mdDiffHeader: 'rgb(170,150,210)', // ---/+++ / diff --git headers
+  mdDiffContext: 'rgb(140,140,140)', // unchanged context lines
+  mdDiffAddedBg: 'rgb(33,58,43)', // #213A2B muted add tint (codex dark)
+  mdDiffRemovedBg: 'rgb(74,34,29)', // #4A221D muted del tint (codex dark)
+  // Lightweight syntax highlight palette (regex token classes).
+  syntaxComment: 'rgb(128,128,128)',
+  syntaxKeyword: 'rgb(215,119,87)', // brand orange
+  syntaxFunction: 'rgb(138,190,183)', // teal
+  syntaxVariable: 'rgb(224,108,117)', // red-pink
+  syntaxString: 'rgb(181,189,104)', // #b5bd68 green
+  syntaxNumber: 'rgb(235,159,127)', // amber
+  syntaxType: 'rgb(229,192,123)', // yellow
+  syntaxOperator: 'rgb(138,190,183)', // teal/cyan
+  syntaxPunctuation: 'rgb(198,198,198)', // body text
   userMessageBackground: 'rgb(108,108,108)', // user prompt band
   userMessageBackgroundHover: 'rgb(120,120,120)', // hover variant
   fastMode: 'rgb(255,120,20)',
@@ -87,6 +111,23 @@ const piDarkPalette = {
   permission: 'rgb(204,102,102)',
   code: 'rgb(95,135,255)',
   codeBlock: 'rgb(181,189,104)',
+  mdCodeBlockBorder: 'rgb(96,104,116)',
+  mdLink: 'rgb(95,135,255)',
+  mdLinkText: 'rgb(138,190,183)',
+  mdStrong: 'rgb(181,189,104)',
+  mdEmph: 'rgb(229,192,123)',
+  mdDiffAdded: 'rgb(181,189,104)', // #b5bd68
+  mdDiffRemoved: 'rgb(204,102,102)', // #cc6666
+  mdDiffHunk: 'rgb(129,162,190)',
+  mdDiffHeader: 'rgb(178,148,187)',
+  mdDiffContext: 'rgb(150,150,150)',
+  mdDiffAddedBg: 'rgb(30,46,34)',
+  mdDiffRemovedBg: 'rgb(58,32,32)',
+  syntaxKeyword: 'rgb(178,148,187)', // pi mauve keyword
+  syntaxFunction: 'rgb(129,162,190)', // soft blue
+  syntaxString: 'rgb(181,189,104)',
+  syntaxNumber: 'rgb(222,147,95)',
+  syntaxOperator: 'rgb(138,190,183)',
   userMessageBackground: 'rgb(52,53,65)', // #343541
   userMessageBackgroundHover: 'rgb(64,65,79)',
 };
@@ -125,6 +166,27 @@ const claudeDarkPalette = {
   mdQuoteBorder: 'rgb(140,140,140)',
   mdHr: 'rgb(140,140,140)',
   mdListBullet: 'rgb(177,185,249)',
+  mdCodeBlockBorder: 'rgb(120,120,120)',
+  mdLink: 'rgb(177,185,249)',
+  mdLinkText: 'rgb(150,200,210)',
+  mdStrong: 'rgb(235,159,127)',
+  mdEmph: 'rgb(229,192,123)',
+  mdDiffAdded: 'rgb(78,186,101)',
+  mdDiffRemoved: 'rgb(255,107,128)',
+  mdDiffHunk: 'rgb(150,160,200)',
+  mdDiffHeader: 'rgb(177,185,249)',
+  mdDiffContext: 'rgb(150,150,150)',
+  mdDiffAddedBg: 'rgb(28,46,34)',
+  mdDiffRemovedBg: 'rgb(58,30,36)',
+  syntaxComment: 'rgb(140,140,140)',
+  syntaxKeyword: 'rgb(235,159,127)',
+  syntaxFunction: 'rgb(177,185,249)',
+  syntaxVariable: 'rgb(255,107,128)',
+  syntaxString: 'rgb(140,200,150)',
+  syntaxNumber: 'rgb(235,159,127)',
+  syntaxType: 'rgb(229,192,123)',
+  syntaxOperator: 'rgb(150,200,210)',
+  syntaxPunctuation: 'rgb(220,220,220)',
   userMessageBackground: 'rgb(55,55,55)',
   userMessageBackgroundHover: 'rgb(70,70,70)',
   fastMode: 'rgb(255,120,20)',
@@ -166,6 +228,27 @@ const claudeLightPalette = {
   mdQuoteBorder: 'rgb(102,102,102)',
   mdHr: 'rgb(175,175,175)',
   mdListBullet: 'rgb(87,105,247)',
+  mdCodeBlockBorder: 'rgb(184,184,184)',
+  mdLink: 'rgb(87,105,247)',
+  mdLinkText: 'rgb(49,135,149)', // teal-cyan readable on light
+  mdStrong: 'rgb(214,108,39)', // warm orange
+  mdEmph: 'rgb(176,133,31)', // amber
+  mdDiffAdded: 'rgb(61,154,87)', // #3d9a57
+  mdDiffRemoved: 'rgb(209,56,61)', // #d1383d
+  mdDiffHunk: 'rgb(112,134,181)', // #7086b5
+  mdDiffHeader: 'rgb(123,91,182)', // #7b5bb6
+  mdDiffContext: 'rgb(102,102,102)',
+  mdDiffAddedBg: 'rgb(218,251,225)', // #dafbe1
+  mdDiffRemovedBg: 'rgb(255,235,233)', // #ffebe9
+  syntaxComment: 'rgb(138,138,138)',
+  syntaxKeyword: 'rgb(201,77,36)', // #c94d24
+  syntaxFunction: 'rgb(59,125,216)', // #3b7dd8
+  syntaxVariable: 'rgb(209,56,61)',
+  syntaxString: 'rgb(61,154,87)',
+  syntaxNumber: 'rgb(176,133,31)',
+  syntaxType: 'rgb(176,133,31)',
+  syntaxOperator: 'rgb(49,135,149)',
+  syntaxPunctuation: 'rgb(26,26,26)',
   userMessageBackground: 'rgb(238,238,238)',
   userMessageBackgroundHover: 'rgb(248,248,248)',
   fastMode: 'rgb(255,106,0)',

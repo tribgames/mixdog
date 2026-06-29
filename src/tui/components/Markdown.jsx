@@ -15,74 +15,29 @@
 import React, { useRef } from 'react';
 import { Box, Text } from 'ink';
 import { marked } from 'marked';
-import { formatToken } from '../markdown/format-token.mjs';
+import {
+  configureMarked,
+  hasMarkdownSyntax,
+  renderTokenAnsiSegments,
+} from '../markdown/render-ansi.mjs';
+import { trimPartialClosingFences } from '../markdown/stream-fence.mjs';
 import { AnsiText } from './AnsiText.jsx';
 import { MarkdownTable } from './MarkdownTable.jsx';
 import { theme } from '../theme.mjs';
 
-let _configured = false;
-function configureMarked() {
-  if (_configured) return;
-  _configured = true;
-  // Disable strikethrough: models use ~ for "approximate" (~100), not <del>.
-  marked.use({ tokenizer: { del() { return undefined; } } });
-}
-
-const TOKEN_CACHE_MAX = 500;
-const tokenCache = new Map();
-const MD_SYNTAX_RE = /[#*`|[>\-_~]|\n\n|^\d+\. |\n\d+\. /;
-
-function hasMarkdownSyntax(text) {
-  const sample = text.length > 500 ? text.slice(0, 500) : text;
-  return MD_SYNTAX_RE.test(sample);
-}
-
-function cachedLexer(content) {
-  const text = String(content ?? '');
-  if (!hasMarkdownSyntax(text)) {
-    return [{
-      type: 'paragraph',
-      raw: text,
-      text,
-      tokens: [{ type: 'text', raw: text, text }],
-    }];
-  }
-  const hit = tokenCache.get(text);
-  if (hit) {
-    tokenCache.delete(text);
-    tokenCache.set(text, hit);
-    return hit;
-  }
-  const tokens = marked.lexer(text);
-  if (tokenCache.size >= TOKEN_CACHE_MAX) {
-    const first = tokenCache.keys().next().value;
-    if (first !== undefined) tokenCache.delete(first);
-  }
-  tokenCache.set(text, tokens);
-  return tokens;
-}
-
-function renderMarkdownElements(content) {
-  configureMarked();
-  const tokens = cachedLexer(String(content ?? ''));
+function renderMarkdownElements(content, trimPartialFences = false) {
+  const segments = renderTokenAnsiSegments(content, { trimPartialFences });
   const result = [];
   let idx = 0;
-  const pushAnsi = (value) => {
-    // Remove blank edge lines from token EOLs without trimming meaningful
-    // indentation inside code blocks. defaultColor={theme.text} keeps ANSI
-    // resets on the same dark-theme foreground instead of the terminal
-    // profile's default foreground.
-    const text = String(value ?? '').replace(/^\n+|\n+$/g, '');
-    if (!text) return;
-    result.push(<AnsiText key={`md_${idx++}`} defaultColor={theme.text}>{text}</AnsiText>);
-  };
-  for (const token of tokens) {
-    if (token.type === 'table') {
-      result.push(<MarkdownTable key={`md_${idx++}`} token={token} />);
-    } else if (token.type === 'space') {
-      continue;
+  for (const segment of segments) {
+    if (segment.type === 'table') {
+      result.push(<MarkdownTable key={`md_${idx++}`} token={segment.token} />);
     } else {
-      pushAnsi(formatToken(token));
+      // defaultColor={theme.text} keeps ANSI resets on the same dark-theme
+      // foreground instead of the terminal profile's default foreground.
+      result.push(
+        <AnsiText key={`md_${idx++}`} defaultColor={theme.text}>{segment.ansi}</AnsiText>,
+      );
     }
   }
   return result;
@@ -142,17 +97,17 @@ function balanceStreamingMarkdown(text) {
   return rendered;
 }
 
-export function Markdown({ children, themeEpoch = 0 }) {
+export function Markdown({ children, themeEpoch = 0, trimPartialFences = false }) {
   const elements = React.useMemo(() => {
     try {
-      return renderMarkdownElements(children);
+      return renderMarkdownElements(children, trimPartialFences);
     } catch {
       // Never throw into the render tree — fall back to raw text.
       return [<Text key="md_0" color={theme.text}>{String(children ?? '')}</Text>];
     }
   // themeEpoch is a memo dep so a /theme switch re-renders to ANSI with the new
   // md* colors (formatToken re-resolves its colorizers on the active theme).
-  }, [children, themeEpoch]);
+  }, [children, themeEpoch, trimPartialFences]);
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -178,7 +133,11 @@ export function StreamingMarkdown({ children, themeEpoch = 0 }) {
   try {
     configureMarked();
     const boundary = stablePrefix.length;
+    // Lex the still-streaming suffix and trim any partial closing fence so an
+    // open code block does not grow-then-shrink as the final backtick(s)
+    // stream in. Operates on a fresh lex so the shared tokenCache is untouched.
     const tokens = marked.lexer(text.substring(boundary));
+    trimPartialClosingFences(tokens);
     let lastContentIdx = tokens.length - 1;
     while (lastContentIdx >= 0 && tokens[lastContentIdx]?.type === 'space') lastContentIdx--;
     let advance = 0;
@@ -198,7 +157,7 @@ export function StreamingMarkdown({ children, themeEpoch = 0 }) {
   return (
     <Box flexDirection="column" gap={1}>
       {stablePrefix ? <Markdown themeEpoch={themeEpoch}>{stablePrefix}</Markdown> : null}
-      {unstableSuffix ? <Markdown themeEpoch={themeEpoch}>{balanceStreamingMarkdown(unstableSuffix)}</Markdown> : null}
+      {unstableSuffix ? <Markdown themeEpoch={themeEpoch} trimPartialFences>{balanceStreamingMarkdown(unstableSuffix)}</Markdown> : null}
     </Box>
   );
 }
