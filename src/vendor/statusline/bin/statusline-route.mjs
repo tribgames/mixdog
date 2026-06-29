@@ -612,6 +612,17 @@ export function formatGatewayLimitSegments(status, fmt) {
   } = fmt || {};
   const segments = [];
   const kind = cleanString(status.providerKind || '').toLowerCase();
+  const providerId = cleanString(status.provider || '').toLowerCase();
+  const statusSource = cleanString(status.source || '').toLowerCase();
+  const balanceSource = cleanString(status.balance?.source || '').toLowerCase();
+  const isOpenAiOAuth = (kind === 'oauth' || providerId.includes('oauth'))
+    && (
+      providerId === 'openai-oauth'
+      || statusSource.includes('openai')
+      || statusSource.includes('codex')
+      || balanceSource.includes('openai')
+      || balanceSource.includes('codex')
+    );
   const isPlainApi = kind === 'api';
   const windows = !isPlainApi && Array.isArray(status.quotaWindows) ? status.quotaWindows : [];
   const maxWindows = COLS >= 120 ? 3 : COLS >= 80 ? 2 : 1;
@@ -639,6 +650,7 @@ export function formatGatewayLimitSegments(status, fmt) {
     return false;
   };
   const addApiBalance = () => {
+    if (isOpenAiOAuth) return false;
     const remaining = num(status.balance?.remainingUsd, null);
     if (remaining !== null) {
       segments.push(`${D}Credit${R} ${money(remaining)}`);
@@ -653,12 +665,12 @@ export function formatGatewayLimitSegments(status, fmt) {
   for (const w of windows.slice(0, maxWindows)) {
     const label = String(w?.label || 'USE').toUpperCase();
     const pct = num(w?.usedPct, null);
-    const remaining = num(w?.remainingUsd, null);
-    const limit = num(w?.limitUsd, null);
-    const used = num(w?.usedUsd, null);
-    const remainingCredits = num(w?.remainingCredits, null);
-    const limitCredits = num(w?.limitCredits, null);
-    const usedCredits = num(w?.usedCredits, null);
+    const remaining = isOpenAiOAuth ? null : num(w?.remainingUsd, null);
+    const limit = isOpenAiOAuth ? null : num(w?.limitUsd, null);
+    const used = isOpenAiOAuth ? null : num(w?.usedUsd, null);
+    const remainingCredits = isOpenAiOAuth ? null : num(w?.remainingCredits, null);
+    const limitCredits = isOpenAiOAuth ? null : num(w?.limitCredits, null);
+    const usedCredits = isOpenAiOAuth ? null : num(w?.usedCredits, null);
     const estimated = isLocalEstimateWindow(w);
     if (remaining !== null) {
       const color = estimated ? YLW : remaining <= 1 ? RED : remaining <= 5 ? YLW : GRN;
@@ -683,7 +695,7 @@ export function formatGatewayLimitSegments(status, fmt) {
   }
   if (segments.length) return segments;
 
-  const remaining = num(status.balance?.remainingUsd, null);
+  const remaining = isOpenAiOAuth ? null : num(status.balance?.remainingUsd, null);
   if (remaining !== null) {
     segments.push(`${D}Credit${R} ${money(remaining)}`);
     addRouteSpend();

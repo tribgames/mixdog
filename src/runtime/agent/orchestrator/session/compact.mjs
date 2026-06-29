@@ -207,6 +207,17 @@ function makeSummaryMessage(content) {
     return { role: 'user', content };
 }
 
+// A compact summary message is a synthetic role:'user' message carrying the
+// SUMMARY_PREFIX anchor. It is NOT a real user turn: it must be excluded from
+// real user-turn boundary calculations and treated as merge input, otherwise
+// an old summary can sit in the preserved tail as a live user message,
+// duplicate, or fail to merge across repeated compaction.
+function isSummaryMessage(m) {
+    return m?.role === 'user'
+        && typeof m.content === 'string'
+        && m.content.startsWith(SUMMARY_PREFIX);
+}
+
 function isProtectedContextUserMessage(m) {
     if (m?.role !== 'user' || typeof m.content !== 'string') return false;
     return m.content.trimStart().startsWith('<system-reminder>');
@@ -694,42 +705,113 @@ function userIndexes(messages) {
     return out;
 }
 
-function selectCompactionWindow(messages, budget, opts = {}) {
+function indexLiveTurns(live) {
+    const turns = splitTailIntoTurns(live);
+    const indexed = [];
+    let scan = 0;
+    for (const messages of turns) {
+        while (scan < live.length && live[scan] !== messages[0]) scan += 1;
+        const start = scan;
+        const end = start + messages.length;
+        indexed.push({ start, end, messages });
+        scan = end;
+    }
+    return indexed;
+}
+
+function splitTurnStartIndexForBudget(turn, budget) {
+    const { start, end, messages } = turn;
+    for (let i = 0; i < messages.length; i += 1) {
+        const suffixStart = start + i;
+        const suffix = messages.slice(i);
+        if (suffix.length > 0 && estimateMessagesTokens(suffix) <= budget) {
+            return suffixStart;
+        }
+    }
+    return end;
+}
+
+function splitLiveCompactionContext(messages) {
     const sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
     const { protectedPrefix, conversation: nonSystem } = splitProtectedContext(sanitized);
-    const users = userIndexes(nonSystem);
-    if (!users.length) throw new Error('semanticCompactMessages: no user turn to preserve');
-
-    const tailTurns = Math.max(1, Number(opts.tailTurns) || DEFAULT_TAIL_TURNS);
-    const recentBudget = preserveRecentBudget(budget, opts);
-    let tailStart = users[users.length - 1];
-    for (let u = users.length - 2, kept = 1; u >= 0 && kept < tailTurns; u -= 1) {
-        const candidateStart = users[u];
-        const candidateTail = nonSystem.slice(candidateStart);
-        if (estimateMessagesTokens(candidateTail) > recentBudget) break;
-        tailStart = candidateStart;
-        kept += 1;
-    }
-
-    const head = nonSystem.slice(0, tailStart);
-    const tail = nonSystem.slice(tailStart);
     let previousSummary = null;
-    let headStart = 0;
-    for (let i = head.length - 1; i >= 0; i -= 1) {
-        const m = head[i];
-        if (m?.role === 'user' && typeof m.content === 'string' && m.content.startsWith(SUMMARY_PREFIX)) {
-            previousSummary = m.content;
-            headStart = i + 1;
+    for (let i = nonSystem.length - 1; i >= 0; i -= 1) {
+        if (isSummaryMessage(nonSystem[i])) {
+            previousSummary = nonSystem[i].content;
             break;
         }
     }
-    const preservedFacts = extractPreservedFacts(head.slice(headStart));
+    const live = nonSystem.filter((m) => !isSummaryMessage(m));
+    return { system: protectedPrefix, live, previousSummary, sanitized };
+}
+
+function selectCompactionWindow(messages, budget, opts = {}) {
+    const { system, live, previousSummary } = splitLiveCompactionContext(messages);
+    if (!userIndexes(live).length) throw new Error('semanticCompactMessages: no user turn to preserve');
+
+    const tailTurns = Math.max(1, Number(opts.tailTurns) || DEFAULT_TAIL_TURNS);
+    const recentBudget = preserveRecentBudget(budget, opts);
+    const indexedTurns = indexLiveTurns(live);
+    if (indexedTurns.length === 0) throw new Error('semanticCompactMessages: no user turn to preserve');
+
+    let tailStartIdx = live.length;
+    let keptTurns = 0;
+
+    for (let t = indexedTurns.length - 1; t >= 0; t -= 1) {
+        if (keptTurns >= tailTurns) break;
+        const turn = indexedTurns[t];
+        const tailFromTurn = live.slice(turn.start);
+        if (keptTurns === 0) {
+            if (estimateMessagesTokens(tailFromTurn) <= recentBudget) {
+                tailStartIdx = turn.start;
+                keptTurns += 1;
+                continue;
+            }
+            const splitIdx = splitTurnStartIndexForBudget(turn, recentBudget);
+            if (splitIdx < turn.end) {
+                tailStartIdx = splitIdx;
+                keptTurns += 1;
+                break;
+            }
+            // Newest turn has no fitting suffix: keep entire live transcript in head for summarization.
+            tailStartIdx = live.length;
+            keptTurns = 0;
+            break;
+        }
+        const candidateStart = turn.start;
+        const candidateTail = live.slice(candidateStart);
+        if (estimateMessagesTokens(candidateTail) <= recentBudget) {
+            tailStartIdx = candidateStart;
+            keptTurns += 1;
+            continue;
+        }
+        break;
+    }
+
+    const head = live.slice(0, tailStartIdx);
+    let tail = live.slice(tailStartIdx);
+    tail = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(tail)));
+
+    if (!head.length && !tail.length) {
+        throw new Error('semanticCompactMessages: no user turn to preserve');
+    }
+    if (tail.length && !tail.some((m) => m?.role === 'user')) {
+        const lastUserIdx = live.findLastIndex
+            ? live.findLastIndex((m) => m?.role === 'user')
+            : (() => { for (let i = live.length - 1; i >= 0; i -= 1) { if (live[i]?.role === 'user') return i; } return -1; })();
+        if (lastUserIdx < 0 || lastUserIdx >= tailStartIdx) {
+            throw new Error('semanticCompactMessages: no user turn to preserve');
+        }
+    }
+
+    const preservedFacts = extractPreservedFacts(head);
+    const originalHead = head;
     return {
-        system: protectedPrefix,
-        head: head.slice(headStart),
+        system,
+        head,
         tail,
         previousSummary,
-        originalHead: head,
+        originalHead,
         preservedFacts,
     };
 }
@@ -1154,25 +1236,70 @@ function fitSemanticSummaryMessage(oldHistory, summary, remainingTokens, semanti
 // compact message) plus the chunk text itself. No "Preserved Facts" extraction,
 // no "Recall Fast-Track Context" heading, no "(no recall hits)" filler.
 function makeRecallFastTrackSummaryMessage(oldHistory, recallText, recallMeta = {}) {
+    return makeRecallFastTrackSummaryMessageParts(oldHistory, recallText, '', recallMeta);
+}
+
+const RECALL_TAIL_TRUNCATION_MARKER = '[... truncated during recall tail preservation ...]';
+const RECALL_TAIL_SHORT_TRUNCATION_MARKER = '[truncated]';
+
+const PRIOR_COMPACTED_CONTEXT_OPEN = '<prior-compacted-context>';
+const PRIOR_COMPACTED_CONTEXT_CLOSE = '</prior-compacted-context>';
+
+function formatPriorCompactedContextBlock(priorText) {
+    const prior = String(priorText || '').trim();
+    if (!prior) return '';
+    return `${PRIOR_COMPACTED_CONTEXT_OPEN}\n${prior}\n${PRIOR_COMPACTED_CONTEXT_CLOSE}`;
+}
+
+function makeRecallFastTrackSummaryMessageParts(oldHistory, recallPart, priorPart, recallMeta = {}) {
     const header = compactHeader(oldHistory);
     header.push(`compact_type=${COMPACT_TYPE_RECALL_FASTTRACK} source=recall-fasttrack query_sha=${recallMeta.querySha || 'none'}`);
-    const recall = String(recallText || '').trim();
     const parts = [header.join('\n')];
+    const priorBlock = formatPriorCompactedContextBlock(priorPart);
+    if (priorBlock) parts.push(priorBlock);
+    const recall = String(recallPart || '').trim();
     if (recall) parts.push(recall);
     return makeSummaryMessage(parts.join('\n\n'));
 }
 
-function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remainingTokens, recallMeta = {}) {
-    const minimal = makeRecallFastTrackSummaryMessage(oldHistory, '', recallMeta);
+function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remainingTokens, recallMeta = {}, priorPart = '') {
+    const recall = String(recallText || '').trim();
+    const prior = String(priorPart || '').trim();
+
+    let fittedPrior = prior;
+    if (prior) {
+        let lo = 0;
+        let hi = prior.length;
+        let bestPriorLen = 0;
+        while (lo <= hi) {
+            const mid = Math.floor((lo + hi) / 2);
+            const candidate = makeRecallFastTrackSummaryMessageParts(oldHistory, '', prior.slice(0, mid), recallMeta);
+            if (estimateMessagesTokens([candidate]) <= remainingTokens) {
+                bestPriorLen = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        fittedPrior = prior.slice(0, bestPriorLen);
+        if (!fittedPrior && prior) {
+            const markerOnly = makeRecallFastTrackSummaryMessageParts(oldHistory, '', RECALL_TAIL_TRUNCATION_MARKER, recallMeta);
+            if (estimateMessagesTokens([markerOnly]) <= remainingTokens) {
+                fittedPrior = RECALL_TAIL_TRUNCATION_MARKER;
+            }
+        }
+    }
+
+    const minimal = makeRecallFastTrackSummaryMessageParts(oldHistory, '', fittedPrior, recallMeta);
     if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
-    const text = String(recallText || '').trim();
-    if (!text) return minimal;
+    if (!recall) return minimal;
+
     let lo = 0;
-    let hi = text.length;
+    let hi = recall.length;
     let best = minimal;
     while (lo <= hi) {
         const mid = Math.floor((lo + hi) / 2);
-        const candidate = makeRecallFastTrackSummaryMessage(oldHistory, text.slice(0, mid), recallMeta);
+        const candidate = makeRecallFastTrackSummaryMessageParts(oldHistory, recall.slice(0, mid), fittedPrior, recallMeta);
         if (estimateMessagesTokens([candidate]) <= remainingTokens) {
             best = candidate;
             lo = mid + 1;
@@ -1336,6 +1463,7 @@ function splitTailIntoTurns(messages) {
     const turns = [];
     let current = null;
     for (const m of messages) {
+        if (isSummaryMessage(m)) continue;
         if (m?.role === 'user') {
             if (current) turns.push(current);
             current = [m];
@@ -1348,108 +1476,166 @@ function splitTailIntoTurns(messages) {
     return turns;
 }
 
-function truncateTailToCap(messages, cap) {
-    const out = messages.slice();
-    // Truncate older string-content messages first (oldest → newest), keeping
-    // the newest message whole as long as possible.
-    for (let i = 0; i < out.length - 1 && estimateMessagesTokens(out) > cap; i += 1) {
-        const m = out[i];
-        if (!m || typeof m.content !== 'string' || !m.content) continue;
-        const over = estimateMessagesTokens(out) - cap;
-        const target = Math.max(0, m.content.length - over * RECALL_TAIL_CHARS_PER_TOKEN);
-        out[i] = { ...m, content: truncateMiddle(m.content, target) };
-    }
-    // Single oversized newest message: truncate it against the leftover room.
-    if (estimateMessagesTokens(out) > cap && out.length > 0) {
-        const last = out.length - 1;
-        const m = out[last];
-        if (m && typeof m.content === 'string') {
-            const used = estimateMessagesTokens(out.slice(0, last));
-            const room = Math.max(0, cap - used);
-            out[last] = { ...m, content: truncateMiddle(m.content, room * RECALL_TAIL_CHARS_PER_TOKEN) };
+function truncateMessageForRecallTail(text, maxChars) {
+    const marker = RECALL_TAIL_TRUNCATION_MARKER;
+    const value = String(text ?? '').replace(/\r\n/g, '\n');
+    if (value.length <= maxChars) return value;
+    if (maxChars <= 0) return RECALL_TAIL_SHORT_TRUNCATION_MARKER;
+    if (maxChars < marker.length) return RECALL_TAIL_SHORT_TRUNCATION_MARKER;
+    const room = maxChars - marker.length;
+    const head = Math.ceil(room * 0.35);
+    const tailPart = Math.floor(room * 0.65);
+    return `${value.slice(0, head)}${marker}${value.slice(value.length - tailPart)}`;
+}
+
+function fitRecallUserMessageToCap(userMsg, cap, following = []) {
+    const followCost = estimateMessagesTokens(following);
+    const room = Math.max(1, cap - followCost);
+    const base = { ...userMsg };
+    const raw = typeof base.content === 'string' ? base.content : extractText(base);
+    if (estimateMessagesTokens([{ ...base, content: raw }]) <= room) return { ...base, content: raw };
+
+    let lo = 0;
+    let hi = raw.length;
+    let best = truncateMessageForRecallTail(raw, 0);
+    while (lo <= hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        const candidateText = truncateMessageForRecallTail(raw, mid);
+        const candidate = { ...base, content: candidateText };
+        if (estimateMessagesTokens([candidate]) <= room) {
+            best = candidateText;
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
         }
     }
-    return out;
+    return { ...base, content: best };
+}
+
+function fitSingleRecallTurnToCap(turn, cap) {
+    const userIdx = turn.findIndex((m) => m?.role === 'user');
+    if (userIdx < 0) {
+        return truncateTailToCap(turn, cap);
+    }
+    const userMsg = turn[userIdx];
+    const following = turn.slice(userIdx + 1);
+    const fittedUser = fitRecallUserMessageToCap(userMsg, cap, following);
+    let out = [fittedUser];
+    for (const m of following) {
+        const candidate = [...out, m];
+        if (estimateMessagesTokens(candidate) <= cap) out.push(m);
+    }
+    return reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(out)));
+}
+
+function truncateTailToCap(messages, cap) {
+    const turn = Array.isArray(messages) ? messages : [];
+    if (turn.length === 0) return [];
+    return fitSingleRecallTurnToCap(turn, cap);
+}
+
+function stripNestedSummaryHeaderLines(text) {
+    const lines = String(text ?? '').split('\n');
+    const out = [];
+    for (const line of lines) {
+        if (line.startsWith(SUMMARY_PREFIX)) continue;
+        if (/^messages=\d+\s+sha256=/.test(line.trim())) continue;
+        out.push(line);
+    }
+    return out.join('\n').trim();
+}
+
+function splitRecallFitInputs(recallText, previousSummary) {
+    return {
+        recall: String(recallText || '').trim(),
+        prior: previousSummary ? stripNestedSummaryHeaderLines(previousSummary) : '',
+    };
+}
+
+function recallTailStartIndex(live, tail) {
+    if (!tail.length) return live.length;
+    const first = tail[0];
+    const idx = live.indexOf(first);
+    if (idx >= 0) return idx;
+    return Math.max(0, live.length - tail.length);
+}
+
+function selectRecallPreservedTail(live, opts = {}) {
+    const msgs = (Array.isArray(live) ? live : []).filter((m) => m && !isSummaryMessage(m));
+    if (msgs.length === 0) return { tail: [], head: [], tailStartIdx: 0 };
+    const maxTurns = Math.max(1, Number(opts.maxUsers) || RECALL_TAIL_USER_MAX);
+    const cap = Math.max(1, Number(opts.tokenCap) || RECALL_TAIL_TOKEN_CAP);
+    const turns = splitTailIntoTurns(msgs);
+    if (turns.length === 0) return { tail: [], head: msgs, tailStartIdx: 0 };
+
+    let kept = turns.slice(-maxTurns);
+    while (kept.length > 1 && estimateMessagesTokens(kept.flat()) > cap) {
+        kept = kept.slice(1);
+    }
+
+    let tail;
+    if (estimateMessagesTokens(kept.flat()) <= cap) {
+        tail = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(kept.flat())));
+    } else {
+        tail = fitSingleRecallTurnToCap(kept[kept.length - 1], cap);
+    }
+
+    if (!tail.some((m) => m?.role === 'user')) {
+        throw new Error('recallFastTrackCompactMessages: preserved tail missing user anchor');
+    }
+
+    const tailStartIdx = recallTailStartIndex(msgs, tail);
+    const head = msgs.slice(0, tailStartIdx);
+    return { tail, head, tailStartIdx };
 }
 
 // Kept name as the type-2 tail anchor; behavior now preserves whole structured
 // turns (all roles) rather than only role=user messages.
 function selectRecallTailUserMessages(tail, opts = {}) {
-    const msgs = (Array.isArray(tail) ? tail : []).filter(Boolean);
-    if (msgs.length === 0) return [];
-    const maxTurns = Math.max(1, Number(opts.maxUsers) || RECALL_TAIL_USER_MAX);
-    const cap = Math.max(1, Number(opts.tokenCap) || RECALL_TAIL_TOKEN_CAP);
-    const turns = splitTailIntoTurns(msgs);
-    if (turns.length === 0) return [];
-    // Keep the newest `maxTurns` turns, preserving role order within each turn.
-    let kept = turns.slice(-maxTurns);
-    if (estimateMessagesTokens(kept.flat()) <= cap) return kept.flat();
-    // Over cap: drop whole oldest kept turns while more than one remains.
-    while (kept.length > 1) {
-        kept = kept.slice(1);
-        if (estimateMessagesTokens(kept.flat()) <= cap) return kept.flat();
-    }
-    // Single newest turn still over cap: middle-truncate its messages to fit.
-    return truncateTailToCap(kept.flat(), cap);
+    const msgs = (Array.isArray(tail) ? tail : []).filter((m) => m && !isSummaryMessage(m));
+    return selectRecallPreservedTail(msgs, opts).tail;
 }
 
 function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
     let budget = effectiveBudget(budgetTokens, opts);
     const baseSanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
-    // No-op fast path: if the original sanitized transcript already fits and we
-    // are not forced, return it UNCHANGED (no preserved-tail redaction applied)
-    // to keep prior no-compaction semantics.
     if (estimateMessagesTokens(baseSanitized) <= budget && opts.force !== true) {
         return { messages: baseSanitized, recallFastTrack: false };
     }
-    // Compaction will proceed: redact sensitive tool-call argument VALUES up
-    // front so the preserved tail seen by selectRecallTailUserMessages
-    // (cap/truncation decisions) and the final emitted messages are the SAME
-    // redacted data. Redaction is shape-preserving, so tool-pair structure
-    // stays provider-valid.
     const sanitized = redactToolCallSecretsInMessages(baseSanitized);
 
-    const selected = selectCompactionWindow(sanitized, budget, opts);
-    // Recall fast-track (type 2). The chunked recall text carries the older
-    // history; the preserved tail keeps the most recent STRUCTURED turns
-    // verbatim (user + assistant/tool/system/developer that follow), so recent
-    // assistant reasoning, tool_calls, and tool_results are not dropped.
-    // Result shape: system rules → structured chunk summary → recent turns.
-    // Because the chunk is the history anchor, an empty head is fine as long as
-    // we have recall text to emit.
-    //
-    // Tail policy: keep the most recent RECALL_TAIL_USER_MAX (2) turns. If they
-    // exceed RECALL_TAIL_TOKEN_CAP (8k), drop whole oldest turns then
-    // middle-truncate the oldest surviving messages so the set fits the cap.
-    // selected.system / selected.tail already carry redacted tool-call args
-    // (sanitized was redacted before window selection), so tail selection and
-    // the emitted result both operate on the redacted preserved tail.
-    const safeSystem = selected.system;
-    const recallTail = selectRecallTailUserMessages(selected.tail);
-    if (selected.head.length === 0 && !selected.previousSummary
-        && !(String(opts.recallText || '').trim() || opts.allowEmptyRecall === true)) {
+    const { system: safeSystem, live, previousSummary } = splitLiveCompactionContext(sanitized);
+    const recallTailOpts = {
+        maxUsers: opts.recallTailMaxUsers ?? opts.tailTurns ?? RECALL_TAIL_USER_MAX,
+        tokenCap: opts.recallTailTokenCap ?? preserveRecentBudget(budget, opts),
+    };
+    const { tail: recallTail, head: recallHead } = selectRecallPreservedTail(live, recallTailOpts);
+    const recallFit = splitRecallFitInputs(opts.recallText, previousSummary);
+    if (recallHead.length === 0 && !previousSummary
+        && !(recallFit.recall || recallFit.prior || opts.allowEmptyRecall === true)) {
         throw new Error('recallFastTrackCompactMessages: no compactable prior history before preserved tail');
     }
 
     const mandatory = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs([...safeSystem, ...recallTail])));
     const mandatoryCost = estimateMessagesTokens(mandatory);
-    // See semanticCompactMessages: replacing the head with a compact summary
-    // always shrinks the transcript, so a budget below the mandatory (system +
-    // preserved tail) cost must lift the budget to fit rather than refuse.
-    // Refusing here previously surfaced as auto-clear / overflow failures.
     if (mandatoryCost + COMPACT_SUMMARY_MIN_ROOM_TOKENS > budget) {
         budget = mandatoryCost + COMPACT_SUMMARY_MIN_ROOM_TOKENS;
     }
 
-    const recallText = String(opts.recallText || '').trim();
-    if (!recallText && opts.allowEmptyRecall !== true) {
+    if (!recallFit.recall && !recallFit.prior && opts.allowEmptyRecall !== true) {
         throw new Error('recallFastTrackCompactMessages: recall text is empty');
     }
-    const oldHistory = selected.originalHead;
+    const oldHistory = recallHead;
     const recallMeta = {
         querySha: opts.querySha || null,
     };
-    const summaryMessage = fitRecallFastTrackSummaryMessage(oldHistory, recallText, budget - mandatoryCost, recallMeta);
+    const summaryMessage = fitRecallFastTrackSummaryMessage(
+        oldHistory,
+        recallFit.recall,
+        budget - mandatoryCost,
+        recallMeta,
+        recallFit.prior,
+    );
     if (!summaryMessage) {
         throw new Error(`recallFastTrackCompactMessages: summary cannot fit remaining budget=${budget - mandatoryCost}`);
     }

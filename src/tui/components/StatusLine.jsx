@@ -362,7 +362,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   // Footer footprint stays 3 rows total, but L2 sits directly under L1 without
   // an internal spacer; the remaining row is kept as outer breathing room.
   return (
-    <Box flexDirection="column" width="100%" height={3} overflow="hidden" backgroundColor={theme.background}>
+    <Box flexDirection="column" width="100%" height={3} overflow="hidden" paddingLeft={2} backgroundColor={theme.background}>
       <Box flexDirection="row" width="100%" overflow="hidden">
         <Box flexGrow={1} flexShrink={1} overflow="hidden">
           <Text wrap="truncate">{lines[0] || ' '}</Text>

@@ -1729,15 +1729,18 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     // calls (they return null above), so those `continue`-before-
                     // execution stub paths can never early-notify (contract #5).
                     try {
-                        // Pure completion-state signal: content is intentionally
-                        // empty. The TUI treats __earlyNotify as a "this callId
-                        // finished" flip (advance completedCount, stop the pending
-                        // spinner/blink) WITHOUT touching result/summary/rawResult.
-                        // The real compressed/offloaded content arrives via the
-                        // later in-order history notify (pushToolResultMessage).
-                        // Carrying raw pre-compress text here only caused card
-                        // height jitter and heavier UI text, so drop it.
-                        opts.onToolResult?.({ role: 'tool', toolCallId: call.id, content: '', __earlyNotify: true });
+                        const _earlyContent = settled && settled.ok
+                            ? (typeof settled.value === 'string'
+                                ? settled.value
+                                : (settled.value == null ? '' : String(settled.value)))
+                            : `Error: ${settled && settled.error instanceof Error ? settled.error.message : String(settled && settled.error)}`;
+                        opts.onToolResult?.({
+                            role: 'tool',
+                            toolCallId: call.id,
+                            content: _earlyContent,
+                            isError: !(settled && settled.ok),
+                            __earlyNotify: true,
+                        });
                     } catch { /* best-effort — UI notify must never break the eager path */ }
                     // Intentionally do NOT delete _sig here — see the block
                     // comment above. The sig must outlive promise settlement

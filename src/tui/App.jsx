@@ -600,9 +600,17 @@ function positiveIntEnv(name, fallback) {
 // stable scroll/overscan) but is otherwise driven by the viewport+overscan ROW
 // span, not a large fixed item count. All three are env-tunable for A/B / revert.
 const TRANSCRIPT_WINDOW_MIN_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_MIN_ITEMS', 12);
-const TRANSCRIPT_WINDOW_OVERSCAN_ROWS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_OVERSCAN_ROWS', 24);
+const TRANSCRIPT_WINDOW_OVERSCAN_ROWS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_OVERSCAN_ROWS', 16);
 
-const TRANSCRIPT_WINDOW_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS', 180);
+// Hard cap on simultaneously MOUNTED transcript items. Every mounted child is
+// fully serialized by ink each frame (clipping only trims write coords, not the
+// serialize pass), so this cap is the dominant lever for per-frame render cost
+// on a tall transcript. The viewport+overscan ROW span already drives the
+// window; this cap only bounds the worst case (many short rows). 180 mounted
+// rows is far more than any viewport needs and made each frame serialize a long
+// tail of off-screen rows, so lower it to a value that still comfortably covers
+// viewport + overscan on a large terminal. Env-tunable for A/B / revert.
+const TRANSCRIPT_WINDOW_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS', 80);
 const SELECTION_PAINT_INTERVAL_MS = positiveIntEnv('MIXDOG_TUI_SELECTION_PAINT_MS', 24);
 const PROMPT_HISTORY_LIMIT = 50;
 
@@ -1032,6 +1040,41 @@ function fnv1a32(str) {
   return h >>> 0;
 }
 
+// Two genuinely INDEPENDENT 32-bit rolling-hash steps used to fold short
+// per-item sigParts into a single fixed-length structure signature (see
+// transcriptStructureSignature). Combined they form a 64-bit signature whose
+// collision probability across any realistic transcript edit sequence is
+// negligible, while staying O(1) in length (unlike the previous O(N)-length
+// concatenated signature string).
+//
+// CRITICAL: the two steps must use different mixers. `fnvStepA` is plain FNV-1a
+// (the shift sum is exactly h*16777619). `fnvStepB` MUST NOT also be FNV-1a with
+// the same prime — that collapses the pair into one 32-bit hash (an earlier
+// version did, and a 216k-combo self-test showed ~5 collisions, matching 32-bit
+// birthday math). `fnvStepB` therefore uses a distinct seed, a different prime,
+// and an xorshift finalizer per char so the two chains are decorrelated and the
+// effective space is the full 64 bits.
+function fnvStepA(hash, str) {
+  let h = hash >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h >>> 0;
+}
+
+function fnvStepB(hash, str) {
+  let h = hash >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 0x85ebca77) >>> 0;
+    // xorshift finalizer (murmur3 fmix tail) decorrelates fnvStepB from the
+    // FNV-1a multiply in fnvStepA so the combined 64-bit value uses its full
+    // space instead of degenerating to a single 32-bit hash.
+    h = (h ^ (h >>> 13)) >>> 0;
+  }
+  return h >>> 0;
+}
+
 function textShapeFingerprint(value) {
   if (value == null) return 'z';
   const text = String(value);
@@ -1257,34 +1300,51 @@ const transcriptSigPartCache = new WeakMap();
 
 function transcriptStructureSignature(items, columns, toolOutputExpanded) {
   const list = Array.isArray(items) ? items : [];
-  let sig = `${list.length}|${columns}|${toolOutputExpanded ? 1 : 0}`;
+  // Fold each item's short sigPart into a fixed-length 64-bit rolling hash (two
+  // independent 32-bit FNV chains) instead of concatenating into one O(N)-length
+  // string. The previous concat allocated and returned a signature string whose
+  // length grew with the transcript, so during streaming (a fresh state.items
+  // array every ~8ms) BOTH building it and useMemo's string compare scaled with
+  // N. The hash chain keeps the per-item visit but produces a 16-char result,
+  // making the build allocation O(1) and the memo compare O(1). The index `i` is
+  // folded in so reordering changes the signature; `length` and the global
+  // columns/expanded flags seed the chain.
+  let hA = fnvStepA(0x811c9dc5, `${list.length}|${columns}|${toolOutputExpanded ? 1 : 0}`);
+  let hB = fnvStepB(0xcbf29ce4, `${list.length}|${columns}|${toolOutputExpanded ? 1 : 0}`);
   for (let i = 0; i < list.length; i++) {
     const it = list[i];
-    if (!it) { sig += ';_'; continue; }
-    // Streaming assistant: include only the estimated row count, not the text,
-    // so per-character growth that does not change height keeps the memo warm.
-    if (it.kind === 'assistant' && it.streaming) {
-      sig += `;a${it.id}:${streamingEstimateRows(it, columns, toolOutputExpanded)}`;
-      continue;
+    let sigPart;
+    if (!it) {
+      sigPart = '_';
+    } else if (it.kind === 'assistant' && it.streaming) {
+      // Streaming assistant: include only the estimated row count, not the text,
+      // so per-character growth that does not change height keeps the memo warm.
+      sigPart = `a${it.id}:${streamingEstimateRows(it, columns, toolOutputExpanded)}`;
+    } else {
+      // Completed item: reuse the cached sigPart while the variant key (every
+      // height-affecting field) and columns are unchanged. Identity is keyed on
+      // the item object itself (stable for in-place append/patch).
+      const variantKey = transcriptItemVariantKey(it);
+      const cached = transcriptSigPartCache.get(it);
+      if (cached
+        && cached.variantKey === variantKey
+        && cached.columns === columns
+        && cached.id === it.id
+        && cached.kind === it.kind) {
+        sigPart = cached.sigPart;
+      } else {
+        sigPart = `${it.kind?.[0] || '?'}${it.id}:${variantKey}`;
+        transcriptSigPartCache.set(it, { id: it.id, kind: it.kind, variantKey, columns, sigPart });
+      }
     }
-    // Completed item: reuse the cached sigPart while the variant key (every
-    // height-affecting field) and columns are unchanged. Identity is keyed on
-    // the item object itself (stable for in-place append/patch).
-    const variantKey = transcriptItemVariantKey(it);
-    const cached = transcriptSigPartCache.get(it);
-    if (cached
-      && cached.variantKey === variantKey
-      && cached.columns === columns
-      && cached.id === it.id
-      && cached.kind === it.kind) {
-      sig += cached.sigPart;
-      continue;
-    }
-    const sigPart = `;${it.kind?.[0] || '?'}${it.id}:${variantKey}`;
-    transcriptSigPartCache.set(it, { id: it.id, kind: it.kind, variantKey, columns, sigPart });
-    sig += sigPart;
+    // Mix the row position in so a pure reorder (same items, new order) still
+    // changes the signature, then fold the sigPart into both chains.
+    hA = fnvStepA(hA, `;${i};`);
+    hA = fnvStepA(hA, sigPart);
+    hB = fnvStepB(hB, `;${i};`);
+    hB = fnvStepB(hB, sigPart);
   }
-  return sig;
+  return `${hA.toString(36)}.${hB.toString(36)}`;
 }
 
 function transcriptRenderWindow(items, { scrollOffset = 0, viewportHeight = 24, columns = 80, toolOutputExpanded = false, rowIndex = null } = {}) {
@@ -2222,6 +2282,11 @@ export function App({ store, initialStatusLine = '' }) {
             // Push the final rect so ink re-renders the visible selection.
             applySelectionRect(rect);
           }
+          // Drag is over: the measured-height harvest was skipped for every
+          // motion commit (see the harvest effect's dragRef guard), so force one
+          // re-measure now to reconcile any row whose true height drifted from
+          // its estimate while the drag was in flight.
+          if (TRANSCRIPT_MEASURED_ROWS) setMeasuredRowsVersion((v) => (v + 1) % 1000000);
         }
       }
       if (up !== 0 || down !== 0) {
@@ -7081,6 +7146,14 @@ export function App({ store, initialStatusLine = '' }) {
   // follow path already keeps them visually stable.
   useLayoutEffect(() => {
     if (!TRANSCRIPT_MEASURED_ROWS) return;
+    // Skip the per-row Yoga harvest while a drag is in progress. Edge auto-
+    // scroll commits setScrollOffset on every pointer motion, but the mounted
+    // rows' real heights do not change during a drag — only their scroll
+    // position does. Re-measuring every motion ran this O(mounted) loop (plus a
+    // variantKey check per row) for no height change, which is pure drag
+    // overhead on a tall transcript. The cached measurements stay authoritative
+    // for the row-index math; a single re-measure is forced on release below.
+    if (dragRef.current.active) return;
     const els = transcriptItemElsRef.current;
     if (!els || els.size === 0) return;
     const liveItems = transcriptMeasureItemsRef.current;

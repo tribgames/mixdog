@@ -1086,6 +1086,50 @@ export async function createEngineSession({
     if (item?.id != null) itemIndexById.set(item.id, index);
     set({ items });
   };
+  // ── Deferred tool-card push (scroll/text sync) ──────────────────────────────
+  // A tool card USED to be pushed the instant onToolCall fired, which reserved
+  // its estimated height (margin+header+detail) immediately while ToolExecution
+  // only painted blank placeholder rows for TOOL_PENDING_SHOW_DELAY_MS. With a
+  // bottom-fixed viewport that pushed the body up BEFORE any glyph appeared, so
+  // the scroll ran ahead of the text. Instead we hold the card off-screen for
+  // the same delay and push it only when the real header/detail will paint
+  // (delay elapsed) OR a result lands first (fast tool → completed card with no
+  // pending flicker). The pushed item's startedAt is already >= the delay, so
+  // ToolExecution renders the real card directly without the placeholder stage.
+  // Mirrors components/ToolExecution.jsx TOOL_PENDING_SHOW_DELAY_MS.
+  const TOOL_CARD_PUSH_DELAY_MS = 1000;
+  const ensureToolCardPushed = (card) => {
+    if (!card || card.pushed) return false;
+    if (card.pushTimer) { clearTimeout(card.pushTimer); card.pushTimer = null; }
+    card.pushed = true;
+    if (card.spec) pushItem(card.spec);
+    return true;
+  };
+  const scheduleToolCardPush = (card) => {
+    if (!card || card.pushed || card.pushTimer) return;
+    card.pushTimer = setTimeout(() => {
+      card.pushTimer = null;
+      if (disposed) return;
+      ensureToolCardPushed(card);
+    }, TOOL_CARD_PUSH_DELAY_MS);
+    card.pushTimer.unref?.();
+  };
+  const ensureAggregatePushed = (aggregate) => {
+    if (!aggregate || aggregate.pushed) return false;
+    if (aggregate.pushTimer) { clearTimeout(aggregate.pushTimer); aggregate.pushTimer = null; }
+    aggregate.pushed = true;
+    if (aggregate.pendingSpec) pushItem(aggregate.pendingSpec);
+    return true;
+  };
+  const scheduleAggregatePush = (aggregate) => {
+    if (!aggregate || aggregate.pushed || aggregate.pushTimer) return;
+    aggregate.pushTimer = setTimeout(() => {
+      aggregate.pushTimer = null;
+      if (disposed) return;
+      ensureAggregatePushed(aggregate);
+    }, TOOL_CARD_PUSH_DELAY_MS);
+    aggregate.pushTimer.unref?.();
+  };
   const upsertSyntheticToolItem = (text, id = nextId(), parsed = null) => {
     const synthetic = parseSyntheticAgentMessage(text);
     if (!synthetic) return false;
@@ -1382,6 +1426,7 @@ export async function createEngineSession({
   function aggregateRawResult(calls) {
     const chunks = [];
     for (const rec of calls || []) {
+      if (rec?.resolved !== true) continue;
       const text = String(rec?.resultText || '').replace(/\s+$/, '');
       if (!text.trim()) continue;
       const label = String(rec?.name || rec?.category || 'tool').trim() || 'tool';
@@ -1470,6 +1515,9 @@ export async function createEngineSession({
         detailText = succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`;
       } else {
         detailText = aggregateDisplayDetail(summaries, allCalls);
+        if (errors > 0) {
+          detailText = detailText ? `${detailText} · ${errors} Failed` : `${errors} Failed`;
+        }
       }
       const currentItem = state.items.find((it) => it.id === card.itemId);
       const earlyCompleted = allCalls.filter((r) => r.resolved || r.completedEarly).length;
@@ -1906,26 +1954,54 @@ export async function createEngineSession({
       if (_batchTimer?.unref) _batchTimer.unref(); // don't prevent process exit
     };
 
-    // __earlyNotify: flip completedCount only (no result/summary/rawResult).
-    // Content is filled by the later history flush; resultsDone is untouched.
-    const markToolCardCompletedState = (callId) => {
+    // __earlyNotify: show 1-line summary + completedCount immediately; defer
+    // rawResult/expand and resultsDone to the history flush.
+    const markToolCardCompletedState = (callId, message) => {
       const card = cardByCallId.get(callId);
       if (!card) return;
       const aggregate = card.aggregate;
       if (aggregate && card.itemId === aggregate.itemId) {
         const callRec = aggregate.calls.get(callId);
         if (!callRec || callRec.resolved || callRec.completedEarly) return;
+        const rawText = toolResultText(message?.content);
+        const isError = message?.isError === true || message?.toolKind === 'error' || /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText));
+        const text = isError ? toolErrorDisplay(rawText, callRec.name || 'tool') : rawText;
+        callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
+        assignAggregateSummaryOrder(aggregate, callRec);
+        callRec.isError = isError;
+        callRec.resultText = text;
         callRec.completedEarly = true;
         const allCalls = [...aggregate.calls.values()];
         const completedCount = allCalls.filter((r) => r.resolved || r.completedEarly).length;
+        const errors = allCalls.filter((r) => r.isError).length;
+        const summaries = aggregateSummaries(aggregate);
+        let detailText;
+        if (errors > 0 && summaries.length === 0) {
+          const succeeded = completedCount - errors;
+          detailText = succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`;
+        } else {
+          detailText = aggregateDisplayDetail(summaries, allCalls);
+          if (errors > 0) {
+            detailText = detailText ? `${detailText} · ${errors} Failed` : `${errors} Failed`;
+          }
+        }
+        const rawResult = aggregateRawResult(allCalls);
+        const displayDetail = toolAggregateDetailFallback(detailText, rawResult);
         const currentItem = state.items.find((it) => it.id === card.itemId);
         const visualCompleted = Math.max(
           completedCount,
           Math.min(allCalls.length, Number(currentItem?.completedCount || 0)),
         );
-        const patch = { completedCount: visualCompleted };
+        const patch = {
+          result: displayDetail,
+          text: displayDetail,
+          isError: errors > 0,
+          errorCount: errors,
+          count: allCalls.length,
+          completedCount: visualCompleted,
+        };
         if (visualCompleted >= allCalls.length) {
-          patch.completedAt = Date.now();
+          patch.completedAt = Number(currentItem?.completedAt) || Date.now();
         }
         patchItem(card.itemId, patch);
         return;
@@ -1938,7 +2014,7 @@ export async function createEngineSession({
     const deliverToolResultMessage = (message) => {
       if (message?.__earlyNotify === true) {
         const earlyCallId = toolResultCallId(message);
-        if (earlyCallId) markToolCardCompletedState(earlyCallId);
+        if (earlyCallId) markToolCardCompletedState(earlyCallId, message);
         return;
       }
       flushToolResults([message], toolCards, cardByCallId, toolGroups, resultsDone);

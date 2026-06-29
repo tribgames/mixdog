@@ -669,7 +669,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
       detailText = '';
     }
 
-    const dotColor = headerPending ? theme.subtle : statusColor;
+    const dotColor = (pending || !hasResult) ? theme.subtle : statusColor;
     const dotText = pending && !blinkExpired && !blinkOn ? ' ' : TURN_MARKER;
     const gutter = 2;
     const showHeaderExpandHint = hasRawResult;

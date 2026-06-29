@@ -1,9 +1,78 @@
 import { isOffloadedToolResultText } from './tool-result-offload.mjs';
 import { createHash } from 'node:crypto';
 
-// Rough token estimate: ~4 chars per token
+// ---------------------------------------------------------------------------
+// Conservative, Unicode-aware token estimator.
+//
+// This is a SAFETY estimator, NOT exact tokenizer parity. We cannot run the
+// provider's real BPE tokenizer here (no network, no bundled vocab), so the
+// goal is to never UNDERcount: a transcript the estimator says "fits" must
+// genuinely fit the model context once compaction has run. The legacy chars/4
+// heuristic badly undercounts Korean/CJK/kana/emoji and dense JSON/tool-call
+// payloads (which BPE often splits into >=1 token per character or per byte),
+// so a "fits" verdict was optimistic exactly where it mattered most.
+//
+// Strategy: weight each code point by how expensive it tends to be under a
+// modern BPE tokenizer (cl100k/o200k-class), then take the MAX of that weighted
+// sum and the chars/4 ASCII lower bound, then apply a small safety multiplier.
+// Weights deliberately lean high (overcount) for CJK/Hangul/emoji.
+//
+// MIXDOG_TOKEN_ESTIMATE_SAFETY_MULTIPLIER (default 1.1, clamped 1.0..2.0) lets
+// operators dial extra headroom without code changes.
+function readSafetyMultiplier() {
+    const raw = Number(process.env.MIXDOG_TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
+    if (Number.isFinite(raw)) return Math.min(2.0, Math.max(1.0, raw));
+    return 1.1;
+}
+const TOKEN_ESTIMATE_SAFETY_MULTIPLIER = readSafetyMultiplier();
+
+// Per-code-point token-cost weight. Tuned to overcount, not match exactly.
+function codePointTokenWeight(cp) {
+    // ASCII (latin letters, digits, punctuation, whitespace, control): the one
+    // region where chars/4 is roughly right — keep the cheap 0.25/char cost.
+    if (cp < 0x80) return 0.25;
+    // Hangul syllables + Jamo + compatibility Jamo. Korean is the worst case
+    // for chars/4: a single syllable frequently costs 1.5–3 BPE tokens, and
+    // rarer syllables fall back to multi-byte splits. Weight high for safety.
+    if (cp >= 0xAC00 && cp <= 0xD7A3) return 1.5;
+    if (cp >= 0x1100 && cp <= 0x11FF) return 1.5;
+    if (cp >= 0x3130 && cp <= 0x318F) return 1.5;
+    if (cp >= 0xA960 && cp <= 0xA97F) return 1.5;
+    if (cp >= 0xD7B0 && cp <= 0xD7FF) return 1.5;
+    // Hiragana / Katakana / Katakana phonetic extensions.
+    if (cp >= 0x3040 && cp <= 0x30FF) return 1.2;
+    if (cp >= 0x31F0 && cp <= 0x31FF) return 1.2;
+    // CJK unified ideographs (incl. Ext A) + compatibility ideographs.
+    if (cp >= 0x3400 && cp <= 0x4DBF) return 1.2;
+    if (cp >= 0x4E00 && cp <= 0x9FFF) return 1.2;
+    if (cp >= 0xF900 && cp <= 0xFAFF) return 1.2;
+    // CJK Extension B and beyond (supplementary ideographic plane).
+    if (cp >= 0x20000 && cp <= 0x2FA1F) return 1.2;
+    // Emoji / pictographs / dingbats / symbols — these explode under BPE
+    // (surrogate pairs, ZWJ sequences, variation selectors), so weight highest.
+    if (cp >= 0x2600 && cp <= 0x27BF) return 2.0;
+    if (cp >= 0x1F000 && cp <= 0x1FAFF) return 2.0;
+    if (cp >= 0x2190 && cp <= 0x21FF) return 1.5; // arrows
+    if (cp >= 0x2300 && cp <= 0x23FF) return 1.5; // technical symbols
+    // Latin-1 supplement / extended latin / IPA — pricier than ASCII (often a
+    // token per accented char) but cheaper than CJK.
+    if (cp < 0x0400) return 0.6;
+    // Everything else non-ASCII (Cyrillic, Greek, Arabic, Hebrew, Thai, …):
+    // multi-byte UTF-8, typically ~0.5–1 token/char. Stay conservative.
+    return 0.8;
+}
+
+// Conservative Unicode-aware token estimate. Iterates by code point (so
+// surrogate-pair emoji are scored once, at the high emoji weight), takes the
+// max of the weighted sum and the chars/4 ASCII floor, then applies the safety
+// multiplier. Always overcounts relative to chars/4 for non-ASCII text.
 function estimateTokens(text) {
-    return Math.ceil(String(text ?? '').length / 4);
+    const s = String(text ?? '');
+    if (s.length === 0) return 0;
+    let weighted = 0;
+    for (const ch of s) weighted += codePointTokenWeight(ch.codePointAt(0));
+    const asciiFloor = s.length / 4; // never below the legacy chars/4 lower bound
+    return Math.ceil(Math.max(weighted, asciiFloor) * TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
 }
 function messageEstimateText(m) {
     if (!m || typeof m !== 'object') return '';
