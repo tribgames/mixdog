@@ -79,6 +79,7 @@ export function Picker({
   onRight,
   onTab,
   onKey,
+  onHighlight,
   title,
   description = '',
   footer = '',
@@ -102,6 +103,16 @@ export function Picker({
   useEffect(() => {
     setSelectedIndex(Math.max(0, Math.min(Number(initialIndex) || 0, Math.max(0, items.length - 1))));
   }, [initialIndex, items.length]);
+
+  // Live-preview hook: notify the owner whenever the highlighted row changes
+  // (arrow keys, paging, initial mount). The /theme picker uses this to apply a
+  // non-persisted palette preview as the selection moves. Kept side-effect-free
+  // for pickers that do not pass onHighlight.
+  useEffect(() => {
+    if (typeof onHighlight !== 'function') return;
+    const item = items[selectedIndex];
+    if (item) onHighlight(item.value, item, selectedIndex);
+  }, [onHighlight, items, selectedIndex]);
 
   const activeFooter = typeof footer === 'function' ? footer(items[selectedIndex], selectedIndex) : footer;
   const footerLines = normalizeFooterLines(activeFooter, columns);

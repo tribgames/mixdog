@@ -108,11 +108,18 @@ function ansiRgb(value, fallback) {
   return `\x1b[38;2;${match[1]};${match[2]};${match[3]}m`;
 }
 
-const STATUS = ansiRgb(theme.statusText, '\x1b[38;2;198;198;198m');
-const SUBTLE = ansiRgb(theme.statusSubtle, '\x1b[38;2;136;136;136m');
-const SUCCESS = ansiRgb(theme.success, '\x1b[38;2;0;170;75m');
-const WARNING = ansiRgb(theme.warning, '\x1b[38;2;255;193;7m');
-const ERROR = ansiRgb(theme.error, '\x1b[38;2;220;70;88m');
+// SGR escapes derived from the active theme. Resolved per call (not captured at
+// module load) so a live `/theme` switch re-tones the statusline on the next
+// render. `theme` is mutated in-place on switch.
+function statusColors() {
+  return {
+    STATUS: ansiRgb(theme.statusText, '\x1b[38;2;198;198;198m'),
+    SUBTLE: ansiRgb(theme.statusSubtle, '\x1b[38;2;136;136;136m'),
+    SUCCESS: ansiRgb(theme.success, '\x1b[38;2;0;170;75m'),
+    WARNING: ansiRgb(theme.warning, '\x1b[38;2;255;193;7m'),
+    ERROR: ansiRgb(theme.error, '\x1b[38;2;220;70;88m'),
+  };
+}
 
 function terminalColumns() {
   const cols = Number(process.stdout?.columns);
@@ -139,6 +146,7 @@ function localContextPct({ provider = '', stats = null, contextWindow = 0 } = {}
 }
 
 function localContextSegmentFromPct(ctxPct = 0) {
+  const { SUBTLE, SUCCESS, WARNING, ERROR } = statusColors();
   const cols = terminalColumns();
   const cells = cols >= 80 ? 14 : 0;
   const pct = Math.max(0, Math.min(100, Number(ctxPct) || 0));
@@ -208,6 +216,7 @@ function localBootStatusLine({
   agentJobs = [],
 } = {}) {
   const raw = String(model || '').trim();
+  const { STATUS, SUBTLE, SUCCESS } = statusColors();
   const display = shortenModelName(
     canonicalModelDisplay(raw, provider) || raw || 'model',
     terminalColumns(),
@@ -226,6 +235,7 @@ function localBootStatusLine({
 }
 
 export function normalizeStatusLine(text) {
+  const { STATUS, SUBTLE, SUCCESS, WARNING, ERROR } = statusColors();
   return String(text || '')
     .replace(/\n+$/, '')
     .replace(/\x1b\[1m/g, STATUS)

@@ -13,6 +13,7 @@ import { performance } from 'node:perf_hooks';
 import { App } from './App.jsx';
 import { createEngineSession } from './engine.mjs';
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
+import { loadThemeSettingFromConfig } from './theme.mjs';
 
 const TERMINAL_MODE_RESET = '\x1b[?1006l\x1b[?1005l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[?25h';
 const TERMINAL_MODE_RESET_HIDDEN_CURSOR = TERMINAL_MODE_RESET.replace('\x1b[?25h', '\x1b[?25l');
@@ -211,6 +212,12 @@ export async function runTui({ provider, model, toolMode } = {}) {
   process.stdout.write('\x1b[5 q'); // blinking bar
 
   process.on('exit', restoreTerminal);
+
+  // Apply the persisted UI theme (ui.theme in mixdog-config.json) before the
+  // first React frame so the whole tree paints in the chosen palette. Unknown
+  // or missing values leave the default Mixdog dark palette in place; a failed
+  // config read never blocks boot.
+  try { await loadThemeSettingFromConfig(); } catch { /* default theme stays */ }
 
   let store;
   try {

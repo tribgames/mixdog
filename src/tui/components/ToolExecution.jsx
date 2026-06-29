@@ -39,7 +39,8 @@ export function displayToolName(name, args) {
 const TOOL_BLINK_MS = 500;
 const TOOL_BLINK_LIMIT_MS = 3000;
 const TOOL_PENDING_SHOW_DELAY_MS = 1000;
-const TOOL_HINT_DONE_COLOR = theme.subtle;
+// Read `theme.subtle` at use-time (not captured here) so a live `/theme`
+// switch re-tones the tool hints. `theme` is mutated in-place on switch.
 
 function normalizeCount(value) {
   const n = Number(value || 0);
@@ -681,7 +682,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     const rightReserve = Math.max(stringWidth(hintText), stringWidth(headerMetaText));
     const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - rightReserve);
     const trailingText = headerMetaText || (showHeaderExpandHint ? hintText : '');
-    const trailingColor = headerMetaText ? theme.subtle : TOOL_HINT_DONE_COLOR;
+    const trailingColor = theme.subtle;
     const clippedHeader = stringWidth(headerText) > avail
       ? truncateToWidth(headerText, avail)
       : headerText;
@@ -892,7 +893,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     && (totalLines > 1 || firstResultLineClipped || Boolean(shellCollapsedSummary && shellCollapsedSummary !== firstResultLine));
   const showHeaderExpandHint = (isShellSurface ? shellHasExpandableBody : (isAgentSurfaceCard ? agentHasExpandableBody : (hasHiddenDetail || backgroundMetadataExpandable)))
     && normalizedName !== 'tool_search';
-  const expandHintColor = TOOL_HINT_DONE_COLOR;
+  const expandHintColor = theme.subtle;
 
   // Build a single-line header that never wraps: reserve width for the fixed
   // trailing expand hint plus the dot gutter and a 1-col Windows last-column

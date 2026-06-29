@@ -11,24 +11,29 @@ import { theme } from '../theme.mjs';
 
 const ANSI_RE = /\x1b\[([0-9;]*)m/g;
 
-const ANSI_COLORS = {
-  30: theme.subtle,
-  31: theme.error,
-  32: theme.success,
-  33: theme.warning,
-  34: theme.code,
-  35: 'ansi:magenta',
-  36: 'ansi:cyan',
-  37: theme.text,
-  90: theme.subtle,
-  91: theme.error,
-  92: theme.success,
-  93: theme.warning,
-  94: theme.code,
-  95: 'ansi:magentaBright',
-  96: 'ansi:cyanBright',
-  97: theme.statusText,
-};
+// Resolve the named SGR (30-37/90-97) → theme color map at call time so a
+// live `/theme` switch is honored. `theme` is mutated in-place on switch, so
+// reading the keys per parse keeps colors in sync without a module reload.
+function ansiColorMap() {
+  return {
+    30: theme.subtle,
+    31: theme.error,
+    32: theme.success,
+    33: theme.warning,
+    34: theme.code,
+    35: 'ansi:magenta',
+    36: 'ansi:cyan',
+    37: theme.text,
+    90: theme.subtle,
+    91: theme.error,
+    92: theme.success,
+    93: theme.warning,
+    94: theme.code,
+    95: 'ansi:magentaBright',
+    96: 'ansi:cyanBright',
+    97: theme.statusText,
+  };
+}
 
 const ANSI_BG_COLORS = {
   40: 'ansi:black',
@@ -74,7 +79,7 @@ function rgbCode(codes, index) {
   return `rgb(${r},${g},${b})`;
 }
 
-function applySgr(state, codes, defaultColor) {
+function applySgr(state, codes, defaultColor, ansiColors) {
   if (!codes.length) codes = [0];
   for (let i = 0; i < codes.length; i++) {
     const code = codes[i];
@@ -133,8 +138,8 @@ function applySgr(state, codes, defaultColor) {
         state.backgroundColor = undefined;
         break;
       default:
-        if (ANSI_COLORS[code]) {
-          state.color = ANSI_COLORS[code];
+        if (ansiColors[code]) {
+          state.color = ansiColors[code];
         } else if (ANSI_BG_COLORS[code]) {
           state.backgroundColor = ANSI_BG_COLORS[code];
         }
@@ -147,6 +152,7 @@ function parseAnsi(text, defaultColor) {
   const source = String(text ?? '');
   const spans = [];
   const state = defaultState(defaultColor);
+  const ansiColors = ansiColorMap();
   let lastIndex = 0;
   let match;
 
@@ -159,7 +165,7 @@ function parseAnsi(text, defaultColor) {
       .split(';')
       .filter(Boolean)
       .map((n) => Number(n));
-    applySgr(state, codes, defaultColor);
+    applySgr(state, codes, defaultColor, ansiColors);
     lastIndex = ANSI_RE.lastIndex;
   }
 
@@ -183,9 +189,10 @@ export function AnsiText({ children, defaultColor, wrap }) {
           key={index}
           color={span.style.color}
           backgroundColor={span.style.backgroundColor}
-          // Windows Terminal's synthetic bold makes Korean markdown text look
-          // slightly fuzzy. Keep the color emphasis, but avoid the font weight.
-          bold={false}
+          // Honor SGR bold only on spans that chalk/markdown set (e.g. **strong**,
+          // headings). Do not force bold globally — avoids fuzzy Korean body text
+          // when models emit no bold codes.
+          bold={span.style.bold}
           dimColor={span.style.dimColor}
           italic={span.style.italic}
           underline={span.style.underline}

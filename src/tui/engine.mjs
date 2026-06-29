@@ -15,6 +15,7 @@ import {
 } from '../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody, presentErrorText } from '../runtime/shared/err-text.mjs';
 import { modelVisibleToolCompletionMessage } from '../runtime/shared/tool-execution-contract.mjs';
+import { listThemes, getThemeSetting, setThemeSetting } from './theme.mjs';
 
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
 const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
@@ -519,21 +520,21 @@ export function parseBackgroundTaskEnvelope(text) {
 
 function isStatusOnlyAgentCompletionNotification(text) {
   const background = parseBackgroundTaskEnvelope(text);
-  if (background?.name === 'agent' && /^(completed|cancelled|canceled)$/i.test(background.label || '') && !hasAgentResponseResultText(background.result)) {
-    return true;
+  if (background?.name === 'agent' && /^(completed|cancelled|canceled)$/i.test(background.label || '')) {
+    return !(hasAgentResponseResultText(background.result) || hasAgentResponseResultText(text));
   }
   const parsed = parseAgentJob(text);
   const result = agentJobResultText(text, parsed);
-  return Boolean(parsed?.taskId)
-    && /^(completed|cancelled|canceled)$/i.test(parsed.status || '')
-    && !hasAgentResponseResultText(result);
+  if (!parsed?.taskId || !/^(completed|cancelled|canceled)$/i.test(parsed.status || '')) return false;
+  return !(hasAgentResponseResultText(result) || hasAgentResponseResultText(text));
 }
 
 function hasAgentResponseResultText(text) {
   const value = String(text || '').trim();
   if (!value) return false;
   if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(value)) return false;
-  return !/^(?:background task\b|agent task:|task_id:)/i.test(value);
+  if (/^(?:background task\b|agent task:|task_id:)/i.test(value) && !/\n\s*\n[\s\S]*\S/.test(value)) return false;
+  return true;
 }
 
 function bracketField(text, name) {
@@ -967,6 +968,7 @@ export async function createEngineSession({
     ...initialAgentState,
     toolMode: runtime.toolMode,
     cwd,
+    themeEpoch: 0,
   };
   bootProfile('engine:state-ready', { ms: (performance.now() - stateStartedAt).toFixed(1) });
   let pendingSessionReset = false;
@@ -2062,7 +2064,7 @@ export async function createEngineSession({
         },
         onUsageDelta: (delta) => {
           applyUsageDelta(state.stats, delta);
-          syncContextStats();
+          syncContextStats({ allowEstimated: true });
           const currentTurnInput = Math.max(0, state.stats.inputTokens - inputBaseline);
           const currentTurnOutput = Math.max(0, state.stats.outputTokens - outputBaseline);
           if (state.spinner) {
@@ -2077,7 +2079,7 @@ export async function createEngineSession({
       flushToolResults(session?.messages || [], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
       finalizeToolHeaders();
       flushStreamBatch(); // force-flush any batched streaming text before finalization writes
-      syncContextStats();
+      syncContextStats({ allowEstimated: true });
 
       const finalText = result?.content != null ? String(result.content) : '';
       if (finalText.trim()) {
@@ -2974,6 +2976,17 @@ export async function createEngineSession({
       } finally {
         set({ commandBusy: false });
       }
+    },
+    // Theme is a TUI-local concern (no runtime round-trip). listThemes returns
+    // picker metadata; getTheme reports the active id; setTheme applies the
+    // palette in-place + persists ui.theme and bumps a themeEpoch so the React
+    // tree re-renders (markdown/status/spinner colorizers re-resolve).
+    listThemes: () => listThemes(),
+    getTheme: () => getThemeSetting(),
+    setTheme: (id, options = {}) => {
+      const applied = setThemeSetting(id, options);
+      set({ themeEpoch: (state.themeEpoch || 0) + 1 });
+      return applied;
     },
     setAgentRoute: async (agentId, opts) => {
       return await runtime.setAgentRoute?.(agentId, opts);

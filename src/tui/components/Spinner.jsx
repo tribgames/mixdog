@@ -106,11 +106,19 @@ function renderShimmerText(text, head, trail, baseRgb, shimmerRgb, baseColor, ke
   );
 }
 
-const TEXT_RGB = parseRgb(theme.spinnerText) ?? parseRgb(theme.text);
-const SHIMMER_RGB = parseRgb(theme.spinnerShimmer) ?? parseRgb(theme.claudeShimmer);
-const SPINNER_GLYPH_RGB = parseRgb(theme.spinnerGlyph) ?? { r: 240, g: 240, b: 240 };
-const THINKING_INACTIVE = parseRgb(theme.thinkingBase) ?? parseRgb(theme.thinkingAccent) ?? { r: 153, g: 153, b: 153 };
-const THINKING_SHIMMER = parseRgb(theme.thinkingGlow) ?? { r: 255, g: 205, b: 175 };
+// Parsed RGB tuples are derived from the active theme. They are resolved per
+// render (cheap regex parse) so a live `/theme` switch — which mutates `theme`
+// in-place and re-renders the tree — picks up the new shimmer/glyph colors
+// instead of the colors captured at module load.
+function spinnerRgb() {
+  return {
+    TEXT_RGB: parseRgb(theme.spinnerText) ?? parseRgb(theme.text),
+    SHIMMER_RGB: parseRgb(theme.spinnerShimmer) ?? parseRgb(theme.claudeShimmer),
+    SPINNER_GLYPH_RGB: parseRgb(theme.spinnerGlyph) ?? { r: 240, g: 240, b: 240 },
+    THINKING_INACTIVE: parseRgb(theme.thinkingBase) ?? parseRgb(theme.thinkingAccent) ?? { r: 153, g: 153, b: 153 },
+    THINKING_SHIMMER: parseRgb(theme.thinkingGlow) ?? { r: 255, g: 205, b: 175 },
+  };
+}
 
 const compactNumberFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
@@ -164,6 +172,7 @@ function tokenModeGlyph(mode) {
 
 export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens = 0, thinking = false, thinkingActiveSince = 0, mode = 'responding', columns = 80, marginTop = 1 }) {
   useAnimation({ interval: FRAME_MS });
+  const { TEXT_RGB, SHIMMER_RGB, SPINNER_GLYPH_RGB, THINKING_INACTIVE, THINKING_SHIMMER } = spinnerRgb();
   const now = Date.now();
   const elapsedMs = startedAt ? Math.max(0, now - startedAt) : 0;
   const frame = Math.floor(elapsedMs / FRAME_MS);

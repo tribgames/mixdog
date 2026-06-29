@@ -70,7 +70,7 @@ const MOUSE_CTRL_MASK = 16;
 
 const SLASH_COMMANDS = [
   { name: 'clear', usage: '/clear', aliases: ['new'], aliasUsage: ['new'], description: 'Start a fresh chat' },
-  { name: 'project', usage: '/project', aliases: ['projects'], aliasUsage: ['projects'], description: 'Switch working directory (project)' },
+  { name: 'project', usage: '/project', aliases: ['projects'], aliasUsage: ['projects'], showAliasUsage: false, description: 'Switch working directory (project)' },
   { name: 'compact', usage: '/compact', description: 'Compact older conversation context' },
   { name: 'autoclear', usage: '/autoclear', description: 'Reduce cache-miss cost after long idle gaps' },
   { name: 'resume', usage: '/resume', description: 'Resume a saved chat' },
@@ -80,6 +80,7 @@ const SLASH_COMMANDS = [
   { name: 'search', usage: '/search', description: 'Set the web search provider/model' },
   { name: 'workflow', usage: '/workflow', description: 'Switch the active workflow' },
   { name: 'outputstyle', usage: '/OutputStyle', aliases: ['output-style', 'style'], aliasUsage: ['style'], showAliasUsage: false, params: '[name]', description: 'Switch Lead output style' },
+  { name: 'theme', usage: '/theme', params: '[id]', description: 'Change the TUI color theme' },
   { name: 'agents', usage: '/agents', description: 'Show available workflow agents' },
   { name: 'effort', usage: '/effort', params: '[level]', description: 'Set reasoning effort for the current model' },
   { name: 'fast', usage: '/fast', params: '[on|off]', description: 'Toggle Fast mode for the current model' },
@@ -693,14 +694,94 @@ function estimateMarkdownExtraRows(text) {
   const value = String(text ?? '');
   if (!value) return 0;
   let extra = 0;
-  // Blank-line block separators ≈ Markdown gap rows between blocks.
-  const blocks = value.split(/\n{2,}/).filter((b) => b.trim()).length;
-  if (blocks > 1) extra += blocks - 1;
+  const blockUnits = countMarkdownBlockUnitsForGap(value);
+  if (blockUnits > 1) extra += blockUnits - 1;
   // GFM table: header + separator + each body row + 4 border lines, minus the
   // raw '\n' rows already counted. Approximate by adding the border overhead.
   const tableSeparators = (value.match(/^\s*\|?\s*:?-{2,}.*\|/gm) || []).length;
   if (tableSeparators > 0) extra += tableSeparators * 4;
   return extra;
+}
+
+function isMarkdownTableLine(line) {
+  if (/^\s*\|?\s*:?-{2,}.*\|/.test(line)) return true;
+  const trimmed = String(line ?? '').trim();
+  return /^\|/.test(trimmed) && trimmed.includes('|', 1);
+}
+
+function classifyMarkdownLineForGap(line, state) {
+  if (state.inFence) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      state.inFence = false;
+      return 'fence_close';
+    }
+    return 'code';
+  }
+  const trimmed = String(line ?? '').trim();
+  if (!trimmed) return 'blank';
+  if (/^\s*(```|~~~)/.test(line)) {
+    state.inFence = true;
+    return 'fence_open';
+  }
+  if (isMarkdownTableLine(line)) return 'table';
+  if (/^#{1,6}\s/.test(trimmed)) return 'heading';
+  if (/^\s*([-*+]|\d+\.)\s/.test(line)) return 'list';
+  if (/^\s*>/.test(line)) return 'blockquote';
+  if (/^\s*([-*_])\1{2,}\s*$/.test(trimmed)) return 'hr';
+  return 'paragraph';
+}
+
+function markdownGapUnitType(kind) {
+  if (kind === 'code' || kind === 'fence_open' || kind === 'fence_close') return 'code';
+  if (kind === 'table') return 'table';
+  if (kind === 'paragraph') return 'paragraph';
+  if (kind === 'list') return 'list';
+  if (kind === 'blockquote') return 'blockquote';
+  if (kind === 'heading') return 'heading';
+  if (kind === 'hr') return 'hr';
+  return 'unknown';
+}
+
+function continuesMarkdownGapUnit(current, kind) {
+  if (!current) return false;
+  const unitType = markdownGapUnitType(kind);
+  if (current.unitType !== unitType) return false;
+  if (unitType === 'paragraph' || unitType === 'list' || unitType === 'blockquote' || unitType === 'table') return true;
+  if (unitType === 'code') return kind === 'code' || kind === 'fence_open' || kind === 'fence_close';
+  return false;
+}
+
+// Count distinct Markdown block elements (Markdown.jsx renders each token in a
+// gap={1} column). Blank lines and single-newline boundaries between unlike
+// blocks both split units; consecutive soft-wrapped paragraph lines stay one unit.
+function countMarkdownBlockUnitsForGap(value) {
+  const lines = String(value ?? '').split('\n');
+  const state = { inFence: false };
+  const units = [];
+  let current = null;
+
+  const flush = () => {
+    if (current) {
+      units.push(current);
+      current = null;
+    }
+  };
+
+  for (const line of lines) {
+    const kind = classifyMarkdownLineForGap(line, state);
+    if (kind === 'blank') {
+      flush();
+      continue;
+    }
+    if (current && continuesMarkdownGapUnit(current, kind)) {
+      current.lastKind = kind;
+      continue;
+    }
+    flush();
+    current = { unitType: markdownGapUnitType(kind), lastKind: kind };
+  }
+  flush();
+  return units.length;
 }
 
 const BACKGROUND_TASK_TOOL_NAMES = new Set(['explore', 'search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']);
@@ -1090,18 +1171,26 @@ function measuredTranscriptRows(item, columns, toolOutputExpanded) {
   return entry.rows;
 }
 
-// Streaming assistant items re-estimate their height every flush (~8ms). Tiny
-// per-character / incomplete-markdown fluctuation (a transient `\n\n` block gap,
-// a half-formed table border) made `totalRows` change on almost every flush,
-// which re-ran the windowing + scroll-preservation effect and visibly jumped
-// ("툭툭 튀는") the viewport. Quantize the streaming estimate UP to a small row
-// granularity so sub-quantum growth does not churn the row total. This is always
-// an over-estimate (safe: over-estimate only widens the scroll window; it never
-// clips visible text) and the value is identical in both the structure signature
-// and the row-index build, so they can never diverge.
-const STREAMING_ROW_QUANTUM = 2;
+// Streaming assistant items re-estimate their height every flush (~8ms). Row
+// height must match what Markdown.jsx actually draws: pushAnsi trims leading and
+// trailing edge newlines (^\n+|\n+$) before rendering, so estimates must use
+// the same trimmed text — otherwise engine streamingVisibleText (completed lines
+// ending with '\n') reserves a phantom blank body row and the viewport scrolls
+// before characters fill that band. ENGINE newline-gating means the trimmed
+// estimate input changes only when a new completed line appears, not per
+// character, so we keep quantum at 1 (no ceil-to-2 padding): growth is real
+// line additions, not sub-quantum churn. Value is identical in the structure
+// signature and row-index build so they never diverge.
+const STREAMING_ROW_QUANTUM = 1;
+
+function assistantTextForStreamingRowEstimate(text) {
+  return String(text ?? '').replace(/^\n+|\n+$/g, '');
+}
+
 function streamingEstimateRows(item, columns, toolOutputExpanded) {
-  const raw = Math.max(1, Math.ceil(estimateTranscriptItemRows(item, columns, toolOutputExpanded)));
+  const trimmedText = assistantTextForStreamingRowEstimate(item.text);
+  const estimateItem = trimmedText === item.text ? item : { ...item, text: trimmedText };
+  const raw = Math.max(1, Math.ceil(estimateTranscriptItemRows(estimateItem, columns, toolOutputExpanded)));
   return Math.ceil(raw / STREAMING_ROW_QUANTUM) * STREAMING_ROW_QUANTUM;
 }
 
@@ -3273,6 +3362,73 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
+  const themeNotice = (applied) => `Theme set to ${applied?.label || applied?.id || 'default'}`;
+
+  const openThemePicker = (options = {}) => {
+    const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    let themes = [];
+    try {
+      themes = store.listThemes?.() || [];
+    } catch (e) {
+      store.pushNotice(`could not list themes: ${e?.message || e}`, 'error');
+      return;
+    }
+    if (!themes.length) {
+      store.pushNotice('no themes available', 'warn');
+      return;
+    }
+    const currentId = store.getTheme?.() || themes.find((t) => t.current)?.id || themes[0]?.id;
+    const items = themes.map((entry) => ({
+      value: entry.id,
+      label: entry.label || entry.id,
+      marker: entry.id === currentId ? '✓' : '',
+      markerColor: theme.success,
+      description: entry.description || 'color theme',
+      _theme: entry,
+    }));
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setContextPanel(null);
+    closeUsagePanel();
+    const applyTheme = (id, { persist = true } = {}) => {
+      try {
+        return store.setTheme?.(id, { persist });
+      } catch (e) {
+        store.pushNotice(`Couldn’t set theme: ${e?.message || e}`, 'error');
+        return null;
+      }
+    };
+    setPicker({
+      title: 'Theme',
+      description: 'Choose the color theme that looks best with your terminal.',
+      help: returnTo ? '↑/↓ Preview · Enter Choose · Esc Settings' : '↑/↓ Preview · Enter Choose · Esc Back',
+      labelWidth: 22,
+      initialIndex: Math.max(0, items.findIndex((item) => item.value === currentId)),
+      items,
+      // Live preview while moving: apply (no persist) so the surface re-tones
+      // as the selection moves. Enter persists; Esc restores the original.
+      onHighlight: (_value, item) => {
+        if (item?._theme?.id) applyTheme(item._theme.id, { persist: false });
+      },
+      onSelect: (_value, item) => {
+        const entry = item?._theme;
+        if (!entry) return;
+        setPicker(null);
+        const applied = applyTheme(entry.id, { persist: true });
+        store.pushNotice(themeNotice(applied || entry), 'info');
+        if (returnTo) returnTo();
+      },
+      onCancel: () => {
+        setPicker(null);
+        // Restore the theme that was active before the picker opened.
+        if (currentId) applyTheme(currentId, { persist: false });
+        if (returnTo) returnTo();
+      },
+    });
+  };
+
   const openEffortPicker = () => {
     setProviderPrompt(null);
     setChannelPrompt(null);
@@ -3811,6 +3967,27 @@ export function App({ store, initialStatusLine = '' }) {
         .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'))
         .finally(() => openSettingsPicker());
     };
+    const cycleTheme = (direction = 1) => {
+      let themes = [];
+      try { themes = store.listThemes?.() || []; } catch (e) {
+        store.pushNotice(`could not list themes: ${e?.message || e}`, 'error');
+        return;
+      }
+      if (!themes.length) {
+        store.pushNotice('no themes available', 'warn');
+        return;
+      }
+      const currentId = store.getTheme?.() || themes.find((t) => t.current)?.id || themes[0]?.id;
+      const currentIndex = Math.max(0, themes.findIndex((t) => t.id === currentId));
+      const next = themes[(currentIndex + direction + themes.length) % themes.length];
+      try {
+        const applied = store.setTheme?.(next.id, { persist: true });
+        store.pushNotice(themeNotice(applied || next), 'info');
+      } catch (e) {
+        store.pushNotice(`Couldn’t set theme: ${e?.message || e}`, 'error');
+      }
+      openSettingsPicker();
+    };
     const items = [
       {
         value: 'profile',
@@ -3882,6 +4059,19 @@ export function App({ store, initialStatusLine = '' }) {
         meta: outputStyleLabel,
         description: 'Response tone and format.',
         _action: 'output-style',
+      },
+      {
+        value: 'theme',
+        label: 'Theme',
+        meta: (() => {
+          try {
+            const id = store.getTheme?.();
+            const entry = (store.listThemes?.() || []).find((t) => t.id === id);
+            return entry?.label || id || 'Default';
+          } catch { return 'Default'; }
+        })(),
+        description: 'TUI color theme.',
+        _action: 'theme',
       },
       {
         value: 'workflow',
@@ -3958,6 +4148,7 @@ export function App({ store, initialStatusLine = '' }) {
         else if (item?._action === 'memory') applyMemory(!(memory.enabled !== false));
         else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
         else if (item?._action === 'output-style') cycleOutputStyle(-1);
+        else if (item?._action === 'theme') cycleTheme(-1);
         else if (item?._action === 'workflow') cycleWorkflow(-1);
       },
       onRight: (item) => {
@@ -3970,6 +4161,7 @@ export function App({ store, initialStatusLine = '' }) {
         else if (item?._action === 'memory') applyMemory(!(memory.enabled !== false));
         else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
         else if (item?._action === 'output-style') cycleOutputStyle(1);
+        else if (item?._action === 'theme') cycleTheme(1);
         else if (item?._action === 'workflow') cycleWorkflow(1);
       },
       onSelect: (_value, item) => {
@@ -3986,6 +4178,7 @@ export function App({ store, initialStatusLine = '' }) {
         else if (item._action === 'channels') applyChannels(!(channels.enabled !== false));
         else if (item._action === 'channels-setup') void openChannelSetupPicker('all');
         else if (item._action === 'output-style') openOutputStylePicker({ returnTo: openSettingsPicker });
+        else if (item._action === 'theme') openThemePicker({ returnTo: openSettingsPicker });
         else if (item._action === 'workflow') openWorkflowPicker({ returnTo: openSettingsPicker });
         else if (item._action === 'model') openModelPicker({
           returnTo: openSettingsPicker,
@@ -5950,6 +6143,39 @@ export function App({ store, initialStatusLine = '' }) {
           .catch((e) => store.pushNotice(`Couldn’t switch output style: ${e?.message || e}`, 'error'));
         return true;
       }
+      case 'theme': {
+        const value = arg.trim();
+        const lower = value.toLowerCase();
+        if (!value) {
+          openThemePicker();
+          return true;
+        }
+        let themes = [];
+        try { themes = store.listThemes?.() || []; } catch (e) {
+          store.pushNotice(`could not list themes: ${e?.message || e}`, 'error');
+          return true;
+        }
+        if (lower === 'status' || lower === 'current' || lower === 'show') {
+          const id = store.getTheme?.();
+          const entry = themes.find((t) => t.id === id);
+          store.pushNotice(`Theme: ${entry?.label || id || 'default'}`, 'info');
+          return true;
+        }
+        const match = themes.find((t) => t.id.toLowerCase() === lower)
+          || themes.find((t) => String(t.label || '').toLowerCase() === lower);
+        if (!match) {
+          const ids = themes.map((t) => t.id).join(', ');
+          store.pushNotice(`usage: /theme [id]. Available: ${ids}`, 'warn');
+          return true;
+        }
+        try {
+          const applied = store.setTheme?.(match.id, { persist: true });
+          store.pushNotice(themeNotice(applied || match), 'info');
+        } catch (e) {
+          store.pushNotice(`Couldn’t set theme: ${e?.message || e}`, 'error');
+        }
+        return true;
+      }
       case 'effort':
         if (state.busy) {
           store.pushNotice('wait for the current turn to finish before /effort', 'warn');
@@ -7247,6 +7473,7 @@ export function App({ store, initialStatusLine = '' }) {
                 onRight={picker.onRight}
                 onTab={picker.onTab}
                 onKey={picker.onKey}
+                onHighlight={picker.onHighlight}
                 title={picker.title}
                 description={picker.description}
                 footer={picker.footer}

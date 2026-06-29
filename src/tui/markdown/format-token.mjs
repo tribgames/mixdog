@@ -14,7 +14,7 @@
  */
 import { Chalk } from 'chalk';
 import stripAnsi from 'strip-ansi';
-import { theme } from '../theme.mjs';
+import { theme, getThemeVersion } from '../theme.mjs';
 import { BLOCKQUOTE_BAR } from '../figures.mjs';
 
 // Force truecolor so chalk emits 24-bit SGR even when the ambient level is 0.
@@ -31,10 +31,26 @@ function rgbColor(str) {
   return chalk.rgb(Number(m[1]), Number(m[2]), Number(m[3]));
 }
 
-const accent = rgbColor(theme.code); // inline code / codespan accent
-const codeBlock = rgbColor(theme.codeBlock); // fenced code block body
-const headingAccent = rgbColor(theme.claude); // markdown heading accent
-const dim = rgbColor(theme.subtle);
+// Colorizers are derived from the active theme's md* keys. They are cached and
+// rebuilt only when the theme version changes, so a `/theme` switch takes
+// effect on the next render without recomputing a chalk fn per token.
+let _colorizerVersion = -1;
+let _colorizers = null;
+function colorizers() {
+  const version = getThemeVersion();
+  if (_colorizers && _colorizerVersion === version) return _colorizers;
+  _colorizerVersion = version;
+  _colorizers = {
+    accent: rgbColor(theme.mdCode), // inline codespan
+    codeBlock: rgbColor(theme.mdCodeBlock), // fenced code block body
+    headingAccent: rgbColor(theme.mdHeading),
+    quoteBorder: rgbColor(theme.mdQuoteBorder),
+    quoteText: rgbColor(theme.mdQuote),
+    hrLine: rgbColor(theme.mdHr),
+    listBullet: rgbColor(theme.mdListBullet),
+  };
+  return _colorizers;
+}
 
 // marked 14 HTML-encodes token.text / codespan.text (`"` → `&quot;`, `&` →
 // `&amp;`, `<`→`&lt;`, `>`→`&gt;`, `'`→`&#39;`), but we render to a terminal,
@@ -59,13 +75,18 @@ function decodeEntities(s) {
  * marked token switch (minus table / hyperlink deps).
  */
 export function formatToken(token, listBaseIndent = 0, orderedListNumber = null, parent = null) {
+  const { accent, codeBlock, headingAccent, quoteBorder, quoteText, hrLine } = colorizers();
   switch (token.type) {
     case 'blockquote': {
       const inner = (token.tokens ?? []).map((t) => formatToken(t)).join('');
-      const bar = dim(BLOCKQUOTE_BAR);
+      const bar = quoteBorder(BLOCKQUOTE_BAR);
       return inner
         .split(EOL)
-        .map((line) => (stripAnsi(line).trim() ? `${bar} ${chalk.italic(line)}` : line))
+        .map((line) =>
+          stripAnsi(line).trim()
+            ? `${bar} ${quoteText(chalk.italic(line))}`
+            : line,
+        )
         .join(EOL);
     }
     case 'code':
@@ -88,7 +109,7 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
           return chalk.bold(headingAccent((token.tokens ?? []).map((t) => formatToken(t)).join(''))) + EOL + EOL;
       }
     case 'hr':
-      return '---';
+      return hrLine('---') + EOL;
     case 'image':
       return token.href;
     case 'link': {
@@ -152,9 +173,11 @@ function prefixFirstAndRest(value, firstPrefix, restPrefix) {
 }
 
 function formatListItem(token, listBaseIndent, orderedListNumber) {
-  const marker = orderedListNumber === null
+  const { listBullet } = colorizers();
+  const markerPlain = orderedListNumber === null
     ? '-'
     : `${orderedListNumber}.`;
+  const marker = listBullet(markerPlain);
   const markerPrefix = `${' '.repeat(listBaseIndent)}${marker} `;
   const continuationPrefix = ' '.repeat(stripAnsi(markerPrefix).length);
   const nestedListIndent = continuationPrefix.length;
