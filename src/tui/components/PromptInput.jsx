@@ -112,6 +112,7 @@ export function PromptInput({
   onCommandPaletteCancel,
   onCommandPaletteComplete,
   onRestoreQueued,
+  onHistoryNavigate,
   onPasteText,
   selectionRef,
   valueRef,
@@ -212,6 +213,13 @@ export function PromptInput({
 
   const restoreQueuedToDraft = () => {
     return onRestoreQueued?.(draftRef.current.value) === true;
+  };
+
+  const applyHistoryNavigation = (direction, meta = {}) => {
+    const nextValue = onHistoryNavigate?.(direction, draftRef.current.value, meta);
+    if (typeof nextValue !== 'string') return false;
+    commitDraft({ value: nextValue, cursor: nextValue.length, selectionAnchor: null });
+    return true;
   };
 
   const insertAtDraft = (text) => {
@@ -366,7 +374,12 @@ export function PromptInput({
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.(-1);
       } else {
-        if (!restoreQueuedToDraft()) moveDraftVertically(-1, { extend: key.shift });
+        const hasDraftText = String(draftRef.current.value || '').trim().length > 0;
+        if (!hasDraftText) {
+          if (!restoreQueuedToDraft()) applyHistoryNavigation('up', { emptyDraft: true });
+        } else if (!moveDraftVertically(-1, { extend: key.shift })) {
+          applyHistoryNavigation('up', { emptyDraft: false });
+        }
       }
       return;
     }
@@ -375,7 +388,9 @@ export function PromptInput({
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.(1);
       } else {
-        moveDraftVertically(1, { extend: key.shift });
+        if (!moveDraftVertically(1, { extend: key.shift })) {
+          applyHistoryNavigation('down', { emptyDraft: String(draftRef.current.value || '').trim().length === 0 });
+        }
       }
       return;
     }

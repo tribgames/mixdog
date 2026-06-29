@@ -362,6 +362,15 @@ function promptStatusColor(tone) {
   return theme.inactive;
 }
 
+function promptHistoryKey(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+function promptHistoryPreview(value, max = 56) {
+  const text = promptHistoryKey(value);
+  return text.length > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text;
+}
+
 function osc52ClipboardSequence(text) {
   const b64 = Buffer.from(String(text ?? ''), 'utf8').toString('base64');
   const raw = `\x1b]52;c;${b64}\x07`;
@@ -489,6 +498,7 @@ const TRANSCRIPT_WINDOW_OVERSCAN_ROWS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_OV
 
 const TRANSCRIPT_WINDOW_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS', 180);
 const SELECTION_PAINT_INTERVAL_MS = positiveIntEnv('MIXDOG_TUI_SELECTION_PAINT_MS', 24);
+const PROMPT_HISTORY_LIMIT = 50;
 
 // Parse a boolean env var that DEFAULTS ON. Any of 0/false/off/no (case-
 // insensitive, trimmed) disables it; everything else (including unset) leaves it
@@ -1283,6 +1293,8 @@ export function App({ store, initialStatusLine = '' }) {
   const nextPastedImageIdRef = useRef(1);
   const promptValueRef = useRef('');
   const promptSelectionRef = useRef(null);
+  const promptHistoryNavRef = useRef({ active: false, index: -1, seed: '', lastValue: '' });
+  const promptHistoryHintDraftRef = useRef(false);
   const [promptHint, setPromptHint] = useState('');
   const [promptHintTone, setPromptHintTone] = useState('info');
   const [slashIndex, setSlashIndex] = useState(0);
@@ -1897,6 +1909,85 @@ export function App({ store, initialStatusLine = '' }) {
     }
     return true;
   }, [store, promptDraft, showPromptHint, clearPromptHint, installPastedImages]);
+
+  const recentPromptHistory = useMemo(() => {
+    const items = Array.isArray(state.items) ? state.items : [];
+    const seen = new Set();
+    const history = [];
+    for (let i = items.length - 1; i >= 0 && history.length < PROMPT_HISTORY_LIMIT; i -= 1) {
+      const item = items[i];
+      if (item?.kind !== 'user') continue;
+      const text = String(item.text || '').trim();
+      const key = promptHistoryKey(text);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      history.push(text);
+    }
+    return history;
+  }, [state.items]);
+
+  const resetPromptHistoryNav = useCallback(() => {
+    promptHistoryNavRef.current = { active: false, index: -1, seed: '', lastValue: '' };
+  }, []);
+
+  const handlePromptHistoryNavigate = useCallback((direction, currentText = '', meta = {}) => {
+    const currentValue = String(currentText || '');
+    const currentKey = promptHistoryKey(currentValue);
+    const nav = promptHistoryNavRef.current || { active: false, index: -1, seed: '', lastValue: '' };
+
+    if (meta.emptyDraft) {
+      resetPromptHistoryNav();
+      if (direction === 'up') showPromptHint('예약메세지취소: 대기 메시지 없음', 'plain');
+      else showPromptHint('히스토리보기: 입력 후 ↑로 시작', 'plain');
+      return undefined;
+    }
+
+    if (recentPromptHistory.length === 0) {
+      resetPromptHistoryNav();
+      showPromptHint('히스토리 없음', 'plain');
+      return undefined;
+    }
+
+    if (direction === 'down' && !nav.active) {
+      showPromptHint('히스토리보기: ↑로 시작', 'plain');
+      return undefined;
+    }
+
+    const active = nav.active && (currentValue === nav.lastValue || currentValue === nav.seed);
+    const seed = active ? nav.seed : currentValue;
+    const step = direction === 'down' ? -1 : 1;
+    let nextIndex = (active ? nav.index : -1) + step;
+
+    if (nextIndex < 0) {
+      resetPromptHistoryNav();
+      showPromptHint('히스토리보기 종료', 'plain');
+      promptHistoryHintDraftRef.current = true;
+      return seed;
+    }
+
+    while (nextIndex >= 0 && nextIndex < recentPromptHistory.length && promptHistoryKey(recentPromptHistory[nextIndex]) === currentKey) {
+      nextIndex += step;
+    }
+
+    if (nextIndex < 0) {
+      resetPromptHistoryNav();
+      showPromptHint('히스토리보기 종료', 'plain');
+      promptHistoryHintDraftRef.current = true;
+      return seed;
+    }
+
+    if (nextIndex >= recentPromptHistory.length) {
+      const capped = recentPromptHistory.length >= PROMPT_HISTORY_LIMIT ? `최근 ${PROMPT_HISTORY_LIMIT}개` : `${recentPromptHistory.length}개`;
+      showPromptHint(`히스토리 끝 (${capped})`, 'plain');
+      return undefined;
+    }
+
+    const nextValue = recentPromptHistory[nextIndex];
+    promptHistoryNavRef.current = { active: true, index: nextIndex, seed, lastValue: nextValue };
+    showPromptHint(`히스토리보기 ${nextIndex + 1}/${recentPromptHistory.length} · ${promptHistoryPreview(nextValue)}`, 'info');
+    promptHistoryHintDraftRef.current = true;
+    return nextValue;
+  }, [recentPromptHistory, resetPromptHistoryNav, showPromptHint]);
 
   // ESC / Up handling (prompt input):
   // - prompt-local overlays such as the slash palette close first.
@@ -5911,6 +6002,12 @@ export function App({ store, initialStatusLine = '' }) {
   }, [slashCommands.length, activeSlashQuery]);
 
   const onPromptDraftChange = useCallback((value) => {
+    const keepPromptHint = promptHistoryHintDraftRef.current;
+    promptHistoryHintDraftRef.current = false;
+    const historyNav = promptHistoryNavRef.current;
+    if (!value || (historyNav.active && value !== historyNav.lastValue && value !== historyNav.seed)) {
+      resetPromptHistoryNav();
+    }
     // Only lift the draft into App state when it can affect the slash palette
     // (a single "/token"). Prose typing renders entirely inside PromptInput's
     // own state, so App need not re-render — and relayout the full fullscreen
@@ -5928,7 +6025,7 @@ export function App({ store, initialStatusLine = '' }) {
     const argumentHint = slashArgumentHint(value);
     if (argumentHint) {
       showPromptHint(argumentHint, 'info');
-    } else if (promptHintActiveRef.current || promptHintTimerRef.current) {
+    } else if (!keepPromptHint && (promptHintActiveRef.current || promptHintTimerRef.current)) {
       // Only clear when a hint is actually live (shown or pending its timer).
       // clearPromptHint() already early-returns when neither ref is set, but
       // gating the call here avoids invoking it on EVERY keystroke once a hint
@@ -5943,7 +6040,7 @@ export function App({ store, initialStatusLine = '' }) {
     if (slashDismissedFor) {
       setSlashDismissedFor((dismissed) => (dismissed && dismissed !== value ? '' : dismissed));
     }
-  }, [clearPromptHint, showPromptHint, slashDismissedFor]);
+  }, [clearPromptHint, resetPromptHistoryNav, showPromptHint, slashDismissedFor]);
 
   const cancelProviderPrompt = useCallback(() => {
     try { providerPrompt?.login?.cancel?.(); } catch {}
@@ -6039,7 +6136,7 @@ export function App({ store, initialStatusLine = '' }) {
   const toastHint = latestToast ? latestToast.text : '';
   const inputHint = promptHint || toastHint;
   const inputHintTone = promptHint ? promptHintTone : (latestToast?.tone || 'info');
-  const promptMetaRows = !inputBoxHidden && liveSpinner ? (slashPaletteOpen ? 1 : 2) : 0;
+  const promptMetaRows = !inputBoxHidden && (liveSpinner || inputHint) ? (slashPaletteOpen ? 1 : 2) : 0;
   const SCROLL_HINT_ROWS = 0;
   const LIVE_STATUS_ROWS = 0;
   // The standalone prompt box is 3 rows (round border + one input line). Normal
@@ -6086,7 +6183,7 @@ export function App({ store, initialStatusLine = '' }) {
   // render at full width.
   const rightSafetyColumns = process.platform === 'win32' ? 1 : 0;
   const frameColumns = Math.max(1, resizeState.columns - rightSafetyColumns);
-  const promptMetaVisible = !inputBoxHidden && !!liveSpinner;
+  const promptMetaVisible = !inputBoxHidden && !!(liveSpinner || inputHint);
   const transientStatusWidth = inputHint
     ? Math.max(1, Math.min(Math.max(1, frameColumns - 4), Math.max(12, Math.floor(frameColumns * 0.42))))
     : 0;
@@ -6342,6 +6439,7 @@ export function App({ store, initialStatusLine = '' }) {
       mask={false}
       onEscape={handlePromptEscape}
       onPasteText={handlePromptPaste}
+      onHistoryNavigate={handlePromptHistoryNavigate}
       commandPaletteActive={slashPaletteOpen}
       onCommandPaletteNavigate={(direction) => {
         setSlashIndex((index) => {
