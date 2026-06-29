@@ -374,21 +374,21 @@ const CHANNEL_STATUS_TOOL = {
 
 const CWD_TOOL = {
   name: 'cwd',
-  title: 'Current Working Directory',
+  title: 'Work Project',
   annotations: {
-    title: 'Current Working Directory',
+    title: 'Work Project',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Show/set session cwd. Use before repo-local work.',
+  description: 'Show or set the session work project for tool execution.',
   inputSchema: {
     type: 'object',
     properties: {
       action: { type: 'string', enum: ['get', 'set'], description: 'Default get.' },
-      path: { type: 'string', description: 'Directory for set.' },
+      path: { type: 'string', description: 'Project directory for set.' },
     },
     additionalProperties: false,
   },
@@ -1355,6 +1355,20 @@ function loadWorkflowPack(dataDir, id) {
     if (pack) return pack;
   }
   return readWorkflowPackFromDir(join(STANDALONE_ROOT, 'workflows', DEFAULT_WORKFLOW_ID), 'built-in');
+}
+
+function workflowSummary(pack) {
+  const id = normalizeWorkflowId(pack?.id, DEFAULT_WORKFLOW_ID);
+  return {
+    id,
+    name: clean(pack?.name) || (id === DEFAULT_WORKFLOW_ID ? 'Default' : id),
+    description: clean(pack?.description),
+    source: clean(pack?.source),
+  };
+}
+
+function activeWorkflowSummary(config, dataDir) {
+  return workflowSummary(loadWorkflowPack(dataDir, activeWorkflowId(config)));
 }
 
 function loadAgentDefinition(dataDir, id) {
@@ -2540,6 +2554,14 @@ export async function createMixdogSessionRuntime({
   const modelPrefetchEnabled = !envFlag('MIXDOG_DISABLE_PROVIDER_WARMUP')
     && !envFlag('MIXDOG_DISABLE_MODEL_PREFETCH');
   const codeGraphPrewarmEnabled = !envFlag('MIXDOG_DISABLE_CODE_GRAPH_PREWARM');
+  // Lazy code-graph prewarm (default ON): do NOT prewarm at startup / on cwd
+  // change — that fired ~250ms after the first frame and, in a large tree,
+  // burned a worker (and felt like a freeze) before the user did anything.
+  // Instead prewarm ONCE on the first real turn, when a code lookup is actually
+  // imminent. Operators who want the old eager behavior can set
+  // MIXDOG_CODE_GRAPH_PREWARM_EAGER=1.
+  const codeGraphPrewarmLazy = codeGraphPrewarmEnabled && !envFlag('MIXDOG_CODE_GRAPH_PREWARM_EAGER');
+  let codeGraphFirstTurnPrewarmDone = false;
   const modelMetaByRoute = new Map();
   const notificationListeners = new Set();
   let providerModelsCache = { models: null, at: 0 };
@@ -2723,7 +2745,15 @@ export async function createMixdogSessionRuntime({
     // compatibility with existing callers.
     void changed;
     void markRefresh;
-    scheduleCodeGraphPrewarm(changed ? 0 : codeGraphPrewarmDelayMs, changed ? 'cwd-change' : 'cwd');
+    // Lazy mode: before the first turn (e.g. the initial project-selection
+    // cwd set), do NOT prewarm — that is exactly the post-first-frame freeze
+    // we are avoiding. Once a turn has run, an in-session cwd switch DOES
+    // prewarm the new dir, since a lookup there is now likely.
+    if (codeGraphPrewarmLazy && !codeGraphFirstTurnPrewarmDone) {
+      bootProfile('code-graph:prewarm-lazy', { reason: 'cwd-deferred-to-first-turn' });
+    } else {
+      scheduleCodeGraphPrewarm(changed ? 0 : codeGraphPrewarmDelayMs, changed ? 'cwd-change' : 'cwd');
+    }
     return currentCwd;
   }
 
@@ -3707,6 +3737,7 @@ function parsedProviderModelVersion(id) {
       const coreMemoryContext = await loadCoreMemoryContext();
       if (closeRequested) throw new Error('runtime is closing');
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
+      const workflow = activeWorkflowSummary(config, dataDir);
       const workflowContext = workflowContextBlock(config, dataDir);
       const sessionOpts = {
         provider: route.provider,
@@ -3722,6 +3753,7 @@ function parsedProviderModelVersion(id) {
         disallowedTools: LEAD_DISALLOWED_TOOLS,
         cwd: currentCwd,
         coreMemoryContext,
+        workflow,
         workflowContext,
         fast: route.fast === true,
         compaction: config.compaction && typeof config.compaction === 'object'
@@ -3972,7 +4004,13 @@ function parsedProviderModelVersion(id) {
     codeGraphPrewarm: codeGraphPrewarmEnabled,
   });
   scheduleLeadSessionPrewarm();
-  scheduleCodeGraphPrewarm(codeGraphPrewarmDelayMs, 'startup');
+  // Lazy mode (default): skip the startup prewarm entirely; the first turn
+  // triggers it instead (see ask()). Eager mode keeps the old startup schedule.
+  if (!codeGraphPrewarmLazy) {
+    scheduleCodeGraphPrewarm(codeGraphPrewarmDelayMs, 'startup');
+  } else {
+    bootProfile('code-graph:prewarm-lazy', { reason: 'startup-deferred-to-first-turn' });
+  }
   scheduleProviderSetupWarmup();
   scheduleProviderWarmup();
   // Warm the provider model catalog in the background, but keep it on its own
@@ -4077,8 +4115,10 @@ function parsedProviderModelVersion(id) {
     },
     get workflow() {
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
-      const pack = loadWorkflowPack(dataDir, activeWorkflowId(config));
-      return pack ? { id: pack.id, name: pack.name, description: pack.description, source: pack.source } : { id: DEFAULT_WORKFLOW_ID, name: 'Default' };
+      if (session?.workflow && typeof session.workflow === 'object') {
+        return workflowSummary(session.workflow);
+      }
+      return activeWorkflowSummary(config, dataDir);
     },
     get outputStyle() {
       return getOutputStyleStatusCached().current;
@@ -4699,12 +4739,7 @@ function parsedProviderModelVersion(id) {
       const nextConfig = { ...config };
       nextConfig.workflow = { ...(nextConfig.workflow || {}), active: id };
       saveConfigAndAdopt(nextConfig);
-      if (session?.id) {
-        mgr.closeSession(session.id, 'cli-workflow-switch');
-        session = null;
-      }
-      await recreateCurrentSessionIfReady();
-      return { id: pack.id, name: pack.name, description: pack.description, source: pack.source };
+      return workflowSummary(pack);
     },
     async setAgentRoute(agentId, next) {
       const id = normalizeAgentId(agentId);
@@ -4742,6 +4777,14 @@ function parsedProviderModelVersion(id) {
     },
     async ask(prompt, options = {}) {
       activeTurnCount += 1;
+      // Lazy code-graph prewarm: kick off the build ONCE, on the first real
+      // turn, so a likely code lookup hits a warm cache — without paying the
+      // post-first-frame prewarm freeze on idle startup. The schedule is async
+      // + unref'd (worker thread), so it never blocks this turn.
+      if (codeGraphPrewarmLazy && !codeGraphFirstTurnPrewarmDone) {
+        codeGraphFirstTurnPrewarmDone = true;
+        scheduleCodeGraphPrewarm(0, 'first-turn');
+      }
       const startedAt = Date.now();
       try {
         await refreshSessionForCwdIfNeeded('cwd-change');

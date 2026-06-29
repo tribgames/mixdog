@@ -1506,6 +1506,14 @@ export function createSession(opts) {
         process.stderr.write(`[session] role=${resolvedRole} permission=${permission || 'full'} toolPermission=${toolPermission || 'full'} tools=${tools.length}\n`);
     }
     const contextMeta = resolveSessionContextMeta(provider, modelName);
+    const workflowMeta = opts.workflow && typeof opts.workflow === 'object' && String(opts.workflow.id || '').trim()
+        ? {
+            id: String(opts.workflow.id || '').trim(),
+            name: String(opts.workflow.name || opts.workflow.id || '').trim(),
+            description: String(opts.workflow.description || '').trim(),
+            source: String(opts.workflow.source || '').trim(),
+        }
+        : null;
     const session = {
         id,
         provider: providerName,
@@ -1549,6 +1557,7 @@ export function createSession(opts) {
         scopeKey: opts.scopeKey || null,
         lane: opts.lane || 'agent',
         cwd: opts.cwd,
+        workflow: workflowMeta,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         lastHeartbeatAt: null,
@@ -2389,6 +2398,53 @@ function prefixUserTurnContent(content, contextBlock) {
     return `${contextBlock}# Task\n${content}`;
 }
 
+function prefixSessionStartContent(content, sessionBlock) {
+    if (!sessionBlock) return content;
+    if (Array.isArray(content)) {
+        return [{ type: 'text', text: `${sessionBlock}\n\n` }, ...content];
+    }
+    return `${sessionBlock}\n\n${content}`;
+}
+
+function sessionModelDisplay(model) {
+    const text = String(model || '').trim();
+    if (!text) return '';
+    return text
+        .replace(/-\d{4}-\d{2}-\d{2}$/, '')
+        .replace(/^gpt-/i, 'GPT-')
+        .replace(/(?:^|-)([a-z])/g, (m) => m.toUpperCase());
+}
+
+function buildSessionStartBlock(session, cwd) {
+    if (!session || session.owner === 'agent') return '';
+    const lines = ['# Session'];
+    const effectiveCwd = String(cwd || session.cwd || '').trim();
+    if (effectiveCwd) lines.push(`Cwd: ${effectiveCwd}`);
+    const modelBits = [
+        sessionModelDisplay(session.model),
+        session.effort ? String(session.effort).trim().toUpperCase() : '',
+        session.fast === true ? 'FAST' : '',
+    ].filter(Boolean);
+    if (modelBits.length) lines.push(`Model: ${modelBits.join(' · ')}`);
+    const workflowName = String(session.workflow?.name || session.workflow?.id || '').trim();
+    if (workflowName) lines.push(`Workflow: ${workflowName}`);
+    return lines.length > 1 ? lines.join('\n') : '';
+}
+
+function isReferenceFilesMessage(message) {
+    return message?.role === 'user'
+        && typeof message.content === 'string'
+        && /^Reference files:\s*/i.test(message.content.trimStart());
+}
+
+function hasUserConversationMessage(messages) {
+    return (Array.isArray(messages) ? messages : []).some((message) => (
+        message?.role === 'user'
+        && !isProtectedContextUserMessage(message)
+        && !isReferenceFilesMessage(message)
+    ));
+}
+
 function modelVisiblePendingMessages(messages) {
     return (Array.isArray(messages) ? messages : [])
         .map(pendingMessageQueueEntry)
@@ -2640,7 +2696,16 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 process.stderr.write(`[session] Warning: prompt is very large (est. ${Math.round(promptTokenEstimate)} tokens vs ${softBudget} soft budget)\n`);
             }
             const effectiveCwd = cwdOverride || session.cwd;
-            const _userTurnContent = prefixUserTurnContent(prompt, _contextBlock);
+            const shouldInjectSessionStart = session.sessionStartMetaInjected !== true
+                && !hasUserConversationMessage(historyMessages);
+            const _sessionStartBlock = shouldInjectSessionStart
+                ? buildSessionStartBlock(session, effectiveCwd)
+                : '';
+            const _baseUserTurnContent = prefixUserTurnContent(prompt, _contextBlock);
+            const _userTurnContent = prefixSessionStartContent(_baseUserTurnContent, _sessionStartBlock);
+            if (shouldInjectSessionStart && _sessionStartBlock) {
+                session.sessionStartMetaInjected = true;
+            }
             cancelledUserTurnContent = _userTurnContent;
             const outgoing = [...historyMessages, { role: 'user', content: _userTurnContent }];
             // Per-turn injected-context trace row (complements kind:"usage").

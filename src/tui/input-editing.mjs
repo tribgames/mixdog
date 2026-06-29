@@ -154,6 +154,31 @@ export function caretPosition(text, offset, width) {
   return { row, col };
 }
 
+// Inverse of caretPosition: given a visual (row, col) cell inside the wrapped
+// content of `width` columns, return the character offset whose caret sits
+// closest to that cell. Used to map a mouse click/drag cell in the prompt box
+// to an edit offset so mouse selection can drive selectionAnchor + cursor.
+export function offsetAtCell(text, row, col, width) {
+  const w = safeWidth(width);
+  const value = String(text || '');
+  const positions = boundaryPositions(value, w);
+  if (positions.length === 0) return 0;
+  let best = positions[0];
+  let bestScore = Infinity;
+  for (const position of positions) {
+    const rowDist = Math.abs(position.row - row);
+    const colDist = Math.abs(position.col - col);
+    // Row distance dominates so a click never jumps to a different visual line;
+    // within the matched row the nearest column wins.
+    const score = rowDist * 100000 + colDist;
+    if (score < bestScore) {
+      best = position;
+      bestScore = score;
+    }
+  }
+  return best.offset;
+}
+
 function boundaryPositions(text, width) {
   const value = String(text || '');
   const offsets = [0];

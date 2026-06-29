@@ -32,6 +32,7 @@ import {
   moveCursor,
   nextOffset,
   nextWordOffset,
+  offsetAtCell,
   previousOffset,
   previousWordOffset,
   replaceSelection,
@@ -117,6 +118,8 @@ export function PromptInput({
   onPasteText,
   selectionRef,
   valueRef,
+  boxRectRef,
+  mouseSelectionRef,
 }) {
   const [draft, setDraft] = useState(() => {
     const value = String(initialValue || '');
@@ -177,6 +180,33 @@ export function PromptInput({
   const installCursorAnchor = () => {
     if (!boxRef.current || boxRef.current.internal_cursorAnchor) return false;
     boxRef.current.internal_cursorAnchor = (yogaNode) => {
+      // [mixdog] Report the editable content box's REAL absolute rect up to App
+      // every frame so the mouse handler can map a click/drag cell to an edit
+      // offset. Walk the parent chain summing yoga computed offsets (same math
+      // render-node-to-output uses) — boxRef is the flex-row that holds the text
+      // node, so its absolute x/y is the first content cell (col 0,row 0).
+      if (boxRectRef) {
+        let absLeft = 0;
+        let absTop = 0;
+        let node = boxRef.current;
+        for (let i = 0; node && i < 64; i++) {
+          const yn = node.yogaNode;
+          if (yn?.getComputedLeft) {
+            absLeft += yn.getComputedLeft() || 0;
+            absTop += yn.getComputedTop() || 0;
+          }
+          if (node.nodeName === 'ink-root') break;
+          node = node.parentNode;
+        }
+        const wNow = yogaNode?.getComputedWidth?.() ?? 0;
+        const hNow = yogaNode?.getComputedHeight?.() ?? 1;
+        boxRectRef.current = {
+          top: absTop,
+          left: absLeft,
+          height: Math.max(1, hNow || 1),
+          contentWidth: contentWidthRef.current,
+        };
+      }
       if (!cursorEnabledRef.current) return null;
       const d = draftRef.current;
       const w = yogaNode?.getComputedWidth?.() ?? 0;
@@ -196,6 +226,31 @@ export function PromptInput({
   const updateDraft = (fn, options = {}) => {
     commitDraft(fn(draftRef.current), options);
   };
+
+  // [mixdog] Mouse drag-selection driver. App's single mouse handler maps a
+  // click/drag cell over the prompt box to an edit offset and calls these so the
+  // SAME selectionAnchor/cursor engine that keyboard Shift-selection uses paints
+  // the highlight. Anchor on press, extend on drag/release; clear on a plain
+  // click. Reuses contentWidthRef (the real measured content width).
+  if (mouseSelectionRef) {
+    mouseSelectionRef.current = {
+      offsetAtCell: (row, col) => offsetAtCell(draftRef.current.value, row, col, contentWidthRef.current),
+      anchorAt: (offset) => {
+        const value = draftRef.current.value;
+        const off = Math.max(0, Math.min(value.length, Math.floor(Number(offset) || 0)));
+        commitDraft({ ...draftRef.current, cursor: off, selectionAnchor: off });
+      },
+      extendTo: (offset) => {
+        const d = draftRef.current;
+        const off = Math.max(0, Math.min(d.value.length, Math.floor(Number(offset) || 0)));
+        const anchor = Number.isFinite(d.selectionAnchor) ? d.selectionAnchor : d.cursor;
+        commitDraft({ ...d, cursor: off, selectionAnchor: anchor });
+      },
+      clear: () => {
+        if (selectionRange(draftRef.current)) commitDraft(clearSelection(draftRef.current));
+      },
+    };
+  }
 
   const moveDraftVertically = (direction, { extend = false } = {}) => {
     const current = draftRef.current;

@@ -57,17 +57,21 @@ const WORKER_SPINNER_FRAME_MS = 160;
 // statusline starts empty until the current session captures usage once.
 const STATUSLINE_PROCESS_STARTED_AT_MS = Date.now() - Math.floor((Number(process.uptime?.()) || 0) * 1000);
 const DEFAULT_HIDDEN_STATUSLINE_ROLES = Object.freeze(['explorer', 'cycle1-agent', 'cycle2-agent', 'cycle3-agent', 'scheduler-task', 'webhook-handler']);
-let _shellJobsSegmentCache = { ownerPid: 0, at: 0, value: '' };
+let _shellJobsSegmentCache = { ownerPid: 0, at: 0, value: { count: 0, elapsedLabel: '' } };
 let _gatewayQuotaStatusCache = { key: '', at: 0, value: null };
 let _fallbackQuotaStatusCache = { key: '', at: 0, value: null };
 let _hiddenStatuslineRoles = null;
 
-function summarizeWorkerTags(tags, limit = 3) {
-  const cleanTags = [...new Set((Array.isArray(tags) ? tags : [])
-    .map((tag) => String(tag || '').trim())
+function summarizeWorkerModels(workers, cols, limit = 3) {
+  const cleanLabels = [...new Set((Array.isArray(workers) ? workers : [])
+    .map((worker) => {
+      const modelName = worker?.model ? displayModelName(worker.provider, worker.model) : '';
+      return String(modelName || worker?.tag || '').trim();
+    })
     .filter(Boolean))];
-  if (cleanTags.length <= limit) return cleanTags.join(', ');
-  return `${cleanTags.slice(0, limit).join(', ')}, +${cleanTags.length - limit}`;
+  const labels = cleanLabels.map((label) => shortenModelName(label, cols));
+  if (labels.length <= limit) return labels.join(', ');
+  return `${labels.slice(0, limit).join(', ')}, +${labels.length - limit}`;
 }
 
 function workerSpinnerFrame(now = Date.now()) {
@@ -261,10 +265,18 @@ function renderNativeStatusline({ provider = '', model = '', effort = '', fast =
   ], agentJobs);
   const { maintenance, runningWorkers } = classifyAgentWorkers(agentPayload.workers);
   if (maintenance.length) addL1(maintenance.join(' '));
-  addL1(formatShellJobsSegment({ clientHostPid }));
+  const shellStatus = shellJobsStatus({ clientHostPid });
 
+  const spinnerNow = Date.now();
   if (runningWorkers.length) {
-    addL2(`${GRN}${workerSpinnerFrame()}${R} ${B}${runningWorkers.length} Running${R} ${D}(${R}${B}${summarizeWorkerTags(runningWorkers)}${R}${D})${R}`);
+    const label = `${runningWorkers.length} Running Agent${runningWorkers.length === 1 ? '' : 's'}`;
+    const modelSummary = summarizeWorkerModels(runningWorkers, cols);
+    const models = modelSummary ? ` ${D}(${R}${B}${modelSummary}${R}${D})${R}` : '';
+    addL2(`${GRN}${workerSpinnerFrame(spinnerNow)}${R} ${B}${label}${R}${models}`);
+  }
+  if (shellStatus.count > 0) {
+    const label = `${shellStatus.count} Running Shell${shellStatus.count === 1 ? '' : 's'}`;
+    addL2(`${GREY}${workerSpinnerFrame(spinnerNow + 80)}${R} ${B}${label}${R}`);
   }
   const l1 = l1Parts.join(sep) || 'mixdog';
   const l2 = l2Parts.join(sep);
@@ -533,7 +545,7 @@ function classifyAgentWorkers(workers = []) {
     }
     if (w.status !== 'idle' && !seenRunning.has(tag)) {
       seenRunning.add(tag);
-      runningWorkers.push(tag);
+      runningWorkers.push(w);
     }
   }
   return { maintenance, runningWorkers };
@@ -619,14 +631,15 @@ function maintenanceLabel(tag) {
   }
 }
 
-function formatShellJobsSegment({ clientHostPid } = {}) {
+function shellJobsStatus({ clientHostPid } = {}) {
   const ownerPid = positiveInt(clientHostPid);
-  if (!ownerPid) return '';
+  const empty = { count: 0, elapsedLabel: '' };
+  if (!ownerPid) return empty;
   const now = Date.now();
   if (_shellJobsSegmentCache.ownerPid === ownerPid && now - _shellJobsSegmentCache.at < SHELL_JOBS_SEGMENT_CACHE_MS) {
-    return _shellJobsSegmentCache.value;
+    return _shellJobsSegmentCache.value || empty;
   }
-  let value = '';
+  let value = empty;
   try {
     const dir = join(dataDir(), 'shell-jobs');
     if (!existsSync(dir)) {
@@ -667,10 +680,9 @@ function formatShellJobsSegment({ clientHostPid } = {}) {
       return value;
     }
     const elapsedLabel = Number.isFinite(oldestMs) ? formatElapsed(Date.now() - oldestMs) : '';
-    const elapsed = elapsedLabel ? ` ${elapsedLabel}` : '';
-    value = `${GREY}⚙ shell:${count}${elapsed}${R}`;
+    value = { count, elapsedLabel };
   } catch {
-    value = '';
+    value = empty;
   }
   _shellJobsSegmentCache = { ownerPid, at: now, value };
   return value;

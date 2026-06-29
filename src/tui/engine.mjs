@@ -14,8 +14,6 @@ import {
   summarizeToolResult,
 } from '../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody, presentErrorText } from '../runtime/shared/err-text.mjs';
-import { formatDuration } from './time-format.mjs';
-import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
 const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
@@ -100,21 +98,10 @@ function pickDoneVerb(turn) {
   return TURN_DONE_VERBS[(turn * 5 + 2) % TURN_DONE_VERBS.length];
 }
 
-function formatIdleDuration(ms) {
+function formatElapsedSeconds(ms) {
   const value = Math.max(0, Number(ms) || 0);
-  if (value >= 3_600_000 && value % 3_600_000 === 0) return `${value / 3_600_000}h`;
-  if (value >= 60_000) return `${Math.round(value / 60_000)}m`;
-  if (value < 1_000) return '';
-  return `${Math.floor(value / 1000)}s`;
-}
-
-function formatTokenCount(value) {
-  const n = Number(value || 0);
-  if (!Number.isFinite(n) || n <= 0) return '0';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}m`;
-  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return `${Math.round(n)}`;
+  if (value <= 0) return '0s';
+  return `${Math.max(1, Math.ceil(value / 1000))}s`;
 }
 
 function compactEventLabel(event = {}) {
@@ -126,17 +113,12 @@ function compactEventLabel(event = {}) {
 }
 
 function compactEventDetail(event = {}) {
-  const beforeTokens = Number(event.beforeTokens ?? event.messageTokensEst ?? 0);
-  const afterTokens = Number(event.afterTokens ?? 0);
-  const tokenPart = beforeTokens || afterTokens
-    ? `${formatTokenCount(beforeTokens)}→${formatTokenCount(afterTokens)} tokens`
-    : '';
-  const elapsedPart = formatDuration(Number(event.durationMs ?? event.elapsedMs ?? 0));
-  return [
-    elapsedPart,
-    tokenPart,
-    event.error ? presentErrorText(event.error, { surface: 'compact', max: 160 }) : '',
-  ].filter(Boolean).join(' · ');
+  return formatElapsedSeconds(Number(event.durationMs ?? event.elapsedMs ?? 0));
+}
+
+function projectNameFromPath(value) {
+  const text = String(value || '').replace(/[\\/]+$/, '');
+  return text.split(/[\\/]/).pop() || text || '(current)';
 }
 
 const FAILED_NOTICE_ACTIONS = new Map([
@@ -675,14 +657,6 @@ function sessionActivityTimestamp(session, fallback = 0) {
   return timestampMs(session?.lastUsedAt)
     || timestampMs(session?.updatedAt)
     || timestampMs(fallback);
-}
-
-function hasCompactSummary(session) {
-  return (Array.isArray(session?.messages) ? session.messages : []).some((message) => (
-    message?.role === 'user'
-    && typeof message.content === 'string'
-    && message.content.startsWith(SUMMARY_PREFIX)
-  ));
 }
 
 function promptDisplayText(content, options = {}) {
@@ -1552,6 +1526,7 @@ export async function createEngineSession({
     let _pendingTextFlush = false;   // true when a text/spinner update is queued
     let _pendingThinkFlush = false;  // true when a thinking update is queued
     let _pendingThinkingLastEndedAt = 0;
+    let compactingActive = false;
 
     const flushStreamBatch = () => {
       if (_batchTimer !== null) {
@@ -1598,7 +1573,7 @@ export async function createEngineSession({
         }
         const responseLengthVal = assistantText.length + thinkingText.length;
         if (state.spinner) {
-          patch.spinner = { ...state.spinner, responseLength: responseLengthVal, thinking: false, thinkingLastEndedAt: _pendingThinkingLastEndedAt || state.spinner.thinkingLastEndedAt, mode: 'responding' };
+          patch.spinner = { ...state.spinner, responseLength: responseLengthVal, thinking: false, thinkingLastEndedAt: _pendingThinkingLastEndedAt || state.spinner.thinkingLastEndedAt, mode: compactingActive ? 'compacting' : 'responding' };
         }
         if (Object.keys(patch).length > 0) set(patch);
         _pendingThinkingLastEndedAt = 0;
@@ -1607,9 +1582,11 @@ export async function createEngineSession({
         _pendingThinkFlush = false;
         const responseLengthVal = assistantText.length + thinkingText.length;
         const thinkingElapsedMs = accumulatedThinkingMs + (thinkingSegmentStartedAt ? Math.max(0, Date.now() - thinkingSegmentStartedAt) : 0);
-        const patch = { thinking: thinkingText };
+        const patch = { thinking: compactingActive ? null : thinkingText };
         if (state.spinner) {
-          patch.spinner = { ...state.spinner, responseLength: responseLengthVal, thinking: true, thinkingStartedAt, thinkingSegmentStartedAt, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingElapsedMs, thinkingLastEndedAt: 0, mode: 'thinking' };
+          patch.spinner = compactingActive
+            ? { ...state.spinner, responseLength: responseLengthVal, thinking: false, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingElapsedMs, thinkingLastEndedAt: state.spinner.thinkingLastEndedAt || 0, mode: 'compacting' }
+            : { ...state.spinner, responseLength: responseLengthVal, thinking: true, thinkingStartedAt, thinkingSegmentStartedAt, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingElapsedMs, thinkingLastEndedAt: 0, mode: 'thinking' };
         }
         set(patch);
       }
@@ -1729,13 +1706,29 @@ export async function createEngineSession({
         onStageChange: (stage) => {
           if (!state.spinner) return;
           const value = String(stage || '');
+          if (value === 'compacting') {
+            compactingActive = true;
+            const thinkingLastEndedAt = closeThinkingSegment();
+            _pendingThinkFlush = false;
+            set({
+              thinking: null,
+              spinner: {
+                ...state.spinner,
+                thinking: false,
+                thinkingSegmentStartedAt: 0,
+                thinkingAccumulatedMs: accumulatedThinkingMs,
+                thinkingLastEndedAt: thinkingLastEndedAt || state.spinner.thinkingLastEndedAt || 0,
+                mode: 'compacting',
+              },
+            });
+            return;
+          }
+          if (value === 'requesting' || value === 'streaming') compactingActive = false;
           const mode = value === 'requesting'
             ? 'requesting'
             : value === 'streaming'
               ? (state.spinner.thinking ? 'thinking' : 'responding')
-              : value === 'compacting'
-                ? 'compacting'
-                : null;
+              : null;
           if (!mode || state.spinner.mode === mode) return;
           set({ spinner: { ...state.spinner, mode } });
         },
@@ -2033,18 +2026,9 @@ export async function createEngineSession({
     const startedAt = Date.now();
     set({ commandStatus: { active: true, verb: 'Auto-clearing idle conversation', startedAt, mode: 'auto-clear' } });
     try {
-      const beforeContext = runtime.contextStatus?.() || null;
       await runtime.clear({ compactType: cfg.compactType || null, requireCompactSuccess: !!cfg.compactType });
       resetStats();
-      const afterContext = syncContextStats({ allowEstimated: true }) || runtime.contextStatus?.() || null;
-      const afterCompaction = runtime.session?.compaction || afterContext?.compaction || {};
-      const idleLabel = formatIdleDuration(idleMs);
-      const thresholdLabel = formatIdleDuration(cfg.idleMs);
-      const beforeTokens = Number(beforeContext?.usedTokens || beforeContext?.currentEstimatedTokens || beforeContext?.usage?.lastContextTokens || 0);
-      const afterTokens = Number(afterContext?.usedTokens || afterContext?.currentEstimatedTokens || afterContext?.usage?.lastContextTokens || 0);
-      const contextDetail = beforeTokens > 0 || afterTokens > 0
-        ? `context ${formatTokenCount(beforeTokens)}→${formatTokenCount(afterTokens)}`
-        : 'context reset';
+      syncContextStats({ allowEstimated: true });
       set({
         items: replaceItems([]),
         toasts: [],
@@ -2055,16 +2039,11 @@ export async function createEngineSession({
         ...routeState(),
         stats: { ...state.stats },
       });
-      const compactType = afterCompaction.lastClearCompactType || cfg.compactType || '';
-      const compactLabel = compactType ? `compact ${compactType}` : '';
-      const summaryLabel = cfg.compactType ? (hasCompactSummary(runtime.session) ? 'summary kept' : 'summary missing') : '';
       pushItem({
         kind: 'statusdone',
         id: nextId(),
         label: 'Auto-clear complete',
-        detail: [idleLabel ? `idle ${idleLabel}` : '', contextDetail, compactLabel, summaryLabel, thresholdLabel ? `threshold ${thresholdLabel}` : '']
-          .filter(Boolean)
-          .join(' · '),
+        detail: formatElapsedSeconds(Date.now() - startedAt),
       });
       return true;
     } catch (error) {
@@ -2292,10 +2271,12 @@ export async function createEngineSession({
       );
       return result;
     },
-    setCwd: (path) => {
+    setCwd: (path, options = {}) => {
       const next = runtime.setCwd(path);
       set({ cwd: next });
-      pushNotice(`cwd -> ${next}`, 'info');
+      if (options?.notice !== false) {
+        pushNotice(options?.message || `Project set: ${projectNameFromPath(next)}`, 'info');
+      }
       return next;
     },
     getSystemShell: () => {

@@ -164,6 +164,9 @@ export function Picker({
           onCancel();
           return;
         }
+        if (key.ctrl && (input === 'c' || input === 'C')) {
+          return;
+        }
         if (onKey) {
           onKey(input, key, items[selectedIndex], selectedIndex);
           return;

@@ -137,14 +137,17 @@ function clean(value) {
   return String(value ?? '').trim();
 }
 
+function projectNameFromPath(value) {
+  const text = String(value || '').replace(/[\\/]+$/, '');
+  return text.split(/[\\/]/).pop() || text || '(current)';
+}
+
 function workflowDisplayName(workflow = {}) {
   return clean(workflow?.name || workflow?.id) || 'Default';
 }
 
-const WORKFLOW_SESSION_RESTART_HINT = 'Session restart needed';
-
 function workflowSwitchNotice(workflow = {}) {
-  return `Workflow set to ${workflowDisplayName(workflow)}`;
+  return `Workflow set to ${workflowDisplayName(workflow)} for next session`;
 }
 
 function systemShellDescription(shell = {}) {
@@ -385,11 +388,6 @@ function promptStatusColor(tone) {
 
 function promptHistoryKey(value) {
   return String(value || '').trim().replace(/\s+/g, ' ');
-}
-
-function promptHistoryPreview(value, max = 56) {
-  const text = promptHistoryKey(value);
-  return text.length > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text;
 }
 
 function osc52ClipboardSequence(text) {
@@ -1280,7 +1278,83 @@ export function App({ store, initialStatusLine = '' }) {
   // Rendered as an option panel attached directly above the bottom prompt.
   const pickerOpenedFromEnterRef = useRef(false);
   const pickerOpenedFromEnterTimerRef = useRef(null);
-  const [picker, setPickerState] = useState(null);
+  const buildProjectPickerState = ({ initialEntry = false } = {}) => {
+    let projects = [];
+    try {
+      projects = listProjects() || [];
+    } catch {
+      projects = [];
+    }
+    const currentPath = String(state.cwd || process.cwd() || '');
+    const items = [];
+    // Row 1: the implicit current-directory shortcut (not persisted).
+    items.push({
+      value: '__use_current__',
+      label: 'Current Path',
+      meta: currentPath,
+      _action: 'current',
+    });
+    // Registered projects.
+    for (const project of projects) {
+      if (!project?.path) continue;
+      items.push({
+        value: project.path,
+        label: project.name || project.path,
+        meta: project.path,
+        _project: project,
+      });
+    }
+    return {
+      kind: 'project',
+      title: 'Project',
+      description: 'Choose a project.',
+      help: initialEntry
+        ? '↑/↓ Select · Enter Open · c Create · r Rename'
+        : '↑/↓ Select · Enter Open · c Create · r Rename · Esc Back',
+      indexMode: 'always',
+      labelWidth: 18,
+      metaWidth: 40,
+      items,
+      onSelect: (_value, item) => {
+        if (item?._action === 'new') {
+          beginNewProject();
+          return;
+        }
+        if (item?._action === 'current') {
+          setPicker(null);
+          try {
+            store.setCwd?.(currentPath, {
+              notice: !initialEntry,
+              message: `Project set: ${projectNameFromPath(currentPath)}`,
+            });
+          } catch (e) {
+            store.pushNotice(`project switch failed: ${e?.message || e}`, 'error');
+          }
+          return;
+        }
+        setPicker(null);
+        const project = item?._project;
+        if (project?.path) enterProject(project.path, { notice: !initialEntry });
+      },
+      onKey: (input, _key, item) => {
+        if (input === 'c' || input === 'C') {
+          beginNewProject();
+          return;
+        }
+        // 'r' renames the highlighted registered project (not the current-dir
+        // shortcut or the create row).
+        if ((input === 'r' || input === 'R') && item?._project?.path) {
+          beginRenameProject(item._project);
+        }
+      },
+      onCancel: () => {
+        setPicker(null);
+      },
+    };
+  };
+  const [picker, setPickerState] = useState(() => (
+    state.items.length === 0 ? buildProjectPickerState({ initialEntry: true }) : null
+  ));
   const setPicker = useCallback((next) => {
     setPickerState((prev) => {
       const resolved = typeof next === 'function' ? next(prev) : next;
@@ -1314,8 +1388,15 @@ export function App({ store, initialStatusLine = '' }) {
   const nextPastedImageIdRef = useRef(1);
   const promptValueRef = useRef('');
   const promptSelectionRef = useRef(null);
+  // [mixdog] Prompt-box mouse selection wiring. boxRect is the editable text
+  // node's REAL absolute rect (top/left/height/contentWidth), reported by
+  // PromptInput each render; mouseSelection exposes offsetAtCell/anchorAt/
+  // extendTo/clear so the single mouse handler can drive the prompt's OWN
+  // selectionAnchor engine without the ink-grid rect path.
+  const promptBoxRectRef = useRef(null);
+  const promptMouseSelectionRef = useRef(null);
   const promptHistoryNavRef = useRef({ active: false, index: -1, seed: '', lastValue: '' });
-  const promptHistoryHintDraftRef = useRef(false);
+  const promptHistoryDraftChangeRef = useRef(false);
   const [promptHint, setPromptHint] = useState('');
   const [promptHintTone, setPromptHintTone] = useState('info');
   const [slashIndex, setSlashIndex] = useState(0);
@@ -1341,15 +1422,37 @@ export function App({ store, initialStatusLine = '' }) {
   const mouseZoomPassthroughTimerRef = useRef(null);
   // dragRef tracks an in-progress mouse text selection (see the mouse handler):
   // anchor = where the drag began, last = the latest cell, active = button held.
-  const dragRef = useRef({ anchor: null, anchorScroll: 0, last: null, active: false, rect: null });
+  // region: which surface the in-progress (or last) selection belongs to —
+  // 'transcript' | 'status' (both ink-grid) | 'prompt' (PromptInput's own engine)
+  // | null. Press decides it; motion/release stay in that region.
+  const dragRef = useRef({ anchor: null, anchorScroll: 0, last: null, active: false, rect: null, region: null });
   const selectionPaintRef = useRef({ t: 0, rect: null, pending: null, timer: null });
   const transcriptViewportRef = useRef({ top: 0, bottom: 0 });
+  // [mixdog] Latest terminal row count + the statusline band (bottom rows),
+  // refreshed each render. The mouse handler uses these to (a) clip a status-bar
+  // grid selection to the statusline rows and (b) route a press to the right
+  // region. STATUSLINE_ROWS mirrors the layout reserve below.
+  const frameRowsRef = useRef(24);
+  const STATUSLINE_BAND_ROWS = 3;
   const selectionLayoutRef = useRef(null);
   const selectionTextRef = useRef('');
   const selectionTextTimerRef = useRef(null);
   // lastClickRef tracks the previous left-press cell + time so the mouse handler
   // can detect a double-click (same cell within 400ms) for word selection.
   const lastClickRef = useRef({ x: -1, y: -1, t: 0 });
+
+  const showSelectionCopyHint = useCallback((text, tone = 'plain') => {
+    if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
+    promptHintActiveRef.current = true;
+    setPromptHint(String(text || ''));
+    setPromptHintTone(tone);
+    promptHintTimerRef.current = setTimeout(() => {
+      promptHintTimerRef.current = null;
+      promptHintActiveRef.current = false;
+      setPromptHint('');
+      setPromptHintTone('info');
+    }, 2200);
+  }, []);
 
   // Copy the currently-highlighted selection to the OS clipboard. ink's fork
   // refreshed store.getRenderSelectionText() on the synchronous render that the
@@ -1367,10 +1470,10 @@ export function App({ store, initialStatusLine = '' }) {
       .then(() => {
         const lines = text.split('\n').length;
         const chars = text.length;
-        store.pushNotice(`copied ${chars} char${chars === 1 ? '' : 's'}${lines > 1 ? ` · ${lines} lines` : ''}`, 'plain');
+        showSelectionCopyHint(`copied ${chars} char${chars === 1 ? '' : 's'}${lines > 1 ? ` · ${lines} lines` : ''}`, 'plain');
       })
-      .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
-  }, [store]);
+      .catch((e) => showSelectionCopyHint(`copy failed: ${e?.message || e}`, 'error'));
+  }, [store, showSelectionCopyHint]);
 
   // ── Post-mount input gate ──────────────────────────────────────────────
   // Let one event-loop poll pass so Ink processes (and discards, because
@@ -1567,10 +1670,21 @@ export function App({ store, initialStatusLine = '' }) {
     }, 0);
   }, [store]);
 
-  const selectionClip = useCallback(() => ({
-    y1: Math.max(0, Number(transcriptViewportRef.current?.top) || 0),
-    y2: Math.max(0, Number(transcriptViewportRef.current?.bottom) || 0),
-  }), []);
+  const selectionClip = useCallback(() => {
+    // The status-bar grid selection lives in the bottom statusline band, not the
+    // transcript viewport — clip there so the highlight cannot spill into the
+    // prompt/transcript rows. Everything else (transcript, word-select) keeps the
+    // transcript-viewport clip.
+    if (dragRef.current.region === 'status') {
+      const rows = Math.max(1, Number(frameRowsRef.current) || 24);
+      const top = Math.max(0, rows - STATUSLINE_BAND_ROWS);
+      return { y1: top, y2: Math.max(top, rows - 1) };
+    }
+    return {
+      y1: Math.max(0, Number(transcriptViewportRef.current?.top) || 0),
+      y2: Math.max(0, Number(transcriptViewportRef.current?.bottom) || 0),
+    };
+  }, []);
 
   const withSelectionClip = useCallback((rect, options = {}) => {
     if (!rect) return null;
@@ -1756,6 +1870,48 @@ export function App({ store, initialStatusLine = '' }) {
       const { top, bottom } = transcriptViewport();
       return Math.max(top, Math.min(bottom, row));
     };
+    // [mixdog] Status-bar band = the bottom STATUSLINE_BAND_ROWS rows. The
+    // prompt box occupies the rows reported by PromptInput's measured rect.
+    const statusBand = () => {
+      const rows = Math.max(1, Number(frameRowsRef.current) || 24);
+      const top = Math.max(0, rows - STATUSLINE_BAND_ROWS);
+      return { top, bottom: Math.max(top, rows - 1) };
+    };
+    const isInStatusBand = (row) => {
+      const { top, bottom } = statusBand();
+      return row >= top && row <= bottom;
+    };
+    const clampToStatusBand = (row) => {
+      const { top, bottom } = statusBand();
+      return Math.max(top, Math.min(bottom, row));
+    };
+    const promptRect = () => promptBoxRectRef.current;
+    const isInPromptBox = (x, y) => {
+      const r = promptRect();
+      if (!r) return false;
+      const top = Math.max(0, Number(r.top) || 0);
+      const bottom = top + Math.max(1, Number(r.height) || 1) - 1;
+      const left = Math.max(0, Number(r.left) || 0);
+      const width = Math.max(1, Number(r.contentWidth) || 1);
+      return y >= top && y <= bottom && x >= left && x <= left + width;
+    };
+    // Map an absolute grid cell to a prompt-draft edit offset via PromptInput's
+    // measured box rect + its caret math (offsetAtCell handles wrapping).
+    const promptOffsetAt = (x, y) => {
+      const r = promptRect();
+      const ctl = promptMouseSelectionRef.current;
+      if (!r || !ctl) return null;
+      const top = Math.max(0, Number(r.top) || 0);
+      const left = Math.max(0, Number(r.left) || 0);
+      const row = Math.max(0, y - top);
+      const col = Math.max(0, x - left);
+      return ctl.offsetAtCell(row, col);
+    };
+    // Clear whichever selection is active (ink-grid rect AND/OR prompt engine).
+    const clearAllSelections = () => {
+      promptMouseSelectionRef.current?.clear?.();
+      applySelectionRect(null);
+    };
     const onData = (data) => {
       // ink emits each parsed input event as a string; a mouse SGR sequence
       // arrives whole. Guard so non-mouse keystrokes fall through untouched.
@@ -1784,14 +1940,35 @@ export function App({ store, initialStatusLine = '' }) {
         const baseButton = button & 3;
         const isMotion = (button & 32) !== 0;
         if (baseButton === 0 && press && !isMotion) {
-          if (!isInTranscriptViewport(y)) {
+          // Region router: a press decides which surface owns this selection.
+          // Prompt box takes priority (it overlaps no transcript rows), then the
+          // transcript viewport, then the bottom statusline band. A press
+          // anywhere else clears any prior selection (plain click).
+          if (isInPromptBox(x, y)) {
             lastClickRef.current = { x: -1, y: -1, t: 0 };
-            dragRef.current.active = false;
+            // Clear any ink-grid selection so only one highlight is ever visible.
             applySelectionRect(null);
+            const offset = promptOffsetAt(x, y);
+            stopSmoothScroll();
+            dragRef.current = { anchor: { x, y }, anchorScroll: 0, last: { x, y }, active: true, rect: null, region: 'prompt' };
+            if (offset != null) promptMouseSelectionRef.current?.anchorAt?.(offset);
             continue;
           }
+          const inTranscript = isInTranscriptViewport(y);
+          const inStatus = !inTranscript && isInStatusBand(y);
+          if (!inTranscript && !inStatus) {
+            lastClickRef.current = { x: -1, y: -1, t: 0 };
+            dragRef.current.active = false;
+            dragRef.current.region = null;
+            clearAllSelections();
+            continue;
+          }
+          const region = inTranscript ? 'transcript' : 'status';
+          // A press always clears the prompt-box selection (single active region).
+          promptMouseSelectionRef.current?.clear?.();
           // Double-click on a word: select just that word and copy it, reusing
           // the existing selection/copy pipeline, then advance to the next event.
+          // Works for transcript AND status rows since getWordRectAt is grid-based.
           const now = Date.now();
           const lc = lastClickRef.current;
           // Treat a second press as a double-click when it lands on the same row
@@ -1809,7 +1986,7 @@ export function App({ store, initialStatusLine = '' }) {
             if (wr) {
               const rect = linearSelection({ x: wr.x1, y: wr.y1 }, { x: wr.x2, y: wr.y2 });
               stopSmoothScroll();
-              dragRef.current = { anchor: null, anchorScroll: 0, last: null, active: false, rect };
+              dragRef.current = { anchor: null, anchorScroll: 0, last: null, active: false, rect: null, region };
               applySelectionRect(rect);
               // Selection only — copy happens on Ctrl+C (see useInput), not here.
               continue;
@@ -1820,29 +1997,66 @@ export function App({ store, initialStatusLine = '' }) {
           // Anchor the drag but do NOT paint a zero-width selection yet; a plain
           // single click should not flash a one-cell highlight. The selection is
           // only rendered once a drag actually extends past the anchor.
+          // Status-band selections do NOT scroll, so anchorScroll is irrelevant
+          // there; keep the transcript scroll anchor only for the transcript.
           stopSmoothScroll();
-          dragRef.current = { anchor: { x, y }, anchorScroll: scrollTargetRef.current, last: { x, y }, active: true, rect: null };
+          dragRef.current = {
+            anchor: { x, y },
+            anchorScroll: region === 'transcript' ? scrollTargetRef.current : 0,
+            last: { x, y },
+            active: true,
+            rect: null,
+            region,
+          };
         } else if (baseButton === 0 && isMotion && dragRef.current.active) {
-          // Drag motion: extend the selection to the current cell.
-          const selectionY = clampToTranscriptViewport(y);
+          const region = dragRef.current.region;
+          if (region === 'prompt') {
+            // Prompt drag: extend the PromptInput selection to the mapped offset.
+            // The cell is clamped to the box rows so a drag outside still tracks
+            // the nearest edge of the editable content.
+            const offset = promptOffsetAt(x, y);
+            dragRef.current.last = { x, y };
+            if (offset != null) promptMouseSelectionRef.current?.extendTo?.(offset);
+            continue;
+          }
+          // Drag motion (transcript or status): extend the selection to the
+          // current cell, clamped to the owning region's band.
+          const selectionY = region === 'status' ? clampToStatusBand(y) : clampToTranscriptViewport(y);
           dragRef.current.last = { x, y: selectionY };
-          const anchor = selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
+          const anchor = region === 'status'
+            ? dragRef.current.anchor
+            : selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
           const rect = linearSelection(anchor, { x, y: selectionY });
           applySelectionRectThrottled(rect);
-          const rows = Math.max(1, Number(resizeState.rows) || 24);
-          if (y <= 1) {
-            scrollTranscriptRows(3);
-          } else if (y >= rows - 5) {
-            scrollTranscriptRows(-3);
+          // Auto-scroll-while-dragging is transcript-only (the status band does
+          // not scroll).
+          if (region === 'transcript') {
+            const rows = Math.max(1, Number(resizeState.rows) || 24);
+            if (y <= 1) {
+              scrollTranscriptRows(3);
+            } else if (y >= rows - 5) {
+              scrollTranscriptRows(-3);
+            }
           }
         } else if (!press && dragRef.current.active) {
+          const region = dragRef.current.region;
+          if (region === 'prompt') {
+            // Finalize the prompt selection; highlight persists (copy on Ctrl+C).
+            const offset = promptOffsetAt(x, y);
+            dragRef.current.active = false;
+            if (offset != null) promptMouseSelectionRef.current?.extendTo?.(offset);
+            continue;
+          }
           // Button release while dragging: finalize with the release coordinate
           // (the SGR release event carries col/row) and keep the selection
           // visible. Copy is NOT automatic — the user presses Ctrl+C to copy.
           // The highlight stays until ESC or a plain click.
-          const anchor = selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
+          const anchor = region === 'status'
+            ? dragRef.current.anchor
+            : selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
           dragRef.current.active = false;
-          const rect = linearSelection(anchor, { x, y: clampToTranscriptViewport(y) });
+          const releaseY = region === 'status' ? clampToStatusBand(y) : clampToTranscriptViewport(y);
+          const rect = linearSelection(anchor, { x, y: releaseY });
           const empty = rect.x1 === rect.x2 && rect.y1 === rect.y2;
           if (empty) {
             applySelectionRect(null); // a plain click clears any prior highlight
@@ -1956,21 +2170,20 @@ export function App({ store, initialStatusLine = '' }) {
     const currentKey = promptHistoryKey(currentValue);
     const nav = promptHistoryNavRef.current || { active: false, index: -1, seed: '', lastValue: '' };
 
-    if (meta.emptyDraft) {
+    if (meta.emptyDraft && direction === 'down') {
       resetPromptHistoryNav();
-      if (direction === 'up') showPromptHint('예약메세지취소: 대기 메시지 없음', 'plain');
-      else showPromptHint('히스토리보기: 입력 후 ↑로 시작', 'plain');
+      clearPromptHint();
       return undefined;
     }
 
     if (recentPromptHistory.length === 0) {
       resetPromptHistoryNav();
-      showPromptHint('히스토리 없음', 'plain');
+      clearPromptHint();
       return undefined;
     }
 
     if (direction === 'down' && !nav.active) {
-      showPromptHint('히스토리보기: ↑로 시작', 'plain');
+      clearPromptHint();
       return undefined;
     }
 
@@ -1981,8 +2194,8 @@ export function App({ store, initialStatusLine = '' }) {
 
     if (nextIndex < 0) {
       resetPromptHistoryNav();
-      showPromptHint('히스토리보기 종료', 'plain');
-      promptHistoryHintDraftRef.current = true;
+      clearPromptHint();
+      promptHistoryDraftChangeRef.current = true;
       return seed;
     }
 
@@ -1992,23 +2205,22 @@ export function App({ store, initialStatusLine = '' }) {
 
     if (nextIndex < 0) {
       resetPromptHistoryNav();
-      showPromptHint('히스토리보기 종료', 'plain');
-      promptHistoryHintDraftRef.current = true;
+      clearPromptHint();
+      promptHistoryDraftChangeRef.current = true;
       return seed;
     }
 
     if (nextIndex >= recentPromptHistory.length) {
-      const capped = recentPromptHistory.length >= PROMPT_HISTORY_LIMIT ? `최근 ${PROMPT_HISTORY_LIMIT}개` : `${recentPromptHistory.length}개`;
-      showPromptHint(`히스토리 끝 (${capped})`, 'plain');
+      clearPromptHint();
       return undefined;
     }
 
     const nextValue = recentPromptHistory[nextIndex];
     promptHistoryNavRef.current = { active: true, index: nextIndex, seed, lastValue: nextValue };
-    showPromptHint(`히스토리보기 ${nextIndex + 1}/${recentPromptHistory.length} · ${promptHistoryPreview(nextValue)}`, 'info');
-    promptHistoryHintDraftRef.current = true;
+    clearPromptHint();
+    promptHistoryDraftChangeRef.current = true;
     return nextValue;
-  }, [recentPromptHistory, resetPromptHistoryNav, showPromptHint]);
+  }, [recentPromptHistory, resetPromptHistoryNav, clearPromptHint]);
 
   // ESC / Up handling (prompt input):
   // - prompt-local overlays such as the slash palette close first.
@@ -2053,37 +2265,29 @@ export function App({ store, initialStatusLine = '' }) {
 
   useInput((input, key) => {
     if (key.ctrl && (input === 'c' || input === 'C')) {
-      // Match normal terminal behavior as closely as possible. If app-owned
-      // mouse selection is explicitly enabled, Ctrl+C copies that selection;
-      // otherwise Ctrl+C interrupts the active turn or clears the current line.
-      // Native terminal selections are copied by the terminal itself before the
-      // key reaches us, so no app selection usually means an interrupt.
+      // Ctrl+C is copy-first. Native terminal selections can still forward the
+      // key event to us on Windows Terminal, so a missing app-owned selection
+      // must NOT cancel the active turn; use Esc to interrupt instead.
+      // Region-aware copy source: a prompt-box selection (its OWN engine) copies
+      // from promptSelectionRef; a transcript/status ink-grid selection copies
+      // from store.getRenderSelectionText via copySelection(). Only one region is
+      // ever active at a time (a press in one region clears the others), but when
+      // the last drag was in the prompt we prefer its selection explicitly.
       const promptSelectionText = promptSelectionRef.current?.text;
-      if (promptSelectionText) {
+      const lastRegion = dragRef.current.region;
+      const inkRect = dragRef.current.rect;
+      const hasInkSelection = inkRect && !(inkRect.x1 === inkRect.x2 && inkRect.y1 === inkRect.y2);
+      if (promptSelectionText && (lastRegion === 'prompt' || !hasInkSelection)) {
         copyToClipboard(promptSelectionText)
-          .then(() => store.pushNotice(`copied ${promptSelectionText.length} char${promptSelectionText.length === 1 ? '' : 's'}`, 'plain'))
-          .catch((e) => store.pushNotice(`copy failed: ${e?.message || e}`, 'error'));
+          .then(() => showSelectionCopyHint(`copied ${promptSelectionText.length} char${promptSelectionText.length === 1 ? '' : 's'}`, 'plain'))
+          .catch((e) => showSelectionCopyHint(`copy failed: ${e?.message || e}`, 'error'));
         return;
       }
-      const rect = dragRef.current.rect;
-      const hasSelection = rect && !(rect.x1 === rect.x2 && rect.y1 === rect.y2);
-      if (hasSelection) {
+      if (hasInkSelection) {
         copySelection();
         return;
       }
-      const currentText = String(promptValueRef.current || '');
-      if (state.busy) {
-        const restoredText = handlePromptInterrupt(currentText);
-        if (typeof restoredText === 'string') {
-          setPromptDraftOverride({ id: Date.now(), value: restoredText });
-        }
-        return;
-      }
-      if (currentText) {
-        clearPastedImagesSnapshot();
-        clearPromptHint();
-        setPromptDraftOverride({ id: Date.now(), value: '' });
-      }
+      showSelectionCopyHint('select text to copy · Esc interrupts', 'plain');
       return;
     }
     if (key.ctrl && (input === 'o' || input === 'O')) {
@@ -2114,6 +2318,11 @@ export function App({ store, initialStatusLine = '' }) {
     }
     if (key.escape && !picker) {
       dragRef.current.active = false;
+      dragRef.current.region = null;
+      // Clear whichever region's selection is active. PromptInput's own ESC also
+      // clears its selection when focused/enabled; this covers the disabled case
+      // and a status/transcript ink-grid selection in one press.
+      promptMouseSelectionRef.current?.clear?.();
       applySelectionRect(null);
     }
   }, { isActive: isRawModeSupported });
@@ -2891,7 +3100,6 @@ export function App({ store, initialStatusLine = '' }) {
               return;
             }
             store.pushNotice(workflowSwitchNotice(result), 'info');
-            showPromptHint(WORKFLOW_SESSION_RESTART_HINT, 'warn');
             if (returnTo) returnTo();
           })
           .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'));
@@ -3217,22 +3425,27 @@ export function App({ store, initialStatusLine = '' }) {
       : 'n/a';
     const contextSource = context.usedSource === 'last_api_request' ? 'last API request' : 'estimated';
     const lastApiLabel = context.lastApiRequestStale ? 'last API request (pre-compact)' : 'last API request';
-    const compactBoundary = Number(compaction.boundaryTokens || windowTokens || 0);
-    const compactTrigger = Number(compaction.triggerTokens || compactBoundary || 0);
-    const compactBuffer = Number(compaction.bufferTokens || Math.max(0, compactBoundary - compactTrigger) || 0);
+    const compactElapsed = (value) => {
+      const n = Number(value || 0);
+      if (!Number.isFinite(n) || n <= 0) return '';
+      return `${Math.max(1, Math.ceil(n / 1000))}s`;
+    };
     const compactRunning = compaction.inProgress === true || compaction.lastStage === 'compacting';
     const autoClearFailed = compaction.lastStage === 'auto_clear_failed' || !!compaction.lastClearCompactError;
     const autoClearStage = compaction.lastStage === 'auto_clear' || compaction.lastClearAt;
-    const compactTypeLabel = compaction.lastClearCompactType || compaction.compactType || compaction.type || '';
+    const compactDuration = compactElapsed(compaction.lastDurationMs);
     const compactState = compactRunning
-      ? `compacting ${fmt(compaction.lastPressureTokens || usedTokens)}/${fmt(compactTrigger || compactBoundary)}`
+      ? 'Compacting conversation'
       : autoClearFailed
       ? `auto-clear skipped${compaction.lastClearCompactError ? `: ${compaction.lastClearCompactError}` : ''}`
       : autoClearStage
-      ? `auto-cleared ${fmt(compaction.lastClearBeforeTokens ?? compaction.lastBeforeTokens)}→${fmt(compaction.lastClearAfterTokens ?? compaction.lastAfterTokens)}`
+      ? 'Auto-clear complete'
       : compaction.lastChanged
-      ? `compacted ${fmt(compaction.lastBeforeTokens)}→${fmt(compaction.lastAfterTokens)}`
-      : `checked ${fmt(compaction.lastPressureTokens || usedTokens)}/${fmt(compactTrigger || compactBoundary)}`;
+      ? 'Compact complete'
+      : 'Compact checked';
+    const compactDescription = compactDuration
+      ? `${compactState} · ${compactDuration}`
+      : compactState;
     const contextRows = [
       {
         value: 'summary',
@@ -3243,7 +3456,7 @@ export function App({ store, initialStatusLine = '' }) {
       {
         value: 'compaction',
         label: 'Compaction',
-        description: `${compactState} · ${compaction.lastStage || 'pending'}${compactTypeLabel ? ` · type ${compactTypeLabel}` : ''}${compactTrigger ? ` · trigger ${fmt(compactTrigger)}` : ''}${compactBoundary ? ` · boundary ${fmt(compactBoundary)}` : ''}${compactBuffer ? ` · buffer ${fmt(compactBuffer)} (${pct(compactBuffer, compactBoundary)})` : ''}`,
+        description: compactDescription,
         _action: 'compaction',
       },
       {
@@ -3486,7 +3699,8 @@ export function App({ store, initialStatusLine = '' }) {
         store.pushNotice('no workflows available', 'warn');
         return;
       }
-      const currentIndex = Math.max(0, workflows.findIndex((item) => item.active || item.id === workflow.id));
+      const activeIndex = workflows.findIndex((item) => item.active);
+      const currentIndex = activeIndex >= 0 ? activeIndex : Math.max(0, workflows.findIndex((item) => item.id === workflow.id));
       const next = workflows[(currentIndex + direction + workflows.length) % workflows.length];
       void store.setWorkflow?.(next.id)
         .then((result) => {
@@ -3495,7 +3709,6 @@ export function App({ store, initialStatusLine = '' }) {
             return;
           }
           store.pushNotice(workflowSwitchNotice(result), 'info');
-          showPromptHint(WORKFLOW_SESSION_RESTART_HINT, 'warn');
         })
         .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'))
         .finally(() => openSettingsPicker());
@@ -5419,7 +5632,7 @@ export function App({ store, initialStatusLine = '' }) {
   };
 
   // Open the manual path-entry flow. The user types a directory path; on submit
-  // we register it (and offer to create it if missing) and switch cwd. Used as a
+  // we register it (and offer to create it if missing). Used as a
   // fallback when no native folder dialog is available.
   const beginNewProjectManual = () => {
     setPicker(null);
@@ -5439,7 +5652,7 @@ export function App({ store, initialStatusLine = '' }) {
   // stays mounted (swapped to a non-interactive "Opening folder picker…" panel)
   // while the native dialog is open, so the welcome banner/layout stay put and
   // the prompt remains disabled (input is gated on `!!picker`). On a chosen
-  // folder we register + switch cwd; on cancel we return to the project picker;
+  // folder we register; on cancel we return to the project picker;
   // when no dialog tool exists we fall back to manual path typing.
   const beginNewProject = () => {
     setProviderPrompt(null);
@@ -5459,7 +5672,10 @@ export function App({ store, initialStatusLine = '' }) {
       onSelect: () => {},
       onCancel: () => {},
     });
-    void pickFolder({ title: 'Select a project folder' })
+    void pickFolder({
+      title: 'Select a project folder',
+      initialPath: String(state.cwd || process.cwd() || ''),
+    })
       .then((result) => {
         if (!result || result.available === false) {
           // No native dialog on this system → manual typing.
@@ -5471,16 +5687,31 @@ export function App({ store, initialStatusLine = '' }) {
           openProjectPicker();
           return;
         }
-        setPicker(null);
-        enterProject(result.path);
+        registerProject(result.path);
       })
       .catch(() => {
         beginNewProjectManual();
       });
   };
 
+  // Register a project in the picker list without switching this session's cwd.
+  const registerProject = (rawPath) => {
+    const path = resolveProjectPath(rawPath);
+    if (!path) {
+      store.pushNotice('project path is required', 'warn');
+      return;
+    }
+    try {
+      const project = addProject(path);
+      if (project?.name) store.pushNotice(`project added: ${project.name}`, 'info');
+      openProjectPicker();
+    } catch (e) {
+      store.pushNotice(`project add failed: ${e?.message || e}`, 'error');
+    }
+  };
+
   // Switch the active working directory to a registered/created project path.
-  const enterProject = (rawPath) => {
+  const enterProject = (rawPath, options = {}) => {
     const path = resolveProjectPath(rawPath);
     if (!path) {
       store.pushNotice('project path is required', 'warn');
@@ -5489,7 +5720,10 @@ export function App({ store, initialStatusLine = '' }) {
     try {
       // Switch cwd first; only persist the project once the runtime accepts it,
       // so an invalid/missing path can never be written to projects.json.
-      store.setCwd?.(path);
+      store.setCwd?.(path, {
+        notice: options?.notice !== false,
+        message: `Project set: ${projectNameFromPath(path)}`,
+      });
       addProject(path);
     } catch (e) {
       store.pushNotice(`project switch failed: ${e?.message || e}`, 'error');
@@ -5518,106 +5752,17 @@ export function App({ store, initialStatusLine = '' }) {
 
   // Open the project selector, styled like the Model picker: numbered rows with
   // a Name column + Path column. The list always opens (even when empty) and
-  // begins with a "Use current" shortcut, then registered projects, then a
-  // final "+ New project" row.
+  // begins with a "Current Path" shortcut, then registered projects. Creating a
+  // new project is available via the picker-level c shortcut.
   const openProjectPicker = () => {
-    let projects = [];
-    try {
-      projects = listProjects() || [];
-    } catch {
-      projects = [];
-    }
-    const currentPath = String(state.cwd || process.cwd() || '');
-    const currentName = currentPath
-      ? currentPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || currentPath
-      : '(current)';
-    const items = [];
-    // Row 1: the implicit current-directory shortcut (not persisted).
-    items.push({
-      value: '__use_current__',
-      label: currentName,
-      meta: currentPath,
-      _action: 'current',
-    });
-    // Registered projects.
-    for (const project of projects) {
-      if (!project?.path) continue;
-      items.push({
-        value: project.path,
-        label: project.name || project.path,
-        meta: project.path,
-        _project: project,
-      });
-    }
-    // Final row: create / register a new project.
-    items.push({
-      value: '__new_project__',
-      label: 'Create Project',
-      meta: '',
-      _action: 'new',
-    });
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
     setContextPanel(null);
     closeUsagePanel();
-    setPicker({
-      kind: 'project',
-      title: 'Project',
-      description: 'Choose a project.',
-      help: '↑/↓ Select · Enter Open · r Rename · Esc Back',
-      indexMode: 'always',
-      labelWidth: 18,
-      metaWidth: 40,
-      items,
-      onSelect: (_value, item) => {
-        if (item?._action === 'new') {
-          beginNewProject();
-          return;
-        }
-        if (item?._action === 'current') {
-          setPicker(null);
-          try {
-            store.setCwd?.(currentPath);
-          } catch (e) {
-            store.pushNotice(`project switch failed: ${e?.message || e}`, 'error');
-          }
-          return;
-        }
-        setPicker(null);
-        const project = item?._project;
-        if (project?.path) enterProject(project.path);
-      },
-      onKey: (input, _key, item) => {
-        // 'r' renames the highlighted registered project (not the current-dir
-        // shortcut or the create row).
-        if ((input === 'r' || input === 'R') && item?._project?.path) {
-          beginRenameProject(item._project);
-        }
-      },
-      onCancel: () => {
-        setPicker(null);
-      },
-    });
+    setPicker(buildProjectPickerState());
   };
-
-  // Initial entry: open the project selector BEFORE the first paint so it never
-  // appears to "expand in" a frame late. useLayoutEffect runs after the initial
-  // render commit but before the terminal paints, so the picker is part of the
-  // very first visible frame. Gated by a ref so it fires once and never re-opens
-  // on later empty renders (e.g. after /clear).
-  const initialProjectPromptShownRef = useRef(false);
-  useLayoutEffect(() => {
-    if (initialProjectPromptShownRef.current) return;
-    // Consume the one-shot on the FIRST commit regardless of outcome, so a later
-    // /clear (which empties the transcript again) can never re-open it.
-    initialProjectPromptShownRef.current = true;
-    // Only auto-open for a fresh, empty session with no overlay already up.
-    if (state.items.length > 0) return;
-    if (picker || settingsPrompt || providerPrompt || channelPrompt || hookPrompt || contextPanel || usagePanel) return;
-    openProjectPicker();
-  }, []);
 
   const runSlashCommand = (cmd, arg = '') => {
     cmd = normalizeSlashCommandName(cmd);
@@ -5675,7 +5820,6 @@ export function App({ store, initialStatusLine = '' }) {
               return;
             }
             store.pushNotice(workflowSwitchNotice(result), 'info');
-            showPromptHint(WORKFLOW_SESSION_RESTART_HINT, 'warn');
           })
           .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'));
         return true;
@@ -5756,13 +5900,13 @@ export function App({ store, initialStatusLine = '' }) {
       case 'cwd': {
         const nextPath = arg.trim();
         if (!nextPath) {
-          store.pushNotice(`cwd: ${state.cwd}`, 'info');
+          store.pushNotice(`Project path: ${state.cwd}`, 'info');
           return true;
         }
         try {
-          store.setCwd?.(nextPath);
+          store.setCwd?.(nextPath, { message: `Project set: ${projectNameFromPath(nextPath)}` });
         } catch (e) {
-          store.pushNotice(`cwd failed: ${e?.message || e}`, 'error');
+          store.pushNotice(`project switch failed: ${e?.message || e}`, 'error');
         }
         return true;
       }
@@ -6122,7 +6266,7 @@ export function App({ store, initialStatusLine = '' }) {
             store.pushNotice('working directory path is required', 'warn');
             return false;
           }
-          store.setCwd?.(commandText);
+          store.setCwd?.(commandText, { message: `Project set: ${projectNameFromPath(commandText)}` });
           setSettingsPrompt(null);
           void openSettingsPicker();
           return true;
@@ -6135,7 +6279,7 @@ export function App({ store, initialStatusLine = '' }) {
           const path = resolveProjectPath(commandText);
           if (isDirectory(path)) {
             setSettingsPrompt(null);
-            enterProject(path);
+            registerProject(path);
             return true;
           }
           // A path that exists but is a regular file is not a valid project dir.
@@ -6143,7 +6287,7 @@ export function App({ store, initialStatusLine = '' }) {
             store.pushNotice(`${path} is not a directory`, 'warn');
             return false;
           }
-          // Missing folder: confirm creation before registering + switching.
+          // Missing folder: confirm creation before registering.
           setSettingsPrompt({
             kind: 'project-create-confirm',
             label: 'New project · Create folder?',
@@ -6163,7 +6307,7 @@ export function App({ store, initialStatusLine = '' }) {
               return true;
             }
             setSettingsPrompt(null);
-            enterProject(pendingPath);
+            registerProject(pendingPath);
             return true;
           }
           setSettingsPrompt(null);
@@ -6299,8 +6443,8 @@ export function App({ store, initialStatusLine = '' }) {
   }, [slashCommands.length, activeSlashQuery]);
 
   const onPromptDraftChange = useCallback((value) => {
-    const keepPromptHint = promptHistoryHintDraftRef.current;
-    promptHistoryHintDraftRef.current = false;
+    const suppressPromptHint = promptHistoryDraftChangeRef.current;
+    promptHistoryDraftChangeRef.current = false;
     const historyNav = promptHistoryNavRef.current;
     if (!value || (historyNav.active && value !== historyNav.lastValue && value !== historyNav.seed)) {
       resetPromptHistoryNav();
@@ -6320,9 +6464,9 @@ export function App({ store, initialStatusLine = '' }) {
     });
     setPromptDraftOverride((prev) => (prev === null ? prev : null));
     const argumentHint = slashArgumentHint(value);
-    if (argumentHint) {
+    if (argumentHint && !suppressPromptHint) {
       showPromptHint(argumentHint, 'info');
-    } else if (!keepPromptHint && (promptHintActiveRef.current || promptHintTimerRef.current)) {
+    } else if (suppressPromptHint || promptHintActiveRef.current || promptHintTimerRef.current) {
       // Only clear when a hint is actually live (shown or pending its timer).
       // clearPromptHint() already early-returns when neither ref is set, but
       // gating the call here avoids invoking it on EVERY keystroke once a hint
@@ -6462,7 +6606,11 @@ export function App({ store, initialStatusLine = '' }) {
   const TEXT_ENTRY_ROWS = 5;
   const OPTION_PANEL_EXTRA_ROWS = expandedOptionPanel ? 3 : 0;
   const queuedVisible = !hasFloatingPanel && !inputBoxHidden && state.queued?.length > 0;
-  const queuedRows = queuedVisible ? state.queued.length + 1 : 0;
+  // QueuedCommands has its own top margin, and the prompt box drops its normal
+  // top margin while a queue is visible. Net extra height is therefore only the
+  // queued rows themselves; counting the queue margin as an extra row over-
+  // reserves by one and makes the bottom input cluster float upward.
+  const queuedRows = queuedVisible ? state.queued.length : 0;
   const baseReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const maxFloatingPanelRows = Math.max(0, resizeState.rows - baseReserve - 1);
   const desiredFloatingPanelRows = picker
@@ -6488,6 +6636,13 @@ export function App({ store, initialStatusLine = '' }) {
     top: WELCOME_ROWS,
     bottom: Math.max(WELCOME_ROWS, WELCOME_ROWS + viewportHeight - 1),
   };
+  // [mixdog] Keep the live terminal row count current for the mouse handler's
+  // region routing + status-band selection clip (see onData).
+  frameRowsRef.current = Math.max(1, Number(resizeState.rows) || 24);
+  // When the prompt box is hidden (floating panel / option panel owns the
+  // bottom area), drop its stale measured rect so the mouse handler does not
+  // route presses to a prompt box that is not on screen.
+  if (inputBoxHidden) promptBoxRectRef.current = null;
   // Windows Terminal/conhost scrolls the alt-screen (auto-wrap/DECAWM) when the
   // bottom-right cell is written, so reserve one cell on win32. Other platforms
   // render at full width.
@@ -6541,11 +6696,7 @@ export function App({ store, initialStatusLine = '' }) {
     transcriptWindow.startIndex,
     transcriptWindow.endIndex,
   );
-  const attachInputHintToTurnDone = !liveSpinner
-    && !inputBoxHidden
-    && !!inputHint
-    && transcriptWindow.bottomSpacerRows === 0
-    && transcriptWindow.endIndex >= state.items.length;
+  const attachInputHintToTurnDone = false;
   // ── App-level measured height harvest (ScrollBox/useVirtualScroll-inspired) ─
   // Runs after EVERY commit (no deps): Yoga has just laid out the mounted rows,
   // so each tracked item Box's getComputedHeight() is its REAL terminal height.
@@ -6752,7 +6903,8 @@ export function App({ store, initialStatusLine = '' }) {
       store.pushNotice(`Workflow: ${workflowDisplayName(workflows[0] || workflow)}`, 'info');
       return true;
     }
-    const currentIndex = Math.max(0, workflows.findIndex((item) => item.active || item.id === workflow.id));
+    const activeIndex = workflows.findIndex((item) => item.active);
+    const currentIndex = activeIndex >= 0 ? activeIndex : Math.max(0, workflows.findIndex((item) => item.id === workflow.id));
     const next = workflows[(currentIndex + 1 + workflows.length) % workflows.length];
     void store.setWorkflow?.(next.id)
       .then((result) => {
@@ -6761,11 +6913,10 @@ export function App({ store, initialStatusLine = '' }) {
           return;
         }
         store.pushNotice(workflowSwitchNotice(result), 'info');
-        showPromptHint(WORKFLOW_SESSION_RESTART_HINT, 'warn');
       })
       .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'));
     return true;
-  }, [slashPaletteOpen, picker, settingsPrompt, providerPrompt, channelPrompt, hookPrompt, contextPanel, usagePanel, state.busy, state.workflow, store, showPromptHint]);
+  }, [slashPaletteOpen, picker, settingsPrompt, providerPrompt, channelPrompt, hookPrompt, contextPanel, usagePanel, state.busy, state.workflow, store]);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
   // is a live column, so the live-frame line count ink relies on is accurate.
@@ -6780,6 +6931,8 @@ export function App({ store, initialStatusLine = '' }) {
       draftOverride={promptDraftOverride}
       valueRef={promptValueRef}
       selectionRef={promptSelectionRef}
+      boxRectRef={promptBoxRectRef}
+      mouseSelectionRef={promptMouseSelectionRef}
       hint=""
       hintTone={inputHintTone}
       mask={false}
@@ -6828,7 +6981,7 @@ export function App({ store, initialStatusLine = '' }) {
           <Text color={theme.claude} bold>{centerLine('██║╚██╔╝██║██║ ██╔██╗ ██║  ██║██║   ██║██║   ██║', frameColumns)}</Text>
           <Text color={theme.claude} bold>{centerLine('██║ ╚═╝ ██║██║██╔╝ ██╗██████╔╝╚██████╔╝╚██████╔╝', frameColumns)}</Text>
           <Box height={1} flexShrink={0} />
-          <Text color={theme.inactive}>{centerLine(`mixdog coding agent - ${state.cwd}`, frameColumns, 4)}</Text>
+          <Text color={theme.inactive}>{centerLine(`mixdog coding agent · ${state.cwd}`, frameColumns, 4)}</Text>
         </Box>
       ) : null}
 
@@ -7089,7 +7242,7 @@ export function App({ store, initialStatusLine = '' }) {
                 ) : null}
               </Box>
               {inputHint ? (
-                <Box flexShrink={0} width={transientStatusWidth || 1} marginLeft={1} justifyContent="flex-end" overflow="hidden">
+                <Box flexShrink={0} width={transientStatusWidth || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
                   <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
                 </Box>
               ) : null}

@@ -695,6 +695,9 @@ function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         lastRecallFastTrack: meta.recallFastTrack === true,
         lastRecallFastTrackError: meta.recallFastTrackError || null,
         lastPruneCount: meta.pruneCount || 0,
+        lastDurationMs: meta.durationMs != null && Number.isFinite(Number(meta.durationMs))
+            ? Math.max(0, Math.round(Number(meta.durationMs)))
+            : null,
         compactCount: (prev.compactCount || 0) + (changed ? 1 : 0),
     };
     if (changed) {
@@ -1408,6 +1411,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     iterations = 0;
                 }
                 const afterTokens = estimateMessagesTokensSafe(messages);
+                const compactDurationMs = Date.now() - compactStartedAt;
                 rememberCompactTelemetry(sessionRef, compactPolicy, {
                     stage: 'pre_send',
                     beforeTokens: messageTokensEst,
@@ -1419,6 +1423,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     recallFastTrack: recallFastTrackResult?.recallFastTrack === true,
                     recallFastTrackError: recallFastTrackError?.message || null,
                     pruneCount,
+                    durationMs: compactDurationMs,
                 });
                 let afterBytes = null;
                 try { afterBytes = Buffer.byteLength(JSON.stringify(messages), 'utf8'); } catch { afterBytes = null; }
@@ -1460,7 +1465,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     semantic: semanticCompactResult?.semantic === true,
                     recallFastTrack: recallFastTrackResult?.recallFastTrack === true,
                     pruneCount,
-                    durationMs: Date.now() - compactStartedAt,
+                    durationMs: compactDurationMs,
                 });
             }
         }

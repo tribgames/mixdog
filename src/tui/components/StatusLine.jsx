@@ -41,6 +41,15 @@ function hasRunningStatuslineWorkers(agentWorkers = [], agentJobs = []) {
   return false;
 }
 
+function stripAnsi(text) {
+  return String(text || '').replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+function hasActiveStatuslineWork(line, agentWorkers = [], agentJobs = []) {
+  return hasRunningStatuslineWorkers(agentWorkers, agentJobs)
+    || /\bRunning (?:Agents?|Shells?)\b/.test(stripAnsi(line));
+}
+
 function ansiRgb(value, fallback) {
   const match = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(String(value || '').replace(/\s+/g, ''));
   if (!match) return fallback;
@@ -102,7 +111,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   const [refreshTick, setRefreshTick] = useState(0);
 
   const statuslineArgs = { sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, agentWorkers, agentJobs };
-  const refreshMs = hasRunningStatuslineWorkers(agentWorkers, agentJobs) ? STATUSLINE_ACTIVE_REFRESH_MS : STATUSLINE_REFRESH_MS;
+  const refreshMs = hasActiveStatuslineWork(line, agentWorkers, agentJobs) ? STATUSLINE_ACTIVE_REFRESH_MS : STATUSLINE_REFRESH_MS;
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -153,8 +162,8 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
         <Box flexGrow={1} flexShrink={1} overflow="hidden">
           <Text wrap="truncate">{lines[0] || ' '}</Text>
         </Box>
-        <Box flexShrink={0} marginLeft={1}>
-          <Text color={theme.statusSubtle} wrap="truncate">{workflowLabel}</Text>
+        <Box flexShrink={0} marginLeft={1} marginRight={1}>
+          <Text color={theme.statusText} wrap="truncate">{workflowLabel}</Text>
         </Box>
       </Box>
       <Text wrap="truncate">{lines[1] || ' '}</Text>

@@ -63,7 +63,7 @@ export const AGENT_TOOL = {
       type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: 'Action. Default spawn.' },
       task_id: { type: 'string', description: 'Manual recovery task ID.' },
       agent: { type: 'string', description: 'Workflow agent id.' },
-      tag: { type: 'string', description: 'Stable distinct handle.' },
+      tag: { type: 'string', description: 'Stable distinct handle; choose a role-index tag by role, e.g. worker01, heavy-worker01, reviewer01.' },
       sessionId: { type: 'string', description: 'Raw sess_ id.' },
       prompt: { type: 'string', description: 'Scoped task brief.' },
       message: { type: 'string', description: 'Follow-up or brief.' },
