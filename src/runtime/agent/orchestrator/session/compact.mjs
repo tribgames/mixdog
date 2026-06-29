@@ -38,6 +38,50 @@ const TOOL_ARG_STRING_MAX_CHARS = 360;
 const TOOL_ARG_ARRAY_MAX_ITEMS = 8;
 const TOOL_ARG_MAX_DEPTH = 4;
 const SENSITIVE_TOOL_ARG_KEY_RE = /(?:^|[_-])(?:api[_-]?key|authorization|auth|cookie|credential|passwd|password|refresh[_-]?token|secret|token)(?:$|[_-])/i;
+// Word alternation for raw-string (non-JSON) secret redaction. Mirrors the
+// keys in SENSITIVE_TOOL_ARG_KEY_RE and the session-ingest redactor so a raw
+// tool-call argument string like `authorization: Bearer abc.def` or
+// `password="abc def"` never reaches preserved facts or the compaction prompt.
+const SENSITIVE_TOOL_ARG_KEY_WORD = '(?:api[_-]?key|authorization|auth|cookie|credential|passwd|password|refresh[_-]?token|secret|token)';
+// Full key matcher: the sensitive WORD may carry a prefix and/or suffix segment
+// joined by `_`/`-` so prefixed variants like `access_token`, `access-token`,
+// `x-api-key`, and `bearer_token` are matched as whole keys (not just the bare
+// word at key start). Prefix/suffix are bounded by a `_`/`-` separator so the
+// word stays at an identifier boundary.
+const SENSITIVE_TOOL_ARG_KEY_FULL = `(?:[A-Za-z0-9_-]*[_-])?${SENSITIVE_TOOL_ARG_KEY_WORD}(?:[_-][A-Za-z0-9_-]*)?`;
+
+// Redact `key: value` / `key=value` secret pairs inside a raw (non-JSON)
+// string. Consumes the WHOLE value after the key — spaces, `Bearer `/`Basic `
+// scheme words, quoted values with internal spaces, and `;`-separated cookie
+// pairs — so no secret fragment survives. Kept local to compact-core to avoid a
+// cross-module dependency on the memory lib; logic matches session-ingest's
+// redactRawArgString.
+function redactRawSecretString(text) {
+    const value = String(text ?? '');
+    if (!value) return value;
+    const keyRe = new RegExp(`((?:^|[\\s,{(])["']?${SENSITIVE_TOOL_ARG_KEY_FULL}["']?\\s*[:=]\\s*)`, 'gi');
+    let out = '';
+    let last = 0;
+    let match;
+    while ((match = keyRe.exec(value)) !== null) {
+        const prefixEnd = match.index + match[0].length;
+        out += value.slice(last, prefixEnd);
+        let i = prefixEnd;
+        const quote = value[i] === '"' || value[i] === "'" ? value[i] : '';
+        if (quote) {
+            i += 1;
+            while (i < value.length && value[i] !== quote) i += 1;
+            if (i < value.length) i += 1; // include closing quote
+        } else {
+            while (i < value.length && !/[,)}\n]/.test(value[i])) i += 1;
+        }
+        out += '[redacted]';
+        last = i;
+        keyRe.lastIndex = i;
+    }
+    out += value.slice(last);
+    return out;
+}
 
 function sha16(value) {
     const text = typeof value === 'string' ? value : JSON.stringify(value ?? null);
@@ -80,7 +124,10 @@ function truncateMiddle(text, maxChars) {
 function normalizeToolArgValue(value, key = '', depth = 0) {
     if (SENSITIVE_TOOL_ARG_KEY_RE.test(String(key || ''))) return '[redacted]';
     if (typeof value === 'bigint') return String(value);
-    if (typeof value === 'string') return truncateMiddle(value, TOOL_ARG_STRING_MAX_CHARS);
+    // Defense-in-depth: a non-sensitive KEY can still carry a secret embedded
+    // in its string VALUE (e.g. a freeform `headers` string). Redact raw
+    // key:value secret pairs before truncating.
+    if (typeof value === 'string') return truncateMiddle(redactRawSecretString(value), TOOL_ARG_STRING_MAX_CHARS);
     if (!value || typeof value !== 'object') return value ?? null;
     if (depth >= TOOL_ARG_MAX_DEPTH) return Array.isArray(value) ? `[array:${value.length}]` : '[object]';
     if (Array.isArray(value)) {
@@ -104,12 +151,15 @@ function stableToolArgJson(value) {
         if (/^[\[{]/.test(text)) {
             try { return JSON.stringify(normalizeToolArgValue(JSON.parse(text))); } catch { /* keep raw */ }
         }
-        return truncateMiddle(text, TOOL_ARG_STRING_MAX_CHARS);
+        // Non-JSON raw string: redact secret key:value pairs before truncating
+        // so toolCallSummary / preserved facts / compaction prompt metadata
+        // never leak `authorization: Bearer ...`, passwords, cookies, tokens.
+        return truncateMiddle(redactRawSecretString(text), TOOL_ARG_STRING_MAX_CHARS);
     }
     try {
         return JSON.stringify(normalizeToolArgValue(value));
     } catch {
-        return truncateMiddle(String(value || ''), TOOL_ARG_STRING_MAX_CHARS);
+        return truncateMiddle(redactRawSecretString(String(value || '')), TOOL_ARG_STRING_MAX_CHARS);
     }
 }
 
@@ -197,6 +247,115 @@ function splitProtectedContext(messages) {
     return { protectedPrefix, conversation };
 }
 
+// Redaction-ONLY recursive walk for tool-call argument VALUES kept verbatim
+// through compaction. Unlike normalizeToolArgValue (which is for prompt-side
+// summaries and truncates/summarizes/key-sorts), this preserves shape exactly:
+//   - sensitive KEY  -> '[redacted]'
+//   - string value   -> redactRawSecretString(value)  (no truncation/middle-cut)
+//   - array          -> same length, items walked in order (no slicing/caps)
+//   - object         -> same keys in INSERTION order (no sorting/depth caps)
+//   - other primitive (number/boolean/bigint/null) -> returned unchanged
+// Returns { value, changed } so callers can preserve byte-exact input when the
+// walk altered nothing. Only sensitive-key values and embedded raw secret pairs
+// inside strings are altered; everything else is structure identical.
+function redactToolArgValueOnly(value, key = '') {
+    if (SENSITIVE_TOOL_ARG_KEY_RE.test(String(key || ''))) {
+        return { value: '[redacted]', changed: value !== '[redacted]' };
+    }
+    if (value == null) return { value, changed: false };
+    if (typeof value === 'string') {
+        const redacted = redactRawSecretString(value);
+        return { value: redacted, changed: redacted !== value };
+    }
+    if (Array.isArray(value)) {
+        let changed = false;
+        const out = value.map((item) => {
+            const r = redactToolArgValueOnly(item, '');
+            if (r.changed) changed = true;
+            return r.value;
+        });
+        return { value: changed ? out : value, changed };
+    }
+    if (typeof value === 'object') {
+        let changed = false;
+        const out = {};
+        for (const k of Object.keys(value)) {
+            const r = redactToolArgValueOnly(value[k], k);
+            if (r.changed) changed = true;
+            out[k] = r.value;
+        }
+        return { value: changed ? out : value, changed };
+    }
+    return { value, changed: false };
+}
+
+// Redact sensitive values inside a single tool-call arguments payload while
+// preserving its original shape (string stays a string, object stays an
+// object) so the provider-valid tool_call structure is not broken. Used to
+// scrub messages that survive compaction VERBATIM (preserved tail / mandatory
+// context), where prompt-side redaction does not apply. Redaction-only — no
+// truncation, summarization, key sorting, or depth/array caps.
+function redactToolCallArgumentsValue(rawArgs) {
+    if (rawArgs == null) return rawArgs;
+    if (typeof rawArgs === 'string') {
+        const trimmed = rawArgs.trim();
+        if (/^[\[{]/.test(trimmed)) {
+            try {
+                // Parse, redaction-only walk; only reserialize when the walk
+                // actually changed a sensitive value. When nothing changed,
+                // return the ORIGINAL string byte-exact (no JSON re-formatting).
+                const { value, changed } = redactToolArgValueOnly(JSON.parse(trimmed));
+                return changed ? JSON.stringify(value) : rawArgs;
+            } catch { /* fall through to raw redaction */ }
+        }
+        return redactRawSecretString(rawArgs);
+    }
+    if (typeof rawArgs === 'object') {
+        try {
+            const { value, changed } = redactToolArgValueOnly(rawArgs);
+            return changed ? value : rawArgs;
+        } catch { return rawArgs; }
+    }
+    return rawArgs;
+}
+
+// Return a copy of a message with sensitive tool-call argument values redacted,
+// keeping role / content / toolCallId / tool names+ids and non-sensitive args
+// intact. Non-tool-bearing messages are returned unchanged (same reference).
+function redactMessageToolCallSecrets(m) {
+    if (!m || typeof m !== 'object' || !Array.isArray(m.toolCalls) || m.toolCalls.length === 0) {
+        return m;
+    }
+    let changed = false;
+    const toolCalls = m.toolCalls.map((tc) => {
+        if (!tc || typeof tc !== 'object') return tc;
+        const out = { ...tc };
+        if ('arguments' in tc && tc.arguments != null) {
+            const redacted = redactToolCallArgumentsValue(tc.arguments);
+            if (redacted !== tc.arguments) { out.arguments = redacted; changed = true; }
+        }
+        if (tc.function && typeof tc.function === 'object' && tc.function.arguments != null) {
+            const redacted = redactToolCallArgumentsValue(tc.function.arguments);
+            if (redacted !== tc.function.arguments) {
+                out.function = { ...tc.function, arguments: redacted };
+                changed = true;
+            }
+        }
+        return out;
+    });
+    if (!changed) return m;
+    return { ...m, toolCalls };
+}
+
+// Scrub an array of messages that are kept verbatim through compaction so a
+// recent assistant tool call carrying a secret (e.g. `authorization: Bearer
+// ...`) cannot survive into the returned compacted transcript. Only assistant
+// toolCalls argument VALUES are touched; structure/order/pairing is preserved.
+export function redactToolCallSecretsInMessages(messages) {
+    if (!Array.isArray(messages)) return messages;
+    return messages.map((m) => redactMessageToolCallSecrets(m));
+}
+
 export function normalizeCompactionBufferRatio(value, fallback = DEFAULT_COMPACTION_BUFFER_RATIO) {
     const n = Number(value);
     if (Number.isFinite(n) && n > 0) return n > 1 ? n / 100 : n;
@@ -246,9 +405,15 @@ export function normalizeCompactType(value, fallback = DEFAULT_COMPACT_TYPE) {
     if (raw === '1' || raw === 'type1' || raw === 'type-1' || raw === 'bench1' || raw === 'bench-1' || raw === 'semantic' || raw === 'summary') {
         return COMPACT_TYPE_SEMANTIC;
     }
-    if (raw === '2' || raw === 'type2' || raw === 'type-2' || raw === 'recall' || raw === 'recall-fast' || raw === 'recall-fasttrack' || raw === 'recall-fast-track' || raw === 'fasttrack') {
+    // Recall fast-track aliases. `replace(/_/g,'-')` above already folds
+    // snake_case (fast_track -> fast-track), but list both dash/no-dash forms
+    // explicitly so callers passing either spelling resolve deterministically.
+    if (raw === '2' || raw === 'type2' || raw === 'type-2' || raw === 'recall' || raw === 'recall-fast' || raw === 'recall-fasttrack' || raw === 'recall-fast-track' || raw === 'fasttrack' || raw === 'fast-track') {
         return COMPACT_TYPE_RECALL_FASTTRACK;
     }
+    // Unknown / unrecognized value: fall back to the caller-provided default
+    // (semantic by default). Callers that need to detect an unknown value
+    // should compare the input against COMPACT_TYPES before normalizing.
     return fallback;
 }
 
@@ -661,6 +826,205 @@ function extractResponseText(response) {
     return '';
 }
 
+// Canonical section anchors the semantic summary template (SUMMARY_TEMPLATE)
+// must contain. Used for lightweight schema validation of provider output.
+const REQUIRED_SUMMARY_SECTIONS = Object.freeze([
+    '## Goal',
+    '## Constraints',
+    '## Progress',
+    '## Key Decisions',
+    '## Next Steps',
+    '## Critical Context',
+    '## Relevant Files',
+]);
+
+// Collect actual top-level (`## `, not `### `) heading lines from a summary.
+// Validation is heading-anchor based (not substring includes) so prose or code
+// that merely mentions "## Relevant Files" inside a bullet body cannot satisfy
+// a section anchor.
+function summaryHeadingLines(summary) {
+    const out = [];
+    for (const rawLine of String(summary || '').split('\n')) {
+        const line = rawLine.trim();
+        if (/^##\s+\S/.test(line) && !/^###\s+/.test(line)) out.push(line);
+    }
+    return out;
+}
+
+// An anchor matches a heading when the heading title equals the anchor title or
+// extends it at a word/punctuation boundary. This lets `## Constraints &
+// Preferences` satisfy the `## Constraints` anchor while NOT letting an
+// unrelated `## Goalkeeper` heading satisfy `## Goal`. Requires a real `## `
+// heading line (not a substring buried in prose).
+function headingMatchesAnchor(heading, anchor) {
+    const anchorTitle = anchor.replace(/^##\s+/, '').trim().toLowerCase();
+    const headingTitle = heading.replace(/^##\s+/, '').trim().toLowerCase();
+    if (headingTitle === anchorTitle) return true;
+    if (!headingTitle.startsWith(anchorTitle)) return false;
+    // Next char after the anchor title must be a boundary (space or &/punct),
+    // not a continuation letter/digit.
+    const nextChar = headingTitle.charAt(anchorTitle.length);
+    return /[\s&:(-]/.test(nextChar);
+}
+
+function summarySchemaScore(summary) {
+    const headings = summaryHeadingLines(summary);
+    let hits = 0;
+    for (const anchor of REQUIRED_SUMMARY_SECTIONS) {
+        if (headings.some((h) => headingMatchesAnchor(h, anchor))) hits += 1;
+    }
+    return hits;
+}
+
+// A summary is schema-valid only when EVERY required section anchor is present
+// as a real heading. A partial summary (e.g. missing Critical Context /
+// Relevant Files) must be repaired rather than injected unchanged.
+function summaryIsSchemaValid(summary) {
+    return summarySchemaScore(summary) === REQUIRED_SUMMARY_SECTIONS.length;
+}
+
+function deriveRelevantFilesBullets(head) {
+    const seen = new Set();
+    const out = [];
+    const fileRe = /(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|[\w$.-]+[\\/])?[\w$.-]+\.(?:mjs|cjs|js|jsx|ts|tsx|json|md|rs|go|py|java|kt|cs|cpp|c|h|hpp|css|html|yml|yaml|toml|lock|sh|ps1)\b/gi;
+    for (const m of Array.isArray(head) ? head : []) {
+        const text = extractText(m);
+        if (!text) continue;
+        let match;
+        while ((match = fileRe.exec(text)) && out.length < 8) {
+            const file = match[0];
+            const key = file.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push(`- ${file}`);
+        }
+        if (out.length >= 8) break;
+    }
+    return out;
+}
+
+function deriveCurrentRequest(messages) {
+    for (let i = (Array.isArray(messages) ? messages.length : 0) - 1; i >= 0; i -= 1) {
+        const m = messages[i];
+        if (m?.role === 'user' && !isProtectedContextUserMessage(m)) {
+            const text = truncateMiddle(extractText(m).trim(), 400);
+            if (text) return text;
+        }
+    }
+    return '';
+}
+
+// Canonical ordered section headings the structured summary scaffold emits.
+// Each `## ` heading maps to one REQUIRED_SUMMARY_SECTIONS anchor; Progress
+// additionally carries its three `### ` sub-headings.
+const SUMMARY_SECTION_LAYOUT = Object.freeze([
+    { heading: '## Goal', anchor: '## Goal' },
+    { heading: '## Constraints & Preferences', anchor: '## Constraints' },
+    { heading: '## Progress', anchor: '## Progress', sub: ['### Done', '### In Progress', '### Blocked'] },
+    { heading: '## Key Decisions', anchor: '## Key Decisions' },
+    { heading: '## Next Steps', anchor: '## Next Steps' },
+    { heading: '## Critical Context', anchor: '## Critical Context' },
+    { heading: '## Relevant Files', anchor: '## Relevant Files' },
+]);
+
+// Split a markdown summary into a map of top-level `## ` heading -> body lines.
+function parseSummarySections(text) {
+    const map = new Map();
+    let current = null;
+    for (const rawLine of String(text || '').split('\n')) {
+        const line = rawLine.replace(/\s+$/, '');
+        if (/^##\s+/.test(line) && !/^###\s+/.test(line)) {
+            current = line.trim();
+            if (!map.has(current)) map.set(current, []);
+            continue;
+        }
+        if (current) map.get(current).push(line);
+    }
+    return map;
+}
+
+// Deterministic schema repair for a non-empty but malformed/partial semantic
+// summary. Preserve every section the provider DID supply (matched by anchor),
+// and scaffold the missing required sections so downstream consumers always
+// receive the full structured anchored shape. Content that lives outside any
+// recognized section is routed into Critical Context so nothing is dropped.
+// Lightly backfill Goal / Relevant Files from the transcript when empty.
+function repairSemanticSummary(summary, { head = [], tail = [] } = {}) {
+    const raw = String(summary || '').trim();
+    const present = parseSummarySections(raw);
+    // Capture any leading content before the first recognized `## ` heading so
+    // an entirely unstructured blob is preserved rather than silently dropped.
+    let preamble = '';
+    if (raw) {
+        const firstHeading = raw.search(/(^|\n)##\s+/);
+        preamble = firstHeading === -1 ? raw : raw.slice(0, firstHeading);
+        preamble = preamble.trim();
+    }
+    const bulletize = (lines) => {
+        const cleaned = (Array.isArray(lines) ? lines : [])
+            .map((l) => String(l).trim())
+            .filter(Boolean);
+        return cleaned.length ? cleaned : null;
+    };
+    const findPresent = (anchor) => {
+        for (const [heading, body] of present) {
+            if (headingMatchesAnchor(heading, anchor)) return body;
+        }
+        return null;
+    };
+    const goal = deriveCurrentRequest(tail) || deriveCurrentRequest(head);
+    const files = deriveRelevantFilesBullets(head);
+    const out = [];
+    for (const section of SUMMARY_SECTION_LAYOUT) {
+        if (out.length) out.push('');
+        out.push(section.heading);
+        const body = bulletize(findPresent(section.anchor));
+        if (section.sub) {
+            // Progress: keep provider sub-bodies when present, else scaffold.
+            if (body) {
+                out.push(...body);
+            } else {
+                for (const sub of section.sub) {
+                    out.push(sub, '- (none)');
+                }
+            }
+            continue;
+        }
+        if (body) {
+            out.push(...body);
+            continue;
+        }
+        if (section.anchor === '## Goal') {
+            out.push(goal ? `- ${goal}` : '- (none)');
+        } else if (section.anchor === '## Critical Context') {
+            // Route any unstructured preamble into Critical Context so a fully
+            // freeform provider blob is retained in the structured output.
+            const preambleLines = preamble
+                ? preamble.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => (l.startsWith('-') ? l : `- ${l}`))
+                : null;
+            out.push(...(preambleLines || ['- (none)']));
+        } else if (section.anchor === '## Relevant Files') {
+            out.push(...(files.length ? files : ['- (none)']));
+        } else {
+            out.push('- (none)');
+        }
+    }
+    return out.join('\n');
+}
+
+// Validate the provider summary against the required template sections; when it
+// is missing ANY required section anchor (fully or partially malformed) repair
+// it deterministically so a non-empty-but-broken response is never injected as
+// the sole summary. Returns { summary, repaired }.
+function enforceSemanticSummarySchema(summary, ctx = {}) {
+    const text = String(summary || '').trim();
+    if (!text) return { summary: text, repaired: false };
+    if (summaryIsSchemaValid(text)) {
+        return { summary: text, repaired: false };
+    }
+    return { summary: repairSemanticSummary(text, ctx), repaired: true };
+}
+
 function makeSemanticSummaryMessage(oldHistory, summary, semanticMeta = {}, preservedFacts = '') {
     const header = compactHeader(oldHistory);
     header.push(`compact_type=${COMPACT_TYPE_SEMANTIC}`);
@@ -695,19 +1059,81 @@ export function buildRecallFastTrackQuery(messages, opts = {}) {
     return truncateMiddle([...new Set(parts)].join('\n'), maxChars);
 }
 
+// A headings-only structured summary: every required `## ` (and Progress `### `)
+// anchor present with `- (none)` bodies. This is the minimal schema-valid shape
+// the fitter can fall back to when token pressure cannot hold real section
+// bodies — it still passes summaryIsSchemaValid so the injected message is
+// never partial.
+function minimalSchemaSummary() {
+    const out = [];
+    for (const section of SUMMARY_SECTION_LAYOUT) {
+        if (out.length) out.push('');
+        out.push(section.heading);
+        if (section.sub) {
+            for (const sub of section.sub) out.push(sub, '- (none)');
+        } else {
+            out.push('- (none)');
+        }
+    }
+    return out.join('\n');
+}
+
+// Section-aware truncation: keep EVERY `## ` heading and Progress `### `
+// sub-heading intact, trimming only section bodies to `perSectionChars`. Unlike
+// a raw text.slice(0, n) this never drops a trailing required section, so the
+// result stays schema-valid (all anchors present) at any budget.
+function truncateSummaryBySections(summary, perSectionChars) {
+    const sections = parseSummarySections(summary);
+    const out = [];
+    for (const section of SUMMARY_SECTION_LAYOUT) {
+        if (out.length) out.push('');
+        out.push(section.heading);
+        let body = null;
+        for (const [heading, lines] of sections) {
+            if (headingMatchesAnchor(heading, section.anchor)) { body = lines; break; }
+        }
+        const bodyText = (Array.isArray(body) ? body : [])
+            .map((l) => String(l).trim())
+            .filter(Boolean)
+            .join('\n');
+        if (!bodyText) {
+            if (section.sub) for (const sub of section.sub) out.push(sub, '- (none)');
+            else out.push('- (none)');
+            continue;
+        }
+        const trimmed = perSectionChars > 0 ? truncateMiddle(bodyText, perSectionChars) : '';
+        if (trimmed) out.push(trimmed);
+        else if (section.sub) for (const sub of section.sub) out.push(sub, '- (none)');
+        else out.push('- (none)');
+    }
+    return out.join('\n');
+}
+
+// Fit the structured semantic summary into the remaining token budget WITHOUT
+// dropping any required section. The incoming `summary` is already schema-valid
+// (enforceSemanticSummarySchema ran upstream); here we shrink section bodies via
+// section-aware truncation, fall back to a headings-only schema-valid summary,
+// and finally revalidate so the injected SUMMARY_PREFIX message always carries
+// every required anchor. Returns null only when even the minimal schema-valid
+// summary cannot fit (caller throws).
 function fitSemanticSummaryMessage(oldHistory, summary, remainingTokens, semanticMeta, preservedFacts = '') {
     const tryFit = (factsText) => {
-        const minimal = makeSemanticSummaryMessage(oldHistory, '', semanticMeta, factsText);
-        if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
         const text = String(summary || '').trim();
+        // Minimal schema-valid body (headings + "(none)"). If even this does
+        // not fit, this facts variant cannot produce a valid message.
+        const minimalBody = text ? minimalSchemaSummary() : '';
+        const minimal = makeSemanticSummaryMessage(oldHistory, minimalBody, semanticMeta, factsText);
+        if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
         if (!text) return minimal;
+        // Binary search the per-section body budget; keep all anchors intact.
         let lo = 0;
         let hi = text.length;
         let best = minimal;
         while (lo <= hi) {
             const mid = Math.floor((lo + hi) / 2);
-            const candidate = makeSemanticSummaryMessage(oldHistory, text.slice(0, mid), semanticMeta, factsText);
-            if (estimateMessagesTokens([candidate]) <= remainingTokens) {
+            const body = truncateSummaryBySections(text, mid);
+            const candidate = makeSemanticSummaryMessage(oldHistory, body, semanticMeta, factsText);
+            if (estimateMessagesTokens([candidate]) <= remainingTokens && summaryIsSchemaValid(body)) {
                 best = candidate;
                 lo = mid + 1;
             } else {
@@ -716,11 +1142,10 @@ function fitSemanticSummaryMessage(oldHistory, summary, remainingTokens, semanti
         }
         return best;
     };
-    if (preservedFacts) {
-        const withFacts = tryFit(preservedFacts);
-        if (withFacts) return withFacts;
-    }
-    return tryFit('');
+    let result = null;
+    if (preservedFacts) result = tryFit(preservedFacts);
+    if (!result) result = tryFit('');
+    return result;
 }
 
 // Recall fast-track (compact type 2) does no LLM summarization — it just emits
@@ -771,10 +1196,20 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
         throw new Error('semanticCompactMessages: provider.send is required');
     }
     let budget = effectiveBudget(budgetTokens, opts);
-    const sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
-    if (estimateMessagesTokens(sanitized) <= budget && opts.force !== true) {
-        return { messages: sanitized, usage: null, semantic: false };
+    const baseSanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
+    // No-op fast path: if the original sanitized transcript already fits and we
+    // are not forced, return it UNCHANGED (no preserved-tail redaction applied)
+    // to keep prior no-compaction semantics.
+    if (estimateMessagesTokens(baseSanitized) <= budget && opts.force !== true) {
+        return { messages: baseSanitized, usage: null, semantic: false };
     }
+    // Compaction will proceed: redact sensitive tool-call argument VALUES before
+    // window selection so the preserved tail/system that survive verbatim are
+    // measured AND emitted in their redacted form. Head prompt normalizers
+    // (toolCallSummary/normalizeToolArgValue) still apply on top for the
+    // summarized head. Redaction is shape-preserving, so tool-pair structure
+    // stays provider-valid.
+    const sanitized = redactToolCallSecretsInMessages(baseSanitized);
 
     const selected = selectCompactionWindow(sanitized, budget, opts);
     if (selected.head.length === 0 && !selected.previousSummary) {
@@ -831,8 +1266,13 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
         { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
         { role: 'user', content: prompt },
     ], compactModel, undefined, sendOpts);
-    const summary = extractResponseText(response);
-    if (!summary) throw new Error('semanticCompactMessages: compaction agent returned empty summary');
+    const rawSummary = extractResponseText(response);
+    if (!rawSummary) throw new Error('semanticCompactMessages: compaction agent returned empty summary');
+    // Lightweight schema enforcement: a non-empty but malformed provider
+    // response (missing the required template sections) is deterministically
+    // repaired into the structured anchored shape rather than injected blindly.
+    const enforced = enforceSemanticSummarySchema(rawSummary, { head: selected.head, tail: selected.tail });
+    const summary = enforced.summary;
 
     const oldHistory = selected.originalHead;
     const semanticMeta = {
@@ -844,6 +1284,9 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
         throw new Error(`semanticCompactMessages: summary cannot fit remaining budget=${budget - mandatoryCost}`);
     }
 
+    // selected.system / selected.tail already carry redacted tool-call args
+    // (sanitized was redacted before window selection), so the preserved tail
+    // is both measured and emitted in redacted form.
     let result = sanitizeToolPairs([...selected.system, summaryMessage, ...selected.tail]);
     result = reconcileDedupStubs(dedupToolResultBodies(result));
     const finalTokens = estimateMessagesTokens(result);
@@ -857,6 +1300,7 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
         semantic: true,
         compactType: COMPACT_TYPE_SEMANTIC,
         summary,
+        summaryRepaired: enforced.repaired === true,
     };
 }
 
@@ -864,69 +1308,130 @@ export function recallFastTrackCompactMessages(messages, budgetTokens, opts = {}
     return _recallFastTrackCompactMessages(messages, budgetTokens, opts);
 }
 
-// Option B tail policy for recall fast-track (type 2): keep the most recent
-// RECALL_TAIL_USER_MAX user messages verbatim; if their combined token cost
-// exceeds RECALL_TAIL_TOKEN_CAP, keep the newest whole and middle-truncate the
-// older one(s) so the kept set fits the cap. Assistant/tool turns never enter
-// the tail — the chunk summary already carries that history.
+// Recall fast-track (type 2) tail policy: preserve the most recent turns of the
+// live conversation VERBATIM and STRUCTURED, keeping role semantics for
+// user / assistant / tool / system / developer instead of collapsing the tail
+// to user-only. The chunk summary anchors older history; the preserved tail
+// keeps recent assistant reasoning, tool_calls, and tool_results so fresh
+// state is not silently dropped.
+//
+// Turns are anchored on user-role boundaries: each turn = a user message plus
+// the assistant/tool/system/developer messages that follow it (a leading run of
+// non-user messages before the first user boundary is treated as its own
+// partial turn so nothing is lost). We keep the newest RECALL_TAIL_USER_MAX
+// turns; if the kept set exceeds RECALL_TAIL_TOKEN_CAP we drop whole oldest
+// turns first, then middle-truncate the oldest surviving messages' string
+// content so the set fits while leaving the newest message whole.
+//
+// Partial tool_call/tool_result pairs that truncation might leave behind are
+// repaired by sanitizeToolPairs/reconcileDedupStubs in the caller, so pairing
+// stays valid even after trimming.
 const RECALL_TAIL_USER_MAX = 2;
 const RECALL_TAIL_TOKEN_CAP = DEFAULT_COMPACTION_KEEP_TOKENS; // 8k
 // Rough chars-per-token used only to size a truncation target; the real fit is
 // re-checked with estimateMessagesTokens below.
 const RECALL_TAIL_CHARS_PER_TOKEN = 4;
 
-function selectRecallTailUserMessages(tail, opts = {}) {
-    const users = (Array.isArray(tail) ? tail : []).filter((m) => m?.role === 'user');
-    const max = Math.max(1, Number(opts.maxUsers) || RECALL_TAIL_USER_MAX);
-    const cap = Math.max(1, Number(opts.tokenCap) || RECALL_TAIL_TOKEN_CAP);
-    // Take the newest `max` user messages, oldest-first for output order.
-    const recent = users.slice(-max);
-    if (recent.length === 0) return [];
-    if (estimateMessagesTokens(recent) <= cap) return recent;
-    // Over cap: always keep the newest whole, then add older ones (newest-first)
-    // only while they fit; truncate the first one that would overflow.
-    const newestFirst = recent.slice().reverse();
-    const kept = [];
-    let used = 0;
-    for (let i = 0; i < newestFirst.length; i += 1) {
-        const m = newestFirst[i];
-        const cost = estimateMessagesTokens([m]);
-        if (used + cost <= cap) { kept.push(m); used += cost; continue; }
-        const room = cap - used;
-        if (room > 0 && typeof m.content === 'string') {
-            const truncated = truncateMiddle(m.content, Math.max(0, room * RECALL_TAIL_CHARS_PER_TOKEN));
-            if (truncated) kept.push({ ...m, content: truncated });
+function splitTailIntoTurns(messages) {
+    const turns = [];
+    let current = null;
+    for (const m of messages) {
+        if (m?.role === 'user') {
+            if (current) turns.push(current);
+            current = [m];
+        } else {
+            if (!current) current = [];
+            current.push(m);
         }
-        break;
     }
-    return kept.reverse();
+    if (current && current.length) turns.push(current);
+    return turns;
+}
+
+function truncateTailToCap(messages, cap) {
+    const out = messages.slice();
+    // Truncate older string-content messages first (oldest → newest), keeping
+    // the newest message whole as long as possible.
+    for (let i = 0; i < out.length - 1 && estimateMessagesTokens(out) > cap; i += 1) {
+        const m = out[i];
+        if (!m || typeof m.content !== 'string' || !m.content) continue;
+        const over = estimateMessagesTokens(out) - cap;
+        const target = Math.max(0, m.content.length - over * RECALL_TAIL_CHARS_PER_TOKEN);
+        out[i] = { ...m, content: truncateMiddle(m.content, target) };
+    }
+    // Single oversized newest message: truncate it against the leftover room.
+    if (estimateMessagesTokens(out) > cap && out.length > 0) {
+        const last = out.length - 1;
+        const m = out[last];
+        if (m && typeof m.content === 'string') {
+            const used = estimateMessagesTokens(out.slice(0, last));
+            const room = Math.max(0, cap - used);
+            out[last] = { ...m, content: truncateMiddle(m.content, room * RECALL_TAIL_CHARS_PER_TOKEN) };
+        }
+    }
+    return out;
+}
+
+// Kept name as the type-2 tail anchor; behavior now preserves whole structured
+// turns (all roles) rather than only role=user messages.
+function selectRecallTailUserMessages(tail, opts = {}) {
+    const msgs = (Array.isArray(tail) ? tail : []).filter(Boolean);
+    if (msgs.length === 0) return [];
+    const maxTurns = Math.max(1, Number(opts.maxUsers) || RECALL_TAIL_USER_MAX);
+    const cap = Math.max(1, Number(opts.tokenCap) || RECALL_TAIL_TOKEN_CAP);
+    const turns = splitTailIntoTurns(msgs);
+    if (turns.length === 0) return [];
+    // Keep the newest `maxTurns` turns, preserving role order within each turn.
+    let kept = turns.slice(-maxTurns);
+    if (estimateMessagesTokens(kept.flat()) <= cap) return kept.flat();
+    // Over cap: drop whole oldest kept turns while more than one remains.
+    while (kept.length > 1) {
+        kept = kept.slice(1);
+        if (estimateMessagesTokens(kept.flat()) <= cap) return kept.flat();
+    }
+    // Single newest turn still over cap: middle-truncate its messages to fit.
+    return truncateTailToCap(kept.flat(), cap);
 }
 
 function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
     let budget = effectiveBudget(budgetTokens, opts);
-    const sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
-    if (estimateMessagesTokens(sanitized) <= budget && opts.force !== true) {
-        return { messages: sanitized, recallFastTrack: false };
+    const baseSanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
+    // No-op fast path: if the original sanitized transcript already fits and we
+    // are not forced, return it UNCHANGED (no preserved-tail redaction applied)
+    // to keep prior no-compaction semantics.
+    if (estimateMessagesTokens(baseSanitized) <= budget && opts.force !== true) {
+        return { messages: baseSanitized, recallFastTrack: false };
     }
+    // Compaction will proceed: redact sensitive tool-call argument VALUES up
+    // front so the preserved tail seen by selectRecallTailUserMessages
+    // (cap/truncation decisions) and the final emitted messages are the SAME
+    // redacted data. Redaction is shape-preserving, so tool-pair structure
+    // stays provider-valid.
+    const sanitized = redactToolCallSecretsInMessages(baseSanitized);
 
     const selected = selectCompactionWindow(sanitized, budget, opts);
-    // Recall fast-track (type 2, toy mode): keep it dead simple. The chunked
-    // recall text already carries the history, so the preserved tail is reduced
-    // to the recent USER messages only (openai-oauth-style) — assistant turns and tool
-    // outputs are dropped from the tail. Result shape: system rules → chunk
-    // summary → recent user messages. Because the chunk is the history anchor,
-    // an empty head is fine as long as we have recall text to emit.
+    // Recall fast-track (type 2). The chunked recall text carries the older
+    // history; the preserved tail keeps the most recent STRUCTURED turns
+    // verbatim (user + assistant/tool/system/developer that follow), so recent
+    // assistant reasoning, tool_calls, and tool_results are not dropped.
+    // Result shape: system rules → structured chunk summary → recent turns.
+    // Because the chunk is the history anchor, an empty head is fine as long as
+    // we have recall text to emit.
     //
-    // Tail policy (option B): keep the most recent RECALL_TAIL_USER_MAX (2) user
-    // messages. If those two together exceed RECALL_TAIL_TOKEN_CAP (8k), keep the
-    // newest whole and truncate the older one so the pair fits the cap.
+    // Tail policy: keep the most recent RECALL_TAIL_USER_MAX (2) turns. If they
+    // exceed RECALL_TAIL_TOKEN_CAP (8k), drop whole oldest turns then
+    // middle-truncate the oldest surviving messages so the set fits the cap.
+    // selected.system / selected.tail already carry redacted tool-call args
+    // (sanitized was redacted before window selection), so tail selection and
+    // the emitted result both operate on the redacted preserved tail.
+    const safeSystem = selected.system;
     const recallTail = selectRecallTailUserMessages(selected.tail);
     if (selected.head.length === 0 && !selected.previousSummary
         && !(String(opts.recallText || '').trim() || opts.allowEmptyRecall === true)) {
         throw new Error('recallFastTrackCompactMessages: no compactable prior history before preserved tail');
     }
 
-    const mandatory = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs([...selected.system, ...recallTail])));
+    const mandatory = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs([...safeSystem, ...recallTail])));
     const mandatoryCost = estimateMessagesTokens(mandatory);
     // See semanticCompactMessages: replacing the head with a compact summary
     // always shrinks the transcript, so a budget below the mandatory (system +
@@ -949,7 +1454,7 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
         throw new Error(`recallFastTrackCompactMessages: summary cannot fit remaining budget=${budget - mandatoryCost}`);
     }
 
-    let result = sanitizeToolPairs([...selected.system, summaryMessage, ...recallTail]);
+    let result = sanitizeToolPairs([...safeSystem, summaryMessage, ...recallTail]);
     result = reconcileDedupStubs(dedupToolResultBodies(result));
     const finalTokens = estimateMessagesTokens(result);
     if (finalTokens > budget) {

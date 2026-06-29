@@ -43,6 +43,8 @@ const mixdogPalette = {
   timerText: 'rgb(168,168,168)', // live elapsed timer — metadata weight, no bright accent
   text: 'rgb(198,198,198)', // primary text
   inverseText: 'rgb(0,0,0)', // text on an inverted (light) background
+  selectionText: 'rgb(0,0,0)', // text inside an active drag/copy selection
+  selectionBackground: 'rgb(245,245,245)', // selection highlight band
   inactive: 'rgb(136,136,136)', // secondary text
   subtle: 'rgb(140,140,140)', // helper text / quiet rules
   promptBorder: 'rgb(158,158,158)', // input border / prompt
@@ -109,6 +111,8 @@ const piDarkPalette = {
   warning: 'rgb(255,255,0)', // #ffff00
   suggestion: 'rgb(95,135,255)', // #5f87ff
   permission: 'rgb(204,102,102)',
+  selectionText: 'rgb(26,27,33)',
+  selectionBackground: 'rgb(212,212,212)',
   code: 'rgb(95,135,255)',
   codeBlock: 'rgb(181,189,104)',
   mdCodeBlockBorder: 'rgb(96,104,116)',
@@ -157,6 +161,8 @@ const claudeDarkPalette = {
   warning: 'rgb(255,193,7)',
   suggestion: 'rgb(177,185,249)', // blue-purple
   permission: 'rgb(177,185,249)',
+  selectionText: 'rgb(13,13,13)',
+  selectionBackground: 'rgb(235,235,235)',
   code: 'rgb(177,185,249)',
   codeBlock: 'rgb(200,200,200)', // plain code body (no brand coloring)
   mdHeading: 'rgb(235,159,127)', // warm heading accent
@@ -217,6 +223,8 @@ const draculaPalette = {
   warning: 'rgb(241,250,140)', // yellow
   suggestion: 'rgb(139,233,253)', // cyan
   permission: 'rgb(255,85,85)',
+  selectionText: 'rgb(40,42,54)',
+  selectionBackground: 'rgb(248,248,242)',
   code: 'rgb(139,233,253)',
   codeBlock: 'rgb(248,248,242)',
   mdHeading: 'rgb(189,147,249)',
@@ -276,6 +284,8 @@ const tokyonightPalette = {
   warning: 'rgb(255,150,108)',
   suggestion: 'rgb(130,170,255)',
   permission: 'rgb(255,117,127)',
+  selectionText: 'rgb(26,27,38)',
+  selectionBackground: 'rgb(200,211,245)',
   code: 'rgb(130,170,255)',
   codeBlock: 'rgb(200,211,245)',
   mdHeading: 'rgb(192,153,255)', // purple
@@ -335,6 +345,8 @@ const nordPalette = {
   warning: 'rgb(208,135,112)',
   suggestion: 'rgb(129,161,193)',
   permission: 'rgb(191,97,106)',
+  selectionText: 'rgb(46,52,64)',
+  selectionBackground: 'rgb(236,239,244)',
   code: 'rgb(129,161,193)',
   codeBlock: 'rgb(216,222,233)',
   mdHeading: 'rgb(136,192,208)',
@@ -394,6 +406,8 @@ const gruvboxPalette = {
   warning: 'rgb(254,128,25)',
   suggestion: 'rgb(131,165,152)',
   permission: 'rgb(251,73,52)',
+  selectionText: 'rgb(40,40,40)',
+  selectionBackground: 'rgb(235,219,178)',
   code: 'rgb(142,192,124)',
   codeBlock: 'rgb(235,219,178)',
   mdHeading: 'rgb(131,165,152)',
@@ -453,6 +467,8 @@ const catppuccinPalette = {
   warning: 'rgb(249,226,175)',
   suggestion: 'rgb(137,180,250)',
   permission: 'rgb(243,139,168)',
+  selectionText: 'rgb(30,30,46)',
+  selectionBackground: 'rgb(205,214,244)',
   code: 'rgb(166,227,161)',
   codeBlock: 'rgb(205,214,244)',
   mdHeading: 'rgb(203,166,247)', // mauve
@@ -512,6 +528,8 @@ const everforestPalette = {
   warning: 'rgb(230,152,117)',
   suggestion: 'rgb(127,187,179)',
   permission: 'rgb(230,126,128)',
+  selectionText: 'rgb(45,53,59)',
+  selectionBackground: 'rgb(211,198,170)',
   code: 'rgb(131,192,146)',
   codeBlock: 'rgb(211,198,170)',
   mdHeading: 'rgb(214,153,182)', // purple

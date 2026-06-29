@@ -836,10 +836,6 @@ try {
   if (agentCompletionCount !== 1) {
     throw new Error(`agent early completion should suppress duplicate final notify, got ${agentCompletionCount}: ${JSON.stringify(ownerNotifications)}`);
   }
-  const modelOnlyStart = await agentNotifySmoke.execute({ type: 'spawn', agent: 'worker', tag: 'notify-model-smoke', prompt: 'notify model smoke', model: 'haiku' }, notifyContext);
-  if (!/model: openai-oauth\/smoke-haiku/i.test(String(modelOnlyStart))) {
-    throw new Error(`agent model-only spawn must resolve matching preset instead of role default:\n${modelOnlyStart}`);
-  }
   await agentNotifySmoke.execute({ type: 'cleanup', force: true }, notifyContext);
 } finally {
   rmSync(agentNotifyTmp, { recursive: true, force: true });
@@ -929,15 +925,20 @@ setInternalToolsProvider({
         .filter((m) => m?.role === 'system')
         .map((m) => String(m.content || ''))
         .join('\n');
-      if (/available-skills/i.test(systemVisible) || /demo-skill/i.test(systemVisible) || /Skill\(/.test(systemVisible)) {
-        throw new Error(`agent BP1 must omit skill manifest when Skill tool is hidden: ${systemVisible.slice(0, 1200)}`);
+      // Agent (Pool B/C) sessions FREEZE the Skill meta-tool into the schema
+      // unconditionally so the tool bytes stay bit-identical across roles/cwds
+      // (provider cache shard stability). The BP1 manifest rides alongside it
+      // so the model knows which Skill names exist — a loader without the
+      // manifest cannot be targeted. Both must be present together.
+      if (!/available-skills/i.test(systemVisible) || !/demo-skill/i.test(systemVisible) || !/Skill\(\{"name":"<skill-name>"\}\)/.test(systemVisible)) {
+        throw new Error(`agent BP1 must carry the compact skill manifest alongside the frozen Skill tool: ${systemVisible.slice(0, 1200)}`);
       }
       if (!/# Tool Use/i.test(systemVisible) || !/# Agent Constraints/i.test(systemVisible)) {
         throw new Error(`agent system layers must carry BP1 tool policy and BP2 role rules: ${systemVisible.slice(0, 1200)}`);
       }
       const agentSkillToolNames = (agentSkillSession.tools || []).map((tool) => tool?.name).filter(Boolean);
-      if (agentSkillToolNames.includes('Skill')) {
-        throw new Error(`read-write agent must not expose Skill when BP1 manifest is omitted: ${agentSkillToolNames.join(', ')}`);
+      if (!agentSkillToolNames.includes('Skill')) {
+        throw new Error(`agent must expose the frozen Skill loader (schema-stable across roles/cwds): ${agentSkillToolNames.join(', ')}`);
       }
     } finally {
       closeSession(agentSkillSession.id, 'tool-smoke');

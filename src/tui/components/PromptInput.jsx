@@ -66,7 +66,7 @@ function renderSelectedText(displayValue, range, trailingSpace = false) {
     <>
       {start > 0 ? displayValue.slice(0, start) : null}
       {end > start ? (
-        <Text color={theme.inverseText} backgroundColor="rgb(245,245,245)">{displayValue.slice(start, end)}</Text>
+        <Text color={theme.selectionText} backgroundColor={theme.selectionBackground}>{displayValue.slice(start, end)}</Text>
       ) : null}
       {displayValue.slice(end)}
       {trailingSpace ? ' ' : ''}
@@ -512,14 +512,18 @@ export function PromptInput({
         commitDraft({ value: '', cursor: 0, selectionAnchor: null });
         return;
       }
-      if (restoreQueuedToDraft()) {
-        return;
-      }
+      // Active turn takes precedence over queue restore (matches claude-code
+      // useCancelRequest priority): Esc during a running turn interrupts the
+      // turn and leaves queued steering prompts intact to run afterward. Queued
+      // messages only pop back into the draft when the turn is idle.
       if (interruptActive) {
         const restoredText = onInterrupt?.('');
         if (typeof restoredText === 'string') {
           commitDraft({ value: restoredText, cursor: restoredText.length, selectionAnchor: null });
         }
+        return;
+      }
+      if (restoreQueuedToDraft()) {
         return;
       }
       onEscape?.('', { phase: 'empty' });

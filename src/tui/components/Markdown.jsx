@@ -25,13 +25,18 @@ import { AnsiText } from './AnsiText.jsx';
 import { MarkdownTable } from './MarkdownTable.jsx';
 import { theme } from '../theme.mjs';
 
-function renderMarkdownElements(content, trimPartialFences = false) {
+function renderMarkdownElements(content, trimPartialFences = false, tableWidth) {
   const segments = renderTokenAnsiSegments(content, { trimPartialFences });
   const result = [];
   let idx = 0;
   for (const segment of segments) {
     if (segment.type === 'table') {
-      result.push(<MarkdownTable key={`md_${idx++}`} token={segment.token} />);
+      // Pass the App's body width as forceWidth so the table is laid out at the
+      // SAME width the row-height estimator measures (measureMarkdownTableRows).
+      // Without it MarkdownTable falls back to useStdout().columns, which on
+      // win32 is frameColumns+1 — a 1-col gap that can flip the table between
+      // horizontal and vertical layout and top-clip streaming output.
+      result.push(<MarkdownTable key={`md_${idx++}`} token={segment.token} forceWidth={tableWidth} />);
     } else {
       // defaultColor={theme.text} keeps ANSI resets on the same dark-theme
       // foreground instead of the terminal profile's default foreground.
@@ -97,17 +102,18 @@ function balanceStreamingMarkdown(text) {
   return rendered;
 }
 
-export function Markdown({ children, themeEpoch = 0, trimPartialFences = false }) {
+export function Markdown({ children, themeEpoch = 0, trimPartialFences = false, columns }) {
   const elements = React.useMemo(() => {
     try {
-      return renderMarkdownElements(children, trimPartialFences);
+      return renderMarkdownElements(children, trimPartialFences, columns);
     } catch {
       // Never throw into the render tree — fall back to raw text.
       return [<Text key="md_0" color={theme.text}>{String(children ?? '')}</Text>];
     }
   // themeEpoch is a memo dep so a /theme switch re-renders to ANSI with the new
   // md* colors (formatToken re-resolves its colorizers on the active theme).
-  }, [children, themeEpoch, trimPartialFences]);
+  // columns is a dep so a resize re-lays-out tables at the new forceWidth.
+  }, [children, themeEpoch, trimPartialFences, columns]);
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -116,13 +122,13 @@ export function Markdown({ children, themeEpoch = 0, trimPartialFences = false }
   );
 }
 
-export function StreamingMarkdown({ children, themeEpoch = 0 }) {
+export function StreamingMarkdown({ children, themeEpoch = 0, columns }) {
   const stablePrefixRef = useRef('');
   const text = String(children ?? '');
 
   if (!hasMarkdownSyntax(text)) {
     stablePrefixRef.current = '';
-    return <Markdown themeEpoch={themeEpoch}>{text}</Markdown>;
+    return <Markdown themeEpoch={themeEpoch} columns={columns}>{text}</Markdown>;
   }
 
   if (!text.startsWith(stablePrefixRef.current)) {
@@ -156,8 +162,8 @@ export function StreamingMarkdown({ children, themeEpoch = 0 }) {
   const unstableSuffix = text.substring(stablePrefix.length);
   return (
     <Box flexDirection="column" gap={1}>
-      {stablePrefix ? <Markdown themeEpoch={themeEpoch}>{stablePrefix}</Markdown> : null}
-      {unstableSuffix ? <Markdown themeEpoch={themeEpoch} trimPartialFences>{balanceStreamingMarkdown(unstableSuffix)}</Markdown> : null}
+      {stablePrefix ? <Markdown themeEpoch={themeEpoch} columns={columns}>{stablePrefix}</Markdown> : null}
+      {unstableSuffix ? <Markdown themeEpoch={themeEpoch} columns={columns} trimPartialFences>{balanceStreamingMarkdown(unstableSuffix)}</Markdown> : null}
     </Box>
   );
 }

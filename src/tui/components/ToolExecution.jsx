@@ -299,6 +299,8 @@ function hasAgentResponseResult(value) {
   if (/^(?:undefined|null)$/i.test(text)) return false;
   if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(text)) return false;
   const isBridgeEnvelope = /^(?:agent task:|background task\b|agent message queued\b|agent close:)/i.test(text)
+    || /^(?:agents|tasks):\s*\d/i.test(text)
+    || /^\(no agents or tasks\)$/i.test(text)
     || (/^task_id:\s*\S+/mi.test(text) && /^(?:surface|operation|status):\s*/mi.test(text));
   if (!isBridgeEnvelope) return true;
   let sawBlank = false;
@@ -701,7 +703,8 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     // under the ⎿ gutter never looks empty. Real summaries keep the normal text
     // color; the status placeholder is rendered dim.
     const isPlaceholderDetail = !(expanded && hasRawResult) && !detailText;
-    const detailLines = expanded && hasRawResult
+    const showRawAggregate = expanded && hasRawResult;
+    const detailLines = showRawAggregate
       ? rawRt.split('\n')
       : (detailText ? [detailText] : [headerPending ? 'Running' : 'Finished']);
     const aggregateDetailColor = isPlaceholderDetail ? theme.subtle : theme.text;
@@ -723,8 +726,10 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
             </Box>
             <Box flexDirection="column" flexShrink={1} flexGrow={1}>
               {detailLines.map((line, i) => (
-                <Text key={i} color={aggregateDetailColor}>
-                  {renderDeltaText(fitResultLine(line || ' ', columns))}
+                <Text key={i} color={aggregateDetailColor} wrap={showRawAggregate ? 'wrap' : 'truncate'}>
+                  {showRawAggregate
+                    ? renderDeltaText(line || ' ')
+                    : renderDeltaText(fitResultLine(line || ' ', columns))}
                 </Text>
               ))}
             </Box>
@@ -968,8 +973,10 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
           </Box>
           <Box flexDirection="column" flexShrink={1} flexGrow={1}>
             {visibleDetailLines.map((line, i) => (
-              <Text key={i} color={showRawResult ? resultColor : detailColor}>
-                {renderDeltaText(fitResultLine(line || ' ', columns))}
+              <Text key={i} color={showRawResult ? resultColor : detailColor} wrap={showRawResult ? 'wrap' : 'truncate'}>
+                {showRawResult
+                  ? renderDeltaText(line || ' ')
+                  : renderDeltaText(fitResultLine(line || ' ', columns))}
               </Text>
             ))}
           </Box>

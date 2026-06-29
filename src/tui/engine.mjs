@@ -14,7 +14,10 @@ import {
   summarizeToolResult,
 } from '../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody, presentErrorText } from '../runtime/shared/err-text.mjs';
-import { modelVisibleToolCompletionMessage } from '../runtime/shared/tool-execution-contract.mjs';
+import {
+  isModelVisibleToolCompletionWrapper,
+  modelVisibleToolCompletionMessage,
+} from '../runtime/shared/tool-execution-contract.mjs';
 import { listThemes, getThemeSetting, setThemeSetting } from './theme.mjs';
 
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
@@ -113,14 +116,34 @@ function formatElapsedSeconds(ms) {
 
 function compactEventLabel(event = {}) {
   const status = String(event.status || '').toLowerCase();
-  if (status === 'failed') return 'Compact failed';
+  const reactive = String(event.trigger || '').toLowerCase() === 'reactive';
+  if (status === 'failed') return reactive ? 'Compact failed (overflow retry)' : 'Compact failed';
   if (status === 'skipped') return 'Compact skipped';
   if (status === 'no_change') return 'Compact checked';
-  return 'Compact complete';
+  return reactive ? 'Compact complete (overflow recovery)' : 'Compact complete';
 }
 
 function compactEventDetail(event = {}) {
-  return formatElapsedSeconds(Number(event.durationMs ?? event.elapsedMs ?? 0));
+  // Keep the elapsed time as the lead detail, but no longer discard the rest of
+  // the compact metadata. Surface type/trigger and the boundary/pressure so the
+  // statusdone marker reflects what actually fired.
+  const parts = [];
+  const elapsed = formatElapsedSeconds(Number(event.durationMs ?? event.elapsedMs ?? 0));
+  if (elapsed) parts.push(elapsed);
+  const type = String(event.compactType || event.type || '').trim();
+  if (type && type !== 'semantic') parts.push(type);
+  const trigger = String(event.trigger || '').toLowerCase();
+  if (trigger === 'reactive') parts.push('reactive');
+  else if (trigger === 'manual') parts.push('manual');
+  const before = Number(event.beforeTokens ?? event.pressureTokens ?? 0);
+  const after = Number(event.afterTokens ?? 0);
+  const fmtTok = (n) => {
+    const v = Number(n) || 0;
+    if (v >= 1000) return `${(v / 1000).toFixed(v >= 10_000 ? 0 : 1)}k`;
+    return `${Math.round(v)}`;
+  };
+  if (before > 0 && after > 0 && after !== before) parts.push(`${fmtTok(before)}→${fmtTok(after)}`);
+  return parts.join(' · ');
 }
 
 function projectNameFromPath(value) {
@@ -1090,6 +1113,7 @@ export async function createEngineSession({
     return true;
   };
   const pushUserOrSyntheticItem = (text, id = nextId()) => {
+    if (isModelVisibleToolCompletionWrapper(text)) return;
     if (upsertSyntheticToolItem(text, id)) return;
     pushItem({ kind: 'user', id, text });
   };
@@ -1425,13 +1449,17 @@ export async function createEngineSession({
     const aggregate = card.aggregate;
     if (aggregate && card.itemId === aggregate.itemId) {
       const callRec = callId ? aggregate.calls.get(callId) : null;
-      if (callRec) {
-        callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
-        assignAggregateSummaryOrder(aggregate, callRec);
-        callRec.isError = isError;
-        callRec.resultText = text;
-        callRec.resolved = true;
+      if (!callRec) return false;
+      if (callRec.resolved) {
+        card.done = true;
+        if (callId) done.add(callId);
+        return false;
       }
+      callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
+      assignAggregateSummaryOrder(aggregate, callRec);
+      callRec.isError = isError;
+      callRec.resultText = text;
+      callRec.resolved = true;
       const allCalls = [...aggregate.calls.values()];
       const completed = allCalls.filter((r) => r.resolved).length;
       const errors = allCalls.filter((r) => r.isError).length;
@@ -1444,7 +1472,8 @@ export async function createEngineSession({
         detailText = aggregateDisplayDetail(summaries, allCalls);
       }
       const currentItem = state.items.find((it) => it.id === card.itemId);
-      const visualCompleted = Math.max(completed, Math.min(allCalls.length, Number(currentItem?.completedCount || 0)));
+      const earlyCompleted = allCalls.filter((r) => r.resolved || r.completedEarly).length;
+      const visualCompleted = Math.max(completed, earlyCompleted, Math.min(allCalls.length, Number(currentItem?.completedCount || 0)));
       const rawResult = aggregateRawResult(allCalls);
       const displayDetail = toolAggregateDetailFallback(detailText, rawResult);
       patchItem(card.itemId, {
@@ -1598,6 +1627,9 @@ export async function createEngineSession({
     const toolCards = [];
     const toolGroups = new Map();
     const resultsDone = new Set();
+    // Streaming providers can deliver eager onToolResult before onToolCall registers
+    // cards (send() still in flight). Hold those by callId until the batch lands.
+    const earlyResultBuffer = new Map();
     const aggregateCards = []; // active aggregate cards in the current consecutive tool block
     const aggregateByBucket = new Map(); // tail-continuation cache; append only while still the last visible item
     let openAggregateCard = null;
@@ -1715,7 +1747,7 @@ export async function createEngineSession({
       const patch = {
         args: { categoryOrder: aggregate.categoryOrder.slice() },
         count: aggregate.calls.size,
-        completedCount: [...aggregate.calls.values()].filter((r) => r.resolved).length,
+        completedCount: [...aggregate.calls.values()].filter((r) => r.resolved || r.completedEarly).length,
         categories: Object.fromEntries(aggregate.categories),
       };
       if (aggregate.pushed) {
@@ -1874,6 +1906,40 @@ export async function createEngineSession({
       if (_batchTimer?.unref) _batchTimer.unref(); // don't prevent process exit
     };
 
+    // __earlyNotify: flip completedCount only (no result/summary/rawResult).
+    // Content is filled by the later history flush; resultsDone is untouched.
+    const markToolCardCompletedState = (callId) => {
+      const card = cardByCallId.get(callId);
+      if (!card) return;
+      const aggregate = card.aggregate;
+      if (aggregate && card.itemId === aggregate.itemId) {
+        const callRec = aggregate.calls.get(callId);
+        if (!callRec || callRec.resolved || callRec.completedEarly) return;
+        callRec.completedEarly = true;
+        const allCalls = [...aggregate.calls.values()];
+        const completedCount = allCalls.filter((r) => r.resolved || r.completedEarly).length;
+        const currentItem = state.items.find((it) => it.id === card.itemId);
+        const visualCompleted = Math.max(
+          completedCount,
+          Math.min(allCalls.length, Number(currentItem?.completedCount || 0)),
+        );
+        patchItem(card.itemId, { completedCount: visualCompleted });
+        return;
+      }
+      // Non-aggregate eager tools are rare; flipping completedCount without
+      // result changes pending/detail rendering and risks row jitter — wait for
+      // the real history flush (unchanged behavior).
+    };
+
+    const deliverToolResultMessage = (message) => {
+      if (message?.__earlyNotify === true) {
+        const earlyCallId = toolResultCallId(message);
+        if (earlyCallId) markToolCardCompletedState(earlyCallId);
+        return;
+      }
+      flushToolResults([message], toolCards, cardByCallId, toolGroups, resultsDone);
+    };
+
     try {
       const { result, session } = await runtime.ask(userText, {
         drainSteering: () => drainPendingSteering(),
@@ -1953,7 +2019,7 @@ export async function createEngineSession({
               ...categoryEntry,
               count: Number(prevCategory?.count || 0) + Number(categoryEntry.count || 1),
             });
-            aggregateCard.calls.set(callKey, { name, args, category, summary: null, summarySeq: null, isError: false, resultText: null, resolved: false });
+            aggregateCard.calls.set(callKey, { name, args, category, summary: null, summarySeq: null, isError: false, resultText: null, resolved: false, completedEarly: false });
             touchedAggregates.add(aggregateCard);
             const card = { itemId: aggregateCard.itemId, callId: callKey, done: false, aggregate: aggregateCard };
             if (callId) {
@@ -1965,10 +2031,20 @@ export async function createEngineSession({
           for (const aggregateCard of touchedAggregates) {
             syncAggregateHeader(aggregateCard);
           }
+          for (const [bufferedCallId, bufferedMessage] of earlyResultBuffer) {
+            if (!cardByCallId.has(bufferedCallId)) continue;
+            deliverToolResultMessage(bufferedMessage);
+            earlyResultBuffer.delete(bufferedCallId);
+          }
           await yieldToRenderer();
         },
         onToolResult: (message) => {
-          flushToolResults([message], toolCards, cardByCallId, toolGroups, resultsDone);
+          const callId = toolResultCallId(message);
+          if (callId && !cardByCallId.has(callId) && !resultsDone.has(callId)) {
+            earlyResultBuffer.set(callId, message);
+            return;
+          }
+          deliverToolResultMessage(message);
         },
         onToolApproval: async (request) => {
           markPromptCommitted();

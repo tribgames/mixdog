@@ -687,7 +687,27 @@ async function preValidateNativeBatch(parsed, basePath) {
     const kind = classifyEntry(entry);
     const headerName = kind === 'create' ? entry.newFileName : entry.oldFileName;
     if (!nativeHeaderSupported(entry, basePath)) {
-      const display = headerName ? normalizeOutputPath(stripDiffPrefix(headerName)) : '(unknown)';
+      // Two distinct failure modes share nativeHeaderSupported()===false:
+      //   (a) no usable target path could be parsed from the section header
+      //       (oldFileName/newFileName empty or /dev/null) — a SHAPE problem,
+      //   (b) a parsed path that escapes base_path (`..` segment / out-of-base
+      //       absolute) — a SECURITY refusal.
+      // Collapsing both into the "path escapes base_path or contains `..`"
+      // message mislabels (a) as (b): the model sees a nonsensical reason for a
+      // patch that uses no `..`, cannot self-correct, and re-submits the same
+      // patch until the iteration cap. Emit a shape-specific, actionable hint
+      // for (a) so the loop breaks on the first failure.
+      const hasUsableHeader = headerName && !DEV_NULL.test(headerName);
+      if (!hasUsableHeader) {
+        throw new Error(
+          'apply_patch: a file section header could not be parsed (no target path). '
+          + 'Each section must start with a valid header: `*** Update File: <path>` / '
+          + '`*** Add File: <path>` / `*** Delete File: <path>` (V4A), or a '
+          + '`--- a/<path>` + `+++ b/<path>` pair (unified). Wrap multi-hunk V4A '
+          + 'edits in a `*** Begin Patch` / `*** End Patch` envelope and pass format:"v4a".',
+        );
+      }
+      const display = normalizeOutputPath(stripDiffPrefix(headerName));
       throw new Error(`apply_patch: header ${display} is unsupported (path escapes base_path or contains \`..\`).`);
     }
     if (kind !== 'delete' && !(entry.hunks?.length > 0)) {

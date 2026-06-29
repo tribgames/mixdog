@@ -2710,7 +2710,18 @@ export async function sendViaWebSocket({
         });
 
         const resultToolCallCount = Array.isArray(result.toolCalls) ? result.toolCalls.length : 0;
-        const keepResponseChain = !!result.responseId && !result.incompleteReason;
+        // Keep the conversation chain whenever the server gave us a response id.
+        // `incompleteReason` is ONLY ever set for max_output_tokens-class
+        // truncation (every other incomplete status throws upstream), and in
+        // that case the response IS valid and the server preserves its
+        // response_id as a continuation anchor. Dropping the chain here forced
+        // the NEXT turn to cold-start (no_anchor → full resend), which the
+        // trace logs showed repeating 50-78x in long max-output sessions. If a
+        // truncated turn's response items don't line up next turn,
+        // _stripResponseItemsFromHead still falls back to a full send on its
+        // own, so retaining the anchor cannot corrupt the cache — it only adds
+        // a delta fast-path when the items DO match.
+        const keepResponseChain = !!result.responseId;
         const keepSocket = true;
 
         // Update cache state for the next iteration in this session. openai-oauth

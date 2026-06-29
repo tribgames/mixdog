@@ -253,9 +253,54 @@ const BUILTIN_TOOL_ALIASES = new Map([
     ['golb', 'glob'],
 ]);
 
+// Case-insensitive lookup of canonical builtin names, built once from the
+// declarative BUILTIN_TOOLS registry. Models trained on other coding-agent
+// CLIs frequently emit PascalCase tool names ("Read", "Shell", "Grep",
+// "List") for tools mixdog exposes in lowercase. Those calls used to fall
+// through to formatUnknownBuiltinToolMessage and, because the error did not
+// resolve the case mismatch, the model re-issued the SAME capitalised call
+// every iteration until the loop cap. A lowercase→canonical map makes the
+// dispatcher accept the case variant directly.
+const _BUILTIN_LOWER_TO_CANONICAL = new Map(
+    BUILTIN_TOOLS.map((t) => [String(t.name || '').toLowerCase(), t.name]).filter(([k]) => k),
+);
+
+// Well-known tool names from OTHER agent CLIs that have no mixdog builtin.
+// They cannot be silently remapped (their argument shapes differ — e.g.
+// Write{path,contents} vs apply_patch{patch}) so the unknown-tool error
+// surfaces a concrete redirect instead of a bare "unknown tool", which is
+// what kept models looping on a non-existent tool.
+const EXTERNAL_TOOL_REDIRECTS = new Map([
+    ['write', 'use `apply_patch` with an `*** Add File:` V4A section to create a file'],
+    ['edit', 'use `apply_patch` with a `*** Update File:` V4A section'],
+    ['multiedit', 'use a single `apply_patch` call with multiple `*** Update File:` sections'],
+    ['strreplace', 'use `apply_patch` with a `*** Update File:` V4A section'],
+    ['str_replace', 'use `apply_patch` with a `*** Update File:` V4A section'],
+    ['str_replace_editor', 'use `apply_patch` with a `*** Update File:` V4A section'],
+    ['createfile', 'use `apply_patch` with an `*** Add File:` V4A section'],
+    ['create_file', 'use `apply_patch` with an `*** Add File:` V4A section'],
+    ['deletefile', 'use `apply_patch` with a `*** Delete File:` V4A section'],
+    ['delete_file', 'use `apply_patch` with a `*** Delete File:` V4A section'],
+    ['bash', 'use the `shell` tool'],
+    ['run', 'use the `shell` tool'],
+    ['runcommand', 'use the `shell` tool'],
+    ['terminal', 'use the `shell` tool'],
+    ['view', 'use the `read` tool'],
+    ['cat', 'use the `read` tool'],
+    ['ls', 'use the `list` tool'],
+    ['searchfiles', 'use the `grep` tool'],
+    ['codebase_search', 'use the `grep` or `code_graph` tool'],
+]);
+
 export function canonicalizeBuiltinToolName(name) {
     if (typeof name !== 'string') return name;
-    return BUILTIN_TOOL_ALIASES.get(name) || name;
+    const aliased = BUILTIN_TOOL_ALIASES.get(name);
+    if (aliased) return aliased;
+    // Exact match wins (cheapest, most common path).
+    if (_BUILTIN_LOWER_TO_CANONICAL.get(name) === name) return name;
+    // Case-insensitive fall-through: "Read"/"SHELL"/"Grep" → canonical.
+    const lowerCanonical = _BUILTIN_LOWER_TO_CANONICAL.get(name.toLowerCase());
+    return lowerCanonical || name;
 }
 
 function editDistance(a, b) {
@@ -295,6 +340,12 @@ export function suggestBuiltinToolName(name) {
 }
 
 export function formatUnknownBuiltinToolMessage(name, _args = {}, noun = 'builtin tool') {
+    // Concrete redirect for a well-known tool from another agent CLI whose
+    // argument shape differs from any mixdog builtin (so it cannot be
+    // case-normalised into one). Without this, the model re-issues the same
+    // non-existent tool every iteration until the loop cap.
+    const redirect = typeof name === 'string' ? EXTERNAL_TOOL_REDIRECTS.get(name.toLowerCase()) : null;
+    if (redirect) return `Error: unknown ${noun} "${name}" — ${redirect}.`;
     const suggestion = suggestBuiltinToolName(name);
     if (!suggestion) return `Error: unknown ${noun} "${name}"`;
     return `Error: unknown ${noun} "${name}". Did you mean "${suggestion}"?`;

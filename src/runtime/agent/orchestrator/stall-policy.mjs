@@ -102,19 +102,26 @@ export const PROVIDER_HTTP_RESPONSE_TIMEOUT_MS = resolveTimeoutMs(
     { minMs: 10_000, maxMs: PROVIDER_MAX_BEFORE_WARN_MS },
 );
 
-// Stream idle watchdog is OFF by default — matches reference agent native
-// behaviour (its watchdog is gated behind CLAUDE_ENABLE_STREAM_WATCHDOG).
-// The agent stall watchdog (STALL_ABORT_S, 600s) is the backstop for
-// genuinely dead streams; this short inter-chunk idle watchdog only adds
-// value when explicitly enabled, and otherwise prematurely kills slow
-// high-reasoning streams. Enable with MIXDOG_ENABLE_STREAM_WATCHDOG=1.
+// Stream idle watchdog is ON by default. Earlier it was OFF (reference-agent
+// parity) on the theory that a short inter-chunk timer would false-abort slow
+// high-reasoning streams — but every provider's SSE loop resets the idle timer
+// on EVERY chunk, including content-free keepalives (Anthropic `:ping`,
+// OpenAI/compat reasoning_content deltas, Gemini chunks). So a live
+// extended-thinking stream keeps the timer fresh; only a genuinely silent
+// socket (no bytes at all for the whole window) trips it. With the watchdog
+// OFF, such a wedged socket sat until the 600s agent stall backstop, which the
+// trace logs showed as the dominant mid-stream hang (sse_parse_ms p99 ~183s,
+// max ~411s). Defaulting ON with a generous 120s window cuts that tail ~5x
+// while leaving genuine reasoning pauses (kept alive by keepalive frames)
+// untouched. Force OFF with MIXDOG_ENABLE_STREAM_WATCHDOG=0.
 const _sseWatchdogRaw = process.env.MIXDOG_ENABLE_STREAM_WATCHDOG;
-export const PROVIDER_SSE_IDLE_WATCHDOG_ENABLED =
-    _sseWatchdogRaw === '1' || _sseWatchdogRaw === 'true' || _sseWatchdogRaw === 'yes';
+export const PROVIDER_SSE_IDLE_WATCHDOG_ENABLED = _sseWatchdogRaw === undefined || _sseWatchdogRaw === ''
+    ? true
+    : (_sseWatchdogRaw === '1' || _sseWatchdogRaw === 'true' || _sseWatchdogRaw === 'yes');
 
 export const PROVIDER_SSE_IDLE_TIMEOUT_MS = resolveTimeoutMs(
     'MIXDOG_PROVIDER_SSE_IDLE_TIMEOUT_MS',
-    90_000,
+    120_000,
     { minMs: 10_000, maxMs: STALL_WARN_MS },
 );
 

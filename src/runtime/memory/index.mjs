@@ -84,6 +84,13 @@ import {
   mergeMetaValue,
   cleanMemoryText,
 } from './lib/memory.mjs'
+import {
+  normalizeIngestRole,
+  firstTextContent,
+  stableSessionSourceRef,
+  sessionMessageContent,
+  createIngestTurnAllocator,
+} from './lib/session-ingest.mjs'
 import { configureEmbedding, embedText, embedTexts, getEmbeddingDims, getEmbeddingDtype, getEmbeddingModelId, getKnownDimsForCurrentModel, isEmbeddingModelReady, primeEmbeddingDims, warmupEmbeddingProvider } from './lib/embedding-provider.mjs'
 import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs'
 import { runCycle1, runCycle2, runCycle3, runUnifiedGate, parseInterval, syncRootEmbedding, applySimpleStatus, applyUpdate, applyMerge, CYCLE2_ACTIVE_TARGET_CAP } from './lib/memory-cycle.mjs'
@@ -759,20 +766,57 @@ async function ingestSessionMessages(args = {}) {
   const projectId = resolveProjectScope(typeof args.cwd === 'string' && args.cwd ? args.cwd : null)
   let considered = 0
   let inserted = 0
+  // Monotonic ingest order, independent of the current (post-compaction)
+  // array index. source_turn used to be `i+1`, but after compaction shrinks /
+  // reindexes session.messages a NEWLY appended turn gets a LOW i and thus a
+  // LOW source_turn — and since dump_session_roots / recall order by
+  // source_turn first, it would sort BEFORE older pre-compaction rows. Seed a
+  // running counter from the current max source_turn for this session so every
+  // new row is assigned a turn strictly greater than all previously-ingested
+  // ones (true continuation order). Re-ingested (ON CONFLICT) rows keep their
+  // original turn and do not consume a new one.
+  let prevMaxTurn = 0
+  try {
+    const maxRow = await db.query(
+      `SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1`,
+      [sessionId],
+    )
+    prevMaxTurn = Number(maxRow.rows?.[0]?.max_turn) || 0
+  } catch { prevMaxTurn = 0 }
+  const turnAllocator = createIngestTurnAllocator(prevMaxTurn)
   for (let i = start; i < messages.length; i += 1) {
     const m = messages[i]
-    if (!m || (m.role !== 'user' && m.role !== 'assistant')) continue
-    const content = cleanMemoryText(firstTextContent(m.content))
+    if (!m || typeof m !== 'object') continue
+    const role = normalizeIngestRole(m.role)
+    // Persist the whole session conversation by role: user/assistant carry the
+    // dialogue, tool carries tool_results, system/developer carry steering
+    // context. Previously only user/assistant were kept, silently dropping
+    // recent tool/system/developer state that recall fast-track must surface.
+    if (!role) continue
+    const content = cleanMemoryText(sessionMessageContent(m))
     if (!content || !content.trim()) continue
     considered += 1
     const tsMs = parseTsToMs(m.ts ?? m.timestamp ?? (Date.now() - (messages.length - i)))
-    const sourceRef = `session:${sessionId}#${i + 1}`
+    // Stable per-message identity. The previous `session:${id}#${i+1}` key was
+    // positional, so after compaction shrinks/reindexes session.messages a
+    // later turn could reuse an old index and be silently skipped by
+    // ON CONFLICT DO NOTHING. stableSessionSourceRef hashes only durable
+    // fields (role, original ts if present, tool ids, content) — never the
+    // synthesized tsMs fallback or the loop index.
+    const sourceRef = stableSessionSourceRef(sessionId, m, role, content)
+    // Assign the next monotonic turn; only consume it when the row is actually
+    // inserted (a conflicting re-ingest keeps its original source_turn).
+    const assignedTurn = turnAllocator.peekNext()
     const result = await db.query(`
       INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT DO NOTHING
-    `, [tsMs, m.role, content, sourceRef, sessionId, i + 1, projectId])
-    inserted += Number(result.rowCount ?? result.affectedRows ?? 0) || 0
+    `, [tsMs, role, content, sourceRef, sessionId, assignedTurn, projectId])
+    const rowInserted = Number(result.rowCount ?? result.affectedRows ?? 0) || 0
+    if (rowInserted > 0) {
+      inserted += rowInserted
+      turnAllocator.next()
+    }
   }
   return { text: `ingest_session: considered=${considered} inserted=${inserted} session=${sessionId}` }
 }
@@ -895,16 +939,6 @@ async function ingestTranscriptFileImpl(transcriptPath, { cwd } = {}) {
 
 async function ingestTranscriptFile(transcriptPath, options = {}) {
   return runTranscriptIngestSerialized(transcriptPath, () => ingestTranscriptFileImpl(transcriptPath, options))
-}
-
-function firstTextContent(content) {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return ''
-  for (const item of content) {
-    if (typeof item === 'string') return item
-    if (item?.type === 'text' && typeof item.text === 'string') return item.text
-  }
-  return ''
 }
 
 function parseTsToMs(value) {

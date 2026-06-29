@@ -38,7 +38,7 @@ function renderSelectedText(displayValue, range, trailingSpace = false) {
     <>
       {start > 0 ? displayValue.slice(0, start) : null}
       {end > start ? (
-        <Text color={theme.inverseText} backgroundColor="rgb(245,245,245)">{displayValue.slice(start, end)}</Text>
+        <Text color={theme.selectionText} backgroundColor={theme.selectionBackground}>{displayValue.slice(start, end)}</Text>
       ) : null}
       {displayValue.slice(end)}
       {trailingSpace ? ' ' : ''}

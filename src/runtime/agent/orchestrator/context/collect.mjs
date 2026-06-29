@@ -261,17 +261,37 @@ function loadAgentSections(pluginRoot) {
     const agentsDir = join(pluginRoot, 'agents');
     const agentSections = [];
     if (!existsSync(agentsDir)) return agentSections;
-    const files = readdirSync(agentsDir)
-        .filter(f => f.endsWith('.md'))
-        .sort();
-    for (const f of files) {
-        const raw = readSafe(join(agentsDir, f));
-        if (!raw) continue;
+    // agents/ holds two layouts that must BOTH be loaded:
+    //   - flat:    agents/<role>.md                 (legacy: scheduler-task, webhook-handler)
+    //   - nested:  agents/<role>/AGENT.md           (current: worker, heavy-worker, reviewer, …)
+    // The previous flat-only readdir silently dropped every nested role, so a
+    // public role like heavy-worker produced an EMPTY scoped instruction block
+    // (BP2) — the model lost its role contract and the tool smoke's
+    // "heavy-worker AGENT.md must be included" assertion failed. Walk both.
+    let entries;
+    try {
+        entries = readdirSync(agentsDir, { withFileTypes: true });
+    } catch {
+        return agentSections;
+    }
+    const sections = [];
+    for (const entry of entries) {
+        let name = '';
+        let raw = null;
+        if (entry.isDirectory()) {
+            name = entry.name;
+            raw = readSafe(join(agentsDir, entry.name, 'AGENT.md'));
+        } else if (entry.isFile() && entry.name.endsWith('.md')) {
+            name = entry.name.replace(/\.md$/, '');
+            raw = readSafe(join(agentsDir, entry.name));
+        }
+        if (!name || !raw) continue;
         const { body } = readMarkdownDocument(raw);
         if (!body) continue;
-        const name = f.replace(/\.md$/, '');
-        agentSections.push(`## ${name}\n\n${body}`);
+        sections.push({ name, text: `## ${name}\n\n${body}` });
     }
+    sections.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const s of sections) agentSections.push(s.text);
     return agentSections;
 }
 

@@ -475,7 +475,7 @@ let nextId = Date.now();
 // this map trimmed to live models; older generations slow down reads
 // without buying anything.
 const CONTEXT_WINDOWS = {
-    // OpenAI GPT-5.x family
+    // OpenAI GPT-5.x family (openai / openai-oauth)
     'gpt-5.5': 272000,
     'gpt-5.4': 272000,
     'gpt-5.4-mini': 272000,
@@ -490,12 +490,33 @@ const CONTEXT_WINDOWS = {
     'gemini-3-pro': 1000000,
     'gemini-3.5-flash': 1000000,
     'gemini-3-flash': 1000000,
+    // xAI Grok (catalog polyfill mirror — model-catalog PRICING_OVERRIDES)
+    'grok-build-0.1': 256000,
+    'grok-4.20': 1000000,
 };
+// Family-pattern fallback used only when both the provider catalog and the
+// exact-id table miss (cold metadata, before the LiteLLM/models.dev catalog
+// warms). Keep these aligned with the catalog so /context, gateway, and the
+// runtime agree on the boundary the first time a model is routed. Local models
+// (llama/mistral/phi/qwen/gemma) stay small so an unknown local id never claims
+// a giant window.
 function guessContextWindow(model) {
     if (CONTEXT_WINDOWS[model])
         return CONTEXT_WINDOWS[model];
-    if (model.includes('llama') || model.includes('mistral') || model.includes('phi'))
+    const m = String(model || '').toLowerCase();
+    // Local/self-hosted families — never inflate an unknown local id.
+    if (m.includes('llama') || m.includes('mistral') || m.includes('mixtral')
+        || m.includes('phi') || m.includes('qwen') || m.includes('gemma')
+        || m.includes('deepseek-r1') || m.includes('codellama'))
         return 8192;
+    // Current hosted families by name pattern.
+    if (m.startsWith('claude-opus') || m.startsWith('claude-sonnet')) return 1000000;
+    if (m.startsWith('claude-haiku') || m.startsWith('claude-')) return 200000;
+    if (m.startsWith('gemini-3') || m.startsWith('gemini-2')) return 1000000;
+    if (m.startsWith('gpt-5')) return 272000;
+    if (m.startsWith('grok-build')) return 256000;
+    if (m.startsWith('grok-')) return 1000000;
+    if (m.startsWith('deepseek-v')) return 1000000;
     return 128000;
 }
 function positiveContextWindow(value) {
@@ -516,17 +537,45 @@ function providerNameOf(provider) {
     if (typeof provider === 'string') return provider.toLowerCase();
     return String(provider?.name || provider?.id || '').toLowerCase();
 }
+// Buffer-percent parsing trap: normalizeCompactionBufferRatio treats any value
+// > 1 as a percent (n/100) and any value <= 1 as a literal ratio. That is wrong
+// for percent-NAMED inputs: bufferPercent / bufferPct / *_BUFFER_PERCENT = 1
+// means 1% (0.01), but the shared normalizer would read it as the literal ratio
+// 1.0 (100%). Resolve percent-named and ratio-named inputs with the correct
+// semantics here, before handing a finished ratio to the shared helper:
+//   percent inputs: n  -> n/100   (1 -> 0.01, 10 -> 0.10)
+//   ratio inputs:   n  -> n>1 ? n/100 : n   (0.01 -> 0.01, 10 -> 0.10 legacy)
+function resolveBufferRatioCandidate(percentInputs, ratioInputs) {
+    for (const raw of percentInputs) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0) return Math.min(1, n / 100);
+    }
+    for (const raw of ratioInputs) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0) return n > 1 ? n / 100 : n;
+    }
+    return null;
+}
 function compactBufferRatioForSession(session) {
     const cfg = session?.compaction || {};
-    return normalizeCompactionBufferRatio(
-        cfg.bufferPercent
-            ?? cfg.bufferPct
-            ?? cfg.bufferRatio
-            ?? cfg.bufferFraction
-            ?? process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT
-            ?? process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO,
-        DEFAULT_COMPACTION_BUFFER_RATIO,
+    const resolved = resolveBufferRatioCandidate(
+        [cfg.bufferPercent, cfg.bufferPct, process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT],
+        [cfg.bufferRatio, cfg.bufferFraction, process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO],
     );
+    return normalizeCompactionBufferRatio(resolved, DEFAULT_COMPACTION_BUFFER_RATIO);
+}
+// Carry the percent/ratio-named buffer config from a compaction config object
+// onto session.compaction so downstream parsers (compactBufferRatioForSession,
+// loop.resolveCompactBufferRatio, contextStatus) honor a configured buffer
+// percent/ratio. Only finite positive values are copied; absent fields stay
+// undefined so the default-ratio fallback still applies.
+function preserveBufferConfigFields(cfg = {}) {
+    const out = {};
+    for (const key of ['bufferPercent', 'bufferPct', 'bufferRatio', 'bufferFraction']) {
+        const n = Number(cfg?.[key]);
+        if (Number.isFinite(n) && n > 0) out[key] = n;
+    }
+    return out;
 }
 function compactBufferTokensForSession(session, boundaryTokens) {
     const cfg = session?.compaction || {};
@@ -597,7 +646,8 @@ function resolveSessionContextMeta(provider, model, seed = {}) {
     );
     const pct = boundedPercent(effectiveContextWindowPercent, 100);
     const contextWindow = Math.max(1, Math.floor(rawContextWindow * pct / 100));
-    const explicitCompactLimit = positiveContextWindow(
+    const compactBoundaryTokens = contextWindow;
+    const rawCompactLimit = positiveContextWindow(
         seed.autoCompactTokenLimit
             ?? seed.auto_compact_token_limit
             ?? info?.autoCompactTokenLimit
@@ -605,6 +655,17 @@ function resolveSessionContextMeta(provider, model, seed = {}) {
             ?? catalogInfo?.autoCompactTokenLimit
             ?? catalogInfo?.auto_compact_token_limit,
     );
+    // Legacy-data migration: old implementations derived autoCompactTokenLimit
+    // from the full effective/raw window and persisted it onto the session.
+    // A resumed session therefore re-seeds autoCompactTokenLimit == boundary
+    // (or the raw window), which compactTriggerForSession / loop policy used to
+    // honor as an explicit trigger, collapsing the compaction buffer to 0. Only
+    // accept an explicit limit that is STRICTLY BELOW the boundary; a value at
+    // or above the boundary is a derived full-window artifact and is dropped to
+    // null so the trigger falls back to boundary − buffer.
+    const explicitCompactLimit = rawCompactLimit && rawCompactLimit < compactBoundaryTokens
+        ? rawCompactLimit
+        : null;
     // Do NOT derive the auto-compact limit from the full effective window.
     // Setting it to contextWindow makes autoTriggerTokens == boundary and the
     // compaction buffer collapse to 0 (loop.mjs:708-713 / compactTriggerForSession),
@@ -615,7 +676,6 @@ function resolveSessionContextMeta(provider, model, seed = {}) {
     // limit; the downstream buffer logic (default 10%, capped 25%) then
     // triggers compaction with headroom, matching the reference auto-compact threshold.
     const autoCompactTokenLimit = explicitCompactLimit || null;
-    const compactBoundaryTokens = contextWindow;
     return {
         contextWindow,
         rawContextWindow,
@@ -628,9 +688,35 @@ function compactTriggerForSession(session, boundaryTokens) {
     const boundary = positiveContextWindow(boundaryTokens);
     if (!boundary) return null;
     const autoLimit = positiveContextWindow(session?.autoCompactTokenLimit ?? session?.compaction?.autoCompactTokenLimit);
-    if (autoLimit && autoLimit <= boundary) return Math.max(1, autoLimit);
+    // Only honor an explicit auto-compact limit that sits STRICTLY BELOW the
+    // boundary. A persisted value == boundary (or >=) is a legacy derived
+    // full-window artifact; honoring it collapses the compaction buffer to 0,
+    // so fall through to boundary − buffer instead.
+    if (autoLimit && autoLimit < boundary) return Math.max(1, autoLimit);
     const buffer = compactBufferTokensForSession(session, boundary);
     return Math.max(1, boundary - buffer);
+}
+// Test-only exports for the legacy auto-compact-limit migration + buffer-config
+// preservation (see scripts/compact-trigger-migration-smoke.mjs).
+export const _resolveSessionContextMeta = resolveSessionContextMeta;
+export const _compactTriggerForSession = compactTriggerForSession;
+export const _preserveBufferConfigFields = preserveBufferConfigFields;
+// 'compacting' is a transient in-flight stage written just before semantic /
+// recall-fasttrack compaction runs. If the process crashes or only partially
+// saves while it is set, a later load/resume reads a session that is NOT
+// actually compacting but whose UI marker (App.jsx / ContextPanel) shows
+// "Compacting conversation" permanently. Normalize that stale transient stage
+// to 'interrupted' so the surface recovers. Terminal stages (post_turn /
+// manual / auto_clear / *_failed / overflow_failed) are intentionally left as
+// the durable record of the last real outcome.
+function normalizeStaleCompactingStage(session) {
+    const c = session?.compaction;
+    if (!c || typeof c !== 'object') return false;
+    if (c.lastStage !== 'compacting' && c.inProgress !== true) return false;
+    c.lastStage = 'interrupted';
+    c.inProgress = false;
+    c.lastCheckedAt = Date.now();
+    return true;
 }
 function compactTargetBudget(boundaryTokens, reserveTokens, _sourceTokens = null, _ratio = null) {
     const boundary = positiveContextWindow(boundaryTokens);
@@ -1535,6 +1621,11 @@ export function createSession(opts) {
             timeoutMs: positiveContextWindow(opts.compaction?.timeoutMs),
             tailTurns: positiveContextWindow(opts.compaction?.tailTurns),
             bufferTokens: positiveContextWindow(opts.compaction?.bufferTokens ?? opts.compaction?.buffer),
+            // Preserve percent/ratio-named buffer config so the manager/loop/
+            // contextStatus parsers (which read bufferPercent/bufferPct/
+            // bufferRatio/bufferFraction) can honor it. createSession previously
+            // only stored bufferTokens, silently dropping a configured percent.
+            ...preserveBufferConfigFields(opts.compaction),
             keepTokens: positiveContextWindow(opts.compaction?.keepTokens ?? opts.compaction?.keep?.tokens),
             preserveRecentTokens: positiveContextWindow(opts.compaction?.preserveRecentTokens),
             reservedTokens: positiveContextWindow(opts.compaction?.reservedTokens),
@@ -2102,6 +2193,14 @@ export async function persistIterationMetrics(delta) {
 
 function standaloneStatusRouteInfo(session) {
     if (!session) return null;
+    // autoCompactTokenLimit is an EXPLICIT sub-boundary auto-compact limit only.
+    // Do NOT fall back to compactBoundaryTokens/contextWindow here — that
+    // labels a derived full-window value as an explicit limit, which the
+    // runtime would treat as the compaction trigger and collapse the buffer.
+    // The boundary/window stays available via contextWindow/rawContextWindow.
+    const _boundary = Number(session.compactBoundaryTokens || session.contextWindow || 0);
+    const _limit = Number(session.autoCompactTokenLimit || 0);
+    const explicitAutoCompactTokenLimit = _limit > 0 && (!_boundary || _limit < _boundary) ? _limit : null;
     return {
         provider: session.provider,
         model: session.model,
@@ -2111,7 +2210,7 @@ function standaloneStatusRouteInfo(session) {
         contextWindow: session.contextWindow || null,
         rawContextWindow: session.rawContextWindow || session.contextWindow || null,
         effectiveContextWindowPercent: session.effectiveContextWindowPercent || null,
-        autoCompactTokenLimit: session.autoCompactTokenLimit || session.compactBoundaryTokens || null,
+        autoCompactTokenLimit: explicitAutoCompactTokenLimit,
         presetId: session.presetId || null,
         presetName: session.presetName || null,
     };
@@ -2893,6 +2992,11 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         if (preSession.closed === true) {
             throw new SessionClosedError(sessionId, 'session already closed');
         }
+        // A prior crash/partial-save during compaction may have pinned
+        // compaction.lastStage='compacting'. This ask is starting fresh, so
+        // recover the stale transient stage before the loop's pre-send compact
+        // path runs (it will overwrite lastStage with real telemetry).
+        normalizeStaleCompactingStage(preSession);
         askGeneration = typeof preSession.generation === 'number' ? preSession.generation : 0;
         const runtime = _touchRuntime(sessionId);
         // Fresh controller per ask — the previous ask's controller may have aborted.
@@ -2993,6 +3097,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             cancelledUserTurnContent = _userTurnContent;
             const outgoing = [...historyMessages, { role: 'user', content: _userTurnContent }];
             _turnOutgoing = outgoing;
+            // Expose the in-flight working transcript so contextStatus() can
+            // estimate the LIVE context footprint mid-turn. agentLoop mutates
+            // `outgoing` in place (user turn + tool calls/results + compaction),
+            // so the statusline context gauge climbs as the turn accumulates
+            // tool output instead of freezing at the pre-turn snapshot. Cleared
+            // on turn commit (below) and in the ask finally.
+            session.liveTurnMessages = outgoing;
             // Per-turn injected-context trace row (complements kind:"usage").
             // Cheap byte-length accounting — no hashing, no payload bodies.
             // Honors the same MIXDOG_AGENT_TRACE_DISABLE gate as usage rows;
@@ -3108,6 +3219,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // (compaction + safety trim), so its length reflects post-loop state.
             const messagesDropped = Math.max(0, beforeCount - outgoing.length);
             session.messages = sanitizeSessionMessagesForModel(outgoing);
+            // Turn committed into session.messages; drop the live-turn alias so
+            // contextStatus() reverts to the authoritative committed transcript.
+            session.liveTurnMessages = null;
             if (result.content || result.reasoningContent) {
                 session.messages.push({
                     role: 'assistant',
@@ -3307,6 +3421,10 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             markSessionDone(sessionId, { empty: isEmptyFinal });
             _result = terminalResultPreview;
         } catch (err) {
+            // Cancellation/error paths bypass the commit point above; drop the
+            // live-turn alias so contextStatus() stops estimating from the
+            // stale in-flight array once the turn unwinds.
+            if (activeSession) activeSession.liveTurnMessages = null;
             if (err instanceof SessionClosedError) {
                 const currentRuntime = _runtimeState.get(sessionId);
                 if (!currentRuntime?.closed) {
@@ -3415,6 +3533,14 @@ export async function resumeSession(sessionId, preset) {
     // than silently dropping the tool-refresh side effects.
     if (session.closed === true) return null;
     if (!session.owner) session.owner = 'user';
+    // A crash / partial save during compaction can leave compaction.lastStage
+    // pinned at 'compacting'. The TUI (App.jsx openContextPicker) reads that as
+    // an in-progress compaction and would show "Compacting conversation"
+    // forever on resume. No compaction is actually running for a freshly loaded
+    // session, so normalize the stale transient stage back to an interrupted
+    // marker. Successful auto/manual compact persistence (lastStage post_turn /
+    // manual / auto_clear) is untouched.
+    normalizeStaleCompactingStage(session);
     // Refresh tools (MCP connections may have changed).
     // Re-resolve from profile.tools when the session stored a profileId —
     // otherwise fall back to preset.tools. Same resolution order as

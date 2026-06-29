@@ -21,8 +21,11 @@ import { spawn } from 'node:child_process';
 import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import stringWidth from 'string-width';
+import stripAnsi from 'strip-ansi';
 import { theme, TURN_MARKER, RESULT_GUTTER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
+import { renderTokenAnsiSegments } from './markdown/render-ansi.mjs';
+import { assistantBodyWidth, measureMarkdownTableRows } from './markdown/table-layout.mjs';
 import { formatToolSurface, normalizeToolName, parseToolArgs } from '../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../runtime/shared/err-text.mjs';
 import { AssistantMessage, UserMessage, ThinkingMessage, NoticeMessage } from './components/Message.jsx';
@@ -689,132 +692,56 @@ function estimateWrappedRows(text, columns, reserve = 4) {
   return Math.max(1, lines.reduce((sum, line) => sum + wrappedLineRows(line, width), 0));
 }
 
-// Markdown renders block tokens inside `<Box gap={1}>` (Markdown.jsx), so every
-// block boundary adds ONE blank row that the raw-text row count misses. A GFM
-// table also renders its own bordered box (top/header/sep/rows/bottom) whose
-// height the wrapped-line count cannot see. Add a conservative per-item bump so
-// assistant/markdown rows are never UNDER-estimated (over-estimate only widens
-// the scroll window harmlessly; under-estimate clips visible text).
-function estimateMarkdownExtraRows(text) {
+// EXACT assistant-body row measurement (lockstep with Markdown.jsx render).
+//
+// The old raw-line heuristic (estimateWrappedRows + per-block/table fudge)
+// could not see what the renderer actually draws — fenced-code indent + border
+// fences, list markers/indent, heading trailing blank rows, and (worst) GFM
+// table borders / vertical fallback. That drift caused either a phantom blank
+// band (over-estimate) or top-clipping (under-estimate) on streaming answers.
+//
+// Instead, mirror the render path: `renderTokenAnsiSegments(text)` returns the
+// SAME ordered segments <Markdown> emits — one ANSI block per token plus a
+// `table` segment carrying the token. The renderer stacks them in a
+// `<Box flexDirection="column" gap={1}>`, so the rendered height is:
+//   sum(each segment's wrapped line count) + (segments.length - 1)  // gap rows
+// where an ANSI segment wraps at the assistant body width (columns-3, see
+// AssistantMessage) and a table is measured by the SHARED table-layout module
+// (`measureMarkdownTableRows`) at that SAME body width — the renderer passes it
+// to MarkdownTable via forceWidth (Markdown.jsx/Message.jsx), so the estimate
+// equals MarkdownTable's real line count (horizontal box OR vertical fallback)
+// with zero drift, including on win32 where stdout.columns ≠ frameColumns.
+//
+// StreamingMarkdown splits the body into stable+unstable <Markdown> children
+// under one gap={1} parent; the boundary gap exactly replaces the natural
+// segment-boundary gap, so measuring the whole text in one pass yields the same
+// total row count (no streaming-specific correction needed).
+function measureMarkdownRenderedRows(text, columns) {
   const value = String(text ?? '');
-  if (!value) return 0;
-  let extra = 0;
-  const blockUnits = countMarkdownBlockUnitsForGap(value);
-  if (blockUnits > 1) extra += blockUnits - 1;
-  // GFM table: header + separator + each body row + 4 border lines, minus the
-  // raw '\n' rows already counted. Approximate by adding the border overhead.
-  const tableSeparators = (value.match(/^\s*\|?\s*:?-{2,}.*\|/gm) || []).length;
-  if (tableSeparators > 0) extra += tableSeparators * 4;
-  return extra;
-}
-
-function isMarkdownTableLine(line) {
-  if (/^\s*\|?\s*:?-{2,}.*\|/.test(line)) return true;
-  const trimmed = String(line ?? '').trim();
-  return /^\|/.test(trimmed) && trimmed.includes('|', 1);
-}
-
-function classifyMarkdownLineForGap(line, state) {
-  if (state.inFence) {
-    if (/^\s*(```|~~~)/.test(line)) {
-      state.inFence = false;
-      return 'fence_close';
-    }
-    return 'code';
+  if (!value) return 1;
+  const bodyWidth = assistantBodyWidth(columns);
+  let segments;
+  try {
+    segments = renderTokenAnsiSegments(value);
+  } catch {
+    // Never throw into the scroll math — fall back to the raw wrapped count.
+    return Math.max(1, estimateWrappedRows(value, columns, 3));
   }
-  const trimmed = String(line ?? '').trim();
-  if (!trimmed) return 'blank';
-  if (/^\s*(```|~~~)/.test(line)) {
-    state.inFence = true;
-    return 'fence_open';
-  }
-  if (isMarkdownTableLine(line)) return 'table';
-  if (/^#{1,6}\s/.test(trimmed)) return 'heading';
-  if (/^\s*([-*+]|\d+[.)])\s/.test(line)) return 'list';
-  if (/^\s*>/.test(line)) return 'blockquote';
-  if (/^\s*([-*_])\1{2,}\s*$/.test(trimmed)) return 'hr';
-  return 'paragraph';
-}
-
-function markdownListMarkerSignature(line) {
-  const unordered = /^\s*([-*+])\s/.exec(line);
-  if (unordered) return `u:${unordered[1]}`;
-  const ordered = /^\s*\d+([.)])\s/.exec(line);
-  if (ordered) return `o:${ordered[1]}`;
-  return null;
-}
-
-function isMarkdownListContinuationLine(line, current) {
-  if (!current || current.unitType !== 'list') return false;
-  if (markdownListMarkerSignature(line)) return false;
-  const trimmed = String(line ?? '').trim();
-  if (!trimmed) return false;
-  return /^\s+/.test(line);
-}
-
-function markdownGapUnitType(kind) {
-  if (kind === 'code' || kind === 'fence_open' || kind === 'fence_close') return 'code';
-  if (kind === 'table') return 'table';
-  if (kind === 'paragraph') return 'paragraph';
-  if (kind === 'list' || kind === 'list_continuation') return 'list';
-  if (kind === 'blockquote') return 'blockquote';
-  if (kind === 'heading') return 'heading';
-  if (kind === 'hr') return 'hr';
-  return 'unknown';
-}
-
-function continuesMarkdownGapUnit(current, kind, line) {
-  if (!current) return false;
-  const unitType = markdownGapUnitType(kind);
-  if (current.unitType !== unitType) return false;
-  if (unitType === 'paragraph' || unitType === 'blockquote' || unitType === 'table') return true;
-  if (unitType === 'list') {
-    if (kind === 'list_continuation') return true;
-    const signature = markdownListMarkerSignature(line);
-    return signature != null && signature === current.listSignature;
-  }
-  if (unitType === 'code') return kind === 'code' || kind === 'fence_open' || kind === 'fence_close';
-  return false;
-}
-
-// Count distinct Markdown block elements (Markdown.jsx renders each token in a
-// gap={1} column). Blank lines and single-newline boundaries between unlike
-// blocks both split units; consecutive soft-wrapped paragraph lines stay one unit.
-function countMarkdownBlockUnitsForGap(value) {
-  const lines = String(value ?? '').split('\n');
-  const state = { inFence: false };
-  const units = [];
-  let current = null;
-
-  const flush = () => {
-    if (current) {
-      units.push(current);
-      current = null;
-    }
-  };
-
-  for (const line of lines) {
-    let kind = classifyMarkdownLineForGap(line, state);
-    if (kind === 'blank') {
-      flush();
+  if (!segments.length) return 1;
+  let rows = 0;
+  for (const seg of segments) {
+    if (seg.type === 'table') {
+      rows += Math.max(1, measureMarkdownTableRows(seg.token, bodyWidth));
       continue;
     }
-    if (kind === 'paragraph' && isMarkdownListContinuationLine(line, current)) {
-      kind = 'list_continuation';
-    }
-    if (current && continuesMarkdownGapUnit(current, kind, line)) {
-      current.lastKind = kind;
-      continue;
-    }
-    flush();
-    const unitType = markdownGapUnitType(kind);
-    current = { unitType, lastKind: kind };
-    if (unitType === 'list' && kind === 'list') {
-      current.listSignature = markdownListMarkerSignature(line);
+    const plain = stripAnsi(String(seg.ansi ?? ''));
+    for (const line of plain.split('\n')) {
+      rows += wrappedLineRows(line, bodyWidth);
     }
   }
-  flush();
-  return units.length;
+  // Markdown.jsx wraps the segments in <Box gap={1}>: one blank row per boundary.
+  rows += segments.length - 1;
+  return Math.max(1, rows);
 }
 
 const BACKGROUND_TASK_TOOL_NAMES = new Set(['explore', 'search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']);
@@ -909,12 +836,11 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
     case 'user':
       return 1 + estimateWrappedRows(item.text, columns, 4);
     case 'assistant':
-      // The body wraps at columns-3: 2-col ● gutter + 1 right-edge safety cell
-      // (see AssistantMessage). Keep the estimate in lockstep with the real
-      // body width so viewport clipping never drops the top of wrapped answers.
-      // Add Markdown block-gap + table border overhead (estimateMarkdownExtraRows)
-      // so multi-block/table answers are not under-counted and clipped at the top.
-      return 1 + estimateWrappedRows(item.text, columns, 3) + estimateMarkdownExtraRows(item.text);
+      // marginTop={1} (AssistantMessage <Box>) + the exact rendered body height.
+      // measureMarkdownRenderedRows mirrors the <Markdown> segment/gap/table
+      // layout at the real body width (columns-3), so the reserved height equals
+      // what ink draws — no phantom blank band (over) and no top-clip (under).
+      return 1 + measureMarkdownRenderedRows(item.text, columns);
     case 'tool': {
       const TOOL_MARGIN_TOP = 1;
       if (shouldSuppressFullyFailedToolItem(item)) return 0;
@@ -1134,7 +1060,32 @@ function textShapeFingerprint(value) {
 // structure signature instead of serving a stale height. The normalized tool
 // NAME and `aggregate` are included because the tool estimate branches on the
 // surface (skill/agent/background) and on aggregate vs normal.
+// Identity-keyed memo for the variant key. The key is a pure function of the
+// item's CONTENT (it folds the full text/result/rawResult through an O(n)
+// FNV-1a shape fingerprint), and the engine swaps in a NEW object on every
+// patch (engine.mjs flush/patchItem do `items[i] = { ...current, ...patch }`),
+// so an unchanged historical item keeps its identity — and thus its cached
+// key — across the fresh `state.items` array handed in on each streaming flush.
+// Without this memo the same item's whole text was re-hashed multiple times per
+// commit (structure signature + row-index build + measured-rows harvest +
+// measuredTranscriptRows), so the per-commit cost grew linearly with the total
+// MOUNTED transcript text and made drag/scroll/typing slow as history piled up.
+// Streaming assistant items legitimately get a new object each flush, so they
+// simply miss the cache and recompute — identical to the previous behavior.
+const transcriptVariantKeyCache = new WeakMap();
+
 function transcriptItemVariantKey(item) {
+  if (item && typeof item === 'object') {
+    const cached = transcriptVariantKeyCache.get(item);
+    if (cached !== undefined) return cached;
+    const key = computeTranscriptItemVariantKey(item);
+    transcriptVariantKeyCache.set(item, key);
+    return key;
+  }
+  return computeTranscriptItemVariantKey(item);
+}
+
+function computeTranscriptItemVariantKey(item) {
   const expanded = item.expanded ? 1 : 0;
   if (item.kind === 'tool') {
     const resultShape = textShapeFingerprint(item.result);
@@ -1204,16 +1155,17 @@ function measuredTranscriptRows(item, columns, toolOutputExpanded) {
   return entry.rows;
 }
 
-// Streaming assistant items re-estimate their height every flush (~8ms). Row
-// height must match what Markdown.jsx actually draws: pushAnsi trims leading and
-// trailing edge newlines (^\n+|\n+$) before rendering, so estimates must use
-// the same trimmed text — otherwise engine streamingVisibleText (completed lines
-// ending with '\n') reserves a phantom blank body row and the viewport scrolls
-// before characters fill that band. ENGINE newline-gating means the trimmed
-// estimate input changes only when a new completed line appears, not per
-// character, so we keep quantum at 1 (no ceil-to-2 padding): growth is real
-// line additions, not sub-quantum churn. Value is identical in the structure
-// signature and row-index build so they never diverge.
+// Streaming assistant items re-estimate their height every flush (~8ms). The
+// assistant branch now measures the EXACT rendered height via
+// measureMarkdownRenderedRows (lockstep with <Markdown>), which already drops
+// blank edge segments the way the renderer does — so engine streamingVisibleText
+// (completed lines ending with '\n') no longer reserves a phantom blank body row
+// that would scroll the viewport ahead of the characters. Edge-trimming the text
+// first keeps the lex input stable across the trailing-newline flush. ENGINE
+// newline-gating means the input only changes when a completed line appears
+// (not per character), so quantum stays 1: growth is real line additions, not
+// sub-quantum churn. The value is identical in the structure signature and the
+// row-index build, so they never diverge.
 const STREAMING_ROW_QUANTUM = 1;
 
 function assistantTextForStreamingRowEstimate(text) {
@@ -3687,6 +3639,14 @@ export function App({ store, initialStatusLine = '' }) {
     const compaction = context.compaction || {};
     const windowTokens = Number(context.contextWindow || state.contextWindow || context.rawContextWindow || state.rawContextWindow || 0);
     const rawWindowTokens = Number(context.rawContextWindow || state.rawContextWindow || windowTokens || 0);
+    // Compaction boundary/trigger are sourced from the runtime contextStatus
+    // (context.compaction). Fall back to the visible window for the boundary
+    // and to the boundary for the trigger so /context still renders on a
+    // fresh/resumed session before any compaction telemetry exists. (These
+    // used to reference undefined compactTrigger/compactBoundary and threw a
+    // ReferenceError when the picker opened.)
+    const compactBoundary = Number(compaction.boundaryTokens || windowTokens || 0);
+    const compactTrigger = Number(compaction.triggerTokens || compactBoundary || 0);
     const usedTokens = Number(context.usedTokens || context.currentEstimatedTokens || usage.lastContextTokens || 0);
     const freeTokens = windowTokens ? Math.max(0, windowTokens - usedTokens) : Number(context.freeTokens || 0);
     const pct = (value, total = windowTokens) => {
@@ -3720,14 +3680,18 @@ export function App({ store, initialStatusLine = '' }) {
     const autoClearFailed = compaction.lastStage === 'auto_clear_failed' || !!compaction.lastClearCompactError;
     const autoClearStage = compaction.lastStage === 'auto_clear' || compaction.lastClearAt;
     const compactDuration = compactElapsed(compaction.lastDurationMs);
+    const compactInterrupted = compaction.lastStage === 'interrupted';
+    const compactReactive = String(compaction.lastTrigger || '').toLowerCase() === 'reactive';
     const compactState = compactRunning
       ? 'Compacting conversation'
+      : compactInterrupted
+      ? 'Compact interrupted'
       : autoClearFailed
       ? `auto-clear skipped${compaction.lastClearCompactError ? `: ${compaction.lastClearCompactError}` : ''}`
       : autoClearStage
       ? 'Auto-clear complete'
       : compaction.lastChanged
-      ? 'Compact complete'
+      ? (compactReactive ? 'Compact complete (overflow recovery)' : 'Compact complete')
       : 'Compact checked';
     const compactDescription = compactDuration
       ? `${compactState} · ${compactDuration}`
@@ -3817,6 +3781,10 @@ export function App({ store, initialStatusLine = '' }) {
           state: compactState,
           triggerTokens: compactTrigger,
           boundaryTokens: compactBoundary,
+          type: compaction.compactType || compaction.type || null,
+          bufferTokens: Number(compaction.bufferTokens || (compactBoundary && compactTrigger ? Math.max(0, compactBoundary - compactTrigger) : 0)) || null,
+          pressureTokens: Number(compaction.lastPressureTokens || compaction.currentEstimatedTokens || 0) || null,
+          lastChanged: compaction.lastChanged === true,
         },
         messages: {
           tokens: messages.estimatedTokens,
@@ -7224,24 +7192,25 @@ export function App({ store, initialStatusLine = '' }) {
       viewRows,
       fallbackDelta: rowDelta,
     });
-    // Phantom-streaming-growth guard. A streaming assistant at the very bottom
-    // is NEVER measured (its quantized over-estimate — trailing-'\n' counted as
-    // a body row + STREAMING_ROW_QUANTUM round-up — stays authoritative for the
-    // whole stream). That estimate is below the reading anchor, so
-    // anchorPreserveDelta folds its phantom growth into scrollOffset; with the
-    // bottom-anchored viewport that converts the slack into a negative
-    // marginBottom that pushes the just-rendered answer line BELOW the clip,
-    // leaving a blank band that only resolves seconds later when a newline /
-    // finalize shrinks the estimate. The over-estimate is harmless while pinned;
-    // it only hurts here, when a non-pinned frame turns it into real offset. So
-    // while the tail item is a live streaming assistant AND that tail intersects
-    // the current viewport (phantom estimate can push visible content into a
-    // blank band), suppress the POSITIVE (push) preserve delta and keep only
-    // shrink corrections. When the streaming tail is wholly below the visible
-    // bottom (user scrolled up), apply the real positive preserveDelta so
-    // off-screen growth does not drift the reading viewport. Reading older
-    // history during a stream still preserves against REAL (non-tail) height
-    // changes, which anchorPreserveDelta already isolates above the anchor.
+    // Phantom-streaming-growth guard (bottom-pinned only). A streaming assistant
+    // at the very bottom is NEVER measured (its quantized over-estimate —
+    // trailing-'\n' counted as a body row + STREAMING_ROW_QUANTUM round-up —
+    // stays authoritative for the whole stream). That estimate is below the
+    // reading anchor, so anchorPreserveDelta folds its phantom growth into
+    // scrollOffset; with the bottom-anchored viewport that converts the slack
+    // into a negative marginBottom that pushes the just-rendered answer line
+    // BELOW the clip, leaving a blank band that only resolves seconds later when
+    // a newline / finalize shrinks the estimate. The over-estimate is harmless
+    // while pinned; it only hurts when the user is still at the bottom (no
+    // manual scroll-up) but this non-follow frame would turn phantom tail growth
+    // into a positive preserve offset. So ONLY when scrollTarget/scrollOffset
+    // are both zero — i.e. not scrolled away — AND the tail is a live streaming
+    // assistant whose block intersects the viewport, suppress the POSITIVE
+    // (push) preserve delta and keep shrink corrections. Any nonzero manual
+    // scroll-up (currentTarget > 0 or currentOffset > 0) must apply the full
+    // anchorPreserveDelta so growth strictly below the reading anchor stays
+    // rock-stable; real (non-tail) height changes above the anchor are still
+    // absorbed by anchorPreserveDelta itself.
     const tailItem = (state.items || [])[state.items.length - 1];
     const tailStreaming = tailItem?.kind === 'assistant' && tailItem?.streaming === true;
     const tailIdx = Math.max(0, (state.items || []).length - 1);
@@ -7255,7 +7224,9 @@ export function App({ store, initialStatusLine = '' }) {
         tailStreamingVisible = true;
       }
     }
-    const effectivePreserveDelta = tailStreamingVisible ? Math.min(0, preserveDelta) : preserveDelta;
+    const scrolledAwayFromBottom = currentTarget > 0 || currentOffset > 0;
+    const suppressPhantomTailPush = tailStreamingVisible && !scrolledAwayFromBottom;
+    const effectivePreserveDelta = suppressPhantomTailPush ? Math.min(0, preserveDelta) : preserveDelta;
     const nextTarget = Math.max(0, Math.min(maxRows, currentTarget + effectivePreserveDelta));
     const appliedDelta = nextTarget - currentTarget;
     if (appliedDelta === 0) return;

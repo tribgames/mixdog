@@ -944,6 +944,20 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     }
     case 'agent':
     case 'task': {
+      // Status-check (list/status) envelopes start with "agents: N" / "tasks: M"
+      // (or "(no agents or tasks)"). Collapse them to a tight count summary
+      // instead of leaking the raw "agents: 3 …" worker dump into the card.
+      if (/^\(no agents or tasks\)$/im.test(text)) return 'No agents or tasks';
+      const agentsCount = /^agents:\s*(\d+)/im.exec(text);
+      const tasksCount = /^tasks:\s*(\d+)/im.exec(text);
+      if (agentsCount || tasksCount) {
+        const a = agentsCount ? Number(agentsCount[1]) : 0;
+        const t = tasksCount ? Number(tasksCount[1]) : 0;
+        const parts = [];
+        if (agentsCount) parts.push(`${a} ${pluralize(a, 'Agent')}`);
+        if (tasksCount && t > 0) parts.push(`${t} ${pluralize(t, 'Task')}`);
+        return compactParts(parts) || 'No agents or tasks';
+      }
       const answerLine = firstAgentResultLine(text);
       // Agent/task result cards show only a tight one-liner: the full report is
       // available via ctrl+o expand. Strip inline markdown and cap shorter than

@@ -175,7 +175,9 @@ function ContextUsageView({ detail, columns }) {
   const compactionLine = metricValue([
     compaction.stage && compaction.stage !== 'pending' ? compaction.stage : '',
     compaction.state,
+    compaction.type ? `type ${compaction.type}` : '',
     compaction.triggerTokens ? `trigger ${formatTokens(compaction.triggerTokens)}` : '',
+    compaction.boundaryTokens ? `boundary ${formatTokens(compaction.boundaryTokens)}` : '',
   ]);
   const sourceLine = metricValue([
     usage.effective ? `effective ${formatTokens(windowTokens)}` : `window ${formatTokens(windowTokens)}`,

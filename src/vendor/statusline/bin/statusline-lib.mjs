@@ -599,9 +599,9 @@ export async function renderStatusLine(ccJsonInput) {
   if (modelStr) {
     const m = COLS >= 120 ? modelStr : modelShort;
     if (effortStr) {
-      addL1(`${CYN}◆${R} ${B}${m}${R} ${D}·${R} ${B}${effortStr}${R}`);
+      addL1(`${B}${m}${R} ${D}·${R} ${B}${effortStr}${R}`);
     } else {
-      addL1(`${CYN}◆${R} ${B}${m}${R}`);
+      addL1(`${B}${m}${R}`);
     }
   }
 

@@ -16,6 +16,7 @@ import React from 'react';
 import { Box, Text, useAnimation } from 'ink';
 import { theme, TURN_MARKER } from '../theme.mjs';
 import { Markdown, StreamingMarkdown } from './Markdown.jsx';
+import { assistantBodyWidth } from '../markdown/table-layout.mjs';
 import { THEREFORE } from '../figures.mjs';
 import { formatDuration } from '../time-format.mjs';
 
@@ -33,14 +34,16 @@ export const AssistantMessage = React.memo(function AssistantMessage({ text, str
   // assistant line reach the terminal's last column can auto-wrap/scroll on
   // Windows Terminal/conhost and make the next redraw appear to lose leading
   // CJK characters even though the backing transcript is intact.
-  const bodyWidth = Math.max(1, Number(columns || 80) - 3);
+  const bodyWidth = assistantBodyWidth(columns);
   return (
     <Box flexDirection="row" marginTop={1}>
       <Box flexShrink={0} minWidth={2}>
         <Text color={theme.text}>{TURN_MARKER}</Text>
       </Box>
       <Box flexDirection="column" flexShrink={0} width={bodyWidth}>
-        {streaming ? <StreamingMarkdown themeEpoch={themeEpoch}>{text}</StreamingMarkdown> : <Markdown themeEpoch={themeEpoch}>{text}</Markdown>}
+        {streaming
+          ? <StreamingMarkdown themeEpoch={themeEpoch} columns={bodyWidth}>{text}</StreamingMarkdown>
+          : <Markdown themeEpoch={themeEpoch} columns={bodyWidth}>{text}</Markdown>}
       </Box>
     </Box>
   );

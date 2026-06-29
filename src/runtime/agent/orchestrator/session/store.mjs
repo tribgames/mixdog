@@ -23,8 +23,19 @@ const SESSION_SUMMARY_INDEX_VERSION = 1;
 // starving the model of the image mid-conversation. Returns the same object
 // reference when nothing changed (no-image sessions pay only a shallow scan).
 function _sessionForDisk(session) {
+    // Strip the in-flight live-turn alias (askSession sets session.liveTurnMessages
+    // for the turn duration so contextStatus() can estimate live context growth).
+    // It is a transient duplicate of the working transcript and must never be
+    // serialized: mid-turn saves (persistIterationMetrics) would otherwise bloat
+    // the session file and persist a non-canonical message array.
+    const hasLiveTurn = session && typeof session === 'object'
+        && Object.prototype.hasOwnProperty.call(session, 'liveTurnMessages');
     const messages = Array.isArray(session?.messages) ? session.messages : null;
-    if (!messages || messages.length === 0) return session;
+    if (!messages || messages.length === 0) {
+        if (!hasLiveTurn) return session;
+        const { liveTurnMessages: _drop, ...rest } = session;
+        return rest;
+    }
     let changed = false;
     const out = messages.map((m) => {
         if (!m || typeof m !== 'object') return m;
@@ -32,8 +43,13 @@ function _sessionForDisk(session) {
         if (content !== m.content) { changed = true; return { ...m, content }; }
         return m;
     });
-    if (!changed) return session;
-    return { ...session, messages: out };
+    if (!changed) {
+        if (!hasLiveTurn) return session;
+        const { liveTurnMessages: _drop, ...rest } = session;
+        return rest;
+    }
+    const { liveTurnMessages: _drop, ...rest } = session;
+    return { ...rest, messages: out };
 }
 
 function _renameWithRetrySync(tmp, target) {

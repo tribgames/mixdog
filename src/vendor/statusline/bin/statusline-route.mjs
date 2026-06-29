@@ -211,10 +211,18 @@ function routeContextMeta(provider, info = {}, inherited = {}) {
       ?? info.auto_compact_token_limit,
     null,
   );
-  const derivedCompactLimit = contextWindow || rawContextWindow || null;
-  const autoCompactTokenLimit = explicitCompactLimit && derivedCompactLimit
-    ? Math.min(explicitCompactLimit, derivedCompactLimit)
-    : explicitCompactLimit ?? derivedCompactLimit;
+  // autoCompactTokenLimit must mean an EXPLICIT auto-compaction limit only.
+  // Do NOT derive it from the context/raw window: the runtime treats a present
+  // autoCompactTokenLimit as the compaction trigger, and a full-window value
+  // collapses the compaction buffer to 0. Keep boundary/window display via the
+  // separate contextWindow/rawContextWindow fields. An explicit limit is only a
+  // real trigger when STRICTLY BELOW the boundary; a legacy seed/info value
+  // equal to or above it is a derived full-window artifact and is dropped to
+  // null (Math.min would still surface the boundary). Never derive a limit.
+  const _boundary = contextWindow || rawContextWindow || null;
+  const autoCompactTokenLimit = explicitCompactLimit && explicitCompactLimit > 0
+    ? (_boundary ? (explicitCompactLimit < _boundary ? explicitCompactLimit : null) : explicitCompactLimit)
+    : null;
   return {
     contextWindow,
     rawContextWindow,
@@ -222,6 +230,39 @@ function routeContextMeta(provider, info = {}, inherited = {}) {
     autoCompactTokenLimit,
   };
 }
+
+// Test-only export of the route context-meta resolver for the auto-compact
+// limit migration smoke (scripts/compact-trigger-migration-smoke.mjs).
+export const _routeContextMeta = routeContextMeta;
+
+// Resolve the auto-compact limit displayed by loadGatewayStatus(). The active
+// value MUST be validated against the ACTIVE route's own boundary/window, never
+// configured?.contextWindow: the configured window can be larger than the
+// active window, so validating a stale active full-window value (== active
+// window) against the configured window would let it slip through as an
+// explicit limit. The configured route's limit (already sanitized by
+// routeContextMeta) is preferred when a configured route is present, but it
+// never validates a stale active value.
+function resolveStatusAutoCompactTokenLimit(configured, active = {}, lastCompact = null) {
+  if (configured) {
+    const c = num(configured.autoCompactTokenLimit, 0);
+    return c > 0 ? c : null;
+  }
+  const activeBoundary = num(
+    active?.gateway_context_window
+      ?? active?.gateway_raw_context_window
+      ?? lastCompact?.budgetWindow
+      ?? lastCompact?.contextWindow,
+    0,
+  );
+  const raw = num(active?.gateway_auto_compact_token_limit, 0);
+  if (!(raw > 0)) return null;
+  if (activeBoundary > 0) return raw < activeBoundary ? raw : null;
+  return raw;
+}
+
+// Test-only export of the status auto-compact-limit resolver.
+export const _resolveStatusAutoCompactTokenLimit = resolveStatusAutoCompactTokenLimit;
 
 function compactBoundaryForStatus(routeInfo = {}, compact = null) {
   const compactLimit = num(routeInfo?.autoCompactTokenLimit ?? compact?.compactLimitTokens, 0);
@@ -519,6 +560,16 @@ export function loadGatewayStatus(options = {}) {
   const statusProviderKind = configured?.providerKind
     || (routeMatchesConfigured ? cleanString(active.gateway_provider_kind) : '')
     || providerKind(statusProvider);
+  // Sanitize the auto-compact limit before display: a stale boundary/window-
+  // sized active.gateway_auto_compact_token_limit must not surface as an
+  // explicit autoCompactTokenLimit (the runtime would read it as the trigger
+  // and collapse the buffer). The active value must be validated against the
+  // ACTIVE route's own boundary/window — NOT configured?.contextWindow. The
+  // configured window can be larger than the active window, so using it would
+  // let a stale active full-window value (== active window) slip through. Use
+  // the active boundary (active context/raw window, or the lastCompact budget
+  // when present) and null the active value when it is >= that boundary.
+  const statusAutoCompactTokenLimit = resolveStatusAutoCompactTokenLimit(configured, active, lastCompact);
   const activeStatus = {
     provider: statusProvider,
     model: configured?.model || active.gateway_model,
@@ -530,7 +581,7 @@ export function loadGatewayStatus(options = {}) {
     contextWindow: configured?.contextWindow ?? num(active.gateway_context_window, null),
     rawContextWindow: configured?.rawContextWindow ?? num(active.gateway_raw_context_window, null),
     effectiveContextWindowPercent: configured?.effectiveContextWindowPercent ?? num(active.gateway_effective_context_window_percent, null),
-    autoCompactTokenLimit: configured?.autoCompactTokenLimit ?? num(active.gateway_auto_compact_token_limit, null),
+    autoCompactTokenLimit: statusAutoCompactTokenLimit,
     contextUsedPct: metricsMatch ? recomputedContextUsedPct ?? num(active.gateway_context_used_pct, null) : null,
     lastUsage,
     quotaWindows: activeQuotaWindows.length ? activeQuotaWindows : (configuredStatus?.quotaWindows || []),

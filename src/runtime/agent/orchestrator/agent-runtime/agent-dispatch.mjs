@@ -100,29 +100,57 @@ export function resolveHiddenRoleSchemaAllowedTools(hidden) {
 }
 
 /**
- * Resolve a preset name from (preset arg | opts.preset | hidden-role config).
+ * Resolve the maintenance ROUTE (or legacy preset name) for a dispatch.
+ *
+ * Returns one of:
+ *   - a route object `{ provider, model, effort?, fast? }` — the preferred
+ *     shape: a maintenance slot now stores its model directly (parity with
+ *     `agents.<role>`), so no preset-array name lookup is needed.
+ *   - a string — a legacy preset NAME still stored in a maintenance slot, or an
+ *     explicit `preset`/`opts.preset` override. The caller resolves the name
+ *     against config.presets for backward compatibility.
+ *   - null — unresolved.
+ *
+ * Hidden roles read their slot from `maint[maintKey || slot]`; the cycle1/2/3
+ * agents share one knob via the `maintKey: 'memory'` override.
  */
-export function resolvePresetName({ preset, optsPreset, role, config: cfgIn = null }) {
+export function resolveMaintenanceRoute({ preset, optsPreset, role, config: cfgIn = null }) {
     if (preset) return preset;
     if (optsPreset) return optsPreset;
     if (!role) return null;
-    // Hidden roles resolve their maintenance preset by SLOT. Every slot carries
-    // a concrete default in DEFAULT_MAINTENANCE, so `maint[slot]` resolves
-    // directly; the Setup panel can still tune each slot independently.
-    // (explorer.slot = 'explore', cycle1-agent.slot = 'cycle1', …). A hidden
-    // role may override which maintenance key it reads via `maintKey`
-    // (e.g. the cycle1/2/3 agents all read `maint.memory` instead of their
-    // own slot) so several agents can share one model knob while keeping
-    // distinct slots/identity.
     const hidden = getHiddenRole(role);
     if (hidden) {
         try {
             const config = cfgIn || loadConfig({ secrets: false });
             const maint = config?.maintenance || {};
-            return maint[hidden.maintKey || hidden.slot] || null;
+            return maint[hidden.maintKey || hidden.slot] ?? null;
         } catch { return null; }
     }
     return null;
+}
+
+// Back-compat alias: older callers/tests import resolvePresetName. It now
+// returns whatever resolveMaintenanceRoute does (route object OR name string).
+export const resolvePresetName = resolveMaintenanceRoute;
+
+// A maintenance slot value is a direct route when it carries provider+model.
+function maintenanceRouteToPreset(routeOrName, role) {
+    if (!routeOrName || typeof routeOrName !== 'object') return null;
+    const provider = String(routeOrName.provider || '').trim();
+    const model = String(routeOrName.model || '').trim();
+    if (!provider || !model) return null;
+    const out = {
+        id: `maint-${role}`,
+        name: `MAINT ${String(role || '').toUpperCase()}`,
+        type: 'agent',
+        provider,
+        model,
+        tools: 'full',
+    };
+    const effort = String(routeOrName.effort || '').trim();
+    if (effort) out.effort = effort;
+    if (routeOrName.fast === true) out.fast = true;
+    return out;
 }
 
 /**
@@ -151,23 +179,36 @@ export function makeAgentDispatch(opts = {}) {
         }
 
         const config = opts.config || loadConfig({ secrets: false });
-        const presetName = resolvePresetName({
+        const routeOrName = resolveMaintenanceRoute({
             preset: presetArg,
             optsPreset: opts.preset,
             role,
             config,
         });
-        if (!presetName) {
+        if (!routeOrName) {
             throw new Error(
-                `[agent-dispatch] preset unresolved for role "${role}" `
+                `[agent-dispatch] maintenance route unresolved for role "${role}" `
                 + `(preset="${presetArg || opts.preset || ''}")`,
             );
         }
-
-        const preset = config.presets?.find((p) => p.id === presetName || p.name === presetName);
+        // Preferred path: a maintenance slot that stores its model directly
+        // (route object). Legacy path: a slot still holding a preset NAME —
+        // resolve it against config.presets for backward compatibility.
+        let preset = maintenanceRouteToPreset(routeOrName, role);
         if (!preset) {
-            throw new Error(`[agent-dispatch] preset "${presetName}" not found in mixdog-config.json`);
+            const legacyName = String(routeOrName || '').trim();
+            preset = config.presets?.find((p) => p.id === legacyName || p.name === legacyName) || null;
+            if (!preset) {
+                throw new Error(
+                    `[agent-dispatch] maintenance route for role "${role}" is neither a `
+                    + `{provider,model} route nor a known preset name ("${legacyName}")`,
+                );
+            }
         }
+        // Stable label for traces / session metadata, derived from the resolved
+        // preset object regardless of whether it came from a direct route or a
+        // legacy preset name.
+        const presetName = preset.id || preset.name || `maint-${role}`;
 
         const runtimeSpec = resolveRuntimeSpec(preset, {
             lane: 'agent',

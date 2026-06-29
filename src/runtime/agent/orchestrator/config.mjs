@@ -30,13 +30,6 @@ export function getPluginData() {
 // scheduler/webhook still let a per-entry config.json model win first (the
 // caller passes it explicitly via opts.preset); the haiku default below only
 // applies when an entry omits its own model.
-export const DEFAULT_MAINTENANCE = Object.freeze({
-    explore: 'haiku',
-    memory: 'haiku',
-    scheduler: 'haiku',
-    webhook: 'haiku',
-});
-
 // Slots surfaced as tunable rows in the Maintenance Setup panel. This is the
 // UI / allow-list view (GET cleanup + POST validation) and is intentionally a
 // SUBSET of DEFAULT_MAINTENANCE: scheduler/webhook carry a per-entry model and
@@ -109,6 +102,29 @@ function resolveAnthropicFamilyModel(family) {
     return ANTHROPIC_FAMILY_MODEL[key] || null;
 }
 
+// Canonical maintenance defaults. Single source of truth — imported by
+// llm/index.mjs and setup-server.mjs so UI/runtime cannot drift from config.
+//
+// Each maintenance slot stores its model route DIRECTLY ({provider, model}) —
+// parity with `agents.<role>`. The old shape stored a preset NAME string (e.g.
+// "haiku") that had to be looked up in the config.presets array; that
+// indirection is the legacy path. agent-dispatch.resolveMaintenanceRoute still
+// accepts a legacy name string for backward compatibility, but new configs and
+// these defaults use the direct route. loadConfig() migrates any stored string
+// slot to a route on read (see migrateMaintenanceRoutes). The cycle1/2/3 memory
+// agents share ONE `memory` route via the `maintKey: 'memory'` override on
+// their hidden-role entries.
+const _HAIKU_ROUTE = Object.freeze({
+    provider: 'anthropic-oauth',
+    model: resolveAnthropicFamilyModel('haiku'),
+});
+export const DEFAULT_MAINTENANCE = Object.freeze({
+    explore: { ..._HAIKU_ROUTE },
+    memory: { ..._HAIKU_ROUTE },
+    scheduler: { ..._HAIKU_ROUTE },
+    webhook: { ..._HAIKU_ROUTE },
+});
+
 // Seed presets keyed by preset.name so workflow/maintenance references stay
 // consistent with the resolve-by-name lookup in presetKey().
 export const DEFAULT_PRESETS = Object.freeze([
@@ -166,6 +182,42 @@ function normalizeSearchRoute(route) {
     const toolType = String(route.toolType || '').trim();
     if (toolType)
         out.toolType = toolType;
+    return out;
+}
+
+// Migrate stored maintenance slots from the legacy preset-NAME string shape to
+// the direct {provider, model} route shape. A slot value that is already a
+// route object is normalized (provider/model/effort/fast only); a string value
+// is resolved against the config.presets array (the legacy lookup) and rewritten
+// to a route. Unresolvable strings are dropped so the DEFAULT_MAINTENANCE route
+// fills the slot. `presets` is the normalized preset array for legacy lookup.
+function migrateMaintenanceRoutes(rawMaint, presets) {
+    const out = {};
+    const list = Array.isArray(presets) ? presets : [];
+    for (const [slot, value] of Object.entries(rawMaint || {})) {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            const provider = normalizeAgentProviderId(value.provider);
+            const model = String(value.model || '').trim();
+            if (provider && model) {
+                const route = { provider, model };
+                const effort = String(value.effort || '').trim();
+                if (effort) route.effort = effort;
+                if (value.fast === true) route.fast = true;
+                out[slot] = route;
+            }
+            continue;
+        }
+        const name = String(value || '').trim();
+        if (!name) continue;
+        const preset = list.find(p => p && (p.id === name || p.name === name));
+        if (preset && preset.provider && preset.model) {
+            const route = { provider: preset.provider, model: preset.model };
+            if (preset.effort) route.effort = preset.effort;
+            if (preset.fast === true) route.fast = true;
+            out[slot] = route;
+        }
+        // Unresolvable legacy name → dropped; DEFAULT_MAINTENANCE route fills it.
+    }
     return out;
 }
 
@@ -308,12 +360,15 @@ export function loadConfig(options = {}) {
                 .filter(p => p.id !== 'workflow-search');
             const workflowRoutes = raw.workflowRoutes && typeof raw.workflowRoutes === 'object' ? { ...raw.workflowRoutes } : {};
             delete workflowRoutes.search;
+            // Migrate legacy preset-name maintenance slots to direct routes,
+            // then overlay onto the route-shaped defaults.
+            const migratedMaint = migrateMaintenanceRoutes(rawMaint, normalizedPresets);
             return {
                 providers: mergedProviders,
                 mcpServers,
                 presets: normalizedPresets,
                 default: raw.default || null,
-                maintenance: { ...DEFAULT_MAINTENANCE, ...rawMaint },
+                maintenance: { ...DEFAULT_MAINTENANCE, ...migratedMaint },
                 workflowRoutes,
                 searchRoute: normalizeSearchRoute(raw.searchRoute),
                 fastModels: raw.fastModels && typeof raw.fastModels === 'object' ? raw.fastModels : {},

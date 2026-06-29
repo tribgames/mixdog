@@ -16,6 +16,15 @@ const providerModulePromises = new Map();
 // don't churn (tear down + rebuild) every live provider instance on every call.
 const signatures = new Map();
 
+// Module-level init serialization. agent-tool.mjs's ensureProvider() already
+// serializes inits per provider on a chain promise, but its gateOnPrior() lets
+// a queued init PROCEED once a 120s gate expires even if the prior init has
+// not settled — so a slow-but-still-running init and a newer one can reach
+// initProviders() concurrently. This chain makes the clear()+rebuild section
+// strictly sequential at the registry level, independent of any caller gating,
+// so two different config signatures can never interleave their rebuilds.
+let _initChain = Promise.resolve();
+
 // Deterministic structural signature of a provider config. Recursively sorts
 // object keys so signature equality reflects config-value equality regardless
 // of key insertion order. Invariant: same config in -> same string out.
@@ -71,6 +80,17 @@ function instantiateProvider(name, Ctor, cfg) {
 }
 
 export async function initProviders(config) {
+    // Serialize ALL inits through a single chain so two different config
+    // signatures can never run their clear()+rebuild concurrently, regardless
+    // of caller-side gating (agent-tool gateOnPrior may release a queued init
+    // before the prior one settled). Errors do not poison the chain.
+    const run = () => _initProvidersUnsynchronized(config);
+    const next = _initChain.then(run, run);
+    _initChain = next.then(() => {}, () => {});
+    return next;
+}
+
+async function _initProvidersUnsynchronized(config) {
     // Invariant: never wipe the live registry based on an empty / all-disabled
     // config. Without this guard, a stale `loadAgentConfig()` (e.g. mid-reload
     // or a transient FS hiccup) would land here as `{}` or `{...,enabled:false}`,

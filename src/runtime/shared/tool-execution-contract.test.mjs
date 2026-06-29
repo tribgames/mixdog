@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   isInternalRuntimeNotificationText,
+  isModelVisibleToolCompletionWrapper,
   modelVisibleToolCompletionMessage,
   shouldPersistModelVisibleToolCompletion,
   toolCompletionMeta,
+  toolCompletionInstruction,
 } from './tool-execution-contract.mjs';
 import { _isInternalRuntimeNotificationText } from '../agent/orchestrator/session/manager.mjs';
 
@@ -42,7 +44,29 @@ test('terminal background task with body should persist as model-visible wrapper
   assert.ok(visible);
   assert.equal(isInternalRuntimeNotificationText(visible), false);
   assert.equal(_isInternalRuntimeNotificationText(visible), false);
+  assert.equal(isModelVisibleToolCompletionWrapper(visible), true);
   assert.match(visible, /worker finished successfully/);
+});
+
+test('model-visible completion wrapper is not a human transcript item', () => {
+  const meta = toolCompletionMeta({
+    surface: 'agent',
+    id: 'task_agent_abc123',
+    status: 'completed',
+    instruction: toolCompletionInstruction({
+      surface: 'agent',
+      id: 'task_agent_abc123',
+      status: 'completed',
+    }),
+    context: { callerSessionId: 'sess_owner' },
+  });
+  const visible = modelVisibleToolCompletionMessage(completedBackgroundTask, meta);
+  assert.ok(visible);
+  assert.match(visible, /^The async agent task/);
+  assert.match(visible, /\n\nResult:\n/);
+  assert.equal(isModelVisibleToolCompletionWrapper(visible), true);
+  assert.equal(isModelVisibleToolCompletionWrapper('please fix the leak in engine.mjs'), false);
+  assert.equal(isModelVisibleToolCompletionWrapper(completedBackgroundTask), false);
 });
 
 test('running background task stays hidden from model-visible pending drain', () => {

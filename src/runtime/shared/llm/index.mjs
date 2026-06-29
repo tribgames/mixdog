@@ -24,18 +24,41 @@ function loadAgentConfig() {
 }
 
 /**
- * Resolve maintenance preset ID for a given task from agent-config.
- * Falls back to canonical defaults (DEFAULT_MAINTENANCE from config.mjs).
- * Returns null if no matching preset is registered (lets callers skip the call).
+ * Resolve the maintenance model ROUTE for a given task from agent-config.
+ *
+ * Maintenance slots now store a direct `{provider, model, effort?, fast?}`
+ * route (parity with `agents.<role>`). This returns that route object. For
+ * backward compatibility a slot still holding a legacy preset-NAME string is
+ * resolved against config.presets and returned as a route. Falls back to the
+ * canonical DEFAULT_MAINTENANCE route. Returns null only when nothing resolves.
+ *
+ * The returned value is passed straight through as `opts.preset` to
+ * makeAgentDispatch, whose resolveMaintenanceRoute()/maintenanceRouteToPreset()
+ * accept either a route object or a legacy name string.
  */
 export function resolveMaintenancePreset(task, agentConfig) {
   const cfg = agentConfig || loadAgentConfig()
   const maint = cfg?.maintenance || {}
-  const presetId = maint[task] || DEFAULT_MAINTENANCE[task]
   const presets = cfg?.presets || []
-  if (presets.some(p => p.id === presetId || p.name === presetId)) return presetId
-  // No registered preset found — return the first available preset id so callers
-  // always receive a real id, or null if the presets list is empty.
-  const first = presets.find(p => p?.id || p?.name)
-  return first ? (first.id || first.name) : null
+  const slot = maint[task]
+  // Preferred: slot already holds a direct route object.
+  if (slot && typeof slot === 'object' && !Array.isArray(slot)
+      && slot.provider && slot.model) {
+    return { ...slot }
+  }
+  // Legacy: slot holds a preset-NAME string — resolve it to a route.
+  const name = String(slot || '').trim()
+  if (name) {
+    const preset = presets.find(p => p && (p.id === name || p.name === name))
+    if (preset && preset.provider && preset.model) {
+      const route = { provider: preset.provider, model: preset.model }
+      if (preset.effort) route.effort = preset.effort
+      if (preset.fast === true) route.fast = true
+      return route
+    }
+  }
+  // Canonical default route (DEFAULT_MAINTENANCE is now route-shaped).
+  const def = DEFAULT_MAINTENANCE[task]
+  if (def && def.provider && def.model) return { ...def }
+  return null
 }

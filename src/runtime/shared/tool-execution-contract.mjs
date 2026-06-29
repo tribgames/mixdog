@@ -156,6 +156,29 @@ export function toolCompletionMeta({
   };
 }
 
+const MODEL_VISIBLE_COMPLETION_INSTRUCTION_RE = /\b(async (?:agent task|shell task|\w+ execution)|Async \S+)/i;
+const MODEL_VISIBLE_COMPLETION_REVIEW_RE = /has finished\b[\s\S]*review this result in your next step/i;
+const MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE = /^Async .+ finished\./i;
+
+export function isModelVisibleToolCompletionWrapper(text) {
+  const value = String(text ?? '').trim();
+  if (!value) return false;
+  const resultSplit = /\n\nResult:\n/.exec(value);
+  if (!resultSplit) return false;
+  const preamble = value.slice(0, resultSplit.index).trim();
+  if (!preamble) return false;
+  const instructionLike = MODEL_VISIBLE_COMPLETION_INSTRUCTION_RE.test(preamble)
+    || MODEL_VISIBLE_COMPLETION_REVIEW_RE.test(preamble)
+    || MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(preamble);
+  if (!instructionLike) return false;
+  const quotedSection = value.slice(resultSplit.index + resultSplit[0].length);
+  const quotedLines = quotedSection.split(/\r?\n/).filter((line) => line.length > 0);
+  if (quotedLines.length === 0) return false;
+  if (!quotedLines.every((line) => /^> /.test(line))) return false;
+  const unquoted = quotedLines.map((line) => line.slice(2)).join('\n');
+  return isInternalRuntimeNotificationText(unquoted);
+}
+
 export function modelVisibleToolCompletionMessage(text, meta = {}) {
   const message = String(text || '').trim();
   if (!message) return '';

@@ -10,6 +10,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text } from 'ink';
 import { canonicalModelDisplay, shortenModelName } from '../../ui/model-display.mjs';
 import { theme } from '../theme.mjs';
+import {
+  normalizeStatuslineAnsi,
+  statuslineFooterCacheKey,
+  statuslineFooterIdentityChanged,
+} from '../statusline-ansi-bridge.mjs';
 
 // Loaded at RUNTIME (not bundled) so its vendored statusline-lib relative
 // imports resolve from the real src/ui location, not the dist/ bundle dir.
@@ -70,26 +75,8 @@ function canAttemptBootFullRender(nextAttemptAtMs = 0) {
   return Date.now() >= nextAttemptAtMs;
 }
 
-function isResetStatsState(stats) {
-  const s = stats && typeof stats === 'object' ? stats : {};
-  return localNum(s.currentContextTokens) === 0
-    && localNum(s.currentEstimatedContextTokens) === 0
-    && localNum(s.inputTokens) === 0
-    && localNum(s.latestInputTokens) === 0
-    && localNum(s.promptTokens) === 0
-    && localNum(s.turns) === 0;
-}
-
 function shouldSnapLocalStatusline(args, lastArgs) {
-  if (!args) return false;
-  if (!lastArgs) return true;
-  if (args.agentRevision !== lastArgs.agentRevision) return true;
-  if (args.sessionId !== lastArgs.sessionId) return true;
-  if (args.provider !== lastArgs.provider || args.model !== lastArgs.model) return true;
-  if (args.effort !== lastArgs.effort || args.fast !== lastArgs.fast) return true;
-  if (args.contextWindow !== lastArgs.contextWindow || args.rawContextWindow !== lastArgs.rawContextWindow) return true;
-  if (isResetStatsState(args.stats) && !isResetStatsState(lastArgs.stats)) return true;
-  return false;
+  return statuslineFooterIdentityChanged(args, lastArgs);
 }
 
 function scheduleBootFullRetry(backoffMsRef, nextAttemptAtRef) {
@@ -224,7 +211,7 @@ function localBootStatusLine({
   const flags = [effort ? String(effort).toUpperCase() : '', fast === true ? 'FAST' : ''].filter(Boolean);
   const modelBits = [display, ...flags].join(` ${SUBTLE}·${RESET} `);
   const ctxPct = localContextPct({ provider, stats, contextWindow });
-  const l1 = `${STATUS}◆${RESET} ${STATUS}${modelBits}${RESET} ${SUBTLE}│${RESET} ${localContextSegmentFromPct(ctxPct)}`;
+  const l1 = `${STATUS}${modelBits}${RESET} ${SUBTLE}│${RESET} ${localContextSegmentFromPct(ctxPct)}`;
   const runningCount = localRunningWorkerCount(agentWorkers, agentJobs);
   if (!runningCount) return l1;
   const label = `${runningCount} Running Agent${runningCount === 1 ? '' : 's'}`;
@@ -235,19 +222,7 @@ function localBootStatusLine({
 }
 
 export function normalizeStatusLine(text) {
-  const { STATUS, SUBTLE, SUCCESS, WARNING, ERROR } = statusColors();
-  return String(text || '')
-    .replace(/\n+$/, '')
-    .replace(/\x1b\[1m/g, STATUS)
-    .replace(/\x1b\[2m/g, SUBTLE)
-    .replace(/\x1b\[31m/g, ERROR)
-    .replace(/\x1b\[32m/g, SUCCESS)
-    .replace(/\x1b\[33m/g, WARNING)
-    .replace(/\x1b\[36m/g, SUBTLE)
-    .replace(/\x1b\[90m/g, SUBTLE)
-    .replace(/^(?:\x1b\[[0-9;]*m)*◆(?:\x1b\[[0-9;]*m)*\s?/, STATUS)
-    .replace(/(\x1b\[0m )(\d+(?:\.\d+)?%)(?= |$)/g, `$1${STATUS}$2${RESET}`)
-    .replaceAll(`${RESET} ${SUBTLE}│${RESET} `, ` ${SUBTLE}│${RESET} `);
+  return normalizeStatuslineAnsi(text, statusColors(), { reset: RESET });
 }
 
 function workflowModeLabel(workflow = {}) {
@@ -276,6 +251,8 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   const renderEffectIdRef = useRef(0);
   const lastImmediateArgsRef = useRef(null);
   const themeEpochRef = useRef(themeEpoch);
+  const lastRawFullLineRef = useRef('');
+  const lastRawFullLineCacheKeyRef = useRef('');
 
   const statuslineArgs = { sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, agentWorkers, agentJobs };
   statuslineArgsRef.current = statuslineArgs;
@@ -296,6 +273,11 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     renderEffectIdRef.current = effectId;
     const isCurrentEffect = () => alive && renderEffectIdRef.current === effectId;
     const args = statuslineArgsRef.current || statuslineArgs;
+    const footerCacheKey = statuslineFooterCacheKey({ ...args, agentRevision });
+    const identityChanged = shouldSnapLocalStatusline(
+      { ...args, agentRevision },
+      lastImmediateArgsRef.current,
+    );
     // A theme switch must re-tone the footer immediately: the stored `line`
     // holds already-normalized ANSI with the OLD palette, so re-running
     // normalizeStatusLine on it is a no-op. Force a fresh local rebuild (new
@@ -303,16 +285,23 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     const themeChanged = themeEpochRef.current !== themeEpoch;
     if (themeChanged) {
       themeEpochRef.current = themeEpoch;
+    }
+    if (identityChanged) {
+      lastRawFullLineRef.current = '';
+      lastRawFullLineCacheKeyRef.current = '';
       bootFullDoneRef.current = false;
     }
     const snapLocalNow = themeChanged
       || bootFullDoneRef.current !== true
-      || shouldSnapLocalStatusline(
-        { ...args, agentRevision },
-        lastImmediateArgsRef.current,
-      );
+      || identityChanged;
     if (snapLocalNow) {
-      const localNext = normalizeStatusLine(localBootStatusLine(args));
+      const useCachedRaw = themeChanged
+        && !identityChanged
+        && lastRawFullLineRef.current
+        && lastRawFullLineCacheKeyRef.current === footerCacheKey;
+      const localNext = useCachedRaw
+        ? normalizeStatusLine(lastRawFullLineRef.current)
+        : normalizeStatusLine(localBootStatusLine(args));
       if (localNext) setLine((prev) => (prev === localNext ? prev : localNext));
     }
     lastImmediateArgsRef.current = {
@@ -342,6 +331,8 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
         })
         .then((s) => {
           if (!isCurrentEffect() || s == null) return;
+          lastRawFullLineCacheKeyRef.current = footerCacheKey;
+          lastRawFullLineRef.current = String(s);
           bootFullDoneRef.current = true;
           bootFullRetryBackoffMsRef.current = STATUSLINE_BOOT_FULL_RETRY_MS;
           bootFullNextAttemptAtRef.current = 0;
@@ -371,7 +362,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   // Footer footprint stays 3 rows total, but L2 sits directly under L1 without
   // an internal spacer; the remaining row is kept as outer breathing room.
   return (
-    <Box flexDirection="column" width="100%" height={3} overflow="hidden" paddingLeft={2} backgroundColor={theme.background}>
+    <Box flexDirection="column" width="100%" height={3} overflow="hidden" backgroundColor={theme.background}>
       <Box flexDirection="row" width="100%" overflow="hidden">
         <Box flexGrow={1} flexShrink={1} overflow="hidden">
           <Text wrap="truncate">{lines[0] || ' '}</Text>

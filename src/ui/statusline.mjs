@@ -421,7 +421,7 @@ function mergeQuotaStatus(primary, fallback) {
 
 function formatModelSegment({ provider, model, effort, fast, cols }) {
   const modelName = shortenModelName(displayModelName(provider, model), cols);
-  const bits = [`${CYN}◆${R} ${B}${modelName}${R}`];
+  const bits = [`${B}${modelName}${R}`];
   if (effort) bits.push(`${B}${String(effort).toUpperCase()}${R}`);
   if (fast === true) bits.push(`${B}FAST${R}`);
   return bits.join(` ${D}·${R} `);

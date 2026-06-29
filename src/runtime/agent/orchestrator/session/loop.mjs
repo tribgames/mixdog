@@ -517,16 +517,28 @@ async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTo
         preserveRecentTokens: compactPolicy.preserveRecentTokens,
     });
 }
+// Percent-named inputs (bufferPercent / bufferPct / *_BUFFER_PERCENT) carry a
+// PERCENT: 1 means 1% (0.01). Ratio-named inputs (bufferRatio / bufferFraction)
+// carry a fraction: 0.01 means 1%, and a legacy value > 1 is read as a percent
+// (10 -> 10%). The shared normalizeCompactionBufferRatio only handles the ratio
+// convention, so resolve percent-named values to a fraction first.
+function _resolveBufferRatioCandidate(percentInputs, ratioInputs) {
+    for (const raw of percentInputs) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0) return Math.min(1, n / 100);
+    }
+    for (const raw of ratioInputs) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0) return n > 1 ? n / 100 : n;
+    }
+    return null;
+}
 function resolveCompactBufferRatio(cfg = {}) {
-    return normalizeCompactionBufferRatio(
-        cfg.bufferPercent
-            ?? cfg.bufferPct
-            ?? cfg.bufferRatio
-            ?? cfg.bufferFraction
-            ?? process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT
-            ?? process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO,
-        DEFAULT_COMPACTION_BUFFER_RATIO,
+    const resolved = _resolveBufferRatioCandidate(
+        [cfg.bufferPercent, cfg.bufferPct, process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT],
+        [cfg.bufferRatio, cfg.bufferFraction, process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO],
     );
+    return normalizeCompactionBufferRatio(resolved, DEFAULT_COMPACTION_BUFFER_RATIO);
 }
 function resolveCompactBufferTokens(boundaryTokens, cfg = {}) {
     const configured = positiveTokenInt(cfg.bufferTokens ?? cfg.buffer)
@@ -591,7 +603,16 @@ function resolveWorkerCompactPolicy(sessionRef, tools) {
         : (explicitBoundary || contextWindow || autoLimit);
     if (!boundaryTokens) return null;
     const compactBoundaryTokens = Math.max(1, Math.floor(boundaryTokens * COMPACT_SAFETY_PERCENT));
-    const autoTriggerTokens = autoLimit && autoLimit <= compactBoundaryTokens ? Math.max(1, autoLimit) : null;
+    // Only an explicit auto-compact limit STRICTLY BELOW the boundary acts as
+    // the trigger. A persisted value == boundary (legacy derived full-window
+    // autoCompactTokenLimit) would set autoTriggerTokens == boundary and
+    // collapse the buffer to 0, so it is ignored in favor of boundary − buffer.
+    const autoTriggerTokens = autoLimit && autoLimit < compactBoundaryTokens ? Math.max(1, autoLimit) : null;
+    // Sanitized explicit limit: only a sub-boundary value is a real auto-compact
+    // limit. Anything >= boundary is a legacy derived full-window artifact and
+    // is reported as null so rememberCompactTelemetry does not re-persist it
+    // back onto the session and re-collapse the buffer on the next turn.
+    const explicitAutoCompactTokenLimit = autoTriggerTokens;
     const bufferTokens = autoTriggerTokens
         ? Math.max(0, compactBoundaryTokens - autoTriggerTokens)
         : resolveCompactBufferTokens(compactBoundaryTokens, cfg);
@@ -617,7 +638,7 @@ function resolveWorkerCompactPolicy(sessionRef, tools) {
         effectiveContextWindowPercent: Number.isFinite(Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent))
             ? Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent)
             : null,
-        autoCompactTokenLimit: positiveTokenInt(sessionRef.autoCompactTokenLimit ?? cfg.autoCompactTokenLimit),
+        autoCompactTokenLimit: explicitAutoCompactTokenLimit,
         semantic: compactTypeIsSemantic(compactType) && resolveSemanticCompactSetting(sessionRef, cfg),
         recallFastTrack: compactTypeIsRecallFastTrack(compactType),
         semanticTimeoutMs: positiveTokenInt(cfg.timeoutMs) || envTokenInt('MIXDOG_AGENT_COMPACT_TIMEOUT_MS') || 30_000,
@@ -706,6 +727,7 @@ function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         lastPressureTokens: meta.pressureTokens ?? null,
         lastStage: meta.stage || prev.lastStage || null,
         lastChanged: changed,
+        lastTrigger: meta.trigger || prev.lastTrigger || null,
         lastSemantic: meta.semanticCompact === true,
         lastSemanticError: meta.semanticError || null,
         lastRecallFastTrack: meta.recallFastTrack === true,
@@ -724,8 +746,17 @@ function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
     }
     sessionRef.contextWindow = policy.contextWindow || sessionRef.contextWindow;
     sessionRef.rawContextWindow = policy.rawContextWindow || sessionRef.rawContextWindow;
-    sessionRef.autoCompactTokenLimit = policy.autoCompactTokenLimit || sessionRef.autoCompactTokenLimit || null;
     sessionRef.compactBoundaryTokens = policy.boundaryTokens || sessionRef.compactBoundaryTokens || null;
+    // Persist only the sanitized (sub-boundary) explicit limit. policy.autoCompactTokenLimit
+    // is already null for legacy derived full-window values, so a stale
+    // boundary-sized autoCompactTokenLimit on the session is cleared here rather
+    // than carried forward to re-collapse the buffer next turn.
+    {
+        const _boundary = positiveTokenInt(sessionRef.compactBoundaryTokens);
+        const _prevLimit = positiveTokenInt(sessionRef.autoCompactTokenLimit);
+        const _keepPrev = _prevLimit && (!_boundary || _prevLimit < _boundary) ? _prevLimit : null;
+        sessionRef.autoCompactTokenLimit = policy.autoCompactTokenLimit || _keepPrev || null;
+    }
     if (policy.effectiveContextWindowPercent !== null) {
         sessionRef.effectiveContextWindowPercent = policy.effectiveContextWindowPercent;
     }
@@ -1223,6 +1254,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     let response;
     let contractNudges = 0;
     let contextOverflowRetryUsed = false;
+    // Set when a provider context-overflow refusal triggers the in-turn
+    // reactive compact retry below; consumed by the next pre-send compact pass
+    // so its telemetry/events carry trigger:'reactive' (distinct from the
+    // proactive pre-send pressure trigger). Cleared after that pass reads it.
+    let reactiveOverflowRetryPending = false;
     const opts = sendOpts || {};
     const sessionId = opts.sessionId || null;
     const signal = opts.signal || null;
@@ -1356,11 +1392,18 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             } else {
                 try { opts.onStageChange?.('compacting'); } catch { /* best-effort */ }
                 const compactStartedAt = Date.now();
+                // A pending reactive-overflow retry makes THIS compact pass the
+                // recovery from a provider overflow refusal, not the proactive
+                // pressure trigger. Tag the emitted events so telemetry can tell
+                // them apart, then clear the one-shot flag.
+                const compactTrigger = reactiveOverflowRetryPending ? 'reactive' : 'auto';
+                reactiveOverflowRetryPending = false;
                 rememberCompactTelemetry(sessionRef, compactPolicy, {
                     stage: 'compacting',
                     beforeTokens: messageTokensEst,
                     afterTokens: messageTokensEst,
                     pressureTokens,
+                    trigger: compactTrigger,
                 });
                 let compacted;
                 let pruneCount = 0;
@@ -1469,6 +1512,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         sessionId,
                         iteration: iterations + 1,
                         stage: 'pre_send',
+                        trigger: compactTrigger,
                         prune_count: pruneCount,
                         compact_changed: false,
                         input_prefix_hash: messagePrefixHash(messages),
@@ -1489,7 +1533,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     emitCompactEvent(opts, {
                         sessionId,
                         stage: 'pre_send',
-                        trigger: 'auto',
+                        trigger: compactTrigger,
                         status: 'failed',
                         compactType: compactEventType(compactPolicy),
                         beforeTokens: messageTokensEst,
@@ -1558,6 +1602,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     sessionId,
                     iteration: iterations + 1,
                     stage: 'pre_send',
+                    trigger: compactTrigger,
                     prune_count: pruneCount,
                     compact_changed: compactChanged || summaryChanged,
                     input_prefix_hash: messagePrefixHash(messages),
@@ -1576,7 +1621,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 emitCompactEvent(opts, {
                     sessionId,
                     stage: 'pre_send',
-                    trigger: 'auto',
+                    trigger: compactTrigger,
                     status: compactChanged || summaryChanged || pruneCount > 0 ? 'compacted' : 'no_change',
                     compactType: compactEventType(compactPolicy),
                     beforeTokens: messageTokensEst,
@@ -1659,13 +1704,47 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     return { ok: false, error };
                 }
             })()
-                .finally(() => {
+                .then((settled) => {
                     entry.endedAt = Date.now();
+                    // EARLY UI-ONLY NOTIFY (completion-order, NOT history).
+                    // The serial result-collection loop below `await`s each
+                    // eager promise strictly in CALL order, so a fast call[1]
+                    // that settles before a slow call[0] cannot surface its
+                    // tool card completion until call[0] resolves. Fire
+                    // onToolResult here — the instant THIS eager tool settles —
+                    // so parallel cards complete independently in the order they
+                    // actually finish.
+                    //
+                    // This message is NOT pushed into `messages`: provider
+                    // history ordering stays exactly call-order. The serial loop
+                    // still builds the REAL tool_result and pushes it via
+                    // pushToolResultMessage (which fires onToolResult AGAIN for
+                    // the same toolCallId in call order — the TUI dedupes by id,
+                    // so the duplicate notify is harmless). __earlyNotify marks
+                    // this as the pre-history, UI-only signal.
+                    //
+                    // Only genuinely-executed eager promises reach here:
+                    // startEagerTool never creates an entry for dedup /
+                    // repeat-failure-guard / pre-dispatch-deny / invalid-args
+                    // calls (they return null above), so those `continue`-before-
+                    // execution stub paths can never early-notify (contract #5).
+                    try {
+                        // Pure completion-state signal: content is intentionally
+                        // empty. The TUI treats __earlyNotify as a "this callId
+                        // finished" flip (advance completedCount, stop the pending
+                        // spinner/blink) WITHOUT touching result/summary/rawResult.
+                        // The real compressed/offloaded content arrives via the
+                        // later in-order history notify (pushToolResultMessage).
+                        // Carrying raw pre-compress text here only caused card
+                        // height jitter and heavier UI text, so drop it.
+                        opts.onToolResult?.({ role: 'tool', toolCallId: call.id, content: '', __earlyNotify: true });
+                    } catch { /* best-effort — UI notify must never break the eager path */ }
                     // Intentionally do NOT delete _sig here — see the block
                     // comment above. The sig must outlive promise settlement
                     // so a later same-turn streaming duplicate stays blocked
                     // at the _eagerInFlightSigs.has(_sig) guard until the turn
                     // boundary recreates the Map.
+                    return settled;
                 });
             pending.set(call.id, entry);
             return entry;
@@ -1725,6 +1804,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             const compactPolicyForRetry = resolveWorkerCompactPolicy(sessionRef, sendTools.length ? sendTools : tools);
             if (!contextOverflowRetryUsed && compactPolicyForRetry?.auto) {
                 contextOverflowRetryUsed = true;
+                // Mark the next pre-send compact as REACTIVE (driven by a
+                // provider overflow refusal) rather than the normal proactive
+                // pressure trigger, so the compact event/telemetry the loop
+                // emits on the retry is distinguishable downstream.
+                reactiveOverflowRetryPending = true;
                 const forcedPressureTokens = Math.max(
                     Number(compactPolicyForRetry?.triggerTokens || 0),
                     Number(compactPolicyForRetry?.boundaryTokens || sessionRef.contextWindow || 0),

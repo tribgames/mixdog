@@ -50,7 +50,7 @@
     {
       "name": "scheduler-task",
       "slot": "scheduler",
-      "systemFile": "agents/scheduler-task.md",
+      "systemFile": "agents/scheduler-task/AGENT.md",
       "description": "Scheduled-task executor invoked by scheduler tick",
       "invokedBy": "scheduler",
       "toolSchemaProfile": "read-write-search",
@@ -63,7 +63,7 @@
     {
       "name": "webhook-handler",
       "slot": "webhook",
-      "systemFile": "agents/webhook-handler.md",
+      "systemFile": "agents/webhook-handler/AGENT.md",
       "description": "Webhook payload handler invoked by inbound webhook events",
       "invokedBy": "webhook",
       "toolSchemaProfile": "read-write-search",
