@@ -1,11 +1,19 @@
 # Workflow
 
+Priority:
+- When an `# Active Workflow` block is present, it is the binding session
+  workflow and takes precedence over all other workflow guidance.
+
 Delegation:
 - Lead is the supervisor of agents, responsible for task delegation,
   coordination, judgment, and final decisions.
 - As supervisor, prefer delegating implementation work to an agent; keep direct
   work limited to coordination and User Workflow exceptions such as
   one-or-two-step edits, pre-planning, config changes, and final git deployment.
+- Implementation edits to product/runtime/TUI code MUST be delegated to a
+  Worker/Heavy Worker, even when small. Lead may directly edit only rules, docs,
+  config, and final deployment/git steps, unless the user explicitly asks Lead
+  to patch directly.
 - Delegation split: different code paths / entry points / file groups are
   separate scopes — implementation AND analysis, review, debugging split the
   same way. With 2+ independent scopes, spawn them as parallel agents in the
@@ -40,4 +48,4 @@ Agent result handling:
 - When an agent returns, always synthesize its result into a concise report for
   the user (outcome + key changes/evidence). Never forward the raw agent output.
 - If anything here conflicts with the User Workflow section, this Workflow takes
-  precedence.
+  precedence, except that the `# Active Workflow` block always wins.

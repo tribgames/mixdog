@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
+import { spawn } from 'node:child_process';
 
 const DEFAULT_EVENTS = Object.freeze([
   'runtime:start',
@@ -10,14 +11,82 @@ const DEFAULT_EVENTS = Object.freeze([
   'turn:error',
   'tool:planned',
   'tool:before',
+  'tool:ask',
   'tool:deny',
   'tool:modify',
   'hook:error',
+  'SessionStart',
+  'UserPromptSubmit',
+  'PreToolUse',
+  'PostToolUse',
+  'Stop',
 ]);
 
-// Default command timeouts (seconds). UserPromptSubmit is intentionally lower.
 const DEFAULT_COMMAND_TIMEOUT_S = 600;
 const USER_PROMPT_TIMEOUT_S = 30;
+const MESSAGE_DISPLAY_TIMEOUT_S = 10;
+const DEFAULT_PROMPT_TIMEOUT_S = 30;
+const DEFAULT_AGENT_TIMEOUT_S = 60;
+const MAX_OUTPUT_CHARS = 10_000;
+const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
+
+const TOOL_IF_EVENTS = new Set([
+  'PreToolUse',
+  'PostToolUse',
+  'PostToolUseFailure',
+  'PermissionRequest',
+  'PermissionDenied',
+]);
+
+const NO_MATCHER_EVENTS = new Set([
+  'UserPromptSubmit',
+  'PostToolBatch',
+  'Stop',
+  'TeammateIdle',
+  'TaskCreated',
+  'TaskCompleted',
+  'WorktreeCreate',
+  'WorktreeRemove',
+  'CwdChanged',
+  'MessageDisplay',
+]);
+
+const EXIT2_BLOCK_EVENTS = new Set([
+  'PreToolUse',
+  'PermissionRequest',
+  'UserPromptSubmit',
+  'UserPromptExpansion',
+  'Stop',
+  'SubagentStop',
+  'TeammateIdle',
+  'TaskCreated',
+  'TaskCompleted',
+  'ConfigChange',
+  'PostToolBatch',
+  'PreCompact',
+  'Elicitation',
+  'ElicitationResult',
+]);
+
+const TOP_LEVEL_DECISION_EVENTS = new Set([
+  'UserPromptSubmit',
+  'UserPromptExpansion',
+  'PostToolUse',
+  'PostToolUseFailure',
+  'PostToolBatch',
+  'Stop',
+  'SubagentStop',
+  'ConfigChange',
+  'PreCompact',
+]);
+
+const PLAIN_STDOUT_CONTEXT_EVENTS = new Set([
+  'SessionStart',
+  'UserPromptSubmit',
+  'UserPromptExpansion',
+]);
+
+const SUPPORTED_HANDLER_TYPES = new Set(['command', 'http']);
 
 function compactValue(value) {
   if (value == null) return value;
@@ -41,8 +110,8 @@ function compactValue(value) {
 function summarizePayload(payload = {}) {
   if (!payload || typeof payload !== 'object') return String(payload ?? '');
   const parts = [];
-  if (payload.sessionId) parts.push(`session=${payload.sessionId}`);
-  if (payload.name) parts.push(`name=${payload.name}`);
+  if (payload.sessionId || payload.session_id) parts.push(`session=${payload.sessionId || payload.session_id}`);
+  if (payload.name || payload.tool_name) parts.push(`name=${payload.name || payload.tool_name}`);
   if (payload.provider || payload.model) parts.push([payload.provider, payload.model].filter(Boolean).join('/'));
   if (payload.prompt) parts.push(`prompt=${String(payload.prompt).slice(0, 60).replace(/\s+/g, ' ')}`);
   if (payload.reason) parts.push(`reason=${String(payload.reason).slice(0, 120)}`);
@@ -64,29 +133,43 @@ function normalizeRules(raw) {
   return [];
 }
 
-// ── Standard config detection ──────────────────────────────────────────────
-// A STANDARD hooks.json has a `hooks` object whose values are arrays of
-// matcher-groups: [ { matcher?, hooks: [ { type, command, ... } ] } ].
-// Anything else (top-level array, {toolBefore:[]}, {beforeTool:[]},
-// {hooks:{toolBefore:[]}}) is treated as LEGACY PreToolUse inline rules.
+function uniquePaths(paths) {
+  const seen = new Set();
+  const out = [];
+  for (const p of paths) {
+    if (!p) continue;
+    const resolved = resolve(p);
+    const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(resolved);
+  }
+  return out;
+}
+
+function hookConfigPaths(dataDir, cwd) {
+  if (process.env.MIXDOG_HOOKS_FILE) return uniquePaths([process.env.MIXDOG_HOOKS_FILE]);
+  const projectDir = cwd ? resolve(cwd) : process.cwd();
+  return uniquePaths([
+    join(homedir(), '.claude', 'settings.json'),
+    projectDir ? join(projectDir, '.claude', 'settings.json') : null,
+    projectDir ? join(projectDir, '.claude', 'settings.local.json') : null,
+    dataDir ? join(dataDir, 'hooks.json') : null,
+  ]);
+}
+
 function isStandardConfig(parsed) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
   const hooks = parsed.hooks;
   if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return false;
   const values = Object.values(hooks);
   if (values.length === 0) return false;
-  // Legacy `{hooks:{toolBefore:[...]}}` — values are arrays of rule objects
-  // that do NOT contain nested matcher-groups. Distinguish by group shape.
-  return values.every((groups) => {
-    if (!Array.isArray(groups)) return false;
-    return groups.every((g) => g && typeof g === 'object' && Array.isArray(g.hooks));
-  });
+  return values.every((groups) => (
+    Array.isArray(groups)
+    && groups.every((g) => g && typeof g === 'object' && Array.isArray(g.hooks))
+  ));
 }
 
-// ── Standard matcher evaluator ─────────────────────────────────────────────
-// matcher "*"/""/omitted → match all.
-// Only [A-Za-z0-9_ ,|] → exact / list (| or , separated) string match.
-// Anything else → RegExp test.
 const SIMPLE_MATCHER_RE = /^[A-Za-z0-9_ ,|]*$/;
 function matcherFires(matcher, field) {
   if (matcher == null) return true;
@@ -101,200 +184,427 @@ function matcherFires(matcher, field) {
   try {
     return new RegExp(text).test(value);
   } catch {
-    // Unparseable regex → fail open (match).
     return true;
   }
 }
 
-// ── `if` permission-rule syntax: Tool(pattern) ─────────────────────────────
-// Best-effort glob match against the tool's primary arg. Fail OPEN.
 function globToRegExp(glob) {
   let out = '^';
-  for (const ch of glob) {
+  for (const ch of String(glob || '')) {
     if (ch === '*') out += '.*';
     else if (ch === '?') out += '.';
     else out += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
   }
   return new RegExp(`${out}$`);
 }
+
 function primaryArgFor(toolName, toolInput) {
   const input = toolInput && typeof toolInput === 'object' ? toolInput : {};
-  if (toolName === 'Bash') return input.command ?? '';
+  if (toolName === 'Bash' || toolName === 'bash' || toolName === 'shell') return input.command ?? '';
   if (input.file_path != null) return input.file_path;
   if (input.path != null) return input.path;
   if (input.command != null) return input.command;
+  if (input.file != null) return input.file;
   return '';
 }
-function ifConditionPasses(ifExpr, toolName, toolInput) {
+
+function ifConditionPasses(ifExpr, eventName, toolName, toolInput) {
   if (ifExpr == null || String(ifExpr).trim() === '') return true;
-  const m = /^\s*([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*$/.exec(String(ifExpr));
-  if (!m) return true; // unparseable → fail open
+  if (!TOOL_IF_EVENTS.has(eventName)) return false;
+  const m = /^\s*([A-Za-z0-9_*]+)\s*\(([^)]*)\)\s*$/.exec(String(ifExpr));
+  if (!m) return true;
   const [, tool, pattern] = m;
-  if (tool !== toolName && tool !== '*') return true; // not targeted at this tool → no constraint
+  if (tool !== '*' && tool !== toolName) return false;
   try {
     return globToRegExp(pattern.trim()).test(String(primaryArgFor(toolName, toolInput)));
   } catch {
-    return true; // fail open
+    return true;
   }
 }
 
-// ── Placeholder resolution ─────────────────────────────────────────────────
-function resolvePlaceholders(str, projectDir) {
+function resolvePlaceholders(str, projectDir, pluginData) {
   if (typeof str !== 'string') return str;
   return str
     .replace(/\$\{CLAUDE_PROJECT_DIR\}/g, projectDir || process.cwd())
-    .replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, process.env.CLAUDE_PLUGIN_ROOT || projectDir || process.cwd());
+    .replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, process.env.CLAUDE_PLUGIN_ROOT || projectDir || process.cwd())
+    .replace(/\$\{CLAUDE_PLUGIN_DATA\}/g, process.env.CLAUDE_PLUGIN_DATA || pluginData || projectDir || process.cwd());
 }
 
-// ── Standard config parsing into normalized event → matcher-groups map ──────
-function parseStandardConfig(parsed) {
+function parseStandardConfig(parsed, source) {
   const events = {};
   const hooks = parsed.hooks || {};
   for (const [eventName, groups] of Object.entries(hooks)) {
     if (!Array.isArray(groups)) continue;
-    const clean = [];
+    const cleanGroups = [];
     for (const group of groups) {
       if (!group || typeof group !== 'object') continue;
       const handlers = Array.isArray(group.hooks)
-        ? group.hooks.filter((h) => h && typeof h === 'object' && h.type === 'command' && h.command)
+        ? group.hooks
+          .filter((h) => h && typeof h === 'object' && h.type)
+          .map((h) => ({ ...h, _source: source }))
         : [];
       if (handlers.length === 0) continue;
-      clean.push({ matcher: group.matcher, hooks: handlers });
+      cleanGroups.push({ matcher: group.matcher, hooks: handlers, _source: source });
     }
-    if (clean.length > 0) events[eventName] = clean;
+    if (cleanGroups.length > 0) events[eventName] = cleanGroups;
   }
   return events;
 }
 
-// ── STDIN payload builder (standard snake_case schema) ─────────────────────
+function mergeEvents(target, source) {
+  for (const [eventName, groups] of Object.entries(source || {})) {
+    if (!Array.isArray(target[eventName])) target[eventName] = [];
+    target[eventName].push(...groups);
+  }
+}
+
 function buildEventPayload(eventName, input = {}) {
   const payload = {
     session_id: input.sessionId ?? input.session_id ?? null,
     cwd: input.cwd ?? null,
     hook_event_name: eventName,
   };
+  if (input.transcriptPath != null || input.transcript_path != null) {
+    payload.transcript_path = input.transcriptPath ?? input.transcript_path;
+  }
+  if (input.permissionMode != null || input.permission_mode != null) {
+    payload.permission_mode = input.permissionMode ?? input.permission_mode;
+  }
+  if (input.effort != null) payload.effort = input.effort;
   const toolName = input.name ?? input.tool_name;
   if (toolName != null) payload.tool_name = toolName;
   const toolInput = input.args ?? input.tool_input;
   if (toolInput != null) payload.tool_input = toolInput;
-  if (input.toolResponse != null || input.tool_response != null) {
-    payload.tool_response = input.toolResponse ?? input.tool_response;
+  if (input.toolCallId != null || input.tool_use_id != null) {
+    payload.tool_use_id = input.toolCallId ?? input.tool_use_id;
   }
-  if (input.prompt != null) payload.prompt = input.prompt;
-  if (input.source != null) payload.source = input.source;
+  if (input.toolResponse != null || input.tool_response != null || input.result != null) {
+    payload.tool_response = input.toolResponse ?? input.tool_response ?? input.result;
+  }
+  for (const key of [
+    'prompt',
+    'source',
+    'model',
+    'session_title',
+    'message',
+    'notification_type',
+    'trigger',
+    'load_reason',
+    'file_path',
+    'memory_type',
+    'command_name',
+    'command_args',
+    'command_source',
+    'expansion_type',
+    'stop_reason',
+    'error_type',
+  ]) {
+    if (input[key] != null) payload[key] = input[key];
+  }
   return payload;
 }
 
-// ── Matched field per event ────────────────────────────────────────────────
 function matchFieldFor(eventName, payload) {
+  if (NO_MATCHER_EVENTS.has(eventName)) return null;
   if (eventName === 'SessionStart') return payload.source ?? '';
-  if (eventName === 'UserPromptSubmit') return null; // no matcher → always fire
-  return payload.tool_name ?? ''; // tool events
+  if (eventName === 'Setup') return payload.trigger ?? '';
+  if (eventName === 'SessionEnd') return payload.reason ?? '';
+  if (eventName === 'Notification') return payload.notification_type ?? payload.type ?? '';
+  if (eventName === 'SubagentStart' || eventName === 'SubagentStop') return payload.agent_type ?? '';
+  if (eventName === 'PreCompact' || eventName === 'PostCompact') return payload.trigger ?? '';
+  if (eventName === 'ConfigChange') return payload.source ?? '';
+  if (eventName === 'InstructionsLoaded') return payload.load_reason ?? '';
+  if (eventName === 'UserPromptExpansion') return payload.command_name ?? '';
+  if (eventName === 'StopFailure') return payload.error_type ?? '';
+  return payload.tool_name ?? '';
 }
 
-// ── Command handler runner (synchronous spawn) ─────────────────────────────
-// Returns { exitCode, stdout, stderr, timedOut }.
-function runCommandHandler(handler, payload, eventName) {
+function handlerTimeoutS(handler, eventName) {
+  if (Number.isFinite(handler.timeout) && handler.timeout > 0) return handler.timeout;
+  if (handler.type === 'prompt') return DEFAULT_PROMPT_TIMEOUT_S;
+  if (handler.type === 'agent') return DEFAULT_AGENT_TIMEOUT_S;
+  if (eventName === 'UserPromptSubmit') return USER_PROMPT_TIMEOUT_S;
+  if (eventName === 'MessageDisplay') return MESSAGE_DISPLAY_TIMEOUT_S;
+  return DEFAULT_COMMAND_TIMEOUT_S;
+}
+
+function defaultShellKind() {
+  return process.platform === 'win32' ? 'powershell' : 'bash';
+}
+
+function commandSpawnSpec(handler, projectDir, pluginData) {
+  const command = resolvePlaceholders(handler.command, projectDir, pluginData);
+  if (Array.isArray(handler.args)) {
+    return {
+      command,
+      args: handler.args.map((a) => resolvePlaceholders(String(a), projectDir, pluginData)),
+      shellKind: 'exec',
+    };
+  }
+  const shellKind = handler.shell === 'powershell' || handler.shell === 'bash'
+    ? handler.shell
+    : defaultShellKind();
+  if (shellKind === 'powershell') {
+    return {
+      command: process.platform === 'win32' ? 'powershell.exe' : 'pwsh',
+      args: ['-NoProfile', '-NonInteractive', '-Command', command],
+      shellKind,
+    };
+  }
+  return {
+    command: process.platform === 'win32' ? 'bash.exe' : 'bash',
+    args: ['-lc', command],
+    shellKind,
+  };
+}
+
+function hookEnv(projectDir, pluginData, payload) {
+  const env = {
+    ...process.env,
+    CLAUDE_PROJECT_DIR: projectDir || process.cwd(),
+    CLAUDE_PLUGIN_ROOT: process.env.CLAUDE_PLUGIN_ROOT || projectDir || process.cwd(),
+    CLAUDE_PLUGIN_DATA: process.env.CLAUDE_PLUGIN_DATA || pluginData || projectDir || process.cwd(),
+  };
+  const effortLevel = payload?.effort?.level || payload?.effort;
+  if (effortLevel) env.CLAUDE_EFFORT = String(effortLevel);
+  return env;
+}
+
+function runCommandHandler(handler, payload, eventName, pluginData) {
   const projectDir = payload.cwd || process.cwd();
   const stdin = JSON.stringify(payload);
-  const timeoutS = Number.isFinite(handler.timeout) && handler.timeout > 0
-    ? handler.timeout
-    : (eventName === 'UserPromptSubmit' ? USER_PROMPT_TIMEOUT_S : DEFAULT_COMMAND_TIMEOUT_S);
-  const timeoutMs = Math.round(timeoutS * 1000);
-  const command = resolvePlaceholders(handler.command, projectDir);
-  const args = Array.isArray(handler.args)
-    ? handler.args.map((a) => resolvePlaceholders(String(a), projectDir))
-    : null;
+  const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
+  const spec = commandSpawnSpec(handler, projectDir, pluginData);
   const baseOpts = {
-    input: stdin,
-    encoding: 'utf8',
-    timeout: timeoutMs,
-    windowsHide: true,
-    env: process.env,
     cwd: existsSync(projectDir) ? projectDir : undefined,
-    maxBuffer: 10 * 1024 * 1024,
+    env: hookEnv(projectDir, pluginData, payload),
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
   };
 
-  let result;
-  if (handler.shell === 'powershell') {
-    const psCmd = args ? `${command} ${args.join(' ')}` : command;
-    result = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', psCmd], baseOpts);
-  } else if (args) {
-    // Exec form: no shell.
-    result = spawnSync(command, args, baseOpts);
-  } else {
-    // Shell form.
-    result = spawnSync(command, { ...baseOpts, shell: true });
+  if (handler.async === true || handler.asyncRewake === true) {
+    try {
+      const child = spawn(spec.command, spec.args, {
+        ...baseOpts,
+        detached: true,
+        stdio: ['pipe', 'ignore', 'ignore'],
+      });
+      child.stdin?.end(stdin);
+      child.unref?.();
+      return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', async: true });
+    } catch (error) {
+      return Promise.resolve({
+        exitCode: -1,
+        stdout: '',
+        stderr: error?.message || String(error),
+        timedOut: false,
+        spawnError: error,
+      });
+    }
   }
 
-  const timedOut = result.error && (result.error.code === 'ETIMEDOUT' || result.signal === 'SIGTERM');
-  const exitCode = timedOut ? -1 : (typeof result.status === 'number' ? result.status : (result.error ? -1 : 0));
-  return {
-    exitCode,
-    stdout: result.stdout || '',
-    stderr: result.stderr || (result.error ? String(result.error.message || result.error) : ''),
-    timedOut: Boolean(timedOut),
-    spawnError: result.error && !timedOut ? result.error : null,
-  };
+  return new Promise((resolveRun) => {
+    let child;
+    let settled = false;
+    let stdout = '';
+    let stderr = '';
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let timedOut = false;
+    let timer = null;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolveRun(result);
+    };
+    try {
+      child = spawn(spec.command, spec.args, baseOpts);
+    } catch (error) {
+      finish({
+        exitCode: -1,
+        stdout: '',
+        stderr: error?.message || String(error),
+        timedOut: false,
+        spawnError: error,
+      });
+      return;
+    }
+    timer = setTimeout(() => {
+      timedOut = true;
+      try { child.kill('SIGTERM'); } catch {}
+      finish({
+        exitCode: -1,
+        stdout,
+        stderr: stderr || `hook command timed out after ${timeoutMs}ms`,
+        timedOut,
+        spawnError: null,
+      });
+    }, timeoutMs);
+    timer.unref?.();
+    child.stdout?.on('data', (chunk) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes <= MAX_BUFFER_BYTES) stdout += chunk.toString('utf8');
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderrBytes += chunk.length;
+      if (stderrBytes <= MAX_BUFFER_BYTES) stderr += chunk.toString('utf8');
+    });
+    child.on('error', (error) => {
+      finish({
+        exitCode: -1,
+        stdout,
+        stderr: stderr || error?.message || String(error),
+        timedOut: false,
+        spawnError: error,
+      });
+    });
+    child.on('close', (code) => {
+      finish({
+        exitCode: timedOut ? -1 : (typeof code === 'number' ? code : 0),
+        stdout,
+        stderr,
+        timedOut,
+        spawnError: null,
+      });
+    });
+    try {
+      child.stdin?.end(stdin);
+    } catch {}
+  });
 }
 
-// ── STDOUT + exit-code decision parsing ────────────────────────────────────
+function resolveHeaderValue(value, allowed) {
+  if (typeof value !== 'string') return String(value ?? '');
+  return value.replace(/\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g, (_m, braced, bare) => {
+    const name = braced || bare;
+    return allowed.has(name) ? (process.env[name] || '') : '';
+  });
+}
+
+async function runHttpHandler(handler, payload, eventName) {
+  if (typeof fetch !== 'function') {
+    return { exitCode: -1, stdout: '', stderr: 'fetch is not available', timedOut: false, spawnError: new Error('fetch is not available') };
+  }
+  const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  timer.unref?.();
+  try {
+    const allowed = new Set(Array.isArray(handler.allowedEnvVars) ? handler.allowedEnvVars.map(String) : []);
+    const headers = { 'Content-Type': 'application/json' };
+    if (handler.headers && typeof handler.headers === 'object' && !Array.isArray(handler.headers)) {
+      for (const [key, value] of Object.entries(handler.headers)) {
+        headers[key] = resolveHeaderValue(value, allowed);
+      }
+    }
+    const response = await fetch(handler.url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      return { exitCode: 1, stdout: text, stderr: `HTTP ${response.status} ${response.statusText}`.trim(), timedOut: false, spawnError: null };
+    }
+    return { exitCode: 0, stdout: text, stderr: '', timedOut: false, spawnError: null };
+  } catch (error) {
+    const aborted = error?.name === 'AbortError';
+    return {
+      exitCode: -1,
+      stdout: '',
+      stderr: aborted ? `HTTP hook timed out: ${handler.url}` : (error?.message || String(error)),
+      timedOut: aborted,
+      spawnError: aborted ? null : error,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function limitText(text) {
+  const value = String(text || '');
+  if (value.length <= MAX_OUTPUT_CHARS) return value;
+  return `${value.slice(0, MAX_OUTPUT_CHARS)}\n... [hook output truncated; original ${value.length} chars]`;
+}
+
 function parseHandlerOutput(run, eventName) {
   const out = {
     block: false,
     reason: null,
     permissionDecision: null,
     updatedInput: null,
+    updatedToolOutput: null,
     additionalContext: null,
     systemMessage: null,
     suppressOutput: false,
     continueFlag: undefined,
     askReason: null,
   };
-  if (run.timedOut || run.spawnError) {
-    // Timeout/spawn failure → no decision.
+  if (run.timedOut || run.spawnError || run.async) return out;
+  if (run.exitCode === 2) {
+    if (EXIT2_BLOCK_EVENTS.has(eventName)) {
+      out.block = true;
+      out.reason = limitText((run.stderr || '').trim()) || `blocked by ${eventName} hook`;
+    }
     return out;
   }
-  if (run.exitCode === 2) {
-    out.block = true;
-    out.reason = (run.stderr || '').trim() || `blocked by ${eventName} hook`;
+  if (run.exitCode !== 0) return out;
+  const rawText = (run.stdout || '').trim();
+  if (!rawText) return out;
+  if (!(rawText.startsWith('{') || rawText.startsWith('['))) {
+    if (PLAIN_STDOUT_CONTEXT_EVENTS.has(eventName)) out.additionalContext = limitText(rawText);
+    return out;
   }
-  const text = (run.stdout || '').trim();
-  if (text && (text.startsWith('{') || text.startsWith('['))) {
-    try {
-      const json = JSON.parse(text);
-      if (json && typeof json === 'object') {
-        if (json.continue === false) {
-          out.continueFlag = false;
+  try {
+    const json = JSON.parse(rawText);
+    if (!json || typeof json !== 'object' || Array.isArray(json)) return out;
+    if (json.continue === false) {
+      out.continueFlag = false;
+      out.block = true;
+      out.reason = limitText(json.stopReason || json.reason || `stopped by ${eventName} hook`);
+    }
+    if (json.decision === 'block' && TOP_LEVEL_DECISION_EVENTS.has(eventName)) {
+      out.block = true;
+      out.reason = limitText(json.reason || out.reason || `blocked by ${eventName} hook`);
+    }
+    if (json.suppressOutput) out.suppressOutput = true;
+    if (typeof json.systemMessage === 'string') out.systemMessage = limitText(json.systemMessage);
+    if (typeof json.additionalContext === 'string') out.additionalContext = limitText(json.additionalContext);
+
+    const hso = json.hookSpecificOutput;
+    const hsoMatches = hso && typeof hso === 'object'
+      && (!hso.hookEventName || hso.hookEventName === eventName);
+    if (hsoMatches) {
+      if (typeof hso.additionalContext === 'string') out.additionalContext = limitText(hso.additionalContext);
+      if (hso.updatedInput && typeof hso.updatedInput === 'object' && !Array.isArray(hso.updatedInput)) {
+        out.updatedInput = hso.updatedInput;
+      }
+      if (hso.updatedToolOutput != null) out.updatedToolOutput = hso.updatedToolOutput;
+      if (hso.permissionDecision) out.permissionDecision = String(hso.permissionDecision).toLowerCase();
+      if (hso.permissionDecisionReason) out.reason = out.reason || limitText(hso.permissionDecisionReason);
+      if (eventName === 'PermissionRequest' && hso.decision && typeof hso.decision === 'object') {
+        const behavior = String(hso.decision.behavior || '').toLowerCase();
+        if (behavior === 'deny') {
           out.block = true;
-          out.reason = out.reason || json.stopReason || json.reason || `stopped by ${eventName} hook`;
+          out.reason = out.reason || limitText(hso.decision.reason || `denied by ${eventName} hook`);
         }
-        if (json.decision === 'block') {
-          out.block = true;
-          out.reason = json.reason || out.reason || `blocked by ${eventName} hook`;
-        }
-        if (json.suppressOutput) out.suppressOutput = true;
-        if (typeof json.systemMessage === 'string') out.systemMessage = json.systemMessage;
-        const hso = json.hookSpecificOutput;
-        if (hso && typeof hso === 'object') {
-          if (hso.permissionDecision) out.permissionDecision = String(hso.permissionDecision).toLowerCase();
-          if (hso.permissionDecisionReason) out.reason = out.reason || hso.permissionDecisionReason;
-          if (hso.updatedInput && typeof hso.updatedInput === 'object' && !Array.isArray(hso.updatedInput)) {
-            out.updatedInput = hso.updatedInput;
-          }
-          if (typeof hso.additionalContext === 'string') out.additionalContext = hso.additionalContext;
-        }
-        if (out.permissionDecision === 'deny') {
-          out.block = true;
-          out.reason = out.reason || `denied by ${eventName} hook`;
-        }
-        if (out.permissionDecision === 'ask') {
-          out.askReason = out.reason || `ask requested by ${eventName} hook`;
+        if (hso.decision.updatedInput && typeof hso.decision.updatedInput === 'object' && !Array.isArray(hso.decision.updatedInput)) {
+          out.updatedInput = hso.decision.updatedInput;
         }
       }
-    } catch {
-      // ignore non-JSON stdout
     }
+    if (eventName === 'PreToolUse') {
+      if (out.permissionDecision === 'deny') {
+        out.block = true;
+        out.reason = out.reason || `denied by ${eventName} hook`;
+      } else if (out.permissionDecision === 'ask') {
+        out.askReason = out.reason || `ask requested by ${eventName} hook`;
+      }
+    }
+  } catch {
+    if (PLAIN_STDOUT_CONTEXT_EVENTS.has(eventName)) out.additionalContext = limitText(rawText);
   }
   return out;
 }
@@ -351,17 +661,44 @@ function summarizeRule(rule, index) {
   };
 }
 
+function handlerDedupeKey(handler) {
+  if (!handler || typeof handler !== 'object') return '';
+  if (handler.type === 'command') {
+    return `command:${handler.command || ''}:${JSON.stringify(handler.args || null)}`;
+  }
+  if (handler.type === 'http') return `http:${handler.url || ''}`;
+  return `${handler.type || 'unknown'}:${JSON.stringify(handler)}`;
+}
+
+function shellCountFor(handler) {
+  if (handler?.type === 'command') {
+    if (handler.args) return 'exec';
+    return handler.shell === 'powershell' || handler.shell === 'bash' ? handler.shell : defaultShellKind();
+  }
+  return handler?.type || 'unknown';
+}
+
 export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {}) {
   const recent = [];
   const counts = new Map(DEFAULT_EVENTS.map((name) => [name, 0]));
   const rulesPath = hookRulesPath(dataDir);
+  const pluginData = dataDir || null;
   let rulesCache = { mtimeMs: -1, rules: [] };
-  // Standard config cache (shares the same file/mtime mechanism).
-  let configCache = { mtimeMs: -1, standard: false, events: {} };
+  let configCache = {
+    key: '',
+    standard: false,
+    disabled: false,
+    events: {},
+    legacyRules: [],
+    sources: [],
+    errors: [],
+  };
+  let lastCwd = process.cwd();
 
   function emit(name, payload = {}) {
     const eventName = String(name || '').trim();
     if (!eventName) return null;
+    if (payload?.cwd) lastCwd = payload.cwd;
     counts.set(eventName, (counts.get(eventName) || 0) + 1);
     const entry = {
       ts: new Date().toISOString(),
@@ -389,90 +726,149 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
     return rulesCache.rules;
   }
 
-  // Load + classify the config file (standard vs legacy). mtime-cached.
-  function loadConfig() {
-    if (!rulesPath || !existsSync(rulesPath)) {
-      configCache = { mtimeMs: -1, standard: false, events: {} };
-      return configCache;
+  function loadConfig(cwd = lastCwd) {
+    const paths = hookConfigPaths(dataDir, cwd);
+    const parts = [];
+    for (const p of paths) {
+      try {
+        const st = existsSync(p) ? statSync(p) : null;
+        parts.push(`${p}:${st ? st.mtimeMs : 'absent'}`);
+      } catch {
+        parts.push(`${p}:error`);
+      }
     }
-    const stat = statSync(rulesPath);
-    if (configCache.mtimeMs === stat.mtimeMs) return configCache;
-    let parsed = null;
-    try {
-      parsed = JSON.parse(readFileSync(rulesPath, 'utf8'));
-    } catch (error) {
-      emit('hook:error', { error: `failed to parse hooks file: ${error?.message || String(error)}` });
-      configCache = { mtimeMs: stat.mtimeMs, standard: false, events: {} };
-      return configCache;
+    const key = parts.join('|');
+    if (configCache.key === key) return configCache;
+
+    const events = {};
+    const legacyRules = [];
+    const sources = [];
+    const errors = [];
+    let disabled = false;
+    let disableSeen = false;
+    for (const filePath of paths) {
+      if (!existsSync(filePath)) continue;
+      let parsed = null;
+      try {
+        parsed = JSON.parse(readFileSync(filePath, 'utf8'));
+      } catch (error) {
+        errors.push({ file: filePath, error: error?.message || String(error) });
+        continue;
+      }
+      sources.push(filePath);
+      if (Object.prototype.hasOwnProperty.call(parsed || {}, 'disableAllHooks')) {
+        disabled = parsed.disableAllHooks === true;
+        disableSeen = true;
+      }
+      if (isStandardConfig(parsed)) {
+        mergeEvents(events, parseStandardConfig(parsed, filePath));
+      } else {
+        legacyRules.push(...normalizeRules(parsed).filter((rule) => rule && typeof rule === 'object'));
+      }
     }
-    if (isStandardConfig(parsed)) {
-      configCache = { mtimeMs: stat.mtimeMs, standard: true, events: parseStandardConfig(parsed) };
-    } else {
-      configCache = { mtimeMs: stat.mtimeMs, standard: false, events: {} };
+    configCache = {
+      key,
+      standard: Object.keys(events).length > 0,
+      disabled: disableSeen ? disabled : false,
+      events,
+      legacyRules,
+      sources,
+      errors,
+    };
+    for (const err of errors) {
+      emit('hook:error', { error: `failed to parse hooks file ${err.file}: ${err.error}` });
     }
     return configCache;
   }
 
-  // Select matcher groups for an event whose matcher fires for the field.
   function selectHandlers(eventName, payload) {
-    const cfg = loadConfig();
-    if (!cfg.standard) return [];
+    const cfg = loadConfig(payload.cwd || lastCwd);
+    if (cfg.disabled || !cfg.standard) return [];
     const groups = cfg.events[eventName];
     if (!Array.isArray(groups)) return [];
     const field = matchFieldFor(eventName, payload);
     const handlers = [];
+    const seen = new Set();
     for (const group of groups) {
-      // UserPromptSubmit ignores matcher entirely.
-      if (eventName === 'UserPromptSubmit' || matcherFires(group.matcher, field)) {
-        for (const h of group.hooks) handlers.push(h);
+      if (NO_MATCHER_EVENTS.has(eventName) || matcherFires(group.matcher, field)) {
+        for (const handler of group.hooks) {
+          const key = handlerDedupeKey(handler);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          handlers.push(handler);
+        }
       }
     }
     return handlers;
   }
 
-  // Core command-runner: run all matching handlers in order, aggregate.
-  // first explicit deny/block wins. Returns aggregated decision object.
-  function runEventHandlers(eventName, payload) {
+  async function runOneHandler(handler, eventName, payload) {
+    if (!handler || typeof handler !== 'object') return null;
+    if (!ifConditionPasses(handler.if, eventName, payload.tool_name, payload.tool_input)) return null;
+    const type = String(handler.type || '').trim();
+    if (!SUPPORTED_HANDLER_TYPES.has(type)) {
+      emit('hook:error', { name: payload.tool_name || eventName, error: `unsupported hook type: ${type || '(missing)'}` });
+      return null;
+    }
+    if (type === 'command') {
+      if (!handler.command) return null;
+      return await runCommandHandler(handler, payload, eventName, pluginData);
+    }
+    if (type === 'http') {
+      if (!handler.url) return null;
+      return await runHttpHandler(handler, payload, eventName);
+    }
+    return null;
+  }
+
+  async function runEventHandlers(eventName, payload) {
     const handlers = selectHandlers(eventName, payload);
     const agg = {
       blocked: false,
       reason: null,
       updatedInput: null,
+      updatedToolOutput: null,
       additionalContext: [],
       systemMessage: null,
       ask: false,
       askReason: null,
+      handlersRun: handlers.length,
     };
-    const toolName = payload.tool_name;
-    const toolInput = payload.tool_input;
-    for (const handler of handlers) {
+    const results = await Promise.all(handlers.map(async (handler) => {
       try {
-        if (!ifConditionPasses(handler.if, toolName, toolInput)) continue;
-        const run = runCommandHandler(handler, payload, eventName);
-        if (run.timedOut) {
-          emit('hook:error', { name: toolName || eventName, error: `hook command timed out: ${handler.command}` });
-          continue;
-        }
-        if (run.spawnError) {
-          emit('hook:error', { name: toolName || eventName, error: `hook spawn failed: ${run.spawnError.message || run.spawnError}` });
-          continue;
-        }
-        const parsed = parseHandlerOutput(run, eventName);
-        if (parsed.additionalContext) agg.additionalContext.push(parsed.additionalContext);
-        if (parsed.systemMessage && !agg.systemMessage) agg.systemMessage = parsed.systemMessage;
-        if (parsed.updatedInput && !agg.updatedInput) agg.updatedInput = parsed.updatedInput;
-        if (parsed.askReason && !agg.ask && !agg.blocked) {
-          agg.ask = true;
-          agg.askReason = parsed.askReason;
-        }
-        if (parsed.block && !agg.blocked) {
-          agg.blocked = true;
-          agg.reason = parsed.reason;
-          // first explicit deny/block wins → stop running further handlers
-          break;
-        }
+        return { handler, run: await runOneHandler(handler, eventName, payload) };
       } catch (error) {
-        emit('hook:error', { name: toolName || eventName, error: error?.message || String(error) });
+        emit('hook:error', { name: payload.tool_name || eventName, error: error?.message || String(error) });
+        return { handler, run: null };
+      }
+    }));
+
+    for (const { handler, run } of results) {
+      if (!run) continue;
+      if (run.timedOut) {
+        emit('hook:error', { name: payload.tool_name || eventName, error: `hook ${shellCountFor(handler)} timed out: ${handler.command || handler.url || handler.type}` });
+        continue;
+      }
+      if (run.spawnError) {
+        emit('hook:error', { name: payload.tool_name || eventName, error: `hook spawn failed: ${run.spawnError.message || run.spawnError}` });
+        continue;
+      }
+      if (run.exitCode && run.exitCode !== 0 && run.exitCode !== 2) {
+        emit('hook:error', { name: payload.tool_name || eventName, error: (run.stderr || '').trim() || `hook exited ${run.exitCode}` });
+        continue;
+      }
+      const parsed = parseHandlerOutput(run, eventName);
+      if (parsed.additionalContext) agg.additionalContext.push(parsed.additionalContext);
+      if (parsed.systemMessage && !agg.systemMessage) agg.systemMessage = parsed.systemMessage;
+      if (parsed.updatedInput && !agg.updatedInput) agg.updatedInput = parsed.updatedInput;
+      if (parsed.updatedToolOutput != null && agg.updatedToolOutput == null) agg.updatedToolOutput = parsed.updatedToolOutput;
+      if (parsed.askReason && !agg.ask && !agg.blocked) {
+        agg.ask = true;
+        agg.askReason = parsed.askReason;
+      }
+      if (parsed.block && !agg.blocked) {
+        agg.blocked = true;
+        agg.reason = parsed.reason;
       }
     }
     return agg;
@@ -485,6 +881,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
     writeFileSync(rulesPath, `${JSON.stringify({ toolBefore: cleanRules }, null, 2)}\n`, 'utf8');
     const stat = statSync(rulesPath);
     rulesCache = { mtimeMs: stat.mtimeMs, rules: cleanRules };
+    configCache.key = '';
     return listRules();
   }
 
@@ -526,63 +923,75 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
   }
 
   async function beforeTool(input = {}) {
+    if (input?.cwd) lastCwd = input.cwd;
     emit('tool:before', {
-      sessionId: input.sessionId || null,
-      name: input.name || 'tool',
-      callId: input.toolCallId || input.callId || null,
-      args: input.args || null,
+      sessionId: input.sessionId || input.session_id || null,
+      name: input.name || input.tool_name || 'tool',
+      callId: input.toolCallId || input.callId || input.tool_use_id || null,
+      args: input.args || input.tool_input || null,
     });
     try {
-      const cfg = loadConfig();
-      if (cfg.standard) {
-        // Standard PreToolUse path: run command handlers synchronously.
+      const cfg = loadConfig(input.cwd || lastCwd);
+      if (cfg.disabled) return null;
+      if (!cfg.disabled) {
         const payload = buildEventPayload('PreToolUse', input);
-        const agg = runEventHandlers('PreToolUse', payload);
+        const agg = await runEventHandlers('PreToolUse', payload);
         if (agg.blocked) {
-          emit('tool:deny', { sessionId: input.sessionId || null, name: input.name || 'tool', reason: agg.reason });
+          emit('tool:deny', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: agg.reason });
           return { action: 'deny', reason: agg.reason };
         }
         if (agg.updatedInput) {
-          emit('tool:modify', { sessionId: input.sessionId || null, name: input.name || 'tool', reason: agg.reason });
+          emit('tool:modify', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: agg.reason });
           return { action: 'modify', args: agg.updatedInput, reason: agg.reason };
         }
         if (agg.ask) {
-          // TODO: no interactive permission UI in standalone — treat ask as
-          // allow for now and surface the request via a tool:ask event.
-          emit('tool:ask', { sessionId: input.sessionId || null, name: input.name || 'tool', reason: agg.askReason });
-          return { action: 'allow', reason: agg.askReason };
+          emit('tool:ask', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: agg.askReason });
+          return { action: 'ask', reason: agg.askReason };
         }
-        return null;
       }
-      // LEGACY inline rules path (unchanged behavior).
-      const rules = loadRules();
-      const rule = rules.find((candidate) => ruleMatches(candidate, input));
+
+      const rules = Array.isArray(cfg.legacyRules) && cfg.legacyRules.length
+        ? cfg.legacyRules
+        : loadRules();
+      const rule = rules.find((candidate) => ruleMatches(candidate, {
+        name: input.name || input.tool_name,
+        args: input.args || input.tool_input,
+        cwd: input.cwd,
+      }));
       if (!rule) return null;
-      const decision = decisionFromRule(rule, input);
+      const decision = decisionFromRule(rule, {
+        name: input.name || input.tool_name,
+        args: input.args || input.tool_input,
+        cwd: input.cwd,
+      });
       if (decision.action === 'deny') {
-        emit('tool:deny', { sessionId: input.sessionId || null, name: input.name || 'tool', reason: decision.reason });
+        emit('tool:deny', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: decision.reason });
       } else if (decision.action === 'modify') {
-        emit('tool:modify', { sessionId: input.sessionId || null, name: input.name || 'tool', reason: decision.reason });
+        emit('tool:modify', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: decision.reason });
       }
       return decision;
     } catch (error) {
-      emit('hook:error', { name: input.name || 'tool', error: error?.message || String(error) });
+      emit('hook:error', { name: input.name || input.tool_name || 'tool', error: error?.message || String(error) });
       return null;
     }
   }
 
-  // Generic dispatch for non-tool standard events (runtime bridge).
   async function dispatch(eventName, payload = {}) {
     const name = String(eventName || '').trim();
     if (!name) return {};
+    if (payload?.cwd) lastCwd = payload.cwd;
+    emit(name, payload);
     try {
       const std = buildEventPayload(name, payload);
-      const agg = runEventHandlers(name, std);
+      const agg = await runEventHandlers(name, std);
       return {
         blocked: agg.blocked || undefined,
         reason: agg.reason || undefined,
         additionalContext: agg.additionalContext.length ? agg.additionalContext : undefined,
         systemMessage: agg.systemMessage || undefined,
+        updatedInput: agg.updatedInput || undefined,
+        updatedToolOutput: agg.updatedToolOutput ?? undefined,
+        handlersRun: agg.handlersRun || undefined,
       };
     } catch (error) {
       emit('hook:error', { name, error: error?.message || String(error) });
@@ -591,39 +1000,47 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
   }
 
   function status() {
-    let cfg = { standard: false, events: {} };
+    let cfg = {
+      standard: false,
+      disabled: false,
+      events: {},
+      sources: [],
+      errors: [],
+    };
     try {
-      cfg = loadConfig();
+      cfg = loadConfig(lastCwd);
     } catch (error) {
       emit('hook:error', { error: error?.message || String(error) });
     }
     let ruleCount = 0;
     let rules = [];
-    if (!cfg.standard) {
-      try {
-        rules = listRules();
-        ruleCount = rules.length;
-      } catch (error) {
-        emit('hook:error', { error: error?.message || String(error) });
-      }
+    try {
+      rules = listRules();
+      ruleCount = rules.length;
+    } catch (error) {
+      emit('hook:error', { error: error?.message || String(error) });
     }
     const configuredEvents = Object.keys(cfg.events || {});
     return {
-      enabled: true,
+      enabled: cfg.disabled !== true,
       mode: 'standalone-standard',
       configMode: cfg.standard ? 'standard' : 'legacy',
       rulesPath,
+      configSources: cfg.sources || [],
       ruleCount,
       rules,
       configuredEvents,
-      events: [...new Set([...DEFAULT_EVENTS, ...counts.keys()])],
+      events: [...new Set([...DEFAULT_EVENTS, ...counts.keys(), ...configuredEvents])],
       counts: Object.fromEntries([...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))),
       recent: [...recent].reverse(),
-      note: cfg.standard
-        ? `Standard Claude Code hooks active for events: ${configuredEvents.join(', ') || '(none)'}.`
-        : (ruleCount > 0
-          ? 'Legacy before-tool hook rules are active. Rules may allow, deny, or modify tool arguments.'
-          : 'No hook rules configured; lifecycle and tool events are recorded in observer mode.'),
+      errors: cfg.errors || [],
+      note: cfg.disabled
+        ? 'Hooks are disabled by disableAllHooks.'
+        : (cfg.standard
+          ? `Standard Claude Code hooks active for events: ${configuredEvents.join(', ') || '(none)'}.`
+          : (ruleCount > 0
+            ? 'Legacy before-tool hook rules are active. Rules may allow, deny, or modify tool arguments.'
+            : 'No hook rules configured; lifecycle and tool events are recorded in observer mode.')),
     };
   }
 

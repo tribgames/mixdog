@@ -76,6 +76,11 @@ const SESSION_RUNTIME_MODULE = import.meta.url.replace(/\\/g, '/').includes('/tu
   ? '../../mixdog-session-runtime.mjs'
   : '../mixdog-session-runtime.mjs';
 
+const TOOL_APPROVAL_TIMEOUT_MS = (() => {
+  const value = Number(process.env.MIXDOG_TOOL_APPROVAL_TIMEOUT_MS);
+  return Number.isFinite(value) && value > 0 ? Math.max(1000, Math.round(value)) : 120_000;
+})();
+
 let _idSeq = 0;
 const nextId = () => `it_${++_idSeq}`;
 
@@ -842,6 +847,7 @@ export async function createEngineSession({
     spinner: null,
     queued: [],
     thinking: null,
+    toolApproval: null,
     lastTurn: null,
     stats: createSessionStats(),
     ...initialRouteState,
@@ -969,6 +975,80 @@ export async function createEngineSession({
     pushItem({ kind: 'notice', id, text: value, tone });
     return id;
   };
+  const toolApprovalQueue = [];
+  let activeToolApproval = null;
+  function normalizeToolApprovalRequest(input = {}, id = nextId()) {
+    const now = Date.now();
+    const timeoutMs = TOOL_APPROVAL_TIMEOUT_MS;
+    return {
+      id,
+      name: String(input?.name || input?.tool_name || 'tool'),
+      args: input?.args ?? input?.tool_input ?? null,
+      cwd: input?.cwd || null,
+      sessionId: input?.sessionId || input?.session_id || null,
+      toolCallId: input?.toolCallId || input?.tool_use_id || null,
+      reason: String(input?.reason || input?.message || 'approval requested by hook').trim(),
+      requestedAt: now,
+      timeoutMs,
+      expiresAt: now + timeoutMs,
+    };
+  }
+  function presentNextToolApproval() {
+    if (activeToolApproval || disposed) return;
+    const entry = toolApprovalQueue.shift();
+    if (!entry) {
+      if (state.toolApproval) set({ toolApproval: null });
+      return;
+    }
+    activeToolApproval = entry;
+    entry.timer = setTimeout(() => {
+      finishToolApproval(entry.id, false, 'approval timed out');
+    }, entry.request.timeoutMs);
+    entry.timer.unref?.();
+    set({ toolApproval: entry.request });
+  }
+  function finishToolApproval(id, approved, reason = '') {
+    const targetId = String(id || '');
+    if (activeToolApproval && activeToolApproval.id === targetId) {
+      const entry = activeToolApproval;
+      activeToolApproval = null;
+      if (entry.timer) clearTimeout(entry.timer);
+      set({ toolApproval: null });
+      try { entry.resolve({ approved: approved === true, reason: String(reason || '') }); } catch {}
+      presentNextToolApproval();
+      return true;
+    }
+    const index = toolApprovalQueue.findIndex((entry) => entry.id === targetId);
+    if (index >= 0) {
+      const [entry] = toolApprovalQueue.splice(index, 1);
+      if (entry?.timer) clearTimeout(entry.timer);
+      try { entry.resolve({ approved: approved === true, reason: String(reason || '') }); } catch {}
+      return true;
+    }
+    return false;
+  }
+  function denyAllToolApprovals(reason = 'approval cancelled') {
+    if (activeToolApproval) {
+      const entry = activeToolApproval;
+      activeToolApproval = null;
+      if (entry.timer) clearTimeout(entry.timer);
+      try { entry.resolve({ approved: false, reason }); } catch {}
+    }
+    while (toolApprovalQueue.length > 0) {
+      const entry = toolApprovalQueue.shift();
+      if (entry?.timer) clearTimeout(entry.timer);
+      try { entry.resolve({ approved: false, reason }); } catch {}
+    }
+    if (state.toolApproval) set({ toolApproval: null });
+  }
+  function requestToolApproval(input = {}) {
+    if (disposed) return Promise.resolve({ approved: false, reason: 'runtime disposed' });
+    return new Promise((resolve) => {
+      const id = nextId();
+      toolApprovalQueue.push({ id, request: normalizeToolApprovalRequest(input, id), resolve, timer: null });
+      presentNextToolApproval();
+    });
+  }
   const patchItem = (id, patch) => {
     let index = itemIndexById.get(id);
     if (!Number.isInteger(index) || state.items[index]?.id !== id) {
@@ -1694,6 +1774,12 @@ export async function createEngineSession({
         onToolResult: (message) => {
           flushToolResults([message], toolCards, cardByCallId, toolGroups, resultsDone);
         },
+        onToolApproval: async (request) => {
+          markPromptCommitted();
+          flushStreamBatch();
+          if (state.spinner) set({ spinner: { ...state.spinner, mode: 'tool-approval' } });
+          return await requestToolApproval(request);
+        },
         onCompactEvent: (event) => {
           flushStreamBatch();
           pushItem({
@@ -1834,6 +1920,7 @@ export async function createEngineSession({
         pushNotice(toolErrorDisplay(error, 'turn'), 'error');
       }
     } finally {
+      denyAllToolApprovals(cancelled ? 'turn cancelled' : 'turn finished');
       const reclaimed = cancelled && activePromptRestore?.reclaimed === true;
       activePromptRestore = null;
       closeThinkingSegment();
@@ -2123,8 +2210,7 @@ export async function createEngineSession({
       if (state.commandBusy) return false;
       set({ commandBusy: true });
       try {
-        await runtime.setRoute({ model: m });
-        resetStatsAndSyncContext();
+        await runtime.setRoute({ model: m }, { applyToCurrentSession: false });
         set({ ...routeState(), stats: { ...state.stats } });
         return true;
       } finally {
@@ -2527,6 +2613,7 @@ export async function createEngineSession({
     },
     abort: () => {
       if (!state.busy) return false;
+      denyAllToolApprovals('interrupted by user');
       const restoreState = activePromptRestore;
       const restoreText = restoreState?.restorable ? restoreState.text : '';
       const restorePastedImages = restoreState?.restorable && restoreState?.pastedImages ? restoreState.pastedImages : null;
@@ -2552,6 +2639,10 @@ export async function createEngineSession({
         restoreState.requeueEntries = [];
       }
       return { aborted, restoreText, pastedImages: restorePastedImages };
+    },
+    resolveToolApproval: (id, decision = {}) => {
+      const approved = decision === true || decision?.approved === true;
+      return finishToolApproval(id, approved, decision?.reason || (approved ? 'approved by user' : 'denied by user'));
     },
     listPresets: () => {
       return runtime.listPresets();
@@ -2620,7 +2711,7 @@ export async function createEngineSession({
       if (state.commandBusy) return null;
       set({ commandBusy: true });
       try {
-        const result = runtime.setWorkflow?.(workflowId);
+        const result = await runtime.setWorkflow?.(workflowId);
         set({ ...routeState(), stats: { ...state.stats } });
         return result;
       } finally {
@@ -2786,36 +2877,11 @@ export async function createEngineSession({
     },
     setRoute: async (opts) => {
       if (state.commandBusy) return false;
-      const beforeRouteState = routeState();
-      const optimisticProvider = String(opts?.provider || (opts?.model ? state.provider : '') || '').trim();
-      const optimisticModel = String(opts?.model || '').trim();
       set({ commandBusy: true });
       try {
-        if (optimisticProvider && optimisticModel) {
-          set({
-            provider: optimisticProvider,
-            model: optimisticModel,
-            effort: opts?.effort ?? null,
-            fast: opts?.fast === true,
-          });
-        }
-        await runtime.setRoute(opts);
-        resetStatsAndSyncContext();
+        await runtime.setRoute(opts, { applyToCurrentSession: false });
         set({ ...routeState(), stats: { ...state.stats } });
         return true;
-      } catch (e) {
-        set({
-          provider: beforeRouteState.provider,
-          model: beforeRouteState.model,
-          effort: beforeRouteState.effort,
-          effortOptions: beforeRouteState.effortOptions,
-          fast: beforeRouteState.fast,
-          fastCapable: beforeRouteState.fastCapable,
-          contextWindow: beforeRouteState.contextWindow,
-          rawContextWindow: beforeRouteState.rawContextWindow,
-          effectiveContextWindowPercent: beforeRouteState.effectiveContextWindowPercent,
-        });
-        throw e;
       } finally {
         set({ commandBusy: false });
       }
@@ -2919,6 +2985,7 @@ export async function createEngineSession({
       try { clearInterval(runtimePulseTimer); } catch {}
       try { unsubscribeRuntimeNotifications?.(); } catch {}
       unsubscribeRuntimeNotifications = null;
+      denyAllToolApprovals('runtime closing');
       await runtime.close(reason, options);
       listeners.clear();
     },

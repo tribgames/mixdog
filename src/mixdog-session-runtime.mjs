@@ -2519,6 +2519,26 @@ export async function createMixdogSessionRuntime({
   let statuslineUsageRefreshTimer = null;
   let activeTurnCount = 0;
   let firstTurnCompleted = false;
+  function hookTranscriptPath(sessionId) {
+    const id = clean(sessionId);
+    if (!id || !/^[A-Za-z0-9_-]+$/.test(id)) return null;
+    const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
+    return join(dataDir, 'sessions', `${id}.json`);
+  }
+  function hookEffortPayload() {
+    const level = clean(route.effectiveEffort || route.effort);
+    return level ? { level: level.toLowerCase() } : undefined;
+  }
+  function hookCommonPayload(extra = {}) {
+    const sid = clean(extra.session_id || extra.sessionId || session?.id);
+    return {
+      ...(sid ? { session_id: sid, transcript_path: hookTranscriptPath(sid) } : {}),
+      cwd: currentCwd,
+      permission_mode: session?.permissionMode || 'default',
+      ...(hookEffortPayload() ? { effort: hookEffortPayload() } : {}),
+      ...extra,
+    };
+  }
   const sessionPrewarmDelayMs = envDelayMs('MIXDOG_SESSION_PREWARM_DELAY_MS', 50, { min: 0, max: 10_000 });
   const providerSetupWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_SETUP_WARMUP_DELAY_MS', 300, { min: 0, max: 60_000 });
   const providerWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_WARMUP_DELAY_MS', 1_500, { min: 0, max: 60_000 });
@@ -3766,7 +3786,14 @@ function parsedProviderModelVersion(id) {
       session = mgr.createSession(sessionOpts);
       sessionNeedsCwdRefresh = false;
       Object.defineProperty(session, 'beforeToolHook', {
-        value: (input) => hooks.beforeTool(input),
+        value: (input) => hooks.beforeTool(hookCommonPayload({
+          ...input,
+          session_id: input?.sessionId || input?.session_id || session?.id,
+          tool_name: input?.name || input?.tool_name,
+          tool_input: input?.args || input?.tool_input,
+          tool_use_id: input?.toolCallId || input?.tool_use_id,
+          cwd: input?.cwd || currentCwd,
+        })),
         enumerable: false,
         configurable: true,
         writable: true,
@@ -3775,13 +3802,14 @@ function parsedProviderModelVersion(id) {
       // dispatch() returns a promise; the loop's afterToolHook caller already
       // try/catches, so a rejection cannot escape the tool loop.
       Object.defineProperty(session, 'afterToolHook', {
-        value: (input) => hooks.dispatch('PostToolUse', {
-          session_id: input?.sessionId,
-          cwd: input?.cwd,
+        value: (input) => hooks.dispatch('PostToolUse', hookCommonPayload({
+          session_id: input?.sessionId || input?.session_id || session?.id,
+          cwd: input?.cwd || currentCwd,
           tool_name: input?.name,
           tool_input: input?.args,
+          tool_use_id: input?.toolCallId || input?.tool_use_id,
           tool_response: input?.result,
-        }),
+        })),
         enumerable: false,
         configurable: true,
         writable: true,
@@ -3791,14 +3819,21 @@ function parsedProviderModelVersion(id) {
       writeStatuslineRoute(statusRoutes, session, route);
       hooks.emit('session:create', { sessionId: session.id, provider: route.provider, model: route.model, toolMode: mode, cwd: currentCwd });
       // SessionStart: bridge to the standard Claude Code hook bus. Best-effort;
-      // a hook error must never break session creation. additionalContext from
-      // the dispatch result is intentionally not injected yet.
-      // TODO: inject dispatch().additionalContext into the new session context.
+      // a hook error must never break session creation. additionalContext is
+      // injected before the first user turn as a system-reminder context pair.
       try {
         const startSource = /resume/i.test(String(reason || ''))
           ? 'resume'
           : (/clear/i.test(String(reason || '')) ? 'clear' : 'startup');
-        await hooks.dispatch('SessionStart', { session_id: session.id, cwd: currentCwd, source: startSource });
+        const startDispatch = await hooks.dispatch('SessionStart', hookCommonPayload({ session_id: session.id, source: startSource, model: route.model }));
+        const startContext = Array.isArray(startDispatch?.additionalContext)
+          ? startDispatch.additionalContext.join('\n\n')
+          : String(startDispatch?.additionalContext || '');
+        if (startContext.trim()) {
+          session.messages.push({ role: 'user', content: `<system-reminder>\n# SessionStart Hook Context\n${startContext.trim()}\n</system-reminder>` });
+          session.messages.push({ role: 'assistant', content: '.' });
+          session.updatedAt = Date.now();
+        }
       } catch { /* best-effort: never break session create */ }
       bootProfile('session:create:ready', {
         ms: (performance.now() - startedAt).toFixed(1),
@@ -4794,12 +4829,18 @@ function parsedProviderModelVersion(id) {
         // must not block the turn, but a genuine blocked===true MUST throw.
         let promptDispatch = null;
         try {
-          promptDispatch = await hooks.dispatch('UserPromptSubmit', { session_id: session.id, cwd: currentCwd, prompt });
+          promptDispatch = await hooks.dispatch('UserPromptSubmit', hookCommonPayload({ session_id: session.id, prompt }));
         } catch { /* hook failure never blocks the turn */ }
         if (promptDispatch?.blocked === true) {
           throw new Error(`prompt blocked by hook: ${promptDispatch.reason || ''}`);
         }
-        const turnContext = [options.context || ''].map((part) => String(part || '').trim()).filter(Boolean).join('\n\n');
+        const hookContext = Array.isArray(promptDispatch?.additionalContext)
+          ? promptDispatch.additionalContext.join('\n\n')
+          : String(promptDispatch?.additionalContext || '');
+        const turnContext = [options.context || '', hookContext]
+          .map((part) => String(part || '').trim())
+          .filter(Boolean)
+          .join('\n\n');
         const result = await mgr.askSession(
           session.id,
           prompt,
@@ -4825,6 +4866,7 @@ function parsedProviderModelVersion(id) {
             onAssistantText: options.onAssistantText,
             onUsageDelta: options.onUsageDelta,
             onToolResult: options.onToolResult,
+            onToolApproval: options.onToolApproval,
             onCompactEvent: options.onCompactEvent,
             onStageChange: options.onStageChange,
             onStreamDelta: options.onStreamDelta,
@@ -4838,7 +4880,7 @@ function parsedProviderModelVersion(id) {
         // Stop: bridge to the standard hook bus. Best-effort; ignore result,
         // never throw.
         try {
-          await hooks.dispatch('Stop', { session_id: session.id, cwd: currentCwd });
+          await hooks.dispatch('Stop', hookCommonPayload({ session_id: session.id }));
         } catch { /* best-effort: Stop hook must never break the turn */ }
         return { result, session };
       } catch (error) {
@@ -5137,7 +5179,8 @@ function parsedProviderModelVersion(id) {
       }
       return result;
     },
-    async setRoute(next) {
+    async setRoute(next, options = {}) {
+      const applyToCurrentSession = options?.applyToCurrentSession !== false;
       const requested = { ...(next || {}) };
       validateRequestedModelSelector(config, requested);
       const providerExplicitlyRequested = clean(next?.provider) !== '';
@@ -5165,6 +5208,12 @@ function parsedProviderModelVersion(id) {
       const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta);
       selectedRoute = { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false };
       adoptConfig(saveModelSettings(cfgMod, selectedRoute, { fastCapable, baseConfig: config }), { hasSecrets: configHasSecrets });
+      if (!applyToCurrentSession) {
+        persistLeadRoute(selectedRoute);
+        refreshStatuslineUsageSnapshot(route);
+        scheduleStatuslineUsageRefresh();
+        return selectedRoute;
+      }
       const leadRoute = persistLeadRoute(selectedRoute);
       route = resolveRoute(config, leadRoute
         ? { model: workflowPresetId('lead') }

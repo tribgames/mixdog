@@ -23,7 +23,7 @@ import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import stringWidth from 'string-width';
 import { theme, TURN_MARKER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
-import { normalizeToolName, parseToolArgs } from '../runtime/shared/tool-surface.mjs';
+import { formatToolSurface, normalizeToolName, parseToolArgs } from '../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../runtime/shared/err-text.mjs';
 import { AssistantMessage, UserMessage, ThinkingMessage, NoticeMessage } from './components/Message.jsx';
 import { ToolExecution } from './components/ToolExecution.jsx';
@@ -147,7 +147,11 @@ function workflowDisplayName(workflow = {}) {
 }
 
 function workflowSwitchNotice(workflow = {}) {
-  return `Workflow set to ${workflowDisplayName(workflow)} for next session`;
+  return 'Workflow updated · new sessions';
+}
+
+function modelSwitchNotice() {
+  return 'Model updated · new sessions';
 }
 
 function systemShellDescription(shell = {}) {
@@ -156,6 +160,30 @@ function systemShellDescription(shell = {}) {
   const effective = clean(shell.effective);
   if (effective) return `${effective} · ${shell.source || 'env'}`;
   return 'auto';
+}
+
+function compactJson(value, max = 180) {
+  let text = '';
+  try {
+    text = typeof value === 'string' ? value : JSON.stringify(value);
+  } catch {
+    text = String(value ?? '');
+  }
+  text = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return stringWidth(text) > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text;
+}
+
+function toolApprovalDescription(request = {}) {
+  const surface = formatToolSurface(request.name, request.args);
+  const summary = surface?.summary ? `${surface.label || request.name} (${surface.summary})` : (surface?.label || request.name || 'tool');
+  const reason = clean(request.reason) || 'Hook requested approval.';
+  const args = compactJson(request.args);
+  return [
+    summary ? `Tool: ${summary}` : '',
+    reason ? `Reason: ${reason}` : '',
+    args ? `Args: ${args}` : '',
+  ].filter(Boolean).join('\n');
 }
 
 function providerStatusLabel(provider = {}) {
@@ -1381,6 +1409,7 @@ export function App({ store, initialStatusLine = '' }) {
   const [channelPrompt, setChannelPrompt] = useState(null);
   const [hookPrompt, setHookPrompt] = useState(null);
   const [settingsPrompt, setSettingsPrompt] = useState(null);
+  const toolApproval = state.toolApproval || null;
   const [promptDraft, setPromptDraft] = useState('');
   const [promptDraftOverride, setPromptDraftOverride] = useState(null);
   const [, setPastedImages] = useState({});
@@ -2264,6 +2293,17 @@ export function App({ store, initialStatusLine = '' }) {
   }, []);
 
   useInput((input, key) => {
+    if (toolApproval) {
+      const value = String(input || '').trim().toLowerCase();
+      if (key.escape || value === 'd' || value === 'n') {
+        store.resolveToolApproval?.(toolApproval.id, { approved: false, reason: 'denied by user' });
+        return;
+      }
+      if (value === 'a' || value === 'y') {
+        store.resolveToolApproval?.(toolApproval.id, { approved: true, reason: 'approved by user' });
+        return;
+      }
+    }
     if (key.ctrl && (input === 'c' || input === 'C')) {
       // Ctrl+C is copy-first. Native terminal selections can still forward the
       // key event to us on Windows Terminal, so a missing app-owned selection
@@ -2896,7 +2936,7 @@ export function App({ store, initialStatusLine = '' }) {
               if (ok) clearModelCaches('provider');
               store.pushNotice(
                 ok
-                  ? `Model set to ${providerDisplayName(selected.provider)} / ${selected.display || selected.id}${effort ? ` · Effort ${effortDisplayLabel(effort)}` : ''}`
+                  ? modelSwitchNotice()
                   : 'Model switch is already running',
                 ok ? 'info' : 'warn',
               );
@@ -5777,16 +5817,12 @@ export function App({ store, initialStatusLine = '' }) {
         void store.clear().then(() => {}).catch(e => store.pushNotice(`clear failed: ${e?.message || e}`, 'error'));
         return true;
       case 'model':
-        if (state.busy) {
-          store.pushNotice('wait for the current turn to finish before /model', 'warn');
-          return false;
-        }
         if (!arg) {
           openModelPicker();
           return true;
         }
         void store.setModel(arg)
-          .then(ok => store.pushNotice(ok ? `Model set to ${arg}` : 'Model switch is already running.', ok ? 'info' : 'warn'))
+          .then(ok => store.pushNotice(ok ? modelSwitchNotice() : 'Model switch is already running.', ok ? 'info' : 'warn'))
           .catch((e) => store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error'));
         return true;
       case 'search':
@@ -5805,10 +5841,6 @@ export function App({ store, initialStatusLine = '' }) {
         openAgentsPicker();
         return true;
       case 'workflow':
-        if (state.busy) {
-          store.pushNotice('wait for the current turn to finish before /workflow', 'warn');
-          return false;
-        }
         if (!arg) {
           openWorkflowPicker();
           return true;
@@ -6427,8 +6459,8 @@ export function App({ store, initialStatusLine = '' }) {
     return accepted;
   };
 
-  const activeSlashQuery = providerPrompt || channelPrompt || hookPrompt || settingsPrompt || contextPanel || usagePanel ? null : slashQuery(promptDraft);
-  const slashCommands = activeSlashQuery === null || picker || contextPanel || usagePanel || exiting || state.commandBusy
+  const activeSlashQuery = providerPrompt || channelPrompt || hookPrompt || settingsPrompt || toolApproval || contextPanel || usagePanel ? null : slashQuery(promptDraft);
+  const slashCommands = activeSlashQuery === null || picker || toolApproval || contextPanel || usagePanel || exiting || state.commandBusy
     ? []
     : SLASH_COMMANDS
       .filter((command) => slashCommandMatches(command, activeSlashQuery))
@@ -6572,8 +6604,8 @@ export function App({ store, initialStatusLine = '' }) {
   // the total tree height exceeds the terminal and the input box gets pushed.
   const textEntryPrompt = providerPrompt || channelPrompt || hookPrompt || settingsPrompt;
   const hasTextEntryPrompt = !!textEntryPrompt;
-  const hasFloatingPanel = !!(picker || contextPanel || usagePanel || slashPaletteOpen || hasTextEntryPrompt);
-  const expandedOptionPanel = !!(picker || contextPanel || usagePanel || hasTextEntryPrompt);
+  const hasFloatingPanel = !!(toolApproval || picker || contextPanel || usagePanel || slashPaletteOpen || hasTextEntryPrompt);
+  const expandedOptionPanel = !!(toolApproval || picker || contextPanel || usagePanel || hasTextEntryPrompt);
   // Project selection (initial-entry experience) keeps the welcome banner
   // visible above the picker / path-entry prompt, unlike other floating panels.
   const projectSelectionActive = picker?.kind === 'project'
@@ -6613,17 +6645,19 @@ export function App({ store, initialStatusLine = '' }) {
   const queuedRows = queuedVisible ? state.queued.length : 0;
   const baseReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const maxFloatingPanelRows = Math.max(0, resizeState.rows - baseReserve - 1);
-  const desiredFloatingPanelRows = picker
-    ? (picker.fillAvailable ? maxFloatingPanelRows : PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS)
-    : contextPanel
+  const desiredFloatingPanelRows = toolApproval
+    ? TEXT_ENTRY_ROWS + OPTION_PANEL_EXTRA_ROWS
+    : picker
+      ? (picker.fillAvailable ? maxFloatingPanelRows : PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS)
+      : contextPanel
       ? PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS + 3
       : usagePanel
         ? PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS
-    : slashPaletteOpen
-      ? PANEL_MAX_VISIBLE + 4
-      : hasTextEntryPrompt
-        ? TEXT_ENTRY_ROWS + OPTION_PANEL_EXTRA_ROWS
-        : 0;
+        : slashPaletteOpen
+          ? PANEL_MAX_VISIBLE + 4
+          : hasTextEntryPrompt
+            ? TEXT_ENTRY_ROWS + OPTION_PANEL_EXTRA_ROWS
+            : 0;
   const floatingPanelRows = desiredFloatingPanelRows > 0
     ? Math.min(desiredFloatingPanelRows, maxFloatingPanelRows)
     : 0;
@@ -6882,11 +6916,7 @@ export function App({ store, initialStatusLine = '' }) {
     setScrollOffset(Math.round(next));
   }, [transcriptWindow.maxScrollRows, scrollOffset, stopSmoothScroll]);
   const cycleWorkflowFromPrompt = useCallback(() => {
-    if (slashPaletteOpen || picker || settingsPrompt || providerPrompt || channelPrompt || hookPrompt || contextPanel || usagePanel) return true;
-    if (state.busy) {
-      store.pushNotice('wait for the current turn to finish before /workflow', 'warn');
-      return true;
-    }
+    if (slashPaletteOpen || toolApproval || picker || settingsPrompt || providerPrompt || channelPrompt || hookPrompt || contextPanel || usagePanel) return true;
     let workflows = [];
     try {
       workflows = store.listWorkflows?.() || [];
@@ -6916,14 +6946,14 @@ export function App({ store, initialStatusLine = '' }) {
       })
       .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'));
     return true;
-  }, [slashPaletteOpen, picker, settingsPrompt, providerPrompt, channelPrompt, hookPrompt, contextPanel, usagePanel, state.busy, state.workflow, store]);
+  }, [slashPaletteOpen, toolApproval, picker, settingsPrompt, providerPrompt, channelPrompt, hookPrompt, contextPanel, usagePanel, state.workflow, store]);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
   // is a live column, so the live-frame line count ink relies on is accurate.
   const promptInputControl = (
     <PromptInput
       onSubmit={onSubmit}
-      disabled={exiting || !!picker || !tuiReady}
+      disabled={exiting || !!picker || !!toolApproval || !tuiReady}
       onDraftChange={onPromptDraftChange}
       interruptActive={state.busy}
       onInterrupt={handlePromptInterrupt}
@@ -7064,7 +7094,40 @@ export function App({ store, initialStatusLine = '' }) {
       <Box flexDirection="column" flexShrink={0} width="100%" backgroundColor={theme.background}>
         {floatingPanelRows > 0 ? (
           <Box flexDirection="column" flexShrink={0} height={floatingPanelRows} overflow="hidden" justifyContent="flex-end" backgroundColor={theme.background}>
-            {picker ? (
+            {toolApproval ? (
+              <Picker
+                items={[
+                  { value: 'deny', label: 'Deny', marker: '×', markerColor: theme.error, description: 'block this tool call' },
+                  { value: 'approve', label: 'Approve once', marker: '✓', markerColor: theme.success, description: 'run this tool call' },
+                ]}
+                onSelect={(value) => {
+                  store.resolveToolApproval?.(toolApproval.id, {
+                    approved: value === 'approve',
+                    reason: value === 'approve' ? 'approved by user' : 'denied by user',
+                  });
+                }}
+                onCancel={() => {
+                  store.resolveToolApproval?.(toolApproval.id, { approved: false, reason: 'denied by user' });
+                }}
+                onKey={(input) => {
+                  const value = String(input || '').trim().toLowerCase();
+                  if (value === 'a' || value === 'y') {
+                    store.resolveToolApproval?.(toolApproval.id, { approved: true, reason: 'approved by user' });
+                  } else if (value === 'd' || value === 'n') {
+                    store.resolveToolApproval?.(toolApproval.id, { approved: false, reason: 'denied by user' });
+                  }
+                }}
+                title="Tool approval"
+                description={toolApprovalDescription(toolApproval)}
+                help="↑/↓ Select · Enter Choose · a/y Approve · d/n/Esc Deny"
+                columns={frameColumns}
+                labelWidth={18}
+                initialIndex={0}
+                indexMode="never"
+                visibleCount={2}
+                fillHeight={expandedOptionPanel}
+              />
+            ) : picker ? (
               <Picker
                 items={picker.items}
                 onSelect={(value, item) => {

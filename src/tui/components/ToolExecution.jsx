@@ -30,7 +30,7 @@ const MIN_RESULT_LINE_CHARS = 24;
 // Hard cap for the parenthesized header arg summary so a long path/query does
 // not eat the whole header line; anything longer is truncated with an ellipsis.
 const SUMMARY_MAX_CHARS = 48;
-const HEADER_FAILURE_STATUS_MAX = 40;
+const HEADER_FAILURE_STATUS_MAX = 32;
 
 export function displayToolName(name, args) {
   return surfaceDisplayToolName(name, args);
@@ -912,10 +912,8 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const headerFailureText = headerFailureStatus
     ? truncateToWidth(headerFailureStatus, HEADER_FAILURE_STATUS_MAX)
     : '';
-  const failureStatusReserve = headerFailureText
-    ? Math.min(HEADER_FAILURE_STATUS_MAX, stringWidth(headerFailureText) + 1)
-    : 0;
-  const rightReserve = Math.max(stringWidth(hintReserveText), stringWidth(headerMetaText)) + failureStatusReserve;
+  const inlineFailureText = headerFailureText ? ` ${BULLET_OPERATOR} ${headerFailureText}` : '';
+  const rightReserve = Math.max(stringWidth(hintReserveText), stringWidth(headerMetaText)) + stringWidth(inlineFailureText);
   const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - rightReserve);
   const trailingText = headerMetaText || (showHeaderExpandHint ? hintText : '');
   const trailingColor = headerMetaText ? theme.subtle : expandHintColor;
@@ -951,15 +949,11 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
             <Text wrap="truncate">
               <Text bold color={theme.text}>{labelOut}</Text>
               {summaryOut ? <Text color={theme.text}>{summaryOut}</Text> : null}
+              {inlineFailureText ? <Text color={theme.error}>{inlineFailureText}</Text> : null}
               {trailingText ? <Text color={trailingColor}>{trailingText}</Text> : null}
             </Text>
           </Box>
         </Box>
-        {headerFailureText ? (
-          <Box flexShrink={0} width={failureStatusReserve} marginLeft={1} justifyContent="flex-end" overflow="hidden">
-            <Text color={theme.error} wrap="truncate">{headerFailureText}</Text>
-          </Box>
-        ) : null}
       </Box>
 
       {visibleDetailLines.length > 0 ? (

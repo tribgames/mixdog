@@ -726,11 +726,10 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       if (!tag || !sessionId || !rowMatchesContext(row, context)) return;
       if (seen.has(sessionId)) return;
       // Collision/resolution enumeration only: a row that is in a terminal
-      // (or idle-but-finished) state AND has no live session behind it is just
-      // a lingering trace kept around for the reap grace window. Such a trace
-      // must NOT block a fresh spawn of the same tag, and must let
-      // coldRespawnArgs() recover the role. Display enumeration (list) leaves
-      // excludeTerminalTraces=false so finished workers still appear.
+      // (or idle-but-finished) state AND has no live session behind it is a
+      // lingering trace kept for the reap grace window. excludeTerminalTraces drops those
+      // rows so live-session reuse/spawn resolution can proceed; list/status
+      // keep excludeTerminalTraces=false so finished workers still appear.
       if (excludeTerminalTraces
         && isTerminalWorkerStatus(row.status || row.stage)
         && !getLiveSession(sessionId)) {
@@ -1414,12 +1413,9 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     await ensureProvider(config, preset.provider);
 
     const tag = clean(args.tag) || nextTag(role, context);
-    // Only a *live* same-tag session in this terminal blocks a fresh spawn.
-    // A terminal/idle trace left behind for the reap grace window is excluded
-    // (excludeTerminalTraces) so the same tag can be cleanly re-spawned — the
-    // execute() spawn branch routes genuine reuse (busy/idle-live) before we
-    // ever get here.
-    if (resolveTag(tag, context, { scanSessions: wantsSessionScan(args), excludeTerminalTraces: true })) {
+    // Any resolved same-tag binding in this terminal (live or lingering trace)
+    // blocks a fresh spawn. execute() routes live reuse before prepareSpawn.
+    if (resolveTag(tag, context, { scanSessions: wantsSessionScan(args) })) {
       throw new Error(`agent spawn: tag "${tag}" already exists`);
     }
     const baseCwd = resolve(callerCwd || defaultCwd || process.cwd());
@@ -1720,39 +1716,18 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     return { closed, failed };
   }
 
-  function coldRespawnArgs(args = {}, context = {}) {
-    const target = clean(args.tag || args.sessionId);
-    // A live same-tag session (busy/idle) means "reuse", not "cold respawn", so
-    // bail. But a terminal/closed trace lingering in the reap grace window must
-    // NOT block recovery — exclude it so a finished worker's tag can be cleanly
-    // re-spawned with its recovered role.
-    if (!target || target.startsWith('sess_') || resolveTag(target, context, { excludeTerminalTraces: true })) return null;
-    const recoveredRole = clean(args.agent || args.role) || tagRoles.get(target);
-    if (!recoveredRole) return null;
-    return {
-      ...args,
-      type: 'spawn',
-      tag: target,
-      agent: recoveredRole,
-      role: recoveredRole,
-      prompt: args.prompt ?? args.message,
-      cwd: args.cwd ?? tagCwds.get(target) ?? undefined,
-      respawned: true,
-    };
-  }
-
-  // True only when a tag has a lingering trace (worker-index row or recorded
-  // role) but no live session in this terminal — i.e. a finished worker still
-  // inside the reap grace window. The `send` path relies on args.agent usually
-  // being absent to gate coldRespawnArgs(), but spawn always carries an agent,
-  // so spawn must check the trace explicitly before treating a tag as a
-  // re-spawn (otherwise a brand-new tag would be mislabeled `respawned`).
+  // True when a tag has a lingering worker-index / role trace but no live
+  // session in this terminal (finished worker still inside the reap grace window).
   function hasTerminalTrace(tag, context = {}) {
     const value = clean(tag);
     if (!value || value.startsWith('sess_')) return false;
     if (resolveTag(value, context, { excludeTerminalTraces: true })) return false; // live -> reuse, not trace
     if (tagRoles.has(value)) return true;
     return readWorkerRows(context).some((row) => clean(row.tag) === value);
+  }
+
+  function terminalTraceSpawnError(tag) {
+    return new Error(`agent spawn: tag "${tag}" refers to a finished or closed worker; wait for reap or use a new tag`);
   }
 
   async function execute(args = {}, context = {}) {
@@ -1768,35 +1743,17 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       if (type === 'cancel') return renderResult(close(args, scopedContext));
       if (type === 'close') return renderResult(close(args, scopedContext));
       if (type === 'send') {
-        const respawnArgs = coldRespawnArgs(args, scopedContext);
-        if (respawnArgs) {
-          const job = startDeferredSpawnJob(respawnArgs, callerCwd, context, notifyContext, { respawned: true });
-          return renderResult({ respawned: true, ...renderJob(job, false) });
-        }
         const prepared = await prepareSend(args, scopedContext);
         return dispatchToExistingSession(prepared, notifyContext);
       }
       if (type === 'spawn') {
-        // Unified 4-tier reuse priority, but only when the caller pins an
-        // explicit tag. Auto (nextTag) spawns always create a fresh session.
-        //   1) terminal/closed trace only  -> coldRespawnArgs() clean re-spawn
-        //   2) live + busy                 -> queue the prompt (no collision)
-        //   3) live + idle                 -> continue existing session (reuse)
-        //   4) genuinely new tag           -> fresh deferred spawn
+        // Explicit-tag spawn priority (auto nextTag always creates a fresh session):
+        //   1) live + busy -> queue the prompt (reuse)
+        //   2) live + idle -> continue existing session (reuse)
+        //   3) lingering terminal trace -> error (no defensive respawn)
+        //   4) genuinely new tag -> fresh deferred spawn
         const explicitTag = clean(args.tag);
         if (explicitTag) {
-          // (1) Tag survives only as a terminal/closed worker-index trace (no
-          // live session). coldRespawnArgs() recovers the role and re-spawns a
-          // clean session under the same tag. Spawn always carries `agent`, so
-          // coldRespawnArgs() alone cannot distinguish "lingering trace" from
-          // "brand-new tag" — gate it on an actual trace first.
-          const respawnArgs = hasTerminalTrace(explicitTag, scopedContext)
-            ? coldRespawnArgs(args, scopedContext)
-            : null;
-          if (respawnArgs) {
-            const job = startDeferredSpawnJob(respawnArgs, callerCwd, context, notifyContext, { respawned: true });
-            return renderResult({ respawned: true, ...renderJob(job, false) });
-          }
           // Resolve a LIVE same-tag session in this terminal (busy or idle).
           let liveSessionId = null;
           try {
@@ -1810,15 +1767,14 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
             liveSessionId = null;
           }
           if (liveSessionId && getLiveSession(liveSessionId)) {
-            // (2)/(3) Reuse the existing session: continue the conversation via
-            // the send path so dialogue/context are preserved. resolvePrompt /
-            // coldRespawnArgs already accept prompt ?? message, so a spawn-style
-            // `prompt` arg maps cleanly onto the send path.
+            // Reuse the existing session via the send path (context preserved).
             const prepared = await prepareSend({ ...args, tag: explicitTag }, scopedContext);
             return dispatchToExistingSession(prepared, notifyContext, { reused: true });
           }
+          if (hasTerminalTrace(explicitTag, scopedContext)) {
+            throw terminalTraceSpawnError(explicitTag);
+          }
         }
-        // (4) Genuinely new (or auto) tag -> fresh deferred spawn.
         const job = startDeferredSpawnJob(args, callerCwd, context, notifyContext);
         return renderResult(renderJob(job, false));
       }

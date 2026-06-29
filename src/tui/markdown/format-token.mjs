@@ -5,8 +5,8 @@
  *   - chalk is forced to truecolor (level 3) so colors render regardless of the
  *     ambient TTY detection (we control the surface).
  *   - The `permission`/code accent and blockquote bar come from our theme.mjs.
- *   - `code` (fenced) is emitted as plain text + EOL (no syntax highlighter
- *     dependency); `codespan` (inline) gets the accent color.
+ *   - `code` (fenced) is emitted as a block-colored plain text + EOL (no
+ *     syntax highlighter dependency); `codespan` (inline) gets the accent color.
  *   - `table` is NOT handled here — the React component (MarkdownTable.jsx)
  *     renders tables with proper ink Box layout (hybrid split).
  *   - Hyperlinks/issue-ref linkify are dropped (no OSC-8 dependency); link text
@@ -32,6 +32,7 @@ function rgbColor(str) {
 }
 
 const accent = rgbColor(theme.code); // inline code / codespan accent
+const codeBlock = rgbColor(theme.codeBlock); // fenced code block body
 const dim = rgbColor(theme.subtle);
 
 // marked 14 HTML-encodes token.text / codespan.text (`"` → `&quot;`, `&` →
@@ -56,7 +57,7 @@ function decodeEntities(s) {
  * Render a single marked token to an ANSI string.
  * marked token switch (minus table / hyperlink deps).
  */
-export function formatToken(token, listDepth = 0, orderedListNumber = null, parent = null) {
+export function formatToken(token, listBaseIndent = 0, orderedListNumber = null, parent = null) {
   switch (token.type) {
     case 'blockquote': {
       const inner = (token.tokens ?? []).map((t) => formatToken(t)).join('');
@@ -68,7 +69,7 @@ export function formatToken(token, listDepth = 0, orderedListNumber = null, pare
     }
     case 'code':
       // No syntax highlighter — emit the code text as-is.
-      return token.text + EOL;
+      return codeBlock(decodeEntities(token.text ?? '')) + EOL;
     case 'codespan':
       // inline code
       return accent(decodeEntities(token.text));
@@ -105,13 +106,11 @@ export function formatToken(token, listDepth = 0, orderedListNumber = null, pare
     case 'list':
       return token.items
         .map((item, index) =>
-          formatToken(item, listDepth, token.ordered ? token.start + index : null, token),
+          formatToken(item, listBaseIndent, token.ordered ? Number(token.start || 1) + index : null, token),
         )
         .join('');
     case 'list_item':
-      return (token.tokens ?? [])
-        .map((t) => `${'  '.repeat(listDepth)}${formatToken(t, listDepth + 1, orderedListNumber, token)}`)
-        .join('');
+      return formatListItem(token, listBaseIndent, orderedListNumber, parent);
     case 'paragraph':
       return (token.tokens ?? []).map((t) => formatToken(t)).join('') + EOL;
     case 'space':
@@ -120,13 +119,7 @@ export function formatToken(token, listDepth = 0, orderedListNumber = null, pare
       return EOL;
     case 'text':
       if (parent?.type === 'link') return decodeEntities(token.text);
-      if (parent?.type === 'list_item') {
-        const marker = orderedListNumber === null ? '-' : `${getListNumber(listDepth, orderedListNumber)}.`;
-        const body = token.tokens
-          ? token.tokens.map((t) => formatToken(t, listDepth, orderedListNumber, token)).join('')
-          : decodeEntities(token.text);
-        return `${marker} ${body}${EOL}`;
-      }
+      if (token.tokens) return token.tokens.map((t) => formatToken(t, listBaseIndent, orderedListNumber, token)).join('');
       return decodeEntities(token.text);
     case 'escape':
       return decodeEntities(token.text);
@@ -139,39 +132,70 @@ export function formatToken(token, listDepth = 0, orderedListNumber = null, pare
   }
 }
 
-/* --- ordered-list numbering ----------------------------------------------- */
-
-function numberToLetter(n) {
-  let result = '';
-  while (n > 0) {
-    n--;
-    result = String.fromCharCode(97 + (n % 26)) + result;
-    n = Math.floor(n / 26);
-  }
-  return result;
+function trimTrailingEol(value) {
+  return String(value ?? '').replace(/\n+$/g, '');
 }
 
-const ROMAN_VALUES = [
-  [1000, 'm'], [900, 'cm'], [500, 'd'], [400, 'cd'], [100, 'c'], [90, 'xc'],
-  [50, 'l'], [40, 'xl'], [10, 'x'], [9, 'ix'], [5, 'v'], [4, 'iv'], [1, 'i'],
-];
-
-function numberToRoman(n) {
-  let result = '';
-  for (const [value, numeral] of ROMAN_VALUES) {
-    while (n >= value) { result += numeral; n -= value; }
-  }
-  return result;
+function prefixLines(value, prefix) {
+  return String(value ?? '')
+    .split(EOL)
+    .map((line) => `${prefix}${line}`)
+    .join(EOL);
 }
 
-function getListNumber(listDepth, orderedListNumber) {
-  switch (listDepth) {
-    case 0:
-    case 1: return String(orderedListNumber);
-    case 2: return numberToLetter(orderedListNumber);
-    case 3: return numberToRoman(orderedListNumber);
-    default: return String(orderedListNumber);
+function prefixFirstAndRest(value, firstPrefix, restPrefix) {
+  const lines = String(value ?? '').split(EOL);
+  if (lines.length === 0) return '';
+  return [
+    `${firstPrefix}${lines[0] ?? ''}`,
+    ...lines.slice(1).map((line) => `${restPrefix}${line}`),
+  ].join(EOL);
+}
+
+function formatListItem(token, listBaseIndent, orderedListNumber) {
+  const marker = orderedListNumber === null
+    ? '-'
+    : `${orderedListNumber}.`;
+  const markerPrefix = `${' '.repeat(listBaseIndent)}${marker} `;
+  const continuationPrefix = ' '.repeat(stripAnsi(markerPrefix).length);
+  const nestedListIndent = continuationPrefix.length;
+  const children = token.tokens ?? [];
+  let out = '';
+  let firstBlock = true;
+
+  for (const child of children) {
+    if (!child) continue;
+
+    if (child.type === 'space') {
+      if (!firstBlock) {
+        out += `${continuationPrefix}${EOL}`;
+      }
+      continue;
+    }
+
+    if (child.type === 'list') {
+      if (firstBlock) {
+        out += `${markerPrefix.trimEnd()}${EOL}`;
+        firstBlock = false;
+      }
+      out += formatToken(child, nestedListIndent, null, token);
+      continue;
+    }
+
+    const rendered = formatToken(child, listBaseIndent, orderedListNumber, token);
+    const body = trimTrailingEol(rendered);
+    if (!body) continue;
+
+    if (firstBlock) {
+      out += `${prefixFirstAndRest(body, markerPrefix, continuationPrefix)}${EOL}`;
+      firstBlock = false;
+    } else {
+      out += `${prefixLines(body, continuationPrefix)}${EOL}`;
+    }
   }
+
+  if (firstBlock) return `${markerPrefix.trimEnd()}${EOL}`;
+  return out;
 }
 
 /**

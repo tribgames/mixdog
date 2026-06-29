@@ -175,6 +175,10 @@ export function presentErrorText(error, options = {}) {
     return `${subject[0].toUpperCase()}${subject.slice(1)} stopped before the response completed.`;
   }
 
+  if (/^Session closed:\s*(?:closeSession|closed|aborted)\b/i.test(text)) {
+    return `${subject[0].toUpperCase()}${subject.slice(1)} stopped.`;
+  }
+
   if (/parent signal aborted/i.test(text)) {
     return `${subject[0].toUpperCase()}${subject.slice(1)} was cancelled by its caller.`;
   }

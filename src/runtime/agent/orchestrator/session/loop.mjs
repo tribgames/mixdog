@@ -946,6 +946,9 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
     const beforeToolHook = typeof executeOpts.beforeToolHook === 'function'
         ? executeOpts.beforeToolHook
         : sessionRef?.beforeToolHook;
+    const toolApprovalHook = typeof executeOpts.toolApprovalHook === 'function'
+        ? executeOpts.toolApprovalHook
+        : sessionRef?.toolApprovalHook;
     if (beforeToolHook) {
         try {
             const decision = await beforeToolHook({
@@ -959,6 +962,33 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
             if (action === 'deny' || action === 'block') {
                 const reason = decision?.reason ? `: ${decision.reason}` : '';
                 return `Error: tool "${name}" denied by hook${reason}`;
+            }
+            if (action === 'ask') {
+                const askReason = String(decision?.reason || 'approval requested by hook').trim();
+                if (typeof toolApprovalHook !== 'function') {
+                    return `Error: tool "${name}" denied by hook: approval required but no approval UI is available${askReason ? ` (${askReason})` : ''}`;
+                }
+                let approval;
+                try {
+                    approval = await toolApprovalHook({
+                        name,
+                        args,
+                        cwd,
+                        sessionId: callerSessionId,
+                        toolCallId: executeOpts.toolCallId || null,
+                        reason: askReason,
+                    });
+                } catch (error) {
+                    const reason = error?.message || String(error || 'approval failed');
+                    return `Error: tool "${name}" denied by hook: ${reason}`;
+                }
+                if (!approvalGranted(approval)) {
+                    const reason = approvalReason(approval, askReason || 'not approved');
+                    return `Error: tool "${name}" denied by hook: ${reason}`;
+                }
+                if (approval && typeof approval === 'object' && approval.args && typeof approval.args === 'object' && !Array.isArray(approval.args)) {
+                    args = approval.args;
+                }
             }
             if ((action === 'modify' || action === 'rewrite') && decision?.args && typeof decision.args === 'object' && !Array.isArray(decision.args)) {
                 args = decision.args;
@@ -1052,9 +1082,10 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
     }
     return formatUnknownBuiltinToolMessage(name, args, 'tool');
     })();
+    let __finalResult = __result;
     if (typeof afterToolHook === 'function') {
         try {
-            await afterToolHook({
+            const hookResult = await afterToolHook({
                 name,
                 args,
                 cwd,
@@ -1062,11 +1093,15 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
                 toolCallId: executeOpts.toolCallId || null,
                 result: __result,
             });
+            if (hookResult && typeof hookResult === 'object' && Object.prototype.hasOwnProperty.call(hookResult, 'updatedToolOutput')) {
+                const updated = hookResult.updatedToolOutput;
+                __finalResult = typeof updated === 'string' ? updated : JSON.stringify(updated);
+            }
         } catch {
             // PostToolUse hooks are best-effort; never let one break the tool result.
         }
     }
-    return __result;
+    return __finalResult;
 }
 /**
  * Agent loop: send → tool_call → execute → re-send → repeat until text.
@@ -1094,6 +1129,22 @@ const HIDDEN_ROLE_NAMES = new Set(
 const INCOMPLETE_STOP_REASONS = new Set([
     'pause_turn', 'max_tokens', 'length', 'MAX_TOKENS', 'OTHER',
 ]);
+
+function approvalGranted(value) {
+    if (value === true) return true;
+    if (!value || typeof value !== 'object') return false;
+    if (value.approved === true || value.allow === true || value.allowed === true) return true;
+    const decision = String(value.decision || value.action || value.result || '').trim().toLowerCase();
+    return decision === 'approve' || decision === 'approved' || decision === 'allow' || decision === 'yes';
+}
+
+function approvalReason(value, fallback = '') {
+    if (value && typeof value === 'object') {
+        const reason = String(value.reason || value.message || '').trim();
+        if (reason) return reason;
+    }
+    return fallback;
+}
 
 export async function agentLoop(provider, messages, model, tools, onToolCall, cwd, sendOpts) {
     let iterations = 0;
@@ -1527,7 +1578,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             _eagerInFlightSigs.set(_sig, call.id);
             entry.promise = (async () => {
                 try {
-                    return { ok: true, value: await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn }) };
+                    return { ok: true, value: await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval }) };
                 } catch (error) {
                     return { ok: false, error };
                 }
@@ -1943,7 +1994,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         toolEndedAt = Date.now();
                         _resultKind = 'error';
                     } else {
-                        result = await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn });
+                        result = await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval });
                         toolEndedAt = Date.now();
                         // Boundary: tool-return string convention → structural kind.
                         // The only prefix check in this codebase; downstream layers

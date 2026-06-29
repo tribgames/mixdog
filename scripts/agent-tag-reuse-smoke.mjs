@@ -4,7 +4,7 @@
 // Validates the unified 4-tier spawn dispatch when an explicit tag is pinned:
 //   1) live + idle  -> spawn reuses the existing session (reused:true, send path)
 //   2) live + busy  -> spawn queues the prompt instead of throwing
-//   3) terminal trace only -> coldRespawn under the same tag (respawned:true)
+//   3) lingering terminal trace (no live session) -> spawn/send error, no respawn
 //   4) genuinely new tag -> a fresh spawn (no reused/respawned flag)
 //
 // No network: a fake askSession drives status transitions. Uses the REAL
@@ -151,13 +151,26 @@ async function main() {
   await waitJob(busyStart, /ack: stay busy please/, 'busy worker finish');
 
   // --- tier 3: terminal trace only -> coldRespawn keeps the tag ---
-  await agent.execute({ type: 'close', tag: 'reviewerA' }, ctx);
-  const respawnOut = await agent.execute({
-    type: 'spawn', agent: 'reviewer', tag: 'reviewerA', prompt: 'post-close revival', cwd: root,
+  // --- tier 3: lingering trace without live session must not cold-respawn ---
+  closeSession(sid, 'smoke-session-closed-trace');
+  const traceSpawnOut = await agent.execute({
+    type: 'spawn', agent: 'reviewer', tag: 'reviewerA', prompt: 'must not respawn', cwd: root,
   }, ctx);
-  assert(!/^Error/.test(respawnOut), `terminal-trace re-spawn must not error: ${respawnOut}`);
-  assert(/agent task:/.test(respawnOut), `terminal-trace re-spawn must start a task: ${respawnOut}`);
-  await waitJob(respawnOut, /ack: post-close revival/, 'terminal-trace respawn');
+  assert(/^Error:/.test(traceSpawnOut), `terminal-trace spawn must error, got: ${traceSpawnOut}`);
+  assert(/finished or closed worker/i.test(traceSpawnOut), `spawn error should mention trace: ${traceSpawnOut}`);
+  const traceSendOut = await agent.execute({
+    type: 'send', tag: 'reviewerA', message: 'must not cold-respawn', cwd: root,
+  }, ctx);
+  assert(/^Error:/.test(traceSendOut), `terminal-trace send must error, got: ${traceSendOut}`);
+  assert(/not found|closed/i.test(traceSendOut), `send should surface prepareSend failure: ${traceSendOut}`);
+
+  // agent close clears the trace; same tag can spawn fresh again
+  await agent.execute({ type: 'close', tag: 'reviewerA' }, ctx);
+  const freshAfterClose = await agent.execute({
+    type: 'spawn', agent: 'reviewer', tag: 'reviewerA', prompt: 'post-forget fresh', cwd: root,
+  }, ctx);
+  assert(!/^Error/.test(freshAfterClose), `post-forget spawn must work: ${freshAfterClose}`);
+  await waitJob(freshAfterClose, /ack: post-forget fresh/, 'post-forget spawn');
 
   process.stdout.write(`agent tag-reuse smoke passed (asks=${askLog.length})\n`);
 }

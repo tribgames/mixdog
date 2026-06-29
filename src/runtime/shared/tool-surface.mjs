@@ -625,11 +625,13 @@ function parseLineDelta(delta) {
 
 function formatLineDelta(totals) {
   if (!totals?.seen) return '';
-  // Always show added and removed as separate cumulative counts (never merged
-  // into a single ±0), so the header reads e.g. "+5 Lines · -0 Lines".
   const added = Number(totals.added) || 0;
   const removed = Number(totals.removed) || 0;
-  return [`+${added} Lines`, `-${removed} Lines`].join(STATUS_SEPARATOR);
+  if (added === 0 && removed === 0) return '';
+  const parts = [];
+  if (added > 0) parts.push(`+${added} ${pluralize(added, 'Line')}`);
+  if (removed > 0) parts.push(`-${removed} ${pluralize(removed, 'Line')}`);
+  return parts.join(STATUS_SEPARATOR);
 }
 
 function parseUpdateSummary(text) {
@@ -682,7 +684,7 @@ function summarizeUpdateResult(text, args) {
     const action = isDryRun
       ? 'Checked'
       : item.action === 'delete' ? 'Deleted' : item.action === 'add' || item.action === 'create' || item.action === 'created' ? 'Created' : 'Updated';
-    return compactParts([`${action} ${displayToolPath(item.path)}`, item.delta]);
+    return compactParts([`${action} ${displayToolPath(item.path)}`, formatLineDelta(parseLineDelta(item.delta))]);
   }
   if (changed.length > 1) {
     const totals = changed.reduce((acc, item) => {

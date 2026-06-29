@@ -6,7 +6,8 @@
  *   - Non-table tokens are rendered to ANSI strings via formatToken and emitted
  *     through <AnsiText> as styled spans.
  *   - Tables are rendered by the MarkdownTable component (proper Box layout).
- *   - Adjacent non-table tokens are coalesced into one <Text> so block spacing matches.
+ *   - Block tokens are emitted as separate Ink children so lists, code fences,
+ *     and tables keep their markdown block boundaries.
  *
  * Syntax highlighting is omitted, but token cache + streaming-split are
  * kept so partial markdown does not repaint stable text on every delta.
@@ -65,27 +66,25 @@ function renderMarkdownElements(content) {
   configureMarked();
   const tokens = cachedLexer(String(content ?? ''));
   const result = [];
-  let buffer = '';
   let idx = 0;
-  const flush = () => {
-    if (buffer) {
-      // Trim the coalesced non-table block so leading/trailing blank lines from token EOLs don't bleed
-      // into the surrounding gap={1} spacing. defaultColor={theme.text}
-      // keeps ANSI resets on the same dark-theme foreground instead of the
-      // terminal profile's default foreground.
-      result.push(<AnsiText key={`md_${idx++}`} defaultColor={theme.text}>{buffer.trim()}</AnsiText>);
-      buffer = '';
-    }
+  const pushAnsi = (value) => {
+    // Remove blank edge lines from token EOLs without trimming meaningful
+    // indentation inside code blocks. defaultColor={theme.text} keeps ANSI
+    // resets on the same dark-theme foreground instead of the terminal
+    // profile's default foreground.
+    const text = String(value ?? '').replace(/^\n+|\n+$/g, '');
+    if (!text) return;
+    result.push(<AnsiText key={`md_${idx++}`} defaultColor={theme.text}>{text}</AnsiText>);
   };
   for (const token of tokens) {
     if (token.type === 'table') {
-      flush();
       result.push(<MarkdownTable key={`md_${idx++}`} token={token} />);
+    } else if (token.type === 'space') {
+      continue;
     } else {
-      buffer += formatToken(token);
+      pushAnsi(formatToken(token));
     }
   }
-  flush();
   return result;
 }
 

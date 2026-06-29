@@ -62,16 +62,12 @@ let _gatewayQuotaStatusCache = { key: '', at: 0, value: null };
 let _fallbackQuotaStatusCache = { key: '', at: 0, value: null };
 let _hiddenStatuslineRoles = null;
 
-function summarizeWorkerModels(workers, cols, limit = 3) {
+function summarizeWorkerTags(workers, limit = 3) {
   const cleanLabels = [...new Set((Array.isArray(workers) ? workers : [])
-    .map((worker) => {
-      const modelName = worker?.model ? displayModelName(worker.provider, worker.model) : '';
-      return String(modelName || worker?.tag || '').trim();
-    })
+    .map((worker) => String(worker?.tag || '').trim())
     .filter(Boolean))];
-  const labels = cleanLabels.map((label) => shortenModelName(label, cols));
-  if (labels.length <= limit) return labels.join(', ');
-  return `${labels.slice(0, limit).join(', ')}, +${labels.length - limit}`;
+  if (cleanLabels.length <= limit) return cleanLabels.join(', ');
+  return `${cleanLabels.slice(0, limit).join(', ')}, +${cleanLabels.length - limit}`;
 }
 
 function workerSpinnerFrame(now = Date.now()) {
@@ -270,9 +266,9 @@ function renderNativeStatusline({ provider = '', model = '', effort = '', fast =
   const spinnerNow = Date.now();
   if (runningWorkers.length) {
     const label = `${runningWorkers.length} Running Agent${runningWorkers.length === 1 ? '' : 's'}`;
-    const modelSummary = summarizeWorkerModels(runningWorkers, cols);
-    const models = modelSummary ? ` ${D}(${R}${B}${modelSummary}${R}${D})${R}` : '';
-    addL2(`${GRN}${workerSpinnerFrame(spinnerNow)}${R} ${B}${label}${R}${models}`);
+    const tagSummary = summarizeWorkerTags(runningWorkers);
+    const tags = tagSummary ? ` ${D}(${R}${B}${tagSummary}${R}${D})${R}` : '';
+    addL2(`${GRN}${workerSpinnerFrame(spinnerNow)}${R} ${B}${label}${R}${tags}`);
   }
   if (shellStatus.count > 0) {
     const label = `${shellStatus.count} Running Shell${shellStatus.count === 1 ? '' : 's'}`;

@@ -2406,6 +2406,49 @@ function prefixSessionStartContent(content, sessionBlock) {
     return `${sessionBlock}\n\n${content}`;
 }
 
+function localIsoDate(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function localDateTimeWithZone(date = new Date()) {
+    const datePart = localIsoDate(date);
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    const ss = String(date.getSeconds()).padStart(2, '0');
+    let zone = '';
+    try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch {}
+    return zone ? `${datePart} ${hh}:${mm}:${ss} ${zone}` : `${datePart} ${hh}:${mm}:${ss}`;
+}
+
+function temporalPromptText(content) {
+    const text = promptContentText(content)
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+    return text;
+}
+
+function promptNeedsDateReminder(content) {
+    const text = temporalPromptText(content);
+    if (!text) return false;
+    return /(?:오늘|내일|어제|모레|그저께|요즘|최근|방금|아까|현재\s*(?:날짜|시간|시각)|지금\s*(?:몇\s*시|시간|날짜|요일)|몇\s*월\s*몇\s*일|몇\s*시|무슨\s*요일|요일|날짜|이번\s*(?:주|달|월|년)|지난\s*(?:주|달|월|년)|다음\s*(?:주|달|월|년)|올해|작년|내년|today|tomorrow|yesterday|recently|current\s+(?:date|time)|what\s+(?:date|time)|which\s+day|weekday|this\s+(?:week|month|year)|last\s+(?:week|month|year)|next\s+(?:week|month|year))/i.test(text);
+}
+
+function promptNeedsTimeReminder(content) {
+    const text = temporalPromptText(content);
+    if (!text) return false;
+    return /(?:현재\s*(?:시간|시각)|지금\s*(?:몇\s*시|시간)|몇\s*시|시각|시간|current\s+time|what\s+time|time\s+is\s+it)/i.test(text);
+}
+
+function buildCurrentTimeBlock(content) {
+    const needsTime = promptNeedsTimeReminder(content);
+    if (!needsTime && !promptNeedsDateReminder(content)) return '';
+    return localDateTimeWithZone(new Date());
+}
+
 function sessionModelDisplay(model) {
     const text = String(model || '').trim();
     if (!text) return '';
@@ -2413,6 +2456,10 @@ function sessionModelDisplay(model) {
         .replace(/-\d{4}-\d{2}-\d{2}$/, '')
         .replace(/^gpt-/i, 'GPT-')
         .replace(/(?:^|-)([a-z])/g, (m) => m.toUpperCase());
+}
+
+function sessionShellDisplay() {
+    return process.platform === 'win32' ? 'powershell' : 'bash';
 }
 
 function buildSessionStartBlock(session, cwd) {
@@ -2428,6 +2475,7 @@ function buildSessionStartBlock(session, cwd) {
     if (modelBits.length) lines.push(`Model: ${modelBits.join(' · ')}`);
     const workflowName = String(session.workflow?.name || session.workflow?.id || '').trim();
     if (workflowName) lines.push(`Workflow: ${workflowName}`);
+    lines.push(`Shell: ${sessionShellDisplay()}`);
     return lines.length > 1 ? lines.join('\n') : '';
 }
 
@@ -2435,6 +2483,12 @@ function isReferenceFilesMessage(message) {
     return message?.role === 'user'
         && typeof message.content === 'string'
         && /^Reference files:\s*/i.test(message.content.trimStart());
+}
+
+function isProtectedContextUserMessage(message) {
+    return message?.role === 'user'
+        && typeof message.content === 'string'
+        && message.content.trimStart().startsWith('<system-reminder>');
 }
 
 function hasUserConversationMessage(messages) {
@@ -2701,8 +2755,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             const _sessionStartBlock = shouldInjectSessionStart
                 ? buildSessionStartBlock(session, effectiveCwd)
                 : '';
+            const _currentTimeBlock = buildCurrentTimeBlock(prompt);
+            const _turnReminderBlock = _currentTimeBlock
+                ? `<system-reminder>\n# Current Time\n${_currentTimeBlock}\n</system-reminder>`
+                : '';
+            const _turnPrefixBlock = [_sessionStartBlock, _turnReminderBlock].filter(Boolean).join('\n\n');
             const _baseUserTurnContent = prefixUserTurnContent(prompt, _contextBlock);
-            const _userTurnContent = prefixSessionStartContent(_baseUserTurnContent, _sessionStartBlock);
+            const _userTurnContent = prefixSessionStartContent(_baseUserTurnContent, _turnPrefixBlock);
             if (shouldInjectSessionStart && _sessionStartBlock) {
                 session.sessionStartMetaInjected = true;
             }
@@ -2749,6 +2808,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         try { askOpts?.onUsageDelta?.(d); } catch {}
                     },
                     onToolResult: typeof askOpts?.onToolResult === 'function' ? askOpts.onToolResult : undefined,
+                    onToolApproval: typeof askOpts?.onToolApproval === 'function' ? askOpts.onToolApproval : undefined,
                     onCompactEvent: typeof askOpts?.onCompactEvent === 'function' ? askOpts.onCompactEvent : undefined,
                     // Mid-turn steering drain. agentLoop calls this at every
                     // tool-batch boundary (before the next provider.send) and
