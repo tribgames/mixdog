@@ -13,6 +13,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { bold, colorEnabled, rgb } from './ansi.mjs';
+import { canonicalModelDisplay, shortenModelName } from './model-display.mjs';
 import { createSessionStats } from './session-stats.mjs';
 import { forEachSessionRuntime } from '../runtime/agent/orchestrator/session/manager.mjs';
 import { listHiddenRoleNames } from '../runtime/agent/orchestrator/internal-roles.mjs';
@@ -431,60 +432,6 @@ function displayModelName(provider, model) {
   const meta = getModelMetadataSync(raw, provider) || {};
   const display = String(meta.displayName || meta.display || meta.name || '').trim();
   return display || canonicalModelDisplay(raw, provider) || raw || 'model';
-}
-
-function titleModelPart(part) {
-  const text = String(part || '').trim();
-  if (!text) return '';
-  const lower = text.toLowerCase();
-  if (lower === 'gpt') return 'GPT';
-  if (lower === 'api') return 'API';
-  if (lower === 'v4') return 'V4';
-  return lower.charAt(0).toUpperCase() + lower.slice(1);
-}
-
-function canonicalModelDisplay(model, provider) {
-  const raw = String(model || '').trim().replace(/-\d{4}-\d{2}-\d{2}$/, '');
-  if (!raw) return '';
-
-  const gpt = raw.match(/^gpt-(\d+(?:\.\d+)?)(?:-(.+))?$/i);
-  if (gpt) {
-    const suffix = gpt[2]
-      ? '-' + gpt[2].split('-').map(titleModelPart).filter(Boolean).join('-')
-      : '';
-    return `GPT-${gpt[1]}${suffix}`;
-  }
-
-  const codex = raw.match(/^codex-(.+)$/i);
-  if (codex) {
-    return `Codex ${codex[1].split('-').map(titleModelPart).filter(Boolean).join(' ')}`;
-  }
-
-  const deepseek = raw.match(/^deepseek-(.+)$/i);
-  if (deepseek) {
-    return `DeepSeek ${deepseek[1].split('-').map(titleModelPart).filter(Boolean).join(' ')}`;
-  }
-
-  const grok = raw.match(/^grok-(.+)$/i);
-  if (grok) {
-    return `Grok ${grok[1].split('-').map(titleModelPart).filter(Boolean).join(' ')}`;
-  }
-
-  const claude = raw.match(/^claude-(opus|sonnet|haiku)-(.+)$/i);
-  if (claude) {
-    return `Claude ${titleModelPart(claude[1])} ${claude[2].replace(/-/g, '.')}`;
-  }
-
-  return raw;
-}
-
-function shortenModelName(name, cols) {
-  let out = String(name || 'model').replace(/\s*\(1M context\)/i, ' (1M)');
-  out = out.replace(/^Claude\s+/i, '');
-  out = out.replace(/^OpenAI\s+/i, '');
-  if (cols < 80 && out.length > 18) return out.slice(0, 17) + '…';
-  if (cols < 120 && out.length > 28) return out.slice(0, 27) + '…';
-  return out;
 }
 
 function formatContextSegment(ctxPct, cols) {

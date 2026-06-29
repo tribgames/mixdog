@@ -8,6 +8,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text } from 'ink';
+import { canonicalModelDisplay, shortenModelName } from '../../ui/model-display.mjs';
 import { theme } from '../theme.mjs';
 
 // Loaded at RUNTIME (not bundled) so its vendored statusline-lib relative
@@ -206,10 +207,11 @@ function localBootStatusLine({
   agentWorkers = [],
   agentJobs = [],
 } = {}) {
-  const display = String(model || 'model')
-    .replace(/-\d{4}-\d{2}-\d{2}$/, '')
-    .replace(/^gpt-/i, 'GPT-')
-    .replace(/(?:^|-)([a-z])/g, (m) => m.toUpperCase());
+  const raw = String(model || '').trim();
+  const display = shortenModelName(
+    canonicalModelDisplay(raw, provider) || raw || 'model',
+    terminalColumns(),
+  );
   const flags = [effort ? String(effort).toUpperCase() : '', fast === true ? 'FAST' : ''].filter(Boolean);
   const modelBits = [display, ...flags].join(` ${SUBTLE}·${RESET} `);
   const ctxPct = localContextPct({ provider, stats, contextWindow });
