@@ -10,8 +10,11 @@ export const BULLET_OPERATOR = '·';
 export const UP_ARROW = '↑';
 export const DOWN_ARROW = '↓';
 
-// Tool-result tree gutter.
-export const RESULT_GUTTER_GLYPH = '⎿';
+// Tool-result tree gutter. U+2514 (BOX DRAWINGS LIGHT UP AND RIGHT) renders in
+// virtually every monospace font; the previous U+23BF (bracket extension) had
+// no glyph in common terminal fonts (Cascadia/Consolas) and fell back to a
+// literal "L", breaking the result tree alignment.
+export const RESULT_GUTTER_GLYPH = '└';
 
 // Blockquote indicator
 export const BLOCKQUOTE_BAR = '▎';

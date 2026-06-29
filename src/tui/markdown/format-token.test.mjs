@@ -117,7 +117,7 @@ test('every palette defines the full extended key set', () => {
     'syntaxComment', 'syntaxKeyword', 'syntaxFunction', 'syntaxVariable',
     'syntaxString', 'syntaxNumber', 'syntaxType', 'syntaxOperator', 'syntaxPunctuation',
   ];
-  for (const id of ['mixdog', 'pi-dark', 'claude-dark', 'claude-light']) {
+  for (const id of ['mixdog', 'pi-dark', 'claude-dark', 'dracula', 'tokyonight', 'nord', 'gruvbox', 'catppuccin', 'everforest']) {
     setThemeSetting(id, { persist: false });
     for (const key of required) {
       assert.ok(/^rgb\(\d+,\s*\d+,\s*\d+\)$/.test(String(theme[key])), `${id}.${key} is an rgb() string`);
