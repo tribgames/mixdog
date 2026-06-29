@@ -92,7 +92,12 @@ export function normalizeStatusLine(text) {
     .replaceAll(`${RESET} ${SUBTLE}│${RESET} `, ` ${SUBTLE}│${RESET} `);
 }
 
-function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], initialLine = '' }) {
+function workflowModeLabel(workflow = {}) {
+  const name = String(workflow?.name || workflow?.id || 'Default').trim() || 'Default';
+  return `${name} Mode`;
+}
+
+function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], initialLine = '', workflow = null }) {
   const [line, setLine] = useState(() => normalizeStatusLine(initialLine || localFallbackStatusLine({ provider, model, effort, fast })));
   const [refreshTick, setRefreshTick] = useState(0);
 
@@ -139,11 +144,19 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, agentRevision, agentWorkers, agentJobs, refreshTick]);
 
   const lines = line ? line.split('\n').slice(0, 2) : [' ', ' '];
+  const workflowLabel = workflowModeLabel(workflow);
   // Footer footprint stays 3 rows total, but L2 sits directly under L1 without
   // an internal spacer; the remaining row is kept as outer breathing room.
   return (
     <Box flexDirection="column" width="100%" height={3} overflow="hidden" paddingLeft={2} backgroundColor={theme.background}>
-      <Text wrap="truncate">{lines[0] || ' '}</Text>
+      <Box flexDirection="row" width="100%" overflow="hidden">
+        <Box flexGrow={1} flexShrink={1} overflow="hidden">
+          <Text wrap="truncate">{lines[0] || ' '}</Text>
+        </Box>
+        <Box flexShrink={0} marginLeft={1}>
+          <Text color={theme.statusSubtle} wrap="truncate">{workflowLabel}</Text>
+        </Box>
+      </Box>
       <Text wrap="truncate">{lines[1] || ' '}</Text>
     </Box>
   );

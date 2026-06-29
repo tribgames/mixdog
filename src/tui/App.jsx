@@ -46,6 +46,16 @@ import {
   splitPastedImagePathCandidates,
 } from './paste-attachments.mjs';
 import { formatDuration } from './time-format.mjs';
+import {
+  listProjects,
+  addProject,
+  renameProject,
+  isDirectory,
+  pathExists,
+  ensureDir,
+  resolveProjectPath,
+} from '../standalone/projects.mjs';
+import { pickFolder } from '../standalone/folder-dialog.mjs';
 
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
@@ -54,6 +64,7 @@ const MOUSE_CTRL_MASK = 16;
 
 const SLASH_COMMANDS = [
   { name: 'clear', usage: '/clear', aliases: ['new'], aliasUsage: ['new'], description: 'Start a fresh chat' },
+  { name: 'project', usage: '/project', aliases: ['projects'], aliasUsage: ['projects'], description: 'Switch working directory (project)' },
   { name: 'compact', usage: '/compact', description: 'Compact older conversation context' },
   { name: 'autoclear', usage: '/autoclear', description: 'Reduce cache-miss cost after long idle gaps' },
   { name: 'resume', usage: '/resume', description: 'Resume a saved chat' },
@@ -124,6 +135,16 @@ function terminalSize(stdout) {
 
 function clean(value) {
   return String(value ?? '').trim();
+}
+
+function workflowDisplayName(workflow = {}) {
+  return clean(workflow?.name || workflow?.id) || 'Default';
+}
+
+const WORKFLOW_SESSION_RESTART_HINT = 'Session restart needed';
+
+function workflowSwitchNotice(workflow = {}) {
+  return `Workflow set to ${workflowDisplayName(workflow)}`;
 }
 
 function systemShellDescription(shell = {}) {
@@ -2869,7 +2890,8 @@ export function App({ store, initialStatusLine = '' }) {
               store.pushNotice('Workflow switch is already running.', 'warn');
               return;
             }
-            store.pushNotice(`Workflow set to ${result.name}`, 'info');
+            store.pushNotice(workflowSwitchNotice(result), 'info');
+            showPromptHint(WORKFLOW_SESSION_RESTART_HINT, 'warn');
             if (returnTo) returnTo();
           })
           .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'));
@@ -3376,7 +3398,7 @@ export function App({ store, initialStatusLine = '' }) {
     const compactType = compaction.compactType || compaction.type || 'semantic';
     const compactTypeLabel = compactType === 'recall-fasttrack' ? 'Fast-track' : 'Default';
     const outputStyleLabel = outputStyle?.current?.label || outputStyle?.current?.id || outputStyle?.configured || 'Default';
-    const workflowLabel = workflow.name || workflow.id || 'Default';
+    const workflowLabel = workflowDisplayName(workflow);
     const boolLabel = (enabled) => enabled ? 'On' : 'Off';
     const compactTypeDescription = memory.enabled === false
       ? 'Default summarization is active; fast-track needs Memory.'
@@ -3472,7 +3494,8 @@ export function App({ store, initialStatusLine = '' }) {
             store.pushNotice('Workflow switch is already running.', 'warn');
             return;
           }
-          store.pushNotice(`Workflow set to ${result.name}`, 'info');
+          store.pushNotice(workflowSwitchNotice(result), 'info');
+          showPromptHint(WORKFLOW_SESSION_RESTART_HINT, 'warn');
         })
         .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'))
         .finally(() => openSettingsPicker());
@@ -5395,6 +5418,207 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
+  // Open the manual path-entry flow. The user types a directory path; on submit
+  // we register it (and offer to create it if missing) and switch cwd. Used as a
+  // fallback when no native folder dialog is available.
+  const beginNewProjectManual = () => {
+    setPicker(null);
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setContextPanel(null);
+    closeUsagePanel();
+    setSettingsPrompt({
+      kind: 'project-new',
+      label: 'New project · Path',
+      hint: 'Type a directory path. The folder name becomes the project name.',
+    });
+  };
+
+  // Begin "create project": open the OS-native folder picker. The project picker
+  // stays mounted (swapped to a non-interactive "Opening folder picker…" panel)
+  // while the native dialog is open, so the welcome banner/layout stay put and
+  // the prompt remains disabled (input is gated on `!!picker`). On a chosen
+  // folder we register + switch cwd; on cancel we return to the project picker;
+  // when no dialog tool exists we fall back to manual path typing.
+  const beginNewProject = () => {
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setContextPanel(null);
+    closeUsagePanel();
+    // Keep an overlay up (kind:'project' so the banner/height stay reserved) but
+    // make it inert: no selectable items, navigation is a no-op until resolve.
+    setPicker({
+      kind: 'project',
+      title: 'Project',
+      description: 'Opening folder picker… choose a folder in the dialog window.',
+      help: 'Waiting for the system folder dialog…',
+      indexMode: 'never',
+      items: [],
+      onSelect: () => {},
+      onCancel: () => {},
+    });
+    void pickFolder({ title: 'Select a project folder' })
+      .then((result) => {
+        if (!result || result.available === false) {
+          // No native dialog on this system → manual typing.
+          beginNewProjectManual();
+          return;
+        }
+        if (!result.path) {
+          // User cancelled the dialog → back to the project list.
+          openProjectPicker();
+          return;
+        }
+        setPicker(null);
+        enterProject(result.path);
+      })
+      .catch(() => {
+        beginNewProjectManual();
+      });
+  };
+
+  // Switch the active working directory to a registered/created project path.
+  const enterProject = (rawPath) => {
+    const path = resolveProjectPath(rawPath);
+    if (!path) {
+      store.pushNotice('project path is required', 'warn');
+      return;
+    }
+    try {
+      // Switch cwd first; only persist the project once the runtime accepts it,
+      // so an invalid/missing path can never be written to projects.json.
+      store.setCwd?.(path);
+      addProject(path);
+    } catch (e) {
+      store.pushNotice(`project switch failed: ${e?.message || e}`, 'error');
+    }
+  };
+
+  // Begin renaming a registered project's display name. Opens a text prompt
+  // seeded with the current name; submitting persists via renameProject and
+  // returns to the project picker. The path is never changed.
+  const beginRenameProject = (project) => {
+    if (!project?.path) return;
+    setPicker(null);
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setContextPanel(null);
+    closeUsagePanel();
+    setSettingsPrompt({
+      kind: 'project-rename',
+      label: 'Rename project',
+      hint: 'Set a display name. Leave blank to reset to the folder name.',
+      projectPath: project.path,
+      initialValue: project.name || '',
+    });
+  };
+
+  // Open the project selector, styled like the Model picker: numbered rows with
+  // a Name column + Path column. The list always opens (even when empty) and
+  // begins with a "Use current" shortcut, then registered projects, then a
+  // final "+ New project" row.
+  const openProjectPicker = () => {
+    let projects = [];
+    try {
+      projects = listProjects() || [];
+    } catch {
+      projects = [];
+    }
+    const currentPath = String(state.cwd || process.cwd() || '');
+    const currentName = currentPath
+      ? currentPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || currentPath
+      : '(current)';
+    const items = [];
+    // Row 1: the implicit current-directory shortcut (not persisted).
+    items.push({
+      value: '__use_current__',
+      label: currentName,
+      meta: currentPath,
+      _action: 'current',
+    });
+    // Registered projects.
+    for (const project of projects) {
+      if (!project?.path) continue;
+      items.push({
+        value: project.path,
+        label: project.name || project.path,
+        meta: project.path,
+        _project: project,
+      });
+    }
+    // Final row: create / register a new project.
+    items.push({
+      value: '__new_project__',
+      label: 'Create Project',
+      meta: '',
+      _action: 'new',
+    });
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setContextPanel(null);
+    closeUsagePanel();
+    setPicker({
+      kind: 'project',
+      title: 'Project',
+      description: 'Choose a project.',
+      help: '↑/↓ Select · Enter Open · r Rename · Esc Back',
+      indexMode: 'always',
+      labelWidth: 18,
+      metaWidth: 40,
+      items,
+      onSelect: (_value, item) => {
+        if (item?._action === 'new') {
+          beginNewProject();
+          return;
+        }
+        if (item?._action === 'current') {
+          setPicker(null);
+          try {
+            store.setCwd?.(currentPath);
+          } catch (e) {
+            store.pushNotice(`project switch failed: ${e?.message || e}`, 'error');
+          }
+          return;
+        }
+        setPicker(null);
+        const project = item?._project;
+        if (project?.path) enterProject(project.path);
+      },
+      onKey: (input, _key, item) => {
+        // 'r' renames the highlighted registered project (not the current-dir
+        // shortcut or the create row).
+        if ((input === 'r' || input === 'R') && item?._project?.path) {
+          beginRenameProject(item._project);
+        }
+      },
+      onCancel: () => {
+        setPicker(null);
+      },
+    });
+  };
+
+  // Initial entry: open the project selector BEFORE the first paint so it never
+  // appears to "expand in" a frame late. useLayoutEffect runs after the initial
+  // render commit but before the terminal paints, so the picker is part of the
+  // very first visible frame. Gated by a ref so it fires once and never re-opens
+  // on later empty renders (e.g. after /clear).
+  const initialProjectPromptShownRef = useRef(false);
+  useLayoutEffect(() => {
+    if (initialProjectPromptShownRef.current) return;
+    // Consume the one-shot on the FIRST commit regardless of outcome, so a later
+    // /clear (which empties the transcript again) can never re-open it.
+    initialProjectPromptShownRef.current = true;
+    // Only auto-open for a fresh, empty session with no overlay already up.
+    if (state.items.length > 0) return;
+    if (picker || settingsPrompt || providerPrompt || channelPrompt || hookPrompt || contextPanel || usagePanel) return;
+    openProjectPicker();
+  }, []);
+
   const runSlashCommand = (cmd, arg = '') => {
     cmd = normalizeSlashCommandName(cmd);
     if (cmd !== 'context') setContextPanel(null);
@@ -5445,7 +5669,14 @@ export function App({ store, initialStatusLine = '' }) {
           return true;
         }
         void store.setWorkflow?.(arg.trim())
-          .then((result) => store.pushNotice(result ? `Workflow set to ${result.name}` : 'Workflow switch is already running.', result ? 'info' : 'warn'))
+          .then((result) => {
+            if (!result) {
+              store.pushNotice('Workflow switch is already running.', 'warn');
+              return;
+            }
+            store.pushNotice(workflowSwitchNotice(result), 'info');
+            showPromptHint(WORKFLOW_SESSION_RESTART_HINT, 'warn');
+          })
           .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'));
         return true;
       case 'outputstyle': {
@@ -5533,6 +5764,15 @@ export function App({ store, initialStatusLine = '' }) {
         } catch (e) {
           store.pushNotice(`cwd failed: ${e?.message || e}`, 'error');
         }
+        return true;
+      }
+      case 'project': {
+        const target = arg.trim();
+        if (target) {
+          enterProject(target);
+          return true;
+        }
+        openProjectPicker();
         return true;
       }
       case 'tools':
@@ -5887,6 +6127,63 @@ export function App({ store, initialStatusLine = '' }) {
           void openSettingsPicker();
           return true;
         }
+        if (settingsPrompt.kind === 'project-new') {
+          if (!commandText) {
+            store.pushNotice('project path is required', 'warn');
+            return false;
+          }
+          const path = resolveProjectPath(commandText);
+          if (isDirectory(path)) {
+            setSettingsPrompt(null);
+            enterProject(path);
+            return true;
+          }
+          // A path that exists but is a regular file is not a valid project dir.
+          if (pathExists(path)) {
+            store.pushNotice(`${path} is not a directory`, 'warn');
+            return false;
+          }
+          // Missing folder: confirm creation before registering + switching.
+          setSettingsPrompt({
+            kind: 'project-create-confirm',
+            label: 'New project · Create folder?',
+            hint: `${path} does not exist. Type "y" to create it, or anything else to cancel.`,
+            pendingPath: path,
+          });
+          return true;
+        }
+        if (settingsPrompt.kind === 'project-create-confirm') {
+          const pendingPath = String(settingsPrompt.pendingPath || '');
+          const answer = String(commandText || '').trim().toLowerCase();
+          if (answer === 'y' || answer === 'yes') {
+            const created = ensureDir(pendingPath);
+            if (!created) {
+              store.pushNotice(`could not create folder: ${pendingPath}`, 'error');
+              setSettingsPrompt(null);
+              return true;
+            }
+            setSettingsPrompt(null);
+            enterProject(pendingPath);
+            return true;
+          }
+          setSettingsPrompt(null);
+          store.pushNotice('project creation canceled', 'info');
+          return true;
+        }
+        if (settingsPrompt.kind === 'project-rename') {
+          const targetPath = String(settingsPrompt.projectPath || '');
+          try {
+            const updated = renameProject(targetPath, commandText);
+            if (updated) {
+              store.pushNotice(`project renamed to "${updated.name}"`, 'info');
+            }
+          } catch (e) {
+            store.pushNotice(`rename failed: ${e?.message || e}`, 'error');
+          }
+          setSettingsPrompt(null);
+          openProjectPicker();
+          return true;
+        }
         if (settingsPrompt.kind === 'system-shell') {
           store.setSystemShell?.(commandText);
           setSettingsPrompt(null);
@@ -6061,8 +6358,14 @@ export function App({ store, initialStatusLine = '' }) {
   }, [showPromptHint]);
 
   const cancelSettingsPrompt = useCallback(() => {
+    // The project entry prompts are reached from the project picker; backing out
+    // (Esc) should return to that picker rather than dropping to a bare prompt.
+    const kind = settingsPrompt?.kind;
     setSettingsPrompt(null);
-  }, [showPromptHint]);
+    if (kind === 'project-new' || kind === 'project-create-confirm' || kind === 'project-rename') {
+      openProjectPicker();
+    }
+  }, [settingsPrompt, showPromptHint]);
 
   const acceptSlashPalette = useCallback(() => {
     const command = slashCommands[slashIndex];
@@ -6127,10 +6430,17 @@ export function App({ store, initialStatusLine = '' }) {
   const hasTextEntryPrompt = !!textEntryPrompt;
   const hasFloatingPanel = !!(picker || contextPanel || usagePanel || slashPaletteOpen || hasTextEntryPrompt);
   const expandedOptionPanel = !!(picker || contextPanel || usagePanel || hasTextEntryPrompt);
+  // Project selection (initial-entry experience) keeps the welcome banner
+  // visible above the picker / path-entry prompt, unlike other floating panels.
+  const projectSelectionActive = picker?.kind === 'project'
+    || settingsPrompt?.kind === 'project-new'
+    || settingsPrompt?.kind === 'project-create-confirm'
+    || settingsPrompt?.kind === 'project-rename';
   // Slash search floats above the normal prompt. Actual option panels own the
   // prompt/status area, so they hide those rows and expand into that space.
   const inputBoxHidden = expandedOptionPanel;
-  const WELCOME_ROWS = state.items.length === 0 && !hasFloatingPanel ? 11 : 0;
+  const showWelcomeBanner = (state.items.length === 0 && !hasFloatingPanel) || projectSelectionActive;
+  const WELCOME_ROWS = showWelcomeBanner ? 11 : 0;
   const liveSpinner = state.spinner?.active ? state.spinner : (state.commandStatus?.active ? state.commandStatus : null);
   const latestToast = state.toasts?.length ? state.toasts[state.toasts.length - 1] : null;
   const toastHint = latestToast ? latestToast.text : '';
@@ -6420,6 +6730,42 @@ export function App({ store, initialStatusLine = '' }) {
     scrollPositionRef.current = next;
     setScrollOffset(Math.round(next));
   }, [transcriptWindow.maxScrollRows, scrollOffset, stopSmoothScroll]);
+  const cycleWorkflowFromPrompt = useCallback(() => {
+    if (slashPaletteOpen || picker || settingsPrompt || providerPrompt || channelPrompt || hookPrompt || contextPanel || usagePanel) return true;
+    if (state.busy) {
+      store.pushNotice('wait for the current turn to finish before /workflow', 'warn');
+      return true;
+    }
+    let workflows = [];
+    try {
+      workflows = store.listWorkflows?.() || [];
+    } catch (e) {
+      store.pushNotice(`could not list workflows: ${e?.message || e}`, 'error');
+      return true;
+    }
+    if (!workflows.length) {
+      store.pushNotice('no workflows available', 'warn');
+      return true;
+    }
+    const workflow = state.workflow || {};
+    if (workflows.length < 2) {
+      store.pushNotice(`Workflow: ${workflowDisplayName(workflows[0] || workflow)}`, 'info');
+      return true;
+    }
+    const currentIndex = Math.max(0, workflows.findIndex((item) => item.active || item.id === workflow.id));
+    const next = workflows[(currentIndex + 1 + workflows.length) % workflows.length];
+    void store.setWorkflow?.(next.id)
+      .then((result) => {
+        if (!result) {
+          store.pushNotice('Workflow switch is already running.', 'warn');
+          return;
+        }
+        store.pushNotice(workflowSwitchNotice(result), 'info');
+        showPromptHint(WORKFLOW_SESSION_RESTART_HINT, 'warn');
+      })
+      .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'));
+    return true;
+  }, [slashPaletteOpen, picker, settingsPrompt, providerPrompt, channelPrompt, hookPrompt, contextPanel, usagePanel, state.busy, state.workflow, store, showPromptHint]);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
   // is a live column, so the live-frame line count ink relies on is accurate.
@@ -6438,6 +6784,7 @@ export function App({ store, initialStatusLine = '' }) {
       hintTone={inputHintTone}
       mask={false}
       onEscape={handlePromptEscape}
+      onTab={cycleWorkflowFromPrompt}
       onPasteText={handlePromptPaste}
       onHistoryNavigate={handlePromptHistoryNavigate}
       commandPaletteActive={slashPaletteOpen}
@@ -6473,7 +6820,7 @@ export function App({ store, initialStatusLine = '' }) {
     <Box flexDirection="column" width={frameColumns} height={resizeState.rows} backgroundColor={theme.background}>
       {/* Empty-transcript header stays outside the bottom-anchored viewport and
           has its own reserved rows, so it cannot steal space from the input. */}
-      {state.items.length === 0 && !hasFloatingPanel ? (
+      {showWelcomeBanner ? (
         <Box flexDirection="column" height={7} flexShrink={0} marginTop={3} marginBottom={1} backgroundColor={theme.background}>
           <Text color={theme.text} bold>{centerLine('███╗   ███╗██╗██╗  ██╗██████╗  ██████╗  ██████╗ ', frameColumns)}</Text>
           <Text color={theme.text} bold>{centerLine('████╗ ████║██║╚██╗██╔╝██╔══██╗██╔═══██╗██╔════╝ ', frameColumns)}</Text>
@@ -6592,6 +6939,7 @@ export function App({ store, initialStatusLine = '' }) {
                 onLeft={picker.onLeft}
                 onRight={picker.onRight}
                 onTab={picker.onTab}
+                onKey={picker.onKey}
                 title={picker.title}
                 description={picker.description}
                 footer={picker.footer}
@@ -6691,8 +7039,25 @@ export function App({ store, initialStatusLine = '' }) {
                 title={settingsPrompt.label}
                 hint={settingsPrompt.hint || 'Save setting.'}
                 columns={frameColumns}
-                actionLabel={settingsPrompt.kind === 'skill-use' ? 'run' : 'save'}
-                promptLabel={settingsPrompt.kind === 'skill-use' ? 'Command > ' : 'Value > '}
+                initialValue={settingsPrompt.initialValue || ''}
+                actionLabel={settingsPrompt.kind === 'skill-use'
+                  ? 'run'
+                  : settingsPrompt.kind === 'project-new'
+                    ? 'open'
+                    : settingsPrompt.kind === 'project-create-confirm'
+                      ? 'confirm'
+                      : settingsPrompt.kind === 'project-rename'
+                        ? 'rename'
+                        : 'save'}
+                promptLabel={settingsPrompt.kind === 'skill-use'
+                  ? 'Command > '
+                  : settingsPrompt.kind === 'project-new'
+                    ? 'Path > '
+                    : settingsPrompt.kind === 'project-create-confirm'
+                      ? 'Create? (y/n) > '
+                      : settingsPrompt.kind === 'project-rename'
+                        ? 'Name > '
+                        : 'Value > '}
                 onSubmit={onSubmit}
                 onCancel={cancelSettingsPrompt}
               />
@@ -6761,6 +7126,7 @@ export function App({ store, initialStatusLine = '' }) {
           agentWorkers={state.agentWorkers}
           agentJobs={state.agentJobs}
           initialLine={initialStatusLine}
+          workflow={state.workflow}
         />
       </Box>
     </Box>

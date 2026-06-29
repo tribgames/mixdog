@@ -1999,9 +1999,18 @@ function recordStandaloneStatusTelemetry(session, result, durationMs) {
         model: result.model,
         serviceTier: result.serviceTier,
     };
+    // The transcript estimate is the SSOT for the displayed context footprint.
+    // agentLoop()'s result has no `compact` field, so build a synthetic compact
+    // arg carrying the live monotonic estimate (estimateMessagesTokens+reserve)
+    // as afterTokens. This lights up summarizeGatewayUsage's estimate-based
+    // contextUsedPct branch (provider input_tokens swing wildly / unbounded on
+    // e.g. OpenAI gpt-5.5), and lets a genuine >100% pass through.
+    const _reserve = estimateRequestReserveTokens(session.tools || []);
+    const _estTokens = estimateMessagesTokens(Array.isArray(session.messages) ? session.messages : []) + _reserve;
+    const _compactArg = { ...(result.compact && typeof result.compact === 'object' ? result.compact : {}), afterTokens: _estTokens };
     try {
         const summary = {
-            ...summarizeGatewayUsage(routeInfo, providerOut, result.compact || null, durationMs),
+            ...summarizeGatewayUsage(routeInfo, providerOut, _compactArg, durationMs),
             requestKind: 'chat',
             sessionId: session.id || null,
             toolCount: result.toolCallsTotal ?? null,

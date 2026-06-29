@@ -1814,7 +1814,7 @@ export async function createEngineSession({
         // leaves the final on-screen assistant row missing leading characters even
         // though the transcript is correct. Always reconcile the active segment to
         // the final provider text when it is available.
-        const id = currentAssistantId || ensureAssistant();
+        const id = currentAssistantId || ensureAssistant(finalText);
         currentAssistantText = finalText;
         patchItem(id, { text: finalText, streaming: false });
       } else if (currentAssistantId && (currentAssistantText.trim() || assistantText.trim())) {

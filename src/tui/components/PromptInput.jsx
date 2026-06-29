@@ -107,6 +107,7 @@ export function PromptInput({
   initialValue = '',
   draftOverride,
   onEscape,
+  onTab,
   onCommandPaletteNavigate,
   onCommandPaletteAccept,
   onCommandPaletteCancel,
@@ -311,6 +312,17 @@ export function PromptInput({
 
     const rawUpArrow = rawInput === '\x1b[A' || rawInput === '\x1bOA' || rawInput === '[A' || rawInput === 'OA';
     const rawDownArrow = rawInput === '\x1b[B' || rawInput === '\x1bOB' || rawInput === '[B' || rawInput === 'OB';
+    // Shift+Arrow modifier sequences (xterm `\x1b[1;2<dir>`, rxvt `\x1b[<dir>`
+    // lowercase). Ink's useInput does not decode the `;2` (shift) modifier into
+    // key.shift for arrows, so the bytes arrive as raw input and the plain-arrow
+    // matchers above miss them — selection-extend never fires. Detect them here
+    // and fold into a single `shiftHeld` signal used by every arrow/home/end
+    // branch below (alongside ink's key.shift for terminals that DO decode it).
+    const rawShiftUp = rawInput === '\x1b[1;2A' || rawInput === '\x1b[a' || rawInput === '[1;2A';
+    const rawShiftDown = rawInput === '\x1b[1;2B' || rawInput === '\x1b[b' || rawInput === '[1;2B';
+    const rawShiftRight = rawInput === '\x1b[1;2C' || rawInput === '\x1b[c' || rawInput === '[1;2C';
+    const rawShiftLeft = rawInput === '\x1b[1;2D' || rawInput === '\x1b[d' || rawInput === '[1;2D';
+    const shiftHeld = key.shift || rawShiftUp || rawShiftDown || rawShiftLeft || rawShiftRight;
     const lineBreakIndex = rawInput.search(/[\r\n]/);
     const rawEnter = rawInput === '\r' || rawInput === '\n' || rawInput === '\r\n';
     const trailingEnterPrefix = singleTrailingLineBreakPrefix(rawInput);
@@ -370,25 +382,25 @@ export function PromptInput({
       return;
     }
 
-    if (key.upArrow || rawUpArrow) {
+    if (key.upArrow || rawUpArrow || rawShiftUp) {
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.(-1);
       } else {
         const hasDraftText = String(draftRef.current.value || '').trim().length > 0;
         if (!hasDraftText) {
           if (!restoreQueuedToDraft()) applyHistoryNavigation('up', { emptyDraft: true });
-        } else if (!moveDraftVertically(-1, { extend: key.shift })) {
+        } else if (!moveDraftVertically(-1, { extend: shiftHeld })) {
           applyHistoryNavigation('up', { emptyDraft: false });
         }
       }
       return;
     }
 
-    if (key.downArrow || rawDownArrow) {
+    if (key.downArrow || rawDownArrow || rawShiftDown) {
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.(1);
       } else {
-        if (!moveDraftVertically(1, { extend: key.shift })) {
+        if (!moveDraftVertically(1, { extend: shiftHeld })) {
           applyHistoryNavigation('down', { emptyDraft: String(draftRef.current.value || '').trim().length === 0 });
         }
       }
@@ -415,12 +427,15 @@ export function PromptInput({
       return;
     }
 
-    if (key.tab && commandPaletteActive) {
-      const completed = onCommandPaletteComplete?.(draftRef.current.value);
-      if (typeof completed === 'string') {
-        commitDraft({ value: completed, cursor: completed.length, selectionAnchor: null });
+    if (key.tab) {
+      if (commandPaletteActive) {
+        const completed = onCommandPaletteComplete?.(draftRef.current.value);
+        if (typeof completed === 'string') {
+          commitDraft({ value: completed, cursor: completed.length, selectionAnchor: null });
+        }
+        return;
       }
-      return;
+      if (onTab?.(draftRef.current.value) === true) return;
     }
 
     if (key.escape) {
@@ -456,44 +471,44 @@ export function PromptInput({
       return;
     }
 
-    if (key.leftArrow) {
+    if (key.leftArrow || rawShiftLeft) {
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.('left');
         return;
       }
       updateDraft((d) => {
-        const range = !key.shift && !key.ctrl && !key.meta ? selectionRange(d) : null;
+        const range = !shiftHeld && !key.ctrl && !key.meta ? selectionRange(d) : null;
         const cursor = range
           ? range.start
           : key.ctrl || key.meta
             ? previousWordOffset(d.value, d.cursor)
             : previousOffset(d.value, d.cursor);
-        return moveCursor(d, cursor, { extend: key.shift });
+        return moveCursor(d, cursor, { extend: shiftHeld });
       });
       return;
     }
-    if (key.rightArrow) {
+    if (key.rightArrow || rawShiftRight) {
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.('right');
         return;
       }
       updateDraft((d) => {
-        const range = !key.shift && !key.ctrl && !key.meta ? selectionRange(d) : null;
+        const range = !shiftHeld && !key.ctrl && !key.meta ? selectionRange(d) : null;
         const cursor = range
           ? range.end
           : key.ctrl || key.meta
             ? nextWordOffset(d.value, d.cursor)
             : nextOffset(d.value, d.cursor);
-        return moveCursor(d, cursor, { extend: key.shift });
+        return moveCursor(d, cursor, { extend: shiftHeld });
       });
       return;
     }
     if (key.home) {
-      updateDraft((d) => moveCursor(d, lineStart(d.value, d.cursor), { extend: key.shift }));
+      updateDraft((d) => moveCursor(d, lineStart(d.value, d.cursor), { extend: shiftHeld }));
       return;
     }
     if (key.end) {
-      updateDraft((d) => moveCursor(d, lineEnd(d.value, d.cursor), { extend: key.shift }));
+      updateDraft((d) => moveCursor(d, lineEnd(d.value, d.cursor), { extend: shiftHeld }));
       return;
     }
 

@@ -30,10 +30,6 @@ import {
 } from './media-normalization.mjs';
 import {
     customToolCallFromResponseItem,
-    customToolInputFromArguments,
-    isCustomToolCallRecord,
-    isResponsesFreeformTool,
-    toResponsesCustomTool,
 } from './custom-tool-wire.mjs';
 import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
 export { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
@@ -940,12 +936,16 @@ function toResponsesTools(tools) {
                 parameters: t.inputSchema,
             };
         }
-        if (isResponsesFreeformTool(t)) return toResponsesCustomTool(t);
+        // xAI/Grok Responses rejects the OpenAI-only `type:'custom'` freeform
+        // variant ("unknown variant 'custom'"). Serialize freeform/grammar
+        // tools (e.g. apply_patch) as ordinary function tools instead. Grammar
+        // tools may carry no usable inputSchema, so fall back to a permissive
+        // object schema so grok still registers a valid function tool.
         return {
             type: 'function',
             name: t.name,
             description: t.description,
-            parameters: t.inputSchema,
+            parameters: t.inputSchema || { type: 'object', additionalProperties: true },
         };
     });
 }
@@ -1070,16 +1070,9 @@ function toResponsesInputMessage(m, pendingToolMedia = null, customToolCallNameB
             };
         }
         const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
-        if (customToolCallNameById?.has(m.toolCallId || '')) {
-            const item = {
-                type: 'custom_tool_call_output',
-                call_id: m.toolCallId || '',
-                name: customToolCallNameById.get(m.toolCallId || '') || undefined,
-                output,
-            };
-            if (mediaContent && pendingToolMedia) pendingToolMedia.push(...mediaContent);
-            return item;
-        }
+        // xai path: never emit `custom_tool_call_output` (the `custom` variant
+        // is rejected by grok). Replay prior tool outputs as the standard
+        // `function_call_output` item regardless of original native type.
         const item = {
             type: 'function_call_output',
             call_id: m.toolCallId || '',
@@ -1099,15 +1092,11 @@ function toResponsesInputMessage(m, pendingToolMedia = null, customToolCallNameB
                     execution: 'client',
                     arguments: tc.arguments || {},
                 });
-            } else if (isCustomToolCallRecord(tc)) {
-                if (tc.id && customToolCallNameById) customToolCallNameById.set(tc.id, tc.name || '');
-                items.push({
-                    type: 'custom_tool_call',
-                    call_id: tc.id,
-                    name: tc.name,
-                    input: customToolInputFromArguments(tc.name, tc.arguments),
-                });
             } else {
+                // xai path: prior native `custom_tool_call` history is replayed
+                // as a standard `function_call` (grok rejects the `custom`
+                // variant). tc.arguments already holds the recovered object
+                // form, so the same stringify path as regular calls applies.
                 items.push({
                     type: 'function_call',
                     call_id: tc.id,

@@ -6,10 +6,15 @@ Delegation:
 - As supervisor, prefer delegating implementation work to an agent; keep direct
   work limited to coordination and User Workflow exceptions such as
   one-or-two-step edits, pre-planning, config changes, and final git deployment.
-- When tasks span different domains or work areas, aim to split them as much as
-  practical into independent scopes before delegation.
-- When work splits into 2+ independent scopes, spawn them as parallel agents in
-  the SAME turn, not one after another.
+- Delegation split: different code paths / entry points / file groups are
+  separate scopes — implementation AND analysis, review, debugging split the
+  same way. With 2+ independent scopes, spawn them as parallel agents in the
+  SAME turn, not one after another. Shared functions or cross-cutting concerns
+  do NOT justify collapsing them into one delegation: split per path, and Lead
+  verifies the cross-cutting parts (shared state, telemetry consistency, etc.)
+  directly. "One agent must see the whole context" is not a valid reason to
+  merge; the only legitimate single-scope case is a genuinely inseparable
+  dependency — and then state the reason.
 - Reuse the existing agent (same tag) for follow-up work in the same task line;
   spawn a new agent only for a genuinely separate scope.
 - Pick the agent role defined in the User Workflow section that fits the task

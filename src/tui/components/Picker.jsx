@@ -78,6 +78,7 @@ export function Picker({
   onLeft,
   onRight,
   onTab,
+  onKey,
   title,
   description = '',
   footer = '',
@@ -163,8 +164,12 @@ export function Picker({
           onCancel();
           return;
         }
+        if (onKey) {
+          onKey(input, key, items[selectedIndex], selectedIndex);
+          return;
+        }
       },
-      [items, selectedIndex, onSelect, onCancel, onLeft, onRight, onTab, effectiveVisibleLimit],
+      [items, selectedIndex, onSelect, onCancel, onLeft, onRight, onTab, onKey, effectiveVisibleLimit],
     ),
   );
 

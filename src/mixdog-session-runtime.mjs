@@ -1312,12 +1312,14 @@ function readWorkflowPackFromDir(dir, source = 'built-in') {
   const entry = clean(manifest.entry) || 'WORKFLOW.md';
   const body = readTextSafe(join(dir, entry));
   if (!body) return null;
+  const agentsConfigured = Array.isArray(manifest.agents);
   return {
     id,
     name: clean(manifest.name) || id,
     description: clean(manifest.description),
     entry,
-    agents: Array.isArray(manifest.agents) ? manifest.agents.map((agent) => normalizeAgentId(agent) || normalizeWorkflowId(agent)).filter(Boolean) : [],
+    agentsConfigured,
+    agents: agentsConfigured ? manifest.agents.map((agent) => normalizeAgentId(agent) || normalizeWorkflowId(agent)).filter(Boolean) : [],
     body,
     source,
   };
@@ -1403,7 +1405,7 @@ function workflowContextBlock(config, dataDir) {
   if (pack.description) lines.push(pack.description);
   lines.push(pack.body);
 
-  const agentIds = pack.agents.length ? pack.agents : FIXED_AGENT_SLOTS.map((agent) => agent.id);
+  const agentIds = pack.agentsConfigured ? pack.agents : FIXED_AGENT_SLOTS.map((agent) => agent.id);
   const agentBlocks = agentIds
     .map((id) => loadAgentDefinition(dataDir, id))
     .filter(Boolean);

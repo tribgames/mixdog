@@ -964,6 +964,10 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
             // Hooks are policy extensions. A broken hook must not wedge the agent loop.
         }
     }
+    const afterToolHook = typeof executeOpts.afterToolHook === 'function'
+        ? executeOpts.afterToolHook
+        : sessionRef?.afterToolHook;
+    const __result = await (async () => {
     if (name === 'Skill') {
         return viewSkill(cwd, args?.name);
     }
@@ -1044,6 +1048,22 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
         return executeBuiltinTool(name, args, cwd, completionToolOpts);
     }
     return formatUnknownBuiltinToolMessage(name, args, 'tool');
+    })();
+    if (typeof afterToolHook === 'function') {
+        try {
+            await afterToolHook({
+                name,
+                args,
+                cwd,
+                sessionId: callerSessionId,
+                toolCallId: executeOpts.toolCallId || null,
+                result: __result,
+            });
+        } catch {
+            // PostToolUse hooks are best-effort; never let one break the tool result.
+        }
+    }
+    return __result;
 }
 /**
  * Agent loop: send → tool_call → execute → re-send → repeat until text.
