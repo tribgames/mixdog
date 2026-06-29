@@ -58,6 +58,14 @@ export function resolveTimeoutMs(envNames, fallbackMs, { minMs = 1_000, maxMs = 
     return Math.min(Math.max(fallbackMs, minMs), maxMs);
 }
 
+// While a tool call is in flight, bump lastProgressAt on this cadence so long
+// executions stay "active" without emitting model-visible content.
+export const DEFAULT_ACTIVITY_HEARTBEAT_MS = resolveTimeoutMs(
+    'MIXDOG_AGENT_ACTIVITY_HEARTBEAT_MS',
+    30_000,
+    { minMs: 5_000, maxMs: 300_000 },
+);
+
 export const PROVIDER_FIRST_BYTE_TIMEOUT_MS = resolveTimeoutMs(
     'MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS',
     Math.min(120_000, PROVIDER_MAX_BEFORE_WARN_MS),

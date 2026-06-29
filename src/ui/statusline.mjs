@@ -483,7 +483,11 @@ function formatContextSegment(ctxPct, cols) {
   const pct = clampPct(ctxPct);
   const fill = pct >= 90 ? RED : pct >= 70 ? YLW : GRN;
   const label = pct > 0 && pct < 1 ? String(Math.round(pct * 10) / 10) : String(Math.floor(pct));
-  const cells = cols >= 120 ? 14 : cols >= 80 ? 8 : 0;
+  // Keep a full-width bar wherever there is room for one. Below 80 cols the bar
+  // is dropped (label-only) so the footer never overflows a narrow terminal;
+  // at 80+ it stays a fixed 14 cells instead of shrinking to 8, which read as
+  // too small/cramped on mid-width terminals.
+  const cells = cols >= 80 ? 14 : 0;
   if (!cells) return `${fill}${label}%${R}`;
   const bar = makeBar(pct, cells);
   const filled = bar.replace(/░/g, '');

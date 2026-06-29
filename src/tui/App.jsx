@@ -24,6 +24,7 @@ import stringWidth from 'string-width';
 import { theme, TURN_MARKER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
 import { normalizeToolName, parseToolArgs } from '../runtime/shared/tool-surface.mjs';
+import { isBackgroundErrorOnlyBody } from '../runtime/shared/err-text.mjs';
 import { AssistantMessage, UserMessage, ThinkingMessage, NoticeMessage } from './components/Message.jsx';
 import { ToolExecution } from './components/ToolExecution.jsx';
 import { Spinner } from './components/Spinner.jsx';
@@ -617,10 +618,14 @@ function parseBackgroundTaskResultForRows(value) {
     if (match) fields[match[1].toLowerCase()] = match[2].trim();
   }
   const status = String(fields.status || '').toLowerCase();
+  const error = String(fields.error || '').trim();
+  const errorOnlyBody = isBackgroundErrorOnlyBody(body, error);
   return {
     status,
     body,
-    hasResponse: Boolean(body) && !/^(running|pending|queued)$/i.test(status),
+    error,
+    errorOnlyBody,
+    hasResponse: Boolean(body) && !errorOnlyBody && !/^(running|pending|queued)$/i.test(status),
   };
 }
 
@@ -628,7 +633,7 @@ function isBackgroundTaskResponseArgsForRows(normalizedName, args = {}) {
   if (!isBackgroundTaskToolName(normalizedName)) return false;
   const type = String(args?.type || args?.action || '').toLowerCase();
   const status = String(args?.status || '').toLowerCase();
-  return type === 'result' || type === 'completion' || (/^(completed|failed|cancelled|canceled)$/i.test(status) && Boolean(args?.task_id));
+  return type === 'result' || type === 'completion' || (/^(completed|cancelled|canceled)$/i.test(status) && Boolean(args?.task_id));
 }
 
 // ToolExecution derives its background-task classification from
@@ -643,6 +648,32 @@ function isBackgroundTaskResponseArgsForRows(normalizedName, args = {}) {
 function backgroundArgsForRows(rawArgs) {
   const parsed = parseToolArgs(rawArgs);
   return parsed && typeof parsed === 'object' ? parsed : {};
+}
+
+function toolHasDisplayResultForRows(item) {
+  const rt = item.result == null ? '' : String(item.result).replace(/\s+$/, '');
+  const trimmed = String(rt || '').trim();
+  if (!trimmed) return false;
+  const bgArgs = backgroundArgsForRows(item.args);
+  if (isBackgroundErrorOnlyBody(trimmed, bgArgs.error || '')) return false;
+  const normalizedName = String(normalizeToolName(item.name) || '').toLowerCase();
+  if (isBackgroundTaskToolName(normalizedName)) {
+    const meta = parseBackgroundTaskResultForRows(trimmed);
+    if (meta) return Boolean(meta.hasResponse && String(meta.body || '').trim());
+  }
+  return true;
+}
+
+function toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult) {
+  if (hasDisplayResult) return false;
+  const bgArgs = backgroundArgsForRows(item.args);
+  const error = String(bgArgs.error || '').trim();
+  if (!error) return false;
+  if (normalizedName === 'agent') return Boolean(item.isError);
+  if (!isBackgroundTaskToolName(normalizedName) || !bgArgs.task_id) return false;
+  if (isBackgroundTaskResponseArgsForRows(normalizedName, bgArgs)) return false;
+  const status = String(bgArgs.status || '').toLowerCase();
+  return /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status);
 }
 
 function estimateToolRenderedResultRows(value) {
@@ -693,10 +724,21 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
         // Skill surfaces drop the ⎿ detail row (ToolExecution sets
         // visibleDetailLines=[] for isSkillSurface), so margin + header only.
         if (isSkillSurface) return TOOL_MARGIN_TOP + 1;
+        const hasDisplayResult = toolHasDisplayResultForRows(item);
+        if (toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult)) {
+          return TOOL_MARGIN_TOP + 1;
+        }
         // Agent surfaces and every other collapsed/pending tool keep exactly one
         // detail row (the pending placeholder, the agent brief, or the collapsed
         // summary line), so margin + header + one detail row.
         return TOOL_MARGIN_TOP + 1 + 1;
+      }
+      // Expanded cards render rawResult verbatim when present (including failed
+      // background-task metadata envelopes whose display result is intentionally
+      // empty). Mirror ToolExecution's raw branch before no-result shortcuts so
+      // expanded failure cards reserve enough height for the visible envelope.
+      if (hasRawResult) {
+        return TOOL_MARGIN_TOP + 1 + estimateToolRenderedResultRows(rawRt);
       }
       // Expanded agent card with no raw body to reveal: ToolExecution still
       // shows one agent-brief detail line, so margin + header + one detail row.
@@ -722,6 +764,10 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
           && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgsForRows(normalizedName, backgroundArgsForRows(item.args)));
         const isBackgroundMetadataResult = isBackgroundResult && !isBackgroundResponse && Boolean(backgroundMeta);
         if (isBackgroundMetadataResult) {
+          const hasDisplayResult = toolHasDisplayResultForRows(item);
+          if (toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult)) {
+            return TOOL_MARGIN_TOP + 1;
+          }
           return isSkillSurface ? TOOL_MARGIN_TOP + 1 : TOOL_MARGIN_TOP + 1 + 1;
         }
         const resultText = backgroundMeta?.hasResponse ? backgroundMeta.body : rt;
@@ -6216,7 +6262,24 @@ export function App({ store, initialStatusLine = '' }) {
       viewRows,
       fallbackDelta: rowDelta,
     });
-    const nextTarget = Math.max(0, Math.min(maxRows, currentTarget + preserveDelta));
+    // Phantom-streaming-growth guard. A streaming assistant at the very bottom
+    // is NEVER measured (its quantized over-estimate — trailing-'\n' counted as
+    // a body row + STREAMING_ROW_QUANTUM round-up — stays authoritative for the
+    // whole stream). That estimate is below the reading anchor, so
+    // anchorPreserveDelta folds its phantom growth into scrollOffset; with the
+    // bottom-anchored viewport that converts the slack into a negative
+    // marginBottom that pushes the just-rendered answer line BELOW the clip,
+    // leaving a blank band that only resolves seconds later when a newline /
+    // finalize shrinks the estimate. The over-estimate is harmless while pinned;
+    // it only hurts here, when a non-pinned frame turns it into real offset. So
+    // while the tail item is a live streaming assistant, suppress the POSITIVE
+    // (push) preserve delta and keep only shrink corrections. Reading older
+    // history during a stream still preserves against REAL (non-tail) height
+    // changes, which anchorPreserveDelta already isolates above the anchor.
+    const tailItem = (state.items || [])[state.items.length - 1];
+    const tailStreaming = tailItem?.kind === 'assistant' && tailItem?.streaming === true;
+    const effectivePreserveDelta = tailStreaming ? Math.min(0, preserveDelta) : preserveDelta;
+    const nextTarget = Math.max(0, Math.min(maxRows, currentTarget + effectivePreserveDelta));
     const appliedDelta = nextTarget - currentTarget;
     if (appliedDelta === 0) return;
 

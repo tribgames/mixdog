@@ -24,11 +24,13 @@ import {
   summarizeAgentSurfaceBrief,
   AGENT_SURFACE_BRIEF_MAX,
 } from '../../runtime/shared/tool-surface.mjs';
+import { backgroundTaskFailureStatusLabel, isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';
 
 const MIN_RESULT_LINE_CHARS = 24;
 // Hard cap for the parenthesized header arg summary so a long path/query does
 // not eat the whole header line; anything longer is truncated with an ellipsis.
 const SUMMARY_MAX_CHARS = 48;
+const HEADER_FAILURE_STATUS_MAX = 40;
 
 export function displayToolName(name, args) {
   return surfaceDisplayToolName(name, args);
@@ -157,7 +159,13 @@ function shellResultElapsed(value) {
 }
 
 function statusCopy(name, label, count, doneCount, pending, isError, args = {}) {
-  return formatToolActionHeader(name, args, { pending, count, stableVerbWidth: true });
+  // No stableVerbWidth padding: it padded the done verb to the active ("-ing")
+  // width, which Ink trims at the line END (vendor output trimEnd) so it never
+  // stabilized the pending→done flip — it only left an UGLY mid-header gap
+  // ("Searched  1 pattern", "Read    1 file"). The header is wrap="truncate"
+  // behind a fixed gutter and the fullscreen full-clear repaints the row, so
+  // dropping the pad just normalizes the spacing.
+  return formatToolActionHeader(name, args, { pending, count });
 }
 
 function fitResultLine(line, columns) {
@@ -327,6 +335,7 @@ function parseBackgroundTaskResult(value) {
     if (match) fields[match[1].toLowerCase()] = match[2].trim();
   }
   const status = String(fields.status || '').toLowerCase();
+  const error = fields.error || '';
   return {
     taskId: fields.task_id || fields.taskid || '',
     surface: fields.surface || '',
@@ -336,8 +345,37 @@ function parseBackgroundTaskResult(value) {
     startedAt: fields.started || fields.startedat || '',
     finishedAt: fields.finished || fields.finishedat || '',
     body,
-    hasResponse: Boolean(body) && !/^(running|pending|queued)$/i.test(status),
+    error,
+    hasResponse: Boolean(body) && !isBackgroundErrorOnlyBody(body, error) && !/^(running|pending|queued)$/i.test(status),
   };
+}
+
+function backgroundTaskMetaFromArgs(args = {}) {
+  const taskId = String(args.task_id || args.taskId || '').trim();
+  if (!taskId) return null;
+  return {
+    taskId,
+    surface: args.surface || '',
+    operation: args.operation || '',
+    label: args.label || '',
+    status: String(args.status || '').toLowerCase(),
+    startedAt: args.startedAt || args.started || '',
+    finishedAt: args.finishedAt || args.finished || '',
+    error: args.error || '',
+    body: '',
+    hasResponse: false,
+  };
+}
+
+function resolveBackgroundTaskMeta(parsedArgs = {}, resultText = '') {
+  const parsed = parseBackgroundTaskResult(resultText);
+  if (parsed) {
+    if (!parsed.error && parsedArgs?.error) parsed.error = parsedArgs.error;
+    if (!parsed.status && parsedArgs?.status) parsed.status = String(parsedArgs.status).toLowerCase();
+    if (!parsed.surface && parsedArgs?.surface) parsed.surface = parsedArgs.surface;
+    return parsed;
+  }
+  return backgroundTaskMetaFromArgs(parsedArgs);
 }
 
 function backgroundTaskElapsed(meta = {}, fallback = '') {
@@ -395,7 +433,15 @@ function backgroundTaskActionTitle(normalizedName, meta = {}) {
   return `${display} status`;
 }
 
-function backgroundTaskDetail(meta = {}, elapsed = '') {
+function backgroundTaskFailureDetail(meta = {}, parsedArgs = {}) {
+  const status = meta.status || parsedArgs?.status;
+  const error = meta.error || parsedArgs?.error;
+  if (!error) return '';
+  const surface = meta.surface || parsedArgs?.surface || '';
+  return backgroundTaskFailureStatusLabel(status, error, { surface });
+}
+
+function backgroundTaskDetail(meta = {}, elapsed = '', parsedArgs = {}) {
   const parts = [];
   const status = displayTerminalStatus(meta.status);
   if (status) parts.push(status);
@@ -409,7 +455,7 @@ function isBackgroundTaskResponseArgs(normalizedName, args = {}) {
   if (!isBackgroundTaskTool(normalizedName)) return false;
   const type = String(args?.type || args?.action || '').toLowerCase();
   const status = String(args?.status || '').toLowerCase();
-  return type === 'result' || type === 'completion' || (/^(completed|failed|cancelled|canceled)$/i.test(status) && Boolean(args?.task_id));
+  return type === 'result' || type === 'completion' || (/^(completed|cancelled|canceled)$/i.test(status) && Boolean(args?.task_id));
 }
 
 function isOutputDetailTool(normalizedName, label) {
@@ -459,7 +505,11 @@ function toolSearchLoadedSummary(resultText) {
   return [...new Set(names)].join(', ');
 }
 
-function agentTerminalDetail(status, isError, elapsed) {
+function agentTerminalDetail(status, isError, elapsed, error = '') {
+  const failureDetail = isError && error
+    ? backgroundTaskFailureStatusLabel(status, error, { surface: 'agent' })
+    : '';
+  if (failureDetail) return failureDetail;
   const s = String(status || '').toLowerCase();
   const word = /cancel/.test(s)
     ? 'Cancelled'
@@ -597,7 +647,10 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     // bounce between "Reading 1 item" and "Reading 4 items". Final counts and
     // result summaries appear only after completion.
     const headerOrder = Array.isArray(args?.categoryOrder) ? args.categoryOrder : null;
-    const headerText = formatAggregateHeader(displayCategories || {}, { pending: headerPending, order: headerOrder, stableVerbWidth: true });
+    // No stableVerbWidth: see statusCopy — the padding only left a mid-header
+    // gap ("Searched  1 pattern, Read    1 file") since Ink trims trailing
+    // spaces and never stabilized the flip.
+    const headerText = formatAggregateHeader(displayCategories || {}, { pending: headerPending, order: headerOrder });
     let detailText;
     if (hasResult) {
       // The aggregate card reserves EXACTLY ONE detail row when it is not
@@ -684,26 +737,29 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const { label, summary, normalizedName, args: parsedArgs } = formatToolSurface(name, args);
   const isShellSurface = isShellTool(normalizedName, label);
   const isSkillSurface = SKILL_SURFACE_NAMES.has(String(normalizedName || '').toLowerCase());
-  const backgroundMeta = !pending && hasResult && isBackgroundTaskTool(normalizedName)
-    ? parseBackgroundTaskResult(rt)
+  const backgroundMeta = !pending && isBackgroundTaskTool(normalizedName)
+    ? resolveBackgroundTaskMeta(parsedArgs, rt || '')
     : null;
+  const backgroundError = backgroundMeta?.error || parsedArgs?.error || '';
+  const errorOnlyResult = Boolean(rt) && isBackgroundErrorOnlyBody(rt, backgroundError);
   const backgroundResultText = backgroundMeta?.hasResponse ? backgroundMeta.body : '';
-  const displayedResultText = backgroundResultText || rt;
+  const displayedResultText = backgroundResultText || (errorOnlyResult ? '' : (rt || ''));
+  const hasDisplayResult = Boolean(String(displayedResultText || '').trim());
   const lines = displayedResultText ? displayedResultText.split('\n') : [];
   const totalLines = lines.length;
   // Semantic one-line summary derived purely from name/args/result text.
   // Shown in the collapsed, non-error view in place of the raw result block.
   // Grouped cards ("Searched N files" / "Read N files") get the same treatment
   // as single calls: a one-line semantic summary stands in for the raw block.
-  const resultSummary = !pending && hasResult
+  const resultSummary = !pending && hasDisplayResult
     ? surfaceSummarizeToolResult(name, args, displayedResultText, isError)
     : null;
   // Same fit budget fitResultLine() uses, to detect a line that will be clipped.
   const maxResultChars = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
   const resultColor = theme.text;
-  const firstResultLine = hasResult ? String(lines[0] ?? '') : '';
-  const firstResultLineClipped = hasResult && stringWidth(firstResultLine) > maxResultChars;
-  const hasHiddenDetail = !pending && hasResult && (totalLines > 1 || firstResultLineClipped || Boolean(resultSummary));
+  const firstResultLine = hasDisplayResult ? String(lines[0] ?? '') : '';
+  const firstResultLineClipped = hasDisplayResult && stringWidth(firstResultLine) > maxResultChars;
+  const hasHiddenDetail = !pending && hasDisplayResult && (totalLines > 1 || firstResultLineClipped || Boolean(resultSummary));
   const shellStatus = isShellSurface ? shellDisplayStatus({ pending, failedCount, isError, result: displayedResultText }) : '';
   const shellElapsed = isShellSurface ? (shellResultElapsed(displayedResultText) || elapsed) : '';
   const shellStatusDetail = isShellSurface ? shellDetail(shellStatus, shellElapsed) : '';
@@ -713,22 +769,34 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
 
   const toolArgPath = parsedArgs?.path ?? parsedArgs?.file_path ?? parsedArgs?.file ?? '';
   const imageDetail = normalizedName === 'view_image' && toolArgPath ? String(toolArgPath) : '';
-  const agentCompletionDetail = !pending && isAgentTool(normalizedName)
-    ? agentTerminalDetail(parsedArgs?.status, isError, elapsed)
+  const isBackgroundResult = !pending && isBackgroundTaskTool(normalizedName) && Boolean(backgroundMeta);
+  const isBackgroundResponse = isBackgroundResult && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgs(normalizedName, parsedArgs));
+  const isBackgroundMetadataResult = isBackgroundResult && !isBackgroundResponse && Boolean(backgroundMeta);
+  const backgroundMetadataFailureLabel = isBackgroundMetadataResult
+    ? backgroundTaskFailureDetail(backgroundMeta, parsedArgs)
     : '';
-  const agentDetail = !pending && isAgentTool(normalizedName) && !hasResult
+  const backgroundMetadataHeaderFailure = Boolean(backgroundMetadataFailureLabel) && !hasDisplayResult
+    ? backgroundMetadataFailureLabel
+    : '';
+  const agentHeaderFailure = !pending && isAgentTool(normalizedName) && isError && parsedArgs?.error && !hasDisplayResult
+    ? backgroundTaskFailureStatusLabel(parsedArgs?.status, parsedArgs?.error, { surface: 'agent' })
+    : '';
+  const headerFailureStatus = backgroundMetadataHeaderFailure || agentHeaderFailure || '';
+  const agentCompletionDetail = !pending && isAgentTool(normalizedName) && !agentHeaderFailure
+    ? agentTerminalDetail(parsedArgs?.status, isError, elapsed, parsedArgs?.error)
+    : '';
+  const agentDetail = !pending && isAgentTool(normalizedName) && !hasDisplayResult
     ? agentCompletionDetail
     : '';
   const genericDetail = !pending && !isShellSurface && !agentDetail && !imageDetail && !resultSummary
     ? genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError })
     : '';
-  const isBackgroundResult = !pending && hasResult && isBackgroundTaskTool(normalizedName);
-  const isBackgroundResponse = isBackgroundResult && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgs(normalizedName, parsedArgs));
-  const isBackgroundMetadataResult = isBackgroundResult && !isBackgroundResponse && Boolean(backgroundMeta);
   const terminalStatus = pending
     ? 'running'
     : (shellStatus || normalizeTerminalStatus(backgroundMeta?.status) || normalizeTerminalStatus(parsedArgs?.status) || resultTerminalStatus(displayedResultText) || (isError || failedCount > 0 ? 'failed' : 'completed'));
-  const backgroundMetadataDetail = isBackgroundMetadataResult ? backgroundTaskDetail(backgroundMeta, backgroundElapsed) : '';
+  const backgroundMetadataDetail = isBackgroundMetadataResult && !backgroundMetadataHeaderFailure
+    ? backgroundTaskDetail(backgroundMeta, backgroundElapsed, parsedArgs)
+    : '';
   const backgroundResponseDetail = isBackgroundResponse && resultSummary
     ? prefixElapsed(resultSummary, backgroundElapsed)
     : resultSummary;
@@ -754,12 +822,16 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     : isShellSurface
       ? mergeTerminalDetail(shellStatus, resultSummary)
       : mergeTerminalDetail(terminalStatus, nonShellDetail);
-  const showRawResult = expanded && hasResult && !isBackgroundMetadataResult;
-  const detailLines = showRawResult ? lines : (collapsedDetail ? [collapsedDetail] : []);
+  const backgroundMetadataExpandable = isBackgroundMetadataResult && hasRawResult && !pending;
+  const showRawResult = expanded && (hasDisplayResult || hasRawResult)
+    && (!isBackgroundMetadataResult || hasRawResult);
+  const detailLines = showRawResult
+    ? (hasDisplayResult ? lines : (rawRt ? rawRt.split('\n') : []))
+    : (collapsedDetail ? [collapsedDetail] : []);
   const isPendingPlaceholderDetail = !showRawResult && Boolean(pendingDetailPlaceholder);
   const detailColor = isPendingPlaceholderDetail ? theme.subtle : theme.text;
 
-  const isAgentResult = !isBackgroundResult && !pending && isAgentTool(normalizedName) && hasResult;
+  const isAgentResult = !isBackgroundResult && !pending && isAgentTool(normalizedName) && hasDisplayResult;
   const isAgentResponse = isAgentResult && hasAgentResponseResult(rt);
   const isAgentSurfaceCard = isAgentTool(normalizedName);
   const agentSurfaceBriefRaw = isAgentSurfaceCard && !showRawResult
@@ -777,12 +849,14 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   let visibleDetailLines = detailLines;
   if (isSkillSurface && !showRawResult) {
     visibleDetailLines = [];
+  } else if (isBackgroundMetadataResult && backgroundMetadataHeaderFailure && !showRawResult) {
+    visibleDetailLines = [];
   } else if (isAgentSurfaceCard && !showRawResult) {
     const agentDetailFallback = collapsedDetail
       || (pending ? (pendingDetailPlaceholder || 'Running') : 'Finished');
     const agentDetailLine = agentSurfaceBrief
       || truncateToWidth(String(agentDetailFallback), Math.min(AGENT_SURFACE_BRIEF_MAX, maxResultChars));
-    visibleDetailLines = [agentDetailLine];
+    visibleDetailLines = agentHeaderFailure && !agentSurfaceBrief ? [] : [agentDetailLine];
   }
   const finalStatusColor = toolStatusColor({ pending, groupCount, failedCount, terminalStatus });
   const dotColor = isShellSurface && shellStatus === 'running' ? theme.subtle : finalStatusColor;
@@ -811,10 +885,9 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // Agent cards gate the hint solely on agentHasExpandableBody — never on
   // hasHiddenDetail, which goes true for any single-line resultSummary and would
   // wrongly show ctrl+o on a status-only one-liner that has nothing to expand.
-  const showHeaderExpandHint = (isAgentSurfaceCard ? agentHasExpandableBody : hasHiddenDetail)
+  const showHeaderExpandHint = (isAgentSurfaceCard ? agentHasExpandableBody : (hasHiddenDetail || backgroundMetadataExpandable))
     && normalizedName !== 'tool_search'
-    && !isShellSurface
-    && !isBackgroundMetadataResult;
+    && !isShellSurface;
   const expandHintColor = TOOL_HINT_DONE_COLOR;
 
   // Build a single-line header that never wraps: reserve width for the fixed
@@ -836,7 +909,13 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // while pending so its later appearance does not push the body either.
   const hintReserveLabel = `ctrl+o ${expanded ? 'collapse' : 'expand'}`;
   const hintReserveText = ` ${BULLET_OPERATOR} ${hintReserveLabel}`;
-  const rightReserve = Math.max(stringWidth(hintReserveText), stringWidth(headerMetaText));
+  const headerFailureText = headerFailureStatus
+    ? truncateToWidth(headerFailureStatus, HEADER_FAILURE_STATUS_MAX)
+    : '';
+  const failureStatusReserve = headerFailureText
+    ? Math.min(HEADER_FAILURE_STATUS_MAX, stringWidth(headerFailureText) + 1)
+    : 0;
+  const rightReserve = Math.max(stringWidth(hintReserveText), stringWidth(headerMetaText)) + failureStatusReserve;
   const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - rightReserve);
   const trailingText = headerMetaText || (showHeaderExpandHint ? hintText : '');
   const trailingColor = headerMetaText ? theme.subtle : expandHintColor;
@@ -863,15 +942,24 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // stays reserved (rightReserve) so the body clip point never reflows.
   return (
     <Box flexDirection="column" marginTop={attached ? 0 : 1}>
-      <Box flexDirection="row">
-        <Box flexShrink={0} minWidth={2}>
-          <Text color={dotColor}>{dotText}</Text>
+      <Box flexDirection="row" width="100%">
+        <Box flexShrink={1} flexGrow={1} overflow="hidden" minWidth={0}>
+          <Box flexDirection="row">
+            <Box flexShrink={0} minWidth={2}>
+              <Text color={dotColor}>{dotText}</Text>
+            </Box>
+            <Text wrap="truncate">
+              <Text bold color={theme.text}>{labelOut}</Text>
+              {summaryOut ? <Text color={theme.text}>{summaryOut}</Text> : null}
+              {trailingText ? <Text color={trailingColor}>{trailingText}</Text> : null}
+            </Text>
+          </Box>
         </Box>
-        <Text wrap="truncate">
-          <Text bold color={theme.text}>{labelOut}</Text>
-          {summaryOut ? <Text color={theme.text}>{summaryOut}</Text> : null}
-          {trailingText ? <Text color={trailingColor}>{trailingText}</Text> : null}
-        </Text>
+        {headerFailureText ? (
+          <Box flexShrink={0} width={failureStatusReserve} marginLeft={1} justifyContent="flex-end" overflow="hidden">
+            <Text color={theme.error} wrap="truncate">{headerFailureText}</Text>
+          </Box>
+        ) : null}
       </Box>
 
       {visibleDetailLines.length > 0 ? (

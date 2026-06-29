@@ -7,15 +7,18 @@ import {
 } from './context-utils.mjs';
 
 export const SUMMARY_PREFIX = 'A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done and avoid duplicating it; treat the summary as authoritative context for continuing the task. You also retain the preserved recent turns that follow.';
-// Trigger == boundary by default: the effective context window already carves a
-// 10% headroom off the raw model window (effectiveContextWindowPercent=90), and
-// that headroom is the room compaction itself needs to run. A second buffer
-// here would deduct 10% twice (raw 1M → boundary 900k → trigger 810k), firing
-// compaction ~19% early. Default the buffer to 0 so the single configured
-// headroom is the trigger line; explicit compaction.bufferTokens / bufferPercent
-// still apply when a caller opts into early compaction.
+// Default trigger sits a buffer below the boundary so auto-compaction fires
+// BEFORE the window is full. The effective context window already carves ~10%
+// off the raw model window (effectiveContextWindowPercent=90 → boundary), but
+// that headroom alone is NOT enough for compaction to run: semantic compact
+// re-sends the full transcript as input, so triggering AT the boundary (≈90%
+// of raw) pushes the compaction request itself over the window and it fails
+// ("summary cannot fit" / context overflow), losing the turn. A 10% buffer
+// pulls the trigger to boundary − 10% (≈81% of raw, i.e. 90% of the boundary
+// the /context gauge shows), leaving real room for the compaction call.
+// Explicit compaction.bufferTokens / bufferPercent still override this default.
 export const DEFAULT_COMPACTION_BUFFER_TOKENS = 0;
-export const DEFAULT_COMPACTION_BUFFER_RATIO = 0;
+export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
 export const MAX_COMPACTION_BUFFER_RATIO = 0.25;
 export const DEFAULT_COMPACTION_KEEP_TOKENS = 8_000;
 export const SUMMARY_OUTPUT_TOKENS = 4_096;

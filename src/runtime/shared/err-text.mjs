@@ -50,6 +50,73 @@ function formatDurationMs(value) {
   return `${ms}ms`;
 }
 
+function compactDurationForStatus(value, { preferMinutes = false } = {}) {
+  const ms = Math.max(0, Number(value) || 0);
+  if (ms >= 1_000) {
+    if (preferMinutes && ms >= 60_000 && ms % 60_000 === 0) return `${Math.round(ms / 60_000)}m`;
+    if (ms < 600_000 && ms % 1_000 === 0) return `${Math.round(ms / 1_000)}s`;
+    if (ms >= 60_000 && ms % 60_000 === 0) return `${Math.round(ms / 60_000)}m`;
+    return `${Math.round(ms / 1_000)}s`;
+  }
+  return `${ms}ms`;
+}
+
+function parseDurationTokenToMs(token) {
+  const t = String(token || '').trim().toLowerCase();
+  const minutes = /^(\d+)m$/.exec(t);
+  if (minutes) return Number(minutes[1]) * 60_000;
+  const seconds = /^(\d+)s$/.exec(t);
+  if (seconds) return Number(seconds[1]) * 1_000;
+  const millis = /^(\d+)ms$/.exec(t);
+  if (millis) return Number(millis[1]);
+  return NaN;
+}
+
+function watchdogMsFromRawError(raw) {
+  const value = String(raw || '');
+  const timeout = /first response stale\s*\((\d+)ms\)/i.exec(value);
+  if (timeout) return { kind: 'timeout', ms: Number(timeout[1]) };
+  const stale = /(?:agent )?(?:task|tool running) stale\s*\((\d+)ms/i.exec(value);
+  if (stale) return { kind: 'stale', ms: Number(stale[1]) };
+  return null;
+}
+
+function compactReasonFromNormalizedTimeout(presented) {
+  const match = /no first response from (?:the )?[\w\s]*within (\d+m|\d+s|\d+ms)/i.exec(String(presented || ''));
+  if (!match) return '';
+  const ms = parseDurationTokenToMs(match[1]);
+  return Number.isFinite(ms)
+    ? `No first response ${compactDurationForStatus(ms)}`
+    : `No first response ${match[1]}`;
+}
+
+function compactReasonFromNormalizedStale(presented) {
+  const match = /went stale after (\d+m|\d+s|\d+ms)/i.exec(String(presented || ''));
+  if (!match) return '';
+  const ms = parseDurationTokenToMs(match[1]);
+  return Number.isFinite(ms)
+    ? `No progress ${compactDurationForStatus(ms, { preferMinutes: true })}`
+    : `No progress ${match[1]}`;
+}
+
+export function isBackgroundErrorOnlyBody(body, error = '') {
+  const trimmed = String(body ?? '').trim();
+  if (!trimmed) return false;
+  const err = String(error ?? '').trim();
+  const lines = trimmed.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (lines.length !== 1) return false;
+  const line = lines[0];
+  if (/^error:\s*/i.test(line)) return true;
+  if (!err) return /^error:\s*/i.test(line);
+  const stripped = stripErrorPrefix(line);
+  const presented = presentErrorText(err, { max: 500 });
+  return line === err
+    || line === `Error: ${err}`
+    || stripped === err
+    || line === `Error: ${presented}`
+    || stripped === presented;
+}
+
 function subjectForSurface(surface) {
   const value = String(surface || '').toLowerCase();
   if (value.includes('search') || value.includes('web')) return 'web search agent';
@@ -93,7 +160,8 @@ export function presentErrorText(error, options = {}) {
     return `No first response from the ${subject} within ${formatDurationMs(firstResponse[1])}.`;
   }
 
-  const stale = /agent task stale\s*\((\d+)ms[^)]*\)/i.exec(text)
+  const stale = /agent (?:task|tool running) stale\s*\((\d+)ms[^)]*\)/i.exec(text)
+    || /tool running stale\s*\((\d+)ms[^)]*\)/i.exec(text)
     || /task stale\s*\((\d+)ms[^)]*\)/i.exec(text);
   if (stale) {
     return `The ${subject} went stale after ${formatDurationMs(stale[1])} without new stream/tool progress.`;
@@ -119,6 +187,55 @@ export function presentErrorText(error, options = {}) {
     .trim();
 
   return capText(text || 'Unknown error', max);
+}
+
+/**
+ * Compact `Failed · reason` label for background task/agent failure cards.
+ */
+export function backgroundTaskFailureStatusLabel(status, error, options = {}) {
+  const surface = options.surface || options.tool || '';
+  const raw = String(error ?? '').trim();
+  const statusNorm = String(status || '').trim().toLowerCase();
+  const terminal = /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(statusNorm);
+  if (!raw && !terminal) return '';
+
+  const presented = presentErrorText(error, { surface, max: 160 });
+  const watchdog = watchdogMsFromRawError(raw);
+
+  let head = 'Failed';
+  if (/^(cancelled|canceled)$/i.test(statusNorm)) head = 'Cancelled';
+  else if (
+    /^timeout$/i.test(statusNorm)
+    || watchdog?.kind === 'timeout'
+    || /first response stale/i.test(raw)
+    || /no first response from/i.test(presented)
+  ) head = 'Timeout';
+  else if (
+    watchdog?.kind === 'stale'
+    || /(?:agent )?(?:task|tool running) stale|went stale without/i.test(raw)
+    || /went stale after/i.test(presented)
+  ) head = 'Stale';
+
+  let reason = '';
+  if (/\bcontext too large\b/i.test(presented)) {
+    reason = 'Context too large';
+  } else if (head === 'Timeout') {
+    if (watchdog?.kind === 'timeout') {
+      reason = `No first response ${compactDurationForStatus(watchdog.ms)}`;
+    } else {
+      reason = compactReasonFromNormalizedTimeout(presented) || presented.replace(/\.$/, '');
+    }
+  } else if (head === 'Stale') {
+    if (watchdog?.kind === 'stale') {
+      reason = `No progress ${compactDurationForStatus(watchdog.ms, { preferMinutes: true })}`;
+    } else {
+      reason = compactReasonFromNormalizedStale(presented) || presented.replace(/\.$/, '');
+    }
+  } else {
+    reason = presented.replace(/\.$/, '');
+  }
+  if (!reason) return head;
+  return `${head} · ${reason}`;
 }
 
 export function errorLine(error, options = {}) {

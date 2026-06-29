@@ -10,6 +10,7 @@ import {
   reconcileBackgroundTask,
   setBackgroundTaskEnqueueFallback,
   startBackgroundTask,
+  sanitizeTaskMeta,
   taskIdFromArgs,
 } from '../runtime/shared/background-tasks.mjs';
 import { modelVisibleToolCompletionMessage } from '../runtime/shared/tool-execution-contract.mjs';
@@ -21,6 +22,11 @@ import {
   parseMarkdownFrontmatter,
 } from '../runtime/shared/markdown-frontmatter.mjs';
 import { prepareAgentSession } from '../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
+import {
+  agentWatchdogPolicyActive,
+  evaluateAgentWatchdogAbort,
+  resolveAgentWatchdogPolicy,
+} from '../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { AGENT_OWNER } from '../runtime/agent/orchestrator/agent-owner.mjs';
 import { clearGatewaySessionRoute, writeGatewaySessionRoute } from '../vendor/statusline/src/gateway/session-routes.mjs';
 
@@ -81,8 +87,6 @@ function envTimeoutMs(name, fallback) {
 // same terminal can re-use (or cleanly re-spawn) the same tag. Cached as a
 // constant like the other timeouts; override with MIXDOG_AGENT_TERMINAL_REAP_MS.
 const TERMINAL_REAP_MS = envTimeoutMs('MIXDOG_AGENT_TERMINAL_REAP_MS', 60 * 60_000);
-const DEFAULT_FIRST_RESPONSE_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_FIRST_RESPONSE_TIMEOUT_MS', 120_000);
-const DEFAULT_STALE_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_STALE_TIMEOUT_MS', 30 * 60_000);
 // Independent hard cap for the spawn *prep* phase (ensureProvider /
 // prepareAgentSession / catalog+rules load). Kept separate from the
 // first-response watchdog so prep cannot hang a whole fanout before the model
@@ -177,12 +181,6 @@ function nonNegativeInt(value) {
   if (value === undefined || value === null || value === '') return null;
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
-}
-
-function resolveWatchdogMs(value, fallback) {
-  const explicit = nonNegativeInt(value);
-  if (explicit !== null) return explicit;
-  return nonNegativeInt(fallback) ?? 0;
 }
 
 function presetKey(preset) {
@@ -1135,7 +1133,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
   }
 
   function preparedSpawnMeta(prepared, extras = {}) {
-    return {
+    return sanitizeTaskMeta({
       ...(extras || {}),
       tag: prepared.tag,
       sessionId: prepared.session.id,
@@ -1146,7 +1144,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       effort: prepared.preset.effort || null,
       fast: prepared.preset.fast === true,
       maxLoopIterations: prepared.maxLoopIterations || null,
-    };
+    });
   }
 
   function pendingSpawnMeta(args = {}, extras = {}) {
@@ -1160,7 +1158,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       try { resolved = resolvePreset(cfgMod.loadConfig(), args)?.preset || null; }
       catch { resolved = null; }
     }
-    return {
+    return sanitizeTaskMeta({
       ...(extras || {}),
       tag: clean(args.tag) || null,
       sessionId: null,
@@ -1170,12 +1168,12 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       model: clean(args.model) || clean(resolved?.model) || null,
       effort: clean(args.effort) || clean(resolved?.effort) || null,
       fast: args.fast === true ? true : (resolved?.fast === true ? true : null),
-    };
+    });
   }
 
   function mergeJobMeta(job, meta = {}) {
     if (!job || !meta || typeof meta !== 'object') return;
-    const next = { ...(job.meta || {}), ...meta };
+    const next = sanitizeTaskMeta({ ...(job.meta || {}), ...meta });
     job.meta = next;
     if (job.input && typeof job.input === 'object') {
       job.input = {
@@ -1250,6 +1248,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       finishedAtMs: Date.now(),
       result: resultValue,
       resultType: job.resultType || 'agent_task_result',
+      meta: sanitizeTaskMeta(job.meta || {}),
     };
     // An early notification is only a header-only *preview*: it fires before
     // the worker's session is persisted to signal the running→completed
@@ -1289,10 +1288,10 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
 
   function startJob(type, meta, run, notifyContext = null) {
     const clientHostPid = terminalPidForContext(notifyContext);
-    const jobMeta = {
+    const jobMeta = sanitizeTaskMeta({
       ...(meta || {}),
       ...(clientHostPid ? { clientHostPid } : {}),
-    };
+    });
     let task;
     task = startBackgroundTask({
       surface: 'agent',
@@ -1371,10 +1370,8 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     }, notifyContext);
   }
 
-  function startProgressIdleWatchdog(sessionId, idleTimeoutMs, firstResponseTimeoutMs = DEFAULT_FIRST_RESPONSE_TIMEOUT_MS) {
-    const staleMs = resolveWatchdogMs(idleTimeoutMs, DEFAULT_STALE_TIMEOUT_MS);
-    const firstMs = resolveWatchdogMs(firstResponseTimeoutMs, DEFAULT_FIRST_RESPONSE_TIMEOUT_MS);
-    if (!sessionId || (!staleMs && !firstMs)) return null;
+  function startProgressIdleWatchdog(sessionId, watchdogPolicy) {
+    if (!sessionId || !agentWatchdogPolicyActive(watchdogPolicy)) return null;
     if (typeof mgr.getSessionProgressSnapshot !== 'function' && typeof mgr.getSessionLastProgressAt !== 'function') return null;
     if (typeof mgr.linkParentSignalToSession !== 'function') return null;
     const controller = new AbortController();
@@ -1384,23 +1381,18 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       const snapshot = typeof mgr.getSessionProgressSnapshot === 'function'
         ? mgr.getSessionProgressSnapshot(sessionId)
         : null;
-      if (snapshot) {
-        if (snapshot.waitingForFirstActivity) {
-          const startedAt = snapshot.modelRequestStartedAt || snapshot.askStartedAt;
-          if (firstMs && startedAt && now - startedAt > firstMs) {
-            try { controller.abort(new Error(`agent first response stale (${firstMs}ms)`)); } catch {}
-          }
-          return;
-        }
-        const last = snapshot.lastProgressAt || snapshot.firstActivityAt;
-        if (staleMs && last && now - last > staleMs) {
-          try { controller.abort(new Error(`agent task stale (${staleMs}ms without stream/tool progress)`)); } catch {}
+      const abortErr = snapshot
+        ? evaluateAgentWatchdogAbort(snapshot, now, watchdogPolicy)
+        : null;
+      if (!abortErr && !snapshot) {
+        const last = mgr.getSessionLastProgressAt(sessionId);
+        if (watchdogPolicy.idleStaleMs > 0 && last && now - last > watchdogPolicy.idleStaleMs) {
+          try { controller.abort(new Error(`agent task stale (${watchdogPolicy.idleStaleMs}ms without progress)`)); } catch {}
         }
         return;
       }
-      const last = mgr.getSessionLastProgressAt(sessionId);
-      if (staleMs && last && now - last > staleMs) {
-        try { controller.abort(new Error(`agent task stale (${staleMs}ms without progress)`)); } catch {}
+      if (abortErr) {
+        try { controller.abort(abortErr); } catch {}
       }
     }, 1000);
     timer.unref?.();
@@ -1435,8 +1427,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     const prompt = withCwdHeader(await resolvePrompt(args, workerCwd), workerCwd);
     const runtimeSpec = cfgMod.resolveRuntimeSpec(preset, { lane: 'agent', agentId: tag });
     const maxLoopIterations = positiveInt(args.maxLoopIterations) || null;
-    const idleTimeoutMs = DEFAULT_STALE_TIMEOUT_MS;
-    const firstResponseTimeoutMs = DEFAULT_FIRST_RESPONSE_TIMEOUT_MS;
+    const watchdogPolicy = resolveAgentWatchdogPolicy(role);
     const { session, effectiveCwd } = prepareAgentSession({
       role,
       presetName,
@@ -1470,12 +1461,23 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       stage: 'idle',
     });
     cancelReap(session.id);
-    return { args, tag, session, role, preset, presetName, workerCwd: effectiveCwd || workerCwd, prompt, maxLoopIterations, idleTimeoutMs, firstResponseTimeoutMs };
+    return {
+      args,
+      tag,
+      session,
+      role,
+      preset,
+      presetName,
+      workerCwd: effectiveCwd || workerCwd,
+      prompt,
+      maxLoopIterations,
+      watchdogPolicy,
+    };
   }
 
   async function runSpawn(prepared, notifyContext = null, job = null) {
-    const { args, tag, session, role, preset, presetName, workerCwd, prompt, idleTimeoutMs, firstResponseTimeoutMs } = prepared;
-    const watchdog = startProgressIdleWatchdog(session.id, idleTimeoutMs, firstResponseTimeoutMs);
+    const { args, tag, session, role, preset, presetName, workerCwd, prompt, watchdogPolicy } = prepared;
+    const watchdog = startProgressIdleWatchdog(session.id, watchdogPolicy);
     let finalStatus = 'idle';
     upsertWorkerSessionDeferred(session, tag, {
       role,
@@ -1565,11 +1567,8 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
 
   async function runSend(prepared, notifyContext = null, job = null) {
     const { args, session, sessionId, prompt } = prepared;
-    const watchdog = startProgressIdleWatchdog(
-      sessionId,
-      DEFAULT_STALE_TIMEOUT_MS,
-      DEFAULT_FIRST_RESPONSE_TIMEOUT_MS,
-    );
+    const sendRole = session.role || normalizeAgentName(args.agent || args.role);
+    const watchdog = startProgressIdleWatchdog(sessionId, resolveAgentWatchdogPolicy(sendRole));
     const tag = tagForSession(sessionId);
     let finalStatus = 'idle';
     upsertWorkerSessionDeferred(session, tag, { status: 'running', stage: 'running' });

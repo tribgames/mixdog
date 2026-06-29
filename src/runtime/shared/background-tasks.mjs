@@ -83,6 +83,45 @@ function normalizeTaskScope(options = {}) {
   };
 }
 
+const RENDER_META_OMIT_KEYS = new Set([
+  // Internal watchdog/control knobs are intentionally not part of the public
+  // task notification surface. They may appear on legacy/in-flight task meta
+  // from older callers, but rendering them teaches the model/user to set them.
+  'firstResponseTimeoutMs',
+  'idleTimeoutMs',
+  'spawnPrepTimeoutMs',
+  'watchdogPolicy',
+]);
+
+function isInternalTaskMetaKey(key) {
+  const name = clean(key);
+  if (!name) return true;
+  if (RENDER_META_OMIT_KEYS.has(name)) return true;
+  if (/timeoutms$/i.test(name)) return true;
+  return false;
+}
+
+/** Drop internal control knobs from meta before persisting on a task row. */
+export function sanitizeTaskMeta(meta = {}) {
+  if (!meta || typeof meta !== 'object') return {};
+  const out = {};
+  for (const [key, value] of Object.entries(meta)) {
+    if (isInternalTaskMetaKey(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+function publicTaskMeta(meta = {}) {
+  const out = {};
+  for (const [key, value] of Object.entries(meta || {})) {
+    if (value == null || value === '') continue;
+    if (isInternalTaskMetaKey(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
 function hasScopeCriteria(scope) {
   return Boolean(scope?.callerSessionId || scope?.routingSessionId || scope?.clientHostPid);
 }
@@ -161,7 +200,7 @@ export function registerBackgroundTask({
     ownerSessionId: notifyContext.callerSessionId || notifyContext.routingSessionId || null,
     routingSessionId: notifyContext.routingSessionId || notifyContext.callerSessionId || null,
     clientHostPid: notifyContext.clientHostPid || null,
-    meta: meta && typeof meta === 'object' ? meta : {},
+    meta: sanitizeTaskMeta(meta && typeof meta === 'object' ? meta : {}),
     resultType: clean(resultType) || null,
     renderResult: typeof renderResult === 'function' ? renderResult : null,
     cancel: typeof cancel === 'function' ? cancel : null,
@@ -287,7 +326,10 @@ export function completeBackgroundTask(taskId, {
   if (resultText != null) task.resultText = compactText(resultText);
   if (error != null) task.error = presentErrorText(error, { surface: task.surface });
   if (resultType) task.resultType = resultType;
-  if (notify) notifyTaskCompletion(task, instruction);
+  if (notify) {
+    task.meta = sanitizeTaskMeta(task.meta);
+    notifyTaskCompletion(task, instruction);
+  }
   return task;
 }
 
@@ -393,13 +435,14 @@ export function taskSummary(task) {
     startedAt: task.startedAt,
     finishedAt: task.finishedAt,
     error: task.error,
-    ...task.meta,
+    ...publicTaskMeta(task.meta),
   };
 }
 
 export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
   const task = typeof taskOrId === 'string' ? getBackgroundTask(taskOrId) : taskOrId;
   if (!task) return 'Error: background task not found';
+  const visibleMeta = publicTaskMeta(sanitizeTaskMeta(task.meta));
   const lines = [
     'background task',
     `task_id: ${task.taskId}`,
@@ -411,8 +454,7 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
     task.finishedAt ? `finished: ${task.finishedAt}` : null,
     task.error ? `error: ${task.error}` : null,
   ];
-  for (const [key, value] of Object.entries(task.meta || {})) {
-    if (value == null || value === '') continue;
+  for (const [key, value] of Object.entries(visibleMeta)) {
     lines.push(`${key}: ${value}`);
   }
   if (task.status === 'running') {

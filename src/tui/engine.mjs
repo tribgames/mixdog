@@ -13,7 +13,7 @@ import {
   formatAggregateDetail,
   summarizeToolResult,
 } from '../runtime/shared/tool-surface.mjs';
-import { presentErrorText } from '../runtime/shared/err-text.mjs';
+import { isBackgroundErrorOnlyBody, presentErrorText } from '../runtime/shared/err-text.mjs';
 import { formatDuration } from './time-format.mjs';
 import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 
@@ -379,7 +379,7 @@ function parseAgentResultEnvelope(text, fallback = {}) {
   };
 }
 
-function parseBackgroundTaskEnvelope(text) {
+export function parseBackgroundTaskEnvelope(text) {
   const value = String(text ?? '').trim();
   if (!/^background task\b/i.test(value)) return null;
   const allLines = value.split('\n');
@@ -409,7 +409,9 @@ function parseBackgroundTaskEnvelope(text) {
     effort: fields.effort || '',
     fast: fields.fast,
   });
-  if (agentResult) return agentResult;
+  if (agentResult) return { ...agentResult, rawResult: value };
+  const errorOnlyBody = isBackgroundErrorOnlyBody(body, errorText);
+  const resultBody = body && !errorOnlyBody ? body : '';
   return {
     name,
     label: status || 'notification',
@@ -432,7 +434,8 @@ function parseBackgroundTaskEnvelope(text) {
       startedAt: fields.started || fields.startedat || undefined,
       finishedAt: fields.finished || fields.finishedat || undefined,
     },
-    result: body || (errorText ? (/^error\s*:/i.test(errorText) ? errorText : `Error: ${errorText}`) : [status ? `status: ${status}` : '', taskId ? `task_id: ${taskId}` : ''].filter(Boolean).join(' · ')) || 'background task',
+    result: resultBody || (!errorText ? [status ? `status: ${status}` : '', taskId ? `task_id: ${taskId}` : ''].filter(Boolean).join(' · ') : ''),
+    rawResult: value,
     isError: /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status) || /^error:/i.test(body) || Boolean(errorText),
   };
 }
@@ -955,6 +958,7 @@ export async function createEngineSession({
       name: synthetic.name || 'agent',
       args,
       result: synthetic.result,
+      rawResult: synthetic.rawResult ?? text,
       isError,
       expanded: false,
       count: 1,
@@ -1568,10 +1572,17 @@ export async function createEngineSession({
           : '';
         const patch = {};
         // Do NOT create the assistant row (and scroll the transcript) before
-        // there is a completed line to show. Until the first '\n' the only
-        // pending state is the spinner; the row appears together with its first
-        // visible line, so no empty "●-only" row flashes/scrolls ahead of text.
-        if (currentAssistantId || streamingVisibleText) {
+        // there is a completed line with VISIBLE content to show. Until the
+        // first '\n' the only pending state is the spinner; the row appears
+        // together with its first visible line, so no empty "●-only" row
+        // flashes/scrolls ahead of text. `.trim()` also guards the
+        // whitespace-only case: a response that opens with leading newlines
+        // ("\n\n# …") completes a blank line first, whose estimated height
+        // still reserves rows and scrolls the transcript, but Markdown trims
+        // the body to nothing — so the scroll advances onto an empty band for
+        // a few seconds until a non-blank line lands. Don't create the row
+        // until there is real content to paint.
+        if (currentAssistantId || streamingVisibleText.trim()) {
           const id = ensureAssistant(streamingVisibleText);
           // Emit the accumulated assistant text and spinner update together so a
           // streaming batch costs one set() → one emit() → one React reconcile.
@@ -2888,6 +2899,7 @@ export async function createEngineSession({
                     description: synthetic.summary || 'agent notification',
                   },
                   result: synthetic.result,
+                  rawResult: synthetic.rawResult ?? text,
                   isError: synthetic.isError ?? /^(failed|error|killed|cancelled)$/i.test(label),
                   expanded: false,
                   count: 1,

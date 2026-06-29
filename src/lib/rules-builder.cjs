@@ -134,7 +134,7 @@ function buildProfilePreferencesContent(dataDir) {
     const source = language.source === 'system-locale' && language.locale
       ? ` from system locale ${language.locale}`
       : '';
-    lines.push(`- Default user-facing response language${source}: ${language.prompt}. Use it for all user-facing prose, including pre-tool preambles, progress updates, questions, final reports, and notices. This overrides any English tone implied by the output style: even a one-line preamble before a tool call must be written in this language, never in English by default. Follow another language only if the user writes in it or explicitly asks for it. Keep code, paths, commands, symbols, API names, and exact errors verbatim.`);
+    lines.push(`- Default user-facing response language${source}: ${language.prompt}. Use it for ALL user-facing prose, including pre-tool preambles, progress updates, questions, final reports, and notices. Every such message — even a single-line preamble before a tool call — MUST be written in ${language.prompt}, and in no other language. This overrides any tone implied by the output style. Switch languages only when the user writes in another language or explicitly asks you to. Keep code, paths, commands, symbols, API names, and exact errors verbatim.`);
   }
   return lines.length ? `# Profile Preferences\n\n${lines.join('\n')}` : '';
 }

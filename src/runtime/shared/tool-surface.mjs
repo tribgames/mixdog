@@ -978,6 +978,39 @@ export function isExplorerSurface(label) {
   return label === 'Read' || label === 'Search';
 }
 
+// Max width for the one-line agent/task surface brief shown on the card header.
+export const AGENT_SURFACE_BRIEF_MAX = 40;
+
+function truncateAgentSurfaceBrief(value, max = AGENT_SURFACE_BRIEF_MAX) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(1, max - 1))}\u2026`;
+}
+
+// Tight one-liner for an agent/task card: prefer the inbound prompt/message for
+// spawn/send, or a stripped first line of the result when a response landed.
+export function summarizeAgentSurfaceBrief(name, args, resultText, { isError = false, isResponse = false } = {}) {
+  const a = parseToolArgs(args);
+  const action = String(a?.type || a?.action || '').toLowerCase();
+  const text = String(resultText ?? '').trim();
+  if (isResponse && text) {
+    const fromResult = summarizeToolResult(name, args, text, isError);
+    if (fromResult) return truncateAgentSurfaceBrief(stripInlineMarkdown(fromResult));
+    const line = firstAgentResultLine(text);
+    if (line) return truncateAgentSurfaceBrief(stripInlineMarkdown(line));
+  }
+  const outbound = firstText(a?.prompt, a?.message);
+  if (outbound && (action === 'spawn' || action === 'send' || !action)) {
+    return truncateAgentSurfaceBrief(outbound);
+  }
+  if ((action === 'spawn' || action === 'send') && text && !isResponse) {
+    const fromResult = summarizeToolResult(name, args, text, isError);
+    if (fromResult) return truncateAgentSurfaceBrief(stripInlineMarkdown(fromResult));
+  }
+  return '';
+}
+
 export function isMemorySurface(label) {
   return label === 'Memory';
 }

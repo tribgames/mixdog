@@ -41,6 +41,7 @@ import { appendAgentTrace } from '../agent-trace.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { maxMtimeRecursive } from '../cache-mtime.mjs';
 import { getHiddenRole, getRoleInstructionDir } from '../internal-roles.mjs';
+import { DEFAULT_ACTIVITY_HEARTBEAT_MS } from '../stall-policy.mjs';
 import {
     buildGatewayLimits,
     recordGatewayUsageEvent,
@@ -1614,6 +1615,7 @@ export function createSession(opts) {
 //   closed?: boolean,               // flipped by closeSession()
 // }
 const _runtimeState = new Map();
+const _toolActivityHeartbeats = new Map();
 const VALID_STAGES = new Set([
     'connecting', 'requesting', 'streaming', 'tool_running', 'idle', 'error', 'done', 'cancelling',
 ]);
@@ -1625,6 +1627,33 @@ function _touchRuntime(id) {
     }
     return entry;
 }
+
+function _stopToolActivityHeartbeat(id) {
+    if (!id) return;
+    const timer = _toolActivityHeartbeats.get(id);
+    if (!timer) return;
+    try { clearInterval(timer); } catch { /* ignore */ }
+    _toolActivityHeartbeats.delete(id);
+}
+
+function _touchSessionActivityProgress(id) {
+    const entry = _runtimeState.get(id);
+    if (!entry || entry.closed || entry.controller?.signal?.aborted) return;
+    if (entry.stage !== 'tool_running') return;
+    const now = Date.now();
+    entry.lastProgressAt = now;
+    entry.updatedAt = now;
+    publishHeartbeat(id, now);
+}
+
+function _startToolActivityHeartbeat(id) {
+    _stopToolActivityHeartbeat(id);
+    if (!(DEFAULT_ACTIVITY_HEARTBEAT_MS > 0)) return;
+    const timer = setInterval(() => _touchSessionActivityProgress(id), DEFAULT_ACTIVITY_HEARTBEAT_MS);
+    if (typeof timer.unref === 'function') timer.unref();
+    _toolActivityHeartbeats.set(id, timer);
+}
+
 export function updateSessionStage(id, stage) {
     if (!id || !VALID_STAGES.has(stage)) return;
     const entry = _touchRuntime(id);
@@ -1635,6 +1664,7 @@ export function updateSessionStage(id, stage) {
     }
     entry.lastProgressAt = now;
     entry.updatedAt = now;
+    if (stage !== 'tool_running') _stopToolActivityHeartbeat(id);
 }
 
 export function updateSessionRoute(id, route = {}) {
@@ -1700,6 +1730,7 @@ export function updateSessionRoute(id, route = {}) {
  */
 export function markSessionAskStart(id) {
     if (!id) return;
+    _stopToolActivityHeartbeat(id);
     const entry = _touchRuntime(id);
     entry.stage = 'connecting';
     entry.lastStreamDeltaAt = null;
@@ -1742,6 +1773,7 @@ export async function markSessionStreamDelta(id) {
     // path). Skip a missing, tombstoned, or aborted entry — never refresh liveness.
     const entry = _runtimeState.get(id);
     if (!entry || entry.closed || entry.controller?.signal?.aborted) return;
+    _stopToolActivityHeartbeat(id);
     const now = Date.now();
     entry.lastStreamDeltaAt = now;
     entry.lastProgressAt = now;
@@ -1771,9 +1803,11 @@ export function markSessionToolCall(id, toolName) {
     entry.lastProgressAt = entry.toolStartedAt;
     entry.updatedAt = entry.toolStartedAt;
     publishHeartbeat(id, entry.toolStartedAt);
+    _startToolActivityHeartbeat(id);
 }
 export function markSessionDone(id, { empty = false } = {}) {
     if (!id) return;
+    _stopToolActivityHeartbeat(id);
     const entry = _touchRuntime(id);
     entry.stage = 'done';
     entry.lastError = null;
@@ -1808,6 +1842,7 @@ export function markSessionEmptyFinal(id) {
 }
 export function markSessionError(id, msg) {
     if (!id) return;
+    _stopToolActivityHeartbeat(id);
     const entry = _touchRuntime(id);
     entry.stage = 'error';
     entry.lastError = msg ? String(msg).slice(0, 200) : null;
@@ -1825,6 +1860,7 @@ export function markSessionError(id, msg) {
 }
 export function markSessionCancelled(id) {
     if (!id) return;
+    _stopToolActivityHeartbeat(id);
     const entry = _touchRuntime(id);
     entry.stage = 'done';
     entry.lastError = null;
@@ -2028,6 +2064,7 @@ export function getSessionLastProgressAt(sessionId) {
     const entry = _runtimeState.get(sessionId);
     if (!entry) return 0;
     return Math.max(
+        entry.lastProgressAt || 0,
         entry.lastStreamDeltaAt || 0,
         entry.toolStartedAt || 0,
         entry.askStartedAt || 0,
@@ -2063,6 +2100,7 @@ export function linkParentSignalToSession(sessionId, parentSignal) {
 }
 function _clearSessionRuntime(id) {
     if (id) {
+        _stopToolActivityHeartbeat(id);
         _runtimeState.delete(id);
         // R15: also drop the per-session metric-idempotency Set; otherwise it
         // grows O(sessions x iterations) for the whole server lifetime since
@@ -3228,6 +3266,7 @@ export async function updateSessionStatus(id, status) {
  */
 export function closeSession(id, reason = 'manual') {
     if (!id) return false;
+    _stopToolActivityHeartbeat(id);
     // Prefer in-memory runtime session — allBashSessionIds may not be persisted
     // yet for shells opened in the current turn (BL-bash-disk-sync).
     const inMemory = _runtimeState.get(id)?.session;
@@ -3287,6 +3326,7 @@ export function closeSession(id, reason = 'manual') {
 }
 export function abortSessionTurn(id, reason = 'turn-abort') {
     if (!id) return false;
+    _stopToolActivityHeartbeat(id);
     const entry = _runtimeState.get(id);
     if (!entry || entry.closed) return false;
     entry.stage = 'cancelling';

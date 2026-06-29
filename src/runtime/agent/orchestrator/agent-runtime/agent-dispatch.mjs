@@ -30,6 +30,11 @@ import {
     updateSessionStatus,
     closeSession,
 } from '../session/manager.mjs';
+import {
+    agentWatchdogPolicyActive,
+    evaluateAgentWatchdogAbort,
+    resolveAgentWatchdogPolicy,
+} from './agent-progress-watchdog.mjs';
 
 // Cap agent role synthesis to ~3000 tokens (~12 KB at the 4 B/tok
 // working average). Pool B explore/recall/search answers occasionally land
@@ -37,14 +42,6 @@ import {
 // turn; the cap keeps those outliers bounded without touching the 95%+ of
 // answers already under the threshold.
 const BRIEF_CAP_BYTES = 12 * 1024;
-function envTimeoutMs(name, fallback) {
-    const raw = process.env[name];
-    if (raw === undefined || raw === '') return fallback;
-    const n = Number(raw);
-    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
-}
-const DEFAULT_FIRST_RESPONSE_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_FIRST_RESPONSE_TIMEOUT_MS', 120_000);
-const DEFAULT_STALE_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_STALE_TIMEOUT_MS', 30 * 60_000);
 function applyBriefCap(text) {
     if (typeof text !== 'string') return text;
     if (text.length <= BRIEF_CAP_BYTES) return text;
@@ -258,15 +255,16 @@ export function makeAgentDispatch(opts = {}) {
         // Watchdog policy is split:
         // - firstResponseTimeoutMs cuts quickly only when the model produces no
         //   first stream/tool activity at all.
-        // - idleTimeoutMs is a stale watchdog after work has started.
-        //   0 disables that stale abort; default is 30 minutes.
-        const _staleMs = Number.isFinite(callIdleTimeoutMs)
-            ? callIdleTimeoutMs
-            : (Number.isFinite(opts.idleTimeoutMs) ? opts.idleTimeoutMs : DEFAULT_STALE_TIMEOUT_MS);
-        const _firstMs = Number.isFinite(opts.firstResponseTimeoutMs)
-            ? opts.firstResponseTimeoutMs
-            : DEFAULT_FIRST_RESPONSE_TIMEOUT_MS;
-        const _idleController = ((_staleMs > 0 || _firstMs > 0) && _linkSignal) ? new AbortController() : null;
+        // - idle/tool-running caps come from role stallCap (hidden roles) or env defaults.
+        const _watchdogPolicy = resolveAgentWatchdogPolicy(role, {
+            idleTimeoutMs: Number.isFinite(callIdleTimeoutMs)
+                ? callIdleTimeoutMs
+                : opts.idleTimeoutMs,
+            firstResponseTimeoutMs: opts.firstResponseTimeoutMs,
+        });
+        const _idleController = (agentWatchdogPolicyActive(_watchdogPolicy) && _linkSignal)
+            ? new AbortController()
+            : null;
         if (_idleController) {
             try { _linkSignal(session.id, _idleController.signal); } catch { /* ignore */ }
         }
@@ -274,23 +272,18 @@ export function makeAgentDispatch(opts = {}) {
             ? setInterval(() => {
                 const now = Date.now();
                 const snapshot = typeof _getProgressSnapshot === 'function' ? _getProgressSnapshot(session.id) : null;
-                if (snapshot) {
-                    if (snapshot.waitingForFirstActivity) {
-                        const startedAt = snapshot.modelRequestStartedAt || snapshot.askStartedAt;
-                        if (_firstMs > 0 && startedAt && now - startedAt > _firstMs) {
-                            try { _idleController.abort(new Error(`first response stale (${_firstMs}ms)`)); } catch { /* ignore */ }
-                        }
-                        return;
-                    }
-                    const last = snapshot.lastProgressAt || snapshot.firstActivityAt;
-                    if (_staleMs > 0 && last && now - last > _staleMs) {
-                        try { _idleController.abort(new Error(`agent task stale (${_staleMs}ms without stream/tool progress)`)); } catch { /* ignore */ }
+                const abortErr = snapshot
+                    ? evaluateAgentWatchdogAbort(snapshot, now, _watchdogPolicy)
+                    : null;
+                if (!abortErr && !snapshot && typeof _getLastProgressAt === 'function') {
+                    const last = _getLastProgressAt(session.id);
+                    if (_watchdogPolicy.idleStaleMs > 0 && last && now - last > _watchdogPolicy.idleStaleMs) {
+                        try { _idleController.abort(new Error(`agent task stale (${_watchdogPolicy.idleStaleMs}ms without progress)`)); } catch { /* ignore */ }
                     }
                     return;
                 }
-                const last = _getLastProgressAt?.(session.id);
-                if (_staleMs > 0 && last && now - last > _staleMs) {
-                    try { _idleController.abort(new Error(`agent task stale (${_staleMs}ms without progress)`)); } catch { /* ignore */ }
+                if (abortErr) {
+                    try { _idleController.abort(abortErr); } catch { /* ignore */ }
                 }
             }, 1000)
             : null;

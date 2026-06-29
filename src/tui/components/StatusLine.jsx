@@ -60,7 +60,9 @@ function terminalColumns() {
 
 function localContextSegment() {
   const cols = terminalColumns();
-  const cells = cols >= 120 ? 14 : cols >= 80 ? 8 : 0;
+  // Mirror statusline.mjs formatContextSegment: fixed 14-cell bar at 80+ cols,
+  // label-only below 80 so the footer never overflows a narrow terminal.
+  const cells = cols >= 80 ? 14 : 0;
   if (!cells) return `${SUCCESS}0%${RESET}`;
   return `${SUBTLE}${'░'.repeat(cells)}${RESET} ${STATUS}0%${RESET}`;
 }
