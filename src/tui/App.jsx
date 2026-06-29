@@ -2055,13 +2055,13 @@ export function App({ store, initialStatusLine = '' }) {
           // Works for transcript AND status rows since getWordRectAt is grid-based.
           const now = Date.now();
           const lc = lastClickRef.current;
-          // Treat a second press as a double-click when it lands on the same row
-          // within ~1 cell of the first press (terminals often report a slightly
-          // shifted column on the second click). Exact-cell matching made
-          // double-click word selection unreliable.
-          const isDouble = (now - lc.t) < 450
-            && lc.y === y
-            && Math.abs(lc.x - x) <= 1;
+          // Treat a second press as a double-click when it lands near the first
+          // press within 500ms: up to 2 columns and 1 row of drift (terminals
+          // often report a shifted cell on the second click). Tighter matching
+          // made double-click word selection unreliable.
+          const isDouble = (now - lc.t) < 500
+            && Math.abs(lc.y - y) <= 1
+            && Math.abs(lc.x - x) <= 2;
           if (isDouble) {
             // Consume this click so a following press is not mistaken for another
             // double-click (avoids a stray single-cell selection flicker).
@@ -6940,13 +6940,28 @@ export function App({ store, initialStatusLine = '' }) {
     // leaving a blank band that only resolves seconds later when a newline /
     // finalize shrinks the estimate. The over-estimate is harmless while pinned;
     // it only hurts here, when a non-pinned frame turns it into real offset. So
-    // while the tail item is a live streaming assistant, suppress the POSITIVE
-    // (push) preserve delta and keep only shrink corrections. Reading older
+    // while the tail item is a live streaming assistant AND that tail intersects
+    // the current viewport (phantom estimate can push visible content into a
+    // blank band), suppress the POSITIVE (push) preserve delta and keep only
+    // shrink corrections. When the streaming tail is wholly below the visible
+    // bottom (user scrolled up), apply the real positive preserveDelta so
+    // off-screen growth does not drift the reading viewport. Reading older
     // history during a stream still preserves against REAL (non-tail) height
     // changes, which anchorPreserveDelta already isolates above the anchor.
     const tailItem = (state.items || [])[state.items.length - 1];
     const tailStreaming = tailItem?.kind === 'assistant' && tailItem?.streaming === true;
-    const effectivePreserveDelta = tailStreaming ? Math.min(0, preserveDelta) : preserveDelta;
+    const tailIdx = Math.max(0, (state.items || []).length - 1);
+    let tailStreamingVisible = false;
+    if (tailStreaming) {
+      if (prevPrefix && tailIdx < prevPrefix.length - 1) {
+        const visibleBottomAbs = previousTotalRows - currentTarget;
+        tailStreamingVisible = prevPrefix[tailIdx] < visibleBottomAbs;
+      } else {
+        // Tail absent in prev frame (new append) or no prefix: conservative.
+        tailStreamingVisible = true;
+      }
+    }
+    const effectivePreserveDelta = tailStreamingVisible ? Math.min(0, preserveDelta) : preserveDelta;
     const nextTarget = Math.max(0, Math.min(maxRows, currentTarget + effectivePreserveDelta));
     const appliedDelta = nextTarget - currentTarget;
     if (appliedDelta === 0) return;
