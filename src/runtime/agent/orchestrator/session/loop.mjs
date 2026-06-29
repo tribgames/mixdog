@@ -540,15 +540,49 @@ function resolveCompactBufferRatio(cfg = {}) {
     );
     return normalizeCompactionBufferRatio(resolved, DEFAULT_COMPACTION_BUFFER_RATIO);
 }
+const LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
+function isLegacyDefaultBufferTelemetry(cfg = {}, boundaryTokens = 0) {
+    const boundary = positiveTokenInt(boundaryTokens);
+    if (!boundary) return false;
+    if (envTokenInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')) return false;
+    for (const envName of ['MIXDOG_AGENT_COMPACT_BUFFER_PERCENT', 'MIXDOG_AGENT_COMPACT_BUFFER_RATIO']) {
+        const n = Number(process.env[envName]);
+        if (Number.isFinite(n) && n > 0) return false;
+    }
+    // Percent/fraction-named fields are operator config. The legacy default
+    // telemetry persisted bufferTokens + bufferRatio after a check/compact pass.
+    for (const key of ['bufferPercent', 'bufferPct', 'bufferFraction']) {
+        const n = Number(cfg?.[key]);
+        if (Number.isFinite(n) && n > 0) return false;
+    }
+    const explicitTokens = positiveTokenInt(cfg?.bufferTokens ?? cfg?.buffer);
+    const ratio = Number(cfg?.bufferRatio);
+    if (!explicitTokens || !Number.isFinite(ratio) || Math.abs(ratio - LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO) > 1e-9) return false;
+    const expectedTokens = Math.floor(boundary * LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO);
+    const cfgBoundary = positiveTokenInt(cfg?.boundaryTokens);
+    const cfgTrigger = positiveTokenInt(cfg?.triggerTokens);
+    return explicitTokens === expectedTokens
+        || (cfgBoundary === boundary && cfgTrigger > 0 && explicitTokens === Math.max(0, boundary - cfgTrigger));
+}
+function compactBufferConfigForBoundary(cfg = {}, boundaryTokens = 0) {
+    if (!isLegacyDefaultBufferTelemetry(cfg, boundaryTokens)) return cfg || {};
+    return {
+        ...(cfg || {}),
+        bufferTokens: null,
+        buffer: null,
+        bufferRatio: null,
+    };
+}
 function resolveCompactBufferTokens(boundaryTokens, cfg = {}) {
-    const configured = positiveTokenInt(cfg.bufferTokens ?? cfg.buffer)
+    const boundary = positiveTokenInt(boundaryTokens);
+    const effectiveCfg = compactBufferConfigForBoundary(cfg, boundary);
+    const configured = positiveTokenInt(effectiveCfg.bufferTokens ?? effectiveCfg.buffer)
         || envTokenInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')
         || 0;
-    const boundary = positiveTokenInt(boundaryTokens);
     if (!boundary) return configured || DEFAULT_COMPACTION_BUFFER_TOKENS;
     return compactionBufferTokensForBoundary(boundary, {
         explicitTokens: configured,
-        ratio: resolveCompactBufferRatio(cfg),
+        ratio: resolveCompactBufferRatio(effectiveCfg),
         maxRatio: COMPACT_BUFFER_MAX_WINDOW_FRACTION,
     });
 }
@@ -606,7 +640,8 @@ function resolveWorkerCompactPolicy(sessionRef, tools) {
     // Only an explicit auto-compact limit STRICTLY BELOW the boundary acts as
     // the trigger. A persisted value == boundary (legacy derived full-window
     // autoCompactTokenLimit) would set autoTriggerTokens == boundary and
-    // collapse the buffer to 0, so it is ignored in favor of boundary − buffer.
+    // collapse/override the default trigger, so it is ignored in favor of the
+    // default boundary trigger.
     const autoTriggerTokens = autoLimit && autoLimit < compactBoundaryTokens ? Math.max(1, autoLimit) : null;
     // Sanitized explicit limit: only a sub-boundary value is a real auto-compact
     // limit. Anything >= boundary is a legacy derived full-window artifact and

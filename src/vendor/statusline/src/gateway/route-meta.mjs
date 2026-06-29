@@ -147,7 +147,8 @@ function autoCompactTokenLimit(provider, rawContextWindow, contextWindow, info =
   // above the boundary is a derived full-window artifact — returning
   // Math.min(explicit, derived) would still surface the boundary, which the
   // runtime then treats as the trigger and collapses the compaction buffer.
-  // Drop those to null so display + downstream fall back to boundary − buffer.
+  // Drop those to null so display + downstream fall back to the default
+  // boundary trigger.
   const derived = num(contextWindow, 0) || num(rawContextWindow, 0);
   if (derived > 0) return explicit < derived ? explicit : null;
   // No boundary known: keep the positive explicit value (cannot be proven to

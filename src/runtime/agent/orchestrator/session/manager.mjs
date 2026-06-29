@@ -556,13 +556,15 @@ function resolveBufferRatioCandidate(percentInputs, ratioInputs) {
     }
     return null;
 }
-function compactBufferRatioForSession(session) {
-    const cfg = session?.compaction || {};
+function compactBufferRatioForConfig(cfg = {}) {
     const resolved = resolveBufferRatioCandidate(
         [cfg.bufferPercent, cfg.bufferPct, process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT],
         [cfg.bufferRatio, cfg.bufferFraction, process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO],
     );
     return normalizeCompactionBufferRatio(resolved, DEFAULT_COMPACTION_BUFFER_RATIO);
+}
+function compactBufferRatioForSession(session) {
+    return compactBufferRatioForConfig(session?.compaction || {});
 }
 // Carry the percent/ratio-named buffer config from a compaction config object
 // onto session.compaction so downstream parsers (compactBufferRatioForSession,
@@ -577,14 +579,46 @@ function preserveBufferConfigFields(cfg = {}) {
     }
     return out;
 }
+const LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
+function isLegacyDefaultBufferTelemetry(cfg = {}, boundaryTokens = 0) {
+    const boundary = positiveContextWindow(boundaryTokens);
+    if (!boundary) return false;
+    if (positiveContextWindow(process.env.MIXDOG_AGENT_COMPACT_BUFFER_TOKENS)) return false;
+    if (Number.isFinite(Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT)) && Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT) > 0) return false;
+    if (Number.isFinite(Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO)) && Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO) > 0) return false;
+    // Percent/fraction-named fields are treated as operator config. The legacy
+    // default telemetry always persisted bufferTokens + bufferRatio after a
+    // check/compact pass, so only that shape is migrated away.
+    for (const key of ['bufferPercent', 'bufferPct', 'bufferFraction']) {
+        const n = Number(cfg?.[key]);
+        if (Number.isFinite(n) && n > 0) return false;
+    }
+    const explicitTokens = positiveContextWindow(cfg?.bufferTokens ?? cfg?.buffer);
+    const ratio = Number(cfg?.bufferRatio);
+    if (!explicitTokens || !Number.isFinite(ratio) || Math.abs(ratio - LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO) > 1e-9) return false;
+    const expectedTokens = Math.floor(boundary * LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO);
+    const cfgBoundary = positiveContextWindow(cfg?.boundaryTokens);
+    const cfgTrigger = positiveContextWindow(cfg?.triggerTokens);
+    return explicitTokens === expectedTokens
+        || (cfgBoundary === boundary && cfgTrigger > 0 && explicitTokens === Math.max(0, boundary - cfgTrigger));
+}
+function compactBufferConfigForBoundary(cfg = {}, boundaryTokens = 0) {
+    if (!isLegacyDefaultBufferTelemetry(cfg, boundaryTokens)) return cfg || {};
+    return {
+        ...(cfg || {}),
+        bufferTokens: null,
+        buffer: null,
+        bufferRatio: null,
+    };
+}
 function compactBufferTokensForSession(session, boundaryTokens) {
-    const cfg = session?.compaction || {};
+    const cfg = compactBufferConfigForBoundary(session?.compaction || {}, boundaryTokens);
     const explicit = positiveContextWindow(cfg.bufferTokens ?? cfg.buffer)
         || positiveContextWindow(process.env.MIXDOG_AGENT_COMPACT_BUFFER_TOKENS)
         || 0;
     return compactionBufferTokensForBoundary(boundaryTokens, {
         explicitTokens: explicit,
-        ratio: compactBufferRatioForSession(session),
+        ratio: compactBufferRatioForConfig(cfg),
         maxRatio: 0.25,
     });
 }
@@ -662,7 +696,7 @@ function resolveSessionContextMeta(provider, model, seed = {}) {
     // honor as an explicit trigger, collapsing the compaction buffer to 0. Only
     // accept an explicit limit that is STRICTLY BELOW the boundary; a value at
     // or above the boundary is a derived full-window artifact and is dropped to
-    // null so the trigger falls back to boundary − buffer.
+    // null so the trigger falls back to the default boundary trigger.
     const explicitCompactLimit = rawCompactLimit && rawCompactLimit < compactBoundaryTokens
         ? rawCompactLimit
         : null;
@@ -691,7 +725,7 @@ function compactTriggerForSession(session, boundaryTokens) {
     // Only honor an explicit auto-compact limit that sits STRICTLY BELOW the
     // boundary. A persisted value == boundary (or >=) is a legacy derived
     // full-window artifact; honoring it collapses the compaction buffer to 0,
-    // so fall through to boundary − buffer instead.
+    // so fall through to the default boundary trigger instead.
     if (autoLimit && autoLimit < boundary) return Math.max(1, autoLimit);
     const buffer = compactBufferTokensForSession(session, boundary);
     return Math.max(1, boundary - buffer);

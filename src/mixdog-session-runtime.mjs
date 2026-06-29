@@ -73,13 +73,11 @@ import {
 
 // Default compaction buffer rules — kept in lockstep with the worker runtime
 // (loop.mjs resolveCompactBufferRatio / manager.mjs compactBufferRatioForSession
-// and compact.mjs compactionBufferTokensForBoundary). The runtime triggers
-// auto-compaction at boundary − buffer (default 10% of the boundary, capped at
-// 25%), NOT at the boundary itself, so /context must compute the same default
-// trigger before any compaction telemetry exists or the displayed trigger
-// disagrees with what actually fires.
-const CONTEXT_DEFAULT_BUFFER_RATIO = 0.1;
+// and compact.mjs compactionBufferTokensForBoundary). By default the trigger is
+// the effective compact boundary itself; explicit buffer settings can lower it.
+const CONTEXT_DEFAULT_BUFFER_RATIO = 0;
 const CONTEXT_MAX_BUFFER_RATIO = 0.25;
+const CONTEXT_LEGACY_DEFAULT_BUFFER_RATIO = 0.1;
 function resolveContextBufferRatio(cfg = {}) {
   // Percent-named inputs (bufferPercent/bufferPct/*_BUFFER_PERCENT): a value of
   // 1 means 1% (→0.01). Ratio-named inputs (bufferRatio/bufferFraction): 0.01
@@ -99,15 +97,43 @@ function resolveContextBufferRatio(cfg = {}) {
   }
   return CONTEXT_DEFAULT_BUFFER_RATIO;
 }
+function isLegacyDefaultContextBufferTelemetry(cfg = {}, boundaryTokens = 0) {
+  const boundary = Number(boundaryTokens);
+  if (!Number.isFinite(boundary) || boundary <= 0) return false;
+  if (Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_TOKENS) > 0) return false;
+  for (const envName of ['MIXDOG_AGENT_COMPACT_BUFFER_PERCENT', 'MIXDOG_AGENT_COMPACT_BUFFER_RATIO']) {
+    const n = Number(process.env[envName]);
+    if (Number.isFinite(n) && n > 0) return false;
+  }
+  for (const key of ['bufferPercent', 'bufferPct', 'bufferFraction']) {
+    const n = Number(cfg?.[key]);
+    if (Number.isFinite(n) && n > 0) return false;
+  }
+  const explicitTokens = Number(cfg?.bufferTokens ?? cfg?.buffer);
+  const ratio = Number(cfg?.bufferRatio);
+  if (!Number.isFinite(explicitTokens) || explicitTokens <= 0 || !Number.isFinite(ratio) || Math.abs(ratio - CONTEXT_LEGACY_DEFAULT_BUFFER_RATIO) > 1e-9) {
+    return false;
+  }
+  const expectedTokens = Math.floor(boundary * CONTEXT_LEGACY_DEFAULT_BUFFER_RATIO);
+  const cfgBoundary = Number(cfg?.boundaryTokens);
+  const cfgTrigger = Number(cfg?.triggerTokens);
+  return Math.floor(explicitTokens) === expectedTokens
+    || (Number.isFinite(cfgBoundary) && Math.floor(cfgBoundary) === Math.floor(boundary)
+      && Number.isFinite(cfgTrigger) && cfgTrigger > 0
+      && Math.floor(explicitTokens) === Math.max(0, Math.floor(boundary - cfgTrigger)));
+}
 function contextDefaultBufferTokens(boundaryTokens, cfg = {}) {
   const boundary = Number(boundaryTokens);
   if (!Number.isFinite(boundary) || boundary <= 0) return 0;
+  const effectiveCfg = isLegacyDefaultContextBufferTelemetry(cfg, boundary)
+    ? { ...cfg, bufferTokens: null, buffer: null, bufferRatio: null }
+    : cfg;
   const cap = Math.max(0, Math.floor(boundary * CONTEXT_MAX_BUFFER_RATIO));
-  const explicit = Number(cfg.bufferTokens ?? cfg.buffer);
+  const explicit = Number(effectiveCfg.bufferTokens ?? effectiveCfg.buffer);
   if (Number.isFinite(explicit) && explicit > 0) {
     return Math.min(Math.floor(explicit), cap);
   }
-  const ratio = resolveContextBufferRatio(cfg);
+  const ratio = resolveContextBufferRatio(effectiveCfg);
   return Math.max(0, Math.min(Math.floor(boundary * ratio), cap));
 }
 
@@ -4275,10 +4301,10 @@ function parsedProviderModelVersion(id) {
       const usedTokens = estimatedContextTokens;
       const freeTokens = displayWindow ? Math.max(0, displayWindow - usedTokens) : 0;
       const autoCompactTokenLimit = Number(session?.autoCompactTokenLimit || 0);
-      // The runtime fires auto-compaction at boundary − buffer (default 10% of
-      // the boundary), not at the boundary. Compute the same default here so
-      // /context shows the trigger that will actually fire before any
-      // compaction telemetry (session.compaction.triggerTokens) is recorded.
+      // The runtime fires auto-compaction at the effective boundary by default.
+      // Compute the same trigger here so /context shows what will actually fire
+      // before any compaction telemetry (session.compaction.triggerTokens) is
+      // recorded. Explicit buffer settings can still lower the trigger.
       // An explicit autoCompactTokenLimit (provider/catalog/seed supplied)
       // still takes precedence and is honored verbatim when it sits at or below
       // the boundary.
@@ -4288,19 +4314,24 @@ function parsedProviderModelVersion(id) {
         : 0;
       // Only an explicit auto-compact limit STRICTLY BELOW the boundary is a
       // real trigger; a persisted value == boundary is a legacy derived
-      // full-window artifact and must fall through to boundary − buffer.
-      // Likewise ignore a persisted compaction.triggerTokens that sits at the
-      // boundary (legacy buffer-collapsed telemetry) so the displayed trigger
-      // matches what the runtime now actually fires.
+      // full-window artifact and must fall through to the default trigger.
+      // Likewise ignore persisted default-buffer telemetry so the displayed
+      // trigger matches what the runtime now actually fires.
       const persistedTriggerTokens = Number(session?.compaction?.triggerTokens || 0);
+      const legacyDefaultTriggerTelemetry = isLegacyDefaultContextBufferTelemetry(session?.compaction || {}, compactBoundaryTokens)
+        && persistedTriggerTokens > 0
+        && persistedTriggerTokens < compactBoundaryTokens;
       const usablePersistedTrigger = persistedTriggerTokens > 0
+        && !legacyDefaultTriggerTelemetry
         && (!compactBoundaryTokens || persistedTriggerTokens < compactBoundaryTokens)
         ? persistedTriggerTokens
         : 0;
       const compactTriggerTokens = autoCompactTokenLimit && compactBoundaryTokens && autoCompactTokenLimit < compactBoundaryTokens
         ? autoCompactTokenLimit
         : (usablePersistedTrigger || defaultCompactTriggerTokens || 0);
-      const compactBufferTokens = Number(session?.compaction?.bufferTokens || (compactBoundaryTokens && compactTriggerTokens ? Math.max(0, compactBoundaryTokens - compactTriggerTokens) : 0));
+      const compactBufferTokens = Number(compactBoundaryTokens && compactTriggerTokens
+        ? Math.max(0, compactBoundaryTokens - compactTriggerTokens)
+        : defaultCompactBufferTokens);
       const value = {
         sessionId: session?.id || null,
         provider: route.provider,

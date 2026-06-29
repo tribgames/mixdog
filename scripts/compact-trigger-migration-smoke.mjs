@@ -19,7 +19,7 @@ function assert(condition, message) {
 
 // 1) A legacy seed where autoCompactTokenLimit == contextWindow/boundary must
 //    NOT be re-accepted as an explicit limit; it is dropped to null so the
-//    trigger falls back to boundary − buffer.
+//    trigger falls back to the default boundary trigger.
 {
   const seed = {
     contextWindow: 200000,
@@ -50,13 +50,11 @@ function assert(condition, message) {
 }
 
 // 3) compactTriggerForSession ignores a boundary-equal stored autoCompactTokenLimit
-//    (legacy artifact) and returns boundary − buffer; honors a sub-boundary one.
+//    (legacy artifact) and returns the boundary; honors a sub-boundary one.
 {
   const boundary = 200000;
   const legacy = compactTriggerForSession({ autoCompactTokenLimit: boundary, compaction: {} }, boundary);
-  assert(legacy < boundary, `legacy boundary-equal limit should yield trigger < boundary, got ${legacy}`);
-  // Default 10% buffer → trigger == 180000.
-  assert(legacy === 180000, `expected boundary-10% trigger 180000, got ${legacy}`);
+  assert(legacy === boundary, `legacy boundary-equal limit should yield boundary trigger ${boundary}, got ${legacy}`);
   const explicit = compactTriggerForSession({ autoCompactTokenLimit: 150000, compaction: {} }, boundary);
   assert(explicit === 150000, `sub-boundary explicit limit should be the trigger, got ${explicit}`);
 }
@@ -69,7 +67,26 @@ function assert(condition, message) {
   assert(trigger === 190000, `bufferPercent 5 should yield trigger 190000, got ${trigger}`);
 }
 
-// 5) preserveBufferConfigFields copies only finite-positive percent/ratio fields.
+// 5) Legacy telemetry from the old default 10% buffer must not keep resumed
+//    sessions compacting at boundary 90%; it now migrates to the boundary.
+{
+  const boundary = 200000;
+  const legacyTelemetry = compactTriggerForSession({
+    compaction: {
+      boundaryTokens: boundary,
+      triggerTokens: 180000,
+      bufferTokens: 20000,
+      bufferRatio: 0.1,
+    },
+  }, boundary);
+  assert(legacyTelemetry === boundary,
+    `legacy default buffer telemetry should migrate to boundary trigger ${boundary}, got ${legacyTelemetry}`);
+  const explicitTokens = compactTriggerForSession({ compaction: { bufferTokens: 10000 } }, boundary);
+  assert(explicitTokens === 190000,
+    `explicit bufferTokens should still lower trigger to 190000, got ${explicitTokens}`);
+}
+
+// 6) preserveBufferConfigFields copies only finite-positive percent/ratio fields.
 {
   const out = preserveBufferConfigFields({ bufferPercent: 5, bufferRatio: 0.02, bufferFraction: 0, bufferPct: undefined, other: 9 });
   assert(out.bufferPercent === 5 && out.bufferRatio === 0.02, 'should copy positive percent/ratio fields');
@@ -78,7 +95,7 @@ function assert(condition, message) {
   assert(!('other' in out), 'non-buffer fields should not be copied');
 }
 
-// 6) route-meta.autoCompactTokenLimit(): legacy seed/info value == boundary/window
+// 7) route-meta.autoCompactTokenLimit(): legacy seed/info value == boundary/window
 //    returns null; value >= window returns null; sub-window explicit preserved;
 //    no boundary keeps positive explicit; never derives.
 {
@@ -99,7 +116,7 @@ function assert(condition, message) {
     'route-meta: positive explicit with no boundary should be kept');
 }
 
-// 7) statusline-route.routeContextMeta(): same explicit-only sanitization.
+// 8) statusline-route.routeContextMeta(): same explicit-only sanitization.
 {
   // inherited full-window autoCompactTokenLimit (== rawContextWindow) → null
   const legacy = routeContextMeta('anthropic-oauth', { contextWindow: 200000 }, { autoCompactTokenLimit: 200000 });
@@ -116,7 +133,7 @@ function assert(condition, message) {
     `statusline-route: no explicit should be null, got ${none.autoCompactTokenLimit}`);
 }
 
-// 8) loadGatewayStatus auto-compact resolver: a stale active full-window limit
+// 9) loadGatewayStatus auto-compact resolver: a stale active full-window limit
 //    must be validated against the ACTIVE window, not the (larger) configured
 //    window. Configured contextWindow=244800 > active gateway_context_window=200000,
 //    active gateway_auto_compact_token_limit=200000 (== active window) => null.
