@@ -122,6 +122,28 @@ export function estimateToolSchemaTokens(tools) {
 export function estimateRequestReserveTokens(tools) {
     return estimateToolSchemaTokens(tools) + REQUEST_OVERHEAD_TOKENS;
 }
+
+/**
+ * Live/current context numerator SSOT: transcript estimate + request reserve.
+ * Provider-reported usage is excluded (secondary metadata only).
+ * Empty / no-activity transcript returns 0 so fresh sessions do not show
+ * reserve-only phantom usage.
+ *
+ * @param {unknown[]} messages
+ * @param {unknown[]|number} toolsOrReserve tool list or precomputed reserve tokens
+ * @param {{ messageCount?: number }} [opts]
+ */
+export function estimateTranscriptContextUsage(messages, toolsOrReserve, opts = {}) {
+    const list = Array.isArray(messages) ? messages : [];
+    const count = Number.isFinite(Number(opts.messageCount)) ? Number(opts.messageCount) : list.length;
+    if (count <= 0 || list.length === 0) return 0;
+    const messageTokens = estimateMessagesTokens(list);
+    const reserve = typeof toolsOrReserve === 'number' && Number.isFinite(toolsOrReserve)
+        ? Math.max(0, toolsOrReserve)
+        : estimateRequestReserveTokens(toolsOrReserve);
+    return messageTokens + reserve;
+}
+
 const TOOL_MISSING_STUB = '[Older tool result unavailable after context compaction]';
 function collectAssistantToolCallIds(message) {
     if (!message || message.role !== 'assistant') return [];

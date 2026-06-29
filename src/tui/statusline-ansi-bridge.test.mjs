@@ -96,6 +96,30 @@ test('statuslineFooterCacheKey changes when session or route identity changes', 
   assert.notEqual(a, c);
 });
 
+test('statusline footer identity tracks context display boundary fields', () => {
+  const base = {
+    sessionId: 's1',
+    provider: 'p',
+    model: 'm',
+    contextWindow: 1_000_000,
+    displayContextWindow: 900_000,
+    rawContextWindow: 1_000_000,
+    compactBoundaryTokens: 900_000,
+    autoCompactTokenLimit: 810_000,
+    stats: { currentEstimatedContextTokens: 10_000 },
+  };
+  const changedDisplay = { ...base, displayContextWindow: 800_000 };
+  const changedBoundary = { ...base, compactBoundaryTokens: 800_000 };
+  const changedTrigger = { ...base, autoCompactTokenLimit: 720_000 };
+
+  assert.notEqual(statuslineFooterCacheKey(base), statuslineFooterCacheKey(changedDisplay));
+  assert.notEqual(statuslineFooterCacheKey(base), statuslineFooterCacheKey(changedBoundary));
+  assert.notEqual(statuslineFooterCacheKey(base), statuslineFooterCacheKey(changedTrigger));
+  assert.equal(statuslineFooterIdentityChanged(changedDisplay, base), true);
+  assert.equal(statuslineFooterIdentityChanged(changedBoundary, base), true);
+  assert.equal(statuslineFooterIdentityChanged(changedTrigger, base), true);
+});
+
 test('stats reset transition is footer identity change (cache must not reuse on /theme)', () => {
   const activeStats = {
     currentContextTokens: 1200,

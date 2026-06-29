@@ -56,7 +56,7 @@ function colorizers() {
 // Cached on the same theme-version key so a /theme switch rebuilds both maps.
 let _extraVersion = -1;
 let _extra = null;
-function extraColorizers() {
+export function extraColorizers() {
   const version = getThemeVersion();
   if (_extra && _extraVersion === version) return _extra;
   _extraVersion = version;
@@ -128,7 +128,7 @@ function normalizeLang(lang) {
  * least one +/- body line AND a hunk header or file header, so ordinary code
  * with leading +/- (rare) is not misclassified.
  */
-function looksLikeUnifiedDiff(text) {
+export function looksLikeUnifiedDiff(text) {
   const lines = String(text ?? '').split(EOL);
   let hasHunk = false;
   let hasFileHeader = false;
@@ -142,7 +142,7 @@ function looksLikeUnifiedDiff(text) {
 }
 
 /** Classify and color a single unified-diff line. */
-function colorizeDiffLine(line, c) {
+export function colorizeDiffLine(line, c) {
   // File/section headers first so +++/--- are never treated as add/remove.
   if (/^(\+\+\+|---)(\s|$)/.test(line)) return c.diffHeader(line);
   if (/^(diff --git |index [0-9a-f]|new file|deleted file|rename |similarity |old mode|new mode)/.test(line)) {
@@ -170,7 +170,7 @@ const KEYWORDS = {
   css: [],
 };
 
-const LANG_FAMILY = {
+export const LANG_FAMILY = {
   js: 'js', javascript: 'js', mjs: 'js', cjs: 'js',
   ts: 'js', typescript: 'js', jsx: 'js', tsx: 'js',
   json: 'json', json5: 'json',
@@ -182,7 +182,7 @@ const LANG_FAMILY = {
 };
 
 /** Highlight a single line for a c-like / scripting family (token scan). */
-function highlightCodeLine(line, family, c) {
+export function highlightCodeLine(line, family, c) {
   const kw = new Set(KEYWORDS[family === 'json' ? 'js' : family] || []);
   // Comment lines (whole-line) for the common families.
   if (family === 'js' && /^\s*\/\//.test(line)) return c.synComment(line);

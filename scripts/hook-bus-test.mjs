@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStandaloneHookBus } from '../src/standalone/hook-bus.mjs';
@@ -101,6 +101,101 @@ test('legacy hook rule ask requests approval instead of allowing silently', asyn
   const asked = await bus.beforeTool({ sessionId: 'sess_test', cwd: root, name: 'shell', args: { command: 'echo ok' } });
   assert.equal(asked.action, 'ask');
   assert.match(asked.reason, /legacy rule approval/);
+});
+
+test('hook config ignores Claude settings paths and reads project .mixdog hooks', async () => {
+  const root = tempRoot();
+  const claudeDir = join(root, '.claude');
+  const mixdogDir = join(root, '.mixdog');
+  mkdirSync(claudeDir, { recursive: true });
+  mkdirSync(mixdogDir, { recursive: true });
+
+  const denyScript = join(root, 'deny.mjs');
+  writeFileSync(denyScript, `
+console.log(JSON.stringify({ hookSpecificOutput: {
+  hookEventName: 'PreToolUse',
+  permissionDecision: 'deny',
+  permissionDecisionReason: 'mixdog hook only'
+}}));
+`, 'utf8');
+
+  writeJson(join(claudeDir, 'settings.json'), {
+    hooks: {
+      PreToolUse: [{
+        matcher: 'shell',
+        hooks: [{ type: 'command', command: process.execPath, args: [denyScript] }],
+      }],
+    },
+  });
+
+  const busWithoutMixdog = createStandaloneHookBus({ dataDir: join(root, 'data-empty') });
+  const ignored = await busWithoutMixdog.beforeTool({ sessionId: 'sess_test', cwd: root, name: 'shell', args: { command: 'echo ok' } });
+  assert.equal(ignored, null);
+  assert.equal(busWithoutMixdog.status().configSources.some((p) => p.includes(`${join(root, '.claude')}`)), false);
+
+  writeJson(join(mixdogDir, 'hooks.json'), {
+    hooks: {
+      PreToolUse: [{
+        matcher: 'shell',
+        hooks: [{ type: 'command', command: process.execPath, args: [denyScript] }],
+      }],
+    },
+  });
+
+  const busWithMixdog = createStandaloneHookBus({ dataDir: join(root, 'data-mixdog') });
+  const denied = await busWithMixdog.beforeTool({ sessionId: 'sess_test', cwd: root, name: 'shell', args: { command: 'echo ok' } });
+  assert.equal(denied.action, 'deny');
+  assert.match(denied.reason, /mixdog hook only/);
+});
+
+test('registered plugin hooks read from plugin root with plugin env aliases', async () => {
+  const root = tempRoot();
+  const dataDir = join(root, 'data');
+  const pluginRoot = join(root, 'plugin-a');
+  const hooksDir = join(pluginRoot, 'hooks');
+  mkdirSync(hooksDir, { recursive: true });
+  mkdirSync(join(dataDir, 'plugins'), { recursive: true });
+
+  const envScript = join(pluginRoot, 'env-check.mjs');
+  writeFileSync(envScript, `
+import { readFileSync } from 'node:fs';
+JSON.parse(readFileSync(0, 'utf8'));
+if (process.env.CLAUDE_PLUGIN_ROOT === ${JSON.stringify(pluginRoot)}
+  && process.env.MIXDOG_PLUGIN_ROOT === ${JSON.stringify(pluginRoot)}
+  && /plugin-a/.test(process.env.CLAUDE_PLUGIN_DATA || '')
+  && /plugin-a/.test(process.env.MIXDOG_PLUGIN_DATA || '')) {
+  console.log(JSON.stringify({ hookSpecificOutput: {
+    hookEventName: 'PreToolUse',
+    permissionDecision: 'deny',
+    permissionDecisionReason: 'plugin root env ok'
+  }}));
+}
+`, 'utf8');
+
+  writeJson(join(dataDir, 'plugins', 'registry.json'), {
+    version: 1,
+    plugins: [{
+      id: 'plugin-a',
+      source: pluginRoot,
+      sourceType: 'local',
+      root: pluginRoot,
+      name: 'plugin-a',
+      managed: false,
+    }],
+  });
+  writeJson(join(hooksDir, 'hooks.json'), {
+    hooks: {
+      PreToolUse: [{
+        matcher: 'shell',
+        hooks: [{ type: 'command', command: process.execPath, args: ['${CLAUDE_PLUGIN_ROOT}/env-check.mjs'] }],
+      }],
+    },
+  });
+
+  const bus = createStandaloneHookBus({ dataDir });
+  const denied = await bus.beforeTool({ sessionId: 'sess_test', cwd: root, name: 'shell', args: { command: 'echo ok' } });
+  assert.equal(denied.action, 'deny');
+  assert.match(denied.reason, /plugin root env ok/);
 });
 
 test('standard PreToolUse ask requests approval instead of allowing silently', async () => {

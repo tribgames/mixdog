@@ -18,6 +18,7 @@ export const DOWN_ARROW = '\u2193'; // ↓ - history/scroll down
 // had no glyph in common terminal fonts (Cascadia/Consolas) and fell back to a
 // literal "L", breaking the result tree alignment.
 export const RESULT_GUTTER_GLYPH = '\u2514'; // └ - tool-result tree gutter
+export const RESULT_GUTTER_CONT_GLYPH = '\u2502'; // │ - tool-result continuation rail
 
 export const BLOCKQUOTE_BAR = '\u258e'; // ▎ - blockquote line prefix
 

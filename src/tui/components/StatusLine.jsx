@@ -118,16 +118,32 @@ function localNum(value) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function localContextPct({ provider = '', stats = null, contextWindow = 0 } = {}) {
-  const window = localNum(contextWindow) > 0 ? localNum(contextWindow) : 200_000;
+function localContextPct({
+  provider = '',
+  stats = null,
+  contextWindow = 0,
+  displayContextWindow = 0,
+  rawContextWindow = 0,
+  compactBoundaryTokens = 0,
+  autoCompactTokenLimit = 0,
+} = {}) {
+  const baseWindow = localNum(compactBoundaryTokens) > 0
+    ? localNum(compactBoundaryTokens)
+    : (localNum(displayContextWindow) > 0
+      ? localNum(displayContextWindow)
+      : (localNum(contextWindow) > 0
+        ? localNum(contextWindow)
+        : (localNum(rawContextWindow) > 0 ? localNum(rawContextWindow) : 200_000)));
+  const compactTrigger = localNum(autoCompactTokenLimit);
+  const window = compactTrigger > 0 && compactTrigger < baseWindow ? compactTrigger : baseWindow;
   const s = stats && typeof stats === 'object' ? stats : {};
   const source = String(s.currentContextSource || '').toLowerCase();
   const estimated = localNum(s.currentEstimatedContextTokens);
-  if (source === 'estimated' && estimated > 0) {
+  if (estimated > 0) {
     return Math.max(0, Math.min(100, (estimated / window) * 100));
   }
-  let tokens = localNum(s.currentContextTokens ?? s.contextTokens ?? s.latestInputTokens);
-  if (!tokens) tokens = localNum(s.inputTokens);
+  if (source === 'estimated') return 0;
+  let tokens = localNum(s.currentContextTokens ?? s.contextTokens);
   if (!tokens) return 0;
   return Math.max(0, Math.min(100, (tokens / window) * 100));
 }
@@ -199,6 +215,10 @@ function localBootStatusLine({
   fast = false,
   stats = null,
   contextWindow = 0,
+  displayContextWindow = 0,
+  rawContextWindow = 0,
+  compactBoundaryTokens = 0,
+  autoCompactTokenLimit = 0,
   agentWorkers = [],
   agentJobs = [],
 } = {}) {
@@ -210,7 +230,15 @@ function localBootStatusLine({
   );
   const flags = [effort ? String(effort).toUpperCase() : '', fast === true ? 'FAST' : ''].filter(Boolean);
   const modelBits = [display, ...flags].join(` ${SUBTLE}·${RESET} `);
-  const ctxPct = localContextPct({ provider, stats, contextWindow });
+  const ctxPct = localContextPct({
+    provider,
+    stats,
+    contextWindow,
+    displayContextWindow,
+    rawContextWindow,
+    compactBoundaryTokens,
+    autoCompactTokenLimit,
+  });
   const l1 = `${STATUS}${modelBits}${RESET} ${SUBTLE}│${RESET} ${localContextSegmentFromPct(ctxPct)}`;
   const runningCount = localRunningWorkerCount(agentWorkers, agentJobs);
   if (!runningCount) return l1;
@@ -230,7 +258,7 @@ function workflowModeLabel(workflow = {}) {
   return `${name} Mode`;
 }
 
-function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], initialLine = '', workflow = null, themeEpoch = 0 }) {
+function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow = 0, compactBoundaryTokens = 0, autoCompactTokenLimit = 0, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], initialLine = '', workflow = null, themeEpoch = 0 }) {
   const [line, setLine] = useState(() => normalizeStatusLine(initialLine || localBootStatusLine({
     provider,
     model,
@@ -238,6 +266,10 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     fast,
     stats,
     contextWindow,
+    displayContextWindow,
+    rawContextWindow,
+    compactBoundaryTokens,
+    autoCompactTokenLimit,
     agentWorkers,
     agentJobs,
   })));
@@ -254,7 +286,11 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   const lastRawFullLineRef = useRef('');
   const lastRawFullLineCacheKeyRef = useRef('');
 
-  const statuslineArgs = { sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, agentWorkers, agentJobs };
+  const statuslineArgs = {
+    sessionId, clientHostPid, provider, model, effort, fast, cwd, stats,
+    contextWindow, displayContextWindow, compactBoundaryTokens, autoCompactTokenLimit, rawContextWindow,
+    agentWorkers, agentJobs,
+  };
   statuslineArgsRef.current = statuslineArgs;
   lineRef.current = line;
   const refreshMs = hasActiveStatuslineWork(line, agentWorkers, agentJobs) ? STATUSLINE_ACTIVE_REFRESH_MS : STATUSLINE_REFRESH_MS;
@@ -312,7 +348,10 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
       effort: args.effort,
       fast: args.fast,
       contextWindow: args.contextWindow,
+      displayContextWindow: args.displayContextWindow,
       rawContextWindow: args.rawContextWindow,
+      compactBoundaryTokens: args.compactBoundaryTokens,
+      autoCompactTokenLimit: args.autoCompactTokenLimit,
       stats: args.stats,
     };
     const timer = setTimeout(() => {
@@ -355,7 +394,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
       alive = false;
       clearTimeout(timer);
     };
-  }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, rawContextWindow, resizeEpoch, agentRevision, agentWorkers, agentJobs, refreshTick, themeEpoch]);
+  }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow, compactBoundaryTokens, autoCompactTokenLimit, rawContextWindow, resizeEpoch, agentRevision, agentWorkers, agentJobs, refreshTick, themeEpoch]);
 
   const lines = line ? line.split('\n').slice(0, 2) : [' ', ' '];
   const workflowLabel = workflowModeLabel(workflow);

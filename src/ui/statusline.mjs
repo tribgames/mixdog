@@ -21,7 +21,7 @@ import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/mo
 import { readCachedOAuthUsageSnapshot } from '../runtime/agent/orchestrator/providers/oauth-usage.mjs';
 import { readCachedOpenCodeGoUsageSnapshot } from '../runtime/agent/orchestrator/providers/opencode-go-usage.mjs';
 import { buildGatewayLimits } from '../runtime/agent/orchestrator/providers/statusline-route-meta.mjs';
-import { formatGatewayLimitSegments, loadGatewayStatus } from '../vendor/statusline/bin/statusline-route.mjs';
+import { compactBoundaryForStatus, formatGatewayLimitSegments, loadGatewayStatus } from '../vendor/statusline/bin/statusline-route.mjs';
 export { createSessionStats, applyUsageDelta } from './session-stats.mjs';
 
 // Token window used to compute a fallback context% from our own session usage.
@@ -102,22 +102,23 @@ function promptFootprintTokens(provider, stats) {
   return input;
 }
 
-function currentContextTokens(provider, stats) {
+function activeContextNumerator(provider, stats) {
   const s = stats || createSessionStats();
   const source = String(s.currentContextSource || '').toLowerCase();
   const estimated = num(s.currentEstimatedContextTokens);
-  const explicit = num(s.currentContextTokens ?? s.contextTokens ?? s.latestPromptTokens);
-  if (source === 'estimated') return estimated > 0 ? estimated : 0;
-  if (explicit > 0) return explicit;
-  const latestInput = num(s.latestInputTokens);
-  const latestCacheRead = num(s.latestCachedTokens);
-  const latestCacheWrite = num(s.latestCacheWriteTokens);
-  if (latestInput || latestCacheRead || latestCacheWrite) {
-    return providerInputExcludesCache(provider)
-      ? latestInput + latestCacheRead + latestCacheWrite
-      : latestInput;
+  if (estimated > 0) return estimated;
+  if (source === 'estimated') return 0;
+  if (source === 'last_api_request') {
+    const apiUsed = num(s.currentContextTokens);
+    if (apiUsed > 0) return apiUsed;
   }
-  return promptFootprintTokens(provider, s);
+  const explicit = num(s.currentContextTokens ?? s.contextTokens);
+  if (explicit > 0) return explicit;
+  return 0;
+}
+
+function currentContextTokens(provider, stats) {
+  return activeContextNumerator(provider, stats);
 }
 
 function modelContextWindow(provider, model, explicitContextWindow = 0) {
@@ -126,6 +127,60 @@ function modelContextWindow(provider, model, explicitContextWindow = 0) {
   const metaWindow = num(getModelMetadataSync(model, provider)?.contextWindow);
   if (metaWindow > 0) return metaWindow;
   return FALLBACK_CONTEXT_WINDOW;
+}
+
+function displayContextBoundary({
+  contextWindow = 0,
+  displayContextWindow = 0,
+  rawContextWindow = 0,
+  compactBoundaryTokens = 0,
+  autoCompactTokenLimit = 0,
+  compact = null,
+} = {}) {
+  const boundarySeed = num(compactBoundaryTokens) > 0
+    ? num(compactBoundaryTokens)
+    : (num(displayContextWindow) > 0 ? num(displayContextWindow) : num(contextWindow));
+  const boundary = compactBoundaryForStatus({
+    contextWindow: boundarySeed,
+    rawContextWindow: num(rawContextWindow),
+    autoCompactTokenLimit: num(autoCompactTokenLimit),
+  }, compact);
+  if (Number.isFinite(boundary) && boundary > 0) return boundary;
+  return modelContextWindow('', '', boundarySeed);
+}
+
+function resolveContextUsedPct({
+  provider = '',
+  model = '',
+  stats = null,
+  contextWindow = 0,
+  displayContextWindow = 0,
+  rawContextWindow = 0,
+  compactBoundaryTokens = 0,
+  autoCompactTokenLimit = 0,
+  gatewayStatus = null,
+} = {}) {
+  const numerator = activeContextNumerator(provider, stats);
+  const compact = gatewayStatus?.lastUsage?.compact || null;
+  const boundary = displayContextBoundary({
+    contextWindow,
+    displayContextWindow,
+    rawContextWindow,
+    compactBoundaryTokens,
+    autoCompactTokenLimit,
+    compact,
+  });
+  const gatewayRawPct = gatewayStatus?.contextUsedPct;
+  if (
+    gatewayStatus
+    && gatewayRawPct !== null
+    && gatewayRawPct !== undefined
+  ) {
+    const gatewayPct = Number(gatewayRawPct);
+    if (Number.isFinite(gatewayPct)) return gatewayPct;
+  }
+  if (boundary > 0) return (numerator / boundary) * 100;
+  return 0;
 }
 
 function normalizeAgentWorkerForStatusline(worker = {}) {
@@ -223,23 +278,57 @@ function agentStatuslinePayload(agentWorkers = [], agentJobs = []) {
  * @param {string} [opts.sessionId]
  * @returns {Promise<string>}
  */
-export async function renderStatusline({ provider = '', model = '', effort = '', fast = false, cwd = '', stats, sessionId, contextWindow = 0, rawContextWindow = 0, agentWorkers = [], agentJobs = [], clientHostPid = process.pid } = {}) {
+export async function renderStatusline({
+  provider = '', model = '', effort = '', fast = false, cwd = '', stats, sessionId,
+  contextWindow = 0, displayContextWindow = 0, rawContextWindow = 0,
+  compactBoundaryTokens = 0, autoCompactTokenLimit = 0,
+  agentWorkers = [], agentJobs = [], clientHostPid = process.pid,
+} = {}) {
+  const displayArgs = {
+    contextWindow, displayContextWindow, rawContextWindow, compactBoundaryTokens, autoCompactTokenLimit,
+  };
   try {
-    return renderNativeStatusline({ provider, model, effort, fast, cwd, stats, sessionId, contextWindow, rawContextWindow, agentWorkers, agentJobs, clientHostPid });
+    return renderNativeStatusline({
+      provider, model, effort, fast, cwd, stats, sessionId, agentWorkers, agentJobs, clientHostPid,
+      ...displayArgs,
+    });
   } catch {
-    return fallbackLine({ provider, model, effort, fast, cwd, stats, contextWindow });
+    return fallbackLine({ provider, model, effort, fast, cwd, stats, ...displayArgs });
   }
 }
 
 // --- helpers -----------------------------------------------------------------
 
-function renderNativeStatusline({ provider = '', model = '', effort = '', fast = false, stats, sessionId, contextWindow = 0, rawContextWindow = 0, agentWorkers = [], agentJobs = [], clientHostPid = process.pid } = {}) {
+function renderNativeStatusline({
+  provider = '', model = '', effort = '', fast = false, stats, sessionId,
+  contextWindow = 0, displayContextWindow = 0, rawContextWindow = 0,
+  compactBoundaryTokens = 0, autoCompactTokenLimit = 0,
+  agentWorkers = [], agentJobs = [], clientHostPid = process.pid,
+} = {}) {
   const cols = terminalColumns();
   const s = stats || createSessionStats();
-  const contextTokens = currentContextTokens(provider, s);
-  const resolvedContextWindow = modelContextWindow(provider, model, contextWindow);
-  const ctxPct = resolvedContextWindow > 0 ? clampPct((contextTokens / resolvedContextWindow) * 100) : 0;
-  const gatewayStatus = loadGatewayQuotaStatus({ provider, model, effort, fast, contextWindow, rawContextWindow, sessionId, activeContextTokens: contextTokens, clientHostPid });
+  const contextTokens = activeContextNumerator(provider, s);
+  const routeContextWindow = num(displayContextWindow) > 0 ? num(displayContextWindow) : num(contextWindow);
+  const gatewayStatus = loadGatewayQuotaStatus({
+    provider, model, effort, fast,
+    contextWindow: routeContextWindow,
+    rawContextWindow,
+    autoCompactTokenLimit,
+    sessionId,
+    activeContextTokens: contextTokens,
+    clientHostPid,
+  });
+  const ctxPct = resolveContextUsedPct({
+    provider,
+    model,
+    stats: s,
+    contextWindow,
+    displayContextWindow,
+    rawContextWindow,
+    compactBoundaryTokens,
+    autoCompactTokenLimit,
+    gatewayStatus,
+  });
 
   const sep = ` ${D}│${R} `;
   const l1Parts = [];
@@ -289,7 +378,10 @@ function dataDir() {
   return process.env.MIXDOG_DATA_DIR || DEFAULT_STANDALONE_DATA_DIR;
 }
 
-function loadGatewayQuotaStatus({ provider, model, effort, fast, contextWindow, rawContextWindow, sessionId, activeContextTokens, clientHostPid } = {}) {
+function loadGatewayQuotaStatus({
+  provider, model, effort, fast, contextWindow, rawContextWindow, autoCompactTokenLimit = 0,
+  sessionId, activeContextTokens, clientHostPid,
+} = {}) {
   const key = [
     String(provider || ''),
     String(model || ''),
@@ -316,6 +408,7 @@ function loadGatewayQuotaStatus({ provider, model, effort, fast, contextWindow, 
         fast,
         contextWindow,
         rawContextWindow,
+        autoCompactTokenLimit,
       },
     });
     if (!status) {
@@ -435,7 +528,9 @@ function displayModelName(provider, model) {
 }
 
 function formatContextSegment(ctxPct, cols) {
-  const pct = clampPct(ctxPct);
+  const raw = Number(ctxPct);
+  const pct = Number.isFinite(raw) ? Math.max(0, raw) : 0;
+  const barPct = clampPct(pct);
   const fill = pct >= 90 ? RED : pct >= 70 ? YLW : GRN;
   const label = pct > 0 && pct < 1 ? String(Math.round(pct * 10) / 10) : String(Math.floor(pct));
   // Keep a full-width bar wherever there is room for one. Below 80 cols the bar
@@ -444,7 +539,7 @@ function formatContextSegment(ctxPct, cols) {
   // too small/cramped on mid-width terminals.
   const cells = cols >= 80 ? 14 : 0;
   if (!cells) return `${fill}${label}%${R}`;
-  const bar = makeBar(pct, cells);
+  const bar = makeBar(barPct, cells);
   const filled = bar.replace(/░/g, '');
   const empty = bar.replace(/▓/g, '');
   return `${fill}${filled}${R}${D}${empty}${R} ${label}%`;
@@ -672,16 +767,33 @@ function formatElapsed(ms) {
 }
 
 /** Minimal one-line footer used when the vendored renderer is unavailable. */
-export function fallbackStatusline({ provider = '', model = '', effort = '', fast = false, cwd = '', stats, contextWindow = 0 } = {}) {
-  return fallbackLine({ provider, model, effort, fast, cwd, stats, contextWindow });
+export function fallbackStatusline({
+  provider = '', model = '', effort = '', fast = false, cwd = '', stats, contextWindow = 0,
+  displayContextWindow = 0, rawContextWindow = 0, compactBoundaryTokens = 0, autoCompactTokenLimit = 0,
+} = {}) {
+  return fallbackLine({
+    provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow,
+    rawContextWindow, compactBoundaryTokens, autoCompactTokenLimit,
+  });
 }
 
-function fallbackLine({ provider = '', model = '', effort = '', fast = false, cwd = '', stats, contextWindow = 0 } = {}) {
+function fallbackLine({
+  provider = '', model = '', effort = '', fast = false, cwd = '', stats, contextWindow = 0,
+  displayContextWindow = 0, rawContextWindow = 0, compactBoundaryTokens = 0, autoCompactTokenLimit = 0,
+} = {}) {
   const s = stats || createSessionStats();
   const cols = terminalColumns();
-  const contextTokens = currentContextTokens(provider, s);
-  const resolvedContextWindow = modelContextWindow(provider, model, contextWindow);
-  const ctxPct = resolvedContextWindow > 0 ? clampPct((contextTokens / resolvedContextWindow) * 100) : 0;
+  const ctxPct = resolveContextUsedPct({
+    provider,
+    model,
+    stats: s,
+    contextWindow,
+    displayContextWindow,
+    rawContextWindow,
+    compactBoundaryTokens,
+    autoCompactTokenLimit,
+    gatewayStatus: null,
+  });
   const sep = ` ${D}│${R} `;
   const parts = [
     formatModelSegment({ provider, model, effort, fast, cols }),

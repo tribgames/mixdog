@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 
 const ANTHROPIC_DEFAULT_CREDENTIALS_PATH = join(resolvePluginData(), 'anthropic-oauth-credentials.json');
-const CLAUDE_CODE_CREDENTIALS_PATH = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), '.credentials.json');
 const GROK_ISSUER = 'https://auth.x.ai';
 const GROK_CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828';
 
@@ -23,7 +22,6 @@ export function hasAnthropicOAuthCredentials() {
     const paths = [];
     pushUnique(paths, process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH);
     pushUnique(paths, ANTHROPIC_DEFAULT_CREDENTIALS_PATH);
-    pushUnique(paths, CLAUDE_CODE_CREDENTIALS_PATH);
     for (const path of paths) {
         const raw = readJsonIfExists(path);
         const oauth = raw?.claudeAiOauth;

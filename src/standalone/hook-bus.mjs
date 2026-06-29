@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
+import { listRegisteredPlugins } from './plugin-admin.mjs';
 
 const DEFAULT_EVENTS = Object.freeze([
   'runtime:start',
@@ -133,28 +133,68 @@ function normalizeRules(raw) {
   return [];
 }
 
-function uniquePaths(paths) {
+function uniqueHookEntries(entries) {
   const seen = new Set();
   const out = [];
-  for (const p of paths) {
-    if (!p) continue;
-    const resolved = resolve(p);
+  for (const entry of entries) {
+    if (!entry?.path) continue;
+    const resolved = resolve(entry.path);
     const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(resolved);
+    out.push({ ...entry, path: resolved });
   }
   return out;
 }
 
-function hookConfigPaths(dataDir, cwd) {
-  if (process.env.MIXDOG_HOOKS_FILE) return uniquePaths([process.env.MIXDOG_HOOKS_FILE]);
+function cleanHookId(value) {
+  return String(value ?? '').trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function pluginHookConfigEntries(dataDir) {
+  if (!dataDir) return [];
+  let plugins = [];
+  try {
+    plugins = listRegisteredPlugins({ dataDir });
+  } catch {
+    return [];
+  }
+  const entries = [];
+  for (const plugin of plugins || []) {
+    const root = String(plugin?.root || '').trim();
+    if (!root || !existsSync(root)) continue;
+    const id = cleanHookId(plugin.id || plugin.name || plugin.title || root.split(/[\\/]/).pop());
+    const pluginData = join(dataDir, 'plugins', 'data', id || 'plugin');
+    entries.push({
+      path: join(root, 'hooks', 'hooks.json'),
+      pluginRoot: root,
+      pluginData,
+      sourceType: 'plugin',
+    });
+    entries.push({
+      path: join(root, '.mixdog', 'hooks.json'),
+      pluginRoot: root,
+      pluginData,
+      sourceType: 'plugin',
+    });
+  }
+  return entries;
+}
+
+function hookConfigEntries(dataDir, cwd) {
+  if (process.env.MIXDOG_HOOKS_FILE) {
+    return uniqueHookEntries([{ path: process.env.MIXDOG_HOOKS_FILE, sourceType: 'env' }]);
+  }
   const projectDir = cwd ? resolve(cwd) : process.cwd();
-  return uniquePaths([
-    join(homedir(), '.claude', 'settings.json'),
-    projectDir ? join(projectDir, '.claude', 'settings.json') : null,
-    projectDir ? join(projectDir, '.claude', 'settings.local.json') : null,
-    dataDir ? join(dataDir, 'hooks.json') : null,
+  return uniqueHookEntries([
+    projectDir ? { path: join(projectDir, '.mixdog', 'hooks.json'), sourceType: 'project' } : null,
+    projectDir ? { path: join(projectDir, '.mixdog', 'hooks', 'hooks.json'), sourceType: 'project' } : null,
+    dataDir ? { path: join(dataDir, 'hooks.json'), sourceType: 'data' } : null,
+    dataDir ? { path: join(dataDir, 'hooks', 'hooks.json'), sourceType: 'data' } : null,
+    ...pluginHookConfigEntries(dataDir),
   ]);
 }
 
@@ -222,15 +262,21 @@ function ifConditionPasses(ifExpr, eventName, toolName, toolInput) {
   }
 }
 
-function resolvePlaceholders(str, projectDir, pluginData) {
+function resolvePlaceholders(str, projectDir, pluginData, pluginRoot = null) {
   if (typeof str !== 'string') return str;
+  const resolvedProject = projectDir || process.cwd();
+  const resolvedPluginRoot = pluginRoot || resolvedProject;
+  const resolvedPluginData = pluginData || resolvedProject;
   return str
-    .replace(/\$\{CLAUDE_PROJECT_DIR\}/g, projectDir || process.cwd())
-    .replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, process.env.CLAUDE_PLUGIN_ROOT || projectDir || process.cwd())
-    .replace(/\$\{CLAUDE_PLUGIN_DATA\}/g, process.env.CLAUDE_PLUGIN_DATA || pluginData || projectDir || process.cwd());
+    .replace(/\$\{CLAUDE_PROJECT_DIR\}/g, resolvedProject)
+    .replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, resolvedPluginRoot)
+    .replace(/\$\{CLAUDE_PLUGIN_DATA\}/g, resolvedPluginData)
+    .replace(/\$\{MIXDOG_PROJECT_DIR\}/g, resolvedProject)
+    .replace(/\$\{MIXDOG_PLUGIN_ROOT\}/g, resolvedPluginRoot)
+    .replace(/\$\{MIXDOG_PLUGIN_DATA\}/g, resolvedPluginData);
 }
 
-function parseStandardConfig(parsed, source) {
+function parseStandardConfig(parsed, source, meta = {}) {
   const events = {};
   const hooks = parsed.hooks || {};
   for (const [eventName, groups] of Object.entries(hooks)) {
@@ -241,7 +287,12 @@ function parseStandardConfig(parsed, source) {
       const handlers = Array.isArray(group.hooks)
         ? group.hooks
           .filter((h) => h && typeof h === 'object' && h.type)
-          .map((h) => ({ ...h, _source: source }))
+          .map((h) => ({
+            ...h,
+            _source: source,
+            ...(meta.pluginRoot ? { _pluginRoot: meta.pluginRoot } : {}),
+            ...(meta.pluginData ? { _pluginData: meta.pluginData } : {}),
+          }))
         : [];
       if (handlers.length === 0) continue;
       cleanGroups.push({ matcher: group.matcher, hooks: handlers, _source: source });
@@ -333,11 +384,11 @@ function defaultShellKind() {
 }
 
 function commandSpawnSpec(handler, projectDir, pluginData) {
-  const command = resolvePlaceholders(handler.command, projectDir, pluginData);
+  const command = resolvePlaceholders(handler.command, projectDir, pluginData, handler._pluginRoot || null);
   if (Array.isArray(handler.args)) {
     return {
       command,
-      args: handler.args.map((a) => resolvePlaceholders(String(a), projectDir, pluginData)),
+      args: handler.args.map((a) => resolvePlaceholders(String(a), projectDir, pluginData, handler._pluginRoot || null)),
       shellKind: 'exec',
     };
   }
@@ -358,12 +409,18 @@ function commandSpawnSpec(handler, projectDir, pluginData) {
   };
 }
 
-function hookEnv(projectDir, pluginData, payload) {
+function hookEnv(projectDir, pluginData, payload, pluginRoot = null) {
+  const resolvedProject = projectDir || process.cwd();
+  const resolvedPluginRoot = pluginRoot || resolvedProject;
+  const resolvedPluginData = pluginData || resolvedProject;
   const env = {
     ...process.env,
-    CLAUDE_PROJECT_DIR: projectDir || process.cwd(),
-    CLAUDE_PLUGIN_ROOT: process.env.CLAUDE_PLUGIN_ROOT || projectDir || process.cwd(),
-    CLAUDE_PLUGIN_DATA: process.env.CLAUDE_PLUGIN_DATA || pluginData || projectDir || process.cwd(),
+    MIXDOG_PROJECT_DIR: resolvedProject,
+    MIXDOG_PLUGIN_ROOT: resolvedPluginRoot,
+    MIXDOG_PLUGIN_DATA: resolvedPluginData,
+    CLAUDE_PROJECT_DIR: resolvedProject,
+    CLAUDE_PLUGIN_ROOT: resolvedPluginRoot,
+    CLAUDE_PLUGIN_DATA: resolvedPluginData,
   };
   const effortLevel = payload?.effort?.level || payload?.effort;
   if (effortLevel) env.CLAUDE_EFFORT = String(effortLevel);
@@ -372,12 +429,13 @@ function hookEnv(projectDir, pluginData, payload) {
 
 function runCommandHandler(handler, payload, eventName, pluginData, onSpawnError = null) {
   const projectDir = payload.cwd || process.cwd();
+  const effectivePluginData = handler._pluginData || pluginData || null;
   const stdin = JSON.stringify(payload);
   const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
-  const spec = commandSpawnSpec(handler, projectDir, pluginData);
+  const spec = commandSpawnSpec(handler, projectDir, effectivePluginData);
   const baseOpts = {
     cwd: existsSync(projectDir) ? projectDir : undefined,
-    env: hookEnv(projectDir, pluginData, payload),
+    env: hookEnv(projectDir, effectivePluginData, payload, handler._pluginRoot || null),
     windowsHide: true,
     stdio: ['pipe', 'pipe', 'pipe'],
   };
@@ -670,7 +728,7 @@ function summarizeRule(rule, index) {
 function handlerDedupeKey(handler) {
   if (!handler || typeof handler !== 'object') return '';
   if (handler.type === 'command') {
-    return `command:${handler.command || ''}:${JSON.stringify(handler.args || null)}`;
+    return `command:${handler._pluginRoot || ''}:${handler.command || ''}:${JSON.stringify(handler.args || null)}`;
   }
   if (handler.type === 'http') return `http:${handler.url || ''}`;
   return `${handler.type || 'unknown'}:${JSON.stringify(handler)}`;
@@ -733,9 +791,9 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
   }
 
   function loadConfig(cwd = lastCwd) {
-    const paths = hookConfigPaths(dataDir, cwd);
+    const entries = hookConfigEntries(dataDir, cwd);
     const parts = [];
-    for (const p of paths) {
+    for (const { path: p } of entries) {
       try {
         const st = existsSync(p) ? statSync(p) : null;
         parts.push(`${p}:${st ? st.mtimeMs : 'absent'}`);
@@ -752,7 +810,8 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
     const errors = [];
     let disabled = false;
     let disableSeen = false;
-    for (const filePath of paths) {
+    for (const entry of entries) {
+      const filePath = entry.path;
       if (!existsSync(filePath)) continue;
       let parsed = null;
       try {
@@ -767,7 +826,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
         disableSeen = true;
       }
       if (isStandardConfig(parsed)) {
-        mergeEvents(events, parseStandardConfig(parsed, filePath));
+        mergeEvents(events, parseStandardConfig(parsed, filePath, entry));
       } else {
         legacyRules.push(...normalizeRules(parsed).filter((rule) => rule && typeof rule === 'object'));
       }
@@ -1052,7 +1111,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
       note: cfg.disabled
         ? 'Hooks are disabled by disableAllHooks.'
         : (cfg.standard
-          ? `Standard Claude Code hooks active for events: ${configuredEvents.join(', ') || '(none)'}.`
+          ? `Standard Mixdog hooks active for events: ${configuredEvents.join(', ') || '(none)'}.`
           : (ruleCount > 0
             ? 'Legacy before-tool hook rules are active. Rules may allow, deny, or modify tool arguments.'
             : 'No hook rules configured; lifecycle and tool events are recorded in observer mode.')),

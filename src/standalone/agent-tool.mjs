@@ -293,6 +293,29 @@ function compactIso(value) {
   return text.replace('T', ' ').replace(/\.\d+Z$/, 'Z');
 }
 
+function formatElapsedMs(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n < 0) return '';
+  const totalSec = Math.floor(n / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min < 60) return sec ? `${min}m${sec}s` : `${min}m`;
+  const hr = Math.floor(min / 60);
+  const remMin = min % 60;
+  return remMin ? `${hr}h${remMin}m` : `${hr}h`;
+}
+
+function elapsedFromStamps(startedAt, finishedAt, status) {
+  const start = Date.parse(clean(startedAt));
+  if (!Number.isFinite(start)) return null;
+  const finish = Date.parse(clean(finishedAt));
+  const end = Number.isFinite(finish) ? finish : Date.now();
+  const label = formatElapsedMs(end - start);
+  if (!label) return null;
+  return Number.isFinite(finish) ? label : `${label} (running)`;
+}
+
 function stripFinalAnswerWrapper(value) {
   const text = String(value ?? '').trim();
   const match = /^<final-answer\b[^>]*>([\s\S]*?)<\/final-answer>\s*$/i.exec(text);
@@ -341,7 +364,7 @@ function renderResult(value) {
         if (value.maxLoopIterations) limitParts.push(`loop=${value.maxLoopIterations}`);
         lines.push(`limits: ${limitParts.join(' ')}`);
       }
-      if (value.stage || value.workerStatus) lines.push(`agent: ${value.workerStatus || 'unknown'}/${value.stage || 'unknown'}`);
+      if (value.stage || value.workerStatus) lines.push(`worker: ${value.workerStatus || 'unknown'}/${value.stage || 'unknown'}`);
       if (value.worker_stage) lines.push(`worker_stage: ${value.worker_stage}`);
       if (value.last_progress) lines.push(`last_progress: ${value.last_progress}`);
       if (Number.isFinite(value.silent_for)) lines.push(`silent_for: ${value.silent_for}s`);
@@ -350,6 +373,10 @@ function renderResult(value) {
       if (value.diagnostic) lines.push(`diagnostic: ${value.diagnostic}`);
       if (value.startedAt) lines.push(`started: ${compactIso(value.startedAt)}`);
       if (value.finishedAt) lines.push(`finished: ${compactIso(value.finishedAt)}`);
+      {
+        const elapsed = elapsedFromStamps(value.startedAt, value.finishedAt, value.status);
+        if (elapsed) lines.push(`elapsed: ${elapsed}`);
+      }
       if (value.error) lines.push(`error: ${presentErrorText(value.error, { surface: 'agent' })}`);
       if (value.status === 'running') lines.push('notification: completion will be delivered to the owner session; use read/status only for manual recovery.');
       if (value.result !== undefined) {
@@ -1150,7 +1177,19 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
 
   function renderJob(job, includeResult = false) {
     const meta = job.meta || {};
-    const progress = sessionProgressExtras(meta.sessionId, meta.role || null, Date.now(), job.status);
+    let progress = sessionProgressExtras(meta.sessionId, meta.role || null, Date.now(), job.status);
+    // Spawn is deferred: before the worker session exists, sessionProgressExtras
+    // returns {} and the status card would show only "status: running" with no
+    // stage/progress. Fill a minimal stage so the caller can tell the job is
+    // still spinning up rather than silently stalled.
+    if (!meta.sessionId && (!progress || Object.keys(progress).length === 0)) {
+      const spawning = job.status === 'running';
+      progress = {
+        worker_stage: spawning ? 'spawning' : (job.status || 'unknown'),
+        last_progress: spawning ? 'spawning worker session' : (job.status || 'unknown'),
+        diagnostic: spawning ? 'worker session not started yet' : (job.status || 'unknown'),
+      };
+    }
     return {
       task_id: job.taskId,
       type: job.operation,
@@ -1543,8 +1582,22 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         notifyFn: workerNotifyFn(session.id, notifyContext || {}),
         ...(job ? {
           onTerminalResult: (terminalResult) => {
-            if (job) job._terminalResultValue = completionValue(terminalResult);
-            notifyOwnerAgentCompletionEarly(job, completionValue(terminalResult), notifyContext || {});
+            const value = completionValue(terminalResult);
+            if (job) job._terminalResultValue = value;
+            notifyOwnerAgentCompletionEarly(job, value, notifyContext || {});
+            // Mark the task terminal the moment the worker produces its final
+            // result, so a hung/slow post-result session save cannot strand the
+            // task (and the status card) in `running`. Idempotent; the finally
+            // reconcile remains a backup for the error/no-terminal-result path.
+            if (job?.taskId) {
+              try {
+                reconcileBackgroundTask(job.taskId, {
+                  status: 'completed',
+                  result: value,
+                  terminalReason: 'agent-terminal-result',
+                });
+              } catch {}
+            }
           },
         } : {}),
       });
@@ -1623,8 +1676,20 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         notifyFn: workerNotifyFn(sessionId, notifyContext || {}),
         ...(job ? {
           onTerminalResult: (terminalResult) => {
-            if (job) job._terminalResultValue = completionValue(terminalResult);
-            notifyOwnerAgentCompletionEarly(job, completionValue(terminalResult), notifyContext || {});
+            const value = completionValue(terminalResult);
+            if (job) job._terminalResultValue = value;
+            notifyOwnerAgentCompletionEarly(job, value, notifyContext || {});
+            // Mark terminal as soon as the worker's final result lands so a slow
+            // post-result save can't strand the task in `running`. Idempotent.
+            if (job?.taskId) {
+              try {
+                reconcileBackgroundTask(job.taskId, {
+                  status: 'completed',
+                  result: value,
+                  terminalReason: 'agent-terminal-result',
+                });
+              } catch {}
+            }
           },
         } : {}),
       });

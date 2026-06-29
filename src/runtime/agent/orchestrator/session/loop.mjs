@@ -650,24 +650,18 @@ function resolveWorkerCompactPolicy(sessionRef, tools) {
         configuredReserveTokens: configuredReserve,
     };
 }
-function latestProviderContextTokens(sessionRef) {
-    const tokens = positiveTokenInt(sessionRef?.lastContextTokens);
-    if (!tokens) return 0;
-    const compactAt = positiveTokenInt(sessionRef?.compaction?.lastChangedAt ?? sessionRef?.compaction?.lastCompactAt) || 0;
-    const usageAt = positiveTokenInt(sessionRef?.lastContextTokensUpdatedAt) || 0;
-    // Legacy sessions did not stamp usage. Treat that usage as usable until a
-    // new compaction boundary appears; after compaction, only post-compaction
-    // provider usage may pressure the next auto-compact decision.
-    if (compactAt > 0 && usageAt > 0 && usageAt <= compactAt) return 0;
-    if (compactAt > 0 && usageAt === 0) return 0;
-    return tokens;
+/** Transcript + request reserve only (never provider lastContextTokens). */
+function compactPressureTokens(messageTokensEst, policy) {
+    if (messageTokensEst === null) return 0;
+    return Math.max(0, messageTokensEst + (policy?.reserveTokens || 0));
 }
-function compactPressureTokens(messageTokensEst, policy, sessionRef) {
-    const estimated = messageTokensEst === null
-        ? null
-        : Math.max(0, messageTokensEst + (policy?.reserveTokens || 0));
-    const providerReported = latestProviderContextTokens(sessionRef);
-    return Math.max(estimated ?? 0, providerReported || 0);
+
+/** Telemetry pressure when a reactive overflow retry forces the next compact. */
+function compactionTelemetryPressureTokens(messageTokensEst, policy, { reactivePending = false } = {}) {
+    const base = compactPressureTokens(messageTokensEst, policy);
+    if (!reactivePending) return base;
+    const floor = positiveTokenInt(policy?.triggerTokens) || positiveTokenInt(policy?.boundaryTokens) || 0;
+    return floor ? Math.max(base, floor) : base;
 }
 function compactTargetBudget(policy) {
     const boundary = positiveTokenInt(policy?.boundaryTokens);
@@ -676,10 +670,11 @@ function compactTargetBudget(policy) {
     const targetEffective = resolveCompactTargetTokens(boundary, policy) || boundary;
     return Math.max(1, Math.min(boundary, targetEffective + reserve));
 }
-function shouldCompactForSession(messageTokensEst, policy, sessionRef) {
+function shouldCompactForSession(messageTokensEst, policy, { forceReactive = false } = {}) {
     if (!policy?.auto || !policy.boundaryTokens) return false;
+    if (forceReactive) return true;
     if (messageTokensEst === null) return true;
-    return compactPressureTokens(messageTokensEst, policy, sessionRef) >= (policy.triggerTokens || policy.boundaryTokens);
+    return compactPressureTokens(messageTokensEst, policy) >= (policy.triggerTokens || policy.boundaryTokens);
 }
 function countPrunedToolOutputs(before, after) {
     if (!Array.isArray(before) || !Array.isArray(after)) return 0;
@@ -725,6 +720,8 @@ function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         lastBeforeTokens: meta.beforeTokens ?? null,
         lastAfterTokens: meta.afterTokens ?? null,
         lastPressureTokens: meta.pressureTokens ?? null,
+        currentEstimatedTokens: meta.pressureTokens ?? prev.currentEstimatedTokens ?? null,
+        lastApiRequestTokens: positiveTokenInt(sessionRef?.lastContextTokens) || prev.lastApiRequestTokens || null,
         lastStage: meta.stage || prev.lastStage || null,
         lastChanged: changed,
         lastTrigger: meta.trigger || prev.lastTrigger || null,
@@ -1377,8 +1374,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 return _beforeBytes;
             };
             const messageTokensEst = estimateMessagesTokensSafe(messages);
-            const pressureTokens = compactPressureTokens(messageTokensEst, compactPolicy, sessionRef);
-            const shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, sessionRef);
+            const reactivePending = reactiveOverflowRetryPending === true;
+            const shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, { forceReactive: reactivePending });
+            const pressureTokens = compactionTelemetryPressureTokens(messageTokensEst, compactPolicy, { reactivePending });
             const compactBudgetTokens = shouldCompact
                 ? (compactTargetBudget({ ...compactPolicy, pressureTokens }) || compactPolicy.boundaryTokens)
                 : compactPolicy.boundaryTokens;
@@ -1802,8 +1800,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             ) {
                 throw sendErr;
             }
-            const overflowReserve = estimateRequestReserveTokens(sendTools.length ? sendTools : tools);
-            const messageTokensEst = estimateMessagesTokensSafe(messages);
             const compactPolicyForRetry = resolveWorkerCompactPolicy(sessionRef, sendTools.length ? sendTools : tools);
             if (!contextOverflowRetryUsed && compactPolicyForRetry?.auto) {
                 contextOverflowRetryUsed = true;
@@ -1812,16 +1808,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 // pressure trigger, so the compact event/telemetry the loop
                 // emits on the retry is distinguishable downstream.
                 reactiveOverflowRetryPending = true;
-                const forcedPressureTokens = Math.max(
-                    Number(compactPolicyForRetry?.triggerTokens || 0),
-                    Number(compactPolicyForRetry?.boundaryTokens || sessionRef.contextWindow || 0),
-                    Number(messageTokensEst || 0) + overflowReserve,
-                    Number(sessionRef.lastContextTokens || 0),
-                );
-                const compactAt = Number(sessionRef?.compaction?.lastChangedAt ?? sessionRef?.compaction?.lastCompactAt ?? 0) || 0;
-                sessionRef.lastContextTokens = Math.max(1, Math.floor(forcedPressureTokens));
-                sessionRef.lastContextTokensUpdatedAt = Math.max(Date.now(), compactAt + 1);
-                sessionRef.lastContextTokensStaleAfterCompact = false;
                 opts.onToolCall = undefined;
                 try {
                     process.stderr.write(

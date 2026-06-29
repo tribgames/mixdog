@@ -22,7 +22,7 @@ import {
     normalizeCompactionBufferRatio,
     drainSessionCycle1,
 } from './compact.mjs';
-import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';
+import { estimateMessagesTokens, estimateRequestReserveTokens, estimateTranscriptContextUsage } from './context-utils.mjs';
 import { getMcpTools } from '../mcp/client.mjs';
 import { getInternalTools, executeInternalTool } from '../internal-tools.mjs';
 import { BUILTIN_TOOLS } from '../tools/builtin/builtin-tools.mjs';
@@ -837,13 +837,12 @@ async function runSessionCompaction(session, opts = {}) {
     }
     const reserveTokens = estimateRequestReserveTokens(session.tools || []);
     const beforeMessageTokens = estimateMessagesTokens(messages);
-    const lastContextTokens = positiveContextWindow(session.lastContextTokens) || 0;
     const triggerTokens = compactTriggerForSession(session, boundary)
         || positiveContextWindow(session.compaction?.triggerTokens)
         || boundary;
     const bufferTokens = Math.max(0, boundary - triggerTokens);
     const bufferRatio = boundary ? (bufferTokens / boundary) : compactBufferRatioForSession(session);
-    const pressureTokens = Math.max(beforeMessageTokens + reserveTokens, lastContextTokens);
+    const pressureTokens = estimateTranscriptContextUsage(messages, session.tools || []);
     const beforeTokens = pressureTokens;
     const compactType = compactTypeForSession(session);
     if (!force && pressureTokens < triggerTokens) return {
@@ -2231,8 +2230,7 @@ function recordStandaloneStatusTelemetry(session, result, durationMs) {
     // as afterTokens. This lights up summarizeGatewayUsage's estimate-based
     // contextUsedPct branch (provider input_tokens swing wildly / unbounded on
     // e.g. OpenAI gpt-5.5), and lets a genuine >100% pass through.
-    const _reserve = estimateRequestReserveTokens(session.tools || []);
-    const _estTokens = estimateMessagesTokens(Array.isArray(session.messages) ? session.messages : []) + _reserve;
+    const _estTokens = estimateTranscriptContextUsage(session.messages, session.tools || []);
     const _compactArg = { ...(result.compact && typeof result.compact === 'object' ? result.compact : {}), afterTokens: _estTokens };
     try {
         const summary = {
@@ -3654,9 +3652,8 @@ export async function clearSessionMessages(sessionId, options = {}) {
         }
     }
     const afterMessageTokens = estimateMessagesTokens(keep);
-    const reserveTokens = estimateRequestReserveTokens(session.tools || []);
-    const beforeTokens = Math.max(beforeMessageTokens + reserveTokens, positiveContextWindow(session.lastContextTokens) || 0);
-    const afterTokens = afterMessageTokens + reserveTokens;
+    const beforeTokens = estimateTranscriptContextUsage(messages, session.tools || []);
+    const afterTokens = estimateTranscriptContextUsage(keep, session.tools || []);
     const now = Date.now();
     session.messages = keep;
     session.totalInputTokens = 0;

@@ -93,7 +93,7 @@ const mixdogPalette = {
   fastMode: 'rgb(255,120,20)',
 };
 
-/** Pi dark — earendil-works/pi interactive dark.json (teal accent, soft body). */
+/** Teal dark — teal accent, soft body. */
 const piDarkPalette = {
   ...mixdogPalette,
   claude: 'rgb(138,190,183)', // pi accent teal as the title/header accent
@@ -136,7 +136,7 @@ const piDarkPalette = {
   userMessageBackgroundHover: 'rgb(64,65,79)',
 };
 
-/** Claude dark — Claude Code darkTheme RGB values (orange brand, white body). */
+/** Warm dark — orange accent, bright body text. */
 const claudeDarkPalette = {
   ...mixdogPalette,
   background: 'rgb(13,13,13)', // keep the opaque dark surface (Claude's bg is decorative)
@@ -198,7 +198,7 @@ const claudeDarkPalette = {
   fastMode: 'rgb(255,120,20)',
 };
 
-/** Dracula — classic purple/pink/cyan dark (opencode dracula.json). */
+/** Violet dark — classic purple/pink/cyan contrast. */
 const draculaPalette = {
   ...mixdogPalette,
   background: 'rgb(40,42,54)',
@@ -259,7 +259,7 @@ const draculaPalette = {
   userMessageBackgroundHover: 'rgb(82,85,104)',
 };
 
-/** Tokyo Night — blue/purple soft dark (opencode tokyonight.json). */
+/** Midnight dark — soft blue/purple contrast. */
 const tokyonightPalette = {
   ...mixdogPalette,
   background: 'rgb(26,27,38)',
@@ -320,7 +320,7 @@ const tokyonightPalette = {
   userMessageBackgroundHover: 'rgb(46,49,71)',
 };
 
-/** Nord — cool arctic blue/teal dark (opencode nord.json). */
+/** Frost dark — cool arctic blue/teal contrast. */
 const nordPalette = {
   ...mixdogPalette,
   background: 'rgb(46,52,64)',
@@ -381,7 +381,7 @@ const nordPalette = {
   userMessageBackgroundHover: 'rgb(76,86,106)',
 };
 
-/** Gruvbox — retro warm earthy dark (opencode gruvbox.json). */
+/** Earth dark — retro warm earthy contrast. */
 const gruvboxPalette = {
   ...mixdogPalette,
   background: 'rgb(40,40,40)',
@@ -442,7 +442,7 @@ const gruvboxPalette = {
   userMessageBackgroundHover: 'rgb(102,92,84)',
 };
 
-/** Catppuccin Mocha — pastel violet/blue dark (opencode catppuccin.json). */
+/** Pastel dark — gentle violet/blue contrast. */
 const catppuccinPalette = {
   ...mixdogPalette,
   background: 'rgb(30,30,46)',
@@ -503,7 +503,7 @@ const catppuccinPalette = {
   userMessageBackgroundHover: 'rgb(69,71,90)',
 };
 
-/** Everforest — soft natural green dark (opencode everforest.json). */
+/** Forest dark — soft natural green contrast. */
 const everforestPalette = {
   ...mixdogPalette,
   background: 'rgb(45,53,59)',
@@ -566,15 +566,15 @@ const everforestPalette = {
 
 // ── Registry / metadata ─────────────────────────────────────────────────────
 const THEME_REGISTRY = {
-  mixdog: { id: 'mixdog', label: 'Mixdog dark', description: 'Default Mixdog palette — warm dark with teal markdown.', palette: mixdogPalette },
-  'pi-dark': { id: 'pi-dark', label: 'Pi dark', description: 'earendil-works/pi dark — teal accent, soft body text.', palette: piDarkPalette },
-  'claude-dark': { id: 'claude-dark', label: 'Claude dark', description: 'Claude Code dark — orange brand, bright body text.', palette: claudeDarkPalette },
-  dracula: { id: 'dracula', label: 'Dracula', description: 'Classic dark — purple/pink accents, cyan links.', palette: draculaPalette },
-  tokyonight: { id: 'tokyonight', label: 'Tokyo Night', description: 'Soft blue/purple dark with neon markdown.', palette: tokyonightPalette },
-  nord: { id: 'nord', label: 'Nord', description: 'Cool arctic blue/teal frost dark.', palette: nordPalette },
-  gruvbox: { id: 'gruvbox', label: 'Gruvbox', description: 'Retro warm earthy dark — green/orange accents.', palette: gruvboxPalette },
-  catppuccin: { id: 'catppuccin', label: 'Catppuccin Mocha', description: 'Pastel violet/blue dark, gentle contrast.', palette: catppuccinPalette },
-  everforest: { id: 'everforest', label: 'Everforest', description: 'Soft natural green dark, easy on the eyes.', palette: everforestPalette },
+  mixdog: { id: 'mixdog', label: 'Basic', description: 'Warm dark base with teal markdown accents.', palette: mixdogPalette },
+  'pi-dark': { id: 'pi-dark', label: 'Teal', description: 'Teal accent with soft body text.', palette: piDarkPalette },
+  'claude-dark': { id: 'claude-dark', label: 'Warm', description: 'Orange accent with bright body text.', palette: claudeDarkPalette },
+  dracula: { id: 'dracula', label: 'Violet', description: 'Purple/pink accents with cyan links.', palette: draculaPalette },
+  tokyonight: { id: 'tokyonight', label: 'Midnight', description: 'Soft blue/purple dark with neon markdown.', palette: tokyonightPalette },
+  nord: { id: 'nord', label: 'Frost', description: 'Cool arctic blue/teal dark.', palette: nordPalette },
+  gruvbox: { id: 'gruvbox', label: 'Earth', description: 'Retro warm earthy dark with green/orange accents.', palette: gruvboxPalette },
+  catppuccin: { id: 'catppuccin', label: 'Pastel', description: 'Gentle pastel violet/blue dark.', palette: catppuccinPalette },
+  everforest: { id: 'everforest', label: 'Forest', description: 'Soft natural green dark, easy on the eyes.', palette: everforestPalette },
 };
 
 const DEFAULT_THEME_ID = 'mixdog';
@@ -683,9 +683,17 @@ export async function loadThemeSettingFromConfig() {
 import {
   BLACK_CIRCLE,
   RESULT_GUTTER_GLYPH,
+  RESULT_GUTTER_CONT_GLYPH,
 } from './figures.mjs';
 
 /** Turn marker — BLACK_CIRCLE (`⏺` on macOS; `●` elsewhere). */
 export const TURN_MARKER = BLACK_CIRCLE;
 /** Result-tree gutter — `└` (U+2514) padded to a 2-col hanging indent. */
 export const RESULT_GUTTER = `  ${RESULT_GUTTER_GLYPH}  `;
+/**
+ * Continuation rail for every result row AFTER the first — `│` (U+2502) at the
+ * same 2-col hanging indent so a multi-line tool result keeps a continuous left
+ * rail under the `└` head. Same width/padding as RESULT_GUTTER so the body text
+ * column never shifts between the first and following rows.
+ */
+export const RESULT_GUTTER_CONT = `  ${RESULT_GUTTER_CONT_GLYPH}  `;

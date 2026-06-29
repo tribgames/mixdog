@@ -67,6 +67,7 @@ import {
 import {
   estimateMessagesTokens,
   estimateRequestReserveTokens,
+  estimateTranscriptContextUsage,
   estimateToolSchemaTokens,
 } from './runtime/agent/orchestrator/session/context-utils.mjs';
 
@@ -4253,16 +4254,9 @@ function parsedProviderModelVersion(id) {
       const rawWindow = Number(session?.rawContextWindow || session?.contextWindow || 0);
       const effectiveWindow = Number(session?.contextWindow || rawWindow || 0);
       const lastContextTokens = Number(session?.lastContextTokens || 0);
-      // On a brand-new session (no conversation messages and no recorded API
-      // usage) the only thing left is the fixed request-overhead reserve, which
-      // is fit/compaction headroom — not consumed context. Surfacing it as
-      // "used" makes the statusline read a phantom ~0.1% on first entry. Keep
-      // the reserve for compaction math but report zero estimated context until
-      // the transcript actually has content.
-      const hasContextActivity = messageSummary.count > 0 || lastContextTokens > 0;
-      const estimatedContextTokens = hasContextActivity
-        ? messageSummary.estimatedTokens + requestReserveTokens
-        : 0;
+      const estimatedContextTokens = estimateTranscriptContextUsage(messages, tools, {
+        messageCount: messageSummary.count,
+      });
       const compactAt = Number(session?.compaction?.lastChangedAt || session?.compaction?.lastCompactAt || 0);
       const usageAt = Number(session?.lastContextTokensUpdatedAt || 0);
       const lastUsageStale = !!lastContextTokens && (

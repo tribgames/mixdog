@@ -11,7 +11,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
-import { theme, TURN_MARKER, RESULT_GUTTER } from '../theme.mjs';
+import { theme, TURN_MARKER, RESULT_GUTTER, RESULT_GUTTER_CONT } from '../theme.mjs';
 import { formatElapsed } from '../time-format.mjs';
 import { BULLET_OPERATOR } from '../figures.mjs';
 import {
@@ -86,6 +86,53 @@ function renderDeltaText(text) {
   return deltaTextParts(text).map((part, index) => (
     part.color ? <Text key={index} color={part.color}>{part.text}</Text> : part.text
   ));
+}
+
+// Read/grep style results arrive with a `<n>→<content>` line-number prefix from
+// the tool layer. Split that numeric gutter out so it can render in a dim color
+// column while the body keeps the normal text color — same approach for every
+// tool that emits this prefix, so expanded output looks uniform instead of a
+// flat run of `33→await build({` lines.
+const LINE_NUMBER_PREFIX_RE = /^(\s*)(\d+)(\u2192)(.*)$/;
+
+function renderResultLine(line, { raw }) {
+  const text = String(line ?? '');
+  const match = raw ? LINE_NUMBER_PREFIX_RE.exec(text) : null;
+  if (!match) return renderDeltaText(text);
+  const [, indent, num, arrow, rest] = match;
+  return (
+    <>
+      {indent || ''}
+      <Text color={theme.subtle}>{num}{arrow}</Text>
+      {renderDeltaText(rest)}
+    </>
+  );
+}
+
+// Shared multi-line result body: `└` on the first row, `│` continuation rail on
+// every following row, body text in one flex column so wrapping stays aligned
+// under the head gutter. `raw` toggles the wrap mode + line-number coloring used
+// by ctrl+o expanded output vs. the single collapsed summary line.
+function ResultBody({ lines, columns, color, raw }) {
+  if (!lines || lines.length === 0) return null;
+  return (
+    <Box flexDirection="row">
+      <Box flexShrink={0} flexDirection="column">
+        {lines.map((_, i) => (
+          <Text key={i} color={theme.subtle}>{i === 0 ? RESULT_GUTTER : RESULT_GUTTER_CONT}</Text>
+        ))}
+      </Box>
+      <Box flexDirection="column" flexShrink={1} flexGrow={1}>
+        {lines.map((line, i) => (
+          <Text key={i} color={color} wrap={raw ? 'wrap' : 'truncate'}>
+            {raw
+              ? renderResultLine(line || ' ', { raw: true })
+              : renderDeltaText(fitResultLine(line || ' ', columns))}
+          </Text>
+        ))}
+      </Box>
+    </Box>
+  );
 }
 
 function plural(count, singular, pluralText = `${singular}s`) {
@@ -719,22 +766,12 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
             {trailingText ? <Text color={trailingColor}>{trailingText}</Text> : null}
           </Text>
         </Box>
-        {detailLines.length > 0 ? (
-          <Box flexDirection="row">
-            <Box flexShrink={0}>
-              <Text color={theme.subtle}>{RESULT_GUTTER}</Text>
-            </Box>
-            <Box flexDirection="column" flexShrink={1} flexGrow={1}>
-              {detailLines.map((line, i) => (
-                <Text key={i} color={aggregateDetailColor} wrap={showRawAggregate ? 'wrap' : 'truncate'}>
-                  {showRawAggregate
-                    ? renderDeltaText(line || ' ')
-                    : renderDeltaText(fitResultLine(line || ' ', columns))}
-                </Text>
-              ))}
-            </Box>
-          </Box>
-        ) : null}
+        <ResultBody
+          lines={detailLines}
+          columns={columns}
+          color={aggregateDetailColor}
+          raw={showRawAggregate}
+        />
       </Box>
     );
   }
@@ -966,22 +1003,12 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
         </Box>
       </Box>
 
-      {visibleDetailLines.length > 0 ? (
-        <Box flexDirection="row">
-          <Box flexShrink={0}>
-            <Text color={theme.subtle}>{RESULT_GUTTER}</Text>
-          </Box>
-          <Box flexDirection="column" flexShrink={1} flexGrow={1}>
-            {visibleDetailLines.map((line, i) => (
-              <Text key={i} color={showRawResult ? resultColor : detailColor} wrap={showRawResult ? 'wrap' : 'truncate'}>
-                {showRawResult
-                  ? renderDeltaText(line || ' ')
-                  : renderDeltaText(fitResultLine(line || ' ', columns))}
-              </Text>
-            ))}
-          </Box>
-        </Box>
-      ) : null}
+      <ResultBody
+        lines={visibleDetailLines}
+        columns={columns}
+        color={showRawResult ? resultColor : detailColor}
+        raw={showRawResult}
+      />
     </Box>
   );
 }

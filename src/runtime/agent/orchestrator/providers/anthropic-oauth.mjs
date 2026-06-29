@@ -7,7 +7,6 @@
  */
 import { readFileSync, existsSync, statSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
 import {
@@ -245,7 +244,6 @@ function assertSafeTokenURL(rawURL) {
 const TOKEN_URL = assertSafeTokenURL(process.env.ANTHROPIC_OAUTH_TOKEN_URL || 'https://platform.claude.com/v1/oauth/token');
 const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_CREDENTIALS_PATH = join(resolvePluginData(), 'anthropic-oauth-credentials.json');
-const CLAUDE_CODE_CREDENTIALS_PATH = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), '.credentials.json');
 const CLAUDE_CODE_CLIENT_ID = process.env.ANTHROPIC_OAUTH_CLIENT_ID || '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
 const CLAUDE_AI_AUTHORIZE_URL = 'https://claude.com/cai/oauth/authorize';
@@ -395,7 +393,6 @@ function credentialCandidates() {
     const paths = [];
     _pushUnique(paths, process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH);
     _pushUnique(paths, DEFAULT_CREDENTIALS_PATH);
-    _pushUnique(paths, CLAUDE_CODE_CREDENTIALS_PATH);
     return paths;
 }
 

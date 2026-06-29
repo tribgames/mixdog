@@ -51,6 +51,9 @@ export function statuslineFooterIdentityChanged(args, lastArgs) {
   if (args.provider !== lastArgs.provider || args.model !== lastArgs.model) return true;
   if (args.effort !== lastArgs.effort || args.fast !== lastArgs.fast) return true;
   if (args.contextWindow !== lastArgs.contextWindow || args.rawContextWindow !== lastArgs.rawContextWindow) return true;
+  if (args.displayContextWindow !== lastArgs.displayContextWindow) return true;
+  if (args.compactBoundaryTokens !== lastArgs.compactBoundaryTokens) return true;
+  if (args.autoCompactTokenLimit !== lastArgs.autoCompactTokenLimit) return true;
   if (isResetStatsState(args.stats) && !isResetStatsState(lastArgs.stats)) return true;
   return false;
 }
@@ -69,7 +72,10 @@ export function statuslineFooterCacheKey({
   effort = '',
   fast = false,
   contextWindow = 0,
+  displayContextWindow = 0,
   rawContextWindow = 0,
+  compactBoundaryTokens = 0,
+  autoCompactTokenLimit = 0,
 } = {}) {
   return [
     String(agentRevision),
@@ -80,7 +86,10 @@ export function statuslineFooterCacheKey({
     String(effort),
     fast === true ? '1' : '0',
     String(contextWindow),
+    String(displayContextWindow),
     String(rawContextWindow),
+    String(compactBoundaryTokens),
+    String(autoCompactTokenLimit),
   ].join('\0');
 }
 

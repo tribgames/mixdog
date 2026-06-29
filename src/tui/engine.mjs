@@ -948,7 +948,7 @@ export async function createEngineSession({
     agentStatusCacheAt = now;
     return agentStatusCache;
   };
-  const routeState = () => ({
+  const baseRouteState = () => ({
     sessionId: runtime.id,
     clientHostPid: runtime.clientHostPid || null,
     model: runtime.model,
@@ -967,9 +967,28 @@ export async function createEngineSession({
     workflow: runtime.workflow || null,
   });
 
-  const routeStateStartedAt = performance.now();
-  const initialRouteState = routeState();
-  bootProfile('engine:route-state-ready', { ms: (performance.now() - routeStateStartedAt).toFixed(1) });
+  const routeState = () => ({
+    ...baseRouteState(),
+    displayContextWindow: state.displayContextWindow || 0,
+    compactBoundaryTokens: state.compactBoundaryTokens || 0,
+    autoCompactTokenLimit: state.autoCompactTokenLimit || 0,
+  });
+
+  function syncContextDisplayFields(ctx = null) {
+    const status = ctx || runtime.contextStatus?.() || null;
+    if (!status) return;
+    const displayWindow = Number(status.contextWindow || 0);
+    const compactBoundary = Number(status.compaction?.boundaryTokens || 0);
+    const autoCompact = Number(
+      status.compaction?.autoCompactTokenLimit
+      || runtime.session?.autoCompactTokenLimit
+      || 0,
+    );
+    if (displayWindow > 0) state.displayContextWindow = displayWindow;
+    if (compactBoundary > 0) state.compactBoundaryTokens = compactBoundary;
+    if (autoCompact > 0) state.autoCompactTokenLimit = autoCompact;
+  }
+
   const initialAgentState = {
     agentWorkers: [],
     agentJobs: [],
@@ -987,43 +1006,57 @@ export async function createEngineSession({
     toolApproval: null,
     lastTurn: null,
     stats: createSessionStats(),
-    ...initialRouteState,
+    ...baseRouteState(),
+    displayContextWindow: 0,
+    compactBoundaryTokens: 0,
+    autoCompactTokenLimit: 0,
     ...initialAgentState,
     toolMode: runtime.toolMode,
     cwd,
     themeEpoch: 0,
   };
+  bootProfile('engine:route-state-ready', { ms: (performance.now() - stateStartedAt).toFixed(1) });
   bootProfile('engine:state-ready', { ms: (performance.now() - stateStartedAt).toFixed(1) });
   let pendingSessionReset = false;
   const syncContextStats = ({ allowEstimated = false } = {}) => {
     if (pendingSessionReset) return null;
     const ctx = runtime.contextStatus?.() || null;
+    if (!ctx) return null;
+    syncContextDisplayFields(ctx);
     const hasProviderUsage = Number(state.stats.latestPromptTokens || state.stats.latestInputTokens || state.stats.inputTokens || 0) > 0;
     const hasApiContextUsage = Number(ctx?.lastApiRequestTokens ?? ctx?.usage?.lastContextTokens ?? 0) > 0;
     const hasTurnActivity = state.busy === true
       || state.spinner != null
       || state.thinking != null;
-    const shouldPublishEstimate = allowEstimated && (hasProviderUsage || hasApiContextUsage || hasTurnActivity);
-    const estimatedTokens = Number(ctx?.currentEstimatedTokens || 0);
-    const used = Number(ctx?.usedTokens || 0);
-    if (!allowEstimated && !hasProviderUsage && ctx?.usedSource !== 'last_api_request') return ctx;
+    const estimatedTokens = Math.max(0, Number(ctx.currentEstimatedTokens ?? ctx.usedTokens ?? 0));
+    const usedTokens = Math.max(0, Number(ctx.usedTokens ?? estimatedTokens ?? 0));
+    const usedSource = String(ctx.usedSource || '').toLowerCase();
+    const shouldPublishEstimate = allowEstimated && (
+      usedSource === 'estimated'
+      || Number(ctx.currentEstimatedTokens) > 0
+      || usedTokens > 0
+    );
+    if (!allowEstimated && !hasProviderUsage && usedSource !== 'last_api_request') return ctx;
     if (shouldPublishEstimate) {
-      state.stats.currentEstimatedContextTokens = Number.isFinite(estimatedTokens) ? Math.max(0, estimatedTokens) : 0;
-      state.stats.currentContextSource = ctx?.usedSource || (estimatedTokens > 0 ? 'estimated' : null);
+      state.stats.currentEstimatedContextTokens = estimatedTokens;
+      state.stats.currentContextSource = 'estimated';
+      state.stats.currentContextTokens = 0;
+    } else if (allowEstimated && (hasProviderUsage || hasApiContextUsage || hasTurnActivity)) {
+      state.stats.currentEstimatedContextTokens = estimatedTokens;
+      state.stats.currentContextSource = usedSource || (estimatedTokens > 0 ? 'estimated' : null);
       const publishedSource = String(state.stats.currentContextSource || '').toLowerCase();
-      if (publishedSource === 'last_api_request' && Number.isFinite(used) && used > 0) {
-        state.stats.currentContextTokens = Math.max(0, used);
+      if (publishedSource === 'last_api_request') {
+        const apiUsed = Math.max(0, Number(ctx.lastApiRequestTokens ?? usedTokens ?? 0));
+        state.stats.currentContextTokens = apiUsed;
       } else if (publishedSource === 'estimated') {
         state.stats.currentContextTokens = 0;
-      } else if (Number.isFinite(used) && used > 0) {
-        state.stats.currentContextTokens = Math.max(0, used);
       } else {
-        state.stats.currentContextTokens = 0;
+        state.stats.currentContextTokens = usedTokens > 0 ? usedTokens : 0;
       }
     } else {
       state.stats.currentEstimatedContextTokens = 0;
-      if (ctx?.usedSource === 'last_api_request' && Number.isFinite(used) && used > 0) {
-        state.stats.currentContextTokens = Math.max(0, used);
+      if (usedSource === 'last_api_request' && Number(ctx.lastApiRequestTokens ?? usedTokens ?? 0) > 0) {
+        state.stats.currentContextTokens = Math.max(0, Number(ctx.lastApiRequestTokens ?? usedTokens ?? 0));
         state.stats.currentContextSource = 'last_api_request';
       } else {
         state.stats.currentContextTokens = 0;
@@ -1085,50 +1118,6 @@ export async function createEngineSession({
     const items = [...state.items, item];
     if (item?.id != null) itemIndexById.set(item.id, index);
     set({ items });
-  };
-  // ── Deferred tool-card push (scroll/text sync) ──────────────────────────────
-  // A tool card USED to be pushed the instant onToolCall fired, which reserved
-  // its estimated height (margin+header+detail) immediately while ToolExecution
-  // only painted blank placeholder rows for TOOL_PENDING_SHOW_DELAY_MS. With a
-  // bottom-fixed viewport that pushed the body up BEFORE any glyph appeared, so
-  // the scroll ran ahead of the text. Instead we hold the card off-screen for
-  // the same delay and push it only when the real header/detail will paint
-  // (delay elapsed) OR a result lands first (fast tool → completed card with no
-  // pending flicker). The pushed item's startedAt is already >= the delay, so
-  // ToolExecution renders the real card directly without the placeholder stage.
-  // Mirrors components/ToolExecution.jsx TOOL_PENDING_SHOW_DELAY_MS.
-  const TOOL_CARD_PUSH_DELAY_MS = 1000;
-  const ensureToolCardPushed = (card) => {
-    if (!card || card.pushed) return false;
-    if (card.pushTimer) { clearTimeout(card.pushTimer); card.pushTimer = null; }
-    card.pushed = true;
-    if (card.spec) pushItem(card.spec);
-    return true;
-  };
-  const scheduleToolCardPush = (card) => {
-    if (!card || card.pushed || card.pushTimer) return;
-    card.pushTimer = setTimeout(() => {
-      card.pushTimer = null;
-      if (disposed) return;
-      ensureToolCardPushed(card);
-    }, TOOL_CARD_PUSH_DELAY_MS);
-    card.pushTimer.unref?.();
-  };
-  const ensureAggregatePushed = (aggregate) => {
-    if (!aggregate || aggregate.pushed) return false;
-    if (aggregate.pushTimer) { clearTimeout(aggregate.pushTimer); aggregate.pushTimer = null; }
-    aggregate.pushed = true;
-    if (aggregate.pendingSpec) pushItem(aggregate.pendingSpec);
-    return true;
-  };
-  const scheduleAggregatePush = (aggregate) => {
-    if (!aggregate || aggregate.pushed || aggregate.pushTimer) return;
-    aggregate.pushTimer = setTimeout(() => {
-      aggregate.pushTimer = null;
-      if (disposed) return;
-      ensureAggregatePushed(aggregate);
-    }, TOOL_CARD_PUSH_DELAY_MS);
-    aggregate.pushTimer.unref?.();
   };
   const upsertSyntheticToolItem = (text, id = nextId(), parsed = null) => {
     const synthetic = parseSyntheticAgentMessage(text);
@@ -1486,6 +1475,12 @@ export async function createEngineSession({
     if (!card || card.done) return false;
     const callId = toolResultCallId(message) || card.callId;
     if (callId && done.has(callId)) return false;
+    // A result for this card arrived (possibly before its deferred push delay
+    // elapsed) — surface the card now so the patch below has a live item and the
+    // fast tool paints a completed card directly, no pending placeholder stage.
+    // ensureVisible flushes this card AND every earlier-created still-deferred
+    // card in order, so transcript order always matches call order.
+    (card.aggregate?.ensureVisible || card.ensureVisible)?.();
     const rawText = toolResultText(message?.content);
     const isError = message?.isError === true || message?.toolKind === 'error' || /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText));
     const text = isError ? toolErrorDisplay(rawText, card?.name || 'tool') : rawText;
@@ -1603,6 +1598,9 @@ export async function createEngineSession({
     if (!finalize) return;
     for (const card of toolCards || []) {
       if (card.done) continue;
+      // Finalize must surface any still-deferred card before patching its result
+      // so the completed/cancelled card is never silently dropped.
+      (card.aggregate?.ensureVisible || card.ensureVisible)?.();
       // Aggregate finalize — mark any remaining calls as done
       const aggregate = card.aggregate;
       if (aggregate && card.itemId === aggregate.itemId) {
@@ -1682,6 +1680,73 @@ export async function createEngineSession({
     const aggregateByBucket = new Map(); // tail-continuation cache; append only while still the last visible item
     let openAggregateCard = null;
 
+    // ── Deferred tool-card push (scroll/text sync) ────────────────────────────
+    // A tool card used to enter the transcript the instant onToolCall fired,
+    // reserving its estimated height (margin+header+detail) while ToolExecution
+    // only painted blank placeholder rows for TOOL_PENDING_SHOW_DELAY_MS. With a
+    // bottom-fixed viewport that shoved the body up BEFORE any glyph appeared, so
+    // the scroll ran ahead of the text. We now hold each card off-screen for the
+    // same delay and push it only when its real header/detail will paint (delay
+    // elapsed) OR a result lands first (fast tool → completed card, no pending
+    // flicker). The pushed item's startedAt is already >= the delay, so
+    // ToolExecution renders the real card directly, skipping the placeholder.
+    // Mirrors components/ToolExecution.jsx TOOL_PENDING_SHOW_DELAY_MS.
+    const TOOL_CARD_PUSH_DELAY_MS = 1000;
+    let deferredSeqCounter = 0;
+    const deferredEntries = []; // creation-order list; each is pushed at most once
+    // Push this entry AND every earlier-created still-deferred entry, in order,
+    // so transcript order always matches call order even when a later card's
+    // result/timer fires before an earlier one's.
+    const flushDeferredUpTo = (entry) => {
+      if (!entry) return;
+      for (const e of deferredEntries) {
+        if (e.seq > entry.seq) break;
+        if (e.pushed) continue;
+        e.pushed = true;
+        if (e.timer) { clearTimeout(e.timer); e.timer = null; }
+        try { e.push(); } catch {}
+      }
+    };
+    const registerDeferredCard = (card) => {
+      const entry = {
+        seq: deferredSeqCounter++,
+        pushed: false,
+        timer: null,
+        push: () => { card.pushed = true; if (card.spec) pushItem(card.spec); },
+      };
+      card.deferred = entry;
+      card.ensureVisible = () => flushDeferredUpTo(entry);
+      deferredEntries.push(entry);
+      entry.timer = setTimeout(() => {
+        entry.timer = null;
+        if (disposed) return;
+        flushDeferredUpTo(entry);
+      }, TOOL_CARD_PUSH_DELAY_MS);
+      entry.timer.unref?.();
+    };
+    const registerDeferredAggregate = (aggregate) => {
+      const entry = {
+        seq: deferredSeqCounter++,
+        pushed: false,
+        timer: null,
+        push: () => { aggregate.pushed = true; if (aggregate.pendingSpec) pushItem(aggregate.pendingSpec); },
+      };
+      aggregate.deferred = entry;
+      aggregate.ensureVisible = () => flushDeferredUpTo(entry);
+      deferredEntries.push(entry);
+      entry.timer = setTimeout(() => {
+        entry.timer = null;
+        if (disposed) return;
+        flushDeferredUpTo(entry);
+      }, TOOL_CARD_PUSH_DELAY_MS);
+      entry.timer.unref?.();
+    };
+    const clearDeferredTimers = () => {
+      for (const e of deferredEntries) {
+        if (e.timer) { clearTimeout(e.timer); e.timer = null; }
+      }
+    };
+
     const markPromptCommitted = () => {
       if (activePromptRestore) {
         if (!promptCommittedCallbackCalled && typeof activePromptRestore.onCommitted === 'function') {
@@ -1699,9 +1764,13 @@ export async function createEngineSession({
       const ids = new Set();
       for (const card of toolCards || []) {
         if (card?.itemId) ids.add(card.itemId);
+        // Seal not-yet-pushed specs too, so a card that pushes later (timer)
+        // enters already-finalized instead of flashing the active header form.
+        if (card && card.pushed === false && card.spec) card.spec.headerFinalized = true;
       }
       for (const aggregate of aggregateCards || []) {
         if (aggregate?.itemId) ids.add(aggregate.itemId);
+        if (aggregate && aggregate.pushed === false && aggregate.pendingSpec) aggregate.pendingSpec.headerFinalized = true;
       }
       if (ids.size === 0) return false;
       let changed = false;
@@ -1718,6 +1787,7 @@ export async function createEngineSession({
       for (const aggregate of aggregateCards) {
         const allCalls = [...aggregate.calls.values()];
         if (allCalls.length === 0) continue;
+        aggregate.ensureVisible?.();
         const errors = allCalls.filter((r) => r.isError).length;
         const summaries = aggregateSummaries(aggregate);
         const detailText = aggregateDisplayDetail(summaries, allCalls);
@@ -1785,6 +1855,9 @@ export async function createEngineSession({
         pushed: false,
         startedAt: Date.now(),
       };
+      // Arm the deferred push once at creation; syncAggregateHeader only keeps
+      // pendingSpec current until the timer/result flushes it in call order.
+      registerDeferredAggregate(aggregate);
       rememberActiveAggregate(aggregate);
       openAggregateCard = aggregate;
       return aggregate;
@@ -1802,8 +1875,10 @@ export async function createEngineSession({
         patchItem(aggregate.itemId, patch);
         return;
       }
-      aggregate.pushed = true;
-      pushItem({
+      // Not yet visible: keep the latest header spec current. The deferred entry
+      // (armed at creation) pushes pendingSpec when its timer fires or a result
+      // forces it visible, preserving call order via flushDeferredUpTo.
+      aggregate.pendingSpec = {
         kind: 'tool',
         id: aggregate.itemId,
         name: '__aggregate__',
@@ -1815,7 +1890,7 @@ export async function createEngineSession({
         expanded: false,
         headerFinalized: false,
         startedAt: aggregate.startedAt || Date.now(),
-      });
+      };
     };
 
     const ensureAssistant = (initialText = '') => {
@@ -1963,6 +2038,7 @@ export async function createEngineSession({
       if (aggregate && card.itemId === aggregate.itemId) {
         const callRec = aggregate.calls.get(callId);
         if (!callRec || callRec.resolved || callRec.completedEarly) return;
+        aggregate.ensureVisible?.();
         const rawText = toolResultText(message?.content);
         const isError = message?.isError === true || message?.toolKind === 'error' || /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText));
         const text = isError ? toolErrorDisplay(rawText, callRec.name || 'tool') : rawText;
@@ -2071,20 +2147,30 @@ export async function createEngineSession({
             if (!bucket) {
               openAggregateCard = null;
               const itemId = nextId();
-              pushItem({
-                kind: 'tool',
-                id: itemId,
-                name,
-                args,
-                result: null,
-                isError: false,
-                expanded: false,
-                headerFinalized: false,
-                count: 1,
-                completedCount: 0,
-                startedAt: Date.now(),
-              });
-              const card = { itemId, callId: callKey, done: false };
+              // Defer the visible push: hold the spec and only enter the
+              // transcript when the real header/detail will paint (delay
+              // elapsed) or its result lands first. Avoids reserving blank
+              // placeholder height that scrolls the body ahead of the glyphs.
+              const card = {
+                itemId,
+                callId: callKey,
+                done: false,
+                pushed: false,
+                spec: {
+                  kind: 'tool',
+                  id: itemId,
+                  name,
+                  args,
+                  result: null,
+                  isError: false,
+                  expanded: false,
+                  headerFinalized: false,
+                  count: 1,
+                  completedCount: 0,
+                  startedAt: Date.now(),
+                },
+              };
+              registerDeferredCard(card);
               if (callId) {
                 cardByCallId.set(callId, card);
               }
@@ -2273,6 +2359,15 @@ export async function createEngineSession({
       }
     } finally {
       denyAllToolApprovals(cancelled ? 'turn cancelled' : 'turn finished');
+      // Flush any still-deferred tool cards into the transcript and cancel their
+      // pending push timers so nothing fires (or leaks) after the turn ends. The
+      // finalize path above already patches results onto visible cards; this just
+      // guarantees every registered card is materialized before the turn closes.
+      if (deferredEntries.length) {
+        const last = deferredEntries[deferredEntries.length - 1];
+        if (last) flushDeferredUpTo(last);
+        clearDeferredTimers();
+      }
       const reclaimed = cancelled && activePromptRestore?.reclaimed === true;
       activePromptRestore = null;
       closeThinkingSegment();
@@ -2544,6 +2639,9 @@ export async function createEngineSession({
     state.stats.currentEstimatedContextTokens = 0;
     state.stats.currentContextSource = null;
     state.stats.currentContextUpdatedAt = Date.now();
+    state.displayContextWindow = 0;
+    state.compactBoundaryTokens = 0;
+    state.autoCompactTokenLimit = 0;
   };
   const snapshotTuiBeforeSessionReset = () => ({
     items: state.items.slice(),

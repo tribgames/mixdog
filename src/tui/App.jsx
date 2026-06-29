@@ -966,59 +966,11 @@ function upperBound(values, target) {
   return lo;
 }
 
-// Anchor-aware scroll-preservation delta for measured-height corrections.
-//
-// The viewport is bottom-anchored, so `scrollOffset` counts ROWS UP FROM THE
-// BOTTOM and the absolute row at the viewport TOP edge is the reading anchor:
-//   anchorRow = totalRows - scrollOffset - viewRows.
-// When item heights change between commits (a new item appended at the bottom,
-// OR an older item's REAL measured height replacing its estimate), naively
-// folding the WHOLE totalRows delta into scrollOffset over-preserves: a height
-// correction that happens ABOVE the anchor would wrongly shove the viewport,
-// and successive corrections cascade into visible jumps as the user scrolls
-// into unmeasured history.
-//
-// Instead, map the anchor (an item index + offset within it) through the prev
-// frame's prefix rows to the cur frame's prefix rows. Changes ABOVE the anchor
-// move `prefix[idx]` and are absorbed so the anchor item stays put (no jump);
-// changes BELOW/at the anchor (bottom append, a result landing under the
-// reading position) shift the bottom and are fully folded into scrollOffset so
-// the top content stays stationary. Returns the row delta to ADD to the current
-// scrollOffset. Falls back to the whole-total delta when the prefix tables are
-// missing or the item indices cannot be aligned (item removal / mid-list insert
-// — rare for an append-mostly transcript), which is the previous behavior.
-function anchorPreserveDelta({
-  prevPrefix,
-  curPrefix,
-  prevTotal,
-  curTotal,
-  scrollOffset,
-  viewRows,
-  fallbackDelta,
-}) {
-  if (!Array.isArray(prevPrefix) || !Array.isArray(curPrefix)) return fallbackDelta;
-  const prevItemCount = prevPrefix.length - 1;
-  const curItemCount = curPrefix.length - 1;
-  if (prevItemCount < 1 || curItemCount < 1) return fallbackDelta;
-  // Anchor = absolute row at the viewport top edge in the PREV coordinate.
-  const anchorRowPrev = Math.max(0, Math.min(prevTotal, prevTotal - scrollOffset - viewRows));
-  let idx = upperBound(prevPrefix, anchorRowPrev) - 1;
-  if (idx < 0) idx = 0;
-  if (idx > prevItemCount - 1) idx = prevItemCount - 1;
-  // The anchor item must exist at the SAME index in the cur frame. Appends are
-  // at the end, so an older anchor idx aligns; if the item count shrank past it
-  // (removal) or the cur table is too short, bail to the safe whole-delta path.
-  if (idx > curItemCount - 1) return fallbackDelta;
-  const prevStart = prevPrefix[idx];
-  const curStart = curPrefix[idx];
-  if (!Number.isFinite(prevStart) || !Number.isFinite(curStart)) return fallbackDelta;
-  const offsetInItem = anchorRowPrev - prevStart;
-  const curItemHeight = Math.max(0, curPrefix[idx + 1] - curStart);
-  const clampedOffset = Math.max(0, Math.min(offsetInItem, curItemHeight));
-  const anchorRowCur = curStart + clampedOffset;
-  const desiredScrollOffset = curTotal - viewRows - anchorRowCur;
-  return desiredScrollOffset - scrollOffset;
-}
+// Absolute viewport-anchor resolution lives inline in the row-delta effect
+// (see App: transcriptAnchorRef). While the user reads older transcript, the
+// viewport top item id + row offset is captured once and the scroll offset is
+// re-derived from it every commit, so streaming tail growth below the anchor
+// can never shove the reading position (no incremental drift / fallback).
 
 // Cheap, stable height fingerprint for a text blob. Row estimates depend on the
 // LINE SHAPE (how many '\n'-separated lines and how each wraps), not just the
@@ -1437,12 +1389,15 @@ export function App({ store, initialStatusLine = '' }) {
   const scrollAnimationRef = useRef(null);
   const transcriptTotalRowsRef = useRef(0);
   const preservedScrollDeltaRef = useRef(0);
-  // Snapshot of the PREVIOUS commit's prefix-row table, used by the row-delta
-  // effect to preserve the reading anchor across measured-height corrections
-  // (see that effect for the math). A separate layout effect refreshes it AFTER
-  // the row-delta effect each commit, so the delta effect always reads the prior
-  // frame's prefix rows.
-  const transcriptPrevPrefixRowsRef = useRef(null);
+  // Absolute reading-anchor lock. While the user reads older transcript, we
+  // capture the item id + row offset at the VIEWPORT TOP edge once, then re-
+  // derive scrollOffset from that anchor on every commit. Streaming tail growth
+  // (or any height change BELOW the anchor) only moves the bottom, so the top
+  // item stays pinned — no incremental drift, no jump on newline. `dirty` forces
+  // a re-capture after a manual scroll; cleared to null when we follow/pin the
+  // bottom so a fresh scroll-up starts a new anchor.
+  const transcriptAnchorRef = useRef(null);
+  const transcriptAnchorDirtyRef = useRef(false);
   // App-level measured row heights (ScrollBox/useVirtualScroll-inspired). The map of
   // mounted item id → ink DOM element is read every commit to harvest each
   // row's REAL Yoga height into transcriptMeasuredRowsCache. measuredRowsVersion
@@ -1866,6 +1821,8 @@ export function App({ store, initialStatusLine = '' }) {
     stopSmoothScroll();
     scrollPositionRef.current = 0;
     scrollTargetRef.current = 0;
+    transcriptAnchorRef.current = null;
+    transcriptAnchorDirtyRef.current = false;
     setScrollOffset(0);
   }, [stopSmoothScroll, cancelTranscriptFollow]);
 
@@ -1994,6 +1951,16 @@ export function App({ store, initialStatusLine = '' }) {
     // Any manual wheel/keyboard scroll takes precedence over an in-flight
     // transcript follow: drop the glide so the user's intent wins.
     if (appliedDelta !== 0) cancelTranscriptFollow();
+    // A manual scroll moves the reading position: invalidate the anchor lock so
+    // the row-delta effect re-captures the viewport-top item at the new offset.
+    if (appliedDelta !== 0) {
+      if (target <= 0) {
+        transcriptAnchorRef.current = null;
+        transcriptAnchorDirtyRef.current = false;
+      } else {
+        transcriptAnchorDirtyRef.current = true;
+      }
+    }
     scrollTargetRef.current = target;
     if (appliedDelta !== 0 && selectionLayoutRef.current) {
       selectionLayoutRef.current = { ...selectionLayoutRef.current, scrollOffset: target };
@@ -7025,7 +6992,7 @@ export function App({ store, initialStatusLine = '' }) {
   const toastHint = latestToast ? latestToast.text : '';
   const inputHint = promptHint || toastHint;
   const inputHintTone = promptHint ? promptHintTone : (latestToast?.tone || 'info');
-  const promptMetaRows = !inputBoxHidden && (liveSpinner || inputHint) ? (slashPaletteOpen ? 1 : 2) : 0;
+  const promptMetaRows = !inputBoxHidden && liveSpinner ? (slashPaletteOpen ? 1 : 2) : 0;
   const SCROLL_HINT_ROWS = 0;
   const LIVE_STATUS_ROWS = 0;
   // The standalone prompt box is 3 rows (round border + one input line). Normal
@@ -7085,7 +7052,15 @@ export function App({ store, initialStatusLine = '' }) {
   // render at full width.
   const rightSafetyColumns = process.platform === 'win32' ? 1 : 0;
   const frameColumns = Math.max(1, resizeState.columns - rightSafetyColumns);
-  const promptMetaVisible = !inputBoxHidden && !!(liveSpinner || inputHint);
+  const promptMetaVisible = !inputBoxHidden && !!liveSpinner;
+  // Toast/error text has two mutually exclusive placements:
+  // - while a live status row exists (thinking/compacting/responding), attach it
+  //   to that row so the bottom cluster reserves exactly one status band;
+  // - otherwise render it into the normal one-row gap above the prompt, replacing
+  //   the blank spacer instead of reserving an extra row. This keeps late errors
+  //   from pushing the prompt/statusline upward, and when thinking starts the
+  //   hint moves into the live row on the same render instead of double-painting.
+  const overlayHintVisible = !inputBoxHidden && !liveSpinner && !!inputHint && !queuedVisible && floatingPanelRows <= 0;
   const transientStatusWidth = inputHint
     ? Math.max(1, Math.min(Math.max(1, frameColumns - 4), Math.max(12, Math.floor(frameColumns * 0.42))))
     : 0;
@@ -7216,13 +7191,7 @@ export function App({ store, initialStatusLine = '' }) {
     const previousTotalRows = Math.max(0, Number(transcriptTotalRowsRef.current) || 0);
     transcriptTotalRowsRef.current = totalRows;
     const rowDelta = totalRows - previousTotalRows;
-    // Snapshot the prefix-row tables for anchor-aware preservation below. The
-    // PREV table is whatever the last commit stored; update the ref to the CUR
-    // table for the next commit. (Reads happen before the write so the delta
-    // effect always sees the prior frame.)
     const curPrefix = transcriptRowIndex?.prefixRows || null;
-    const prevPrefix = transcriptPrevPrefixRowsRef.current;
-    transcriptPrevPrefixRowsRef.current = curPrefix;
     if (previousTotalRows <= 0 || dragRef.current.active) return;
 
     const currentTarget = Math.max(0, Number(scrollTargetRef.current) || 0);
@@ -7243,72 +7212,68 @@ export function App({ store, initialStatusLine = '' }) {
       stopSmoothScroll();
       scrollTargetRef.current = 0;
       scrollPositionRef.current = 0;
+      transcriptAnchorRef.current = null;
+      transcriptAnchorDirtyRef.current = false;
       if (currentOffset !== 0) setScrollOffset(0);
       return;
     }
 
-    // User is reading older transcript. Preserve their visual anchor by folding
-    // row growth/shrink into the manual scroll offset instead of snapping back
-    // to the bottom. Use the ANCHOR-AWARE delta (not the whole-total delta): a
-    // height correction ABOVE the reading anchor is absorbed so the anchored
-    // item stays put, while a change BELOW/at the anchor (bottom append, a
-    // result landing under the reading position) is folded into scrollOffset so
-    // the top content stays stationary. This is what stops over-preservation and
-    // the cascading jump when scrolling into old, still-unmeasured history.
+    // ── ABSOLUTE ANCHOR LOCK ──────────────────────────────────────────────
+    // User is reading older transcript. Instead of folding the per-frame row
+    // DELTA into scrollOffset (which accumulated streaming-tail estimate jitter
+    // and could fall back to the whole-total delta on a misalignment — the
+    // "newline makes the screen jump" bug), we pin an ABSOLUTE anchor: the item
+    // id + row offset sitting at the viewport TOP edge. Every commit we look that
+    // item up in the CURRENT prefix table and re-derive scrollOffset so the
+    // anchored row stays at the same screen position. Any height change BELOW the
+    // anchor (streaming tail growth, a result landing under the reading position)
+    // only moves the bottom — the top is rock-stable. Changes ABOVE the anchor
+    // move the item's prefix start and are absorbed the same way. No deltas, no
+    // fallback, no drift.
     const viewRows = Math.max(1, Number(viewportHeight) || 1);
-    const preserveDelta = anchorPreserveDelta({
-      prevPrefix,
-      curPrefix,
-      prevTotal: previousTotalRows,
-      curTotal: totalRows,
-      scrollOffset: currentTarget,
-      viewRows,
-      fallbackDelta: rowDelta,
-    });
-    // Phantom-streaming-growth guard (bottom-pinned only). A streaming assistant
-    // at the very bottom is NEVER measured (its quantized over-estimate —
-    // trailing-'\n' counted as a body row + STREAMING_ROW_QUANTUM round-up —
-    // stays authoritative for the whole stream). That estimate is below the
-    // reading anchor, so anchorPreserveDelta folds its phantom growth into
-    // scrollOffset; with the bottom-anchored viewport that converts the slack
-    // into a negative marginBottom that pushes the just-rendered answer line
-    // BELOW the clip, leaving a blank band that only resolves seconds later when
-    // a newline / finalize shrinks the estimate. The over-estimate is harmless
-    // while pinned; it only hurts when the user is still at the bottom (no
-    // manual scroll-up) but this non-follow frame would turn phantom tail growth
-    // into a positive preserve offset. So ONLY when scrollTarget/scrollOffset
-    // are both zero — i.e. not scrolled away — AND the tail is a live streaming
-    // assistant whose block intersects the viewport, suppress the POSITIVE
-    // (push) preserve delta and keep shrink corrections. Any nonzero manual
-    // scroll-up (currentTarget > 0 or currentOffset > 0) must apply the full
-    // anchorPreserveDelta so growth strictly below the reading anchor stays
-    // rock-stable; real (non-tail) height changes above the anchor are still
-    // absorbed by anchorPreserveDelta itself.
-    const tailItem = (state.items || [])[state.items.length - 1];
-    const tailStreaming = tailItem?.kind === 'assistant' && tailItem?.streaming === true;
-    const tailIdx = Math.max(0, (state.items || []).length - 1);
-    let tailStreamingVisible = false;
-    if (tailStreaming) {
-      if (prevPrefix && tailIdx < prevPrefix.length - 1) {
-        const visibleBottomAbs = previousTotalRows - currentTarget;
-        tailStreamingVisible = prevPrefix[tailIdx] < visibleBottomAbs;
-      } else {
-        // Tail absent in prev frame (new append) or no prefix: conservative.
-        tailStreamingVisible = true;
+    const items = state.items || [];
+    let anchor = transcriptAnchorRef.current;
+    // (Re)capture the anchor from the current viewport-top edge when missing or
+    // invalidated by a manual scroll. anchorRow = absolute row at the top edge.
+    if (!anchor || transcriptAnchorDirtyRef.current) {
+      if (curPrefix && curPrefix.length > 1) {
+        const anchorRow = Math.max(0, Math.min(totalRows, totalRows - currentTarget - viewRows));
+        let idx = upperBound(curPrefix, anchorRow) - 1;
+        if (idx < 0) idx = 0;
+        if (idx > items.length - 1) idx = items.length - 1;
+        const anchorItem = items[idx];
+        if (anchorItem && anchorItem.id != null) {
+          anchor = { id: anchorItem.id, offset: Math.max(0, anchorRow - (curPrefix[idx] || 0)) };
+          transcriptAnchorRef.current = anchor;
+        }
       }
+      transcriptAnchorDirtyRef.current = false;
+      // Just captured at the current offset; nothing to correct this frame.
+      return;
     }
-    const scrolledAwayFromBottom = currentTarget > 0 || currentOffset > 0;
-    const suppressPhantomTailPush = tailStreamingVisible && !scrolledAwayFromBottom;
-    const effectivePreserveDelta = suppressPhantomTailPush ? Math.min(0, preserveDelta) : preserveDelta;
-    const nextTarget = Math.max(0, Math.min(maxRows, currentTarget + effectivePreserveDelta));
-    const appliedDelta = nextTarget - currentTarget;
+    if (!curPrefix || curPrefix.length <= 1) return;
+    // Resolve the anchored item's CURRENT position and re-derive scrollOffset.
+    let idx = -1;
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (items[i] && items[i].id === anchor.id) { idx = i; break; }
+    }
+    if (idx < 0 || idx > curPrefix.length - 2) {
+      // Anchor item gone (rare: removal/compaction). Re-capture next frame.
+      transcriptAnchorDirtyRef.current = true;
+      return;
+    }
+    const itemHeight = Math.max(0, (curPrefix[idx + 1] || 0) - (curPrefix[idx] || 0));
+    const clampedOffset = Math.max(0, Math.min(anchor.offset, itemHeight));
+    const anchorRowCur = (curPrefix[idx] || 0) + clampedOffset;
+    const desired = Math.max(0, Math.min(maxRows, totalRows - viewRows - anchorRowCur));
+    const appliedDelta = desired - currentTarget;
     if (appliedDelta === 0) return;
 
     stopSmoothScroll();
-    scrollTargetRef.current = nextTarget;
+    scrollTargetRef.current = desired;
     scrollPositionRef.current = Math.max(0, Math.min(maxRows, currentPosition + appliedDelta));
     preservedScrollDeltaRef.current += appliedDelta;
-    setScrollOffset(Math.max(0, Math.round(Math.min(maxRows, currentOffset + appliedDelta))));
+    setScrollOffset(Math.max(0, Math.round(desired)));
   }, [transcriptWindow.totalRows, transcriptWindow.maxScrollRows, transcriptRowIndex, viewportHeight, scrollOffset, stopSmoothScroll]);
   useLayoutEffect(() => {
     const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
@@ -7743,11 +7708,24 @@ export function App({ store, initialStatusLine = '' }) {
               ) : null}
             </Box>
           ) : null}
+          {overlayHintVisible ? (
+            <Box
+              height={1}
+              width="100%"
+              flexDirection="row"
+              backgroundColor={theme.background}
+            >
+              <Box flexGrow={1} flexShrink={1} overflow="hidden" />
+              <Box flexShrink={0} width={transientStatusWidth || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
+                <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
+              </Box>
+            </Box>
+          ) : null}
           {queuedVisible ? (
             <QueuedCommands queued={state.queued} columns={frameColumns} />
           ) : null}
           <Box
-            marginTop={queuedVisible ? 0 : (floatingPanelRows > 0 ? 0 : 1)}
+            marginTop={queuedVisible || overlayHintVisible ? 0 : (floatingPanelRows > 0 ? 0 : 1)}
             width="100%"
             borderStyle="round"
             borderColor={theme.promptBorder}
@@ -7768,6 +7746,9 @@ export function App({ store, initialStatusLine = '' }) {
           cwd={state.cwd}
           stats={statuslineStats}
           contextWindow={state.contextWindow}
+          displayContextWindow={state.displayContextWindow}
+          compactBoundaryTokens={state.compactBoundaryTokens}
+          autoCompactTokenLimit={state.autoCompactTokenLimit}
           rawContextWindow={state.rawContextWindow}
           resizeEpoch={resizeEpoch}
           agentRevision={agentRevision}

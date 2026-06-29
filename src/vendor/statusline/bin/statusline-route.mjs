@@ -61,6 +61,14 @@ function num(value, fallback = null) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function firstPositiveWindow(...values) {
+  for (const value of values) {
+    const n = num(value, null);
+    if (n !== null && n > 0) return n;
+  }
+  return null;
+}
+
 function money(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return '';
@@ -185,14 +193,13 @@ function defaultEffectiveContextWindowPercent(_provider) {
 }
 
 function routeContextMeta(provider, info = {}, inherited = {}) {
-  const rawContextWindow = num(
-    inherited.rawContextWindow
-      ?? inherited.raw_context_window
-      ?? info.contextWindow
-      ?? info.maxContextWindow
-      ?? info.max_input_tokens
-      ?? inherited.contextWindow,
-    null,
+  const rawContextWindow = firstPositiveWindow(
+    inherited.rawContextWindow,
+    inherited.raw_context_window,
+    info.contextWindow,
+    info.maxContextWindow,
+    info.max_input_tokens,
+    inherited.contextWindow,
   );
   const effectiveContextWindowPercent = boundedPercent(
     inherited.effectiveContextWindowPercent
@@ -201,9 +208,14 @@ function routeContextMeta(provider, info = {}, inherited = {}) {
       ?? info.effective_context_window_percent,
     defaultEffectiveContextWindowPercent(provider),
   );
-  const contextWindow = rawContextWindow
+  const derivedContextWindow = rawContextWindow
     ? Math.max(1, Math.floor(rawContextWindow * boundedPercent(effectiveContextWindowPercent, 100) / 100))
     : null;
+  const contextWindow = firstPositiveWindow(
+    inherited.contextWindow,
+    inherited.displayContextWindow,
+    info.contextWindow,
+  ) ?? derivedContextWindow;
   const explicitCompactLimit = num(
     inherited.autoCompactTokenLimit
       ?? inherited.auto_compact_token_limit
@@ -264,14 +276,16 @@ function resolveStatusAutoCompactTokenLimit(configured, active = {}, lastCompact
 // Test-only export of the status auto-compact-limit resolver.
 export const _resolveStatusAutoCompactTokenLimit = resolveStatusAutoCompactTokenLimit;
 
-function compactBoundaryForStatus(routeInfo = {}, compact = null) {
+export function compactBoundaryForStatus(routeInfo = {}, compact = null) {
   const compactLimit = num(routeInfo?.autoCompactTokenLimit ?? compact?.compactLimitTokens, 0);
   const contextWindow = num(routeInfo?.contextWindow ?? compact?.contextWindow, 0);
   const budgetWindow = num(compact?.budgetWindow, 0);
   const rawContextWindow = num(routeInfo?.rawContextWindow ?? compact?.rawContextWindow, 0);
-  if (contextWindow > 0) return contextWindow;
-  if (budgetWindow > 0) return budgetWindow;
+  if (compactLimit > 0 && contextWindow > 0) return Math.min(compactLimit, contextWindow);
   if (compactLimit > 0) return compactLimit;
+  if (budgetWindow > 0 && contextWindow > 0) return Math.min(budgetWindow, contextWindow);
+  if (budgetWindow > 0) return budgetWindow;
+  if (contextWindow > 0) return contextWindow;
   return rawContextWindow > 0 ? rawContextWindow : null;
 }
 
@@ -552,7 +566,10 @@ export function loadGatewayStatus(options = {}) {
       num(contextBoundary, 0),
     )
     : null;
-  const recomputedContextUsedPct = pctOf(liveContextTokens ?? (compactRequestWithLiveTokens ? liveContextTokens : (overflowContextTokens ?? lastUsage?.promptTokens)), contextBoundary);
+  const contextNumerator = liveContextTokens !== null && Number.isFinite(liveContextTokens)
+    ? liveContextTokens
+    : (overflowContextTokens ?? null);
+  const recomputedContextUsedPct = pctOf(contextNumerator, contextBoundary);
   const activeQuotaWindows = metricsMatch && Array.isArray(active.gateway_quota_windows)
     ? active.gateway_quota_windows
     : [];
