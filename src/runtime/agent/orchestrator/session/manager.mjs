@@ -2510,6 +2510,10 @@ function promptContentText(content) {
     return String(content ?? '');
 }
 
+function hasModelVisiblePromptContent(prompt) {
+    return !!promptContentText(prompt).trim();
+}
+
 function promptContentBytes(content) {
     try {
         if (typeof content === 'string') return Buffer.byteLength(content, 'utf8');
@@ -2862,6 +2866,23 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // prefetch is re-applied (those belonged to the original ask).
             context = null;
             explicitPrefetch = null;
+        } else if (!hasModelVisiblePromptContent(prompt)) {
+            // Idle resume: TUI kicks an empty ask() after execution completions
+            // mirror model-visible bodies into session pending. Drain that queue
+            // here so we never synthesize an empty user turn for the model.
+            const _preDrained = drainPendingMessages(sessionId);
+            if (_preDrained.length > 0) {
+                const _mergedPre = _mergePendingMessageEntries(_preDrained);
+                if (_mergedPre?.content) {
+                    prompt = _mergedPre.content;
+                    context = null;
+                    explicitPrefetch = null;
+                }
+            }
+        }
+        if (!hasModelVisiblePromptContent(prompt)) {
+            _unlinkParentAbortListener(_runtimeState.get(sessionId));
+            return _result;
         }
         // ── Synchronous pre-await setup (must happen before any await so
         //    closeSession() can't interleave between load and registration) ──
@@ -3334,7 +3355,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         //    The mutex is still held, so a send racing this drain either landed
         //    before (picked up here) or enqueues for the next loop. When the
         //    queue is empty we return the latest turn's result. ──
-        const _drained = _pwstTurnDrained || drainPendingMessages(sessionId);
+        const _drained = (_pwstTurnDrained && _pwstTurnDrained.length > 0)
+            ? _pwstTurnDrained
+            : drainPendingMessages(sessionId);
         if (_drained.length > 0) {
             // Same merge rule as the mid-turn steering drain (loop.mjs) and
             // the TUI engine.mjs drain(): a single drain batch is joined with

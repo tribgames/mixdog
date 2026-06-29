@@ -677,13 +677,16 @@ function defaultQueuePriority(mode) {
 }
 
 function isQueuedEntryEditable(entry) {
-  return (entry?.mode || 'prompt') !== 'task-notification';
+  const mode = entry?.mode || 'prompt';
+  return mode !== 'task-notification' && mode !== 'pending-resume';
 }
 
 function isQueuedEntryVisible(entry) {
   // state.queued drives the user-command wait list above the prompt. Background
   // task completions stay in the internal pending queue, but should never look
   // like commands typed by the user while they wait to be drained.
+  const mode = entry?.mode || 'prompt';
+  if (mode === 'pending-resume') return false;
   return isQueuedEntryEditable(entry);
 }
 
@@ -1232,6 +1235,33 @@ export async function createEngineSession({
   let autoClearRunning = false;
   const pendingNotificationKeys = new Set();
   const displayedExecutionNotificationKeys = new Set();
+  let executionResumeKickDeferred = false;
+
+  function kickExecutionPendingResume() {
+    if (disposed) return;
+    if (state.busy) {
+      executionResumeKickDeferred = true;
+      return;
+    }
+    if (pending.some((entry) => entry.mode === 'pending-resume')) {
+      executionResumeKickDeferred = true;
+      return;
+    }
+    executionResumeKickDeferred = false;
+    pending.push(makeQueueEntry('', { mode: 'pending-resume', priority: 'next' }));
+    void drain();
+  }
+
+  function flushDeferredExecutionPendingResumeKick() {
+    if (!executionResumeKickDeferred || disposed || state.busy) return;
+    kickExecutionPendingResume();
+  }
+
+  function scheduleExecutionPendingResumeKick() {
+    // notifyFnForSession enqueues the model-visible body after onNotification
+    // returns; defer the kick so askSession pre-drain sees session pending.
+    queueMicrotask(() => kickExecutionPendingResume());
+  }
 
   function updateAgentJobCard(itemId, text, isError = false) {
     const parsed = parseAgentJob(text);
@@ -1267,6 +1297,9 @@ export async function createEngineSession({
           pushUserOrSyntheticItem(delivery.displayText, nextId());
         }
         if (parsed?.taskId) set(agentStatusState({ force: true }));
+        if (String(delivery.modelContent || '').trim()) {
+          scheduleExecutionPendingResumeKick();
+        }
         return true;
       }
       if (parsed?.taskId) {
@@ -2106,6 +2139,7 @@ export async function createEngineSession({
         toolMode: runtime.toolMode,
         ...agentStatusState({ force: true }),
       });
+      flushDeferredExecutionPendingResumeKick();
     }
     return cancelled ? 'cancelled' : 'done';
   }
@@ -2204,6 +2238,7 @@ export async function createEngineSession({
         const ids = new Set(batch.map((e) => e.id));
         const merged = mergePromptContents(batch);
         for (const entry of batch) {
+          if (entry.mode === 'pending-resume') continue;
           pushUserOrSyntheticItem(entry.text, entry.id);
         }
         const nonEditable = batch.filter((entry) => !isQueuedEntryEditable(entry));
@@ -2225,6 +2260,7 @@ export async function createEngineSession({
     } finally {
       draining = false;
       if (pending.length > 0) void drain();
+      else flushDeferredExecutionPendingResumeKick();
     }
   }
   function enqueue(text, options = {}) {
