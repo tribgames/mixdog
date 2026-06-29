@@ -2087,6 +2087,10 @@ export function __renderToolSearchForTest(args = {}, session = {}, mode = 'full'
   return renderToolSearch(args, session, mode);
 }
 
+export function __saveModelSettingsForTest(cfgMod, route, options = {}) {
+  return saveModelSettings(cfgMod, route, options);
+}
+
 function resolveCwdPath(currentCwd, value) {
   const raw = clean(value);
   if (!raw) throw new Error('cwd: path is required for action=set');
@@ -5269,12 +5273,14 @@ function parsedProviderModelVersion(id) {
     async setEffort(value) {
       const normalized = normalizeEffortInput(value);
       route = { ...route, effort: normalized };
-      config = saveModelSettings(cfgMod, route, { fastCapable: route.fastCapable !== false });
+      const modelMeta = await lookupModelMeta(route.provider, route.model);
+      const fastCapable = fastCapableFor(route.provider, modelMeta);
+      adoptConfig(saveModelSettings(cfgMod, route, { fastCapable, baseConfig: config }), { hasSecrets: configHasSecrets });
       const leadRoute = persistLeadRoute(route);
       if (leadRoute) {
         route = resolveRoute(config, { model: workflowPresetId('lead') });
       }
-      await refreshRouteEffort();
+      await refreshRouteEffort(modelMeta);
       if (session) {
         session.effort = route.effectiveEffort || null;
         writeStatuslineRoute(statusRoutes, session, route);

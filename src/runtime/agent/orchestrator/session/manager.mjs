@@ -1741,6 +1741,9 @@ export function markSessionAskStart(id) {
     if (!id) return;
     _stopToolActivityHeartbeat(id);
     const entry = _touchRuntime(id);
+    entry.usageMetricsTurnIncremental = false;
+    const sessionForTurn = entry.session ?? loadSession(id);
+    if (sessionForTurn) bumpUsageMetricsTurnId(sessionForTurn);
     entry.stage = 'connecting';
     entry.lastStreamDeltaAt = null;
     entry.lastToolCall = null;
@@ -1814,6 +1817,9 @@ export function markSessionToolCall(id, toolName) {
     publishHeartbeat(id, entry.toolStartedAt);
     _startToolActivityHeartbeat(id);
 }
+// Parent AbortSignal listeners are dropped on askSession unwind (finally /
+// terminal return) and on error/cancel/close — not in markSessionDone, which
+// also runs between queued follow-up turns within one ask.
 export function markSessionDone(id, { empty = false } = {}) {
     if (!id) return;
     _stopToolActivityHeartbeat(id);
@@ -1866,6 +1872,7 @@ export function markSessionError(id, msg) {
     entry.lastProgressAt = errTs;
     entry.updatedAt = errTs;
     deleteHeartbeat(id);
+    _unlinkParentAbortListener(entry);
 }
 export function markSessionCancelled(id) {
     if (!id) return;
@@ -1882,6 +1889,7 @@ export function markSessionCancelled(id) {
     entry.lastProgressAt = doneTs;
     entry.updatedAt = doneTs;
     deleteHeartbeat(id);
+    _unlinkParentAbortListener(entry);
 }
 export function getSessionRuntime(id) {
     return id ? (_runtimeState.get(id) || null) : null;
@@ -1926,29 +1934,126 @@ export function forEachSessionRuntime() {
 }
 
 // --- Incremental metric persistence (fix A) ---
-// Per-session idempotency tracking: sessionId → Set of seen iterationIndex keys.
+// Per-session idempotency tracking: sessionId → Set of seen turn:epoch:iteration:source keys.
 const _metricSeenIter = new Map();
+
+/** Monotonic per-session ask/turn id for incremental usage idempotency. */
+export function bumpUsageMetricsTurnId(session) {
+    if (!session || typeof session !== 'object') return 0;
+    const next = (Number(session.usageMetricsTurnId) || 0) + 1;
+    session.usageMetricsTurnId = next;
+    return next;
+}
+
+export function resolveUsageMetricsTurnId(session, delta = {}) {
+    if (delta.usageMetricsTurnId != null && Number.isFinite(Number(delta.usageMetricsTurnId))) {
+        return Number(delta.usageMetricsTurnId);
+    }
+    return Number(session?.usageMetricsTurnId) || 0;
+}
+
+/** Advance loop metrics epoch when agentLoop resets its iteration counter (post-compact). */
+export function bumpUsageMetricsEpoch(session) {
+    if (!session || typeof session !== 'object') return 0;
+    const next = (Number(session.usageMetricsEpoch) || 0) + 1;
+    session.usageMetricsEpoch = next;
+    return next;
+}
+
+/**
+ * Resolve usage-metrics epoch for idempotency (exported for regression smoke).
+ * Prefers session.usageMetricsEpoch (bumped in loop on compact reset) and optional
+ * delta.usageMetricsEpoch; falls back to iteration regression when loop did not bump.
+ */
+export function resolveUsageMetricsEpoch(session, delta = {}) {
+    if (!session) return 0;
+    let epoch = Number(session.usageMetricsEpoch) || 0;
+    if (delta.usageMetricsEpoch != null && Number.isFinite(Number(delta.usageMetricsEpoch))) {
+        epoch = Math.max(epoch, Number(delta.usageMetricsEpoch));
+    }
+    const idx = Number(delta.iterationIndex);
+    const prevLastIdx = typeof session.lastIterationIndex === 'number'
+        ? session.lastIterationIndex
+        : null;
+    if (
+        (delta.usageMetricsEpoch == null || !Number.isFinite(Number(delta.usageMetricsEpoch)))
+        && prevLastIdx !== null
+        && Number.isFinite(idx)
+        && idx < prevLastIdx
+    ) {
+        epoch += 1;
+    }
+    return epoch;
+}
+
+export function usageMetricsSourceKey(delta = {}) {
+    const raw = delta.source ?? delta.usageSource;
+    if (raw == null || raw === '') return 'provider_send';
+    return String(raw);
+}
+
+/** Idempotency key for incremental usage persistence (exported for regression smoke). */
+export function usageMetricsIdempotencyKey(sessionId, session, delta = {}) {
+    const turnId = resolveUsageMetricsTurnId(session, delta);
+    const epoch = resolveUsageMetricsEpoch(session, delta);
+    const source = usageMetricsSourceKey(delta);
+    return `${sessionId}:${turnId}:${epoch}:${delta.iterationIndex}:${source}`;
+}
+
+/**
+ * Apply terminal ask usage to session totals. Skips lifetime totals when incremental
+ * per-iteration persistence already counted this turn (askSession path).
+ */
+export function applyAskTerminalUsageTotals(session, result, options = {}) {
+    if (!session || !result?.usage) return;
+    const skipTotals = options.skipTotalsIfIncremental === true;
+    if (!skipTotals) {
+        session.totalInputTokens = (session.totalInputTokens || 0) + (result.usage.inputTokens || 0);
+        session.totalOutputTokens = (session.totalOutputTokens || 0) + (result.usage.outputTokens || 0);
+        session.tokensCumulative = (session.tokensCumulative || 0)
+            + (result.usage.inputTokens || 0)
+            + (result.usage.outputTokens || 0);
+        session.totalCachedReadTokens = (session.totalCachedReadTokens || 0) + (result.usage.cachedTokens || 0);
+        session.totalCacheWriteTokens = (session.totalCacheWriteTokens || 0) + (result.usage.cacheWriteTokens || 0);
+    }
+    const _lastTurn = result.lastTurnUsage || result.usage || {};
+    session.lastInputTokens = _lastTurn.inputTokens || 0;
+    session.lastOutputTokens = _lastTurn.outputTokens || 0;
+    session.lastCachedReadTokens = _lastTurn.cachedTokens || 0;
+    session.lastCacheWriteTokens = _lastTurn.cacheWriteTokens || 0;
+    const _inputExcludesCache = providerInputExcludesCache(session.provider);
+    session.lastContextTokens = _inputExcludesCache
+        ? (_lastTurn.inputTokens || 0) + (_lastTurn.cachedTokens || 0)
+        : (_lastTurn.inputTokens || 0);
+    session.lastContextTokensUpdatedAt = Date.now();
+    session.lastContextTokensStaleAfterCompact = false;
+}
 
 /**
  * Persist incremental usage delta immediately after each provider.send iteration.
- * Idempotency key `sessionId:iterationIndex` ensures a retry of the same iteration
- * index overwrites instead of double-counting.
+ * Idempotency key `sessionId:turnId:epoch:iterationIndex:source` scopes retries
+ * per ask, compaction epoch, iteration, and usage source.
  */
 export async function persistIterationMetrics(delta) {
     if (!delta || !delta.sessionId) return;
     const { sessionId, iterationIndex, deltaInput, deltaOutput, deltaCachedRead, deltaCacheWrite, ts } = delta;
+    const runtimeEntry = _runtimeState.get(sessionId);
+    const session = runtimeEntry?.session ?? loadSession(sessionId);
+    if (!session || session.closed) return;
+    const epoch = resolveUsageMetricsEpoch(session, delta);
+    if (epoch !== (Number(session.usageMetricsEpoch) || 0)) {
+        session.usageMetricsEpoch = epoch;
+    }
     let seen = _metricSeenIter.get(sessionId);
     if (!seen) {
         seen = new Set();
         _metricSeenIter.set(sessionId, seen);
     }
-    const ikey = `${sessionId}:${iterationIndex}`;
+    const ikey = usageMetricsIdempotencyKey(sessionId, session, delta);
     const isReplay = seen.has(ikey);
     seen.add(ikey);
-    const runtimeEntry = _runtimeState.get(sessionId);
-    const session = runtimeEntry?.session ?? loadSession(sessionId);
-    if (!session || session.closed) return;
     if (!isReplay) {
+        if (runtimeEntry) runtimeEntry.usageMetricsTurnIncremental = true;
         session.totalInputTokens = (session.totalInputTokens || 0) + (deltaInput || 0);
         session.totalOutputTokens = (session.totalOutputTokens || 0) + (deltaOutput || 0);
         session.tokensCumulative = (session.tokensCumulative || 0) + (deltaInput || 0) + (deltaOutput || 0);
@@ -2109,16 +2214,27 @@ export function linkParentSignalToSession(sessionId, parentSignal) {
         return new Error('parent signal aborted');
     };
     if (parentSignal.aborted) {
+        _unlinkParentAbortListener(entry);
         try { entry.controller.abort(abortReason()); } catch { /* ignore */ }
         return;
     }
-    parentSignal.addEventListener('abort', () => {
+    _unlinkParentAbortListener(entry);
+    const onParentAbort = () => {
         try { entry.controller?.abort(abortReason()); } catch { /* ignore */ }
-    }, { once: true });
+    };
+    parentSignal.addEventListener('abort', onParentAbort, { once: true });
+    entry.parentAbortLink = { signal: parentSignal, listener: onParentAbort };
+}
+function _unlinkParentAbortListener(entry) {
+    const link = entry?.parentAbortLink;
+    if (!link) return;
+    try { link.signal.removeEventListener('abort', link.listener); } catch { /* ignore */ }
+    entry.parentAbortLink = null;
 }
 function _clearSessionRuntime(id) {
     if (id) {
         _stopToolActivityHeartbeat(id);
+        _unlinkParentAbortListener(_runtimeState.get(id));
         _runtimeState.delete(id);
         // R15: also drop the per-session metric-idempotency Set; otherwise it
         // grows O(sessions x iterations) for the whole server lifetime since
@@ -2924,38 +3040,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             }
             session.updatedAt = Date.now();
             session.lastUsedAt = Date.now();
-            if (result.usage) {
-                session.totalInputTokens += result.usage.inputTokens;
-                session.totalOutputTokens += result.usage.outputTokens;
-                session.tokensCumulative = (session.tokensCumulative || 0)
-                    + (result.usage.inputTokens || 0)
-                    + (result.usage.outputTokens || 0);
-                // Cache totals — same `||0` undefined-safe accumulation pattern as
-                // persistIterationMetrics so live + terminal paths stay in lock-step
-                // and legacy sessions migrate lazily on first iteration.
-                session.totalCachedReadTokens = (session.totalCachedReadTokens || 0) + (result.usage.cachedTokens || 0);
-                session.totalCacheWriteTokens = (session.totalCacheWriteTokens || 0) + (result.usage.cacheWriteTokens || 0);
-                // Window snapshot = the current context size, which is the LAST
-                // single call — NOT result.usage (that is lastUsage, the per-turn
-                // SUM accumulated with += across iterations in agentLoop). Use
-                // lastTurnUsage (the final iteration's raw usage) so this reflects
-                // "what's in the window now" rather than the lifetime sum.
-                const _lastTurn = result.lastTurnUsage || result.usage || {};
-                session.lastInputTokens = _lastTurn.inputTokens || 0;
-                session.lastOutputTokens = _lastTurn.outputTokens || 0;
-                session.lastCachedReadTokens = _lastTurn.cachedTokens || 0;
-                session.lastCacheWriteTokens = _lastTurn.cacheWriteTokens || 0;
-                // Provider-normalized footprint, identical formula to
-                // persistIterationMetrics so both writers agree: Anthropic
-                // input_tokens excludes cache (add it back), openai/grok/gemini
-                // already include it.
-                const _inputExcludesCache = providerInputExcludesCache(session.provider);
-                session.lastContextTokens = _inputExcludesCache
-                    ? (_lastTurn.inputTokens || 0) + (_lastTurn.cachedTokens || 0)
-                    : (_lastTurn.inputTokens || 0);
-                session.lastContextTokensUpdatedAt = Date.now();
-                session.lastContextTokensStaleAfterCompact = false;
-            }
+            applyAskTerminalUsageTotals(session, result, {
+                skipTotalsIfIncremental: runtime?.usageMetricsTurnIncremental === true,
+            });
             // Agent Runtime cache stats — record hit/miss after every successful
             // ask so the registry reflects all agent traffic, not just
             // maintenance cycles. Guarded against any agent-runtime error so
@@ -3157,6 +3244,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 continue;
             }
         }
+        _unlinkParentAbortListener(_runtimeState.get(sessionId));
         return _result;
       }
     } finally {
@@ -3165,6 +3253,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         // can still surface the final stage (done/error/cancelling).
         const entry = _runtimeState.get(sessionId);
         if (entry && entry.generation === askGeneration) {
+            _unlinkParentAbortListener(entry);
             entry.controller = null;
             // Detach the live session reference; ask is over.
             entry.session = null;

@@ -480,6 +480,17 @@ export async function setMetaValue(db, key, value) {
   )
 }
 
+// Shallow-merge patch into an existing JSON object meta row (jsonb ||). Avoids
+// read-modify-write lost updates when concurrent writers touch different keys.
+export async function mergeMetaValue(db, key, patch) {
+  const patchJson = typeof patch === 'string' ? patch : JSON.stringify(patch ?? {})
+  await db.query(
+    `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
+     ON CONFLICT(key) DO UPDATE SET value = COALESCE(meta.value, '{}'::jsonb) || EXCLUDED.value`,
+    [key, patchJson],
+  )
+}
+
 export function embeddingToSql(arr) {
   if (!arr || !Array.isArray(arr)) return null
   return `[${arr.map((n) => Number(n).toFixed(6)).join(',')}]`

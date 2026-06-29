@@ -370,7 +370,7 @@ function hookEnv(projectDir, pluginData, payload) {
   return env;
 }
 
-function runCommandHandler(handler, payload, eventName, pluginData) {
+function runCommandHandler(handler, payload, eventName, pluginData, onSpawnError = null) {
   const projectDir = payload.cwd || process.cwd();
   const stdin = JSON.stringify(payload);
   const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
@@ -388,6 +388,9 @@ function runCommandHandler(handler, payload, eventName, pluginData) {
         ...baseOpts,
         detached: true,
         stdio: ['pipe', 'ignore', 'ignore'],
+      });
+      child.on('error', (error) => {
+        if (typeof onSpawnError === 'function') onSpawnError(error);
       });
       child.stdin?.end(stdin);
       child.unref?.();
@@ -812,7 +815,13 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
     }
     if (type === 'command') {
       if (!handler.command) return null;
-      return await runCommandHandler(handler, payload, eventName, pluginData);
+      const reportSpawnError = (error) => {
+        emit('hook:error', {
+          name: payload.tool_name || eventName,
+          error: `hook spawn failed: ${error?.message || error}`,
+        });
+      };
+      return await runCommandHandler(handler, payload, eventName, pluginData, reportSpawnError);
     }
     if (type === 'http') {
       if (!handler.url) return null;

@@ -33,6 +33,7 @@ function rgbColor(str) {
 
 const accent = rgbColor(theme.code); // inline code / codespan accent
 const codeBlock = rgbColor(theme.codeBlock); // fenced code block body
+const headingAccent = rgbColor(theme.claude); // markdown heading accent
 const dim = rgbColor(theme.subtle);
 
 // marked 14 HTML-encodes token.text / codespan.text (`"` → `&quot;`, `&` →
@@ -81,12 +82,10 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
       switch (token.depth) {
         case 1:
           return (
-            chalk.bold.italic.underline(
-              (token.tokens ?? []).map((t) => formatToken(t)).join(''),
-            ) + EOL + EOL
+            chalk.bold.underline(headingAccent((token.tokens ?? []).map((t) => formatToken(t)).join(''))) + EOL + EOL
           );
         default: // h2+
-          return chalk.bold((token.tokens ?? []).map((t) => formatToken(t)).join('')) + EOL + EOL;
+          return chalk.bold(headingAccent((token.tokens ?? []).map((t) => formatToken(t)).join(''))) + EOL + EOL;
       }
     case 'hr':
       return '---';

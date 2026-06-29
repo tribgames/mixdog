@@ -121,9 +121,10 @@ export function withFileLockSync(lockPath, fn, opts = {}) {
     // For secret-bearing critical sections, the lock file sits beside
     // the secret in the same (shared-home) directory; clamp it owner-only
     // too. Fail-closed: an unenforceable ACL aborts before fn() runs.
-    if (opts.secret === true) _enforceOwnerOnlyAclWin32(lockPath);
-    try { return fn(); }
-    finally {
+    try {
+      if (opts.secret === true) _enforceOwnerOnlyAclWin32(lockPath);
+      return fn();
+    } finally {
       try { closeSync(fd); } catch {}
       // Only unlink if we still own the lock. If our hold exceeded
       // staleMs and another process already stole + replaced the

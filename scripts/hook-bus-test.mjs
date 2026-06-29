@@ -117,3 +117,36 @@ console.log(JSON.stringify({ hookSpecificOutput: {
     else process.env.MIXDOG_HOOKS_FILE = prev;
   }
 });
+
+test('async command hook reports spawn errors without crashing', async () => {
+  const root = tempRoot();
+  const missingCommand = join(root, 'missing-async-hook-binary');
+  const hooksFile = join(root, 'hooks.json');
+  writeJson(hooksFile, {
+    hooks: {
+      Stop: [{
+        hooks: [{
+          type: 'command',
+          command: missingCommand,
+          args: [],
+          async: true,
+        }],
+      }],
+    },
+  });
+
+  const prev = process.env.MIXDOG_HOOKS_FILE;
+  process.env.MIXDOG_HOOKS_FILE = hooksFile;
+  try {
+    const bus = createStandaloneHookBus({ dataDir: root });
+    await bus.dispatch('Stop', { session_id: 'sess_test', cwd: root });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const status = bus.status();
+    const spawnError = status.recent.find((entry) => entry.name === 'hook:error'
+      && String(entry.payload?.error || '').includes('hook spawn failed'));
+    assert.ok(spawnError, 'expected async spawn failure to emit hook:error');
+  } finally {
+    if (prev == null) delete process.env.MIXDOG_HOOKS_FILE;
+    else process.env.MIXDOG_HOOKS_FILE = prev;
+  }
+});

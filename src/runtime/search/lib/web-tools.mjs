@@ -717,11 +717,11 @@ async function fetchPinnedForPausedRequest(url, { signal, method = 'GET', header
       currentUrl = new URL(location, currentUrl).toString()
       continue
     }
-    const body = await readBodyBytesWithCap(response, MAX_BODY_BYTES)
+    const respBody = await readBodyBytesWithCap(response, MAX_BODY_BYTES)
     return {
       status: response.status,
       responseHeaders: headersToCdpPairs(response.headers),
-      body,
+      body: respBody,
     }
   }
 }

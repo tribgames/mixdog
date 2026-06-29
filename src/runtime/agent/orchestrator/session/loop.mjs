@@ -7,7 +7,7 @@ import { executeInternalTool, isInternalTool } from '../internal-tools.mjs';
 import { collectSkillsCached, loadSkillContent } from '../context/collect.mjs';
 import { traceAgentLoop, traceAgentTool, traceAgentToolFailure, traceAgentCompact, estimateProviderPayloadBytes, messagePrefixHash } from '../agent-trace.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
-import { markSessionToolCall, updateSessionStage, SessionClosedError, getSessionAbortSignal, enqueuePendingMessage } from './manager.mjs';
+import { markSessionToolCall, updateSessionStage, SessionClosedError, getSessionAbortSignal, enqueuePendingMessage, bumpUsageMetricsEpoch } from './manager.mjs';
 import { estimateMessagesTokens, estimateRequestReserveTokens } from './context-utils.mjs';
 import {
     recallFastTrackCompactMessages,
@@ -1177,6 +1177,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         }
     };
     const sessionRef = opts.session || null;
+    const loopUsageMetricsEpoch = () => Number(sessionRef?.usageMetricsEpoch) || 0;
+    const loopUsageMetricsTurnId = () => Number(sessionRef?.usageMetricsTurnId) || 0;
     // Sub-agent (worker/heavy-worker/reviewer/debugger/explore/…) sessions
     // drop mid-turn assistant preamble text outright. Only the final
     // <final-answer> reply is consumed by Lead, so any "Now let me…" prose
@@ -1367,6 +1369,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                                         opts.onUsageDelta({
                                             sessionId,
                                             iterationIndex: iterations + 1,
+                                            usageMetricsTurnId: loopUsageMetricsTurnId(),
+                                            usageMetricsEpoch: loopUsageMetricsEpoch(),
                                             deltaInput: semanticCompactResult.usage.inputTokens || 0,
                                             deltaOutput: semanticCompactResult.usage.outputTokens || 0,
                                             deltaCachedRead: semanticCompactResult.usage.cachedTokens || 0,
@@ -1460,6 +1464,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     // so a steadily-compacting long task isn't killed by the
                     // cap, while a non-compacting tight loop still hits it.
                     iterations = 0;
+                    // New loop epoch so persistIterationMetrics idempotency keys do not
+                    // collide when iteration indices restart at 1 (incl. iter 1 → iter 1).
+                    if (sessionRef) bumpUsageMetricsEpoch(sessionRef);
                 }
                 const afterTokens = estimateMessagesTokensSafe(messages);
                 const compactDurationMs = Date.now() - compactStartedAt;
@@ -1725,6 +1732,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 opts.onUsageDelta({
                     sessionId,
                     iterationIndex: iterations,
+                    usageMetricsTurnId: loopUsageMetricsTurnId(),
+                    source: 'provider_send',
+                    usageMetricsEpoch: loopUsageMetricsEpoch(),
                     deltaInput: response.usage.inputTokens || 0,
                     deltaOutput: response.usage.outputTokens || 0,
                     deltaPrompt: response.usage.promptTokens || 0,

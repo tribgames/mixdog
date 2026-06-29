@@ -81,6 +81,7 @@ import {
   isBootstrapComplete,
   getMetaValue,
   setMetaValue,
+  mergeMetaValue,
   cleanMemoryText,
 } from './lib/memory.mjs'
 import { configureEmbedding, embedText, embedTexts, getEmbeddingDims, getEmbeddingDtype, getEmbeddingModelId, getKnownDimsForCurrentModel, isEmbeddingModelReady, primeEmbeddingDims, warmupEmbeddingProvider } from './lib/embedding-provider.mjs'
@@ -395,6 +396,9 @@ let _initPromise = null
 let _stopPromise = null
 let _bootTimestamp = null
 let _transcriptOffsets = new Map()
+/** @type {Map<string, Promise<unknown>>} */
+const _ingestTranscriptTails = new Map()
+let _transcriptOffsetsPersistTail = Promise.resolve()
 // Boot-edge background warmup. ONNX session creation on the embedding worker
 // thread is CPU-heavy, so it must not overlap the worker's own init (DB open,
 // schema, cycle wiring). Previously this was gated behind a fixed setTimeout —
@@ -585,12 +589,16 @@ async function loadTranscriptOffsets() {
 }
 
 async function persistTranscriptOffsets() {
-  try {
-    const obj = Object.fromEntries(_transcriptOffsets)
-    await setMetaValue(db, TRANSCRIPT_OFFSETS_KEY, JSON.stringify(obj))
-  } catch (e) {
-    __mixdogMemoryLog(`[memory] persist transcript offsets failed: ${e.message}\n`)
-  }
+  const run = _transcriptOffsetsPersistTail.catch(() => {}).then(async () => {
+    try {
+      const obj = Object.fromEntries(_transcriptOffsets)
+      await setMetaValue(db, TRANSCRIPT_OFFSETS_KEY, JSON.stringify(obj))
+    } catch (e) {
+      __mixdogMemoryLog(`[memory] persist transcript offsets failed: ${e.message}\n`)
+    }
+  })
+  _transcriptOffsetsPersistTail = run.catch(() => {})
+  return run
 }
 
 async function getCycleLastRun() {
@@ -624,9 +632,7 @@ async function getCycleLastRun() {
 }
 
 async function setCycleLastRun(kind, ts) {
-  const cur = await getCycleLastRun()
-  cur[kind] = ts
-  await setMetaValue(db, CYCLE_LAST_RUN_KEY, JSON.stringify(cur))
+  await mergeMetaValue(db, CYCLE_LAST_RUN_KEY, { [kind]: ts })
 }
 
 // Raw-row priority lookup for narrow-window queries. Raw rows (is_root=0,
@@ -771,11 +777,25 @@ async function ingestSessionMessages(args = {}) {
   return { text: `ingest_session: considered=${considered} inserted=${inserted} session=${sessionId}` }
 }
 
-async function ingestTranscriptFile(transcriptPath, { cwd } = {}) {
+function runTranscriptIngestSerialized(transcriptPath, fn) {
+  const key = path.resolve(transcriptPath)
+  const prev = _ingestTranscriptTails.get(key) ?? Promise.resolve()
+  const run = prev.catch(() => {}).then(fn)
+  _ingestTranscriptTails.set(key, run.catch(() => {}))
+  return run
+}
+
+function snapshotTranscriptOffset(transcriptPath) {
+  const stored = _transcriptOffsets.get(transcriptPath)
+  if (!stored) return { bytes: 0, lineIndex: 0 }
+  return { bytes: Number(stored.bytes) || 0, lineIndex: Number(stored.lineIndex) || 0 }
+}
+
+async function ingestTranscriptFileImpl(transcriptPath, { cwd } = {}) {
   let stat
   try { stat = await fs.promises.stat(transcriptPath) } catch { return 0 }
   const sessionUuid = path.basename(transcriptPath, '.jsonl')
-  const prev = _transcriptOffsets.get(transcriptPath) ?? { bytes: 0, lineIndex: 0 }
+  const prev = snapshotTranscriptOffset(transcriptPath)
   if (stat.size < prev.bytes) {
     prev.bytes = 0
     prev.lineIndex = 0
@@ -865,11 +885,16 @@ async function ingestTranscriptFile(transcriptPath, { cwd } = {}) {
       break
     }
   }
-  prev.bytes = lastGoodBytes
-  prev.lineIndex = lastGoodLineIndex
-  _transcriptOffsets.set(transcriptPath, prev)
+  _transcriptOffsets.set(transcriptPath, {
+    bytes: lastGoodBytes,
+    lineIndex: lastGoodLineIndex,
+  })
   await persistTranscriptOffsets()
   return count
+}
+
+async function ingestTranscriptFile(transcriptPath, options = {}) {
+  return runTranscriptIngestSerialized(transcriptPath, () => ingestTranscriptFileImpl(transcriptPath, options))
 }
 
 function firstTextContent(content) {

@@ -265,6 +265,7 @@ ${prompt}`;
   }
   static SCHEDULER_LOCK = join(tmpdir(), "mixdog-scheduler.lock");
   static INSTANCE_UUID = randomUUID();
+  static _exitHookInstalled = false;
   start() {
     if (this.tickTimer) return;
     const total = this.nonInteractive.length + this.interactive.length;
@@ -328,18 +329,21 @@ ${Scheduler.INSTANCE_UUID}`;
       }
     }, { timeoutMs: 60000, staleMs: 30000 });
     if (!acquiredSchedulerLock) return;
-    process.on("exit", () => {
-      // Verify ownership before unlink: an exiting process whose lock
-      // was already reclaimed by a newer owner (PID-reuse / restart race)
-      // must NOT delete the new owner's lock file. Read-verify-then-unlink
-      // mirrors memory/index.mjs releaseLock().
-      try {
-        const content = readFileSync(Scheduler.SCHEDULER_LOCK, "utf8");
-        const lockedPid = parseInt(content.split("\n")[0]);
-        if (lockedPid === process.pid) unlinkSync(Scheduler.SCHEDULER_LOCK);
-      } catch {
-      }
-    });
+    if (!Scheduler._exitHookInstalled) {
+      Scheduler._exitHookInstalled = true;
+      process.on("exit", () => {
+        // Verify ownership before unlink: an exiting process whose lock
+        // was already reclaimed by a newer owner (PID-reuse / restart race)
+        // must NOT delete the new owner's lock file. Read-verify-then-unlink
+        // mirrors memory/index.mjs releaseLock().
+        try {
+          const content = readFileSync(Scheduler.SCHEDULER_LOCK, "utf8");
+          const lockedPid = parseInt(content.split("\n")[0]);
+          if (lockedPid === process.pid) unlinkSync(Scheduler.SCHEDULER_LOCK);
+        } catch {
+        }
+      });
+    }
     logSchedule(`${this.nonInteractive.length} non-interactive, ${this.interactive.length} interactive
 `);
     this.registerCronJobs();
