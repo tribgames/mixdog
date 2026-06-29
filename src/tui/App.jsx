@@ -21,7 +21,7 @@ import { spawn } from 'node:child_process';
 import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import stringWidth from 'string-width';
-import { theme, TURN_MARKER } from './theme.mjs';
+import { theme, TURN_MARKER, RESULT_GUTTER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
 import { formatToolSurface, normalizeToolName, parseToolArgs } from '../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../runtime/shared/err-text.mjs';
@@ -56,6 +56,12 @@ import {
   resolveProjectPath,
 } from '../standalone/projects.mjs';
 import { pickFolder } from '../standalone/folder-dialog.mjs';
+import {
+  formatHookDenialDetail,
+  isHookApprovalDenialToolItem,
+  shouldSuppressFullyFailedToolItem,
+  toolItemResultText,
+} from './transcript-tool-failures.mjs';
 
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
@@ -498,28 +504,45 @@ function isAgentResponseResultText(text) {
   return true;
 }
 
-function isFullyFailedToolItem(item) {
-  if (!item || item.kind !== 'tool') return false;
-  const args = item.args && typeof item.args === 'object' ? item.args : {};
-  const hasTaskId = Boolean(args.task_id || args.taskId);
-  const status = String(args.status || '').toLowerCase();
-  if (hasTaskId && /^(failed|error|timeout|cancelled|canceled|killed)$/.test(status)) {
-    return false;
-  }
-  const count = Math.max(1, Number(item.count || 1));
-  const done = Math.max(0, Math.min(count, Number(item.completedCount || (item.result == null ? 0 : count))));
-  const explicit = Number(item.errorCount);
-  const failed = Number.isFinite(explicit)
-    ? Math.max(0, Math.min(count, Math.floor(explicit)))
-    : item.isError ? count : 0;
-  return done >= count && failed >= count;
+function ToolHookDenialCard({ item, columns = 80 }) {
+  const { label, summary } = formatToolSurface(item.name, item.args);
+  const detail = formatHookDenialDetail(toolItemResultText(item));
+  const summaryText = summary ? ` (${summary})` : '';
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="row">
+        <Box flexShrink={0} minWidth={2}>
+          <Text color={theme.error}>{TURN_MARKER}</Text>
+        </Box>
+        <Text wrap="truncate">
+          <Text bold color={theme.text}>{label}</Text>
+          {summaryText ? <Text color={theme.text}>{summaryText}</Text> : null}
+          <Text color={theme.error}> · Denied</Text>
+        </Text>
+      </Box>
+      {detail ? (
+        <Box flexDirection="row">
+          <Box flexShrink={0}>
+            <Text color={theme.subtle}>{RESULT_GUTTER}</Text>
+          </Box>
+          <Text color={theme.error} wrap="truncate">{detail}</Text>
+        </Box>
+      ) : null}
+    </Box>
+  );
 }
 
 const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpanded, rightMessage = '', rightTone = 'info', rightMessageWidth = 24 }) {
   switch (item.kind) {
     case 'user': return <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} />;
     case 'assistant': return <AssistantMessage text={item.text} streaming={item.streaming} columns={columns} />;
-    case 'tool': return isFullyFailedToolItem(item) ? null : <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} headerFinalized={item.headerFinalized} />;
+    case 'tool': {
+      if (shouldSuppressFullyFailedToolItem(item)) return null;
+      if (isHookApprovalDenialToolItem(item)) {
+        return <ToolHookDenialCard item={item} columns={columns} />;
+      }
+      return <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} headerFinalized={item.headerFinalized} />;
+    }
     case 'notice': return <NoticeMessage text={item.text} tone={item.tone} columns={columns} />;
     case 'turndone': return <TurnDone elapsedMs={item.elapsedMs} status={item.status} outputTokens={item.outputTokens} thinkingElapsedMs={item.thinkingElapsedMs} verb={item.verb} rightMessage={rightMessage} rightTone={rightTone} rightMessageWidth={rightMessageWidth} />;
     case 'statusdone': return <StatusDone label={item.label} detail={item.detail} rightMessage={rightMessage} rightTone={rightTone} rightMessageWidth={rightMessageWidth} />;
@@ -752,7 +775,12 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
       // so multi-block/table answers are not under-counted and clipped at the top.
       return 1 + estimateWrappedRows(item.text, columns, 3) + estimateMarkdownExtraRows(item.text);
     case 'tool': {
-      if (isFullyFailedToolItem(item)) return 0;
+      const TOOL_MARGIN_TOP = 1;
+      if (shouldSuppressFullyFailedToolItem(item)) return 0;
+      if (isHookApprovalDenialToolItem(item)) {
+        const detail = formatHookDenialDetail(toolItemResultText(item));
+        return TOOL_MARGIN_TOP + 1 + (detail ? 1 : 0);
+      }
       // Match ToolExecution's real layout so the estimated height equals the
       // MEASURED height — otherwise the row "settles" by a row the moment the
       // app-level measured path replaces the estimate (the +1 jump). Every
@@ -765,7 +793,6 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
       //   - EXPANDED: margin(1) + header(1) + the raw/detail result rows.
       // The pending pre-delay placeholder (ToolExecution returns blank Texts)
       // mirrors these exactly: skill → 2 rows, everything else → 3 rows.
-      const TOOL_MARGIN_TOP = 1;
       const normalizedName = String(normalizeToolName(item.name) || '').toLowerCase();
       const count = Math.max(1, Number(item.count || 1));
       const done = Math.max(0, Math.min(count, Number(item.completedCount || (item.result == null ? 0 : count))));
@@ -951,7 +978,7 @@ function textShapeFingerprint(value) {
 }
 
 // Per-item cache validation key. This MUST contain EVERY item field that
-// `estimateTranscriptItemRows` (and `isFullyFailedToolItem`, which it calls)
+// `estimateTranscriptItemRows` (and `shouldSuppressFullyFailedToolItem`, which it calls)
 // reads, so any height-affecting change invalidates both the row-count cache
 // and the structure signature. `columns`/`toolOutputExpanded` are global, not
 // per-item, so the callers fold those in separately (signature prefix + the row
@@ -1025,7 +1052,7 @@ const transcriptMeasuredRowsCache = new WeakMap();
 
 function measuredTranscriptRows(item, columns, toolOutputExpanded) {
   if (!TRANSCRIPT_MEASURED_ROWS || !item) return null;
-  if (isFullyFailedToolItem(item)) return 0;
+  if (shouldSuppressFullyFailedToolItem(item)) return 0;
   if (item.kind === 'assistant' && item.streaming) return null;
   const entry = transcriptMeasuredRowsCache.get(item);
   if (!entry) return null;
@@ -1053,7 +1080,7 @@ function streamingEstimateRows(item, columns, toolOutputExpanded) {
 
 function estimateTranscriptItemRowsCached(item, columns, toolOutputExpanded) {
   if (!item) return Math.max(1, Math.ceil(estimateTranscriptItemRows(item, columns, toolOutputExpanded)));
-  if (isFullyFailedToolItem(item)) return 0;
+  if (shouldSuppressFullyFailedToolItem(item)) return 0;
   if (item.kind === 'assistant' && item.streaming) {
     return streamingEstimateRows(item, columns, toolOutputExpanded);
   }
@@ -1276,7 +1303,7 @@ export function App({ store, initialStatusLine = '' }) {
   // contributing (its last measurement stays cached on the item object).
   const transcriptMeasureRef = useCallback((item) => {
     if (!TRANSCRIPT_MEASURED_ROWS || !item || item.id == null) return undefined;
-    if (isFullyFailedToolItem(item)) {
+    if (shouldSuppressFullyFailedToolItem(item)) {
       transcriptMeasuredRowsCache.delete(item);
       transcriptItemElsRef.current.delete(item.id);
       transcriptMeasureItemsRef.current.delete(item.id);
@@ -6752,7 +6779,7 @@ export function App({ store, initialStatusLine = '' }) {
       const item = liveItems.get(key);
       const yoga = el?.yogaNode;
       if (!item || !yoga) continue;
-      if (isFullyFailedToolItem(item)) {
+      if (shouldSuppressFullyFailedToolItem(item)) {
         if (transcriptMeasuredRowsCache.delete(item)) changed = true;
         continue;
       }

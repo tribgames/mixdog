@@ -2911,7 +2911,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 });
             } catch { /* trace must never break the ask path */ }
             const agentLoop = await _getAgentLoop();
-            const result = await _api_call_with_interrupt(sessionId, (signal) =>
+            const priorToolApprovalHook = session.toolApprovalHook;
+            if (typeof askOpts?.onToolApproval === 'function') {
+                session.toolApprovalHook = askOpts.onToolApproval;
+            }
+            let result;
+            try {
+            result = await _api_call_with_interrupt(sessionId, (signal) =>
                 agentLoop(provider, outgoing, session.model, session.tools, onToolCall, effectiveCwd, {
                     effort: session.effort || null,
                     fast: session.fast === true,
@@ -2974,6 +2980,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     },
                 }),
             );
+            } finally {
+                if (priorToolApprovalHook === undefined) {
+                    delete session.toolApprovalHook;
+                } else {
+                    session.toolApprovalHook = priorToolApprovalHook;
+                }
+            }
             // Post-loop validation: if closeSession() landed while we were awaiting,
             // drop the save so the tombstone on disk isn't overwritten.
             const currentRuntime = _runtimeState.get(sessionId);

@@ -648,6 +648,9 @@ function decisionFromRule(rule, input) {
       : { ...(input.args || {}), ...(rule.patch || {}) };
     return { action: 'modify', args: nextArgs, reason: rule.reason || rule.message || `modified by hook rule for ${input.name}` };
   }
+  if (action === 'ask') {
+    return { action: 'ask', reason: rule.reason || rule.message || `approval requested by hook rule for ${input.name}` };
+  }
   return { action: 'allow', reason: rule.reason || rule.message || null };
 }
 
@@ -900,8 +903,8 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
 
   function addRule(rule = {}) {
     const action = String(rule.action || rule.decision || '').trim().toLowerCase();
-    if (!action || !['allow', 'deny', 'block', 'modify', 'rewrite'].includes(action)) {
-      throw new Error('hook rule action must be allow, deny, block, modify, or rewrite');
+    if (!action || !['allow', 'deny', 'block', 'modify', 'rewrite', 'ask'].includes(action)) {
+      throw new Error('hook rule action must be allow, deny, block, modify, rewrite, or ask');
     }
     const next = {
       tool: rule.tool || rule.name || '*',
@@ -977,6 +980,8 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
         emit('tool:deny', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: decision.reason });
       } else if (decision.action === 'modify') {
         emit('tool:modify', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: decision.reason });
+      } else if (decision.action === 'ask') {
+        emit('tool:ask', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: decision.reason });
       }
       return decision;
     } catch (error) {

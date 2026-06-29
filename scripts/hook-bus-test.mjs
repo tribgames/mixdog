@@ -85,6 +85,24 @@ test('UserPromptSubmit hook returns additional context', async () => {
   }
 });
 
+test('legacy hook rule ask requests approval instead of allowing silently', async () => {
+  const root = tempRoot();
+  const rulesFile = join(root, 'hooks.json');
+  writeJson(rulesFile, {
+    toolBefore: [{
+      tool: 'shell',
+      action: 'ask',
+      reason: 'legacy rule approval',
+      enabled: true,
+    }],
+  });
+
+  const bus = createStandaloneHookBus({ dataDir: root });
+  const asked = await bus.beforeTool({ sessionId: 'sess_test', cwd: root, name: 'shell', args: { command: 'echo ok' } });
+  assert.equal(asked.action, 'ask');
+  assert.match(asked.reason, /legacy rule approval/);
+});
+
 test('standard PreToolUse ask requests approval instead of allowing silently', async () => {
   const root = tempRoot();
   const hookScript = join(root, 'ask.mjs');

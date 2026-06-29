@@ -897,6 +897,51 @@ export function buildAgentBashSessionArgs(args, sessionRef) {
     return routedArgs;
 }
 
+export function formatMissingToolApprovalUiDenial(toolName, askReason) {
+    const reason = String(askReason || 'approval requested by hook').trim();
+    const name = String(toolName || 'tool');
+    return `Error: tool "${name}" denied by hook: approval required but no approval UI is available${reason ? ` (${reason})` : ''}`;
+}
+
+/**
+ * Resolve PreToolUse `{ action: 'ask' }` against an optional approval callback.
+ * Returns `{ denial }` when the tool must not run; otherwise `{ approval }`.
+ */
+export async function resolvePreToolAskApproval({
+    toolName,
+    args,
+    cwd,
+    sessionId,
+    toolCallId,
+    askReason,
+    toolApprovalHook,
+}) {
+    const name = String(toolName || 'tool');
+    const reason = String(askReason || 'approval requested by hook').trim();
+    if (typeof toolApprovalHook !== 'function') {
+        return { denial: formatMissingToolApprovalUiDenial(name, reason) };
+    }
+    let approval;
+    try {
+        approval = await toolApprovalHook({
+            name,
+            args,
+            cwd,
+            sessionId,
+            toolCallId: toolCallId || null,
+            reason,
+        });
+    } catch (error) {
+        const detail = error?.message || String(error || 'approval failed');
+        return { denial: `Error: tool "${name}" denied by hook: ${detail}` };
+    }
+    if (!approvalGranted(approval)) {
+        const detail = approvalReason(approval, reason || 'not approved');
+        return { denial: `Error: tool "${name}" denied by hook: ${detail}` };
+    }
+    return { approval };
+}
+
 function _scopedCacheOutcomeForCall(sessionRef, toolCallId, toolName, callerSessionId, executeOpts = {}) {
     if (executeOpts.scopedCacheOutcome) {
         if (sessionRef && toolCallId) {
@@ -965,27 +1010,17 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
             }
             if (action === 'ask') {
                 const askReason = String(decision?.reason || 'approval requested by hook').trim();
-                if (typeof toolApprovalHook !== 'function') {
-                    return `Error: tool "${name}" denied by hook: approval required but no approval UI is available${askReason ? ` (${askReason})` : ''}`;
-                }
-                let approval;
-                try {
-                    approval = await toolApprovalHook({
-                        name,
-                        args,
-                        cwd,
-                        sessionId: callerSessionId,
-                        toolCallId: executeOpts.toolCallId || null,
-                        reason: askReason,
-                    });
-                } catch (error) {
-                    const reason = error?.message || String(error || 'approval failed');
-                    return `Error: tool "${name}" denied by hook: ${reason}`;
-                }
-                if (!approvalGranted(approval)) {
-                    const reason = approvalReason(approval, askReason || 'not approved');
-                    return `Error: tool "${name}" denied by hook: ${reason}`;
-                }
+                const askOutcome = await resolvePreToolAskApproval({
+                    toolName: name,
+                    args,
+                    cwd,
+                    sessionId: callerSessionId,
+                    toolCallId: executeOpts.toolCallId || null,
+                    askReason,
+                    toolApprovalHook,
+                });
+                if (askOutcome.denial) return askOutcome.denial;
+                const approval = askOutcome.approval;
                 if (approval && typeof approval === 'object' && approval.args && typeof approval.args === 'object' && !Array.isArray(approval.args)) {
                     args = approval.args;
                 }
@@ -1130,7 +1165,7 @@ const INCOMPLETE_STOP_REASONS = new Set([
     'pause_turn', 'max_tokens', 'length', 'MAX_TOKENS', 'OTHER',
 ]);
 
-function approvalGranted(value) {
+export function approvalGranted(value) {
     if (value === true) return true;
     if (!value || typeof value !== 'object') return false;
     if (value.approved === true || value.allow === true || value.allowed === true) return true;
@@ -1138,7 +1173,7 @@ function approvalGranted(value) {
     return decision === 'approve' || decision === 'approved' || decision === 'allow' || decision === 'yes';
 }
 
-function approvalReason(value, fallback = '') {
+export function approvalReason(value, fallback = '') {
     if (value && typeof value === 'object') {
         const reason = String(value.reason || value.message || '').trim();
         if (reason) return reason;
