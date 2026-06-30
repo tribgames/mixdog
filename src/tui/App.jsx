@@ -70,11 +70,38 @@ import {
 } from './transcript-tool-failures.mjs';
 
 import { displayModelName } from '../ui/model-display.mjs';
+import { setKittyProtocolActive } from './keyboard-protocol.mjs';
 
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
 const MOUSE_MODIFIER_MASK = 4 | 8 | 16;
 const MOUSE_CTRL_MASK = 16;
+
+// Keyboard-protocol negotiation (see index.jsx, which sends KITTY_QUERY at
+// startup). The terminal answers either a kitty-flags report (\x1b[?<n>u) or, on
+// terminals that don't understand kitty, a DA1 device-attributes report
+// (\x1b[?...c) which the query appends as a sentinel. We read these off ink's
+// parsed-input bus and, when no kitty support is confirmed, enable
+// modifyOtherKeys (\x1b[>4;2m) as the fallback that makes Ctrl/Shift+Enter
+// distinguishable from plain Enter.
+const ENABLE_MODIFY_OTHER_KEYS = '\x1b[>4;2m';
+const KEYBOARD_NEGOTIATION_FRAGMENT_TIMEOUT_MS = 150;
+const KITTY_FLAGS_RE = /^\x1b\[\?(\d+)u$/;
+const DEVICE_ATTRIBUTES_RE = /^\x1b\[\?[\d;]*c$/;
+// A partial reply we should buffer briefly waiting for the rest: a bare CSI
+// (\x1b[) or a CSI-? prefix with only digits/semicolons so far (no final byte).
+const KEYBOARD_NEGOTIATION_PREFIX_RE = /^\x1b\[\?[\d;]*$/;
+
+function parseKeyboardNegotiation(sequence) {
+  const kitty = KITTY_FLAGS_RE.exec(sequence);
+  if (kitty) return { type: 'kitty-flags', flags: Number.parseInt(kitty[1], 10) };
+  if (DEVICE_ATTRIBUTES_RE.test(sequence)) return { type: 'device-attributes' };
+  return undefined;
+}
+
+function isKeyboardNegotiationPrefix(sequence) {
+  return sequence === '\x1b[' || KEYBOARD_NEGOTIATION_PREFIX_RE.test(sequence);
+}
 
 const SLASH_COMMANDS = [
   { name: 'clear', usage: '/clear', aliases: ['new'], aliasUsage: ['new'], description: 'Start a fresh chat' },
@@ -2357,6 +2384,105 @@ export function App({ store, initialStatusLine = '' }) {
     inkInput.on('input', onData);
     return () => { inkInput.off('input', onData); };
   }, [inkInput, isRawModeSupported, store, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll]);
+
+  // Keyboard-protocol negotiation. index.jsx sends KITTY_QUERY at startup; the
+  // terminal's reply (a kitty-flags report \x1b[?<n>u, or a DA1 sentinel
+  // \x1b[?...c on terminals without kitty support) surfaces here on ink's parsed
+  // input bus — the same bus the mouse effect above uses, since ink's input
+  // parser passes CSI sequences through verbatim. We consume ONLY the exact
+  // negotiation shapes and let every other keystroke fall through untouched, so
+  // these replies never get typed into the prompt and normal input is never
+  // swallowed.
+  //
+  // IMPORTANT (fan-out bus): ink's internal_eventEmitter dispatches every
+  // 'input' event SYNCHRONOUSLY to ALL listeners (App + each editor's useInput).
+  // A listener cannot withhold an event from the others — "consuming" here does
+  // NOT stop the reply from also reaching the editors. So this handler is
+  // OBSERVE-ONLY: it detects the reply and writes the modifyOtherKeys enable /
+  // sets the shared kitty flag. The actual "don't type the reply" guarantee is
+  // the regex drop in PromptInput/TextEntryPanel that discards \x1b[?...u / ...c.
+  // For the same reason we do NOT re-emit buffered fragments: the editors already
+  // saw them via fan-out, so re-emitting would double-deliver. ink's input
+  // parser already coalesces incomplete escape sequences (pending), so a reply
+  // normally arrives whole in one event; we keep a tiny buffer for the rare
+  // split and simply discard it on timeout (it was never withheld from anyone).
+  useEffect(() => {
+    if (!inkInput || !isRawModeSupported) return undefined;
+    let buffer = '';
+    let flushTimer = null;
+    // Once a non-zero kitty-flags report confirms kitty is active we must NOT
+    // also enable modifyOtherKeys when the trailing DA1 sentinel arrives (the
+    // query appends \x1b[c after \x1b[?u, so DA1 normally lands right after a
+    // kitty reply). Enabling both is redundant and can confuse some terminals.
+    let kittyConfirmed = false;
+    const clearFlushTimer = () => {
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+    };
+    const scheduleFlush = () => {
+      if (!buffer || flushTimer) return;
+      // The fragment never completed into a negotiation reply. Discard it (the
+      // editors already received the fragments via fan-out; nothing to flush).
+      flushTimer = setTimeout(() => { buffer = ''; flushTimer = null; }, KEYBOARD_NEGOTIATION_FRAGMENT_TIMEOUT_MS);
+      flushTimer.unref?.();
+    };
+    const applyNegotiation = (negotiation) => {
+      if (negotiation.type === 'kitty-flags') {
+        if (negotiation.flags !== 0) {
+          // Kitty protocol is active (we requested flags=7). Nothing to write —
+          // Ctrl/Shift+Enter now arrive as CSI-u sequences the editors decode.
+          kittyConfirmed = true;
+          setKittyProtocolActive(true);
+        } else if (stdout?.write) {
+          // Kitty understood the query but is disabled (flags=0): fall back to
+          // modifyOtherKeys so modified Enter is still distinguishable.
+          try { stdout.write(ENABLE_MODIFY_OTHER_KEYS); } catch { /* ignore */ }
+        }
+        return;
+      }
+      // device-attributes (DA1): the sentinel arrived without a kitty-flags
+      // report confirming kitty, so this terminal has no kitty support — enable
+      // modifyOtherKeys as the fallback. If kitty was already confirmed, the DA1
+      // is just the trailing sentinel and we leave kitty in charge.
+      if (!kittyConfirmed && stdout?.write) {
+        try { stdout.write(ENABLE_MODIFY_OTHER_KEYS); } catch { /* ignore */ }
+      }
+    };
+    const onData = (data) => {
+      const s = typeof data === 'string' ? data : String(data ?? '');
+      // Fast reject: a negotiation reply always starts with CSI '['. Anything
+      // else is ignored (and clears any in-flight fragment that can no longer
+      // complete into a reply).
+      if (s.indexOf('\x1b') === -1 && !buffer) return;
+      const candidate = buffer + s;
+      const negotiation = parseKeyboardNegotiation(candidate);
+      if (negotiation) {
+        buffer = '';
+        clearFlushTimer();
+        applyNegotiation(negotiation);
+        return;
+      }
+      if (isKeyboardNegotiationPrefix(candidate)) {
+        // Partial reply split across events: hold it briefly for the rest.
+        buffer = candidate;
+        clearFlushTimer();
+        scheduleFlush();
+        return;
+      }
+      // Not a negotiation reply (and not a continuable prefix): drop any partial
+      // we were holding. We never withheld it from the editors, so nothing to
+      // re-emit.
+      if (buffer) { buffer = ''; clearFlushTimer(); }
+    };
+    inkInput.on('input', onData);
+    return () => {
+      inkInput.off('input', onData);
+      clearFlushTimer();
+      buffer = '';
+    };
+  }, [inkInput, isRawModeSupported, stdout]);
 
   // Item-count changes are the only time we can arm follow before row totals are
   // recomputed. Pure streaming height growth is handled in the row-delta effect.

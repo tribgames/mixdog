@@ -14,15 +14,23 @@ import { App } from './App.jsx';
 import { createEngineSession } from './engine.mjs';
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
 import { emitTerminalBackground, loadThemeSettingFromConfig, theme } from './theme.mjs';
+import { setKittyProtocolActive } from './keyboard-protocol.mjs';
 
 const TERMINAL_MODE_RESET = '\x1b[?1006l\x1b[?1005l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[?25h';
 const TERMINAL_OSC_RESET_BG = '\x1b]111\x07';
 const TERMINAL_MODE_RESET_HIDDEN_CURSOR = TERMINAL_MODE_RESET.replace('\x1b[?25h', '\x1b[?25l');
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
-const ENABLE_KITTY_KEYBOARD = '\x1b[>1u';
-const DISABLE_KITTY_KEYBOARD = '\x1b[<u';
-const ENABLE_MODIFY_OTHER_KEYS = '\x1b[>4;2m';
-const DISABLE_MODIFY_OTHER_KEYS = '\x1b[>4m';
+// Keyboard-protocol negotiation. Rather than blindly enabling kitty/
+// modifyOtherKeys on an env allowlist (which silently fails on terminals that
+// advertise support via env but don't actually implement it, e.g. Windows
+// Terminal < v1.25), we QUERY the terminal: request kitty flags=7, ask for the
+// current flags (\x1b[?u), then DA1 (\x1b[c) as a sentinel. App.jsx reads the
+// reply off ink's input bus and enables modifyOtherKeys as a fallback when the
+// terminal answers DA1 without a kitty-flags report. The query itself is
+// harmless on unsupported terminals — they just answer DA1.
+const KITTY_QUERY = '\x1b[>7u\x1b[?u\x1b[c';
+const POP_KITTY = '\x1b[<u';
+const DISABLE_MODIFY_OTHER_KEYS = '\x1b[>4;0m';
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
 const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
 const EXIT_WAIT_TIMEOUT_MS = positiveIntEnv('MIXDOG_TUI_EXIT_WAIT_MS', 2500);
@@ -36,27 +44,15 @@ function positiveIntEnv(name, fallback) {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
 
-function supportsExtendedKeys() {
+// Whether to even attempt keyboard-protocol negotiation. The query is harmless
+// on terminals that don't understand it, so we negotiate by default and only
+// skip it for a hard opt-out (MIXDOG_TUI_EXTENDED_KEYS=0) or VS Code's xterm.js
+// integrated terminal, which mishandles these sequences.
+function shouldNegotiateKeyboard() {
   const raw = String(process.env.MIXDOG_TUI_EXTENDED_KEYS ?? '').trim();
-  if (raw) {
-    if (/^(0|false|no|off)$/i.test(raw)) return false;
-    if (/^(1|true|yes|on)$/i.test(raw)) return true;
-  }
+  if (/^(0|false|no|off)$/i.test(raw)) return false;
   if (process.env.TERM_PROGRAM === 'vscode') return false;
-  if (process.env.WT_SESSION) return true;
-  if (process.env.TERM?.includes('kitty')) return true;
-  if (process.env.KITTY_WINDOW_ID) return true;
-  if (process.env.TERM_PROGRAM === 'WezTerm') return true;
-  if (process.env.TERM_PROGRAM === 'ghostty') return true;
-  if (process.env.TERM === 'xterm-ghostty') return true;
-  if (process.env.TMUX) return true;
-  return false;
-}
-
-function extendedKeysDisableSequences() {
-  return supportsExtendedKeys()
-    ? `${DISABLE_MODIFY_OTHER_KEYS}${DISABLE_KITTY_KEYBOARD}`
-    : '';
+  return true;
 }
 
 // Lightweight render-frame profiler. Forked ink calls options.onRender with the
@@ -224,9 +220,12 @@ export async function runTui({ provider, model, toolMode } = {}) {
     if (restored) return;
     restored = true;
     restorePrimedInput();
+    setKittyProtocolActive(false);
     try {
       process.stdout.write(
-        `${TERMINAL_MODE_RESET}\x1b[0 q${extendedKeysDisableSequences()}\x1b[?1049l${TERMINAL_MODE_RESET}${TERMINAL_OSC_RESET_BG}`,
+        // Pop kitty + disable modifyOtherKeys BEFORE leaving the alt screen.
+        // Both are no-ops if nothing was enabled, so this is always safe.
+        `${TERMINAL_MODE_RESET}\x1b[0 q${POP_KITTY}${DISABLE_MODIFY_OTHER_KEYS}\x1b[?1049l${TERMINAL_MODE_RESET}${TERMINAL_OSC_RESET_BG}`,
       );
     } catch { /* ignore */ }
   };
@@ -242,8 +241,13 @@ export async function runTui({ provider, model, toolMode } = {}) {
   // fat block. PromptInput parks this hardware cursor at the insertion point via
   // useCursor; the terminal also anchors IME composition to it.
   process.stdout.write('\x1b[5 q'); // blinking bar
-  if (supportsExtendedKeys()) {
-    process.stdout.write(DISABLE_KITTY_KEYBOARD + ENABLE_KITTY_KEYBOARD + ENABLE_MODIFY_OTHER_KEYS);
+  // Send the keyboard-protocol query. App.jsx watches ink's input bus for the
+  // reply and enables kitty (already done by the query's flags=7 request) or
+  // modifyOtherKeys as a fallback based on the actual response. Ctrl+J always
+  // works regardless, so the message box stays multiline-capable even when the
+  // terminal ignores this query.
+  if (shouldNegotiateKeyboard()) {
+    process.stdout.write(KITTY_QUERY);
   }
 
   process.on('exit', restoreTerminal);

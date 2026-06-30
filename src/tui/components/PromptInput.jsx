@@ -96,14 +96,21 @@ function draftStateEqual(a, b) {
   );
 }
 
-function isCtrlEnterSequence(input) {
+// Recognize a MODIFIED Enter delivered via the kitty keyboard protocol
+// (\x1b[13;<mod>u) or modifyOtherKeys (\x1b[27;<mod>;13~). The xterm modifier
+// param is (1 + bitmask) where the bitmask bits are shift=1, alt=2, ctrl=4. We
+// treat Ctrl+Enter AND Shift+Enter (the two common "insert newline" chords) as a
+// newline, so we match when the shift OR ctrl bit is set. Ctrl+J is handled
+// separately as the protocol-independent fallback.
+const MODIFIED_ENTER_SHIFT_OR_CTRL = 1 | 4;
+function isModifiedEnterSequence(input) {
   const text = String(input ?? '');
   const body = text.startsWith('\x1b[') ? text.slice(2) : text.startsWith('[') ? text.slice(1) : '';
   if (!body) return false;
   const kitty = /^13;(\d+)(?::\d+)?(?:;[\d:]+)?u$/.exec(body);
-  if (kitty) return ((Number(kitty[1]) - 1) & 4) !== 0;
+  if (kitty) return ((Number(kitty[1]) - 1) & MODIFIED_ENTER_SHIFT_OR_CTRL) !== 0;
   const modifyOtherKeys = /^27;(\d+);13~$/.exec(body);
-  return Boolean(modifyOtherKeys && (((Number(modifyOtherKeys[1]) - 1) & 4) !== 0));
+  return Boolean(modifyOtherKeys && (((Number(modifyOtherKeys[1]) - 1) & MODIFIED_ENTER_SHIFT_OR_CTRL) !== 0));
 }
 
 export function PromptInput({
@@ -436,6 +443,17 @@ export function PromptInput({
       return;
     }
 
+    // Drop keyboard-protocol negotiation REPLIES (kitty-flags \x1b[?<n>u and DA1
+    // \x1b[?...c). index.jsx queries the terminal at startup and App.jsx reads
+    // the reply off ink's input bus — but ink fans 'input' out to every listener
+    // synchronously, so the reply also lands here. Without this guard the bytes
+    // (escape may be stripped → `[?7u` / `[?1;0c`) would be typed into the
+    // prompt. The `?` private marker means this never matches a real kitty KEY
+    // event (those are \x1b[<codepoint>;<mods>u, no `?`).
+    if (/^(?:\x1b)?\[\?[\d;]*[uc]$/.test(rawInput)) {
+      return;
+    }
+
     const rawUpArrow = rawInput === '\x1b[A' || rawInput === '\x1bOA' || rawInput === '[A' || rawInput === 'OA';
     const rawDownArrow = rawInput === '\x1b[B' || rawInput === '\x1bOB' || rawInput === '[B' || rawInput === 'OB';
     // Shift+Arrow modifier sequences (xterm `\x1b[1;2<dir>`, rxvt `\x1b[<dir>`
@@ -452,8 +470,21 @@ export function PromptInput({
     const lineBreakIndex = rawInput.search(/[\r\n]/);
     const rawEnter = rawInput === '\r' || rawInput === '\n' || rawInput === '\r\n';
     const trailingEnterPrefix = singleTrailingLineBreakPrefix(rawInput);
-    const rawCtrlEnter = isCtrlEnterSequence(rawInput);
+    const rawCtrlEnter = isModifiedEnterSequence(rawInput);
     const modifiedLineBreak = key.shift || key.meta || key.ctrl || rawCtrlEnter;
+
+    // Ctrl+J (0x0A) is the protocol-INDEPENDENT newline: it arrives as a lone
+    // '\n' on every terminal regardless of kitty/modifyOtherKeys negotiation.
+    // Distinguish it from a real Enter, which ink marks with key.return (CR), and
+    // from a multi-char paste that merely contains '\n' (handled by the paste
+    // paths below — those are length > 1). A lone '\n' without key.return is
+    // Ctrl+J → insert a newline. This MUST run before the trailing-newline/submit
+    // paths, since singleTrailingLineBreakPrefix('\n') returns '' (not null) and
+    // would otherwise route a bare Ctrl+J to submit.
+    if (rawInput === '\n' && !key.return) {
+      updateDraft((d) => replaceSelection(d, '\n'));
+      return;
+    }
 
     const pasteFallback = lineBreakIndex !== -1 && trailingEnterPrefix === null && !rawEnter && (rawInput.length > 1 || !key.return);
     if (pasteFallback) {
