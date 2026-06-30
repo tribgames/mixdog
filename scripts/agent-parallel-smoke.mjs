@@ -15,6 +15,8 @@
 //      first-response watchdog is explicitly disabled (firstResponseTimeoutMs:0).
 //   5. spawnPrepTimeoutMs:0 disables the prep cap even when an env default cap
 //      is set (explicit per-call override beats the env default).
+//   6. A same-tag retry after a prep timeout cannot be blocked by the original
+//      timed-out prep binding the tag during late provider-init cleanup.
 //
 // Run: node scripts/agent-parallel-smoke.mjs
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
@@ -340,6 +342,48 @@ async function main() {
     `prep cap did not abort hung spawn: ${wedgeResult}`);
   try { hangAgent.closeAll('agent-parallel-smoke-hang-end'); } catch {}
   rmSync(hangRoot, { recursive: true, force: true });
+
+  // --- 4b: same-tag retry after prep timeout must not race late bind/cleanup ---
+  const retryRoot = mkdtempSync(join(tmpdir(), 'mixdog-agent-retry-prep-'));
+  const retryDataDir = join(retryRoot, '.mixdog-data');
+  mkdirSync(retryDataDir, { recursive: true });
+  let releaseRetryInit;
+  const retryInitGate = new Promise((resolve) => { releaseRetryInit = resolve; });
+  let retryInitCalls = 0;
+  const retryReg = {
+    getProvider() { return undefined; }, // force every spawn through shared init
+    async initProviders(config) {
+      retryInitCalls += 1;
+      await retryInitGate;
+      return realInitProviders({ 'openai-oauth': { enabled: true }, ...config });
+    },
+  };
+  const retryAgent = createStandaloneAgent({ cfgMod, reg: retryReg, mgr, dataDir: retryDataDir, cwd: retryRoot });
+  const retryFirst = await retryAgent.execute({
+    type: 'spawn',
+    role: 'worker',
+    tag: 'retrySameTag',
+    cwd: retryRoot,
+    prompt: 'retry first should timeout before provider init releases',
+    spawnPrepTimeoutMs: 50,
+  }, { invocationSource: 'model-tool', cwd: retryRoot });
+  await waitJob(retryFirst, /timed out|status: failed/, 'same-tag first prep timeout', 20);
+  assert(retryInitCalls === 1, `first retry spawn should start one gated init; calls=${retryInitCalls}`);
+  const retrySecond = await retryAgent.execute({
+    type: 'spawn',
+    role: 'worker',
+    tag: 'retrySameTag',
+    cwd: retryRoot,
+    prompt: 'retry second should succeed after init releases',
+    spawnPrepTimeoutMs: 0,
+  }, { invocationSource: 'model-tool', cwd: retryRoot });
+  assert(/agent task:/.test(retrySecond), `same-tag retry should return a task: ${retrySecond}`);
+  await sleep(30); // let the retry join the gated provider init before release
+  releaseRetryInit();
+  const retrySecondResult = await waitJob(retrySecond, /ack worker/, 'same-tag retry success', 60);
+  assert(!/already exists/i.test(retrySecondResult), `same-tag retry hit stale bind: ${retrySecondResult}`);
+  try { retryAgent.closeAll('agent-parallel-smoke-retry-end'); } catch {}
+  rmSync(retryRoot, { recursive: true, force: true });
 
   // --- 5: spawnPrepTimeoutMs:0 disables the prep cap even when an env default
   // is set. The module captured ENV_PREP_CAP_MS (150ms) at load. A prep step

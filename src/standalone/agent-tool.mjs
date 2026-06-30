@@ -1406,8 +1406,10 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       // installs its progress watchdog, so guard prep with an internal env-
       // backed cap rather than exposing per-call timeout knobs on the agent
       // tool surface.
-      const prepDeadlineMs = DEFAULT_SPAWN_PREP_TIMEOUT_MS;
+      const prepDeadlineMs = nonNegativeInt(args.spawnPrepTimeoutMs ?? args.prepTimeoutMs)
+        ?? DEFAULT_SPAWN_PREP_TIMEOUT_MS;
       let prepared;
+      const prepState = { timedOut: false };
       if (prepDeadlineMs > 0) {
         let prepTimer = null;
         let timedOut = false;
@@ -1415,13 +1417,14 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         // prepareSpawn promise may still resolve later with a fully-built
         // session/tag/route — attach a cleanup so the late-arriving prepared is
         // torn down, otherwise the orphaned tag would collide on re-spawn.
-        const prepPromise = prepareSpawn(args, callerCwd, context);
+        const prepPromise = prepareSpawn(args, callerCwd, context, prepState);
         prepPromise.then((late) => {
           if (timedOut) closePreparedSpawn(late, 'agent-spawn-prep-timeout');
         }, () => {});
         const timeout = new Promise((_resolve, reject) => {
           prepTimer = setTimeout(() => {
             timedOut = true;
+            prepState.timedOut = true;
             reject(new Error(`agent spawn prep timed out (${prepDeadlineMs}ms) before model request`));
           }, prepDeadlineMs);
           prepTimer.unref?.();
@@ -1432,7 +1435,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
           if (prepTimer) clearTimeout(prepTimer);
         }
       } else {
-        prepared = await prepareSpawn(args, callerCwd, context);
+        prepared = await prepareSpawn(args, callerCwd, context, prepState);
       }
       mergeJobMeta(job, preparedSpawnMeta(prepared, extras));
       upsertWorkerSessionDeferred(prepared.session, prepared.tag, {
@@ -1483,7 +1486,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     };
   }
 
-  async function prepareSpawn(args, callerCwd = null, context = {}) {
+  async function prepareSpawn(args, callerCwd = null, context = {}, prepState = null) {
     refreshTagsFromSessions({ context });
     const config = cfgMod.loadConfig();
     const role = normalizeAgentName(args.agent || args.role);
@@ -1492,6 +1495,9 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     const rolePermission = normalizeAgentPermission(agentPermission) || null;
     const { presetName, preset } = resolvePreset(config, args);
     await ensureProvider(config, preset.provider);
+    if (prepState?.timedOut) {
+      throw new Error('agent spawn prep timed out before session bind');
+    }
 
     const tag = clean(args.tag) || nextTag(role, context);
     // Any resolved same-tag binding in this terminal (live or lingering trace)
@@ -1502,6 +1508,9 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     const baseCwd = resolve(callerCwd || defaultCwd || process.cwd());
     const workerCwd = clean(args.cwd) ? resolve(baseCwd, args.cwd) : baseCwd;
     const prompt = withCwdHeader(await resolvePrompt(args, workerCwd), workerCwd);
+    if (prepState?.timedOut) {
+      throw new Error('agent spawn prep timed out before session bind');
+    }
     const runtimeSpec = cfgMod.resolveRuntimeSpec(preset, { lane: 'agent', agentId: tag });
     const maxLoopIterations = positiveInt(args.maxLoopIterations) || null;
     const watchdogPolicy = resolveAgentWatchdogPolicy(role);

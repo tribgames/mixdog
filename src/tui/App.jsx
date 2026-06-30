@@ -176,6 +176,42 @@ function terminalSize(stdout) {
   };
 }
 
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+function wrappedTextRows(value, width) {
+  const w = Math.max(1, Math.floor(Number(width) || 1));
+  let row = 0;
+  let col = 0;
+  for (const { segment } of graphemeSegmenter.segment(String(value ?? ''))) {
+    if (segment === '\n') {
+      row += 1;
+      col = 0;
+      continue;
+    }
+    const segmentWidth = stringWidth(segment);
+    if (segmentWidth === 0) continue;
+    if (col > 0 && col + segmentWidth > w) {
+      row += 1;
+      col = 0;
+    }
+    col += segmentWidth;
+    if (col >= w) {
+      row += Math.floor(col / w);
+      col %= w;
+    }
+  }
+  return row + 1;
+}
+
+function promptContentRows(value, contentColumns) {
+  // PromptInput appends a blank trailing cell when the caret is at end-of-input
+  // so the native cursor always has a rendered cell. App does not own the cursor
+  // offset, so reserve for the worst common case: caret at the end. This can
+  // over-reserve by one row at exact wrap boundaries, but never under-reserves
+  // and therefore prevents transcript rows from bleeding into the prompt box.
+  return wrappedTextRows(`${String(value ?? '')} `, contentColumns);
+}
+
 function clean(value) {
   return String(value ?? '').trim();
 }
@@ -1426,6 +1462,11 @@ export function App({ store, initialStatusLine = '' }) {
   const [tuiReady, setTuiReady] = useState(false);
   const exitRequestedRef = useRef(false);
   const [resizeState, setResizeState] = useState(() => ({ ...terminalSize(stdout), epoch: 0 }));
+  // Windows Terminal/conhost scrolls the alt-screen (auto-wrap/DECAWM) when the
+  // bottom-right cell is written, so reserve one cell on win32. Other platforms
+  // render at full width. This width is also needed for prompt row reservation.
+  const rightSafetyColumns = process.platform === 'win32' ? 1 : 0;
+  const frameColumns = Math.max(1, resizeState.columns - rightSafetyColumns);
   // scrollOffset = how many transcript ROWS we've scrolled UP from the bottom
   // (0 = pinned to the latest, showing the newest content). Mouse wheel adjusts
   // it; accepted prompts only arm bottom-follow; the snap happens when the
@@ -1609,6 +1650,8 @@ export function App({ store, initialStatusLine = '' }) {
   const toolApproval = state.toolApproval || null;
   const [promptDraft, setPromptDraft] = useState('');
   const [promptDraftOverride, setPromptDraftOverride] = useState(null);
+  const promptLayoutValueRef = useRef('');
+  const [, setPromptLayoutRows] = useState(1);
   const [, setPastedImages] = useState({});
   const pastedImagesRef = useRef({});
   const nextPastedImageIdRef = useRef(1);
@@ -1661,6 +1704,16 @@ export function App({ store, initialStatusLine = '' }) {
   // region. STATUSLINE_ROWS mirrors the layout reserve below.
   const frameRowsRef = useRef(24);
   const STATUSLINE_BAND_ROWS = 3;
+  const promptContentColumns = Math.max(1, frameColumns - 4);
+  const syncPromptLayoutRows = useCallback((value) => {
+    const text = String(value ?? '');
+    promptLayoutValueRef.current = text;
+    const nextRows = promptContentRows(text, promptContentColumns);
+    setPromptLayoutRows((prev) => (prev === nextRows ? prev : nextRows));
+  }, [promptContentColumns]);
+  useEffect(() => {
+    syncPromptLayoutRows(promptLayoutValueRef.current);
+  }, [syncPromptLayoutRows]);
   const selectionLayoutRef = useRef(null);
   const selectionTextRef = useRef('');
   const selectionTextTimerRef = useRef(null);
@@ -2431,6 +2484,7 @@ export function App({ store, initialStatusLine = '' }) {
     }
     if (restoreDraft) {
       if (restored.pastedImages) installPastedImages(restored.pastedImages, { merge: true });
+      syncPromptLayoutRows(restored.text);
       setPromptDraftOverride({ id: Date.now(), value: restored.text });
     }
     if (showHint) {
@@ -2439,7 +2493,7 @@ export function App({ store, initialStatusLine = '' }) {
       clearPromptHint();
     }
     return true;
-  }, [store, promptDraft, showPromptHint, clearPromptHint, installPastedImages]);
+  }, [store, promptDraft, showPromptHint, clearPromptHint, installPastedImages, syncPromptLayoutRows]);
 
   const recentPromptHistory = useMemo(() => {
     const items = Array.isArray(state.items) ? state.items : [];
@@ -6916,6 +6970,7 @@ export function App({ store, initialStatusLine = '' }) {
   }, [slashCommands.length, activeSlashQuery]);
 
   const onPromptDraftChange = useCallback((value) => {
+    syncPromptLayoutRows(value);
     const suppressPromptHint = promptHistoryDraftChangeRef.current;
     promptHistoryDraftChangeRef.current = false;
     const historyNav = promptHistoryNavRef.current;
@@ -6954,7 +7009,7 @@ export function App({ store, initialStatusLine = '' }) {
     if (slashDismissedFor) {
       setSlashDismissedFor((dismissed) => (dismissed && dismissed !== value ? '' : dismissed));
     }
-  }, [clearPromptHint, resetPromptHistoryNav, showPromptHint, slashDismissedFor]);
+  }, [clearPromptHint, resetPromptHistoryNav, showPromptHint, slashDismissedFor, syncPromptLayoutRows]);
 
   const cancelProviderPrompt = useCallback(() => {
     try { providerPrompt?.login?.cancel?.(); } catch {}
@@ -7190,12 +7245,17 @@ export function App({ store, initialStatusLine = '' }) {
   const promptMetaRows = !inputBoxHidden && !slashPaletteOpen && (liveSpinner || latestDoneItem) ? 2 : 0;
   const SCROLL_HINT_ROWS = 0;
   const LIVE_STATUS_ROWS = 0;
-  // The standalone prompt box is 3 rows (round border + one input line). Normal
-  // mode keeps a one-row top gap, but slash mode pins the command palette flush
-  // to the prompt, so reserve only the actual prompt height there. Otherwise an
-  // extra reserved row remains below the statusline and the prompt appears one
-  // row too high.
-  const INPUT_BOX_ROWS = inputBoxHidden ? 0 : (slashPaletteOpen ? 3 : 4) + promptMetaRows;
+  // The standalone prompt box is 2 border rows + the wrapped PromptInput body.
+  // Normal mode keeps a one-row top gap, but slash mode pins the command palette
+  // flush to the prompt, so reserve only the actual prompt height there.
+  //
+  // This must track the prompt draft's REAL wrapped height. Reserving a constant
+  // one-line prompt lets long/multiline input grow the bottom cluster after the
+  // transcript viewport has already claimed those rows, which makes transcript
+  // body text overprint the textbox or slash command window.
+  const currentPromptLayoutRows = promptContentRows(promptLayoutValueRef.current, promptContentColumns);
+  const promptInputRows = inputBoxHidden ? 0 : currentPromptLayoutRows;
+  const INPUT_BOX_ROWS = inputBoxHidden ? 0 : (slashPaletteOpen ? 2 : 3) + promptInputRows + promptMetaRows;
   const STATUSLINE_ROWS = 3;
   // Shared panel chrome math. Every floating panel follows the same vertical
   // rhythm INSIDE its round border: title row, blank, description/hint row,
@@ -7251,11 +7311,6 @@ export function App({ store, initialStatusLine = '' }) {
   // bottom area), drop its stale measured rect so the mouse handler does not
   // route presses to a prompt box that is not on screen.
   if (inputBoxHidden) promptBoxRectRef.current = null;
-  // Windows Terminal/conhost scrolls the alt-screen (auto-wrap/DECAWM) when the
-  // bottom-right cell is written, so reserve one cell on win32. Other platforms
-  // render at full width.
-  const rightSafetyColumns = process.platform === 'win32' ? 1 : 0;
-  const frameColumns = Math.max(1, resizeState.columns - rightSafetyColumns);
   // The bottom meta band renders when a live spinner OR the latest done row
   // owns it (lastTranscriptItem / lastItemIsDoneRow / latestDoneItem computed
   // earlier, alongside promptMetaRows).

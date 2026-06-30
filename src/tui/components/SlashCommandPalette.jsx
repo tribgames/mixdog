@@ -65,6 +65,8 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
   const descriptionWidth = Math.max(0, columns - labelWidth - 12);
   // Standard panel rhythm: title row, blank, description/hint row, blank, content.
   const description = truncateText(SLASH_DESCRIPTION, Math.max(0, columns - 4));
+  const titleWidth = stringWidth(String(title || ''));
+  const help = truncateText(SLASH_HELP, Math.max(0, columns - titleWidth - 7));
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%">
@@ -76,8 +78,8 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
         width="100%"
       >
         <Box flexDirection="row" justifyContent="space-between">
-          <Text color={theme.panelTitle}>{title}</Text>
-          <Text color={theme.subtle}>{SLASH_HELP}</Text>
+          <Text color={theme.panelTitle} wrap="truncate">{title}</Text>
+          <Text color={theme.subtle} wrap="truncate">{help}</Text>
         </Box>
         <Text> </Text>
         <Text color={theme.subtle}>{description || ' '}</Text>
