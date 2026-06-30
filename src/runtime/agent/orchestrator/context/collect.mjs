@@ -155,6 +155,36 @@ export function buildSkillResultEnvelope(name, content, skillDir) {
     return `<skill>\n<name>${escapedName}</name>\n${dirLine}${body}\n</skill>`;
 }
 
+/**
+ * Short, model-visible tool_result stub for a loaded skill. The full SKILL.md
+ * body is delivered separately as ONE injected user message (newMessages),
+ * never in the tool_result — so the body appears exactly once.
+ */
+export function buildSkillStub(name) {
+    return `Loaded skill: ${String(name || '').trim()}`;
+}
+
+/**
+ * Build the Skill tool-result envelope used by BOTH the agent-loop viewSkill
+ * path and the runtime skillToolContent path so behavior matches across main
+ * + agent sessions:
+ *   - result      = short stub (`Loaded skill: <name>`), no body.
+ *   - newMessages = exactly ONE role:'user' message carrying the full
+ *                   buildSkillResultEnvelope output (<base-dir> + body).
+ * The injected user message is flagged `meta:'skill'` so compaction's
+ * "latest human prompt" selection does not mistake the skill body for the
+ * human's request.
+ */
+export function buildSkillToolEnvelope(name, content, skillDir) {
+    return {
+        __toolEnvelope: true,
+        result: buildSkillStub(name),
+        newMessages: [
+            { role: 'user', content: buildSkillResultEnvelope(name, content, skillDir), meta: 'skill' },
+        ],
+    };
+}
+
 function compactSkillManifestText(value, max = 180) {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     return text.length > max ? `${text.slice(0, Math.max(1, max - 3))}...` : text;

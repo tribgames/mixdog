@@ -4,7 +4,8 @@ import { canonicalizeBuiltinToolName, executeBuiltinTool, formatUnknownBuiltinTo
 import { executeBashSessionTool } from '../tools/bash-session.mjs';
 import { executePatchTool, takeApplyPatchUiDiff } from '../tools/patch.mjs';
 import { executeInternalTool, isInternalTool } from '../internal-tools.mjs';
-import { collectSkillsCached, loadSkillResource, buildSkillResultEnvelope } from '../context/collect.mjs';
+import { collectSkillsCached, loadSkillResource, buildSkillToolEnvelope } from '../context/collect.mjs';
+import { normalizeToolEnvelope, makeToolEnvelope } from './tool-envelope.mjs';
 import { traceAgentLoop, traceAgentTool, traceAgentToolFailure, traceAgentCompact, estimateProviderPayloadBytes, messagePrefixHash } from '../agent-trace.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { markSessionToolCall, updateSessionStage, SessionClosedError, getSessionAbortSignal, enqueuePendingMessage, bumpUsageMetricsEpoch } from './manager.mjs';
@@ -949,7 +950,10 @@ function viewSkill(cwd, name) {
     if (!name) return 'Error: skill name is required';
     const res = loadSkillResource(name, cwd);
     if (!res) return `Error: skill "${name}" not found`;
-    return buildSkillResultEnvelope(name, res.content, res.dir);
+    // Return the general tool envelope: the model-visible tool_result is the
+    // short stub (`Loaded skill: <name>`) and the full SKILL.md body is
+    // delivered ONCE as a separate injected role:'user' message (newMessages).
+    return buildSkillToolEnvelope(name, res.content, res.dir);
 }
 
 /** Normalize PostToolUse hook override values (legacy MCP text envelopes only). */
@@ -1257,7 +1261,14 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
                 toolCallId: executeOpts.toolCallId || null,
                 result: __result,
             });
-            return resolveToolResultAfterHook(__result, hookResult);
+            // Envelope-aware hook override: a PostToolUse hook may override the
+            // model-VISIBLE tool output (the envelope's `result` / stub), but it
+            // must NEVER drop the `newMessages` channel. Split first, apply the
+            // override to `result` only, then re-wrap so newMessages survive.
+            const { result: __res, newMessages: __nm } = normalizeToolEnvelope(__result);
+            const __overridden = resolveToolResultAfterHook(__res, hookResult);
+            if (__nm.length) return makeToolEnvelope(__overridden, __nm);
+            return __overridden;
         } catch {
             // PostToolUse hooks are best-effort; never let one break the tool result.
         }
@@ -1810,10 +1821,17 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     // calls (they return null above), so those `continue`-before-
                     // execution stub paths can never early-notify (contract #5).
                     try {
+                        // UI-only: surface the model-VISIBLE result (envelope
+                        // stub for envelope returns), never the envelope object
+                        // or its injected newMessages body — no [object Object],
+                        // no full skill body in the tool card.
+                        const _earlyVisible = settled && settled.ok
+                            ? normalizeToolEnvelope(settled.value).result
+                            : null;
                         const _earlyContent = settled && settled.ok
-                            ? (typeof settled.value === 'string'
-                                ? settled.value
-                                : (settled.value == null ? '' : String(settled.value)))
+                            ? (typeof _earlyVisible === 'string'
+                                ? _earlyVisible
+                                : (_earlyVisible == null ? '' : String(_earlyVisible)))
                             : `Error: ${settled && settled.error instanceof Error ? settled.error.message : String(settled && settled.error)}`;
                         opts.onToolResult?.({
                             role: 'tool',
@@ -2091,6 +2109,14 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         }
         // R15: per-turn scalar read-count Map. Lifetime = this turn's tool-call batch.
         // Declared between the duplicate-detection block and the for-loop so it resets
+        // Per-batch buffer for the general `newMessages` tool-result channel.
+        // A tool MAY return a `{ __toolEnvelope, result, newMessages }` envelope;
+        // its newMessages (e.g. the Skill SKILL.md body as a role:'user' message)
+        // are collected here across EVERY call in this assistant turn and flushed
+        // ONCE, AFTER the batch's last tool_result is pushed — never interleaved
+        // between two tool results of the same multi-tool turn (which would put a
+        // user message between tool(A) and tool(B) and break provider pairing).
+        const _batchNewMessages = [];
         for (let callIndex = 0; callIndex < calls.length; callIndex += 1) {
             const call = calls[callIndex];
             if (isBuiltinTool(call.name)) {
@@ -2248,6 +2274,18 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 toolEndedAt = Date.now();
                 result = `Error: ${err instanceof Error ? err.message : String(err)}`;
                 _resultKind = 'error';
+            }
+            // CENTRAL ENVELOPE NORMALIZE (general newMessages channel).
+            // executeTool (serial + eager) and cache/error paths above all
+            // funnel into `result`. Split ONCE here: downstream post-processing
+            // (classifyResultKind / maybeOffloadToolResult / compressToolResult /
+            // traceAgentTool / cache writes / messages.push) sees ONLY the
+            // model-visible `result`; the `newMessages` ride a per-batch buffer
+            // flushed after the batch's last tool_result (never interleaved).
+            {
+                const _env = normalizeToolEnvelope(result);
+                result = _env.result;
+                if (_env.newMessages.length) _batchNewMessages.push(..._env.newMessages);
             }
             // Update the cross-iteration repeat-failure guard with this call's
             // outcome: bump the consecutive-failure count for an identical
@@ -2486,6 +2524,18 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // Soft-cancel after each tool: if close landed during execution,
             // discard the rest of the batch and skip the next provider.send.
             throwIfAborted();
+        }
+        // Flush the per-batch newMessages channel. All tool_results for this
+        // assistant turn are now pushed; appending the injected role:'user'
+        // messages here (AFTER the last tool_result, BEFORE the next provider
+        // send) keeps provider pairing valid — no user message is interleaved
+        // between tool(A) and tool(B). pre-send repairTranscriptBeforeProviderSend
+        // normalizes any residual ordering. The injected messages carry their
+        // own meta flag (e.g. meta:'skill') so compaction's latest-human-prompt
+        // selection does not mistake them for the user's request.
+        for (const _nm of _batchNewMessages) {
+            if (!_nm || _nm.role !== 'user' || typeof _nm.content !== 'string' || !_nm.content) continue;
+            messages.push({ role: 'user', content: _nm.content, ...(_nm.meta ? { meta: _nm.meta } : {}) });
         }
         // Mid-turn steering is drained at the next loop's pre-send point,
         // AFTER any auto-compact pass. Draining here would put the steering

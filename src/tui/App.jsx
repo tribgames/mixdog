@@ -22,7 +22,7 @@ import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo, useR
 import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
-import { theme, TURN_MARKER, RESULT_GUTTER } from './theme.mjs';
+import { theme, surfaceBackground, TURN_MARKER, RESULT_GUTTER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
 import { renderTokenAnsiSegments } from './markdown/render-ansi.mjs';
 import { assistantBodyWidth, measureMarkdownTableRows } from './markdown/table-layout.mjs';
@@ -70,38 +70,12 @@ import {
 } from './transcript-tool-failures.mjs';
 
 import { displayModelName } from '../ui/model-display.mjs';
-import { setKittyProtocolActive } from './keyboard-protocol.mjs';
+import { supportsExtendedKeys, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
 
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
 const MOUSE_MODIFIER_MASK = 4 | 8 | 16;
 const MOUSE_CTRL_MASK = 16;
-
-// Keyboard-protocol negotiation (see index.jsx, which sends KITTY_QUERY at
-// startup). The terminal answers either a kitty-flags report (\x1b[?<n>u) or, on
-// terminals that don't understand kitty, a DA1 device-attributes report
-// (\x1b[?...c) which the query appends as a sentinel. We read these off ink's
-// parsed-input bus and, when no kitty support is confirmed, enable
-// modifyOtherKeys (\x1b[>4;2m) as the fallback that makes Ctrl/Shift+Enter
-// distinguishable from plain Enter.
-const ENABLE_MODIFY_OTHER_KEYS = '\x1b[>4;2m';
-const KEYBOARD_NEGOTIATION_FRAGMENT_TIMEOUT_MS = 150;
-const KITTY_FLAGS_RE = /^\x1b\[\?(\d+)u$/;
-const DEVICE_ATTRIBUTES_RE = /^\x1b\[\?[\d;]*c$/;
-// A partial reply we should buffer briefly waiting for the rest: a bare CSI
-// (\x1b[) or a CSI-? prefix with only digits/semicolons so far (no final byte).
-const KEYBOARD_NEGOTIATION_PREFIX_RE = /^\x1b\[\?[\d;]*$/;
-
-function parseKeyboardNegotiation(sequence) {
-  const kitty = KITTY_FLAGS_RE.exec(sequence);
-  if (kitty) return { type: 'kitty-flags', flags: Number.parseInt(kitty[1], 10) };
-  if (DEVICE_ATTRIBUTES_RE.test(sequence)) return { type: 'device-attributes' };
-  return undefined;
-}
-
-function isKeyboardNegotiationPrefix(sequence) {
-  return sequence === '\x1b[' || KEYBOARD_NEGOTIATION_PREFIX_RE.test(sequence);
-}
 
 const SLASH_COMMANDS = [
   { name: 'clear', usage: '/clear', aliases: ['new'], aliasUsage: ['new'], description: 'Start a fresh chat' },
@@ -2385,104 +2359,26 @@ export function App({ store, initialStatusLine = '' }) {
     return () => { inkInput.off('input', onData); };
   }, [inkInput, isRawModeSupported, store, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll]);
 
-  // Keyboard-protocol negotiation. index.jsx sends KITTY_QUERY at startup; the
-  // terminal's reply (a kitty-flags report \x1b[?<n>u, or a DA1 sentinel
-  // \x1b[?...c on terminals without kitty support) surfaces here on ink's parsed
-  // input bus — the same bus the mouse effect above uses, since ink's input
-  // parser passes CSI sequences through verbatim. We consume ONLY the exact
-  // negotiation shapes and let every other keystroke fall through untouched, so
-  // these replies never get typed into the prompt and normal input is never
-  // swallowed.
-  //
-  // IMPORTANT (fan-out bus): ink's internal_eventEmitter dispatches every
-  // 'input' event SYNCHRONOUSLY to ALL listeners (App + each editor's useInput).
-  // A listener cannot withhold an event from the others — "consuming" here does
-  // NOT stop the reply from also reaching the editors. So this handler is
-  // OBSERVE-ONLY: it detects the reply and writes the modifyOtherKeys enable /
-  // sets the shared kitty flag. The actual "don't type the reply" guarantee is
-  // the regex drop in PromptInput/TextEntryPanel that discards \x1b[?...u / ...c.
-  // For the same reason we do NOT re-emit buffered fragments: the editors already
-  // saw them via fan-out, so re-emitting would double-deliver. ink's input
-  // parser already coalesces incomplete escape sequences (pending), so a reply
-  // normally arrives whole in one event; we keep a tiny buffer for the rare
-  // split and simply discard it on timeout (it was never withheld from anyone).
+  // Enable extended keyboard reporting (kitty + xterm modifyOtherKeys) the same
+  // way Claude Code does: SYNCHRONOUSLY, ONCE, with NO query/round-trip. ink
+  // turns raw mode on during the first useInput mount (synchronously, inside
+  // render); this mount effect runs in the same commit phase, right after — i.e.
+  // before the user can realistically press a key. We write BOTH enables
+  // unconditionally (the terminal honors whichever it implements; Windows
+  // Terminal 1.24 has no kitty but DOES honor modifyOtherKeys), gated only by the
+  // supportsExtendedKeys() allowlist. Because the enable lands before the first
+  // keypress is read, the FIRST Ctrl+Enter already arrives as a distinguishable
+  // \x1b[27;5;13~ (or kitty \x1b[13;5u) instead of a bare \r — fixing the old
+  // "first Ctrl+Enter submits, second works" race. Teardown lives in index.jsx's
+  // restoreTerminal(). The empty dep array makes this run exactly once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!inkInput || !isRawModeSupported) return undefined;
-    let buffer = '';
-    let flushTimer = null;
-    // Once a non-zero kitty-flags report confirms kitty is active we must NOT
-    // also enable modifyOtherKeys when the trailing DA1 sentinel arrives (the
-    // query appends \x1b[c after \x1b[?u, so DA1 normally lands right after a
-    // kitty reply). Enabling both is redundant and can confuse some terminals.
-    let kittyConfirmed = false;
-    const clearFlushTimer = () => {
-      if (flushTimer) {
-        clearTimeout(flushTimer);
-        flushTimer = null;
-      }
-    };
-    const scheduleFlush = () => {
-      if (!buffer || flushTimer) return;
-      // The fragment never completed into a negotiation reply. Discard it (the
-      // editors already received the fragments via fan-out; nothing to flush).
-      flushTimer = setTimeout(() => { buffer = ''; flushTimer = null; }, KEYBOARD_NEGOTIATION_FRAGMENT_TIMEOUT_MS);
-      flushTimer.unref?.();
-    };
-    const applyNegotiation = (negotiation) => {
-      if (negotiation.type === 'kitty-flags') {
-        if (negotiation.flags !== 0) {
-          // Kitty protocol is active (we requested flags=7). Nothing to write —
-          // Ctrl/Shift+Enter now arrive as CSI-u sequences the editors decode.
-          kittyConfirmed = true;
-          setKittyProtocolActive(true);
-        } else if (stdout?.write) {
-          // Kitty understood the query but is disabled (flags=0): fall back to
-          // modifyOtherKeys so modified Enter is still distinguishable.
-          try { stdout.write(ENABLE_MODIFY_OTHER_KEYS); } catch { /* ignore */ }
-        }
-        return;
-      }
-      // device-attributes (DA1): the sentinel arrived without a kitty-flags
-      // report confirming kitty, so this terminal has no kitty support — enable
-      // modifyOtherKeys as the fallback. If kitty was already confirmed, the DA1
-      // is just the trailing sentinel and we leave kitty in charge.
-      if (!kittyConfirmed && stdout?.write) {
-        try { stdout.write(ENABLE_MODIFY_OTHER_KEYS); } catch { /* ignore */ }
-      }
-    };
-    const onData = (data) => {
-      const s = typeof data === 'string' ? data : String(data ?? '');
-      // Fast reject: a negotiation reply always starts with CSI '['. Anything
-      // else is ignored (and clears any in-flight fragment that can no longer
-      // complete into a reply).
-      if (s.indexOf('\x1b') === -1 && !buffer) return;
-      const candidate = buffer + s;
-      const negotiation = parseKeyboardNegotiation(candidate);
-      if (negotiation) {
-        buffer = '';
-        clearFlushTimer();
-        applyNegotiation(negotiation);
-        return;
-      }
-      if (isKeyboardNegotiationPrefix(candidate)) {
-        // Partial reply split across events: hold it briefly for the rest.
-        buffer = candidate;
-        clearFlushTimer();
-        scheduleFlush();
-        return;
-      }
-      // Not a negotiation reply (and not a continuable prefix): drop any partial
-      // we were holding. We never withheld it from the editors, so nothing to
-      // re-emit.
-      if (buffer) { buffer = ''; clearFlushTimer(); }
-    };
-    inkInput.on('input', onData);
-    return () => {
-      inkInput.off('input', onData);
-      clearFlushTimer();
-      buffer = '';
-    };
-  }, [inkInput, isRawModeSupported, stdout]);
+    if (!isRawModeSupported || !stdout?.write) return;
+    if (!supportsExtendedKeys()) return;
+    try {
+      stdout.write(ENABLE_KITTY_KEYBOARD + ENABLE_MODIFY_OTHER_KEYS);
+    } catch { /* terminal may be closing */ }
+  }, []);
 
   // Item-count changes are the only time we can arm follow before row totals are
   // recomputed. Pure streaming height growth is handled in the row-delta effect.
@@ -7739,11 +7635,11 @@ export function App({ store, initialStatusLine = '' }) {
     // stack up from just over the input. A top flexGrow spacer sinks the whole
     // stack to the bottom; the transcript itself is a fixed-height clipping
     // viewport (see viewportHeight above).
-    <Box flexDirection="column" width={frameColumns} height={resizeState.rows} backgroundColor={theme.background}>
+    <Box flexDirection="column" width={frameColumns} height={resizeState.rows} backgroundColor={surfaceBackground()}>
       {/* Empty-transcript header stays outside the bottom-anchored viewport and
           has its own reserved rows, so it cannot steal space from the input. */}
       {showWelcomeBanner ? (
-        <Box flexDirection="column" height={7} flexShrink={0} marginTop={3} marginBottom={1} backgroundColor={theme.background}>
+        <Box flexDirection="column" height={7} flexShrink={0} marginTop={3} marginBottom={1} backgroundColor={surfaceBackground()}>
           <Text color={theme.text} bold>{centerLine('███╗   ███╗██╗██╗  ██╗██████╗  ██████╗  ██████╗ ', frameColumns)}</Text>
           <Text color={theme.text} bold>{centerLine('████╗ ████║██║╚██╗██╔╝██╔══██╗██╔═══██╗██╔════╝ ', frameColumns)}</Text>
           <Text color={theme.claude} bold>{centerLine('██╔████╔██║██║ ╚███╔╝ ██║  ██║██║   ██║██║  ███╗', frameColumns)}</Text>
@@ -7831,9 +7727,9 @@ export function App({ store, initialStatusLine = '' }) {
           panels use their actual rendered height and shrink before the prompt
           can move; overflow is clipped from the top while the panel remains
           bottom-aligned against the prompt. */}
-      <Box flexDirection="column" flexShrink={0} width="100%" backgroundColor={theme.background}>
+      <Box flexDirection="column" flexShrink={0} width="100%" backgroundColor={surfaceBackground()}>
         {floatingPanelRows > 0 ? (
-          <Box flexDirection="column" flexShrink={0} height={floatingPanelRows} overflow="hidden" justifyContent="flex-end" backgroundColor={theme.background}>
+          <Box flexDirection="column" flexShrink={0} height={floatingPanelRows} overflow="hidden" justifyContent="flex-end" backgroundColor={surfaceBackground()}>
             {toolApproval ? (
               <Picker
                 items={[
@@ -8031,7 +7927,7 @@ export function App({ store, initialStatusLine = '' }) {
               height={1}
               width="100%"
               flexDirection="row"
-              backgroundColor={theme.background}
+              backgroundColor={surfaceBackground()}
             >
               <Box flexGrow={1} flexShrink={1} overflow="hidden">
                 {liveSpinner ? (
@@ -8059,7 +7955,7 @@ export function App({ store, initialStatusLine = '' }) {
               height={1}
               width="100%"
               flexDirection="row"
-              backgroundColor={theme.background}
+              backgroundColor={surfaceBackground()}
             >
               <Box flexGrow={1} flexShrink={1} overflow="hidden" />
               <Box flexShrink={0} width={transientStatusWidth || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
@@ -8075,7 +7971,7 @@ export function App({ store, initialStatusLine = '' }) {
             width="100%"
             borderStyle="round"
             borderColor={theme.promptBorder}
-            backgroundColor={theme.background}
+            backgroundColor={surfaceBackground()}
             paddingX={1}
           >
             {promptInputControl}

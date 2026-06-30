@@ -2522,6 +2522,7 @@ export async function createEngineSession({
 
   async function drain() {
     if (draining) return;
+    if (autoClearRunning) return;
     draining = true;
     try {
       while (pending.length > 0) {
@@ -2605,7 +2606,9 @@ export async function createEngineSession({
     const startedAt = Date.now();
     set({ commandStatus: { active: true, verb: 'Auto-clearing idle conversation', startedAt, mode: 'auto-clear' } });
     try {
-      await runtime.clear({ compactType: cfg.compactType || null, requireCompactSuccess: !!cfg.compactType });
+      const compaction = runtime.getCompactionSettings();
+      const compactType = compaction.compactType || compaction.type;
+      await runtime.clear({ compactType, requireCompactSuccess: !!compactType });
       resetStats();
       clearUiActivityBeforeContextSync();
       syncContextStats({ allowEstimated: true });
@@ -2640,6 +2643,7 @@ export async function createEngineSession({
       lastUserActivityAt = Date.now();
       autoClearRunning = false;
       set({ commandStatus: null });
+      void drain();
     }
   }
 
@@ -2749,6 +2753,10 @@ export async function createEngineSession({
         priority,
       };
       if (state.busy) {
+        enqueue(text, queueOptions);
+        return true;
+      }
+      if (autoClearRunning) {
         enqueue(text, queueOptions);
         return true;
       }

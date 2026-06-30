@@ -90,6 +90,8 @@ import {
   stableSessionSourceRef,
   sessionMessageContent,
   createIngestTurnAllocator,
+  sessionMessageContentForIngest,
+  shouldExcludeIngestMessage,
 } from './lib/session-ingest.mjs'
 import { configureEmbedding, embedText, embedTexts, getEmbeddingDims, getEmbeddingDtype, getEmbeddingModelId, getKnownDimsForCurrentModel, isEmbeddingModelReady, primeEmbeddingDims, warmupEmbeddingProvider } from './lib/embedding-provider.mjs'
 import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs'
@@ -792,7 +794,17 @@ async function ingestSessionMessages(args = {}) {
     // are dropped so recall-fasttrack summaries stay conversation-focused and
     // do not re-inject content already in the protected system prefix.
     if (!role) continue
-    const content = cleanMemoryText(sessionMessageContent(m))
+    // Exclude synthetic / non-conversation rows entirely (reference-files
+    // injections, compaction summaries, protected-context `.` acks, internal
+    // runtime nudges). These are mechanical noise, not conversation.
+    if (shouldExcludeIngestMessage(m)) continue
+    // Pure-conversation shaping: only the human/model prose text. The ingest
+    // shaper NEVER inlines tool_call / tool_result traces and strips the
+    // deterministic manager.mjs user-turn prefix envelopes (# Session /
+    // # Additional context / # Prefetch / # Task) so only the real human
+    // prompt remains. cleanMemoryText then removes the <system-reminder> block
+    // and residual transcript noise.
+    const content = cleanMemoryText(sessionMessageContentForIngest(m))
     if (!content || !content.trim()) continue
     considered += 1
     const tsMs = parseTsToMs(m.ts ?? m.timestamp ?? (Date.now() - (messages.length - i)))

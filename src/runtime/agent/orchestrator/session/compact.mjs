@@ -221,6 +221,20 @@ function isProtectedContextUserMessage(m) {
     return m.content.trimStart().startsWith('<system-reminder>');
 }
 
+// An injected Skill-body user message (the general newMessages channel carries
+// the full SKILL.md body as a role:'user' message after the Skill tool_result).
+// Like isSummaryMessage / isProtectedContextUserMessage, it is detected by
+// content prefix (the `<skill>` envelope from buildSkillResultEnvelope) so the
+// check survives even if the synthetic `meta` field is dropped during a tail
+// rebuild. It is NOT the human's latest prompt and must be excluded from
+// "latest human request" selection (deriveCurrentRequest /
+// buildRecallFastTrackQuery). The `meta:'skill'` marker is also honoured.
+function isInjectedSkillBodyMessage(m) {
+    if (m?.role !== 'user') return false;
+    if (m.meta === 'skill') return true;
+    return typeof m.content === 'string' && m.content.trimStart().startsWith('<skill>');
+}
+
 function isProtectedContextAckMessage(m) {
     return m?.role === 'assistant'
         && typeof m.content === 'string'
@@ -1086,7 +1100,7 @@ function deriveRelevantFilesBullets(head) {
 function deriveCurrentRequest(messages) {
     for (let i = (Array.isArray(messages) ? messages.length : 0) - 1; i >= 0; i -= 1) {
         const m = messages[i];
-        if (m?.role === 'user' && !isProtectedContextUserMessage(m)) {
+        if (m?.role === 'user' && !isProtectedContextUserMessage(m) && !isInjectedSkillBodyMessage(m)) {
             const text = truncateMiddle(extractText(m).trim(), 400);
             if (text) return text;
         }
@@ -1277,7 +1291,7 @@ export function buildRecallFastTrackQuery(messages, opts = {}) {
         const text = extractText(m).trim();
         if (!text) continue;
         if (recent.length < 6) recent.unshift(text);
-        if (!latestUser && m?.role === 'user' && !isProtectedContextUserMessage(m)) {
+        if (!latestUser && m?.role === 'user' && !isProtectedContextUserMessage(m) && !isInjectedSkillBodyMessage(m)) {
             latestUser = text;
         }
         if (latestUser && recent.length >= 6) break;

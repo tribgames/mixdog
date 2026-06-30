@@ -14,23 +14,15 @@ import { App } from './App.jsx';
 import { createEngineSession } from './engine.mjs';
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
 import { emitTerminalBackground, loadThemeSettingFromConfig, theme } from './theme.mjs';
-import { setKittyProtocolActive } from './keyboard-protocol.mjs';
+import { POP_KITTY, DISABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
 
 const TERMINAL_MODE_RESET = '\x1b[?1006l\x1b[?1005l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[?25h';
 const TERMINAL_OSC_RESET_BG = '\x1b]111\x07';
 const TERMINAL_MODE_RESET_HIDDEN_CURSOR = TERMINAL_MODE_RESET.replace('\x1b[?25h', '\x1b[?25l');
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
-// Keyboard-protocol negotiation. Rather than blindly enabling kitty/
-// modifyOtherKeys on an env allowlist (which silently fails on terminals that
-// advertise support via env but don't actually implement it, e.g. Windows
-// Terminal < v1.25), we QUERY the terminal: request kitty flags=7, ask for the
-// current flags (\x1b[?u), then DA1 (\x1b[c) as a sentinel. App.jsx reads the
-// reply off ink's input bus and enables modifyOtherKeys as a fallback when the
-// terminal answers DA1 without a kitty-flags report. The query itself is
-// harmless on unsupported terminals — they just answer DA1.
-const KITTY_QUERY = '\x1b[>7u\x1b[?u\x1b[c';
-const POP_KITTY = '\x1b[<u';
-const DISABLE_MODIFY_OTHER_KEYS = '\x1b[>4;0m';
+// Keyboard-protocol teardown. App.jsx enables kitty + modifyOtherKeys
+// synchronously at raw-mode-on (no query); here we just pop/disable them on
+// exit. POP_KITTY / DISABLE_MODIFY_OTHER_KEYS come from keyboard-protocol.mjs.
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
 const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
 const EXIT_WAIT_TIMEOUT_MS = positiveIntEnv('MIXDOG_TUI_EXIT_WAIT_MS', 2500);
@@ -42,17 +34,6 @@ const PERF_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_TUI_PER
 function positiveIntEnv(name, fallback) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
-}
-
-// Whether to even attempt keyboard-protocol negotiation. The query is harmless
-// on terminals that don't understand it, so we negotiate by default and only
-// skip it for a hard opt-out (MIXDOG_TUI_EXTENDED_KEYS=0) or VS Code's xterm.js
-// integrated terminal, which mishandles these sequences.
-function shouldNegotiateKeyboard() {
-  const raw = String(process.env.MIXDOG_TUI_EXTENDED_KEYS ?? '').trim();
-  if (/^(0|false|no|off)$/i.test(raw)) return false;
-  if (process.env.TERM_PROGRAM === 'vscode') return false;
-  return true;
 }
 
 // Lightweight render-frame profiler. Forked ink calls options.onRender with the
@@ -220,7 +201,6 @@ export async function runTui({ provider, model, toolMode } = {}) {
     if (restored) return;
     restored = true;
     restorePrimedInput();
-    setKittyProtocolActive(false);
     try {
       process.stdout.write(
         // Pop kitty + disable modifyOtherKeys BEFORE leaving the alt screen.
@@ -241,14 +221,10 @@ export async function runTui({ provider, model, toolMode } = {}) {
   // fat block. PromptInput parks this hardware cursor at the insertion point via
   // useCursor; the terminal also anchors IME composition to it.
   process.stdout.write('\x1b[5 q'); // blinking bar
-  // Send the keyboard-protocol query. App.jsx watches ink's input bus for the
-  // reply and enables kitty (already done by the query's flags=7 request) or
-  // modifyOtherKeys as a fallback based on the actual response. Ctrl+J always
-  // works regardless, so the message box stays multiline-capable even when the
-  // terminal ignores this query.
-  if (shouldNegotiateKeyboard()) {
-    process.stdout.write(KITTY_QUERY);
-  }
+  // NOTE: extended-keys enabling (kitty + modifyOtherKeys) is done by App.jsx's
+  // mount effect, SYNCHRONOUSLY at ink's raw-mode-on — no query, no round-trip —
+  // so the first Ctrl+Enter is already covered. Only teardown lives here (see
+  // restoreTerminal above).
 
   process.on('exit', restoreTerminal);
 

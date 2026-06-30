@@ -11,9 +11,9 @@ import { basePalette } from './base.mjs';
 /** Basic — Mixdog warm orange + blue brand dark. */
 export const basicPalette = {
   ...basePalette,
-  background: 'rgb(18,18,20)',
-  text: 'rgb(208,208,210)',
-  statusText: 'rgb(208,208,210)',
+  background: 'transparent',
+  text: 'rgb(228,228,230)',
+  statusText: 'rgb(228,228,230)',
   thinkingText: 'rgb(198,198,198)',
   thinkingGlow: 'rgb(220,220,220)',
   mixdogIvory: 'rgb(232,226,215)',

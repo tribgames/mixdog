@@ -18,7 +18,7 @@
 import React, { useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import stringWidth from 'string-width';
-import { theme } from '../theme.mjs';
+import { theme, surfaceBackground } from '../theme.mjs';
 import {
   caretPosition,
   clearSelection,
@@ -111,6 +111,21 @@ function isModifiedEnterSequence(input) {
   if (kitty) return ((Number(kitty[1]) - 1) & MODIFIED_ENTER_SHIFT_OR_CTRL) !== 0;
   const modifyOtherKeys = /^27;(\d+);13~$/.exec(body);
   return Boolean(modifyOtherKeys && (((Number(modifyOtherKeys[1]) - 1) & MODIFIED_ENTER_SHIFT_OR_CTRL) !== 0));
+}
+
+// Recognize ANY modified Enter (any modifier bitmask, e.g. Alt+Enter \x1b[13;3u
+// / \x1b[27;3;13~). Used to CONSUME modified-Enter sequences we don't map to a
+// newline (Alt-only, etc.) so they aren't typed into the prompt as raw CSI text
+// under modifyOtherKeys. Plain Enter (mod param = 1, bitmask 0) is intentionally
+// NOT matched, so it still submits.
+function isAnyModifiedEnterSequence(input) {
+  const text = String(input ?? '');
+  const body = text.startsWith('\x1b[') ? text.slice(2) : text.startsWith('[') ? text.slice(1) : '';
+  if (!body) return false;
+  const kitty = /^13;(\d+)(?::\d+)?(?:;[\d:]+)?u$/.exec(body);
+  if (kitty) return (Number(kitty[1]) - 1) !== 0;
+  const modifyOtherKeys = /^27;(\d+);13~$/.exec(body);
+  return Boolean(modifyOtherKeys && ((Number(modifyOtherKeys[1]) - 1) !== 0));
 }
 
 export function PromptInput({
@@ -443,14 +458,14 @@ export function PromptInput({
       return;
     }
 
-    // Drop keyboard-protocol negotiation REPLIES (kitty-flags \x1b[?<n>u and DA1
-    // \x1b[?...c). index.jsx queries the terminal at startup and App.jsx reads
-    // the reply off ink's input bus — but ink fans 'input' out to every listener
-    // synchronously, so the reply also lands here. Without this guard the bytes
-    // (escape may be stripped → `[?7u` / `[?1;0c`) would be typed into the
-    // prompt. The `?` private marker means this never matches a real kitty KEY
-    // event (those are \x1b[<codepoint>;<mods>u, no `?`).
-    if (/^(?:\x1b)?\[\?[\d;]*[uc]$/.test(rawInput)) {
+    // Safety net: drop CSI-private replies/fragments like \x1b[?<n>u / \x1b[?...c
+    // (escape may be stripped → `[?7u` / `[?1;0c`). We no longer query the
+    // terminal (enables are written unconditionally at raw-mode-on), so these
+    // should not normally appear — but a terminal that volunteers such a report
+    // must never type it into the prompt. The required `?` after `[` means this
+    // never matches a real kitty KEY event (those are \x1b[<codepoint>;<mods>u,
+    // no `?`); the optional final byte also discards any partial fragment.
+    if (/^(?:\x1b)?\[\?[\d;]*[uc]?$/.test(rawInput)) {
       return;
     }
 
@@ -473,16 +488,27 @@ export function PromptInput({
     const rawCtrlEnter = isModifiedEnterSequence(rawInput);
     const modifiedLineBreak = key.shift || key.meta || key.ctrl || rawCtrlEnter;
 
-    // Ctrl+J (0x0A) is the protocol-INDEPENDENT newline: it arrives as a lone
-    // '\n' on every terminal regardless of kitty/modifyOtherKeys negotiation.
-    // Distinguish it from a real Enter, which ink marks with key.return (CR), and
-    // from a multi-char paste that merely contains '\n' (handled by the paste
-    // paths below — those are length > 1). A lone '\n' without key.return is
-    // Ctrl+J → insert a newline. This MUST run before the trailing-newline/submit
-    // paths, since singleTrailingLineBreakPrefix('\n') returns '' (not null) and
-    // would otherwise route a bare Ctrl+J to submit.
-    if (rawInput === '\n' && !key.return) {
+    // Ctrl+J is the protocol-INDEPENDENT newline that works on every terminal.
+    //  • Legacy / modifyOtherKeys terminals: Ctrl+J is a lone '\n' (0x0A). A real
+    //    Enter is CR, which ink marks key.return (name 'return'); a lone '\n'
+    //    arrives as name 'enter' with key.return false. A multi-char paste that
+    //    contains '\n' is length > 1 (handled by the paste paths below).
+    //  • Kitty protocol active: Ctrl+J arrives as \x1b[106;5u, which ink decodes
+    //    to input 'j' with key.ctrl set.
+    // Either way → insert a newline. This MUST run before the trailing-newline/
+    // submit paths, since singleTrailingLineBreakPrefix('\n') returns '' (not
+    // null) and would otherwise route a bare Ctrl+J to submit.
+    if ((rawInput === '\n' && !key.return) || (key.ctrl && inputKey === 'j')) {
       updateDraft((d) => replaceSelection(d, '\n'));
+      return;
+    }
+
+    // A modified Enter that is NOT a newline chord (e.g. Alt+Enter \x1b[13;3u or
+    // \x1b[27;3;13~). isModifiedEnterSequence already handled shift/ctrl above
+    // (→ newline); here we CONSUME any other modified Enter so its raw CSI bytes
+    // never type into the prompt under modifyOtherKeys. Plain Enter (mod=1) is
+    // not matched and still submits below.
+    if (!rawCtrlEnter && isAnyModifiedEnterSequence(rawInput)) {
       return;
     }
 
@@ -791,8 +817,8 @@ export function PromptInput({
   const hintMeta = hintStyle(hintTone);
 
   return (
-    <Box ref={boxRef} flexDirection="row" flexGrow={1} flexShrink={1} backgroundColor={theme.background}>
-      <Box width={IME_LEFT_GUARD_COLUMNS} flexShrink={0} backgroundColor={theme.background} />
+    <Box ref={boxRef} flexDirection="row" flexGrow={1} flexShrink={1} backgroundColor={surfaceBackground()}>
+      <Box width={IME_LEFT_GUARD_COLUMNS} flexShrink={0} backgroundColor={surfaceBackground()} />
       <Text color={theme.text} wrap="hard">{renderedValue}</Text>
       {!value && hint ? (
         <Box marginLeft={-1}>

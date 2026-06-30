@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { isInternalRuntimeNotificationText } from '../../shared/tool-execution-contract.mjs'
 
 // Side-effect-free helpers for ingest_session (recall fast-track hydration).
 // Extracted from memory/index.mjs so the pure logic (stable identity, sensitive
@@ -193,4 +194,103 @@ export function sessionMessageContent(m) {
     parts.push(`[tool_result id=${m.toolCallId}]`)
   }
   return parts.join('\n')
+}
+
+// ── Pure-conversation ingest shaping ──────────────────────────────────────
+//
+// ingest_session persists ONLY real conversation (human prompts + model reply
+// prose). sessionMessageContent (above) is the structured-handoff shaper that
+// inlines tool_call / tool_result traces and is consumed by smoke tests; it is
+// intentionally LEFT UNCHANGED. The functions below are ingest-only and strip
+// everything that is mechanical/synthetic so memory episode rows are pure
+// conversation with zero loss of genuine human/model text.
+
+// Mirror of compact.mjs SUMMARY_PREFIX (the compaction handoff anchor). Copied
+// locally rather than imported because compact.mjs lives under
+// agent/orchestrator/session and pulls in heavy context/offload modules —
+// importing it into the memory layer would create a layering dependency (memory
+// → orchestrator) and risk a boot-time cycle. Keep this string byte-identical
+// to compact.mjs:9; if that anchor changes, update this copy.
+const SUMMARY_PREFIX_INGEST = 'A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done and avoid duplicating it; treat the summary as authoritative context for continuing the task. You also retain the preserved recent turns that follow.'
+
+// Anchored strip of the deterministic user-turn prefix envelopes that
+// manager.mjs prepends to the SINGLE real user message (manager.mjs:3166-3201
+// via prefixUserTurnContent / prefixSessionStartContent / buildSessionStartBlock).
+// Zero-loss design: every rule is anchored to the START of the message and only
+// removes the EXACT shapes manager.mjs produces. A `# Task` / `# Session` etc.
+// appearing mid-message in the human's own text is never touched. When in
+// doubt the rules UNDER-strip (leave content) rather than delete human text.
+function stripUserTurnPrefixEnvelopes(text) {
+  let out = String(text ?? '')
+  // 1) Leading `# Session` block (buildSessionStartBlock: `# Session\nCwd: ...
+  //    \nModel: ...\nWorkflow: ...`, joined by prefixSessionStartContent with a
+  //    trailing `\n\n`). FIELD-ANCHORED: only strip when the line(s) right after
+  //    `# Session\n` are EXACTLY the fixed fields buildSessionStartBlock emits
+  //    (`Cwd: `, `Model: `, `Workflow: `, each on its own line) before the
+  //    blank-line terminator. A human doc that merely STARTS with a `# Session`
+  //    heading followed by free prose (e.g. `프로젝트 회의록입니다`) does NOT match
+  //    — its next line is not a `Cwd:/Model:/Workflow:` field — so it is
+  //    preserved verbatim (zero-loss). Anchored ^.
+  out = out.replace(/^# Session\n(?:(?:Cwd|Model|Workflow): [^\n]*\n)+(?:\n|$)/, '')
+  // 2) Leading `# Additional context\n<body>\n\n` (manager.mjs:3168). Anchored
+  //    to start; body runs up to the next `# ` section boundary or end. The
+  //    `\n\n` separator manager.mjs emits is included.
+  out = out.replace(/^# Additional context\n[\s\S]*?(?=\n# |$)/, '')
+  out = out.replace(/^\n+/, '')
+  // 3) Leading `# Prefetch\n<body>\n\n` (manager.mjs:3171). Same anchoring.
+  out = out.replace(/^# Prefetch\n[\s\S]*?(?=\n# |$)/, '')
+  out = out.replace(/^\n+/, '')
+  // 4) Leading `# Task\n` marker (prefixUserTurnContent: `${contextBlock}# Task\n${content}`).
+  //    Remove ONLY the marker line; everything after it is the human prompt and
+  //    is preserved verbatim. Anchored ^ so a `# Task` in the human's own prose
+  //    (after real text precedes it) is never removed.
+  out = out.replace(/^# Task\n/, '')
+  return out
+}
+
+// Ingest-only message shaper: returns ONLY the human/model prose text, NEVER
+// inlining tool_call / tool_result traces. For user messages, the deterministic
+// manager.mjs prefix envelopes are stripped so only the human's actual prompt
+// remains. The <system-reminder> block is left in place here because
+// cleanMemoryText already removes it downstream (text-utils.cjs:28).
+export function sessionMessageContentForIngest(m) {
+  const base = firstTextContent(m?.content)
+  if (!base) return ''
+  if (normalizeIngestRole(m?.role) === 'user') {
+    return stripUserTurnPrefixEnvelopes(base)
+  }
+  return base
+}
+
+// Row-exclusion predicate for ingest_session. Synthetic / non-conversation
+// rows (reference-files injections, compaction summaries, protected-context
+// `.` acks, internal runtime nudges) are dropped ENTIRELY — they are noise,
+// not conversation. Mirrors the predicates in manager.mjs / compact.mjs but is
+// reimplemented locally to avoid a memory→orchestrator layering dependency.
+export function shouldExcludeIngestMessage(m) {
+  if (!m || typeof m !== 'object') return true
+  const role = normalizeIngestRole(m?.role)
+  const raw = firstTextContent(m?.content)
+  // `Reference files:` synthetic user rows (manager.mjs isReferenceFilesMessage).
+  if (role === 'user' && typeof raw === 'string' && /^Reference files:\s*/i.test(raw.trimStart())) {
+    return true
+  }
+  // Compaction summary user rows (compact.mjs isSummaryMessage / SUMMARY_PREFIX).
+  if (role === 'user' && typeof raw === 'string' && raw.startsWith(SUMMARY_PREFIX_INGEST)) {
+    return true
+  }
+  // Protected-context `.` ack assistant rows (compact.mjs isProtectedContextAckMessage):
+  // a bare `.` with no tool calls. cleanMemoryText leaves a lone `.` non-empty
+  // (no \p{L}\p{N}), so it would otherwise survive the empty-skip — exclude it.
+  if (role === 'assistant' && typeof raw === 'string' && raw.trim() === '.' && !Array.isArray(m?.toolCalls)) {
+    return true
+  }
+  // Internal runtime nudge `[mixdog-runtime] ...` user rows (loop.mjs:2014-2020)
+  // and other internal runtime notifications (tool-execution-contract).
+  if (role === 'user') {
+    const text = typeof raw === 'string' ? raw : ''
+    if (/^\[mixdog-runtime\]/.test(text.trimStart())) return true
+    if (isInternalRuntimeNotificationText(text)) return true
+  }
+  return false
 }

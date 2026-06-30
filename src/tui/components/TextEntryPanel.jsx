@@ -4,7 +4,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import stringWidth from 'string-width';
-import { theme } from '../theme.mjs';
+import { theme, surfaceBackground } from '../theme.mjs';
 import {
   clearSelection,
   deleteBackwardWord,
@@ -142,6 +142,20 @@ function isModifiedEnterSequence(input) {
   return Boolean(modifyOtherKeys && (((Number(modifyOtherKeys[1]) - 1) & MODIFIED_ENTER_SHIFT_OR_CTRL) !== 0));
 }
 
+// Recognize ANY modified Enter (any modifier bitmask, e.g. Alt+Enter). Used to
+// CONSUME modified-Enter sequences we don't map to a newline so they aren't
+// typed as raw CSI text under modifyOtherKeys. Plain Enter (mod=1) is NOT
+// matched, so it still submits.
+function isAnyModifiedEnterSequence(input) {
+  const text = String(input ?? '');
+  const body = text.startsWith('\x1b[') ? text.slice(2) : text.startsWith('[') ? text.slice(1) : '';
+  if (!body) return false;
+  const kitty = /^13;(\d+)(?::\d+)?(?:;[\d:]+)?u$/.exec(body);
+  if (kitty) return (Number(kitty[1]) - 1) !== 0;
+  const modifyOtherKeys = /^27;(\d+);13~$/.exec(body);
+  return Boolean(modifyOtherKeys && ((Number(modifyOtherKeys[1]) - 1) !== 0));
+}
+
 export function TextEntryPanel({
   title,
   hint = '',
@@ -233,10 +247,11 @@ export function TextEntryPanel({
     const rawSource = String(input ?? '');
     const rawInput = normalizeInput(input);
     if (/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/.test(rawSource)) return;
-    // Drop keyboard-protocol negotiation replies (kitty-flags \x1b[?<n>u / DA1
-    // \x1b[?...c) so they're never typed into the field. See PromptInput for the
-    // full rationale — ink fans the query reply out to every 'input' listener.
-    if (/^(?:\x1b)?\[\?[\d;]*[uc]$/.test(rawSource)) return;
+    // Safety net: drop CSI-private replies/fragments (\x1b[?<n>u / \x1b[?...c).
+    // We no longer query the terminal, so these should not normally appear, but
+    // a volunteered report must never type into the field. See PromptInput for
+    // the full rationale; optional final byte also discards partial fragments.
+    if (/^(?:\x1b)?\[\?[\d;]*[uc]?$/.test(rawSource)) return;
 
     if (key.escape) {
       if (selectionRange(draftRef.current)) {
@@ -250,14 +265,21 @@ export function TextEntryPanel({
     const rawCtrlEnter = isModifiedEnterSequence(rawSource) || isModifiedEnterSequence(rawInput);
     const modifiedLineBreak = key.shift || key.meta || key.ctrl || rawCtrlEnter;
 
-    // Ctrl+J (0x0A) — the protocol-independent newline. It arrives as a lone
-    // '\n' on every terminal; a real Enter is CR (ink marks key.return), and a
-    // multi-char paste is length > 1. A lone '\n' without key.return is Ctrl+J →
-    // insert a newline. Must precede the trailing-newline/submit paths, since
+    // Ctrl+J — the protocol-independent newline that works on every terminal.
+    // Legacy/modifyOtherKeys: a lone '\n' (real Enter is CR → key.return). Kitty:
+    // \x1b[106;5u → input 'j' with key.ctrl. Either → insert a newline. Must
+    // precede the trailing-newline/submit paths since
     // singleTrailingLineBreakPrefix('\n') returns '' (not null) and would
     // otherwise route Ctrl+J to submit.
-    if (rawSource === '\n' && !key.return) {
+    if ((rawSource === '\n' && !key.return) || (key.ctrl && rawSource.toLowerCase() === 'j')) {
       updateDraft((d) => replaceSelection(d, '\n'));
+      return;
+    }
+
+    // A modified Enter that is NOT a newline chord (e.g. Alt+Enter): consume it
+    // so its raw CSI bytes don't type into the field under modifyOtherKeys. Plain
+    // Enter (mod=1) is not matched and still submits below.
+    if (!rawCtrlEnter && (isAnyModifiedEnterSequence(rawSource) || isAnyModifiedEnterSequence(rawInput))) {
       return;
     }
 
@@ -454,7 +476,7 @@ export function TextEntryPanel({
         <Text> </Text>
         <Text color={theme.subtle}>{hintText || ' '}</Text>
         <Text> </Text>
-        <Box ref={boxRef} flexDirection="row" width="100%" backgroundColor={theme.background}>
+        <Box ref={boxRef} flexDirection="row" width="100%" backgroundColor={surfaceBackground()}>
           <Text color={theme.inactive}>{promptLabel}</Text>
           <Text color={theme.text} wrap="truncate">{renderedValue}</Text>
         </Box>

@@ -15,6 +15,8 @@
  * no-tool role guard) — not a permission check. No gating is needed here.
  */
 
+import { isToolEnvelope, makeToolEnvelope } from './session/tool-envelope.mjs';
+
 let _executor = null;
 let _tools = [];
 let _names = new Set();
@@ -51,6 +53,17 @@ export async function executeInternalTool(name, args, callerCtx = {}) {
 // plain string either way. Worker/module handlers return the MCP-shaped
 // `{ content: [{type:'text', text}] }` envelope directly.
 function _normalize(result) {
+    // General newMessages tool-result channel: a tool may return a
+    // `{ __toolEnvelope, result, newMessages }` envelope (e.g. Skill, whose
+    // body rides ONE injected user message). Preserve the envelope shape, only
+    // normalizing its inner `result` to a string, so the agent loop's central
+    // normalizeToolEnvelope still splits it into stub + injected user body.
+    // Without this guard the envelope object would fall through to
+    // JSON.stringify below and the loop would see the stringified envelope as
+    // the tool_result (body inlined + duplicated, no newMessages).
+    if (isToolEnvelope(result)) {
+        return makeToolEnvelope(_normalize(result.result), result.newMessages);
+    }
     if (result && typeof result === 'object' && Array.isArray(result.content)) {
         return result.content
             .map((c) => (c?.type === 'text' ? c.text || '' : JSON.stringify(c)))

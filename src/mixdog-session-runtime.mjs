@@ -1086,12 +1086,9 @@ function normalizeSystemShellCommand(value) {
 function normalizeAutoClearConfig(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const idleMs = Number(raw.idleMs ?? raw.thresholdMs ?? raw.idleMillis);
-  const compactType = clean(raw.compactType ?? raw.compact_type ?? raw.type);
-  const normalizedCompactType = compactType ? normalizeCompactTypeSetting(compactType, 'semantic') : '';
   return {
     enabled: raw.enabled !== false,
     idleMs: Number.isFinite(idleMs) && idleMs > 0 ? Math.max(60_000, Math.round(idleMs)) : AUTO_CLEAR_DEFAULT_IDLE_MS,
-    ...(normalizedCompactType ? { compactType: normalizedCompactType } : {}),
   };
 }
 
@@ -2950,7 +2947,14 @@ export async function createMixdogSessionRuntime({
 
   function skillToolContent(name) {
     const skill = skillContent(name);
-    return contextMod.buildSkillResultEnvelope(skill.name, skill.content, skill.dir);
+    // Return the general tool envelope so the main/Lead session behaves the
+    // same as agent-loop sessions: the model-visible tool_result is the short
+    // stub (`Loaded skill: <name>`) and the full SKILL.md body is delivered
+    // ONCE as a separate injected role:'user' message (newMessages). The
+    // envelope passes through internal-tools._normalize untouched (it preserves
+    // __toolEnvelope objects), and the agent loop's central normalizeToolEnvelope
+    // splits it into stub + injected user body.
+    return contextMod.buildSkillToolEnvelope(skill.name, skill.content, skill.dir);
   }
 
   function addProjectSkill(input = {}) {

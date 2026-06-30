@@ -1,21 +1,42 @@
 /**
- * src/tui/keyboard-protocol.mjs — shared keyboard-protocol negotiation state.
+ * src/tui/keyboard-protocol.mjs — terminal extended-keys capability gate.
  *
- * A tiny, dependency-free module that records whether the terminal's kitty
- * keyboard protocol is actually active (confirmed by a query/response
- * negotiation, NOT guessed from an env allowlist). index.jsx sends the query at
- * startup and App.jsx flips this flag when the terminal answers with non-zero
- * kitty flags. PromptInput/TextEntryPanel read it to branch their Enter handling.
+ * We do NOT query the terminal. Instead, mirroring Claude Code, we enable the
+ * kitty keyboard protocol AND xterm modifyOtherKeys SYNCHRONOUSLY at the moment
+ * raw mode turns on (see App.jsx's mount effect), gated by the allowlist below.
+ * Writing both enables unconditionally is safe — a terminal honors whichever it
+ * implements (Windows Terminal 1.24 has no kitty support but DOES honor
+ * modifyOtherKeys), and doing it before the first keypair is read removes the
+ * round-trip race that made the first Ctrl+Enter submit instead of inserting a
+ * newline.
  *
- * Independent of that flag, Ctrl+J (0x0A) is always treated as a newline by the
- * editors, so a multiline message box works even when this stays false.
+ * Enable / disable byte sequences (used by App.jsx enable + index.jsx teardown):
+ *   ENABLE_KITTY_KEYBOARD     \x1b[>1u    push kitty flags=1 (disambiguate)
+ *   ENABLE_MODIFY_OTHER_KEYS  \x1b[>4;2m  xterm modifyOtherKeys level 2
+ *   POP_KITTY                 \x1b[<u     pop the kitty stack entry
+ *   DISABLE_MODIFY_OTHER_KEYS \x1b[>4;0m  modifyOtherKeys off
  */
-let kittyActive = false;
+export const ENABLE_KITTY_KEYBOARD = '\x1b[>1u';
+export const ENABLE_MODIFY_OTHER_KEYS = '\x1b[>4;2m';
+export const POP_KITTY = '\x1b[<u';
+export const DISABLE_MODIFY_OTHER_KEYS = '\x1b[>4;0m';
 
-export function setKittyProtocolActive(value) {
-  kittyActive = !!value;
-}
-
-export function isKittyProtocolActive() {
-  return kittyActive;
+// Allowlist of terminals known to honor kitty and/or xterm modifyOtherKeys.
+// Mirrors Claude Code's supportsExtendedKeys allowlist. VS Code's xterm.js
+// integrated terminal mishandles these sequences, so it is excluded first.
+// Honors the MIXDOG_TUI_EXTENDED_KEYS opt-out (=0) / override (=1).
+export function supportsExtendedKeys() {
+  const raw = String(process.env.MIXDOG_TUI_EXTENDED_KEYS ?? '').trim();
+  if (/^(0|false|no|off)$/i.test(raw)) return false;
+  if (/^(1|true|yes|on)$/i.test(raw)) return true;
+  if (process.env.TERM_PROGRAM === 'vscode') return false;
+  if (process.env.WT_SESSION) return true; // Windows Terminal
+  if (process.env.TERM?.includes('kitty')) return true;
+  if (process.env.KITTY_WINDOW_ID) return true;
+  if (process.env.TERM_PROGRAM === 'WezTerm') return true;
+  if (process.env.TERM_PROGRAM === 'ghostty') return true;
+  if (process.env.TERM === 'xterm-ghostty') return true;
+  if (process.env.TMUX) return true;
+  if (process.env.TERM_PROGRAM === 'iTerm.app') return true;
+  return false;
 }
