@@ -1239,7 +1239,7 @@ export class OpenAIOAuthProvider {
     async ensureAuth({ forceRefresh = false, reason = 'preemptive' } = {}) {
         if (!this.tokens) this.tokens = loadTokens();
         if (!this.tokens)
-            throw new Error('OpenAI OAuth not authenticated. Run /auth openai-oauth or /providers in mixdog.');
+            throw new Error('OpenAI OAuth not authenticated. Open /providers in mixdog to sign in.');
         // Pick up Mixdog-owned token updates the moment the auth file is
         // rewritten — without this, a fresh login is ignored until the in-memory
         // token hits its expiry skew.
@@ -1303,7 +1303,7 @@ export class OpenAIOAuthProvider {
                     this._refreshFallbackUntil = Date.now() + TOKEN_REFRESH_SKEW_MS;
                     return latest;
                 }
-                throw new Error('OpenAI OAuth refresh token not available. Run /auth openai-oauth or /providers in mixdog to re-authenticate.');
+                throw new Error('OpenAI OAuth refresh token not available. Open /providers in mixdog to sign in again.');
             }
 
             try {

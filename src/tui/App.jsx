@@ -2996,7 +2996,7 @@ export function App({ store, initialStatusLine = '' }) {
     }
 
     if (!providerModels || providerModels.length === 0) {
-      store.pushNotice(options.emptyNotice || 'no provider models available; open /providers to authenticate', 'warn');
+      store.pushNotice(options.emptyNotice || 'no provider models available; open /providers to sign in', 'warn');
       void openProviderSetupPicker({
         title: 'Providers',
         continueLabel: 'Back to model setup',
@@ -4765,7 +4765,7 @@ export function App({ store, initialStatusLine = '' }) {
     const models = normalizeModelOptions(onboardingRef.current.providerModels || []);
     const fallbackRoute = onboardingRef.current.defaultRoute || null;
     if (models.length === 0) {
-      store.pushNotice('no provider models available; open /providers to authenticate', 'warn');
+      store.pushNotice('no provider models available; open /providers to sign in', 'warn');
       openOnboardingAuthStep();
       return;
     }
@@ -4837,7 +4837,7 @@ export function App({ store, initialStatusLine = '' }) {
     if (models.length === 0) {
       onboardingRef.current.defaultRoute = null;
       onboardingRef.current.workflowRoutes = {};
-      store.pushNotice('no provider models available; open /providers to authenticate', 'warn');
+      store.pushNotice('no provider models available; open /providers to sign in', 'warn');
       openOnboardingAuthStep();
       return;
     }

@@ -3778,7 +3778,7 @@ function parsedProviderModelVersion(id) {
     const models = await collectProviderModels();
     const picked = models[0] || null;
     if (!picked) {
-      throw new Error('No provider models available. Run /providers to authenticate, then /model to choose a model.');
+      throw new Error('No provider models available. Open /providers to sign in, then /model to choose a model.');
     }
     route = {
       ...route,
@@ -3811,7 +3811,7 @@ function parsedProviderModelVersion(id) {
 
   function requireModelRoute() {
     if (routeHasModel()) return;
-    throw new Error('No model configured. Run /providers to authenticate, then /model to choose a model.');
+    throw new Error('No model configured. Open /providers to sign in, then /model to choose a model.');
   }
 
   async function recreateCurrentSessionIfReady() {

@@ -306,7 +306,7 @@ export function forgetGrokOAuthCredentials() {
 let _refreshInFlight = null;
 async function refreshTokens(tokens) {
     if (!tokens?.refresh_token) {
-        throw new Error('[grok-oauth] refresh token not available — run /auth grok-oauth or /providers in mixdog to re-authenticate');
+        throw new Error('[grok-oauth] refresh token not available — open /providers in mixdog to sign in again');
     }
     const tokenEndpoint = tokens.token_endpoint
         ? assertTrustedXaiEndpoint(tokens.token_endpoint, 'token endpoint')
@@ -521,7 +521,7 @@ export class GrokOAuthProvider {
     async ensureAuth({ forceRefresh = false } = {}) {
         if (!this.tokens) this.tokens = loadTokens();
         if (!this.tokens) {
-            throw new Error('[grok-oauth] credentials not found — run /auth grok-oauth or /providers in mixdog first');
+            throw new Error('[grok-oauth] credentials not found — open /providers in mixdog to sign in first');
         }
         // Pick up Mixdog-owned token updates without touching external CLI
         // stores. The scan watermark guarantees the same unreadable write does
