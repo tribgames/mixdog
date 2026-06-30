@@ -68,6 +68,8 @@ import {
   toolItemResultText,
 } from './transcript-tool-failures.mjs';
 
+import { displayModelName } from '../ui/model-display.mjs';
+
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
 const MOUSE_MODIFIER_MASK = 4 | 8 | 16;
@@ -2836,29 +2838,13 @@ export function App({ store, initialStatusLine = '' }) {
 
   const modelDescription = (m) => [formatContextWindow(modelContextWindow(m)), m.fastCapable ? 'Fast Available' : ''].filter(Boolean).join(' · ');
 
-  const displayModelName = (model) => {
-    const text = String(model || '').trim();
-    if (!text) return '';
-    const lower = text.toLowerCase();
-    const claude = /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)/i.exec(lower);
-    if (claude) {
-      const family = claude[1].charAt(0).toUpperCase() + claude[1].slice(1);
-      return `${family} ${claude[2]}.${claude[3]}`;
-    }
-    if (lower.startsWith('gpt-')) {
-      return text
-        .split('-')
-        .map((part, index) => (index === 0 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
-        .join('-');
-    }
-    if (lower.startsWith('grok-')) {
-      return text
-        .split('-')
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(' ');
-    }
-    return text;
-  };
+  const modelRecordDisplayName = (model) => displayModelName(
+    model?.id,
+    model?.provider,
+    model?.display || model?.name,
+  );
+
+  const routeModelDisplayName = (route) => displayModelName(route?.model, route?.provider);
 
   const groupModelsByProvider = (models) => {
     const providers = new Map();
@@ -2889,7 +2875,7 @@ export function App({ store, initialStatusLine = '' }) {
         label: providerDisplayName(provider),
         marker: currentModel ? '✓' : '',
         markerColor: theme.success,
-        meta: currentModel ? displayModelName(currentModel.display || currentModel.id) : '',
+        meta: currentModel ? modelRecordDisplayName(currentModel) : '',
         description: `${providerModels.length} model${providerModels.length === 1 ? '' : 's'}`,
         _action: 'open-provider',
         _provider: provider,
@@ -2901,7 +2887,7 @@ export function App({ store, initialStatusLine = '' }) {
     const providerModels = models.filter((model) => model.provider === provider);
     return providerModels.map((model) => ({
       value: `model:${model.provider}:${model.id}`,
-      label: model.display || model.id,
+      label: modelRecordDisplayName(model),
       marker: currentRoute?.provider === model.provider && currentRoute?.model === model.id ? '✓' : '',
       markerColor: theme.success,
       description: modelDescription(model),
@@ -2916,7 +2902,7 @@ export function App({ store, initialStatusLine = '' }) {
     if (!route?.provider || !route?.model) return '(unset)';
     return [
       providerDisplayName(route.provider),
-      displayModelName(route.model),
+      routeModelDisplayName(route),
       route.effort ? effortDisplayLabel(route.effort) : '',
       route.fast ? 'Fast' : '',
     ].filter(Boolean).join(' · ');
@@ -2925,7 +2911,7 @@ export function App({ store, initialStatusLine = '' }) {
   const routeModelLabel = (route) => {
     if (!route?.model) return '(unset)';
     return [
-      displayModelName(route.model),
+      routeModelDisplayName(route),
       route.effort ? effortDisplayLabel(route.effort) : '',
       route.fast ? 'Fast' : '',
     ].filter(Boolean).join(' · ');
@@ -2934,14 +2920,14 @@ export function App({ store, initialStatusLine = '' }) {
   const agentModelProfile = (route) => {
     if (!route?.model) return '';
     return [
-      displayModelName(route.model),
+      routeModelDisplayName(route),
       route.effort ? effortDisplayLabel(route.effort) : '',
       route.fast ? 'Fast' : '',
     ].filter(Boolean).join(' · ');
   };
 
   const agentModelParts = (route) => [
-    { text: route?.model ? displayModelName(route.model) : '', width: 17 },
+    { text: route?.model ? routeModelDisplayName(route) : '', width: 17 },
     { text: route?.effort ? effortDisplayLabel(route.effort) : '', width: 6 },
     { text: route?.fast ? 'Fast' : '', width: 4 },
   ];
@@ -4258,7 +4244,7 @@ export function App({ store, initialStatusLine = '' }) {
       {
         value: 'model',
         label: 'Model',
-        meta: displayModelName(state.model),
+        meta: displayModelName(state.model, state.provider),
         description: 'Main chat model.',
         _action: 'model',
       },

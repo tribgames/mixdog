@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import stripAnsi from 'strip-ansi';
-import { renderTokenAnsiSegments, lexMarkdown } from './render-ansi.mjs';
+import { renderTokenAnsiSegments, lexMarkdown, hasMarkdownSyntax } from './render-ansi.mjs';
 import { setThemeSetting } from '../theme.mjs';
 
 setThemeSetting('mixdog', { persist: false });
@@ -60,4 +60,41 @@ test('closed code block renders both fences and the body intact', () => {
   const lines = codeBlockVisibleLines(segments);
   assert.ok(lines.some((l) => l.includes('const z = 3;')), 'body present');
   assert.equal(lines.filter((l) => /^```/.test(l.trimStart())).length, 2, 'open + close fences');
+});
+
+const PLAIN_PREFIX = 'x'.repeat(501);
+
+test('hasMarkdownSyntax detects strong markers after a 500+ char plain prefix', () => {
+  assert.ok(hasMarkdownSyntax(`${PLAIN_PREFIX}**late bold**`));
+});
+test('hasMarkdownSyntax detects inline code after a 500+ char plain prefix', () => {
+  assert.ok(hasMarkdownSyntax(`${PLAIN_PREFIX}\`late code\``));
+});
+
+test('render path parses fenced code after a 500+ char plain prefix', () => {
+  const input = `${PLAIN_PREFIX}\n\`\`\`js\nconst late = true;\n\`\`\``;
+  const tokens = lexMarkdown(input);
+  assert.ok(
+    tokens.some((t) => t.type === 'code' && String(t.text).includes('const late = true;')),
+    'lexer emits a code token with the fenced body',
+  );
+  const segments = renderTokenAnsiSegments(input);
+  const lines = codeBlockVisibleLines(segments);
+  assert.ok(lines.some((l) => l.includes('const late = true;')), 'code block body is rendered');
+  const visible = segments.map((s) => stripAnsi(s.ansi ?? '')).join('\n');
+  assert.ok(!visible.includes(`${PLAIN_PREFIX}\`\`\`js`), 'prefix is not glued to raw fence markers');
+});
+
+test('render path parses strong after a 500+ char plain prefix (no raw **)', () => {
+  const segments = renderTokenAnsiSegments(`${PLAIN_PREFIX}**rendered**`);
+  const visible = segments.map((s) => stripAnsi(s.ansi ?? '')).join('');
+  assert.ok(visible.includes('rendered'), 'bold text is present');
+  assert.ok(!visible.includes('**'), 'markdown strong markers are not leaked');
+});
+
+test('render path parses inline code after a 500+ char plain prefix (no raw backticks)', () => {
+  const segments = renderTokenAnsiSegments(`${PLAIN_PREFIX}\`snippet\``);
+  const visible = segments.map((s) => stripAnsi(s.ansi ?? '')).join('');
+  assert.ok(visible.includes('snippet'), 'codespan text is present');
+  assert.ok(!visible.includes('`'), 'inline code backticks are not leaked');
 });

@@ -13,8 +13,26 @@ export function titleModelPart(part) {
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
 
+function stripModelId(model) {
+  const text = String(model || '').trim();
+  if (!text) return '';
+  return text.includes('/') ? (text.split('/').filter(Boolean).at(-1) || text) : text;
+}
+
+function normalizeDisplayHint(displayHint) {
+  if (displayHint == null || displayHint === '') return '';
+  if (typeof displayHint === 'object') {
+    return String(displayHint.displayName || displayHint.display || displayHint.name || '').trim();
+  }
+  return String(displayHint).trim();
+}
+
 export function canonicalModelDisplay(model, provider) {
-  const raw = String(model || '').trim().replace(/-\d{4}-\d{2}-\d{2}$/, '');
+  void provider;
+  const raw = String(model || '')
+    .trim()
+    .replace(/-\d{4}-\d{2}-\d{2}$/, '')
+    .replace(/-\d{8}$/, '');
   if (!raw) return '';
 
   const gpt = raw.match(/^gpt-(\d+(?:\.\d+)?)(?:-(.+))?$/i);
@@ -45,7 +63,30 @@ export function canonicalModelDisplay(model, provider) {
     return `Claude ${titleModelPart(claude[1])} ${claude[2].replace(/-/g, '.')}`;
   }
 
+  const gemini = raw.match(/^gemini-(\d+(?:\.\d+)?)-(.+)$/i);
+  if (gemini) {
+    return `Gemini ${gemini[1]} ${gemini[2].split('-').map(titleModelPart).filter(Boolean).join(' ')}`;
+  }
+
+  const geminiLoose = raw.match(/^gemini-(.+)$/i);
+  if (geminiLoose) {
+    return `Gemini ${geminiLoose[1].split('-').map(titleModelPart).filter(Boolean).join(' ')}`;
+  }
+
   return raw;
+}
+
+export function displayModelName(model, provider = '', displayHint = '') {
+  const id = stripModelId(model);
+  const hint = normalizeDisplayHint(displayHint);
+
+  if (id) {
+    const canonical = canonicalModelDisplay(id, provider);
+    if (canonical && canonical !== id) return canonical;
+  }
+  if (hint) return hint;
+  if (id) return canonicalModelDisplay(id, provider) || id;
+  return '';
 }
 
 export function shortenModelName(name, cols) {

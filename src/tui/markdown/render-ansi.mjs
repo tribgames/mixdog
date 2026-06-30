@@ -31,8 +31,7 @@ export function configureMarked() {
 
 export function hasMarkdownSyntax(text) {
   const value = String(text ?? '');
-  const sample = value.length > 500 ? value.slice(0, 500) : value;
-  return MD_SYNTAX_RE.test(sample);
+  return MD_SYNTAX_RE.test(value);
 }
 
 export function lexMarkdown(content, { trimPartialFences = false } = {}) {

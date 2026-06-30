@@ -61,6 +61,42 @@ function writeStore(store) {
   }
 }
 
+/**
+ * Idempotently ensure `<absPath>/.mixdog/project.id` exists so the project
+ * selection store and memory project_id classification (resolveProjectId)
+ * agree. Rules:
+ *   - Never overwrite an existing marker (user may have set 'common' or a
+ *     custom id — respect it).
+ *   - Only act when absPath is a real directory on disk; never create the
+ *     project folder itself (addProject does NOT create the directory).
+ *   - Marker value = provided name, else basename(absPath). Skip when the
+ *     value is empty or 'common' (resolveProjectId would force COMMON).
+ *   - Best-effort: any failure is swallowed so registration/selection never
+ *     breaks.
+ */
+function ensureProjectIdMarker(absPath, name) {
+  try {
+    if (!absPath) return;
+    // Only when the project folder actually exists as a directory on disk.
+    try {
+      if (!statSync(absPath).isDirectory()) return;
+    } catch {
+      return; // missing / unstattable → silently skip
+    }
+    const markerPath = join(absPath, '.mixdog', 'project.id');
+    if (existsSync(markerPath)) return; // preserve existing value
+    const value = String(name || basename(absPath) || '').trim();
+    if (!value || value.toLowerCase() === 'common') return;
+    const markerDir = join(absPath, '.mixdog');
+    mkdirSync(markerDir, { recursive: true });
+    const tmp = `${markerPath}.${process.pid}.tmp`;
+    writeFileSync(tmp, `${value}\n`, 'utf8');
+    renameSync(tmp, markerPath);
+  } catch {
+    /* best-effort marker; never throw */
+  }
+}
+
 function projectRecency(entry) {
   const last = Number(entry?.lastSelectedAt);
   if (Number.isFinite(last) && last > 0) return last;
@@ -92,7 +128,10 @@ export function addProject(rawPath) {
   const store = readStore();
   const key = normalizeKey(absPath);
   const existing = store.projects.find((entry) => normalizeKey(entry.path) === key);
-  if (existing) return existing;
+  if (existing) {
+    ensureProjectIdMarker(absPath, existing.name);
+    return existing;
+  }
   const entry = {
     name: basename(absPath) || absPath,
     path: absPath,
@@ -100,6 +139,7 @@ export function addProject(rawPath) {
   };
   store.projects.push(entry);
   writeStore(store);
+  ensureProjectIdMarker(absPath, entry.name);
   return entry;
 }
 
@@ -117,6 +157,7 @@ export function touchProjectSelected(rawPath) {
   if (!entry) return null;
   entry.lastSelectedAt = Date.now();
   writeStore(store);
+  ensureProjectIdMarker(absPath, entry.name);
   return entry;
 }
 

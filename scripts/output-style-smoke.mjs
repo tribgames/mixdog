@@ -48,28 +48,34 @@ function assertCleanOutput(name, value, { maxLines = 3, maxBullets = 3, allowedL
 const defaultStyle = readFileSync(join(root, 'src', 'output-styles', 'default.md'), 'utf8');
 for (const required of [
   'name: default',
-  'Be short and direct.',
-  'Lead with the answer or action',
-  'For code work, report what changed and decisive verification',
-  'Relax brevity for security',
-]) {
-  assert(defaultStyle.includes(required), `default.md missing: ${required}`);
-}
-assert(!defaultStyle.includes('Claude Code-compact'), 'default.md must not reference the old compact style name');
-assert(!defaultStyle.includes('Hard cap user-visible replies'), 'default.md must not hard-cap replies to two short sentences');
-assert(!defaultStyle.includes('Default final reports use 2-3 flat bullets'), 'default.md must not remain the report preset');
-
-const simpleStyle = readFileSync(join(root, 'src', 'output-styles', 'simple.md'), 'utf8');
-for (const required of [
-  'name: simple',
   'Concise engineering summaries',
+  'Mixdog default — concise engineering summaries',
   'Use labels such as',
   '`바뀐 점`, `확인한 것`,',
   'Synthesize agent or retrieval results',
   'Do not hide blockers',
 ]) {
+  assert(defaultStyle.includes(required), `default.md missing: ${required}`);
+}
+assert(!defaultStyle.includes('Claude Code-compact'), 'default.md must not reference the old compact style name');
+assert(!defaultStyle.includes('Hard cap user-visible replies'), 'default.md must not hard-cap replies to two short sentences');
+assert(!defaultStyle.includes('Be short and direct.'), 'default.md must not keep the old generic concise preset');
+assert(!defaultStyle.includes('Practical concise — outcome-first'), 'default.md must not use the simple preset body');
+
+const simpleStyle = readFileSync(join(root, 'src', 'output-styles', 'simple.md'), 'utf8');
+for (const required of [
+  'name: simple',
+  'Outcome-first concise handoffs for coding work',
+  'Practical concise — outcome-first handoffs',
+  'file_path:line_number',
+  'controlled detail',
+  'Synthesize agent or retrieval results',
+  'Do not hide blockers',
+  'if verification was',
+]) {
   assert(simpleStyle.includes(required), `simple.md missing: ${required}`);
 }
+assert(!simpleStyle.includes('Mixdog default — concise engineering summaries'), 'simple.md must not duplicate default preset body');
 for (const [name, style] of Object.entries({
   default: defaultStyle,
   simple: simpleStyle,
@@ -95,7 +101,7 @@ try {
   writeFileSync(join(dataDir, 'output-styles', 'custom-smoke.md'), '---\nname: custom-smoke\n---\n\n# Custom Output Style\n\ncustom smoke style\n');
   const customRules = rulesBuilder.buildInjectionContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
   assert(customRules.includes('# Custom Output Style'), 'configured outputStyle must select custom style');
-  assert(!customRules.includes('Mixdog default — the standard concise tone'), 'custom outputStyle should not append default style');
+  assert(!customRules.includes('Mixdog default — concise engineering summaries'), 'custom outputStyle should not append default style');
   const profileMeta = rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
   assert(profileMeta.includes('Use "재영님" when directly addressing the user'), 'profile title must inject into Lead BP3 meta');
   assert(profileMeta.includes('Do not repeat it in routine progress updates or pre-tool preambles'), 'profile title must not encourage title in preambles');
@@ -106,11 +112,11 @@ try {
 }
 
 const goodOutputs = {
-  explanation: '기본 출력은 간단 질문에 1-2문장으로 답하고, 작업 보고는 근거가 있는 짧은 bullet로 정리합니다.',
-  implementation: '- 바뀐 점: default 출력 스타일을 2-3개 플랫 bullet 중심으로 복구했습니다.\n- 확인한 것: `npm run smoke:output`이 예시 응답 모양을 검증합니다.',
-  crowded: '- 바뀐 점: default 스타일은 필요한 내용을 자르지 않고 2-3개 항목으로 나눕니다.\n- 확인한 것: 상세/후보 요청이 있을 때만 목록을 더 펼칩니다.',
+  explanation: '기본 출력은 결과 한 줄과 근거 한 가지로 끝내고, 최종 보고만 짧은 bullet 라벨을 씁니다.',
+  implementation: '- 바뀐 점: `src/output-styles/default.md`에 이전 simple 프리셋을 반영했습니다.\n- 확인한 것: `node scripts/output-style-smoke.mjs`를 실행했습니다.',
+  crowded: '- 바뀐 점: default는 요약 라벨 보고, simple은 handoff용 controlled detail을 씁니다.\n- 확인한 것: smoke 예시가 compact guardrail을 유지합니다.',
   blocker: '`src/output-styles/default.md`를 찾을 수 없어 변경이 막혔습니다.',
-  semicolon: '`default.md`를 다듬었고; 출력 스모크가 예시 응답 모양을 검증합니다.',
+  semicolon: '`default.md`를 갱신했고; 출력 스모크가 예시 응답 모양을 검증합니다.',
 };
 for (const [name, output] of Object.entries(goodOutputs)) assertCleanOutput(name, output, { allowedLabels: DEFAULT_REPORT_LABELS });
 

@@ -8,7 +8,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text } from 'ink';
-import { canonicalModelDisplay, shortenModelName } from '../../ui/model-display.mjs';
+import { displayModelName, shortenModelName } from '../../ui/model-display.mjs';
 import { theme } from '../theme.mjs';
 import {
   normalizeStatuslineAnsi,
@@ -318,16 +318,33 @@ function localStatusLineL2({
   return l2Parts.length ? l2Parts.join(segSep) : '';
 }
 
+// Invert localFormatElapsed (`Xs`, `Xm Ys`, `Xh Ym Zs`, `Xd Yh Zm`) back to ms so
+// a grafted shell segment's elapsed can ADVANCE in real time. Returns 0 for empty
+// or unparseable input. Each unit has a distinct suffix letter, so order doesn't
+// matter; the `m(?!s)` guard avoids mis-reading a stray `ms` (our format never
+// emits `ms`, but be safe).
+function parseElapsedLabelMs(label = '') {
+  const s = String(label).trim();
+  if (!s) return 0;
+  let ms = 0;
+  const d = /(\d+)\s*d/.exec(s); if (d) ms += Number(d[1]) * 86_400_000;
+  const h = /(\d+)\s*h/.exec(s); if (h) ms += Number(h[1]) * 3_600_000;
+  const m = /(\d+)\s*m(?!s)/.exec(s); if (m) ms += Number(m[1]) * 60_000;
+  const sec = /(\d+)\s*s/.exec(s); if (sec) ms += Number(sec[1]) * 1000;
+  return ms;
+}
+
 // Rebuild the Shell L2 segment(s) from a cached (normalized) L2 line so a graft
 // onto the cached L1 does not drop `Running N Shell(s) · …` for one ~150ms frame.
 // The instant-local path has NO disk access to shell jobs, so we cannot recompute
 // the segment from args; instead we parse the count + elapsed from the cached L2's
 // VISIBLE (ANSI-stripped) text and re-emit the segment in fresh themed SGR (with a
 // current spinner frame so it stays in sync with the fresh Agents/Explore/Search
-// segments). Elapsed text is reused verbatim from the cache (may lag one debounce;
-// corrected by the next full render). Returns an array of themed segment strings
-// (usually 0 or 1) in canonical tail order.
-function extractCachedShellSegments(cachedL2 = '', now = Date.now()) {
+// segments). The cached elapsed is ADVANCED by (now - capturedAt) so seconds keep
+// ticking between full renders with zero disk access; if capturedAt is 0 (cache
+// from before this change / wiped) we fall back to the cached text as-is. Returns
+// an array of themed segment strings (usually 0 or 1) in canonical tail order.
+function extractCachedShellSegments(cachedL2 = '', now = Date.now(), capturedAt = 0) {
   const visible = stripAnsi(cachedL2);
   if (!visible) return [];
   const { STATUS, SUBTLE, SUCCESS } = statusColors();
@@ -346,7 +363,15 @@ function extractCachedShellSegments(cachedL2 = '', now = Date.now()) {
     if (!m) continue;
     const n = Number(m[1]) || 0;
     if (n <= 0) continue;
-    const elapsed = (m[2] || '').trim();
+    // Advance the cached elapsed by (now - capturedAt) so seconds keep ticking
+    // between full renders — pure arithmetic, no disk I/O. Reformatted through
+    // localFormatElapsed so it matches the full-render shape (no visual jump).
+    // If there was no cached elapsed, keep it empty (don't fabricate one); if
+    // capturedAt is 0, fall back to the cached text verbatim (no advance).
+    const cachedElapsedText = (m[2] || '').trim();
+    const baseMs = parseElapsedLabelMs(cachedElapsedText);
+    const advancedMs = baseMs > 0 && capturedAt > 0 ? baseMs + Math.max(0, now - capturedAt) : baseMs;
+    const elapsed = advancedMs > 0 ? localFormatElapsed(advancedMs) : cachedElapsedText;
     const label = `Running ${n} Shell${n === 1 ? '' : 's'}`;
     out.push(`${spin} ${STATUS}${label}${RESET}${elapsedSuffix(elapsed)}`);
   }
@@ -369,7 +394,7 @@ function localBootStatusLine(args = {}) {
   const raw = String(model || '').trim();
   const { STATUS, SUBTLE } = statusColors();
   const display = shortenModelName(
-    canonicalModelDisplay(raw, provider) || raw || 'model',
+    displayModelName(raw, provider, ''),
     terminalColumns(),
   );
   const flags = [effort ? String(effort).toUpperCase() : '', fast === true ? 'FAST' : ''].filter(Boolean);
@@ -425,6 +450,9 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   const themeEpochRef = useRef(themeEpoch);
   const lastRawFullLineRef = useRef('');
   const lastRawFullLineCacheKeyRef = useRef('');
+  // When (Date.now()) the cached full line was captured, so a grafted shell
+  // segment can advance its elapsed by (now - capturedAt) without disk access.
+  const lastRawFullLineAtRef = useRef(0);
 
   const statuslineArgs = {
     sessionId, clientHostPid, provider, model, effort, fast, cwd, stats,
@@ -499,6 +527,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     if (routeChanged) {
       lastRawFullLineRef.current = '';
       lastRawFullLineCacheKeyRef.current = '';
+      lastRawFullLineAtRef.current = 0;
       bootFullDoneRef.current = false;
     }
     const snapLocalNow = themeChanged
@@ -534,7 +563,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
           // them (disk-based), so carry them as the canonical tail (Agents → Explore →
           // Searching → Shells). Rebuilt in themed SGR with a current spinner frame so
           // they animate in sync with the fresh segments.
-          const shellSegments = extractCachedShellSegments(cachedL2, now);
+          const shellSegments = extractCachedShellSegments(cachedL2, now, lastRawFullLineAtRef.current);
           const { SUBTLE } = statusColors();
           const localSegSep = ` ${SUBTLE}│${RESET} `;
           const grafted = [freshL2, ...shellSegments].filter(Boolean).join(localSegSep);
@@ -579,6 +608,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
           if (!isCurrentEffect() || s == null) return;
           lastRawFullLineCacheKeyRef.current = footerCacheKey;
           lastRawFullLineRef.current = String(s);
+          lastRawFullLineAtRef.current = Date.now();
           bootFullDoneRef.current = true;
           bootFullRetryBackoffMsRef.current = STATUSLINE_BOOT_FULL_RETRY_MS;
           bootFullNextAttemptAtRef.current = 0;

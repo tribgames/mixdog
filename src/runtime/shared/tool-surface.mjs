@@ -1,3 +1,5 @@
+import { displayModelName as sharedDisplayModelName } from '../../ui/model-display.mjs';
+
 const DEFAULT_SUMMARY_MAX = 160;
 // Semantic cap for collapsed agent/task card one-liners (spawn, send, response).
 export const AGENT_SURFACE_BRIEF_MAX = 120;
@@ -189,41 +191,19 @@ function displayAgentName(value) {
   return AGENT_DISPLAY_NAMES.get(key) || titleizeDisplayName(text);
 }
 
-export function displayModelName(model) {
+export function displayModelName(model, provider) {
   const text = String(model || '').trim();
   if (!text) return '';
-  const raw = text.includes('/') ? (text.split('/').filter(Boolean).at(-1) || text) : text;
-  const lower = raw.toLowerCase();
-  const newClaude = /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?/i.exec(lower);
-  if (newClaude) {
-    const family = titleizeDisplayName(newClaude[1]);
-    const minor = newClaude[3] && newClaude[3].length <= 2 ? `.${newClaude[3]}` : '';
-    return `${family} ${newClaude[2]}${minor}`;
-  }
-  const oldClaude = /^claude-(\d+)(?:-(\d+))?-(opus|sonnet|haiku)(?:-|$)/i.exec(lower);
-  if (oldClaude) {
-    const family = titleizeDisplayName(oldClaude[3]);
-    return `${family} ${oldClaude[1]}${oldClaude[2] ? `.${oldClaude[2]}` : ''}`;
-  }
-  if (lower.startsWith('gpt-')) {
-    return raw
-      .split('-')
-      .map((part, index) => (index === 0 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
-      .join('-');
-  }
-  if (lower.startsWith('grok-')) {
-    return raw
-      .split('-')
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ');
-  }
-  return raw;
+  const modelId = text.includes('/') ? (text.split('/').filter(Boolean).at(-1) || text) : text;
+  const shown = sharedDisplayModelName(modelId, provider);
+  return shown || modelId;
 }
 
 function bridgeAgentModelSummary(args) {
+  const provider = firstText(args.provider, args.providerId, args.provider_id);
   return compactParts([
     displayAgentName(firstText(args.agent, args.role, args.name, args.subagent_type)),
-    displayModelName(firstText(args.modelDisplay, args.model_display, args.displayModel, args.model)),
+    displayModelName(firstText(args.modelDisplay, args.model_display, args.displayModel, args.model), provider),
   ]);
 }
 

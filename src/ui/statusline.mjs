@@ -13,7 +13,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { bold, colorEnabled, rgb } from './ansi.mjs';
-import { canonicalModelDisplay, shortenModelName } from './model-display.mjs';
+import { displayModelName, shortenModelName } from './model-display.mjs';
 import { createSessionStats } from './session-stats.mjs';
 import { forEachSessionRuntime } from '../runtime/agent/orchestrator/session/manager.mjs';
 import { listHiddenRoleNames } from '../runtime/agent/orchestrator/internal-roles.mjs';
@@ -607,18 +607,14 @@ function mergeQuotaStatus(primary, fallback) {
 }
 
 function formatModelSegment({ provider, model, effort, fast, cols }) {
-  const modelName = shortenModelName(displayModelName(provider, model), cols);
+  const raw = String(model || '').trim();
+  const meta = getModelMetadataSync(raw, provider) || {};
+  const displayHint = String(meta.displayName || meta.display || meta.name || '').trim();
+  const modelName = shortenModelName(displayModelName(raw, provider, displayHint), cols);
   const bits = [`${B}${modelName}${R}`];
   if (effort) bits.push(`${B}${String(effort).toUpperCase()}${R}`);
   if (fast === true) bits.push(`${B}FAST${R}`);
   return bits.join(` ${D}·${R} `);
-}
-
-function displayModelName(provider, model) {
-  const raw = String(model || '').trim();
-  const meta = getModelMetadataSync(raw, provider) || {};
-  const display = String(meta.displayName || meta.display || meta.name || '').trim();
-  return display || canonicalModelDisplay(raw, provider) || raw || 'model';
 }
 
 /** Display label for context % (clamped to 100); raw pct still drives bar/color thresholds. */
