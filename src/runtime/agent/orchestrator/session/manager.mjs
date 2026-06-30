@@ -41,7 +41,7 @@ import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { appendAgentTrace } from '../agent-trace.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { maxMtimeRecursive } from '../cache-mtime.mjs';
-import { getHiddenRole, getRoleInstructionDir } from '../internal-roles.mjs';
+import { getHiddenRole, getRoleInstructionDir, listHiddenRoleNames } from '../internal-roles.mjs';
 import { DEFAULT_ACTIVITY_HEARTBEAT_MS } from '../stall-policy.mjs';
 import {
     buildGatewayLimits,
@@ -338,6 +338,108 @@ const READONLY_TOOL_NAMES = new Set([
     'grep',
     'read',
 ]);
+
+const AGENT_STRING_PERMISSION_READ_ALLOW = Object.freeze([
+    'code_graph',
+    'find',
+    'glob',
+    'list',
+    'grep',
+    'read',
+    'explore',
+    'search',
+    'web_fetch',
+]);
+
+function stringToolPermissionAllowList(toolPermission) {
+    if (toolPermission === 'read') return AGENT_STRING_PERMISSION_READ_ALLOW;
+    if (toolPermission === 'read-write') return AGENT_STRING_PERMISSION_READ_WRITE_ALLOW;
+    if (toolPermission === 'none') return [];
+    return null;
+}
+
+const AGENT_STRING_PERMISSION_READ_WRITE_ALLOW = Object.freeze([
+    'code_graph',
+    'find',
+    'glob',
+    'list',
+    'grep',
+    'read',
+    'apply_patch',
+    'explore',
+    'search',
+    'web_fetch',
+]);
+
+function applyToolPermissionNarrowing(tools, toolPermission, warnRole = null) {
+    if (toolPermission === 'none') return [];
+    const allowList = stringToolPermissionAllowList(toolPermission);
+    if (allowList) {
+        const allowSet = new Set(allowList.map((n) => String(n).toLowerCase()));
+        return tools.filter((t) => allowSet.has(String(t?.name || '').toLowerCase()));
+    }
+    if (toolPermission && typeof toolPermission === 'object') {
+        const allowSet = Array.isArray(toolPermission.allow) && toolPermission.allow.length > 0
+            ? new Set(toolPermission.allow.map(n => String(n).toLowerCase()))
+            : null;
+        const denySet = Array.isArray(toolPermission.deny) && toolPermission.deny.length > 0
+            ? new Set(toolPermission.deny.map(n => String(n).toLowerCase()))
+            : null;
+        if (allowSet || denySet) {
+            const filtered = tools.filter(t => {
+                const name = String(t?.name || '').toLowerCase();
+                if (denySet && denySet.has(name)) return false;
+                if (allowSet && !allowSet.has(name)) return false;
+                return true;
+            });
+            if (filtered.length === 0) {
+                process.stderr.write(`[session] WARN: role permission intersection produced 0 tools — failing closed (role=${warnRole || 'unknown'})\n`);
+            }
+            return filtered;
+        }
+    }
+    return tools;
+}
+
+function recursiveWrapperToolNameForPublicAgentRole(role) {
+    if (!role) return null;
+    const key = String(role).trim();
+    for (const hiddenName of listHiddenRoleNames()) {
+        const def = getHiddenRole(hiddenName);
+        const invokedBy = typeof def?.invokedBy === 'string' ? def.invokedBy.trim() : '';
+        if (invokedBy && invokedBy === key) return invokedBy;
+    }
+    return null;
+}
+
+function finalizeSessionToolList(tools, {
+    schemaAllowedTools = null,
+    disallowedTools = null,
+    ownerIsAgent = false,
+    resolvedRole = null,
+} = {}) {
+    let out = Array.isArray(tools) ? tools : [];
+    const hasCallerAllow = Array.isArray(schemaAllowedTools);
+    if (hasCallerAllow) {
+        const allowSet = new Set(schemaAllowedTools.map(n => String(n).toLowerCase()));
+        out = out.filter(t => allowSet.has(String(t?.name || '').toLowerCase()));
+    }
+    const callerDeny = Array.isArray(disallowedTools) ? disallowedTools.map(n => String(n)) : [];
+    if (callerDeny.length) {
+        const denySet = new Set(callerDeny.map(n => n.toLowerCase()));
+        out = out.filter(t => !denySet.has(String(t?.name || '').toLowerCase()));
+    }
+    const recursiveDeny = ownerIsAgent ? recursiveWrapperToolNameForPublicAgentRole(resolvedRole) : null;
+    if (recursiveDeny) {
+        const deny = recursiveDeny.toLowerCase();
+        out = out.filter(t => String(t?.name || '').toLowerCase() !== deny);
+    }
+    if (ownerIsAgent) {
+        out = out.filter(t => !t?.annotations?.agentHidden);
+        out = orderSessionTools(out);
+    }
+    return out;
+}
 
 function orderSessionTools(tools) {
     return tools.map((tool, index) => ({ tool, index }))
@@ -1489,30 +1591,8 @@ export function createSession(opts) {
     // intersection produces an empty set the permission config is broken —
     // fail closed (zero tools) rather than silently falling back to the full
     // preset, which would grant the role more surface than declared.
-    if (toolPermission === 'none') {
-        toolsForRouting = [];
-    } else if (toolPermission && typeof toolPermission === 'object') {
-        const allowSet = Array.isArray(toolPermission.allow) && toolPermission.allow.length > 0
-            ? new Set(toolPermission.allow.map(n => String(n).toLowerCase()))
-            : null;
-        const denySet = Array.isArray(toolPermission.deny) && toolPermission.deny.length > 0
-            ? new Set(toolPermission.deny.map(n => String(n).toLowerCase()))
-            : null;
-        if (allowSet || denySet) {
-            const filtered = toolsForRouting.filter(t => {
-                const name = String(t?.name || '').toLowerCase();
-                if (denySet && denySet.has(name)) return false;
-                if (allowSet && !allowSet.has(name)) return false;
-                return true;
-            });
-            // Fail-closed: an empty intersection means the permission config is
-            // misconfigured — do not silently fall back to the full preset.
-            toolsForRouting = filtered;
-            if (filtered.length === 0) {
-                process.stderr.write(`[session] WARN: role permission intersection produced 0 tools — failing closed (role=${opts.role || 'unknown'})
-`);
-            }
-        }
+    if (ownerIsAgent) {
+        toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, toolPermission, opts.role || null);
     }
 
     const { baseRules, stableSystemContext, sessionMarker, volatileTail } = composeSystemPrompt({
@@ -1575,49 +1655,13 @@ export function createSession(opts) {
         messages.push({ role: 'user', content: `Reference files:\n\n${fileContext}` });
         messages.push({ role: 'assistant', content: '.' });
     }
-    let tools = toolsForRouting;
-
-    // Schema filtering applied after schema build:
-    //   - opts.schemaAllowedTools : declarative hidden-role schema profile
-    //     allowlist for tiny specialist roles where one-shot tool routing
-    //     beats the shared-schema cache win.
-    //   - opts.disallowedTools : per-call caller override (Anthropic
-    //     BuiltInAgentDefinition pattern)
-    //   - annotations.agentHidden : declarative per-tool flag (tools.json
-    //     and internal tool defs). Pool A (Lead) still sees all tools.
-    //
     const hasCallerAllow = Array.isArray(opts.schemaAllowedTools);
-    const callerAllow = hasCallerAllow ? opts.schemaAllowedTools.map(n => String(n).toLowerCase()) : [];
-    if (hasCallerAllow) {
-        const allowSet = new Set(callerAllow);
-        const before = tools.length;
-        tools = tools.filter(t => allowSet.has(String(t?.name || '').toLowerCase()));
-        if (tools.length !== before && process.env.MIXDOG_DEBUG_SESSION_LOG) {
-            process.stderr.write(`[session] schemaAllowedTools=${callerAllow.join(',')} kept ${tools.length}/${before} tools\n`);
-        }
-    }
-    const callerDeny = Array.isArray(opts.disallowedTools) ? opts.disallowedTools.map(n => String(n)) : [];
-    if (callerDeny.length) {
-        const denySet = new Set(callerDeny);
-        const before = tools.length;
-        tools = tools.filter(t => !denySet.has(String(t?.name || '').toLowerCase()));
-        if (tools.length !== before && process.env.MIXDOG_DEBUG_SESSION_LOG) {
-            process.stderr.write(`[session] disallowedTools=${callerDeny.join(',')} stripped ${before - tools.length} tools\n`);
-        }
-    }
-    if (ownerIsAgent) {
-        const before = tools.length;
-        tools = tools.filter(t => !t?.annotations?.agentHidden);
-        if (tools.length !== before && process.env.MIXDOG_DEBUG_SESSION_LOG) {
-            process.stderr.write(`[session] agentHidden stripped ${before - tools.length} tools\n`);
-        }
-    }
-
-    // Agent tool canonicalization: keep route-sensitive tools in policy order
-    // while preserving deterministic MCP/skill order for BP1 shard stability.
-    if (ownerIsAgent) {
-        tools = orderSessionTools(tools);
-    }
+    const tools = finalizeSessionToolList(toolsForRouting, {
+        schemaAllowedTools: hasCallerAllow ? opts.schemaAllowedTools : null,
+        disallowedTools: opts.disallowedTools,
+        ownerIsAgent,
+        resolvedRole,
+    });
 
     // Unified-shard policy — no broad role-specific schema filter. Keep
     // agent schemas shared unless a hidden-role schema profile explicitly
@@ -1705,6 +1749,7 @@ export function createSession(opts) {
         // restrictions do not fragment the agent cache prefix.
         permission: permission || null,
         toolPermission: toolPermission || null,
+        schemaAllowedTools: hasCallerAllow ? opts.schemaAllowedTools.map((n) => String(n)) : null,
         // Origin tag written into every agent-trace usage row so analytics
         // can slice by (sourceType, sourceName) — e.g. maintenance/cycle1,
         // scheduler/daily-standup, webhook/github-push, lead/worker.
@@ -3576,14 +3621,23 @@ export async function resumeSession(sessionId, preset) {
     const oldTools = session.tools || [];
     const ownerIsAgent = isAgentOwner(session);
     const skills = ownerIsAgent ? [] : collectSkillsCached(session.cwd);
-    let toolSpec = preset || session.preset || 'full';
+    let toolSpec = ownerIsAgent ? 'full' : (preset || session.preset || 'full');
     if (session.profileId && _agentRuntimeApi?.getProfile) {
         try {
             const profile = _agentRuntimeApi.getProfile(session.profileId);
-            if (Array.isArray(profile?.tools)) toolSpec = profile.tools;
+            if (!ownerIsAgent && Array.isArray(profile?.tools)) toolSpec = profile.tools;
         } catch { /* ignore lookup failures, keep preset fallback */ }
     }
-    session.tools = resolveSessionTools(toolSpec, skills, { ownerIsAgentSession: ownerIsAgent });
+    let toolsForRouting = resolveSessionTools(toolSpec, skills, { ownerIsAgentSession: ownerIsAgent });
+    if (ownerIsAgent) {
+        toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, session.toolPermission, session.role || null);
+    }
+    session.tools = finalizeSessionToolList(toolsForRouting, {
+        schemaAllowedTools: Array.isArray(session.schemaAllowedTools) ? session.schemaAllowedTools : null,
+        disallowedTools: null,
+        ownerIsAgent,
+        resolvedRole: session.role || null,
+    });
     const newTools = session.tools;
     const missing = oldTools.filter(t => !newTools.find(n => n.name === t.name));
     if (missing.length) {

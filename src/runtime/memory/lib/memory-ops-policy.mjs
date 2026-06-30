@@ -7,6 +7,7 @@ function __mixdogMemoryLog(...args) {
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { mixdogHome } from '../../shared/plugin-paths.mjs'
 
 function normalizeBackfillWindow(value) {
   const normalized = String(value ?? 'all').trim().toLowerCase()
@@ -44,7 +45,7 @@ export async function countUnclassified(db) {
 }
 
 export function selectBackfillTranscripts({ sinceMs = null, limit = null, projectsRoot = null } = {}) {
-  const root = projectsRoot || path.join(os.homedir(), '.mixdog', 'projects')
+  const root = projectsRoot || path.join(mixdogHome(), 'projects')
   if (!fs.existsSync(root)) return []
   const files = []
   for (const d of fs.readdirSync(root)) {

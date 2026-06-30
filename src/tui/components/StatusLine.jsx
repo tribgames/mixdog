@@ -280,42 +280,17 @@ function localOldestWorkerStartMs(agentWorkers = [], agentJobs = []) {
   return Number.isFinite(oldest) ? oldest : 0;
 }
 
-function localBootStatusLine({
-  provider = '',
-  model = '',
-  effort = '',
-  fast = false,
-  stats = null,
-  contextWindow = 0,
-  displayContextWindow = 0,
-  rawContextWindow = 0,
-  compactBoundaryTokens = 0,
-  autoCompactTokenLimit = 0,
+// L2 assembly only — themed SGR (statusColors SUCCESS/STATUS/SUBTLE), already in
+// the active palette, so this must NOT be passed through normalizeStatusLine.
+// Returns the joined L2 string or '' when no active segment. Order:
+// Agents → Exploring → Searching → Shells. (Shell segment is disk-based and not
+// available to the instant-local path; intentionally omitted here.)
+function localStatusLineL2({
   agentWorkers = [],
   agentJobs = [],
   activeTools = null,
-} = {}) {
-  const raw = String(model || '').trim();
+} = {}, now = Date.now()) {
   const { STATUS, SUBTLE, SUCCESS } = statusColors();
-  const display = shortenModelName(
-    canonicalModelDisplay(raw, provider) || raw || 'model',
-    terminalColumns(),
-  );
-  const flags = [effort ? String(effort).toUpperCase() : '', fast === true ? 'FAST' : ''].filter(Boolean);
-  const modelBits = [display, ...flags].join(` ${SUBTLE}·${RESET} `);
-  const ctxPct = localContextPct({
-    provider,
-    stats,
-    contextWindow,
-    displayContextWindow,
-    rawContextWindow,
-    compactBoundaryTokens,
-    autoCompactTokenLimit,
-  });
-  const l1 = `${STATUS}${modelBits}${RESET} ${SUBTLE}│${RESET} ${localContextSegmentFromPct(ctxPct)}`;
-  // L2: per-segment circular-braille spinner, ` │ ` between segments, ` · Ns`
-  // elapsed within a segment. Order: Agents → Exploring → Searching → Shells.
-  const now = Date.now();
   const spin = `${SUCCESS}${localL2SpinnerFrame(now)}${RESET}`;
   const segSep = ` ${SUBTLE}│${RESET} `;
   const elapsedSuffix = (label) => (label ? ` ${SUBTLE}·${RESET} ${label}` : '');
@@ -340,8 +315,77 @@ function localBootStatusLine({
     const elapsed = localNum(searchInfo.startedAt) > 0 ? localFormatElapsed(now - localNum(searchInfo.startedAt)) : '';
     l2Parts.push(`${spin} ${STATUS}Searching${RESET}${elapsedSuffix(elapsed)}`);
   }
-  if (!l2Parts.length) return l1;
-  return `${l1}\n${l2Parts.join(segSep)}`;
+  return l2Parts.length ? l2Parts.join(segSep) : '';
+}
+
+// Rebuild the Shell L2 segment(s) from a cached (normalized) L2 line so a graft
+// onto the cached L1 does not drop `Running N Shell(s) · …` for one ~150ms frame.
+// The instant-local path has NO disk access to shell jobs, so we cannot recompute
+// the segment from args; instead we parse the count + elapsed from the cached L2's
+// VISIBLE (ANSI-stripped) text and re-emit the segment in fresh themed SGR (with a
+// current spinner frame so it stays in sync with the fresh Agents/Explore/Search
+// segments). Elapsed text is reused verbatim from the cache (may lag one debounce;
+// corrected by the next full render). Returns an array of themed segment strings
+// (usually 0 or 1) in canonical tail order.
+function extractCachedShellSegments(cachedL2 = '', now = Date.now()) {
+  const visible = stripAnsi(cachedL2);
+  if (!visible) return [];
+  const { STATUS, SUBTLE, SUCCESS } = statusColors();
+  const spin = `${SUCCESS}${localL2SpinnerFrame(now)}${RESET}`;
+  const elapsedSuffix = (label) => (label ? ` ${SUBTLE}·${RESET} ${label}` : '');
+  const out = [];
+  // Split the visible L2 on the segment separator ` │ ` and keep Shell segments.
+  for (const seg of visible.split(' │ ')) {
+    // Start-anchored so only a REAL standalone shell segment matches. A visible
+    // segment is `<spinner-glyph> Running N … [· elapsed]`, so allow the single
+    // leading spinner token via `^(?:\S+\s+)?` then pin `Running N Shell(s)` to
+    // that position. An Agents segment is `<glyph> Running N Agents (tags) …` →
+    // `Shells?` cannot match `Agents`; a tag-injected `Running 3 Shells · 9s`
+    // sits AFTER `Running N Agents (` (not at the pinned start) → no false match.
+    const m = /^(?:\S+\s+)?Running (\d+) Shells?\b(?:\s·\s(.+?))?\s*$/.exec(seg.trim());
+    if (!m) continue;
+    const n = Number(m[1]) || 0;
+    if (n <= 0) continue;
+    const elapsed = (m[2] || '').trim();
+    const label = `Running ${n} Shell${n === 1 ? '' : 's'}`;
+    out.push(`${spin} ${STATUS}${label}${RESET}${elapsedSuffix(elapsed)}`);
+  }
+  return out;
+}
+
+function localBootStatusLine(args = {}) {
+  const {
+    provider = '',
+    model = '',
+    effort = '',
+    fast = false,
+    stats = null,
+    contextWindow = 0,
+    displayContextWindow = 0,
+    rawContextWindow = 0,
+    compactBoundaryTokens = 0,
+    autoCompactTokenLimit = 0,
+  } = args;
+  const raw = String(model || '').trim();
+  const { STATUS, SUBTLE } = statusColors();
+  const display = shortenModelName(
+    canonicalModelDisplay(raw, provider) || raw || 'model',
+    terminalColumns(),
+  );
+  const flags = [effort ? String(effort).toUpperCase() : '', fast === true ? 'FAST' : ''].filter(Boolean);
+  const modelBits = [display, ...flags].join(` ${SUBTLE}·${RESET} `);
+  const ctxPct = localContextPct({
+    provider,
+    stats,
+    contextWindow,
+    displayContextWindow,
+    rawContextWindow,
+    compactBoundaryTokens,
+    autoCompactTokenLimit,
+  });
+  const l1 = `${STATUS}${modelBits}${RESET} ${SUBTLE}│${RESET} ${localContextSegmentFromPct(ctxPct)}`;
+  const l2 = localStatusLineL2(args);
+  return l2 ? `${l1}\n${l2}` : l1;
 }
 
 export function normalizeStatusLine(text) {
@@ -467,14 +511,40 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
       // do NOT require `=== footerCacheKey` here: footerCacheKey embeds agentRevision
       // + compact fields, so it differs on exactly the non-route churn we want to
       // ride through, and requiring equality would fall back to the usage-less
-      // localBootStatusLine and reintroduce the blink. A momentarily stale L2
-      // (agent count/elapsed) is acceptable; a blinking L1 usage segment is not —
-      // the full render below corrects the L2 almost immediately. Route switches
-      // (routeChanged) have already wiped the cache above, so they snap local.
+      // localBootStatusLine and reintroduce the blink. Route switches (routeChanged)
+      // have already wiped the cache above, so they snap local.
       const useCachedRaw = !routeChanged && Boolean(lastRawFullLineRef.current);
-      const localNext = useCachedRaw
-        ? normalizeStatusLine(lastRawFullLineRef.current)
-        : normalizeStatusLine(localBootStatusLine(args));
+      let localNext;
+      if (useCachedRaw) {
+        // Keep the cached L1 (usage segment preserved, re-toned via normalize) but
+        // graft a FRESH L2 from the CURRENT args so agent count/elapsed/explore/
+        // search are never stale even for one ~150ms frame. The cached full line
+        // is canonical-truecolor → normalizeStatusLine re-tones it to the active
+        // palette; the fresh L2 is built with statusColors() (already themed) so it
+        // MUST NOT be double-normalized. Fall back to localBootStatusLine if the
+        // cached line somehow normalizes to empty (never emit a blank).
+        const cachedNormalized = normalizeStatusLine(lastRawFullLineRef.current);
+        if (cachedNormalized) {
+          const [cachedL1, cachedL2 = ''] = cachedNormalized.split('\n');
+          const now = Date.now();
+          // Share ONE `now` across fresh + grafted-shell segments so every L2
+          // spinner shows the SAME frame even across a 120ms frame boundary.
+          const freshL2 = localStatusLineL2(args, now); // already themed — do NOT normalize
+          // Preserve the cached L2's Shell segment(s): the local path can't recompute
+          // them (disk-based), so carry them as the canonical tail (Agents → Explore →
+          // Searching → Shells). Rebuilt in themed SGR with a current spinner frame so
+          // they animate in sync with the fresh segments.
+          const shellSegments = extractCachedShellSegments(cachedL2, now);
+          const { SUBTLE } = statusColors();
+          const localSegSep = ` ${SUBTLE}│${RESET} `;
+          const grafted = [freshL2, ...shellSegments].filter(Boolean).join(localSegSep);
+          localNext = grafted ? `${cachedL1}\n${grafted}` : cachedL1;
+        } else {
+          localNext = normalizeStatusLine(localBootStatusLine(args));
+        }
+      } else {
+        localNext = normalizeStatusLine(localBootStatusLine(args));
+      }
       if (localNext) setLine((prev) => (prev === localNext ? prev : localNext));
     }
     lastImmediateArgsRef.current = {

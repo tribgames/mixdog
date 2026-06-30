@@ -53,7 +53,6 @@ import { formatDuration } from './time-format.mjs';
 import {
   listProjects,
   addProject,
-  touchProjectSelected,
   renameProject,
   isDirectory,
   pathExists,
@@ -1551,7 +1550,14 @@ export function App({ store, initialStatusLine = '' }) {
     }
     const currentPath = String(state.cwd || process.cwd() || '');
     const items = [];
-    // Registered projects (store order via listProjects).
+    // Row 1: the implicit current-directory shortcut (not persisted).
+    items.push({
+      value: '__use_current__',
+      label: 'Current Path',
+      meta: currentPath,
+      _action: 'current',
+    });
+    // Registered projects.
     for (const project of projects) {
       if (!project?.path) continue;
       items.push({
@@ -1561,13 +1567,6 @@ export function App({ store, initialStatusLine = '' }) {
         _project: project,
       });
     }
-    // Last row: implicit current-directory shortcut (not persisted).
-    items.push({
-      value: '__use_current__',
-      label: 'Current Path',
-      meta: currentPath,
-      _action: 'current',
-    });
     return {
       kind: 'project',
       title: 'Project',
@@ -2991,7 +2990,6 @@ export function App({ store, initialStatusLine = '' }) {
     const modelPickerRequest = ++modelPickerRequestRef.current;
     let modelPickerClosed = false;
     let activeModelProvider = null;
-    let providerListHighlightProvider = null;
     const isActiveModelPicker = () => !modelPickerClosed && modelPickerRequestRef.current === modelPickerRequest;
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     const returnLabel = String(options.returnLabel || 'Agents');
@@ -3053,11 +3051,7 @@ export function App({ store, initialStatusLine = '' }) {
       effort: state.effort,
       fast: state.fast,
     };
-    const renderModelPicker = (renderOptions = {}) => {
-      if (renderOptions.highlightProvider) {
-        providerListHighlightProvider = renderOptions.highlightProvider;
-      }
-      const highlightProvider = renderOptions.highlightProvider || providerListHighlightProvider || null;
+    const renderModelPicker = () => {
       activeModelProvider = null;
       const openProviderModelsPicker = (provider) => {
         if (!provider) return;
@@ -3229,13 +3223,6 @@ export function App({ store, initialStatusLine = '' }) {
             .catch((e) => store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error'));
         };
         const renderProviderModels = () => {
-          const providerModelItems = buildProviderModelItems(models, provider, activeRoute);
-          const providerModelInitialIndex = Math.max(
-            0,
-            providerModelItems.findIndex(
-              (item) => item._provider === activeRoute?.provider && item._modelId === activeRoute?.model,
-            ),
-          );
           setPicker({
             title: providerDisplayName(provider),
             description: options.modelDescription || 'Select a model. Adjust Effort with ←/→.',
@@ -3244,9 +3231,7 @@ export function App({ store, initialStatusLine = '' }) {
               ? `↑/↓ Select · ←/→ Effort · Tab Fast · Enter Save · Esc ${returnLabel}`
               : '↑/↓ Select · ←/→ Effort · Tab Fast · Enter Save · Esc Back',
             indexMode: 'always',
-            initialIndex: providerModelInitialIndex,
-            pickerKey: `model-picker:provider-models:${provider}`,
-            items: providerModelItems,
+            items: buildProviderModelItems(models, provider, activeRoute),
             onSelect: (_value, item) => applyModel(item),
             onLeft: (item) => {
               if (item?._model) cycleEffort(item._model, -1);
@@ -3259,18 +3244,13 @@ export function App({ store, initialStatusLine = '' }) {
             },
             onCancel: () => {
               if (returnOnNestedCancel && returnTo) cancelModelPicker();
-              else renderModelPicker({ highlightProvider: provider });
+              else renderModelPicker();
             },
           });
         };
         renderProviderModels();
       };
       const providerItems = buildModelProviderItems(models, activeRoute);
-      const providerHighlight = highlightProvider || activeRoute?.provider || null;
-      const providerInitialIndex = Math.max(
-        0,
-        providerItems.findIndex((item) => item._provider === providerHighlight),
-      );
       setPicker({
         title: options.title || 'Model',
         description: options.providerDescription || 'Choose a provider.',
@@ -3278,14 +3258,9 @@ export function App({ store, initialStatusLine = '' }) {
         indexMode: 'always',
         labelWidth: 18,
         metaWidth: 20,
-        initialIndex: providerInitialIndex,
-        pickerKey: `model-picker:providers:${providerHighlight || 'default'}`,
         items: providerItems,
         onSelect: (_value, item) => {
           if (item?._provider) openProviderModelsPicker(item._provider);
-        },
-        onHighlight: (_value, item) => {
-          if (item?._provider) providerListHighlightProvider = item._provider;
         },
         onCancel: cancelModelPicker,
       });
@@ -4396,8 +4371,6 @@ export function App({ store, initialStatusLine = '' }) {
       description: options.description || 'Choose a provider to configure.',
       labelWidth: 18,
       metaWidth: 10,
-      pickerKey: 'providers-loading',
-      initialIndex: 0,
       items: [{
         value: 'checking',
         label: 'Checking Providers',
@@ -4490,17 +4463,6 @@ export function App({ store, initialStatusLine = '' }) {
     });
     items.push(...providerItems);
 
-    const rememberProviderSelection = (providerItem) => {
-      if (!providerItem?.value) return;
-      options.highlightProviderValue = providerItem.value;
-    };
-    const providerMainInitialIndex = () => {
-      const value = options.highlightProviderValue;
-      if (!value) return 0;
-      const idx = items.findIndex((item) => item.value === value);
-      return idx >= 0 ? idx : 0;
-    };
-
     const reopenProviders = () => {
       void openProviderSetupPicker(options);
     };
@@ -4521,7 +4483,6 @@ export function App({ store, initialStatusLine = '' }) {
       });
     };
     const openApiProviderActions = (providerItem) => {
-      rememberProviderSelection(providerItem);
       const provider = providerItem._provider || {};
       const hasAuth = providerItem._authenticated || provider.authenticated;
       const hasStoredKey = provider.stored || (!provider.env && hasAuth);
@@ -4547,8 +4508,6 @@ export function App({ store, initialStatusLine = '' }) {
         help: '↑/↓ Select · Enter Choose · Esc Providers',
         indexMode: 'always',
         labelWidth: 22,
-        pickerKey: `providers-action:${providerItem.value}`,
-        initialIndex: 0,
         items: apiActions,
         onSelect: (_detailValue, detail) => {
           setPicker(null);
@@ -4598,8 +4557,6 @@ export function App({ store, initialStatusLine = '' }) {
           indexMode: 'never',
           labelWidth: 22,
           metaWidth: 12,
-          pickerKey: `providers-oauth-progress:${providerItem.value}`,
-          initialIndex: 0,
           items: actions,
           onSelect: (_value, item) => {
             if (item?._action === 'back') onBack();
@@ -4617,8 +4574,6 @@ export function App({ store, initialStatusLine = '' }) {
           indexMode: 'never',
           labelWidth: 22,
           metaWidth: 12,
-          pickerKey: `providers-oauth-result:${providerItem.value}:${ok ? 'ok' : 'fail'}`,
-          initialIndex: 0,
           items: [{
             value: ok ? 'success' : 'back',
             label: ok ? 'Success' : 'Back',
@@ -4711,7 +4666,6 @@ export function App({ store, initialStatusLine = '' }) {
         });
     };
     const openOAuthProviderActions = (providerItem) => {
-      rememberProviderSelection(providerItem);
       const provider = providerItem._provider || {};
       const hasAuth = providerItem._authenticated || provider.authenticated;
       const oauthActions = [];
@@ -4736,8 +4690,6 @@ export function App({ store, initialStatusLine = '' }) {
         help: '↑/↓ Select · Enter Choose · Esc Providers',
         indexMode: 'always',
         labelWidth: 22,
-        pickerKey: `providers-action:${providerItem.value}`,
-        initialIndex: 0,
         items: oauthActions,
         onSelect: (_detailValue, detail) => {
           if (detail._action === 'login-oauth') {
@@ -4759,7 +4711,6 @@ export function App({ store, initialStatusLine = '' }) {
     };
 
     const openLocalProviderActions = (providerItem) => {
-      rememberProviderSelection(providerItem);
       const provider = providerItem._provider || {};
       const localActions = [
         {
@@ -4784,8 +4735,6 @@ export function App({ store, initialStatusLine = '' }) {
         help: '↑/↓ Select · Enter Choose · Esc Providers',
         indexMode: 'always',
         labelWidth: 22,
-        pickerKey: `providers-action:${providerItem.value}`,
-        initialIndex: 0,
         items: localActions,
         onSelect: (_detailValue, detail) => {
           setPicker(null);
@@ -4822,12 +4771,7 @@ export function App({ store, initialStatusLine = '' }) {
       indexMode: 'always',
       labelWidth: 18,
       metaWidth: 12,
-      pickerKey: `providers-main:${options.highlightProviderValue || 'root'}`,
-      initialIndex: providerMainInitialIndex(),
       items,
-      onHighlight: (_value, item) => {
-        if (item?._providerId) rememberProviderSelection(item);
-      },
       onSelect: (_value, item) => {
         setPicker(null);
         if (item._type === 'continue') {
@@ -6248,7 +6192,6 @@ export function App({ store, initialStatusLine = '' }) {
         message: `Project set: ${projectNameFromPath(path)}`,
       });
       addProject(path);
-      touchProjectSelected(path);
     } catch (e) {
       store.pushNotice(`project switch failed: ${e?.message || e}`, 'error');
     }
@@ -6276,8 +6219,8 @@ export function App({ store, initialStatusLine = '' }) {
 
   // Open the project selector, styled like the Model picker: numbered rows with
   // a Name column + Path column. The list always opens (even when empty) and
-  // lists registered projects first, then a trailing "Current Path" shortcut.
-  // Creating a new project is available via the picker-level c shortcut.
+  // begins with a "Current Path" shortcut, then registered projects. Creating a
+  // new project is available via the picker-level c shortcut.
   const openProjectPicker = () => {
     setProviderPrompt(null);
     setChannelPrompt(null);
@@ -6323,6 +6266,10 @@ export function App({ store, initialStatusLine = '' }) {
         openSearchPicker();
         return true;
       case 'agents':
+        if (state.busy) {
+          store.pushNotice('wait for the current turn to finish before /agents', 'warn');
+          return false;
+        }
         openAgentsPicker();
         return true;
       case 'workflow':
@@ -7853,7 +7800,6 @@ export function App({ store, initialStatusLine = '' }) {
               />
             ) : picker ? (
               <Picker
-                key={picker.pickerKey}
                 items={picker.items}
                 onSelect={(value, item) => {
                   pickerOpenedFromEnterRef.current = true;

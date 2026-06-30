@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from "fs";
 import { execFileSync } from "child_process";
 import { basename, join, resolve } from "path";
 import { homedir } from "os";
+import { mixdogHome } from "../../shared/plugin-paths.mjs";
 
 function cwdToProjectSlug(cwd) {
   return resolve(cwd).replace(/\\/g, "/").replace(/^([A-Za-z]):/, "$1-").replace(/\//g, "-");
@@ -41,7 +42,7 @@ function getParentPid(pid) {
   }
 }
 function readSessionRecord(pid) {
-  const sessionFile = join(homedir(), ".mixdog", "sessions", `${pid}.json`);
+  const sessionFile = join(mixdogHome(), "sessions", `${pid}.json`);
   try {
     const sessionFileStat = statSync(sessionFile);
     const session = JSON.parse(readFileSync(sessionFile, "utf8"));
@@ -77,7 +78,7 @@ function discoverCurrentClaudeSession() {
   return null;
 }
 function listInteractiveClaudeSessions() {
-  const sessionsDir = join(homedir(), ".mixdog", "sessions");
+  const sessionsDir = join(mixdogHome(), "sessions");
   try {
     return readdirSync(sessionsDir).filter((file) => file.endsWith(".json")).map((file) => parseInt(basename(file, ".json"), 10)).filter((pid) => Number.isFinite(pid)).map((pid) => readSessionRecord(pid)).filter(isInteractiveSession).sort((a, b) => {
       if (b.startedAt !== a.startedAt) return b.startedAt - a.startedAt;

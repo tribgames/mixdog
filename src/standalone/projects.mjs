@@ -5,7 +5,7 @@
  * There is NO git scanning and NO recent-history auto-import; only entries the
  * user creates appear here. Persisted as JSON at <MIXDOG_HOME>/projects.json.
  *
- * Data shape: { projects: [{ name, path, addedAt }] }
+ * Data shape: { projects: [{ name, path, addedAt, lastSelectedAt? }] }
  */
 import { homedir } from 'node:os';
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
@@ -40,6 +40,9 @@ function readStore() {
           name: String(entry.name || basename(entry.path) || entry.path),
           path: String(entry.path),
           addedAt: Number(entry.addedAt) || 0,
+          ...(Number(entry.lastSelectedAt) > 0
+            ? { lastSelectedAt: Number(entry.lastSelectedAt) }
+            : {}),
         })),
     };
   } catch {
@@ -58,10 +61,24 @@ function writeStore(store) {
   }
 }
 
-/** List registered projects (most recently added first). */
+function projectRecency(entry) {
+  const last = Number(entry?.lastSelectedAt);
+  if (Number.isFinite(last) && last > 0) return last;
+  return Number(entry?.addedAt) || 0;
+}
+
+function compareProjects(a, b) {
+  const byRecency = projectRecency(b) - projectRecency(a);
+  if (byRecency !== 0) return byRecency;
+  const byName = String(a.name).localeCompare(String(b.name));
+  if (byName !== 0) return byName;
+  return String(a.path).localeCompare(String(b.path));
+}
+
+/** List registered projects (most recently selected first; addedAt fallback). */
 export function listProjects() {
   const { projects } = readStore();
-  return projects.slice().sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+  return projects.slice().sort(compareProjects);
 }
 
 /**
@@ -82,6 +99,23 @@ export function addProject(rawPath) {
     addedAt: Date.now(),
   };
   store.projects.push(entry);
+  writeStore(store);
+  return entry;
+}
+
+/**
+ * Mark an existing registered project as selected (updates lastSelectedAt).
+ * Does not register missing paths; use addProject for that. Returns the updated
+ * entry, or null when no matching project exists.
+ */
+export function touchProjectSelected(rawPath) {
+  const absPath = toAbsolute(rawPath);
+  if (!absPath) return null;
+  const store = readStore();
+  const key = normalizeKey(absPath);
+  const entry = store.projects.find((item) => normalizeKey(item.path) === key);
+  if (!entry) return null;
+  entry.lastSelectedAt = Date.now();
   writeStore(store);
   return entry;
 }

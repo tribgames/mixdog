@@ -109,7 +109,7 @@ import { listCore, addCore, editCore, deleteCore, compactCoreIds, CORE_SUMMARY_M
 import { resolveProjectId, resolveProjectScope } from './lib/project-id-resolver.mjs'
 import { openTraceDatabase, closeTraceDatabase, insertTraceEvents, enqueueTraceEvents, insertAgentCalls, registerTraceExitDrain } from './lib/trace-store.mjs'
 import { updateJsonAtomicSync, writeJsonAtomicSync } from '../shared/atomic-file.mjs'
-import { resolvePluginData } from '../shared/plugin-paths.mjs'
+import { resolvePluginData, mixdogHome } from '../shared/plugin-paths.mjs'
 const IS_MEMORY_ENTRY = !!process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
 const USE_ARG_DATA_DIR = IS_MEMORY_ENTRY || process.env.MIXDOG_WORKER_MODE === '1'
 const DATA_DIR = process.env.MIXDOG_DATA_DIR || (USE_ARG_DATA_DIR ? process.argv[2] : '') || resolvePluginData()
@@ -979,7 +979,7 @@ function cwdFromTranscriptPath(fp) {
 }
 
 function _initTranscriptWatcher() {
-  const projectsRoot = path.join(os.homedir(), '.mixdog', 'projects')
+  const projectsRoot = path.join(mixdogHome(), 'projects')
   const SAFETY_POLL_MS = 5 * 60_000
   const DEBOUNCE_MS = 500
   const watchedFiles = new Map()

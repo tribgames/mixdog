@@ -865,6 +865,7 @@ if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;
 setInternalToolsProvider({
   executor: async () => 'tool-smoke internal tool',
   tools: [
+    EXPLORE_TOOL,
     { name: 'memory', description: 'Destructive memory surface.', inputSchema: { type: 'object', properties: {} }, annotations: { destructiveHint: true } },
     { name: 'recall', description: 'Memory recall surface.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },
     { name: 'search', description: 'Web search surface.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true, openWorldHint: true } },
@@ -937,8 +938,8 @@ setInternalToolsProvider({
         throw new Error(`agent system layers must carry BP1 tool policy and BP2 role rules: ${systemVisible.slice(0, 1200)}`);
       }
       const agentSkillToolNames = (agentSkillSession.tools || []).map((tool) => tool?.name).filter(Boolean);
-      if (!agentSkillToolNames.includes('Skill')) {
-        throw new Error(`agent must expose the frozen Skill loader (schema-stable across roles/cwds): ${agentSkillToolNames.join(', ')}`);
+      if (agentSkillToolNames.includes('Skill')) {
+        throw new Error(`read-write agent schema must omit Skill loader: ${agentSkillToolNames.join(', ')}`);
       }
     } finally {
       closeSession(agentSkillSession.id, 'tool-smoke');
@@ -1061,8 +1062,8 @@ setInternalToolsProvider({
     const writeTools = (writeAgentSession.tools || []).map((tool) => tool?.name).filter(Boolean);
     const fullTools = (fullAgentSession.tools || []).map((tool) => tool?.name).filter(Boolean);
     const publicExploreTools = (publicExploreSession.tools || []).map((tool) => tool?.name).filter(Boolean);
-    const expectedReadTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'explore'];
-    const expectedWriteTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore'];
+    const expectedReadTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'explore', 'search', 'web_fetch'];
+    const expectedWriteTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore', 'search', 'web_fetch'];
     if (JSON.stringify(readTools) !== JSON.stringify(expectedReadTools)) {
       throw new Error(`read agent schema must be fixed allow-list: expected=${expectedReadTools.join(', ')} actual=${readTools.join(', ')}`);
     }
@@ -1093,7 +1094,7 @@ setInternalToolsProvider({
         throw new Error(`read-write agent schema must omit config/skill tool ${name}: write=${writeTools.join(', ')}`);
       }
     }
-    for (const name of ['memory', 'recall', 'search', 'reply', 'edit_message', 'web_fetch', 'reload_config', 'inject_command']) {
+    for (const name of ['memory', 'recall', 'reply', 'edit_message', 'reload_config', 'inject_command']) {
       if (readTools.includes(name) || writeTools.includes(name)) {
         throw new Error(`read/read-write agent schema must not expose full-runtime internal tool ${name}: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
       }
@@ -1127,7 +1128,7 @@ setInternalToolsProvider({
   try {
     const resumed = await resumeSession(resumeAgentSession.id, 'full');
     const resumedTools = (resumed?.tools || []).map((tool) => tool?.name).filter(Boolean);
-    const expectedWriteTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore'];
+    const expectedWriteTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore', 'search', 'web_fetch'];
     if (JSON.stringify(resumedTools) !== JSON.stringify(expectedWriteTools)) {
       throw new Error(`resumed read-write agent schema must keep fixed allow-list: expected=${expectedWriteTools.join(', ')} actual=${resumedTools.join(', ')}`);
     }
@@ -1171,12 +1172,12 @@ setInternalToolsProvider({
   const hiddenRoles = JSON.parse(readFileSync(join(root, 'src', 'defaults', 'hidden-roles.json'), 'utf8')).roles || [];
   const hiddenPreset = { id: 'hidden-smoke', name: 'hidden-smoke', type: 'agent', provider: 'openai-oauth', model: 'tool-smoke-model', tools: 'full' };
   const hiddenRuntimeSpec = { scopeKey: 'hidden-role-smoke', lane: 'agent' };
-  const hiddenBadTools = new Set(['shell', 'task', 'diagnostics', 'open_config', 'Skill', 'memory', 'reply', 'edit_message', 'search', 'web_fetch', 'recall', 'reload_config', 'inject_command']);
+  const hiddenBadTools = new Set(['shell', 'task', 'diagnostics', 'open_config', 'Skill', 'memory', 'reply', 'edit_message', 'recall', 'reload_config', 'inject_command']);
   const expectedForHiddenRole = (permission, schemaAllowedTools) => {
     if (Array.isArray(schemaAllowedTools)) return schemaAllowedTools.slice();
     if (permission === 'none') return [];
-    if (permission === 'read') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'explore'];
-    if (permission === 'read-write') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore'];
+    if (permission === 'read') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'explore', 'search', 'web_fetch'];
+    if (permission === 'read-write') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore', 'search', 'web_fetch'];
     return null;
   };
   for (const entry of hiddenRoles) {

@@ -569,7 +569,7 @@ function clampFailureCount(errorCount, groupCount, isError) {
 }
 
 function toolStatusColor({ pending, groupCount, failedCount, terminalStatus = '' }) {
-  if (pending) return theme.subtle;
+  if (pending) return theme.success;
   const status = normalizeTerminalStatus(terminalStatus);
   if (status === 'failed') return theme.error;
   if (status === 'cancelled') return theme.warning || theme.mixdogOrange || theme.subtle;
@@ -717,7 +717,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
       detailText = '';
     }
 
-    const dotColor = (pending || !hasResult) ? theme.subtle : statusColor;
+    const dotColor = !hasResult && !pending ? theme.subtle : statusColor;
     const dotText = pending && !blinkExpired && !blinkOn ? ' ' : TURN_MARKER;
     const gutter = 2;
     const showHeaderExpandHint = hasRawResult;
@@ -907,7 +907,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     visibleDetailLines = agentHeaderFailure && !agentSurfaceBrief ? [] : [agentDetailLine];
   }
   const finalStatusColor = toolStatusColor({ pending, groupCount, failedCount, terminalStatus });
-  const dotColor = isShellSurface && shellStatus === 'running' ? theme.subtle : finalStatusColor;
+  const dotColor = finalStatusColor;
   const dotText = pending && !blinkExpired && !blinkOn ? ' ' : TURN_MARKER;
   let labelText;
   if (isAgentResponse) labelText = agentResponseTitle(parsedArgs);

@@ -6,9 +6,10 @@ import {
   discoverCurrentClaudeSession,
   listInteractiveClaudeSessions
 } from "./session-discovery.mjs";
+import { mixdogHome } from "../../shared/plugin-paths.mjs";
 
 function resolveTranscriptForSession(session) {
-  const projectsDir = join(homedir(), ".mixdog", "projects");
+  const projectsDir = join(mixdogHome(), "projects");
   const projectSlug = cwdToProjectSlug(process.cwd());
   const directTranscript = session.transcriptPath ? resolve(session.transcriptPath) : "";
   if (directTranscript && existsSync(directTranscript)) {
@@ -49,7 +50,7 @@ function resolveTranscriptForSession(session) {
   };
 }
 function findLatestTranscriptByMtime(cwd) {
-  const projectsDir = join(homedir(), ".mixdog", "projects");
+  const projectsDir = join(mixdogHome(), "projects");
   const slug = cwdToProjectSlug(cwd ?? process.cwd());
   const projectDir = join(projectsDir, slug);
   try {
