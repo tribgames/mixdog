@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { maxMtimeRecursive } from '../cache-mtime.mjs';
 import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import {
@@ -121,6 +121,20 @@ export function loadSkillContent(name, cwd) {
     return readSafe(skill.filePath);
 }
 
+/**
+ * Load full skill content plus its on-disk directory (for base-dir + ${MIXDOG_SKILL_DIR}).
+ */
+export function loadSkillResource(name, cwd) {
+    const skills = collectSkillsCached(cwd);
+    const skill = skills.find(s => s.name === name);
+    if (!skill)
+        return null;
+    const content = readSafe(skill.filePath);
+    if (content == null)
+        return null;
+    return { content, dir: dirname(skill.filePath), filePath: skill.filePath };
+}
+
 function escapeSkillXmlText(value) {
     return String(value || '').replace(/[<>&]/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]));
 }
@@ -128,9 +142,17 @@ function escapeSkillXmlText(value) {
 /**
  * Wrap loaded SKILL.md body for Skill tool results (runtime + loop).
  */
-export function buildSkillResultEnvelope(name, content) {
+export function buildSkillResultEnvelope(name, content, skillDir) {
     const escapedName = escapeSkillXmlText(name);
-    return `<skill>\n<name>${escapedName}</name>\n${content}\n</skill>`;
+    let body = String(content == null ? '' : content);
+    let dirLine = '';
+    if (skillDir) {
+        const normDir = String(skillDir).replace(/\\/g, '/');
+        body = body.replace(/\$\{MIXDOG_SKILL_DIR\}/g, normDir);
+        const escapedDir = escapeSkillXmlText(normDir);
+        dirLine = `<base-dir>${escapedDir}</base-dir>\n`;
+    }
+    return `<skill>\n<name>${escapedName}</name>\n${dirLine}${body}\n</skill>`;
 }
 
 function compactSkillManifestText(value, max = 180) {

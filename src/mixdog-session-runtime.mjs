@@ -2941,16 +2941,16 @@ export async function createMixdogSessionRuntime({
   }
 
   function skillContent(name) {
-    const content = typeof contextMod.loadSkillContent === 'function'
-      ? contextMod.loadSkillContent(name, currentCwd)
+    const res = typeof contextMod.loadSkillResource === 'function'
+      ? contextMod.loadSkillResource(name, currentCwd)
       : null;
-    if (!content) throw new Error(`skill not found: ${name}`);
-    return { name, content };
+    if (!res) throw new Error(`skill not found: ${name}`);
+    return { name, content: res.content, dir: res.dir };
   }
 
   function skillToolContent(name) {
     const skill = skillContent(name);
-    return contextMod.buildSkillResultEnvelope(skill.name, skill.content);
+    return contextMod.buildSkillResultEnvelope(skill.name, skill.content, skill.dir);
   }
 
   function addProjectSkill(input = {}) {

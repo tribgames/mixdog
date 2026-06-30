@@ -4,7 +4,7 @@ import { canonicalizeBuiltinToolName, executeBuiltinTool, formatUnknownBuiltinTo
 import { executeBashSessionTool } from '../tools/bash-session.mjs';
 import { executePatchTool, takeApplyPatchUiDiff } from '../tools/patch.mjs';
 import { executeInternalTool, isInternalTool } from '../internal-tools.mjs';
-import { collectSkillsCached, loadSkillContent, buildSkillResultEnvelope } from '../context/collect.mjs';
+import { collectSkillsCached, loadSkillResource, buildSkillResultEnvelope } from '../context/collect.mjs';
 import { traceAgentLoop, traceAgentTool, traceAgentToolFailure, traceAgentCompact, estimateProviderPayloadBytes, messagePrefixHash } from '../agent-trace.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { markSessionToolCall, updateSessionStage, SessionClosedError, getSessionAbortSignal, enqueuePendingMessage, bumpUsageMetricsEpoch } from './manager.mjs';
@@ -947,9 +947,9 @@ function buildSkillsListResponse(cwd) {
 }
 function viewSkill(cwd, name) {
     if (!name) return 'Error: skill name is required';
-    const content = loadSkillContent(name, cwd);
-    if (!content) return `Error: skill "${name}" not found`;
-    return buildSkillResultEnvelope(name, content);
+    const res = loadSkillResource(name, cwd);
+    if (!res) return `Error: skill "${name}" not found`;
+    return buildSkillResultEnvelope(name, res.content, res.dir);
 }
 
 /** Normalize PostToolUse hook override values (legacy MCP text envelopes only). */
