@@ -786,6 +786,20 @@ function selectCompactionWindow(messages, budget, opts = {}) {
         break;
     }
 
+    if (opts.force === true && !previousSummary && tailStartIdx <= 0) {
+        if (indexedTurns.length >= 2) {
+            tailStartIdx = indexedTurns[1].start;
+        } else if (indexedTurns.length === 1) {
+            const onlyTurn = indexedTurns[0];
+            const splitIdx = splitTurnStartIndexForBudget(onlyTurn, recentBudget);
+            if (splitIdx > onlyTurn.start && splitIdx < onlyTurn.end) {
+                tailStartIdx = splitIdx;
+            } else if (onlyTurn.end > onlyTurn.start + 1) {
+                tailStartIdx = onlyTurn.start + 1;
+            }
+        }
+    }
+
     const head = live.slice(0, tailStartIdx);
     let tail = live.slice(tailStartIdx);
     tail = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(tail)));

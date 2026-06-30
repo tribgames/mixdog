@@ -581,6 +581,41 @@ function isPatchErrorText(text) {
   return /^Error:/i.test(String(text ?? '').trimStart());
 }
 
+// ── UI-only unified-diff side-channel ───────────────────────────────────────
+// apply_patch's MODEL-VISIBLE result stays the compact summary ("Applied 1
+// File (Native)\n  OK Modify path — +1 Line · -1 Line"). The standard unified
+// diff it builds internally (nativePatchStr) is stashed here, keyed by the
+// tool_use id, so the agent loop can attach it to the TUI tool-result message
+// as a UI-only field (never sent to the model). The TUI's expanded (ctrl+o)
+// raw view then colorizes it via the existing formatExpandedResult/diff path.
+// Size-capped per entry and FIFO-bounded so a huge patch (or a leaked entry
+// whose take() never ran) cannot grow the transcript item or this Map.
+const APPLY_PATCH_UI_DIFF_MAX_CHARS = 64 * 1024;
+const APPLY_PATCH_UI_DIFF_REGISTRY_MAX = 64;
+const _applyPatchUiDiffByCallId = new Map();
+
+function registerApplyPatchUiDiff(callId, diff) {
+  if (!callId || typeof diff !== 'string' || !diff.trim()) return;
+  let text = diff;
+  if (text.length > APPLY_PATCH_UI_DIFF_MAX_CHARS) {
+    text = `${text.slice(0, APPLY_PATCH_UI_DIFF_MAX_CHARS)}\n… [diff truncated for display]`;
+  }
+  if (_applyPatchUiDiffByCallId.size >= APPLY_PATCH_UI_DIFF_REGISTRY_MAX) {
+    const oldest = _applyPatchUiDiffByCallId.keys().next().value;
+    if (oldest !== undefined) _applyPatchUiDiffByCallId.delete(oldest);
+  }
+  _applyPatchUiDiffByCallId.set(callId, text);
+}
+
+// Consume (read + remove) the UI-only unified diff for a tool_use id. Returns
+// null when none was registered (error/rename-only/partial-fail/dry-skip).
+export function takeApplyPatchUiDiff(callId) {
+  if (!callId) return null;
+  const value = _applyPatchUiDiffByCallId.get(callId) || null;
+  if (value != null) _applyPatchUiDiffByCallId.delete(callId);
+  return value;
+}
+
 // Count how many source lines a hunk consumes vs produces so we can
 // surface a concise `lines_changed` figure without re-diffing.
 function countHunkChanges(hunks) {
@@ -2805,6 +2840,14 @@ async function apply_patch(args, cwd, options = {}) {
     const renameLines = formatV4ARenameSuccessLines(v4aRenameResults);
     if (renameLines.length > 0 && !isPatchErrorText(nativeResult)) {
       combined = `${renameLines.join('\n')}\n${nativeResult}`;
+    }
+    // UI-only: stash the standard unified diff (nativePatchStr) keyed by the
+    // tool_use id so the agent loop can attach it to the TUI tool-result for the
+    // expanded (ctrl+o) colored-diff view. NEVER added to the model-visible
+    // result string. Only on clean success — partial/failed cases surface as an
+    // Error card with the failure text instead.
+    if (!isPatchErrorText(combined) && options?.toolCallId) {
+      registerApplyPatchUiDiff(options.toolCallId, nativePatchStr);
     }
     if (!isPatchErrorText(combined) && rejectedV4AHunks.length > 0) {
       const tail = [

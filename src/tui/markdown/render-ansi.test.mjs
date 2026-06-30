@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import stripAnsi from 'strip-ansi';
+import { assistantBodyWidth } from './table-layout.mjs';
 import { renderTokenAnsiSegments, lexMarkdown, hasMarkdownSyntax } from './render-ansi.mjs';
 import { setThemeSetting } from '../theme.mjs';
 
-setThemeSetting('mixdog', { persist: false });
+setThemeSetting('basic', { persist: false });
 
 // Mirrors the streaming suffix the <Markdown trimPartialFences> path renders.
 const STREAMING = '```js\nconst x = 1;\n`';
@@ -54,6 +55,19 @@ test('closed code block renders lang label and body without fence markers', () =
   assert.ok(lines.some((l) => l.includes('const z = 3;')), 'body present');
   assert.ok(lines.some((l) => l.trim() === 'js'), 'language label present');
   assert.ok(!lines.some((l) => l.includes('```')), 'no literal fence markers');
+});
+
+test('renderTokenAnsiSegments width matches assistant body width for code pre-wrap', () => {
+  const long = 'z'.repeat(60);
+  const md = `\`\`\`js\n${long}\n\`\`\``;
+  const bodyWidth = assistantBodyWidth(40);
+  const atBody = renderTokenAnsiSegments(md, { width: bodyWidth });
+  const atDefault = renderTokenAnsiSegments(md, { width: 80 });
+  const bodyLines = (seg) => stripAnsi(seg.find((s) => s.token?.type === 'code').ansi)
+    .split('\n')
+    .filter((l) => l.startsWith('  '));
+  assert.ok(bodyLines(atBody).length > bodyLines(atDefault).length,
+    'narrow body width produces more wrapped code rows than width 80');
 });
 
 const PLAIN_PREFIX = 'x'.repeat(501);

@@ -37,12 +37,57 @@ async function loadMcpSdk() {
         import('@modelcontextprotocol/sdk/client/index.js'),
         import('@modelcontextprotocol/sdk/client/stdio.js'),
         import('@modelcontextprotocol/sdk/client/streamableHttp.js'),
-    ]).then(([clientMod, stdioMod, httpMod]) => ({
+        import('@modelcontextprotocol/sdk/client/sse.js'),
+        import('@modelcontextprotocol/sdk/client/websocket.js'),
+    ]).then(([clientMod, stdioMod, httpMod, sseMod, wsMod]) => ({
         Client: clientMod.Client,
         StdioClientTransport: stdioMod.StdioClientTransport,
         StreamableHTTPClientTransport: httpMod.StreamableHTTPClientTransport,
+        SSEClientTransport: sseMod.SSEClientTransport,
+        WebSocketClientTransport: wsMod.WebSocketClientTransport,
     }));
     return mcpSdkPromise;
+}
+/**
+ * Expand `${VAR}` and `${env:VAR}` references in string values using the
+ * provided env map (defaults to process.env). Recurses into arrays/objects.
+ * Unknown vars expand to an empty string. No shell execution.
+ */
+export function expandEnvVars(value, env = process.env) {
+    if (typeof value === 'string') {
+        return value.replace(/\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)\}/g, (_m, name) => {
+            const v = env?.[name];
+            return v == null ? '' : String(v);
+        });
+    }
+    if (Array.isArray(value)) {
+        return value.map((v) => expandEnvVars(v, env));
+    }
+    if (value && typeof value === 'object') {
+        const out = {};
+        for (const [k, v] of Object.entries(value)) {
+            out[k] = expandEnvVars(v, env);
+        }
+        return out;
+    }
+    return value;
+}
+/**
+ * Resolve the canonical transport kind for an MCP server config entry.
+ * Returns one of: 'autoDetect' | 'stdio' | 'http' | 'sse' | 'ws'.
+ * Throws when no transport can be determined.
+ */
+export function resolveMcpTransportKind(cfg) {
+    if (cfg?.autoDetect) return 'autoDetect';
+    if (cfg?.type != null && cfg.type !== '') {
+        let t = String(cfg.type).toLowerCase();
+        if (t === 'streamable-http' || t === 'streamablehttp') t = 'http';
+        if (t === 'stdio' || t === 'http' || t === 'sse' || t === 'ws') return t;
+    }
+    if (cfg?.transport === 'http') return 'http';
+    if (cfg?.command) return 'stdio';
+    if (cfg?.url) return 'http';
+    throw new Error(`Invalid config: need autoDetect, type (stdio/http/sse/ws), url (http), or command (stdio)`);
 }
 // --- Public API ---
 /**
@@ -92,11 +137,13 @@ export function getMcpServerStatus() {
             name: tool.name,
             description: tool.description || '',
         })),
-        transport: server.cfg?.autoDetect
-                ? 'autoDetect'
-                : server.cfg?.transport === 'http' || server.cfg?.url
-                    ? 'http'
-                    : 'stdio',
+        transport: (() => {
+            try {
+                return resolveMcpTransportKind(server.cfg);
+            } catch {
+                return 'stdio';
+            }
+        })(),
     }));
 }
 /**
@@ -275,11 +322,18 @@ export async function disconnectAll() {
     _invalidateMcpToolFieldMemo();
 }
 async function connectServer(name, cfg) {
-    const { Client, StdioClientTransport, StreamableHTTPClientTransport } = await loadMcpSdk();
+    const {
+        Client,
+        StdioClientTransport,
+        StreamableHTTPClientTransport,
+        SSEClientTransport,
+        WebSocketClientTransport,
+    } = await loadMcpSdk();
     const client = new Client({ name: `mixdog-agent/${name}`, version: '1.0.0' });
     let transport;
+    const kind = resolveMcpTransportKind(cfg);
     // Auto-detect: read port from a running service's port file
-    if (cfg.autoDetect) {
+    if (kind === 'autoDetect') {
         const spec = AUTO_DETECT_PORTS[cfg.autoDetect];
         if (!spec)
             throw new Error(`Unknown autoDetect target: "${cfg.autoDetect}"`);
@@ -314,16 +368,40 @@ async function connectServer(name, cfg) {
         transport = new StreamableHTTPClientTransport(new URL(url));
         mcpLog(`[mcp-client] Connecting "${name}" via autoDetect HTTP: ${url}\n`);
     }
-    else if (cfg.transport === 'http' && cfg.url) {
-        transport = new StreamableHTTPClientTransport(new URL(cfg.url));
-        mcpLog(`[mcp-client] Connecting "${name}" via HTTP: ${cfg.url}\n`);
+    else if (kind === 'http') {
+        const url = expandEnvVars(String(cfg.url ?? ''));
+        const headers = expandEnvVars(cfg.headers && typeof cfg.headers === 'object' ? cfg.headers : {});
+        const opts = (headers && Object.keys(headers).length > 0)
+            ? { requestInit: { headers } }
+            : undefined;
+        transport = opts
+            ? new StreamableHTTPClientTransport(new URL(url), opts)
+            : new StreamableHTTPClientTransport(new URL(url));
+        mcpLog(`[mcp-client] Connecting "${name}" via HTTP: ${url}\n`);
     }
-    else if (cfg.command) {
+    else if (kind === 'sse') {
+        const url = expandEnvVars(String(cfg.url ?? ''));
+        const headers = expandEnvVars(cfg.headers && typeof cfg.headers === 'object' ? cfg.headers : {});
+        const opts = (headers && Object.keys(headers).length > 0)
+            ? { requestInit: { headers } }
+            : undefined;
+        transport = opts
+            ? new SSEClientTransport(new URL(url), opts)
+            : new SSEClientTransport(new URL(url));
+        mcpLog(`[mcp-client] Connecting "${name}" via SSE: ${url}\n`);
+    }
+    else if (kind === 'ws') {
+        // WebSocketClientTransport ctor takes only a URL; headers are ignored.
+        const url = expandEnvVars(String(cfg.url ?? ''));
+        transport = new WebSocketClientTransport(new URL(url));
+        mcpLog(`[mcp-client] Connecting "${name}" via WebSocket: ${url}\n`);
+    }
+    else if (kind === 'stdio') {
         transport = new StdioClientTransport({
-            command: cfg.command,
-            args: cfg.args,
+            command: expandEnvVars(String(cfg.command ?? '')),
+            args: Array.isArray(cfg.args) ? expandEnvVars(cfg.args) : cfg.args,
             cwd: cfg.cwd,
-            env: { ...process.env, ...cfg.env },
+            env: { ...process.env, ...expandEnvVars(cfg.env && typeof cfg.env === 'object' ? cfg.env : {}) },
             stderr: cfg.stderr ?? 'pipe',
         });
         transport.stderr?.on?.('data', (chunk) => {
@@ -331,7 +409,7 @@ async function connectServer(name, cfg) {
         });
     }
     else {
-        throw new Error(`Invalid config for "${name}": need autoDetect, url (http), or command (stdio)`);
+        throw new Error(`Invalid config for "${name}": need autoDetect, type (stdio/http/sse/ws), url (http), or command (stdio)`);
     }
     await client.connect(transport);
     const toolsResult = await client.listTools();

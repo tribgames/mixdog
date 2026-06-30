@@ -4,7 +4,6 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import fs from 'fs'
-import path from 'path'
 import {
   ensureDataDir,
   getRequestTimeoutMs,
@@ -32,7 +31,7 @@ import {
   loadUsageState,
   updateProviderState,
 } from './lib/state.mjs'
-import { assertPublicUrl, crawlSite, getScrapeCapabilities, pinnedFetch, scrapeUrls } from './lib/web-tools.mjs'
+import { getScrapeCapabilities, scrapeUrls } from './lib/web-tools.mjs'
 import { formatResponse } from './lib/formatter.mjs'
 ensureDataDir()
 
@@ -103,10 +102,6 @@ function formattedText(tool, payload) {
   return {
     content: [{ type: 'text', text }],
   }
-}
-
-function okText(text) {
-  return { content: [{ type: 'text', text }], isError: false }
 }
 
 function isInvalidSearchResult(result) {
@@ -529,7 +524,7 @@ async function handleToolCall(name, rawArgs, options = {}) {
         throw e
       }
       try {
-        const result = await _fetchCore(urlArgs, { config, usageState, cacheState, timeoutMs, signal })
+        const result = await _fetchCore(urlArgs, { usageState, cacheState, timeoutMs, signal })
         flushCacheState()
         flushUsageState()
         return {

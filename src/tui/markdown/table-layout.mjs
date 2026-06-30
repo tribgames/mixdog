@@ -15,9 +15,9 @@
  * caller (the component resolves it from useStdout()/forceWidth).
  */
 import stripAnsi from 'strip-ansi';
-import stringWidth from 'string-width';
 import wrapAnsi from 'wrap-ansi';
 import { formatToken, padAligned } from './format-token.mjs';
+import { displayWidth } from '../display-width.mjs';
 
 export const SAFETY_MARGIN = 4;
 export const MIN_COLUMN_WIDTH = 3;
@@ -51,10 +51,10 @@ export function hardWrapLines(text, width) {
   const out = [];
   for (const softLine of wrapText(input, max, { hard: true })) {
     let rest = softLine;
-    while (rest.length > 0 && stringWidth(rest) > max) {
+    while (rest.length > 0 && displayWidth(rest) > max) {
       let take = 1;
       for (let i = 1; i <= rest.length; i++) {
-        if (stringWidth(rest.slice(0, i)) <= max) take = i;
+        if (displayWidth(rest.slice(0, i)) <= max) take = i;
         else break;
       }
       out.push(rest.slice(0, take));
@@ -81,10 +81,10 @@ export function buildTableRender(token, terminalWidth) {
     const text = getPlainText(tokens);
     const words = text.split(/\s+/).filter((w) => w.length > 0);
     if (words.length === 0) return MIN_COLUMN_WIDTH;
-    return Math.max(...words.map((w) => stringWidth(w)), MIN_COLUMN_WIDTH);
+    return Math.max(...words.map((w) => displayWidth(w)), MIN_COLUMN_WIDTH);
   };
   const getIdealWidth = (tokens) =>
-    Math.max(stringWidth(getPlainText(tokens)), MIN_COLUMN_WIDTH);
+    Math.max(displayWidth(getPlainText(tokens)), MIN_COLUMN_WIDTH);
 
   // Step 1: min (longest word) and ideal (full content) widths per column.
   const minWidths = token.header.map((header, colIndex) => {
@@ -157,7 +157,7 @@ export function buildTableRender(token, terminalWidth) {
         const lineText = contentLineIdx >= 0 && contentLineIdx < lines.length ? lines[contentLineIdx] : '';
         const colWidth = columnWidths[colIndex];
         const align = isHeader ? 'center' : token.align?.[colIndex] ?? 'left';
-        line += ' ' + padAligned(lineText, stringWidth(lineText), colWidth, align) + ' │';
+        line += ' ' + padAligned(lineText, displayWidth(lineText), colWidth, align) + ' │';
       }
       result.push(line);
     }
@@ -184,7 +184,7 @@ export function buildTableRender(token, terminalWidth) {
     const separatorWidth = Math.min(Math.max(0, width - 1), 40);
     const separator = '─'.repeat(separatorWidth);
     const wrapIndent = '  ';
-    const indentWidth = stringWidth(wrapIndent);
+    const indentWidth = displayWidth(wrapIndent);
     const pushFitted = (rawLine) => {
       for (const part of hardWrapLines(rawLine, width)) lines.push(part);
     };
@@ -195,7 +195,7 @@ export function buildTableRender(token, terminalWidth) {
         const rawValue = formatCell(cell.tokens).trimEnd();
         const value = rawValue.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
         const prefix = `${ANSI_BOLD_START}${label}:${ANSI_BOLD_END} `;
-        const prefixWidth = stringWidth(stripAnsi(prefix));
+        const prefixWidth = displayWidth(stripAnsi(prefix));
         const firstValueWidth = Math.max(1, width - prefixWidth);
         const contValueWidth = Math.max(1, width - indentWidth);
         const firstValueLines = hardWrapLines(value, firstValueWidth);
@@ -231,7 +231,7 @@ export function buildTableRender(token, terminalWidth) {
   tableLines.push(renderBorderLine('bottom'));
 
   // Safety: if any line would overflow (resize race), fall back to vertical.
-  const maxLineWidth = Math.max(...tableLines.map((l) => stringWidth(stripAnsi(l))));
+  const maxLineWidth = Math.max(...tableLines.map((l) => displayWidth(stripAnsi(l))));
   if (maxLineWidth > width - SAFETY_MARGIN) {
     return { lines: renderVerticalLines(), useVerticalFormat: true };
   }

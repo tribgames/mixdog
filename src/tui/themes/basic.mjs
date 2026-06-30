@@ -1,0 +1,78 @@
+/**
+ * src/tui/themes/basic.mjs — Basic (Mixdog warm orange + blue brand dark).
+ *
+ * The Mixdog house theme: warm orange brand accent (#d77757) paired with a
+ * claude-code blue-purple (lavender #b1b9f9) secondary, orange-toned emphasis,
+ * on a deep lifted near-black surface. Spreads `basePalette` first so the full
+ * key set is always present.
+ */
+import { basePalette } from './base.mjs';
+
+/** Basic — Mixdog warm orange + blue brand dark. */
+export const basicPalette = {
+  ...basePalette,
+  background: 'rgb(18,18,20)',
+  text: 'rgb(208,208,210)',
+  statusText: 'rgb(208,208,210)',
+  thinkingText: 'rgb(198,198,198)',
+  thinkingGlow: 'rgb(220,220,220)',
+  mixdogIvory: 'rgb(232,226,215)',
+  inactive: 'rgb(136,136,138)',
+  subtle: 'rgb(128,128,132)',
+  thinkingAccent: 'rgb(150,150,154)',
+  thinkingBase: 'rgb(150,150,154)',
+  statusSubtle: 'rgb(150,150,154)',
+  timerText: 'rgb(150,150,154)',
+  promptBorder: 'rgb(120,120,126)',
+  claude: 'rgb(215,119,87)',
+  mixdogOrange: 'rgb(215,119,87)',
+  spinnerGlyph: 'rgb(215,119,87)',
+  spinnerText: 'rgb(215,119,87)',
+  panelTitle: 'rgb(215,119,87)',
+  mdHeading: 'rgb(215,119,87)',
+  claudeShimmer: 'rgb(235,159,127)',
+  spinnerShimmer: 'rgb(235,159,127)',
+  mixdogAmber: 'rgb(235,159,127)',
+  suggestion: 'rgb(177,185,249)', // claude-code blue-purple #b1b9f9
+  code: 'rgb(177,185,249)',
+  mdLink: 'rgb(177,185,249)',
+  mdListBullet: 'rgb(177,185,249)',
+  mdCode: 'rgb(177,185,249)', // inline code = blue-purple (claude-code)
+  mdLinkText: 'rgb(150,200,210)',
+  codeBlock: 'rgb(208,208,210)',
+  mdCodeBlock: 'rgb(208,208,210)',
+  success: 'rgb(86,180,110)',
+  error: 'rgb(225,95,95)',
+  warning: 'rgb(224,165,70)',
+  permission: 'rgb(225,95,95)',
+  mdStrong: 'rgb(235,159,127)',
+  mdEmph: 'rgb(224,180,120)',
+  inverseText: 'rgb(18,18,20)',
+  selectionText: 'rgb(18,18,20)',
+  selectionBackground: 'rgb(208,208,210)',
+  mdCodeBlockBg: 'rgb(28,28,32)',
+  mdCodeSpanBg: 'rgb(37,37,43)',
+  mdCodeBlockBorder: 'rgb(48,48,54)',
+  userMessageBackground: 'rgb(40,40,44)',
+  userMessageBackgroundHover: 'rgb(52,52,56)',
+  mdQuote: 'rgb(128,128,132)',
+  mdQuoteBorder: 'rgb(128,128,132)',
+  mdHr: 'rgb(128,128,132)',
+  syntaxComment: 'rgb(128,128,132)',
+  mdDiffContext: 'rgb(128,128,132)',
+  mdDiffAdded: 'rgb(86,180,110)',
+  mdDiffRemoved: 'rgb(225,95,95)',
+  mdDiffHunk: 'rgb(150,160,200)',
+  mdDiffHeader: 'rgb(177,185,249)',
+  mdDiffAddedBg: 'rgb(28,46,34)',
+  mdDiffRemovedBg: 'rgb(48,28,30)',
+  syntaxKeyword: 'rgb(215,119,87)',
+  syntaxFunction: 'rgb(177,185,249)',
+  syntaxString: 'rgb(150,190,120)',
+  syntaxNumber: 'rgb(235,159,127)',
+  syntaxType: 'rgb(224,180,120)',
+  syntaxVariable: 'rgb(150,200,210)',
+  syntaxOperator: 'rgb(177,185,249)',
+  syntaxPunctuation: 'rgb(208,208,210)',
+  fastMode: 'rgb(255,120,20)',
+};

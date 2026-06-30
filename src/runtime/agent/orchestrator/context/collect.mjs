@@ -121,6 +121,18 @@ export function loadSkillContent(name, cwd) {
     return readSafe(skill.filePath);
 }
 
+function escapeSkillXmlText(value) {
+    return String(value || '').replace(/[<>&]/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]));
+}
+
+/**
+ * Wrap loaded SKILL.md body for Skill tool results (runtime + loop).
+ */
+export function buildSkillResultEnvelope(name, content) {
+    const escapedName = escapeSkillXmlText(name);
+    return `<skill>\n<name>${escapedName}</name>\n${content}\n</skill>`;
+}
+
 function compactSkillManifestText(value, max = 180) {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     return text.length > max ? `${text.slice(0, Math.max(1, max - 3))}...` : text;

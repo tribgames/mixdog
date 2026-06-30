@@ -59,8 +59,6 @@ async function loadShutdownModule() {
   return shutdownModulePromise;
 }
 
-export { printHelp };
-
 export async function runRepl({ provider: providerName, model, toolMode = 'full' } = {}) {
   // `--help` short-circuits before any provider init so the smoke test (which
   // invokes `src/cli.mjs --help`) gets clean help output and a 0 exit. We read

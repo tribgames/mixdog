@@ -3,7 +3,7 @@ import { execShellCommand, stripAnsi } from '../shell-command.mjs';
 import { wrapCommandWithSnapshot } from '../shell-snapshot.mjs';
 import { getDestructiveCommandWarning } from '../destructive-warning.mjs';
 import { maybeRewriteWmicProcessCommand } from '../shell-policy.mjs';
-import { buildBashPolicyScanTargets, checkExecPolicyMessage, injectionBlockTargets } from '../bash-policy-scan.mjs';
+import { buildBashPolicyScanTargets, checkExecPolicyMessage } from '../bash-policy-scan.mjs';
 import { markCodeGraphDirtyPaths, drainCodeGraphCache } from '../code-graph-state.mjs';
 import {
     buildJobNotFoundMessage,
@@ -27,7 +27,6 @@ import {
     cancelBackgroundTask,
     completeBackgroundTask,
     getBackgroundTask,
-    listBackgroundTasks,
     registerBackgroundTask,
     renderBackgroundTask,
     renderBackgroundTaskList,
@@ -48,7 +47,6 @@ import { scrubLoaderVars, scrubProviderSecrets } from '../env-scrub.mjs';
 // closing the "external write -> stale old_string -> code 8" gap when shell is
 // routed through this tool. Bounded to the tracked-read set (capped) so cost
 // stays off the whole-cwd path; emits nothing when no read file changed.
-const _DRIFT_SCAN_CAP = 256;
 export function _captureTrackedMtimes(_scope) {
     return new Map();
 }
@@ -86,52 +84,11 @@ function _combineAbortSignals(sessionSignal, externalSignal) {
     return ctl.signal;
 }
 
-// Decode ANSI-C $'…' and locale $"…" escapes so the blocklist scan sees the
-// literal command (e.g. $'\x72m' → "rm"). Defensive against quoting bypass.
-function _decodeAnsiCQuotes(s) {
-    if (typeof s !== 'string') return '';
-    if (s.indexOf('$') === -1) return s;
-    return s.replace(/\$(['"])((?:\\.|[^\\])*?)\1/g, (_full, _q, body) =>
-        body
-            .replace(/\\x([0-9a-fA-F]{1,2})/g, (_m, h) => String.fromCharCode(parseInt(h, 16)))
-            .replace(/\\u([0-9a-fA-F]{1,4})/g, (_m, h) => String.fromCharCode(parseInt(h, 16)))
-            .replace(/\\0([0-7]{1,3})/g, (_m, o) => String.fromCharCode(parseInt(o, 8)))
-            .replace(/\\([0-7]{1,3})/g, (_m, o) => String.fromCharCode(parseInt(o, 8)))
-            .replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\r/g, '\r')
-            .replace(/\\\\/g, '\\').replace(/\\(['"])/g, '$1'),
-    );
-}
-
-// Extract $(…) and `…` command-substitution bodies so each is re-scanned by
-// isBlockedCommand (e.g. eval $(printf 'rm -rf ~')).
-function _extractSubstitutionBodies(s) {
-    if (typeof s !== 'string') return [];
-    const out = [];
-    const re = /\$\(([^()]*(?:\([^()]*\)[^()]*)*)\)|`([^`]*)`/g;
-    let m;
-    while ((m = re.exec(s)) !== null) {
-        const body = m[1] != null ? m[1] : m[2];
-        if (body && body.trim()) out.push(body);
-    }
-    return out;
-}
-
-// Combined injection-aware block targets: decoded form + substitution bodies
-// (and their decoded forms). Used on BOTH the persistent and stateless paths.
-export function _injectionBlockTargets(cmd) {
-    return injectionBlockTargets(cmd);
-}
-
 function _prefixPowerShellUtf8(command) {
     const prefix = '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8;';
     const text = String(command || '');
     return text.trimStart().startsWith(prefix) ? text : `${prefix}\n${text}`;
 }
-
-const _unquoteSpansForPolicy = (s) => s.replace(/"([^"\\]|\\.)*"|'([^'\\]|\\.)*'/g, (m) => m.slice(1, -1));
-
-// Same normalized + decoded target set as hard-block (strip/unquote/shell -c/PS).
-export { buildBashPolicyScanTargets } from '../bash-policy-scan.mjs';
 
 export function getDedupedDestructiveWarnings(command) {
     const seenMsg = new Set();

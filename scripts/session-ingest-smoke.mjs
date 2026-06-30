@@ -15,8 +15,8 @@ function assert(condition, message) {
 // --- Role normalization ---
 assert(normalizeIngestRole('human') === 'user', 'human should normalize to user');
 assert(normalizeIngestRole('AI') === 'assistant', 'AI should normalize to assistant');
-assert(normalizeIngestRole('tool_result') === 'tool', 'tool_result should normalize to tool');
-assert(normalizeIngestRole('developer') === 'developer', 'developer should be preserved');
+assert(normalizeIngestRole('tool_result') === null, 'tool_result is not ingested (maps to tool, dropped)');
+assert(normalizeIngestRole('developer') === null, 'developer is not ingested');
 assert(normalizeIngestRole('mystery') === null, 'unknown role should be dropped');
 
 // --- Stable source_ref across index/time for untimestamped messages ---

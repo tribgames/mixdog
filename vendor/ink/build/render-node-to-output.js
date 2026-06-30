@@ -1,4 +1,7 @@
-import widestLine from 'widest-line';
+// [mixdog fork] use the shared display-width policy so the wrap decision here
+// agrees with measure-text.js and output.js. Kept in sync with
+// src/tui/display-width.mjs.
+import { displayWidestLine as widestLine } from './display-width.js';
 import indentString from 'indent-string';
 import Yoga from 'yoga-layout';
 import wrapText from './wrap-text.js';

@@ -468,11 +468,7 @@ function clearActiveInstance(instanceId) {
   });
 }
 export {
-  ACTIVE_INSTANCE_FILE,
-  OWNER_DIR,
   RUNTIME_ROOT,
-  RUNTIME_STALE_TTL,
-  buildActiveInstanceState,
   cleanupInstanceRuntimeFiles,
   cleanupStaleRuntimeFiles,
   clearActiveInstance,
@@ -485,13 +481,11 @@ export {
   getPermissionResultPath,
   getTerminalLeadPid,
   getStatusPath,
-  getStopFlagPath,
   getTurnEndPath,
   notePreviousServerIfAny,
   makeInstanceId,
   readActiveInstance,
   refreshActiveInstance,
   releaseOwnedChannelLocks,
-  writeActiveInstance,
   writeServerPid
 };

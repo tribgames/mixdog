@@ -21,7 +21,7 @@
  *
  * Kind classification:
  *   - 'retrieval'   : short-lived hidden retrieval roles (explore).
- *   - 'maintenance' : background-trigger hidden roles (memory cycle, recap, scheduler,
+ *   - 'maintenance' : background-trigger hidden roles (memory cycle, scheduler,
  *                     webhook). Receive only their own self section in BP2.
  *
  * Permission classification:

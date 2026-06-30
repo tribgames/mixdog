@@ -7,3 +7,6 @@
 - Destructive/hard-to-reverse actions require explicit confirmation.
 - Never push, build, or deploy without an explicit user request.
   Implementation approval is not deploy approval.
+- Rather than deferring checks or work to the user, proactively handle whatever
+  you can first, and propose only the parts that need a decision in a
+  consultative tone ("Shall we proceed this way?").

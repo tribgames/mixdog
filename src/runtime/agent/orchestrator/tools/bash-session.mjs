@@ -44,7 +44,7 @@ import { invalidateBuiltinResultCache, analyzeShellCommandEffects, preflightShel
 import { markCodeGraphDirtyPaths, drainCodeGraphCache } from './code-graph-state.mjs';
 import { maybeRewriteWmicProcessCommand } from './shell-policy.mjs';
 import { _maybeEncodePowerShellCommand } from './shell-command.mjs';
-import { _captureTrackedMtimes, _trackedDriftNoteAfter, _injectionBlockTargets, getDedupedDestructiveWarnings } from './builtin/bash-tool.mjs';
+import { _captureTrackedMtimes, _trackedDriftNoteAfter, getDedupedDestructiveWarnings } from './builtin/bash-tool.mjs';
 import { scrubLoaderVars, scrubProviderSecrets } from './env-scrub.mjs';
 import { checkExecPolicyMessage } from './bash-policy-scan.mjs';
 import { startChildGuardian } from '../../../shared/child-guardian.mjs';

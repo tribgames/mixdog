@@ -26,9 +26,10 @@ import { theme, TURN_MARKER, RESULT_GUTTER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
 import { renderTokenAnsiSegments } from './markdown/render-ansi.mjs';
 import { assistantBodyWidth, measureMarkdownTableRows } from './markdown/table-layout.mjs';
+import { displayWidth } from './display-width.mjs';
 import { classifyToolCategory, formatToolSurface, normalizeToolName, parseToolArgs, summarizeAgentSurfaceBrief } from '../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../runtime/shared/err-text.mjs';
-import { AssistantMessage, UserMessage, ThinkingMessage, NoticeMessage } from './components/Message.jsx';
+import { AssistantMessage, UserMessage, NoticeMessage } from './components/Message.jsx';
 import { ToolExecution } from './components/ToolExecution.jsx';
 import { formatExpandedResult, wrapExpandedResultLines } from './components/tool-output-format.mjs';
 import { Spinner } from './components/Spinner.jsx';
@@ -195,14 +196,6 @@ function modelSwitchNotice() {
   return 'Model updated · new sessions';
 }
 
-function systemShellDescription(shell = {}) {
-  const command = clean(shell.command);
-  if (command) return `${command} · config`;
-  const effective = clean(shell.effective);
-  if (effective) return `${effective} · ${shell.source || 'env'}`;
-  return 'auto';
-}
-
 function compactJson(value, max = 180) {
   let text = '';
   try {
@@ -251,14 +244,6 @@ function providerKindLabel(provider = {}) {
   return 'API key';
 }
 
-function summarizeTags(tags, limit = 3) {
-  const values = [...new Set((Array.isArray(tags) ? tags : [])
-    .map((tag) => clean(tag))
-    .filter(Boolean))];
-  if (values.length <= limit) return values.join(', ');
-  return `${values.slice(0, limit).join(', ')}, +${values.length - limit}`;
-}
-
 function formatSessionUpdatedAt(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return '--:--';
@@ -276,50 +261,6 @@ function formatSessionUpdatedAt(value) {
 function formatSessionMessageCount(count) {
   const n = Number(count || 0);
   return `${Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0} msg${n === 1 ? '' : 's'}`;
-}
-
-function parseAgentControl(text) {
-  const parts = String(text || '').trim().split(/\s+/).filter(Boolean);
-  const action = (parts[0] || '').toLowerCase();
-  if (!['spawn', 'send', 'list', 'status', 'read', 'cleanup', 'cancel', 'close'].includes(action)) return null;
-  const value = parts[1] || '';
-  if (action === 'list' || action === 'cleanup') return { type: action };
-  if (action === 'spawn') {
-    const agent = value;
-    if (!agent) return { error: 'usage: /agent spawn <agent> <prompt>' };
-    const parsed = parseAgentFreeform(parts.slice(2));
-    if (!parsed.message) return { error: 'usage: /agent spawn <agent> <prompt>' };
-    return { type: 'spawn', agent, ...parsed };
-  }
-  if (action === 'send') {
-    if (!value) return { error: 'usage: /agent send <target> <message>' };
-    const parsed = parseAgentFreeform(parts.slice(2));
-    if (!parsed.message) return { error: 'usage: /agent send <target> <message>' };
-    return value.startsWith('sess_')
-      ? { type: 'send', sessionId: value, ...parsed }
-      : { type: 'send', tag: value, ...parsed };
-  }
-  if (!value) return { error: `usage: /agent ${action} <target>` };
-  if (action === 'status' || action === 'read') return { type: action, task_id: value };
-  if (value.startsWith('task_')) return { type: action, task_id: value };
-  if (value.startsWith('sess_')) return { type: action, sessionId: value };
-  return { type: action, tag: value };
-}
-
-function parseAgentFreeform(parts) {
-  const out = {};
-  let i = 0;
-  for (; i < parts.length; i += 1) {
-    const token = parts[i];
-    const kv = /^([a-zA-Z][\w-]*)=(.+)$/.exec(token);
-    if (kv && ['tag', 'preset', 'provider', 'model', 'effort', 'cwd'].includes(kv[1])) {
-      out[kv[1]] = kv[2];
-      continue;
-    }
-    break;
-  }
-  out.message = parts.slice(i).join(' ').trim();
-  return out;
 }
 
 function parseHookRuleInput(text) {
@@ -352,7 +293,7 @@ function parseMcpServerInput(text) {
   const parts = String(text || '').split('|').map((part) => part.trim());
   const [name, commandOrUrl, argsText = '', cwd = ''] = parts;
   if (!name || !commandOrUrl) return { error: 'usage: name | command-or-url | args(optional) | cwd(optional)' };
-  if (/^https?:\/\//i.test(commandOrUrl)) return { server: { name, url: commandOrUrl } };
+  if (/^(?:https?|wss?):\/\//i.test(commandOrUrl)) return { server: { name, url: commandOrUrl } };
   return {
     server: {
       name,
@@ -581,7 +522,7 @@ const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpan
       if (isHookApprovalDenialToolItem(item)) {
         return <ToolHookDenialCard item={item} columns={columns} />;
       }
-      return <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} headerFinalized={item.headerFinalized} deferredDisplayReady={item.deferredDisplayReady} themeEpoch={themeEpoch} />;
+      return <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} expanded={toolOutputExpanded || item.expanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} headerFinalized={item.headerFinalized} deferredDisplayReady={item.deferredDisplayReady} themeEpoch={themeEpoch} />;
     }
     case 'notice': return <NoticeMessage text={item.text} tone={item.tone} columns={columns} />;
     case 'turndone': return <TurnDone elapsedMs={item.elapsedMs} status={item.status} outputTokens={item.outputTokens} thinkingElapsedMs={item.thinkingElapsedMs} verb={item.verb} rightMessage={rightMessage} rightTone={rightTone} rightMessageWidth={rightMessageWidth} />;
@@ -676,14 +617,14 @@ function shiftSelectionRectY(rect, deltaY) {
 // word-wrap so the row estimate is never lower than what ink actually renders.
 function wrappedLineRows(line, width) {
   const text = String(line);
-  const full = stringWidth(text);
+  const full = displayWidth(text);
   if (full === 0) return 1;
   if (full <= width) return 1;
   let rows = 1;
   let col = 0;
   for (const token of text.split(/(\s+)/)) {
     if (!token) continue;
-    const tw = stringWidth(token);
+    const tw = displayWidth(token);
     if (tw === 0) continue;
     if (tw > width) {
       // Over-long unbreakable token: ink hard-splits it across rows.
@@ -734,7 +675,7 @@ function measureMarkdownRenderedRows(text, columns) {
   const bodyWidth = assistantBodyWidth(columns);
   let segments;
   try {
-    segments = renderTokenAnsiSegments(value);
+    segments = renderTokenAnsiSegments(value, { width: bodyWidth });
   } catch {
     // Never throw into the scroll math — fall back to the raw wrapped count.
     return Math.max(1, estimateWrappedRows(value, columns, 3));
@@ -844,6 +785,14 @@ function toolHasDisplayResultForRows(item) {
   return true;
 }
 
+// Mirror ToolExecution expanded ResultBody rawText selection (aggregate always rawResult).
+function toolExpandedRawTextForRows(item, rawRt) {
+  if (item?.aggregate) return rawRt;
+  const hasDisplayResult = toolHasDisplayResultForRows(item);
+  if (hasDisplayResult) return toolDisplayedResultTextForRows(item);
+  return rawRt;
+}
+
 function toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult) {
   if (hasDisplayResult) return false;
   const bgArgs = backgroundArgsForRows(item.args);
@@ -876,10 +825,16 @@ function toolArgPathForRows(item) {
   return a?.path ?? a?.file_path ?? a?.file ?? '';
 }
 
-function isShellSurfaceForRows(normalizedName) {
+function isShellSurfaceForRows(normalizedName, label = '') {
   const n = String(normalizedName || '').toLowerCase();
+  const l = String(label || '').toLowerCase();
   return n === 'shell' || n === 'bash' || n === 'bash_session'
-    || n === 'shell_command' || n === 'job_wait';
+    || n === 'shell_command' || n === 'job_wait' || l === 'run';
+}
+
+function isShellSurfaceForToolItem(item, normalizedName) {
+  const label = formatToolSurface(item?.name, item?.args)?.label || '';
+  return isShellSurfaceForRows(normalizedName, label);
 }
 
 // EXPANDED tool bodies are post-processed by formatExpandedResult (JSON pretty,
@@ -892,7 +847,7 @@ function estimateToolRenderedResultRows(value, { pathArg = '', isShell = false, 
   if (!text) return 1;
   try {
     const logical = formatExpandedResult(text, { pathArg, isShell });
-    const rows = wrapExpandedResultLines(logical, columns).length;
+    const rows = wrapExpandedResultLines(logical, columns, { isShell }).length;
     return Math.max(1, rows);
   } catch {
     return Math.max(1, text.split('\n').length);
@@ -961,10 +916,11 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
         // Aggregate cards pass no pathArg/isShell to ResultBody; non-aggregate
         // cards do. Mirror that here so the formatExpandedResult row count matches
         // the rendered body exactly (JSON pretty / line-number split can shift it).
+        const estimateText = toolExpandedRawTextForRows(item, rawRt);
         const rawOpts = item.aggregate
           ? {}
-          : { pathArg: toolArgPathForRows(item), isShell: isShellSurfaceForRows(normalizedName) };
-        return TOOL_MARGIN_TOP + 1 + estimateToolRenderedResultRows(rawRt, { ...rawOpts, columns });
+          : { pathArg: toolArgPathForRows(item), isShell: isShellSurfaceForToolItem(item, normalizedName) };
+        return TOOL_MARGIN_TOP + 1 + estimateToolRenderedResultRows(estimateText, { ...rawOpts, columns });
       }
       // Expanded agent card with no raw body to reveal: ToolExecution still
       // shows one agent-brief detail line, so margin + header + one detail row.
@@ -999,7 +955,7 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
         const resultText = backgroundMeta?.hasResponse ? backgroundMeta.body : rt;
         const resultRows = estimateToolRenderedResultRows(resultText, {
           pathArg: toolArgPathForRows(item),
-          isShell: isShellSurfaceForRows(normalizedName),
+          isShell: isShellSurfaceForToolItem(item, normalizedName),
           columns,
         });
         return TOOL_MARGIN_TOP + 1 + resultRows;
@@ -1970,13 +1926,21 @@ export function App({ store, initialStatusLine = '' }) {
     return clipped;
   }, [selectionClip]);
 
-  const paintSelectionRect = useCallback((clippedRect, { rememberText = true } = {}) => {
+  const paintSelectionRect = useCallback((clippedRect, { rememberText = true, immediate = false } = {}) => {
     const nextRect = clippedRect || null;
     const state = selectionPaintRef.current;
-    if (selectionRectsEqual(state.rect, nextRect)) return false;
+    if (selectionRectsEqual(state.rect, nextRect)) {
+      const needsCapture = nextRect && rememberText && nextRect.captureText !== false;
+      if (!immediate && !needsCapture) return false;
+      if (immediate || needsCapture) {
+        store.setRenderSelection?.(nextRect, { immediate: true });
+      }
+      if (needsCapture) rememberSelectionTextSoon();
+      return true;
+    }
     state.rect = nextRect;
     state.t = Date.now();
-    store.setRenderSelection?.(nextRect);
+    store.setRenderSelection?.(nextRect, immediate ? { immediate: true } : undefined);
     if (nextRect && rememberText && nextRect.captureText !== false) rememberSelectionTextSoon();
     return true;
   }, [store, rememberSelectionTextSoon]);
@@ -1991,7 +1955,7 @@ export function App({ store, initialStatusLine = '' }) {
       state.timer = null;
       state.pending = null;
     }
-    paintSelectionRect(clippedRect, { rememberText: true });
+    paintSelectionRect(clippedRect, { rememberText: true, immediate: true });
   }, [paintSelectionRect, withSelectionClip]);
 
   const applySelectionRectThrottled = useCallback((rect) => {
@@ -2348,7 +2312,7 @@ export function App({ store, initialStatusLine = '' }) {
             // Finalize the prompt selection; highlight persists (copy on Ctrl+C).
             const offset = promptOffsetAt(x, y);
             dragRef.current.active = false;
-            if (offset != null) promptMouseSelectionRef.current?.extendTo?.(offset);
+            promptMouseSelectionRef.current?.extendTo?.(offset, true);
             continue;
           }
           // Button release while dragging: finalize with the release coordinate
@@ -5140,6 +5104,12 @@ export function App({ store, initialStatusLine = '' }) {
           _action: 'server-toggle',
           _enabled: serverEnabled,
         },
+        {
+          value: 'webhook-token',
+          label: 'Webhook auth',
+          description: `ngrok/webhook authtoken · ${setup.webhook.status}`,
+          _action: 'webhook-token',
+        },
         ...(hooks.length ? hooks.map((hook) => {
           const enabled = hook.enabled !== false;
           return {
@@ -5179,6 +5149,14 @@ export function App({ store, initialStatusLine = '' }) {
               });
               return;
             }
+            if (item._action === 'webhook-token') {
+              openChannelPrompt({
+                kind: 'webhook-token',
+                label: 'Webhook/ngrok authtoken',
+                hint: 'Paste the webhook/ngrok authtoken. It is stored in the OS keychain.',
+              });
+              return;
+            }
             if (item._action === 'back') {
               void openChannelSetupPicker('all');
               return;
@@ -5204,7 +5182,6 @@ export function App({ store, initialStatusLine = '' }) {
     }
 
     const worker = store.getChannelWorkerStatus?.();
-    const serverEnabled = setup.webhook.enabled !== false;
     const items = [
       {
         value: 'worker-status',
@@ -5224,45 +5201,6 @@ export function App({ store, initialStatusLine = '' }) {
         description: 'name | channelId | mode(interactive/broadcast)',
         _action: 'channel-add',
       },
-      {
-        value: 'schedules',
-        label: 'Schedules',
-        description: `${(setup.schedules || []).length} configured`,
-        _action: 'schedules',
-      },
-      {
-        value: 'schedule-add',
-        label: 'Add schedule',
-        description: 'name | cron | instructions | optional channel | optional model',
-        _action: 'schedule-add',
-      },
-      {
-        value: 'webhook-token',
-        label: 'Webhook auth',
-        description: `ngrok/webhook authtoken · ${setup.webhook.status}`,
-        _action: 'webhook-token',
-      },
-      {
-        value: 'webhook-toggle',
-        label: 'Webhook server',
-        marker: serverEnabled ? '●' : '○',
-        markerColor: serverEnabled ? theme.success : theme.inactive,
-        description: `${serverEnabled ? 'enabled' : 'disabled'} · port ${setup.webhook.port || 3333}`,
-        _action: 'webhook-toggle',
-        _enabled: serverEnabled,
-      },
-      {
-        value: 'webhooks',
-        label: 'Webhooks',
-        description: `${(setup.webhooks || []).length} configured`,
-        _action: 'webhooks',
-      },
-      {
-        value: 'webhook-add',
-        label: 'Add webhook',
-        description: 'name | instructions | optional channel | optional model | parser',
-        _action: 'webhook-add',
-      },
       ...((setup.channels || []).map((ch) => ({
           value: `channel:${ch.name}`,
           label: `# ${ch.name}`,
@@ -5274,7 +5212,7 @@ export function App({ store, initialStatusLine = '' }) {
 
     setPicker({
       title: 'Channels',
-      description: 'Discord token, channels, schedules, and webhooks.',
+      description: 'Discord token and channel links.',
       items,
       onSelect: (_value, item) => {
         try {
@@ -5287,14 +5225,6 @@ export function App({ store, initialStatusLine = '' }) {
               kind: 'discord-token',
               label: 'Discord bot token',
               hint: 'Paste the Discord bot token. It is stored in the OS keychain.',
-            });
-            return;
-          }
-          if (item._action === 'webhook-token') {
-            openChannelPrompt({
-              kind: 'webhook-token',
-              label: 'Webhook/ngrok authtoken',
-              hint: 'Paste the webhook/ngrok authtoken. It is stored in the OS keychain.',
             });
             return;
           }
@@ -5314,34 +5244,6 @@ export function App({ store, initialStatusLine = '' }) {
               hint: `Format: ${ch.name} | ${ch.channelId || '<channel-id>'} | ${ch.mode || 'interactive'} | ${ch.main ? 'main' : 'main(optional)'}`,
             });
             return;
-          }
-          if (item._action === 'schedule-add') {
-            openChannelPrompt({
-              kind: 'schedule-add',
-              label: 'Add schedule',
-              hint: 'Format: name | cron (5 or 6 fields) | instructions | channel(optional) | model(required with channel)',
-            });
-            return;
-          }
-          if (item._action === 'webhook-add') {
-            openChannelPrompt({
-              kind: 'webhook-add',
-              label: 'Add webhook',
-              hint: 'Format: name | instructions | channel(optional) | model(required with channel) | parser(github/generic/stripe/sentry)',
-            });
-            return;
-          }
-          if (item._action === 'webhook-toggle') {
-            store.setWebhookConfig?.({ enabled: !item._enabled });
-            void openChannelSetupPicker('all');
-            return;
-          }
-          if (item._action === 'schedules') {
-            void openChannelSetupPicker('schedules');
-            return;
-          }
-          if (item._action === 'webhooks') {
-            void openChannelSetupPicker('webhooks');
           }
         } catch (e) {
           store.pushNotice(`channels update failed: ${e?.message || e}`, 'error');
@@ -7615,7 +7517,7 @@ export function App({ store, initialStatusLine = '' }) {
     if (deltaY === 0) return;
     const clippedRect = withSelectionClip(shiftSelectionRectY(dragRef.current.rect, deltaY));
     dragRef.current = { ...dragRef.current, rect: clippedRect };
-    paintSelectionRect(clippedRect, { rememberText: true });
+    paintSelectionRect(clippedRect, { rememberText: true, immediate: true });
   }, [viewportHeight, transcriptWindow.totalRows, transcriptWindow.effectiveScrollOffset, withSelectionClip, paintSelectionRect]);
   useEffect(() => {
     const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);

@@ -5,19 +5,20 @@
  *   - chalk is forced to truecolor (level 3) so colors render regardless of the
  *     ambient TTY detection (we control the surface).
  *   - The `permission`/code accent and blockquote bar come from our theme.mjs.
- *   - `code` (fenced) is emitted as a block-colored plain text + EOL (no
- *     syntax highlighter dependency); `codespan` (inline) gets the accent color.
+ *   - `code` (fenced) uses cli-highlight + theme syntax palette; `codespan`
+ *     (inline) gets the accent color.
  *   - `table` is NOT handled here — the React component (MarkdownTable.jsx)
  *     renders tables with proper ink Box layout (hybrid split).
  *   - Hyperlinks/issue-ref linkify are dropped (no OSC-8 dependency); link text
  *     is shown plainly with its URL.
  */
 import { Chalk } from 'chalk';
+import { highlight, supportsLanguage } from 'cli-highlight';
 import stripAnsi from 'strip-ansi';
-import stringWidth from 'string-width';
 import wrapAnsi from 'wrap-ansi';
 import { theme, getThemeVersion } from '../theme.mjs';
 import { BLOCKQUOTE_BAR, HR_LINE } from '../figures.mjs';
+import { displayWidth } from '../display-width.mjs';
 
 // Force truecolor so chalk emits 24-bit SGR even when the ambient level is 0.
 // ink's <Text> passes these escapes through verbatim.
@@ -26,24 +27,10 @@ const chalk = new Chalk({ level: 3 });
 // Use \n unconditionally (os.EOL's \r breaks segment mapping).
 const EOL = '\n';
 
-/** Parse an `rgb(r,g,b)` theme string into a chalk colorizer. */
 function rgbColor(str) {
   const m = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(String(str || ''));
   if (!m) return (s) => s;
   return chalk.rgb(Number(m[1]), Number(m[2]), Number(m[3]));
-}
-
-/**
- * Parse an `rgb(r,g,b)` theme string into a TRUECOLOR BACKGROUND wrapper. Emits
- * `48;2;R;G;B` … `49` (bg reset) around the string so AnsiText (case 48) maps it
- * to an ink backgroundColor, giving a code line a tinted band. Returns identity
- * when the string is not a valid rgb() so a missing key never corrupts output.
- */
-function rgbBg(str) {
-  const m = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(String(str || ''));
-  if (!m) return (s) => s;
-  const open = `\x1b[48;2;${+m[1]};${+m[2]};${+m[3]}m`;
-  return (s) => `${open}${s}\x1b[49m`;
 }
 
 // Colorizers are derived from the active theme's md* keys. They are cached and
@@ -80,8 +67,6 @@ export function extraColorizers() {
     fenceBorder: rgbColor(theme.mdCodeBlockBorder ?? theme.mdHr),
     link: rgbColor(theme.mdLink ?? theme.code),
     linkText: rgbColor(theme.mdLinkText ?? theme.mdCode),
-    strong: rgbColor(theme.mdStrong ?? theme.mdHeading),
-    emph: rgbColor(theme.mdEmph ?? theme.mdHeading),
     // diff/patch
     diffAdded: rgbColor(theme.mdDiffAdded ?? theme.success),
     diffRemoved: rgbColor(theme.mdDiffRemoved ?? theme.error),
@@ -99,8 +84,6 @@ export function extraColorizers() {
     synOperator: rgbColor(theme.syntaxOperator ?? theme.mdCodeBlock),
     synPunct: rgbColor(theme.syntaxPunctuation ?? theme.mdCodeBlock),
     body: fallbackBody,
-    // Truecolor background band for fenced code blocks (per-line wrap).
-    codeBg: rgbBg(theme.mdCodeBlockBg ?? theme.background),
   };
   return _extra;
 }
@@ -124,12 +107,11 @@ function decodeEntities(s) {
 }
 
 // ── Fenced code block rendering ─────────────────────────────────────────────
-// Compact language label (no ``` fences), two-space-indented wrapped body.
-// Diff/patch languages
-// (and code text that clearly looks like a unified diff) get colored +/-/@@
-// lines; other known languages get a conservative regex highlighter; unknown
-// languages fall back to the flat `mdCodeBlock` body color.
-const CODE_BLOCK_INDENT = '  ';
+// Gutter-indented, syntax-highlighted body with NO background band and no ```
+// fences (codex/claude-code convention). Diff/patch languages (and bodies that
+// look like unified diffs) keep the diff highlighter; other languages use
+// cli-highlight (highlight.js) themed from our syntax* palette; unknown
+// languages fall back to flat `mdCodeBlock` body color.
 const DIFF_LANGS = new Set(['diff', 'patch', 'udiff', 'git-diff', 'gitdiff']);
 
 /** Wrap text to width, ANSI-aware (lockstep with table-layout hard wrap). */
@@ -153,10 +135,10 @@ function hardWrapAnsiLines(text, width) {
   const out = [];
   for (const softLine of wrapTextToWidth(input, max, { hard: true })) {
     let rest = softLine;
-    while (rest.length > 0 && stringWidth(rest) > max) {
+    while (rest.length > 0 && displayWidth(rest) > max) {
       let take = 1;
       for (let i = 1; i <= rest.length; i++) {
-        if (stringWidth(rest.slice(0, i)) <= max) take = i;
+        if (displayWidth(rest.slice(0, i)) <= max) take = i;
         else break;
       }
       out.push(rest.slice(0, take));
@@ -167,17 +149,17 @@ function hardWrapAnsiLines(text, width) {
   return out.length > 0 ? out : [''];
 }
 
-/** Wrap one logical code line (ANSI content, no indent) and prefix each segment. */
-function wrapIndentedCodeLine(ansiContent, maxLineWidth) {
-  const indentW = stringWidth(CODE_BLOCK_INDENT);
-  const contentMax = Math.max(1, maxLineWidth - indentW);
-  const segments = hardWrapAnsiLines(ansiContent, contentMax);
-  return segments.map((seg) => `${CODE_BLOCK_INDENT}${seg}`);
+/** Wrap one logical code line (ANSI content) to max visible width. */
+function wrapCodeLine(ansiContent, maxLineWidth) {
+  const contentMax = Math.max(1, maxLineWidth);
+  return hardWrapAnsiLines(ansiContent, contentMax);
 }
 
-/** Tint code lines without padding to terminal width (no trailing bg band). */
-function tintCodeLines(lines, codeBg) {
-  return lines.map((line) => codeBg(line)).join(EOL);
+/** Reduce render width by a visible prefix (list marker, blockquote bar, etc.). */
+function contentWidthAfterPrefix(width, prefix) {
+  const base = Number(width) || 0;
+  if (base <= 0) return 0;
+  return Math.max(8, base - displayWidth(String(prefix ?? '')));
 }
 
 /** Normalize a fenced info-string to a bare lowercase language token. */
@@ -259,34 +241,60 @@ function colorizeDiffStatTrailer(line, c) {
     .replace(/(\d+)(\s+deletions?\(-\))/g, (_, n, rest) => `${c.diffRemoved(n)}${c.diffContext(rest)}`);
 }
 
-function renderDiffBody(text, c, bandWidth) {
+function collectDiffBodyLines(text, c, bandWidth) {
   const lines = [];
   for (const line of String(text ?? '').split(EOL)) {
     const colored = colorizeDiffLine(line, c);
-    lines.push(...wrapIndentedCodeLine(colored, bandWidth));
+    lines.push(...wrapCodeLine(colored, bandWidth));
   }
-  return tintCodeLines(lines, c.codeBg);
+  return lines;
 }
 
-// ── Lightweight syntax highlighting (regex token classes, no parser) ────────
-const KEYWORDS = {
-  js: ['const', 'let', 'var', 'function', 'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'new', 'class', 'extends', 'super', 'this', 'import', 'export', 'from', 'default', 'async', 'await', 'yield', 'try', 'catch', 'finally', 'throw', 'typeof', 'instanceof', 'in', 'of', 'void', 'delete', 'null', 'undefined', 'true', 'false'],
-  py: ['def', 'class', 'return', 'if', 'elif', 'else', 'for', 'while', 'import', 'from', 'as', 'with', 'try', 'except', 'finally', 'raise', 'pass', 'break', 'continue', 'lambda', 'yield', 'global', 'nonlocal', 'async', 'await', 'and', 'or', 'not', 'in', 'is', 'None', 'True', 'False', 'self'],
-  sh: ['if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'do', 'done', 'case', 'esac', 'function', 'return', 'in', 'export', 'local', 'echo', 'cd', 'set', 'unset', 'read', 'source'],
-  css: [],
-  go: ['package', 'import', 'func', 'return', 'if', 'else', 'for', 'range', 'switch', 'case', 'default', 'break', 'continue', 'fallthrough', 'goto', 'defer', 'go', 'select', 'chan', 'map', 'struct', 'interface', 'type', 'var', 'const', 'nil', 'true', 'false', 'iota', 'string', 'int', 'int64', 'float64', 'bool', 'byte', 'rune', 'error'],
-  rust: ['fn', 'let', 'mut', 'const', 'static', 'return', 'if', 'else', 'match', 'for', 'while', 'loop', 'break', 'continue', 'struct', 'enum', 'trait', 'impl', 'mod', 'use', 'pub', 'crate', 'self', 'super', 'where', 'as', 'dyn', 'move', 'ref', 'unsafe', 'async', 'await', 'type', 'true', 'false', 'Some', 'None', 'Ok', 'Err', 'Box', 'Vec', 'String', 'usize', 'isize', 'i32', 'u32', 'i64', 'u64', 'f64', 'bool'],
-  java: ['public', 'private', 'protected', 'class', 'interface', 'enum', 'extends', 'implements', 'abstract', 'final', 'static', 'void', 'new', 'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default', 'break', 'continue', 'try', 'catch', 'finally', 'throw', 'throws', 'import', 'package', 'this', 'super', 'instanceof', 'synchronized', 'volatile', 'transient', 'native', 'int', 'long', 'short', 'byte', 'char', 'float', 'double', 'boolean', 'true', 'false', 'null'],
-  c: ['auto', 'break', 'case', 'char', 'const', 'continue', 'default', 'do', 'double', 'else', 'enum', 'extern', 'float', 'for', 'goto', 'if', 'inline', 'int', 'long', 'register', 'return', 'short', 'signed', 'sizeof', 'static', 'struct', 'switch', 'typedef', 'union', 'unsigned', 'void', 'volatile', 'while', 'class', 'namespace', 'template', 'public', 'private', 'protected', 'virtual', 'new', 'delete', 'using', 'nullptr', 'true', 'false', 'bool'],
-  ruby: ['def', 'end', 'class', 'module', 'if', 'elsif', 'else', 'unless', 'case', 'when', 'then', 'while', 'until', 'for', 'in', 'do', 'begin', 'rescue', 'ensure', 'raise', 'return', 'yield', 'break', 'next', 'redo', 'retry', 'self', 'nil', 'true', 'false', 'and', 'or', 'not', 'require', 'require_relative', 'attr_accessor', 'attr_reader', 'attr_writer', 'puts', 'lambda', 'proc'],
-  sql: ['select', 'from', 'where', 'insert', 'into', 'values', 'update', 'set', 'delete', 'create', 'alter', 'drop', 'table', 'view', 'index', 'join', 'inner', 'left', 'right', 'outer', 'full', 'on', 'group', 'by', 'order', 'having', 'limit', 'offset', 'distinct', 'as', 'and', 'or', 'not', 'null', 'is', 'in', 'between', 'like', 'union', 'all', 'primary', 'key', 'foreign', 'references', 'default', 'constraint', 'unique', 'count', 'sum', 'avg', 'min', 'max'],
-  yaml: [],
-  toml: [],
+// ── cli-highlight (highlight.js) ────────────────────────────────────────────
+/** Internal family → highlight.js language id (when alias alone is insufficient). */
+const FAMILY_TO_HLJS = {
+  js: 'javascript',
+  ts: 'typescript',
+  tsx: 'tsx',
+  jsx: 'jsx',
+  json: 'json',
+  sh: 'bash',
+  py: 'python',
+  css: 'css',
+  html: 'xml',
+  go: 'go',
+  rust: 'rust',
+  java: 'java',
+  c: 'cpp',
+  ruby: 'ruby',
+  sql: 'sql',
+  yaml: 'yaml',
+  toml: 'ini',
+  kotlin: 'kotlin',
+  swift: 'swift',
+  php: 'php',
+  csharp: 'csharp',
+  dockerfile: 'dockerfile',
+  protobuf: 'protobuf',
+  scala: 'scala',
+  dart: 'dart',
+  lua: 'lua',
+  perl: 'perl',
+  r: 'r',
+  objc: 'objectivec',
+  powershell: 'powershell',
+  makefile: 'makefile',
+  nginx: 'nginx',
+  ini: 'ini',
+  vim: 'vim',
+  haskell: 'haskell',
+  elixir: 'elixir',
+  clojure: 'clojure',
 };
 
 export const LANG_FAMILY = {
   js: 'js', javascript: 'js', mjs: 'js', cjs: 'js',
-  ts: 'js', typescript: 'js', jsx: 'js', tsx: 'js',
+  ts: 'ts', typescript: 'ts', jsx: 'jsx', tsx: 'tsx',
   json: 'json', json5: 'json',
   bash: 'sh', sh: 'sh', shell: 'sh', zsh: 'sh',
   python: 'py', py: 'py',
@@ -301,96 +309,223 @@ export const LANG_FAMILY = {
   sql: 'sql',
   yaml: 'yaml', yml: 'yaml',
   toml: 'toml',
+  kotlin: 'kotlin', kt: 'kotlin', kts: 'kotlin',
+  swift: 'swift',
+  php: 'php',
+  csharp: 'csharp', cs: 'csharp', 'c#': 'csharp',
+  dockerfile: 'dockerfile', docker: 'dockerfile',
+  graphql: 'graphql', gql: 'graphql',
+  protobuf: 'protobuf', proto: 'protobuf',
+  scala: 'scala',
+  dart: 'dart',
+  lua: 'lua',
+  perl: 'perl', pl: 'perl',
+  r: 'r', rl: 'r',
+  objc: 'objc', 'objective-c': 'objc', 'obj-c': 'objc',
+  powershell: 'powershell', ps1: 'powershell', ps: 'powershell', pwsh: 'powershell',
+  makefile: 'makefile', make: 'makefile',
+  nginx: 'nginx',
+  ini: 'ini',
+  vim: 'vim',
+  haskell: 'haskell', hs: 'haskell',
+  elixir: 'elixir', ex: 'elixir', exs: 'elixir',
+  clojure: 'clojure', clj: 'clojure',
 };
 
-// Families whose comment lines / inline comments start with `#`.
-const HASH_COMMENT_FAMILIES = new Set(['sh', 'py', 'yaml', 'toml']);
+const HIGHLIGHT_CACHE_MAX = 300;
+const highlightCache = new Map();
 
-/** Highlight a single line for a c-like / scripting family (token scan). */
-export function highlightCodeLine(line, family, c) {
-  const kw = new Set(KEYWORDS[family === 'json' ? 'js' : family] ?? []);
-  // Comment lines (whole-line) for the common families.
-  if (family === 'js' && /^\s*\/\//.test(line)) return c.synComment(line);
-  if (HASH_COMMENT_FAMILIES.has(family) && /^\s*#/.test(line)) return c.synComment(line);
-  if (family === 'html' && /^\s*<!--/.test(line)) return c.synComment(line);
-
-  // Token regex: strings, numbers, comments, identifiers, punctuation.
-  const TOKEN_RE = /(`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(\/\/[^\n]*|#[^\n]*)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_$][A-Za-z0-9_$]*)|([{}()[\].,;:=+\-*/%<>!&|^~?]+)/g;
-  let out = '';
-  let last = 0;
-  let m;
-  TOKEN_RE.lastIndex = 0;
-  while ((m = TOKEN_RE.exec(line)) !== null) {
-    if (m.index > last) out += c.body(line.slice(last, m.index));
-    const [, str, comment, num, ident, punct] = m;
-    if (str !== undefined) {
-      out += c.synString(str);
-    } else if (comment !== undefined) {
-      // `#` is only a comment for sh/py; for js treat as body.
-      if (comment.startsWith('//') ? family === 'js' : HASH_COMMENT_FAMILIES.has(family)) {
-        out += c.synComment(comment);
-      } else {
-        out += c.body(comment);
-      }
-    } else if (num !== undefined) {
-      out += c.synNumber(num);
-    } else if (ident !== undefined) {
-      if (kw.has(ident)) out += c.synKeyword(ident);
-      else if (line[TOKEN_RE.lastIndex] === '(') out += c.synFunction(ident);
-      else out += c.body(ident);
-    } else if (punct !== undefined) {
-      out += c.synOperator(punct);
-    }
-    last = TOKEN_RE.lastIndex;
-  }
-  if (last < line.length) out += c.body(line.slice(last));
-  return out;
+/** @internal Test-only introspection for highlight LRU cache. */
+export function _highlightCacheSizeForTests() {
+  return highlightCache.size;
 }
 
-function renderHighlightedBody(text, family, c, bandWidth) {
-  const lines = [];
-  for (const line of String(text ?? '').split(EOL)) {
-    const colored = line ? highlightCodeLine(line, family, c) : '';
-    lines.push(...wrapIndentedCodeLine(colored, bandWidth));
-  }
-  return tintCodeLines(lines, c.codeBg);
+let _hljsThemeVersion = -1;
+let _hljsTheme = null;
+
+/** Map highlight.js token classes to chalk truecolor fns from the active theme. */
+function buildCliHighlightTheme(c) {
+  const plain = (s) => c.body(s);
+  return {
+    default: plain,
+    keyword: c.synKeyword,
+    built_in: c.synType,
+    type: c.synType,
+    literal: c.synKeyword,
+    number: c.synNumber,
+    regexp: c.synString,
+    string: c.synString,
+    subst: plain,
+    symbol: plain,
+    class: c.synType,
+    function: c.synFunction,
+    title: c.synFunction,
+    params: c.synVariable,
+    comment: c.synComment,
+    doctag: c.synComment,
+    meta: c.synComment,
+    section: c.synType,
+    tag: c.synPunct,
+    name: c.synFunction,
+    builtin: c.synType,
+    attr: c.synType,
+    attribute: c.synType,
+    variable: c.synVariable,
+    selector: c.synKeyword,
+    template: c.synVariable,
+    bullet: plain,
+    code: plain,
+    emphasis: plain,
+    strong: plain,
+    formula: plain,
+    link: plain,
+    quote: plain,
+    addition: c.synString,
+    deletion: c.synString,
+  };
+}
+
+function getCliHighlightTheme() {
+  const version = getThemeVersion();
+  if (_hljsTheme && _hljsThemeVersion === version) return _hljsTheme;
+  _hljsThemeVersion = version;
+  _hljsTheme = buildCliHighlightTheme(extraColorizers());
+  return _hljsTheme;
+}
+
+function hljsLanguageFromFamily(family) {
+  if (!family || family === 'md') return null;
+  const mapped = FAMILY_TO_HLJS[family];
+  if (mapped && supportsLanguage(mapped)) return mapped;
+  if (supportsLanguage(family)) return family;
+  return null;
+}
+
+/** Resolve a fenced info-string to a highlight.js language id. */
+function resolveHljsLanguage(lang) {
+  const normalized = normalizeLang(lang);
+  if (!normalized) return null;
+  const viaFamily = hljsLanguageFromFamily(LANG_FAMILY[normalized]);
+  if (viaFamily) return viaFamily;
+  return supportsLanguage(normalized) ? normalized : null;
 }
 
 /**
- * Render a fenced `code` token: compact language label, wrapped indented body,
- * and language-aware coloring (no visible ``` fence lines).
+ * Highlight source with cli-highlight; returns null when language is unsupported
+ * or highlighting fails (caller falls back to flat body color).
+ */
+function highlightCodeText(text, hljsLang) {
+  if (!hljsLang || !supportsLanguage(hljsLang)) return null;
+  const src = String(text ?? '');
+  if (!src.trim()) return null;
+  if (!/[A-Za-z0-9]/.test(src)) return null;
+  const cacheKey = `${hljsLang}|${getThemeVersion()}|${src}`;
+  const cached = highlightCache.get(cacheKey);
+  if (cached !== undefined) {
+    highlightCache.delete(cacheKey);
+    highlightCache.set(cacheKey, cached);
+    return cached;
+  }
+  try {
+    const out = highlight(src, {
+      language: hljsLang,
+      theme: getCliHighlightTheme(),
+      ignoreIllegals: true,
+    });
+    if (highlightCache.size >= HIGHLIGHT_CACHE_MAX) {
+      const first = highlightCache.keys().next().value;
+      if (first !== undefined) highlightCache.delete(first);
+    }
+    highlightCache.set(cacheKey, out);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/** Highlight a single line (tool expanded output); uses the same theme map. */
+export function highlightCodeLine(line, family, c) {
+  const hljsLang = hljsLanguageFromFamily(family);
+  const highlighted = highlightCodeText(line, hljsLang);
+  if (highlighted != null) return highlighted;
+  return line ? c.body(line) : '';
+}
+
+/**
+ * Highlight a multi-line block in one cli-highlight call; returns one ANSI string per line.
+ * On miss, each line is flat-colored with `c.body`.
+ */
+export function highlightCodeBlockToLines(text, family, c) {
+  const hljsLang = hljsLanguageFromFamily(family);
+  const raw = String(text ?? '');
+  const highlighted = hljsLang ? highlightCodeText(raw, hljsLang) : null;
+  if (highlighted != null) {
+    return highlighted.split(EOL);
+  }
+  return raw.split(EOL).map((line) => (line ? c.body(line) : ''));
+}
+
+function collectFlatBodyLines(text, codeBlock, bandWidth) {
+  const lines = [];
+  for (const line of String(text ?? '').split(EOL)) {
+    const colored = codeBlock(line);
+    lines.push(...wrapCodeLine(colored, bandWidth));
+  }
+  return lines;
+}
+
+function collectHighlightedBodyLines(text, hljsLang, bandWidth) {
+  const highlighted = highlightCodeText(text, hljsLang);
+  const { codeBlock } = colorizers();
+  const source = highlighted != null
+    ? highlighted
+    : String(text ?? '').split(EOL).map(codeBlock).join(EOL);
+  const lines = [];
+  for (const line of source.split(EOL)) {
+    lines.push(...wrapCodeLine(line, bandWidth));
+  }
+  return lines;
+}
+
+/** Left gutter that keeps code visually distinct from prose (no bg band). */
+const CODE_GUTTER = '  ';
+
+/**
+ * Render a fenced `code` token (codex/claude-code convention): an optional
+ * subtle language label row, then the wrapped, syntax/diff/flat-highlighted
+ * body. Every row is left-indented by a 2-col gutter. NO background band, no
+ * full-width padding, and no visible ``` fence lines.
  */
 function renderCodeBlock(token, width = 0) {
   const { codeBlock } = colorizers();
   const c = extraColorizers();
   const lang = normalizeLang(token.lang);
   const text = decodeEntities(token.text ?? '');
-  const bandWidth = Math.max(8, Number(width) || 80);
+  const renderWidth = Math.max(8, Number(width) || 80);
+  // Wrap content to the render width minus the left gutter so `gutter + content`
+  // never overruns the available width.
+  const contentWidth = Math.max(1, renderWidth - CODE_GUTTER.length);
 
-  let body;
+  let bodyLines;
   if (DIFF_LANGS.has(lang) || (!lang && looksLikeUnifiedDiff(text))) {
-    body = renderDiffBody(text, c, bandWidth);
+    bodyLines = collectDiffBodyLines(text, c, contentWidth);
   } else {
+    const hljsLang = resolveHljsLanguage(lang);
     const family = LANG_FAMILY[lang];
-    // Any known family except markdown-in-markdown routes through the regex
-    // highlighter (html/json/yaml/toml included). 'md' stays flat (no nested
-    // markdown highlighter); unknown langs fall back to the flat body color.
-    if (family && family !== 'md') {
-      body = renderHighlightedBody(text, family, c, bandWidth);
+    if (hljsLang && family !== 'md') {
+      bodyLines = collectHighlightedBodyLines(text, hljsLang, contentWidth);
     } else {
-      // Unknown/plain language: flat code-block body color, still indented.
-      const lines = [];
-      for (const line of text.split(EOL)) {
-        const colored = codeBlock(line);
-        lines.push(...wrapIndentedCodeLine(colored, bandWidth));
-      }
-      body = tintCodeLines(lines, c.codeBg);
+      bodyLines = collectFlatBodyLines(text, codeBlock, contentWidth);
     }
   }
-  const langLine = lang
-    ? `${c.codeBg(c.fenceBorder(lang))}${EOL}`
-    : '';
-  return `${langLine}${body}${body ? EOL : ''}`;
+  // Indent every body row by the gutter (no bg band).
+  const indentedBody = bodyLines.map((line) => `${CODE_GUTTER}${line ?? ''}`);
+  // Language label: a subtle (syntax-comment colored) metadata row above the
+  // body. Its trimmed visible text is exactly the bare lang token, so consumers
+  // can detect the label by trimmed equality.
+  const langLine = lang ? `${CODE_GUTTER}${c.synComment(lang)}` : null;
+  const rows = [...(langLine ? [langLine] : []), ...indentedBody].join(EOL);
+  return `${rows}${rows ? EOL : ''}`;
 }
 
 function numberToLetter(n) {
@@ -442,27 +577,34 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
   const ex = extraColorizers();
   switch (token.type) {
     case 'blockquote': {
-      const inner = (token.tokens ?? []).map((t) => formatToken(t)).join('');
       const bar = quoteBorder(BLOCKQUOTE_BAR);
+      const quotePrefix = `${BLOCKQUOTE_BAR} `;
+      const innerWidth = contentWidthAfterPrefix(width, quotePrefix);
+      const inner = (token.tokens ?? []).map((t) => formatToken(t, 0, null, null, innerWidth)).join('');
       return inner
         .split(EOL)
-        .map((line) =>
-          stripAnsi(line).trim()
-            ? `${bar} ${quoteText(chalk.italic(line))}`
-            : line,
-        )
+        .map((line) => {
+          // Padded fenced-code blank rows are space-only; trim() would drop the quote bar.
+          if (displayWidth(stripAnsi(line)) === 0) return line;
+          return `${bar} ${quoteText(chalk.italic(line))}`;
+        })
         .join(EOL);
     }
     case 'code':
-      // Fenced block: compact lang label + wrapped indented, colored body.
+      // Fenced block: flush-left wrapped body with syntax highlighting.
       return renderCodeBlock(token, width);
     case 'codespan':
-      // inline code
+      // inline code — accent color only (no background tint; a bg box behind
+      // inline spans reads as awkward against body text, matches claude-code's
+      // codespan = color-only treatment).
       return accent(decodeEntities(token.text));
     case 'em':
-      return ex.emph(chalk.italic((token.tokens ?? []).map((t) => formatToken(t, 0, null, parent)).join('')));
+      // Italic only — no color tint (matches codex/claude-code; a colored em
+      // clashes per-theme and reads loud against body prose).
+      return chalk.italic((token.tokens ?? []).map((t) => formatToken(t, 0, null, parent)).join(''));
     case 'strong':
-      return ex.strong(chalk.bold((token.tokens ?? []).map((t) => formatToken(t, 0, null, parent)).join('')));
+      // Bold only — no color tint (stays body-colored, just heavier weight).
+      return chalk.bold((token.tokens ?? []).map((t) => formatToken(t, 0, null, parent)).join(''));
     case 'heading':
       switch (token.depth) {
         case 1:
@@ -510,15 +652,15 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
             listBaseIndent,
             token.ordered ? Number(token.start || 1) + index : null,
             token,
-            0,
+            width,
             depth,
           ),
         )
         .join('');
     case 'list_item':
-      return formatListItem(token, listBaseIndent, orderedListNumber, parent, depth);
+      return formatListItem(token, listBaseIndent, orderedListNumber, parent, depth, width);
     case 'paragraph':
-      return (token.tokens ?? []).map((t) => formatToken(t)).join('') + EOL;
+      return (token.tokens ?? []).map((t) => formatToken(t, 0, null, null, width)).join('') + EOL;
     case 'space':
       return EOL;
     case 'br':
@@ -526,7 +668,7 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
     case 'text':
       if (parent?.type === 'link') return decodeEntities(token.text);
       if (token.tokens) {
-        return token.tokens.map((t) => formatToken(t, listBaseIndent, orderedListNumber, token, 0, depth)).join('');
+        return token.tokens.map((t) => formatToken(t, listBaseIndent, orderedListNumber, token, width, depth)).join('');
       }
       return decodeEntities(token.text);
     case 'escape':
@@ -560,7 +702,7 @@ function prefixFirstAndRest(value, firstPrefix, restPrefix) {
   ].join(EOL);
 }
 
-function formatListItem(token, listBaseIndent, orderedListNumber, parent, depth = 0) {
+function formatListItem(token, listBaseIndent, orderedListNumber, parent, depth = 0, width = 0) {
   const { listBullet } = colorizers();
   const markerPlain = orderedListNumber === null
     ? '-'
@@ -569,6 +711,7 @@ function formatListItem(token, listBaseIndent, orderedListNumber, parent, depth 
   const markerPrefix = `${' '.repeat(listBaseIndent)}${marker} `;
   const continuationPrefix = ' '.repeat(stripAnsi(markerPrefix).length);
   const nestedListIndent = continuationPrefix.length;
+  const childWidth = contentWidthAfterPrefix(width, continuationPrefix);
   const children = token.tokens ?? [];
   let out = '';
   let firstBlock = true;
@@ -588,11 +731,12 @@ function formatListItem(token, listBaseIndent, orderedListNumber, parent, depth 
         out += `${markerPrefix.trimEnd()}${EOL}`;
         firstBlock = false;
       }
-      out += formatToken(child, nestedListIndent, null, token, 0, depth + 1);
+      // Pass outer `width` so the nested list subtracts only its own marker prefix once.
+      out += formatToken(child, nestedListIndent, null, token, width, depth + 1);
       continue;
     }
 
-    const rendered = formatToken(child, listBaseIndent, orderedListNumber, token, 0, depth);
+    const rendered = formatToken(child, listBaseIndent, orderedListNumber, token, childWidth, depth);
     const body = trimTrailingEol(rendered);
     if (!body) continue;
 

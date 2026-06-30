@@ -33,7 +33,15 @@ import {
     traceAgentUsage,
     appendAgentTrace,
 } from '../agent-trace.mjs';
-import { jitterDelayMs, populateHttpStatusFromMessage } from './retry-classifier.mjs';
+import {
+    classifyHandshakeError,
+    classifyMidstreamError,
+    createStreamSafetyStamps,
+    jitterDelayMs,
+    MIDSTREAM_RETRY_POLICY,
+    populateHttpStatusFromMessage,
+    sleepWithAbort,
+} from './retry-classifier.mjs';
 import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
 import {
     PROVIDER_RETRY_MAX_ATTEMPTS,
@@ -71,9 +79,18 @@ const WS_PRE_RESPONSE_CREATED_MS = (() => {
 })();
 // Inter-chunk inactivity after first meaningful output.
 const WS_INTER_CHUNK_MS = PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS;
-const MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT = 4;
-const MIDSTREAM_DEFAULT_RETRY_LIMIT = 2;
-const MIDSTREAM_BACKOFF_MS = [250, 1000, 2000, 4000];
+// Mid-stream retry budgets + backoff now live in the shared MIDSTREAM_RETRY_POLICY
+// table (retry-classifier.mjs). These aliases keep the local call sites readable
+// and ensure the numbers exist in exactly ONE place.
+const MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT = MIDSTREAM_RETRY_POLICY.ws.transientCloseRetries;
+const MIDSTREAM_DEFAULT_RETRY_LIMIT = MIDSTREAM_RETRY_POLICY.ws.defaultRetries;
+const MIDSTREAM_BACKOFF_MS = MIDSTREAM_RETRY_POLICY.ws.backoff;
+// Policy object passed to the shared classifyMidstreamError for the WS path.
+const WS_MIDSTREAM_POLICY = {
+    mode: 'ws',
+    transientCloseRetries: MIDSTREAM_RETRY_POLICY.ws.transientCloseRetries,
+    defaultRetries: MIDSTREAM_RETRY_POLICY.ws.defaultRetries,
+};
 
 // Handshake retry policy. The `ws` library surfaces a bare
 // `Opening handshake has timed out` Error after handshakeTimeout; transient
@@ -1997,34 +2014,12 @@ export async function _streamResponse({
  *   'http_5xx' (with specific status e.g. 'http_503') — server overload
  *   null      — not retryable
  */
+// Thin re-export wrapper: handshake classification now lives in the shared
+// retry-classifier (classifyHandshakeError). Kept here as a named export so
+// internal call sites (_acquireWithRetry) and any external importer keep
+// resolving the same symbol.
 export function _classifyHandshakeError(err) {
-    if (!err) return null;
-    const code = err.code || '';
-    const msg = String(err.message || '');
-    const status = Number(err.httpStatus || 0);
-
-    // Permanent HTTP (auth / quota / not-found) short-circuits.
-    if (status === 401 || status === 403 || status === 404 || status === 429) {
-        return null;
-    }
-    // 5xx transient.
-    if (status >= 500 && status < 600) {
-        return `http_${status}`;
-    }
-
-    // Node errno codes.
-    if (code === 'ECONNRESET') return 'reset';
-    if (code === 'EAI_AGAIN' || code === 'ENOTFOUND' || code === 'EAI_NODATA') return 'dns';
-    if (code === 'ECONNREFUSED') return 'refused';
-    if (code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT') return 'timeout';
-    if (code === 'EWSACQUIRETIMEOUT') return 'acquire_timeout';
-    if (code === 'ENETUNREACH' || code === 'EHOSTUNREACH' || code === 'EPIPE') return 'network';
-
-    // `ws` library's handshake-timeout path: thrown as a bare Error.
-    if (/opening handshake has timed out/i.test(msg)) return 'timeout';
-    if (/socket hang up/i.test(msg)) return 'reset';
-
-    return null;
+    return classifyHandshakeError(err);
 }
 
 /**
@@ -2065,126 +2060,23 @@ export function _classifyHandshakeError(err) {
  *   - HTTP 401 / 403 / 429 surfaced on the error
  *   - state.attemptIndex has reached the classifier-specific retry budget
  */
+// Thin wrapper: the full WS mid-stream decision tree now lives in the shared
+// classifyMidstreamError (retry-classifier.mjs, policy.mode='ws'). Kept as a
+// named export so internal call sites and any external importer keep resolving
+// the same symbol. Behavior is byte-identical — the shared function is the
+// relocated original, with the per-classifier budget gating supplied by
+// WS_MIDSTREAM_POLICY (transientCloseRetries=4, defaultRetries=2).
 export function _classifyMidstreamError(err, state) {
-    if (!state) return null;
-    const attemptIndex = state.attemptIndex | 0;
-    // Already completed (shouldn't throw, but defensive).
-    if (state.sawCompleted) return null;
-    // Any tool call already surfaced to the caller — retrying would
-    // normally duplicate the side effect. EXCEPTION: ws_1000 truncation
-    // (server-side normal close after response.created, before completion)
-    // leaves the caller with an orphaned tool_use that the next turn cannot
-    // pair to a tool_result, which the provider rejects with a hard 400.
-    // The duplicate-side-effect risk is preferable to deterministic worker
-    // death, especially for detached agents that re-dispatch idempotently.
-    if (state.emittedToolCall) {
-        const _cc = Number(err?.wsCloseCode || state.wsCloseCode || 0);
-        if (!(_cc === 1000 && state.sawResponseCreated && !state.sawCompleted)) return null;
-    }
-    // Live-text invariant: once a non-empty text chunk has been relayed to the
-    // client (gateway live mode), the rendered output cannot be withdrawn and a
-    // retry would concatenate a second attempt. Treat every subsequent
-    // mid-stream/truncated failure as final — never retry.
-    if (state.emittedText || err?.liveTextEmitted) return null;
-    // Post-upgrade-no-first-event: the socket opened, our response.create
-    // frame was sent, but the server never emitted a single event before
-    // the short pre-`response.created` watchdog fired. The handshake retry
-    // layer only sees pre-upgrade failures and the legacy pre-stream gate
-    // below would deny this case (sawResponseCreated === false). Tag it
-    // here as a fast retryable bucket so the worker reconnects within
-    // seconds instead of stalling for the full first-meaningful window.
-    if (state.firstByteTimeout || err?.firstByteTimeout) {
-        return _allowMidstreamRetry('first_byte_timeout', attemptIndex);
-    }
-    if (state.firstMeaningfulTimeout || err?.firstMeaningfulTimeout) {
-        return _allowMidstreamRetry('first_meaningful_timeout', attemptIndex);
-    }
-    // _sendFrame failure (socket not OPEN, send callback errored, JSON
-    // serialize threw). Always retryable: caller will forceFresh next
-    // attempt so the wedged socket is dropped.
-    if (err?.wsSendFailed || state.wsSendFailed) {
-        return _allowMidstreamRetry('ws_send_failed', attemptIndex);
-    }
-    // Pre-stream failures normally belong to the handshake retry layer. BUT
-    // WS close 1011 / 1012 can fire after the 101 upgrade but BEFORE the
-    // first response.created event when the server's keepalive times out or
-    // the service restarts. Neither the handshake retry layer (it only sees
-    // pre-upgrade failures) nor the existing mid-stream gate covers this
-    // window, so permit bounded retry here for those two codes only.
-    if (!state.sawResponseCreated) {
-        const closeCode = Number(err?.wsCloseCode || state.wsCloseCode || 0);
-        if (closeCode !== 1011 && closeCode !== 1012) return null;
-    }
-    // User/caller abort — never retry.
-    if (state.userAbort) return null;
-
-    if (!err) return null;
-    const status = Number(err?.httpStatus || 0);
-    if (status === 401 || status === 403 || status === 429) return null;
-    // Transient 5xx surfaced via populateHttpStatusFromMessage (case 'error'
-    // and case 'response.failed' branches sniff server-supplied text like
-    // "Our servers are currently overloaded" and assign httpStatus=503).
-    // Allow one bounded mid-stream retry on the same budget as the WS close-
-    // code buckets above so server-side overload no longer leaks straight
-    // to the caller without a single retry attempt.
-    if (status >= 500 && status < 600) {
-        return _allowMidstreamRetry(`http_${status}`, attemptIndex);
-    }
-
-    const name = err?.name || '';
-    if (name === 'AgentStallAbortError') return _allowMidstreamRetry('agent_stall', attemptIndex);
-    if (name === 'StreamStalledAbortError') return _allowMidstreamRetry('stream_stalled', attemptIndex);
-
-    // Watchdog abort surfaced via externalSignal handler → err is the reason
-    // itself. state.watchdogAbort captures the class name when the error
-    // shape was preserved but the name was stripped by some wrapper.
-    if (state.watchdogAbort === 'AgentStallAbortError') return _allowMidstreamRetry('agent_stall', attemptIndex);
-    if (state.watchdogAbort === 'StreamStalledAbortError') return _allowMidstreamRetry('stream_stalled', attemptIndex);
-
-    // WS close codes: prefer the decorated property, fall back to state.
-    const closeCode = Number(err?.wsCloseCode || state.wsCloseCode || 0);
-    if (closeCode === 1006) return _allowMidstreamRetry('ws_1006', attemptIndex);
-    if (closeCode === 1011) return _allowMidstreamRetry('ws_1011', attemptIndex);
-    if (closeCode === 1012) return _allowMidstreamRetry('ws_1012', attemptIndex);
-    // Private 4xxx codes from a server/proxy are auth/policy/application closes;
-    // never treat them as transient. 4000 is our local pre-stream watchdog code.
-    if (closeCode >= 4000 && closeCode < 5000 && closeCode !== 4000) return null;
-    if (closeCode === 4000) return _allowMidstreamRetry('ws_4000', attemptIndex);
-    // Server-side normal close (1000) AFTER response.created but BEFORE
-    // response.completed = truncated stream; legitimate transient. The
-    // pre-stream gate above already rejects 1000 before sawResponseCreated
-    // (handshake retry layer owns that window).
-    if (closeCode === 1000 && state.sawResponseCreated && !state.sawCompleted) return _allowMidstreamRetry('ws_1000', attemptIndex);
-
-    // response.failed payload mentioning network_error / stream_disconnected.
-    // xAI's gRPC backend periodically rotates auth context (server-side TTL)
-    // and surfaces "Auth context expired" as a response.failed event. The
-    // attemptIndex > 0 path in sendViaWebSocket forces a fresh WS handshake,
-    // which re-authenticates — so a single bounded retry recovers the turn
-    // instead of letting the worker die mid-session.
-    const failed = err?.responseFailed || state.responseFailedPayload;
-    if (failed) {
-        try {
-            const blob = JSON.stringify(failed).toLowerCase();
-            if (blob.includes('stream_disconnected')) return _allowMidstreamRetry('response_failed_disconnected', attemptIndex);
-            if (blob.includes('network_error')) return _allowMidstreamRetry('response_failed_network', attemptIndex);
-            if (blob.includes('auth context expired')) return _allowMidstreamRetry('response_failed_auth_expired', attemptIndex);
-        } catch {}
-    }
-
-    // Unknown → default-deny (don't risk a second full-cost turn for an error
-    // class we haven't proven is transient).
-    return null;
+    return classifyMidstreamError(err, state, WS_MIDSTREAM_POLICY);
 }
 
+// Per-classifier retry budget, used by the sendViaWebSocket loop to bound the
+// attempt count once classifyMidstreamError returns a bucket. Mirrors the
+// shared _midstreamLimitFor(ws) — the numbers come from MIDSTREAM_RETRY_POLICY.
 function _midstreamRetryLimit(classifier) {
     return classifier === 'ws_1006' || classifier === 'ws_1011'
         ? MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT
         : MIDSTREAM_DEFAULT_RETRY_LIMIT;
-}
-
-function _allowMidstreamRetry(classifier, attemptIndex) {
-    return attemptIndex < _midstreamRetryLimit(classifier) ? classifier : null;
 }
 
 function _midstreamBackoffFor(retryNumber) {
@@ -2200,25 +2092,11 @@ function _backoffFor(attempt) {
 
 const _defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function _sleepWithAbort(ms, externalSignal, sleepFn = _defaultSleep) {
-    if (!ms) return;
-    if (!externalSignal) {
-        await sleepFn(ms);
-        return;
-    }
-    await new Promise((resolve, reject) => {
-        const t = setTimeout(() => {
-            externalSignal.removeEventListener('abort', onAbort);
-            resolve();
-        }, ms);
-        const onAbort = () => {
-            clearTimeout(t);
-            const reason = externalSignal.reason;
-            reject(reason instanceof Error ? reason : new Error('OpenAI OAuth WS retry backoff aborted'));
-        };
-        if (externalSignal.aborted) { onAbort(); return; }
-        externalSignal.addEventListener('abort', onAbort, { once: true });
-    });
+// Abort-aware backoff sleep → shared sleepWithAbort (retry-classifier.mjs). The
+// abortMessage preserves the prior fallback text when the abort reason is not an
+// Error; _sleepFn (test seam) is threaded through as the no-signal sleep impl.
+function _sleepWithAbort(ms, externalSignal, sleepFn = _defaultSleep) {
+    return sleepWithAbort(ms, externalSignal, sleepFn, 'OpenAI OAuth WS retry backoff aborted');
 }
 
 /**
@@ -2379,23 +2257,15 @@ export async function sendViaWebSocket({
     // already-rendered output. A text-emitting attempt is never retry-eligible
     // (_classifyMidstreamError returns null on emittedText), so the surfaced
     // error is frequently an EARLIER attempt's firstAttemptError that never saw
-    // the marker; _stampLiveText re-applies it on every throw path.
-    let liveTextEmittedAcrossAttempts = false;
-    const _stampLiveText = (e) => {
-        if (liveTextEmittedAcrossAttempts && e) {
-            try { e.liveTextEmitted = true; e.unsafeToRetry = true; } catch {}
-        }
-        return e;
-    };
-    // Tool-call relay invariant: same latch pattern as live text — once a tool
-    // call was forwarded, surfaced errors must block HTTP fallback / reissue.
-    let toolEmittedAcrossAttempts = false;
-    const _stampTool = (e) => {
-        if (toolEmittedAcrossAttempts && e) {
-            try { e.emittedToolCall = true; e.unsafeToRetry = true; } catch {}
-        }
-        return e;
-    };
+    // the marker; stampText re-applies it on every throw path. The latch state
+    // + stamp semantics now come from the shared createStreamSafetyStamps()
+    // factory (retry-classifier.mjs) — identical to the former _stampLiveText /
+    // _stampTool closures. markText()/markTool() set the latch (replacing the
+    // liveTextEmittedAcrossAttempts / toolEmittedAcrossAttempts booleans);
+    // stampText/stampTool re-apply the markers on every throw.
+    const _safetyStamps = createStreamSafetyStamps();
+    const _stampLiveText = _safetyStamps.stampText;
+    const _stampTool = _safetyStamps.stampTool;
     // Server-side xAI conversation anchor preserved across mid-stream
     // retries. xAI keys its conversation by previous_response_id alone
     // (sessionToken is null for xAI in _mintSessionToken); a forceFresh
@@ -2665,10 +2535,10 @@ export async function sendViaWebSocket({
                 // Latch across attempts: even though THIS error is never
                 // retry-eligible once text is out, a later/earlier surfaced
                 // error (firstAttemptError) must still carry the marker.
-                liveTextEmittedAcrossAttempts = true;
+                _safetyStamps.markText();
             }
             if (midState.emittedToolCall) {
-                toolEmittedAcrossAttempts = true;
+                _safetyStamps.markTool();
             }
             _stampLiveText(err);
             _stampTool(err);

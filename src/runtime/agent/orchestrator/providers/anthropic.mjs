@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { loadConfig } from '../config.mjs';
 import { sanitizeToolPairs, sanitizeAnthropicContentPairs } from '../session/context-utils.mjs';
-import { classifyError, midstreamBackoffFor, withRetry } from './retry-classifier.mjs';
+import { classifyError, midstreamBackoffFor, sleepWithAbort, withRetry } from './retry-classifier.mjs';
 import { traceAgentUsage } from '../agent-trace.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
@@ -19,25 +19,10 @@ import { normalizeContentForAnthropic } from './media-normalization.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 
-async function _midstreamSleepWithAbort(ms, signal) {
-    if (!ms) return;
-    if (!signal) {
-        await new Promise((r) => setTimeout(r, ms));
-        return;
-    }
-    await new Promise((resolve, reject) => {
-        const t = setTimeout(() => {
-            try { signal.removeEventListener('abort', onAbort); } catch {}
-            resolve();
-        }, ms);
-        const onAbort = () => {
-            clearTimeout(t);
-            const reason = signal.reason;
-            reject(reason instanceof Error ? reason : new Error('Anthropic mid-stream retry backoff aborted'));
-        };
-        if (signal.aborted) { onAbort(); return; }
-        signal.addEventListener('abort', onAbort, { once: true });
-    });
+// Abort-aware mid-stream backoff sleep → shared sleepWithAbort
+// (retry-classifier.mjs). abortMessage preserves the prior fallback text.
+function _midstreamSleepWithAbort(ms, signal) {
+    return sleepWithAbort(ms, signal, undefined, 'Anthropic mid-stream retry backoff aborted');
 }
 
 // 4-BP cache policy aligned with anthropic-oauth — system + tier3 +

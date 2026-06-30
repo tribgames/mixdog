@@ -755,11 +755,6 @@ ${_bt.trim()}` : _bt.trim();
 }
 export {
   OutputForwarder,
-  cwdToProjectSlug,
-  detectCurrentSessionTranscript,
-  discoverCurrentClaudeSession,
   discoverSessionBoundTranscript,
-  findLatestTranscriptByMtime,
-  getLatestInteractiveClaudeSession,
-  listInteractiveClaudeSessions
+  findLatestTranscriptByMtime
 };

@@ -67,17 +67,6 @@ export function imageReferenceIds(input) {
   return new Set([...String(input || '').matchAll(re)].map((m) => Number(m[1]) || 0).filter(Boolean));
 }
 
-export function promptContentText(content) {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return String(content ?? '');
-  return content.map((part) => {
-    if (typeof part === 'string') return part;
-    if (part?.type === 'text') return part.text || '';
-    if (part?.type === 'image') return `[image: ${part.mimeType || part.mediaType || part.source?.media_type || 'image'}]`;
-    return part?.text || '';
-  }).filter(Boolean).join('\n');
-}
-
 export function buildPromptContentWithImages(text, pastedImages = {}) {
   const value = String(text ?? '');
   const refs = imageReferenceIds(value);

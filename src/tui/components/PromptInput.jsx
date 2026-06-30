@@ -52,6 +52,9 @@ function hintStyle(tone) {
 // paddingX of 1, so the typing start can sit directly against that padding
 // without an extra guard column.
 const IME_LEFT_GUARD_COLUMNS = 0;
+// Coalesce prompt mouse-drag extend commits (SGR motion can fire faster than ink
+// needs to immediate-render). Matches transcript selection paint cadence.
+const MOUSE_EXTEND_COALESCE_MS = 24;
 
 function insertText(draft, input) {
   if (!input) return draft;
@@ -146,6 +149,7 @@ export function PromptInput({
   const cursorEnabledRef = useRef(false); // latest enabled state, read by the anchor fn at render time
   const contentWidthRef = useRef(80);
   const preferredColumnRef = useRef(null);
+  const mouseExtendCoalesceRef = useRef({ pendingNext: null, timer: null, t: 0 });
   const { value, cursor } = draft;
   draftRef.current = draft;
   if (selectionRef) {
@@ -237,6 +241,49 @@ export function PromptInput({
     commitDraft(fn(draftRef.current), options);
   };
 
+  const cancelMouseExtendCoalesce = () => {
+    const state = mouseExtendCoalesceRef.current;
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    state.pendingNext = null;
+  };
+
+  const queueMouseExtendCommit = (next, immediate = false) => {
+    if (immediate) {
+      cancelMouseExtendCoalesce();
+      commitDraft(next);
+      mouseExtendCoalesceRef.current.t = Date.now();
+      return;
+    }
+    if (draftStateEqual(draftRef.current, next)) {
+      cancelMouseExtendCoalesce();
+      commitDraft(next);
+      return;
+    }
+    const state = mouseExtendCoalesceRef.current;
+    state.pendingNext = next;
+    const now = Date.now();
+    const elapsed = now - state.t;
+    if (elapsed >= MOUSE_EXTEND_COALESCE_MS) {
+      cancelMouseExtendCoalesce();
+      state.t = now;
+      commitDraft(next);
+      return;
+    }
+    if (state.timer) return;
+    state.timer = setTimeout(() => {
+      const current = mouseExtendCoalesceRef.current;
+      const pending = current.pendingNext;
+      current.timer = null;
+      current.pendingNext = null;
+      current.t = Date.now();
+      if (pending) commitDraft(pending);
+    }, Math.max(1, MOUSE_EXTEND_COALESCE_MS - elapsed));
+    state.timer.unref?.();
+  };
+
   // [mixdog] Mouse drag-selection driver. App's single mouse handler maps a
   // click/drag cell over the prompt box to an edit offset and calls these so the
   // SAME selectionAnchor/cursor engine that keyboard Shift-selection uses paints
@@ -246,21 +293,35 @@ export function PromptInput({
     mouseSelectionRef.current = {
       offsetAtCell: (row, col) => offsetAtCell(draftRef.current.value, row, col, contentWidthRef.current),
       anchorAt: (offset) => {
+        cancelMouseExtendCoalesce();
         const value = draftRef.current.value;
         const off = Math.max(0, Math.min(value.length, Math.floor(Number(offset) || 0)));
         commitDraft({ ...draftRef.current, cursor: off, selectionAnchor: off });
+        mouseExtendCoalesceRef.current.t = Date.now();
       },
-      extendTo: (offset) => {
+      extendTo: (offset, immediate = false) => {
+        if (offset == null) {
+          if (immediate) cancelMouseExtendCoalesce();
+          return;
+        }
         const d = draftRef.current;
         const off = Math.max(0, Math.min(d.value.length, Math.floor(Number(offset) || 0)));
         const anchor = Number.isFinite(d.selectionAnchor) ? d.selectionAnchor : d.cursor;
-        commitDraft({ ...d, cursor: off, selectionAnchor: anchor });
+        queueMouseExtendCommit({ ...d, cursor: off, selectionAnchor: anchor }, immediate);
       },
       clear: () => {
+        cancelMouseExtendCoalesce();
         if (selectionRange(draftRef.current)) commitDraft(clearSelection(draftRef.current));
       },
     };
   }
+
+  useEffect(() => () => {
+    const state = mouseExtendCoalesceRef.current;
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = null;
+    state.pendingNext = null;
+  }, []);
 
   const moveDraftVertically = (direction, { extend = false } = {}) => {
     const current = draftRef.current;

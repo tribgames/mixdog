@@ -76,11 +76,6 @@ function isStringOrStringArray(v) {
     return true;
 }
 
-function hasBackslashPipe(value) {
-    if (typeof value === 'string') return false;
-    return false;
-}
-
 function hasUnsupportedRipgrepRegex(value) {
     const values = Array.isArray(value) ? value : [value];
     return values.some((item) => {
@@ -143,9 +138,6 @@ function guardGrep(a) {
     for (const k of patternKeys) {
         if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
             return `Error: grep arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
-        }
-        if (hasOwn(a, k) && hasBackslashPipe(a[k])) {
-            return `Error: grep arg "${k}" contains \\|. Use pattern:["a","b"] for OR terms, or unescaped | for regex alternation.`;
         }
         if (hasOwn(a, k) && hasUnsupportedRipgrepRegex(a[k])) {
             return `Error: grep arg "${k}" uses regex syntax ripgrep does not support here (lookaround/backrefs). Use plain pattern arrays or simpler regex.`;

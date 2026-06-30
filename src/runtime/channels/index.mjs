@@ -387,16 +387,6 @@ function sendNotifyToParent(method, params) {
   }
 }
 
-const recapState = { state: 'idle', running: false, startedAt: null, lastCompletedAt: null, updatedAt: null, errorMessage: null };
-function sendRecapStateToParent() {
-  if (!process.send) return;
-  try {
-    process.send({ type: 'recap_status', recap: { ...recapState } });
-  } catch (err) {
-    try { process.stderr.write(`mixdog channels: recap status IPC send failed: ${err && err.message || err}\n`); } catch {}
-  }
-}
-
 // ── Memory worker bridge (worker → parent → memory) ─────────────────
 // The channels worker does not own the memory worker handle. To trigger
 // memory tool actions (e.g. cycle1) we send `memory_call_request` to the
@@ -1140,26 +1130,6 @@ const OWNER_ROUTES = {
       res.writeHead(405);
       res.end(JSON.stringify({ error: "Method not allowed" }));
     }
-  },
-  "/recap/reset": async (req, res /*, body*/) => {
-    if (req.method !== "POST") { res.writeHead(405); res.end(JSON.stringify({ error: "POST required" })); return; }
-    if (!requireOwnerToken(req, res)) return;
-    // Called by hooks/session-start.cjs on `/clear` (matcher startup|clear).
-    // The session-start hook runs in a separate cjs process with no IPC
-    // handle to this forked channels child, so it can't drop recap
-    // status directly. Reset to an `empty` baseline so the statusline
-    // doesn't carry the prior session's `injected`/`error` recap badge
-    // into the cleared session.
-    const now = Date.now();
-    recapState.state = 'empty';
-    recapState.running = false;
-    recapState.startedAt = null;
-    recapState.lastCompletedAt = now;
-    recapState.updatedAt = now;
-    recapState.errorMessage = null;
-    sendRecapStateToParent();
-    res.writeHead(200);
-    res.end(JSON.stringify({ ok: true }));
   },
   "/cycle1": async (req, res, body) => {
     if (req.method !== "POST") { res.writeHead(405); res.end(JSON.stringify({ ok: false, reason: "method-not-allowed", error: "POST required" })); return; }

@@ -1,6 +1,10 @@
 import sliceAnsi from 'slice-ansi';
-import stringWidth from 'string-width';
 import { styledCharsFromTokens, styledCharsToString, tokenize, } from '@alcalzone/ansi-tokenize';
+// [mixdog fork] use the shared display-width policy so ink's per-character
+// advance + width cache treat circled digits / arrows as 2 cells under Windows
+// Terminal, matching OUR wrap/row math. See display-width.js (kept in sync with
+// src/tui/display-width.mjs).
+import { displayStringWidth as stringWidth } from './display-width.js';
 class OutputCaches {
     widths = new Map();
     blockWidths = new Map();

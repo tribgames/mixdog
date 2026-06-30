@@ -21,11 +21,16 @@ export const TOOL_RESULT_OFFLOAD_PREFIX = '[tool output offloaded:';
 // READ_MAX_SIZE_BYTES cap, so persisting to a sidecar to be re-read would be
 // circular. These values keep context-rich IO tools from turning into "read
 // saved output" loops while bounding the per-call inline footprint per CC.
+// Skill / skill_view bodies stay inline for the same reason — offloading a
+// loaded SKILL.md would force a read loop and defeat the loaded-skill guard.
 const INLINE_THRESHOLD_BY_TOOL = new Map([
     ['read', Infinity],
     ['head', Infinity],
     ['tail', Infinity],
     ['diff', Infinity],
+    ['skill', Infinity],
+    ['skill_view', Infinity],
+    ['skills_list', Infinity],
     ['grep', TOOL_RESULT_GREP_THRESHOLD_CHARS],
     ['glob', TOOL_RESULT_SEARCH_THRESHOLD_CHARS],
     ['list', TOOL_RESULT_SEARCH_THRESHOLD_CHARS],

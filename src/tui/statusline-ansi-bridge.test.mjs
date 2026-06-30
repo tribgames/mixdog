@@ -143,17 +143,17 @@ test('stats reset transition is footer identity change (cache must not reuse on 
 });
 
 test('theme switch changes normalized output when raw line is canonical', () => {
-  setThemeSetting('mixdog', { persist: false });
+  setThemeSetting('basic', { persist: false });
   const colorsA = statusColorsFromTheme();
   const raw = `${sgr38(...STATUSLINE_CANONICAL_TRUECOLOR.success)}▓▓\x1b[0m ${sgr38(...STATUSLINE_CANONICAL_TRUECOLOR.subtle)}░░`;
   const tonedA = normalizeStatuslineAnsi(raw, colorsA);
 
-  setThemeSetting('pi-dark', { persist: false });
+  setThemeSetting('teal', { persist: false });
   const colorsB = statusColorsFromTheme();
   const tonedB = normalizeStatuslineAnsi(raw, colorsB);
 
   assert.notEqual(tonedA, tonedB);
   assert.ok(tonedB.includes(colorsB.SUCCESS));
   assert.ok(tonedB.includes(colorsB.SUBTLE));
-  setThemeSetting('mixdog', { persist: false });
+  setThemeSetting('basic', { persist: false });
 });

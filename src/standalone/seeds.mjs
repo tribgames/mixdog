@@ -1,7 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-
-const DEFAULT_DATA_FILES = [];
+import { mkdirSync } from 'node:fs';
 
 export function ensureStandaloneEnvironment({ rootDir, dataDir }) {
   if (!rootDir) throw new Error('standalone rootDir is required');
@@ -17,11 +14,4 @@ export function ensureStandaloneEnvironment({ rootDir, dataDir }) {
   process.env.MIXDOG_PATCH_NATIVE_PREWARM ??= '0';
 
   mkdirSync(dataDir, { recursive: true });
-  for (const file of DEFAULT_DATA_FILES) {
-    const from = join(rootDir, 'defaults', file);
-    const to = join(dataDir, file);
-    if (!existsSync(from) || existsSync(to)) continue;
-    mkdirSync(dirname(to), { recursive: true });
-    copyFileSync(from, to);
-  }
 }

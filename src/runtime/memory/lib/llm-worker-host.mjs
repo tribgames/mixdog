@@ -6,12 +6,8 @@
  * Each task spawns a child process directly and communicates via stdio.
  */
 
-let active = false
-
 export function startLlmWorker() {
-  active = true
 }
 
 export async function stopLlmWorker() {
-  active = false
 }

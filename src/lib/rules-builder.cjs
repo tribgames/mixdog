@@ -26,8 +26,8 @@
  *   - agent/00-common.md             — agent common behavior + universal worker contract (BP2)
  *   - agent/10..50-*.md              — per-hidden-role bodies (consumed by loadScopedRoleInstructions)
  *
- * Core memory snapshot and session recap are injected separately by
- * hooks/session-start.cjs from the memory worker (pgdata) (Lead only).
+ * Core memory snapshot is injected separately from the memory worker (pgdata)
+ * (Lead only).
  */
 
 const fs = require('fs');

@@ -30,8 +30,11 @@ import {
 } from '../stall-policy.mjs';
 import {
     classifyError,
+    classifyMidstreamError,
     midstreamBackoffFor,
+    MIDSTREAM_RETRY_POLICY,
     retryAfterMsFromError,
+    sleepWithAbort,
     withRetry,
 } from './retry-classifier.mjs';
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
@@ -46,8 +49,19 @@ const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
 // SSE progress emits (per-request "Response …" and "Done:" lines). Off by default.
 const SSE_VERBOSE = process.env.MIXDOG_SSE_VERBOSE === '1';
 
-/** Bounded mid-stream SSE retries (transient stream loss); shared with anthropic.mjs. */
-export const ANTHROPIC_MAX_MIDSTREAM_RETRIES = 3;
+/** Bounded mid-stream SSE retries (transient stream loss); shared with anthropic.mjs.
+ *  Sourced from the single shared retry-budget table (MIDSTREAM_RETRY_POLICY.sse). */
+export const ANTHROPIC_MAX_MIDSTREAM_RETRIES = MIDSTREAM_RETRY_POLICY.sse.defaultRetries;
+
+// Policy passed to the shared classifyMidstreamError for the SSE path. The
+// top-of-function attempt-budget gate uses defaultRetries (3); perClassifierGate
+// is false so the classifier returns raw bucket strings (the loop owns the
+// MAX_MIDSTREAM_RETRIES bound), matching the former _classifyMidstreamError.
+const SSE_MIDSTREAM_POLICY = {
+    mode: 'sse',
+    defaultRetries: MIDSTREAM_RETRY_POLICY.sse.defaultRetries,
+    perClassifierGate: false,
+};
 
 function formatRetryAfter(ms) {
     const n = Number(ms);
@@ -889,25 +903,10 @@ function _captureMidstreamAbort(state, reason) {
     }
 }
 
-async function _midstreamSleepWithAbort(ms, signal) {
-    if (!ms) return;
-    if (!signal) {
-        await new Promise((r) => setTimeout(r, ms));
-        return;
-    }
-    await new Promise((resolve, reject) => {
-        const t = setTimeout(() => {
-            try { signal.removeEventListener('abort', onAbort); } catch {}
-            resolve();
-        }, ms);
-        const onAbort = () => {
-            clearTimeout(t);
-            const reason = signal.reason;
-            reject(reason instanceof Error ? reason : new Error('Anthropic OAuth mid-stream retry backoff aborted'));
-        };
-        if (signal.aborted) { onAbort(); return; }
-        signal.addEventListener('abort', onAbort, { once: true });
-    });
+// Abort-aware mid-stream backoff sleep → shared sleepWithAbort
+// (retry-classifier.mjs). abortMessage preserves the prior fallback text.
+function _midstreamSleepWithAbort(ms, signal) {
+    return sleepWithAbort(ms, signal, undefined, 'Anthropic OAuth mid-stream retry backoff aborted');
 }
 
 function _statusForAnthropicSseError(type, message) {
@@ -1258,35 +1257,14 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
  * That keeps recovery limited to transport/stream stalls without risking
  * duplicate eager tool execution.
  */
+// Thin wrapper: the SSE mid-stream decision tree now lives in the shared
+// classifyMidstreamError (retry-classifier.mjs, policy.mode='sse'). Kept as a
+// named export so internal call sites AND anthropic.mjs (which imports this
+// symbol) keep resolving it. Behavior is byte-identical — the shared function
+// is the relocated original, gated by SSE_MIDSTREAM_POLICY (defaultRetries=3,
+// perClassifierGate:false).
 export function _classifyMidstreamError(err, state) {
-    if (!state) return null;
-    if ((state.attemptIndex | 0) >= ANTHROPIC_MAX_MIDSTREAM_RETRIES) return null;
-    if (state.sawCompleted) return null;
-    if (!state.sawMessageStart) return null;
-    if (state.userAbort) return null;
-    if (state.emittedToolCall) return null;
-
-    if (!err) return null;
-    const status = Number(err?.httpStatus || 0);
-    if (status === 401 || status === 403 || status === 429) return null;
-
-    const name = err?.name || '';
-    if (name === 'AgentStallAbortError') return 'agent_stall';
-    if (name === 'StreamStalledAbortError') return 'stream_stalled';
-    if (state.watchdogAbort === 'AgentStallAbortError') return 'agent_stall';
-    if (state.watchdogAbort === 'StreamStalledAbortError') return 'stream_stalled';
-
-    const code = err?.code || err?.cause?.code || '';
-    if (code === 'ECONNRESET') return 'reset';
-    if (code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT') return 'timeout';
-    if (code === 'ENOTFOUND' || code === 'EAI_AGAIN' || code === 'EAI_NODATA') return 'dns';
-
-    const msg = String(err?.message || '').toLowerCase();
-    if (msg.includes('stream timed out after') && msg.includes('of inactivity')) return 'sse_idle_timeout';
-    if (msg.includes('body stream') && msg.includes('terminated')) return 'stream_terminated';
-    if (msg.includes('fetch failed')) return 'fetch_failed';
-
-    return null;
+    return classifyMidstreamError(err, state, SSE_MIDSTREAM_POLICY);
 }
 
 // --- Build request body ---

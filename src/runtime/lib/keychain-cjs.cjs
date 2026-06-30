@@ -148,7 +148,6 @@ function loadKeytar() {
 // Avoids Atomics.wait on main thread (which hangs when SAB is not forwarded to worker).
 function keytarSync(method, ...args) {
     loadKeytar(); // throws if not installed — before spawning child
-    const { spawnSync } = require('child_process');
     // Pass service/account/value via env to avoid shell injection entirely.
     const env = {
         ...process.env,

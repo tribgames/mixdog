@@ -2,9 +2,9 @@ import { classifyResultKind } from './result-classification.mjs';
 import { executeMcpTool, isMcpTool, mcpToolHasField } from '../mcp/client.mjs';
 import { canonicalizeBuiltinToolName, executeBuiltinTool, formatUnknownBuiltinToolMessage, isBuiltinTool } from '../tools/builtin.mjs';
 import { executeBashSessionTool } from '../tools/bash-session.mjs';
-import { executePatchTool } from '../tools/patch.mjs';
+import { executePatchTool, takeApplyPatchUiDiff } from '../tools/patch.mjs';
 import { executeInternalTool, isInternalTool } from '../internal-tools.mjs';
-import { collectSkillsCached, loadSkillContent } from '../context/collect.mjs';
+import { collectSkillsCached, loadSkillContent, buildSkillResultEnvelope } from '../context/collect.mjs';
 import { traceAgentLoop, traceAgentTool, traceAgentToolFailure, traceAgentCompact, estimateProviderPayloadBytes, messagePrefixHash } from '../agent-trace.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { markSessionToolCall, updateSessionStage, SessionClosedError, getSessionAbortSignal, enqueuePendingMessage, bumpUsageMetricsEpoch } from './manager.mjs';
@@ -949,7 +949,7 @@ function viewSkill(cwd, name) {
     if (!name) return 'Error: skill name is required';
     const content = loadSkillContent(name, cwd);
     if (!content) return `Error: skill "${name}" not found`;
-    return `<skill>\n<name>${String(name).replace(/[<>&]/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]))}</name>\n${content}\n</skill>`;
+    return buildSkillResultEnvelope(name, content);
 }
 
 /** Normalize PostToolUse hook override values (legacy MCP text envelopes only). */
@@ -1238,7 +1238,7 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
     }
     if (name === 'apply_patch') {
         const patchArgs = typeof args === 'string' ? { patch: args } : args;
-        return executePatchTool(name, patchArgs, cwd, { sessionId: callerSessionId });
+        return executePatchTool(name, patchArgs, cwd, { sessionId: callerSessionId, toolCallId: executeOpts.toolCallId || null });
     }
     if (isBuiltinTool(name)) {
         // clientHostPid threaded for the same per-terminal job-scope reason as
@@ -2432,12 +2432,22 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         setReadCached({ sessionId, args: call.arguments, cwd, content: result, toolUseId: call.id });
                     }
                 }
+                // UI-only: apply_patch stashes the standard unified diff keyed
+                // by tool_use id (never in the model-visible result). Attach it
+                // here as a side-channel field so the TUI's expanded (ctrl+o)
+                // raw view renders a colored +/- diff. The provider lowering
+                // (anthropic/openai/etc.) never reads `uiDiff`, so the model
+                // sees only `content` (the compact summary) — no token bloat.
+                const _applyPatchUiDiff = _stripMcpPrefix(call.name) === 'apply_patch'
+                    ? takeApplyPatchUiDiff(call.id)
+                    : null;
                 pushToolResultMessage({
                     role: 'tool',
                     content: result,
                     toolCallId: call.id,
                     toolKind: _resultKind,
                     ...(_nativeToolSearch ? { nativeToolSearch: _nativeToolSearch } : {}),
+                    ...(_applyPatchUiDiff ? { uiDiff: _applyPatchUiDiff } : {}),
                 });
             } catch (postErr) {
                 _postProcessOk = false;

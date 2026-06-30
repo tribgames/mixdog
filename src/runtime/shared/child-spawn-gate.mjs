@@ -137,9 +137,3 @@ export async function withGate(fn, signal = null) {
     release();
   }
 }
-
-export function gateStats() {
-  return { inflight: _inflight, queued: _queue.length, maxInflight: MAX_INFLIGHT };
-}
-
-export const CHILD_SPAWN_MAX_INFLIGHT = MAX_INFLIGHT;

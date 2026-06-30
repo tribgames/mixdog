@@ -44,10 +44,6 @@ export function writeJson(filePath, value) {
   writeJsonAtomicSync(filePath, value, { lock: true, fsyncDir: true })
 }
 
-export function saveConfig(config) {
-  return { ...DEFAULT_CONFIG, ...(config || {}) }
-}
-
 export function loadConfig() {
   ensureDataDir()
   if (Object.keys(readSection('search') || {}).length > 0) {

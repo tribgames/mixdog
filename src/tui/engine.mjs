@@ -1424,7 +1424,16 @@ export async function createEngineSession({
     const chunks = [];
     for (const rec of calls || []) {
       if (rec?.resolved !== true) continue;
-      const text = String(rec?.resultText || '').replace(/\s+$/, '');
+      let text = String(rec?.resultText || '').replace(/\s+$/, '');
+      // UI-only: apply_patch carries a standard unified diff (rec.uiDiff)
+      // delivered out-of-band on the tool-result message. Append it under the
+      // summary so the expanded (ctrl+o) raw view colorizes it as a +/- diff
+      // (formatExpandedResult auto-detects unified diffs). Never part of the
+      // model-visible result.
+      const uiDiff = String(rec?.uiDiff || '').replace(/\s+$/, '');
+      if (uiDiff.trim()) {
+        text = text.trim() ? `${text}\n${uiDiff}` : uiDiff;
+      }
       if (!text.trim()) continue;
       const label = String(rec?.name || rec?.category || 'tool').trim() || 'tool';
       chunks.push(`${chunks.length + 1}. ${label}\n${text}`);
@@ -1508,6 +1517,10 @@ export async function createEngineSession({
       callRec.isError = isError;
       callRec.resultText = text;
       callRec.resolved = true;
+      // UI-only unified diff (apply_patch) delivered out-of-band on the
+      // tool-result message; carried into aggregateRawResult for the expanded
+      // colored-diff view. Never surfaced to the model.
+      if (message?.uiDiff) callRec.uiDiff = String(message.uiDiff);
       const allCalls = [...aggregate.calls.values()];
       const completed = allCalls.filter((r) => r.resolved).length;
       const errors = allCalls.filter((r) => r.isError).length;

@@ -276,7 +276,6 @@ function loadProfileConfig() {
 export {
   DATA_DIR,
   DEFAULT_HOLIDAY_COUNTRY,
-  applyDefaults,
   createBackend,
   getDiscordToken,
   isInQuietWindow,

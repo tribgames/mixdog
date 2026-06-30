@@ -92,6 +92,18 @@ assert(semanticForced.semantic === true && semanticCalls === 1, 'forced semantic
 assert(semanticForced.compactType === COMPACT_TYPE_SEMANTIC, 'semantic compact should report compact type 1');
 assert(findSummary(semanticForced.messages), 'forced semantic compact should insert an anchored summary');
 
+let wholeTranscriptForcedCalls = 0;
+const wholeTranscriptProvider = {
+  name: 'whole-transcript-forced-smoke',
+  async send() {
+    wholeTranscriptForcedCalls += 1;
+    return { content: '## Goal\n- continue whole-transcript forced compact\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- oldest turn summarized\n\n### In Progress\n- (none)\n\n### Blocked\n- (none)\n\n## Key Decisions\n- (none)\n\n## Next Steps\n- continue\n\n## Critical Context\n- compact.mjs\n\n## Relevant Files\n- compact.mjs' };
+  },
+};
+const wholeTranscriptForced = await semanticCompactMessages(wholeTranscriptProvider, semanticMessages, 'fake-model', 5_000, { force: true });
+assert(wholeTranscriptForced.semantic === true && wholeTranscriptForcedCalls === 1, 'forced semantic compact must summarize when tail budget would preserve the whole live transcript (default tailTurns)');
+assert(findSummary(wholeTranscriptForced.messages), 'whole-transcript forced semantic compact should insert an anchored summary');
+
 assert(normalizeCompactType('type1') === COMPACT_TYPE_SEMANTIC, 'type1 should resolve to semantic compact');
 assert(normalizeCompactType('recall-fasttrack') === COMPACT_TYPE_RECALL_FASTTRACK, 'type2 should resolve to recall fast-track compact');
 // Alias parity: snake_case + dash + no-dash spellings of fast-track must all

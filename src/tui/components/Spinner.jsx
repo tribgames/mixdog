@@ -58,8 +58,6 @@ const MODE_VERBS = {
   responding: ['Responding', 'Composing', 'Writing', 'Wrapping up'],
 };
 
-const ERROR_RED = { r: 171, g: 43, b: 63 };
-
 function interpolateColor(a, b, t) {
   return {
     r: Math.round(a.r + (b.r - a.r) * t),
@@ -117,6 +115,7 @@ function spinnerRgb() {
     SPINNER_GLYPH_RGB: parseRgb(theme.spinnerGlyph) ?? { r: 240, g: 240, b: 240 },
     THINKING_INACTIVE: parseRgb(theme.thinkingBase) ?? parseRgb(theme.thinkingAccent) ?? { r: 153, g: 153, b: 153 },
     THINKING_SHIMMER: parseRgb(theme.thinkingGlow) ?? { r: 255, g: 205, b: 175 },
+    STALL_RGB: parseRgb(theme.error) ?? { r: 171, g: 43, b: 63 },
   };
 }
 
@@ -172,7 +171,7 @@ function tokenModeGlyph(mode) {
 
 export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens = 0, thinking = false, thinkingActiveSince = 0, mode = 'responding', columns = 80, marginTop = 1 }) {
   useAnimation({ interval: FRAME_MS });
-  const { TEXT_RGB, SHIMMER_RGB, SPINNER_GLYPH_RGB, THINKING_INACTIVE, THINKING_SHIMMER } = spinnerRgb();
+  const { TEXT_RGB, SHIMMER_RGB, SPINNER_GLYPH_RGB, THINKING_INACTIVE, THINKING_SHIMMER, STALL_RGB } = spinnerRgb();
   const now = Date.now();
   const elapsedMs = startedAt ? Math.max(0, now - startedAt) : 0;
   const frame = Math.floor(elapsedMs / FRAME_MS);
@@ -222,17 +221,18 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   const glyphColor = stalledIntensity > 0
     ? toRgbString(interpolateColor(
         SPINNER_GLYPH_RGB,
-        ERROR_RED,
+        STALL_RGB,
         stalledIntensity
       ))
     : theme.spinnerGlyph;
 
   // --- Verb shimmer (traveling highlight) ---
-  if (displayVerbModeRef.current !== mode || !displayVerbRef.current) {
-    displayVerbModeRef.current = mode;
+  if (!displayVerbRef.current) {
     displayVerbRef.current = stableModeVerb(mode, verb);
     nextVerbCheckRef.current = nextVerbCheckAt(now);
-  } else if (now >= nextVerbCheckRef.current) {
+  }
+  displayVerbModeRef.current = mode;
+  if (now >= nextVerbCheckRef.current) {
     displayVerbRef.current = chooseNextVerb(mode, verb, displayVerbRef.current);
     nextVerbCheckRef.current = nextVerbCheckAt(now);
   }

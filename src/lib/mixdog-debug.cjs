@@ -126,31 +126,9 @@ function appendSessionStartCriticalLog(dataDir, line) {
   } catch { /* best-effort */ }
 }
 
-/**
- * Fallback when call sites omit `{ critical: true }`.
- */
-function sessionStartCriticalFallback(line) {
-  const s = String(line || '');
-  if (/reason=ok\b/.test(s)) return false;
-  if (/\[session-start\] skip\b/.test(s) && /reason=/.test(s)) return true;
-  if (/result=null/.test(s)) return true;
-  if (/owner route unavailable/.test(s)) return true;
-  if (/memory_port unavailable/.test(s)) return true;
-  if (/\baborted\b/i.test(s)) return true;
-  if (/\bcycle1\b/.test(s) && /reason=/.test(s) && !/reason=ok\b/.test(s)) return true;
-  if (/\b(exception|failed|abort|err=|non-200|missing-dirs|catch endpoint)\b/i.test(s)) {
-    return true;
-  }
-  return false;
-}
-
 module.exports = {
-  isTruthyEnv,
   isMixdogDebugEnabled,
-  isStalePluginLogSibling,
   pruneStalePluginDataLogSiblings,
   appendSessionStartCriticalLog,
-  sessionStartCriticalFallback,
   DEFAULT_STALE_LOG_SIBLING_MAX,
-  SESSION_START_CRITICAL_LOG,
 };

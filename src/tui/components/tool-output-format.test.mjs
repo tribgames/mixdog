@@ -13,6 +13,21 @@ import stringWidth from 'string-width';
 
 const stripAnsi = (s) => String(s).replace(/\x1b\[[0-9;]*m/g, '').replace(/\x1b\]8;;[^\x07]*\x07/g, '');
 
+function withRenderLineCap(cap, fn) {
+  const prev = process.env.MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES;
+  const legacy = process.env.MIXDOG_TUI_EXPANDED_MAX_ROWS;
+  process.env.MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES = String(cap);
+  delete process.env.MIXDOG_TUI_EXPANDED_MAX_ROWS;
+  try {
+    return fn();
+  } finally {
+    if (prev === undefined) delete process.env.MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES;
+    else process.env.MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES = prev;
+    if (legacy === undefined) delete process.env.MIXDOG_TUI_EXPANDED_MAX_ROWS;
+    else process.env.MIXDOG_TUI_EXPANDED_MAX_ROWS = legacy;
+  }
+}
+
 test('inferLangFamily maps known extensions, null otherwise', () => {
   assert.equal(inferLangFamily('src/x.mjs'), 'js');
   assert.equal(inferLangFamily('a.py'), 'py');
@@ -29,6 +44,22 @@ test('read line-number gutter is split into a dim column and body is highlighted
   // gutter text survives, body keyword colored (output carries SGR escapes).
   assert.ok(stripAnsi(out[0]).startsWith('900\u2192function f() {'));
   assert.ok(out[0].includes('\x1b['), 'first line carries color escapes');
+});
+
+test('block syntax highlight skips tokenizer for over-long lines (index aligned)', () => {
+  // MAX_HIGHLIGHT_LINE_CHARS is 2000 in tool-output-format.mjs
+  const giant = 'x'.repeat(2001);
+  const read = `1\u2192const a = 1;\n2\u2192${giant}\n3\u2192const b = 2;`;
+  const out = formatExpandedResult(read, { pathArg: 'a.mjs' });
+  assert.equal(out.length, 3);
+  assert.ok(out[0].includes('\x1b['), 'short line before giant is highlighted');
+  assert.ok(out[2].includes('\x1b['), 'short line after giant is highlighted');
+  const plainMid = stripAnsi(out[1]);
+  assert.ok(plainMid.startsWith('2\u2192'), 'gutter preserved on giant line');
+  assert.ok(plainMid.endsWith(giant), 'giant body preserved');
+  const hljsSpans = (out[1].match(/\x1b\[[0-9;]*m/g) || []).length;
+  const shortSpans = (out[0].match(/\x1b\[[0-9;]*m/g) || []).length;
+  assert.ok(hljsSpans <= shortSpans + 2, 'giant line not fully tokenized like normal code');
 });
 
 test('grep file:line: gutter is split too', () => {
@@ -105,8 +136,12 @@ test('unified diff is colored by line class', () => {
 test('oversize output is capped with a truncation marker', () => {
   const many = Array.from({ length: 5000 }, (_, i) => `line${i}`).join('\n');
   const out = formatExpandedResult(many, {});
-  assert.ok(out.length <= 4001);
+  assert.ok(out.length <= 4001, 'logical cap keeps at most MAX_EXPANDED_LINES plus marker');
   assert.ok(/truncated/.test(stripAnsi(out[out.length - 1])));
+
+  const sixHundred = Array.from({ length: 600 }, (_, i) => `row${i}`).join('\n');
+  const out600 = formatExpandedResult(sixHundred, {});
+  assert.equal(out600.length, 600, 'normal expanded output is not truncated at 80 logical lines');
 
   const huge = 'x'.repeat(300 * 1024);
   const out2 = formatExpandedResult(huge, {});
@@ -217,4 +252,61 @@ test('read gutter lines skip markdown mode and keep syntax highlight', () => {
   assert.ok(visible.some((l) => l.includes('1\u2192# not a heading')), 'source # kept on read lines');
   assert.ok(visible.some((l) => l.includes('const y = 2;')), 'read body preserved');
   assert.ok(out.some((l) => stripAnsi(l).includes('const y = 2;') && l.includes('\x1b[')), 'code line still highlighted');
+});
+
+test('shell physical cap keeps newest rows across logical lines', () => {
+  withRenderLineCap(5, () => {
+    const long = 'W'.repeat(240);
+    const logical = formatExpandedResult(`${long}\nNEWEST_TAIL_LINE`, { isShell: true });
+    const physical = wrapExpandedResultLines(logical, 32, { isShell: true });
+    const visible = physical.map(stripAnsi);
+    assert.ok(visible.some((l) => l.includes('NEWEST_TAIL_LINE')), 'newest logical line survives rolling cap');
+    assert.ok(physical.length <= 5);
+    assert.ok(visible.some((l) => /omitted above/i.test(l)));
+  });
+});
+
+test('exact physical cap row count is not truncated', () => {
+  withRenderLineCap(10, () => {
+    const logical = Array.from({ length: 10 }, (_, i) => `row-${i}`).map((l) => formatExpandedResult(l, { isShell: true })[0]);
+    const physical = wrapExpandedResultLines(logical, 80, { isShell: true });
+    assert.equal(physical.length, 10);
+    assert.ok(!physical.some((l) => /omitted above/i.test(stripAnsi(l))));
+  });
+});
+
+test('physical cap of 1 never returns more than one row', () => {
+  withRenderLineCap(1, () => {
+    const physical = wrapExpandedResultLines(formatExpandedResult('a\nb\nc', { isShell: true }), 80, { isShell: true });
+    assert.ok(physical.length <= 1);
+    const physicalNonShell = wrapExpandedResultLines(formatExpandedResult('a\nb\nc', {}), 80, { isShell: false });
+    assert.ok(physicalNonShell.length <= 1);
+  });
+});
+
+test('shell physical cap omitted count includes marker slot', () => {
+  withRenderLineCap(5, () => {
+    const logical = ['r0', 'r1', 'r2', 'r3', 'r4', 'r5'].map((l) => formatExpandedResult(l, { isShell: true })[0]);
+    const physical = wrapExpandedResultLines(logical, 80, { isShell: true });
+    const visible = physical.map(stripAnsi);
+    assert.equal(physical.length, 5);
+    assert.match(visible[0], /2 lines omitted above/);
+    assert.deepEqual(visible.slice(1), ['r2', 'r3', 'r4', 'r5']);
+  });
+  withRenderLineCap(1, () => {
+    const logical = Array.from({ length: 6 }, (_, i) => `row${i}`).map((l) => formatExpandedResult(l, { isShell: true })[0]);
+    const physical = wrapExpandedResultLines(logical, 80, { isShell: true });
+    assert.equal(physical.length, 1);
+    assert.match(stripAnsi(physical[0]), /6 lines omitted above/);
+  });
+});
+
+test('shell logical truncation marker precedes retained tail', () => {
+  const many = Array.from({ length: 5000 }, (_, i) => `line${i}`).join('\n');
+  const out = formatExpandedResult(many, { isShell: true });
+  const visible = out.map(stripAnsi);
+  assert.ok(visible.length <= 4001);
+  assert.ok(/omitted above/i.test(visible[0]), 'shell marker is first row');
+  assert.ok(visible[visible.length - 1].includes('line4999'), 'newest logical line is last');
+  assert.ok(!visible[visible.length - 1].includes('re-read a narrower range'));
 });

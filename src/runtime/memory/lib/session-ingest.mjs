@@ -5,17 +5,19 @@ import crypto from 'node:crypto'
 // redaction, role/content shaping) can be unit-tested without importing the
 // MCP server entrypoint and its heavy boot-time side effects.
 
-// Roles we persist from an in-memory session transcript. Map provider/runtime
-// role spellings onto the canonical set; unknown roles are dropped.
-const INGEST_SESSION_ROLES = new Set(['user', 'assistant', 'tool', 'system', 'developer'])
+// Roles we persist from an in-memory session transcript (conversation only).
+// Map provider/runtime spellings onto canonical roles; only user/assistant are
+// kept so recall-fasttrack memory does not duplicate protected system prefix.
+const INGEST_SESSION_ROLES = new Set(['user', 'assistant'])
 
 export function normalizeIngestRole(role) {
   const raw = String(role || '').trim().toLowerCase()
   if (!raw) return null
-  if (raw === 'tool_result' || raw === 'function' || raw === 'tool-result') return 'tool'
-  if (raw === 'human') return 'user'
-  if (raw === 'ai' || raw === 'model') return 'assistant'
-  return INGEST_SESSION_ROLES.has(raw) ? raw : null
+  let canonical = raw
+  if (raw === 'tool_result' || raw === 'function' || raw === 'tool-result') canonical = 'tool'
+  else if (raw === 'human') canonical = 'user'
+  else if (raw === 'ai' || raw === 'model') canonical = 'assistant'
+  return INGEST_SESSION_ROLES.has(canonical) ? canonical : null
 }
 
 // Extract the first textual content block from a message content field.

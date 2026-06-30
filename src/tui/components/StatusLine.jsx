@@ -190,11 +190,6 @@ const LOCAL_WORKER_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '
 // render stay in sync (no flicker).
 const LOCAL_L2_SPINNER_FRAME_MS = 120;
 
-function localWorkerSpinnerFrame(now = Date.now()) {
-  const index = Math.floor(now / 160) % LOCAL_WORKER_SPINNER_FRAMES.length;
-  return LOCAL_WORKER_SPINNER_FRAMES[index] || LOCAL_WORKER_SPINNER_FRAMES[0];
-}
-
 function localL2SpinnerFrame(now = Date.now()) {
   const index = Math.floor(now / LOCAL_L2_SPINNER_FRAME_MS) % LOCAL_WORKER_SPINNER_FRAMES.length;
   return LOCAL_WORKER_SPINNER_FRAMES[index] || LOCAL_WORKER_SPINNER_FRAMES[0];

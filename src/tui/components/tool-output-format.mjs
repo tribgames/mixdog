@@ -21,6 +21,7 @@ import stripAnsi from 'strip-ansi';
 import {
   extraColorizers,
   highlightCodeLine,
+  highlightCodeBlockToLines,
   colorizeDiffLine,
   looksLikeUnifiedDiff,
   LANG_FAMILY,
@@ -35,12 +36,71 @@ const DEFAULT_MARKDOWN_WIDTH = 80;
 // Hard ceilings so a pathological tool result can never lock the render loop.
 // CC uses ~MAX_LINES*width*4 for the collapsed fold; for the EXPANDED body we
 // cap total characters processed and total lines kept, with an explicit marker.
-const MAX_EXPANDED_CHARS = 256 * 1024; // 256 KB of text gets per-line processing
-const MAX_EXPANDED_LINES = 4000; // keep at most this many rendered lines
+export const MAX_EXPANDED_CHARS = 256 * 1024; // 256 KB of text gets per-line processing
+const MAX_EXPANDED_LINES = 4000; // logical-line safety ceiling; physical mount cap is separate
 const MAX_JSON_FORMAT_LENGTH = 10_000; // mirror CC's tryJsonFormatContent cap
 const MAX_HIGHLIGHT_LINE_CHARS = 2000; // skip token-scan on absurdly long lines
 // Lockstep with ToolExecution collapsed fit budget (MIN_RESULT_LINE_CHARS).
 const MIN_EXPANDED_BODY_COLS = 24;
+
+// Hard cap on the number of PHYSICAL (wrapped) rows a single expanded tool /
+// script body may mount. MAX_EXPANDED_LINES bounds LOGICAL lines, but a single
+// very long line with no newlines (minified JSON, a 256 KB single-line blob)
+// wraps into thousands of physical rows — and EACH physical row is a mounted
+// Ink <Text> node that ink re-serializes every frame even while clipped off-
+// screen (clipping only trims write coords, not the serialize pass). So a lone
+// huge expanded item could mount thousands of nodes and stall typing/drag even
+// though it is the only visible transcript item. This cap bounds the mounted
+// node count regardless of line shape; the omitted tail gets a clear marker.
+// It is set generously above what any viewport needs so normal multi-line
+// output (already capped at MAX_EXPANDED_LINES logical lines) is byte-for-byte
+// unchanged — only pathological wide/unwrapped blobs are trimmed. Env-tunable
+// via MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES (0 disables); legacy
+// MIXDOG_TUI_EXPANDED_MAX_ROWS is still honored when the primary var is unset.
+export function resolveToolOutputMaxRenderLines() {
+  const raw = process.env.MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES;
+  if (raw !== undefined && String(raw).trim() !== '') {
+    const v = Number(raw);
+    if (Number.isFinite(v) && v <= 0) return 0;
+    if (Number.isFinite(v) && v > 0) return Math.floor(v);
+  }
+  const legacy = process.env.MIXDOG_TUI_EXPANDED_MAX_ROWS;
+  if (legacy !== undefined && String(legacy).trim() !== '') {
+    const v = Number(legacy);
+    if (Number.isFinite(v) && v > 0) return Math.floor(v);
+  }
+  return 600;
+}
+
+function omittedPhysicalRowsMarker(omitted, isShell) {
+  if (isShell) {
+    const n = Math.max(1, Math.floor(Number(omitted) || 0));
+    return `\u2026 [${n} line${n === 1 ? '' : 's'} omitted above \u2014 showing newest output below]`;
+  }
+  return '\u2026 [output truncated for display \u2014 collapse (ctrl+o) or re-read a narrower range]';
+}
+
+function shellLogicalOmittedMarker({ omittedLines = 0, omittedChars = false }, c) {
+  if (omittedLines > 0) {
+    return c.synComment(omittedPhysicalRowsMarker(omittedLines, true));
+  }
+  if (omittedChars) {
+    return c.synComment('\u2026 [earlier output omitted above \u2014 showing newest output below]');
+  }
+  return null;
+}
+
+function finalizeShellPhysicalCap(buffer, omitted, maxRows) {
+  const bodySlots = Math.max(0, maxRows - 1);
+  if (omitted <= 0) {
+    return buffer.length > 0 ? buffer : [' '];
+  }
+  const tail = bodySlots > 0 ? buffer.slice(-bodySlots) : [];
+  const extraHidden = Math.max(0, buffer.length - bodySlots);
+  const totalOmitted = omitted + extraHidden;
+  const out = [omittedPhysicalRowsMarker(totalOmitted, true), ...tail];
+  return out.length > 0 ? out.slice(0, maxRows) : [' '];
+}
 
 // `<n>→<content>` (read) OR `<n>:<content>` / `<path>:<n>:<content>` (grep).
 const READ_LINE_RE = /^(\s*)(\d+)(\u2192)(.*)$/;
@@ -198,9 +258,12 @@ export function formatExpandedResult(text, { pathArg = '', isShell = false } = {
 
   // Oversized guard: slice before any O(n) per-line work, append a marker.
   let truncatedChars = false;
+  let shellOmittedLines = 0;
+  let shellOmittedChars = false;
   if (src.length > MAX_EXPANDED_CHARS) {
-    src = src.slice(0, MAX_EXPANDED_CHARS);
-    truncatedChars = true;
+    src = isShell ? src.slice(-MAX_EXPANDED_CHARS) : src.slice(0, MAX_EXPANDED_CHARS);
+    if (isShell) shellOmittedChars = true;
+    else truncatedChars = true;
   }
 
   const carriesAnsi = hasAnsi(src);
@@ -210,8 +273,9 @@ export function formatExpandedResult(text, { pathArg = '', isShell = false } = {
   let lines = src.split('\n');
   let truncatedLines = false;
   if (lines.length > MAX_EXPANDED_LINES) {
-    lines = lines.slice(0, MAX_EXPANDED_LINES);
-    truncatedLines = true;
+    if (isShell) shellOmittedLines = lines.length - MAX_EXPANDED_LINES;
+    lines = isShell ? lines.slice(-MAX_EXPANDED_LINES) : lines.slice(0, MAX_EXPANDED_LINES);
+    if (!isShell) truncatedLines = true;
   }
 
   const c = extraColorizers();
@@ -223,29 +287,31 @@ export function formatExpandedResult(text, { pathArg = '', isShell = false } = {
   if (shouldRenderExpandedMarkdown({ src, lines, carriesAnsi, isShell, diffMode, family })) {
     out = formatExpandedMarkdownLines(src);
     if (out.length > MAX_EXPANDED_LINES) {
-      out = out.slice(0, MAX_EXPANDED_LINES);
-      truncatedLines = true;
+      if (isShell) shellOmittedLines += out.length - MAX_EXPANDED_LINES;
+      out = isShell ? out.slice(-MAX_EXPANDED_LINES) : out.slice(0, MAX_EXPANDED_LINES);
+      if (!isShell) truncatedLines = true;
     }
   } else {
-    out = lines.map((line) => formatLine(line, { c, family, diffMode, carriesAnsi, isShell }));
+    if (family && family !== 'md' && !diffMode && !carriesAnsi && !isShell) {
+      out = formatSyntaxBlock(lines, { c, family });
+    } else {
+      out = lines.map((line) => formatLine(line, { c, family, diffMode, carriesAnsi, isShell }));
+    }
   }
 
+  if (isShell) {
+    const marker = shellLogicalOmittedMarker({ omittedLines: shellOmittedLines, omittedChars: shellOmittedChars }, c);
+    if (marker) return [marker, ...out];
+    return out;
+  }
   if (truncatedChars || truncatedLines) {
     out.push(c.synComment('… [output truncated for display — re-read a narrower range]'));
   }
   return out;
 }
 
-/** Format ONE line: split line-number gutter, then highlight/linkify the body. */
-function formatLine(line, { c, family, diffMode, carriesAnsi, isShell }) {
-  // Shell / already-colored output: keep ANSI verbatim, only fix underline leaks
-  // and linkify URLs. No gutter split (shell has no <n>→ prefix).
-  if (carriesAnsi || isShell) {
-    return linkifyUrls(stripUnderlineAnsi(line));
-  }
-
-  // Split a read (`<n>→`) or grep (`<file>:<n>:` / `<n>:`) gutter into a dim
-  // column so the body can be highlighted independently.
+/** Split read/grep line-number gutter from body (shared by per-line and block highlight). */
+function splitGutter(line) {
   let indent = '';
   let gutter = '';
   let body = line;
@@ -262,6 +328,35 @@ function formatLine(line, { c, family, diffMode, carriesAnsi, isShell }) {
       body = gm[4];
     }
   }
+  return { indent, gutter, body };
+}
+
+/** Block syntax highlight for non-diff code bodies (multi-line tokens color correctly). */
+function formatSyntaxBlock(lines, { c, family }) {
+  const parts = lines.map(splitGutter);
+  const bodies = parts.map((p) =>
+    p.body.length > MAX_HIGHLIGHT_LINE_CHARS ? '' : p.body,
+  );
+  const highlighted = highlightCodeBlockToLines(bodies.join('\n'), family, c);
+  return parts.map((p, i) => {
+    const rawBody = p.body;
+    const bodyOut = rawBody.length > MAX_HIGHLIGHT_LINE_CHARS
+      ? c.body(rawBody)
+      : (highlighted[i] ?? '');
+    const linked = linkifyUrls(bodyOut);
+    return p.gutter ? `${p.indent}${c.synComment(p.gutter)}${linked}` : linked;
+  });
+}
+
+/** Format ONE line: split line-number gutter, then highlight/linkify the body. */
+function formatLine(line, { c, family, diffMode, carriesAnsi, isShell }) {
+  // Shell / already-colored output: keep ANSI verbatim, only fix underline leaks
+  // and linkify URLs. No gutter split (shell has no <n>→ prefix).
+  if (carriesAnsi || isShell) {
+    return linkifyUrls(stripUnderlineAnsi(line));
+  }
+
+  const { indent, gutter, body } = splitGutter(line);
 
   const coloredBody = highlightBody(body, { c, family, diffMode });
   const linked = linkifyUrls(coloredBody);
@@ -354,12 +449,51 @@ function wrapOneExpandedLogicalLine(line, maxWidth) {
  * Turn logical expanded lines into physical rows that fit the body column.
  * One output row per left-rail row in ToolExecution (lockstep with App row est.).
  */
-export function wrapExpandedResultLines(logicalLines, columns = 80) {
+export function wrapExpandedResultLines(logicalLines, columns = 80, { isShell = false } = {}) {
+  const maxRows = resolveToolOutputMaxRenderLines();
+  const capOn = maxRows > 0;
   const maxWidth = expandedResultBodyWidth(columns);
   const lines = Array.isArray(logicalLines) ? logicalLines : [];
   const out = [];
-  for (const line of lines) {
-    out.push(...wrapOneExpandedLogicalLine(line, maxWidth));
+
+  if (!capOn) {
+    for (const line of lines) {
+      for (const row of wrapOneExpandedLogicalLine(line, maxWidth)) out.push(row);
+    }
+    return out.length > 0 ? out : [' '];
+  }
+
+  if (isShell) {
+    let omitted = 0;
+    for (const line of lines) {
+      for (const row of wrapOneExpandedLogicalLine(line, maxWidth)) {
+        out.push(row);
+        if (out.length > maxRows) {
+          out.shift();
+          omitted += 1;
+        }
+      }
+    }
+    return finalizeShellPhysicalCap(out, omitted, maxRows);
+  }
+
+  // Non-shell surfaces keep the head of the expanded body (read/grep/json).
+  let truncated = false;
+  outer: for (const line of lines) {
+    for (const row of wrapOneExpandedLogicalLine(line, maxWidth)) {
+      if (out.length < maxRows) {
+        out.push(row);
+      } else {
+        truncated = true;
+        break outer;
+      }
+    }
+  }
+  if (truncated) {
+    const bodySlots = Math.max(0, maxRows - 1);
+    if (out.length > bodySlots) out.length = bodySlots;
+    if (maxRows > 0) out.push(omittedPhysicalRowsMarker(1, false));
+    return out.length > 0 ? out.slice(0, maxRows) : [' '];
   }
   return out.length > 0 ? out : [' '];
 }

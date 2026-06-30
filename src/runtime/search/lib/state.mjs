@@ -88,10 +88,6 @@ export function loadUsageState() {
   return state
 }
 
-export function saveUsageState(state) {
-  scheduleUsageFlush(state)
-}
-
 export function updateProviderState(state, provider, patch) {
   let normalizedPatch = { ...patch }
   const remaining =
@@ -125,7 +121,7 @@ export function noteProviderSuccess(state, provider, extra = {}) {
   })
 }
 
-export const PROVIDER_ERROR_KIND = {
+const PROVIDER_ERROR_KIND = {
   AUTH: 'auth',
   QUOTA: 'quota',
   PAYMENT: 'payment',
@@ -149,16 +145,6 @@ export function classifyProviderError(error) {
   if (!status && (name === 'AbortError' || name === 'TimeoutError')) return PROVIDER_ERROR_KIND.NETWORK
   if (!status) return PROVIDER_ERROR_KIND.NETWORK
   return PROVIDER_ERROR_KIND.UNKNOWN
-}
-
-/** Structured HTTP error for search backends (enables cooldown via classifyProviderError). */
-export function providerHttpError(provider, status, detail = '') {
-  const code = Number(status)
-  const snippet = detail ? `: ${String(detail).slice(0, 200)}` : ''
-  const err = new Error(`[search:${provider}] HTTP ${code}${snippet}`)
-  err.status = code
-  err.provider = provider
-  return err
 }
 
 const PROVIDER_DISABLE_TTL_MS = {

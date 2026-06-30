@@ -181,6 +181,11 @@ export default class Ink {
     // cells ({ x1, y1, x2, y2 } inclusive, normalized) or null. The App sets it
     // via setSelection(); onRender forwards it to the renderer for highlighting.
     selectionRect = null;
+    // [mixdog fork] Coalesce drag-selection repaints when a frame is pending.
+    isRendering = false;
+    selectionRepaintQueued = false;
+    selectionRepaintFlushPending = false;
+    selectionRepaintEpoch = 0;
     // [mixdog fork] text under the current selection rect, refreshed every render
     // from the output grid. Read back via getSelectionText() on drag-release.
     selectedText = null;
@@ -318,9 +323,9 @@ export default class Ink {
         this.log.setCursorPosition(position);
     };
     // [mixdog fork] Update the mouse drag-selection rectangle and repaint so the
-    // inverse highlight tracks the drag live. Called by the App's mouse handler.
+    // inverse highlight tracks the drag. Called by the App's mouse handler.
     // A no-op-equal update is skipped to avoid redundant frames during motion.
-    setSelection = (rect) => {
+    setSelection = (rect, options = {}) => {
         const a = this.selectionRect;
         const same = a === rect ||
             (a && rect &&
@@ -333,15 +338,46 @@ export default class Ink {
                 a.clipY2 === rect.clipY2 &&
                 a.captureText === rect.captureText);
         if (same) {
+            if (!options.immediate) {
+                return;
+            }
+        }
+        else {
+            this.selectionRect = rect ?? null;
+        }
+        if (!this.isUnmounted) {
+            if (options.immediate) {
+                this.selectionRepaintEpoch++;
+                this.selectionRepaintFlushPending = false;
+                this.rootNode.onImmediateRender();
+                return;
+            }
+            this.scheduleSelectionRepaint();
+        }
+    };
+    scheduleSelectionRepaint = () => {
+        if (this.hasPendingThrottledRender) {
             return;
         }
-        this.selectionRect = rect ?? null;
-        if (!this.isUnmounted) {
-            // Drag selection is a direct manipulation gesture. Route it through
-            // the unthrottled renderer so the highlight tracks the pointer
-            // instead of trailing behind at maxFps.
-            this.rootNode.onImmediateRender();
+        if (this.isRendering) {
+            this.selectionRepaintQueued = true;
+            return;
         }
+        if (this.selectionRepaintFlushPending) {
+            return;
+        }
+        this.selectionRepaintFlushPending = true;
+        const epoch = ++this.selectionRepaintEpoch;
+        queueMicrotask(() => {
+            this.selectionRepaintFlushPending = false;
+            if (epoch !== this.selectionRepaintEpoch || this.isUnmounted) {
+                return;
+            }
+            if (this.hasPendingThrottledRender) {
+                return;
+            }
+            this.rootNode.onImmediateRender();
+        });
     };
     // [mixdog fork] Given a 0-based cell (x, y), return the inclusive rect of the
     // word (maximal run of non-whitespace cells) on that single row, or null if
@@ -401,6 +437,8 @@ export default class Ink {
             this.nextRenderCommit.resolve();
             this.nextRenderCommit = undefined;
         }
+        this.isRendering = true;
+        try {
         const startTime = performance.now();
         const { output, outputHeight, staticOutput, cursor, selectedText, plainRows } = render(this.rootNode, this.isScreenReaderEnabled, this.selectionRect);
         // [mixdog fork] Cache the text under the current selection rect so the App
@@ -488,6 +526,14 @@ export default class Ink {
             this.fullStaticOutput += staticOutput;
         }
         this.renderInteractiveFrame(output, outputHeight, hasStaticOutput ? staticOutput : '');
+        }
+        finally {
+            this.isRendering = false;
+            if (this.selectionRepaintQueued) {
+                this.selectionRepaintQueued = false;
+                this.scheduleSelectionRepaint();
+            }
+        }
     };
     render(node) {
         const tree = (React.createElement(AccessibilityContext.Provider, { value: { isScreenReaderEnabled: this.isScreenReaderEnabled } },

@@ -1,7 +1,6 @@
 import { readFileSync, readdirSync, statSync } from "fs";
 import { execFileSync } from "child_process";
 import { basename, join, resolve } from "path";
-import { homedir } from "os";
 import { mixdogHome } from "../../shared/plugin-paths.mjs";
 
 function cwdToProjectSlug(cwd) {
@@ -94,9 +93,6 @@ function getLatestInteractiveClaudeSession() {
 
 export {
   cwdToProjectSlug,
-  getParentPid,
-  readSessionRecord,
-  isInteractiveSession,
   discoverCurrentClaudeSession,
   listInteractiveClaudeSessions,
   getLatestInteractiveClaudeSession

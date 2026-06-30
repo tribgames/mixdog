@@ -231,6 +231,264 @@ export function jitterDelayMs(ms, ratio = PROVIDER_RETRY_JITTER_RATIO, mode = 's
   return Math.max(0, Math.round(base + offset))
 }
 
+// ── Shared network-resilience interface ──────────────────────────────────────
+// One home for the logic that used to be copied per provider: mid-stream
+// classifier (WS + SSE), transport fallback predicate, stream-safety stamp
+// latches, abort-aware sleep, handshake classifier, and the retry-budget table.
+// Provider differences are passed as ARGUMENTS (policy objects), never branched
+// on a hardcoded provider name. Behavior is preserved EXACTLY — each path below
+// is the relocated original, selected by policy.mode.
+
+// F) Retry-budget profiles as DATA. The numbers live ONLY here now.
+//    ws.transientCloseRetries (4) — ws_1006 / ws_1011 connection-loss buckets.
+//    ws.defaultRetries (2)        — every other WS mid-stream bucket.
+//    sse.defaultRetries (3)       — anthropic single-shot SSE mid-stream budget.
+export const MIDSTREAM_RETRY_POLICY = {
+  ws: { transientCloseRetries: 4, defaultRetries: 2, backoff: [250, 1000, 2000, 4000] },
+  sse: { defaultRetries: 3, backoff: [250, 1000, 2000, 4000] },
+}
+
+// WS buckets that earn the larger transient-close retry budget.
+const WS_TRANSIENT_CLOSE_CLASSIFIERS = new Set(['ws_1006', 'ws_1011'])
+
+function _midstreamLimitFor(classifier, policy) {
+  if (policy.mode === 'ws') {
+    return WS_TRANSIENT_CLOSE_CLASSIFIERS.has(classifier)
+      ? policy.transientCloseRetries
+      : policy.defaultRetries
+  }
+  return policy.defaultRetries
+}
+
+// WS gates each classifier against its own budget (mirrors the old
+// _allowMidstreamRetry). SSE applies a single top-of-function budget gate and
+// then returns raw classifier strings, so perClassifierGate:false returns the
+// classifier unconditionally here.
+function _allowMidstream(classifier, attemptIndex, policy) {
+  if (policy.perClassifierGate === false) return classifier
+  return attemptIndex < _midstreamLimitFor(classifier, policy) ? classifier : null
+}
+
+// A) Unified mid-stream classifier. Returns a classifier string or null.
+//    `signals` is the provider's mid-stream state object (field names unchanged
+//    from each provider's midState). `policy.mode` selects the WS or SSE path so
+//    both providers reproduce their exact current branch order and gating.
+export function classifyMidstreamError(err, signals, policy = {}) {
+  if (!signals) return null
+  const attemptIndex = signals.attemptIndex | 0
+  if (policy.mode === 'sse') return _classifyMidstreamSse(err, signals, attemptIndex, policy)
+  return _classifyMidstreamWs(err, signals, attemptIndex, policy)
+}
+
+// Verbatim relocation of openai-oauth-ws's _classifyMidstreamError. `signals`
+// carries sawResponseCreated / sawCompleted / emittedText / emittedToolCall /
+// wsCloseCode / firstByteTimeout / firstMeaningfulTimeout / wsSendFailed /
+// userAbort / watchdogAbort / responseFailedPayload exactly as before.
+function _classifyMidstreamWs(err, state, attemptIndex, policy) {
+  if (state.sawCompleted) return null
+  if (state.emittedToolCall) {
+    const _cc = Number(err?.wsCloseCode || state.wsCloseCode || 0)
+    if (!(_cc === 1000 && state.sawResponseCreated && !state.sawCompleted)) return null
+  }
+  if (state.emittedText || err?.liveTextEmitted) return null
+  if (state.firstByteTimeout || err?.firstByteTimeout) {
+    return _allowMidstream('first_byte_timeout', attemptIndex, policy)
+  }
+  if (state.firstMeaningfulTimeout || err?.firstMeaningfulTimeout) {
+    return _allowMidstream('first_meaningful_timeout', attemptIndex, policy)
+  }
+  if (err?.wsSendFailed || state.wsSendFailed) {
+    return _allowMidstream('ws_send_failed', attemptIndex, policy)
+  }
+  if (!state.sawResponseCreated) {
+    const closeCode = Number(err?.wsCloseCode || state.wsCloseCode || 0)
+    if (closeCode !== 1011 && closeCode !== 1012) return null
+  }
+  if (state.userAbort) return null
+
+  if (!err) return null
+  const status = Number(err?.httpStatus || 0)
+  if (status === 401 || status === 403 || status === 429) return null
+  if (status >= 500 && status < 600) {
+    return _allowMidstream(`http_${status}`, attemptIndex, policy)
+  }
+
+  const name = err?.name || ''
+  if (name === 'AgentStallAbortError') return _allowMidstream('agent_stall', attemptIndex, policy)
+  if (name === 'StreamStalledAbortError') return _allowMidstream('stream_stalled', attemptIndex, policy)
+
+  if (state.watchdogAbort === 'AgentStallAbortError') return _allowMidstream('agent_stall', attemptIndex, policy)
+  if (state.watchdogAbort === 'StreamStalledAbortError') return _allowMidstream('stream_stalled', attemptIndex, policy)
+
+  const closeCode = Number(err?.wsCloseCode || state.wsCloseCode || 0)
+  if (closeCode === 1006) return _allowMidstream('ws_1006', attemptIndex, policy)
+  if (closeCode === 1011) return _allowMidstream('ws_1011', attemptIndex, policy)
+  if (closeCode === 1012) return _allowMidstream('ws_1012', attemptIndex, policy)
+  if (closeCode >= 4000 && closeCode < 5000 && closeCode !== 4000) return null
+  if (closeCode === 4000) return _allowMidstream('ws_4000', attemptIndex, policy)
+  if (closeCode === 1000 && state.sawResponseCreated && !state.sawCompleted) return _allowMidstream('ws_1000', attemptIndex, policy)
+
+  const failed = err?.responseFailed || state.responseFailedPayload
+  if (failed) {
+    try {
+      const blob = JSON.stringify(failed).toLowerCase()
+      if (blob.includes('stream_disconnected')) return _allowMidstream('response_failed_disconnected', attemptIndex, policy)
+      if (blob.includes('network_error')) return _allowMidstream('response_failed_network', attemptIndex, policy)
+      if (blob.includes('auth context expired')) return _allowMidstream('response_failed_auth_expired', attemptIndex, policy)
+    } catch {}
+  }
+
+  return null
+}
+
+// Verbatim relocation of anthropic-oauth's _classifyMidstreamError. `signals`
+// carries sawMessageStart / sawCompleted / emittedToolCall / userAbort /
+// watchdogAbort exactly as before.
+function _classifyMidstreamSse(err, state, attemptIndex, policy) {
+  if (attemptIndex >= policy.defaultRetries) return null
+  if (state.sawCompleted) return null
+  if (!state.sawMessageStart) return null
+  if (state.userAbort) return null
+  if (state.emittedToolCall) return null
+
+  if (!err) return null
+  const status = Number(err?.httpStatus || 0)
+  if (status === 401 || status === 403 || status === 429) return null
+
+  const name = err?.name || ''
+  if (name === 'AgentStallAbortError') return 'agent_stall'
+  if (name === 'StreamStalledAbortError') return 'stream_stalled'
+  if (state.watchdogAbort === 'AgentStallAbortError') return 'agent_stall'
+  if (state.watchdogAbort === 'StreamStalledAbortError') return 'stream_stalled'
+
+  const code = err?.code || err?.cause?.code || ''
+  if (code === 'ECONNRESET') return 'reset'
+  if (code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT') return 'timeout'
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN' || code === 'EAI_NODATA') return 'dns'
+
+  const msg = String(err?.message || '').toLowerCase()
+  if (msg.includes('stream timed out after') && msg.includes('of inactivity')) return 'sse_idle_timeout'
+  if (msg.includes('body stream') && msg.includes('terminated')) return 'stream_terminated'
+  if (msg.includes('fetch failed')) return 'fetch_failed'
+
+  return null
+}
+
+// B) Unified transport (WS→HTTP) fallback predicate. Identical deny-order +
+//    allow-list to the two former copies; `enabled` replaces the per-provider
+//    env-flag check (caller computes the flag and passes it).
+const TRANSPORT_FALLBACK_CLASSIFIERS = new Set([
+  'timeout', 'reset', 'dns', 'refused', 'network', 'acquire_timeout', 'http_5xx',
+  'first_byte_timeout', 'first_meaningful_timeout',
+  'ws_1006', 'ws_1011', 'ws_1012', 'ws_1000', 'ws_4000', 'agent_stall', 'stream_stalled',
+  'response_failed_disconnected', 'response_failed_network', 'response_failed_auth_expired',
+  'ws_send_failed',
+])
+const TRANSPORT_FALLBACK_ERRNO = new Set([
+  'EWSACQUIRETIMEOUT', 'ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET', 'EAI_AGAIN',
+  'ENOTFOUND', 'EAI_NODATA', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE',
+])
+
+export function shouldFallbackTransport(err, { signal, enabled = true } = {}) {
+  if (!enabled) return false
+  if (signal?.aborted) return false
+  if (err?.liveTextEmitted === true) return false
+  if (err?.emittedToolCall === true || err?.unsafeToRetry === true) return false
+  const status = Number(err?.httpStatus || err?.status || 0)
+  if (status === 401 || status === 403 || status === 404 || status === 429) return false
+  if (status >= 500 && status < 600) return true
+  const code = String(err?.code || '')
+  if (TRANSPORT_FALLBACK_ERRNO.has(code)) return true
+  const classifier = String(err?.retryClassifier || err?.midstreamClassifier || '')
+  if (TRANSPORT_FALLBACK_CLASSIFIERS.has(classifier)) return true
+  if (/^http_5\d\d$/.test(classifier)) return true
+  if (err?.firstByteTimeout) return true
+  if (err?.firstMeaningfulTimeout) return true
+  const msg = String(err?.message || '')
+  return /opening handshake has timed out|socket hang up|acquire timed out|no first server event|no meaningful output/i.test(msg)
+}
+
+// C) Stream-safety stamp latches. Mirrors openai-oauth-ws's _stampLiveText /
+//    _stampTool: once text/tool has been marked, every subsequent throw path
+//    re-applies the liveTextEmitted/emittedToolCall + unsafeToRetry markers so
+//    no upstream gate can reissue the turn and concatenate attempts.
+export function createStreamSafetyStamps() {
+  let textLatched = false
+  let toolLatched = false
+  const stampText = (e) => {
+    if (textLatched && e) { try { e.liveTextEmitted = true; e.unsafeToRetry = true } catch {} }
+    return e
+  }
+  const stampTool = (e) => {
+    if (toolLatched && e) { try { e.emittedToolCall = true; e.unsafeToRetry = true } catch {} }
+    return e
+  }
+  return {
+    markText() { textLatched = true },
+    markTool() { toolLatched = true },
+    stampText,
+    stampTool,
+    stampAll: (e) => stampTool(stampText(e)),
+  }
+}
+
+const _defaultAbortSleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// D) Abort-aware sleep (single copy). Resolves after `ms`, or rejects with the
+//    signal's reason (or `abortMessage`) the moment the signal aborts. `sleepFn`
+//    is the injectable no-signal sleep (test seam); `abortMessage` preserves
+//    each caller's prior fallback text when the abort reason is not an Error.
+export async function sleepWithAbort(ms, signal, sleepFn = _defaultAbortSleep, abortMessage = 'sleep aborted') {
+  if (!ms) return
+  if (!signal) {
+    await (sleepFn || _defaultAbortSleep)(ms)
+    return
+  }
+  await new Promise((resolve, reject) => {
+    const t = setTimeout(() => {
+      try { signal.removeEventListener('abort', onAbort) } catch {}
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(t)
+      const reason = signal.reason
+      reject(reason instanceof Error ? reason : new Error(abortMessage))
+    }
+    if (signal.aborted) { onAbort(); return }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+// E) Handshake classifier (moved here from openai-oauth-ws). Default-deny:
+//    anything not recognized as transient returns null. 401/403/404/429 are
+//    permanent. Returns 'timeout' | 'reset' | 'dns' | 'refused' | 'network' |
+//    'acquire_timeout' | `http_5xx` | null.
+export function classifyHandshakeError(err) {
+  if (!err) return null
+  const code = err.code || ''
+  const msg = String(err.message || '')
+  const status = Number(err.httpStatus || 0)
+
+  if (status === 401 || status === 403 || status === 404 || status === 429) {
+    return null
+  }
+  if (status >= 500 && status < 600) {
+    return `http_${status}`
+  }
+
+  if (code === 'ECONNRESET') return 'reset'
+  if (code === 'EAI_AGAIN' || code === 'ENOTFOUND' || code === 'EAI_NODATA') return 'dns'
+  if (code === 'ECONNREFUSED') return 'refused'
+  if (code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT') return 'timeout'
+  if (code === 'EWSACQUIRETIMEOUT') return 'acquire_timeout'
+  if (code === 'ENETUNREACH' || code === 'EHOSTUNREACH' || code === 'EPIPE') return 'network'
+
+  if (/opening handshake has timed out/i.test(msg)) return 'timeout'
+  if (/socket hang up/i.test(msg)) return 'reset'
+
+  return null
+}
+
 /**
  * Run an async function with exponential-backoff retry on transient errors.
  *

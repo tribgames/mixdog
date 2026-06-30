@@ -33,7 +33,7 @@ import {
     PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
     createTimeoutSignal,
 } from '../stall-policy.mjs';
-import { populateHttpStatusFromMessage } from './retry-classifier.mjs';
+import { populateHttpStatusFromMessage, shouldFallbackTransport } from './retry-classifier.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
 import {
@@ -742,36 +742,14 @@ function _buildOpenAIHttpFallbackHeaders({ auth, cacheKey }) {
     return headers;
 }
 
+// WS→HTTP/SSE fallback predicate → shared shouldFallbackTransport
+// (retry-classifier.mjs). The per-provider env flag is computed here and passed
+// as `enabled`; the deny-order + allow-list are identical to the former copy.
 function _shouldUseOpenAIHttpFallback(err, externalSignal) {
-    if (!_envFlag('MIXDOG_OPENAI_OAUTH_HTTP_FALLBACK', true)) return false;
-    if (externalSignal?.aborted) return false;
-    // Live-text invariant: if the WS attempt already relayed a non-empty text
-    // chunk to the client, the HTTP fallback would re-run the request and
-    // concatenate a second attempt onto rendered output. Never fall back.
-    if (err?.liveTextEmitted === true) return false;
-    if (err?.emittedToolCall === true || err?.unsafeToRetry === true) return false;
-    const status = Number(err?.httpStatus || err?.status || 0);
-    if (status === 401 || status === 403 || status === 404 || status === 429) return false;
-    if (status >= 500 && status < 600) return true;
-    const code = String(err?.code || '');
-    if (['EWSACQUIRETIMEOUT', 'ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET', 'EAI_AGAIN', 'ENOTFOUND', 'EAI_NODATA', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE'].includes(code)) {
-        return true;
-    }
-    const classifier = String(err?.retryClassifier || err?.midstreamClassifier || '');
-    if ([
-        'timeout', 'reset', 'dns', 'refused', 'network', 'acquire_timeout', 'http_5xx',
-        'first_byte_timeout', 'first_meaningful_timeout',
-        'ws_1006', 'ws_1011', 'ws_1012', 'ws_1000', 'ws_4000', 'agent_stall', 'stream_stalled',
-        'response_failed_disconnected', 'response_failed_network', 'response_failed_auth_expired',
-        'ws_send_failed',
-    ].includes(classifier)) {
-        return true;
-    }
-    if (/^http_5\d\d$/.test(classifier)) return true;
-    if (err?.firstByteTimeout) return true;
-    if (err?.firstMeaningfulTimeout) return true;
-    const msg = String(err?.message || '');
-    return /opening handshake has timed out|socket hang up|acquire timed out|no first server event|no meaningful output/i.test(msg);
+    return shouldFallbackTransport(err, {
+        signal: externalSignal,
+        enabled: _envFlag('MIXDOG_OPENAI_OAUTH_HTTP_FALLBACK', true),
+    });
 }
 
 // Exported for the single-emit regression smoke (scripts/openai-oauth-

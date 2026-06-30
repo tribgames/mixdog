@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { createHash } from 'crypto';
 import { loadConfig } from '../config.mjs';
-import { withRetry } from './retry-classifier.mjs';
+import { shouldFallbackTransport, withRetry } from './retry-classifier.mjs';
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import {
     consumeCompatChatCompletionStream,
@@ -246,33 +246,14 @@ function _envFlag(name, fallback = true) {
     return !['0', 'false', 'off', 'no'].includes(String(raw).toLowerCase());
 }
 
+// xAI WS→HTTP transport fallback → shared shouldFallbackTransport
+// (retry-classifier.mjs). Identical deny-order + allow-list; the per-provider
+// env flag is computed here and passed via `enabled`.
 function _shouldFallbackXaiWsToHttp(err, signal) {
-    if (!_envFlag('MIXDOG_XAI_WS_HTTP_FALLBACK', true)) return false;
-    if (signal?.aborted) return false;
-    if (err?.liveTextEmitted === true) return false;
-    if (err?.emittedToolCall === true || err?.unsafeToRetry === true) return false;
-    const status = Number(err?.httpStatus || err?.status || 0);
-    if (status === 401 || status === 403 || status === 404 || status === 429) return false;
-    if (status >= 500 && status < 600) return true;
-    const code = String(err?.code || '');
-    if (['EWSACQUIRETIMEOUT', 'ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET', 'EAI_AGAIN', 'ENOTFOUND', 'EAI_NODATA', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE'].includes(code)) {
-        return true;
-    }
-    const classifier = String(err?.retryClassifier || err?.midstreamClassifier || '');
-    if ([
-        'timeout', 'reset', 'dns', 'refused', 'network', 'acquire_timeout', 'http_5xx',
-        'first_byte_timeout', 'first_meaningful_timeout',
-        'ws_1006', 'ws_1011', 'ws_1012', 'ws_1000', 'ws_4000', 'agent_stall', 'stream_stalled',
-        'response_failed_disconnected', 'response_failed_network', 'response_failed_auth_expired',
-        'ws_send_failed',
-    ].includes(classifier)) {
-        return true;
-    }
-    if (/^http_5\d\d$/.test(classifier)) return true;
-    if (err?.firstByteTimeout) return true;
-    if (err?.firstMeaningfulTimeout) return true;
-    const msg = String(err?.message || '');
-    return /opening handshake has timed out|socket hang up|acquire timed out|no first server event|no meaningful output/i.test(msg);
+    return shouldFallbackTransport(err, {
+        signal,
+        enabled: _envFlag('MIXDOG_XAI_WS_HTTP_FALLBACK', true),
+    });
 }
 
 function useXaiResponsesWebSocketWarmup(opts, config, { previousResponseId, instructions, rawTools }) {

@@ -24,7 +24,6 @@ async function loadPuppeteer() {
   return _puppeteer
 }
 
-
 const PKG_VERSION = (() => { try { return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version } catch { return '0.0.1' } })()
 import {
   noteProviderFailure,

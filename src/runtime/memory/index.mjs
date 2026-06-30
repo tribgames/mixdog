@@ -788,10 +788,9 @@ async function ingestSessionMessages(args = {}) {
     const m = messages[i]
     if (!m || typeof m !== 'object') continue
     const role = normalizeIngestRole(m.role)
-    // Persist the whole session conversation by role: user/assistant carry the
-    // dialogue, tool carries tool_results, system/developer carry steering
-    // context. Previously only user/assistant were kept, silently dropping
-    // recent tool/system/developer state that recall fast-track must surface.
+    // ingest_session persists user/assistant only; system/developer/tool rows
+    // are dropped so recall-fasttrack summaries stay conversation-focused and
+    // do not re-inject content already in the protected system prefix.
     if (!role) continue
     const content = cleanMemoryText(sessionMessageContent(m))
     if (!content || !content.trim()) continue
@@ -1936,8 +1935,6 @@ async function handleSearch(args, signal) {
         })),
         deadlineRace,
       ])
-    } catch (err) {
-      throw err
     } finally {
       clearTimeout(deadlineTimer)
     }
@@ -3663,26 +3660,6 @@ const httpServer = http.createServer(async (req, res) => {
     } catch (e) {
       sendError(res, e?.message || String(e))
     }
-    return
-  }
-
-  if (req.method === 'POST' && req.url === '/session-start/recap') {
-    try {
-      const body = await readBody(req)
-      const projectId = resolveProjectScope(typeof body.cwd === 'string' && body.cwd ? body.cwd : null)
-      const rows = projectId !== null
-        ? (await db.query(`
-            SELECT id, ts, summary FROM entries
-            WHERE is_root = 1 AND (project_id IS NULL OR project_id = $1)
-            ORDER BY ts DESC, id DESC LIMIT 20
-          `, [projectId])).rows
-        : (await db.query(`
-            SELECT id, ts, summary FROM entries
-            WHERE is_root = 1
-            ORDER BY ts DESC, id DESC LIMIT 20
-          `)).rows
-      sendJson(res, { ok: true, projectId, rows })
-    } catch (e) { sendError(res, e.message) }
     return
   }
 

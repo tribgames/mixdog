@@ -116,7 +116,6 @@ export {
   HIDDEN_TOOLS,
   isRecallMemory,
   isMemoryFile,
-  isHidden,
   buildDedupKey,
   buildToolLine
 };

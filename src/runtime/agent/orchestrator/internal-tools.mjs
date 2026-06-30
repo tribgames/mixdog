@@ -24,35 +24,14 @@ let _bootResolver = null;
 const _bootPromise = new Promise((r) => { _bootResolver = r; });
 export function markBootReady() { if (_bootReady) return; _bootReady = true; _bootResolver(); }
 
-// Per-tool executor overrides. Populated by addInternalTools() for extra
-// internal tools that bypass the main dispatch (tools.json + dispatchTool).
-const _overrides = new Map();
-
 export function setInternalToolsProvider({ executor, tools }) {
     if (typeof executor !== 'function') throw new Error('internal-tools: executor must be a function');
     _executor = executor;
     const base = Array.isArray(tools) ? [...tools] : [];
-    // Re-registration (handleToolCall idempotent fallback) must preserve any
-    // override-backed tools previously registered via addInternalTools.
-    if (_overrides.size > 0) {
-        const baseNames = new Set(base.map(t => t?.name).filter(Boolean));
-        for (const [name] of _overrides) {
-            if (baseNames.has(name)) continue;
-            const existing = _tools.find(t => t?.name === name);
-            if (existing) base.push(existing);
-        }
-    }
     _tools = base;
     _names = new Set(_tools.map(t => t?.name).filter(Boolean));
 }
 
-/**
- * Register additional tools that aren't declared in tools.json — each comes
- * with its own executor.
- *
- * Re-registration is idempotent; later calls overwrite earlier entries with
- * the same name.
- */
 export function getInternalTools() {
     return _tools;
 }
@@ -63,11 +42,6 @@ export function isInternalTool(name) {
 
 export async function executeInternalTool(name, args, callerCtx = {}) {
     if (!_names.has(name)) throw new Error(`internal-tools: "${name}" is not registered`);
-    const override = _overrides.get(name);
-    if (override) {
-        const result = await override(args ?? {}, callerCtx);
-        return _normalize(result);
-    }
     if (!_executor) throw new Error(`internal-tools: executor not initialized (tool=${name})`);
     const result = await _executor(name, args ?? {}, callerCtx);
     return _normalize(result);

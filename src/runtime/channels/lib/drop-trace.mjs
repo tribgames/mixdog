@@ -68,4 +68,4 @@ function dropTrace(event, fields) {
   } catch {}
 }
 
-export { dropTrace, _dtPreview, DROP_TRACE_ENABLED };
+export { dropTrace, _dtPreview };

@@ -389,8 +389,7 @@ function renderNativeStatusline({
     ...(Array.isArray(agentWorkers) ? agentWorkers : []),
     ...activeHiddenRoleWorkers({ sessionId, clientHostPid }),
   ], agentJobs);
-  const { maintenance, runningWorkers } = classifyAgentWorkers(agentPayload.workers);
-  if (maintenance.length) addL1(maintenance.join(' '));
+  const { runningWorkers } = classifyAgentWorkers(agentPayload.workers);
   const shellStatus = shellJobsStatus({ clientHostPid });
 
   const spinnerNow = Date.now();

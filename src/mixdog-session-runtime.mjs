@@ -892,6 +892,49 @@ function readJsonSafe(path) {
   try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
 }
 
+// Standard Claude Code project-local MCP ingress: read `.mcp.json` from the
+// project root and return a cleaned { name: cfg } map. Best-effort — never
+// throws. Accepts either the standard `{ mcpServers: {...} }` shape or a bare
+// name->cfg map. Self-ref servers (`mixdog` / `trib-plugin`) are stripped for
+// parity with loadConfig (which strips them from the persisted agent section
+// but never sees `.mcp.json`). Inputs are not mutated.
+function readProjectMcpServers(cwd) {
+  const path = join(cwd || '.', '.mcp.json');
+  if (!existsSync(path)) return {};
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
+    process.stderr.write(`[mcp-client] Ignoring unparseable .mcp.json at ${path}: ${error?.message || String(error)}\n`);
+    return {};
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const map = raw.mcpServers && typeof raw.mcpServers === 'object' && !Array.isArray(raw.mcpServers)
+    ? raw.mcpServers
+    : raw;
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return {};
+  const out = {};
+  for (const [name, cfg] of Object.entries(map)) {
+    const key = clean(name);
+    if (!key) continue;
+    const lower = key.toLowerCase();
+    if (lower === 'mixdog' || lower === 'trib-plugin') continue;
+    if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) continue;
+    // stdio entries (command + no url) spawn relative to the process launch
+    // dir, but mixdog tracks the project dir in memory (no process.chdir).
+    // Anchor their cwd to the .mcp.json directory: default when absent, resolve
+    // relative values against it, keep absolute values as-is. resolve(base, p)
+    // already returns `p` unchanged when it is absolute. Clone — never mutate.
+    const isStdio = typeof cfg.command === 'string' && cfg.command !== '' && !cfg.url;
+    if (isStdio) {
+      out[key] = { ...cfg, cwd: typeof cfg.cwd === 'string' && cfg.cwd ? resolve(cwd, cfg.cwd) : resolve(cwd) };
+    } else {
+      out[key] = cfg;
+    }
+  }
+  return out;
+}
+
 function countSkillFiles(root) {
   const skillsDir = join(root, 'skills');
   if (!existsSync(skillsDir)) return 0;
@@ -2676,6 +2719,9 @@ export async function createMixdogSessionRuntime({
   let providerSetupPromise = null;
   let providerInitPromise = null;
   let mcpFailures = [];
+  let lastProjectMcpKey = null;
+  let mcpConnectGeneration = 0;
+  let mcpConnectInFlight = null;
   let preSessionToolSurface = null;
   let contextStatusCacheKey = null;
   let contextStatusCacheValue = null;
@@ -2686,9 +2732,11 @@ export async function createMixdogSessionRuntime({
 
   function mcpTransportLabel(cfg = {}) {
     if (cfg.autoDetect) return `autoDetect:${cfg.autoDetect}`;
-    if (cfg.transport === 'http' || cfg.url) return 'http';
-    if (cfg.command) return 'stdio';
-    return 'unknown';
+    try {
+      return mcpClient.resolveMcpTransportKind(cfg);
+    } catch {
+      return 'unknown';
+    }
   }
 
   function emitRuntimeNotification(content, meta = {}) {
@@ -2733,9 +2781,7 @@ export async function createMixdogSessionRuntime({
   }
 
   function mcpStatus() {
-    const configured = config?.mcpServers && typeof config.mcpServers === 'object'
-      ? config.mcpServers
-      : {};
+    const { servers: configured, sources } = resolveEffectiveMcpServers();
     const connected = new Map((mcpClient.getMcpServerStatus?.() || []).map((row) => [row.name, row]));
     const failures = new Map((mcpFailures || []).map((row) => [row.name, row]));
     const servers = [];
@@ -2752,6 +2798,7 @@ export async function createMixdogSessionRuntime({
         toolCount: live?.toolCount || 0,
         tools: live?.tools || [],
         error: fail?.msg || null,
+        source: sources[name] || 'config',
       });
       connected.delete(name);
     }
@@ -2856,7 +2903,6 @@ export async function createMixdogSessionRuntime({
     // context (see composeSystemPrompt), so there is nothing prompt-side to
     // refresh either. `markRefresh`/`changed` are kept only for signature
     // compatibility with existing callers.
-    void changed;
     void markRefresh;
     // Lazy mode: before the first turn (e.g. the initial project-selection
     // cwd set), do NOT prewarm — that is exactly the post-first-frame freeze
@@ -2866,6 +2912,21 @@ export async function createMixdogSessionRuntime({
       bootProfile('code-graph:prewarm-lazy', { reason: 'cwd-deferred-to-first-turn' });
     } else {
       scheduleCodeGraphPrewarm(changed ? 0 : codeGraphPrewarmDelayMs, changed ? 'cwd-change' : 'cwd');
+    }
+    // Project-local `.mcp.json` follows the cwd: when the effective project MCP
+    // set changes, reconnect in the background (never await — this stays sync,
+    // and the session is preserved). Guarded so a no-op cwd change does not
+    // churn connections.
+    if (changed) {
+      try {
+        const nextKey = resolved + '\u0000' + JSON.stringify(readProjectMcpServers(resolved));
+        if (nextKey !== lastProjectMcpKey) {
+          lastProjectMcpKey = nextKey;
+          void connectConfiguredMcp({ reset: true })
+            .then(() => invalidatePreSessionToolSurface())
+            .catch(() => {});
+        }
+      } catch {}
     }
     return currentCwd;
   }
@@ -2889,8 +2950,7 @@ export async function createMixdogSessionRuntime({
 
   function skillToolContent(name) {
     const skill = skillContent(name);
-    const escapedName = String(skill.name || '').replace(/[<>&]/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch]));
-    return `<skill>\n<name>${escapedName}</name>\n${skill.content}\n</skill>`;
+    return contextMod.buildSkillResultEnvelope(skill.name, skill.content);
   }
 
   function addProjectSkill(input = {}) {
@@ -2965,19 +3025,52 @@ export async function createMixdogSessionRuntime({
     };
   }
 
-  async function connectConfiguredMcp({ reset = false } = {}) {
-    if (reset) await mcpClient.disconnectAll?.();
-    mcpFailures = [];
-    const servers = config?.mcpServers && typeof config.mcpServers === 'object'
+  // Merge mixdog-config `agent.mcpServers` with project-local `.mcp.json`.
+  // On name collision the mixdog-config entry WINS. `sources[name]` records
+  // each server's origin ('config' | 'project') for status reporting.
+  function resolveEffectiveMcpServers() {
+    const configured = config?.mcpServers && typeof config.mcpServers === 'object'
       ? config.mcpServers
       : {};
-    if (Object.keys(servers).length === 0) return mcpStatus();
+    const project = readProjectMcpServers(currentCwd);
+    const servers = { ...project, ...configured };
+    const sources = {};
+    for (const name of Object.keys(project)) sources[name] = 'project';
+    for (const name of Object.keys(configured)) sources[name] = 'config';
+    return { servers, sources };
+  }
+
+  async function connectConfiguredMcp({ reset = false } = {}) {
+    // Serialize reconnects: boot connect, cwd-change reset, and rapid cwd
+    // switches must never interleave their disconnect/connect phases, or an
+    // older run finishing after a newer reset could re-add stale servers into
+    // the shared client registry. Approach: a generation token + a single
+    // in-flight promise. Each call bumps the generation, waits for any prior
+    // run to finish, then bails if a newer call has superseded it — leaving the
+    // latest requested effective-server-set in the registry.
+    const gen = ++mcpConnectGeneration;
+    if (mcpConnectInFlight) {
+      try { await mcpConnectInFlight; } catch { /* prior run's failures already captured */ }
+    }
+    if (gen !== mcpConnectGeneration) return mcpStatus();
+    const run = (async () => {
+      if (reset) await mcpClient.disconnectAll?.();
+      mcpFailures = [];
+      const { servers } = resolveEffectiveMcpServers();
+      if (Object.keys(servers).length === 0) return;
+      try {
+        await mcpClient.connectMcpServers(servers);
+      } catch (error) {
+        mcpFailures = Array.isArray(error?.failures)
+          ? error.failures
+          : [{ name: 'mcp', msg: error?.message || String(error) }];
+      }
+    })();
+    mcpConnectInFlight = run;
     try {
-      await mcpClient.connectMcpServers(servers);
-    } catch (error) {
-      mcpFailures = Array.isArray(error?.failures)
-        ? error.failures
-        : [{ name: 'mcp', msg: error?.message || String(error) }];
+      await run;
+    } finally {
+      if (mcpConnectInFlight === run) mcpConnectInFlight = null;
     }
     return mcpStatus();
   }
@@ -2985,10 +3078,42 @@ export async function createMixdogSessionRuntime({
   function normalizeMcpServerInput(input = {}) {
     const name = clean(input.name).toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '');
     if (!name) throw new Error('MCP server name is required');
+    const coerceStringRecord = (value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+      const out = {};
+      for (const [key, val] of Object.entries(value)) {
+        if (val === undefined || val === null) continue;
+        out[String(key)] = String(val);
+      }
+      return Object.keys(out).length > 0 ? out : null;
+    };
+    const withOptionalHeaders = (config) => {
+      const headers = coerceStringRecord(input.headers);
+      if (headers) config.headers = headers;
+      return config;
+    };
     const url = clean(input.url);
+    const type = clean(input.type).toLowerCase();
     if (url) {
+      if (type === 'sse') {
+        if (!/^https?:\/\//i.test(url)) throw new Error('MCP URL must start with http:// or https://');
+        return { name, config: withOptionalHeaders({ type: 'sse', url }) };
+      }
+      if (type === 'ws') {
+        if (!/^(?:wss?|https?):\/\//i.test(url)) {
+          throw new Error('MCP WebSocket URL must start with ws://, wss://, http://, or https://');
+        }
+        return { name, config: withOptionalHeaders({ type: 'ws', url }) };
+      }
+      if (type === 'http' || type === 'streamable-http') {
+        if (!/^https?:\/\//i.test(url)) throw new Error('MCP URL must start with http:// or https://');
+        return { name, config: withOptionalHeaders({ type: 'http', url }) };
+      }
+      if (/^wss?:\/\//i.test(url)) {
+        return { name, config: withOptionalHeaders({ type: 'ws', url }) };
+      }
       if (!/^https?:\/\//i.test(url)) throw new Error('MCP URL must start with http:// or https://');
-      return { name, config: { transport: 'http', url } };
+      return { name, config: withOptionalHeaders({ type: 'http', url }) };
     }
     const command = clean(input.command);
     if (!command) throw new Error('MCP server command or URL is required');
@@ -3002,7 +3127,10 @@ export async function createMixdogSessionRuntime({
     if (resolvedCwd !== root && !resolvedCwd.startsWith(`${root}\\`) && !resolvedCwd.startsWith(`${root}/`)) {
       throw new Error('MCP server cwd must stay under the current project');
     }
-    return { name, config: { command, args, cwd: resolvedCwd } };
+    const config = { type: 'stdio', command, args, cwd: resolvedCwd };
+    const env = coerceStringRecord(input.env);
+    if (env) config.env = env;
+    return { name, config };
   }
 
   const agentToolStartedAt = performance.now();
@@ -3170,6 +3298,7 @@ export async function createMixdogSessionRuntime({
     },
   });
   internalTools.markBootReady?.();
+  try { lastProjectMcpKey = resolve(currentCwd) + '\u0000' + JSON.stringify(readProjectMcpServers(currentCwd)); } catch { lastProjectMcpKey = null; }
   void connectConfiguredMcp()
     .then((status) => bootProfile('mcp:ready', {
       connected: Number(status?.connectedCount || 0),

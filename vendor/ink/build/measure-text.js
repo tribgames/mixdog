@@ -1,4 +1,7 @@
-import widestLine from 'widest-line';
+// [mixdog fork] use the shared display-width policy so ink's text measurement
+// matches OUR wrap/row math for circled digits / arrows. Kept in sync with
+// src/tui/display-width.mjs.
+import { displayWidestLine as widestLine } from './display-width.js';
 const cache = new Map();
 const measureText = (text) => {
     if (text.length === 0) {

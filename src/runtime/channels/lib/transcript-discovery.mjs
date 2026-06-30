@@ -1,6 +1,5 @@
 import { readdirSync, existsSync, statSync } from "fs";
 import { basename, join, resolve } from "path";
-import { homedir } from "os";
 import {
   cwdToProjectSlug,
   discoverCurrentClaudeSession,
@@ -181,16 +180,8 @@ function discoverSessionBoundTranscript() {
 }
 
 export {
-  resolveTranscriptForSession,
   findLatestTranscriptByMtime,
-  isPidAlive,
   sameResolvedPath,
-  transcriptStat,
-  sessionTranscriptCandidate,
-  latestMtimeTranscriptCandidate,
-  candidateAffinity,
-  compareTranscriptCandidates,
   detectCurrentSessionTranscript,
-  discoverSessionBoundTranscript,
-  TRANSCRIPT_MTIME_DECISIVE_MS
+  discoverSessionBoundTranscript
 };

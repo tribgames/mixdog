@@ -196,8 +196,5 @@ export {
   ensureNopluginDir,
   evaluateFilter,
   logEvent,
-  parseGeneric,
-  parseGithub,
-  parseSentry,
   runScript
 };

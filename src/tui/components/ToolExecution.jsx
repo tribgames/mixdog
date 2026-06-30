@@ -98,10 +98,15 @@ function renderDeltaText(text) {
 //     renderDeltaText.
 //   - EXPANDED (raw=true): formatExpandedResult then wrapExpandedResultLines so
 //     each physical row fits the body width before render (rail rows stay 1:1;
-//     ink does not re-wrap).
+//     ink does not re-wrap). Physical row mount cap: MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES
+//     (default 600; 0 disables). Shell/script bodies keep the newest tail when capped.
 function ResultBody({ lines, rawText, pathArg = '', isShell = false, columns, color, raw }) {
   const renderLines = raw
-    ? wrapExpandedResultLines(formatExpandedResult(rawText, { pathArg, isShell }), columns)
+    ? wrapExpandedResultLines(
+      formatExpandedResult(rawText, { pathArg, isShell }),
+      columns,
+      { isShell },
+    )
     : (lines || []);
   if (!renderLines || renderLines.length === 0) return null;
   return (
@@ -183,11 +188,6 @@ function shellHeader(status, count = 1) {
   return `Ran ${object}`;
 }
 
-function shellDetail(status, elapsed = '') {
-  const label = displayTerminalStatus(status) || status;
-  return elapsed ? `${elapsed} · ${label}` : label;
-}
-
 function shellResultElapsed(value) {
   const match = String(value || '').match(/^\[elapsed:\s*(\d+)\s*ms\]/mi);
   if (!match) return '';
@@ -265,11 +265,6 @@ function agentModelLabel(args) {
   const model = String(a.model || '').trim();
   const displayHint = String(a.modelDisplay || a.model_display || a.displayModel || '').trim();
   return displayModelName(model, provider, displayHint);
-}
-
-function withModel(label, args) {
-  const model = agentModelLabel(args);
-  return model ? `${label} (${model})` : label;
 }
 
 function agentTagLabel(args) {
@@ -513,10 +508,6 @@ function isOutputDetailTool(normalizedName, label) {
   ]).has(n) || l === 'read' || l === 'search' || l === 'web search' || l === 'run';
 }
 
-function progressDetail({ normalizedName, label, elapsed }) {
-  return elapsed ? `${elapsed} elapsed` : '';
-}
-
 function genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError }) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
@@ -580,7 +571,7 @@ function toolStatusColor({ pending, groupCount, failedCount, terminalStatus = ''
   return theme.error;
 }
 
-export function ToolExecution({ name, args, result, rawResult, isError, errorCount, expanded, globalExpanded = false, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, headerFinalized = true, deferredDisplayReady = false }) {
+export function ToolExecution({ name, args, result, rawResult, isError, errorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, headerFinalized = true, deferredDisplayReady = false }) {
   const [blinkOn, setBlinkOn] = useState(true);
   const [blinkExpired, setBlinkExpired] = useState(false);
   const [pendingDelayElapsed, setPendingDelayElapsed] = useState(false);
@@ -809,7 +800,6 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const hasHiddenDetail = !pending && hasDisplayResult && (totalLines > 1 || firstResultLineClipped || Boolean(resultSummary));
   const shellStatus = isShellSurface ? shellDisplayStatus({ pending, failedCount, isError, result: displayedResultText }) : '';
   const shellElapsed = isShellSurface ? (shellResultElapsed(displayedResultText) || elapsed) : '';
-  const shellStatusDetail = isShellSurface ? shellDetail(shellStatus, shellElapsed) : '';
   const backgroundElapsed = backgroundMeta
     ? backgroundTaskElapsed(backgroundMeta, elapsed)
     : (isBackgroundTaskTool(normalizedName) ? backgroundTaskElapsed(parsedArgs, elapsed) : '');
