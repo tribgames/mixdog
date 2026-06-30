@@ -6,5 +6,10 @@
  */
 import { basePalette } from './base.mjs';
 
-/** One Dark — identical to the base palette. */
-export const onedarkPalette = { ...basePalette };
+/** One Dark — base palette with a hot coral-red spinner (most-emphasized live state). */
+export const onedarkPalette = {
+  ...basePalette,
+  spinnerGlyph: 'rgb(224,108,117)', // most-emphasized: coral red
+  spinnerText: 'rgb(224,108,117)',
+  spinnerShimmer: 'rgb(240,140,148)',
+};

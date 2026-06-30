@@ -13,15 +13,16 @@ import { basePalette } from './base.mjs';
 /** Teal — pi-style teal accent with soft body text. */
 export const tealPalette = {
   ...basePalette,
-  background: 'rgb(24,24,30)', // export.pageBg #18181e
+  background: 'transparent', // export.pageBg #18181e
   claude: 'rgb(138,190,183)', // accent #8abeb7
+  logo: 'rgb(174,216,210)', // welcome banner — brighter than accent
   claudeShimmer: 'rgb(170,214,208)', // lighter accent
   mixdogOrange: 'rgb(138,190,183)',
   mixdogAmber: 'rgb(170,214,208)',
   mixdogIvory: 'rgb(212,212,212)', // text #d4d4d4
-  spinnerGlyph: 'rgb(138,190,183)', // accent
-  spinnerText: 'rgb(138,190,183)',
-  spinnerShimmer: 'rgb(170,214,208)',
+  spinnerGlyph: 'rgb(235,140,110)', // most-emphasized: warm coral (complementary to teal)
+  spinnerText: 'rgb(235,140,110)',
+  spinnerShimmer: 'rgb(245,170,145)',
   thinkingAccent: 'rgb(128,128,128)', // gray #808080
   thinkingText: 'rgb(128,128,128)', // thinkingText = gray #808080
   thinkingBase: 'rgb(128,128,128)',

@@ -128,16 +128,16 @@ function renderLine(line, width) {
   if (h) {
     const level = h[1].length;
     const text = renderInline(h[2]);
-    if (level === 1) return '\n' + compose(bold, PALETTE.heading1)('▌ ' + text);
-    if (level === 2) return '\n' + compose(bold, PALETTE.heading)(text);
-    if (level === 3) return compose(bold, PALETTE.heading)(text);
+    if (level === 1) return '\n' + bold('▌ ' + text);
+    if (level === 2) return '\n' + bold(text);
+    if (level === 3) return bold(text);
     return compose(bold, dim)(text);
   }
 
   // Blockquote (possibly nested).
   const q = /^(\s*>+)\s?(.*)$/.exec(line);
   if (q) {
-    return dim(PALETTE.quoteText('│ ')) + italic(PALETTE.quoteText(renderInline(q[2])));
+    return dim('│ ') + italic(renderInline(q[2]));
   }
 
   // Bullet list.

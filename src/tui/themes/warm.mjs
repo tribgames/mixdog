@@ -1,81 +1,81 @@
 /**
- * src/tui/themes/warm.mjs — Warm (Claude Code style).
+ * src/tui/themes/warm.mjs — Warm (sunset amber / gold).
  *
- * Faithful port of claude-code's `darkTheme` (src/utils/theme.ts). Values are
- * taken verbatim from that palette where a 1:1 key exists: brand orange
- * `claude #d77757`, `claudeShimmer #eb9f7f`, blue-purple `permission/suggestion
- * #b1b9f9`, white body text, `subtle #505050`, semantic success/error/warning,
- * and the darkTheme diff tints. The spinner uses `claude`/`claudeShimmer` as
- * its glyph/shimmer (matching claude-code's `defaultColor='claude'`,
- * `defaultShimmerColor='claudeShimmer'`). Spreads `basePalette` first.
+ * A soft golden-amber accent over a warm near-black surface with a faintly
+ * cream body text. Less saturated and more editorial than a pure orange brand:
+ * the signature is honeyed amber `#f0b45a` with a lighter gold shimmer, paired
+ * with a complementary warm-rose for emphasis. Spreads `basePalette` first so
+ * the full key set is always present.
  */
 import { basePalette } from './base.mjs';
 
-/** Warm — Claude-style warm orange accent with bright body text. */
+/** Warm — sunset amber / gold accent with a faint cream body. */
 export const warmPalette = {
   ...basePalette,
-  background: 'rgb(13,13,13)', // claude-code's bg is decorative cyan; the TUI surface stays opaque dark
-  claude: 'rgb(215,119,87)', // darkTheme.claude #d77757 (brand orange)
-  claudeShimmer: 'rgb(235,159,127)', // darkTheme.claudeShimmer #eb9f7f
-  mixdogOrange: 'rgb(215,119,87)',
-  mixdogAmber: 'rgb(235,159,127)',
-  mixdogIvory: 'rgb(255,255,255)',
-  spinnerGlyph: 'rgb(215,119,87)', // = claude (claude-code defaultColor='claude')
-  spinnerText: 'rgb(215,119,87)',
-  spinnerShimmer: 'rgb(235,159,127)', // = claudeShimmer (defaultShimmerColor='claudeShimmer')
-  thinkingAccent: 'rgb(153,153,153)', // darkTheme.inactive #999999
-  thinkingText: 'rgb(200,200,200)',
-  thinkingBase: 'rgb(153,153,153)',
-  thinkingGlow: 'rgb(225,225,225)',
-  statusText: 'rgb(220,220,220)',
-  statusSubtle: 'rgb(153,153,153)', // darkTheme.inactive
-  timerText: 'rgb(153,153,153)',
-  text: 'rgb(255,255,255)', // darkTheme.text — pure white body
-  inverseText: 'rgb(0,0,0)', // darkTheme.inverseText
-  selectionText: 'rgb(0,0,0)',
-  selectionBackground: 'rgb(255,255,255)',
-  inactive: 'rgb(153,153,153)', // darkTheme.inactive #999999
-  subtle: 'rgb(80,80,80)', // darkTheme.subtle #505050
-  promptBorder: 'rgb(136,136,136)', // darkTheme.promptBorder #888888
-  success: 'rgb(78,186,101)', // darkTheme.success
-  error: 'rgb(255,107,128)', // darkTheme.error
-  warning: 'rgb(255,193,7)', // darkTheme.warning
-  suggestion: 'rgb(177,185,249)', // darkTheme.suggestion #b1b9f9 (blue-purple)
-  panelTitle: 'rgb(215,119,87)',
-  permission: 'rgb(177,185,249)', // darkTheme.permission #b1b9f9
-  code: 'rgb(177,185,249)', // blue-purple code accent (permission)
-  codeBlock: 'rgb(200,200,200)', // plain light body (claude-code keeps code uncolored)
-  mdHeading: 'rgb(235,159,127)',
-  mdCode: 'rgb(177,185,249)', // blue-purple markdown code accent
-  mdCodeBlock: 'rgb(200,200,200)',
-  mdQuote: 'rgb(140,140,140)',
-  mdQuoteBorder: 'rgb(140,140,140)',
-  mdHr: 'rgb(140,140,140)',
-  mdListBullet: 'rgb(177,185,249)',
-  mdCodeBlockBorder: 'rgb(60,61,66)',
-  mdCodeBlockBg: 'rgb(34,35,40)',
-  mdCodeSpanBg: 'rgb(42,43,48)',
-  mdLink: 'rgb(177,185,249)',
-  mdLinkText: 'rgb(150,200,210)',
-  mdStrong: 'rgb(235,159,127)',
-  mdEmph: 'rgb(229,192,123)',
-  mdDiffAdded: 'rgb(56,166,96)', // darkTheme.diffAddedWord #38a660
-  mdDiffRemoved: 'rgb(179,89,107)', // darkTheme.diffRemovedWord #b3596b
-  mdDiffHunk: 'rgb(150,160,200)',
-  mdDiffHeader: 'rgb(177,185,249)',
-  mdDiffContext: 'rgb(153,153,153)',
-  mdDiffAddedBg: 'rgb(34,92,43)', // darkTheme.diffAdded #225c2b
-  mdDiffRemovedBg: 'rgb(122,41,54)', // darkTheme.diffRemoved #7a2936
-  syntaxComment: 'rgb(140,140,140)',
-  syntaxKeyword: 'rgb(235,159,127)',
-  syntaxFunction: 'rgb(177,185,249)',
-  syntaxVariable: 'rgb(255,107,128)',
-  syntaxString: 'rgb(140,200,150)',
-  syntaxNumber: 'rgb(235,159,127)',
-  syntaxType: 'rgb(229,192,123)',
-  syntaxOperator: 'rgb(150,200,210)',
-  syntaxPunctuation: 'rgb(220,220,220)',
-  userMessageBackground: 'rgb(55,55,55)', // darkTheme.userMessageBackground
-  userMessageBackgroundHover: 'rgb(70,70,70)', // darkTheme.userMessageBackgroundHover
-  fastMode: 'rgb(255,120,20)', // darkTheme.fastMode
+  background: 'transparent',
+  // Signature honeyed amber + lighter gold shimmer.
+  claude: 'rgb(240,180,90)',
+  logo: 'rgb(255,170,70)', // welcome banner — brighter, more saturated amber-orange
+  claudeShimmer: 'rgb(250,210,140)',
+  mixdogOrange: 'rgb(240,180,90)',
+  mixdogAmber: 'rgb(250,210,140)',
+  mixdogIvory: 'rgb(245,236,220)',
+  spinnerGlyph: 'rgb(255,120,70)', // most-emphasized: reddish coral-orange
+  spinnerText: 'rgb(255,120,70)',
+  spinnerShimmer: 'rgb(255,160,110)', // brighter coral shimmer
+  thinkingAccent: 'rgb(160,150,138)',
+  thinkingText: 'rgb(212,202,188)',
+  thinkingBase: 'rgb(160,150,138)',
+  thinkingGlow: 'rgb(232,222,206)',
+  statusText: 'rgb(238,228,212)',
+  statusSubtle: 'rgb(160,150,138)',
+  timerText: 'rgb(160,150,138)',
+  text: 'rgb(238,228,212)', // faint cream body
+  inverseText: 'rgb(26,20,12)',
+  selectionText: 'rgb(26,20,12)',
+  selectionBackground: 'rgb(238,228,212)',
+  inactive: 'rgb(150,140,128)',
+  subtle: 'rgb(132,124,112)',
+  promptBorder: 'rgb(120,110,96)',
+  success: 'rgb(150,194,120)',
+  error: 'rgb(232,118,108)',
+  warning: 'rgb(240,180,90)',
+  suggestion: 'rgb(250,210,140)',
+  panelTitle: 'rgb(240,180,90)',
+  permission: 'rgb(232,118,108)',
+  code: 'rgb(250,210,140)',
+  codeBlock: 'rgb(228,218,202)',
+  mdHeading: 'rgb(240,180,90)',
+  mdCode: 'rgb(250,210,140)',
+  mdCodeBlock: 'rgb(228,218,202)',
+  mdQuote: 'rgb(150,140,128)',
+  mdQuoteBorder: 'rgb(150,140,128)',
+  mdHr: 'rgb(150,140,128)',
+  mdListBullet: 'rgb(240,180,90)',
+  mdCodeBlockBorder: 'rgb(58,50,40)',
+  mdCodeBlockBg: 'rgb(34,29,22)',
+  mdCodeSpanBg: 'rgb(44,37,28)',
+  mdLink: 'rgb(250,210,140)',
+  mdLinkText: 'rgb(224,158,120)',
+  mdStrong: 'rgb(250,210,140)',
+  mdEmph: 'rgb(232,170,130)',
+  mdDiffAdded: 'rgb(150,194,120)',
+  mdDiffRemoved: 'rgb(232,118,108)',
+  mdDiffHunk: 'rgb(224,158,120)',
+  mdDiffHeader: 'rgb(240,180,90)',
+  mdDiffContext: 'rgb(150,140,128)',
+  mdDiffAddedBg: 'rgb(30,42,28)',
+  mdDiffRemovedBg: 'rgb(50,28,28)',
+  syntaxComment: 'rgb(150,140,128)',
+  syntaxKeyword: 'rgb(240,180,90)',
+  syntaxFunction: 'rgb(250,210,140)',
+  syntaxVariable: 'rgb(232,118,108)',
+  syntaxString: 'rgb(180,196,130)',
+  syntaxNumber: 'rgb(232,170,130)',
+  syntaxType: 'rgb(224,158,120)',
+  syntaxOperator: 'rgb(214,178,150)',
+  syntaxPunctuation: 'rgb(238,228,212)',
+  userMessageBackground: 'rgb(46,40,34)',
+  userMessageBackgroundHover: 'rgb(60,52,42)',
+  fastMode: 'rgb(255,150,40)',
 };

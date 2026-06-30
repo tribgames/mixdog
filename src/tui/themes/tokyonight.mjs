@@ -11,15 +11,16 @@ import { basePalette } from './base.mjs';
 /** Tokyo Night Storm — soft blue/purple dark with neon markdown. */
 export const tokyonightPalette = {
   ...basePalette,
-  background: 'rgb(36,40,59)', // bg #24283b
+  background: 'transparent', // bg #24283b
   claude: 'rgb(122,162,247)', // blue accent
+  logo: 'rgb(160,190,255)', // welcome banner — brighter than accent
   claudeShimmer: 'rgb(160,190,255)', // lighter blue
   mixdogOrange: 'rgb(122,162,247)', // signature accent (blue)
   mixdogAmber: 'rgb(160,190,255)', // lighter accent
   mixdogIvory: 'rgb(192,202,245)', // fg
-  spinnerGlyph: 'rgb(122,162,247)',
-  spinnerText: 'rgb(122,162,247)',
-  spinnerShimmer: 'rgb(160,190,255)',
+  spinnerGlyph: 'rgb(255,158,100)', // most-emphasized: orange
+  spinnerText: 'rgb(255,158,100)',
+  spinnerShimmer: 'rgb(255,180,130)',
   thinkingAccent: 'rgb(86,95,137)', // comment #565f89
   thinkingText: 'rgb(192,202,245)', // fg
   thinkingBase: 'rgb(86,95,137)', // comment

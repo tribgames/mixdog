@@ -13,8 +13,9 @@
 
 /** One Dark — full key set; signature accent is blue (#61afef). */
 export const basePalette = {
-  background: 'rgb(40,44,52)', // bg0 #282c34
+  background: 'transparent', // bg0 #282c34
   claude: 'rgb(97,175,239)', // blue accent
+  logo: 'rgb(120,195,255)', // welcome banner — brighter than the accent
   claudeShimmer: 'rgb(140,200,245)', // lighter blue
   mixdogOrange: 'rgb(97,175,239)', // signature accent (blue)
   mixdogAmber: 'rgb(140,200,245)', // lighter accent

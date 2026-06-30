@@ -114,6 +114,58 @@ function decodeEntities(s) {
 // languages fall back to flat `mdCodeBlock` body color.
 const DIFF_LANGS = new Set(['diff', 'patch', 'udiff', 'git-diff', 'gitdiff']);
 
+// Fixed tab size for fenced-code rendering. The exact value is cosmetic; what
+// matters for correctness is that NO raw \t byte survives into the rendered
+// string. string-width counts a tab as ZERO cells ("Tabs are ignored by
+// design"; \p{Control} is a zero-width cluster), so our wrap/row math believes
+// a tab-bearing code line is narrower than it is. ink clips the transcript
+// viewport at the measured height, but the terminal then EXPANDS the surviving
+// tab to the next tab stop — adding physical columns/rows AFTER the clip, which
+// makes a code line near the bottom edge bleed THROUGH into the prompt box on
+// scroll-up. Expanding tabs to literal spaces here makes the measurement and
+// the terminal agree, so the clip holds.
+const CODE_TAB_SIZE = 2;
+
+/**
+ * Normalize raw fenced-code source for terminal rendering:
+ *   - CRLF / lone CR → LF (so wrap sees real logical lines);
+ *   - TAB → spaces, column-aware to the next CODE_TAB_SIZE stop, so width math
+ *     matches what the terminal draws and the viewport clip is not bypassed;
+ *   - other C0 control chars (and DEL) except LF → single space, so stray
+ *     control bytes cannot trigger terminal-side cursor moves / extra rows.
+ */
+function normalizeCodeText(text) {
+  const input = String(text ?? '');
+  if (input.length === 0) return input;
+  const normalizedEol = input.replace(/\r\n?/g, '\n');
+  let out = '';
+  let col = 0;
+  for (const ch of normalizedEol) {
+    if (ch === '\n') {
+      out += ch;
+      col = 0;
+      continue;
+    }
+    if (ch === '\t') {
+      const advance = CODE_TAB_SIZE - (col % CODE_TAB_SIZE);
+      out += ' '.repeat(advance);
+      col += advance;
+      continue;
+    }
+    const cp = ch.codePointAt(0);
+    if (cp != null && (cp <= 0x1f || cp === 0x7f)) {
+      // Remaining C0 control / DEL: replace with a space so it cannot move the
+      // terminal cursor after ink has already accounted for the row.
+      out += ' ';
+      col += 1;
+      continue;
+    }
+    out += ch;
+    col += displayWidth(ch);
+  }
+  return out;
+}
+
 /** Wrap text to width, ANSI-aware (lockstep with table-layout hard wrap). */
 function wrapTextToWidth(text, width, options) {
   if (width <= 0) return [text];
@@ -500,7 +552,7 @@ function renderCodeBlock(token, width = 0) {
   const { codeBlock } = colorizers();
   const c = extraColorizers();
   const lang = normalizeLang(token.lang);
-  const text = decodeEntities(token.text ?? '');
+  const text = normalizeCodeText(decodeEntities(token.text ?? ''));
   const renderWidth = Math.max(8, Number(width) || 80);
   // Wrap content to the render width minus the left gutter so `gutter + content`
   // never overruns the available width.
@@ -573,11 +625,13 @@ function getListNumber(depth, orderedListNumber) {
  * marked token switch (minus table / hyperlink deps).
  */
 export function formatToken(token, listBaseIndent = 0, orderedListNumber = null, parent = null, width = 0, depth = 0) {
-  const { accent, codeBlock, headingAccent, quoteBorder, quoteText, hrLine } = colorizers();
+  const { accent, codeBlock, hrLine } = colorizers();
   const ex = extraColorizers();
   switch (token.type) {
     case 'blockquote': {
-      const bar = quoteBorder(BLOCKQUOTE_BAR);
+      // Block structure carries no color (claude-code policy): a dim bar plus
+      // body-colored italic text. Color is reserved for inline codespan/link.
+      const bar = chalk.dim(BLOCKQUOTE_BAR);
       const quotePrefix = `${BLOCKQUOTE_BAR} `;
       const innerWidth = contentWidthAfterPrefix(width, quotePrefix);
       const inner = (token.tokens ?? []).map((t) => formatToken(t, 0, null, null, innerWidth)).join('');
@@ -586,7 +640,7 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
         .map((line) => {
           // Padded fenced-code blank rows are space-only; trim() would drop the quote bar.
           if (displayWidth(stripAnsi(line)) === 0) return line;
-          return `${bar} ${quoteText(chalk.italic(line))}`;
+          return `${bar} ${chalk.italic(line)}`;
         })
         .join(EOL);
     }
@@ -609,10 +663,10 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
       switch (token.depth) {
         case 1:
           return (
-            chalk.bold.italic.underline(headingAccent((token.tokens ?? []).map((t) => formatToken(t)).join(''))) + EOL + EOL
+            chalk.bold.italic.underline((token.tokens ?? []).map((t) => formatToken(t)).join('')) + EOL + EOL
           );
         default: // h2+
-          return chalk.bold(headingAccent((token.tokens ?? []).map((t) => formatToken(t)).join(''))) + EOL + EOL;
+          return chalk.bold((token.tokens ?? []).map((t) => formatToken(t)).join('')) + EOL + EOL;
       }
     case 'hr': {
       // Span the available content width with a box-drawing rule. width is only
@@ -637,12 +691,12 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
       const OSC8_OPEN = (url) => `\x1b]8;;${url}\x07`;
       const OSC8_CLOSE = '\x1b]8;;\x07';
       if (plain && plain !== href) {
-        const styledLabel = ex.linkText(chalk.underline(linkText));
+        const styledLabel = ex.linkText(linkText);
         return `${OSC8_OPEN(href)}${styledLabel}${OSC8_CLOSE}`;
       }
       // No distinct label (empty or equal to href): show the URL itself as the
       // clickable, visible text.
-      return `${OSC8_OPEN(href)}${ex.link(chalk.underline(href))}${OSC8_CLOSE}`;
+      return `${OSC8_OPEN(href)}${ex.link(href)}${OSC8_CLOSE}`;
     }
     case 'list':
       return token.items

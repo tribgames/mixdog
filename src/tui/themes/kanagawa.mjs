@@ -12,15 +12,16 @@ import { basePalette } from './base.mjs';
 /** Kanagawa Wave — muted ink dark with crystal-blue accent. */
 export const kanagawaPalette = {
   ...basePalette,
-  background: 'rgb(31,31,40)', // sumiInk3 #1F1F28
+  background: 'transparent', // sumiInk3 #1F1F28
   claude: 'rgb(210,126,153)', // sakuraPink accent (opencode)
+  logo: 'rgb(232,156,182)', // welcome banner — brighter than accent
   claudeShimmer: 'rgb(156,171,202)', // springViolet2 #9CABCA (lighter accent)
   mixdogOrange: 'rgb(210,126,153)', // sakuraPink accent (opencode)
   mixdogAmber: 'rgb(156,171,202)', // lighter accent
   mixdogIvory: 'rgb(220,215,186)', // fujiWhite #DCD7BA
-  spinnerGlyph: 'rgb(210,126,153)',
-  spinnerText: 'rgb(210,126,153)',
-  spinnerShimmer: 'rgb(156,171,202)',
+  spinnerGlyph: 'rgb(228,104,118)', // most-emphasized: waveRed
+  spinnerText: 'rgb(228,104,118)',
+  spinnerShimmer: 'rgb(255,140,150)',
   thinkingAccent: 'rgb(114,113,105)', // fujiGray #727169
   thinkingText: 'rgb(220,215,186)', // fg
   thinkingBase: 'rgb(114,113,105)', // fujiGray

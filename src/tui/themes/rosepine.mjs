@@ -2,19 +2,20 @@ import { basePalette } from './base.mjs';
 /** Rosé Pine main — https://rosepinetheme.com/palette/ingredients */
 export const rosepinePalette = {
   ...basePalette,
-  background: 'rgb(25,23,36)',
+  background: 'transparent',
   text: 'rgb(224,222,244)',
   inverseText: 'rgb(25,23,36)',
   selectionText: 'rgb(25,23,36)',
   selectionBackground: 'rgb(224,222,244)',
   claude: 'rgb(196,167,231)',
+  logo: 'rgb(220,196,245)', // welcome banner — brighter than accent
   claudeShimmer: 'rgb(235,188,186)',
   mixdogOrange: 'rgb(196,167,231)',
   mixdogAmber: 'rgb(246,193,119)',
   mixdogIvory: 'rgb(224,222,244)',
-  spinnerGlyph: 'rgb(196,167,231)',
-  spinnerText: 'rgb(196,167,231)',
-  spinnerShimmer: 'rgb(235,188,186)',
+  spinnerGlyph: 'rgb(235,111,146)', // most-emphasized: love
+  spinnerText: 'rgb(235,111,146)',
+  spinnerShimmer: 'rgb(245,150,175)',
   thinkingAccent: 'rgb(110,106,134)',
   thinkingText: 'rgb(224,222,244)',
   thinkingBase: 'rgb(110,106,134)',

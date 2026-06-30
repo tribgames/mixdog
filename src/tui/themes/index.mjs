@@ -19,16 +19,15 @@ import { rosepinePalette } from './rosepine.mjs';
 import { nordPalette } from './nord.mjs';
 import { gruvboxPalette } from './gruvbox.mjs';
 import { everforestPalette } from './everforest.mjs';
-import { lightPalette } from './light.mjs';
 
-/** Default theme id (Basic — the Mixdog house theme). */
+/** Default theme id (Basic — deep blue accent + orange spinner dark). */
 export const DEFAULT_THEME_ID = 'basic';
 
 /** Theme registry: id -> { id, label, description, palette }. */
 export const THEME_REGISTRY = {
-  basic:       { id: 'basic',       label: 'Basic',        description: 'Mixdog warm orange + blue brand dark.', palette: basicPalette },
-  basicIndigo: { id: 'basicIndigo', label: 'Basic Indigo', description: 'Google Indigo Material dark — unified indigo accent.', palette: basicIndigoPalette },
-  warm:       { id: 'warm',       label: 'Warm',          description: 'Claude-style warm orange accent with bright body text.', palette: warmPalette },
+  basic:       { id: 'basic',       label: 'Basic',        description: 'Deep blue accent with a warm orange thinking spinner.', palette: basicPalette },
+  basicIndigo: { id: 'basicIndigo', label: 'Basic Indigo', description: 'Mixdog indigo + blue brand dark.', palette: basicIndigoPalette },
+  warm:       { id: 'warm',       label: 'Warm',          description: 'Sunset amber / gold accent with a faint cream body.', palette: warmPalette },
   teal:       { id: 'teal',       label: 'Teal',          description: 'pi-style teal accent with soft body text.', palette: tealPalette },
   onedark:    { id: 'onedark',    label: 'One Dark',      description: 'Atom One Dark — blue accent on slate, balanced syntax.', palette: onedarkPalette },
   tokyonight: { id: 'tokyonight', label: 'Tokyo Night',   description: 'Storm variant — soft blue/purple dark with neon markdown.', palette: tokyonightPalette },
@@ -39,10 +38,9 @@ export const THEME_REGISTRY = {
   nord:       { id: 'nord',       label: 'Nord',          description: 'Cool arctic blue/teal frost dark.', palette: nordPalette },
   gruvbox:    { id: 'gruvbox',    label: 'Gruvbox',       description: 'Retro warm earthy dark with green/orange accents.', palette: gruvboxPalette },
   everforest: { id: 'everforest', label: 'Everforest',    description: 'Soft natural green dark, easy on the eyes.', palette: everforestPalette },
-  light:      { id: 'light',      label: 'GitHub Light',   description: 'Bright white surface with high-contrast dark ink.', palette: lightPalette },
 };
 
 /** Display order for the theme picker. */
-export const THEME_ORDER = ['basic', 'basicIndigo', 'warm', 'teal', 'onedark', 'tokyonight', 'kanagawa', 'catppuccin', 'dracula', 'rosepine', 'nord', 'gruvbox', 'everforest', 'light'];
+export const THEME_ORDER = ['basic', 'basicIndigo', 'warm', 'teal', 'onedark', 'tokyonight', 'kanagawa', 'catppuccin', 'dracula', 'rosepine', 'nord', 'gruvbox', 'everforest'];
 
 export { basePalette, basicPalette };

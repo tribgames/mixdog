@@ -21,7 +21,7 @@
  * Source files (rules/):
  *   - shared/01-tool.md              — universal tool policy (Lead + agent BP1, identical full set)
  *   - lead/lead-tool.md             — Lead-specific control-tower / delegation / ToolSearch guidance
- *   - lead/01-04                     — Lead workflow / channels / team / general
+ *   - lead/01-02                     — Lead general / channels
  *   - output-styles/<name>.md        — Lead output style, selected by config outputStyle
  *   - agent/00-common.md             — agent common behavior + universal worker contract (BP2)
  *   - agent/10..50-*.md              — per-hidden-role bodies (consumed by loadScopedRoleInstructions)
@@ -298,9 +298,6 @@ function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR }) {
 
   const channels = readOptional(path.join(LEAD_DIR, '02-channels.md'));
   if (channels) parts.push(channels);
-
-  const workflow = readOptional(path.join(LEAD_DIR, '04-workflow.md'));
-  if (workflow) parts.push(workflow);
 
   return parts.join('\n\n');
 }

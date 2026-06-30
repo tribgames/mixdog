@@ -46,6 +46,41 @@ test('read line-number gutter is split into a dim column and body is highlighted
   assert.ok(out[0].includes('\x1b['), 'first line carries color escapes');
 });
 
+test('non-ANSI tool output expands tabs so width math matches the terminal', () => {
+  // A raw \t is ZERO-width to string-width, so wrapExpandedResultLines would
+  // under-wrap a tab-bearing line and the terminal-expanded tab would bleed
+  // the row through the bottom prompt box on scroll. formatExpandedResult must
+  // normalize tabs to spaces for non-ANSI output.
+  const out = formatExpandedResult('\tindented line', { pathArg: 'a.txt' });
+  const plain = stripAnsi(out.join('\n'));
+  assert.ok(!plain.includes('\t'), 'no raw tab survives non-ANSI tool output');
+  const body = plain.split('\n').find((l) => l.includes('indented line'));
+  assert.ok(body, 'body line present');
+  assert.equal(stringWidth(body), body.length, 'visible width equals char length');
+});
+
+test('shell ANSI output keeps raw control bytes (not normalized)', () => {
+  // ANSI/shell output legitimately carries control bytes in escape sequences;
+  // normalization must be skipped so those survive verbatim.
+  const sh = '\x1b[31mred\x1b[0m';
+  const out = formatExpandedResult(sh, { isShell: true });
+  assert.ok(out.join('').includes('\x1b['), 'escape sequences preserved');
+});
+
+test('colored shell output still expands visible tabs (ANSI-aware normalize)', () => {
+  // A colored line with a raw \t in its VISIBLE text: the SGR escapes must be
+  // preserved verbatim while the tab is expanded, so the visible width matches
+  // the terminal and the row cannot bleed through the prompt box on scroll.
+  const sh = '\x1b[32m\tgreen tabbed\x1b[0m';
+  const out = formatExpandedResult(sh, { isShell: true });
+  const joined = out.join('\n');
+  assert.ok(joined.includes('\x1b['), 'color escapes preserved');
+  assert.ok(!joined.includes('\t'), 'visible tab expanded even in colored output');
+  const body = stripAnsi(joined).split('\n').find((l) => l.includes('green tabbed'));
+  assert.ok(body, 'body line present');
+  assert.equal(stringWidth(body), body.length, 'visible width equals char length');
+});
+
 test('block syntax highlight skips tokenizer for over-long lines (index aligned)', () => {
   // MAX_HIGHLIGHT_LINE_CHARS is 2000 in tool-output-format.mjs
   const giant = 'x'.repeat(2001);

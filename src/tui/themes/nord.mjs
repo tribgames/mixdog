@@ -3,7 +3,7 @@ import { basePalette } from './base.mjs';
 /** Nord (nordtheme.com) — Polar Night, Snow Storm, Frost, Aurora */
 export const nordPalette = {
   ...basePalette,
-  background: 'rgb(46,52,64)',
+  background: 'transparent',
   text: 'rgb(216,222,233)',
   inverseText: 'rgb(46,52,64)',
   selectionText: 'rgb(46,52,64)',
@@ -19,13 +19,14 @@ export const nordPalette = {
   thinkingAccent: 'rgb(76,86,106)',
   thinkingGlow: 'rgb(229,233,240)',
   claude: 'rgb(136,192,208)',
+  logo: 'rgb(170,218,232)', // welcome banner — brighter than accent
   claudeShimmer: 'rgb(143,188,187)',
   mixdogOrange: 'rgb(136,192,208)',
   mixdogAmber: 'rgb(143,188,187)',
   mixdogIvory: 'rgb(216,222,233)',
-  spinnerGlyph: 'rgb(136,192,208)',
-  spinnerText: 'rgb(136,192,208)',
-  spinnerShimmer: 'rgb(143,188,187)',
+  spinnerGlyph: 'rgb(208,135,112)', // most-emphasized: aurora orange
+  spinnerText: 'rgb(208,135,112)',
+  spinnerShimmer: 'rgb(224,160,140)',
   panelTitle: 'rgb(136,192,208)',
   success: 'rgb(163,190,140)',
   error: 'rgb(191,97,106)',

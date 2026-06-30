@@ -74,6 +74,33 @@ test('long code line wraps within requested body width', () => {
   assert.equal(bodyLines.join('').replace(/\s/g, ''), long, 'wrapped segments preserve content');
 });
 
+test('fenced code expands tabs so width math matches the terminal', () => {
+  // A raw \t counts as ZERO cells in string-width ("Tabs are ignored by
+  // design"), so without normalization the wrap/row math under-counts a
+  // tab-bearing line and the terminal-expanded line bleeds past the viewport
+  // clip. After normalization every rendered row must contain no raw \t and
+  // its visible width must equal its character length (tabs → spaces).
+  const token = lexFirst('```\n\tindented\n```\n', 'code');
+  const out = formatToken(token, 0, null, null, 60);
+  const plain = stripAnsi(out);
+  assert.ok(!plain.includes('\t'), 'no raw tab survives into the rendered string');
+  const bodyLine = plain.split('\n').find((l) => l.includes('indented'));
+  assert.ok(bodyLine, 'body line present');
+  assert.equal(stringWidth(bodyLine), bodyLine.length, 'visible width equals char length (no zero-width tab)');
+});
+
+test('fenced code strips stray C0 control chars except newline', () => {
+  // A bare \x07 (BELL) etc. measures as zero width but can move the terminal
+  // cursor; replace with a space so ink's row accounting holds.
+  const token = lexFirst('```\na\x07b\n```\n', 'code');
+  const out = formatToken(token, 0, null, null, 60);
+  const plain = stripAnsi(out);
+  assert.ok(!/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(plain), 'no raw C0/DEL control survives');
+  const bodyLine = plain.split('\n').find((l) => l.includes('a') && l.includes('b'));
+  assert.ok(bodyLine, 'body line present');
+  assert.equal(stringWidth(bodyLine), bodyLine.length, 'control char became a real space cell');
+});
+
 test('list item fenced code block respects narrowed width and has no fences', () => {
   const long = 'b'.repeat(36);
   const codeTok = lexFirst(`\`\`\`js\n${long}\n\`\`\`\n`, 'code');
@@ -317,7 +344,7 @@ test('every palette defines the full extended key set', () => {
     'syntaxComment', 'syntaxKeyword', 'syntaxFunction', 'syntaxVariable',
     'syntaxString', 'syntaxNumber', 'syntaxType', 'syntaxOperator', 'syntaxPunctuation',
   ];
-  for (const id of ['basic', 'basicIndigo', 'warm', 'teal', 'onedark', 'tokyonight', 'kanagawa', 'catppuccin', 'dracula', 'rosepine', 'nord', 'gruvbox', 'everforest', 'light']) {
+  for (const id of ['basic', 'basicIndigo', 'warm', 'teal', 'onedark', 'tokyonight', 'kanagawa', 'catppuccin', 'dracula', 'rosepine', 'nord', 'gruvbox', 'everforest']) {
     setThemeSetting(id, { persist: false });
     for (const key of required) {
       assert.ok(/^rgb\(\d+,\s*\d+,\s*\d+\)$/.test(String(theme[key])), `${id}.${key} is an rgb() string`);

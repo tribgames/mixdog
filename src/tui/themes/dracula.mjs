@@ -2,19 +2,20 @@ import { basePalette } from './base.mjs';
 /** Dracula — https://draculatheme.com/contribute */
 export const draculaPalette = {
   ...basePalette,
-  background: 'rgb(40,42,54)',
+  background: 'transparent',
   text: 'rgb(248,248,242)',
   inverseText: 'rgb(40,42,54)',
   selectionText: 'rgb(40,42,54)',
   selectionBackground: 'rgb(248,248,242)',
   claude: 'rgb(189,147,249)',
+  logo: 'rgb(214,180,255)', // welcome banner — brighter than accent
   claudeShimmer: 'rgb(212,182,251)',
   mixdogOrange: 'rgb(189,147,249)',
   mixdogAmber: 'rgb(212,182,251)',
   mixdogIvory: 'rgb(248,248,242)',
-  spinnerGlyph: 'rgb(189,147,249)',
-  spinnerText: 'rgb(189,147,249)',
-  spinnerShimmer: 'rgb(212,182,251)',
+  spinnerGlyph: 'rgb(255,121,198)', // most-emphasized: pink
+  spinnerText: 'rgb(255,121,198)',
+  spinnerShimmer: 'rgb(255,160,215)',
   thinkingAccent: 'rgb(98,114,164)',
   thinkingText: 'rgb(248,248,242)',
   thinkingBase: 'rgb(98,114,164)',

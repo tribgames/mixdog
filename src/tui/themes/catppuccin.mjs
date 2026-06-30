@@ -3,15 +3,16 @@ import { basePalette } from './base.mjs';
 /** Catppuccin Mocha — https://github.com/catppuccin/catppuccin */
 export const catppuccinPalette = {
   ...basePalette,
-  background: 'rgb(30,30,46)',
+  background: 'transparent',
   claude: 'rgb(137,180,250)',
+  logo: 'rgb(170,202,255)', // welcome banner — brighter than accent
   claudeShimmer: 'rgb(180,190,254)',
   mixdogOrange: 'rgb(137,180,250)',
   mixdogAmber: 'rgb(180,190,254)',
   mixdogIvory: 'rgb(205,214,244)',
-  spinnerGlyph: 'rgb(137,180,250)',
-  spinnerText: 'rgb(137,180,250)',
-  spinnerShimmer: 'rgb(180,190,254)',
+  spinnerGlyph: 'rgb(250,179,135)', // most-emphasized: peach
+  spinnerText: 'rgb(250,179,135)',
+  spinnerShimmer: 'rgb(252,200,170)',
   thinkingAccent: 'rgb(108,112,134)',
   thinkingText: 'rgb(205,214,244)',
   thinkingBase: 'rgb(147,153,178)',

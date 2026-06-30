@@ -3,7 +3,7 @@ import { basePalette } from './base.mjs';
 /** Everforest dark medium (sainnhe/everforest) */
 export const everforestPalette = {
   ...basePalette,
-  background: 'rgb(45,53,59)',
+  background: 'transparent',
   text: 'rgb(211,198,170)',
   inverseText: 'rgb(45,53,59)',
   selectionText: 'rgb(45,53,59)',
@@ -19,13 +19,14 @@ export const everforestPalette = {
   thinkingAccent: 'rgb(133,146,137)',
   thinkingGlow: 'rgb(230,220,195)',
   claude: 'rgb(214,153,182)',
+  logo: 'rgb(232,180,205)', // welcome banner — brighter than accent
   claudeShimmer: 'rgb(131,192,146)',
   mixdogOrange: 'rgb(214,153,182)',
   mixdogAmber: 'rgb(131,192,146)',
   mixdogIvory: 'rgb(211,198,170)',
-  spinnerGlyph: 'rgb(214,153,182)',
-  spinnerText: 'rgb(214,153,182)',
-  spinnerShimmer: 'rgb(131,192,146)',
+  spinnerGlyph: 'rgb(230,152,117)', // most-emphasized: earthy orange (fits muted green)
+  spinnerText: 'rgb(230,152,117)',
+  spinnerShimmer: 'rgb(243,180,150)',
   panelTitle: 'rgb(214,153,182)',
   success: 'rgb(167,192,128)',
   error: 'rgb(230,126,128)',

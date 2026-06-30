@@ -3,7 +3,7 @@ import { basePalette } from './base.mjs';
 /** Gruvbox dark medium (morhetz/gruvbox) */
 export const gruvboxPalette = {
   ...basePalette,
-  background: 'rgb(40,40,40)',
+  background: 'transparent',
   text: 'rgb(235,219,178)',
   inverseText: 'rgb(40,40,40)',
   selectionText: 'rgb(40,40,40)',
@@ -19,13 +19,14 @@ export const gruvboxPalette = {
   thinkingAccent: 'rgb(146,131,116)',
   thinkingGlow: 'rgb(251,241,199)',
   claude: 'rgb(142,192,124)',
+  logo: 'rgb(176,216,152)', // welcome banner — brighter than accent
   claudeShimmer: 'rgb(184,187,38)',
   mixdogOrange: 'rgb(142,192,124)',
   mixdogAmber: 'rgb(184,187,38)',
   mixdogIvory: 'rgb(235,219,178)',
-  spinnerGlyph: 'rgb(142,192,124)',
-  spinnerText: 'rgb(142,192,124)',
-  spinnerShimmer: 'rgb(184,187,38)',
+  spinnerGlyph: 'rgb(214,93,14)', // most-emphasized: gruvbox neutral orange (retro-fit)
+  spinnerText: 'rgb(214,93,14)',
+  spinnerShimmer: 'rgb(244,135,50)',
   panelTitle: 'rgb(142,192,124)',
   success: 'rgb(184,187,38)',
   error: 'rgb(251,73,52)',

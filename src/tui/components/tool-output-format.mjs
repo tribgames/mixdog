@@ -114,6 +114,77 @@ const URL_RE = /https?:\/\/[^\s"'<>\x1b\\)\]]+/g;
 // eslint-disable-next-line no-control-regex
 const ANSI_ESCAPE_RE = /\x1b(?:\[[0-9;]*m|\][\s\S]*?(?:\x07|\x1b\\))/g;
 
+// Visible-text tab stop for expanded tool output (cosmetic; what matters is that
+// no raw \t survives the width math).
+const TOOL_OUTPUT_TAB_SIZE = 2;
+// Match ONE CSI-SGR or OSC sequence anchored at the string start (for the
+// ANSI-aware control normalizer below). Kept separate from the global
+// ANSI_ESCAPE_RE so neither one's lastIndex perturbs the other.
+// eslint-disable-next-line no-control-regex
+const ANSI_SEQ_AT_START_RE = /^\x1b(?:\[[0-9;]*m|\][\s\S]*?(?:\x07|\x1b\\))/;
+
+/**
+ * ANSI-aware control normalization for expanded tool output.
+ *
+ * Why: string-width counts a raw \t (and other C0 controls) as ZERO cells, so
+ * `wrapExpandedResultLines` under-wraps a tab-bearing line; the row then renders
+ * past the truncate width and the terminal EXPANDS the surviving tab to a tab
+ * stop, bleeding the line THROUGH the bottom prompt box on scroll. We must
+ * expand tabs / strip stray controls in the VISIBLE text — but tool output can
+ * also carry legitimate color (SGR) and OSC-8 hyperlink escapes, so those
+ * sequences are copied through verbatim (zero visible columns) instead of being
+ * mangled. CRLF/lone CR → LF; other C0 + DEL (except LF) → a single space.
+ */
+function normalizeToolOutputControls(text) {
+  const input = String(text ?? '');
+  if (input.length === 0) return input;
+  let out = '';
+  let col = 0;
+  let i = 0;
+  while (i < input.length) {
+    const ch = input[i];
+    if (ch === '\x1b') {
+      // Copy a recognized SGR/OSC escape verbatim (no visible width); only a
+      // lone/unknown ESC falls through to the control-strip branch below.
+      const m = ANSI_SEQ_AT_START_RE.exec(input.slice(i));
+      if (m) {
+        out += m[0];
+        i += m[0].length;
+        continue;
+      }
+    }
+    if (ch === '\n') { out += '\n'; col = 0; i += 1; continue; }
+    if (ch === '\r') {
+      // CR or CRLF → a single LF.
+      out += '\n'; col = 0; i += 1;
+      if (input[i] === '\n') i += 1;
+      continue;
+    }
+    if (ch === '\t') {
+      const advance = TOOL_OUTPUT_TAB_SIZE - (col % TOOL_OUTPUT_TAB_SIZE);
+      out += ' '.repeat(advance);
+      col += advance;
+      i += 1;
+      continue;
+    }
+    const cp = input.codePointAt(i);
+    const step = cp > 0xffff ? 2 : 1;
+    if (cp <= 0x1f || cp === 0x7f) {
+      // Remaining C0 control / DEL (and lone ESC): a space so it cannot move the
+      // terminal cursor after ink has already accounted for the row.
+      out += ' ';
+      col += 1;
+      i += step;
+      continue;
+    }
+    const chr = String.fromCodePoint(cp);
+    out += chr;
+    col += stringWidth(chr);
+    i += step;
+  }
+  return out;
+}
+
 
 /** Infer a highlighter family from a read/grep path arg's extension. */
 export function inferLangFamily(pathArg) {
@@ -267,6 +338,13 @@ export function formatExpandedResult(text, { pathArg = '', isShell = false } = {
   }
 
   const carriesAnsi = hasAnsi(src);
+  // Expand tabs / strip stray controls so a tab-bearing line cannot bleed
+  // through the bottom prompt box on scroll (string-width measures \t as zero
+  // cells; the terminal expands it after ink's row accounting). ANSI-aware:
+  // SGR/OSC escapes are preserved verbatim, so this runs unconditionally —
+  // colored shell output and OSC-8 links keep their escapes while their VISIBLE
+  // text is normalized.
+  src = normalizeToolOutputControls(src);
   // JSON pretty only when the text is not already colored (don't reflow ANSI).
   if (!carriesAnsi) src = tryFormatJson(src);
 
