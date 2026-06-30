@@ -26,7 +26,7 @@ function cleanRightMessage(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
-export function TurnDone({ elapsedMs = 0, status = 'done', verb = 'Thought', rightMessage = '', rightTone = 'info', rightMessageWidth = 24 }) {
+export function TurnDone({ elapsedMs = 0, status = 'done', verb = 'Thought', rightMessage = '', rightTone = 'info', rightMessageWidth = 24, marginTop = 1 }) {
   const elapsed = formatDuration(elapsedMs);
   const cancelled = status === 'cancelled';
   const doneVerb = String(verb || 'Thought').trim() || 'Thought';
@@ -37,7 +37,7 @@ export function TurnDone({ elapsedMs = 0, status = 'done', verb = 'Thought', rig
   const rightWidth = Math.max(1, Number(rightMessageWidth) || 24);
 
   return (
-    <Box marginTop={1} flexDirection="row" width="100%">
+    <Box marginTop={marginTop} flexDirection="row" width="100%">
       <Box flexGrow={1} flexShrink={1} overflow="hidden">
         <Text wrap="truncate">
           <Text color={theme.spinnerGlyph}>{TURN_DONE_MARKER} </Text>
@@ -53,14 +53,14 @@ export function TurnDone({ elapsedMs = 0, status = 'done', verb = 'Thought', rig
   );
 }
 
-export function StatusDone({ label = 'Complete', detail = '', rightMessage = '', rightTone = 'info', rightMessageWidth = 24 }) {
+export function StatusDone({ label = 'Complete', detail = '', rightMessage = '', rightTone = 'info', rightMessageWidth = 24, marginTop = 1 }) {
   const copy = String(label || 'Complete').trim() || 'Complete';
   const suffix = String(detail || '').trim();
   const rightText = cleanRightMessage(rightMessage);
   const rightWidth = Math.max(1, Number(rightMessageWidth) || 24);
 
   return (
-    <Box marginTop={1} flexDirection="row" width="100%">
+    <Box marginTop={marginTop} flexDirection="row" width="100%">
       <Box flexGrow={1} flexShrink={1} overflow="hidden">
         <Text wrap="truncate">
           <Text color={theme.spinnerGlyph}>{TURN_DONE_MARKER} </Text>

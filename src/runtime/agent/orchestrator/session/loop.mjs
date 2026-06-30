@@ -1791,7 +1791,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             _eagerInFlightSigs.set(_sig, call.id);
             entry.promise = (async () => {
                 try {
-                    return { ok: true, value: await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval }) };
+                    return { ok: true, value: await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: nextIteration }) };
                 } catch (error) {
                     return { ok: false, error };
                 }
@@ -2253,7 +2253,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         toolEndedAt = Date.now();
                         _resultKind = 'error';
                     } else {
-                        result = await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval });
+                        result = await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: iterations });
                         toolEndedAt = Date.now();
                         // Boundary: tool-return string convention → structural kind.
                         // The only prefix check in this codebase; downstream layers

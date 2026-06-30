@@ -5,8 +5,15 @@
 
 import { parseToolArgs } from '../runtime/shared/tool-surface.mjs';
 
-const HOOK_DENIAL_RE = /denied by hook/i;
-const APPROVAL_UNAVAILABLE_RE = /approval required but no approval UI is available/i;
+// Anchor to the orchestrator's actual denial envelope:
+//   `Error: tool "<name>" denied by hook[: ...]`
+//   `Error: tool "<name>" denied by hook: approval required but no approval UI is available`
+// Matching the bare phrase anywhere in the body produced FALSE POSITIVES when a
+// normal (successful) tool result merely CONTAINED the text — e.g. a read/grep
+// over this very file or the hook source. The denial is always an Error
+// envelope emitted at the START of the result, so anchor on that prefix.
+const HOOK_DENIAL_RE = /^Error:\s*tool\s*"[^"]*"\s*denied by hook\b/im;
+const APPROVAL_UNAVAILABLE_RE = /denied by hook:\s*approval required but no approval UI is available/i;
 
 export function toolItemResultText(item) {
   if (!item) return '';
@@ -26,6 +33,10 @@ export function isHookApprovalDenialToolResult(text) {
 
 export function isHookApprovalDenialToolItem(item) {
   if (!item || item.kind !== 'tool') return false;
+  // A genuine hook denial is always surfaced as an ERROR result. Gating on
+  // isError stops a successful result whose body happens to contain the denial
+  // phrase (e.g. reading the hook source) from rendering a phantom "Denied".
+  if (!item.isError) return false;
   return isHookApprovalDenialToolResult(toolItemResultText(item));
 }
 

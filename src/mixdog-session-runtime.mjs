@@ -566,9 +566,9 @@ const READONLY_TOOL_NAMES = new Set([
   'fetch',
   'Skill',
 ]);
-const AGENT_HIDDEN_WRAPPER_TOOLS = new Set(['search']);
+const AGENT_HIDDEN_WRAPPER_TOOLS = new Set([]);
 
-function applyStandaloneToolDefaults(tool) {
+export function __applyStandaloneToolDefaultsForTest(tool) {
   if (!tool || !AGENT_HIDDEN_WRAPPER_TOOLS.has(tool.name)) return tool;
   return {
     ...tool,
@@ -578,6 +578,7 @@ function applyStandaloneToolDefaults(tool) {
     },
   };
 }
+const applyStandaloneToolDefaults = __applyStandaloneToolDefaultsForTest;
 const DEFERRED_SELECT_ALIASES = {
   filesystem: ['read', 'list', 'grep', 'find', 'glob'],
   search: ['search', 'web_fetch'],

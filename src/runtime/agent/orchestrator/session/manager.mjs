@@ -349,6 +349,7 @@ const AGENT_STRING_PERMISSION_READ_ALLOW = Object.freeze([
     'explore',
     'search',
     'web_fetch',
+    'Skill',
 ]);
 
 function stringToolPermissionAllowList(toolPermission) {
@@ -369,6 +370,7 @@ const AGENT_STRING_PERMISSION_READ_WRITE_ALLOW = Object.freeze([
     'explore',
     'search',
     'web_fetch',
+    'Skill',
 ]);
 
 function applyToolPermissionNarrowing(tools, toolPermission, warnRole = null) {
@@ -1570,10 +1572,11 @@ export function createSession(opts) {
     const resolvedRole = opts.role || profile?.taskType || null;
     const hiddenRole = getHiddenRole(resolvedRole);
     const isRetrievalRole = hiddenRole?.kind === 'retrieval';
-    // Skill schema is fixed; the compact manifest is discovered once through
-    // the mtime-cached frontmatter index so BP1 tells every role which Skill()
-    // names are available without loading full SKILL.md bodies.
-    const skills = opts.skipSkills ? [] : collectSkillsCached(opts.cwd);
+    // Skill schema is fixed for public agent sessions, but hidden retrieval /
+    // maintenance roles are deliberately narrowed away from the Skill tool.
+    // Do not leak a Skill manifest into those hidden prompts when no Skill()
+    // loader is available.
+    const skills = (opts.skipSkills || hiddenRole) ? [] : collectSkillsCached(opts.cwd);
 
     // BP1 is shared tool policy (+ compact skill manifest in compose). BP2 is
     // role/system rules. User-defined schedules/webhooks ride as normal user
@@ -1678,7 +1681,7 @@ export function createSession(opts) {
     const hasCallerAllow = Array.isArray(opts.schemaAllowedTools);
     const tools = finalizeSessionToolList(toolsForRouting, {
         schemaAllowedTools: hasCallerAllow ? opts.schemaAllowedTools : null,
-        disallowedTools: opts.disallowedTools,
+        disallowedTools: hiddenRole ? [...(Array.isArray(opts.disallowedTools) ? opts.disallowedTools : []), 'Skill'] : opts.disallowedTools,
         ownerIsAgent,
         resolvedRole,
     });
@@ -3664,7 +3667,7 @@ export async function resumeSession(sessionId, preset) {
     }
     session.tools = finalizeSessionToolList(toolsForRouting, {
         schemaAllowedTools: Array.isArray(session.schemaAllowedTools) ? session.schemaAllowedTools : null,
-        disallowedTools: null,
+        disallowedTools: getHiddenRole(session.role || null) ? ['Skill'] : null,
         ownerIsAgent,
         resolvedRole: session.role || null,
     });

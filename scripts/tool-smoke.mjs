@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { __renderToolSearchForTest, compactToolSearchDescription, defaultDeferredToolNames, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../src/mixdog-session-runtime.mjs';
+import { __applyStandaloneToolDefaultsForTest, __renderToolSearchForTest, compactToolSearchDescription, defaultDeferredToolNames, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../src/mixdog-session-runtime.mjs';
 import { buildExplorerPrompt, EXPLORE_TOOL, MAX_FANOUT_QUERIES, normalizeExploreQueries } from '../src/standalone/explore-tool.mjs';
 import { AGENT_TOOL, createStandaloneAgent } from '../src/standalone/agent-tool.mjs';
 import { parseHeadlessRoleCommand } from '../src/app.mjs';
@@ -846,6 +846,15 @@ if (EXPLORE_TOOL.annotations?.readOnlyHint !== true || EXPLORE_TOOL.annotations?
 if (EXPLORE_TOOL.annotations?.agentHidden === true) {
   throw new Error('explore must stay visible to agent sessions');
 }
+{
+  const runtimeSearchTool = __applyStandaloneToolDefaultsForTest(SEARCH_TOOL_DEFS.find((tool) => tool?.name === 'search'));
+  if (runtimeSearchTool?.annotations?.agentHidden === true) {
+    throw new Error('production search tool must stay visible to agent sessions');
+  }
+  if (TOOL_SEARCH_TOOL.annotations?.agentHidden !== true) {
+    throw new Error('deferred tool_search wrapper must stay hidden from agent sessions');
+  }
+}
 const exploreProps = EXPLORE_TOOL.inputSchema?.properties || {};
 if (!/Repo anchor locator/i.test(EXPLORE_TOOL.description || '') || !/broad\/uncertain/i.test(EXPLORE_TOOL.description || '') || !/independent targets/i.test(EXPLORE_TOOL.description || '') || (EXPLORE_TOOL.description || '').length > 90) {
   throw new Error('explore description must stay compact and anchor-oriented');
@@ -938,8 +947,8 @@ setInternalToolsProvider({
         throw new Error(`agent system layers must carry BP1 tool policy and BP2 role rules: ${systemVisible.slice(0, 1200)}`);
       }
       const agentSkillToolNames = (agentSkillSession.tools || []).map((tool) => tool?.name).filter(Boolean);
-      if (agentSkillToolNames.includes('Skill')) {
-        throw new Error(`read-write agent schema must omit Skill loader: ${agentSkillToolNames.join(', ')}`);
+      if (!agentSkillToolNames.includes('Skill')) {
+        throw new Error(`read-write agent schema must expose Skill loader with the manifest: ${agentSkillToolNames.join(', ')}`);
       }
     } finally {
       closeSession(agentSkillSession.id, 'tool-smoke');
@@ -1062,8 +1071,8 @@ setInternalToolsProvider({
     const writeTools = (writeAgentSession.tools || []).map((tool) => tool?.name).filter(Boolean);
     const fullTools = (fullAgentSession.tools || []).map((tool) => tool?.name).filter(Boolean);
     const publicExploreTools = (publicExploreSession.tools || []).map((tool) => tool?.name).filter(Boolean);
-    const expectedReadTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'explore', 'search', 'web_fetch'];
-    const expectedWriteTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore', 'search', 'web_fetch'];
+    const expectedReadTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'explore', 'search', 'web_fetch', 'Skill'];
+    const expectedWriteTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore', 'search', 'web_fetch', 'Skill'];
     if (JSON.stringify(readTools) !== JSON.stringify(expectedReadTools)) {
       throw new Error(`read agent schema must be fixed allow-list: expected=${expectedReadTools.join(', ')} actual=${readTools.join(', ')}`);
     }
@@ -1076,7 +1085,7 @@ setInternalToolsProvider({
     if (readTools.includes('shell') || writeTools.includes('shell')) {
       throw new Error(`read/read-write agent schemas must omit shell: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
     }
-    for (const name of ['shell', 'apply_patch', 'task', 'diagnostics', 'open_config', 'Skill']) {
+    for (const name of ['shell', 'apply_patch', 'task', 'diagnostics', 'open_config']) {
       if (readTools.includes(name)) {
         throw new Error(`read agent schema must omit non-read tool ${name}: read=${readTools.join(', ')}`);
       }
@@ -1089,7 +1098,7 @@ setInternalToolsProvider({
         throw new Error(`read-write agent schema must omit non-edit tool ${name}: write=${writeTools.join(', ')}`);
       }
     }
-    for (const name of ['open_config', 'Skill']) {
+    for (const name of ['open_config']) {
       if (writeTools.includes(name)) {
         throw new Error(`read-write agent schema must omit config/skill tool ${name}: write=${writeTools.join(', ')}`);
       }
@@ -1128,7 +1137,7 @@ setInternalToolsProvider({
   try {
     const resumed = await resumeSession(resumeAgentSession.id, 'full');
     const resumedTools = (resumed?.tools || []).map((tool) => tool?.name).filter(Boolean);
-    const expectedWriteTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore', 'search', 'web_fetch'];
+    const expectedWriteTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore', 'search', 'web_fetch', 'Skill'];
     if (JSON.stringify(resumedTools) !== JSON.stringify(expectedWriteTools)) {
       throw new Error(`resumed read-write agent schema must keep fixed allow-list: expected=${expectedWriteTools.join(', ')} actual=${resumedTools.join(', ')}`);
     }

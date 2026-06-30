@@ -7171,9 +7171,23 @@ export function App({ store, initialStatusLine = '' }) {
   const toastHint = latestToast ? latestToast.text : '';
   const inputHint = promptHint || toastHint;
   const inputHintTone = promptHint ? promptHintTone : (latestToast?.tone || 'info');
+  // Latest done row (TurnDone/StatusDone) ownership: the engine pushes the
+  // `turndone`/`statusdone` item AND clears the spinner in the same coalesced
+  // state update, so when a turn ends the spinner-reserved meta band is freed
+  // while a 2-row done item is appended to the transcript tail — the new tail
+  // then overprints the input box. Fix: when the newest transcript item is a
+  // done row and no spinner is live, OWN that row in the same bottom meta band
+  // the spinner uses (reserve its rows, render it there, and drop it from the
+  // transcript map) so it renders in exactly one place and never bleeds into
+  // the prompt. The item stays in state.items for scrollback; once another
+  // item is appended, latestDoneItem is null and it shows in the transcript.
+  const lastTranscriptItem = (state.items || []).at(-1) ?? null;
+  const lastItemIsDoneRow = lastTranscriptItem?.kind === 'turndone'
+    || lastTranscriptItem?.kind === 'statusdone';
+  const latestDoneItem = (!liveSpinner && lastItemIsDoneRow) ? lastTranscriptItem : null;
   // While the slash palette is open it owns the area above the prompt, so the
   // live spinner/meta row is suppressed entirely — no reservation and no render.
-  const promptMetaRows = !inputBoxHidden && liveSpinner && !slashPaletteOpen ? 2 : 0;
+  const promptMetaRows = !inputBoxHidden && !slashPaletteOpen && (liveSpinner || latestDoneItem) ? 2 : 0;
   const SCROLL_HINT_ROWS = 0;
   const LIVE_STATUS_ROWS = 0;
   // The standalone prompt box is 3 rows (round border + one input line). Normal
@@ -7242,19 +7256,18 @@ export function App({ store, initialStatusLine = '' }) {
   // render at full width.
   const rightSafetyColumns = process.platform === 'win32' ? 1 : 0;
   const frameColumns = Math.max(1, resizeState.columns - rightSafetyColumns);
-  const promptMetaVisible = !inputBoxHidden && !!liveSpinner && !slashPaletteOpen;
-  // Same-row done hint: when the newest transcript row is a TurnDone/StatusDone
-  // and there is a transient hint to show (and no live spinner owns the status
-  // band), attach the hint to that done row's right side instead of reserving a
-  // separate overlay row. overlayHintVisible excludes this case so the hint is
-  // not double-painted.
-  const lastTranscriptItem = (state.items || []).at(-1) ?? null;
-  const lastItemIsDoneRow = lastTranscriptItem?.kind === 'turndone'
-    || lastTranscriptItem?.kind === 'statusdone';
+  // The bottom meta band renders when a live spinner OR the latest done row
+  // owns it (lastTranscriptItem / lastItemIsDoneRow / latestDoneItem computed
+  // earlier, alongside promptMetaRows).
+  const promptMetaVisible = !inputBoxHidden && !slashPaletteOpen && (!!liveSpinner || !!latestDoneItem);
+  // Same-row done hint: when the latest done row owns the meta band and there is
+  // a transient hint to show, attach the hint to that done row's right side
+  // instead of reserving a separate overlay row. overlayHintVisible excludes
+  // this case so the hint is not double-painted.
   const attachInputHintToTurnDone = !inputBoxHidden
     && !liveSpinner
     && !!inputHint
-    && lastItemIsDoneRow;
+    && !!latestDoneItem;
   // Toast/error text has two mutually exclusive placements:
   // - while a live status row exists (thinking/compacting/responding), attach it
   //   to that row so the bottom cluster reserves exactly one status band;
@@ -7347,6 +7360,12 @@ export function App({ store, initialStatusLine = '' }) {
     transcriptWindow.startIndex,
     transcriptWindow.endIndex,
   );
+  // When the latest done row is owned by the bottom meta band (latestDoneItem),
+  // drop it from the transcript render so it is not painted twice. Only filter
+  // the actual tail item by id; older done rows in scrollback are untouched.
+  const renderedTranscriptItems = latestDoneItem
+    ? transcriptVisibleItems.filter((it) => it.id !== latestDoneItem.id)
+    : transcriptVisibleItems;
   // (attachInputHintToTurnDone / lastTranscriptItem computed earlier, before
   // overlayHintVisible, so the overlay can exclude the same-row attach case.)
   // ── App-level measured height harvest (ScrollBox/useVirtualScroll-inspired) ─
@@ -7684,10 +7703,7 @@ export function App({ store, initialStatusLine = '' }) {
              * OVERSCAN: TRANSCRIPT_WINDOW_OVERSCAN_ROWS extra rows above the viewport so
              * fast wheel scrolls don't show a blank gap before re-render.
              */}
-           {transcriptVisibleItems.map((item, i, arr) => {
-             const showRightMessage = attachInputHintToTurnDone
-               && item.id === lastTranscriptItem?.id
-               && (item.kind === 'turndone' || item.kind === 'statusdone');
+           {renderedTranscriptItems.map((item, i, arr) => {
              const measureRef = transcriptMeasureRef(item);
              const itemNode = (
                <Item
@@ -7695,7 +7711,7 @@ export function App({ store, initialStatusLine = '' }) {
                  prevKind={i > 0 ? arr[i - 1].kind : state.items[transcriptWindow.startIndex - 1]?.kind ?? null}
                  columns={frameColumns}
                  toolOutputExpanded={toolOutputExpanded}
-                 rightMessage={showRightMessage ? inputHint : ''}
+                 rightMessage={''}
                  rightTone={inputHintTone}
                  rightMessageWidth={transientStatusWidth || 24}
                  themeEpoch={state.themeEpoch || 0}
@@ -7941,12 +7957,37 @@ export function App({ store, initialStatusLine = '' }) {
                     columns={promptSpinnerColumns}
                     marginTop={0}
                   />
+                ) : latestDoneItem ? (
+                  latestDoneItem.kind === 'statusdone' ? (
+                    <StatusDone
+                      label={latestDoneItem.label}
+                      detail={latestDoneItem.detail}
+                      rightMessage={attachInputHintToTurnDone ? inputHint : ''}
+                      rightTone={inputHintTone}
+                      rightMessageWidth={transientStatusWidth || 24}
+                      marginTop={0}
+                    />
+                  ) : (
+                    <TurnDone
+                      elapsedMs={latestDoneItem.elapsedMs}
+                      status={latestDoneItem.status}
+                      outputTokens={latestDoneItem.outputTokens}
+                      thinkingElapsedMs={latestDoneItem.thinkingElapsedMs}
+                      verb={latestDoneItem.verb}
+                      rightMessage={attachInputHintToTurnDone ? inputHint : ''}
+                      rightTone={inputHintTone}
+                      rightMessageWidth={transientStatusWidth || 24}
+                      marginTop={0}
+                    />
+                  )
                 ) : null}
               </Box>
               {inputHint ? (
+                attachInputHintToTurnDone ? null : (
                 <Box flexShrink={0} width={transientStatusWidth || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
                   <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
                 </Box>
+                )
               ) : null}
             </Box>
           ) : null}
