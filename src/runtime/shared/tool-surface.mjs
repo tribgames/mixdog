@@ -885,7 +885,15 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     }
     case 'recall':
     case 'search_memories':
-    case 'memory':
+    case 'memory': {
+      if (!trimmed || trimmed === '(no results)') return 'No Results';
+      let n = 0;
+      for (const line of text.split('\n')) {
+        if (/#\d+\s*$/.test(line)) n += 1;
+      }
+      if (n > 0) return `${n} ${pluralize(n, 'Memory', 'Memories')}`;
+      return summarizeGenericResult(text);
+    }
     case 'remember':
     case 'save_memory':
     case 'update_memory':
