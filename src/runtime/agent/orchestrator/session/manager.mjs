@@ -1459,7 +1459,8 @@ export function createSession(opts) {
     const agentRulesRole = opts.role || profile?.taskType || null;
     const agentRulesProfile = isRetrievalRole ? 'retrieval' : 'full';
     const skipAgentRules = opts.skipAgentRules === true;
-    const injectedRules = skipAgentRules ? '' : _buildSharedRules();
+    // Retrieval roles already inject a compact # Tool Use via BP2; skip the full BP1 shared tool policy to avoid duplicating it.
+    const injectedRules = (skipAgentRules || isRetrievalRole) ? '' : _buildSharedRules();
     const roleRules = skipAgentRules ? '' : (ownerIsAgent ? _buildAgentRules(agentRulesProfile) : _buildLeadRules());
     const metaContext = skipAgentRules ? '' : (ownerIsAgent ? '' : _buildLeadMetaContext());
     const roleSpecific = ownerIsAgent && !skipAgentRules ? _buildRoleSpecific(agentRulesRole) : '';

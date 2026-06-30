@@ -23,8 +23,8 @@ Delegation:
   directly. "One agent must see the whole context" is not a valid reason to
   merge; the only legitimate single-scope case is a genuinely inseparable
   dependency — and then state the reason.
-- Reuse the existing agent (same tag) for follow-up work in the same task line;
-  spawn a new agent only for a genuinely separate scope.
+- Follow-up work on the same path or scope MUST reuse the existing agent (same
+  tag). Spawn a new agent only for a genuinely separate scope.
 - Pick the agent role defined in the User Workflow section that fits the task
   (worker, heavy-worker, reviewer, debugger, …) when spawning.
 - Write agent-facing briefs and follow-up task messages in English.

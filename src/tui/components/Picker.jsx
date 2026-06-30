@@ -208,11 +208,12 @@ export function Picker({
             <Text color={theme.panelTitle}>{title || 'Picker'}</Text>
             <Text color={theme.subtle}>{helpText}</Text>
           </Box>
+          {/* Standard rhythm: title, blank, description/hint (blank if none),
+              blank, then the (empty) content row. */}
           <Text> </Text>
-          {emptyLine
-            ? <Text color={theme.text}>{emptyLine}</Text>
-            : <Text color={theme.inactive}>(empty)</Text>}
+          <Text color={theme.text}>{emptyLine || ' '}</Text>
           <Text> </Text>
+          <Text color={theme.inactive}>(empty)</Text>
         </Box>
       </Box>
     );

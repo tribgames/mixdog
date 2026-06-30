@@ -26,7 +26,9 @@ import { MarkdownTable } from './MarkdownTable.jsx';
 import { theme } from '../theme.mjs';
 
 function renderMarkdownElements(content, trimPartialFences = false, tableWidth) {
-  const segments = renderTokenAnsiSegments(content, { trimPartialFences });
+  // `tableWidth` is the App's body/content width; it doubles as the hr fill
+  // width. Fall back to 80 when not provided so an hr still spans a sane rule.
+  const segments = renderTokenAnsiSegments(content, { trimPartialFences, width: tableWidth || 80 });
   const result = [];
   let idx = 0;
   for (const segment of segments) {

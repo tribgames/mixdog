@@ -89,12 +89,22 @@ test('unknown language falls back to flat code block color', () => {
   assert.ok(stripAnsi(out).includes('  some text'), 'body still indented');
 });
 
-test('inline link uses link + linkText colors with URL', () => {
+test('inline link emits OSC 8 hyperlink with styled label (URL hidden)', () => {
   const token = lexFirst('[label](https://example.com)', 'paragraph');
   const out = formatToken(token);
+  // OSC 8 wraps the visible label; the raw URL lives in the escape, not as
+  // on-screen text, so stripAnsi keeps only the label.
+  assert.ok(out.includes('\x1b]8;;https://example.com\x07'), 'OSC 8 link target present');
+  assert.ok(out.includes('\x1b]8;;\x07'), 'OSC 8 close present');
   assert.ok(stripAnsi(out).includes('label'), 'link label text visible');
-  assert.ok(stripAnsi(out).includes('https://example.com'), 'URL visible');
-  assert.ok(out.includes(rgbSgr(theme.mdLinkText)), 'link text colored');
+  assert.ok(out.includes(rgbSgr(theme.mdLinkText)), 'link label colored');
+});
+
+test('bare-url link emits OSC 8 with the URL as visible clickable text', () => {
+  const token = lexFirst('<https://example.com>', 'paragraph');
+  const out = formatToken(token);
+  assert.ok(out.includes('\x1b]8;;https://example.com\x07'), 'OSC 8 link target present');
+  assert.ok(stripAnsi(out).includes('https://example.com'), 'URL visible as text');
   assert.ok(out.includes(rgbSgr(theme.mdLink)), 'link URL colored');
 });
 
@@ -109,9 +119,32 @@ test('strong and em use distinct mdStrong / mdEmph colors', () => {
   assert.ok(emOut.includes('\x1b[3m'), 'em is italic');
 });
 
+test('h1 heading is bold, italic, and underlined', () => {
+  const token = lexFirst('# Title', 'heading');
+  const out = formatToken(token);
+  assert.ok(out.includes('\x1b[1m'), 'h1 is bold');
+  assert.ok(out.includes('\x1b[3m'), 'h1 is italic');
+  assert.ok(out.includes('\x1b[4m'), 'h1 is underlined');
+});
+
+test('ordered list markers follow nesting depth (1. / a. / i.)', () => {
+  const md = [
+    '1. one',
+    '   1. two',
+    '      1. three',
+    '         1. four',
+  ].join('\n');
+  const tokens = marked.lexer(md);
+  const plain = stripAnsi(tokens.map((t) => formatToken(t)).join(''));
+  assert.ok(plain.includes('1. one'), 'depth 0 arabic');
+  assert.ok(plain.includes('1. two'), 'depth 1 arabic');
+  assert.ok(plain.includes('a. three'), 'depth 2 lowercase letter');
+  assert.ok(plain.includes('i. four'), 'depth 3 lowercase roman');
+});
+
 test('every palette defines the full extended key set', () => {
   const required = [
-    'mdCodeBlockBorder', 'mdLink', 'mdLinkText', 'mdStrong', 'mdEmph',
+    'mdCodeBlockBorder', 'mdCodeBlockBg', 'mdLink', 'mdLinkText', 'mdStrong', 'mdEmph',
     'mdDiffAdded', 'mdDiffRemoved', 'mdDiffHunk', 'mdDiffHeader', 'mdDiffContext',
     'mdDiffAddedBg', 'mdDiffRemovedBg',
     'syntaxComment', 'syntaxKeyword', 'syntaxFunction', 'syntaxVariable',

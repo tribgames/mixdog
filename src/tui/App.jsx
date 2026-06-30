@@ -26,7 +26,7 @@ import { theme, TURN_MARKER, RESULT_GUTTER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
 import { renderTokenAnsiSegments } from './markdown/render-ansi.mjs';
 import { assistantBodyWidth, measureMarkdownTableRows } from './markdown/table-layout.mjs';
-import { formatToolSurface, normalizeToolName, parseToolArgs, summarizeAgentSurfaceBrief } from '../runtime/shared/tool-surface.mjs';
+import { classifyToolCategory, formatToolSurface, normalizeToolName, parseToolArgs, summarizeAgentSurfaceBrief } from '../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../runtime/shared/err-text.mjs';
 import { AssistantMessage, UserMessage, ThinkingMessage, NoticeMessage } from './components/Message.jsx';
 import { ToolExecution } from './components/ToolExecution.jsx';
@@ -578,7 +578,7 @@ const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpan
       if (isHookApprovalDenialToolItem(item)) {
         return <ToolHookDenialCard item={item} columns={columns} />;
       }
-      return <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} headerFinalized={item.headerFinalized} themeEpoch={themeEpoch} />;
+      return <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} expanded={toolOutputExpanded || item.expanded} globalExpanded={toolOutputExpanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} headerFinalized={item.headerFinalized} deferredDisplayReady={item.deferredDisplayReady} themeEpoch={themeEpoch} />;
     }
     case 'notice': return <NoticeMessage text={item.text} tone={item.tone} columns={columns} />;
     case 'turndone': return <TurnDone elapsedMs={item.elapsedMs} status={item.status} outputTokens={item.outputTokens} thinkingElapsedMs={item.thinkingElapsedMs} verb={item.verb} rightMessage={rightMessage} rightTone={rightTone} rightMessageWidth={rightMessageWidth} />;
@@ -4617,7 +4617,7 @@ export function App({ store, initialStatusLine = '' }) {
               providerName,
               label: `${providerName} OAuth code`,
               hint: manualUrl
-                ? `If browser callback does not finish, open manual URL and paste code#state. ${manualUrl}`
+                ? 'If the browser callback does not finish, paste code#state below. Manual URL added to the transcript.'
                 : `Paste the authorization code or full redirect URL for ${providerName}.`,
               login,
               afterSave: returnTo,
@@ -4625,6 +4625,12 @@ export function App({ store, initialStatusLine = '' }) {
               failureReturn: (e) => showOAuthResult(false, `${providerName} code failed: ${e?.message || e}`),
               cancelReturn: () => openOAuthProviderActions(providerItem),
             });
+            // Persist the full manual URL into the transcript (not just a
+            // transient toast) so it stays retrievable; the visible panel hint
+            // is kept short/bounded and never carries the URL inline.
+            if (manualUrl) {
+              store.pushNotice(`${providerName} manual OAuth URL: ${manualUrl}`, 'info', { transcript: true });
+            }
             store.pushNotice(`browser opened for ${providerName}; paste code/redirect here if callback does not finish`, 'info');
             login.waitForCallback
               ?.then((result) => {
@@ -7033,6 +7039,76 @@ export function App({ store, initialStatusLine = '' }) {
     jobs: (state.agentJobs || []).map((j) => [j.task_id, j.status, j.tag, j.sessionId, j.startedAt, j.finishedAt, j.error]).slice(0, 20),
   }), [state.agentWorkers, state.agentJobs]);
 
+  // L2 statusline explore/search segments are the MAIN session's own running
+  // tool cards (NOT agentWorkers/agentJobs). Derive pending counts + oldest
+  // start time straight from the live transcript tool cards. A card is pending
+  // until completedCount >= count. (Do NOT use completedAt as the terminal
+  // signal: engine patchToolCardResult stamps completedAt on EVERY aggregate
+  // result patch even while calls are still running, and reused tail-aggregates
+  // keep a stale completedAt, so it would drop the segment early / skip newly
+  // added pending calls.) Aggregate cards carry a `categories` map; standalone
+  // cards carry name/args resolved
+  // via classifyToolCategory. Keep this CHEAP: build a primitive signature from
+  // only the tool items (mirrors agentRevision) so streaming flushes that swap
+  // state.items for a fresh array don't restringify the whole transcript and
+  // the StatusLine effect only re-fires when the numbers actually change.
+  const activeToolsSignature = useMemo(() => {
+    const items = state.items || [];
+    let exploreCount = 0;
+    let exploreStart = 0;
+    let searchCount = 0;
+    let searchStart = 0;
+    for (const it of items) {
+      if (!it || it.kind !== 'tool') continue;
+      const count = Math.max(1, Number(it.count || 1));
+      // Resolved check: aggregates stay on the pure completedCount>=count test
+      // because engine patchToolCardResult sets `result` on EVERY aggregate
+      // patch (even partial, completedCount<count), so a `result`-aware check
+      // would drop a still-running aggregate early. Standalone cards mirror
+      // toolItemPendingForRows (done when completedCount>=count OR a result
+      // landed) so an abnormally-finished card (cancelled/errored) that sets a
+      // result without bumping completedCount cannot pin a phantom segment.
+      const done = it.aggregate
+        ? Number(it.completedCount || 0)
+        : Math.max(0, Math.min(count, Number(it.completedCount || (it.result == null ? 0 : count))));
+      if (done >= count) continue; // resolved card (matches toolItemPendingForRows)
+      const started = Number(it.startedAt || 0);
+      let exploreHits = 0;
+      let searchHits = 0;
+      if (it.aggregate && it.categories && typeof it.categories === 'object') {
+        for (const v of Object.values(it.categories)) {
+          const cat = v && typeof v === 'object' ? v.category : null;
+          const c = Math.max(1, Number(v && typeof v === 'object' ? v.count : 1) || 1);
+          if (cat === 'Explore') exploreHits += c;
+          else if (cat === 'Search') searchHits += c;
+        }
+      } else if (it.name) {
+        const cat = classifyToolCategory(it.name, it.args || {});
+        if (cat === 'Explore') exploreHits = count;
+        else if (cat === 'Search') searchHits = count;
+      }
+      if (exploreHits > 0) {
+        exploreCount += exploreHits;
+        if (started > 0 && (exploreStart === 0 || started < exploreStart)) exploreStart = started;
+      }
+      if (searchHits > 0) {
+        searchCount += searchHits;
+        if (started > 0 && (searchStart === 0 || started < searchStart)) searchStart = started;
+      }
+    }
+    if (!exploreCount && !searchCount) return '';
+    return `${exploreCount}:${exploreStart}:${searchCount}:${searchStart}`;
+  }, [state.items]);
+
+  const activeTools = useMemo(() => {
+    if (!activeToolsSignature) return null;
+    const [ec, es, sc, ss] = activeToolsSignature.split(':').map((n) => Number(n) || 0);
+    return {
+      explore: { count: ec, startedAt: es },
+      search: { count: sc, startedAt: ss },
+    };
+  }, [activeToolsSignature]);
+
   // StatusLine only reads a small stats subset; engine clones the full stats
   // object on many updates. Memoize by field value so identical usage keeps
   // the same object reference and React.memo / effect deps stay quiet.
@@ -7106,7 +7182,9 @@ export function App({ store, initialStatusLine = '' }) {
   const toastHint = latestToast ? latestToast.text : '';
   const inputHint = promptHint || toastHint;
   const inputHintTone = promptHint ? promptHintTone : (latestToast?.tone || 'info');
-  const promptMetaRows = !inputBoxHidden && liveSpinner ? (slashPaletteOpen ? 1 : 2) : 0;
+  // While the slash palette is open it owns the area above the prompt, so the
+  // live spinner/meta row is suppressed entirely — no reservation and no render.
+  const promptMetaRows = !inputBoxHidden && liveSpinner && !slashPaletteOpen ? 2 : 0;
   const SCROLL_HINT_ROWS = 0;
   const LIVE_STATUS_ROWS = 0;
   // The standalone prompt box is 3 rows (round border + one input line). Normal
@@ -7116,10 +7194,19 @@ export function App({ store, initialStatusLine = '' }) {
   // row too high.
   const INPUT_BOX_ROWS = inputBoxHidden ? 0 : (slashPaletteOpen ? 3 : 4) + promptMetaRows;
   const STATUSLINE_ROWS = 3;
+  // Shared panel chrome math. Every floating panel follows the same vertical
+  // rhythm INSIDE its round border: title row, blank, description/hint row,
+  // blank, then content. That is 4 non-content rows; the round border adds 2
+  // more, so chrome reserves 6 rows total. Reserving the full chrome here (even
+  // for panels that omit the description) guarantees the bordered title can
+  // never be clipped off the top — content rows shrink first when the terminal
+  // is short, because the floating container clips from the top (flex-end).
   const PANEL_MAX_VISIBLE = 8;
-  const PANEL_BASE_ROWS = PANEL_MAX_VISIBLE + 4;
-  const PICKER_CHROME_ROWS = 4;
-  const TEXT_ENTRY_ROWS = 5;
+  const PANEL_CHROME_ROWS = 6;
+  const PANEL_BASE_ROWS = PANEL_MAX_VISIBLE + PANEL_CHROME_ROWS;
+  const PICKER_CHROME_ROWS = PANEL_CHROME_ROWS;
+  // TextEntryPanel content is a single prompt line, so chrome + 1.
+  const TEXT_ENTRY_ROWS = PANEL_CHROME_ROWS + 1;
   const OPTION_PANEL_EXTRA_ROWS = expandedOptionPanel ? 3 : 0;
   const queuedVisible = !hasFloatingPanel && !inputBoxHidden && state.queued?.length > 0;
   // QueuedCommands has its own top margin, and the prompt box drops its normal
@@ -7130,7 +7217,7 @@ export function App({ store, initialStatusLine = '' }) {
   const baseReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const maxFloatingPanelRows = Math.max(0, resizeState.rows - baseReserve - 1);
   const desiredFloatingPanelRows = toolApproval
-    ? TEXT_ENTRY_ROWS + OPTION_PANEL_EXTRA_ROWS
+    ? PANEL_CHROME_ROWS + 2 + OPTION_PANEL_EXTRA_ROWS
     : picker
       ? (picker.fillAvailable ? maxFloatingPanelRows : PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS)
       : contextPanel
@@ -7138,7 +7225,7 @@ export function App({ store, initialStatusLine = '' }) {
       : usagePanel
         ? PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS
         : slashPaletteOpen
-          ? PANEL_MAX_VISIBLE + 4
+          ? PANEL_MAX_VISIBLE + PANEL_CHROME_ROWS
           : hasTextEntryPrompt
             ? TEXT_ENTRY_ROWS + OPTION_PANEL_EXTRA_ROWS
             : 0;
@@ -7166,7 +7253,19 @@ export function App({ store, initialStatusLine = '' }) {
   // render at full width.
   const rightSafetyColumns = process.platform === 'win32' ? 1 : 0;
   const frameColumns = Math.max(1, resizeState.columns - rightSafetyColumns);
-  const promptMetaVisible = !inputBoxHidden && !!liveSpinner;
+  const promptMetaVisible = !inputBoxHidden && !!liveSpinner && !slashPaletteOpen;
+  // Same-row done hint: when the newest transcript row is a TurnDone/StatusDone
+  // and there is a transient hint to show (and no live spinner owns the status
+  // band), attach the hint to that done row's right side instead of reserving a
+  // separate overlay row. overlayHintVisible excludes this case so the hint is
+  // not double-painted.
+  const lastTranscriptItem = (state.items || []).at(-1) ?? null;
+  const lastItemIsDoneRow = lastTranscriptItem?.kind === 'turndone'
+    || lastTranscriptItem?.kind === 'statusdone';
+  const attachInputHintToTurnDone = !inputBoxHidden
+    && !liveSpinner
+    && !!inputHint
+    && lastItemIsDoneRow;
   // Toast/error text has two mutually exclusive placements:
   // - while a live status row exists (thinking/compacting/responding), attach it
   //   to that row so the bottom cluster reserves exactly one status band;
@@ -7174,7 +7273,7 @@ export function App({ store, initialStatusLine = '' }) {
   //   the blank spacer instead of reserving an extra row. This keeps late errors
   //   from pushing the prompt/statusline upward, and when thinking starts the
   //   hint moves into the live row on the same render instead of double-painting.
-  const overlayHintVisible = !inputBoxHidden && !liveSpinner && !!inputHint && !queuedVisible && floatingPanelRows <= 0;
+  const overlayHintVisible = !inputBoxHidden && !liveSpinner && !!inputHint && !queuedVisible && floatingPanelRows <= 0 && !attachInputHintToTurnDone;
   const transientStatusWidth = inputHint
     ? Math.max(1, Math.min(Math.max(1, frameColumns - 4), Math.max(12, Math.floor(frameColumns * 0.42))))
     : 0;
@@ -7259,7 +7358,8 @@ export function App({ store, initialStatusLine = '' }) {
     transcriptWindow.startIndex,
     transcriptWindow.endIndex,
   );
-  const attachInputHintToTurnDone = false;
+  // (attachInputHintToTurnDone / lastTranscriptItem computed earlier, before
+  // overlayHintVisible, so the overlay can exclude the same-row attach case.)
   // ── App-level measured height harvest (ScrollBox/useVirtualScroll-inspired) ─
   // Runs after EVERY commit (no deps): Yoga has just laid out the mounted rows,
   // so each tracked item Box's getComputedHeight() is its REAL terminal height.
@@ -7597,7 +7697,7 @@ export function App({ store, initialStatusLine = '' }) {
              */}
            {transcriptVisibleItems.map((item, i, arr) => {
              const showRightMessage = attachInputHintToTurnDone
-               && i === arr.length - 1
+               && item.id === lastTranscriptItem?.id
                && (item.kind === 'turndone' || item.kind === 'statusdone');
              const measureRef = transcriptMeasureRef(item);
              const itemNode = (
@@ -7906,6 +8006,7 @@ export function App({ store, initialStatusLine = '' }) {
           agentRevision={agentRevision}
           agentWorkers={state.agentWorkers}
           agentJobs={state.agentJobs}
+          activeTools={activeTools}
           initialLine={initialStatusLine}
           workflow={state.workflow}
           themeEpoch={state.themeEpoch || 0}

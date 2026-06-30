@@ -578,7 +578,7 @@ function toolStatusColor({ pending, groupCount, failedCount, terminalStatus = ''
   return theme.error;
 }
 
-export function ToolExecution({ name, args, result, rawResult, isError, errorCount, expanded, globalExpanded = false, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, headerFinalized = true }) {
+export function ToolExecution({ name, args, result, rawResult, isError, errorCount, expanded, globalExpanded = false, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, headerFinalized = true, deferredDisplayReady = false }) {
   const [blinkOn, setBlinkOn] = useState(true);
   const [blinkExpired, setBlinkExpired] = useState(false);
   const [pendingDelayElapsed, setPendingDelayElapsed] = useState(false);
@@ -601,7 +601,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // the card appear already populated and simply grow taller as more results
   // land — no empty band.
   const hasVisibleProgress = doneCount > 0 || Boolean(String(rt || '').trim());
-  const pendingDisplayReady = !pending || !startedAtMs || pendingDelayElapsed || pendingAgeMs >= TOOL_PENDING_SHOW_DELAY_MS || hasVisibleProgress;
+  const pendingDisplayReady = !pending || !startedAtMs || pendingDelayElapsed || pendingAgeMs >= TOOL_PENDING_SHOW_DELAY_MS || hasVisibleProgress || deferredDisplayReady;
   // Keep the action verb in its active form until the engine explicitly seals
   // the tool block. Fast tool batches often complete before the next provider
   // iteration decides whether to call more tools or emit assistant text; flipping

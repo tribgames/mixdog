@@ -1028,6 +1028,14 @@ export async function createEngineSession({
     const hasTurnActivity = state.busy === true
       || state.spinner != null
       || state.thinking != null;
+    const isFreshSession = !hasProviderUsage && !hasApiContextUsage && !hasTurnActivity;
+    if (isFreshSession) {
+      state.stats.currentEstimatedContextTokens = 0;
+      state.stats.currentContextTokens = 0;
+      state.stats.currentContextSource = null;
+      state.stats.currentContextUpdatedAt = Date.now();
+      return ctx;
+    }
     const estimatedTokens = Math.max(0, Number(ctx.currentEstimatedTokens ?? ctx.usedTokens ?? 0));
     const usedTokens = Math.max(0, Number(ctx.usedTokens ?? estimatedTokens ?? 0));
     const usedSource = String(ctx.usedSource || '').toLowerCase();
@@ -1715,7 +1723,7 @@ export async function createEngineSession({
         seq: deferredSeqCounter++,
         pushed: false,
         timer: null,
-        push: () => { card.pushed = true; if (card.spec) pushItem(card.spec); },
+        push: () => { card.pushed = true; if (card.spec) { card.spec.deferredDisplayReady = true; pushItem(card.spec); } },
       };
       card.deferred = entry;
       card.ensureVisible = () => flushDeferredUpTo(entry);
@@ -1732,7 +1740,7 @@ export async function createEngineSession({
         seq: deferredSeqCounter++,
         pushed: false,
         timer: null,
-        push: () => { aggregate.pushed = true; if (aggregate.pendingSpec) pushItem(aggregate.pendingSpec); },
+        push: () => { aggregate.pushed = true; if (aggregate.pendingSpec) { aggregate.pendingSpec.deferredDisplayReady = true; pushItem(aggregate.pendingSpec); } },
       };
       aggregate.deferred = entry;
       aggregate.ensureVisible = () => flushDeferredUpTo(entry);

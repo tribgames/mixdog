@@ -125,20 +125,27 @@ function profileLanguagePrompt(language) {
 
 function buildProfilePreferencesContent(dataDir) {
   const profile = normalizeProfileConfig(readAgentConfig(dataDir).profile);
-  const language = profileLanguagePrompt(profile.language);
   const lines = [];
   if (profile.title) {
     lines.push(`- Use "${profile.title}" when directly addressing the user (greetings, answers, questions). Do not repeat it in routine progress updates or pre-tool preambles.`);
   }
-  if (language?.prompt) {
-    const source = language.source === 'system-locale' && language.locale
-      ? ` from system locale ${language.locale}`
-      : '';
-    lines.push(`- Default user-facing response language${source}: ${language.prompt}. Use it for ALL user-facing prose, including pre-tool preambles, progress updates, questions, final reports, and notices. Every such message — even a single-line preamble before a tool call — MUST be written in ${language.prompt}, and in no other language. This overrides any tone implied by the output style. Switch languages only when the user writes in another language or explicitly asks you to. Keep code, paths, commands, symbols, API names, and exact errors verbatim.`);
-  }
   const shell = process.platform === 'win32' ? 'powershell' : 'bash';
   lines.push(`- Shell environment: ${shell}. When using shell, write commands and scripts in ${shell} syntax unless the user specifies otherwise. Keep commands, paths, symbols, and exact errors verbatim.`);
   return lines.length ? `# Profile Preferences\n\n${lines.join('\n')}` : '';
+}
+
+function buildLanguageSection(dataDir) {
+  const profile = normalizeProfileConfig(readAgentConfig(dataDir).profile);
+  const language = profileLanguagePrompt(profile.language);
+  if (!language?.prompt) return '';
+  const source = language.source === 'system-locale' && language.locale
+    ? ` from system locale ${language.locale}`
+    : '';
+  const lines = [
+    `- Default user-facing response language${source}: ${language.prompt}. Use it for ALL user-facing prose, including pre-tool preambles, progress updates, questions, final reports, and notices. Every such message — even a single-line preamble before a tool call — MUST be written in ${language.prompt}, and in no other language. This overrides any tone implied by the output style. Switch languages only when the user writes in another language or explicitly asks you to.`,
+    `- Code identifiers, paths, commands, symbols, API names, and exact errors should remain in their original form.`,
+  ];
+  return `# Language\n\n${lines.join('\n')}`;
 }
 
 function stripFrontmatter(markdown) {
@@ -310,6 +317,9 @@ function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR }) {
 
   const profilePreferences = buildProfilePreferencesContent(DATA_DIR);
   if (profilePreferences) parts.push(profilePreferences);
+
+  const languageSection = buildLanguageSection(DATA_DIR);
+  if (languageSection) parts.push(languageSection);
 
   if (generalSplit.meta) parts.push(generalSplit.meta);
 

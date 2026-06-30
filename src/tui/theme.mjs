@@ -66,6 +66,7 @@ const mixdogPalette = {
   mdListBullet: 'rgb(138,190,183)', // list markers (pi accent)
   // Markdown extras (fenced fences / inline links / emphasis) — warm dark base.
   mdCodeBlockBorder: 'rgb(110,110,110)', // ``` fence + lang label rule
+  mdCodeBlockBg: 'rgb(34,35,40)', // code-block background band (distinct from bg)
   mdLink: 'rgb(47,127,255)', // link URL (suggestion blue)
   mdLinkText: 'rgb(138,190,183)', // link label (teal accent)
   mdStrong: 'rgb(235,159,127)', // **bold** warm amber
@@ -116,6 +117,7 @@ const piDarkPalette = {
   code: 'rgb(95,135,255)',
   codeBlock: 'rgb(181,189,104)',
   mdCodeBlockBorder: 'rgb(96,104,116)',
+  mdCodeBlockBg: 'rgb(32,36,44)',
   mdLink: 'rgb(95,135,255)',
   mdLinkText: 'rgb(138,190,183)',
   mdStrong: 'rgb(181,189,104)',
@@ -173,6 +175,7 @@ const claudeDarkPalette = {
   mdHr: 'rgb(140,140,140)',
   mdListBullet: 'rgb(177,185,249)',
   mdCodeBlockBorder: 'rgb(120,120,120)',
+  mdCodeBlockBg: 'rgb(34,35,40)',
   mdLink: 'rgb(177,185,249)',
   mdLinkText: 'rgb(150,200,210)',
   mdStrong: 'rgb(235,159,127)',
@@ -235,6 +238,7 @@ const draculaPalette = {
   mdHr: 'rgb(98,114,164)',
   mdListBullet: 'rgb(189,147,249)',
   mdCodeBlockBorder: 'rgb(68,71,90)',
+  mdCodeBlockBg: 'rgb(60,63,79)',
   mdLink: 'rgb(139,233,253)',
   mdLinkText: 'rgb(255,121,198)', // pink
   mdStrong: 'rgb(255,184,108)', // orange
@@ -296,6 +300,7 @@ const tokyonightPalette = {
   mdHr: 'rgb(130,139,184)',
   mdListBullet: 'rgb(130,170,255)',
   mdCodeBlockBorder: 'rgb(84,92,126)',
+  mdCodeBlockBg: 'rgb(45,47,64)',
   mdLink: 'rgb(130,170,255)',
   mdLinkText: 'rgb(134,225,252)', // cyan
   mdStrong: 'rgb(255,150,108)', // orange
@@ -357,6 +362,7 @@ const nordPalette = {
   mdHr: 'rgb(139,149,167)',
   mdListBullet: 'rgb(136,192,208)',
   mdCodeBlockBorder: 'rgb(67,76,94)',
+  mdCodeBlockBg: 'rgb(64,71,87)',
   mdLink: 'rgb(129,161,193)',
   mdLinkText: 'rgb(143,188,187)',
   mdStrong: 'rgb(235,203,139)',
@@ -418,6 +424,7 @@ const gruvboxPalette = {
   mdHr: 'rgb(146,131,116)',
   mdListBullet: 'rgb(131,165,152)',
   mdCodeBlockBorder: 'rgb(80,73,69)',
+  mdCodeBlockBg: 'rgb(60,58,52)',
   mdLink: 'rgb(142,192,124)',
   mdLinkText: 'rgb(184,187,38)',
   mdStrong: 'rgb(254,128,25)',
@@ -479,6 +486,7 @@ const catppuccinPalette = {
   mdHr: 'rgb(166,173,200)',
   mdListBullet: 'rgb(137,180,250)',
   mdCodeBlockBorder: 'rgb(49,50,68)',
+  mdCodeBlockBg: 'rgb(49,50,68)',
   mdLink: 'rgb(137,180,250)',
   mdLinkText: 'rgb(137,220,235)', // sky
   mdStrong: 'rgb(250,179,135)', // peach
@@ -540,6 +548,7 @@ const everforestPalette = {
   mdHr: 'rgb(122,132,120)',
   mdListBullet: 'rgb(167,192,128)',
   mdCodeBlockBorder: 'rgb(52,63,68)',
+  mdCodeBlockBg: 'rgb(62,71,78)',
   mdLink: 'rgb(167,192,128)',
   mdLinkText: 'rgb(131,192,146)', // cyan
   mdStrong: 'rgb(230,152,117)', // orange
@@ -606,6 +615,7 @@ const whitePalette = {
   mdHr: 'rgb(175,184,193)',
   mdListBullet: 'rgb(9,105,218)',
   mdCodeBlockBorder: 'rgb(200,206,212)',
+  mdCodeBlockBg: 'rgb(232,232,236)',
   mdLink: 'rgb(9,105,218)',
   mdLinkText: 'rgb(0,92,197)',
   mdStrong: 'rgb(130,80,8)',

@@ -6,7 +6,6 @@ import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
 import {
-  caretPosition,
   clearSelection,
   deleteBackwardWord,
   deleteForwardWord,
@@ -48,6 +47,56 @@ function renderSelectedText(displayValue, range, trailingSpace = false) {
 
 function normalizeInput(text) {
   return String(text ?? '').replace(/\r\n?/g, '\n');
+}
+
+// Collapse newlines to a single visible glyph so multiline pasted input stays a
+// single visual row (the draft itself is unchanged for editing/submit).
+const NEWLINE_GLYPH = '⏎';
+function flattenForSingleLine(text) {
+  return String(text ?? '').replace(/\n/g, NEWLINE_GLYPH);
+}
+
+// Horizontal viewport over a single (flattened) line. Keeps the caret visible
+// inside `width` cells and returns the visible slice plus the caret column so
+// the content box can be hard-bounded to ONE row: long/multiline pasted input
+// scrolls horizontally instead of wrapping and growing the panel. Offsets are
+// code-unit offsets, which map 1:1 to the flattened string (newline → 1 glyph,
+// mask → 1 char), so selection/cursor offsets carry over unchanged.
+function windowSingleLine(flat, cursor, width) {
+  const w = Math.max(1, Math.floor(Number(width) || 1));
+  const chars = Array.from(flat);
+  const cells = chars.map((ch) => stringWidth(ch));
+  // Map the code-unit cursor to a char index.
+  let cuIndex = 0;
+  let cursorCharIdx = chars.length;
+  for (let i = 0; i < chars.length; i += 1) {
+    if (cuIndex >= cursor) { cursorCharIdx = i; break; }
+    cuIndex += chars[i].length;
+  }
+  let cursorCell = 0;
+  for (let i = 0; i < cursorCharIdx; i += 1) cursorCell += cells[i];
+  const totalCell = cells.reduce((a, b) => a + b, 0);
+  let startCell = cursorCell > w - 1 ? cursorCell - (w - 1) : 0;
+  startCell = Math.min(startCell, Math.max(0, totalCell - w));
+  startCell = Math.max(0, startCell);
+  let acc = 0;
+  let a = 0;
+  while (a < chars.length && acc + cells[a] <= startCell) { acc += cells[a]; a += 1; }
+  const alignedStart = acc;
+  let b = a;
+  let bAcc = 0;
+  while (b < chars.length && bAcc + cells[b] <= w) { bAcc += cells[b]; b += 1; }
+  let cuStart = 0;
+  for (let i = 0; i < a; i += 1) cuStart += chars[i].length;
+  let cuEnd = cuStart;
+  for (let i = a; i < b; i += 1) cuEnd += chars[i].length;
+  return {
+    text: chars.slice(a, b).join(''),
+    cuStart,
+    cuEnd,
+    startCell: alignedStart,
+    caretCol: Math.max(0, cursorCell - alignedStart),
+  };
 }
 
 // Collapse any whitespace/newlines so a hint is always a single visual line.
@@ -321,8 +370,13 @@ export function TextEntryPanel({
       const labelWidth = stringWidth(String(promptLabel || ''));
       const w = Math.max(1, (yogaNode?.getComputedWidth?.() ?? columns) - labelWidth);
       contentWidthRef.current = w;
-      const pos = caretPosition(d.value, d.cursor, w);
-      return pos.row === 0 ? { row: 0, col: labelWidth + pos.col } : pos;
+      // The content area is hard-bounded to ONE row (see render): newlines are
+      // flattened to a glyph and the line scrolls horizontally. So the caret is
+      // always on row 0, at the windowed caret column past the prompt label.
+      const visible = mask ? d.value.replace(/[^\n]/g, '*') : d.value;
+      const flat = flattenForSingleLine(visible);
+      const win = windowSingleLine(flat, d.cursor, w);
+      return { row: 0, col: labelWidth + win.caretCol };
     };
     return true;
   };
@@ -342,7 +396,25 @@ export function TextEntryPanel({
   }, [isRawModeSupported, title]);
 
   const visibleValue = mask ? draft.value.replace(/[^\n]/g, '*') : draft.value;
-  const renderedValue = renderSelectedText(visibleValue, selectionRange(draft), draft.cursor === draft.value.length);
+  // Hard-bound the content to the ONE reserved row: flatten newlines to a glyph
+  // and take a horizontal window around the caret so long/multiline pasted
+  // input scrolls sideways instead of wrapping and growing the panel (which
+  // would top-clip the title). Offsets map 1:1 to the flattened string, so the
+  // selection highlight stays aligned. The full draft value is preserved for
+  // editing and submit; only the rendered slice is clipped.
+  const labelCells = stringWidth(String(promptLabel || ''));
+  const contentCells = Math.max(1, columns - 2 - labelCells);
+  const flatValue = flattenForSingleLine(visibleValue);
+  const win = windowSingleLine(flatValue, draft.cursor, contentCells);
+  const windowSelection = (() => {
+    const range = selectionRange(draft);
+    if (!range) return null;
+    const start = Math.max(win.cuStart, Math.min(win.cuEnd, range.start)) - win.cuStart;
+    const end = Math.max(win.cuStart, Math.min(win.cuEnd, range.end)) - win.cuStart;
+    return end > start ? { start, end } : null;
+  })();
+  const trailingCaret = draft.cursor === draft.value.length && win.cuEnd >= flatValue.length;
+  const renderedValue = renderSelectedText(win.text, windowSelection, trailingCaret);
   const action = String(actionLabel || 'save').trim() || 'save';
   const helpText = `Enter to ${action} · Esc to cancel`;
   // Standard panel rhythm: title row, blank, single-line hint, blank, content.
@@ -362,7 +434,7 @@ export function TextEntryPanel({
         <Text> </Text>
         <Box ref={boxRef} flexDirection="row" width="100%" backgroundColor={theme.background}>
           <Text color={theme.inactive}>{promptLabel}</Text>
-          <Text color={theme.text} wrap="hard">{renderedValue}</Text>
+          <Text color={theme.text} wrap="truncate">{renderedValue}</Text>
         </Box>
       </Box>
     </Box>

@@ -15,7 +15,7 @@
 import { Chalk } from 'chalk';
 import stripAnsi from 'strip-ansi';
 import { theme, getThemeVersion } from '../theme.mjs';
-import { BLOCKQUOTE_BAR } from '../figures.mjs';
+import { BLOCKQUOTE_BAR, HR_LINE } from '../figures.mjs';
 
 // Force truecolor so chalk emits 24-bit SGR even when the ambient level is 0.
 // ink's <Text> passes these escapes through verbatim.
@@ -29,6 +29,19 @@ function rgbColor(str) {
   const m = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(String(str || ''));
   if (!m) return (s) => s;
   return chalk.rgb(Number(m[1]), Number(m[2]), Number(m[3]));
+}
+
+/**
+ * Parse an `rgb(r,g,b)` theme string into a TRUECOLOR BACKGROUND wrapper. Emits
+ * `48;2;R;G;B` … `49` (bg reset) around the string so AnsiText (case 48) maps it
+ * to an ink backgroundColor, giving a code line a tinted band. Returns identity
+ * when the string is not a valid rgb() so a missing key never corrupts output.
+ */
+function rgbBg(str) {
+  const m = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(String(str || ''));
+  if (!m) return (s) => s;
+  const open = `\x1b[48;2;${+m[1]};${+m[2]};${+m[3]}m`;
+  return (s) => `${open}${s}\x1b[49m`;
 }
 
 // Colorizers are derived from the active theme's md* keys. They are cached and
@@ -84,6 +97,8 @@ export function extraColorizers() {
     synOperator: rgbColor(theme.syntaxOperator ?? theme.mdCodeBlock),
     synPunct: rgbColor(theme.syntaxPunctuation ?? theme.mdCodeBlock),
     body: fallbackBody,
+    // Truecolor background band for fenced code blocks (per-line wrap).
+    codeBg: rgbBg(theme.mdCodeBlockBg ?? theme.background),
   };
   return _extra;
 }
@@ -114,6 +129,13 @@ function decodeEntities(s) {
 // languages fall back to the flat `mdCodeBlock` body color.
 const CODE_BLOCK_INDENT = '  ';
 const DIFF_LANGS = new Set(['diff', 'patch', 'udiff', 'git-diff', 'gitdiff']);
+
+/** Pad a (possibly ANSI) line to `bandWidth` visible columns, then caller wraps bg. */
+function padToBand(line, bandWidth) {
+  const visible = stripAnsi(line).length;
+  const pad = bandWidth > visible ? ' '.repeat(bandWidth - visible) : '';
+  return line + pad;
+}
 
 /** Normalize a fenced info-string to a bare lowercase language token. */
 function normalizeLang(lang) {
@@ -194,10 +216,10 @@ function colorizeDiffStatTrailer(line, c) {
     .replace(/(\d+)(\s+deletions?\(-\))/g, (_, n, rest) => `${c.diffRemoved(n)}${c.diffContext(rest)}`);
 }
 
-function renderDiffBody(text, c) {
+function renderDiffBody(text, c, bandWidth) {
   return String(text ?? '')
     .split(EOL)
-    .map((line) => `${CODE_BLOCK_INDENT}${colorizeDiffLine(line, c)}`)
+    .map((line) => c.codeBg(padToBand(`${CODE_BLOCK_INDENT}${colorizeDiffLine(line, c)}`, bandWidth)))
     .join(EOL);
 }
 
@@ -207,6 +229,14 @@ const KEYWORDS = {
   py: ['def', 'class', 'return', 'if', 'elif', 'else', 'for', 'while', 'import', 'from', 'as', 'with', 'try', 'except', 'finally', 'raise', 'pass', 'break', 'continue', 'lambda', 'yield', 'global', 'nonlocal', 'async', 'await', 'and', 'or', 'not', 'in', 'is', 'None', 'True', 'False', 'self'],
   sh: ['if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'do', 'done', 'case', 'esac', 'function', 'return', 'in', 'export', 'local', 'echo', 'cd', 'set', 'unset', 'read', 'source'],
   css: [],
+  go: ['package', 'import', 'func', 'return', 'if', 'else', 'for', 'range', 'switch', 'case', 'default', 'break', 'continue', 'fallthrough', 'goto', 'defer', 'go', 'select', 'chan', 'map', 'struct', 'interface', 'type', 'var', 'const', 'nil', 'true', 'false', 'iota', 'string', 'int', 'int64', 'float64', 'bool', 'byte', 'rune', 'error'],
+  rust: ['fn', 'let', 'mut', 'const', 'static', 'return', 'if', 'else', 'match', 'for', 'while', 'loop', 'break', 'continue', 'struct', 'enum', 'trait', 'impl', 'mod', 'use', 'pub', 'crate', 'self', 'super', 'where', 'as', 'dyn', 'move', 'ref', 'unsafe', 'async', 'await', 'type', 'true', 'false', 'Some', 'None', 'Ok', 'Err', 'Box', 'Vec', 'String', 'usize', 'isize', 'i32', 'u32', 'i64', 'u64', 'f64', 'bool'],
+  java: ['public', 'private', 'protected', 'class', 'interface', 'enum', 'extends', 'implements', 'abstract', 'final', 'static', 'void', 'new', 'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default', 'break', 'continue', 'try', 'catch', 'finally', 'throw', 'throws', 'import', 'package', 'this', 'super', 'instanceof', 'synchronized', 'volatile', 'transient', 'native', 'int', 'long', 'short', 'byte', 'char', 'float', 'double', 'boolean', 'true', 'false', 'null'],
+  c: ['auto', 'break', 'case', 'char', 'const', 'continue', 'default', 'do', 'double', 'else', 'enum', 'extern', 'float', 'for', 'goto', 'if', 'inline', 'int', 'long', 'register', 'return', 'short', 'signed', 'sizeof', 'static', 'struct', 'switch', 'typedef', 'union', 'unsigned', 'void', 'volatile', 'while', 'class', 'namespace', 'template', 'public', 'private', 'protected', 'virtual', 'new', 'delete', 'using', 'nullptr', 'true', 'false', 'bool'],
+  ruby: ['def', 'end', 'class', 'module', 'if', 'elsif', 'else', 'unless', 'case', 'when', 'then', 'while', 'until', 'for', 'in', 'do', 'begin', 'rescue', 'ensure', 'raise', 'return', 'yield', 'break', 'next', 'redo', 'retry', 'self', 'nil', 'true', 'false', 'and', 'or', 'not', 'require', 'require_relative', 'attr_accessor', 'attr_reader', 'attr_writer', 'puts', 'lambda', 'proc'],
+  sql: ['select', 'from', 'where', 'insert', 'into', 'values', 'update', 'set', 'delete', 'create', 'alter', 'drop', 'table', 'view', 'index', 'join', 'inner', 'left', 'right', 'outer', 'full', 'on', 'group', 'by', 'order', 'having', 'limit', 'offset', 'distinct', 'as', 'and', 'or', 'not', 'null', 'is', 'in', 'between', 'like', 'union', 'all', 'primary', 'key', 'foreign', 'references', 'default', 'constraint', 'unique', 'count', 'sum', 'avg', 'min', 'max'],
+  yaml: [],
+  toml: [],
 };
 
 export const LANG_FAMILY = {
@@ -218,14 +248,25 @@ export const LANG_FAMILY = {
   css: 'css', scss: 'css', less: 'css',
   html: 'html', xml: 'html',
   md: 'md', markdown: 'md',
+  go: 'go', golang: 'go',
+  rust: 'rust', rs: 'rust',
+  java: 'java',
+  c: 'c', cpp: 'c', 'c++': 'c', cc: 'c', h: 'c', hpp: 'c',
+  ruby: 'ruby', rb: 'ruby',
+  sql: 'sql',
+  yaml: 'yaml', yml: 'yaml',
+  toml: 'toml',
 };
+
+// Families whose comment lines / inline comments start with `#`.
+const HASH_COMMENT_FAMILIES = new Set(['sh', 'py', 'yaml', 'toml']);
 
 /** Highlight a single line for a c-like / scripting family (token scan). */
 export function highlightCodeLine(line, family, c) {
-  const kw = new Set(KEYWORDS[family === 'json' ? 'js' : family] || []);
+  const kw = new Set(KEYWORDS[family === 'json' ? 'js' : family] ?? []);
   // Comment lines (whole-line) for the common families.
   if (family === 'js' && /^\s*\/\//.test(line)) return c.synComment(line);
-  if ((family === 'sh' || family === 'py') && /^\s*#/.test(line)) return c.synComment(line);
+  if (HASH_COMMENT_FAMILIES.has(family) && /^\s*#/.test(line)) return c.synComment(line);
   if (family === 'html' && /^\s*<!--/.test(line)) return c.synComment(line);
 
   // Token regex: strings, numbers, comments, identifiers, punctuation.
@@ -241,7 +282,7 @@ export function highlightCodeLine(line, family, c) {
       out += c.synString(str);
     } else if (comment !== undefined) {
       // `#` is only a comment for sh/py; for js treat as body.
-      if (comment.startsWith('//') ? family === 'js' : (family === 'sh' || family === 'py')) {
+      if (comment.startsWith('//') ? family === 'js' : HASH_COMMENT_FAMILIES.has(family)) {
         out += c.synComment(comment);
       } else {
         out += c.body(comment);
@@ -261,10 +302,13 @@ export function highlightCodeLine(line, family, c) {
   return out;
 }
 
-function renderHighlightedBody(text, family, c) {
+function renderHighlightedBody(text, family, c, bandWidth) {
   return String(text ?? '')
     .split(EOL)
-    .map((line) => `${CODE_BLOCK_INDENT}${line ? highlightCodeLine(line, family, c) : ''}`)
+    .map((line) => c.codeBg(padToBand(
+      `${CODE_BLOCK_INDENT}${line ? highlightCodeLine(line, family, c) : ''}`,
+      bandWidth,
+    )))
     .join(EOL);
 }
 
@@ -272,39 +316,84 @@ function renderHighlightedBody(text, family, c) {
  * Render a fenced `code` token as a bordered/fenced block with an optional
  * language label, two-space body indent, and language-aware coloring.
  */
-function renderCodeBlock(token) {
+function renderCodeBlock(token, width = 0) {
   const { codeBlock } = colorizers();
   const c = extraColorizers();
   const lang = normalizeLang(token.lang);
   const text = decodeEntities(token.text ?? '');
-  const openFence = c.fenceBorder(`\`\`\`${lang}`);
-  const closeFence = c.fenceBorder('```');
+  const bandWidth = Math.max(0, Number(width) || 80);
+  // The fences sit on the same background band as the body so the whole block
+  // reads as one tinted region. Each line opens+closes its own bg SGR so
+  // wrapping/measurement is unaffected.
+  const openFence = c.codeBg(padToBand(c.fenceBorder(`\`\`\`${lang}`), bandWidth));
+  const closeFence = c.codeBg(padToBand(c.fenceBorder('```'), bandWidth));
 
   let body;
   if (DIFF_LANGS.has(lang) || (!lang && looksLikeUnifiedDiff(text))) {
-    body = renderDiffBody(text, c);
+    body = renderDiffBody(text, c, bandWidth);
   } else {
     const family = LANG_FAMILY[lang];
-    if (family && family !== 'md' && family !== 'html' && family !== 'json') {
-      body = renderHighlightedBody(text, family, c);
-    } else if (family === 'json' || family === 'html') {
-      body = renderHighlightedBody(text, family === 'json' ? 'json' : 'html', c);
+    // Any known family except markdown-in-markdown routes through the regex
+    // highlighter (html/json/yaml/toml included). 'md' stays flat (no nested
+    // markdown highlighter); unknown langs fall back to the flat body color.
+    if (family && family !== 'md') {
+      body = renderHighlightedBody(text, family, c, bandWidth);
     } else {
       // Unknown/plain language: flat code-block body color, still indented.
       body = text
         .split(EOL)
-        .map((line) => `${CODE_BLOCK_INDENT}${codeBlock(line)}`)
+        .map((line) => c.codeBg(padToBand(`${CODE_BLOCK_INDENT}${codeBlock(line)}`, bandWidth)))
         .join(EOL);
     }
   }
   return `${openFence}${EOL}${body}${EOL}${closeFence}${EOL}`;
 }
 
+function numberToLetter(n) {
+  let result = '';
+  while (n > 0) {
+    n--;
+    result = String.fromCharCode(97 + (n % 26)) + result;
+    n = Math.floor(n / 26);
+  }
+  return result;
+}
+
+const ROMAN_VALUES = [
+  [1000, 'm'], [900, 'cm'], [500, 'd'], [400, 'cd'], [100, 'c'], [90, 'xc'],
+  [50, 'l'], [40, 'xl'], [10, 'x'], [9, 'ix'], [5, 'v'], [4, 'iv'], [1, 'i'],
+];
+
+function numberToRoman(n) {
+  let result = '';
+  for (const [value, numeral] of ROMAN_VALUES) {
+    while (n >= value) {
+      result += numeral;
+      n -= value;
+    }
+  }
+  return result;
+}
+
+function getListNumber(depth, orderedListNumber) {
+  switch (depth) {
+    case 0:
+    case 1:
+      return String(orderedListNumber);
+    case 2:
+      return numberToLetter(orderedListNumber);
+    case 3:
+      return numberToRoman(orderedListNumber);
+    default:
+      return String(orderedListNumber);
+  }
+}
+
 /**
  * Render a single marked token to an ANSI string.
  * marked token switch (minus table / hyperlink deps).
  */
-export function formatToken(token, listBaseIndent = 0, orderedListNumber = null, parent = null) {
+export function formatToken(token, listBaseIndent = 0, orderedListNumber = null, parent = null, width = 0, depth = 0) {
   const { accent, codeBlock, headingAccent, quoteBorder, quoteText, hrLine } = colorizers();
   const ex = extraColorizers();
   switch (token.type) {
@@ -322,7 +411,7 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
     }
     case 'code':
       // Fenced block: bordered fence + lang label + indented, colored body.
-      return renderCodeBlock(token);
+      return renderCodeBlock(token, width);
     case 'codespan':
       // inline code
       return accent(decodeEntities(token.text));
@@ -334,13 +423,18 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
       switch (token.depth) {
         case 1:
           return (
-            chalk.bold.underline(headingAccent((token.tokens ?? []).map((t) => formatToken(t)).join(''))) + EOL + EOL
+            chalk.bold.italic.underline(headingAccent((token.tokens ?? []).map((t) => formatToken(t)).join(''))) + EOL + EOL
           );
         default: // h2+
           return chalk.bold(headingAccent((token.tokens ?? []).map((t) => formatToken(t)).join(''))) + EOL + EOL;
       }
-    case 'hr':
-      return hrLine('---') + EOL;
+    case 'hr': {
+      // Span the available content width with a box-drawing rule. width is only
+      // threaded from the top-level token loop; recursive calls pass 0 and fall
+      // back to a sane 80-col rule.
+      const w = Math.max(3, Number(width) || 80);
+      return hrLine(HR_LINE.repeat(w)) + EOL;
+    }
     case 'image':
       return token.href;
     case 'link': {
@@ -349,20 +443,36 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
       }
       const linkText = (token.tokens ?? []).map((t) => formatToken(t, 0, null, token)).join('');
       const plain = stripAnsi(linkText);
-      const styledLabel = ex.linkText(chalk.underline(linkText));
-      if (plain && plain !== token.href) {
-        return `${styledLabel} ${ex.link(`(${token.href})`)}`;
+      const href = token.href;
+      // OSC 8 hyperlink: clickable label, URL hidden in supporting terminals
+      // (Windows Terminal / iTerm); other terminals show the label text as-is.
+      // AnsiText only strips `\x1b[...m` SGR, so the OSC 8 `\x1b]8;;…\x07`
+      // sequences pass through untouched for the terminal to interpret.
+      const OSC8_OPEN = (url) => `\x1b]8;;${url}\x07`;
+      const OSC8_CLOSE = '\x1b]8;;\x07';
+      if (plain && plain !== href) {
+        const styledLabel = ex.linkText(chalk.underline(linkText));
+        return `${OSC8_OPEN(href)}${styledLabel}${OSC8_CLOSE}`;
       }
-      return ex.link(token.href);
+      // No distinct label (empty or equal to href): show the URL itself as the
+      // clickable, visible text.
+      return `${OSC8_OPEN(href)}${ex.link(chalk.underline(href))}${OSC8_CLOSE}`;
     }
     case 'list':
       return token.items
         .map((item, index) =>
-          formatToken(item, listBaseIndent, token.ordered ? Number(token.start || 1) + index : null, token),
+          formatToken(
+            item,
+            listBaseIndent,
+            token.ordered ? Number(token.start || 1) + index : null,
+            token,
+            0,
+            depth,
+          ),
         )
         .join('');
     case 'list_item':
-      return formatListItem(token, listBaseIndent, orderedListNumber, parent);
+      return formatListItem(token, listBaseIndent, orderedListNumber, parent, depth);
     case 'paragraph':
       return (token.tokens ?? []).map((t) => formatToken(t)).join('') + EOL;
     case 'space':
@@ -371,7 +481,9 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
       return EOL;
     case 'text':
       if (parent?.type === 'link') return decodeEntities(token.text);
-      if (token.tokens) return token.tokens.map((t) => formatToken(t, listBaseIndent, orderedListNumber, token)).join('');
+      if (token.tokens) {
+        return token.tokens.map((t) => formatToken(t, listBaseIndent, orderedListNumber, token, 0, depth)).join('');
+      }
       return decodeEntities(token.text);
     case 'escape':
       return decodeEntities(token.text);
@@ -404,11 +516,11 @@ function prefixFirstAndRest(value, firstPrefix, restPrefix) {
   ].join(EOL);
 }
 
-function formatListItem(token, listBaseIndent, orderedListNumber) {
+function formatListItem(token, listBaseIndent, orderedListNumber, parent, depth = 0) {
   const { listBullet } = colorizers();
   const markerPlain = orderedListNumber === null
     ? '-'
-    : `${orderedListNumber}.`;
+    : `${getListNumber(depth, orderedListNumber)}.`;
   const marker = listBullet(markerPlain);
   const markerPrefix = `${' '.repeat(listBaseIndent)}${marker} `;
   const continuationPrefix = ' '.repeat(stripAnsi(markerPrefix).length);
@@ -432,11 +544,11 @@ function formatListItem(token, listBaseIndent, orderedListNumber) {
         out += `${markerPrefix.trimEnd()}${EOL}`;
         firstBlock = false;
       }
-      out += formatToken(child, nestedListIndent, null, token);
+      out += formatToken(child, nestedListIndent, null, token, 0, depth + 1);
       continue;
     }
 
-    const rendered = formatToken(child, listBaseIndent, orderedListNumber, token);
+    const rendered = formatToken(child, listBaseIndent, orderedListNumber, token, 0, depth);
     const body = trimTrailingEol(rendered);
     if (!body) continue;
 

@@ -25,3 +25,7 @@ export const BLOCKQUOTE_BAR = '\u258e'; // ▎ - blockquote line prefix
 export const THEREFORE = '\u2234'; // ∴ - collapsed-thinking prefix (∴ Thinking)
 // Turn-complete marker — kept distinct from live-thinking's therefore sign.
 export const TURN_DONE_MARKER = '\u25c8'; // ◈ - turn-complete marker
+
+// Horizontal rule fill — BOX DRAWINGS LIGHT HORIZONTAL. Repeated to span the
+// available content width for a clean full-width `---` rule.
+export const HR_LINE = '\u2500'; // ─ - markdown horizontal rule

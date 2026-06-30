@@ -78,6 +78,7 @@ export function lexMarkdown(content, { trimPartialFences = false } = {}) {
  */
 export function renderTokenAnsiSegments(content, opts = {}) {
   const tokens = lexMarkdown(content, opts);
+  const width = Number(opts.width) || 0;
   const segments = [];
   for (const token of tokens) {
     if (token.type === 'table') {
@@ -85,7 +86,7 @@ export function renderTokenAnsiSegments(content, opts = {}) {
     } else if (token.type === 'space') {
       continue;
     } else {
-      const ansi = String(formatToken(token) ?? '').replace(/^\n+|\n+$/g, '');
+      const ansi = String(formatToken(token, 0, null, null, width) ?? '').replace(/^\n+|\n+$/g, '');
       if (!ansi) continue;
       segments.push({ type: 'ansi', ansi, token });
     }
