@@ -54,7 +54,10 @@ jobs:
 
           INCLUDES='[]'
 
-          # linux-arm64 omitted — no free GitHub-hosted runner.
+          # linux-arm64 uses ubuntu-22.04-arm — free GitHub-hosted ARM64
+          # runner available for PUBLIC repos. Builds inside the multi-arch
+          # ubuntu:20.04 container (arm64 variant) so the glibc 2.31 floor is
+          # preserved for arm64 too.
           # darwin-x64 uses macos-15-intel (free for public repos; GitHub
           # retires macOS Intel images after the macOS 15 image sunsets in
           # fall 2027 — revisit then).
@@ -79,6 +82,7 @@ jobs:
           }
 
           maybe_add linux  x64   ubuntu-22.04 'ubuntu:20.04' scripts/build-runtime-linux.sh
+          maybe_add linux  arm64 ubuntu-22.04-arm 'ubuntu:20.04' scripts/build-runtime-linux.sh
           maybe_add darwin arm64 macos-14     ''             scripts/build-runtime-macos.sh
           maybe_add darwin x64   macos-15-intel ''           scripts/build-runtime-macos.sh
           maybe_add win32  x64   windows-2022 ''             scripts/build-runtime-windows.ps1

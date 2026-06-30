@@ -48,6 +48,15 @@ function platformKey() {
   return `${os}-${process.arch}`
 }
 
+function platformKeyCandidates() {
+  const primary = platformKey()
+  const candidates = [primary]
+  if (process.platform === 'win32' && process.arch === 'arm64') {
+    candidates.push('win32-x64')
+  }
+  return candidates
+}
+
 // Fail-closed asset validation. A selected manifest asset is usable only if it
 // is not explicitly marked unsupported AND carries a real downloadable payload:
 // non-empty url, a well-formed 64-hex sha256, and a positive integer size.
@@ -365,31 +374,47 @@ export async function ensureRuntime(dataDir) {
   gcRuntimeDir(runtimeBaseDir, readActiveVersion(runtimeBaseDir))
 
   const manifest = await loadManifest(key)
-  const pkey     = platformKey()
-  const asset    = manifest.assets?.[pkey]
-  if (!asset) {
-    // Platform/arch absent from the manifest entirely (e.g. win32-arm64).
-    // The memory PG runtime cannot start here; fail with a single clear,
-    // actionable message. The memory worker's init().catch reports this as
-    // degraded and the rest of mixdog (agent, tools) keeps working without
-    // memory.
-    const supported = Object.keys(manifest.assets || {})
-      .filter((k) => isUsableAsset(manifest.assets[k]))
-      .join(', ') || '(none)'
-    throw new Error(
-      `[runtime-fetcher] memory runtime not available on ${pkey}: ` +
-      `no runtime asset for this platform/arch in the manifest. ` +
-      `Supported: ${supported}. ` +
-      `Memory is disabled on this platform; the rest of mixdog continues to work.`
-    )
+  const pkey = platformKey()
+  let selectedKey = null
+  let asset = null
+  for (const candidateKey of platformKeyCandidates()) {
+    const candidateAsset = manifest.assets?.[candidateKey]
+    if (isUsableAsset(candidateAsset)) {
+      selectedKey = candidateKey
+      asset = candidateAsset
+      break
+    }
   }
-  if (!isUsableAsset(asset)) {
+  if (!asset) {
+    const primaryAsset = manifest.assets?.[pkey]
+    if (!primaryAsset) {
+      // Platform/arch absent from the manifest entirely (e.g. an exotic arch).
+      // The memory PG runtime cannot start here; fail with a single clear,
+      // actionable message. The memory worker's init().catch reports this as
+      // degraded and the rest of mixdog (agent, tools) keeps working without
+      // memory.
+      const supported = Object.keys(manifest.assets || {})
+        .filter((k) => isUsableAsset(manifest.assets[k]))
+        .join(', ') || '(none)'
+      throw new Error(
+        `[runtime-fetcher] memory runtime not available on ${pkey}: ` +
+        `no runtime asset for this platform/arch in the manifest. ` +
+        `Supported: ${supported}. ` +
+        `Memory is disabled on this platform; the rest of mixdog continues to work.`
+      )
+    }
     // Platform/arch present but explicitly marked unsupported or carrying a
     // placeholder/TBD payload (e.g. linux-arm64). Same graceful-degrade path.
     throw new Error(
       `[runtime-fetcher] memory runtime not available on ${pkey}: ` +
       `this platform/arch is marked unsupported (no validated runtime asset). ` +
       `Memory is disabled on this platform; the rest of mixdog continues to work.`
+    )
+  }
+
+  if (selectedKey !== pkey) {
+    __mixdogMemoryLog(
+      '[runtime-fetcher] win32-arm64 has no native runtime; using win32-x64 under emulation\n'
     )
   }
 
