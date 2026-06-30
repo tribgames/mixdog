@@ -749,6 +749,7 @@ function _shouldUseOpenAIHttpFallback(err, externalSignal) {
     // chunk to the client, the HTTP fallback would re-run the request and
     // concatenate a second attempt onto rendered output. Never fall back.
     if (err?.liveTextEmitted === true) return false;
+    if (err?.emittedToolCall === true || err?.unsafeToRetry === true) return false;
     const status = Number(err?.httpStatus || err?.status || 0);
     if (status === 401 || status === 403 || status === 404 || status === 429) return false;
     if (status >= 500 && status < 600) return true;
@@ -757,7 +758,13 @@ function _shouldUseOpenAIHttpFallback(err, externalSignal) {
         return true;
     }
     const classifier = String(err?.retryClassifier || err?.midstreamClassifier || '');
-    if (['timeout', 'reset', 'dns', 'refused', 'network', 'acquire_timeout', 'http_5xx', 'first_byte_timeout', 'first_meaningful_timeout'].includes(classifier)) {
+    if ([
+        'timeout', 'reset', 'dns', 'refused', 'network', 'acquire_timeout', 'http_5xx',
+        'first_byte_timeout', 'first_meaningful_timeout',
+        'ws_1006', 'ws_1011', 'ws_1012', 'ws_1000', 'ws_4000', 'agent_stall', 'stream_stalled',
+        'response_failed_disconnected', 'response_failed_network', 'response_failed_auth_expired',
+        'ws_send_failed',
+    ].includes(classifier)) {
         return true;
     }
     if (/^http_5\d\d$/.test(classifier)) return true;

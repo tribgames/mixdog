@@ -50,11 +50,11 @@ function assert(condition, message) {
 }
 
 // 3) compactTriggerForSession ignores a boundary-equal stored autoCompactTokenLimit
-//    (legacy artifact) and returns the boundary; honors a sub-boundary one.
+//    (legacy artifact) and applies the default 10% buffer; honors a sub-boundary one.
 {
   const boundary = 200000;
   const legacy = compactTriggerForSession({ autoCompactTokenLimit: boundary, compaction: {} }, boundary);
-  assert(legacy === boundary, `legacy boundary-equal limit should yield boundary trigger ${boundary}, got ${legacy}`);
+  assert(legacy === 180000, `legacy boundary-equal limit should yield default 10% trigger 180000, got ${legacy}`);
   const explicit = compactTriggerForSession({ autoCompactTokenLimit: 150000, compaction: {} }, boundary);
   assert(explicit === 150000, `sub-boundary explicit limit should be the trigger, got ${explicit}`);
 }
@@ -67,8 +67,9 @@ function assert(condition, message) {
   assert(trigger === 190000, `bufferPercent 5 should yield trigger 190000, got ${trigger}`);
 }
 
-// 5) Legacy telemetry from the old default 10% buffer must not keep resumed
-//    sessions compacting at boundary 90%; it now migrates to the boundary.
+// 5) Legacy telemetry from the old default 10% buffer is non-config and reapplies
+//    the current default 10% headroom (trigger 180000). Persisted zero-buffer
+//    telemetry migrates the same way.
 {
   const boundary = 200000;
   const legacyTelemetry = compactTriggerForSession({
@@ -79,8 +80,18 @@ function assert(condition, message) {
       bufferRatio: 0.1,
     },
   }, boundary);
-  assert(legacyTelemetry === boundary,
-    `legacy default buffer telemetry should migrate to boundary trigger ${boundary}, got ${legacyTelemetry}`);
+  assert(legacyTelemetry === 180000,
+    `legacy default buffer telemetry should yield 10% headroom trigger 180000, got ${legacyTelemetry}`);
+  const zeroTelemetry = compactTriggerForSession({
+    compaction: {
+      boundaryTokens: boundary,
+      triggerTokens: boundary,
+      bufferTokens: 0,
+      bufferRatio: 0,
+    },
+  }, boundary);
+  assert(zeroTelemetry === 180000,
+    `persisted zero-buffer telemetry should restore default 10% trigger 180000, got ${zeroTelemetry}`);
   const explicitTokens = compactTriggerForSession({ compaction: { bufferTokens: 10000 } }, boundary);
   assert(explicitTokens === 190000,
     `explicit bufferTokens should still lower trigger to 190000, got ${explicitTokens}`);

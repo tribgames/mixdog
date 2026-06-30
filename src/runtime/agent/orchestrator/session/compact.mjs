@@ -7,13 +7,16 @@ import {
 } from './context-utils.mjs';
 
 export const SUMMARY_PREFIX = 'A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done and avoid duplicating it; treat the summary as authoritative context for continuing the task. You also retain the preserved recent turns that follow.';
-// Default trigger is the effective compact boundary itself. The boundary already
-// reserves the raw-window headroom (effectiveContextWindowPercent=90 by
-// default), so a raw 90% window should read as 100% in the context gauge and be
-// the point where auto-compaction fires. Explicit compaction.bufferTokens /
-// bufferPercent can still lower the trigger when an operator asks for it.
+// Default auto-compact trigger sits below the effective compact boundary by a
+// compaction buffer (10% of boundary, capped at MAX_COMPACTION_BUFFER_RATIO).
+// That headroom lets semantic compact run before the transcript is already at the
+// hard limit (zero buffer caused overflow_failed with no room to summarize).
+// Operators may still set compaction.bufferTokens / bufferPercent / bufferRatio,
+// to tune headroom. Telemetry-persisted bufferTokens/bufferRatio of zero is not
+// operator config; loop/manager strip it and reapply this default (see
+// compactBufferConfigForBoundary).
 export const DEFAULT_COMPACTION_BUFFER_TOKENS = 0;
-export const DEFAULT_COMPACTION_BUFFER_RATIO = 0;
+export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
 export const MAX_COMPACTION_BUFFER_RATIO = 0.25;
 export const DEFAULT_COMPACTION_KEEP_TOKENS = 8_000;
 export const SUMMARY_OUTPUT_TOKENS = 4_096;
@@ -844,29 +847,114 @@ function buildCompactionPrompt({ head, previousSummary, preservedFacts }, perMes
     return lines.join('\n');
 }
 
-function fitCompactionPrompt(input, targetTokens) {
-    const tryFit = (withFacts) => {
-        const inp = withFacts ? input : { ...input, preservedFacts: null };
-        const minimal = buildCompactionPrompt(inp, 0);
-        const baseMessages = [
-            { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
-            { role: 'user', content: minimal },
-        ];
-        if (estimateMessagesTokens(baseMessages) > targetTokens) return null;
+function estimateCompactionPromptTokens(input, perMessageChars) {
+    const prompt = buildCompactionPrompt(input, perMessageChars);
+    return estimateMessagesTokens([
+        { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
+        { role: 'user', content: prompt },
+    ]);
+}
 
-        let maxText = 0;
-        for (const m of input.head) maxText = Math.max(maxText, extractText(m).length);
+function previousSummaryBodyForCompactionPrompt(previousSummary) {
+    const text = String(previousSummary || '').trim();
+    if (!text) return '';
+    return stripNestedSummaryHeaderLines(text);
+}
+
+function priorSummaryNeedsNormalization(text) {
+    const body = String(text || '').trim();
+    if (!body) return false;
+    if (!/^##\s+/m.test(body)) return true;
+    if (!summaryIsSchemaValid(body)) return true;
+    return summaryHasUnrecognizedHeadings(body);
+}
+
+function normalizePriorSummaryForCompactionPrompt(fullBody) {
+    const text = String(fullBody || '').trim();
+    if (!text) return '';
+    if (!priorSummaryNeedsNormalization(text)) return text;
+    return repairSemanticSummary(text, { head: [], tail: [] });
+}
+
+// Shrink or drop a prior anchored summary so the compaction provider prompt fits
+// the call budget. Unstructured/legacy priors are repaired first; section
+// anchors are preserved via truncateSummaryBySections;
+// the last resort is omitting <previous-summary> entirely.
+function fitPreviousSummaryForCompactionPrompt(input, perMessageChars, targetTokens) {
+    if (!input?.previousSummary) return input;
+    const fullBody = normalizePriorSummaryForCompactionPrompt(
+        previousSummaryBodyForCompactionPrompt(input.previousSummary),
+    );
+    const withSummary = (summaryText) => {
+        const trimmed = String(summaryText || '').trim();
+        if (!trimmed) return { ...input, previousSummary: null };
+        return { ...input, previousSummary: trimmed };
+    };
+
+    if (estimateCompactionPromptTokens(withSummary(fullBody), perMessageChars) <= targetTokens) {
+        return withSummary(fullBody);
+    }
+
+    if (fullBody) {
         let lo = 0;
-        let hi = Math.min(COMPACTION_INPUT_MAX_CHARS, Math.max(maxText, 0));
-        let best = minimal;
+        let hi = fullBody.length;
+        let bestChars = -1;
         while (lo <= hi) {
             const mid = Math.floor((lo + hi) / 2);
-            const candidate = buildCompactionPrompt(inp, mid);
-            const candidateMessages = [
-                { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
-                { role: 'user', content: candidate },
-            ];
-            if (estimateMessagesTokens(candidateMessages) <= targetTokens) {
+            const truncated = truncateSummaryBySections(fullBody, mid);
+            const candidate = withSummary(truncated);
+            if (estimateCompactionPromptTokens(candidate, perMessageChars) <= targetTokens) {
+                bestChars = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        if (bestChars >= 0) {
+            return withSummary(truncateSummaryBySections(fullBody, bestChars));
+        }
+    }
+
+    const minimalPrior = minimalSchemaSummary();
+    if (estimateCompactionPromptTokens(withSummary(minimalPrior), perMessageChars) <= targetTokens) {
+        return withSummary(minimalPrior);
+    }
+
+    const withoutPrior = withSummary(null);
+    if (estimateCompactionPromptTokens(withoutPrior, perMessageChars) <= targetTokens) {
+        return withoutPrior;
+    }
+
+    return null;
+}
+
+function fitCompactionPrompt(input, targetTokens) {
+    const tryFit = (withFacts) => {
+        const baseInp = withFacts ? input : { ...input, preservedFacts: null };
+
+        const fitAt = (perMessageChars) => {
+            let inp = baseInp;
+            if (estimateCompactionPromptTokens(inp, perMessageChars) > targetTokens) {
+                const fitted = fitPreviousSummaryForCompactionPrompt(inp, perMessageChars, targetTokens);
+                if (!fitted) return null;
+                inp = fitted;
+                if (estimateCompactionPromptTokens(inp, perMessageChars) > targetTokens) return null;
+            }
+            return buildCompactionPrompt(inp, perMessageChars);
+        };
+
+        const minimalPrompt = fitAt(0);
+        if (!minimalPrompt) return null;
+
+        let maxText = 0;
+        for (const m of baseInp.head) maxText = Math.max(maxText, extractText(m).length);
+        let lo = 0;
+        let hi = Math.min(COMPACTION_INPUT_MAX_CHARS, Math.max(maxText, 0));
+        let best = minimalPrompt;
+        while (lo <= hi) {
+            const mid = Math.floor((lo + hi) / 2);
+            const candidate = fitAt(mid);
+            if (candidate) {
                 best = candidate;
                 lo = mid + 1;
             } else {
@@ -957,7 +1045,8 @@ function summarySchemaScore(summary) {
 // as a real heading. A partial summary (e.g. missing Critical Context /
 // Relevant Files) must be repaired rather than injected unchanged.
 function summaryIsSchemaValid(summary) {
-    return summarySchemaScore(summary) === REQUIRED_SUMMARY_SECTIONS.length;
+    if (summarySchemaScore(summary) !== REQUIRED_SUMMARY_SECTIONS.length) return false;
+    return !summaryHasUnrecognizedHeadings(summary);
 }
 
 function deriveRelevantFilesBullets(head) {
@@ -1009,15 +1098,52 @@ function parseSummarySections(text) {
     const map = new Map();
     let current = null;
     for (const rawLine of String(text || '').split('\n')) {
+        const trimmed = rawLine.trim();
         const line = rawLine.replace(/\s+$/, '');
-        if (/^##\s+/.test(line) && !/^###\s+/.test(line)) {
-            current = line.trim();
+        if (/^##\s+/.test(trimmed) && !/^###\s+/.test(trimmed)) {
+            current = trimmed;
             if (!map.has(current)) map.set(current, []);
             continue;
         }
         if (current) map.get(current).push(line);
     }
     return map;
+}
+
+function summarySectionIsRecognized(heading) {
+    for (const section of SUMMARY_SECTION_LAYOUT) {
+        if (headingMatchesAnchor(heading, section.anchor)) return true;
+    }
+    return false;
+}
+
+function summaryHasUnrecognizedHeadings(summary) {
+    for (const heading of parseSummarySections(summary).keys()) {
+        if (!summarySectionIsRecognized(heading)) return true;
+    }
+    return false;
+}
+
+function summaryLinesToBullets(text) {
+    return String(text || '')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .map((l) => (l.startsWith('-') ? l : `- ${l}`));
+}
+
+function unrecognizedSummarySectionText(present) {
+    const chunks = [];
+    for (const [heading, body] of present) {
+        if (summarySectionIsRecognized(heading)) continue;
+        const lines = [heading];
+        for (const line of body || []) {
+            const trimmed = String(line).trim();
+            if (trimmed) lines.push(line);
+        }
+        chunks.push(lines.join('\n'));
+    }
+    return chunks.join('\n\n').trim();
 }
 
 // Deterministic schema repair for a non-empty but malformed/partial semantic
@@ -1033,10 +1159,15 @@ function repairSemanticSummary(summary, { head = [], tail = [] } = {}) {
     // an entirely unstructured blob is preserved rather than silently dropped.
     let preamble = '';
     if (raw) {
-        const firstHeading = raw.search(/(^|\n)##\s+/);
+        const firstHeading = raw.search(/(^|\n)\s*##\s+/);
         preamble = firstHeading === -1 ? raw : raw.slice(0, firstHeading);
         preamble = preamble.trim();
     }
+    const orphanText = unrecognizedSummarySectionText(present);
+    const extraContextParts = [];
+    if (preamble) extraContextParts.push(preamble);
+    if (orphanText) extraContextParts.push(orphanText);
+    const extraContext = extraContextParts.join('\n\n').trim();
     const bulletize = (lines) => {
         const cleaned = (Array.isArray(lines) ? lines : [])
             .map((l) => String(l).trim())
@@ -1067,19 +1198,26 @@ function repairSemanticSummary(summary, { head = [], tail = [] } = {}) {
             }
             continue;
         }
+        if (section.anchor === '## Critical Context') {
+            const ccLines = [];
+            if (body) ccLines.push(...body);
+            for (const line of summaryLinesToBullets(extraContext)) {
+                if (!ccLines.some((existing) => existing.trim() === line.trim())) ccLines.push(line);
+            }
+            if (ccLines.some((line) => line.trim() !== '- (none)')) {
+                const withoutPlaceholder = ccLines.filter((line) => line.trim() !== '- (none)');
+                out.push(...(withoutPlaceholder.length ? withoutPlaceholder : ccLines));
+            } else {
+                out.push(...(ccLines.length ? ccLines : ['- (none)']));
+            }
+            continue;
+        }
         if (body) {
             out.push(...body);
             continue;
         }
         if (section.anchor === '## Goal') {
             out.push(goal ? `- ${goal}` : '- (none)');
-        } else if (section.anchor === '## Critical Context') {
-            // Route any unstructured preamble into Critical Context so a fully
-            // freeform provider blob is retained in the structured output.
-            const preambleLines = preamble
-                ? preamble.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => (l.startsWith('-') ? l : `- ${l}`))
-                : null;
-            out.push(...(preambleLines || ['- (none)']));
         } else if (section.anchor === '## Relevant Files') {
             out.push(...(files.length ? files : ['- (none)']));
         } else {

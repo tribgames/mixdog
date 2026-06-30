@@ -191,19 +191,22 @@ function displayAgentName(value) {
   return AGENT_DISPLAY_NAMES.get(key) || titleizeDisplayName(text);
 }
 
-export function displayModelName(model, provider) {
-  const text = String(model || '').trim();
-  if (!text) return '';
-  const modelId = text.includes('/') ? (text.split('/').filter(Boolean).at(-1) || text) : text;
-  const shown = sharedDisplayModelName(modelId, provider);
+export function displayModelName(model, provider, displayHint) {
+  const text = String(model ?? '').trim();
+  const modelId = text
+    ? (text.includes('/') ? (text.split('/').filter(Boolean).at(-1) || text) : text)
+    : '';
+  const shown = sharedDisplayModelName(modelId, provider, displayHint);
   return shown || modelId;
 }
 
 function bridgeAgentModelSummary(args) {
   const provider = firstText(args.provider, args.providerId, args.provider_id);
+  const modelId = firstText(args.model);
+  const displayHint = firstText(args.modelDisplay, args.model_display, args.displayModel);
   return compactParts([
     displayAgentName(firstText(args.agent, args.role, args.name, args.subagent_type)),
-    displayModelName(firstText(args.modelDisplay, args.model_display, args.displayModel, args.model), provider),
+    displayModelName(modelId, provider, displayHint),
   ]);
 }
 

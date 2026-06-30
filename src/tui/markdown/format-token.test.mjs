@@ -17,14 +17,35 @@ function lexFirst(md, type) {
   return tokens.find((t) => t.type === type) ?? tokens[0];
 }
 
-test('fenced code block renders bordered fence, lang label, indented body', () => {
+test('fenced code block renders lang label without ``` fences and indented body', () => {
   const token = lexFirst('```js\nconst x = 1;\n```\n', 'code');
   const out = formatToken(token);
   const plain = stripAnsi(out);
-  assert.ok(plain.includes('```js'), 'opening fence + lang label visible');
-  assert.match(plain, /\n```\s*$/, 'closing fence present');
+  assert.ok(plain.includes('js'), 'language label visible');
+  assert.ok(!plain.includes('```'), 'no literal fence markers');
   assert.ok(plain.includes('  const x = 1;'), 'body is two-space indented');
-  assert.ok(out.includes(rgbSgr(theme.mdCodeBlockBorder)), 'fence uses border color');
+  assert.ok(out.includes(rgbSgr(theme.mdCodeBlockBorder)), 'lang label uses border color');
+});
+
+test('short code line has no terminal-width trailing padding band', () => {
+  const token = lexFirst('```js\nshort\n```\n', 'code');
+  const out = formatToken(token, 0, null, null, 60);
+  const bodyLine = stripAnsi(out).split('\n').find((l) => l.includes('short'));
+  assert.ok(bodyLine, 'body line present');
+  assert.equal(bodyLine, '  short', 'body line is only indent + text');
+});
+
+test('long code line wraps within requested body width', () => {
+  const long = 'a'.repeat(40);
+  const token = lexFirst(`\`\`\`js\n${long}\n\`\`\`\n`, 'code');
+  const width = 20;
+  const out = formatToken(token, 0, null, null, width);
+  const bodyLines = stripAnsi(out).split('\n').filter((l) => l.startsWith('  '));
+  assert.ok(bodyLines.length > 1, 'long line is wrapped into multiple rows');
+  for (const line of bodyLines) {
+    assert.ok(line.length <= width, `wrapped line "${line}" fits width ${width}`);
+  }
+  assert.equal(bodyLines.join('').replace(/\s/g, ''), long, 'wrapped segments preserve content');
 });
 
 test('js highlighting colors keyword, string, number distinctly', () => {

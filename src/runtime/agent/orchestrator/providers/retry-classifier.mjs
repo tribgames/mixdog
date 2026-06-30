@@ -212,6 +212,13 @@ export function isRetryable(err) {
 const DEFAULT_BACKOFF_MS = PROVIDER_RETRY_BACKOFF_MS
 const DEFAULT_MAX_ATTEMPTS = PROVIDER_RETRY_MAX_ATTEMPTS
 
+export const MIDSTREAM_BACKOFF_MS = [250, 1000, 2000, 4000]
+
+export function midstreamBackoffFor(retryNumber, schedule = MIDSTREAM_BACKOFF_MS) {
+  const raw = schedule[Math.min(Math.max(retryNumber, 1), schedule.length) - 1]
+  return jitterDelayMs(raw)
+}
+
 export function jitterDelayMs(ms, ratio = PROVIDER_RETRY_JITTER_RATIO, mode = 'symmetric') {
   const base = Number(ms) || 0
   if (base <= 0) return 0

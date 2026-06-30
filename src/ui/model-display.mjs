@@ -43,6 +43,22 @@ export function canonicalModelDisplay(model, provider) {
     return `GPT-${gpt[1]}${suffix}`;
   }
 
+  if (/^gpt-/i.test(raw)) {
+    return raw
+      .split('-')
+      .map((part, index) => (index === 0 ? part.toUpperCase() : titleModelPart(part)))
+      .filter(Boolean)
+      .join('-');
+  }
+
+  const openaiO = raw.match(/^o(\d+(?:\.\d+)?)(?:-(.+))?$/i);
+  if (openaiO) {
+    const tail = openaiO[2]
+      ? ' ' + openaiO[2].split('-').map(titleModelPart).filter(Boolean).join(' ')
+      : '';
+    return `O${openaiO[1]}${tail}`;
+  }
+
   const codex = raw.match(/^codex-(.+)$/i);
   if (codex) {
     return `Codex ${codex[1].split('-').map(titleModelPart).filter(Boolean).join(' ')}`;
@@ -56,6 +72,12 @@ export function canonicalModelDisplay(model, provider) {
   const grok = raw.match(/^grok-(.+)$/i);
   if (grok) {
     return `Grok ${grok[1].split('-').map(titleModelPart).filter(Boolean).join(' ')}`;
+  }
+
+  const claudeLegacy = raw.match(/^claude-(\d+)(?:-(\d+))?-(opus|sonnet|haiku)(?:-|$)/i);
+  if (claudeLegacy) {
+    const version = `${claudeLegacy[1]}${claudeLegacy[2] ? `.${claudeLegacy[2]}` : ''}`;
+    return `Claude ${titleModelPart(claudeLegacy[3])} ${version}`;
   }
 
   const claude = raw.match(/^claude-(opus|sonnet|haiku)-(.+)$/i);

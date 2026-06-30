@@ -14,6 +14,8 @@
  */
 import { Chalk } from 'chalk';
 import stripAnsi from 'strip-ansi';
+import stringWidth from 'string-width';
+import wrapAnsi from 'wrap-ansi';
 import { theme, getThemeVersion } from '../theme.mjs';
 import { BLOCKQUOTE_BAR, HR_LINE } from '../figures.mjs';
 
@@ -122,19 +124,60 @@ function decodeEntities(s) {
 }
 
 // ── Fenced code block rendering ─────────────────────────────────────────────
-// Pi-style: a `codeBlockBorder`-colored fence line with the optional language
-// label, a two-space-indented body, and a closing fence. Diff/patch languages
+// Compact language label (no ``` fences), two-space-indented wrapped body.
+// Diff/patch languages
 // (and code text that clearly looks like a unified diff) get colored +/-/@@
 // lines; other known languages get a conservative regex highlighter; unknown
 // languages fall back to the flat `mdCodeBlock` body color.
 const CODE_BLOCK_INDENT = '  ';
 const DIFF_LANGS = new Set(['diff', 'patch', 'udiff', 'git-diff', 'gitdiff']);
 
-/** Pad a (possibly ANSI) line to `bandWidth` visible columns, then caller wraps bg. */
-function padToBand(line, bandWidth) {
-  const visible = stripAnsi(line).length;
-  const pad = bandWidth > visible ? ' '.repeat(bandWidth - visible) : '';
-  return line + pad;
+/** Wrap text to width, ANSI-aware (lockstep with table-layout hard wrap). */
+function wrapTextToWidth(text, width, options) {
+  if (width <= 0) return [text];
+  const trimmedText = String(text).trimEnd();
+  const wrapped = wrapAnsi(trimmedText, width, {
+    hard: options?.hard ?? false,
+    trim: false,
+    wordWrap: true,
+  });
+  const lines = wrapped.split('\n').filter((line) => line.length > 0);
+  return lines.length > 0 ? lines : [''];
+}
+
+/** Hard-wrap so every line satisfies stringWidth(line) <= width. */
+function hardWrapAnsiLines(text, width) {
+  const max = Math.max(1, Math.floor(Number(width) || 1));
+  const input = String(text ?? '');
+  if (!input) return [''];
+  const out = [];
+  for (const softLine of wrapTextToWidth(input, max, { hard: true })) {
+    let rest = softLine;
+    while (rest.length > 0 && stringWidth(rest) > max) {
+      let take = 1;
+      for (let i = 1; i <= rest.length; i++) {
+        if (stringWidth(rest.slice(0, i)) <= max) take = i;
+        else break;
+      }
+      out.push(rest.slice(0, take));
+      rest = rest.slice(take);
+    }
+    if (rest.length > 0) out.push(rest);
+  }
+  return out.length > 0 ? out : [''];
+}
+
+/** Wrap one logical code line (ANSI content, no indent) and prefix each segment. */
+function wrapIndentedCodeLine(ansiContent, maxLineWidth) {
+  const indentW = stringWidth(CODE_BLOCK_INDENT);
+  const contentMax = Math.max(1, maxLineWidth - indentW);
+  const segments = hardWrapAnsiLines(ansiContent, contentMax);
+  return segments.map((seg) => `${CODE_BLOCK_INDENT}${seg}`);
+}
+
+/** Tint code lines without padding to terminal width (no trailing bg band). */
+function tintCodeLines(lines, codeBg) {
+  return lines.map((line) => codeBg(line)).join(EOL);
 }
 
 /** Normalize a fenced info-string to a bare lowercase language token. */
@@ -217,10 +260,12 @@ function colorizeDiffStatTrailer(line, c) {
 }
 
 function renderDiffBody(text, c, bandWidth) {
-  return String(text ?? '')
-    .split(EOL)
-    .map((line) => c.codeBg(padToBand(`${CODE_BLOCK_INDENT}${colorizeDiffLine(line, c)}`, bandWidth)))
-    .join(EOL);
+  const lines = [];
+  for (const line of String(text ?? '').split(EOL)) {
+    const colored = colorizeDiffLine(line, c);
+    lines.push(...wrapIndentedCodeLine(colored, bandWidth));
+  }
+  return tintCodeLines(lines, c.codeBg);
 }
 
 // ── Lightweight syntax highlighting (regex token classes, no parser) ────────
@@ -303,30 +348,24 @@ export function highlightCodeLine(line, family, c) {
 }
 
 function renderHighlightedBody(text, family, c, bandWidth) {
-  return String(text ?? '')
-    .split(EOL)
-    .map((line) => c.codeBg(padToBand(
-      `${CODE_BLOCK_INDENT}${line ? highlightCodeLine(line, family, c) : ''}`,
-      bandWidth,
-    )))
-    .join(EOL);
+  const lines = [];
+  for (const line of String(text ?? '').split(EOL)) {
+    const colored = line ? highlightCodeLine(line, family, c) : '';
+    lines.push(...wrapIndentedCodeLine(colored, bandWidth));
+  }
+  return tintCodeLines(lines, c.codeBg);
 }
 
 /**
- * Render a fenced `code` token as a bordered/fenced block with an optional
- * language label, two-space body indent, and language-aware coloring.
+ * Render a fenced `code` token: compact language label, wrapped indented body,
+ * and language-aware coloring (no visible ``` fence lines).
  */
 function renderCodeBlock(token, width = 0) {
   const { codeBlock } = colorizers();
   const c = extraColorizers();
   const lang = normalizeLang(token.lang);
   const text = decodeEntities(token.text ?? '');
-  const bandWidth = Math.max(0, Number(width) || 80);
-  // The fences sit on the same background band as the body so the whole block
-  // reads as one tinted region. Each line opens+closes its own bg SGR so
-  // wrapping/measurement is unaffected.
-  const openFence = c.codeBg(padToBand(c.fenceBorder(`\`\`\`${lang}`), bandWidth));
-  const closeFence = c.codeBg(padToBand(c.fenceBorder('```'), bandWidth));
+  const bandWidth = Math.max(8, Number(width) || 80);
 
   let body;
   if (DIFF_LANGS.has(lang) || (!lang && looksLikeUnifiedDiff(text))) {
@@ -340,13 +379,18 @@ function renderCodeBlock(token, width = 0) {
       body = renderHighlightedBody(text, family, c, bandWidth);
     } else {
       // Unknown/plain language: flat code-block body color, still indented.
-      body = text
-        .split(EOL)
-        .map((line) => c.codeBg(padToBand(`${CODE_BLOCK_INDENT}${codeBlock(line)}`, bandWidth)))
-        .join(EOL);
+      const lines = [];
+      for (const line of text.split(EOL)) {
+        const colored = codeBlock(line);
+        lines.push(...wrapIndentedCodeLine(colored, bandWidth));
+      }
+      body = tintCodeLines(lines, c.codeBg);
     }
   }
-  return `${openFence}${EOL}${body}${EOL}${closeFence}${EOL}`;
+  const langLine = lang
+    ? `${c.codeBg(c.fenceBorder(lang))}${EOL}`
+    : '';
+  return `${langLine}${body}${body ? EOL : ''}`;
 }
 
 function numberToLetter(n) {
@@ -410,7 +454,7 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
         .join(EOL);
     }
     case 'code':
-      // Fenced block: bordered fence + lang label + indented, colored body.
+      // Fenced block: compact lang label + wrapped indented, colored body.
       return renderCodeBlock(token, width);
     case 'codespan':
       // inline code

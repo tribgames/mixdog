@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { loadConfig } from '../config.mjs';
 import { sanitizeToolPairs, sanitizeAnthropicContentPairs } from '../session/context-utils.mjs';
-import { classifyError, withRetry } from './retry-classifier.mjs';
+import { classifyError, midstreamBackoffFor, withRetry } from './retry-classifier.mjs';
 import { traceAgentUsage } from '../agent-trace.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
@@ -9,11 +9,36 @@ import {
     createPassthroughSignal,
 } from '../stall-policy.mjs';
 import { createAbortController } from '../../../shared/abort-controller.mjs';
-import { parseSSEStream, _classifyMidstreamError } from './anthropic-oauth.mjs';
+import {
+    ANTHROPIC_MAX_MIDSTREAM_RETRIES,
+    parseSSEStream,
+    _classifyMidstreamError,
+} from './anthropic-oauth.mjs';
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
 import { normalizeContentForAnthropic } from './media-normalization.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
+
+async function _midstreamSleepWithAbort(ms, signal) {
+    if (!ms) return;
+    if (!signal) {
+        await new Promise((r) => setTimeout(r, ms));
+        return;
+    }
+    await new Promise((resolve, reject) => {
+        const t = setTimeout(() => {
+            try { signal.removeEventListener('abort', onAbort); } catch {}
+            resolve();
+        }, ms);
+        const onAbort = () => {
+            clearTimeout(t);
+            const reason = signal.reason;
+            reject(reason instanceof Error ? reason : new Error('Anthropic mid-stream retry backoff aborted'));
+        };
+        if (signal.aborted) { onAbort(); return; }
+        signal.addEventListener('abort', onAbort, { once: true });
+    });
+}
 
 // 4-BP cache policy aligned with anthropic-oauth — system + tier3 +
 // messages-tail. Tool schemas sit before system and are covered by the system
@@ -521,7 +546,7 @@ export class AnthropicProvider {
             }),
         };
 
-        const MAX_MIDSTREAM_RETRIES = 1;
+        const MAX_MIDSTREAM_RETRIES = ANTHROPIC_MAX_MIDSTREAM_RETRIES;
         let firstAttemptError = null;
         let firstAttemptClassifier = null;
 
@@ -719,6 +744,7 @@ export class AnthropicProvider {
                                 `[${this.name}] empty stream (no message_start) — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES}\n`,
                             );
                         } catch {}
+                        await _midstreamSleepWithAbort(midstreamBackoffFor(attemptIndex + 1), totalSignal);
                         continue;
                     }
                     if ((err?.truncatedStream === true || err?.code === 'TRUNCATED_STREAM')
@@ -733,6 +759,7 @@ export class AnthropicProvider {
                                 `[${this.name}] truncated stream — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES}\n`,
                             );
                         } catch {}
+                        await _midstreamSleepWithAbort(midstreamBackoffFor(attemptIndex + 1), totalSignal);
                         continue;
                     }
                     const classifier = _classifyMidstreamError(err, midState);
@@ -745,6 +772,7 @@ export class AnthropicProvider {
                                 `[${this.name}] mid-stream recovered: retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES} (cause: ${classifier})\n`,
                             );
                         } catch {}
+                        await _midstreamSleepWithAbort(midstreamBackoffFor(attemptIndex + 1), totalSignal);
                         continue;
                     }
                     if (attemptIndex > 0 && firstAttemptError) {

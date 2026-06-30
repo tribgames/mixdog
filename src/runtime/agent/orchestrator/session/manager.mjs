@@ -682,6 +682,22 @@ function preserveBufferConfigFields(cfg = {}) {
     return out;
 }
 const LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
+function isPersistedZeroBufferTelemetry(cfg = {}, boundaryTokens = 0) {
+    const boundary = positiveContextWindow(boundaryTokens);
+    if (!boundary) return false;
+    if (positiveContextWindow(process.env.MIXDOG_AGENT_COMPACT_BUFFER_TOKENS)) return false;
+    if (Number.isFinite(Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT)) && Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT) > 0) return false;
+    if (Number.isFinite(Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO)) && Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO) > 0) return false;
+    for (const key of ['bufferPercent', 'bufferPct', 'bufferFraction']) {
+        const n = Number(cfg?.[key]);
+        if (Number.isFinite(n) && n > 0) return false;
+    }
+    const ratio = Number(cfg?.bufferRatio);
+    if (Number.isFinite(ratio) && ratio > 0) return false;
+    const explicitTokens = Number(cfg?.bufferTokens ?? cfg?.buffer);
+    if (!Number.isFinite(explicitTokens) || explicitTokens !== 0) return false;
+    return true;
+}
 function isLegacyDefaultBufferTelemetry(cfg = {}, boundaryTokens = 0) {
     const boundary = positiveContextWindow(boundaryTokens);
     if (!boundary) return false;
@@ -705,9 +721,13 @@ function isLegacyDefaultBufferTelemetry(cfg = {}, boundaryTokens = 0) {
         || (cfgBoundary === boundary && cfgTrigger > 0 && explicitTokens === Math.max(0, boundary - cfgTrigger));
 }
 function compactBufferConfigForBoundary(cfg = {}, boundaryTokens = 0) {
-    if (!isLegacyDefaultBufferTelemetry(cfg, boundaryTokens)) return cfg || {};
+    const base = cfg || {};
+    if (!isLegacyDefaultBufferTelemetry(base, boundaryTokens)
+        && !isPersistedZeroBufferTelemetry(base, boundaryTokens)) {
+        return base;
+    }
     return {
-        ...(cfg || {}),
+        ...base,
         bufferTokens: null,
         buffer: null,
         bufferRatio: null,
@@ -2954,11 +2974,21 @@ function applyCompactFailurePersistToSession(activeSession, {
     activeSession.updatedAt = Date.now();
     activeSession.lastUsedAt = Date.now();
     if (activeSession.compaction && typeof activeSession.compaction === 'object'
-        && activeSession.compaction.lastStage === 'compacting') {
+        && (activeSession.compaction.lastStage === 'compacting'
+            || activeSession.compaction.lastStage === 'overflow_failed')) {
+        const prev = activeSession.compaction;
+        const cause = error?.cause;
+        const overflow = error?.code === 'AGENT_CONTEXT_OVERFLOW';
         activeSession.compaction = {
-            ...activeSession.compaction,
-            lastStage: error?.code === 'AGENT_CONTEXT_OVERFLOW' ? 'overflow_failed' : 'failed',
+            ...prev,
+            lastStage: prev.lastStage === 'overflow_failed'
+                ? 'overflow_failed'
+                : (overflow ? 'overflow_failed' : 'failed'),
             lastCheckedAt: Date.now(),
+            lastError: prev.lastError || cause?.message || error?.message || null,
+            lastSemanticError: prev.lastSemanticError || cause?.message || null,
+            lastRecallFastTrackError: prev.lastRecallFastTrackError
+                || (cause?.message && String(cause?.name || '').includes('Recall') ? cause.message : null),
         };
     }
     return true;

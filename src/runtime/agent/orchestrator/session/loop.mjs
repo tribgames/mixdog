@@ -541,6 +541,24 @@ function resolveCompactBufferRatio(cfg = {}) {
     return normalizeCompactionBufferRatio(resolved, DEFAULT_COMPACTION_BUFFER_RATIO);
 }
 const LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
+function isPersistedZeroBufferTelemetry(cfg = {}, boundaryTokens = 0) {
+    const boundary = positiveTokenInt(boundaryTokens);
+    if (!boundary) return false;
+    if (envTokenInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')) return false;
+    for (const envName of ['MIXDOG_AGENT_COMPACT_BUFFER_PERCENT', 'MIXDOG_AGENT_COMPACT_BUFFER_RATIO']) {
+        const n = Number(process.env[envName]);
+        if (Number.isFinite(n) && n > 0) return false;
+    }
+    for (const key of ['bufferPercent', 'bufferPct', 'bufferFraction']) {
+        const n = Number(cfg?.[key]);
+        if (Number.isFinite(n) && n > 0) return false;
+    }
+    const ratio = Number(cfg?.bufferRatio);
+    if (Number.isFinite(ratio) && ratio > 0) return false;
+    const explicitTokens = Number(cfg?.bufferTokens ?? cfg?.buffer);
+    if (!Number.isFinite(explicitTokens) || explicitTokens !== 0) return false;
+    return true;
+}
 function isLegacyDefaultBufferTelemetry(cfg = {}, boundaryTokens = 0) {
     const boundary = positiveTokenInt(boundaryTokens);
     if (!boundary) return false;
@@ -565,9 +583,13 @@ function isLegacyDefaultBufferTelemetry(cfg = {}, boundaryTokens = 0) {
         || (cfgBoundary === boundary && cfgTrigger > 0 && explicitTokens === Math.max(0, boundary - cfgTrigger));
 }
 function compactBufferConfigForBoundary(cfg = {}, boundaryTokens = 0) {
-    if (!isLegacyDefaultBufferTelemetry(cfg, boundaryTokens)) return cfg || {};
+    const base = cfg || {};
+    if (!isLegacyDefaultBufferTelemetry(base, boundaryTokens)
+        && !isPersistedZeroBufferTelemetry(base, boundaryTokens)) {
+        return base;
+    }
     return {
-        ...(cfg || {}),
+        ...base,
         bufferTokens: null,
         buffer: null,
         bufferRatio: null,
@@ -761,9 +783,16 @@ function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         lastChanged: changed,
         lastTrigger: meta.trigger || prev.lastTrigger || null,
         lastSemantic: meta.semanticCompact === true,
-        lastSemanticError: meta.semanticError || null,
+        lastSemanticError: Object.hasOwn(meta, 'semanticError')
+            ? (meta.semanticError ?? null)
+            : (prev.lastSemanticError ?? null),
         lastRecallFastTrack: meta.recallFastTrack === true,
-        lastRecallFastTrackError: meta.recallFastTrackError || null,
+        lastRecallFastTrackError: Object.hasOwn(meta, 'recallFastTrackError')
+            ? (meta.recallFastTrackError ?? null)
+            : (prev.lastRecallFastTrackError ?? null),
+        lastError: Object.hasOwn(meta, 'compactError') || Object.hasOwn(meta, 'lastError')
+            ? (meta.compactError ?? meta.lastError ?? null)
+            : (prev.lastError ?? null),
         lastPruneCount: meta.pruneCount || 0,
         lastDurationMs: meta.durationMs != null && Number.isFinite(Number(meta.durationMs))
             ? Math.max(0, Math.round(Number(meta.durationMs)))
@@ -1541,6 +1570,24 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     }
                     summaryChanged = messagesArrayChanged(compactInputMessages, compacted);
                 } catch (compactErr) {
+                    const compactFailMsg = compactErr && compactErr.message ? compactErr.message : String(compactErr);
+                    const semanticFailMsg = semanticCompactError?.message || null;
+                    const recallFailMsg = recallFastTrackError?.message || null;
+                    const compactFailCode = compactErr?.code
+                        || (compactErr?.name === 'AgentContextOverflowError' ? 'AGENT_CONTEXT_OVERFLOW' : null)
+                        || 'compact_failed';
+                    rememberCompactTelemetry(sessionRef, compactPolicy, {
+                        stage: 'overflow_failed',
+                        beforeTokens: messageTokensEst,
+                        afterTokens: messageTokensEst,
+                        pressureTokens,
+                        trigger: compactTrigger,
+                        semanticError: semanticFailMsg,
+                        recallFastTrackError: recallFailMsg,
+                        compactError: semanticFailMsg || recallFailMsg || compactFailMsg,
+                        pruneCount,
+                        durationMs: Date.now() - compactStartedAt,
+                    });
                     traceAgentCompact({
                         sessionId,
                         iteration: iterations + 1,
@@ -1560,8 +1607,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         message_tokens_est: messageTokensEst,
                         provider: sessionRef.provider,
                         model: sessionRef.model || model,
-                        error: compactErr && compactErr.message ? compactErr.message : String(compactErr),
-                        error_code: 'AGENT_CONTEXT_OVERFLOW',
+                        error: compactFailMsg,
+                        error_code: compactFailCode,
                     });
                     emitCompactEvent(opts, {
                         sessionId,
@@ -1626,6 +1673,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     semanticError: semanticCompactError?.message || null,
                     recallFastTrack: recallFastTrackResult?.recallFastTrack === true,
                     recallFastTrackError: recallFastTrackError?.message || null,
+                    compactError: null,
                     pruneCount,
                     durationMs: compactDurationMs,
                 });

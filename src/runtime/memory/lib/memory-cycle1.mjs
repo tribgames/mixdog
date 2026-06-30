@@ -8,7 +8,7 @@ import { cleanMemoryText } from './memory.mjs'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { callAgentDispatch } from './agent-ipc.mjs'
 import {
-  flushEmbeddingDirty, inferChunkProjectId,
+  flushEmbeddingDirty, inferChunkProjectId, syncRootEmbedding,
 } from './memory-embed.mjs'
 import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
 
@@ -659,6 +659,14 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
           usedIds.add(mid)
           committedRowIds.add(mid)
         }
+        // Real-time embedding: embed this episode the moment it is committed so
+        // dense recall sees fresh roots without waiting for the end-of-cycle flush.
+        // Fire-and-forget on a separate pool connection (independent of the
+        // just-finished chunk transaction); never await — the chunk loop must
+        // not block. The end-of-cycle flushEmbeddingDirty remains as a safety
+        // net that sweeps any NULL embeddings this per-root path raced/missed.
+        syncRootEmbedding(db, rootId, { signal })
+          .catch((err) => __mixdogMemoryLog(`[cycle1] realtime embed failed (root=${rootId}): ${err.message}\n`))
       } catch (err) {
         __mixdogMemoryLog(`[cycle1] chunk commit failed (root=${rootId}): ${err.message}\n`)
         skippedChunks += 1

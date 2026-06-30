@@ -25,7 +25,7 @@ import {
   AGENT_SURFACE_BRIEF_MAX,
 } from '../../runtime/shared/tool-surface.mjs';
 import { backgroundTaskFailureStatusLabel, isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';
-import { formatExpandedResult } from './tool-output-format.mjs';
+import { formatExpandedResult, wrapExpandedResultLines } from './tool-output-format.mjs';
 
 const MIN_RESULT_LINE_CHARS = 24;
 // Hard cap for the parenthesized header arg summary so a long path/query does
@@ -96,14 +96,12 @@ function renderDeltaText(text) {
 // Two render paths:
 //   - COLLAPSED (raw=false): a single fitted summary line, diff(+/-) colored via
 //     renderDeltaText.
-//   - EXPANDED (raw=true): `rawText` is post-processed by formatExpandedResult
-//     (JSON pretty, line-number gutter split, syntax highlight, URL linkify,
-//     underline strip, oversize guard) into one ANSI string per line. ink <Text>
-//     passes those escapes through verbatim, so each row keeps its own coloring
-//     while the rail column stays aligned.
+//   - EXPANDED (raw=true): formatExpandedResult then wrapExpandedResultLines so
+//     each physical row fits the body width before render (rail rows stay 1:1;
+//     ink does not re-wrap).
 function ResultBody({ lines, rawText, pathArg = '', isShell = false, columns, color, raw }) {
   const renderLines = raw
-    ? formatExpandedResult(rawText, { pathArg, isShell })
+    ? wrapExpandedResultLines(formatExpandedResult(rawText, { pathArg, isShell }), columns)
     : (lines || []);
   if (!renderLines || renderLines.length === 0) return null;
   return (
@@ -115,7 +113,7 @@ function ResultBody({ lines, rawText, pathArg = '', isShell = false, columns, co
       </Box>
       <Box flexDirection="column" flexShrink={1} flexGrow={1}>
         {renderLines.map((line, i) => (
-          <Text key={i} color={raw ? undefined : color} wrap={raw ? 'wrap' : 'truncate'}>
+          <Text key={i} color={raw ? undefined : color} wrap="truncate">
             {raw
               ? (line || ' ')
               : renderDeltaText(fitResultLine(line || ' ', columns))}
@@ -262,7 +260,11 @@ function titleizeAgentName(value) {
 }
 
 function agentModelLabel(args) {
-  return displayModelName(args?.model || args?.modelDisplay || args?.model_display || args?.displayModel || '');
+  const a = args && typeof args === 'object' ? args : {};
+  const provider = String(a.provider || a.providerId || a.provider_id || '').trim();
+  const model = String(a.model || '').trim();
+  const displayHint = String(a.modelDisplay || a.model_display || a.displayModel || '').trim();
+  return displayModelName(model, provider, displayHint);
 }
 
 function withModel(label, args) {

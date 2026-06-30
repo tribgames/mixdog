@@ -71,9 +71,9 @@ const WS_PRE_RESPONSE_CREATED_MS = (() => {
 })();
 // Inter-chunk inactivity after first meaningful output.
 const WS_INTER_CHUNK_MS = PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS;
-const MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT = 2;
-const MIDSTREAM_DEFAULT_RETRY_LIMIT = 1;
-const MIDSTREAM_BACKOFF_MS = [250, 1000];
+const MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT = 4;
+const MIDSTREAM_DEFAULT_RETRY_LIMIT = 2;
+const MIDSTREAM_BACKOFF_MS = [250, 1000, 2000, 4000];
 
 // Handshake retry policy. The `ws` library surfaces a bare
 // `Opening handshake has timed out` Error after handshakeTimeout; transient
@@ -1966,7 +1966,7 @@ export async function _streamResponse({
         // Periodic client-side WS ping while the stream is active. The server's
         // server closes with 1011 "keepalive ping timeout" when it thinks the
         // peer is silent during long reasoning windows where no data frames
-        // flow. Sending a ping every 18s from our side keeps the socket warm.
+        // flow. Sending a ping every 10s from our side keeps the socket warm.
         // The interval is unref'd so it never holds the event loop open, and
         // cleanup() clears it on every terminal path (completed / close /
         // error / abort / mid-stream retry teardown).
@@ -1975,7 +1975,7 @@ export async function _streamResponse({
                 if (socket.readyState !== WebSocket.OPEN) return;
                 socket.ping();
             } catch {}
-        }, 18_000);
+        }, 10_000);
         try { keepaliveTimer.unref?.(); } catch {}
     });
 }
@@ -2188,7 +2188,8 @@ function _allowMidstreamRetry(classifier, attemptIndex) {
 }
 
 function _midstreamBackoffFor(retryNumber) {
-    return MIDSTREAM_BACKOFF_MS[Math.min(Math.max(retryNumber, 1), MIDSTREAM_BACKOFF_MS.length) - 1];
+    const raw = MIDSTREAM_BACKOFF_MS[Math.min(Math.max(retryNumber, 1), MIDSTREAM_BACKOFF_MS.length) - 1];
+    return jitterDelayMs(raw);
 }
 
 function _backoffFor(attempt) {
@@ -2386,6 +2387,15 @@ export async function sendViaWebSocket({
         }
         return e;
     };
+    // Tool-call relay invariant: same latch pattern as live text — once a tool
+    // call was forwarded, surfaced errors must block HTTP fallback / reissue.
+    let toolEmittedAcrossAttempts = false;
+    const _stampTool = (e) => {
+        if (toolEmittedAcrossAttempts && e) {
+            try { e.emittedToolCall = true; e.unsafeToRetry = true; } catch {}
+        }
+        return e;
+    };
     // Server-side xAI conversation anchor preserved across mid-stream
     // retries. xAI keys its conversation by previous_response_id alone
     // (sessionToken is null for xAI in _mintSessionToken); a forceFresh
@@ -2447,9 +2457,9 @@ export async function sendViaWebSocket({
             // the caller's turn actually tripped on).
             if (attemptIndex > 0 && firstAttemptError) {
                 try { firstAttemptError.midstreamRetries = attemptIndex; } catch {}
-                throw _stampLiveText(firstAttemptError);
+                throw _stampTool(_stampLiveText(firstAttemptError));
             }
-            throw _stampLiveText(err);
+            throw _stampTool(_stampLiveText(err));
         }
         const { entry, reused } = acquired;
         // Re-seed the retry attempt's fresh entry with the prior attempt's
@@ -2657,7 +2667,11 @@ export async function sendViaWebSocket({
                 // error (firstAttemptError) must still carry the marker.
                 liveTextEmittedAcrossAttempts = true;
             }
+            if (midState.emittedToolCall) {
+                toolEmittedAcrossAttempts = true;
+            }
             _stampLiveText(err);
+            _stampTool(err);
             const classifier = _classifyMidstreamError(err, midState);
             const retryLimit = classifier ? _midstreamRetryLimit(classifier) : 0;
             if (classifier && attemptIndex < retryLimit) {
@@ -2696,9 +2710,9 @@ export async function sendViaWebSocket({
                         firstAttemptError.suppressed = list;
                     }
                 } catch {}
-                throw _stampLiveText(firstAttemptError);
+                throw _stampTool(_stampLiveText(firstAttemptError));
             }
-            throw _stampLiveText(err);
+            throw _stampTool(_stampLiveText(err));
         }
         const liveModel = result.model || useModel;
         traceAgentSse({
@@ -2877,7 +2891,7 @@ export async function sendViaWebSocket({
         return out;
     }
     // Unreachable — the loop either returns or throws above.
-    throw _stampLiveText(firstAttemptError || new Error('sendViaWebSocket: unreachable'));
+    throw _stampTool(_stampLiveText(firstAttemptError || new Error('sendViaWebSocket: unreachable')));
     });
 }
 

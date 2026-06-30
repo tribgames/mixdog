@@ -85,6 +85,14 @@ function singleTrailingLineBreakPrefix(text) {
   return prefix.includes('\n') ? null : prefix;
 }
 
+function draftStateEqual(a, b) {
+  return (
+    a.value === b.value
+    && a.cursor === b.cursor
+    && a.selectionAnchor === b.selectionAnchor
+  );
+}
+
 function isCtrlEnterSequence(input) {
   const text = String(input ?? '');
   const body = text.startsWith('\x1b[') ? text.slice(2) : text.startsWith('[') ? text.slice(1) : '';
@@ -166,7 +174,9 @@ export function PromptInput({
   };
 
   const commitDraft = (next, options = {}) => {
+    const sameDraft = draftStateEqual(draftRef.current, next);
     if (!options.keepPreferredColumn) preferredColumnRef.current = null;
+    if (sameDraft) return;
     draftRef.current = next;
     setDraft(next);
     queueMicrotask(flushImmediate);

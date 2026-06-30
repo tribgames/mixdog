@@ -2,11 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   formatExpandedResult,
+  wrapExpandedResultLines,
+  expandedResultBodyWidth,
   inferLangFamily,
   stripUnderlineAnsi,
   linkifyUrls,
   tryFormatJson,
 } from './tool-output-format.mjs';
+import stringWidth from 'string-width';
 
 const stripAnsi = (s) => String(s).replace(/\x1b\[[0-9;]*m/g, '').replace(/\x1b\]8;;[^\x07]*\x07/g, '');
 
@@ -35,6 +38,30 @@ test('grep file:line: gutter is split too', () => {
   assert.ok(stripAnsi(out[0]).startsWith('src/a.mjs:5581:'));
 });
 
+test('grep Windows absolute path:line: gutter is split', () => {
+  const grep = 'C:\\Project\\mixdog\\src\\App.jsx:12: const x = 1;';
+  const out = formatExpandedResult(grep, { pathArg: 'src/App.jsx' });
+  assert.equal(out.length, 1);
+  const plain = stripAnsi(out[0]);
+  assert.ok(plain.startsWith('C:\\Project\\mixdog\\src\\App.jsx:12:'));
+  assert.ok(plain.includes('const x = 1;'), 'body preserved after gutter');
+  assert.ok(out[0].includes('\x1b['), 'body carries highlight escapes');
+});
+
+test('grep bare line-number gutter still works', () => {
+  const grep = '12:  return null;';
+  const out = formatExpandedResult(grep, { pathArg: 'a.mjs' });
+  assert.equal(out.length, 1);
+  assert.ok(stripAnsi(out[0]).startsWith('12:'));
+});
+
+test('https URLs are not treated as grep path:line: gutters', () => {
+  const line = 'see https://example.com:443/path for docs';
+  const out = formatExpandedResult(line, {});
+  assert.equal(out.length, 1);
+  assert.equal(stripAnsi(out[0]), line);
+});
+
 test('JSON result is auto pretty-printed (size-capped, precision-safe)', () => {
   const out = formatExpandedResult('{"a":1,"b":[2,3]}', {});
   assert.ok(out.length > 1, 'single-line JSON expands to multiple rows');
@@ -42,6 +69,22 @@ test('JSON result is auto pretty-printed (size-capped, precision-safe)', () => {
   // precision loss → keep original line
   const big = '{"id":123456789012345678901234567890}';
   assert.equal(tryFormatJson(big), big);
+});
+
+test('JSON with markdown-like string values stays JSON (no markdown lexer)', () => {
+  const raw = '["**literal**","`code`"]';
+  const out = formatExpandedResult(raw, {});
+  const visible = out.map(stripAnsi).join('\n');
+  assert.ok(visible.includes('**literal**'), 'array string keeps ** delimiters');
+  assert.ok(visible.includes('`code`'), 'array string keeps backticks');
+});
+
+test('JSON object with markdown-like values is not rendered as markdown', () => {
+  const raw = '{"msg":"**bold**","x":"`y`"}';
+  const out = formatExpandedResult(raw, {});
+  const visible = out.map(stripAnsi).join('\n');
+  assert.ok(visible.includes('**bold**'));
+  assert.ok(visible.includes('`y`'));
 });
 
 test('shell output keeps color ANSI but strips underline and never highlights', () => {
@@ -73,6 +116,9 @@ test('oversize output is capped with a truncation marker', () => {
 test('stripUnderlineAnsi removes only underline SGR', () => {
   assert.equal(stripUnderlineAnsi('a\x1b[4mu\x1b[24mb'), 'aub');
   assert.equal(stripUnderlineAnsi('a\x1b[32mg\x1b[0mb'), 'a\x1b[32mg\x1b[0mb');
+  assert.equal(stripUnderlineAnsi('x\x1b[4;31my'), 'x\x1b[31my');
+  assert.equal(stripUnderlineAnsi('x\x1b[42my'), 'x\x1b[42my');
+  assert.equal(stripUnderlineAnsi('x\x1b[31;4my'), 'x\x1b[31my');
 });
 
 test('linkifyUrls wraps bare URLs in OSC 8', () => {
@@ -81,6 +127,94 @@ test('linkifyUrls wraps bare URLs in OSC 8', () => {
   assert.equal(linkifyUrls('no url here'), 'no url here');
 });
 
+test('linkifyUrls keeps ANSI out of OSC 8 URL targets', () => {
+  const colored = 'go \x1b[31mhttps://example.com/a\x1b[0m end';
+  const out = linkifyUrls(colored);
+  const m = /\x1b]8;;([^\x07]+)\x07/.exec(out);
+  assert.ok(m, 'OSC 8 opener present');
+  assert.equal(m[1], 'https://example.com/a');
+  assert.ok(!m[1].includes('\x1b'), 'target URL has no escape bytes');
+});
+
+function osc8UrlTargets(text) {
+  const targets = [];
+  const bel = /\x1b]8;;([^\x07]+)\x07/g;
+  const st = /\x1b]8;;((?:[^\x1b]|\x1b(?![\\]))+)\x1b\\/g;
+  let m;
+  while ((m = bel.exec(text)) !== null) targets.push(m[1]);
+  while ((m = st.exec(text)) !== null) targets.push(m[1]);
+  return targets;
+}
+
+test('linkifyUrls does not re-linkify existing BEL OSC 8 hyperlinks', () => {
+  const belLink = '\x1b]8;;https://a.test\x07label\x1b]8;;\x07';
+  const out = linkifyUrls(belLink);
+  assert.equal(out, belLink);
+  assert.equal((out.match(/\x1b]8;;/g) || []).length, 2, 'single open/close pair');
+  for (const target of osc8UrlTargets(out)) {
+    assert.ok(!target.includes('\x1b'), 'target has no escape bytes');
+    assert.ok(!target.includes('\x1b]8;;'), 'no nested OSC in target');
+  }
+});
+
+test('linkifyUrls does not re-linkify existing ST OSC 8 hyperlinks', () => {
+  const stLink = '\x1b]8;;https://a.test\x1b\\label\x1b]8;;\x1b\\';
+  const out = linkifyUrls(stLink);
+  assert.equal(out, stLink);
+  assert.equal((out.match(/\x1b]8;;/g) || []).length, 2, 'single open/close pair');
+  for (const target of osc8UrlTargets(out)) {
+    assert.ok(!target.includes('\x1b'), 'target has no escape bytes');
+    assert.ok(!target.includes('\x1b]8;;'), 'no nested OSC in target');
+  }
+});
+
 test('empty input yields no lines', () => {
   assert.deepEqual(formatExpandedResult('', {}), []);
+});
+
+test('wrapExpandedResultLines splits long logical rows to body width', () => {
+  const columns = 48;
+  const maxW = expandedResultBodyWidth(columns);
+  const longBody = 'alpha_beta_gamma_delta '.repeat(6).trimEnd();
+  const logical = formatExpandedResult(`900\u2192${longBody}`, { pathArg: 'a.mjs' });
+  assert.equal(logical.length, 1);
+  const physical = wrapExpandedResultLines(logical, columns);
+  assert.ok(physical.length > 1, 'long read line becomes multiple physical rows');
+  for (const row of physical) {
+    assert.ok(
+      stringWidth(stripAnsi(row)) <= maxW,
+      `row width ${stringWidth(stripAnsi(row))} exceeds budget ${maxW}`,
+    );
+  }
+  for (let i = 1; i < physical.length; i++) {
+    assert.ok(/^\s+/.test(stripAnsi(physical[i])), 'wrapped continuations are indented');
+  }
+});
+
+test('expanded markdown prose renders headings and emphasis (not raw #/**)', () => {
+  const md = '# Title\n\nSome **bold** and `inline`.\n';
+  const out = formatExpandedResult(md, {});
+  const visible = out.map(stripAnsi).join('\n');
+  assert.ok(!visible.includes('# Title'), 'ATX heading marker not shown raw');
+  assert.ok(visible.includes('Title'), 'heading text preserved');
+  assert.ok(visible.includes('bold'), 'strong text preserved');
+  assert.ok(!visible.includes('**'), 'emphasis delimiters stripped');
+  assert.ok(out.some((l) => l.includes('\x1b[')), 'markdown path applies theme colors');
+});
+
+test('expanded fenced code in markdown path is highlighted', () => {
+  const md = '```js\nconst x = 1;\n```\n';
+  const out = formatExpandedResult(md, {});
+  const visible = out.map(stripAnsi).join('\n');
+  assert.ok(visible.includes('const x = 1;'), 'fence body preserved');
+  assert.ok(out.some((l) => l.includes('\x1b[')), 'fenced block carries ANSI');
+});
+
+test('read gutter lines skip markdown mode and keep syntax highlight', () => {
+  const read = '1\u2192# not a heading\n2\u2192const y = 2;\n';
+  const out = formatExpandedResult(read, { pathArg: 'a.mjs' });
+  const visible = out.map(stripAnsi);
+  assert.ok(visible.some((l) => l.includes('1\u2192# not a heading')), 'source # kept on read lines');
+  assert.ok(visible.some((l) => l.includes('const y = 2;')), 'read body preserved');
+  assert.ok(out.some((l) => stripAnsi(l).includes('const y = 2;') && l.includes('\x1b[')), 'code line still highlighted');
 });

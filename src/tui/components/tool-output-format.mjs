@@ -12,9 +12,12 @@
  *     dim column, then syntax-highlight the body with the shared markdown
  *     code-block highlighter so colors track the active theme.
  *
- * This module returns ANSI STRINGS (one per visible line). ToolExecution wraps
- * each in an ink <Text>, so the line-number gutter and the rail stay aligned.
+ * This module returns ANSI STRINGS (one per logical line). ToolExecution
+ * runs `wrapExpandedResultLines` so each physical terminal row maps 1:1 to the
+ * left result rail before ink draws the body (no ink `wrap` on expanded rows).
  */
+import stringWidth from 'string-width';
+import stripAnsi from 'strip-ansi';
 import {
   extraColorizers,
   highlightCodeLine,
@@ -22,6 +25,12 @@ import {
   looksLikeUnifiedDiff,
   LANG_FAMILY,
 } from '../markdown/format-token.mjs';
+import { wrapText } from '../markdown/table-layout.mjs';
+import { RESULT_GUTTER } from '../theme.mjs';
+import { hasMarkdownSyntax, renderTokenAnsiSegments } from '../markdown/render-ansi.mjs';
+import { buildTableRender } from '../markdown/table-layout.mjs';
+
+const DEFAULT_MARKDOWN_WIDTH = 80;
 
 // Hard ceilings so a pathological tool result can never lock the render loop.
 // CC uses ~MAX_LINES*width*4 for the collapsed fold; for the EXPANDED body we
@@ -30,13 +39,21 @@ const MAX_EXPANDED_CHARS = 256 * 1024; // 256 KB of text gets per-line processin
 const MAX_EXPANDED_LINES = 4000; // keep at most this many rendered lines
 const MAX_JSON_FORMAT_LENGTH = 10_000; // mirror CC's tryJsonFormatContent cap
 const MAX_HIGHLIGHT_LINE_CHARS = 2000; // skip token-scan on absurdly long lines
+// Lockstep with ToolExecution collapsed fit budget (MIN_RESULT_LINE_CHARS).
+const MIN_EXPANDED_BODY_COLS = 24;
 
 // `<n>→<content>` (read) OR `<n>:<content>` / `<path>:<n>:<content>` (grep).
 const READ_LINE_RE = /^(\s*)(\d+)(\u2192)(.*)$/;
-const GREP_LINE_RE = /^(\s*)((?:[^:\n]*:)?\d+:)(\s?)(.*)$/;
+// Gutter ends with `:<line>:`. Windows absolute paths use `X:\...` so the drive
+// colon must not terminate the path prefix (unlike the old `[^:\n]*:` rule).
+const GREP_LINE_RE = /^(\s*)((?:[A-Za-z]:[\\/](?:[^\n:])*|[^\n:]*):\d+:|\d+:)(\s?)(.*)$/;
 
 // http(s) URLs not wrapped in quotes/brackets/whitespace (conservative).
-const URL_RE = /https?:\/\/[^\s"'<>\\)\]]+/g;
+const URL_RE = /https?:\/\/[^\s"'<>\x1b\\)\]]+/g;
+// CSI SGR and OSC sequences (BEL- or ST-terminated) — linkify plain text only.
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE_RE = /\x1b(?:\[[0-9;]*m|\][\s\S]*?(?:\x07|\x1b\\))/g;
+
 
 /** Infer a highlighter family from a read/grep path arg's extension. */
 export function inferLangFamily(pathArg) {
@@ -51,16 +68,33 @@ export function inferLangFamily(pathArg) {
 export function stripUnderlineAnsi(text) {
   return String(text ?? '').replace(
     // eslint-disable-next-line no-control-regex
-    /\x1b\[(?:[0-9;]*;)?4(?:;[0-9;]*)?m|\x1b\[24m/g,
-    '',
+    /\x1b\[([0-9;]*)m/g,
+    (seq, params) => {
+      if (!params) return seq;
+      const kept = params.split(';').filter((p) => p !== '' && p !== '4' && p !== '24');
+      if (kept.length === 0) return '';
+      return `\x1b[${kept.join(';')}m`;
+    },
   );
 }
 
 /** Wrap bare URLs in OSC 8 hyperlinks (terminals that ignore it show the URL). */
 export function linkifyUrls(text) {
   const src = String(text ?? '');
-  if (src.indexOf('http') === -1) return src;
-  return src.replace(URL_RE, (url) => `\x1b]8;;${url}\x07${url}\x1b]8;;\x07`);
+  if (!/https?:\/\//.test(src)) return src;
+  const chunks = [];
+  let last = 0;
+  for (const match of src.matchAll(ANSI_ESCAPE_RE)) {
+    if (match.index > last) chunks.push(src.slice(last, match.index));
+    chunks.push(match[0]);
+    last = match.index + match[0].length;
+  }
+  if (last < src.length) chunks.push(src.slice(last));
+  return chunks
+    .map((part) => (part.startsWith('\x1b')
+      ? part
+      : part.replace(URL_RE, (url) => `\x1b]8;;${url}\x07${url}\x1b]8;;\x07`)))
+    .join('');
 }
 
 /** Precision-safe JSON pretty-print for a single line; returns input on miss. */
@@ -87,9 +121,66 @@ export function tryFormatJson(text) {
   return src.split('\n').map(tryFormatJsonLine).join('\n');
 }
 
+/** True when the whole body is a JSON object/array (not markdown prose). */
+function isJsonDocument(text) {
+  const t = String(text ?? '').trim();
+  if (!t || (t[0] !== '{' && t[0] !== '[')) return false;
+  try {
+    const parsed = JSON.parse(t);
+    return parsed !== null && typeof parsed === 'object';
+  } catch {
+    return false;
+  }
+}
+
 /** True when text already carries SGR escapes (e.g. shell color output). */
 function hasAnsi(text) {
   return /\x1b\[/.test(String(text ?? ''));
+}
+
+/** True when a line carries a read/grep tool line-number gutter. */
+function lineHasToolGutter(line) {
+  return READ_LINE_RE.test(line) || GREP_LINE_RE.test(line);
+}
+
+/** Read/grep bodies are source lines — never whole-document markdown. */
+function contentHasToolGutters(lines) {
+  for (const line of lines) {
+    if (lineHasToolGutter(line)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whole-result markdown render for prose-y tool output (headings, emphasis,
+ * fences). Skipped for shell/ANSI/diff, read/grep gutters, and non-md path
+ * language inference (those stay per-line syntax highlight).
+ */
+function shouldRenderExpandedMarkdown({ src, lines, carriesAnsi, isShell, diffMode, family }) {
+  if (carriesAnsi || isShell || diffMode) return false;
+  if (isJsonDocument(src)) return false;
+  if (contentHasToolGutters(lines)) return false;
+  if (family && family !== 'md') return false;
+  if (family === 'md') return true;
+  return hasMarkdownSyntax(src);
+}
+
+/** Markdown lexer → one ANSI string per terminal row (tables via table-layout). */
+function formatExpandedMarkdownLines(src, { width = DEFAULT_MARKDOWN_WIDTH } = {}) {
+  const segments = renderTokenAnsiSegments(src, { width });
+  const out = [];
+  for (const seg of segments) {
+    if (seg.type === 'table') {
+      const { lines } = buildTableRender(seg.token, width);
+      for (const line of lines) out.push(linkifyUrls(line));
+      continue;
+    }
+    if (seg.type !== 'ansi' || !seg.ansi) continue;
+    for (const line of String(seg.ansi).split('\n')) {
+      out.push(linkifyUrls(line));
+    }
+  }
+  return out;
 }
 
 /**
@@ -128,7 +219,16 @@ export function formatExpandedResult(text, { pathArg = '', isShell = false } = {
   const diffMode = !carriesAnsi && !isShell && looksLikeUnifiedDiff(src);
   const family = isShell || carriesAnsi ? null : inferLangFamily(pathArg);
 
-  const out = lines.map((line) => formatLine(line, { c, family, diffMode, carriesAnsi, isShell }));
+  let out;
+  if (shouldRenderExpandedMarkdown({ src, lines, carriesAnsi, isShell, diffMode, family })) {
+    out = formatExpandedMarkdownLines(src);
+    if (out.length > MAX_EXPANDED_LINES) {
+      out = out.slice(0, MAX_EXPANDED_LINES);
+      truncatedLines = true;
+    }
+  } else {
+    out = lines.map((line) => formatLine(line, { c, family, diffMode, carriesAnsi, isShell }));
+  }
 
   if (truncatedChars || truncatedLines) {
     out.push(c.synComment('… [output truncated for display — re-read a narrower range]'));
@@ -175,4 +275,91 @@ function highlightBody(body, { c, family, diffMode }) {
   if (diffMode) return colorizeDiffLine(body, c);
   if (family && family !== 'md') return highlightCodeLine(body, family, c);
   return c.body(body);
+}
+
+/** Body text width for expanded tool results (terminal cols minus the ⎿ rail). */
+export function expandedResultBodyWidth(columns = 80) {
+  const cols = Math.max(1, Number(columns) || 80);
+  const budget = cols - stringWidth(RESULT_GUTTER);
+  return Math.max(MIN_EXPANDED_BODY_COLS, budget);
+}
+
+function padDisplaySpaces(width) {
+  const w = Math.max(0, Math.floor(Number(width) || 0));
+  return w ? ' '.repeat(w) : '';
+}
+
+/** Split an ANSI string after `plainTarget` display columns of visible text. */
+function splitAnsiByPlainWidth(text, plainTarget) {
+  const src = String(text ?? '');
+  const target = Math.max(0, Math.floor(Number(plainTarget) || 0));
+  if (!src) return ['', ''];
+  if (target <= 0) return ['', src];
+  let i = 0;
+  let plain = 0;
+  while (i < src.length) {
+    if (plain >= target) break;
+    if (src[i] === '\x1b') {
+      const rest = src.slice(i);
+      const sgr = rest.match(/^\x1b\[[0-9;]*m/);
+      if (sgr) {
+        i += sgr[0].length;
+        continue;
+      }
+      const osc = rest.match(/^\x1b\]8;;[^\x07]*\x07/);
+      if (osc) {
+        i += osc[0].length;
+        continue;
+      }
+    }
+    const cp = src.codePointAt(i);
+    const ch = String.fromCodePoint(cp);
+    plain += stringWidth(ch);
+    i += cp > 0xffff ? 2 : 1;
+  }
+  return [src.slice(0, i), src.slice(i)];
+}
+
+function leadingPrefixPlainWidth(plainLine) {
+  const rm = READ_LINE_RE.exec(plainLine);
+  if (rm) return stringWidth(rm[1] + rm[2] + rm[3]);
+  const gm = GREP_LINE_RE.exec(plainLine);
+  if (gm) return stringWidth(gm[1] + gm[2] + gm[3]);
+  return 0;
+}
+
+function wrapOneExpandedLogicalLine(line, maxWidth) {
+  const src = String(line ?? '');
+  if (!src) return [' '];
+  if (stringWidth(src) <= maxWidth) return [src];
+
+  const prefixPlainW = leadingPrefixPlainWidth(stripAnsi(src));
+  const [prefix, body] = prefixPlainW > 0
+    ? splitAnsiByPlainWidth(src, prefixPlainW)
+    : ['', src];
+  const prefixW = stringWidth(prefix);
+  const bodyBudget = Math.max(1, maxWidth - prefixW);
+  const bodyPieces = wrapText(body, bodyBudget, { hard: true });
+  if (bodyPieces.length <= 1) return [src];
+
+  const out = [];
+  for (let i = 0; i < bodyPieces.length; i++) {
+    if (i === 0) out.push(`${prefix}${bodyPieces[i]}`);
+    else out.push(`${padDisplaySpaces(prefixW)}${bodyPieces[i]}`);
+  }
+  return out;
+}
+
+/**
+ * Turn logical expanded lines into physical rows that fit the body column.
+ * One output row per left-rail row in ToolExecution (lockstep with App row est.).
+ */
+export function wrapExpandedResultLines(logicalLines, columns = 80) {
+  const maxWidth = expandedResultBodyWidth(columns);
+  const lines = Array.isArray(logicalLines) ? logicalLines : [];
+  const out = [];
+  for (const line of lines) {
+    out.push(...wrapOneExpandedLogicalLine(line, maxWidth));
+  }
+  return out.length > 0 ? out : [' '];
 }

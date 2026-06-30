@@ -240,6 +240,41 @@ function useXaiResponsesWebSocket(opts, config) {
     return !['0', 'false', 'off', 'http', 'https', 'responses-http', 'sdk'].includes(transport);
 }
 
+function _envFlag(name, fallback = true) {
+    const raw = process.env[name];
+    if (raw == null || raw === '') return fallback;
+    return !['0', 'false', 'off', 'no'].includes(String(raw).toLowerCase());
+}
+
+function _shouldFallbackXaiWsToHttp(err, signal) {
+    if (!_envFlag('MIXDOG_XAI_WS_HTTP_FALLBACK', true)) return false;
+    if (signal?.aborted) return false;
+    if (err?.liveTextEmitted === true) return false;
+    if (err?.emittedToolCall === true || err?.unsafeToRetry === true) return false;
+    const status = Number(err?.httpStatus || err?.status || 0);
+    if (status === 401 || status === 403 || status === 404 || status === 429) return false;
+    if (status >= 500 && status < 600) return true;
+    const code = String(err?.code || '');
+    if (['EWSACQUIRETIMEOUT', 'ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET', 'EAI_AGAIN', 'ENOTFOUND', 'EAI_NODATA', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE'].includes(code)) {
+        return true;
+    }
+    const classifier = String(err?.retryClassifier || err?.midstreamClassifier || '');
+    if ([
+        'timeout', 'reset', 'dns', 'refused', 'network', 'acquire_timeout', 'http_5xx',
+        'first_byte_timeout', 'first_meaningful_timeout',
+        'ws_1006', 'ws_1011', 'ws_1012', 'ws_1000', 'ws_4000', 'agent_stall', 'stream_stalled',
+        'response_failed_disconnected', 'response_failed_network', 'response_failed_auth_expired',
+        'ws_send_failed',
+    ].includes(classifier)) {
+        return true;
+    }
+    if (/^http_5\d\d$/.test(classifier)) return true;
+    if (err?.firstByteTimeout) return true;
+    if (err?.firstMeaningfulTimeout) return true;
+    const msg = String(err?.message || '');
+    return /opening handshake has timed out|socket hang up|acquire timed out|no first server event|no meaningful output/i.test(msg);
+}
+
 function useXaiResponsesWebSocketWarmup(opts, config, { previousResponseId, instructions, rawTools }) {
     if (previousResponseId) return false;
     const raw = opts?.xaiResponsesWarmup
@@ -1225,7 +1260,34 @@ export class OpenAICompatProvider {
         const opts = sendOpts || {};
         if (this.name === 'xai' && useXaiResponsesApi(opts, this.config)) {
             if (useXaiResponsesWebSocket(opts, this.config)) {
-                return await this._doSendXaiResponsesWebSocket(messages, useModel, tools, opts);
+                try {
+                    return await this._doSendXaiResponsesWebSocket(messages, useModel, tools, opts);
+                } catch (err) {
+                    if (_shouldFallbackXaiWsToHttp(err, opts.signal)) {
+                        const reason = err?.midstreamClassifier || err?.retryClassifier || err?.code || err?.message || 'ws_failed';
+                        process.stderr.write(`[xai:responses] WebSocket unhealthy (${reason}); falling back to HTTP/SSE\n`);
+                        try {
+                            appendAgentTrace({
+                                sessionId: opts?.sessionId || opts?.session?.id || null,
+                                iteration: Number.isFinite(Number(opts?.iteration)) ? Number(opts.iteration) : null,
+                                kind: 'transport_fallback',
+                                provider: 'xai',
+                                model: useModel,
+                                transport: 'http',
+                                payload: {
+                                    from: 'websocket',
+                                    to: 'http',
+                                    reason,
+                                    error_code: err?.code || null,
+                                    error_http_status: Number(err?.httpStatus || 0) || null,
+                                    error_classifier: err?.retryClassifier || err?.midstreamClassifier || null,
+                                },
+                            });
+                        } catch {}
+                        return await this._doSendXaiResponses(messages, useModel, tools, opts);
+                    }
+                    throw err;
+                }
             }
             return await this._doSendXaiResponses(messages, useModel, tools, opts);
         }

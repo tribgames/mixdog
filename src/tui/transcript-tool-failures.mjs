@@ -3,6 +3,8 @@
  * Hook / approval denials are user-actionable and must stay visible in the TUI.
  */
 
+import { parseToolArgs } from '../runtime/shared/tool-surface.mjs';
+
 const HOOK_DENIAL_RE = /denied by hook/i;
 const APPROVAL_UNAVAILABLE_RE = /approval required but no approval UI is available/i;
 
@@ -37,7 +39,7 @@ export function formatHookDenialDetail(text) {
 
 export function isFullyFailedToolBatch(item) {
   if (!item || item.kind !== 'tool') return false;
-  const args = item.args && typeof item.args === 'object' ? item.args : {};
+  const args = parseToolArgs(item.args);
   const hasTaskId = Boolean(args.task_id || args.taskId);
   const status = String(args.status || '').toLowerCase();
   if (hasTaskId && /^(failed|error|timeout|cancelled|canceled|killed)$/.test(status)) {
@@ -56,5 +58,10 @@ export function isFullyFailedToolBatch(item) {
 export function shouldSuppressFullyFailedToolItem(item) {
   if (!isFullyFailedToolBatch(item)) return false;
   if (isHookApprovalDenialToolItem(item)) return false;
-  return true;
+  return !hasUsefulFailedToolResultBody(item);
+}
+
+/** Non-empty result/rawResult text the user can expand and inspect in the transcript. */
+export function hasUsefulFailedToolResultBody(item) {
+  return Boolean(toolItemResultText(item));
 }

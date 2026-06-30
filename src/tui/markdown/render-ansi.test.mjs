@@ -10,22 +10,15 @@ setThemeSetting('mixdog', { persist: false });
 const STREAMING = '```js\nconst x = 1;\n`';
 
 function codeBlockVisibleLines(segments) {
-  // The fenced block is a single ANSI segment; return its visible code body
-  // lines (between the fences).
-  const codeSeg = segments.find(
-    (s) => s.type === 'ansi' && stripAnsi(s.ansi).startsWith('```'),
-  );
+  const codeSeg = segments.find((s) => s.type === 'ansi' && s.token?.type === 'code');
   assert.ok(codeSeg, 'a fenced code segment is rendered');
-  const lines = stripAnsi(codeSeg.ansi).split('\n');
-  // drop opening + closing fence lines
-  return lines;
+  return stripAnsi(codeSeg.ansi).split('\n');
 }
 
 test('streaming render path drops the partial trailing backtick body line', () => {
   const segments = renderTokenAnsiSegments(STREAMING, { trimPartialFences: true });
   const lines = codeBlockVisibleLines(segments);
-  // No body line may be a lone backtick (the partial closing fence).
-  const bodyLines = lines.filter((l) => !/^```/.test(l.trimStart()));
+  const bodyLines = lines.filter((l) => !/^js$/.test(l.trim()));
   for (const l of bodyLines) {
     assert.notEqual(l.trim(), '`', 'no body line is a lone partial fence');
   }
@@ -37,7 +30,7 @@ test('without trimPartialFences the partial backtick survives as a body line', (
   // Proves the trim flag is what removes it on the render path (not formatToken).
   const segments = renderTokenAnsiSegments(STREAMING, { trimPartialFences: false });
   const lines = codeBlockVisibleLines(segments);
-  const bodyLines = lines.filter((l) => !/^```/.test(l.trimStart()));
+  const bodyLines = lines.filter((l) => !/^js$/.test(l.trim()));
   assert.ok(
     bodyLines.some((l) => l.trim() === '`'),
     'untrimmed path keeps the partial fence as a body line',
@@ -55,11 +48,12 @@ test('trimPartialFences tokens are not cached (stable text unaffected)', () => {
   assert.notStrictEqual(c, d, 'streaming lex is never cached');
 });
 
-test('closed code block renders both fences and the body intact', () => {
+test('closed code block renders lang label and body without fence markers', () => {
   const segments = renderTokenAnsiSegments('```js\nconst z = 3;\n```\n', { trimPartialFences: true });
   const lines = codeBlockVisibleLines(segments);
   assert.ok(lines.some((l) => l.includes('const z = 3;')), 'body present');
-  assert.equal(lines.filter((l) => /^```/.test(l.trimStart())).length, 2, 'open + close fences');
+  assert.ok(lines.some((l) => l.trim() === 'js'), 'language label present');
+  assert.ok(!lines.some((l) => l.includes('```')), 'no literal fence markers');
 });
 
 const PLAIN_PREFIX = 'x'.repeat(501);

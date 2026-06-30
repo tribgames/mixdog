@@ -30,6 +30,7 @@ import {
 } from '../stall-policy.mjs';
 import {
     classifyError,
+    midstreamBackoffFor,
     retryAfterMsFromError,
     withRetry,
 } from './retry-classifier.mjs';
@@ -44,6 +45,9 @@ import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
 // SSE progress emits (per-request "Response …" and "Done:" lines). Off by default.
 const SSE_VERBOSE = process.env.MIXDOG_SSE_VERBOSE === '1';
+
+/** Bounded mid-stream SSE retries (transient stream loss); shared with anthropic.mjs. */
+export const ANTHROPIC_MAX_MIDSTREAM_RETRIES = 3;
 
 function formatRetryAfter(ms) {
     const n = Number(ms);
@@ -885,6 +889,27 @@ function _captureMidstreamAbort(state, reason) {
     }
 }
 
+async function _midstreamSleepWithAbort(ms, signal) {
+    if (!ms) return;
+    if (!signal) {
+        await new Promise((r) => setTimeout(r, ms));
+        return;
+    }
+    await new Promise((resolve, reject) => {
+        const t = setTimeout(() => {
+            try { signal.removeEventListener('abort', onAbort); } catch {}
+            resolve();
+        }, ms);
+        const onAbort = () => {
+            clearTimeout(t);
+            const reason = signal.reason;
+            reject(reason instanceof Error ? reason : new Error('Anthropic OAuth mid-stream retry backoff aborted'));
+        };
+        if (signal.aborted) { onAbort(); return; }
+        signal.addEventListener('abort', onAbort, { once: true });
+    });
+}
+
 function _statusForAnthropicSseError(type, message) {
     const kind = String(type || '').toLowerCase();
     const text = String(message || '').toLowerCase();
@@ -1235,7 +1260,7 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
  */
 export function _classifyMidstreamError(err, state) {
     if (!state) return null;
-    if ((state.attemptIndex | 0) >= 1) return null;
+    if ((state.attemptIndex | 0) >= ANTHROPIC_MAX_MIDSTREAM_RETRIES) return null;
     if (state.sawCompleted) return null;
     if (!state.sawMessageStart) return null;
     if (state.userAbort) return null;
@@ -1685,9 +1710,9 @@ export class AnthropicOAuthProvider {
                 } catch {}
             },
         });
-        // One retry only: enough to recover transient stream loss without
-        // quietly replaying long-running work multiple times.
-        const MAX_MIDSTREAM_RETRIES = 1;
+        // Bounded mid-stream retries for transient stream loss; jittered backoff
+        // between attempts (see catch branches).
+        const MAX_MIDSTREAM_RETRIES = ANTHROPIC_MAX_MIDSTREAM_RETRIES;
         let firstAttemptError = null;
         let firstAttemptClassifier = null;
 
@@ -1846,6 +1871,7 @@ export class AnthropicOAuthProvider {
                     firstAttemptClassifier = 'empty_stream';
                     try { controller?.abort?.(err); } catch { /* best-effort teardown */ }
                     try { process.stderr.write(`[anthropic-oauth] empty stream (no message_start) — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES}\n`); } catch {}
+                    await _midstreamSleepWithAbort(midstreamBackoffFor(attemptIndex + 1), totalSignal);
                     continue;
                 }
                 if (classifyError(err) === 'transient'
@@ -1858,6 +1884,7 @@ export class AnthropicOAuthProvider {
                     try {
                         process.stderr.write(`[anthropic-oauth] transient SSE error — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES} (${err?.providerErrorType || err?.message || 'unknown'})\n`);
                     } catch {}
+                    await _midstreamSleepWithAbort(midstreamBackoffFor(attemptIndex + 1), totalSignal);
                     continue;
                 }
                 // Truncated stream (message_start without message_stop): the
@@ -1879,6 +1906,7 @@ export class AnthropicOAuthProvider {
                     firstAttemptClassifier = 'truncated_stream';
                     try { controller?.abort?.(err); } catch { /* best-effort teardown */ }
                     try { process.stderr.write(`[anthropic-oauth] truncated stream — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES}\n`); } catch {}
+                    await _midstreamSleepWithAbort(midstreamBackoffFor(attemptIndex + 1), totalSignal);
                     continue;
                 }
                 const classifier = _classifyMidstreamError(err, midState);
@@ -1892,6 +1920,7 @@ export class AnthropicOAuthProvider {
                     try {
                         process.stderr.write(`[anthropic-oauth] mid-stream recovered: retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES} (cause: ${classifier})\n`);
                     } catch {}
+                    await _midstreamSleepWithAbort(midstreamBackoffFor(attemptIndex + 1), totalSignal);
                     continue;
                 }
                 if (attemptIndex > 0 && firstAttemptError) {

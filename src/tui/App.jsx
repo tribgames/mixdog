@@ -30,7 +30,7 @@ import { classifyToolCategory, formatToolSurface, normalizeToolName, parseToolAr
 import { isBackgroundErrorOnlyBody } from '../runtime/shared/err-text.mjs';
 import { AssistantMessage, UserMessage, ThinkingMessage, NoticeMessage } from './components/Message.jsx';
 import { ToolExecution } from './components/ToolExecution.jsx';
-import { formatExpandedResult } from './components/tool-output-format.mjs';
+import { formatExpandedResult, wrapExpandedResultLines } from './components/tool-output-format.mjs';
 import { Spinner } from './components/Spinner.jsx';
 import { StatusDone, TurnDone } from './components/TurnDone.jsx';
 import { StatusLine } from './components/StatusLine.jsx';
@@ -887,11 +887,12 @@ function isShellSurfaceForRows(normalizedName) {
 // (truncation marker), so the row estimate MUST run the SAME pipeline — counting
 // the raw `split('\n')` would desync windowing/scroll the moment the measured
 // path replaces the estimate. Pass pathArg/isShell so the count matches exactly.
-function estimateToolRenderedResultRows(value, { pathArg = '', isShell = false } = {}) {
+function estimateToolRenderedResultRows(value, { pathArg = '', isShell = false, columns = 80 } = {}) {
   const text = String(value ?? '').replace(/\s+$/, '');
   if (!text) return 1;
   try {
-    const rows = formatExpandedResult(text, { pathArg, isShell }).length;
+    const logical = formatExpandedResult(text, { pathArg, isShell });
+    const rows = wrapExpandedResultLines(logical, columns).length;
     return Math.max(1, rows);
   } catch {
     return Math.max(1, text.split('\n').length);
@@ -963,7 +964,7 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
         const rawOpts = item.aggregate
           ? {}
           : { pathArg: toolArgPathForRows(item), isShell: isShellSurfaceForRows(normalizedName) };
-        return TOOL_MARGIN_TOP + 1 + estimateToolRenderedResultRows(rawRt, rawOpts);
+        return TOOL_MARGIN_TOP + 1 + estimateToolRenderedResultRows(rawRt, { ...rawOpts, columns });
       }
       // Expanded agent card with no raw body to reveal: ToolExecution still
       // shows one agent-brief detail line, so margin + header + one detail row.
@@ -976,7 +977,7 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
         // expanded cards only show multiline raw output when a rawResult exists;
         // otherwise the normal detail/result is fitted into a single detail row.
         if (hasRawResult) {
-          const resultRows = estimateToolRenderedResultRows(rawRt);
+          const resultRows = estimateToolRenderedResultRows(rawRt, { columns });
           return TOOL_MARGIN_TOP + 1 + resultRows;
         }
         return TOOL_MARGIN_TOP + 1 + 1;
@@ -999,6 +1000,7 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
         const resultRows = estimateToolRenderedResultRows(resultText, {
           pathArg: toolArgPathForRows(item),
           isShell: isShellSurfaceForRows(normalizedName),
+          columns,
         });
         return TOOL_MARGIN_TOP + 1 + resultRows;
       }

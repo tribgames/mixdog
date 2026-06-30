@@ -12,6 +12,37 @@ function findSummary(messages) {
   return messages.find((m) => m?.role === 'user' && typeof m.content === 'string' && m.content.startsWith(SUMMARY_PREFIX));
 }
 
+function previousSummaryBlock(prompt) {
+  const open = '<previous-summary>';
+  const close = '</previous-summary>';
+  const start = String(prompt || '').indexOf(open);
+  if (start < 0) return '';
+  const end = String(prompt || '').indexOf(close, start + open.length);
+  if (end < 0) return '';
+  return String(prompt).slice(start + open.length, end);
+}
+
+function criticalContextBody(summaryText) {
+  const text = String(summaryText || '');
+  const idx = text.indexOf('## Critical Context');
+  if (idx < 0) return '';
+  const after = text.slice(idx + '## Critical Context'.length);
+  const next = after.search(/\n##\s+/);
+  return (next < 0 ? after : after.slice(0, next)).trim();
+}
+
+function hasNonPlaceholderCriticalContext(summaryText) {
+  const body = criticalContextBody(summaryText);
+  if (!body) return false;
+  return body.split('\n').map((line) => line.trim()).filter(Boolean).some((line) => !/^-\s*\(none\)\s*$/i.test(line));
+}
+
+function priorBlockRetainsSentinelOrContext(prompt, sentinel) {
+  const block = previousSummaryBlock(prompt);
+  if (!block) return false;
+  return block.includes(sentinel) || hasNonPlaceholderCriticalContext(block);
+}
+
 const bootstrapContextMessages = [
   { role: 'system', content: 'base rules stay exact' },
   { role: 'system', content: 'role/system rules stay exact' },
@@ -523,6 +554,119 @@ const repeatedSemantic = await semanticCompactMessages(semanticProvider, repeate
 const repeatedSummaries = repeatedSemantic.messages.filter((m) => m?.role === 'user' && typeof m.content === 'string' && m.content.startsWith(SUMMARY_PREFIX));
 assert(repeatedSummaries.length === 1, 'repeated compaction must emit exactly one summary message');
 assert(!repeatedSemantic.messages.some((m) => m?.role === 'user' && m.content === priorSummaryBody), 'old summary must not remain as a separate live user message');
+
+// Huge prior summary must degrade to fit the compaction provider prompt budget.
+const PRIOR_PROMPT_FIT_SENTINEL = 'PRIOR_PROMPT_FIT_SENTINEL_keep_me';
+const hugePriorSummaryBody = `${SUMMARY_PREFIX}\nmessages=1 sha256=hugeprior roles=user:1\n## Goal\n- huge prior goal\n## Critical Context\n- ${PRIOR_PROMPT_FIT_SENTINEL}\n` + '\n## Progress\n- ' + 'p'.repeat(250_000);
+let hugePriorPromptCalls = 0;
+let hugePriorPrompt = '';
+const hugePriorProvider = {
+  name: 'huge-prior-prompt-smoke',
+  async send(sentMessages) {
+    hugePriorPromptCalls += 1;
+    hugePriorPrompt = sentMessages.map((mm) => (typeof mm?.content === 'string' ? mm.content : JSON.stringify(mm?.content ?? ''))).join('\n');
+    return { content: '## Goal\n- continue after huge prior\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- merged huge prior\n\n### In Progress\n- (none)\n\n### Blocked\n- (none)\n\n## Key Decisions\n- (none)\n\n## Next Steps\n- continue\n\n## Critical Context\n- huge prior merged\n\n## Relevant Files\n- compact.mjs' };
+  },
+};
+const hugePriorMessages = [
+  { role: 'system', content: 'system rules stay mandatory' },
+  { role: 'user', content: hugePriorSummaryBody },
+  { role: 'user', content: 'fresh request after huge prior summary' },
+  { role: 'assistant', content: 'fresh answer' },
+];
+const hugePriorResult = await semanticCompactMessages(hugePriorProvider, hugePriorMessages, 'fake-model', 6_000, {
+  tailTurns: 1,
+  force: true,
+  preserveRecentTokens: 400,
+});
+assert(hugePriorPromptCalls === 1, 'huge prior summary must not fail compaction prompt fit before provider call');
+assert(hugePriorResult.semantic === true, 'huge prior summary compaction should succeed');
+assert(
+  priorBlockRetainsSentinelOrContext(hugePriorPrompt, PRIOR_PROMPT_FIT_SENTINEL),
+  'degraded <previous-summary> block must retain sentinel or non-placeholder Critical Context',
+);
+assert(findSummary(hugePriorResult.messages), 'huge prior summary compaction should insert an anchored summary');
+
+// Huge unstructured/legacy prior summary must repair into schema shape and retain
+// a sentinel in the fitted compaction provider prompt (not all - (none)).
+const UNSTRUCT_PRIOR_SENTINEL = 'UNSTRUCT_PRIOR_SENTINEL_keep';
+const hugeUnstructPriorBody = `${SUMMARY_PREFIX}\nmessages=1 sha256=unstruct roles=user:1\nrecall fasttrack legacy chunk ${UNSTRUCT_PRIOR_SENTINEL}\n` + 'blob '.repeat(80_000);
+let hugeUnstructPromptCalls = 0;
+let hugeUnstructPrompt = '';
+const hugeUnstructProvider = {
+  name: 'huge-unstruct-prior-smoke',
+  async send(sentMessages) {
+    hugeUnstructPromptCalls += 1;
+    hugeUnstructPrompt = sentMessages.map((mm) => (typeof mm?.content === 'string' ? mm.content : JSON.stringify(mm?.content ?? ''))).join('\n');
+    return { content: '## Goal\n- continue after unstructured prior\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- merged unstructured prior\n\n### In Progress\n- (none)\n\n### Blocked\n- (none)\n\n## Key Decisions\n- (none)\n\n## Next Steps\n- continue\n\n## Critical Context\n- unstructured prior merged\n\n## Relevant Files\n- compact.mjs' };
+  },
+};
+const hugeUnstructMessages = [
+  { role: 'system', content: 'system rules stay mandatory' },
+  { role: 'user', content: hugeUnstructPriorBody },
+  { role: 'user', content: 'fresh request after unstructured prior summary' },
+  { role: 'assistant', content: 'fresh answer' },
+];
+const hugeUnstructResult = await semanticCompactMessages(hugeUnstructProvider, hugeUnstructMessages, 'fake-model', 6_000, {
+  tailTurns: 1,
+  force: true,
+  preserveRecentTokens: 400,
+});
+assert(hugeUnstructPromptCalls === 1, 'huge unstructured prior must not fail compaction prompt fit before provider call');
+assert(hugeUnstructResult.semantic === true, 'huge unstructured prior compaction should succeed');
+assert(
+  priorBlockRetainsSentinelOrContext(hugeUnstructPrompt, UNSTRUCT_PRIOR_SENTINEL),
+  'unstructured <previous-summary> block must retain sentinel or non-placeholder Critical Context',
+);
+
+// Leading-spaced headings must parse like validation (not collapse to all - (none)).
+const LEADING_SPACE_SENTINEL = 'LEADING_SPACE_SENTINEL_keep';
+const leadingSpacePriorBody = `${SUMMARY_PREFIX}\nmessages=1 sha256=lead roles=user:1\n ## Goal\n- ${LEADING_SPACE_SENTINEL}\n ## Critical Context\n- leading-space context\n` + 'z'.repeat(120_000);
+let leadingSpacePromptCalls = 0;
+let leadingSpacePrompt = '';
+const leadingSpaceProvider = {
+  name: 'leading-space-prior-smoke',
+  async send(sentMessages) {
+    leadingSpacePromptCalls += 1;
+    leadingSpacePrompt = sentMessages.map((mm) => (typeof mm?.content === 'string' ? mm.content : JSON.stringify(mm?.content ?? ''))).join('\n');
+    return { content: '## Goal\n- continue after leading-space prior\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- merged\n\n### In Progress\n- (none)\n\n### Blocked\n- (none)\n\n## Key Decisions\n- (none)\n\n## Next Steps\n- continue\n\n## Critical Context\n- leading-space merged\n\n## Relevant Files\n- compact.mjs' };
+  },
+};
+const leadingSpaceMessages = [
+  { role: 'system', content: 'system rules stay mandatory' },
+  { role: 'user', content: leadingSpacePriorBody },
+  { role: 'user', content: 'fresh request after leading-space prior summary' },
+  { role: 'assistant', content: 'fresh answer' },
+];
+const leadingSpaceResult = await semanticCompactMessages(leadingSpaceProvider, leadingSpaceMessages, 'fake-model', 6_000, {
+  tailTurns: 1,
+  force: true,
+  preserveRecentTokens: 400,
+});
+assert(leadingSpacePromptCalls === 1, 'leading-space prior must not fail compaction prompt fit before provider call');
+assert(leadingSpaceResult.semantic === true, 'leading-space prior compaction should succeed');
+assert(
+  priorBlockRetainsSentinelOrContext(leadingSpacePrompt, LEADING_SPACE_SENTINEL),
+  'leading-space prior <previous-summary> block must retain sentinel or non-placeholder Critical Context',
+);
+
+// Extra unrecognized heading in an otherwise schema-complete provider summary must
+// be repaired and routed into Critical Context rather than dropped.
+const EXTRA_HEADING_SENTINEL = 'EXTRA_HEADING_SENTINEL_keep';
+let extraHeadingCalls = 0;
+const extraHeadingProvider = {
+  name: 'extra-heading-smoke',
+  async send() {
+    extraHeadingCalls += 1;
+    return { content: `## Goal\n- ship\n\n## Constraints & Preferences\n- (none)\n\n## Progress\n### Done\n- x\n\n### In Progress\n- (none)\n\n### Blocked\n- (none)\n\n## Key Decisions\n- (none)\n\n## Next Steps\n- go\n\n## Mystery Notes\n- ${EXTRA_HEADING_SENTINEL}\n\n## Critical Context\n- (none)\n\n## Relevant Files\n- compact.mjs` };
+  },
+};
+const extraHeadingResult = await semanticCompactMessages(extraHeadingProvider, semanticMessages, 'fake-model', 5_000, { tailTurns: 1, force: true });
+assert(extraHeadingCalls === 1, 'extra-heading semantic compact should call the provider once');
+assert(extraHeadingResult.summaryRepaired === true, 'extra unrecognized heading should force summary repair');
+const extraHeadingSummaryMsg = findSummary(extraHeadingResult.messages);
+assert(extraHeadingSummaryMsg, 'extra-heading repair should still insert an anchored summary');
+assert(extraHeadingSummaryMsg.content.includes(EXTRA_HEADING_SENTINEL), 'unrecognized heading body must route into repaired Critical Context');
 
 // Recall fast-track merges prior compacted summary when recallText lacks prior facts.
 const OLD_CRITICAL_CONTEXT = 'OLD_CRITICAL_CONTEXT_from_prior_summary';
