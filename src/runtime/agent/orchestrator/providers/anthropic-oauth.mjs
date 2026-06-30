@@ -1091,6 +1091,12 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
                     if (event.type === 'content_block_delta') {
                         const delta = event.delta;
                         if (delta?.type) contentBlockTypes.add(delta.type);
+                        // Time-to-first-token: stamp the first content delta
+                        // (text / thinking / tool input_json) exactly once so
+                        // the SSE trace can separate first-byte latency from
+                        // total stream/generation time. Without this stamp
+                        // ttftMs was always null and reported as 0ms.
+                        if (state && !state.ttftAt) state.ttftAt = Date.now();
                         if (delta?.type === 'text_delta') {
                             content += delta.text || '';
                             try { onStreamDelta?.(); } catch {}
