@@ -1669,6 +1669,9 @@ export async function createEngineSession({
     let thinkingSegmentStartedAt = 0;
     let accumulatedThinkingMs = 0;
     let cancelled = false;
+    let askResult = null;
+    let turnFinishedNormally = false;
+    const itemsAtTurnStart = state.items.length;
     const cardByCallId = new Map();
     const toolCards = [];
     const toolGroups = new Map();
@@ -2316,6 +2319,7 @@ export async function createEngineSession({
           }
         },
       });
+      askResult = result;
       markPromptCommitted();
 
       flushToolResults(session?.messages || [], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
@@ -2338,7 +2342,7 @@ export async function createEngineSession({
         const streamedText = currentAssistantText || assistantText;
         patchItem(currentAssistantId, { text: streamedText, streaming: false });
       }
-      state.stats.turns = (state.stats.turns || 0) + 1;
+      turnFinishedNormally = true;
     } catch (error) {
       flushStreamBatch(); // ensure any batched text lands before the error notice
       if (error?.name === 'SessionClosedError') {
@@ -2368,6 +2372,7 @@ export async function createEngineSession({
         if (last) flushDeferredUpTo(last);
         clearDeferredTimers();
       }
+      const producedTranscriptItem = state.items.length > itemsAtTurnStart;
       const reclaimed = cancelled && activePromptRestore?.reclaimed === true;
       activePromptRestore = null;
       closeThinkingSegment();
@@ -2375,11 +2380,23 @@ export async function createEngineSession({
       const thinkingElapsedMs = thinkingStartedAt ? accumulatedThinkingMs : 0;
       const finalOutputTokens = Math.max(0, Number(state.spinner?.outputTokens || 0), Math.round(Number(state.spinner?.responseLength || 0) / 4));
       const turnStatus = cancelled ? 'cancelled' : 'done';
+      const resultContent = askResult?.content != null ? String(askResult.content).trim() : '';
+      const assistantOutput = (currentAssistantText || assistantText || '').trim();
+      // Suppress only true pending-resume no-ops: no transcript items added and no model output; cancelled/error turns and any visible turn stay marked.
+      const isNoOpTurn = turnFinishedNormally
+        && !cancelled
+        && toolCards.length === 0
+        && !resultContent
+        && !assistantOutput
+        && !producedTranscriptItem;
+      if (!isNoOpTurn) {
+        state.stats.turns = (state.stats.turns || 0) + 1;
+      }
       // Pin the post-think summary into the transcript right after this turn's
       // output so it scrolls up with the answer and stays in the scrollback,
       // in scrollback. (Previously TurnDone rendered only in the
       // bottom-fixed live-status slot and vanished on the next turn.)
-      if (!reclaimed) {
+      if (!reclaimed && !isNoOpTurn) {
         pushItem({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus, outputTokens: finalOutputTokens, thinkingElapsedMs, verb: pickDoneVerb(turnIndex) });
       }
       set({

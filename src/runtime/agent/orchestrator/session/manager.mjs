@@ -2722,10 +2722,6 @@ function sessionModelDisplay(model) {
         .replace(/(?:^|-)([a-z])/g, (m) => m.toUpperCase());
 }
 
-function sessionShellDisplay() {
-    return process.platform === 'win32' ? 'powershell' : 'bash';
-}
-
 function buildSessionStartBlock(session, cwd) {
     if (!session || session.owner === 'agent') return '';
     const lines = ['# Session'];
@@ -2739,7 +2735,6 @@ function buildSessionStartBlock(session, cwd) {
     if (modelBits.length) lines.push(`Model: ${modelBits.join(' · ')}`);
     const workflowName = String(session.workflow?.name || session.workflow?.id || '').trim();
     if (workflowName) lines.push(`Workflow: ${workflowName}`);
-    lines.push(`Shell: ${sessionShellDisplay()}`);
     return lines.length > 1 ? lines.join('\n') : '';
 }
 

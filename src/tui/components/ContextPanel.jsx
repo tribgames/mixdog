@@ -225,7 +225,7 @@ function ContextUsageView({ detail, columns }) {
   );
 }
 
-export function ContextPanel({ rows, title = 'Context Usage', columns = 80, fillHeight = false, detail = null }) {
+export function ContextPanel({ rows, title = 'Context Usage', columns = 80, fillHeight = false, detail = null, description = '' }) {
   const safeRows = Array.isArray(rows) ? rows : [];
   const labelWidth = Math.min(
     safeRows.reduce((w, row) => Math.max(w, String(row.label || '').length), 0),
@@ -233,6 +233,11 @@ export function ContextPanel({ rows, title = 'Context Usage', columns = 80, fill
   );
   const valueWidth = Math.max(0, columns - labelWidth - 8);
   const isContextUsage = detail?.type === 'context';
+  // Standard panel rhythm: title row, blank, description/hint row, blank, content.
+  const panelDescription = truncateText(
+    String(description || (isContextUsage ? 'Live context window usage by category.' : '')).replace(/\s+/g, ' ').trim(),
+    Math.max(0, columns - 4),
+  );
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%" height={fillHeight ? '100%' : undefined}>
@@ -244,10 +249,13 @@ export function ContextPanel({ rows, title = 'Context Usage', columns = 80, fill
         width="100%"
         height={fillHeight ? '100%' : undefined}
       >
-        <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
+        <Box flexDirection="row" justifyContent="space-between">
           <Text color={theme.panelTitle}>{title}</Text>
           <Text color={theme.subtle}>Esc back</Text>
         </Box>
+        <Text> </Text>
+        <Text color={theme.subtle}>{panelDescription || ' '}</Text>
+        <Text> </Text>
         {isContextUsage ? (
           <ContextUsageView detail={detail} columns={columns} />
         ) : (

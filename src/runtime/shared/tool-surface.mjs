@@ -1,4 +1,6 @@
 const DEFAULT_SUMMARY_MAX = 160;
+// Semantic cap for collapsed agent/task card one-liners (spawn, send, response).
+export const AGENT_SURFACE_BRIEF_MAX = 120;
 const STATUS_SEPARATOR = ' · ';
 
 export function stripToolPrefix(name) {
@@ -629,8 +631,8 @@ function formatLineDelta(totals) {
   const removed = Number(totals.removed) || 0;
   if (added === 0 && removed === 0) return '';
   const parts = [];
-  if (added > 0) parts.push(`+${added} ${pluralize(added, 'Line')}`);
-  if (removed > 0) parts.push(`-${removed} ${pluralize(removed, 'Line')}`);
+  if (added > 0) parts.push(`+${added} ${pluralize(added, 'line')}`);
+  if (removed > 0) parts.push(`-${removed} ${pluralize(removed, 'line')}`);
   return parts.join(STATUS_SEPARATOR);
 }
 
@@ -733,7 +735,7 @@ function firstAgentResultLine(text) {
     if (/^<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
     if (/^(?:agent task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|notification|queueDepth):\s*/i.test(trimmed)) continue;
     if (/^\[[a-z-]+:\s*[^\]]*\]$/i.test(trimmed)) continue;
-    return truncateSingleLine(trimmed, 120);
+    return truncateSingleLine(trimmed, AGENT_SURFACE_BRIEF_MAX);
   }
   return '';
 }
@@ -746,14 +748,14 @@ function summarizeGenericResult(text) {
   if (/^[\[{]/.test(trimmed)) {
     try {
       const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return `${parsed.length} ${pluralize(parsed.length, 'Item')}`;
+      if (Array.isArray(parsed)) return `${parsed.length} ${pluralize(parsed.length, 'item')}`;
       if (parsed && typeof parsed === 'object') {
         const status = firstText(parsed.status, parsed.state, parsed.result, parsed.message);
         if (status) return truncateSingleLine(titleStatus(status), 120);
         if (parsed.cwd) return truncateSingleLine(parsed.cwd, 120);
         if (typeof parsed.ok === 'boolean') return parsed.ok ? 'Ok' : 'Failed';
         for (const key of ['items', 'results', 'resources', 'templates', 'providers', 'schedules', 'channels', 'tools']) {
-          if (Array.isArray(parsed[key])) return `${parsed[key].length} ${pluralize(parsed[key].length, titleWord(key.slice(0, -1) || 'Item'))}`;
+          if (Array.isArray(parsed[key])) return `${parsed[key].length} ${pluralize(parsed[key].length, (key.slice(0, -1) || 'item').toLowerCase())}`;
         }
       }
     } catch {
@@ -789,7 +791,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       if (/^\[image:/i.test(trimmed)) return 'Image';
       if (!trimmed) return null;
       const n = text.split('\n').length;
-      return `${n} ${pluralize(n, 'Line')}`;
+      return `${n} ${pluralize(n, 'line')}`;
     }
     case 'apply_patch': {
       const updateSummary = summarizeUpdateResult(text, args);
@@ -817,26 +819,26 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       if (!trimmed || !looksLineOriented(text)) return null;
       const n = countNonEmptyLines(text);
       if (n === 0) return null;
-      return `${n} ${pluralize(n, 'Match', 'Matches')}`;
+      return `${n} ${pluralize(n, 'match', 'matches')}`;
     }
     case 'glob': {
       if (!trimmed || !looksLineOriented(text)) return null;
       const n = countNonEmptyLines(text);
       if (n === 0) return null;
-      return `${n} ${pluralize(n, 'File')}`;
+      return `${n} ${pluralize(n, 'file')}`;
     }
     case 'find': {
       if (!trimmed || !looksLineOriented(text)) return null;
       const n = countNonEmptyLines(text);
       if (n === 0) return null;
-      return `${n} ${pluralize(n, 'Candidate')}`;
+      return `${n} ${pluralize(n, 'candidate')}`;
     }
     case 'list':
     case 'ls': {
       if (!trimmed || !looksLineOriented(text)) return null;
       const n = countNonEmptyLines(text);
       if (n === 0) return null;
-      return `${n} ${pluralize(n, 'Entry', 'Entries')}`;
+      return `${n} ${pluralize(n, 'entry', 'entries')}`;
     }
     case 'shell':
     case 'bash':
@@ -859,7 +861,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     }
     case 'code_graph': {
       const match = /(\d+)\s+(references|definitions|symbols|callers|callees|results|matches)/i.exec(text);
-      if (match) return `${match[1]} ${titleWord(match[2])}`;
+      if (match) return `${match[1]} ${String(match[2]).toLowerCase()}`;
       return null;
     }
     case 'web_fetch':
@@ -880,7 +882,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       const match = /(\d+)\s+results?/i.exec(text);
       if (match) {
         const n = Number(match[1]);
-        return `${n} ${pluralize(n, 'Result')}`;
+        return `${n} ${pluralize(n, 'result')}`;
       }
       return null;
     }
@@ -891,7 +893,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       const match = /(\d+)\s+results?/i.exec(text);
       if (match) {
         const n = Number(match[1]);
-        return `${n} ${pluralize(n, 'Result')}`;
+        return `${n} ${pluralize(n, 'result')}`;
       }
       return trimmed ? firstAgentResultLine(text) || null : null;
     }
@@ -932,9 +934,9 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       const target = firstText(parsedArgs.name, parsedArgs.skill, parsedArgs.skill_name);
       if (normalized === 'skills_list') {
         const count = /(\d+)\s+skills?/i.exec(text);
-        if (count) return `${Number(count[1]) || count[1]} ${pluralize(Number(count[1]) || 0, 'Skill')}`;
+        if (count) return `${Number(count[1]) || count[1]} ${pluralize(Number(count[1]) || 0, 'skill')}`;
         const lines = countNonEmptyLines(text);
-        return lines > 0 ? `${lines} ${pluralize(lines, 'Skill')}` : null;
+        return lines > 0 ? `${lines} ${pluralize(lines, 'skill')}` : null;
       }
       if (target) {
         const verb = normalized === 'skill' || normalized === 'skill_view' ? 'Loaded' : 'Used';
@@ -954,15 +956,13 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
         const a = agentsCount ? Number(agentsCount[1]) : 0;
         const t = tasksCount ? Number(tasksCount[1]) : 0;
         const parts = [];
-        if (agentsCount) parts.push(`${a} ${pluralize(a, 'Agent')}`);
-        if (tasksCount && t > 0) parts.push(`${t} ${pluralize(t, 'Task')}`);
+        if (agentsCount) parts.push(`${a} ${pluralize(a, 'agent')}`);
+        if (tasksCount && t > 0) parts.push(`${t} ${pluralize(t, 'task')}`);
         return compactParts(parts) || 'No agents or tasks';
       }
       const answerLine = firstAgentResultLine(text);
-      // Agent/task result cards show only a tight one-liner: the full report is
-      // available via ctrl+o expand. Strip inline markdown and cap shorter than
-      // the generic 120 so the header stays compact.
-      if (answerLine) return truncateSingleLine(stripInlineMarkdown(answerLine), 64);
+      // Agent/task result cards show only a one-liner; full report via ctrl+o.
+      if (answerLine) return truncateSingleLine(stripInlineMarkdown(answerLine), AGENT_SURFACE_BRIEF_MAX);
       const task = /^agent task:\s*(\S+)/mi.exec(text);
       const status = /^status:\s*([^\s(]+)/mi.exec(text);
       const role = /^role:\s*(.+)$/mi.exec(text);
@@ -994,9 +994,6 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
 export function isExplorerSurface(label) {
   return label === 'Read' || label === 'Search';
 }
-
-// Max width for the one-line agent/task surface brief shown on the card header.
-export const AGENT_SURFACE_BRIEF_MAX = 40;
 
 function truncateAgentSurfaceBrief(value, max = AGENT_SURFACE_BRIEF_MAX) {
   const text = String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -1425,13 +1422,13 @@ export function formatAggregateDetail(summaries) {
 
     let match = /^(?:Read\s+)?(\d+)\s+lines?$/i.exec(text);
     if (match) {
-      const metric = addMetric('read_lines', { count: 0, render: (m) => `${m.count} ${pluralize(m.count, 'Line')}` });
+      const metric = addMetric('read_lines', { count: 0, render: (m) => `${m.count} ${pluralize(m.count, 'line')}` });
       metric.count += Number(match[1]);
       continue;
     }
 
     if (/^(?:Read\s+)?image$/i.test(text)) {
-      const metric = addMetric('read_images', { count: 0, render: (m) => `${m.count} ${pluralize(m.count, 'Image')}` });
+      const metric = addMetric('read_images', { count: 0, render: (m) => `${m.count} ${pluralize(m.count, 'image')}` });
       metric.count += 1;
       continue;
     }
@@ -1442,7 +1439,7 @@ export function formatAggregateDetail(summaries) {
       const singular = nounRaw.endsWith('ies') ? `${nounRaw.slice(0, -3)}y` : nounRaw.endsWith('s') ? nounRaw.slice(0, -1) : nounRaw;
       const plural = nounRaw.endsWith('s') ? nounRaw : `${nounRaw}s`;
       const key = `found_${plural}`;
-      const metric = addMetric(key, { count: 0, singular, plural, render: (m) => `${m.count} ${pluralize(m.count, titleWord(m.singular), titleWord(m.plural))}` });
+      const metric = addMetric(key, { count: 0, singular, plural, render: (m) => `${m.count} ${pluralize(m.count, m.singular, m.plural)}` });
       metric.count += Number(match[1]);
       continue;
     }
@@ -1473,7 +1470,7 @@ export function formatAggregateDetail(summaries) {
           if (delta) return delta;
           const count = m.fileCount + m.files.size;
           const action = m.actions.size === 1 ? [...m.actions][0] : 'Updated';
-          const target = count === 1 && m.fileCount === 0 ? [...m.files][0] : `${count} ${pluralize(count, 'File')}`;
+          const target = count === 1 && m.fileCount === 0 ? [...m.files][0] : `${count} ${pluralize(count, 'file')}`;
           return `${action} ${target}`;
         },
       });

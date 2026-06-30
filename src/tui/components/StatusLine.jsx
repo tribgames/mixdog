@@ -59,14 +59,23 @@ function stripAnsi(text) {
   return String(text || '').replace(/\x1b\[[0-9;]*m/g, '');
 }
 
-function hasActiveStatuslineWork(line, agentWorkers = [], agentJobs = []) {
-  return hasRunningStatuslineWorkers(agentWorkers, agentJobs)
-    || /\bRunning (?:Agents?|Shells?)\b/.test(stripAnsi(line));
+function hasActiveStatuslineTools(activeTools = null) {
+  if (!activeTools || typeof activeTools !== 'object') return false;
+  const e = Number(activeTools.explore?.count) > 0;
+  const s = Number(activeTools.search?.count) > 0;
+  return e || s;
 }
 
-function bootFullRenderEligible(mountAtMs, line, agentWorkers = [], agentJobs = []) {
+function hasActiveStatuslineWork(line, agentWorkers = [], agentJobs = [], activeTools = null) {
+  return hasRunningStatuslineWorkers(agentWorkers, agentJobs)
+    || hasActiveStatuslineTools(activeTools)
+    || /\bRunning \d+ (?:Agents?|Shells?)\b/.test(stripAnsi(line))
+    || /\b(?:Exploring|Searching)\b/.test(stripAnsi(line));
+}
+
+function bootFullRenderEligible(mountAtMs, line, agentWorkers = [], agentJobs = [], activeTools = null) {
   const elapsed = Date.now() - mountAtMs;
-  const active = hasActiveStatuslineWork(line, agentWorkers, agentJobs);
+  const active = hasActiveStatuslineWork(line, agentWorkers, agentJobs, activeTools);
   const delay = active ? STATUSLINE_BOOT_FULL_DELAY_ACTIVE_MS : STATUSLINE_BOOT_FULL_DELAY_MS;
   return elapsed >= delay;
 }
@@ -168,10 +177,30 @@ function localContextSegmentFromPct(ctxPct = 0) {
 }
 
 const LOCAL_WORKER_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+// Shared L2 segment spinner (circular braille) — must match the async path's
+// L2_SPINNER_FRAMES / L2_SPINNER_FRAME_MS in src/ui/statusline.mjs so the
+// instant-local L2 and the full render do not flicker.
+const LOCAL_L2_SPINNER_FRAMES = ['⢎⡰', '⢎⡡', '⢎⡑', '⢎⠱', '⠎⡱', '⢊⡱', '⢌⡱', '⢆⡱'];
+const LOCAL_L2_SPINNER_FRAME_MS = 120;
 
 function localWorkerSpinnerFrame(now = Date.now()) {
   const index = Math.floor(now / 160) % LOCAL_WORKER_SPINNER_FRAMES.length;
   return LOCAL_WORKER_SPINNER_FRAMES[index] || LOCAL_WORKER_SPINNER_FRAMES[0];
+}
+
+function localL2SpinnerFrame(now = Date.now()) {
+  const index = Math.floor(now / LOCAL_L2_SPINNER_FRAME_MS) % LOCAL_L2_SPINNER_FRAMES.length;
+  return LOCAL_L2_SPINNER_FRAMES[index] || LOCAL_L2_SPINNER_FRAMES[0];
+}
+
+// Mirror of statusline.mjs formatElapsed → `3s`/`2m`/`1h`, '' when <1s.
+function localFormatElapsed(ms) {
+  const secs = Math.max(0, Math.floor(localNum(ms) / 1000));
+  if (secs < 1) return '';
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  return `${Math.floor(mins / 60)}h`;
 }
 
 function localRunningWorkerCount(agentWorkers = [], agentJobs = []) {
@@ -210,6 +239,29 @@ function localRunningWorkerTags(agentWorkers = [], agentJobs = [], limit = 3) {
   return `${tags.slice(0, limit).join(', ')}, +${tags.length - limit}`;
 }
 
+function localTimeMs(value) {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  const n = Date.parse(String(value || ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+// Oldest running worker/job start time, for the Agents segment elapsed. Mirrors
+// the async path which derives elapsed from the oldest running worker.
+function localOldestWorkerStartMs(agentWorkers = [], agentJobs = []) {
+  let oldest = Infinity;
+  for (const worker of Array.isArray(agentWorkers) ? agentWorkers : []) {
+    if (isTerminalStatus(worker?.stage || worker?.status)) continue;
+    const t = localTimeMs(worker?.startedAt || worker?.startTime || worker?.createdAt);
+    if (t > 0 && t < oldest) oldest = t;
+  }
+  for (const job of Array.isArray(agentJobs) ? agentJobs : []) {
+    if (!/running/i.test(String(job?.status || job?.stage || ''))) continue;
+    const t = localTimeMs(job?.startedAt);
+    if (t > 0 && t < oldest) oldest = t;
+  }
+  return Number.isFinite(oldest) ? oldest : 0;
+}
+
 function localBootStatusLine({
   provider = '',
   model = '',
@@ -223,6 +275,7 @@ function localBootStatusLine({
   autoCompactTokenLimit = 0,
   agentWorkers = [],
   agentJobs = [],
+  activeTools = null,
 } = {}) {
   const raw = String(model || '').trim();
   const { STATUS, SUBTLE, SUCCESS } = statusColors();
@@ -242,13 +295,35 @@ function localBootStatusLine({
     autoCompactTokenLimit,
   });
   const l1 = `${STATUS}${modelBits}${RESET} ${SUBTLE}│${RESET} ${localContextSegmentFromPct(ctxPct)}`;
+  // L2: per-segment circular-braille spinner, ` │ ` between segments, ` · Ns`
+  // elapsed within a segment. Order: Agents → Exploring → Searching → Shells.
+  const now = Date.now();
+  const spin = `${SUCCESS}${localL2SpinnerFrame(now)}${RESET}`;
+  const segSep = ` ${SUBTLE}│${RESET} `;
+  const elapsedSuffix = (label) => (label ? ` ${SUBTLE}·${RESET} ${label}` : '');
+  const l2Parts = [];
   const runningCount = localRunningWorkerCount(agentWorkers, agentJobs);
-  if (!runningCount) return l1;
-  const label = `${runningCount} Running Agent${runningCount === 1 ? '' : 's'}`;
-  const tagSummary = localRunningWorkerTags(agentWorkers, agentJobs);
-  const tags = tagSummary ? ` ${SUBTLE}(${RESET}${STATUS}${tagSummary}${RESET}${SUBTLE})${RESET}` : '';
-  const l2 = `${SUCCESS}${localWorkerSpinnerFrame()}${RESET} ${STATUS}${label}${RESET}${tags}`;
-  return `${l1}\n${l2}`;
+  if (runningCount > 0) {
+    const label = `Running ${runningCount} Agent${runningCount === 1 ? '' : 's'}`;
+    const tagSummary = localRunningWorkerTags(agentWorkers, agentJobs);
+    const tags = tagSummary ? ` ${SUBTLE}(${RESET}${STATUS}${tagSummary}${RESET}${SUBTLE})${RESET}` : '';
+    const oldestStart = localOldestWorkerStartMs(agentWorkers, agentJobs);
+    const elapsed = oldestStart > 0 ? localFormatElapsed(now - oldestStart) : '';
+    l2Parts.push(`${spin} ${STATUS}${label}${RESET}${tags}${elapsedSuffix(elapsed)}`);
+  }
+  const tools = activeTools && typeof activeTools === 'object' ? activeTools : {};
+  const exploreInfo = tools.explore || null;
+  const searchInfo = tools.search || null;
+  if (exploreInfo && localNum(exploreInfo.count) > 0) {
+    const elapsed = localNum(exploreInfo.startedAt) > 0 ? localFormatElapsed(now - localNum(exploreInfo.startedAt)) : '';
+    l2Parts.push(`${spin} ${STATUS}Exploring${RESET}${elapsedSuffix(elapsed)}`);
+  }
+  if (searchInfo && localNum(searchInfo.count) > 0) {
+    const elapsed = localNum(searchInfo.startedAt) > 0 ? localFormatElapsed(now - localNum(searchInfo.startedAt)) : '';
+    l2Parts.push(`${spin} ${STATUS}Searching${RESET}${elapsedSuffix(elapsed)}`);
+  }
+  if (!l2Parts.length) return l1;
+  return `${l1}\n${l2Parts.join(segSep)}`;
 }
 
 export function normalizeStatusLine(text) {
@@ -260,7 +335,7 @@ function workflowModeLabel(workflow = {}) {
   return `${name} Mode`;
 }
 
-function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow = 0, compactBoundaryTokens = 0, autoCompactTokenLimit = 0, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], initialLine = '', workflow = null, themeEpoch = 0 }) {
+function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow = 0, compactBoundaryTokens = 0, autoCompactTokenLimit = 0, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], activeTools = null, initialLine = '', workflow = null, themeEpoch = 0 }) {
   const [line, setLine] = useState(() => normalizeStatusLine(initialLine || localBootStatusLine({
     provider,
     model,
@@ -274,6 +349,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     autoCompactTokenLimit,
     agentWorkers,
     agentJobs,
+    activeTools,
   })));
   const [refreshTick, setRefreshTick] = useState(0);
   const statuslineArgsRef = useRef(null);
@@ -291,11 +367,22 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   const statuslineArgs = {
     sessionId, clientHostPid, provider, model, effort, fast, cwd, stats,
     contextWindow, displayContextWindow, compactBoundaryTokens, autoCompactTokenLimit, rawContextWindow,
-    agentWorkers, agentJobs,
+    agentWorkers, agentJobs, activeTools,
   };
   statuslineArgsRef.current = statuslineArgs;
   lineRef.current = line;
-  const refreshMs = hasActiveStatuslineWork(line, agentWorkers, agentJobs) ? STATUSLINE_ACTIVE_REFRESH_MS : STATUSLINE_REFRESH_MS;
+  // Stable primitive signature for the activeTools object so the render effect
+  // re-runs when explore/search counts or start times change (object identity
+  // would otherwise be a new ref every render and over-fire the effect).
+  const activeToolsSignature = activeTools
+    ? [
+        Number(activeTools.explore?.count) || 0,
+        Number(activeTools.explore?.startedAt) || 0,
+        Number(activeTools.search?.count) || 0,
+        Number(activeTools.search?.startedAt) || 0,
+      ].join('|')
+    : '';
+  const refreshMs = hasActiveStatuslineWork(line, agentWorkers, agentJobs, activeTools) ? STATUSLINE_ACTIVE_REFRESH_MS : STATUSLINE_REFRESH_MS;
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -358,7 +445,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     };
     const timer = setTimeout(() => {
       if (bootFullDoneRef.current !== true) {
-        if (!bootFullRenderEligible(mountAtRef.current, lineRef.current, args.agentWorkers, args.agentJobs)) {
+        if (!bootFullRenderEligible(mountAtRef.current, lineRef.current, args.agentWorkers, args.agentJobs, args.activeTools)) {
           return;
         }
         if (!canAttemptBootFullRender(bootFullNextAttemptAtRef.current)) {
@@ -396,7 +483,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
       alive = false;
       clearTimeout(timer);
     };
-  }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow, compactBoundaryTokens, autoCompactTokenLimit, rawContextWindow, resizeEpoch, agentRevision, agentWorkers, agentJobs, refreshTick, themeEpoch]);
+  }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow, compactBoundaryTokens, autoCompactTokenLimit, rawContextWindow, resizeEpoch, agentRevision, agentWorkers, agentJobs, activeToolsSignature, refreshTick, themeEpoch]);
 
   const lines = line ? line.split('\n').slice(0, 2) : [' ', ' '];
   const workflowLabel = workflowModeLabel(workflow);

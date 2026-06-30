@@ -193,7 +193,7 @@ export function Picker({
 
   // Clamp selected index when items change length.
   if (items.length === 0) {
-    const emptyDescription = truncateText(description, Math.max(0, columns - 4));
+    const emptyLine = truncateText(String(description || '').replace(/\s+/g, ' ').trim(), Math.max(0, columns - 4));
     return (
       <Box flexDirection="column" flexShrink={0} height={fillHeight ? '100%' : undefined}>
         <Box
@@ -204,22 +204,15 @@ export function Picker({
           height={fillHeight ? '100%' : undefined}
           width="100%"
         >
-          <Box flexDirection="row" justifyContent="space-between" marginBottom={0}>
+          <Box flexDirection="row" justifyContent="space-between">
             <Text color={theme.panelTitle}>{title || 'Picker'}</Text>
             <Text color={theme.subtle}>{helpText}</Text>
           </Box>
-          {emptyDescription ? (
-            <>
-              <Text> </Text>
-              <Text color={theme.text}>{emptyDescription}</Text>
-              <Text> </Text>
-            </>
-          ) : (
-            <>
-              <Text> </Text>
-              <Text color={theme.inactive}>(empty)</Text>
-            </>
-          )}
+          <Text> </Text>
+          {emptyLine
+            ? <Text color={theme.text}>{emptyLine}</Text>
+            : <Text color={theme.inactive}>(empty)</Text>}
+          <Text> </Text>
         </Box>
       </Box>
     );
@@ -250,7 +243,12 @@ export function Picker({
   const hasMeta = metaWidthOverride != null || items.some((item) => item.meta || item.modelProfile || item.metaParts);
   const metaWidth = hasMeta ? clampMetaWidth(metaWidthOverride, columns, labelWidth) : 0;
   const descriptionWidth = Math.max(0, columns - indexOffset - markerWidth - labelWidth - (hasMeta ? metaWidth + 14 : 12));
-  const panelDescription = truncateText(description, Math.max(0, columns - 4));
+  // Standard panel rhythm: title row, blank, description/hint row, blank,
+  // content. Description newlines are collapsed and width-truncated to a single
+  // line so a multi-line description (e.g. ToolApproval) cannot push the title
+  // off the top. The slot is always reserved so panel chrome is a constant 6
+  // rows (title + blank + desc + blank + 2 border), matching PICKER_CHROME_ROWS.
+  const panelDescription = truncateText(String(description || '').replace(/\s+/g, ' ').trim(), Math.max(0, columns - 4));
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%" height={fillHeight ? '100%' : undefined}>
@@ -262,17 +260,13 @@ export function Picker({
         width="100%"
         height={fillHeight ? '100%' : undefined}
       >
-        <Box flexDirection="row" justifyContent="space-between" marginBottom={panelDescription ? 0 : 1}>
+        <Box flexDirection="row" justifyContent="space-between">
           <Text color={theme.panelTitle}>{title}</Text>
           <Text color={theme.subtle}>{helpText}</Text>
         </Box>
-        {panelDescription ? (
-          <>
-            <Text> </Text>
-            <Text color={theme.text}>{panelDescription}</Text>
-            <Text> </Text>
-          </>
-        ) : null}
+        <Text> </Text>
+        <Text color={theme.text}>{panelDescription || ' '}</Text>
+        <Text> </Text>
         {visible.map((item, i) => {
           const idx = start + i;
           const isSelected = idx === selectedIndex;

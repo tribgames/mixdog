@@ -564,6 +564,73 @@ const everforestPalette = {
   userMessageBackgroundHover: 'rgb(61,72,77)',
 };
 
+/** Light — near-white surface with high-contrast dark text. */
+const whitePalette = {
+  ...mixdogPalette,
+  background: 'rgb(250,250,250)',
+  text: 'rgb(28,28,30)',
+  statusText: 'rgb(40,40,42)',
+  statusSubtle: 'rgb(120,120,124)',
+  thinkingText: 'rgb(60,60,64)',
+  thinkingAccent: 'rgb(110,110,116)',
+  thinkingBase: 'rgb(120,120,126)',
+  thinkingGlow: 'rgb(80,80,86)',
+  timerText: 'rgb(120,120,126)',
+  inactive: 'rgb(120,120,126)',
+  subtle: 'rgb(140,140,146)',
+  promptBorder: 'rgb(180,180,186)',
+  inverseText: 'rgb(250,250,250)',
+  selectionText: 'rgb(20,20,22)',
+  selectionBackground: 'rgb(180,213,255)',
+  claude: 'rgb(199,108,78)',
+  claudeShimmer: 'rgb(219,128,98)',
+  mixdogOrange: 'rgb(199,108,78)',
+  mixdogAmber: 'rgb(180,120,40)',
+  mixdogIvory: 'rgb(72,68,64)',
+  spinnerGlyph: 'rgb(199,108,78)',
+  spinnerText: 'rgb(199,108,78)',
+  spinnerShimmer: 'rgb(229,148,118)',
+  panelTitle: 'rgb(199,108,78)',
+  success: 'rgb(34,134,58)',
+  error: 'rgb(207,34,46)',
+  warning: 'rgb(154,103,0)',
+  suggestion: 'rgb(9,105,218)',
+  permission: 'rgb(207,34,46)',
+  code: 'rgb(9,105,218)',
+  codeBlock: 'rgb(36,41,47)',
+  mdHeading: 'rgb(130,80,8)',
+  mdCode: 'rgb(0,92,197)',
+  mdCodeBlock: 'rgb(36,41,47)',
+  mdQuote: 'rgb(106,115,125)',
+  mdQuoteBorder: 'rgb(175,184,193)',
+  mdHr: 'rgb(175,184,193)',
+  mdListBullet: 'rgb(9,105,218)',
+  mdCodeBlockBorder: 'rgb(200,206,212)',
+  mdLink: 'rgb(9,105,218)',
+  mdLinkText: 'rgb(0,92,197)',
+  mdStrong: 'rgb(130,80,8)',
+  mdEmph: 'rgb(154,103,0)',
+  mdDiffAdded: 'rgb(34,134,58)',
+  mdDiffRemoved: 'rgb(207,34,46)',
+  mdDiffHunk: 'rgb(9,105,218)',
+  mdDiffHeader: 'rgb(110,80,170)',
+  mdDiffContext: 'rgb(106,115,125)',
+  mdDiffAddedBg: 'rgb(218,243,224)',
+  mdDiffRemovedBg: 'rgb(255,224,228)',
+  syntaxComment: 'rgb(106,115,125)',
+  syntaxKeyword: 'rgb(207,34,46)',
+  syntaxFunction: 'rgb(9,105,218)',
+  syntaxVariable: 'rgb(149,33,110)',
+  syntaxString: 'rgb(10,120,60)',
+  syntaxNumber: 'rgb(0,92,197)',
+  syntaxType: 'rgb(130,80,8)',
+  syntaxOperator: 'rgb(36,41,47)',
+  syntaxPunctuation: 'rgb(36,41,47)',
+  userMessageBackground: 'rgb(232,232,234)',
+  userMessageBackgroundHover: 'rgb(222,222,226)',
+  fastMode: 'rgb(255,106,0)',
+};
+
 // ── Registry / metadata ─────────────────────────────────────────────────────
 const THEME_REGISTRY = {
   mixdog: { id: 'mixdog', label: 'Basic', description: 'Warm dark base with teal markdown accents.', palette: mixdogPalette },
@@ -575,10 +642,11 @@ const THEME_REGISTRY = {
   gruvbox: { id: 'gruvbox', label: 'Earth', description: 'Retro warm earthy dark with green/orange accents.', palette: gruvboxPalette },
   catppuccin: { id: 'catppuccin', label: 'Pastel', description: 'Gentle pastel violet/blue dark.', palette: catppuccinPalette },
   everforest: { id: 'everforest', label: 'Forest', description: 'Soft natural green dark, easy on the eyes.', palette: everforestPalette },
+  white: { id: 'white', label: 'Light', description: 'Bright white background with high-contrast dark text.', palette: whitePalette },
 };
 
 const DEFAULT_THEME_ID = 'mixdog';
-const THEME_ORDER = ['mixdog', 'pi-dark', 'claude-dark', 'dracula', 'tokyonight', 'nord', 'gruvbox', 'catppuccin', 'everforest'];
+const THEME_ORDER = ['mixdog', 'pi-dark', 'claude-dark', 'dracula', 'tokyonight', 'nord', 'gruvbox', 'catppuccin', 'everforest', 'white'];
 
 /**
  * Live singleton consumed across the TUI. Seeded with the default palette and
@@ -619,11 +687,23 @@ export function listThemes() {
   });
 }
 
+export function emitTerminalBackground(rgbString) {
+  try {
+    const m = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(String(rgbString || '').replace(/\s+/g, ''));
+    if (!m) return;
+    const hex = (n) => Math.max(0, Math.min(255, Number(n))).toString(16).padStart(2, '0');
+    // OSC 11 ; rgb:RR/GG/BB  (BEL-terminated). Many terminals also accept #RRGGBB.
+    const seq = `\x1b]11;rgb:${hex(m[1])}${hex(m[1])}/${hex(m[2])}${hex(m[2])}/${hex(m[3])}${hex(m[3])}\x07`;
+    if (process.stdout && process.stdout.isTTY) process.stdout.write(seq);
+  } catch { /* terminals that ignore OSC 11 are harmless */ }
+}
+
 function applyPalette(id) {
   const entry = THEME_REGISTRY[resolveThemeId(id)];
   Object.assign(theme, entry.palette);
   _activeThemeId = entry.id;
   _themeVersion += 1;
+  emitTerminalBackground(theme.background);
   return entry;
 }
 

@@ -45,7 +45,7 @@ export function TurnDone({ elapsedMs = 0, status = 'done', verb = 'Thought', rig
         </Text>
       </Box>
       {rightText ? (
-        <Box flexShrink={0} width={rightWidth} marginLeft={1} justifyContent="flex-end" overflow="hidden">
+        <Box flexShrink={0} width={rightWidth} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
           <Text color={statusMessageColor(rightTone)} wrap="truncate">{rightText}</Text>
         </Box>
       ) : null}
@@ -69,7 +69,7 @@ export function StatusDone({ label = 'Complete', detail = '', rightMessage = '',
         </Text>
       </Box>
       {rightText ? (
-        <Box flexShrink={0} width={rightWidth} marginLeft={1} justifyContent="flex-end" overflow="hidden">
+        <Box flexShrink={0} width={rightWidth} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
           <Text color={statusMessageColor(rightTone)} wrap="truncate">{rightText}</Text>
         </Box>
       ) : null}

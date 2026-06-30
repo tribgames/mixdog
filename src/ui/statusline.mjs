@@ -50,6 +50,10 @@ const SHELL_JOBS_SEGMENT_CACHE_MS = 1000;
 const GATEWAY_QUOTA_STATUS_CACHE_MS = 500;
 const WORKER_SPINNER_FRAMES = Object.freeze(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']);
 const WORKER_SPINNER_FRAME_MS = 160;
+// Shared L2 spinner: ONE circular-braille glyph leads the whole L2 row (agents,
+// explore, search, shell) instead of a per-segment spinner. ~120ms frame step.
+const L2_SPINNER_FRAMES = Object.freeze(['⢎⡰', '⢎⡡', '⢎⡑', '⢎⠱', '⠎⡱', '⢊⡱', '⢌⡱', '⢆⡱']);
+const L2_SPINNER_FRAME_MS = 120;
 // Keep the last known usage snapshot visible while idle. The runtime still
 // refreshes OAuth usage in the background, but if that refresh is delayed or
 // fails, the statusline should not blink/drop the usage segment; it should hold
@@ -62,6 +66,24 @@ let _shellJobsSegmentCache = { ownerPid: 0, at: 0, value: { count: 0, elapsedLab
 let _gatewayQuotaStatusCache = { key: '', at: 0, value: null };
 let _fallbackQuotaStatusCache = { key: '', at: 0, value: null };
 let _hiddenStatuslineRoles = null;
+// Option A boot gate: the L1 usage/quota segment stays fully empty until THIS
+// process has captured its FIRST confirmed (current-process) OAuth usage
+// snapshot for THAT provider. The latch is monotonic PER PROVIDER — once a
+// provider arms it stays on for the process lifetime, so its segment turns on
+// exactly once (single clean transition) and then holds. This suppresses the
+// early gateway active-instance quota/balance (from another owning process,
+// which is NOT process-start guarded) and any stale/in-progress reads before
+// the first confirmed snapshot lands. Keyed per provider (not per global) so an
+// in-process route switch (openai-oauth → anthropic-oauth / grok-oauth) re-gates
+// the new provider until ITS own confirmed snapshot exists — otherwise the new
+// provider's stale fallback balance (Credit $…) could leak prematurely.
+const _oauthUsageArmedProviders = new Set();
+
+function isConfirmedCurrentProcessSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return false;
+  const cachedAt = num(snapshot.cachedAt);
+  return cachedAt > 0 && cachedAt >= STATUSLINE_PROCESS_STARTED_AT_MS;
+}
 
 function summarizeWorkerTags(workers, limit = 3) {
   const cleanLabels = [...new Set((Array.isArray(workers) ? workers : [])
@@ -74,6 +96,11 @@ function summarizeWorkerTags(workers, limit = 3) {
 function workerSpinnerFrame(now = Date.now()) {
   const index = Math.floor(now / WORKER_SPINNER_FRAME_MS) % WORKER_SPINNER_FRAMES.length;
   return WORKER_SPINNER_FRAMES[index] || WORKER_SPINNER_FRAMES[0];
+}
+
+function l2SpinnerFrame(now = Date.now()) {
+  const index = Math.floor(now / L2_SPINNER_FRAME_MS) % L2_SPINNER_FRAMES.length;
+  return L2_SPINNER_FRAMES[index] || L2_SPINNER_FRAMES[0];
 }
 
 /**
@@ -191,6 +218,7 @@ function normalizeAgentWorkerForStatusline(worker = {}) {
   return {
     tag,
     status,
+    startedAtMs: timeMs(worker.startedAt || worker.startTime || worker.createdAt),
     role: worker.role || null,
     stage: worker.stage || worker.status || null,
     sessionId: worker.sessionId || null,
@@ -227,6 +255,7 @@ function normalizeAgentJobForStatusline(job = {}) {
     tag,
     taskId,
     status: 'running',
+    startedAtMs,
     role: job.role || null,
     stage: job.stage || job.workerStatus || job.status || null,
     sessionId: job.sessionId || null,
@@ -282,14 +311,14 @@ export async function renderStatusline({
   provider = '', model = '', effort = '', fast = false, cwd = '', stats, sessionId,
   contextWindow = 0, displayContextWindow = 0, rawContextWindow = 0,
   compactBoundaryTokens = 0, autoCompactTokenLimit = 0,
-  agentWorkers = [], agentJobs = [], clientHostPid = process.pid,
+  agentWorkers = [], agentJobs = [], activeTools = null, clientHostPid = process.pid,
 } = {}) {
   const displayArgs = {
     contextWindow, displayContextWindow, rawContextWindow, compactBoundaryTokens, autoCompactTokenLimit,
   };
   try {
     return renderNativeStatusline({
-      provider, model, effort, fast, cwd, stats, sessionId, agentWorkers, agentJobs, clientHostPid,
+      provider, model, effort, fast, cwd, stats, sessionId, agentWorkers, agentJobs, activeTools, clientHostPid,
       ...displayArgs,
     });
   } catch {
@@ -303,7 +332,7 @@ function renderNativeStatusline({
   provider = '', model = '', effort = '', fast = false, stats, sessionId,
   contextWindow = 0, displayContextWindow = 0, rawContextWindow = 0,
   compactBoundaryTokens = 0, autoCompactTokenLimit = 0,
-  agentWorkers = [], agentJobs = [], clientHostPid = process.pid,
+  agentWorkers = [], agentJobs = [], activeTools = null, clientHostPid = process.pid,
 } = {}) {
   const cols = terminalColumns();
   const s = stats || createSessionStats();
@@ -339,7 +368,18 @@ function renderNativeStatusline({
   addL1(formatModelSegment({ provider, model, effort, fast, cols }));
   addL1(formatContextSegment(ctxPct, cols));
 
-  const quotaStatus = mergeQuotaStatus(gatewayStatus, fallbackQuotaStatus({ provider, model }));
+  // Option A boot gate: for OAuth routes, render NOTHING for the usage/quota
+  // segment until this process has captured its first confirmed (current-
+  // process) OAuth usage snapshot. This suppresses the startup jitter where the
+  // gateway active-instance quota windows (not process-start guarded) and the
+  // boot-guarded OAuth cache windows would otherwise pop in/merge at different
+  // ticks. Model + context% always render (built above). Non-OAuth routes are
+  // unaffected. Once armed, the latch holds for the process lifetime so the
+  // segment turns on exactly once and then holds the last known value as today.
+  const usageReady = oauthUsageSegmentReady({ provider, model });
+  const quotaStatus = usageReady
+    ? mergeQuotaStatus(gatewayStatus, fallbackQuotaStatus({ provider, model }))
+    : null;
   const quotaSegments = quotaStatus
     ? formatGatewayLimitSegments(quotaStatus, { COLS: cols, D, R, GRN, YLW, RED, colourPct, epochMsToHHMM })
     : [];
@@ -354,15 +394,37 @@ function renderNativeStatusline({
   const shellStatus = shellJobsStatus({ clientHostPid });
 
   const spinnerNow = Date.now();
+  const sp = l2SpinnerFrame(spinnerNow);
+  const spin = `${GRN}${sp}${R}`;
+  const elapsedSuffix = (label) => (label ? ` ${D}·${R} ${label}` : '');
+  // Segment order: Running Agents → Exploring → Searching → Running Shells.
   if (runningWorkers.length) {
-    const label = `${runningWorkers.length} Running Agent${runningWorkers.length === 1 ? '' : 's'}`;
+    const n = runningWorkers.length;
+    const label = `Running ${n} Agent${n === 1 ? '' : 's'}`;
     const tagSummary = summarizeWorkerTags(runningWorkers);
     const tags = tagSummary ? ` ${D}(${R}${B}${tagSummary}${R}${D})${R}` : '';
-    addL2(`${GRN}${workerSpinnerFrame(spinnerNow)}${R} ${B}${label}${R}${tags}`);
+    const oldestStart = runningWorkers.reduce((min, w) => {
+      const t = num(w?.startedAtMs);
+      return t > 0 && t < min ? t : min;
+    }, Infinity);
+    const elapsed = Number.isFinite(oldestStart) ? formatElapsed(Date.now() - oldestStart) : '';
+    addL2(`${spin} ${B}${label}${R}${tags}${elapsedSuffix(elapsed)}`);
+  }
+  const tools = activeTools && typeof activeTools === 'object' ? activeTools : {};
+  const exploreInfo = tools.explore || null;
+  const searchInfo = tools.search || null;
+  if (exploreInfo && num(exploreInfo.count) > 0) {
+    const elapsed = num(exploreInfo.startedAt) > 0 ? formatElapsed(Date.now() - num(exploreInfo.startedAt)) : '';
+    addL2(`${spin} ${B}Exploring${R}${elapsedSuffix(elapsed)}`);
+  }
+  if (searchInfo && num(searchInfo.count) > 0) {
+    const elapsed = num(searchInfo.startedAt) > 0 ? formatElapsed(Date.now() - num(searchInfo.startedAt)) : '';
+    addL2(`${spin} ${B}Searching${R}${elapsedSuffix(elapsed)}`);
   }
   if (shellStatus.count > 0) {
-    const label = `${shellStatus.count} Running Shell${shellStatus.count === 1 ? '' : 's'}`;
-    addL2(`${GREY}${workerSpinnerFrame(spinnerNow + 80)}${R} ${B}${label}${R}`);
+    const n = shellStatus.count;
+    const label = `Running ${n} Shell${n === 1 ? '' : 's'}`;
+    addL2(`${spin} ${B}${label}${R}${elapsedSuffix(shellStatus.elapsedLabel)}`);
   }
   const l1 = l1Parts.join(sep) || 'mixdog';
   const l2 = l2Parts.join(sep);
@@ -433,6 +495,38 @@ function loadGatewayQuotaStatus({
   }
   _gatewayQuotaStatusCache = { key, at: now, value };
   return value;
+}
+
+// Option A boot gate. Returns true once THIS process has captured its first
+// confirmed (current-process) OAuth usage snapshot for THIS provider, and stays
+// true afterwards (monotonic, per-provider latch). Non-OAuth providers are never
+// gated (they have no async usage fetch on this path). Keyed on provider only:
+// the OAuth cache lookup is provider-keyed and snapshots are stored provider-
+// wide (oauth-usage.mjs writes a provider-only key + uses newestProviderSnapshot
+// fallback), so per-provider arming matches the data granularity — a model
+// switch within one provider shares the same provider-wide snapshot. The latch
+// reads the same cache `fallbackQuotaStatus()` consumes so it flips in lock-step
+// with the data actually becoming renderable — no extra delay, single clean
+// transition.
+function oauthUsageSegmentReady({ provider, model } = {}) {
+  const normalizedProvider = String(provider || '').trim().toLowerCase();
+  if (!normalizedProvider.includes('oauth')) return true;
+  if (_oauthUsageArmedProviders.has(normalizedProvider)) return true;
+  let snapshot = null;
+  try {
+    snapshot = readCachedOAuthUsageSnapshot({
+      provider: normalizedProvider,
+      model: String(model || '').trim(),
+      providerKind: providerKindForQuota(normalizedProvider),
+    }, { allowStale: true });
+  } catch {
+    snapshot = null;
+  }
+  if (isConfirmedCurrentProcessSnapshot(snapshot)) {
+    _oauthUsageArmedProviders.add(normalizedProvider);
+    return true;
+  }
+  return false;
 }
 
 function fallbackQuotaStatus({ provider, model } = {}) {

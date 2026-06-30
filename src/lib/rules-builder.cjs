@@ -136,6 +136,8 @@ function buildProfilePreferencesContent(dataDir) {
       : '';
     lines.push(`- Default user-facing response language${source}: ${language.prompt}. Use it for ALL user-facing prose, including pre-tool preambles, progress updates, questions, final reports, and notices. Every such message — even a single-line preamble before a tool call — MUST be written in ${language.prompt}, and in no other language. This overrides any tone implied by the output style. Switch languages only when the user writes in another language or explicitly asks you to. Keep code, paths, commands, symbols, API names, and exact errors verbatim.`);
   }
+  const shell = process.platform === 'win32' ? 'powershell' : 'bash';
+  lines.push(`- Shell environment: ${shell}. When using shell, write commands and scripts in ${shell} syntax unless the user specifies otherwise. Keep commands, paths, symbols, and exact errors verbatim.`);
   return lines.length ? `# Profile Preferences\n\n${lines.join('\n')}` : '';
 }
 

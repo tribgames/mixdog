@@ -133,12 +133,42 @@ export function looksLikeUnifiedDiff(text) {
   let hasHunk = false;
   let hasFileHeader = false;
   let hasSign = false;
+  let hasStat = false;
   for (const line of lines) {
     if (/^@@ .* @@/.test(line) || /^@@ /.test(line)) hasHunk = true;
     if (/^(\+\+\+ |--- |diff --git |index [0-9a-f]+)/.test(line)) hasFileHeader = true;
     if (/^[+-](?![+-])/.test(line)) hasSign = true;
+    // `git diff --stat` summary rows: `path | 4 +-` and the trailer
+    // `N files changed, M insertions(+), K deletions(-)`.
+    if (DIFF_STAT_FILE_RE.test(line) || DIFF_STAT_SUMMARY_RE.test(line)) hasStat = true;
   }
-  return (hasHunk || hasFileHeader) && hasSign;
+  return ((hasHunk || hasFileHeader) && hasSign) || hasStat;
+}
+
+// `git diff --stat` rows. FILE: `<path> | <count> <+/-/ graph>` (count may be
+// `Bin`); SUMMARY: `N file(s) changed[, M insertion…][, K deletion…]`.
+const DIFF_STAT_FILE_RE = /^(\s*)(.+?)(\s+\|\s+)(Bin\b.*|\d+\s*[+\-]*)\s*$/;
+const DIFF_STAT_SUMMARY_RE = /^\s*\d+\s+files?\s+changed\b/;
+
+/** Color a `git diff --stat` file row: dim path/sep, green `+`, red `-`. */
+function colorizeDiffStatLine(line, c) {
+  const m = DIFF_STAT_FILE_RE.exec(line);
+  if (m) {
+    const [, indent, path, sep, tail] = m;
+    // The tail is either `Bin …` or `<count> <graph>` where graph is +/-.
+    const countMatch = /^(\d+)(\s*)([+\-]*)\s*$/.exec(tail);
+    let coloredTail;
+    if (countMatch) {
+      const [, count, gap, bars] = countMatch;
+      const pluses = c.diffAdded('+'.repeat((bars.match(/\+/g) || []).length));
+      const minuses = c.diffRemoved('-'.repeat((bars.match(/-/g) || []).length));
+      coloredTail = `${c.diffContext(count)}${gap}${pluses}${minuses}`;
+    } else {
+      coloredTail = c.diffContext(tail);
+    }
+    return `${indent}${c.diffContext(path)}${c.diffContext(sep)}${coloredTail}`;
+  }
+  return c.diffContext(line);
 }
 
 /** Classify and color a single unified-diff line. */
@@ -152,7 +182,16 @@ export function colorizeDiffLine(line, c) {
   if (/^\+/.test(line)) return c.diffAdded(line);
   if (/^-/.test(line)) return c.diffRemoved(line);
   if (/^\\ No newline/.test(line)) return c.diffContext(line);
+  // `git diff --stat` summary trailer + per-file rows.
+  if (DIFF_STAT_SUMMARY_RE.test(line)) return colorizeDiffStatTrailer(line, c);
+  if (DIFF_STAT_FILE_RE.test(line)) return colorizeDiffStatLine(line, c);
   return c.diffContext(line);
+}
+
+/** Color the `N files changed, M insertions(+), K deletions(-)` trailer. */
+function colorizeDiffStatTrailer(line, c) {
+  return line.replace(/(\d+)(\s+insertions?\(\+\))/g, (_, n, rest) => `${c.diffAdded(n)}${c.diffContext(rest)}`)
+    .replace(/(\d+)(\s+deletions?\(-\))/g, (_, n, rest) => `${c.diffRemoved(n)}${c.diffContext(rest)}`);
 }
 
 function renderDiffBody(text, c) {

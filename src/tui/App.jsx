@@ -26,7 +26,7 @@ import { theme, TURN_MARKER, RESULT_GUTTER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
 import { renderTokenAnsiSegments } from './markdown/render-ansi.mjs';
 import { assistantBodyWidth, measureMarkdownTableRows } from './markdown/table-layout.mjs';
-import { formatToolSurface, normalizeToolName, parseToolArgs } from '../runtime/shared/tool-surface.mjs';
+import { formatToolSurface, normalizeToolName, parseToolArgs, summarizeAgentSurfaceBrief } from '../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../runtime/shared/err-text.mjs';
 import { AssistantMessage, UserMessage, ThinkingMessage, NoticeMessage } from './components/Message.jsx';
 import { ToolExecution } from './components/ToolExecution.jsx';
@@ -807,6 +807,26 @@ function backgroundArgsForRows(rawArgs) {
   return parsed && typeof parsed === 'object' ? parsed : {};
 }
 
+function toolItemPendingForRows(item) {
+  const count = Math.max(1, Number(item?.count || 1));
+  const done = Math.max(0, Math.min(count, Number(item?.completedCount || (item?.result == null ? 0 : count))));
+  return done < count;
+}
+
+// Mirror ToolExecution displayedResultText for row estimates (agent brief, etc.).
+function toolDisplayedResultTextForRows(item) {
+  const rt = item?.result == null ? '' : String(item.result).replace(/\s+$/, '');
+  const bgArgs = backgroundArgsForRows(item?.args);
+  const backgroundError = String(bgArgs.error || '');
+  const errorOnlyResult = Boolean(rt) && isBackgroundErrorOnlyBody(rt, backgroundError);
+  const normalizedName = String(normalizeToolName(item?.name) || '').toLowerCase();
+  if (!toolItemPendingForRows(item) && isBackgroundTaskToolName(normalizedName)) {
+    const meta = parseBackgroundTaskResultForRows(rt);
+    if (meta?.hasResponse && String(meta.body || '').trim()) return String(meta.body);
+  }
+  return errorOnlyResult ? '' : (rt || '');
+}
+
 function toolHasDisplayResultForRows(item) {
   const rt = item.result == null ? '' : String(item.result).replace(/\s+$/, '');
   const trimmed = String(rt || '').trim();
@@ -826,7 +846,22 @@ function toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult) {
   const bgArgs = backgroundArgsForRows(item.args);
   const error = String(bgArgs.error || '').trim();
   if (!error) return false;
-  if (normalizedName === 'agent') return Boolean(item.isError);
+  if (normalizedName === 'agent') {
+    const pending = toolItemPendingForRows(item);
+    const isError = Boolean(item.isError);
+    const agentHeaderFailure = !pending && isError && error && !hasDisplayResult;
+    if (!agentHeaderFailure) return false;
+    const displayedResultText = toolDisplayedResultTextForRows(item);
+    const rt = item.result == null ? '' : String(item.result).replace(/\s+$/, '');
+    const isAgentResult = !pending && hasDisplayResult;
+    const isAgentResponse = isAgentResult && isAgentResponseResultText(rt);
+    const briefRaw = summarizeAgentSurfaceBrief(item.name, bgArgs, displayedResultText, {
+      isError,
+      isResponse: isAgentResponse,
+    });
+    const agentSurfaceBriefNonempty = Boolean(String(briefRaw || '').trim());
+    return !agentSurfaceBriefNonempty;
+  }
   if (!isBackgroundTaskToolName(normalizedName) || !bgArgs.task_id) return false;
   if (isBackgroundTaskResponseArgsForRows(normalizedName, bgArgs)) return false;
   const status = String(bgArgs.status || '').toLowerCase();
@@ -1148,7 +1183,10 @@ function computeTranscriptItemVariantKey(item) {
     const bgType = String(bgArgs.type || bgArgs.action || '');
     const bgStatus = String(bgArgs.status || '');
     const bgTaskId = bgArgs.task_id ? 1 : 0;
-    return `x${expanded}:n${normalizedName}:g${aggregate}:r${resultShape}:R${rawShape}:c${count}:d${completed}:e${errors}:E${isError}:bt${bgType}:bs${bgStatus}:bk${bgTaskId}`;
+    const bgPrompt = textShapeFingerprint(bgArgs.prompt);
+    const bgMessage = textShapeFingerprint(bgArgs.message);
+    const bgError = textShapeFingerprint(bgArgs.error);
+    return `x${expanded}:n${normalizedName}:g${aggregate}:r${resultShape}:R${rawShape}:c${count}:d${completed}:e${errors}:E${isError}:bt${bgType}:bs${bgStatus}:bk${bgTaskId}:bp${bgPrompt}:bm${bgMessage}:be${bgError}`;
   }
   // user/assistant/notice: row count depends on the text's line SHAPE (newline
   // distribution + wrap), so fingerprint the content rather than length alone.

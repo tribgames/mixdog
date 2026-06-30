@@ -59,3 +59,22 @@ test('formatGatewayLimitSegments keeps non-OpenAI OAuth credit balance on L1', (
 
   assert.ok(segments.includes('Credit $7.50'));
 });
+
+test('formatGatewayLimitSegments suppresses OpenAI OAuth credit via providerId even without a source hint', () => {
+  // Mirrors the merged quotaStatus shape (mergeQuotaStatus) where `source` may
+  // be absent and `balance.source` is generic: the providerId === openai-oauth
+  // branch alone must still suppress any Credit/$ leak on L1.
+  const segments = formatGatewayLimitSegments({
+    provider: 'openai-oauth',
+    providerKind: 'oauth',
+    quotaWindows: [
+      { label: '5H', source: 'openai-codex-oauth', usedPct: 30 },
+    ],
+    balance: {
+      remainingUsd: 99.99,
+    },
+  }, { COLS: 120 });
+
+  assert.deepEqual(segments, ['5H 30%']);
+  assert.equal(segments.some((segment) => /Credit|\$/.test(segment)), false);
+});

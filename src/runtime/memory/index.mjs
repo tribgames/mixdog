@@ -1203,6 +1203,46 @@ function getCycle1CallLlm() {
   }
 }
 
+let _cycle2AgentDispatch = null
+function getCycle2CallLlm() {
+  if (!_cycle2AgentDispatch) {
+    _cycle2AgentDispatch = makeAgentDispatch({
+      role: 'cycle2-agent',
+      taskType: 'maintenance',
+      sourceType: 'memory-cycle',
+      brief: false,
+    })
+  }
+  return async (opts = {}, userMessage) => {
+    const callTimeout = Number(opts?.timeout)
+    return _cycle2AgentDispatch({
+      prompt: String(userMessage ?? ''),
+      preset: opts?.preset || undefined,
+      ...(Number.isFinite(callTimeout) && callTimeout > 0 ? { idleTimeoutMs: callTimeout } : {}),
+    })
+  }
+}
+
+let _cycle3AgentDispatch = null
+function getCycle3CallLlm() {
+  if (!_cycle3AgentDispatch) {
+    _cycle3AgentDispatch = makeAgentDispatch({
+      role: 'cycle3-agent',
+      taskType: 'maintenance',
+      sourceType: 'memory-cycle',
+      brief: false,
+    })
+  }
+  return async (opts = {}, userMessage) => {
+    const callTimeout = Number(opts?.timeout)
+    return _cycle3AgentDispatch({
+      prompt: String(userMessage ?? ''),
+      preset: opts?.preset || undefined,
+      ...(Number.isFinite(callTimeout) && callTimeout > 0 ? { idleTimeoutMs: callTimeout } : {}),
+    })
+  }
+}
+
 async function recordCycle1Result(result) {
   const now = Date.now()
   await setCycleLastRun('cycle1_heartbeat', now)
@@ -1389,10 +1429,14 @@ function scheduleScheduledCycle2(config, signature, attempt = 0) {
     }
     _cycle2InFlight = true
     try {
-      const result = await runCycle2(db, config, {
+      let c2Options = {
         coalescedRetry: true,
         onCoalescedSuccess: _finalizeCycle2Run,
-      }, DATA_DIR)
+      }
+      if (typeof c2Options?.callLlm !== 'function') {
+        c2Options = { ...c2Options, callLlm: getCycle2CallLlm() }
+      }
+      const result = await runCycle2(db, config, c2Options, DATA_DIR)
       if (result?.skippedInFlight) {
         scheduleScheduledCycle2(config, signature, attempt + 1)
       } else if (result?.coalescedRetryNoop) {
@@ -1422,10 +1466,14 @@ function scheduleScheduledCycle3(config, signature, attempt = 0) {
     }
     _cycle3InFlight = true
     try {
-      const result = await runCycle3(db, config, DATA_DIR, {
+      let c3Options = {
         coalescedRetry: true,
         onCoalescedSuccess: () => setCycleLastRun('cycle3', Date.now()),
-      })
+      }
+      if (typeof c3Options?.callLlm !== 'function') {
+        c3Options = { ...c3Options, callLlm: getCycle3CallLlm() }
+      }
+      const result = await runCycle3(db, config, DATA_DIR, c3Options)
       if (result?.skippedInFlight) {
         scheduleScheduledCycle3(config, signature, attempt + 1)
       } else if (result?.coalescedRetryNoop) {
@@ -2326,7 +2374,11 @@ async function _handleMemCycle1(args, config, signal) {
 
 async function _handleMemCycle2(args, config, signal) {
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')
-  const result = await runCycle2(db, config?.cycle2 || {}, { signal }, DATA_DIR)
+  let c2Options = { signal }
+  if (typeof c2Options?.callLlm !== 'function') {
+    c2Options = { ...c2Options, callLlm: getCycle2CallLlm() }
+  }
+  const result = await runCycle2(db, config?.cycle2 || {}, c2Options, DATA_DIR)
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')
   await _finalizeCycle2Run(result)
   const counts = {
@@ -2363,7 +2415,11 @@ async function _handleMemCycle3(args, config, signal) {
     : (requestedMode === 'proposal' || requestedMode === 'dry-run' || requestedMode === 'dryrun')
       ? 'proposal'
       : 'conservative'
-  const result = await runCycle3(db, config || {}, DATA_DIR, { signal, apply: confirmed ? true : undefined, applyMode })
+  let c3Options = { signal, apply: confirmed ? true : undefined, applyMode }
+  if (typeof c3Options?.callLlm !== 'function') {
+    c3Options = { ...c3Options, callLlm: getCycle3CallLlm() }
+  }
+  const result = await runCycle3(db, config || {}, DATA_DIR, c3Options)
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')
   const parts = ['reviewed', 'kept', 'updated', 'merged', 'deleted']
     .map(k => `${k}=${result?.[k] || 0}`)
@@ -2388,7 +2444,11 @@ async function _handleMemFlush(args, config, signal) {
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')
   const r1 = await _awaitCycle1Run(config?.cycle1 || {}, { signal })
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')
-  const r2 = await runCycle2(db, config?.cycle2 || {}, { signal }, DATA_DIR)
+  let flushC2Options = { signal }
+  if (typeof flushC2Options?.callLlm !== 'function') {
+    flushC2Options = { ...flushC2Options, callLlm: getCycle2CallLlm() }
+  }
+  const r2 = await runCycle2(db, config?.cycle2 || {}, flushC2Options, DATA_DIR)
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')
   await _finalizeCycle2Run(r2)
   return { text: `flush: cycle1 chunks=${r1.chunks} processed=${r1.processed}, cycle2 ${JSON.stringify(r2)}` }
@@ -2492,7 +2552,11 @@ async function _handleMemRebuild(args, config, signal) {
   // inside _awaitCycle1Run and guarantees the newly demoted rows are read.
   const r1 = await _startCycle1Run(config?.cycle1 || {}, { signal })
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')
-  const r2 = await runCycle2(db, config?.cycle2 || {}, { signal }, DATA_DIR)
+  let rebuildC2Options = { signal }
+  if (typeof rebuildC2Options?.callLlm !== 'function') {
+    rebuildC2Options = { ...rebuildC2Options, callLlm: getCycle2CallLlm() }
+  }
+  const r2 = await runCycle2(db, config?.cycle2 || {}, rebuildC2Options, DATA_DIR)
   await _finalizeCycle2Run(r2)
   return { text: `rebuild: cycle1 chunks=${r1.chunks} processed=${r1.processed}, cycle2 ${JSON.stringify(r2)}` }
 }
@@ -2542,7 +2606,11 @@ async function _handleMemBackfill(args, config, signal) {
     },
     runCycle2: async (dbArg, c2Config, c2Options, c2DataDir) => {
       if (signal?.aborted) throw signal.reason ?? new Error('aborted')
-      const r2 = await runCycle2(dbArg, c2Config, { ...c2Options, signal }, c2DataDir)
+      let backfillC2Options = { ...c2Options, signal }
+      if (typeof backfillC2Options?.callLlm !== 'function') {
+        backfillC2Options = { ...backfillC2Options, callLlm: getCycle2CallLlm() }
+      }
+      const r2 = await runCycle2(dbArg, c2Config, backfillC2Options, c2DataDir)
       _capturedCycle2 = r2
       return r2
     },

@@ -13,9 +13,10 @@ import { performance } from 'node:perf_hooks';
 import { App } from './App.jsx';
 import { createEngineSession } from './engine.mjs';
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
-import { loadThemeSettingFromConfig } from './theme.mjs';
+import { emitTerminalBackground, loadThemeSettingFromConfig, theme } from './theme.mjs';
 
 const TERMINAL_MODE_RESET = '\x1b[?1006l\x1b[?1005l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[?25h';
+const TERMINAL_OSC_RESET_BG = '\x1b]111\x07';
 const TERMINAL_MODE_RESET_HIDDEN_CURSOR = TERMINAL_MODE_RESET.replace('\x1b[?25h', '\x1b[?25l');
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
@@ -124,7 +125,7 @@ function scheduleHardExit(code = 0) {
   if (!EXIT_HARD_ENABLED) return;
   const timer = setTimeout(() => {
     dumpActiveHandles('hard-exit');
-    try { process.stdout.write(TERMINAL_MODE_RESET); } catch { /* ignore */ }
+    try { process.stdout.write(`${TERMINAL_MODE_RESET}${TERMINAL_OSC_RESET_BG}`); } catch { /* ignore */ }
     process.exit(code);
   }, EXIT_HARD_DELAY_MS);
   timer.unref?.();
@@ -196,7 +197,7 @@ export async function runTui({ provider, model, toolMode } = {}) {
     if (restored) return;
     restored = true;
     restorePrimedInput();
-    try { process.stdout.write(`${TERMINAL_MODE_RESET}\x1b[0 q\x1b[?1049l${TERMINAL_MODE_RESET}`); } catch { /* ignore */ }
+    try { process.stdout.write(`${TERMINAL_MODE_RESET}\x1b[0 q\x1b[?1049l${TERMINAL_MODE_RESET}${TERMINAL_OSC_RESET_BG}`); } catch { /* ignore */ }
   };
 
   // Enter the alternate screen buffer before session/runtime boot so no stale
@@ -218,6 +219,7 @@ export async function runTui({ provider, model, toolMode } = {}) {
   // or missing values leave the default Mixdog dark palette in place; a failed
   // config read never blocks boot.
   try { await loadThemeSettingFromConfig(); } catch { /* default theme stays */ }
+  emitTerminalBackground(theme.background);
 
   let store;
   try {

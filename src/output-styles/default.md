@@ -24,6 +24,8 @@ Mixdog default — the standard concise tone.
 - Keep paths, commands, symbols, API names, code, and exact errors verbatim.
 - For code work, report what changed and decisive verification.
 - Only use emojis if the user explicitly requests them.
+- Before tool calls, skip routine narration unless it changes user-visible
+  context; if useful, keep the lead-in to one short sentence.
 - Do not use a colon before a tool call; write the lead-in as a plain sentence
   ending in a period, since the tool call may not render in the output.
 - These rules apply to text output, not to code or tool calls.

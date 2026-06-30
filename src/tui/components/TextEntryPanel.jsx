@@ -50,6 +50,26 @@ function normalizeInput(text) {
   return String(text ?? '').replace(/\r\n?/g, '\n');
 }
 
+// Collapse any whitespace/newlines so a hint is always a single visual line.
+function singleLine(text) {
+  return String(text ?? '').replace(/\s+/g, ' ').trim();
+}
+
+// Width-aware single-line truncation with an ellipsis so a long hint (e.g. an
+// OAuth manual URL) can never wrap into extra rows and overflow the panel.
+function truncateText(value, width) {
+  const text = String(value || '');
+  if (!(width > 0)) return '';
+  if (stringWidth(text) <= width) return text;
+  if (width <= 1) return '…'.repeat(Math.max(0, width));
+  let out = '';
+  for (const ch of text) {
+    if (stringWidth(`${out}${ch}…`) > width) break;
+    out += ch;
+  }
+  return `${out}…`;
+}
+
 function singleTrailingLineBreakPrefix(text) {
   const normalized = normalizeInput(text);
   if (!normalized.endsWith('\n')) return null;
@@ -325,6 +345,10 @@ export function TextEntryPanel({
   const renderedValue = renderSelectedText(visibleValue, selectionRange(draft), draft.cursor === draft.value.length);
   const action = String(actionLabel || 'save').trim() || 'save';
   const helpText = `Enter to ${action} · Esc to cancel`;
+  // Standard panel rhythm: title row, blank, single-line hint, blank, content.
+  // The hint is collapsed to one line and width-truncated so a long manual
+  // OAuth URL can never wrap and push the bordered title off the top.
+  const hintText = truncateText(singleLine(hint), Math.max(0, columns - 4));
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%">
@@ -333,7 +357,9 @@ export function TextEntryPanel({
           <Text color={theme.panelTitle}>{title}</Text>
           <Text color={theme.subtle}>{helpText}</Text>
         </Box>
-        {hint ? <Text color={theme.subtle}>{hint}</Text> : <Text color={theme.subtle}> </Text>}
+        <Text> </Text>
+        <Text color={theme.subtle}>{hintText || ' '}</Text>
+        <Text> </Text>
         <Box ref={boxRef} flexDirection="row" width="100%" backgroundColor={theme.background}>
           <Text color={theme.inactive}>{promptLabel}</Text>
           <Text color={theme.text} wrap="hard">{renderedValue}</Text>

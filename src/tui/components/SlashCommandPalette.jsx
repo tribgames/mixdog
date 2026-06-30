@@ -13,6 +13,7 @@ import { theme } from '../theme.mjs';
 const MAX_VISIBLE = 8;
 const COMMAND_LABEL_WIDTH = 18;
 const SLASH_HELP = '↑/↓ select · ←/→ change · Enter run · Esc cancel';
+const SLASH_DESCRIPTION = 'Type to filter · Enter runs the highlighted command.';
 const ACRONYM_LABELS = new Map([
   ['mcp', 'MCP'],
 ]);
@@ -62,6 +63,8 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
   const blankRows = Math.max(0, MAX_VISIBLE - visible.length);
   const labelWidth = Math.max(12, Math.min(COMMAND_LABEL_WIDTH, Math.max(12, Math.floor(columns * 0.45))));
   const descriptionWidth = Math.max(0, columns - labelWidth - 12);
+  // Standard panel rhythm: title row, blank, description/hint row, blank, content.
+  const description = truncateText(SLASH_DESCRIPTION, Math.max(0, columns - 4));
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%">
@@ -72,10 +75,13 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
         paddingX={1}
         width="100%"
       >
-        <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
+        <Box flexDirection="row" justifyContent="space-between">
           <Text color={theme.panelTitle}>{title}</Text>
           <Text color={theme.subtle}>{SLASH_HELP}</Text>
         </Box>
+        <Text> </Text>
+        <Text color={theme.subtle}>{description || ' '}</Text>
+        <Text> </Text>
         {visible.map((item, index) => (
           <CommandRow
             key={item.name}
