@@ -17,7 +17,10 @@ import {
     parseToolCalls as compatParseToolCalls,
     parseResponsesToolCalls as compatParseResponsesToolCalls,
 } from '../src/runtime/agent/orchestrator/providers/openai-compat.mjs';
-import { isInvalidToolArgsMarker } from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
+import {
+    consumeCompatResponsesStream,
+    isInvalidToolArgsMarker,
+} from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
 import { parseToolCalls as geminiParseToolCalls } from '../src/runtime/agent/orchestrator/providers/gemini.mjs';
 import { parseSSEStream as anthropicParseSSEStream } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
@@ -47,6 +50,14 @@ function anthropicSseResponse(events) {
                     releaseLock() {},
                 };
             },
+        },
+    };
+}
+
+function compatResponsesEventStream(events) {
+    return {
+        async *[Symbol.asyncIterator]() {
+            for (const event of events) yield event;
         },
     };
 }
@@ -137,6 +148,40 @@ test('openai-compat (responses): malformed function_call args → invalid-args m
     assert.equal(isInvalidToolArgsMarker(out[0].arguments), true);
 });
 
+test('openai-compat/xai Responses stream: response.completed salvages deferred function_call id/name', async () => {
+    const captured = [];
+    const out = await consumeCompatResponsesStream(compatResponsesEventStream([
+        { type: 'response.created', response: { id: 'resp_1', model: 'grok' } },
+        {
+            type: 'response.function_call_arguments.done',
+            item_id: 'fc_item_1',
+            arguments: '{"path":"a"}',
+        },
+        {
+            type: 'response.completed',
+            response: {
+                id: 'resp_1',
+                model: 'grok',
+                status: 'completed',
+                output: [{
+                    type: 'function_call',
+                    id: 'fc_item_1',
+                    call_id: 'fc_1',
+                    name: 'read',
+                    arguments: '{"path":"a"}',
+                }],
+            },
+        },
+    ]), {
+        label: 'test',
+        parseResponsesToolCalls: compatParseResponsesToolCalls,
+        responseOutputText: () => '',
+        onToolCall: (call) => captured.push(call),
+    });
+    assert.deepEqual(out.toolCalls, [{ id: 'fc_1', name: 'read', arguments: { path: 'a' } }]);
+    assert.deepEqual(captured, [{ id: 'fc_1', name: 'read', arguments: { path: 'a' } }]);
+});
+
 test('openai-compat/xai Responses: freeform apply_patch downgrades to function schema', () => {
     const tools = _toResponsesToolsForTest(PATCH_TOOL_DEFS);
     const patch = tools.find((tool) => tool.name === 'apply_patch');
@@ -215,6 +260,30 @@ test('anthropic(-oauth): streamed tool_use block → canonical toolCalls', async
     assert.deepEqual(result.toolCalls, [{ id: 'toolu_1', name: 'shell', arguments: { command: 'ls' } }]);
     // Eager dispatch fired the same call exactly once.
     assert.deepEqual(captured, [{ id: 'toolu_1', name: 'shell', arguments: { command: 'ls' } }]);
+});
+
+test('anthropic(-oauth): malformed streamed tool_use args → invalid-args marker, not {} dispatch', async () => {
+    const events = [
+        { type: 'message_start', message: { model: 'claude', usage: { input_tokens: 1 } } },
+        { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'toolu_bad', name: 'shell' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"command": dispatchAiWrapped}' } },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 1 } },
+        { type: 'message_stop' },
+    ];
+    const captured = [];
+    const result = await anthropicParseSSEStream(
+        anthropicSseResponse(events),
+        null,
+        () => {},
+        () => {},
+        (call) => captured.push(call),
+        {},
+        null,
+    );
+    assert.equal(isInvalidToolArgsMarker(result.toolCalls[0].arguments), true);
+    assert.equal(result.toolCalls[0].arguments.__rawArguments, '{"command": dispatchAiWrapped}');
+    assert.equal(isInvalidToolArgsMarker(captured[0].arguments), true);
 });
 
 test('anthropic(-oauth): text-only stream → no toolCalls', async () => {

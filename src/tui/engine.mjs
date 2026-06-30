@@ -1699,8 +1699,12 @@ export async function createEngineSession({
     // the scroll ran ahead of the text. We now hold each card off-screen for the
     // same delay and push it only when its real header/detail will paint (delay
     // elapsed) OR a result lands first (fast tool → completed card, no pending
-    // flicker). The pushed item's startedAt is already >= the delay, so
-    // ToolExecution renders the real card directly, skipping the placeholder.
+    // flicker). Either way the pushed spec is stamped `deferredDisplayReady` so
+    // ToolExecution renders the real header + 'Running' detail immediately
+    // instead of the blank pre-delay placeholder — this matters for the
+    // result-forced chain push (flushDeferredUpTo), where earlier-seq sibling
+    // cards are pushed alongside the result-bearing one before their own delay
+    // elapses and would otherwise paint an empty reserved band.
     // Mirrors components/ToolExecution.jsx TOOL_PENDING_SHOW_DELAY_MS.
     const TOOL_CARD_PUSH_DELAY_MS = 1000;
     let deferredSeqCounter = 0;

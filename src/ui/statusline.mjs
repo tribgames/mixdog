@@ -50,9 +50,9 @@ const SHELL_JOBS_SEGMENT_CACHE_MS = 1000;
 const GATEWAY_QUOTA_STATUS_CACHE_MS = 500;
 const WORKER_SPINNER_FRAMES = Object.freeze(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']);
 const WORKER_SPINNER_FRAME_MS = 160;
-// Shared L2 spinner: ONE circular-braille glyph leads the whole L2 row (agents,
-// explore, search, shell) instead of a per-segment spinner. ~120ms frame step.
-const L2_SPINNER_FRAMES = Object.freeze(['⢎⡰', '⢎⡡', '⢎⡑', '⢎⠱', '⠎⡱', '⢊⡱', '⢌⡱', '⢆⡱']);
+// L2 segment spinner: reuses the original WORKER_SPINNER_FRAMES dot glyphs (no
+// separate glyph list) but spins them at a faster 120ms step than the worker
+// spinner's 160ms. l2SpinnerFrame() indexes straight into WORKER_SPINNER_FRAMES.
 const L2_SPINNER_FRAME_MS = 120;
 // Keep the last known usage snapshot visible while idle. The runtime still
 // refreshes OAuth usage in the background, but if that refresh is delayed or
@@ -99,8 +99,8 @@ function workerSpinnerFrame(now = Date.now()) {
 }
 
 function l2SpinnerFrame(now = Date.now()) {
-  const index = Math.floor(now / L2_SPINNER_FRAME_MS) % L2_SPINNER_FRAMES.length;
-  return L2_SPINNER_FRAMES[index] || L2_SPINNER_FRAMES[0];
+  const index = Math.floor(now / L2_SPINNER_FRAME_MS) % WORKER_SPINNER_FRAMES.length;
+  return WORKER_SPINNER_FRAMES[index] || WORKER_SPINNER_FRAMES[0];
 }
 
 /**
@@ -621,12 +621,20 @@ function displayModelName(provider, model) {
   return display || canonicalModelDisplay(raw, provider) || raw || 'model';
 }
 
+/** Display label for context % (clamped to 100); raw pct still drives bar/color thresholds. */
+export function contextPctDisplayLabel(ctxPct) {
+  const pct = Number(ctxPct);
+  if (!Number.isFinite(pct) || pct <= 0) return '0';
+  if (pct > 0 && pct < 1) return String(Math.round(pct * 10) / 10);
+  return String(Math.floor(Math.min(100, pct)));
+}
+
 function formatContextSegment(ctxPct, cols) {
   const raw = Number(ctxPct);
   const pct = Number.isFinite(raw) ? Math.max(0, raw) : 0;
   const barPct = clampPct(pct);
   const fill = pct >= 90 ? RED : pct >= 70 ? YLW : GRN;
-  const label = pct > 0 && pct < 1 ? String(Math.round(pct * 10) / 10) : String(Math.floor(pct));
+  const label = contextPctDisplayLabel(pct);
   // Keep a full-width bar wherever there is room for one. Below 80 cols the bar
   // is dropped (label-only) so the footer never overflows a narrow terminal;
   // at 80+ it stays a fixed 14 cells instead of shrinking to 8, which read as
@@ -851,13 +859,27 @@ function positiveInt(value) {
   return Number.isInteger(n) && n > 0 ? n : 0;
 }
 
+// Byte-identical replica of src/tui/time-format.mjs formatDuration() with
+// DEFAULT options (no mostSignificantOnly / hideTrailingZeros), wrapped to drop
+// sub-1s like formatElapsed there. Output shape: '' (<1s), `Xs`, `Xm Ys`,
+// `Xh Ym Zs`, `Xd Yh Zm`. statusline.mjs is a standalone UI module that should
+// not depend on the React/ink TUI tree, so the algorithm is replicated rather
+// than imported. Used for ALL L2 elapsed (Agents/Explore/Search/Shell).
 function formatElapsed(ms) {
-  const secs = Math.max(0, Math.floor(Number(ms || 0) / 1000));
-  if (secs < 1) return '';
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m`;
-  return `${Math.floor(mins / 60)}h`;
+  if (!Number.isFinite(Number(ms))) return '';
+  const value = Math.max(0, Number(ms) || 0);
+  if (value < 60_000) {
+    if (value < 1_000) return '';
+    return `${Math.floor(value / 1000)}s`;
+  }
+  const days = Math.floor(value / 86_400_000);
+  const hours = Math.floor((value % 86_400_000) / 3_600_000);
+  const minutes = Math.floor((value % 3_600_000) / 60_000);
+  const seconds = Math.floor((value % 60_000) / 1000);
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
 /** Minimal one-line footer used when the vendored renderer is unavailable. */

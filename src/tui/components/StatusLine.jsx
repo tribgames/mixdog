@@ -157,6 +157,13 @@ function localContextPct({
   return Math.max(0, (tokens / window) * 100);
 }
 
+function localContextPctDisplayLabel(ctxPct) {
+  const pct = Number(ctxPct);
+  if (!Number.isFinite(pct) || pct <= 0) return '0';
+  if (pct > 0 && pct < 1) return String(Math.round(pct * 10) / 10);
+  return String(Math.floor(Math.min(100, pct)));
+}
+
 function localContextSegmentFromPct(ctxPct = 0) {
   const { SUBTLE, SUCCESS, WARNING, ERROR } = statusColors();
   const cols = terminalColumns();
@@ -165,7 +172,7 @@ function localContextSegmentFromPct(ctxPct = 0) {
   const pct = Number.isFinite(raw) ? Math.max(0, raw) : 0;
   const barPct = Math.max(0, Math.min(100, pct));
   const fill = pct >= 90 ? ERROR : pct >= 70 ? WARNING : SUCCESS;
-  const label = pct > 0 && pct < 1 ? String(Math.round(pct * 10) / 10) : String(Math.floor(pct));
+  const label = localContextPctDisplayLabel(pct);
   if (!cells) return `${fill}${label}%${RESET}`;
   let filled = Math.floor(barPct * cells / 100);
   if (barPct >= 1 && filled === 0) filled = 1;
@@ -177,10 +184,10 @@ function localContextSegmentFromPct(ctxPct = 0) {
 }
 
 const LOCAL_WORKER_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-// Shared L2 segment spinner (circular braille) — must match the async path's
-// L2_SPINNER_FRAMES / L2_SPINNER_FRAME_MS in src/ui/statusline.mjs so the
-// instant-local L2 and the full render do not flicker.
-const LOCAL_L2_SPINNER_FRAMES = ['⢎⡰', '⢎⡡', '⢎⡑', '⢎⠱', '⠎⡱', '⢊⡱', '⢌⡱', '⢆⡱'];
+// L2 segment spinner reuses the original worker dot glyphs (no separate glyph
+// list) but spins them at 120ms instead of the worker spinner's 160ms. Mirrors
+// statusline.mjs l2SpinnerFrame()/L2_SPINNER_FRAME_MS so instant-local and full
+// render stay in sync (no flicker).
 const LOCAL_L2_SPINNER_FRAME_MS = 120;
 
 function localWorkerSpinnerFrame(now = Date.now()) {
@@ -189,18 +196,29 @@ function localWorkerSpinnerFrame(now = Date.now()) {
 }
 
 function localL2SpinnerFrame(now = Date.now()) {
-  const index = Math.floor(now / LOCAL_L2_SPINNER_FRAME_MS) % LOCAL_L2_SPINNER_FRAMES.length;
-  return LOCAL_L2_SPINNER_FRAMES[index] || LOCAL_L2_SPINNER_FRAMES[0];
+  const index = Math.floor(now / LOCAL_L2_SPINNER_FRAME_MS) % LOCAL_WORKER_SPINNER_FRAMES.length;
+  return LOCAL_WORKER_SPINNER_FRAMES[index] || LOCAL_WORKER_SPINNER_FRAMES[0];
 }
 
-// Mirror of statusline.mjs formatElapsed → `3s`/`2m`/`1h`, '' when <1s.
+// Byte-identical replica of src/tui/time-format.mjs formatDuration() with
+// DEFAULT options (no mostSignificantOnly / hideTrailingZeros), wrapped to drop
+// sub-1s. Output shape: '' (<1s), `Xs`, `Xm Ys`, `Xh Ym Zs`, `Xd Yh Zm`. Mirrors
+// statusline.mjs formatElapsed so instant-local L2 elapsed matches full render.
 function localFormatElapsed(ms) {
-  const secs = Math.max(0, Math.floor(localNum(ms) / 1000));
-  if (secs < 1) return '';
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m`;
-  return `${Math.floor(mins / 60)}h`;
+  if (!Number.isFinite(Number(ms))) return '';
+  const value = Math.max(0, Number(ms) || 0);
+  if (value < 60_000) {
+    if (value < 1_000) return '';
+    return `${Math.floor(value / 1000)}s`;
+  }
+  const days = Math.floor(value / 86_400_000);
+  const hours = Math.floor((value % 86_400_000) / 3_600_000);
+  const minutes = Math.floor((value % 3_600_000) / 60_000);
+  const seconds = Math.floor((value % 60_000) / 1000);
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
 function localRunningWorkerCount(agentWorkers = [], agentJobs = []) {
@@ -403,6 +421,24 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
       { ...args, agentRevision },
       lastImmediateArgsRef.current,
     );
+    // ROUTE identity = the subset that actually changes the async full line's L1
+    // usage/quota segment (provider/model/session/effort/fast + context windows).
+    // agentRevision, compactBoundaryTokens, autoCompactTokenLimit and stats-reset
+    // are NON-ROUTE: they churn while several agents run but DON'T invalidate the
+    // L1 usage windows. Only a true route/session switch may wipe the cached full
+    // line and snap to the usage-less local line; non-route churn must keep the
+    // last good full line so `5H …/7D …` never blinks. (lastImmediateArgsRef holds
+    // exactly these route fields, captured at the end of the previous effect run.)
+    const prevImmediate = lastImmediateArgsRef.current;
+    const routeChanged = !prevImmediate
+      || prevImmediate.sessionId !== args.sessionId
+      || prevImmediate.provider !== args.provider
+      || prevImmediate.model !== args.model
+      || prevImmediate.effort !== args.effort
+      || prevImmediate.fast !== args.fast
+      || prevImmediate.contextWindow !== args.contextWindow
+      || prevImmediate.displayContextWindow !== args.displayContextWindow
+      || prevImmediate.rawContextWindow !== args.rawContextWindow;
     // A theme switch must re-tone the footer immediately: the stored `line`
     // holds already-normalized ANSI with the OLD palette, so re-running
     // normalizeStatusLine on it is a no-op. Force a fresh local rebuild (new
@@ -411,7 +447,12 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     if (themeChanged) {
       themeEpochRef.current = themeEpoch;
     }
-    if (identityChanged) {
+    // Only a real route/session switch invalidates the cached full line (and its
+    // L1 usage segment). On non-route identity churn (agent stage/status, compact
+    // boundary, auto-compact limit, stats reset) KEEP the cache so the usage
+    // segment survives; the async full render scheduled below refreshes any stale
+    // L2 within ~150ms (and every ~250ms while active).
+    if (routeChanged) {
       lastRawFullLineRef.current = '';
       lastRawFullLineCacheKeyRef.current = '';
       bootFullDoneRef.current = false;
@@ -420,10 +461,17 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
       || bootFullDoneRef.current !== true
       || identityChanged;
     if (snapLocalNow) {
-      const useCachedRaw = themeChanged
-        && !identityChanged
-        && lastRawFullLineRef.current
-        && lastRawFullLineCacheKeyRef.current === footerCacheKey;
+      // Reuse the last good FULL line (with its L1 usage segment) whenever this is
+      // NOT a route switch and a cached full line exists — covers theme re-tone,
+      // agent churn, compact/auto-compact changes and stats reset. We intentionally
+      // do NOT require `=== footerCacheKey` here: footerCacheKey embeds agentRevision
+      // + compact fields, so it differs on exactly the non-route churn we want to
+      // ride through, and requiring equality would fall back to the usage-less
+      // localBootStatusLine and reintroduce the blink. A momentarily stale L2
+      // (agent count/elapsed) is acceptable; a blinking L1 usage segment is not —
+      // the full render below corrects the L2 almost immediately. Route switches
+      // (routeChanged) have already wiped the cache above, so they snap local.
+      const useCachedRaw = !routeChanged && Boolean(lastRawFullLineRef.current);
       const localNext = useCachedRaw
         ? normalizeStatusLine(lastRawFullLineRef.current)
         : normalizeStatusLine(localBootStatusLine(args));

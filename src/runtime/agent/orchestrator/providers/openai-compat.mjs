@@ -1803,3 +1803,6 @@ export class OpenAICompatProvider {
         return null;
     }
 }
+
+export const _toResponsesToolsForTest = toResponsesTools;
+export const _toXaiResponsesInputForTest = toXaiResponsesInput;

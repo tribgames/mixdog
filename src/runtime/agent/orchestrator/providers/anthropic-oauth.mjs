@@ -36,6 +36,7 @@ import {
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { normalizeContentForAnthropic } from './media-normalization.mjs';
+import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
 
 // --- Model catalog cache helpers ---
 // Disk-backed cache so repeated process starts (cron, tool calls) don't
@@ -1107,15 +1108,15 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
                             // whole tool_call — the loop never saw it and
                             // the assistant turn ended with an unmatched
                             // tool_use id. Wrap the parse so a malformed
-                            // input still produces a tool_call (with empty
-                            // arguments and a logged error) instead of a
-                            // silent drop.
+                            // input still produces a tool_call (with an
+                            // invalid-args marker and a logged error) instead
+                            // of a silent drop or accidental `{}` dispatch.
                             let parsedArgs = {};
                             if (pending.inputJson) {
                                 try { parsedArgs = JSON.parse(pending.inputJson); }
                                 catch (parseErr) {
                                     process.stderr.write(`[anthropic-oauth] tool args JSON.parse failed (id=${pending.id}, name=${pending.name}): ${parseErr?.message || parseErr}\n`);
-                                    parsedArgs = {};
+                                    parsedArgs = makeInvalidToolArgsMarker(pending.inputJson, parseErr instanceof Error ? parseErr.message : String(parseErr));
                                 }
                             }
                             // Tool arguments must be a plain object. Anthropic's

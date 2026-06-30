@@ -474,14 +474,29 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
             if (!state.model && resp.model) state.model = resp.model;
             if (!state.responseId && resp.id) state.responseId = resp.id;
             if (!state.content) state.content = responseOutputText(resp);
-            if (!state.toolCalls.length) {
-                const parsed = parseResponsesToolCalls(resp, label);
-                if (parsed?.length) {
-                    for (const parsedCall of parsed) {
-                        const call = { ...parsedCall };
+            for (const item of resp.output || []) {
+                if (item?.type === 'function_call') {
+                    const itemId = item.id || '';
+                    const tc = state.toolCalls.find(t => t._pendingItemId === itemId)
+                        || (item.call_id ? state.toolCalls.find(t => t.id === item.call_id) : null);
+                    if (tc) {
+                        if (!tc.id && item.call_id) tc.id = item.call_id;
+                        if (!tc.name && item.name) tc.name = item.name;
+                        if (tc.id && tc.name) delete tc._pendingItemId;
+                        emitCompatToolCallOnce(state, tc, onToolCall);
+                    } else if (item.call_id && item.name) {
+                        const call = {
+                            id: item.call_id,
+                            name: item.name,
+                            arguments: parseCompletedToolCallArgumentsJson(item.arguments, label, { id: item.call_id, name: item.name, finishReason: 'done' }),
+                        };
                         state.toolCalls.push(call);
                         emitCompatToolCallOnce(state, call, onToolCall);
                     }
+                } else if (item?.type === 'tool_search_call') {
+                    pushToolSearchCall(item);
+                } else if (item?.type === 'custom_tool_call') {
+                    pushCustomToolCall(item);
                 }
             }
             try { onStreamDelta?.(); } catch {}

@@ -3580,6 +3580,7 @@ export function App({ store, initialStatusLine = '' }) {
     }));
     setPicker({
       title: 'Effort',
+      description: 'Reasoning effort for the current model.',
       items: pickerItems,
       onSelect: (value) => {
         setPicker(null);
@@ -3600,6 +3601,7 @@ export function App({ store, initialStatusLine = '' }) {
     setSettingsPrompt(null);
     setPicker({
       title: 'Agent Tasks',
+      description: 'Inspect or clean up background agent tasks.',
       items: [
         {
           value: 'list',
@@ -3666,6 +3668,7 @@ export function App({ store, initialStatusLine = '' }) {
     setSettingsPrompt(null);
     setPicker({
       title: query ? `Tools · ${query}` : 'Tools',
+      description: 'Browse active and deferred tools.',
       items,
       onSelect: (_value, item) => {
         setPicker(null);
@@ -3686,6 +3689,7 @@ export function App({ store, initialStatusLine = '' }) {
           const tool = item._tool;
           setPicker({
             title: `Tool · ${tool.name}`,
+            description: 'Tool details and quick actions.',
             items: [
               {
                 value: 'info',
@@ -4837,6 +4841,7 @@ export function App({ store, initialStatusLine = '' }) {
     ];
     setPicker({
       title: `First Run · ${slot} model`,
+      description: 'Pick the model route for this workflow role.',
       items,
       onSelect: (_value, item) => {
         const next = item._action === 'select-model'
@@ -4907,6 +4912,7 @@ export function App({ store, initialStatusLine = '' }) {
     setSettingsPrompt(null);
     setPicker({
       title: 'First Run · Step 2/2 · Workflow Routes',
+      description: 'Assign lead and workflow routes, then finish setup.',
       items: [
         {
           value: 'finish',
@@ -5041,6 +5047,7 @@ export function App({ store, initialStatusLine = '' }) {
       ];
       setPicker({
         title: 'Schedules',
+        description: 'Add, enable, or disable cron schedules.',
         items,
         onSelect: (_value, item) => {
           try {
@@ -5116,6 +5123,7 @@ export function App({ store, initialStatusLine = '' }) {
       ];
       setPicker({
         title: 'Webhooks',
+        description: 'Manage inbound webhook endpoints and server settings.',
         items,
         onSelect: (_value, item) => {
           try {
@@ -5222,6 +5230,7 @@ export function App({ store, initialStatusLine = '' }) {
 
     setPicker({
       title: 'Channels',
+      description: 'Discord token, channels, schedules, and webhooks.',
       items,
       onSelect: (_value, item) => {
         try {
@@ -5330,6 +5339,7 @@ export function App({ store, initialStatusLine = '' }) {
     ];
     setPicker({
       title: `MCP · ${server?.name || 'server'}`,
+      description: 'Enable, disable, or reconnect this MCP server.',
       items,
       onSelect: (_toolValue, toolItem) => {
         setPicker(null);
@@ -5377,6 +5387,7 @@ export function App({ store, initialStatusLine = '' }) {
     setSettingsPrompt(null);
     setPicker({
       title: 'MCP servers',
+      description: 'Configured MCP servers and connection status.',
       items,
       onSelect: (_value, item) => {
         setPicker(null);
@@ -5432,6 +5443,7 @@ export function App({ store, initialStatusLine = '' }) {
     setSettingsPrompt(null);
     setPicker({
       title: 'Project skills',
+      description: 'Skills bundled with this project.',
       items,
       onSelect: (_value, item) => {
         setPicker(null);
@@ -5474,6 +5486,7 @@ export function App({ store, initialStatusLine = '' }) {
     setSettingsPrompt(null);
     setPicker({
       title: 'Skills',
+      description: 'Project skills available to the assistant.',
       items,
       onSelect: (_value, item) => {
         setPicker(null);
@@ -5490,6 +5503,7 @@ export function App({ store, initialStatusLine = '' }) {
     const disabled = disabledSkills.has(skill.name);
     setPicker({
       title: `Skill · ${skill.name}`,
+      description: clean(skill.description) || 'Enable, disable, or run this skill.',
       items: [
         {
           value: 'use',
@@ -5562,6 +5576,7 @@ export function App({ store, initialStatusLine = '' }) {
   const openPluginDetailPicker = (p) => {
     setPicker({
       title: p.title || p.name,
+      description: clean(p.description) || 'Update, MCP, or uninstall this plugin.',
       items: [
         {
           value: 'info',
@@ -5678,6 +5693,7 @@ export function App({ store, initialStatusLine = '' }) {
     setSettingsPrompt(null);
     setPicker({
       title: 'Installed plugins',
+      description: 'Open an installed plugin to manage it.',
       items,
       onSelect: (_value, item) => {
         setPicker(null);
@@ -5700,6 +5716,7 @@ export function App({ store, initialStatusLine = '' }) {
     setSettingsPrompt(null);
     setPicker({
       title: 'Plugins',
+      description: 'Add or manage local plugin integrations.',
       items: [
         {
           value: 'installed',
@@ -5759,6 +5776,7 @@ export function App({ store, initialStatusLine = '' }) {
     setSettingsPrompt(null);
     setPicker({
       title: 'Hooks',
+      description: 'Before-tool hook rules; Enter toggles a rule.',
       items,
       onSelect: (_value, item) => {
         setPicker(null);
@@ -5780,6 +5798,7 @@ export function App({ store, initialStatusLine = '' }) {
   const openMemoryStatusPicker = () => {
     setPicker({
       title: 'Memory Status',
+      description: 'Fetching memory runtime status.',
       items: [{ value: 'loading', label: 'Loading memory status', description: 'please wait' }],
       onSelect: () => {},
       onCancel: () => openMemoryPicker(),
@@ -5789,6 +5808,7 @@ export function App({ store, initialStatusLine = '' }) {
         const rows = parseMemoryStatusRows(result);
         setPicker({
           title: 'Memory Status',
+          description: 'Memory subsystem counters and health.',
           items: rows.length ? rows : [{ value: 'empty', label: 'Status', description: 'empty' }],
           onSelect: (_value, item) => {
             if (item?._line) store.pushNotice(item._line, 'info');
@@ -5805,6 +5825,7 @@ export function App({ store, initialStatusLine = '' }) {
   const openMemoryCorePicker = () => {
     setPicker({
       title: 'Core Memory',
+      description: 'Loading curated core memory entries.',
       items: [{ value: 'loading', label: 'Loading core memory', description: 'please wait' }],
       onSelect: () => {},
       onCancel: () => openMemoryPicker(),
@@ -5814,6 +5835,7 @@ export function App({ store, initialStatusLine = '' }) {
         const rows = parseMemoryCoreRows(result);
         setPicker({
           title: 'Core Memory',
+          description: 'User-curated core memories across projects.',
           items: rows.length ? rows : [{ value: 'empty', label: 'Core memory', description: 'empty' }],
           onSelect: (_value, item) => {
             if (item?._line) store.pushNotice(item._line, 'info');
@@ -5843,6 +5865,7 @@ export function App({ store, initialStatusLine = '' }) {
     setSettingsPrompt(null);
     setPicker({
       title: 'Memory',
+      description: 'Status, core memory, and maintenance cycles.',
       items: [
         {
           value: 'status',
@@ -5918,6 +5941,7 @@ export function App({ store, initialStatusLine = '' }) {
     });
     setPicker({
       title: 'Resume',
+      description: 'Restore a saved chat session.',
       items,
       fillAvailable: true,
       labelWidth: 21,
