@@ -19,8 +19,10 @@
 
 import { createSession } from '../session/manager.mjs';
 import { traceAgentPreset } from '../agent-trace.mjs';
-import { resolveAgentSessionPermission } from '../internal-roles.mjs';
+import { getHiddenRole, resolveAgentSessionPermission } from '../internal-roles.mjs';
 import { loadConfig } from '../config.mjs';
+import { AGENT_OWNER } from '../agent-owner.mjs';
+import { resolvePublicAgentMaxLoopIterations } from './agent-loop-policy.mjs';
 
 /**
  * @param {object} opts
@@ -62,6 +64,18 @@ export function prepareAgentSession({
     schemaAllowedTools,
 }) {
     const effectivePermission = resolveAgentSessionPermission(role, permission);
+    let effectiveMaxLoopIterations = maxLoopIterations;
+    if (
+        !Number.isFinite(effectiveMaxLoopIterations)
+        && owner === AGENT_OWNER
+        && role
+        && !getHiddenRole(role)
+    ) {
+        const roleCap = resolvePublicAgentMaxLoopIterations(role, effectivePermission);
+        if (Number.isFinite(roleCap) && roleCap > 0) {
+            effectiveMaxLoopIterations = roleCap;
+        }
+    }
     // Pass cwd through verbatim — null is the fixed agent sentinel meaning
     // "no caller workspace context" (cycle1-agent shards, etc). Upgrading
     // null → process.cwd() here would defeat cache-shard fork suppression.
@@ -88,7 +102,7 @@ export function prepareAgentSession({
         cwd: effectiveCwd,
         role: role || undefined,
         taskType: taskType || undefined,
-        maxLoopIterations: Number.isFinite(maxLoopIterations) ? maxLoopIterations : undefined,
+        maxLoopIterations: Number.isFinite(effectiveMaxLoopIterations) ? effectiveMaxLoopIterations : undefined,
         sourceType: sourceType || undefined,
         sourceName: sourceName || undefined,
         ownerSessionId: effectiveOwnerSessionId || null,

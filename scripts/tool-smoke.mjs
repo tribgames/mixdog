@@ -11,7 +11,7 @@ import { buildHeadlessSpawnArgs } from '../src/headless-role.mjs';
 import { createStandaloneChannelWorker } from '../src/standalone/channel-worker.mjs';
 import { OpenAIOAuthProvider, buildRequestBody, sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { _logicalResponseItemMatch, _resolveOpenAiPromptCacheRatePolicy } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
-import { _mergePendingMessageEntries, closeSession, createSession, drainPendingMessages, enqueuePendingMessage, resumeSession } from '../src/runtime/agent/orchestrator/session/manager.mjs';
+import { _mergePendingMessageEntries, applyAskTerminalUsageTotals, closeSession, createSession, drainPendingMessages, enqueuePendingMessage, resumeSession } from '../src/runtime/agent/orchestrator/session/manager.mjs';
 import {
   contentHasImage,
   normalizeContentForAnthropic,
@@ -61,6 +61,27 @@ function assertOk(name, result, pattern = null) {
     throw new Error(`${name} returned unexpected output:\n${text.slice(0, 1000)}`);
   }
   return text;
+}
+
+{
+  const session = { provider: 'openai-oauth' };
+  applyAskTerminalUsageTotals(session, {
+    usage: { inputTokens: 100_000, outputTokens: 10, cachedTokens: 98_000, cacheWriteTokens: 0 },
+  });
+  assert(session.lastInputTokens === 100_000, `inclusive last input should retain provider total: ${JSON.stringify(session)}`);
+  assert(session.lastUncachedInputTokens === 2_000, `inclusive last uncached input should subtract cache reads: ${JSON.stringify(session)}`);
+  assert(session.totalUncachedInputTokens === 2_000, `inclusive total uncached input should be tracked: ${JSON.stringify(session)}`);
+}
+
+{
+  const session = { provider: 'anthropic-oauth' };
+  applyAskTerminalUsageTotals(session, {
+    usage: { inputTokens: 2_000, outputTokens: 10, cachedTokens: 90_000, cacheWriteTokens: 8_000 },
+  });
+  assert(session.lastInputTokens === 2_000, `additive last input should retain provider input field: ${JSON.stringify(session)}`);
+  assert(session.lastUncachedInputTokens === 10_000, `additive uncached input should include cache writes: ${JSON.stringify(session)}`);
+  assert(session.lastContextTokens === 100_000, `additive context should include input+cache read+cache write: ${JSON.stringify(session)}`);
+  assert(session.totalUncachedInputTokens === 10_000, `additive total uncached input should include cache writes: ${JSON.stringify(session)}`);
 }
 
 {
@@ -407,6 +428,20 @@ const graphOut = await executeCodeGraphTool('code_graph', {
   file: 'scripts/smoke.mjs',
 }, root);
 assertOk('code_graph', graphOut, /binding|spawnSync|symbol/i);
+
+const graphMissingFileOut = await executeCodeGraphTool('code_graph', {
+  mode: 'symbols',
+  file: 'src/runtime/loop.mjs',
+}, root);
+if (!/^Error: code_graph: file not found: src\/runtime\/loop\.mjs/.test(String(graphMissingFileOut))) {
+  throw new Error(`code_graph missing-file fast path failed:\n${graphMissingFileOut}`);
+}
+
+const graphDotDirOut = await executeCodeGraphTool('code_graph', {
+  mode: 'overview',
+  file: '.',
+}, root);
+assertOk('code_graph dot directory anchor', graphDotDirOut, /files\s+\d+|edges\s+\d+/i);
 
 const patchOut = await executePatchTool('apply_patch', {
   base_path: root,

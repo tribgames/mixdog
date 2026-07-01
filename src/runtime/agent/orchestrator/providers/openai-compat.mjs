@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { createHash } from 'crypto';
 import { loadConfig } from '../config.mjs';
 import { shouldFallbackTransport, withRetry } from './retry-classifier.mjs';
+import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import {
     consumeCompatChatCompletionStream,
@@ -1202,6 +1203,16 @@ export class OpenAICompatProvider {
             baseURL,
             apiKey,
             defaultHeaders: this.defaultHeaders,
+            // The SDK's own retry loop (default 2) would nest underneath our
+            // withRetry wrapper and multiply tail latency on a transient
+            // backend. We own retry/backoff via withRetry, so disable the SDK's.
+            maxRetries: 0,
+            // Force the shared long-keepalive undici dispatcher to be installed
+            // globally (setGlobalDispatcher) so the SDK's global fetch rides a
+            // warm socket pool instead of Node's short-keepalive default. The
+            // return value is undefined once installed globally; the option is
+            // a harmless no-op then.
+            fetchOptions: { dispatcher: getLlmDispatcher() },
         });
     }
     reloadApiKey() {
@@ -1220,6 +1231,8 @@ export class OpenAICompatProvider {
                     baseURL,
                     apiKey: newKey,
                     defaultHeaders: this.defaultHeaders,
+                    maxRetries: 0,
+                    fetchOptions: { dispatcher: getLlmDispatcher() },
                 });
             }
         } catch { /* best effort */ }
@@ -1239,6 +1252,11 @@ export class OpenAICompatProvider {
     async _doSend(messages, model, tools, sendOpts) {
         const useModel = model || this.defaultModel;
         const opts = sendOpts || {};
+        // Re-warm a kept-alive socket to the provider origin before the turn so
+        // the request hot path lands on a live socket instead of paying a cold
+        // TLS handshake after an idle gap. Fire-and-forget; never awaited. This
+        // mirrors anthropic-oauth's send()-start preconnect.
+        preconnect(this.baseURL);
         if (this.name === 'xai' && useXaiResponsesApi(opts, this.config)) {
             if (useXaiResponsesWebSocket(opts, this.config)) {
                 try {
@@ -1339,6 +1357,11 @@ export class OpenAICompatProvider {
                         ({ signal: openSignal }) => this.client.chat.completions.create(params, { signal: openSignal }),
                         {
                             signal: attemptSignal,
+                            // Single attempt: this inner wrapper exists only to
+                            // apply the first-byte per-attempt timeout. Retry is
+                            // owned by the outer withRetry — nesting retry loops
+                            // here multiplied tail latency (5x5).
+                            maxAttempts: 1,
                             perAttemptTimeoutMs: PROVIDER_FIRST_BYTE_TIMEOUT_MS,
                             perAttemptLabel: `${this.name} first byte`,
                         },
@@ -1516,6 +1539,9 @@ export class OpenAICompatProvider {
                             ({ signal: openSignal }) => this.client.responses.create(params, { signal: openSignal }),
                             {
                                 signal: attemptSignal,
+                                // Single attempt: first-byte timeout only; retry
+                                // is owned by the outer withRetry (see chat path).
+                                maxAttempts: 1,
                                 perAttemptTimeoutMs: PROVIDER_FIRST_BYTE_TIMEOUT_MS,
                                 perAttemptLabel: 'xai responses first byte',
                             },

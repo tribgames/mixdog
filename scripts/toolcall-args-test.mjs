@@ -21,10 +21,12 @@ import {
     isInvalidToolArgsMarker,
     formatInvalidToolArgsResult,
 } from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
+import { parseSSEStream } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import { classifyError } from '../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STREAM_SRC = resolve(__dirname, '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs');
+const UTF8 = new TextEncoder();
 
 // Captures the synchronous throw of `fn` and returns the Error, failing if none.
 function captureThrow(fn) {
@@ -147,4 +149,83 @@ test('retry-classifier: truncated stream (no finish) → transient (preserved be
     const transient = captureThrow(() =>
         parseCompletedToolCallArgumentsJson('{', 'test'));
     assert.equal(classifyError(transient), 'transient');
+});
+
+function responseFromSseText(text) {
+    return {
+        body: new ReadableStream({
+            start(controller) {
+                controller.enqueue(UTF8.encode(text));
+                controller.close();
+            },
+        }),
+    };
+}
+
+function livePingOnlyResponse(intervalMs = 5) {
+    let timer = null;
+    return {
+        body: new ReadableStream({
+            start(controller) {
+                timer = setInterval(() => {
+                    try { controller.enqueue(UTF8.encode(':ping\n\n')); }
+                    catch { if (timer) clearInterval(timer); }
+                }, intervalMs);
+            },
+            cancel() {
+                if (timer) clearInterval(timer);
+            },
+        }),
+    };
+}
+
+test('anthropic SSE: comments do not count as stream progress', async () => {
+    const state = { firstMessageTimeoutMs: 100 };
+    let deltas = 0;
+    const result = await parseSSEStream(
+        responseFromSseText([
+            ':ping',
+            '',
+            'event: message_start',
+            'data: {"type":"message_start","message":{"model":"claude-test","usage":{"input_tokens":1}}}',
+            '',
+            'event: content_block_delta',
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}',
+            '',
+            'event: message_stop',
+            'data: {"type":"message_stop"}',
+            '',
+        ].join('\n')),
+        null,
+        null,
+        () => { deltas += 1; },
+        null,
+        state,
+        null,
+    );
+    assert.equal(result.content, 'hi');
+    assert.equal(deltas, 1, 'only the text delta should count as semantic progress');
+});
+
+test('anthropic SSE: ping-only stream times out before empty-stream guard can hang', async () => {
+    const controller = new AbortController();
+    let deltas = 0;
+    await assert.rejects(
+        () => parseSSEStream(
+            livePingOnlyResponse(),
+            controller.signal,
+            (reason) => controller.abort(reason),
+            () => { deltas += 1; },
+            null,
+            { firstMessageTimeoutMs: 30 },
+            null,
+        ),
+        (err) => {
+            assert.equal(err.code, 'EEMPTYSTREAM');
+            assert.equal(err.isEmptyStream, true);
+            assert.equal(err.firstByteTimeout, true);
+            return true;
+        },
+    );
+    assert.equal(deltas, 0, 'SSE comments must not refresh semantic stream progress');
 });

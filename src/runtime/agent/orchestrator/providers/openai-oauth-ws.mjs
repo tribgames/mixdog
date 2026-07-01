@@ -4,7 +4,7 @@
  * Single dispatch path for the openai-oauth provider (SSE removed in
  * v0.6.117). Uses the `responses_websockets=2026-02-06` beta WebSocket
  * upgrade on chatgpt.com/backend-api/codex/responses. Per-session
- * connections are pooled (5 min idle TTL, up to 8 parallel sockets per
+ * connections are pooled (configurable idle TTL, up to 8 parallel sockets per
  * key) so subsequent tool-loop iterations can send only the incremental
  * `input` delta plus `previous_response_id`, skipping the full
  * tools/system/history prefix each turn.
@@ -49,6 +49,7 @@ import {
     PROVIDER_WS_FIRST_MEANINGFUL_TIMEOUT_MS,
     PROVIDER_WS_HANDSHAKE_TIMEOUT_MS,
     PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS,
+    resolveTimeoutMs,
 } from '../stall-policy.mjs';
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
 
@@ -58,7 +59,11 @@ const CODEX_WS_URL = 'wss://chatgpt.com/backend-api/codex/responses';
 const CODEX_OAUTH_ORIGINATOR = 'codex_cli_rs';
 const OPENAI_WS_URL = 'wss://api.openai.com/v1/responses';
 const XAI_WS_URL = 'wss://api.x.ai/v1/responses';
-const WS_IDLE_MS = 5 * 60_000;
+const WS_IDLE_MS = resolveTimeoutMs(
+    'MIXDOG_PROVIDER_WS_IDLE_MS',
+    20 * 60_000,
+    { minMs: 60_000, maxMs: 60 * 60_000 },
+);
 const WS_HANDSHAKE_TIMEOUT_MS = PROVIDER_WS_HANDSHAKE_TIMEOUT_MS;
 const WS_ACQUIRE_TIMEOUT_MS = PROVIDER_WS_ACQUIRE_TIMEOUT_MS;
 // Pre-stream watchdog uses the shared provider deadline so it fails before
@@ -2666,6 +2671,7 @@ export async function sendViaWebSocket({
                 ws_pre_response_created_timeout_ms: WS_PRE_RESPONSE_CREATED_MS,
                 ws_first_meaningful_timeout_ms: WS_FIRST_MEANINGFUL_MS,
                 ws_inter_chunk_timeout_ms: WS_INTER_CHUNK_MS,
+                ws_idle_ms: WS_IDLE_MS,
                 iteration_delta_tokens: deltaTokens,
                 reused_connection: reused,
                 requested_service_tier: requestedServiceTier,

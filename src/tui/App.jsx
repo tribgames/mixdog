@@ -3867,11 +3867,17 @@ export function App({ store, initialStatusLine = '' }) {
       return `${Math.round(n)}`;
     };
     const cachedRead = Number(usage.lastCachedReadTokens || 0);
-    const freshInput = Number(usage.lastInputTokens || 0);
-    const cacheDenom = cachedRead + freshInput;
+    const cacheWrite = Number(usage.lastCacheWriteTokens || 0);
+    const freshInput = Number(
+      usage.lastUncachedInputTokens != null
+        ? usage.lastUncachedInputTokens
+        : Math.max(Number(usage.lastInputTokens || 0) - cachedRead - cacheWrite, 0)
+    );
+    const cacheDenom = Number(usage.lastContextTokens || 0) || (cachedRead + freshInput + cacheWrite);
     const cacheHitRate = cacheDenom > 0
       ? `${((cachedRead / cacheDenom) * 100).toFixed(0)}%`
       : 'n/a';
+    const cacheWriteLabel = cacheWrite > 0 ? ` · ${fmt(cacheWrite)} write` : '';
     const contextSource = context.usedSource === 'last_api_request' ? 'last API request' : 'estimated';
     const lastApiLabel = context.lastApiRequestStale ? 'last API request (pre-compact)' : 'last API request';
     const compactElapsed = (value) => {
@@ -3939,13 +3945,13 @@ export function App({ store, initialStatusLine = '' }) {
       {
         value: 'last-api',
         label: 'Last API usage',
-        description: `${fmt(usage.lastContextTokens)} context · ${fmt(usage.lastInputTokens)} input · ${fmt(usage.lastOutputTokens)} output · ${lastApiLabel}`,
+        description: `${fmt(usage.lastContextTokens)} context · ${fmt(freshInput)} uncached input · ${fmt(usage.lastOutputTokens)} output · ${lastApiLabel}`,
         _action: 'last-api',
       },
       {
         value: 'cache',
         label: 'Prompt cache',
-        description: `${cacheHitRate} hit · ${fmt(usage.lastCachedReadTokens)} read · ${fmt(usage.lastInputTokens)} new (last request)`,
+        description: `${cacheHitRate} hit · ${fmt(usage.lastCachedReadTokens)} read${cacheWriteLabel} · ${fmt(freshInput)} new (last request)`,
         _action: 'cache',
       },
       {
@@ -4010,12 +4016,14 @@ export function App({ store, initialStatusLine = '' }) {
         },
         lastApi: {
           contextTokens: usage.lastContextTokens,
-          inputTokens: usage.lastInputTokens,
+          inputTokens: freshInput,
+          rawInputTokens: usage.lastInputTokens,
           outputTokens: usage.lastOutputTokens,
         },
         cache: {
           hitRate: cacheHitRate,
           readTokens: usage.lastCachedReadTokens,
+          writeTokens: cacheWrite,
         },
         extensions: {
           skills: skills.count,

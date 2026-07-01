@@ -14,7 +14,7 @@ export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: 'Repo anchor locator. Use for broad/uncertain paths. Array only for independent targets.',
+  description: 'Repo anchor locator. LLM-backed; broad/uncertain only. Array only for independent targets.',
   inputSchema: {
     type: 'object',
     properties: {

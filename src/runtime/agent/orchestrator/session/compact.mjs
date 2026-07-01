@@ -4,6 +4,12 @@ import {
     dedupToolResultBodies,
     reconcileDedupStubs,
     estimateMessagesTokens,
+    DEFAULT_COMPACTION_BUFFER_TOKENS,
+    DEFAULT_COMPACTION_BUFFER_RATIO,
+    MAX_COMPACTION_BUFFER_RATIO,
+    DEFAULT_COMPACTION_KEEP_TOKENS,
+    normalizeCompactionBufferRatio,
+    compactionBufferTokensForBoundary,
 } from './context-utils.mjs';
 
 export const SUMMARY_PREFIX = 'A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done and avoid duplicating it; treat the summary as authoritative context for continuing the task. You also retain the preserved recent turns that follow.';
@@ -15,10 +21,14 @@ export const SUMMARY_PREFIX = 'A previous model worked on this task and produced
 // to tune headroom. Telemetry-persisted bufferTokens/bufferRatio of zero is not
 // operator config; loop/manager strip it and reapply this default (see
 // compactBufferConfigForBoundary).
-export const DEFAULT_COMPACTION_BUFFER_TOKENS = 0;
-export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
-export const MAX_COMPACTION_BUFFER_RATIO = 0.25;
-export const DEFAULT_COMPACTION_KEEP_TOKENS = 8_000;
+export {
+    DEFAULT_COMPACTION_BUFFER_TOKENS,
+    DEFAULT_COMPACTION_BUFFER_RATIO,
+    MAX_COMPACTION_BUFFER_RATIO,
+    DEFAULT_COMPACTION_KEEP_TOKENS,
+    normalizeCompactionBufferRatio,
+    compactionBufferTokensForBoundary,
+};
 export const SUMMARY_OUTPUT_TOKENS = 4_096;
 // Minimum room the generated summary needs after the mandatory (system +
 // preserved tail) cost is accounted for. When the configured target budget is
@@ -377,23 +387,6 @@ function redactMessageToolCallSecrets(m) {
 export function redactToolCallSecretsInMessages(messages) {
     if (!Array.isArray(messages)) return messages;
     return messages.map((m) => redactMessageToolCallSecrets(m));
-}
-
-export function normalizeCompactionBufferRatio(value, fallback = DEFAULT_COMPACTION_BUFFER_RATIO) {
-    const n = Number(value);
-    if (Number.isFinite(n) && n > 0) return n > 1 ? n / 100 : n;
-    return fallback;
-}
-
-export function compactionBufferTokensForBoundary(boundaryTokens, opts = {}) {
-    const boundary = Math.max(0, Math.floor(Number(boundaryTokens) || 0));
-    const explicit = Math.max(0, Math.floor(Number(opts.explicitTokens) || 0));
-    if (!boundary) return explicit;
-    const maxRatio = normalizeCompactionBufferRatio(opts.maxRatio, MAX_COMPACTION_BUFFER_RATIO);
-    const cap = Math.max(0, Math.floor(boundary * maxRatio));
-    if (explicit > 0) return Math.max(0, Math.min(explicit, cap));
-    const ratio = normalizeCompactionBufferRatio(opts.ratio, DEFAULT_COMPACTION_BUFFER_RATIO);
-    return Math.max(0, Math.min(Math.floor(boundary * ratio), cap));
 }
 
 function effectiveBudget(budgetTokens, opts) {

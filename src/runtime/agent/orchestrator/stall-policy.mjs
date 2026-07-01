@@ -149,7 +149,11 @@ export const PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS = resolveTimeoutMs(
     { minMs: STALL_WARN_MS, maxMs: STALL_ABORT_MS },
 );
 
-export const PROVIDER_RETRY_BACKOFF_MS = Object.freeze([0, 1000, 2000, 4000, 8000]);
+// First retry has a small floor (250ms) instead of 0ms: an immediate reissue on
+// a transient 5xx burst lets parallel workers thundering-herd the backend in
+// lockstep (jitter alone can't decluster a 0ms base). Subsequent steps keep the
+// exponential schedule. Env-tunable via the providers' retryJitterRatio.
+export const PROVIDER_RETRY_BACKOFF_MS = Object.freeze([250, 1000, 2000, 4000, 8000]);
 export const PROVIDER_RETRY_MAX_ATTEMPTS = PROVIDER_RETRY_BACKOFF_MS.length;
 export const PROVIDER_RETRY_JITTER_RATIO = (() => {
     const raw = process.env.MIXDOG_PROVIDER_RETRY_JITTER_RATIO;

@@ -69,73 +69,10 @@ import {
   estimateRequestReserveTokens,
   estimateTranscriptContextUsage,
   estimateToolSchemaTokens,
+  resolveCompactBufferTokens,
+  resolveCompactTriggerTokens,
+  summarizeContextMessages,
 } from './runtime/agent/orchestrator/session/context-utils.mjs';
-
-// Default compaction buffer rules — kept in lockstep with the worker runtime
-// (loop.mjs resolveCompactBufferRatio / manager.mjs compactBufferRatioForSession
-// and compact.mjs compactionBufferTokensForBoundary). By default the trigger is
-// the effective compact boundary itself; explicit buffer settings can lower it.
-const CONTEXT_DEFAULT_BUFFER_RATIO = 0;
-const CONTEXT_MAX_BUFFER_RATIO = 0.25;
-const CONTEXT_LEGACY_DEFAULT_BUFFER_RATIO = 0.1;
-function resolveContextBufferRatio(cfg = {}) {
-  // Percent-named inputs (bufferPercent/bufferPct/*_BUFFER_PERCENT): a value of
-  // 1 means 1% (→0.01). Ratio-named inputs (bufferRatio/bufferFraction): 0.01
-  // means 1%, while a value > 1 is treated as a legacy percent (10 → 10%).
-  const candidates = [
-    [cfg.bufferPercent, true],
-    [cfg.bufferPct, true],
-    [cfg.bufferRatio, false],
-    [cfg.bufferFraction, false],
-    [process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT, true],
-    [process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO, false],
-  ];
-  for (const [raw, isPercent] of candidates) {
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) continue;
-    return isPercent ? Math.min(1, n / 100) : (n > 1 ? n / 100 : n);
-  }
-  return CONTEXT_DEFAULT_BUFFER_RATIO;
-}
-function isLegacyDefaultContextBufferTelemetry(cfg = {}, boundaryTokens = 0) {
-  const boundary = Number(boundaryTokens);
-  if (!Number.isFinite(boundary) || boundary <= 0) return false;
-  if (Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_TOKENS) > 0) return false;
-  for (const envName of ['MIXDOG_AGENT_COMPACT_BUFFER_PERCENT', 'MIXDOG_AGENT_COMPACT_BUFFER_RATIO']) {
-    const n = Number(process.env[envName]);
-    if (Number.isFinite(n) && n > 0) return false;
-  }
-  for (const key of ['bufferPercent', 'bufferPct', 'bufferFraction']) {
-    const n = Number(cfg?.[key]);
-    if (Number.isFinite(n) && n > 0) return false;
-  }
-  const explicitTokens = Number(cfg?.bufferTokens ?? cfg?.buffer);
-  const ratio = Number(cfg?.bufferRatio);
-  if (!Number.isFinite(explicitTokens) || explicitTokens <= 0 || !Number.isFinite(ratio) || Math.abs(ratio - CONTEXT_LEGACY_DEFAULT_BUFFER_RATIO) > 1e-9) {
-    return false;
-  }
-  const expectedTokens = Math.floor(boundary * CONTEXT_LEGACY_DEFAULT_BUFFER_RATIO);
-  const cfgBoundary = Number(cfg?.boundaryTokens);
-  const cfgTrigger = Number(cfg?.triggerTokens);
-  return Math.floor(explicitTokens) === expectedTokens
-    || (Number.isFinite(cfgBoundary) && Math.floor(cfgBoundary) === Math.floor(boundary)
-      && Number.isFinite(cfgTrigger) && cfgTrigger > 0
-      && Math.floor(explicitTokens) === Math.max(0, Math.floor(boundary - cfgTrigger)));
-}
-function contextDefaultBufferTokens(boundaryTokens, cfg = {}) {
-  const boundary = Number(boundaryTokens);
-  if (!Number.isFinite(boundary) || boundary <= 0) return 0;
-  const effectiveCfg = isLegacyDefaultContextBufferTelemetry(cfg, boundary)
-    ? { ...cfg, bufferTokens: null, buffer: null, bufferRatio: null }
-    : cfg;
-  const cap = Math.max(0, Math.floor(boundary * CONTEXT_MAX_BUFFER_RATIO));
-  const explicit = Number(effectiveCfg.bufferTokens ?? effectiveCfg.buffer);
-  if (Number.isFinite(explicit) && explicit > 0) {
-    return Math.min(Math.floor(explicit), cap);
-  }
-  const ratio = resolveContextBufferRatio(effectiveCfg);
-  return Math.max(0, Math.min(Math.floor(boundary * ratio), cap));
-}
 
 function sessionMessageText(content) {
   if (content == null) return '';
@@ -153,10 +90,6 @@ function sessionMessageText(content) {
   try { return JSON.stringify(content); } catch { return String(content); }
 }
 
-function roughTokenCount(text) {
-  return Math.ceil(String(text ?? '').length / 4);
-}
-
 function messageContextText(message) {
   if (!message || typeof message !== 'object') return '';
   let text = sessionMessageText(message.content);
@@ -166,117 +99,6 @@ function messageContextText(message) {
   }
   if (message.role === 'tool' && message.toolCallId) text += `\n${message.toolCallId}`;
   return text;
-}
-
-function stripSystemReminder(text) {
-  return String(text || '')
-    .replace(/^\s*<system-reminder>\s*/i, '')
-    .replace(/\s*<\/system-reminder>\s*$/i, '')
-    .trim();
-}
-
-function splitMarkdownSections(text) {
-  const sections = [];
-  let current = [];
-  for (const line of String(text || '').split(/\r?\n/)) {
-    if (/^#\s+/.test(line) && current.length) {
-      const body = current.join('\n').trim();
-      if (body) sections.push(body);
-      current = [line];
-    } else {
-      current.push(line);
-    }
-  }
-  const tail = current.join('\n').trim();
-  if (tail) sections.push(tail);
-  return sections;
-}
-
-function reminderSectionBucket(section) {
-  const heading = String(section.match(/^#\s+([^\n]+)/)?.[1] || '').trim().toLowerCase();
-  if (heading.includes('core memory')) return 'memory';
-  if (heading.includes('active workflow') || heading.includes('available agents') || heading.includes('workflow')) return 'workflow';
-  if (heading.includes('workspace')) return 'workspace';
-  if (heading.includes('environment')) return 'environment';
-  return 'other';
-}
-
-function summarizeContextMessages(messages) {
-  const rows = {
-    system: { count: 0, tokens: 0 },
-    user: { count: 0, tokens: 0 },
-    assistant: { count: 0, tokens: 0 },
-    tool: { count: 0, tokens: 0 },
-    other: { count: 0, tokens: 0 },
-  };
-  const semantic = {
-    system: { count: 0, tokens: 0 },
-    chat: { count: 0, tokens: 0 },
-    assistant: { count: 0, tokens: 0 },
-    toolResults: { count: 0, tokens: 0 },
-    reminders: { count: 0, tokens: 0, otherTokens: 0 },
-    workflow: { tokens: 0 },
-    memory: { tokens: 0 },
-    workspace: { tokens: 0 },
-    environment: { tokens: 0 },
-    other: { tokens: 0 },
-  };
-  let toolCallCount = 0;
-  let toolCallTokens = 0;
-  let toolResultCount = 0;
-  let toolResultTokens = 0;
-  for (const message of messages || []) {
-    const role = rows[message?.role] ? message.role : 'other';
-    const text = messageContextText(message);
-    const tokens = roughTokenCount(text) + 4;
-    rows[role].count += 1;
-    rows[role].tokens += tokens;
-    if (role === 'system') {
-      semantic.system.count += 1;
-      semantic.system.tokens += tokens;
-    } else if (role === 'user') {
-      if (String(text || '').trim().startsWith('<system-reminder>')) {
-        semantic.reminders.count += 1;
-        semantic.reminders.tokens += tokens;
-        let sectionTokens = 0;
-        for (const section of splitMarkdownSections(stripSystemReminder(text))) {
-          const bucket = reminderSectionBucket(section);
-          const sectionTokenCount = roughTokenCount(section);
-          semantic[bucket].tokens += sectionTokenCount;
-          sectionTokens += sectionTokenCount;
-        }
-        semantic.reminders.otherTokens += Math.max(0, tokens - sectionTokens);
-      } else {
-        semantic.chat.count += 1;
-        semantic.chat.tokens += tokens;
-      }
-    } else if (role === 'assistant') {
-      semantic.assistant.count += 1;
-      semantic.assistant.tokens += tokens;
-    } else if (role === 'tool') {
-      semantic.toolResults.count += 1;
-      semantic.toolResults.tokens += tokens;
-    }
-    if (message?.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
-      toolCallCount += message.toolCalls.length;
-      try { toolCallTokens += roughTokenCount(JSON.stringify(message.toolCalls)); }
-      catch { toolCallTokens += roughTokenCount(`[${message.toolCalls.length} tool calls]`); }
-    }
-    if (message?.role === 'tool') {
-      toolResultCount += 1;
-      toolResultTokens += tokens;
-    }
-  }
-  return {
-    count: Array.isArray(messages) ? messages.length : 0,
-    estimatedTokens: Array.isArray(messages) ? estimateMessagesTokens(messages) : 0,
-    roles: rows,
-    semantic,
-    toolCallCount,
-    toolCallTokens,
-    toolResultCount,
-    toolResultTokens,
-  };
 }
 
 function isSessionPreviewNoise(text) {
@@ -2708,8 +2530,8 @@ export async function createMixdogSessionRuntime({
   const notificationListeners = new Set();
   let providerModelsCache = { models: null, at: 0 };
   let providerModelsPromise = null;
+  let providerModelsLoadSeq = 0;
   let searchProviderModelsCache = { models: null, at: 0 };
-  let searchProviderModelsPromise = null;
   let usageDashboardCache = { dashboard: null, at: 0 };
   let usageDashboardPromise = null;
   let providerSetupCache = { setup: null, at: 0 };
@@ -3318,8 +3140,8 @@ export async function createMixdogSessionRuntime({
   function invalidateProviderCaches() {
     providerModelsCache = { models: null, at: 0 };
     providerModelsPromise = null;
+    providerModelsLoadSeq += 1;
     searchProviderModelsCache = { models: null, at: 0 };
-    searchProviderModelsPromise = null;
     usageDashboardCache = { dashboard: null, at: 0 };
     usageDashboardPromise = null;
     providerSetupCache = { setup: null, at: 0 };
@@ -3766,17 +3588,11 @@ function parsedProviderModelVersion(id) {
       searchProviderModelsCache = { models: rows, at: Date.now() };
       return providerModelsFromCacheRows(rows);
     }
-    if (!searchProviderModelsPromise) {
-      searchProviderModelsPromise = loadSearchProviderModelsFresh()
-        .then((models) => {
-          searchProviderModelsCache = { models, at: Date.now() };
-          return models;
-        })
-        .finally(() => {
-          searchProviderModelsPromise = null;
-        });
+    if (force) {
+      const models = await loadSearchProviderModelsFresh({ forceRefresh: true });
+      searchProviderModelsCache = { models, at: Date.now() };
+      return providerModelsFromCacheRows(models);
     }
-    return providerModelsFromCacheRows(await searchProviderModelsPromise);
   }
 
   function enabledSearchProviderConfig() {
@@ -3790,7 +3606,7 @@ function parsedProviderModelVersion(id) {
     return out;
   }
 
-  async function loadSearchProviderModelsFresh() {
+  async function loadSearchProviderModelsFresh({ forceRefresh = false } = {}) {
     const searchProviders = enabledSearchProviderConfig();
     const providerNames = Object.keys(searchProviders);
     if (!providerNames.length) return [];
@@ -3799,7 +3615,13 @@ function parsedProviderModelVersion(id) {
       const provider = reg.getProvider(name);
       if (typeof provider?.listModels !== 'function') return [];
       try {
-        const models = await provider.listModels();
+        let models = null;
+        if (forceRefresh && typeof provider._refreshModelCache === 'function') {
+          models = await provider._refreshModelCache();
+        }
+        if (!Array.isArray(models)) {
+          models = await provider.listModels();
+        }
         if (!Array.isArray(models)) return [];
         const rows = [];
         for (const m of models) {
@@ -3833,14 +3655,20 @@ function parsedProviderModelVersion(id) {
     return results;
   }
 
-  async function loadProviderModelsFresh() {
+  async function loadProviderModelsFresh({ forceRefresh = false } = {}) {
     ensureFullConfig();
     await ensureProvidersReady(config.providers || {});
     const allProviders = [...reg.getAllProviders()];
     const providerResults = await Promise.all(allProviders.map(async ([name, provider]) => {
       if (typeof provider?.listModels !== 'function') return [];
       try {
-        const models = await provider.listModels();
+        let models = null;
+        if (forceRefresh && typeof provider._refreshModelCache === 'function') {
+          models = await provider._refreshModelCache();
+        }
+        if (!Array.isArray(models)) {
+          models = await provider.listModels();
+        }
         if (!Array.isArray(models)) return [];
         const rows = [];
         for (const m of models) {
@@ -3875,10 +3703,17 @@ function parsedProviderModelVersion(id) {
       warmProviderModelCache();
       return quickProviderModelRows();
     }
+    if (force) {
+      const seq = ++providerModelsLoadSeq;
+      const models = await loadProviderModelsFresh({ forceRefresh: true });
+      if (seq === providerModelsLoadSeq) providerModelsCache = { models, at: Date.now() };
+      return providerModelsFromCacheRows(models);
+    }
     if (!providerModelsPromise) {
+      const seq = ++providerModelsLoadSeq;
       providerModelsPromise = loadProviderModelsFresh()
         .then((models) => {
-          providerModelsCache = { models, at: Date.now() };
+          if (seq === providerModelsLoadSeq) providerModelsCache = { models, at: Date.now() };
           return models;
         })
         .finally(() => {
@@ -3890,9 +3725,10 @@ function parsedProviderModelVersion(id) {
 
   function warmProviderModelCache() {
     if (Array.isArray(providerModelsCache.models) || providerModelsPromise) return providerModelsPromise;
+    const seq = ++providerModelsLoadSeq;
     providerModelsPromise = loadProviderModelsFresh()
       .then((models) => {
-        providerModelsCache = { models, at: Date.now() };
+        if (seq === providerModelsLoadSeq) providerModelsCache = { models, at: Date.now() };
         bootProfile('provider-models:warm-ready', { count: models.length });
         return models;
       })
@@ -4308,10 +4144,12 @@ function parsedProviderModelVersion(id) {
       lastContextTokensUpdatedAt: Number(session?.lastContextTokensUpdatedAt || 0),
       lastContextTokensStaleAfterCompact: session?.lastContextTokensStaleAfterCompact === true,
       lastInputTokens: Number(session?.lastInputTokens || 0),
+      lastUncachedInputTokens: Number(session?.lastUncachedInputTokens || 0),
       lastOutputTokens: Number(session?.lastOutputTokens || 0),
       lastCachedReadTokens: Number(session?.lastCachedReadTokens || 0),
       lastCacheWriteTokens: Number(session?.lastCacheWriteTokens || 0),
       totalInputTokens: Number(session?.totalInputTokens || 0),
+      totalUncachedInputTokens: Number(session?.totalUncachedInputTokens || 0),
       totalOutputTokens: Number(session?.totalOutputTokens || 0),
       totalCachedReadTokens: Number(session?.totalCachedReadTokens || 0),
       totalCacheWriteTokens: Number(session?.totalCacheWriteTokens || 0),
@@ -4434,38 +4272,13 @@ function parsedProviderModelVersion(id) {
       // the gauge numerator.
       const usedTokens = estimatedContextTokens;
       const freeTokens = displayWindow ? Math.max(0, displayWindow - usedTokens) : 0;
-      const autoCompactTokenLimit = Number(session?.autoCompactTokenLimit || 0);
-      // The runtime fires auto-compaction at the effective boundary by default.
-      // Compute the same trigger here so /context shows what will actually fire
-      // before any compaction telemetry (session.compaction.triggerTokens) is
-      // recorded. Explicit buffer settings can still lower the trigger.
-      // An explicit autoCompactTokenLimit (provider/catalog/seed supplied)
-      // still takes precedence and is honored verbatim when it sits at or below
-      // the boundary.
-      const defaultCompactBufferTokens = contextDefaultBufferTokens(compactBoundaryTokens, session?.compaction || {});
-      const defaultCompactTriggerTokens = compactBoundaryTokens
-        ? Math.max(1, compactBoundaryTokens - defaultCompactBufferTokens)
-        : 0;
-      // Only an explicit auto-compact limit STRICTLY BELOW the boundary is a
-      // real trigger; a persisted value == boundary is a legacy derived
-      // full-window artifact and must fall through to the default trigger.
-      // Likewise ignore persisted default-buffer telemetry so the displayed
-      // trigger matches what the runtime now actually fires.
-      const persistedTriggerTokens = Number(session?.compaction?.triggerTokens || 0);
-      const legacyDefaultTriggerTelemetry = isLegacyDefaultContextBufferTelemetry(session?.compaction || {}, compactBoundaryTokens)
-        && persistedTriggerTokens > 0
-        && persistedTriggerTokens < compactBoundaryTokens;
-      const usablePersistedTrigger = persistedTriggerTokens > 0
-        && !legacyDefaultTriggerTelemetry
-        && (!compactBoundaryTokens || persistedTriggerTokens < compactBoundaryTokens)
-        ? persistedTriggerTokens
-        : 0;
-      const compactTriggerTokens = autoCompactTokenLimit && compactBoundaryTokens && autoCompactTokenLimit < compactBoundaryTokens
-        ? autoCompactTokenLimit
-        : (usablePersistedTrigger || defaultCompactTriggerTokens || 0);
-      const compactBufferTokens = Number(compactBoundaryTokens && compactTriggerTokens
+      // Use the same shared compact-policy math as manager/loop. Do not trust
+      // persisted trigger telemetry as an independent policy input: it is an
+      // output snapshot and was the source of repeated /context false positives.
+      const compactTriggerTokens = resolveCompactTriggerTokens(session || {}, compactBoundaryTokens) || 0;
+      const compactBufferTokens = compactBoundaryTokens
         ? Math.max(0, compactBoundaryTokens - compactTriggerTokens)
-        : defaultCompactBufferTokens);
+        : resolveCompactBufferTokens(compactBoundaryTokens, session?.compaction || {});
       const value = {
         sessionId: session?.id || null,
         provider: route.provider,
@@ -4500,11 +4313,13 @@ function parsedProviderModelVersion(id) {
         },
         usage: {
           lastInputTokens: Number(session?.lastInputTokens || 0),
+          lastUncachedInputTokens: Number(session?.lastUncachedInputTokens || 0),
           lastOutputTokens: Number(session?.lastOutputTokens || 0),
           lastCachedReadTokens: Number(session?.lastCachedReadTokens || 0),
           lastCacheWriteTokens: Number(session?.lastCacheWriteTokens || 0),
           lastContextTokens,
           totalInputTokens: Number(session?.totalInputTokens || 0),
+          totalUncachedInputTokens: Number(session?.totalUncachedInputTokens || 0),
           totalOutputTokens: Number(session?.totalOutputTokens || 0),
           totalCachedReadTokens: Number(session?.totalCachedReadTokens || 0),
           totalCacheWriteTokens: Number(session?.totalCacheWriteTokens || 0),

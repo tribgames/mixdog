@@ -17,12 +17,9 @@ import {
     normalizeCompactType,
     DEFAULT_COMPACT_TYPE,
     SUMMARY_PREFIX,
-    DEFAULT_COMPACTION_BUFFER_RATIO,
-    compactionBufferTokensForBoundary,
-    normalizeCompactionBufferRatio,
     drainSessionCycle1,
 } from './compact.mjs';
-import { estimateMessagesTokens, estimateRequestReserveTokens, estimateTranscriptContextUsage } from './context-utils.mjs';
+import { estimateMessagesTokens, estimateRequestReserveTokens, estimateTranscriptContextUsage, resolveCompactTriggerTokens } from './context-utils.mjs';
 import { getMcpTools } from '../mcp/client.mjs';
 import { getInternalTools, executeInternalTool } from '../internal-tools.mjs';
 import { BUILTIN_TOOLS } from '../tools/builtin/builtin-tools.mjs';
@@ -641,38 +638,9 @@ function providerNameOf(provider) {
     if (typeof provider === 'string') return provider.toLowerCase();
     return String(provider?.name || provider?.id || '').toLowerCase();
 }
-// Buffer-percent parsing trap: normalizeCompactionBufferRatio treats any value
-// > 1 as a percent (n/100) and any value <= 1 as a literal ratio. That is wrong
-// for percent-NAMED inputs: bufferPercent / bufferPct / *_BUFFER_PERCENT = 1
-// means 1% (0.01), but the shared normalizer would read it as the literal ratio
-// 1.0 (100%). Resolve percent-named and ratio-named inputs with the correct
-// semantics here, before handing a finished ratio to the shared helper:
-//   percent inputs: n  -> n/100   (1 -> 0.01, 10 -> 0.10)
-//   ratio inputs:   n  -> n>1 ? n/100 : n   (0.01 -> 0.01, 10 -> 0.10 legacy)
-function resolveBufferRatioCandidate(percentInputs, ratioInputs) {
-    for (const raw of percentInputs) {
-        const n = Number(raw);
-        if (Number.isFinite(n) && n > 0) return Math.min(1, n / 100);
-    }
-    for (const raw of ratioInputs) {
-        const n = Number(raw);
-        if (Number.isFinite(n) && n > 0) return n > 1 ? n / 100 : n;
-    }
-    return null;
-}
-function compactBufferRatioForConfig(cfg = {}) {
-    const resolved = resolveBufferRatioCandidate(
-        [cfg.bufferPercent, cfg.bufferPct, process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT],
-        [cfg.bufferRatio, cfg.bufferFraction, process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO],
-    );
-    return normalizeCompactionBufferRatio(resolved, DEFAULT_COMPACTION_BUFFER_RATIO);
-}
-function compactBufferRatioForSession(session) {
-    return compactBufferRatioForConfig(session?.compaction || {});
-}
 // Carry the percent/ratio-named buffer config from a compaction config object
-// onto session.compaction so downstream parsers (compactBufferRatioForSession,
-// loop.resolveCompactBufferRatio, contextStatus) honor a configured buffer
+// onto session.compaction so the shared compact-policy parser honors configured
+// buffer
 // percent/ratio. Only finite positive values are copied; absent fields stay
 // undefined so the default-ratio fallback still applies.
 function preserveBufferConfigFields(cfg = {}) {
@@ -682,69 +650,6 @@ function preserveBufferConfigFields(cfg = {}) {
         if (Number.isFinite(n) && n > 0) out[key] = n;
     }
     return out;
-}
-const LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
-function isPersistedZeroBufferTelemetry(cfg = {}, boundaryTokens = 0) {
-    const boundary = positiveContextWindow(boundaryTokens);
-    if (!boundary) return false;
-    if (positiveContextWindow(process.env.MIXDOG_AGENT_COMPACT_BUFFER_TOKENS)) return false;
-    if (Number.isFinite(Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT)) && Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT) > 0) return false;
-    if (Number.isFinite(Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO)) && Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO) > 0) return false;
-    for (const key of ['bufferPercent', 'bufferPct', 'bufferFraction']) {
-        const n = Number(cfg?.[key]);
-        if (Number.isFinite(n) && n > 0) return false;
-    }
-    const ratio = Number(cfg?.bufferRatio);
-    if (Number.isFinite(ratio) && ratio > 0) return false;
-    const explicitTokens = Number(cfg?.bufferTokens ?? cfg?.buffer);
-    if (!Number.isFinite(explicitTokens) || explicitTokens !== 0) return false;
-    return true;
-}
-function isLegacyDefaultBufferTelemetry(cfg = {}, boundaryTokens = 0) {
-    const boundary = positiveContextWindow(boundaryTokens);
-    if (!boundary) return false;
-    if (positiveContextWindow(process.env.MIXDOG_AGENT_COMPACT_BUFFER_TOKENS)) return false;
-    if (Number.isFinite(Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT)) && Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT) > 0) return false;
-    if (Number.isFinite(Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO)) && Number(process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO) > 0) return false;
-    // Percent/fraction-named fields are treated as operator config. The legacy
-    // default telemetry always persisted bufferTokens + bufferRatio after a
-    // check/compact pass, so only that shape is migrated away.
-    for (const key of ['bufferPercent', 'bufferPct', 'bufferFraction']) {
-        const n = Number(cfg?.[key]);
-        if (Number.isFinite(n) && n > 0) return false;
-    }
-    const explicitTokens = positiveContextWindow(cfg?.bufferTokens ?? cfg?.buffer);
-    const ratio = Number(cfg?.bufferRatio);
-    if (!explicitTokens || !Number.isFinite(ratio) || Math.abs(ratio - LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO) > 1e-9) return false;
-    const expectedTokens = Math.floor(boundary * LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO);
-    const cfgBoundary = positiveContextWindow(cfg?.boundaryTokens);
-    const cfgTrigger = positiveContextWindow(cfg?.triggerTokens);
-    return explicitTokens === expectedTokens
-        || (cfgBoundary === boundary && cfgTrigger > 0 && explicitTokens === Math.max(0, boundary - cfgTrigger));
-}
-function compactBufferConfigForBoundary(cfg = {}, boundaryTokens = 0) {
-    const base = cfg || {};
-    if (!isLegacyDefaultBufferTelemetry(base, boundaryTokens)
-        && !isPersistedZeroBufferTelemetry(base, boundaryTokens)) {
-        return base;
-    }
-    return {
-        ...base,
-        bufferTokens: null,
-        buffer: null,
-        bufferRatio: null,
-    };
-}
-function compactBufferTokensForSession(session, boundaryTokens) {
-    const cfg = compactBufferConfigForBoundary(session?.compaction || {}, boundaryTokens);
-    const explicit = positiveContextWindow(cfg.bufferTokens ?? cfg.buffer)
-        || positiveContextWindow(process.env.MIXDOG_AGENT_COMPACT_BUFFER_TOKENS)
-        || 0;
-    return compactionBufferTokensForBoundary(boundaryTokens, {
-        explicitTokens: explicit,
-        ratio: compactBufferRatioForConfig(cfg),
-        maxRatio: 0.25,
-    });
 }
 const COMPACT_TARGET_RATIO = 0.02;
 const COMPACT_TARGET_MIN_TOKENS = 4_000;
@@ -843,16 +748,7 @@ function resolveSessionContextMeta(provider, model, seed = {}) {
     };
 }
 function compactTriggerForSession(session, boundaryTokens) {
-    const boundary = positiveContextWindow(boundaryTokens);
-    if (!boundary) return null;
-    const autoLimit = positiveContextWindow(session?.autoCompactTokenLimit ?? session?.compaction?.autoCompactTokenLimit);
-    // Only honor an explicit auto-compact limit that sits STRICTLY BELOW the
-    // boundary. A persisted value == boundary (or >=) is a legacy derived
-    // full-window artifact; honoring it collapses the compaction buffer to 0,
-    // so fall through to the default boundary trigger instead.
-    if (autoLimit && autoLimit < boundary) return Math.max(1, autoLimit);
-    const buffer = compactBufferTokensForSession(session, boundary);
-    return Math.max(1, boundary - buffer);
+    return resolveCompactTriggerTokens(session, boundaryTokens);
 }
 // Test-only exports for the legacy auto-compact-limit migration + buffer-config
 // preservation (see scripts/compact-trigger-migration-smoke.mjs).
@@ -906,10 +802,12 @@ function addCompactUsageToSession(session, usage) {
     const outputTokens = usage.outputTokens || 0;
     const cachedTokens = usage.cachedTokens || 0;
     const cacheWriteTokens = usage.cacheWriteTokens || 0;
+    const uncachedInputTokens = uncachedInputTokensForProvider(session.provider, inputTokens, cachedTokens, cacheWriteTokens);
     session.totalInputTokens = (session.totalInputTokens || 0) + inputTokens;
     session.totalOutputTokens = (session.totalOutputTokens || 0) + outputTokens;
     session.totalCachedReadTokens = (session.totalCachedReadTokens || 0) + cachedTokens;
     session.totalCacheWriteTokens = (session.totalCacheWriteTokens || 0) + cacheWriteTokens;
+    session.totalUncachedInputTokens = (session.totalUncachedInputTokens || 0) + uncachedInputTokens;
     session.tokensCumulative = (session.tokensCumulative || 0) + inputTokens + outputTokens;
 }
 async function runRecallFastTrackForSession(session, messages, opts = {}) {
@@ -2206,6 +2104,18 @@ export function usageMetricsIdempotencyKey(sessionId, session, delta = {}) {
     return `${sessionId}:${turnId}:${epoch}:${delta.iterationIndex}:${source}`;
 }
 
+function uncachedInputTokensForProvider(provider, inputTokens, cachedReadTokens = 0, cacheWriteTokens = 0) {
+    const input = Number(inputTokens) || 0;
+    if (input <= 0) return 0;
+    // Anthropic-style providers report input_tokens excluding cache reads; OpenAI
+    // Responses/Gemini-style providers report input_tokens inclusive of cached
+    // prefix tokens. Keep both views so UI can show the real context footprint
+    // and the fresh/new token portion without mistaking cache hits for a cache
+    // break.
+    if (providerInputExcludesCache(provider)) return input + (Number(cacheWriteTokens) || 0);
+    return Math.max(input - (Number(cachedReadTokens) || 0) - (Number(cacheWriteTokens) || 0), 0);
+}
+
 /**
  * Apply terminal ask usage to session totals. Skips lifetime totals when incremental
  * per-iteration persistence already counted this turn (askSession path).
@@ -2214,23 +2124,38 @@ export function applyAskTerminalUsageTotals(session, result, options = {}) {
     if (!session || !result?.usage) return;
     const skipTotals = options.skipTotalsIfIncremental === true;
     if (!skipTotals) {
-        session.totalInputTokens = (session.totalInputTokens || 0) + (result.usage.inputTokens || 0);
-        session.totalOutputTokens = (session.totalOutputTokens || 0) + (result.usage.outputTokens || 0);
+        const inputTokens = result.usage.inputTokens || 0;
+        const outputTokens = result.usage.outputTokens || 0;
+        const cachedTokens = result.usage.cachedTokens || 0;
+        const cacheWriteTokens = result.usage.cacheWriteTokens || 0;
+        const uncachedInputTokens = uncachedInputTokensForProvider(session.provider, inputTokens, cachedTokens, cacheWriteTokens);
+        session.totalInputTokens = (session.totalInputTokens || 0) + inputTokens;
+        session.totalOutputTokens = (session.totalOutputTokens || 0) + outputTokens;
         session.tokensCumulative = (session.tokensCumulative || 0)
-            + (result.usage.inputTokens || 0)
-            + (result.usage.outputTokens || 0);
-        session.totalCachedReadTokens = (session.totalCachedReadTokens || 0) + (result.usage.cachedTokens || 0);
-        session.totalCacheWriteTokens = (session.totalCacheWriteTokens || 0) + (result.usage.cacheWriteTokens || 0);
+            + inputTokens
+            + outputTokens;
+        session.totalCachedReadTokens = (session.totalCachedReadTokens || 0) + cachedTokens;
+        session.totalCacheWriteTokens = (session.totalCacheWriteTokens || 0) + cacheWriteTokens;
+        session.totalUncachedInputTokens = (session.totalUncachedInputTokens || 0) + uncachedInputTokens;
     }
     const _lastTurn = result.lastTurnUsage || result.usage || {};
-    session.lastInputTokens = _lastTurn.inputTokens || 0;
+    const _lastInputTokens = _lastTurn.inputTokens || 0;
+    const _lastCachedReadTokens = _lastTurn.cachedTokens || 0;
+    const _lastCacheWriteTokens = _lastTurn.cacheWriteTokens || 0;
+    session.lastInputTokens = _lastInputTokens;
     session.lastOutputTokens = _lastTurn.outputTokens || 0;
-    session.lastCachedReadTokens = _lastTurn.cachedTokens || 0;
-    session.lastCacheWriteTokens = _lastTurn.cacheWriteTokens || 0;
+    session.lastCachedReadTokens = _lastCachedReadTokens;
+    session.lastCacheWriteTokens = _lastCacheWriteTokens;
+    session.lastUncachedInputTokens = uncachedInputTokensForProvider(
+        session.provider,
+        _lastInputTokens,
+        _lastCachedReadTokens,
+        _lastCacheWriteTokens,
+    );
     const _inputExcludesCache = providerInputExcludesCache(session.provider);
     session.lastContextTokens = _inputExcludesCache
-        ? (_lastTurn.inputTokens || 0) + (_lastTurn.cachedTokens || 0)
-        : (_lastTurn.inputTokens || 0);
+        ? _lastInputTokens + _lastCachedReadTokens + _lastCacheWriteTokens
+        : _lastInputTokens;
     session.lastContextTokensUpdatedAt = Date.now();
     session.lastContextTokensStaleAfterCompact = false;
 }
@@ -2260,6 +2185,9 @@ export async function persistIterationMetrics(delta) {
     seen.add(ikey);
     if (!isReplay) {
         if (runtimeEntry) runtimeEntry.usageMetricsTurnIncremental = true;
+        const deltaUncachedInput = delta.deltaUncachedInput != null
+            ? Number(delta.deltaUncachedInput) || 0
+            : uncachedInputTokensForProvider(session.provider, deltaInput, deltaCachedRead, deltaCacheWrite);
         session.totalInputTokens = (session.totalInputTokens || 0) + (deltaInput || 0);
         session.totalOutputTokens = (session.totalOutputTokens || 0) + (deltaOutput || 0);
         session.tokensCumulative = (session.tokensCumulative || 0) + (deltaInput || 0) + (deltaOutput || 0);
@@ -2269,12 +2197,15 @@ export async function persistIterationMetrics(delta) {
         // includes cached_read / cache_write in its terminal usage rollup).
         session.totalCachedReadTokens = (session.totalCachedReadTokens || 0) + (deltaCachedRead || 0);
         session.totalCacheWriteTokens = (session.totalCacheWriteTokens || 0) + (deltaCacheWrite || 0);
+        session.totalUncachedInputTokens = (session.totalUncachedInputTokens || 0) + deltaUncachedInput;
         // Window snapshot updated per iteration so agent type=list reflects the
         // most-recent provider-reported input size even for short dispatches
         // that finish before askSession's terminal save lands.
         session.lastInputTokens = deltaInput || 0;
         session.lastOutputTokens = deltaOutput || 0;
         session.lastCachedReadTokens = deltaCachedRead || 0;
+        session.lastCacheWriteTokens = deltaCacheWrite || 0;
+        session.lastUncachedInputTokens = deltaUncachedInput;
         // Normalized last-call context footprint: how many prompt tokens the
         // model actually saw on the most-recent send, comparable ACROSS
         // providers. Anthropic reports input_tokens EXCLUDING cache (cache_read
@@ -2283,7 +2214,7 @@ export async function persistIterationMetrics(delta) {
         // tokens INTO the input count, so input alone is the footprint.
         const _inputExcludesCache = providerInputExcludesCache(session.provider);
         session.lastContextTokens = _inputExcludesCache
-            ? (deltaInput || 0) + (deltaCachedRead || 0)
+            ? (deltaInput || 0) + (deltaCachedRead || 0) + (deltaCacheWrite || 0)
             : (deltaInput || 0);
         session.lastContextTokensUpdatedAt = ts || Date.now();
         session.lastContextTokensStaleAfterCompact = false;

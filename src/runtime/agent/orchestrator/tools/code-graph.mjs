@@ -4090,13 +4090,18 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
   let effectiveCwd = baseCwd;
   if (fileArg) {
     const abs = isAbsolute(fileArg) ? pathResolve(fileArg) : pathResolve(baseCwd, fileArg);
+    if (!existsSync(abs)) {
+      return `Error: ${name}: file not found: ${fileArg}`;
+    }
+    let fileArgIsDirectory = false;
+    try { fileArgIsDirectory = statSync(abs).isDirectory(); } catch { fileArgIsDirectory = false; }
     const rel = pathRelative(pathResolve(baseCwd), abs);
-    const insideCwd = rel && !rel.startsWith('..') && !isAbsolute(rel);
+    const insideCwd = rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel));
     if (!insideCwd) {
       // P1: file outside cwd — require explicit cwd arg or detectable project root; throw otherwise.
       const hasExplicitCwd = args && typeof args.cwd === 'string' && args.cwd.trim();
       if (!hasExplicitCwd) {
-        const fileRoot = _resolveFileProjectRoot(abs);
+        const fileRoot = fileArgIsDirectory ? _findDirProjectRoot(abs) : _resolveFileProjectRoot(abs);
         if (!fileRoot) {
           throw new Error(`find_symbol: file '${fileArg}' is outside cwd '${baseCwd}' and has no detectable project root (no package.json/.git ancestor). Provide an explicit cwd.`);
         }

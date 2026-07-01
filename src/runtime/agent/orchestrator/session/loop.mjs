@@ -7,9 +7,16 @@ import { executeInternalTool, isInternalTool } from '../internal-tools.mjs';
 import { collectSkillsCached, loadSkillResource, buildSkillToolEnvelope } from '../context/collect.mjs';
 import { normalizeToolEnvelope, makeToolEnvelope } from './tool-envelope.mjs';
 import { traceAgentLoop, traceAgentTool, traceAgentToolFailure, traceAgentCompact, estimateProviderPayloadBytes, messagePrefixHash } from '../agent-trace.mjs';
+import { resolveSessionMaxLoopIterations } from '../agent-runtime/agent-loop-policy.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { markSessionToolCall, updateSessionStage, SessionClosedError, getSessionAbortSignal, enqueuePendingMessage, bumpUsageMetricsEpoch } from './manager.mjs';
-import { estimateMessagesTokens, estimateRequestReserveTokens, sanitizeToolPairs } from './context-utils.mjs';
+import {
+    estimateMessagesTokens,
+    estimateRequestReserveTokens,
+    sanitizeToolPairs,
+    resolveCompactBufferRatio,
+    resolveCompactBufferTokens,
+} from './context-utils.mjs';
 import {
     recallFastTrackCompactMessages,
     pruneToolOutputs,
@@ -18,11 +25,7 @@ import {
     compactTypeIsSemantic,
     normalizeCompactType,
     DEFAULT_COMPACT_TYPE,
-    DEFAULT_COMPACTION_BUFFER_TOKENS,
-    DEFAULT_COMPACTION_BUFFER_RATIO,
     DEFAULT_COMPACTION_KEEP_TOKENS,
-    compactionBufferTokensForBoundary,
-    normalizeCompactionBufferRatio,
     drainSessionCycle1,
 } from './compact.mjs';
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
@@ -256,7 +259,6 @@ function agentContextOverflowError({ stage, sessionId, sessionRef, model, budget
 // transcript is compacted (see the trim block below): a long task that keeps
 // compacting can proceed past this count, while a tight NON-compacting loop
 // still stops here and returns the accumulated transcript.
-const MAX_LOOP_ITERATIONS = 200;
 // Consecutive identical-AND-failing tool calls (same name+args, error result)
 // tolerated across iterations before the loop refuses to re-execute and steers
 // the model to change approach. Distinct from the hard iteration cap above:
@@ -516,97 +518,6 @@ async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTo
         tailTurns: compactPolicy.tailTurns,
         keepTokens: compactPolicy.keepTokens,
         preserveRecentTokens: compactPolicy.preserveRecentTokens,
-    });
-}
-// Percent-named inputs (bufferPercent / bufferPct / *_BUFFER_PERCENT) carry a
-// PERCENT: 1 means 1% (0.01). Ratio-named inputs (bufferRatio / bufferFraction)
-// carry a fraction: 0.01 means 1%, and a legacy value > 1 is read as a percent
-// (10 -> 10%). The shared normalizeCompactionBufferRatio only handles the ratio
-// convention, so resolve percent-named values to a fraction first.
-function _resolveBufferRatioCandidate(percentInputs, ratioInputs) {
-    for (const raw of percentInputs) {
-        const n = Number(raw);
-        if (Number.isFinite(n) && n > 0) return Math.min(1, n / 100);
-    }
-    for (const raw of ratioInputs) {
-        const n = Number(raw);
-        if (Number.isFinite(n) && n > 0) return n > 1 ? n / 100 : n;
-    }
-    return null;
-}
-function resolveCompactBufferRatio(cfg = {}) {
-    const resolved = _resolveBufferRatioCandidate(
-        [cfg.bufferPercent, cfg.bufferPct, process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT],
-        [cfg.bufferRatio, cfg.bufferFraction, process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO],
-    );
-    return normalizeCompactionBufferRatio(resolved, DEFAULT_COMPACTION_BUFFER_RATIO);
-}
-const LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
-function isPersistedZeroBufferTelemetry(cfg = {}, boundaryTokens = 0) {
-    const boundary = positiveTokenInt(boundaryTokens);
-    if (!boundary) return false;
-    if (envTokenInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')) return false;
-    for (const envName of ['MIXDOG_AGENT_COMPACT_BUFFER_PERCENT', 'MIXDOG_AGENT_COMPACT_BUFFER_RATIO']) {
-        const n = Number(process.env[envName]);
-        if (Number.isFinite(n) && n > 0) return false;
-    }
-    for (const key of ['bufferPercent', 'bufferPct', 'bufferFraction']) {
-        const n = Number(cfg?.[key]);
-        if (Number.isFinite(n) && n > 0) return false;
-    }
-    const ratio = Number(cfg?.bufferRatio);
-    if (Number.isFinite(ratio) && ratio > 0) return false;
-    const explicitTokens = Number(cfg?.bufferTokens ?? cfg?.buffer);
-    if (!Number.isFinite(explicitTokens) || explicitTokens !== 0) return false;
-    return true;
-}
-function isLegacyDefaultBufferTelemetry(cfg = {}, boundaryTokens = 0) {
-    const boundary = positiveTokenInt(boundaryTokens);
-    if (!boundary) return false;
-    if (envTokenInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')) return false;
-    for (const envName of ['MIXDOG_AGENT_COMPACT_BUFFER_PERCENT', 'MIXDOG_AGENT_COMPACT_BUFFER_RATIO']) {
-        const n = Number(process.env[envName]);
-        if (Number.isFinite(n) && n > 0) return false;
-    }
-    // Percent/fraction-named fields are operator config. The legacy default
-    // telemetry persisted bufferTokens + bufferRatio after a check/compact pass.
-    for (const key of ['bufferPercent', 'bufferPct', 'bufferFraction']) {
-        const n = Number(cfg?.[key]);
-        if (Number.isFinite(n) && n > 0) return false;
-    }
-    const explicitTokens = positiveTokenInt(cfg?.bufferTokens ?? cfg?.buffer);
-    const ratio = Number(cfg?.bufferRatio);
-    if (!explicitTokens || !Number.isFinite(ratio) || Math.abs(ratio - LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO) > 1e-9) return false;
-    const expectedTokens = Math.floor(boundary * LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO);
-    const cfgBoundary = positiveTokenInt(cfg?.boundaryTokens);
-    const cfgTrigger = positiveTokenInt(cfg?.triggerTokens);
-    return explicitTokens === expectedTokens
-        || (cfgBoundary === boundary && cfgTrigger > 0 && explicitTokens === Math.max(0, boundary - cfgTrigger));
-}
-function compactBufferConfigForBoundary(cfg = {}, boundaryTokens = 0) {
-    const base = cfg || {};
-    if (!isLegacyDefaultBufferTelemetry(base, boundaryTokens)
-        && !isPersistedZeroBufferTelemetry(base, boundaryTokens)) {
-        return base;
-    }
-    return {
-        ...base,
-        bufferTokens: null,
-        buffer: null,
-        bufferRatio: null,
-    };
-}
-function resolveCompactBufferTokens(boundaryTokens, cfg = {}) {
-    const boundary = positiveTokenInt(boundaryTokens);
-    const effectiveCfg = compactBufferConfigForBoundary(cfg, boundary);
-    const configured = positiveTokenInt(effectiveCfg.bufferTokens ?? effectiveCfg.buffer)
-        || envTokenInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')
-        || 0;
-    if (!boundary) return configured || DEFAULT_COMPACTION_BUFFER_TOKENS;
-    return compactionBufferTokensForBoundary(boundary, {
-        explicitTokens: configured,
-        ratio: resolveCompactBufferRatio(effectiveCfg),
-        maxRatio: COMPACT_BUFFER_MAX_WINDOW_FRACTION,
     });
 }
 const COMPACT_TARGET_RATIO = 0.02;
@@ -1407,9 +1318,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         });
         return true;
     };
-    const maxLoopIterations = Number.isFinite(sessionRef?.maxLoopIterations)
-        ? sessionRef.maxLoopIterations
-        : MAX_LOOP_ITERATIONS;
+    const maxLoopIterations = resolveSessionMaxLoopIterations(sessionRef);
     // Tool execution must use the session cwd even when the caller omitted the
     // legacy positional cwd argument. Agent workers always carry their cwd on
     // sessionRef; falling through to pwd()/process.cwd() resolves relatives

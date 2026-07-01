@@ -128,9 +128,9 @@ function renderLine(line, width) {
   if (h) {
     const level = h[1].length;
     const text = renderInline(h[2]);
-    if (level === 1) return '\n' + bold('▌ ' + text);
-    if (level === 2) return '\n' + bold(text);
-    if (level === 3) return bold(text);
+    if (level === 1) return '\n' + compose(bold, PALETTE.heading1)('▌ ' + text);
+    if (level === 2) return '\n' + compose(bold, PALETTE.heading)(text);
+    if (level === 3) return compose(bold, PALETTE.heading)(text);
     return compose(bold, dim)(text);
   }
 

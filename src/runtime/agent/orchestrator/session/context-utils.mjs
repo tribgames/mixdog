@@ -66,7 +66,7 @@ function codePointTokenWeight(cp) {
 // surrogate-pair emoji are scored once, at the high emoji weight), takes the
 // max of the weighted sum and the chars/4 ASCII floor, then applies the safety
 // multiplier. Always overcounts relative to chars/4 for non-ASCII text.
-function estimateTokens(text) {
+export function estimateTokens(text) {
     const s = String(text ?? '');
     if (s.length === 0) return 0;
     let weighted = 0;
@@ -74,7 +74,7 @@ function estimateTokens(text) {
     const asciiFloor = s.length / 4; // never below the legacy chars/4 lower bound
     return Math.ceil(Math.max(weighted, asciiFloor) * TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
 }
-function messageEstimateText(m) {
+export function messageEstimateText(m) {
     if (!m || typeof m !== 'object') return '';
     let text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '');
     if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
@@ -84,11 +84,258 @@ function messageEstimateText(m) {
     if (m.role === 'tool' && m.toolCallId) text += `\n${m.toolCallId}`;
     return text;
 }
-function estimateMessageTokens(m) {
+export function estimateMessageTokens(m) {
     return estimateTokens(messageEstimateText(m)) + 4;
 }
 export function estimateMessagesTokens(messages) {
     return messages.reduce((sum, m) => sum + estimateMessageTokens(m), 0);
+}
+
+export const DEFAULT_COMPACTION_BUFFER_TOKENS = 0;
+export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
+export const MAX_COMPACTION_BUFFER_RATIO = 0.25;
+export const DEFAULT_COMPACTION_KEEP_TOKENS = 8_000;
+const LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
+
+export function positiveTokenInt(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function envTokenInt(name) {
+    return positiveTokenInt(process.env[name]);
+}
+
+export function normalizeCompactionBufferRatio(value, fallback = DEFAULT_COMPACTION_BUFFER_RATIO) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) return n > 1 ? n / 100 : n;
+    return fallback;
+}
+
+// Percent-named inputs (bufferPercent / bufferPct / *_BUFFER_PERCENT) carry a
+// PERCENT: 1 means 1% (0.01). Ratio-named inputs (bufferRatio / bufferFraction)
+// carry a fraction: 0.01 means 1%, and a legacy value > 1 is read as a percent.
+export function resolveBufferRatioCandidate(percentInputs = [], ratioInputs = []) {
+    for (const raw of percentInputs) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0) return Math.min(1, n / 100);
+    }
+    for (const raw of ratioInputs) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0) return n > 1 ? n / 100 : n;
+    }
+    return null;
+}
+
+export function resolveCompactBufferRatio(cfg = {}) {
+    const resolved = resolveBufferRatioCandidate(
+        [cfg.bufferPercent, cfg.bufferPct, process.env.MIXDOG_AGENT_COMPACT_BUFFER_PERCENT],
+        [cfg.bufferRatio, cfg.bufferFraction, process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO],
+    );
+    return normalizeCompactionBufferRatio(resolved, DEFAULT_COMPACTION_BUFFER_RATIO);
+}
+
+export function compactionBufferTokensForBoundary(boundaryTokens, opts = {}) {
+    const boundary = Math.max(0, Math.floor(Number(boundaryTokens) || 0));
+    const explicit = Math.max(0, Math.floor(Number(opts.explicitTokens) || 0));
+    if (!boundary) return explicit;
+    const maxRatio = normalizeCompactionBufferRatio(opts.maxRatio, MAX_COMPACTION_BUFFER_RATIO);
+    const cap = Math.max(0, Math.floor(boundary * maxRatio));
+    if (explicit > 0) return Math.max(0, Math.min(explicit, cap));
+    const ratio = normalizeCompactionBufferRatio(opts.ratio, DEFAULT_COMPACTION_BUFFER_RATIO);
+    return Math.max(0, Math.min(Math.floor(boundary * ratio), cap));
+}
+
+export function isPersistedZeroBufferTelemetry(cfg = {}, boundaryTokens = 0) {
+    const boundary = positiveTokenInt(boundaryTokens);
+    if (!boundary) return false;
+    if (envTokenInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')) return false;
+    for (const envName of ['MIXDOG_AGENT_COMPACT_BUFFER_PERCENT', 'MIXDOG_AGENT_COMPACT_BUFFER_RATIO']) {
+        const n = Number(process.env[envName]);
+        if (Number.isFinite(n) && n > 0) return false;
+    }
+    for (const key of ['bufferPercent', 'bufferPct', 'bufferFraction']) {
+        const n = Number(cfg?.[key]);
+        if (Number.isFinite(n) && n > 0) return false;
+    }
+    const ratio = Number(cfg?.bufferRatio);
+    if (Number.isFinite(ratio) && ratio > 0) return false;
+    const explicitTokens = Number(cfg?.bufferTokens ?? cfg?.buffer);
+    if (!Number.isFinite(explicitTokens) || explicitTokens !== 0) return false;
+    return true;
+}
+
+export function isLegacyDefaultBufferTelemetry(cfg = {}, boundaryTokens = 0) {
+    const boundary = positiveTokenInt(boundaryTokens);
+    if (!boundary) return false;
+    if (envTokenInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')) return false;
+    for (const envName of ['MIXDOG_AGENT_COMPACT_BUFFER_PERCENT', 'MIXDOG_AGENT_COMPACT_BUFFER_RATIO']) {
+        const n = Number(process.env[envName]);
+        if (Number.isFinite(n) && n > 0) return false;
+    }
+    // Percent/fraction-named fields are operator config. Legacy/default
+    // telemetry persisted bufferTokens + bufferRatio after a check/compact pass.
+    for (const key of ['bufferPercent', 'bufferPct', 'bufferFraction']) {
+        const n = Number(cfg?.[key]);
+        if (Number.isFinite(n) && n > 0) return false;
+    }
+    const explicitTokens = positiveTokenInt(cfg?.bufferTokens ?? cfg?.buffer);
+    const ratio = Number(cfg?.bufferRatio);
+    if (!explicitTokens || !Number.isFinite(ratio) || Math.abs(ratio - LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO) > 1e-9) return false;
+    const expectedTokens = Math.floor(boundary * LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO);
+    const cfgBoundary = positiveTokenInt(cfg?.boundaryTokens);
+    const cfgTrigger = positiveTokenInt(cfg?.triggerTokens);
+    return explicitTokens === expectedTokens
+        || (cfgBoundary === boundary && cfgTrigger > 0 && explicitTokens === Math.max(0, boundary - cfgTrigger));
+}
+
+export function compactBufferConfigForBoundary(cfg = {}, boundaryTokens = 0) {
+    const base = cfg || {};
+    if (!isLegacyDefaultBufferTelemetry(base, boundaryTokens)
+        && !isPersistedZeroBufferTelemetry(base, boundaryTokens)) {
+        return base;
+    }
+    return {
+        ...base,
+        bufferTokens: null,
+        buffer: null,
+        bufferRatio: null,
+    };
+}
+
+export function resolveCompactBufferTokens(boundaryTokens, cfg = {}, opts = {}) {
+    const boundary = positiveTokenInt(boundaryTokens);
+    const effectiveCfg = compactBufferConfigForBoundary(cfg, boundary);
+    const configured = positiveTokenInt(effectiveCfg.bufferTokens ?? effectiveCfg.buffer)
+        || envTokenInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')
+        || 0;
+    if (!boundary) return configured || positiveTokenInt(opts.defaultTokens) || DEFAULT_COMPACTION_BUFFER_TOKENS;
+    return compactionBufferTokensForBoundary(boundary, {
+        explicitTokens: configured,
+        ratio: resolveCompactBufferRatio(effectiveCfg),
+        maxRatio: opts.maxRatio ?? MAX_COMPACTION_BUFFER_RATIO,
+    });
+}
+
+export function resolveCompactTriggerTokens(sessionOrConfig = {}, boundaryTokens = 0) {
+    const boundary = positiveTokenInt(boundaryTokens);
+    if (!boundary) return null;
+    const cfg = sessionOrConfig?.compaction || sessionOrConfig || {};
+    const autoLimit = positiveTokenInt(sessionOrConfig?.autoCompactTokenLimit ?? cfg?.autoCompactTokenLimit);
+    if (autoLimit && autoLimit < boundary) return Math.max(1, autoLimit);
+    const buffer = resolveCompactBufferTokens(boundary, cfg);
+    return Math.max(1, boundary - buffer);
+}
+
+function stripSystemReminder(text) {
+    return String(text || '')
+        .replace(/^\s*<system-reminder>\s*/i, '')
+        .replace(/\s*<\/system-reminder>\s*$/i, '')
+        .trim();
+}
+
+function splitMarkdownSections(text) {
+    const sections = [];
+    let current = [];
+    for (const line of String(text || '').split(/\r?\n/)) {
+        if (/^#\s+/.test(line) && current.length) {
+            const body = current.join('\n').trim();
+            if (body) sections.push(body);
+            current = [line];
+        } else {
+            current.push(line);
+        }
+    }
+    const tail = current.join('\n').trim();
+    if (tail) sections.push(tail);
+    return sections;
+}
+
+function reminderSectionBucket(section) {
+    const heading = String(section.match(/^#\s+([^\n]+)/)?.[1] || '').trim().toLowerCase();
+    if (heading.includes('core memory')) return 'memory';
+    if (heading.includes('active workflow') || heading.includes('available agents') || heading.includes('workflow')) return 'workflow';
+    if (heading.includes('workspace')) return 'workspace';
+    if (heading.includes('environment')) return 'environment';
+    return 'other';
+}
+
+export function summarizeContextMessages(messages) {
+    const rows = {
+        system: { count: 0, tokens: 0 },
+        user: { count: 0, tokens: 0 },
+        assistant: { count: 0, tokens: 0 },
+        tool: { count: 0, tokens: 0 },
+        other: { count: 0, tokens: 0 },
+    };
+    const semantic = {
+        system: { count: 0, tokens: 0 },
+        chat: { count: 0, tokens: 0 },
+        assistant: { count: 0, tokens: 0 },
+        toolResults: { count: 0, tokens: 0 },
+        reminders: { count: 0, tokens: 0, otherTokens: 0 },
+        workflow: { tokens: 0 },
+        memory: { tokens: 0 },
+        workspace: { tokens: 0 },
+        environment: { tokens: 0 },
+        other: { tokens: 0 },
+    };
+    let toolCallCount = 0;
+    let toolCallTokens = 0;
+    let toolResultCount = 0;
+    let toolResultTokens = 0;
+    for (const message of messages || []) {
+        const role = rows[message?.role] ? message.role : 'other';
+        const text = messageEstimateText(message);
+        const tokens = estimateMessageTokens(message);
+        rows[role].count += 1;
+        rows[role].tokens += tokens;
+        if (role === 'system') {
+            semantic.system.count += 1;
+            semantic.system.tokens += tokens;
+        } else if (role === 'user') {
+            if (String(text || '').trim().startsWith('<system-reminder>')) {
+                semantic.reminders.count += 1;
+                semantic.reminders.tokens += tokens;
+                let sectionTokens = 0;
+                for (const section of splitMarkdownSections(stripSystemReminder(text))) {
+                    const bucket = reminderSectionBucket(section);
+                    const sectionTokenCount = estimateTokens(section);
+                    semantic[bucket].tokens += sectionTokenCount;
+                    sectionTokens += sectionTokenCount;
+                }
+                semantic.reminders.otherTokens += Math.max(0, tokens - sectionTokens);
+            } else {
+                semantic.chat.count += 1;
+                semantic.chat.tokens += tokens;
+            }
+        } else if (role === 'assistant') {
+            semantic.assistant.count += 1;
+            semantic.assistant.tokens += tokens;
+        } else if (role === 'tool') {
+            semantic.toolResults.count += 1;
+            semantic.toolResults.tokens += tokens;
+        }
+        if (message?.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
+            toolCallCount += message.toolCalls.length;
+            try { toolCallTokens += estimateTokens(JSON.stringify(message.toolCalls)); }
+            catch { toolCallTokens += estimateTokens(`[${message.toolCalls.length} tool calls]`); }
+        }
+        if (message?.role === 'tool') {
+            toolResultCount += 1;
+            toolResultTokens += tokens;
+        }
+    }
+    return {
+        count: Array.isArray(messages) ? messages.length : 0,
+        estimatedTokens: Array.isArray(messages) ? estimateMessagesTokens(messages) : 0,
+        roles: rows,
+        semantic,
+        toolCallCount,
+        toolCallTokens,
+        toolResultCount,
+        toolResultTokens,
+    };
 }
 
 // Per-request overhead the provider injects that never appears in the

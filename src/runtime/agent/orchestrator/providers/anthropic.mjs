@@ -117,6 +117,20 @@ function _defaultContextForModel(id, family) {
     return 200000;
 }
 
+function _effortValuesFromCapabilities(capabilities) {
+    const effort = capabilities?.effort;
+    const levels = ['low', 'medium', 'high', 'xhigh', 'max'];
+    if (!effort) return [];
+    if (effort === true) return levels;
+    const values = levels.filter((level) => effort?.[level] === true || effort?.[level]?.supported === true);
+    if (values.length) return values;
+    return effort.supported === true ? levels : [];
+}
+
+function _capabilitySupported(capability) {
+    return capability === true || capability?.supported === true;
+}
+
 function _normalizeAnthropicModel(raw, provider = 'anthropic') {
     const id = raw?.id || raw?.name || raw?.model;
     if (!id) return null;
@@ -124,15 +138,18 @@ function _normalizeAnthropicModel(raw, provider = 'anthropic') {
     const family = familyMatch ? familyMatch[1].toLowerCase() : 'other';
     const dated = /-\d{8}$/.test(String(id));
     const versioned = !dated && /^claude-[a-z]+-\d+(?:-\d+)?$/i.test(String(id));
+    const effortValues = _effortValuesFromCapabilities(raw?.capabilities);
     return {
         id,
         display: raw?.display_name || raw?.displayName || raw?.display || _prettyName(id, family),
         family,
         provider,
-        contextWindow: raw?.context_window || raw?.max_context_window || raw?.input_token_limit || raw?.inputTokenLimit || _defaultContextForModel(id, family),
-        outputTokens: raw?.max_output_tokens || raw?.output_token_limit || raw?.outputTokenLimit || null,
+        contextWindow: raw?.context_window || raw?.max_context_window || raw?.max_input_tokens || raw?.input_token_limit || raw?.inputTokenLimit || _defaultContextForModel(id, family),
+        outputTokens: raw?.max_tokens || raw?.max_output_tokens || raw?.output_token_limit || raw?.outputTokenLimit || null,
         tier: dated ? 'dated' : versioned ? 'version' : 'family',
         latest: false,
+        supportsReasoning: effortValues.length > 0 || _capabilitySupported(raw?.capabilities?.thinking),
+        reasoningOptions: effortValues.length ? [{ type: 'effort', values: effortValues }] : [],
     };
 }
 // Family-based heuristic so new model ids (including custom user-configured
@@ -676,7 +693,7 @@ export class AnthropicProvider {
                     const parseResult = await parseSSEStream(
                         response,
                         streamController.signal,
-                        () => streamController.abort(),
+                        (reason) => streamController.abort(reason),
                         onStreamDelta,
                         onToolCall,
                         midState,

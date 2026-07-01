@@ -44,7 +44,7 @@ const DEFAULT_AGENT_PRESETS = Object.freeze({
   explore: 'sonnet-high',
   maintainer: 'haiku',
   worker: 'sonnet-high',
-  'heavy-worker': 'opus-high',
+  'heavy-worker': 'sonnet-high',
   reviewer: 'opus-xhigh',
   debugger: 'opus-xhigh',
 });

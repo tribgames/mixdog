@@ -185,7 +185,9 @@ function ContextUsageView({ detail, columns }) {
   ]);
   const apiLine = metricValue([
     `last ctx ${formatTokens(lastApi.contextTokens)}`,
-    `in/out ${formatTokens(lastApi.inputTokens)}/${formatTokens(lastApi.outputTokens)}`,
+    `uncached/out ${formatTokens(lastApi.inputTokens)}/${formatTokens(lastApi.outputTokens)}`,
+    lastApi.rawInputTokens && lastApi.rawInputTokens !== lastApi.inputTokens ? `raw in ${formatTokens(lastApi.rawInputTokens)}` : '',
+    cache.writeTokens ? `write ${formatTokens(cache.writeTokens)}` : '',
     `cache ${cache.hitRate || 'n/a'}`,
   ]);
   const categories = [

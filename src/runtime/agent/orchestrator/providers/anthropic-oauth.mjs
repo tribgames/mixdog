@@ -21,6 +21,7 @@ import { enrichModels } from './model-catalog.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { sanitizeToolPairs, sanitizeAnthropicContentPairs } from '../session/context-utils.mjs';
 import {
+    PROVIDER_FIRST_BYTE_TIMEOUT_MS,
     PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
     PROVIDER_RETRY_BACKOFF_MS,
     PROVIDER_RETRY_MAX_ATTEMPTS,
@@ -134,6 +135,20 @@ function _displayModel(id) {
     return `claude-${m[1].toLowerCase()}-${m[2]}${m[3] ? `.${m[3]}` : ''}`;
 }
 
+function _effortValuesFromCapabilities(capabilities) {
+    const effort = capabilities?.effort;
+    const levels = ['low', 'medium', 'high', 'xhigh', 'max'];
+    if (!effort) return [];
+    if (effort === true) return levels;
+    const values = levels.filter((level) => effort?.[level] === true || effort?.[level]?.supported === true);
+    if (values.length) return values;
+    return effort.supported === true ? levels : [];
+}
+
+function _capabilitySupported(capability) {
+    return capability === true || capability?.supported === true;
+}
+
 // Classify a model id into our common tier/family shape. Anthropic's catalog
 // mixes dated ids (claude-opus-4-5-20251101), versioned aliases
 // (claude-opus-4-6), and the raw family tokens resolved via env vars.
@@ -150,15 +165,19 @@ function _normalizeAnthropicModel(raw) {
     const releaseDate = dated
         ? id.match(/-(\d{4})(\d{2})(\d{2})$/)
         : null;
+    const effortValues = _effortValuesFromCapabilities(raw?.capabilities);
     return {
         id,
         display: raw?.display_name || _prettyName(id, family),
         family,
         provider: 'anthropic-oauth',
-        contextWindow: raw?.context_window || raw?.max_context_window || _defaultContextForModel(id, family),
+        contextWindow: raw?.context_window || raw?.max_context_window || raw?.max_input_tokens || _defaultContextForModel(id, family),
+        outputTokens: raw?.max_tokens || raw?.max_output_tokens || null,
         tier,
         latest: false, // assigned in a second pass once full list is known
         releaseDate: releaseDate ? `${releaseDate[1]}-${releaseDate[2]}-${releaseDate[3]}` : null,
+        supportsReasoning: effortValues.length > 0 || _capabilitySupported(raw?.capabilities?.thinking),
+        reasoningOptions: effortValues.length ? [{ type: 'effort', values: effortValues }] : [],
     };
 }
 
@@ -942,6 +961,10 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     const SSE_IDLE_TIMEOUT_MS = PROVIDER_SSE_IDLE_TIMEOUT_MS;
+    const SSE_FIRST_MESSAGE_TIMEOUT_MS = Number.isFinite(Number(state?.firstMessageTimeoutMs))
+        && Number(state.firstMessageTimeoutMs) > 0
+        ? Number(state.firstMessageTimeoutMs)
+        : PROVIDER_FIRST_BYTE_TIMEOUT_MS;
     let content = '';
     let hasThinkingContent = false;
     const contentBlockTypes = new Set();
@@ -951,7 +974,9 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
     let stopReason = null;
     let buffer = '';
     let idleTimedOut = false;
+    let firstMessageTimedOut = false;
     let idleTimer = null;
+    let firstMessageTimer = null;
     let currentEvent = '';
 
     const pendingToolInputs = new Map();
@@ -960,6 +985,44 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
     // force-unblock the loop even when reader.cancel() fails to settle the
     // pending read (undici half-open socket). See resetIdleTimer below.
     let idleReject = null;
+
+    const firstMessageTimeoutError = () => {
+        const err = new Error(`Anthropic OAuth SSE stream produced no message_start within ${SSE_FIRST_MESSAGE_TIMEOUT_MS}ms`);
+        err.code = 'EEMPTYSTREAM';
+        err.isEmptyStream = true;
+        err.firstByteTimeout = true;
+        return err;
+    };
+
+    const clearFirstMessageTimer = () => {
+        if (firstMessageTimer) {
+            clearTimeout(firstMessageTimer);
+            firstMessageTimer = null;
+        }
+    };
+
+    const armFirstMessageTimer = () => {
+        if (!(SSE_FIRST_MESSAGE_TIMEOUT_MS > 0)) return;
+        clearFirstMessageTimer();
+        firstMessageTimer = setTimeout(() => {
+            if (state?.sawMessageStart) return;
+            firstMessageTimedOut = true;
+            const err = firstMessageTimeoutError();
+            try { abortStream?.(err); } catch (abortErr) {
+                try { process.stderr.write(`[anthropic-oauth] sse first-message abortStream failed: ${abortErr?.message ?? String(abortErr)}\n`); } catch {}
+            }
+            try {
+                const _c = reader.cancel('SSE first message timeout');
+                if (_c && typeof _c.catch === 'function') _c.catch(() => {});
+            } catch (cancelErr) {
+                try { process.stderr.write(`[anthropic-oauth] sse first-message cancel failed: ${cancelErr?.message ?? String(cancelErr)}\n`); } catch {}
+            }
+            if (idleReject) {
+                const r = idleReject; idleReject = null; r(err);
+            }
+        }, SSE_FIRST_MESSAGE_TIMEOUT_MS);
+        try { firstMessageTimer.unref?.(); } catch {}
+    };
 
     const resetIdleTimer = () => {
         // OFF by default. When disabled the
@@ -1010,6 +1073,7 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
 
     try {
         resetIdleTimer();
+        armFirstMessageTimer();
         streamLoop: while (true) {
             let chunk;
             try {
@@ -1024,6 +1088,9 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
                     const idleErr = new Error(`Anthropic OAuth SSE stream timed out after ${SSE_IDLE_TIMEOUT_MS}ms of inactivity`);
                     idleErr.code = 'ETIMEDOUT';
                     throw idleErr;
+                }
+                if (firstMessageTimedOut) {
+                    throw firstMessageTimeoutError();
                 }
                 if (signal?.aborted) {
                     _captureMidstreamAbort(state, signal.reason);
@@ -1043,12 +1110,10 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
 
             for (const line of lines) {
                 if (line.startsWith(':')) {
-                    // SSE comment frame (Anthropic `:ping` keepalive). The HTML Standard SSE
-                    // spec says comments are silently ignored, but we surface them here so
-                    // the agent stall watchdog sees the stream is still alive during Opus
-                    // extended-thinking pauses. No content is emitted — this only refreshes
-                    // the runtime's lastStreamDeltaAt timestamp.
-                    try { onStreamDelta?.(); } catch {}
+                    // SSE comment frame (Anthropic `:ping` keepalive). Keep it
+                    // at transport level only: comments must not refresh the
+                    // agent's semantic progress timestamp, or a ping-only 200
+                    // can look alive forever without message_start/content.
                     continue;
                 }
                 if (line.startsWith('event: ')) {
@@ -1067,6 +1132,7 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
                     }
 
                     if (event.type === 'message_start' && event.message) {
+                        clearFirstMessageTimer();
                         if (state) state.sawMessageStart = true;
                         if (event.message.model) model = event.message.model;
                         if (event.message.usage) {
@@ -1248,6 +1314,7 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
         };
     } finally {
         if (idleTimer) clearTimeout(idleTimer);
+        clearFirstMessageTimer();
         if (signal) signal.removeEventListener('abort', onAbort);
         try { reader.releaseLock(); } catch (err) {
             try { process.stderr.write(`[anthropic-oauth] reader releaseLock failed: ${err?.message ?? String(err)}\n`); } catch {}
@@ -1764,7 +1831,7 @@ export class AnthropicOAuthProvider {
                 const result = await parseSSEFn(
                     response,
                     controller.signal,
-                    () => controller.abort(),
+                    (reason) => controller.abort(reason),
                     onStreamDelta,
                     onToolCall,
                     midState,

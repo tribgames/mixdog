@@ -45,6 +45,8 @@
     "test:providers": "node --test scripts/provider-toolcall-test.mjs",
     "failures": "node scripts/tool-failures.mjs",
     "trace:llm": "node scripts/llm-trace-summary.mjs",
+    "diag:sessions": "node scripts/session-diag.mjs",
+    "diag:session": "node scripts/session-diag.mjs",
     "build:tui": "node scripts/build-tui.mjs"
   },
   "engines": {

@@ -760,6 +760,7 @@ function traceAgentPreset({ sessionId, role, presetName, model, provider, parent
 function traceAgentFetch({ sessionId, headersMs, httpStatus, handshakeRetries, handshakeRetryClassifiers, provider, model, transport }) {
     const payload = {
         headers_ms: headersMs,
+        phase: 'http_response_headers',
         http_status: httpStatus,
         provider: provider || null,
         model: model || null,
@@ -786,22 +787,41 @@ function traceAgentFetch({ sessionId, headersMs, httpStatus, handshakeRetries, h
 }
 
 function traceAgentSse({ sessionId, sseParseMs, ttftMs, provider, model, transport }) {
+    const streamTotalMs = sseParseMs;
+    const firstTokenMs = ttftMs;
     appendAgentTrace({
         sessionId,
         kind: 'sse',
         sse_parse_ms: sseParseMs,
+        stream_total_ms: streamTotalMs,
         ttft_ms: ttftMs,
+        first_token_ms: firstTokenMs,
         provider: provider || null,
         model: model || null,
         transport: transport || null,
         payload: {
             sse_parse_ms: sseParseMs,
+            stream_total_ms: streamTotalMs,
             ttft_ms: ttftMs,
+            first_token_ms: firstTokenMs,
             provider: provider || null,
             model: model || null,
             transport: transport || null,
         },
     });
+}
+
+function extractThinkingTokens(rawUsage) {
+    if (!rawUsage || typeof rawUsage !== 'object') return null;
+    const direct = Number(rawUsage.thinking_tokens ?? rawUsage.thinkingTokens);
+    if (Number.isFinite(direct) && direct >= 0) return direct;
+    const details = rawUsage.output_tokens_details
+        || rawUsage.completion_tokens_details;
+    if (details && typeof details === 'object') {
+        const nested = Number(details.reasoning_tokens ?? details.thinking_tokens);
+        if (Number.isFinite(nested) && nested >= 0) return nested;
+    }
+    return null;
 }
 
 function traceAgentUsage({ sessionId, iteration, inputTokens, outputTokens, cachedTokens, cacheWriteTokens, promptTokens, model, modelDisplay, responseId, rawUsage, provider, serviceTier, requestKind }) {
@@ -816,12 +836,14 @@ function traceAgentUsage({ sessionId, iteration, inputTokens, outputTokens, cach
             ? Math.max(inTok, cacheRead + cacheWrite)
             : inTok + cacheRead + cacheWrite);
     const resolvedServiceTier = serviceTier || rawUsage?.service_tier || rawUsage?.serviceTier || null;
+    const thinkingTokens = extractThinkingTokens(rawUsage);
     appendAgentTrace({
         sessionId,
         iteration,
         kind: 'usage_raw',
         input_tokens: inputTokens,
         output_tokens: outputTokens,
+        thinking_tokens: thinkingTokens,
         cached_tokens: cachedTokens,
         cache_write_tokens: cacheWrite,
         uncached_input_tokens: uncachedInputTokens,
@@ -837,6 +859,7 @@ function traceAgentUsage({ sessionId, iteration, inputTokens, outputTokens, cach
             provider: provider || null,
             prompt_tokens: promptTotal,
             uncached_input_tokens: uncachedInputTokens,
+            thinking_tokens: thinkingTokens,
             model_display: modelDisplay || null,
             response_id: responseId || null,
             service_tier: resolvedServiceTier,

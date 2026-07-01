@@ -201,7 +201,8 @@ export function getProvider(name) {
 // unregistered providers default to false (the openai/gemini majority).
 export function providerInputExcludesCache(name) {
     const p = getProvider(name);
-    return p?.constructor?.inputExcludesCache === true;
+    if (p?.constructor?.inputExcludesCache === true) return true;
+    return String(name || '').toLowerCase().includes('anthropic');
 }
 export function getAllProviders() {
     // Defensive copy — callers must not mutate the live registry or retain
