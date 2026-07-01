@@ -1328,8 +1328,8 @@ export class OpenAIOAuthProvider {
         const onTextDelta = typeof opts.onTextDelta === 'function' ? opts.onTextDelta : null;
         const externalSignal = opts.signal || null;
         const _sendSessionId = opts.sessionId || '(none)';
-        const _sendRole = opts.role || '(none)';
-        if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] auth-start sessionHash=${createHash('sha256').update(String(_sendSessionId)).digest('hex').slice(0, 8)} role=${_sendRole} expiringInMs=${this.tokens?.expires_at ? this.tokens.expires_at - Date.now() : 'unknown'}\n`); }
+        const _sendAgent = opts.agent || '(none)';
+        if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] auth-start sessionHash=${createHash('sha256').update(String(_sendSessionId)).digest('hex').slice(0, 8)} agent=${_sendAgent} expiringInMs=${this.tokens?.expires_at ? this.tokens.expires_at - Date.now() : 'unknown'}\n`); }
         // Build request body in parallel with auth resolution. ensureAuth is
         // a no-op fast-path on cached tokens, but a refresh round-trip can
         // take 300ms+; the body build (message serialisation) overlaps cleanly.

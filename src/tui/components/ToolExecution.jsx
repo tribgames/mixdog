@@ -281,43 +281,43 @@ function withModelAndTag(label, args) {
   return inner ? `${label} (${inner})` : label;
 }
 
-// Append a role name to a base action word without leaving a trailing space
-// when the role is unknown (no generic "Agent" fallback).
-function joinActionRole(action, role) {
-  return role ? `${action} ${role}` : action;
+// Append an agent name to a base action word without leaving a trailing space
+// when the agent is unknown (no generic "Agent" fallback).
+function joinActionAgent(action, agent) {
+  return agent ? `${action} ${agent}` : action;
 }
 
 function agentResponseTitle(args) {
-  const name = titleizeAgentName(args?.agent || args?.role || args?.subagent_type || args?.name || '');
-  // The agent role + model identify the responder; the response summary itself
+  const name = titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '');
+  // The agent + model identify the responder; the response summary itself
   // is hidden in the collapsed card (ctrl+o expand still shows the full body).
-  // No generic "Agent" fallback — render just "Response" when the role is empty.
-  return withModelAndTag(joinActionRole('Response', name), args);
+  // No generic "Agent" fallback — render just "Response" when the agent is empty.
+  return withModelAndTag(joinActionAgent('Response', name), args);
 }
 
 function agentActionTitle(args) {
-  const name = titleizeAgentName(args?.agent || args?.role || args?.subagent_type || args?.name || '');
+  const name = titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '');
   const action = String(args?.type || args?.action || '').toLowerCase();
   // Fixed action verbs regardless of running/completed status. No generic
-  // "Agent" fallback for the role: when the role is unknown render the action
+  // "Agent" fallback for the agent: when the agent is unknown render the action
   // word alone ("Spawn") instead of "Spawn Agent".
-  if (action === 'spawn') return withModelAndTag(joinActionRole('Spawn', name), args);
-  if (action === 'send') return withModelAndTag(joinActionRole('Send', name), args);
+  if (action === 'spawn') return withModelAndTag(joinActionAgent('Spawn', name), args);
+  if (action === 'send') return withModelAndTag(joinActionAgent('Send', name), args);
   if (action === 'list') return 'Agent status';
-  if (action === 'cancel') return withModelAndTag(joinActionRole('Cancel', name), args);
-  if (action === 'close') return withModelAndTag(joinActionRole('Close', name), args);
-  if (action === 'cleanup') return withModelAndTag(joinActionRole('Cleanup', name), args);
-  if (action === 'read' || action === 'status') return withModelAndTag(joinActionRole('Status', name), args);
+  if (action === 'cancel') return withModelAndTag(joinActionAgent('Cancel', name), args);
+  if (action === 'close') return withModelAndTag(joinActionAgent('Close', name), args);
+  if (action === 'cleanup') return withModelAndTag(joinActionAgent('Cleanup', name), args);
+  if (action === 'read' || action === 'status') return withModelAndTag(joinActionAgent('Status', name), args);
   return '';
 }
 
 function agentActionSummary(args, summary) {
   const text = String(summary || '').trim();
   if (!text) return '';
-  const name = titleizeAgentName(args?.agent || args?.role || args?.subagent_type || args?.name || '');
+  const name = titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '');
   if (name && text === name) return '';
   let rest = name && text.startsWith(`${name} · `) ? text.slice(name.length + 3).trim() : text;
-  // The role/model/tag surface summary ("Heavy Worker · Opus 4.8") is now folded
+  // The agent/model/tag surface summary ("Heavy Worker · Opus 4.8") is now folded
   // into the header label itself ("Spawn Heavy Worker (Opus 4.8, tag)"), so drop
   // the model and tag tokens from the parenthesized summary to avoid showing
   // them twice.
@@ -348,7 +348,7 @@ function hasAgentResponseResult(value) {
     if (/^agent result\b/i.test(trimmed)) continue;
     if (/^(?:undefined|null)$/i.test(trimmed)) continue;
     if (/^<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
-    if (!sawBlank && /^(?:agent task|background task|agent message queued\b|agent close:|task_id|surface|operation|label|status|type|target|role|agent|preset|model|effort|fast|limits|started|finished|error|notification|queueDepth):?\s*/i.test(trimmed)) continue;
+    if (!sawBlank && /^(?:agent task|background task|agent message queued\b|agent close:|task_id|surface|operation|label|status|type|target|agent|preset|model|effort|fast|limits|started|finished|error|notification|queueDepth):?\s*/i.test(trimmed)) continue;
     if (!sawBlank && /^(?:agents|tasks):\s*/i.test(trimmed)) continue;
     if (/^\(no agents or tasks\)$/i.test(trimmed)) continue;
     if (!sawBlank && /^-\s+\S+/i.test(trimmed)) continue;
@@ -572,6 +572,7 @@ function toolStatusColor({ pending, groupCount, failedCount, terminalStatus = ''
 }
 
 export function ToolExecution({ name, args, result, rawResult, isError, errorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, headerFinalized = true, deferredDisplayReady = false }) {
+  const rowWidth = Math.max(1, Number(columns || 80));
   const [blinkOn, setBlinkOn] = useState(true);
   const [blinkExpired, setBlinkExpired] = useState(false);
   const [pendingDelayElapsed, setPendingDelayElapsed] = useState(false);
@@ -678,7 +679,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     // header + one brief detail row (see estimateTranscriptItemRows).
     const placeholderSingleRow = !aggregate && SKILL_SURFACE_NAMES.has(placeholderNormalizedName);
     return (
-      <Box flexDirection="column" marginTop={attached ? 0 : 1}>
+      <Box flexDirection="column" marginTop={attached ? 0 : 1} width={rowWidth} overflow="hidden">
         <Text> </Text>
         {placeholderSingleRow ? null : <Text> </Text>}
       </Box>
@@ -750,8 +751,8 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
       : (detailText ? [detailText] : [headerPending ? 'Running' : 'Finished']);
     const aggregateDetailColor = isPlaceholderDetail ? theme.subtle : theme.text;
     return (
-      <Box flexDirection="column" marginTop={attached ? 0 : 1}>
-        <Box flexDirection="row">
+      <Box flexDirection="column" marginTop={attached ? 0 : 1} width={rowWidth} overflow="hidden">
+        <Box flexDirection="row" width={rowWidth} overflow="hidden">
           <Box flexShrink={0} minWidth={2}>
             <Text color={dotColor}>{dotText}</Text>
           </Box>
@@ -980,7 +981,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // edge and snap back on the pending→done flip, so there is no pad. `avail`
   // stays reserved (rightReserve) so the body clip point never reflows.
   return (
-    <Box flexDirection="column" marginTop={attached ? 0 : 1}>
+    <Box flexDirection="column" marginTop={attached ? 0 : 1} width={rowWidth} overflow="hidden">
       <Box flexDirection="row" width="100%">
         <Box flexShrink={1} flexGrow={1} overflow="hidden" minWidth={0}>
           <Box flexDirection="row">

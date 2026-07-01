@@ -9,7 +9,7 @@
  * The returned function uses the existing caller signature, so call sites
  * do not need changes:
  *
- *   const llm = makeAgentDispatch({ role: 'maintenance', preset: 'haiku' });
+ *   const llm = makeAgentDispatch({ agent: 'maintenance', preset: 'haiku' });
  *   const text = await llm({ prompt });
  *
  * Internally it:
@@ -23,7 +23,7 @@
 
 import { loadConfig } from '../config.mjs';
 import { resolveRuntimeSpec } from '../config.mjs';
-import { getHiddenRole, resolveAgentSessionPermission } from '../internal-roles.mjs';
+import { getHiddenAgent, resolveAgentSessionPermission } from '../internal-agents.mjs';
 import { prepareAgentSession } from './session-builder.mjs';
 import {
     askSession,
@@ -57,7 +57,7 @@ function applyBriefCap(text) {
 //      rules/agent/<role>.md
 //   2. call-time guards (loop.mjs write-block + ai-wrapped-dispatch
 //      recursion break)
-// Hidden-role exceptions are declarative: defaults/hidden-roles.json may set
+// Hidden-agent exceptions are declarative: defaults/agents.json may set
 // toolSchemaProfile when first-turn routing quality is worth a separate tool
 // prefix. Standard profiles are none/read/full/read-write-search; legacy names
 // stay as aliases.
@@ -107,7 +107,7 @@ export function resolveHiddenRoleSchemaAllowedTools(hidden) {
     if (Object.prototype.hasOwnProperty.call(HIDDEN_ROLE_TOOL_SCHEMA_PROFILES, profile)) {
         return HIDDEN_ROLE_TOOL_SCHEMA_PROFILES[profile];
     }
-    process.stderr.write(`[agent-dispatch] unknown hidden-role toolSchemaProfile="${profile}" role="${hidden.name || 'unknown'}"; using full schema\n`);
+    process.stderr.write(`[agent-dispatch] unknown hidden-agent toolSchemaProfile="${profile}" agent="${hidden.agent || 'unknown'}"; using full schema\n`);
     return null;
 }
 
@@ -126,11 +126,11 @@ export function resolveHiddenRoleSchemaAllowedTools(hidden) {
  * Hidden roles read their slot from `maint[maintKey || slot]`; the cycle1/2/3
  * agents share one knob via the `maintKey: 'memory'` override.
  */
-export function resolveMaintenanceRoute({ preset, optsPreset, role, config: cfgIn = null }) {
+export function resolveMaintenanceRoute({ preset, optsPreset, agent, config: cfgIn = null }) {
     if (preset) return preset;
     if (optsPreset) return optsPreset;
-    if (!role) return null;
-    const hidden = getHiddenRole(role);
+    if (!agent) return null;
+    const hidden = getHiddenAgent(agent);
     if (hidden) {
         try {
             const config = cfgIn || loadConfig({ secrets: false });
@@ -146,14 +146,14 @@ export function resolveMaintenanceRoute({ preset, optsPreset, role, config: cfgI
 export const resolvePresetName = resolveMaintenanceRoute;
 
 // A maintenance slot value is a direct route when it carries provider+model.
-function maintenanceRouteToPreset(routeOrName, role) {
+function maintenanceRouteToPreset(routeOrName, agent) {
     if (!routeOrName || typeof routeOrName !== 'object') return null;
     const provider = String(routeOrName.provider || '').trim();
     const model = String(routeOrName.model || '').trim();
     if (!provider || !model) return null;
     const out = {
-        id: `maint-${role}`,
-        name: `MAINT ${String(role || '').toUpperCase()}`,
+        id: `maint-${agent}`,
+        name: `MAINT ${String(agent || '').toUpperCase()}`,
         type: 'agent',
         provider,
         model,
@@ -169,50 +169,50 @@ function maintenanceRouteToPreset(routeOrName, role) {
  * Build an agent-backed dispatch callback.
  *
  * @param {object} opts
- * @param {string} opts.role        — REQUIRED; canonical role name (worker, cycle1-agent, scheduler-task, ...)
+ * @param {string} opts.agent       — REQUIRED; canonical agent name (worker, cycle1-agent, scheduler-task, ...)
  * @param {string} [opts.taskType]  — optional internal classification stamped on the session
- * @param {string} [opts.preset]    — explicit preset override (bypasses role → preset lookup)
+ * @param {string} [opts.preset]    — explicit preset override (bypasses agent → preset lookup)
  * @param {string} [opts.parentSessionId] — parent agent session for trace aggregation
  * @param {string|null} [opts.ownerSessionId] — owning Mixdog session for statusline isolation
  * @param {AbortSignal} [opts.parentSignal] — optional AbortSignal from the fan-out coordinator;
- *   when aborted the agent role session's own controller is also aborted so the
+ *   when aborted the agent session's own controller is also aborted so the
  *   provider call tears down promptly (parent→child cascade).
  * @returns {(args: { prompt, preset?, sourceName? }) => Promise<string>}
  */
 export function makeAgentDispatch(opts = {}) {
-    if (!opts.role || typeof opts.role !== 'string') {
-        throw new Error('[agent-dispatch] opts.role is required');
+    if (!opts.agent || typeof opts.agent !== 'string') {
+        throw new Error('[agent-dispatch] opts.agent is required');
     }
-    const role = opts.role;
+    const agent = opts.agent;
 
     return async function agentDispatch({ prompt, preset: presetArg, sourceName: sourceNameArg, parentSignal: callParentSignal, idleTimeoutMs: callIdleTimeoutMs }) {
         if (typeof prompt !== 'string' || !prompt) {
-            throw new Error(`[agent-dispatch] prompt required for role "${role}"`);
+            throw new Error(`[agent-dispatch] prompt required for agent "${agent}"`);
         }
 
         const config = opts.config || loadConfig({ secrets: false });
         const routeOrName = resolveMaintenanceRoute({
             preset: presetArg,
             optsPreset: opts.preset,
-            role,
+            agent,
             config,
         });
         if (!routeOrName) {
             throw new Error(
-                `[agent-dispatch] maintenance route unresolved for role "${role}" `
+                `[agent-dispatch] maintenance route unresolved for agent "${agent}" `
                 + `(preset="${presetArg || opts.preset || ''}")`,
             );
         }
         // Preferred path: a maintenance slot that stores its model directly
         // (route object). Legacy path: a slot still holding a preset NAME —
         // resolve it against config.presets for backward compatibility.
-        let preset = maintenanceRouteToPreset(routeOrName, role);
+        let preset = maintenanceRouteToPreset(routeOrName, agent);
         if (!preset) {
             const legacyName = String(routeOrName || '').trim();
             preset = config.presets?.find((p) => p.id === legacyName || p.name === legacyName) || null;
             if (!preset) {
                 throw new Error(
-                    `[agent-dispatch] maintenance route for role "${role}" is neither a `
+                    `[agent-dispatch] maintenance route for agent "${agent}" is neither a `
                     + `{provider,model} route nor a known preset name ("${legacyName}")`,
                 );
             }
@@ -220,11 +220,11 @@ export function makeAgentDispatch(opts = {}) {
         // Stable label for traces / session metadata, derived from the resolved
         // preset object regardless of whether it came from a direct route or a
         // legacy preset name.
-        const presetName = preset.id || preset.name || `maint-${role}`;
+        const presetName = preset.id || preset.name || `maint-${agent}`;
 
         const runtimeSpec = resolveRuntimeSpec(preset, {
             lane: 'agent',
-            agentId: role,
+            agentId: agent,
         });
 
         // Callers (e.g. aiWrapped explore dispatch) may pass an explicit
@@ -244,12 +244,12 @@ export function makeAgentDispatch(opts = {}) {
         // Runtime permission enforcement was removed (every tool call is
         // trusted); schema profiles remain a routing-efficiency layer that
         // narrows the advertised tool list, not a runtime safety gate.
-        const hidden = getHiddenRole(role);
+        const hidden = getHiddenAgent(agent);
         const isPoolC = Boolean(hidden);
         // Permission: read-declared hidden roles are locked in
         // resolveAgentSessionPermission (prepareAgentSession applies the same).
         const permission = resolveAgentSessionPermission(
-            role,
+            agent,
             opts.permission ?? (isPoolC ? (hidden?.permission || 'read') : null),
         );
         // Pool C hidden-role instructions live in BP2 role-scoped context
@@ -264,7 +264,7 @@ export function makeAgentDispatch(opts = {}) {
         // layer (account-level), not the session level.
         const finalPrompt = prompt;
         const { session } = prepareAgentSession({
-            role,
+            agent,
             presetName,
             preset,
             runtimeSpec,
@@ -285,7 +285,7 @@ export function makeAgentDispatch(opts = {}) {
         // count-only "tools=N" line.
         try {
             const _toolNames = (session.tools || []).map((t) => t?.name).filter(Boolean);
-            process.stderr.write(`[agent-dispatch] role=${role} tool-list (${_toolNames.length}): ${_toolNames.join(',')}\n`);
+            process.stderr.write(`[agent-dispatch] agent=${agent} tool-list (${_toolNames.length}): ${_toolNames.join(',')}\n`);
         } catch { /* best-effort diagnostic */ }
 
         await updateSessionStatus(session.id, 'running');
@@ -309,7 +309,7 @@ export function makeAgentDispatch(opts = {}) {
         // - firstResponseTimeoutMs cuts quickly only when the model produces no
         //   first stream/tool activity at all.
         // - idle/tool-running caps come from role stallCap (hidden roles) or env defaults.
-        const _watchdogPolicy = resolveAgentWatchdogPolicy(role, {
+        const _watchdogPolicy = resolveAgentWatchdogPolicy(agent, {
             idleTimeoutMs: Number.isFinite(callIdleTimeoutMs)
                 ? callIdleTimeoutMs
                 : opts.idleTimeoutMs,
@@ -342,11 +342,11 @@ export function makeAgentDispatch(opts = {}) {
             : null;
         if (_idleTimer && typeof _idleTimer.unref === 'function') _idleTimer.unref();
         let terminalStatus = 'idle';
-        process.stderr.write(`[agent-dispatch] role=${role} preset=${presetName} model=${preset.model} provider=${preset.provider} session=${session.id}\n`);
+        process.stderr.write(`[agent-dispatch] agent=${agent} preset=${presetName} model=${preset.model} provider=${preset.provider} session=${session.id}\n`);
         const _agentDispatchT0 = Date.now();
         try {
             const result = await askSession(session.id, finalPrompt, null, null, cwd);
-            process.stderr.write(`[agent-dispatch] role=${role} session=${session.id} elapsed=${Date.now() - _agentDispatchT0}ms\n`);
+            process.stderr.write(`[agent-dispatch] agent=${agent} session=${session.id} elapsed=${Date.now() - _agentDispatchT0}ms\n`);
             const raw = result?.content || '';
             // Brief cap. Agent role answers (explore/recall/search)
             // occasionally balloon to 8-10k token walls that then ride in the

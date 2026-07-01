@@ -1190,7 +1190,7 @@ let _cycle1AgentDispatch = null
 function getCycle1CallLlm() {
   if (!_cycle1AgentDispatch) {
     _cycle1AgentDispatch = makeAgentDispatch({
-      role: 'cycle1-agent',
+      agent: 'cycle1-agent',
       taskType: 'maintenance',
       sourceType: 'memory-cycle',
       // cycle1 parses the full raw line-format response; the agent brief cap
@@ -1218,7 +1218,7 @@ let _cycle2AgentDispatch = null
 function getCycle2CallLlm() {
   if (!_cycle2AgentDispatch) {
     _cycle2AgentDispatch = makeAgentDispatch({
-      role: 'cycle2-agent',
+      agent: 'cycle2-agent',
       taskType: 'maintenance',
       sourceType: 'memory-cycle',
       brief: false,
@@ -1238,7 +1238,7 @@ let _cycle3AgentDispatch = null
 function getCycle3CallLlm() {
   if (!_cycle3AgentDispatch) {
     _cycle3AgentDispatch = makeAgentDispatch({
-      role: 'cycle3-agent',
+      agent: 'cycle3-agent',
       taskType: 'maintenance',
       sourceType: 'memory-cycle',
       brief: false,

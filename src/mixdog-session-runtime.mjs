@@ -2045,8 +2045,10 @@ export async function createMixdogSessionRuntime({
   model,
   cwd = process.cwd(),
   toolMode = 'full',
+  remote = false,
 } = {}) {
   bootProfile('session-runtime:start', { provider, model, toolMode, cwd });
+  let remoteEnabled = remote === true;
   process.env.MIXDOG_QUIET_SESSION_LOG ??= '1';
   const standaloneStartedAt = performance.now();
   ensureStandaloneEnvironment({
@@ -3828,7 +3830,7 @@ function parsedProviderModelVersion(id) {
         preset: route.preset || undefined,
         tools: toolSpecForMode(mode),
         owner: 'cli',
-        role: 'lead',
+        agent: 'lead',
         lane: 'cli',
         sourceType: 'lead',
         sourceName: 'main',
@@ -4066,6 +4068,9 @@ function parsedProviderModelVersion(id) {
     channelStartTimer = setTimeout(() => {
       channelStartTimer = null;
       if (closeRequested) return;
+      // A deferred start may straddle a stopRemote(); re-check before booting so
+      // a turned-off session neither starts channels nor keeps rescheduling.
+      if (!remoteEnabled) return;
       if (activeTurnCount > 0 || sessionCreatePromise) {
         bootProfile('channels:start-deferred', { reason: activeTurnCount > 0 ? 'turn-active' : 'session-create' });
         scheduleChannelStart(backgroundBusyRetryMs);
@@ -4081,6 +4086,27 @@ function parsedProviderModelVersion(id) {
         }));
     }, delayMs);
     channelStartTimer.unref?.();
+  }
+
+  // Remote (Discord channel) mode is opt-in per session. Only a session that
+  // explicitly enables remote — via `mixdog --remote` or the runtime toggle —
+  // boots the channel worker and contends for channel ownership.
+  function startRemote() {
+    remoteEnabled = true;
+    scheduleChannelStart(0);
+    return true;
+  }
+
+  function stopRemote(reason) {
+    remoteEnabled = false;
+    // Cancel any pending deferred start so it can't fire after remote is off.
+    if (channelStartTimer) { clearTimeout(channelStartTimer); channelStartTimer = null; }
+    channels.stop(reason || 'remote-disabled', { waitForExit: false }).catch(() => {});
+    return true;
+  }
+
+  function isRemoteEnabled() {
+    return remoteEnabled;
   }
 
   function withTeardownDeadline(promise, ms, fallback = false) {
@@ -4117,7 +4143,10 @@ function parsedProviderModelVersion(id) {
   // MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS explicitly.
   scheduleProviderModelWarmup();
   scheduleStatuslineUsageWarmup();
-  scheduleChannelStart();
+  // Channels are opt-in: only boot the worker when this session started in (or
+  // was toggled into) remote mode. Non-remote sessions never contend for the
+  // channel; see startRemote()/stopRemote() and the `/remote` toggle.
+  if (remoteEnabled) startRemote();
 
   function contextStatusCacheKeyFor({ messages, tools }) {
     const compaction = session?.compaction || {};
@@ -4496,7 +4525,9 @@ function parsedProviderModelVersion(id) {
         }
         await channels.stop('settings-disabled', { waitForExit: false }).catch(() => {});
       } else {
-        scheduleChannelStart(0);
+        // Enabling channels in settings only boots the worker when this session
+        // is in remote mode; otherwise the toggle just persists config.
+        if (remoteEnabled) scheduleChannelStart(0);
       }
       invalidatePreSessionToolSurface();
       return this.getChannelSettings();
@@ -4583,6 +4614,15 @@ function parsedProviderModelVersion(id) {
     },
     getChannelWorkerStatus() {
       return channels.status();
+    },
+    startRemote() {
+      return startRemote();
+    },
+    stopRemote(reason) {
+      return stopRemote(reason);
+    },
+    isRemoteEnabled() {
+      return isRemoteEnabled();
     },
     saveDiscordToken(token) {
       const result = saveDiscordToken(token);
@@ -5461,8 +5501,8 @@ function parsedProviderModelVersion(id) {
         if (owner && !['cli', 'user', 'mixdog', 'legacy'].includes(owner)) return null;
         const sourceType = clean(s.sourceType || '').toLowerCase();
         const sourceName = clean(s.sourceName || '').toLowerCase();
-        const role = clean(s.role || '').toLowerCase();
-        const leadish = role === 'lead'
+        const agent = clean(s.agent || '').toLowerCase();
+        const leadish = agent === 'lead'
           || sourceType === 'lead'
           || (sourceType === 'cli' && (!sourceName || sourceName === 'main'))
           || (!sourceType && !sourceName && !isAgentOwner(owner));

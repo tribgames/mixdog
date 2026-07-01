@@ -3,7 +3,7 @@
  * delegated sub-sessions while leaving Lead (owner=user) on the high ceiling.
  */
 
-import { getHiddenRole } from '../internal-roles.mjs';
+import { getHiddenAgent } from '../internal-agents.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 
 export const LEAD_MAX_LOOP_ITERATIONS = 200;
@@ -15,7 +15,7 @@ function envPositiveInt(name, fallback) {
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
-const ROLE_LOOP_CAPS = Object.freeze({
+const AGENT_LOOP_CAPS = Object.freeze({
     'heavy-worker': () => envPositiveInt('MIXDOG_AGENT_HEAVY_WORKER_MAX_LOOP', 12),
     worker: () => envPositiveInt('MIXDOG_AGENT_WORKER_MAX_LOOP', 16),
     explore: () => envPositiveInt('MIXDOG_AGENT_EXPLORE_MAX_LOOP', 10),
@@ -29,11 +29,11 @@ const ROLE_LOOP_CAPS = Object.freeze({
  * Hidden internal roles return null so the loop keeps the legacy 200 ceiling unless
  * the caller passes an explicit maxLoopIterations.
  */
-export function resolvePublicAgentMaxLoopIterations(role, permission) {
-    const id = String(role || '').trim().toLowerCase();
-    if (!id || getHiddenRole(id)) return null;
-    const byRole = ROLE_LOOP_CAPS[id];
-    if (byRole) return byRole();
+export function resolvePublicAgentMaxLoopIterations(agent, permission) {
+    const id = String(agent || '').trim().toLowerCase();
+    if (!id || getHiddenAgent(id)) return null;
+    const byAgent = AGENT_LOOP_CAPS[id];
+    if (byAgent) return byAgent();
     if (permission === 'read') {
         return envPositiveInt('MIXDOG_AGENT_READONLY_MAX_LOOP', 10);
     }
@@ -48,8 +48,8 @@ export function resolveSessionMaxLoopIterations(sessionRef, explicit) {
     if (Number.isFinite(sessionRef?.maxLoopIterations) && sessionRef.maxLoopIterations > 0) {
         return Math.floor(sessionRef.maxLoopIterations);
     }
-    if (sessionRef && isAgentOwner(sessionRef) && sessionRef.role) {
-        const cap = resolvePublicAgentMaxLoopIterations(sessionRef.role, sessionRef.permission);
+    if (sessionRef && isAgentOwner(sessionRef) && sessionRef.agent) {
+        const cap = resolvePublicAgentMaxLoopIterations(sessionRef.agent, sessionRef.permission);
         if (Number.isFinite(cap) && cap > 0) return cap;
     }
     return LEAD_MAX_LOOP_ITERATIONS;

@@ -38,7 +38,7 @@ import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { appendAgentTrace } from '../agent-trace.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { maxMtimeRecursive } from '../cache-mtime.mjs';
-import { getHiddenRole, getRoleInstructionDir, listHiddenRoleNames } from '../internal-roles.mjs';
+import { getHiddenAgent, getAgentInstructionDir, listHiddenAgentNames } from '../internal-agents.mjs';
 import { DEFAULT_ACTIVITY_HEARTBEAT_MS } from '../stall-policy.mjs';
 import {
     buildGatewayLimits,
@@ -182,34 +182,34 @@ function _buildLeadMetaContext() {
     }
 }
 
-// BP4-adjacent role-specific data cache — keyed by role. webhook / schedule
-// roles each have their own scoped instruction set; other roles return ''.
-const _roleSpecificCache = new Map(); // role → { value, mtime }
-function _buildRoleSpecific(currentRole) {
+// BP4-adjacent agent-specific data cache — keyed by agent. webhook / schedule
+// agents each have their own scoped instruction set; other agents return ''.
+const _roleSpecificCache = new Map(); // agent → { value, mtime }
+function _buildAgentSpecific(currentAgent) {
     if (!_rulesBuilder || typeof _rulesBuilder.buildAgentRoleSpecificContent !== 'function') return '';
-    if (!currentRole) return '';
+    if (!currentAgent) return '';
     const PLUGIN_ROOT = mixdogRoot();
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
-    const roleInstructionDir = getRoleInstructionDir(currentRole);
+    const roleInstructionDir = getAgentInstructionDir(currentAgent);
     const mtime = maxMtimeRecursive([
         join(RULES_DIR, 'shared'),
         join(DATA_DIR, 'mixdog-config.json'),
         join(DATA_DIR, 'webhooks'),
         join(DATA_DIR, 'schedules'),
         ...(roleInstructionDir ? [join(DATA_DIR, roleInstructionDir)] : []),
-        join(PLUGIN_ROOT, 'defaults', 'hidden-roles.json'),
+        join(PLUGIN_ROOT, 'defaults', 'agents.json'),
     ]);
-    const entry = _roleSpecificCache.get(currentRole);
+    const entry = _roleSpecificCache.get(currentAgent);
     if (entry && mtime <= entry.mtime) {
         return entry.value;
     }
     try {
-        const built = _rulesBuilder.buildAgentRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentRole });
-        _roleSpecificCache.set(currentRole, { mtime, value: built });
+        const built = _rulesBuilder.buildAgentRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentAgent });
+        _roleSpecificCache.set(currentAgent, { mtime, value: built });
         return built;
     } catch (e) {
-        throw new Error(`[session] role-specific rules build failed (role: ${currentRole}): ${e.message}`);
+        throw new Error(`[session] agent-specific rules build failed (agent: ${currentAgent}): ${e.message}`);
     }
 }
 
@@ -400,11 +400,11 @@ function applyToolPermissionNarrowing(tools, toolPermission, warnRole = null) {
     return tools;
 }
 
-function recursiveWrapperToolNameForPublicAgentRole(role) {
-    if (!role) return null;
-    const key = String(role).trim();
-    for (const hiddenName of listHiddenRoleNames()) {
-        const def = getHiddenRole(hiddenName);
+function recursiveWrapperToolNameForPublicAgent(agent) {
+    if (!agent) return null;
+    const key = String(agent).trim();
+    for (const hiddenName of listHiddenAgentNames()) {
+        const def = getHiddenAgent(hiddenName);
         const invokedBy = typeof def?.invokedBy === 'string' ? def.invokedBy.trim() : '';
         if (invokedBy && invokedBy === key) return invokedBy;
     }
@@ -415,7 +415,7 @@ function finalizeSessionToolList(tools, {
     schemaAllowedTools = null,
     disallowedTools = null,
     ownerIsAgent = false,
-    resolvedRole = null,
+    resolvedAgent = null,
 } = {}) {
     let out = Array.isArray(tools) ? tools : [];
     const hasCallerAllow = Array.isArray(schemaAllowedTools);
@@ -428,7 +428,7 @@ function finalizeSessionToolList(tools, {
         const denySet = new Set(callerDeny.map(n => n.toLowerCase()));
         out = out.filter(t => !denySet.has(String(t?.name || '').toLowerCase()));
     }
-    const recursiveDeny = ownerIsAgent ? recursiveWrapperToolNameForPublicAgentRole(resolvedRole) : null;
+    const recursiveDeny = ownerIsAgent ? recursiveWrapperToolNameForPublicAgent(resolvedAgent) : null;
     if (recursiveDeny) {
         const deny = recursiveDeny.toLowerCase();
         out = out.filter(t => String(t?.name || '').toLowerCase() !== deny);
@@ -1406,7 +1406,7 @@ async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
 // Preset shape: { name, provider, model, effort?, fast?, tools? }
 //
 // Agent Runtime integration:
-//   opts.taskType / opts.role / opts.profileId — enables profile-aware routing.
+//   opts.taskType / opts.agent / opts.profileId — enables profile-aware routing.
 //     Rule-based SmartRouter resolves these synchronously; the resolved
 //     profile controls context filtering (skip.skills/memory/etc) and cache
 //     strategy. If no rule matches, falls back to classic preset behavior.
@@ -1419,13 +1419,13 @@ export function createSession(opts) {
     // --- Agent Runtime profile resolution (best-effort, sync) ---
     let profile = opts.profile || null;
     let providerCacheOpts = opts.providerCacheOpts || null;
-    if (!profile && (opts.taskType || opts.role || opts.profileId)) {
+    if (!profile && (opts.taskType || opts.agent || opts.profileId)) {
         const agentRuntime = getAgentRuntimeSync();
         if (agentRuntime) {
             try {
                 const resolved = agentRuntime.resolveSync({
                     taskType: opts.taskType,
-                    role: opts.role,
+                    agent: opts.agent,
                     profileId: opts.profileId,
                     preset: presetObj?.name || (typeof opts.preset === 'string' ? opts.preset : null),
                     provider: opts.provider || presetObj?.provider,
@@ -1467,26 +1467,26 @@ export function createSession(opts) {
     const id = `sess_${process.pid}_${nextId++}_${Date.now()}_${randomBytes(16).toString('hex')}`;
     const messages = [];
     const ownerIsAgent = isAgentOwner(opts.owner);
-    const resolvedRole = opts.role || profile?.taskType || null;
-    const hiddenRole = getHiddenRole(resolvedRole);
-    const isRetrievalRole = hiddenRole?.kind === 'retrieval';
+    const resolvedAgent = opts.agent || profile?.taskType || null;
+    const hiddenAgent = getHiddenAgent(resolvedAgent);
+    const isRetrievalAgent = hiddenAgent?.kind === 'retrieval';
     // Skill schema is fixed for public agent sessions, but hidden retrieval /
     // maintenance roles are deliberately narrowed away from the Skill tool.
     // Do not leak a Skill manifest into those hidden prompts when no Skill()
     // loader is available.
-    const skills = (opts.skipSkills || hiddenRole) ? [] : collectSkillsCached(opts.cwd);
+    const skills = (opts.skipSkills || hiddenAgent) ? [] : collectSkillsCached(opts.cwd);
 
     // BP1 is shared tool policy (+ compact skill manifest in compose). BP2 is
     // role/system rules. User-defined schedules/webhooks ride as normal user
     // context below so event data does not rewrite BP3 memory/meta.
-    const agentRulesRole = opts.role || profile?.taskType || null;
-    const agentRulesProfile = isRetrievalRole ? 'retrieval' : 'full';
+    const agentRulesAgent = opts.agent || profile?.taskType || null;
+    const agentRulesProfile = isRetrievalAgent ? 'retrieval' : 'full';
     const skipAgentRules = opts.skipAgentRules === true;
     // Retrieval roles already inject a compact # Tool Use via BP2; skip the full BP1 shared tool policy to avoid duplicating it.
-    const injectedRules = (skipAgentRules || isRetrievalRole) ? '' : _buildSharedRules();
+    const injectedRules = (skipAgentRules || isRetrievalAgent) ? '' : _buildSharedRules();
     const roleRules = skipAgentRules ? '' : (ownerIsAgent ? _buildAgentRules(agentRulesProfile) : _buildLeadRules());
     const metaContext = skipAgentRules ? '' : (ownerIsAgent ? '' : _buildLeadMetaContext());
-    const roleSpecific = ownerIsAgent && !skipAgentRules ? _buildRoleSpecific(agentRulesRole) : '';
+    const roleSpecific = ownerIsAgent && !skipAgentRules ? _buildAgentSpecific(agentRulesAgent) : '';
     // Agent sessions must not inherit role/profile/preset tool narrowing: Pool
     // B and Pool C share one bit-identical tool schema to maximize provider
     // prefix reuse, and permission differences are enforced only at call time. Raw
@@ -1513,7 +1513,7 @@ export function createSession(opts) {
     // fail closed (zero tools) rather than silently falling back to the full
     // preset, which would grant the role more surface than declared.
     if (ownerIsAgent) {
-        toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, toolPermission, opts.role || null);
+        toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, toolPermission, opts.agent || null);
     }
 
     const { baseRules, stableSystemContext, sessionMarker, volatileTail } = composeSystemPrompt({
@@ -1523,7 +1523,7 @@ export function createSession(opts) {
         metaContext: metaContext || undefined,
         skipRoleCatalog: !ownerIsAgent,
         profile: profile || undefined,
-        role: resolvedRole,
+        agent: resolvedAgent,
         workflowContext: opts.workflowContext || null,
         workspaceContext: opts.workspaceContext || null,
         coreMemoryContext: opts.coreMemoryContext || null,
@@ -1579,17 +1579,17 @@ export function createSession(opts) {
     const hasCallerAllow = Array.isArray(opts.schemaAllowedTools);
     const tools = finalizeSessionToolList(toolsForRouting, {
         schemaAllowedTools: hasCallerAllow ? opts.schemaAllowedTools : null,
-        disallowedTools: hiddenRole ? [...(Array.isArray(opts.disallowedTools) ? opts.disallowedTools : []), 'Skill'] : opts.disallowedTools,
+        disallowedTools: hiddenAgent ? [...(Array.isArray(opts.disallowedTools) ? opts.disallowedTools : []), 'Skill'] : opts.disallowedTools,
         ownerIsAgent,
-        resolvedRole,
+        resolvedAgent,
     });
 
     // Unified-shard policy — no broad role-specific schema filter. Keep
     // agent schemas shared unless a hidden-role schema profile explicitly
     // passes schemaAllowedTools for a small specialist; broad role
     // whitelists would fragment the cache shard.
-    if (resolvedRole && process.env.MIXDOG_DEBUG_SESSION_LOG) {
-        process.stderr.write(`[session] role=${resolvedRole} permission=${permission || 'full'} toolPermission=${toolPermission || 'full'} tools=${tools.length}\n`);
+    if (resolvedAgent && process.env.MIXDOG_DEBUG_SESSION_LOG) {
+        process.stderr.write(`[session] agent=${resolvedAgent} permission=${permission || 'full'} toolPermission=${toolPermission || 'full'} tools=${tools.length}\n`);
     }
     const contextMeta = resolveSessionContextMeta(provider, modelName);
     const workflowMeta = opts.workflow && typeof opts.workflow === 'object' && String(opts.workflow.id || '').trim()
@@ -1659,7 +1659,6 @@ export function createSession(opts) {
         // agent sessions past RUNNING_STALL_MS.
         lastUsedAt: Date.now(),
         tokensCumulative: 0,
-        role: opts.role || null,
         taskType: opts.taskType || null,
         maxLoopIterations: Number.isFinite(opts.maxLoopIterations) ? opts.maxLoopIterations : null,
         // Agent tag (auto worker{n} on spawn) persisted so the forked status
@@ -3373,7 +3372,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 logLlmCall({
                     ts: new Date().toISOString(),
                     sourceType: session.sourceType || 'lead',
-                    sourceName: session.sourceName || session.role || null,
+                    sourceName: session.sourceName || session.agent || null,
                     preset: session.presetName || null,
                     model: session.model,
                     provider: session.provider,
@@ -3594,13 +3593,13 @@ export async function resumeSession(sessionId, preset) {
     }
     let toolsForRouting = resolveSessionTools(toolSpec, skills, { ownerIsAgentSession: ownerIsAgent });
     if (ownerIsAgent) {
-        toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, session.toolPermission, session.role || null);
+        toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, session.toolPermission, session.agent || null);
     }
     session.tools = finalizeSessionToolList(toolsForRouting, {
         schemaAllowedTools: Array.isArray(session.schemaAllowedTools) ? session.schemaAllowedTools : null,
-        disallowedTools: getHiddenRole(session.role || null) ? ['Skill'] : null,
+        disallowedTools: getHiddenAgent(session.agent || null) ? ['Skill'] : null,
         ownerIsAgent,
-        resolvedRole: session.role || null,
+        resolvedAgent: session.agent || null,
     });
     const newTools = session.tools;
     const missing = oldTools.filter(t => !newTools.find(n => n.name === t.name));

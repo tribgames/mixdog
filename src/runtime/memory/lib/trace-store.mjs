@@ -56,7 +56,7 @@ async function init(client) {
       session_id         TEXT,
       iteration          INTEGER,
       kind               TEXT NOT NULL,
-      role               TEXT,
+      agent              TEXT,
       model              TEXT,
       tool_name          TEXT,
       tool_ms            INTEGER,
@@ -108,7 +108,7 @@ async function init(client) {
   await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_ts_brin      ON trace_events USING BRIN (ts) WITH (pages_per_range = 32)`)
   await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_kind_ts     ON trace_events(kind, ts DESC)`)
   await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_session     ON trace_events(session_id, ts)`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_role_ts     ON trace_events(role, ts DESC)`)
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_agent_ts    ON trace_events(agent, ts DESC)`)
   await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_model_ts    ON trace_events(model, ts DESC)`)
   await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_tool        ON trace_events(tool_name) WHERE kind = 'tool'`)
   // Span-tree and cross-schema recall↔trace correlation — partial indexes so
@@ -175,7 +175,7 @@ export async function initAgentTables(client) {
   await client.query(`
     CREATE TABLE IF NOT EXISTS agent_sessions (
       session_id          TEXT        PRIMARY KEY,
-      role                TEXT,
+      agent               TEXT,
       model               TEXT,
       started_at          TIMESTAMPTZ,
       last_seen_at        TIMESTAMPTZ,
@@ -289,14 +289,14 @@ export async function insertAgentCalls(db, events) {
   // Upsert session summaries — accumulate from tool+llm rows in this batch
   const sessionMap = new Map()
   for (const r of toolRows) {
-    const s = sessionMap.get(r.session_id) ?? { tool_calls: 0, llm_calls: 0, max_iteration: 0, total_input: 0n, total_output: 0n, ts0: r.ts, ts1: r.ts, role: null, model: null }
+    const s = sessionMap.get(r.session_id) ?? { tool_calls: 0, llm_calls: 0, max_iteration: 0, total_input: 0n, total_output: 0n, ts0: r.ts, ts1: r.ts, agent: null, model: null }
     s.tool_calls += 1
     if (r.iteration != null && r.iteration > s.max_iteration) s.max_iteration = r.iteration
     if (r.ts < s.ts0) s.ts0 = r.ts; if (r.ts > s.ts1) s.ts1 = r.ts
     sessionMap.set(r.session_id, s)
   }
   for (const r of llmRows) {
-    const s = sessionMap.get(r.session_id) ?? { tool_calls: 0, llm_calls: 0, max_iteration: 0, total_input: 0n, total_output: 0n, ts0: r.ts, ts1: r.ts, role: null, model: null }
+    const s = sessionMap.get(r.session_id) ?? { tool_calls: 0, llm_calls: 0, max_iteration: 0, total_input: 0n, total_output: 0n, ts0: r.ts, ts1: r.ts, agent: null, model: null }
     s.llm_calls += 1
     s.total_input  += BigInt(r.input_tokens ?? 0)
     s.total_output += BigInt(r.output_tokens ?? 0)
@@ -305,13 +305,13 @@ export async function insertAgentCalls(db, events) {
     if (r.ts < s.ts0) s.ts0 = r.ts; if (r.ts > s.ts1) s.ts1 = r.ts
     sessionMap.set(r.session_id, s)
   }
-  // Also pick up role from preset_assign events in the same batch
+  // Also pick up agent from preset_assign events in the same batch
   for (const ev of events) {
-    if (ev.kind === 'preset_assign' && ev.role) {
+    if (ev.kind === 'preset_assign' && ev.agent) {
       const sid = ev.session_id ?? ev.sessionId ?? null
       if (!sid) continue
       const s = sessionMap.get(sid)
-      if (s) s.role = ev.role
+      if (s) s.agent = ev.agent
     }
   }
   // Fix 5 — upsert sessions for preset_assign-only batches (no tool/llm rows yet)
@@ -326,32 +326,32 @@ export async function insertAgentCalls(db, events) {
       tool_calls: 0, llm_calls: 0, max_iteration: 0,
       total_input: 0n, total_output: 0n,
       ts0: tsIso, ts1: tsIso,
-      role: ev.role ?? null, model: ev.model ?? null,
+      agent: ev.agent ?? null, model: ev.model ?? null,
     })
   }
 
   // Coalesce agent_sessions upserts: batch all sessions in one unnest INSERT.
   // Also within the same transaction.
   if (sessionMap.size > 0) {
-    const sids = [], roles = [], models = [], ts0s = [], ts1s = [],
+    const sids = [], agents = [], models = [], ts0s = [], ts1s = [],
           tcalls = [], lcalls = [], maxiters = [], tinputs = [], toutputs = []
     for (const [sid, s] of sessionMap) {
-      sids.push(sid); roles.push(s.role); models.push(s.model)
+      sids.push(sid); agents.push(s.agent); models.push(s.model)
       ts0s.push(s.ts0); ts1s.push(s.ts1)
       tcalls.push(s.tool_calls); lcalls.push(s.llm_calls)
       maxiters.push(s.max_iteration)
       tinputs.push(String(s.total_input)); toutputs.push(String(s.total_output))
     }
     await client.query(`
-      INSERT INTO agent_sessions (session_id, role, model, started_at, last_seen_at, tool_calls, llm_calls, max_iteration, total_input_tokens, total_output_tokens)
-      SELECT u.session_id, u.role, u.model,
+      INSERT INTO agent_sessions (session_id, agent, model, started_at, last_seen_at, tool_calls, llm_calls, max_iteration, total_input_tokens, total_output_tokens)
+      SELECT u.session_id, u.agent, u.model,
              u.started_at::timestamptz, u.last_seen_at::timestamptz,
              u.tool_calls::int, u.llm_calls::int, u.max_iteration::int,
              u.total_input_tokens::bigint, u.total_output_tokens::bigint
       FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::int[],$7::int[],$8::int[],$9::text[],$10::text[])
-           AS u(session_id,role,model,started_at,last_seen_at,tool_calls,llm_calls,max_iteration,total_input_tokens,total_output_tokens)
+           AS u(session_id,agent,model,started_at,last_seen_at,tool_calls,llm_calls,max_iteration,total_input_tokens,total_output_tokens)
       ON CONFLICT (session_id) DO UPDATE SET
-        role                = COALESCE(EXCLUDED.role, agent_sessions.role),
+        agent               = COALESCE(EXCLUDED.agent, agent_sessions.agent),
         model               = COALESCE(EXCLUDED.model, agent_sessions.model),
         started_at          = LEAST(agent_sessions.started_at, EXCLUDED.started_at),
         last_seen_at        = GREATEST(agent_sessions.last_seen_at, EXCLUDED.last_seen_at),
@@ -360,7 +360,7 @@ export async function insertAgentCalls(db, events) {
         max_iteration       = GREATEST(agent_sessions.max_iteration, EXCLUDED.max_iteration),
         total_input_tokens  = agent_sessions.total_input_tokens  + EXCLUDED.total_input_tokens,
         total_output_tokens = agent_sessions.total_output_tokens + EXCLUDED.total_output_tokens
-    `, [sids, roles, models, ts0s, ts1s, tcalls, lcalls, maxiters, tinputs, toutputs])
+    `, [sids, agents, models, ts0s, ts1s, tcalls, lcalls, maxiters, tinputs, toutputs])
   }
 
     await client.query('COMMIT')
@@ -557,7 +557,7 @@ export async function openTraceDatabase(dataDir) {
 // ---------------------------------------------------------------------------
 
 const TRACE_COLS = [
-  'ts', 'session_id', 'iteration', 'kind', 'role', 'model',
+  'ts', 'session_id', 'iteration', 'kind', 'agent', 'model',
   'tool_name', 'tool_ms', 'input_tokens', 'output_tokens',
   'cached_tokens', 'cache_write_tokens', 'duration_ms',
   'error_message', 'payload', 'parent_span_id', 'entry_id',
@@ -755,7 +755,7 @@ export async function insertTraceEvents(db, events) {
       ev.session_id ?? null,
       ev.iteration != null ? Number(ev.iteration) : null,
       String(ev.kind ?? 'unknown'),
-      ev.role ?? null,
+      ev.agent ?? null,
       ev.model ?? null,
       ev.tool_name ?? null,
       ev.tool_ms != null ? Number(ev.tool_ms) : null,

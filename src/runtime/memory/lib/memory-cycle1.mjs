@@ -520,7 +520,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
     const _tLlm = Date.now()
     try {
       raw = await llmCall({
-        role: 'cycle1-agent',
+        agent: 'cycle1-agent',
         taskType: 'maintenance',
         mode: 'cycle1',
         preset,

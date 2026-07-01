@@ -161,7 +161,7 @@ function _sessionSummary(session) {
         closed: session.closed === true,
         status: String(session.status || (session.closed === true ? 'closed' : 'idle')),
         owner: session.owner || 'user',
-        role: session.role || null,
+        agent: session.agent || null,
         sourceType: session.sourceType || null,
         sourceName: session.sourceName || null,
         scopeKey: session.scopeKey || null,
@@ -191,7 +191,7 @@ function _normalizeSummaryRow(row) {
         closed: row.closed === true,
         status: String(row.status || (row.closed === true ? 'closed' : 'idle')),
         owner: row.owner || 'user',
-        role: row.role || null,
+        agent: row.agent || null,
         sourceType: row.sourceType || null,
         sourceName: row.sourceName || null,
         scopeKey: row.scopeKey || null,
@@ -655,11 +655,11 @@ export function markSessionClosed(id, reason = 'manual') {
             const _lifeMs = (typeof existing.createdAt === 'number' && existing.createdAt > 0)
                 ? (tombstone.updatedAt - existing.createdAt)
                 : 0;
-            const _role = existing.role || '-';
+            const _agent = existing.agent || '-';
             const _owner = existing.owner || '-';
             void fsp.appendFile(
                 join(_dataDir, 'tool-events.log'),
-                `[${_ts}] [session-close] owner=${_owner} role=${_role} reason=${reason} lifeMs=${_lifeMs} id=${id}\n`,
+                `[${_ts}] [session-close] owner=${_owner} agent=${_agent} reason=${reason} lifeMs=${_lifeMs} id=${id}\n`,
             ).catch(() => {});
         }
     } catch { /* logger never breaks the close path */ }

@@ -1,4 +1,4 @@
-import { getHiddenRole } from './internal-roles.mjs';
+import { getHiddenAgent } from './internal-agents.mjs';
 
 const SECOND_MS = 1000;
 const MIN_PROVIDER_TIMEOUT_MS = 30_000;
@@ -162,8 +162,8 @@ export const PROVIDER_RETRY_JITTER_RATIO = (() => {
     return 0.2;
 })();
 
-export function resolveAgentStallThresholds(role, env = process.env) {
-    const cfg = role ? getHiddenRole(role) : null;
+export function resolveAgentStallThresholds(agent, env = process.env) {
+    const cfg = agent ? getHiddenAgent(agent) : null;
     const cfgAbort = cfg?.stallCap?.idleSeconds > 0 ? cfg.stallCap.idleSeconds : STALL_ABORT_S;
     const envOverride = envThresholdSeconds(env);
     const abort = envOverride != null ? envOverride : cfgAbort;
@@ -179,8 +179,8 @@ export function resolveAgentStallThresholds(role, env = process.env) {
     return { warn, abort, firstByteAbort };
 }
 
-export function resolveAgentToolThresholdSeconds(role, thresholdSeconds) {
-    const cfg = role ? getHiddenRole(role) : null;
+export function resolveAgentToolThresholdSeconds(agent, thresholdSeconds) {
+    const cfg = agent ? getHiddenAgent(agent) : null;
     if (cfg?.stallCap?.toolRunningSeconds > 0) return cfg.stallCap.toolRunningSeconds;
     return thresholdSeconds;
 }

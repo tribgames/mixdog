@@ -258,34 +258,34 @@ export function buildSkillToolDefs(skills, { ownerIsAgentSession = false } = {})
     ];
     return _skillToolDefsCache;
 }
-// --- Role-scoped instruction loader ---
-// Emits a BP2 role/system block scoped to the calling role:
-//   - Public/custom agents: their own agents/<role>.md when present,
+// --- Agent-scoped instruction loader ---
+// Emits a BP2 agent/system block scoped to the calling agent:
+//   - Public/custom agents: their own agents/<agent>.md when present,
 //     plus the public agent-worker contract.
-//   - Hidden roles: their own rules/agent/<role>.md section only.
-//   - Null role: falls back to the full all-in-one block
+//   - Hidden agents: their own rules/agent/<agent>.md section only.
+//   - Null agent: falls back to the full all-in-one block
 //     (explicit-cache unified-shard path).
 //
-// Role-specific markdown intentionally rides BP2, behind the shared BP1 tool
-// and skill manifest prefix, so role changes do not disturb the common layer.
+// Agent-specific markdown intentionally rides BP2, behind the shared BP1 tool
+// and skill manifest prefix, so agent changes do not disturb the common layer.
 //
 // Classification is dynamic — hidden retrieval/maintenance sets come from the
-// `kind` field in internal-roles.mjs. Any other non-null role is public/custom.
+// `kind` field in internal-agents.mjs. Any other non-null agent is public/custom.
 import {
-    listHiddenRolesByKind,
-    isHiddenRole,
-    getRoleCatalogShareAgents,
-    isInboundEventRole,
-} from '../internal-roles.mjs';
+    listHiddenAgentsByKind,
+    isHiddenAgent,
+    getAgentCatalogShareAgents,
+    isInboundEventAgent,
+} from '../internal-agents.mjs';
 
-function loadRoleClassification() {
+function loadAgentClassification() {
     // Not cached — called only on instruction rebuild (mtime-busted), and
-    // listHiddenRolesByKind now reads from the mtime-aware cache inside
-    // internal-roles.mjs so the classification always reflects the current
-    // hidden-roles.json on disk.
+    // listHiddenAgentsByKind now reads from the mtime-aware cache inside
+    // internal-agents.mjs so the classification always reflects the current
+    // agents.json on disk.
     return {
-        retrieval: new Set(listHiddenRolesByKind('retrieval')),
-        maintenance: new Set(listHiddenRolesByKind('maintenance')),
+        retrieval: new Set(listHiddenAgentsByKind('retrieval')),
+        maintenance: new Set(listHiddenAgentsByKind('maintenance')),
     };
 }
 
@@ -299,7 +299,7 @@ const _scopedRoleInstructionsCache = new Map();
 const _scopedRoleInstructionsMtimeCache = new Map();
 const _ROLE_INSTRUCTIONS_MTIME_TTL_MS = 2000;
 
-function loadHiddenRoleSnippets(pluginRoot) {
+function loadHiddenAgentSnippets(pluginRoot) {
     try {
         const agentRulesDir = join(pluginRoot, 'rules', 'agent');
         if (!existsSync(agentRulesDir)) return [];
@@ -326,11 +326,11 @@ function loadAgentSections(pluginRoot) {
     const agentSections = [];
     if (!existsSync(agentsDir)) return agentSections;
     // agents/ holds two layouts that must BOTH be loaded:
-    //   - flat:    agents/<role>.md                 (legacy: scheduler-task, webhook-handler)
-    //   - nested:  agents/<role>/AGENT.md           (current: worker, heavy-worker, reviewer, …)
-    // The previous flat-only readdir silently dropped every nested role, so a
-    // public role like heavy-worker produced an EMPTY scoped instruction block
-    // (BP2) — the model lost its role contract and the tool smoke's
+    //   - flat:    agents/<agent>.md                (legacy: scheduler-task, webhook-handler)
+    //   - nested:  agents/<agent>/AGENT.md          (current: worker, heavy-worker, reviewer, …)
+    // The previous flat-only readdir silently dropped every nested agent, so a
+    // public agent like heavy-worker produced an EMPTY scoped instruction block
+    // (BP2) — the model lost its agent contract and the tool smoke's
     // "heavy-worker AGENT.md must be included" assertion failed. Walk both.
     let entries;
     try {
@@ -359,22 +359,22 @@ function loadAgentSections(pluginRoot) {
     return agentSections;
 }
 
-// Empty by design: scoped role markdown already rides BP2 for every provider.
+// Empty by design: scoped agent markdown already rides BP2 for every provider.
 // Keeping the set in place preserves the old branch point for a future
 // provider-specific experiment without changing today's cache layout.
 const EXPLICIT_CACHE_PROVIDERS = new Set();
 
-// Inbound-event maintenance roles that report results back to Lead are
-// declared via `inboundEvent: true` in defaults/hidden-roles.json and read
-// through isInboundEventRole(). Such roles must follow
+// Inbound-event maintenance agents that report results back to Lead are
+// declared via `inboundEvent: true` in defaults/agents.json and read
+// through isInboundEventAgent(). Such agents must follow
 // rules/agent/20-skip-protocol.md so genuine no-ops (label-only events,
 // dedup, "nothing to report") prefix their output with `[meta:silent]` and the
-// dispatch layer suppresses the Lead inject. Other roles (cycle1/cycle2 memory
-// maintenance, retrieval roles) never emit toward Lead.
+// dispatch layer suppresses the Lead inject. Other agents (cycle1/cycle2 memory
+// maintenance, retrieval agents) never emit toward Lead.
 
-export function loadScopedRoleInstructions(role, provider = null) {
+export function loadScopedRoleInstructions(agent, provider = null) {
     const useUnified = !!(provider && EXPLICIT_CACHE_PROVIDERS.has(provider));
-    const cacheKey = useUnified ? '__unified__' : (role || '__all__');
+    const cacheKey = useUnified ? '__unified__' : (agent || '__all__');
     const cached = _scopedRoleInstructionsCache.get(cacheKey);
     const pluginRoot = mixdogRoot();
     // Use maxMtimeRecursive so edits to .md files inside agents/ and
@@ -391,7 +391,7 @@ export function loadScopedRoleInstructions(role, provider = null) {
             mtime = maxMtimeRecursive([
                 join(pluginRoot, 'agents'),
                 join(pluginRoot, 'rules', 'agent'),
-                join(pluginRoot, 'defaults', 'hidden-roles.json'),
+                join(pluginRoot, 'defaults', 'agents.json'),
             ]);
             _scopedRoleInstructionsMtimeCache.set(cacheKey, { mtime, checkedAt: Date.now() });
             if (_scopedRoleInstructionsMtimeCache.size > 16) {
@@ -402,68 +402,68 @@ export function loadScopedRoleInstructions(role, provider = null) {
     if (cached && mtime <= cached.mtime) {
         return cached.value;
     }
-    // Compute classification before file loading — internal-roles metadata
-    // failures (malformed/missing hidden-roles.json) must propagate, not be
+    // Compute classification before file loading — internal-agents metadata
+    // failures (malformed/missing agents.json) must propagate, not be
     // silently swallowed by the file-IO catch below.
-    const classification = loadRoleClassification();
-    const roleSharesCatalog = role && classification.retrieval.has(role)
-        ? new Set(getRoleCatalogShareAgents(role))
+    const classification = loadAgentClassification();
+    const agentSharesCatalog = agent && classification.retrieval.has(agent)
+        ? new Set(getAgentCatalogShareAgents(agent))
         : new Set();
-    const roleIsInboundEvent = role && classification.maintenance.has(role)
-        ? isInboundEventRole(role)
+    const agentIsInboundEvent = agent && classification.maintenance.has(agent)
+        ? isInboundEventAgent(agent)
         : false;
 
     try {
         const agentSections = loadAgentSections(pluginRoot);
-        const hiddenPairs = loadHiddenRoleSnippets(pluginRoot);
+        const hiddenPairs = loadHiddenAgentSnippets(pluginRoot);
 
-        // Pick which agent-rule sections + agents/<role>.md sections to emit
-        // based on role classification. Self-only emit keeps BP2 minimal.
+        // Pick which agent-rule sections + agents/<agent>.md sections to emit
+        // based on agent classification. Self-only emit keeps BP2 minimal.
         let agentRuleSectionsToEmit = null; // null -> drop the agent-rule block entirely
-        let agentSectionsToEmit = agentSections; // default: full (unknown-role fallback)
+        let agentSectionsToEmit = agentSections; // default: full (unknown-agent fallback)
         if (useUnified) {
-            // Explicit-cache providers — every role sees the same all-in-one
-            // instruction surface. Cross-role calls hit the same provider-side prefix
-            // shard, eliminating the role-shard miss seen on Pool C
+            // Explicit-cache providers — every agent sees the same all-in-one
+            // instruction surface. Cross-agent calls hit the same provider-side prefix
+            // shard, eliminating the agent-shard miss seen on Pool C
             // transitions for openai-oauth/openai. This branch is disabled by the
-            // empty provider set above; BP2 remains the active role surface.
+            // empty provider set above; BP2 remains the active agent surface.
             agentRuleSectionsToEmit = hiddenPairs.map(p => `## ${p.name}\n\n${p.body}`);
             agentSectionsToEmit = agentSections;
-        } else if (role && classification.retrieval.has(role)) {
-            // Retrieval roles (explorer) get their own contract section
+        } else if (agent && classification.retrieval.has(agent)) {
+            // Retrieval agents (explorer) get their own contract section
             // (rules/agent/30-explorer.md) in BP2.
-            const self = hiddenPairs.find(p => p.name === role);
+            const self = hiddenPairs.find(p => p.name === agent);
             agentRuleSectionsToEmit = self ? [`## ${self.name}\n\n${self.body}`] : [];
             agentSectionsToEmit = agentSections.filter(s =>
-                [...roleSharesCatalog].some(name => s.startsWith(`## ${name}\n`)));
-        } else if (role && classification.maintenance.has(role)) {
-            const self = hiddenPairs.find(p => p.name === role);
+                [...agentSharesCatalog].some(name => s.startsWith(`## ${name}\n`)));
+        } else if (agent && classification.maintenance.has(agent)) {
+            const self = hiddenPairs.find(p => p.name === agent);
             agentRuleSectionsToEmit = [];
             if (self) {
                 agentRuleSectionsToEmit.push(`## ${self.name}\n\n${self.body}`);
             } else {
-                // Fallback: maintenance role without rules/agent/*.md entry —
-                // pull self body from agents/<role>.md instead so newly-added
-                // hidden roles work without needing a duplicate agent rule file.
-                const fromAgent = agentSections.find(s => s.startsWith(`## ${role}\n`));
+                // Self body from agents/<agent>.md for a maintenance agent
+                // without a rules/agent/*.md entry so newly-added hidden agents
+                // work without needing a duplicate agent rule file.
+                const fromAgent = agentSections.find(s => s.startsWith(`## ${agent}\n`));
                 if (fromAgent) agentRuleSectionsToEmit.push(fromAgent);
             }
-            // Inbound-event roles also need the skip-protocol rule so they
+            // Inbound-event agents also need the skip-protocol rule so they
             // can opt their no-op outputs out of the Lead inject (BP1 would
             // waste the bytes on unrelated agents).
-            if (roleIsInboundEvent) {
+            if (agentIsInboundEvent) {
                 const skip = hiddenPairs.find(p => p.name === 'skip-protocol');
                 if (skip) agentRuleSectionsToEmit.push(`## ${skip.name}\n\n${skip.body}`);
             }
             agentSectionsToEmit = [];
-        } else if (role) {
-            // Public/custom role — self-only agents/<role>.md when present,
+        } else if (agent) {
+            // Public/custom agent — self-only agents/<agent>.md when present,
             // not the full hidden/maintenance bundle. The universal agent
             // contract rides BP2 (rules/agent/00-common.md).
             agentRuleSectionsToEmit = [];
-            agentSectionsToEmit = agentSections.filter(s => s.startsWith(`## ${role}\n`));
+            agentSectionsToEmit = agentSections.filter(s => s.startsWith(`## ${agent}\n`));
         } else {
-            // Null role — full instruction surface emitted (explicit-cache providers that
+            // Null agent — full instruction surface emitted (explicit-cache providers that
             // shard by __all__ key).
             agentRuleSectionsToEmit = hiddenPairs.map(p => `## ${p.name}\n\n${p.body}`);
             // agentSectionsToEmit already set to full agentSections above.
@@ -512,7 +512,7 @@ export function composeSystemPrompt(opts) {
     // ── BP2: role/system layer ─────────────────────────────────────────
     const roleInstructionContext = opts.skipRoleCatalog
         ? ''
-        : loadScopedRoleInstructions(opts.role || null, opts.provider || null);
+        : loadScopedRoleInstructions(opts.agent || null, opts.provider || null);
     const stableSystemParts = [];
     if (opts.roleRules) stableSystemParts.push(opts.roleRules);
     if (opts.userPrompt) stableSystemParts.push(opts.userPrompt);

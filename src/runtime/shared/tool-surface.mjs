@@ -205,7 +205,7 @@ function bridgeAgentModelSummary(args) {
   const modelId = firstText(args.model);
   const displayHint = firstText(args.modelDisplay, args.model_display, args.displayModel);
   return compactParts([
-    displayAgentName(firstText(args.agent, args.role, args.name, args.subagent_type)),
+    displayAgentName(firstText(args.agent, args.name, args.subagent_type)),
     displayModelName(modelId, provider, displayHint),
   ]);
 }
@@ -956,18 +956,18 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       if (answerLine) return truncateSingleLine(stripInlineMarkdown(answerLine), AGENT_SURFACE_BRIEF_MAX);
       const task = /^agent task:\s*(\S+)/mi.exec(text);
       const status = /^status:\s*([^\s(]+)/mi.exec(text);
-      const role = /^role:\s*(.+)$/mi.exec(text);
+      const agent = /^agent:\s*(.+)$/mi.exec(text);
       const preset = /^preset:\s*(.+)$/mi.exec(text);
       const model = /^model:\s*(.+)$/mi.exec(text);
       const limits = /^limits:\s*(.+)$/mi.exec(text);
       const agentModel = compactParts([
-        displayAgentName(role ? role[1] : ''),
+        displayAgentName(agent ? agent[1] : ''),
         displayModelName(model ? model[1] : ''),
       ]);
       if (agentModel) return agentModel;
       const parts = [
         task ? task[1] : '',
-        role ? role[1] : '',
+        agent ? agent[1] : '',
         preset ? preset[1] : '',
         model ? model[1] : '',
         status ? titleStatus(status[1]) : '',

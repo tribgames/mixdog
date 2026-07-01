@@ -294,7 +294,7 @@ function writeGeminiCacheTrace({ opts, model, systemInstruction, tools, contents
             provider: 'gemini',
             model,
             owner: session.owner || null,
-            role: session.role || null,
+            agent: session.agent || null,
             permission: session.permission || null,
             toolPermission: session.toolPermission || null,
             profileId: session.profileId || null,

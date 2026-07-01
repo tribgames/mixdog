@@ -5,7 +5,7 @@ import { performance } from 'node:perf_hooks';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VALUE_OPTIONS = new Set(['--provider', '--model']);
-const FLAG_OPTIONS = new Set(['--readonly', '--help', '-h', '--plain', '--react']);
+const FLAG_OPTIONS = new Set(['--readonly', '--help', '-h', '--plain', '--react', '--remote']);
 const HEADLESS_ROLE_ALIASES = new Map([
   ['explorer', 'explore'],
   ['explore', 'explore'],
@@ -72,7 +72,7 @@ function positionalArgs(argv) {
   return out;
 }
 
-function normalizeHeadlessRole(value) {
+function normalizeHeadlessAgent(value) {
   const key = String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
   return HEADLESS_ROLE_ALIASES.get(key) || null;
 }
@@ -85,11 +85,11 @@ export function parseHeadlessRoleCommand(argv = []) {
     return { error: 'usage: mixdog <role> <message...>' };
   }
 
-  const role = normalizeHeadlessRole(args[0]);
-  if (!role) return null;
+  const agent = normalizeHeadlessAgent(args[0]);
+  if (!agent) return null;
   const message = args.slice(1).join(' ').trim();
   if (!message) return { error: `usage: mixdog ${args[0]} <message...>` };
-  return { role, message };
+  return { agent, message };
 }
 
 /**
@@ -110,10 +110,12 @@ export async function run(argv = []) {
   const provIdx = argv.indexOf('--provider');
   const modelIdx = argv.indexOf('--model');
   const toolMode = argv.includes('--readonly') ? 'readonly' : 'full';
+  const remote = argv.includes('--remote');
   const opts = {
     provider: provIdx >= 0 ? argv[provIdx + 1] : undefined,
     model: modelIdx >= 0 ? argv[modelIdx + 1] : undefined,
     toolMode,
+    remote,
   };
 
   // `--help` / `-h`: keep this path tiny; do not import the REPL/runtime stack.
@@ -142,7 +144,7 @@ export async function run(argv = []) {
   if (headless) {
     const { runHeadlessRole } = await import('./headless-role.mjs');
     return await runHeadlessRole({
-      role: headless.role,
+      agent: headless.agent,
       message: headless.message,
       provider: opts.provider,
       model: opts.model,

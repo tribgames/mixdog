@@ -130,9 +130,9 @@ function _preDispatchDeny(call, toolKind, sessionRef) {
     if (_agentOwned && _controlPlaneTool) {
         return `Error: control-plane tool "${name}" is Lead-only and not available to agent workers.`;
     }
-    const noToolRole = sessionRef?.role === 'cycle1-agent' || sessionRef?.role === 'cycle2-agent';
-    if (noToolRole) {
-        return `Error: tool "${name}" is not available in role "${sessionRef.role}". Re-emit the answer as pipe-separated text per the role's output format (first character a digit, NO tool_use blocks, NO JSON, NO prose, NO apology).`;
+    const noToolAgent = sessionRef?.agent === 'cycle1-agent' || sessionRef?.agent === 'cycle2-agent';
+    if (noToolAgent) {
+        return `Error: tool "${name}" is not available in agent "${sessionRef.agent}". Re-emit the answer as pipe-separated text per the agent's output format (first character a digit, NO tool_use blocks, NO JSON, NO prose, NO apology).`;
     }
     return null;
 }
@@ -265,14 +265,14 @@ function agentContextOverflowError({ stage, sessionId, sessionRef, model, budget
 // this catches tight deterministic-failure loops (e.g. a command that errors
 // the same way every time) far earlier than 100 iterations.
 const REPEAT_FAIL_LIMIT = 3;
-const _HIDDEN_ROLES_JSON = resolvePath(dirname(fileURLToPath(import.meta.url)), '../../../../defaults/hidden-roles.json');
-let _hiddenRolesCache = null;
-function _getHiddenRoles() {
-    if (_hiddenRolesCache) return _hiddenRolesCache;
+const _AGENTS_JSON = resolvePath(dirname(fileURLToPath(import.meta.url)), '../../../../defaults/agents.json');
+let _hiddenAgentsCache = null;
+function _getHiddenAgents() {
+    if (_hiddenAgentsCache) return _hiddenAgentsCache;
     try {
-        _hiddenRolesCache = JSON.parse(_readFileSync(_HIDDEN_ROLES_JSON, 'utf8'));
-    } catch { _hiddenRolesCache = { roles: [] }; }
-    return _hiddenRolesCache;
+        _hiddenAgentsCache = JSON.parse(_readFileSync(_AGENTS_JSON, 'utf8'));
+    } catch { _hiddenAgentsCache = { agents: [] }; }
+    return _hiddenAgentsCache;
 }
 // Transcript pairing guard. Anthropic 400-rejects when an assistant message
 // ends with tool_use blocks and the next message isn't tool results for
@@ -1197,11 +1197,11 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
  *                wrapper can propagate a clean cancellation.
  *   - `onStageChange(stage)` / `onStreamDelta()` — forwarded to provider.send for heartbeats
  */
-// Source of truth: defaults/hidden-roles.json (loaded via _getHiddenRoles
-// above). Build the name Set eagerly at module load so HIDDEN_ROLE_NAMES
+// Source of truth: defaults/agents.json (loaded via _getHiddenAgents
+// above). Build the name Set eagerly at module load so HIDDEN_AGENT_NAMES
 // stays in sync with the declarative registry — no hardcoded duplicate.
-const HIDDEN_ROLE_NAMES = new Set(
-    (_getHiddenRoles().roles || []).map((r) => r && r.name).filter((n) => typeof n === 'string' && n.length > 0)
+const HIDDEN_AGENT_NAMES = new Set(
+    (_getHiddenAgents().agents || []).map((r) => r && r.agent).filter((n) => typeof n === 'string' && n.length > 0)
 );
 
 // Stop reasons that signal the turn was cut short mid-synthesis (token cap,
@@ -1245,7 +1245,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     const opts = sendOpts || {};
     const sessionId = opts.sessionId || null;
     const signal = opts.signal || null;
-    const sessionRole = opts.session?.role;
+    const sessionAgent = opts.session?.agent;
     const forcedFirstTool = opts.forcedFirstTool ?? null;
     const forcedFirstToolDef = forcedFirstTool
         ? tools.find(tool => tool?.name === forcedFirstTool)
@@ -1921,7 +1921,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             //     reminders waste turns and fragment the working context, so
             //     the second empty turn is accepted as terminal.
             const hasContent = typeof response.content === 'string' && response.content.trim().length > 0;
-            const isHidden = HIDDEN_ROLE_NAMES.has(sessionRole);
+            const isHidden = HIDDEN_AGENT_NAMES.has(sessionAgent);
             const stopReason = response.stopReason ?? response.stop_reason ?? null;
             const isIncompleteStop = stopReason && INCOMPLETE_STOP_REASONS.has(stopReason);
             // A user/schedule notification can arrive while provider.send() is
@@ -2347,7 +2347,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     toolKind,
                     toolMs: toolEndedAt - toolStartedAt,
                     toolArgs: call.arguments,
-                    role: sessionRef?.role || null,
+                    agent: sessionRef?.agent || null,
                     model: sessionRef?.model || null,
                     resultKind: _resultKind,
                     resultText: result,
@@ -2410,7 +2410,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     toolKind,
                     toolMs: toolEndedAt && toolStartedAt ? toolEndedAt - toolStartedAt : null,
                     toolArgs: call.arguments,
-                    role: sessionRef?.role || null,
+                    agent: sessionRef?.agent || null,
                     model: sessionRef?.model || null,
                     cwd,
                     resultText: _postMsg,

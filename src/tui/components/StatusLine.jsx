@@ -46,7 +46,7 @@ function isTerminalStatus(statusText) {
 
 function hasRunningStatuslineWorkers(agentWorkers = [], agentJobs = []) {
   for (const worker of Array.isArray(agentWorkers) ? agentWorkers : []) {
-    const tag = String(worker?.tag || worker?.role || worker?.name || '').trim();
+    const tag = String(worker?.tag || worker?.agent || worker?.name || '').trim();
     if (tag && !isTerminalStatus(worker?.stage || worker?.status)) return true;
   }
   for (const job of Array.isArray(agentJobs) ? agentJobs : []) {
@@ -219,13 +219,13 @@ function localFormatElapsed(ms) {
 function localRunningWorkerCount(agentWorkers = [], agentJobs = []) {
   const seen = new Set();
   for (const worker of Array.isArray(agentWorkers) ? agentWorkers : []) {
-    const tag = String(worker?.tag || worker?.role || worker?.name || '').trim();
+    const tag = String(worker?.tag || worker?.agent || worker?.name || '').trim();
     if (!tag || isTerminalStatus(worker?.stage || worker?.status)) continue;
     seen.add(tag);
   }
   for (const job of Array.isArray(agentJobs) ? agentJobs : []) {
     if (!/running/i.test(String(job?.status || job?.stage || ''))) continue;
-    const tag = String(job?.tag || job?.role || job?.type || job?.task_id || job?.taskId || '').trim();
+    const tag = String(job?.tag || job?.agent || job?.type || job?.task_id || job?.taskId || '').trim();
     if (!tag) continue;
     seen.add(tag);
   }
@@ -236,14 +236,14 @@ function localRunningWorkerTags(agentWorkers = [], agentJobs = [], limit = 3) {
   const tags = [];
   const seen = new Set();
   for (const worker of Array.isArray(agentWorkers) ? agentWorkers : []) {
-    const tag = String(worker?.tag || worker?.role || worker?.name || '').trim();
+    const tag = String(worker?.tag || worker?.agent || worker?.name || '').trim();
     if (!tag || isTerminalStatus(worker?.stage || worker?.status) || seen.has(tag)) continue;
     seen.add(tag);
     tags.push(tag);
   }
   for (const job of Array.isArray(agentJobs) ? agentJobs : []) {
     if (!/running/i.test(String(job?.status || job?.stage || ''))) continue;
-    const tag = String(job?.tag || job?.role || job?.type || job?.task_id || job?.taskId || '').trim();
+    const tag = String(job?.tag || job?.agent || job?.type || job?.task_id || job?.taskId || '').trim();
     if (!tag || seen.has(tag)) continue;
     seen.add(tag);
     tags.push(tag);

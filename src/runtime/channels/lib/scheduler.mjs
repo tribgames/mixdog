@@ -8,7 +8,7 @@ import { runScript as execScript, ensureNopluginDir } from "./executor.mjs";
 import { withFileLockSync } from "../../shared/atomic-file.mjs";
 import { makeAgentDispatch } from '../../agent/orchestrator/agent-runtime/agent-dispatch.mjs';
 
-const schedulerLlm = makeAgentDispatch({ taskType: 'scheduler-task', role: 'scheduler-task', sourceType: 'scheduler' });
+const schedulerLlm = makeAgentDispatch({ taskType: 'scheduler-task', agent: 'scheduler-task', sourceType: 'scheduler' });
 const SCHEDULE_LOG = join(DATA_DIR, "schedule.log");
 // Buffered async logger — coalesces per-line appends into batched writes.
 let _schedLogBuf = [];

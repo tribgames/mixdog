@@ -19,16 +19,16 @@ function taskIdFromOutput(text) {
   return clean(text).match(/agent task:\s*(\S+)/i)?.[1] || null;
 }
 
-function makeTag(role) {
-  return `headless-${role}-${process.pid}-${Date.now()}`
+function makeTag(agent) {
+  return `headless-${agent}-${process.pid}-${Date.now()}`
     .replace(/[^A-Za-z0-9_.-]+/g, '-')
     .replace(/^-+|-+$/g, '');
 }
 
-export function buildHeadlessSpawnArgs({ role, tag, cwd, message, provider, model } = {}) {
+export function buildHeadlessSpawnArgs({ agent, tag, cwd, message, provider, model } = {}) {
   const spawnArgs = {
     type: 'spawn',
-    role: clean(role),
+    agent: clean(agent),
     tag,
     cwd,
     prompt: clean(message),
@@ -52,7 +52,7 @@ function buildAgentRunner(cwd) {
 }
 
 export async function runHeadlessRole({
-  role,
+  agent,
   message,
   provider,
   model,
@@ -60,10 +60,10 @@ export async function runHeadlessRole({
   write = (text) => stdout.write(text),
   writeErr = (text) => stderr.write(text),
 } = {}) {
-  const cleanRole = clean(role);
+  const cleanAgent = clean(agent);
   const cleanMessage = clean(message);
-  if (!cleanRole) {
-    writeErr('mixdog: role is required\n');
+  if (!cleanAgent) {
+    writeErr('mixdog: agent is required\n');
     return 1;
   }
   if (!cleanMessage) {
@@ -71,8 +71,8 @@ export async function runHeadlessRole({
     return 1;
   }
 
-  const agent = buildAgentRunner(cwd);
-  const tag = makeTag(cleanRole);
+  const agentRunner = buildAgentRunner(cwd);
+  const tag = makeTag(cleanAgent);
   const context = {
     invocationSource: 'headless',
     cwd,
@@ -80,7 +80,7 @@ export async function runHeadlessRole({
     clientHostPid: process.pid,
   };
   const spawnArgs = buildHeadlessSpawnArgs({
-    role: cleanRole,
+    agent: cleanAgent,
     tag,
     cwd,
     message: cleanMessage,
@@ -91,7 +91,7 @@ export async function runHeadlessRole({
   let taskId = null;
   let lastOutput = '';
   try {
-    const started = await agent.execute(spawnArgs, context);
+    const started = await agentRunner.execute(spawnArgs, context);
     lastOutput = clean(started);
     taskId = taskIdFromOutput(started);
     if (!taskId) {
@@ -100,7 +100,7 @@ export async function runHeadlessRole({
     }
 
     for (;;) {
-      lastOutput = clean(await agent.execute({ type: 'read', task_id: taskId }, context));
+      lastOutput = clean(await agentRunner.execute({ type: 'read', task_id: taskId }, context));
       if (TERMINAL_STATUS_RE.test(lastOutput)) break;
       await sleep(500);
     }
@@ -109,7 +109,7 @@ export async function runHeadlessRole({
     return FAILURE_STATUS_RE.test(lastOutput) ? 1 : 0;
   } finally {
     try {
-      await agent.execute({ type: 'close', tag }, context);
+      await agentRunner.execute({ type: 'close', tag }, context);
     } catch {
       // Best-effort cleanup only; the command result above is the useful signal.
     }

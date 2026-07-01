@@ -1,7 +1,7 @@
 {
-  "roles": [
+  "agents": [
     {
-      "name": "explorer",
+      "agent": "explorer",
       "slot": "explore",
       "systemFile": "rules/agent/30-explorer.md",
       "description": "Filesystem navigation agent invoked by the `explore` MCP tool",
@@ -12,7 +12,7 @@
       "stallCap": { "idleSeconds": 240, "toolRunningSeconds": 180 }
     },
     {
-      "name": "cycle1-agent",
+      "agent": "cycle1-agent",
       "slot": "cycle1",
       "systemFile": "rules/agent/40-cycle1-agent.md",
       "description": "Chunker/classifier invoked by memory-cycle runCycle1",
@@ -24,7 +24,7 @@
       "stallCap": { "idleSeconds": 300, "toolRunningSeconds": 300 }
     },
     {
-      "name": "cycle2-agent",
+      "agent": "cycle2-agent",
       "slot": "cycle2",
       "systemFile": "rules/agent/41-cycle2-agent.md",
       "description": "Root re-scorer invoked by memory-cycle runCycle2",
@@ -36,7 +36,7 @@
       "stallCap": { "idleSeconds": 300, "toolRunningSeconds": 300 }
     },
     {
-      "name": "cycle3-agent",
+      "agent": "cycle3-agent",
       "slot": "cycle3",
       "systemFile": "rules/agent/42-cycle3-agent.md",
       "description": "Core memory reviewer invoked by memory-cycle runCycle3",
@@ -48,7 +48,7 @@
       "stallCap": { "idleSeconds": 300, "toolRunningSeconds": 300 }
     },
     {
-      "name": "scheduler-task",
+      "agent": "scheduler-task",
       "slot": "scheduler",
       "systemFile": "agents/scheduler-task/AGENT.md",
       "description": "Scheduled-task executor invoked by scheduler tick",
@@ -61,7 +61,7 @@
       "stallCap": { "idleSeconds": 600, "toolRunningSeconds": 600 }
     },
     {
-      "name": "webhook-handler",
+      "agent": "webhook-handler",
       "slot": "webhook",
       "systemFile": "agents/webhook-handler/AGENT.md",
       "description": "Webhook payload handler invoked by inbound webhook events",

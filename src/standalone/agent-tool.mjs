@@ -67,7 +67,7 @@ export const AGENT_TOOL = {
       type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: 'Action. Default spawn.' },
       task_id: { type: 'string', description: 'Manual recovery task ID.' },
       agent: { type: 'string', description: 'Workflow agent id.' },
-      tag: { type: 'string', description: 'Stable distinct handle; choose a role-index tag by role, e.g. worker01, heavy-worker01, reviewer01.' },
+      tag: { type: 'string', description: 'Stable distinct handle; choose an agent-index tag by agent, e.g. worker01, heavy-worker01, reviewer01.' },
       sessionId: { type: 'string', description: 'Raw sess_ id.' },
       prompt: { type: 'string', description: 'Scoped task brief.' },
       message: { type: 'string', description: 'Follow-up or brief.' },
@@ -126,21 +126,21 @@ function normalizeAgentName(value) {
   return id;
 }
 
-function readAgentFrontmatterPermission(role, dataDir) {
-  const cleanRole = clean(role);
-  if (!cleanRole) return null;
-  const cacheKey = `${dataDir || ''}\u0000${cleanRole}`;
+function readAgentFrontmatterPermission(agent, dataDir) {
+  const cleanAgent = clean(agent);
+  if (!cleanAgent) return null;
+  const cacheKey = `${dataDir || ''}\u0000${cleanAgent}`;
   const cached = _frontmatterPermCache.get(cacheKey);
   if (cached && Date.now() - cached.atMs < FRONTMATTER_PERM_CACHE_TTL_MS) {
     return cached.value;
   }
   const candidates = [];
   if (dataDir) {
-    candidates.push(join(dataDir, 'agents', cleanRole, 'AGENT.md'));
-    candidates.push(join(dataDir, 'agents', `${cleanRole}.md`));
+    candidates.push(join(dataDir, 'agents', cleanAgent, 'AGENT.md'));
+    candidates.push(join(dataDir, 'agents', `${cleanAgent}.md`));
   }
-  candidates.push(join(STANDALONE_SOURCE_ROOT, 'agents', cleanRole, 'AGENT.md'));
-  candidates.push(join(STANDALONE_SOURCE_ROOT, 'agents', `${cleanRole}.md`));
+  candidates.push(join(STANDALONE_SOURCE_ROOT, 'agents', cleanAgent, 'AGENT.md'));
+  candidates.push(join(STANDALONE_SOURCE_ROOT, 'agents', `${cleanAgent}.md`));
   let resolved = null;
   for (const file of candidates) {
     if (!existsSync(file)) continue;
@@ -260,8 +260,8 @@ function normalizeAgentRoute(routeLike) {
   };
 }
 
-function agentPresetName(role) {
-  return `AGENT ${String(role || '').toUpperCase()}`;
+function agentPresetName(agent) {
+  return `AGENT ${String(agent || '').toUpperCase()}`;
 }
 
 async function resolvePrompt(args, cwd) {
@@ -334,7 +334,7 @@ function renderResult(value) {
       for (const worker of workers) {
         const tokens = worker.windowTokens ? ` ctx=${worker.windowTokens}${worker.windowCap ? `/${worker.windowCap}` : ''}` : '';
         const terminal = worker.clientHostPid ? ` term=${worker.clientHostPid}` : '';
-        const base = `- ${worker.tag} ${worker.role || 'agent'} ${worker.status || 'idle'}/${worker.worker_stage || worker.stage || 'idle'} ${worker.provider}/${worker.model}${terminal}${tokens}`;
+        const base = `- ${worker.tag} ${worker.agent || 'agent'} ${worker.status || 'idle'}/${worker.worker_stage || worker.stage || 'idle'} ${worker.provider}/${worker.model}${terminal}${tokens}`;
         lines.push(appendAgentProgressKv(base, worker));
       }
       const jobs = Array.isArray(value.jobs) ? value.jobs : [];
@@ -355,7 +355,7 @@ function renderResult(value) {
       if (value.type) lines.push(`type: ${value.type}`);
       if (value.reused) lines.push('reused: true');
       if (value.tag || value.sessionId) lines.push(`target: ${value.tag || '-'} ${value.sessionId || ''}`.trim());
-      if (value.role) lines.push(`agent: ${value.role}`);
+      if (value.agent) lines.push(`agent: ${value.agent}`);
       if (value.provider && value.model) lines.push(`model: ${value.provider}/${value.model}`);
       if (value.effort) lines.push(`effort: ${value.effort}`);
       if (value.fast === true || value.fast === false) lines.push(`fast: ${value.fast ? 'on' : 'off'}`);
@@ -393,7 +393,7 @@ function renderResult(value) {
         'agent message queued',
         value.reused ? 'reused: true' : null,
         `target: ${value.tag || '-'} ${value.sessionId || ''}`.trim(),
-        value.role ? `agent: ${value.role}` : null,
+        value.agent ? `agent: ${value.agent}` : null,
         `queueDepth: ${value.queueDepth ?? 1}`,
       ].filter(Boolean).join('\n');
     }
@@ -412,7 +412,7 @@ function renderResult(value) {
       const header = [
         value.respawned ? 'agent respawned' : 'agent result',
         value.tag ? `tag=${value.tag}` : null,
-        value.role ? `agent=${value.role}` : null,
+        value.agent ? `agent=${value.agent}` : null,
         value.provider && value.model ? `${value.provider}/${value.model}` : null,
       ].filter(Boolean).join(' ');
       return `${header}\n${stripFinalAnswerWrapper(value.content)}`;
@@ -423,7 +423,7 @@ function renderResult(value) {
 
 export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultCwd }) {
   const tags = new Map();
-  const tagRoles = new Map();
+  const tagAgents = new Map();
   const tagCwds = new Map();
   const reapTimers = new Map();
   const workerIndexMutators = [];
@@ -463,7 +463,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       .map((row) => ({
         tag: clean(row.tag),
         sessionId: clean(row.sessionId),
-        role: clean(row.role) || null,
+        agent: clean(row.agent) || null,
         provider: clean(row.provider) || null,
         model: clean(row.model) || null,
         preset: clean(row.preset) || null,
@@ -562,7 +562,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     if (!key) return;
     const prev = byKey.get(key) || {};
     const merged = { ...prev, ...normalized };
-    for (const field of ['role', 'provider', 'model', 'preset', 'effort', 'fast', 'clientHostPid', 'cwd', 'task_id', 'permission', 'toolPermission']) {
+    for (const field of ['agent', 'provider', 'model', 'preset', 'effort', 'fast', 'clientHostPid', 'cwd', 'task_id', 'permission', 'toolPermission']) {
       if ((merged[field] === null || merged[field] === '') && prev[field] != null && prev[field] !== '') {
         merged[field] = prev[field];
       }
@@ -610,7 +610,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     return {
       tag,
       sessionId,
-      role: clean(extra.role) || clean(session?.role) || null,
+      agent: clean(extra.agent) || clean(session?.agent) || null,
       provider: clean(extra.provider) || clean(session?.provider) || null,
       model: clean(extra.model) || clean(session?.model) || null,
       preset: clean(extra.preset) || clean(session?.presetName) || null,
@@ -637,7 +637,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     return {
       id: row.sessionId,
       agentTag: row.tag,
-      role: row.role || null,
+      agent: row.agent || null,
       provider: row.provider || null,
       model: row.model || null,
       presetName: row.preset || null,
@@ -661,7 +661,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     const normalized = normalizeWorkerRows({ workers: [row] })[0];
     if (!normalized) return false;
     tags.set(normalized.tag, normalized.sessionId);
-    if (normalized.role) tagRoles.set(normalized.tag, normalized.role);
+    if (normalized.agent) tagAgents.set(normalized.tag, normalized.agent);
     if (normalized.cwd) tagCwds.set(normalized.tag, normalized.cwd);
     if (defer) {
       return queueWorkerIndexMutation((byKey) => applyWorkerRowUpsert(byKey, normalized));
@@ -698,7 +698,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     for (const row of rows) {
       if (!row.tag || !row.sessionId) continue;
       tags.set(row.tag, row.sessionId);
-      if (row.role) tagRoles.set(row.tag, row.role);
+      if (row.agent) tagAgents.set(row.tag, row.agent);
       if (row.cwd) tagCwds.set(row.tag, row.cwd);
     }
     return rows;
@@ -790,14 +790,14 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     return rows;
   }
 
-  function nextTag(role, context = {}) {
+  function nextTag(agent, context = {}) {
     refreshTagsFromSessions({ context });
-    // Auto tags are role + a per-role local index with NO hyphen
-    // ("worker3", "heavy-worker7", or "agent1" when the role is unset). The
-    // index is the max existing `^role(\d+)$` + 1, escaping the role so a
-    // hyphenated role ("heavy-worker") is matched literally. Keep incrementing
+    // Auto tags are agent + a per-agent local index with NO hyphen
+    // ("worker3", "heavy-worker7", or "agent1" when the agent is unset). The
+    // index is the max existing `^agent(\d+)$` + 1, escaping the agent so a
+    // hyphenated agent ("heavy-worker") is matched literally. Keep incrementing
     // on any live collision.
-    const base = clean(role) || 'agent';
+    const base = clean(agent) || 'agent';
     const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const re = new RegExp(`^${escaped}(\\d+)$`);
     let maxN = 0;
@@ -827,7 +827,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       if (!tag || tags.has(tag)) continue;
       if (!sessionMatchesContext(session, context)) continue;
       tags.set(tag, session.id);
-      if (session.role) tagRoles.set(tag, session.role);
+      if (session.agent) tagAgents.set(tag, session.agent);
       if (session.cwd) tagCwds.set(tag, session.cwd);
       upsertWorkerSessionDeferred(session, tag);
     }
@@ -836,7 +836,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
   function bindTag(tag, session, extra = {}) {
     if (!tag || !session?.id) return;
     tags.set(tag, session.id);
-    if (session.role) tagRoles.set(tag, session.role);
+    if (session.agent) tagAgents.set(tag, session.agent);
     if (session.cwd) tagCwds.set(tag, session.cwd);
     upsertWorkerSessionDeferred(session, tag, extra);
   }
@@ -845,7 +845,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     if (!tag) return;
     const sessionId = tags.get(tag) || '';
     tags.delete(tag);
-    tagRoles.delete(tag);
+    tagAgents.delete(tag);
     tagCwds.delete(tag);
     removeWorkerRow({ tag, sessionId });
   }
@@ -1034,7 +1034,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       };
     }
 
-    const agentName = normalizeAgentName(args.agent || args.role);
+    const agentName = normalizeAgentName(args.agent);
     const agentRoute = !clean(args.preset)
       ? (normalizeAgentRoute(config?.agents?.[agentName])
         || (agentName === 'maintainer' ? normalizeAgentRoute(config?.agents?.maintenance) : null))
@@ -1073,11 +1073,11 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       const stage = session.stage || (status === 'idle' || status === 'error' || status === 'closed'
         ? status
         : (runtime?.stage || status));
-      const progress = sessionProgressExtras(sessionId, session.role || null, now);
+      const progress = sessionProgressExtras(sessionId, session.agent || null, now);
       rows.push({
         tag,
         sessionId,
-        role: session.role || null,
+        agent: session.agent || null,
         provider: session.provider,
         model: session.model,
         preset: session.presetName || null,
@@ -1133,7 +1133,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     if (!session) return null;
     const runtime = mgr.getSessionRuntime?.(sessionId);
     const status = session.closed === true ? 'closed' : (session.status || 'idle');
-    const progress = sessionProgressExtras(sessionId, session.role || null);
+    const progress = sessionProgressExtras(sessionId, session.agent || null);
     return {
       workerStatus: status,
       stage: progress.worker_stage || runtime?.stage || status,
@@ -1151,7 +1151,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       status: task.status,
       tag: task.tag || null,
       sessionId: task.sessionId || null,
-      role: task.role || null,
+      agent: task.agent || null,
       preset: task.preset || null,
       provider: task.provider || null,
       model: task.model || null,
@@ -1162,7 +1162,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       finishedAt: task.finishedAt || null,
       error: task.error || null,
       ...jobWorkerSnapshot(task.sessionId),
-      ...sessionProgressExtras(task.sessionId, task.role || null, Date.now(), task.status),
+      ...sessionProgressExtras(task.sessionId, task.agent || null, Date.now(), task.status),
     }));
     return wantedPid ? rows.filter((row) => positiveInt(row.clientHostPid) === wantedPid) : rows;
   }
@@ -1177,7 +1177,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
 
   function renderJob(job, includeResult = false) {
     const meta = job.meta || {};
-    let progress = sessionProgressExtras(meta.sessionId, meta.role || null, Date.now(), job.status);
+    let progress = sessionProgressExtras(meta.sessionId, meta.agent || null, Date.now(), job.status);
     // Spawn is deferred: before the worker session exists, sessionProgressExtras
     // returns {} and the status card would show only "status: running" with no
     // stage/progress. Fill a minimal stage so the caller can tell the job is
@@ -1196,7 +1196,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       status: job.status,
       tag: meta.tag || null,
       sessionId: meta.sessionId || null,
-      role: meta.role || null,
+      agent: meta.agent || null,
       preset: meta.preset || null,
       provider: meta.provider || null,
       model: meta.model || null,
@@ -1217,7 +1217,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       ...(extras || {}),
       tag: prepared.tag,
       sessionId: prepared.session.id,
-      role: prepared.role,
+      agent: prepared.agent,
       preset: presetKey(prepared.preset) || prepared.presetName,
       provider: prepared.preset.provider,
       model: prepared.preset.model,
@@ -1228,7 +1228,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
   }
 
   function pendingSpawnMeta(args = {}, extras = {}) {
-    const role = normalizeAgentName(args.agent || args.role);
+    const agent = normalizeAgentName(args.agent);
     // Best-effort resolve the default preset so the pending "Spawn …" card can
     // already show the model (e.g. "Spawn Heavy Worker (Opus 4.8)") even when
     // the caller did not pass an explicit provider/model. Never throw: fall back
@@ -1242,7 +1242,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       ...(extras || {}),
       tag: clean(args.tag) || null,
       sessionId: null,
-      role: role || null,
+      agent: agent || null,
       preset: clean(args.preset) || presetKey(resolved) || null,
       provider: clean(args.provider) || clean(resolved?.provider) || null,
       model: clean(args.model) || clean(resolved?.model) || null,
@@ -1260,7 +1260,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         ...job.input,
         tag: next.tag || job.input.tag || null,
         sessionId: next.sessionId || job.input.sessionId || null,
-        role: next.role || job.input.role || null,
+        agent: next.agent || job.input.agent || null,
       };
     }
     job.label = next.tag || next.sessionId || job.label;
@@ -1377,7 +1377,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       surface: 'agent',
       operation: type,
       label: jobMeta?.tag || jobMeta?.sessionId || type,
-      input: { type, tag: jobMeta?.tag || null, sessionId: jobMeta?.sessionId || null, role: jobMeta?.role || null },
+      input: { type, tag: jobMeta?.tag || null, sessionId: jobMeta?.sessionId || null, agent: jobMeta?.agent || null },
       context: notifyContext,
       meta: jobMeta,
       resultType: 'agent_task_result',
@@ -1489,17 +1489,17 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
   async function prepareSpawn(args, callerCwd = null, context = {}, prepState = null) {
     refreshTagsFromSessions({ context });
     const config = cfgMod.loadConfig();
-    const role = normalizeAgentName(args.agent || args.role);
-    if (!role) throw new Error('agent spawn: agent is required');
-    const agentPermission = readAgentFrontmatterPermission(role, dataDir);
-    const rolePermission = normalizeAgentPermission(agentPermission) || null;
+    const agent = normalizeAgentName(args.agent);
+    if (!agent) throw new Error('agent spawn: agent is required');
+    const agentPermission = readAgentFrontmatterPermission(agent, dataDir);
+    const agentPerm = normalizeAgentPermission(agentPermission) || null;
     const { presetName, preset } = resolvePreset(config, args);
     await ensureProvider(config, preset.provider);
     if (prepState?.timedOut) {
       throw new Error('agent spawn prep timed out before session bind');
     }
 
-    const tag = clean(args.tag) || nextTag(role, context);
+    const tag = clean(args.tag) || nextTag(agent, context);
     // Any resolved same-tag binding in this terminal (live or lingering trace)
     // blocks a fresh spawn. execute() routes live reuse before prepareSpawn.
     if (resolveTag(tag, context, { scanSessions: wantsSessionScan(args) })) {
@@ -1513,23 +1513,23 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     }
     const runtimeSpec = cfgMod.resolveRuntimeSpec(preset, { lane: 'agent', agentId: tag });
     const maxLoopIterations = positiveInt(args.maxLoopIterations) || null;
-    const watchdogPolicy = resolveAgentWatchdogPolicy(role);
+    const watchdogPolicy = resolveAgentWatchdogPolicy(agent);
     const { session, effectiveCwd } = prepareAgentSession({
-      role,
+      agent,
       presetName,
       preset,
       runtimeSpec,
       owner: AGENT_OWNER,
       cwd: workerCwd,
       sourceType: 'cli',
-      sourceName: role,
+      sourceName: agent,
       parentSessionId: clean(context?.callerSessionId || context?.sessionId) || null,
       ownerSessionId: clean(context?.callerSessionId || context?.sessionId) || null,
       clientHostPid: terminalPidForContext(context) || null,
       agentTag: tag,
       taskType: clean(args.taskType) || clean(args.typeHint) || undefined,
       maxLoopIterations: maxLoopIterations || undefined,
-      permission: rolePermission || undefined,
+      permission: agentPerm || undefined,
       cacheKeyOverride: args.cacheKey || undefined,
     });
     // Lead sessions write a gateway-session route when created; agent sessions
@@ -1537,7 +1537,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     // or the vendored L1/L2 statusline cannot resolve the agent route/model.
     writeAgentStatuslineRoute(session.id, preset);
     bindTag(tag, session, {
-      role,
+      agent,
       preset: presetKey(preset) || presetName,
       provider: preset.provider,
       model: preset.model,
@@ -1551,7 +1551,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       args,
       tag,
       session,
-      role,
+      agent,
       preset,
       presetName,
       workerCwd: effectiveCwd || workerCwd,
@@ -1562,11 +1562,11 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
   }
 
   async function runSpawn(prepared, notifyContext = null, job = null) {
-    const { args, tag, session, role, preset, presetName, workerCwd, prompt, watchdogPolicy } = prepared;
+    const { args, tag, session, agent, preset, presetName, workerCwd, prompt, watchdogPolicy } = prepared;
     const watchdog = startProgressIdleWatchdog(session.id, watchdogPolicy);
     let finalStatus = 'idle';
     upsertWorkerSessionDeferred(session, tag, {
-      role,
+      agent,
       preset: presetKey(preset) || presetName,
       provider: preset.provider,
       model: preset.model,
@@ -1579,7 +1579,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       const completionValue = (result) => ({
         tag,
         sessionId: session.id,
-        role,
+        agent,
         preset: presetKey(preset) || presetName,
         provider: preset.provider,
         model: preset.model,
@@ -1620,7 +1620,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     } finally {
       watchdog?.stop?.();
       upsertWorkerSessionDeferred(session, tag, {
-        role,
+        agent,
         preset: presetKey(preset) || presetName,
         provider: preset.provider,
         model: preset.model,
@@ -1667,8 +1667,8 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
 
   async function runSend(prepared, notifyContext = null, job = null) {
     const { args, session, sessionId, prompt } = prepared;
-    const sendRole = session.role || normalizeAgentName(args.agent || args.role);
-    const watchdog = startProgressIdleWatchdog(sessionId, resolveAgentWatchdogPolicy(sendRole));
+    const sendAgent = session.agent || normalizeAgentName(args.agent);
+    const watchdog = startProgressIdleWatchdog(sessionId, resolveAgentWatchdogPolicy(sendAgent));
     const tag = tagForSession(sessionId);
     let finalStatus = 'idle';
     upsertWorkerSessionDeferred(session, tag, { status: 'running', stage: 'running' });
@@ -1676,7 +1676,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       const completionValue = (result) => ({
         tag,
         sessionId,
-        role: session.role || null,
+        agent: session.agent || null,
         provider: session.provider,
         model: session.model,
         content: result?.content || '',
@@ -1746,14 +1746,14 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         ...extras,
         tag: tagForSession(prepared.sessionId),
         sessionId: prepared.sessionId,
-        role: prepared.session.role || null,
+        agent: prepared.session.agent || null,
         queueDepth,
       });
     }
     const job = startJob('send', {
       tag: tagForSession(prepared.sessionId),
       sessionId: prepared.sessionId,
-      role: prepared.session.role || null,
+      agent: prepared.session.agent || null,
       provider: prepared.session.provider || null,
       model: prepared.session.model || null,
       preset: prepared.session.presetName || null,
@@ -1779,7 +1779,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     }
     const sessionId = resolveTag(target, scopedContext, { scanSessions: wantsSessionScan(args) });
     if (!sessionId) {
-      if (!target.startsWith('sess_') && tagRoles.has(target)) {
+      if (!target.startsWith('sess_') && tagAgents.has(target)) {
         forgetTag(target);
         if (task?.taskId) cancelBackgroundTask(task.taskId, 'cancelled by agent close');
         return { closed: true, forgotten: true, tag: target, sessionId: null, task_id: task?.taskId || null };
@@ -1838,7 +1838,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     const value = clean(tag);
     if (!value || value.startsWith('sess_')) return false;
     if (resolveTag(value, context, { excludeTerminalTraces: true })) return false; // live -> reuse, not trace
-    if (tagRoles.has(value)) return true;
+    if (tagAgents.has(value)) return true;
     return readWorkerRows(context).some((row) => clean(row.tag) === value);
   }
 

@@ -40,7 +40,7 @@ function nextCallId() {
  * unavailable (worker not forked) or the parent reports an error.
  *
  * @param {object} opts           agent-dispatch construction options
- * @param {string} [opts.role]
+ * @param {string} [opts.agent]
  * @param {string} [opts.taskType]
  * @param {string} [opts.mode]
  * @param {string} [opts.preset]   preset id/name (passed at call time)
@@ -86,7 +86,7 @@ export function callAgentDispatch(opts = {}, prompt) {
         callId,
         tool: 'agent_dispatch',
         params: {
-          role: opts.role || null,
+          agent: opts.agent || null,
           taskType: opts.taskType || null,
           mode: opts.mode || null,
           preset: opts.preset || null,

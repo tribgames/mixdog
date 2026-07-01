@@ -44,7 +44,7 @@ import { composeSystemPrompt } from '../src/runtime/agent/orchestrator/context/c
 import { setInternalToolsProvider } from '../src/runtime/agent/orchestrator/internal-tools.mjs';
 import { prepareAgentSession } from '../src/runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
 import { resolveHiddenRoleSchemaAllowedTools } from '../src/runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
-import { getHiddenRole, resolveAgentSessionPermission } from '../src/runtime/agent/orchestrator/internal-roles.mjs';
+import { getHiddenAgent, resolveAgentSessionPermission } from '../src/runtime/agent/orchestrator/internal-agents.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -665,7 +665,7 @@ const agentProps = AGENT_TOOL.inputSchema?.properties || {};
 if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not expose execution mode controls');
 {
   const heavyPrompt = composeSystemPrompt({
-    role: 'heavy-worker',
+    agent: 'heavy-worker',
     provider: 'anthropic-oauth',
     agentRules: '# Tool Use',
     skillManifest: '',
@@ -674,7 +674,7 @@ if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not
     throw new Error(`heavy-worker AGENT.md must be included in scoped role instructions: ${heavyPrompt.stableSystemContext}`);
   }
   const workerPrompt = composeSystemPrompt({
-    role: 'worker',
+    agent: 'worker',
     provider: 'anthropic-oauth',
     agentRules: '# Tool Use',
     skillManifest: '',
@@ -685,7 +685,7 @@ if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not
 }
 {
   const shorthand = parseHeadlessRoleCommand(['reviewer', 'check', 'this']);
-  if (shorthand?.role !== 'reviewer' || shorthand?.message !== 'check this') {
+  if (shorthand?.agent !== 'reviewer' || shorthand?.message !== 'check this') {
     throw new Error(`headless shorthand command parse failed: ${JSON.stringify(shorthand)}`);
   }
   const explicit = parseHeadlessRoleCommand(['role', 'debug', 'trace', 'failure']);
@@ -697,7 +697,7 @@ if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not
     throw new Error(`empty argv must keep TUI default: ${JSON.stringify(tuiDefault)}`);
   }
   const modelOnlySpawn = buildHeadlessSpawnArgs({
-    role: 'reviewer',
+    agent: 'reviewer',
     tag: 'headless-smoke',
     cwd: root,
     message: 'check this',
@@ -941,7 +941,7 @@ setInternalToolsProvider({
       provider: 'openai-oauth',
       model: 'tool-smoke-model',
       owner: 'cli',
-      role: 'lead',
+      agent: 'lead',
       cwd: skillManifestTmp,
       permission: 'read-write',
     });
@@ -961,7 +961,7 @@ setInternalToolsProvider({
       provider: 'openai-oauth',
       model: 'tool-smoke-model',
       owner: AGENT_OWNER,
-      role: 'worker',
+      agent: 'worker',
       cwd: skillManifestTmp,
       permission: 'read-write',
     });
@@ -995,7 +995,7 @@ setInternalToolsProvider({
     provider: 'openai-oauth',
     model: 'tool-smoke-model',
     owner: AGENT_OWNER,
-    role: 'explorer',
+    agent: 'explorer',
     cwd: root,
     permission: 'read',
     skipSkills: true,
@@ -1028,7 +1028,7 @@ setInternalToolsProvider({
     provider: 'openai-oauth',
     model: 'tool-smoke-model',
     owner: AGENT_OWNER,
-    role: 'worker',
+    agent: 'worker',
     cwd: root,
     permission: 'read-write',
     taskBrief: 'Implement a scoped smoke check.',
@@ -1073,7 +1073,7 @@ setInternalToolsProvider({
     provider: 'openai-oauth',
     model: 'tool-smoke-model',
     owner: AGENT_OWNER,
-    role: 'worker',
+    agent: 'worker',
     cwd: root,
     permission: 'read',
   });
@@ -1081,7 +1081,7 @@ setInternalToolsProvider({
     provider: 'openai-oauth',
     model: 'tool-smoke-model',
     owner: AGENT_OWNER,
-    role: 'worker',
+    agent: 'worker',
     cwd: root,
     permission: 'read-write',
   });
@@ -1089,7 +1089,7 @@ setInternalToolsProvider({
     provider: 'openai-oauth',
     model: 'tool-smoke-model',
     owner: AGENT_OWNER,
-    role: 'worker',
+    agent: 'worker',
     cwd: root,
     permission: 'full',
   });
@@ -1165,7 +1165,7 @@ setInternalToolsProvider({
     provider: 'openai-oauth',
     model: 'tool-smoke-model',
     owner: AGENT_OWNER,
-    role: 'worker',
+    agent: 'worker',
     cwd: root,
     permission: 'read-write',
   });
@@ -1183,7 +1183,7 @@ setInternalToolsProvider({
     provider: 'openai-oauth',
     model: 'tool-smoke-model',
     owner: AGENT_OWNER,
-    role: 'worker',
+    agent: 'worker',
     cwd: root,
     permission: 'none',
   });
@@ -1200,7 +1200,7 @@ setInternalToolsProvider({
     provider: 'openai-oauth',
     model: 'tool-smoke-model',
     owner: AGENT_OWNER,
-    role: 'worker',
+    agent: 'worker',
     cwd: root,
     permission: { allow: ['read', 'grep'], deny: ['grep'] },
   });
@@ -1213,55 +1213,55 @@ setInternalToolsProvider({
   } finally {
     closeSession(objectPermissionSession.id, 'tool-smoke');
   }
-  const hiddenRoles = JSON.parse(readFileSync(join(root, 'src', 'defaults', 'hidden-roles.json'), 'utf8')).roles || [];
+  const hiddenAgents = JSON.parse(readFileSync(join(root, 'src', 'defaults', 'agents.json'), 'utf8')).agents || [];
   const hiddenPreset = { id: 'hidden-smoke', name: 'hidden-smoke', type: 'agent', provider: 'openai-oauth', model: 'tool-smoke-model', tools: 'full' };
   const hiddenRuntimeSpec = { scopeKey: 'hidden-role-smoke', lane: 'agent' };
   const hiddenBadTools = new Set(['shell', 'task', 'diagnostics', 'open_config', 'Skill', 'memory', 'reply', 'edit_message', 'recall', 'reload_config', 'inject_command']);
-  const expectedForHiddenRole = (permission, schemaAllowedTools) => {
+  const expectedForHiddenAgent = (permission, schemaAllowedTools) => {
     if (Array.isArray(schemaAllowedTools)) return schemaAllowedTools.slice();
     if (permission === 'none') return [];
     if (permission === 'read') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'explore', 'search', 'web_fetch'];
     if (permission === 'read-write') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'explore', 'search', 'web_fetch'];
     return null;
   };
-  for (const entry of hiddenRoles) {
-    const role = String(entry?.name || '').trim();
-    if (!role) continue;
-    const hidden = getHiddenRole(role);
-    const permission = resolveAgentSessionPermission(role, hidden?.permission || null);
+  for (const entry of hiddenAgents) {
+    const agent = String(entry?.agent || '').trim();
+    if (!agent) continue;
+    const hidden = getHiddenAgent(agent);
+    const permission = resolveAgentSessionPermission(agent, hidden?.permission || null);
     const schemaAllowedTools = resolveHiddenRoleSchemaAllowedTools(hidden);
     const { session } = prepareAgentSession({
-      role,
+      agent,
       presetName: 'hidden-smoke',
       preset: hiddenPreset,
       runtimeSpec: hiddenRuntimeSpec,
       permission,
       cwd: root,
       sourceType: 'hidden-role-smoke',
-      sourceName: role,
+      sourceName: agent,
       schemaAllowedTools,
     });
     try {
       const tools = (session.tools || []).map((tool) => tool?.name).filter(Boolean);
       const resumed = await resumeSession(session.id, 'full');
       const resumedTools = (resumed?.tools || []).map((tool) => tool?.name).filter(Boolean);
-      const expected = expectedForHiddenRole(permission, schemaAllowedTools);
+      const expected = expectedForHiddenAgent(permission, schemaAllowedTools);
       if (expected && (JSON.stringify(tools) !== JSON.stringify(expected) || JSON.stringify(resumedTools) !== JSON.stringify(expected))) {
-        throw new Error(`hidden role ${role} schema mismatch: expected=${expected.join(', ')} tools=${tools.join(', ')} resumed=${resumedTools.join(', ')}`);
+        throw new Error(`hidden agent ${agent} schema mismatch: expected=${expected.join(', ')} tools=${tools.join(', ')} resumed=${resumedTools.join(', ')}`);
       }
       const leaked = tools.filter((name) => hiddenBadTools.has(name) && !(expected || []).includes(name));
       if (leaked.length) {
-        throw new Error(`hidden role ${role} leaked forbidden full-runtime tools: ${leaked.join(', ')} from ${tools.join(', ')}`);
+        throw new Error(`hidden agent ${agent} leaked forbidden full-runtime tools: ${leaked.join(', ')} from ${tools.join(', ')}`);
       }
       const systemVisible = (session.messages || [])
         .filter((m) => m?.role === 'system')
         .map((m) => String(m.content || ''))
         .join('\n');
       if (/available-skills|Skill\(/i.test(systemVisible)) {
-        throw new Error(`hidden role ${role} must not carry Skill manifest without Skill tool`);
+        throw new Error(`hidden agent ${agent} must not carry Skill manifest without Skill tool`);
       }
       if (/effective-cwd|Override cwd|# environment|# task-brief/i.test(systemVisible)) {
-        throw new Error(`hidden role ${role} must not carry cwd/environment/task-brief injection`);
+        throw new Error(`hidden agent ${agent} must not carry cwd/environment/task-brief injection`);
       }
     } finally {
       closeSession(session.id, 'tool-smoke');

@@ -20,7 +20,7 @@ function intArg(name, fallback) {
 const pathArg = argValue('--path', null);
 const dataDir = argValue('--data-dir', null);
 const sinceArg = argValue('--since', null);
-const roleFilter = argValue('--role', null);
+const agentFilter = argValue('--agent', null);
 const sessionArg = argValue('--session', null);
 const limit = intArg('--limit', 30);
 const jsonMode = process.argv.includes('--json');
@@ -264,13 +264,13 @@ function toolsLabel(toolMap) {
 
 function deriveSessionMeta(rows) {
   const sorted = [...rows].sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
-  let role = null;
+  let agent = null;
   for (const row of sorted) {
     const kind = String(row.kind || '');
     if (kind !== 'preset_assign' && kind !== 'tool') continue;
-    const r = field(row, 'role');
+    const r = field(row, 'agent');
     if (r) {
-      role = String(r);
+      agent = String(r);
       break;
     }
   }
@@ -306,7 +306,7 @@ function deriveSessionMeta(rows) {
   const totalOutput = usageRows.reduce((s, r) => s + (numberField(r, 'output_tokens') || 0), 0);
   const parentSessionId = preset ? field(preset, 'parent_session_id') : null;
   return {
-    role,
+    agent,
     provider,
     model,
     inclusive,
@@ -458,7 +458,7 @@ for (const row of allRows) {
 const sessionSummaries = [];
 for (const [id, rows] of bySession.entries()) {
   const meta = deriveSessionMeta(rows);
-  if (roleFilter && String(meta.role || '') !== roleFilter) continue;
+  if (agentFilter && String(meta.agent || '') !== agentFilter) continue;
   sessionSummaries.push({ id, meta });
 }
 
@@ -467,7 +467,7 @@ function buildListJson(limited) {
     session_id: id,
     last_activity: timeHms(meta.maxTs),
     last_ts: meta.maxTs,
-    role: meta.role,
+    agent: meta.agent,
     model: meta.model,
     provider: meta.provider,
     short_id: shortSessionId(id),
@@ -490,7 +490,7 @@ function renderListView() {
   }
   const header = [
     'lastActivity',
-    'role',
+    'agent',
     'model',
     'sess',
     'turns',
@@ -503,7 +503,7 @@ function renderListView() {
   ];
   const dataRows = limited.map(({ id, meta }) => [
     timeHms(meta.maxTs),
-    meta.role || '-',
+    meta.agent || '-',
     shortModel(meta.model),
     shortSessionId(id),
     String(meta.turns),
@@ -525,7 +525,7 @@ function buildDetailObject(full) {
     .filter((s) => s.meta.parentSessionId && String(s.meta.parentSessionId) === String(full.id))
     .map((s) => ({
       session_id: s.id,
-      role: s.meta.role,
+      agent: s.meta.agent,
       short_id: shortSessionId(s.id),
       turns: s.meta.turns,
       total_prompt_tokens: s.meta.totalPrompt,
@@ -534,7 +534,7 @@ function buildDetailObject(full) {
   return {
     session_id: full.id,
     short_id: shortSessionId(full.id),
-    role: meta.role,
+    agent: meta.agent,
     model: meta.model,
     provider: meta.provider,
     turns: meta.turns,
@@ -559,7 +559,7 @@ function renderDetailView(query) {
   if (matches.length > 1) {
     console.log(`multiple sessions matched "${query}":`);
     for (const s of matches) {
-      console.log(`  ${shortSessionId(s.id)}  ${s.id}  role=${s.meta.role || '-'}`);
+      console.log(`  ${shortSessionId(s.id)}  ${s.id}  agent=${s.meta.agent || '-'}`);
     }
     return;
   }
@@ -571,7 +571,7 @@ function renderDetailView(query) {
   }
   const meta = full.meta;
   const ttftStats = stats(meta.sseRows.map((r) => numberField(r, 'ttft_ms')));
-  console.log(`session ${detail.short_id}  role=${meta.role || '-'}  model=${meta.model || '-'}  provider=${meta.provider || '-'}`);
+  console.log(`session ${detail.short_id}  agent=${meta.agent || '-'}  model=${meta.model || '-'}  provider=${meta.provider || '-'}`);
   console.log(`turns=${meta.turns}  span=${meta.spanSec}s  prompt=${meta.totalPrompt}tok  output=${meta.totalOutput}tok  cacheHit=${formatPct(meta.cacheHit)}  ttft p50/p90=${ttftStats?.p50 ?? '-'} / ${ttftStats?.p90 ?? '-'}ms`);
   console.log('');
   for (const l of detail.timeline) {
@@ -581,7 +581,7 @@ function renderDetailView(query) {
     console.log('');
     console.log('child sessions:');
     for (const c of detail.children) {
-      console.log(`  ↳ ${c.role || '-'}  ${c.short_id}  turns=${c.turns}  prompt=${c.total_prompt_tokens}tok  cacheHit=${formatPct(c.cache_hit_pct)}`);
+      console.log(`  ↳ ${c.agent || '-'}  ${c.short_id}  turns=${c.turns}  prompt=${c.total_prompt_tokens}tok  cacheHit=${formatPct(c.cache_hit_pct)}`);
     }
   }
   console.log('');

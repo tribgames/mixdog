@@ -24,7 +24,7 @@
  *   - lead/01-02                     — Lead general / channels
  *   - output-styles/<name>.md        — Lead output style, selected by config outputStyle
  *   - agent/00-common.md             — agent common behavior + universal worker contract (BP2)
- *   - agent/10..50-*.md              — per-hidden-role bodies (consumed by loadScopedRoleInstructions)
+ *   - agent/10..50-*.md              — per-hidden-agent bodies (consumed by loadScopedRoleInstructions)
  *
  * Core memory snapshot is injected separately from the memory worker (pgdata)
  * (Lead only).
@@ -184,29 +184,29 @@ function loadOutputStyle({ PLUGIN_ROOT, DATA_DIR }) {
 
 /**
  * Resolve the DATA_DIR subdir whose *.md instruction tree is sent as
- * BP4-adjacent user/task data, from the role's `instructionDir` metadata in
- * defaults/hidden-roles.json. Returns null when the role declares none.
+ * BP4-adjacent user/task data, from the agent's `instructionDir` metadata in
+ * defaults/agents.json. Returns null when the agent declares none.
  *
- * Mirrors internal-roles.mjs getRoleInstructionDir — rules-builder is CommonJS
+ * Mirrors internal-agents.mjs getAgentInstructionDir — rules-builder is CommonJS
  * and cannot import the ESM module, so it reads the same source of truth
  * directly. Keeps the webhook-handler→webhooks / scheduler-task→schedules
- * mapping declarative instead of a hard-coded role-name ternary.
+ * mapping declarative instead of a hard-coded agent-name ternary.
  *
  * @param {string} mixdogRoot
- * @param {string} role
+ * @param {string} agent
  * @returns {string|null}
  */
-function resolveRoleInstructionDir(mixdogRoot, role) {
-  if (!mixdogRoot || !role) return null;
-  const metaPath = path.join(mixdogRoot, 'defaults', 'hidden-roles.json');
+function resolveAgentInstructionDir(mixdogRoot, agent) {
+  if (!mixdogRoot || !agent) return null;
+  const metaPath = path.join(mixdogRoot, 'defaults', 'agents.json');
   let raw;
   try {
     raw = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
   } catch (e) {
-    throw new Error(`[rules-builder] failed to read/parse hidden-roles.json at ${metaPath}: ${e.message}`);
+    throw new Error(`[rules-builder] failed to read/parse agents.json at ${metaPath}: ${e.message}`);
   }
-  for (const entry of (raw.roles || [])) {
-    if (entry && entry.name === role) {
+  for (const entry of (raw.agents || [])) {
+    if (entry && entry.agent === agent) {
       const dir = typeof entry.instructionDir === 'string' ? entry.instructionDir.trim() : '';
       return dir || null;
     }
@@ -417,26 +417,26 @@ function buildAgentRetrievalInjectionContent() {
  * @param {object} opts
  * @param {string} opts.PLUGIN_ROOT
  * @param {string} opts.DATA_DIR
- * @param {string|null} opts.currentRole
+ * @param {string|null} opts.currentAgent
  * @returns {string}
  */
-function buildAgentRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentRole }) {
-  if (!currentRole) return '';
+function buildAgentRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentAgent }) {
+  if (!currentAgent) return '';
   const parts = [];
 
-  // The role's instruction subdir (webhook-handler → webhooks, scheduler-task
-  // → schedules) is declared via `instructionDir` in defaults/hidden-roles.json
-  // rather than hard-coded here, so adding a new inbound-event role needs only
+  // The agent's instruction subdir (webhook-handler → webhooks, scheduler-task
+  // → schedules) is declared via `instructionDir` in defaults/agents.json
+  // rather than hard-coded here, so adding a new inbound-event agent needs only
   // a metadata entry.
-  const subdirForRole = resolveRoleInstructionDir(PLUGIN_ROOT, currentRole);
-  if (subdirForRole) {
-    const dir = path.join(DATA_DIR, subdirForRole);
+  const subdirForAgent = resolveAgentInstructionDir(PLUGIN_ROOT, currentAgent);
+  if (subdirForAgent) {
+    const dir = path.join(DATA_DIR, subdirForAgent);
     const collected = collectMarkdownFilesRecursive(dir);
     if (collected.length > 0) {
       collected.sort();
       const blocks = collected.map(f => stripFrontmatter(readOptional(f))).filter(Boolean);
       if (blocks.length > 0) {
-        parts.push([`# Agent ${subdirForRole}`, '', blocks.join('\n\n')].join('\n'));
+        parts.push([`# Agent ${subdirForAgent}`, '', blocks.join('\n\n')].join('\n'));
       }
     }
   }

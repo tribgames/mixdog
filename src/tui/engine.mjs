@@ -456,7 +456,7 @@ function parseAgentResultEnvelope(text, fallback = {}) {
     attrs[match[1].toLowerCase()] = String(match[2] || '').replace(/^["']|["']$/g, '');
   }
   const providerModel = /\s([a-zA-Z0-9_.-]+)\/([^\s]+)\s*$/i.exec(head);
-  const role = attrs.agent || attrs.role || fallback.role || fallback.agent || '';
+  const agent = attrs.agent || fallback.agent || '';
   return {
     name: 'agent',
     label: String(fallback.status || attrs.status || 'completed').toLowerCase(),
@@ -465,8 +465,7 @@ function parseAgentResultEnvelope(text, fallback = {}) {
       status: fallback.status || attrs.status || 'completed',
       task_id: fallback.taskId || attrs.task_id || attrs.taskid || undefined,
       tag: fallback.tag || attrs.tag || undefined,
-      agent: role || undefined,
-      role: role || undefined,
+      agent: agent || undefined,
       provider: fallback.provider || attrs.provider || providerModel?.[1] || undefined,
       model: fallback.model || attrs.model || providerModel?.[2] || undefined,
       preset: fallback.preset || attrs.preset || undefined,
@@ -502,7 +501,6 @@ export function parseBackgroundTaskEnvelope(text) {
     status,
     taskId,
     tag: fields.tag || fields.label || '',
-    role: fields.role || fields.agent || '',
     agent: fields.agent || '',
     provider: fields.provider || '',
     model: fields.model || '',
@@ -524,8 +522,7 @@ export function parseBackgroundTaskEnvelope(text) {
       operation: fields.operation || undefined,
       label: fields.label || undefined,
       tag: fields.tag || undefined,
-      agent: fields.agent || fields.role || undefined,
-      role: fields.role || fields.agent || undefined,
+      agent: fields.agent || undefined,
       provider: fields.provider || undefined,
       model: fields.model || undefined,
       preset: fields.preset || undefined,
@@ -666,7 +663,7 @@ function parseAgentJob(text) {
   const statusMatch = /^status:\s*([^\s(]+)/m.exec(value);
   const typeMatch = /^type:\s*(.+)$/m.exec(value);
   const targetMatch = /^target:\s*(.+)$/m.exec(value);
-  const roleMatch = /^(?:agent|role):\s*(.+)$/m.exec(value);
+  const agentMatch = /^agent:\s*(.+)$/m.exec(value);
   const presetMatch = /^preset:\s*(.+)$/m.exec(value);
   const modelMatch = /^model:\s*([^/\s]+)\/(.+)$/m.exec(value);
   const effortMatch = /^effort:\s*(.+)$/m.exec(value);
@@ -676,7 +673,7 @@ function parseAgentJob(text) {
     status: (statusMatch?.[1] || '').toLowerCase(),
     type: (typeMatch?.[1] || '').trim(),
     target: (targetMatch?.[1] || '').trim(),
-    role: (roleMatch?.[1] || '').trim(),
+    agent: (agentMatch?.[1] || '').trim(),
     preset: (presetMatch?.[1] || '').trim(),
     provider: (modelMatch?.[1] || '').trim(),
     model: (modelMatch?.[2] || '').trim(),
@@ -837,8 +834,8 @@ function notificationQueueKey(event, text, parsed) {
         : tag
           ? `tag:${tag}:${shortTextFingerprint(synthetic.result || text)}`
           : '';
-    const role = String(synthetic.args?.agent || synthetic.args?.role || '').trim();
-    if (resultId || role) return ['agent-result', resultId, role].filter(Boolean).join(':');
+    const agent = String(synthetic.args?.agent || '').trim();
+    if (resultId || agent) return ['agent-result', resultId, agent].filter(Boolean).join(':');
   }
   const id = String(meta.execution_id || parsed?.taskId || '').trim();
   if (!id) return '';
@@ -897,7 +894,7 @@ function agentArgsWithResultMetadata(args, parsed) {
   }
   if (parsed.status) next.status = parsed.status;
   if (parsed.taskId) next.task_id = parsed.taskId;
-  if (parsed.role) next.role = parsed.role;
+  if (parsed.agent) next.agent = parsed.agent;
   if (parsed.preset) next.preset = parsed.preset;
   if (parsed.provider) next.provider = parsed.provider;
   if (parsed.model) next.model = parsed.model;
@@ -914,9 +911,10 @@ export async function createEngineSession({
   provider: providerName,
   model,
   toolMode = 'full',
+  remote = false,
 } = {}) {
   const startedAt = performance.now();
-  bootProfile('engine:create:start', { provider: providerName, model, toolMode });
+  bootProfile('engine:create:start', { provider: providerName, model, toolMode, remote });
   // Silence provider/session diagnostics so they cannot tear through the
   // alternate-screen React/ink render.
   process.env.MIXDOG_QUIET_PROVIDER_LOG = '1';
@@ -928,7 +926,7 @@ export async function createEngineSession({
   const importStartedAt = performance.now();
   const { createMixdogSessionRuntime } = await import(SESSION_RUNTIME_MODULE);
   bootProfile('session-runtime:imported', { ms: (performance.now() - importStartedAt).toFixed(1) });
-  const runtime = await createMixdogSessionRuntime({ provider: providerName, model, toolMode });
+  const runtime = await createMixdogSessionRuntime({ provider: providerName, model, toolMode, remote });
   bootProfile('engine:create:runtime-ready', { ms: (performance.now() - startedAt).toFixed(1) });
   const cwd = runtime.cwd || process.cwd();
   const stateStartedAt = performance.now();
@@ -3280,6 +3278,15 @@ export async function createEngineSession({
       } finally {
         set({ commandBusy: false });
       }
+    },
+    // Toggle Discord remote mode for this session. Flips the runtime's
+    // remoteEnabled flag (booting/stopping the channel worker) and returns the
+    // NEW enabled state so the caller can render an ON/OFF notice.
+    toggleRemote: () => {
+      const enabled = runtime.isRemoteEnabled?.() === true;
+      if (enabled) runtime.stopRemote?.();
+      else runtime.startRemote?.();
+      return runtime.isRemoteEnabled?.() === true;
     },
     // Theme is a TUI-local concern (no runtime round-trip). listThemes returns
     // picker metadata; getTheme reports the active id; setTheme applies the

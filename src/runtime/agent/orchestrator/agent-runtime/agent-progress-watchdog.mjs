@@ -4,7 +4,7 @@
  * lastProgressAt during long tool work; this module decides when to abort.
  */
 
-import { getHiddenRole } from '../internal-roles.mjs';
+import { getHiddenAgent } from '../internal-agents.mjs';
 import {
     resolveAgentStallThresholds,
     resolveAgentToolThresholdSeconds,
@@ -31,7 +31,7 @@ function resolveExplicitMs(value, fallback) {
     return fallback;
 }
 
-export function resolveAgentWatchdogPolicy(role, overrides = {}) {
+export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
     const firstResponseMs = resolveExplicitMs(
         overrides.firstResponseTimeoutMs,
         DEFAULT_FIRST_RESPONSE_TIMEOUT_MS,
@@ -40,15 +40,15 @@ export function resolveAgentWatchdogPolicy(role, overrides = {}) {
     let idleStaleMs;
     if (Number.isFinite(overrides.idleTimeoutMs) && overrides.idleTimeoutMs >= 0) {
         idleStaleMs = Math.floor(overrides.idleTimeoutMs);
-    } else if (getHiddenRole(role)) {
-        const { abort } = resolveAgentStallThresholds(role);
+    } else if (getHiddenAgent(agent)) {
+        const { abort } = resolveAgentStallThresholds(agent);
         idleStaleMs = abort * 1000;
     } else {
         idleStaleMs = DEFAULT_STALE_TIMEOUT_MS;
     }
 
     const idleSec = idleStaleMs / 1000;
-    const toolRunningSec = resolveAgentToolThresholdSeconds(role, idleSec);
+    const toolRunningSec = resolveAgentToolThresholdSeconds(agent, idleSec);
     const toolRunningMs = Math.max(0, Math.floor(toolRunningSec * 1000));
 
     return {

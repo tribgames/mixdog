@@ -35,7 +35,7 @@
  */
 
 import { createHash } from 'crypto';
-import { getHiddenRole } from '../internal-roles.mjs';
+import { getHiddenAgent } from '../internal-agents.mjs';
 
 /**
  * One-shot, LLM-only maintenance hidden roles (cycle1/cycle2/cycle3-agent):
@@ -49,8 +49,8 @@ import { getHiddenRole } from '../internal-roles.mjs';
  * 'unified' and therefore excluded — they run a tool loop whose tail caches
  * legitimately reuse across iterations.
  */
-function isOneShotMaintenanceRole(role) {
-    const hidden = getHiddenRole(role);
+function isOneShotMaintenanceAgent(agent) {
+    const hidden = getHiddenAgent(agent);
     return Boolean(
         hidden
         && hidden.kind === 'maintenance'
@@ -81,11 +81,11 @@ function isOneShotMaintenanceRole(role) {
  * the 1h TTL expiry (writes every run, 0 reads). All layers go 'none' for
  * these roles — single-iteration calls pay the write premium with no reuse.
  */
-export function resolveCacheStrategy(role) {
-    if (isOneShotMaintenanceRole(role)) {
+export function resolveCacheStrategy(agent) {
+    if (isOneShotMaintenanceAgent(agent)) {
         return { tools: 'none', system: 'none', tier3: 'none', messages: 'none' };
     }
-    if (getHiddenRole(role)) {
+    if (getHiddenAgent(agent)) {
         return { tools: 'none', system: '1h', tier3: '1h', messages: '5m' };
     }
     // Public agents: resumable up to 1h for same-task reuse -> 1h tail.
@@ -97,7 +97,7 @@ export function resolveCacheStrategy(role) {
  *
  * @param {string} provider
  * @param {string} [sessionId]
- * @param {string} [role]
+ * @param {string} [agent]
  * @returns {object} partial sendOpts — spread into provider.send call
  */
 
@@ -356,8 +356,8 @@ export function resolveProviderPromptCacheLane(provider, opts = {}, config = {})
     };
 }
 
-export function buildProviderCacheOpts(provider, sessionId, role) {
-    const ttls = resolveCacheStrategy(role);
+export function buildProviderCacheOpts(provider, sessionId, agent) {
+    const ttls = resolveCacheStrategy(agent);
     const capability = cacheCapabilityForProvider(provider);
     if (capability === 'explicit-breakpoint') {
         // 2026-03-06 Anthropic dropped default TTL 1h→5m. We send
@@ -400,8 +400,8 @@ export function computePrefixContent(systemPrompt, tools) {
 /**
  * Longest-lived layer TTL (seconds) for registry expiry tracking.
  */
-export function ttlSecondsForCache(role) {
-    const ttls = resolveCacheStrategy(role);
+export function ttlSecondsForCache(agent) {
+    const ttls = resolveCacheStrategy(agent);
     if (
         ttls.tools === 'none'
         && ttls.system === 'none'

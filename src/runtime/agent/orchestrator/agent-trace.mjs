@@ -488,6 +488,22 @@ function summarizeToolArgs(toolName, args) {
     return Object.keys(out).length ? out : null;
 }
 
+function stableTraceStringify(value) {
+    if (value === null || value === undefined) return JSON.stringify(value);
+    if (typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return '[' + value.map(stableTraceStringify).join(',') + ']';
+    const keys = Object.keys(value).sort();
+    return '{' + keys.map((k) => `${JSON.stringify(k)}:${stableTraceStringify(value[k])}`).join(',') + '}';
+}
+
+function hashTraceValue(value) {
+    try {
+        return createHash('sha256').update(stableTraceStringify(value)).digest('hex').slice(0, 16);
+    } catch {
+        return null;
+    }
+}
+
 function _resolveToolFailurePath() {
     if (process.env.MIXDOG_TOOL_FAILURE_LOG_DISABLE === '1') return null;
     if (_toolFailurePath) return _toolFailurePath;
@@ -601,7 +617,7 @@ function classifyToolFailure(resultText, toolName) {
     return 'runtime/failure';
 }
 
-function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, model, cwd, resultText, resultKind = 'error' }) {
+function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, agent, model, cwd, resultText, resultKind = 'error' }) {
     if (process.env.MIXDOG_AGENT_TRACE_DISABLE === '1') return;
     if (!_resolveToolFailurePath()) return;
     try {
@@ -614,7 +630,8 @@ function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolM
             tool_kind: toolKind || null,
             result_kind: resultKind || 'error',
             category: classifyToolFailure(cleanText, toolName),
-            role: role || null,
+            agent: agent || role || null,
+            role: role || agent || null,
             model: model || null,
             cwd: cwd || null,
             tool_ms: Number.isFinite(Number(toolMs)) ? Number(toolMs) : null,
@@ -630,12 +647,13 @@ function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolM
     }
 }
 
-function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, resultKind, model, resultText, cwd }) {
+function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, agent, resultKind, model, resultText, cwd }) {
     const nextCallCount = countJsonNextCalls(resultText);
     const resultBytesEst = typeof resultText === 'string' ? Buffer.byteLength(resultText, 'utf8') : 0;
     const resultLinesEst = typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0;
     const numericToolMs = Number(toolMs);
     const summarizedArgs = summarizeToolArgs(toolName, toolArgs);
+    const toolArgsHash = summarizedArgs ? hashTraceValue(summarizedArgs) : null;
     // Flat shape — fields named exactly as the agent_calls PG columns so
     // insertAgentCalls can pick them up by direct property access without
     // a payload-unwrap step. result_kind has no column and rides as plain
@@ -644,12 +662,15 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
         sessionId,
         iteration,
         kind: 'tool',
-        role: role || null,
+        agent: agent || role || null,
+        role: role || agent || null,
         model: model || null,
         tool_name: toolName,
         tool_kind: toolKind,
         tool_ms: toolMs,
         tool_args: summarizedArgs,
+        tool_args_hash: toolArgsHash,
+        tool_args_summary: summarizedArgs,
         result_kind: resultKind || null,
         result_has_next_call: nextCallCount > 0,
         result_next_call_count: nextCallCount,
@@ -665,7 +686,8 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
             sessionId,
             iteration,
             kind: 'tool_slow',
-            role: role || null,
+            agent: agent || role || null,
+            role: role || agent || null,
             model: model || null,
             tool_name: toolName,
             tool_kind: toolKind,
@@ -674,6 +696,8 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
                 threshold_ms: MIXDOG_SLOW_TOOL_TRACE_MS,
                 result_kind: resultKind || null,
                 tool_args: summarizedArgs,
+                tool_args_hash: toolArgsHash,
+                tool_args_summary: summarizedArgs,
                 result_has_next_call: nextCallCount > 0,
                 result_next_call_count: nextCallCount,
                 result_bytes_est: resultBytesEst,
@@ -683,7 +707,7 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
         });
     }
     if (resultKind === 'error') {
-        traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, model, cwd, resultText, resultKind });
+        traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, agent, model, cwd, resultText, resultKind });
     }
 }
 
@@ -741,19 +765,21 @@ function traceStreamAborted({ sessionId, info }) {
     });
 }
 
-function traceAgentPreset({ sessionId, role, presetName, model, provider, parentSessionId }) {
+function traceAgentPreset({ sessionId, role, agent, presetName, model, provider, parentSessionId }) {
     // Fires once per dispatch right after the preset has been resolved and
     // its runtime spec (provider/model) assembled. Useful for after-the-fact
-    // routing analysis: "which role landed on which preset / provider / model
+    // routing analysis: "which agent landed on which preset / provider / model
     // on this request?"
     appendAgentTrace({
         sessionId,
         kind: 'preset_assign',
-        role: role || null,
+        agent: agent || role || null,
+        role: role || agent || null,
         preset_name: presetName || null,
         model: model || null,
         provider: provider || null,
         parent_session_id: parentSessionId || null,
+        parentSessionId: parentSessionId || null,
     });
 }
 

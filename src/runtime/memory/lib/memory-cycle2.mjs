@@ -47,7 +47,7 @@ function resourceDir() {
 
 async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispatch) {
   return await llmCall({
-    role: 'cycle2-agent',
+    agent: 'cycle2-agent',
     taskType: 'maintenance',
     mode,
     preset,
@@ -347,7 +347,7 @@ async function _llmJudgePair(summaryA, summaryB, siblingContext = [], options = 
     `Two memory entries below. Are they restating the same principle? Reply ONE WORD: merge or distinct.\n\nA: ${summaryA}\nB: ${summaryB}${siblings}`
   try {
     const raw = await llmCall({
-      role: 'cycle2-agent',
+      agent: 'cycle2-agent',
       taskType: 'maintenance',
       mode: 'cycle2-phase_merge_judge',
       preset: 'HAIKU',
@@ -808,7 +808,7 @@ async function sonnetCascade(candidates, rulesDigest, options = {}) {
   let raw
   try {
     raw = await llmCall({
-      role: 'cycle2-agent',
+      agent: 'cycle2-agent',
       taskType: 'maintenance',
       mode: 'cycle2-cascade',
       preset,

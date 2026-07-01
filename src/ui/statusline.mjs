@@ -16,7 +16,7 @@ import { bold, colorEnabled, rgb } from './ansi.mjs';
 import { displayModelName, shortenModelName } from './model-display.mjs';
 import { createSessionStats } from './session-stats.mjs';
 import { forEachSessionRuntime } from '../runtime/agent/orchestrator/session/manager.mjs';
-import { listHiddenRoleNames } from '../runtime/agent/orchestrator/internal-roles.mjs';
+import { listHiddenAgentNames } from '../runtime/agent/orchestrator/internal-agents.mjs';
 import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
 import { readCachedOAuthUsageSnapshot } from '../runtime/agent/orchestrator/providers/oauth-usage.mjs';
 import { readCachedOpenCodeGoUsageSnapshot } from '../runtime/agent/orchestrator/providers/opencode-go-usage.mjs';
@@ -61,11 +61,11 @@ const L2_SPINNER_FRAME_MS = 120;
 // replaces them. Snapshots from a previous launch stay hidden during boot so the
 // statusline starts empty until the current session captures usage once.
 const STATUSLINE_PROCESS_STARTED_AT_MS = Date.now() - Math.floor((Number(process.uptime?.()) || 0) * 1000);
-const DEFAULT_HIDDEN_STATUSLINE_ROLES = Object.freeze(['explorer', 'cycle1-agent', 'cycle2-agent', 'cycle3-agent', 'scheduler-task', 'webhook-handler']);
+const DEFAULT_HIDDEN_STATUSLINE_AGENTS = Object.freeze(['explorer', 'cycle1-agent', 'cycle2-agent', 'cycle3-agent', 'scheduler-task', 'webhook-handler']);
 let _shellJobsSegmentCache = { ownerPid: 0, at: 0, value: { count: 0, elapsedLabel: '' } };
 let _gatewayQuotaStatusCache = { key: '', at: 0, value: null };
 let _fallbackQuotaStatusCache = { key: '', at: 0, value: null };
-let _hiddenStatuslineRoles = null;
+let _hiddenStatuslineAgents = null;
 // Option A boot gate: the L1 usage/quota segment stays fully empty until THIS
 // process has captured its FIRST confirmed (current-process) OAuth usage
 // snapshot for THAT provider. The latch is monotonic PER PROVIDER — once a
@@ -211,7 +211,7 @@ function resolveContextUsedPct({
 }
 
 function normalizeAgentWorkerForStatusline(worker = {}) {
-  const tag = String(worker.tag || worker.role || worker.name || '').trim();
+  const tag = String(worker.tag || worker.agent || worker.name || '').trim();
   if (!tag) return null;
   const statusText = String(worker.stage || worker.status || '').toLowerCase();
   const status = isTerminalBridgeStatus(statusText) ? 'idle' : 'running';
@@ -219,7 +219,7 @@ function normalizeAgentWorkerForStatusline(worker = {}) {
     tag,
     status,
     startedAtMs: timeMs(worker.startedAt || worker.startTime || worker.createdAt),
-    role: worker.role || null,
+    agent: worker.agent || null,
     stage: worker.stage || worker.status || null,
     sessionId: worker.sessionId || null,
     provider: worker.provider || null,
@@ -231,7 +231,7 @@ function normalizeAgentJobForStatusline(job = {}) {
   const statusText = String(job.status || job.stage || '').toLowerCase();
   if (!statusText) return null;
   const taskId = String(job.task_id || job.taskId || '').trim();
-  const tag = String(job.tag || job.role || job.type || taskId || '').trim();
+  const tag = String(job.tag || job.agent || job.type || taskId || '').trim();
   if (!tag && !taskId) return null;
   const startedAtMs = timeMs(job.startedAt);
   const finishedAtMs = timeMs(job.finishedAt);
@@ -243,7 +243,7 @@ function normalizeAgentJobForStatusline(job = {}) {
       finalStatus: statusText,
       startedAtMs,
       finishedAtMs,
-      role: job.role || null,
+      agent: job.agent || null,
       stage: job.stage || job.workerStatus || job.status || null,
       sessionId: job.sessionId || null,
       provider: job.provider || null,
@@ -256,7 +256,7 @@ function normalizeAgentJobForStatusline(job = {}) {
     taskId,
     status: 'running',
     startedAtMs,
-    role: job.role || null,
+    agent: job.agent || null,
     stage: job.stage || job.workerStatus || job.status || null,
     sessionId: job.sessionId || null,
     provider: job.provider || null,
@@ -387,7 +387,7 @@ function renderNativeStatusline({
 
   const agentPayload = agentStatuslinePayload([
     ...(Array.isArray(agentWorkers) ? agentWorkers : []),
-    ...activeHiddenRoleWorkers({ sessionId, clientHostPid }),
+    ...activeHiddenAgentWorkers({ sessionId, clientHostPid }),
   ], agentJobs);
   const { runningWorkers } = classifyAgentWorkers(agentPayload.workers);
   const shellStatus = shellJobsStatus({ clientHostPid });
@@ -687,30 +687,30 @@ function classifyAgentWorkers(workers = []) {
 }
 
 function hiddenWorkerLabel(worker = {}) {
-  const role = String(worker?.role || '').trim();
+  const agent = String(worker?.agent || '').trim();
   const tag = String(worker?.tag || '').trim();
-  return maintenanceLabel(role) || (!role ? maintenanceLabel(tag) : '');
+  return maintenanceLabel(agent) || (!agent ? maintenanceLabel(tag) : '');
 }
 
-function hiddenStatuslineRoles() {
-  if (_hiddenStatuslineRoles) return _hiddenStatuslineRoles;
-  const roles = new Set(DEFAULT_HIDDEN_STATUSLINE_ROLES);
+function hiddenStatuslineAgents() {
+  if (_hiddenStatuslineAgents) return _hiddenStatuslineAgents;
+  const agents = new Set(DEFAULT_HIDDEN_STATUSLINE_AGENTS);
   try {
-    for (const role of listHiddenRoleNames()) {
-      const clean = String(role || '').trim();
-      if (clean) roles.add(clean);
+    for (const agent of listHiddenAgentNames()) {
+      const clean = String(agent || '').trim();
+      if (clean) agents.add(clean);
     }
   } catch {}
-  _hiddenStatuslineRoles = roles;
-  return roles;
+  _hiddenStatuslineAgents = agents;
+  return agents;
 }
 
 function isActiveHiddenStatus(statusText) {
   return /^(connecting|requesting|streaming|tool_running|running)$/i.test(String(statusText || '').trim());
 }
 
-function activeHiddenRoleWorkers({ sessionId = '', clientHostPid = 0 } = {}) {
-  const roles = hiddenStatuslineRoles();
+function activeHiddenAgentWorkers({ sessionId = '', clientHostPid = 0 } = {}) {
+  const agents = hiddenStatuslineAgents();
   const ownerPid = positiveInt(clientHostPid);
   const ownerSessionId = String(sessionId || '').trim();
   const rows = [];
@@ -719,8 +719,8 @@ function activeHiddenRoleWorkers({ sessionId = '', clientHostPid = 0 } = {}) {
       if (!entry || entry.closed === true) continue;
       const session = entry.session || null;
       if (!session || session.closed === true) continue;
-      const role = String(session?.role || '').trim();
-      if (!role || !roles.has(role)) continue;
+      const agent = String(session?.agent || '').trim();
+      if (!agent || !agents.has(agent)) continue;
       const id = session?.id || runtimeSessionId || null;
       if (ownerSessionId && id === ownerSessionId) continue;
       const sessionOwnerId = String(session?.ownerSessionId || '').trim();
@@ -731,8 +731,8 @@ function activeHiddenRoleWorkers({ sessionId = '', clientHostPid = 0 } = {}) {
       const status = String(session?.status || stage || '').trim().toLowerCase();
       if (!isActiveHiddenStatus(stage || status)) continue;
       rows.push({
-        tag: String(session?.agentTag || `${role}:${id || rows.length}`).trim(),
-        role,
+        tag: String(session?.agentTag || `${agent}:${id || rows.length}`).trim(),
+        agent,
         status: 'running',
         stage: stage || status || 'running',
         sessionId: id,
