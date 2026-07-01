@@ -68,7 +68,13 @@ export const DEFAULT_ACTIVITY_HEARTBEAT_MS = resolveTimeoutMs(
 
 export const PROVIDER_FIRST_BYTE_TIMEOUT_MS = resolveTimeoutMs(
     'MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS',
-    Math.min(120_000, PROVIDER_MAX_BEFORE_WARN_MS),
+    // 2026-07 trace audit: heavy-worker claude-sonnet-5 xhigh TTFT distribution
+    // showed avg ~25s, max ~120s (15/75 requests over 60s) — the old 120s
+    // window sat exactly on the observed tail and killed/retried healthy slow
+    // first bytes (9 first-byte retries in one 75-iteration session, plus one
+    // full turn lost). 180s clears the tail while the mid-stream retry ladder
+    // and the agent stall watchdog still bound a truly dead socket.
+    Math.min(180_000, PROVIDER_MAX_BEFORE_WARN_MS),
     { minMs: MIN_PROVIDER_TIMEOUT_MS, maxMs: PROVIDER_MAX_BEFORE_WARN_MS },
 );
 
@@ -134,7 +140,11 @@ export const PROVIDER_SSE_IDLE_TIMEOUT_MS = resolveTimeoutMs(
 // env-overridable and disablable via MIXDOG_ENABLE_STREAM_WATCHDOG=0.
 export const PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS = resolveTimeoutMs(
     ['MIXDOG_PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS', 'MIXDOG_PROVIDER_SSE_IDLE_TIMEOUT_MS'],
-    120_000,
+    // Raised 120s→180s alongside PROVIDER_FIRST_BYTE_TIMEOUT_MS (see comment
+    // there): observed healthy inter-event gaps on xhigh reasoning streams
+    // brushed the old 120s window; stalls after a tool emit are unretryable,
+    // so a false trip there costs the whole turn.
+    180_000,
     { minMs: 10_000, maxMs: STALL_WARN_MS },
 );
 
