@@ -24,8 +24,11 @@ import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
 import { theme, surfaceBackground, TURN_MARKER, RESULT_GUTTER } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
-import { renderTokenAnsiSegments } from './markdown/render-ansi.mjs';
-import { assistantBodyWidth, measureMarkdownTableRows } from './markdown/table-layout.mjs';
+import {
+  measureMarkdownRenderedRows,
+  measureStreamingMarkdownRenderedRows,
+} from './markdown/measure-rendered-rows.mjs';
+import { streamingLayoutText } from './markdown/streaming-markdown.mjs';
 import { displayWidth } from './display-width.mjs';
 import { classifyToolCategory, formatToolSurface, normalizeToolName, parseToolArgs, summarizeAgentSurfaceBrief } from '../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../runtime/shared/err-text.mjs';
@@ -34,6 +37,7 @@ import { ToolExecution } from './components/ToolExecution.jsx';
 import { formatExpandedResult, wrapExpandedResultLines } from './components/tool-output-format.mjs';
 import { Spinner } from './components/Spinner.jsx';
 import { StatusDone, TurnDone } from './components/TurnDone.jsx';
+import { ItemRightHintOverprint } from './components/ItemRightHintOverprint.jsx';
 import { StatusLine } from './components/StatusLine.jsx';
 import { PromptInput } from './components/PromptInput.jsx';
 import { QueuedCommands } from './components/QueuedCommands.jsx';
@@ -68,6 +72,15 @@ import {
   shouldSuppressFullyFailedToolItem,
   toolItemResultText,
 } from './transcript-tool-failures.mjs';
+import {
+  toggleVoice,
+  isVoiceEnabled,
+  getRecorderState,
+  startRecording,
+  stopRecording,
+  cancelRecording,
+  disposeRecorder,
+} from './lib/voice-recorder.mjs';
 
 import { displayModelName } from '../ui/model-display.mjs';
 import { supportsExtendedKeys, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
@@ -76,6 +89,13 @@ const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
 const MOUSE_MODIFIER_MASK = 4 | 8 | 16;
 const MOUSE_CTRL_MASK = 16;
+// SEARCH_DEFAULT marker — mirrors backend SEARCH_DEFAULT_PROVIDER/MODEL
+// (mixdog-session-runtime.mjs 1167-1168). A search route of {provider:'default',
+// model:'default'} means "follow the Main Model" at runtime (nativeSearchRoutes).
+const SEARCH_DEFAULT_ROUTE = Object.freeze({ provider: 'default', model: 'default' });
+const isSearchDefaultRoute = (route) =>
+  String(route?.provider || '').toLowerCase() === 'default'
+  && String(route?.model || '').toLowerCase() === 'default';
 
 const SLASH_COMMANDS = [
   { name: 'clear', usage: '/clear', aliases: ['new'], aliasUsage: ['new'], description: 'Start a fresh chat' },
@@ -104,6 +124,7 @@ const SLASH_COMMANDS = [
   { name: 'webhooks', usage: '/webhooks', description: 'Manage inbound webhooks' },
   { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings' },
   { name: 'profile', usage: '/profile', description: 'Set your title and response language' },
+  { name: 'voice', usage: '/voice', description: 'Toggle voice input (Ctrl+Space to record)' },
   { name: 'quit', usage: '/quit', aliases: ['exit', 'q'], aliasUsage: ['exit', 'q'], description: 'Quit the TUI' },
 ];
 
@@ -427,6 +448,68 @@ function centerLine(value, columns, reserve = 0) {
   return `${' '.repeat(pad)}${text}`;
 }
 
+const WELCOME_PROMPT_HINTS = [
+  'Tip: /setting · Tune the runtime before the run.',
+  'Tip: /model · Pick the right brain for the job.',
+  'Tip: /workflow · Change how work gets routed.',
+  'Tip: Ctrl+O · Expand tool output when you need details.',
+  'Tip: PageUp/PageDown · Scroll the transcript.',
+  'Tip: Esc · Close panels or interrupt work.',
+  'Tip: /usage · Check quota before a long run.',
+  'Tip: /agents · See who can help.',
+  'Tip: /theme · Change the terminal mood.',
+  'Tip: /search · Set web search routing.',
+  'Paste an error. I’ll trace it.',
+  'Tell me the goal. I’ll handle the steps.',
+  'Start with a task, a bug, or a wild idea.',
+  'Good fixes start with a repro.',
+  'Ask for a plan, then let the agents work.',
+  'Small prompt, sharp result.',
+  'Drop in a file path and ask what changed.',
+  'Describe the outcome, not just the command.',
+  'Ready when you are.',
+  'One clear goal beats ten vague tasks.',
+];
+
+const CONDITIONAL_WELCOME_PROMPT_HINTS = {
+  noProvider: 'Tip: /providers · Connect a provider before your first turn.',
+  noModel: 'Tip: /model · Choose a model before your first turn.',
+  soloWorkflow: 'Tip: /workflow · Switch from Solo when you want agents.',
+  searchDefaultUnsupported: 'Tip: /search · Choose a native search model for this main model.',
+  error: 'Tip: /doctor · Check setup health. (coming soon)',
+};
+
+function randomWelcomePromptHint() {
+  const index = Math.floor(Math.random() * WELCOME_PROMPT_HINTS.length);
+  return WELCOME_PROMPT_HINTS[index] || WELCOME_PROMPT_HINTS[0] || '';
+}
+
+function providerSetupHasUsableProvider(setup = {}) {
+  const rows = [
+    ...(Array.isArray(setup.api) ? setup.api : []),
+    ...(Array.isArray(setup.oauth) ? setup.oauth : []),
+    ...(Array.isArray(setup.local) ? setup.local : []),
+  ];
+  return rows.some((row) => (
+    row?.authenticated === true
+    || row?.enabled === true
+    || row?.stored === true
+    || row?.env === true
+    || row?.detected === true
+  ));
+}
+
+function activeWorkflowSummaryForStore(store, workflow = {}) {
+  try {
+    const workflows = store.listWorkflows?.() || [];
+    return workflows.find((item) => item.active)
+      || workflows.find((item) => item.id === workflow?.id)
+      || null;
+  } catch {
+    return null;
+  }
+}
+
 function promptStatusColor(tone) {
   if (tone === 'error') return theme.error;
   if (tone === 'warn' || tone === 'cancel') return theme.warning;
@@ -561,21 +644,46 @@ function ToolHookDenialCard({ item, columns = 80 }) {
 // epoch through Item → AssistantMessage/UserMessage/ToolExecution breaks
 // React.memo's shallow equality on a theme change without a broad refactor.
 const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpanded, rightMessage = '', rightTone = 'info', rightMessageWidth = 24, themeEpoch = 0 }) {
+  const hintOnTurnDoneRow = item.kind === 'turndone' || item.kind === 'statusdone';
+  let node = null;
   switch (item.kind) {
-    case 'user': return <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} themeEpoch={themeEpoch} />;
-    case 'assistant': return <AssistantMessage text={item.text} streaming={item.streaming} columns={columns} themeEpoch={themeEpoch} />;
+    case 'user':
+      node = <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} themeEpoch={themeEpoch} />;
+      break;
+    case 'assistant':
+      node = <AssistantMessage text={item.text} streaming={item.streaming} columns={columns} themeEpoch={themeEpoch} assistantId={item.id} />;
+      break;
     case 'tool': {
       if (shouldSuppressFullyFailedToolItem(item)) return null;
       if (isHookApprovalDenialToolItem(item)) {
-        return <ToolHookDenialCard item={item} columns={columns} />;
+        node = <ToolHookDenialCard item={item} columns={columns} />;
+        break;
       }
-      return <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} expanded={toolOutputExpanded || item.expanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} headerFinalized={item.headerFinalized} deferredDisplayReady={item.deferredDisplayReady} themeEpoch={themeEpoch} />;
+      node = <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} expanded={toolOutputExpanded || item.expanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} headerFinalized={item.headerFinalized} deferredDisplayReady={item.deferredDisplayReady} themeEpoch={themeEpoch} />;
+      break;
     }
-    case 'notice': return <NoticeMessage text={item.text} tone={item.tone} columns={columns} />;
-    case 'turndone': return <TurnDone elapsedMs={item.elapsedMs} status={item.status} outputTokens={item.outputTokens} thinkingElapsedMs={item.thinkingElapsedMs} verb={item.verb} rightMessage={rightMessage} rightTone={rightTone} rightMessageWidth={rightMessageWidth} />;
-    case 'statusdone': return <StatusDone label={item.label} detail={item.detail} rightMessage={rightMessage} rightTone={rightTone} rightMessageWidth={rightMessageWidth} />;
-    default: return null;
+    case 'notice':
+      node = <NoticeMessage text={item.text} tone={item.tone} columns={columns} />;
+      break;
+    case 'turndone':
+      node = <TurnDone elapsedMs={item.elapsedMs} status={item.status} outputTokens={item.outputTokens} thinkingElapsedMs={item.thinkingElapsedMs} verb={item.verb} rightMessage={rightMessage} rightTone={rightTone} rightMessageWidth={rightMessageWidth} />;
+      break;
+    case 'statusdone':
+      node = <StatusDone label={item.label} detail={item.detail} rightMessage={rightMessage} rightTone={rightTone} rightMessageWidth={rightMessageWidth} />;
+      break;
+    default:
+      return null;
   }
+  if (!node || hintOnTurnDoneRow || !rightMessage) return node;
+  return (
+    <ItemRightHintOverprint
+      rightMessage={rightMessage}
+      rightTone={rightTone}
+      rightMessageWidth={rightMessageWidth}
+    >
+      {node}
+    </ItemRightHintOverprint>
+  );
 });
 
 function positiveIntEnv(name, fallback) {
@@ -721,38 +829,6 @@ function estimateWrappedRows(text, columns, reserve = 4) {
 // equals MarkdownTable's real line count (horizontal box OR vertical fallback)
 // with zero drift, including on win32 where stdout.columns ≠ frameColumns.
 //
-// StreamingMarkdown splits the body into stable+unstable <Markdown> children
-// under one gap={1} parent; the boundary gap exactly replaces the natural
-// segment-boundary gap, so measuring the whole text in one pass yields the same
-// total row count (no streaming-specific correction needed).
-function measureMarkdownRenderedRows(text, columns) {
-  const value = String(text ?? '');
-  if (!value) return 1;
-  const bodyWidth = assistantBodyWidth(columns);
-  let segments;
-  try {
-    segments = renderTokenAnsiSegments(value, { width: bodyWidth });
-  } catch {
-    // Never throw into the scroll math — fall back to the raw wrapped count.
-    return Math.max(1, estimateWrappedRows(value, columns, 3));
-  }
-  if (!segments.length) return 1;
-  let rows = 0;
-  for (const seg of segments) {
-    if (seg.type === 'table') {
-      rows += Math.max(1, measureMarkdownTableRows(seg.token, bodyWidth));
-      continue;
-    }
-    const plain = stripAnsi(String(seg.ansi ?? ''));
-    for (const line of plain.split('\n')) {
-      rows += wrappedLineRows(line, bodyWidth);
-    }
-  }
-  // Markdown.jsx wraps the segments in <Box gap={1}>: one blank row per boundary.
-  rows += segments.length - 1;
-  return Math.max(1, rows);
-}
-
 const BACKGROUND_TASK_TOOL_NAMES = new Set(['explore', 'search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']);
 
 function isBackgroundTaskToolName(normalizedName) {
@@ -926,11 +1002,12 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
     case 'user':
       return 1 + estimateWrappedRows(item.text, columns, 4);
     case 'assistant':
-      // marginTop={1} (AssistantMessage <Box>) + the exact rendered body height.
-      // measureMarkdownRenderedRows mirrors the <Markdown> segment/gap/table
-      // layout at the real body width (columns-3), so the reserved height equals
-      // what ink draws — no phantom blank band (over) and no top-clip (under).
-      return 1 + measureMarkdownRenderedRows(item.text, columns);
+      // marginTop={1} (AssistantMessage <Box>) + rendered body height.
+      // Streaming uses measureStreamingMarkdownRenderedRows (shared layout with
+      // StreamingMarkdown); settled assistant uses measureMarkdownRenderedRows.
+      return 1 + (item.streaming
+        ? measureStreamingMarkdownRenderedRows(item.text, columns, item.id)
+        : measureMarkdownRenderedRows(item.text, columns));
     case 'tool': {
       const TOOL_MARGIN_TOP = 1;
       if (shouldSuppressFullyFailedToolItem(item)) return 0;
@@ -1277,7 +1354,7 @@ function measuredTranscriptRows(item, columns, toolOutputExpanded) {
 const STREAMING_ROW_QUANTUM = 1;
 
 function assistantTextForStreamingRowEstimate(text) {
-  return String(text ?? '').replace(/^\n+|\n+$/g, '');
+  return streamingLayoutText(text);
 }
 
 function streamingEstimateRows(item, columns, toolOutputExpanded) {
@@ -1704,13 +1781,28 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   const promptHistoryDraftChangeRef = useRef(false);
   const [promptHint, setPromptHint] = useState('');
   const [promptHintTone, setPromptHintTone] = useState('info');
+  const [welcomePromptHintDismissed, setWelcomePromptHintDismissed] = useState(false);
+  const [conditionalWelcomePromptHint, setConditionalWelcomePromptHint] = useState('');
+  const welcomePromptHintRef = useRef(null);
+  if (welcomePromptHintRef.current === null) {
+    welcomePromptHintRef.current = randomWelcomePromptHint();
+  }
+  const dismissWelcomePromptHint = useCallback(() => {
+    setWelcomePromptHintDismissed((dismissed) => dismissed || true);
+  }, []);
+  const toastErrorSignature = useMemo(() => (
+    (state.toasts || [])
+      .filter((toast) => toast?.tone === 'error')
+      .map((toast) => `${toast.id || ''}:${toast.text || ''}`)
+      .join('|')
+  ), [state.toasts]);
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedFor, setSlashDismissedFor] = useState('');
   const [disabledSkills, setDisabledSkills] = useState(() => new Set());
   const slashPaletteRef = useRef({ open: false, count: 0 });
   const scrollFocusRef = useRef({});
   const onboardingStartedRef = useRef(false);
-  const onboardingRef = useRef({ defaultRoute: null, agentRoutes: {}, agents: [], providerModels: [] });
+  const onboardingRef = useRef({ defaultRoute: null, searchRoute: null, agentRoutes: {}, agents: [], providerModels: [] });
   const providerModelsCacheRef = useRef({ models: null, at: 0 });
   const searchModelsCacheRef = useRef({ models: null, at: 0 });
   const modelPickerRequestRef = useRef(0);
@@ -1759,6 +1851,65 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   useEffect(() => {
     syncPromptLayoutRows(promptLayoutValueRef.current);
   }, [syncPromptLayoutRows]);
+  useEffect(() => {
+    let alive = true;
+    const refreshConditionalWelcomeHint = async () => {
+      let next = '';
+      try {
+        const setup = await store.getProviderSetup?.();
+        if (setup && !providerSetupHasUsableProvider(setup)) {
+          next = CONDITIONAL_WELCOME_PROMPT_HINTS.noProvider;
+        }
+      } catch {
+        // If provider setup probing fails, let the generic/error tip path decide.
+      }
+      if (!next) {
+        const activeProvider = String(state.provider || '').trim();
+        const activeModel = String(state.model || '').trim();
+        if (!activeProvider || !activeModel) {
+          next = CONDITIONAL_WELCOME_PROMPT_HINTS.noModel;
+        } else {
+          try {
+            const models = await Promise.resolve(store.listProviderModels?.({ quick: true }) || []);
+            if (Array.isArray(models) && models.length === 0) {
+              next = CONDITIONAL_WELCOME_PROMPT_HINTS.noModel;
+            }
+          } catch {
+            // Model probing is advisory only; avoid replacing the random hint on failure.
+          }
+        }
+      }
+      const activeWorkflow = activeWorkflowSummaryForStore(store, state.workflow || {});
+      if (!next && String(activeWorkflow?.id || state.workflow?.id || '').toLowerCase() === 'solo') {
+        next = CONDITIONAL_WELCOME_PROMPT_HINTS.soloWorkflow;
+      }
+      if (!next) {
+        const searchRoute = store.getSearchRoute?.() || null;
+        const searchProvider = String(searchRoute?.provider || '').trim();
+        const searchModel = String(searchRoute?.model || '').trim();
+        const defaultSearchRoute = searchProvider.toLowerCase() === 'default' && searchModel.toLowerCase() === 'default';
+        if (defaultSearchRoute) {
+          try {
+            const models = await Promise.resolve(store.listProviderModels?.({ quick: true }) || []);
+            const current = Array.isArray(models)
+              ? models.find((model) => model?.provider === state.provider && model?.id === state.model)
+              : null;
+            if (current && current.supportsWebSearch !== true) {
+              next = CONDITIONAL_WELCOME_PROMPT_HINTS.searchDefaultUnsupported;
+            }
+          } catch {
+            // Search default probing is advisory only.
+          }
+        }
+      }
+      if (!next && toastErrorSignature) {
+        next = CONDITIONAL_WELCOME_PROMPT_HINTS.error;
+      }
+      if (alive) setConditionalWelcomePromptHint((prev) => (prev === next ? prev : next));
+    };
+    void refreshConditionalWelcomeHint();
+    return () => { alive = false; };
+  }, [store, state.provider, state.model, state.workflow?.id, toastErrorSignature]);
   const selectionLayoutRef = useRef(null);
   const selectionTextRef = useRef('');
   const selectionTextTimerRef = useRef(null);
@@ -1863,6 +2014,90 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       setPromptHint('');
       setPromptHintTone('info');
     }, 2200);
+  }, []);
+
+  // Voice recorder status hint — reuses the SAME promptHint state as
+  // showPromptHint/clearPromptHint, but bypasses their 2200ms auto-clear
+  // timer: '● REC' / '… transcribing' must stay visible for the ENTIRE
+  // recording/transcribing duration (which can run well past 2.2s), not
+  // vanish on a fixed timer. Also cancels any pending showPromptHint timer
+  // so a stale auto-clear can never stomp the live recording status.
+  const setVoiceStatusHint = useCallback((text, tone = 'info') => {
+    if (promptHintTimerRef.current) {
+      clearTimeout(promptHintTimerRef.current);
+      promptHintTimerRef.current = null;
+    }
+    promptHintActiveRef.current = !!text;
+    setPromptHint(String(text || ''));
+    setPromptHintTone(tone);
+  }, []);
+
+  // Ctrl+Space handler wired to PromptInput's onVoiceToggle. Dispatches on the
+  // recorder's CURRENT state (idle/recording/transcribing) — see
+  // src/tui/lib/voice-recorder.mjs for the state machine itself.
+  const handleVoiceToggle = useCallback(async () => {
+    if (!isVoiceEnabled()) {
+      store.pushNotice('Voice is off — run /voice to turn it on', 'warn');
+      return;
+    }
+    const recState = getRecorderState();
+    if (recState === 'transcribing') {
+      store.pushNotice('Voice: already transcribing…', 'info');
+      return;
+    }
+    if (recState === 'recording') {
+      setVoiceStatusHint('… transcribing', 'info');
+      let result;
+      try {
+        result = await stopRecording();
+      } catch (e) {
+        result = { ok: false, reason: e?.message || String(e) };
+      }
+      setVoiceStatusHint('', 'info');
+      if (!result) return; // race: recorder was no longer RECORDING
+      if (!result.ok) {
+        store.pushNotice(`Voice: ${result.reason || 'transcription failed'}`, 'error');
+        return;
+      }
+      const text = String(result.text || '').trim();
+      if (!text) {
+        store.pushNotice('Voice: no speech detected', 'warn');
+        return;
+      }
+      // End-of-draft insertion via promptDraftOverride (approved design —
+      // no cursor-position insert; see gamerscroll skill's out-of-scope note
+      // on PromptInput's imperative surface).
+      // Med-4: promptValueRef.current is read HERE — after `await
+      // stopRecording()` has already resolved — not captured earlier before
+      // the await. PromptInput keeps valueRef.current live on every
+      // keystroke (commitDraft), so this always reflects whatever the user
+      // typed during the recording+transcribe window; nothing typed in that
+      // gap is overwritten.
+      const current = promptValueRef.current || '';
+      const next = current ? `${current}${/\s$/.test(current) ? '' : ' '}${text}` : text;
+      syncPromptLayoutRows(next);
+      setPromptDraftOverride({ id: Date.now(), value: next });
+      return;
+    }
+    // idle -> recording
+    let result;
+    try {
+      result = await startRecording();
+    } catch (e) {
+      result = { ok: false, reason: e?.message || String(e) };
+    }
+    if (!result?.ok) {
+      store.pushNotice(`Voice: ${result?.reason || 'failed to start recording'}`, 'error');
+      return;
+    }
+    setVoiceStatusHint('● REC', 'error');
+  }, [store, setVoiceStatusHint, syncPromptLayoutRows]);
+
+  // Best-effort recorder teardown on unmount (component-level cleanup;
+  // index.jsx's runTui() also disposes via store.dispose on exit/signal, but
+  // that path doesn't know about the TUI-local recorder singleton).
+  useEffect(() => () => {
+    disposeRecorder();
   }, []);
 
   const installPastedImages = useCallback((images, { merge = true } = {}) => {
@@ -2419,6 +2654,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       // arrives whole. Guard so non-mouse keystrokes fall through untouched.
       const s = typeof data === 'string' ? data : String(data ?? '');
       if (s.indexOf('\x1b[<') === -1) return;
+      dismissWelcomePromptHint();
       let up = 0;
       let down = 0;
       let m;
@@ -2629,7 +2865,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     };
     inkInput.on('input', onData);
     return () => { inkInput.off('input', onData); };
-  }, [inkInput, isRawModeSupported, store, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll, buildSpanRect]);
+  }, [inkInput, isRawModeSupported, store, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll, buildSpanRect, dismissWelcomePromptHint]);
 
   // Enable extended keyboard reporting (kitty + xterm modifyOtherKeys) the same
   // way Claude Code does: SYNCHRONOUSLY, ONCE, with NO query/round-trip. ink
@@ -2798,6 +3034,18 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   //   the active turn on the same Esc press.
   // - empty prompt + active turn interrupts the active turn.
   const handlePromptEscape = useCallback((text = '', meta = {}) => {
+    // Recording takes priority over every other Esc branch (usage/context
+    // panels, slash-clear, queue-restore, turn-interrupt): a live mic capture
+    // must never silently keep running because Esc was consumed by something
+    // else first. Only consumes Esc while actually RECORDING — transcribing
+    // (already stopped, awaiting the HTTP round-trip) and idle fall through
+    // to the existing branches unchanged.
+    if (getRecorderState() === 'recording') {
+      cancelRecording();
+      setVoiceStatusHint('', 'info');
+      store.pushNotice('Voice: recording cancelled', 'plain');
+      return true;
+    }
     if (usagePanel) { closeUsagePanel(); return true; }
     if (contextPanel) { setContextPanel(null); return true; }
 
@@ -2812,7 +3060,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     // Idle + empty + nothing to restore: nothing (double-press from empty
     // opens message selector, but we don't have that feature yet).
     return false;
-  }, [contextPanel, usagePanel, closeUsagePanel, restoreQueuedToPrompt, clearPromptHint, clearPastedImagesSnapshot]);
+  }, [contextPanel, usagePanel, closeUsagePanel, restoreQueuedToPrompt, clearPromptHint, clearPastedImagesSnapshot, setVoiceStatusHint, store]);
 
   const handlePromptInterrupt = useCallback((currentText = '') => {
     const result = store.abort?.();
@@ -2834,6 +3082,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   }, []);
 
   useInput((input, key) => {
+    if (!welcomePromptHintDismissed) dismissWelcomePromptHint();
     if (toolApproval) {
       const value = String(input || '').trim().toLowerCase();
       if (key.escape || value === 'd' || value === 'n') {
@@ -4776,33 +5025,40 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
-    setPicker({
-      title: options.title || 'Providers',
-      description: options.description || 'Choose a provider to configure.',
-      labelWidth: 18,
-      metaWidth: 10,
-      pickerKey: 'providers-loading',
-      initialIndex: 0,
-      items: [{
-        value: 'checking',
-        label: 'Checking Providers',
-        meta: '',
-        description: 'please wait',
-        _type: 'loading',
-      }],
-      onSelect: () => {},
-      onCancel: () => {
-        setPicker(null);
-        if (onCancel) onCancel();
-      },
-    });
-    let setup;
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      setup = await store.getProviderSetup();
-    } catch (e) {
-      store.pushNotice(`providers failed: ${e?.message || e}`, 'error');
-      return;
+    // Onboarding (and any caller) can pass a preloaded provider setup so we skip
+    // the "Checking Providers" placeholder frame that otherwise flashes before
+    // the real list — that swap is what looked like a jump on Step 1 entry.
+    let setup = options.preloadedSetup && typeof options.preloadedSetup === 'object'
+      ? options.preloadedSetup
+      : null;
+    if (!setup) {
+      setPicker({
+        title: options.title || 'Providers',
+        description: options.description || 'Choose a provider to configure.',
+        labelWidth: 18,
+        metaWidth: 10,
+        pickerKey: 'providers-loading',
+        initialIndex: 0,
+        items: [{
+          value: 'checking',
+          label: 'Checking Providers',
+          meta: '',
+          description: 'please wait',
+          _type: 'loading',
+        }],
+        onSelect: () => {},
+        onCancel: () => {
+          setPicker(null);
+          if (onCancel) onCancel();
+        },
+      });
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        setup = await store.getProviderSetup();
+      } catch (e) {
+        store.pushNotice(`providers failed: ${e?.message || e}`, 'error');
+        return;
+      }
     }
 
     const items = [];
@@ -5284,11 +5540,20 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     }
   };
 
-  const openOnboardingAuthStep = () => {
+  const openOnboardingAuthStep = async () => {
     prefetchOnboardingStep2();
+    // Load the provider setup BEFORE opening the picker so Step 1 renders the
+    // real list in one frame instead of flashing the "Checking Providers"
+    // placeholder (that swap is what looked like a jump on entry). On failure,
+    // fall back to the picker's own in-panel loading path.
+    let preloadedSetup = null;
+    try {
+      preloadedSetup = await store.getProviderSetup?.();
+    } catch { /* openProviderSetupPicker will show its loading frame + error. */ }
     void openProviderSetupPicker({
       title: 'First Run · Step 1/5 · Provider Auth',
       returnTo: () => openOnboardingAuthStep(),
+      preloadedSetup,
       confirmBar: {
         buttons: [{ value: 'next', label: 'Next ▶' }],
         onConfirm: () => { setPicker(null); void openOnboardingWorkflowStep(); },
@@ -5339,28 +5604,43 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
 
   const finishOnboarding = () => {
     const defaultRoute = onboardingRef.current.defaultRoute;
-    if (!defaultRoute) {
-      store.pushNotice('select a provider model before finishing setup', 'warn');
-      openOnboardingWorkflowStep();
-      return;
-    }
+    const searchRoute = onboardingRef.current.searchRoute || null;
+    const overrides = onboardingRef.current.agentRoutes || {};
+    const hasOverrides = Object.keys(overrides).length > 0;
     setPicker(null);
     setOnboardingActive(false);
-    // Build the full per-agent route map. Agents the user never touched inherit
-    // the Main Model (defaultRoute); explicit overrides live in agentRoutes.
-    const agents = onboardingRef.current.agents || [];
-    const overrides = onboardingRef.current.agentRoutes || {};
-    const agentRoutes = {};
-    for (const agent of agents) {
-      agentRoutes[agent.id] = overrides[agent.id] || defaultRoute;
+    const done = () => store.pushNotice('First-run setup complete.', 'info');
+    const failed = (e) => store.pushNotice(`Couldn’t save setup: ${e?.message || e}`, 'error');
+    // Branch 1 — Main Model set: full persist. Agents without an explicit
+    // override are sent; untouched agents are left out so the backend never
+    // overwrites them (they follow the Main Model dynamically at runtime).
+    if (defaultRoute) {
+      void store.completeOnboarding?.({
+        defaultRoute,
+        defaultProvider: defaultRoute.provider,
+        ...(hasOverrides ? { agentRoutes: { ...overrides } } : {}),
+        ...(searchRoute ? { searchRoute } : {}),
+      }).then(done).catch(failed);
+      return;
     }
-    void store.completeOnboarding?.({
-      defaultRoute,
-      defaultProvider: defaultRoute.provider,
-      agentRoutes,
-    })
-      .then(() => store.pushNotice('First-run setup complete.', 'info'))
-      .catch((e) => store.pushNotice(`Couldn’t save setup: ${e?.message || e}`, 'error'));
+    // Branch 2 — Main unset but some Search/agent picks exist: partial persist.
+    // Only the explicit overrides are sent (no defaultRoute/defaultProvider); the
+    // backend skips agents lacking a route and marks onboarding complete.
+    if (hasOverrides || searchRoute) {
+      void store.completeOnboarding?.({
+        ...(hasOverrides ? { agentRoutes: { ...overrides } } : {}),
+        ...(searchRoute ? { searchRoute } : {}),
+      }).then(done).catch(failed);
+      return;
+    }
+    // Branch 3 — nothing configured: mark done only, leave config untouched.
+    try {
+      store.skipOnboarding?.();
+    } catch (e) {
+      failed(e);
+      return;
+    }
+    done();
   };
 
   // Onboarding Step 2 per-target model picker. `target` is either the pseudo
@@ -5368,19 +5648,51 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   // recommendation logic: the current effective route is pre-highlighted, and
   // the plain model list is shown. Selecting Main Model updates defaultRoute;
   // agents that have no explicit override keep inheriting it.
-  const openOnboardingRoleModelPicker = (target) => {
-    const models = normalizeModelOptions(onboardingRef.current.providerModels || []);
-    const defaultRoute = onboardingRef.current.defaultRoute || null;
-    if (models.length === 0) {
-      store.pushNotice('no provider models available; open /providers to sign in', 'warn');
-      openOnboardingAuthStep();
-      return;
-    }
+  const openOnboardingRoleModelPicker = async (target) => {
     const isLead = target === 'lead';
+    const isSearch = target === 'search';
+    // Search uses the search-capable model list; lead/agent use provider models.
+    let models;
+    if (isSearch) {
+      let searchModels = [];
+      try {
+        searchModels = await Promise.resolve(store.listSearchModels?.() || []);
+      } catch (e) {
+        store.pushNotice(`could not list search models: ${e?.message || e}`, 'warn');
+      }
+      models = normalizeModelOptions(searchModels || []);
+      if (models.length === 0) {
+        store.pushNotice('no native search models available; connect OpenAI, Grok, Gemini, or Anthropic', 'warn');
+        void openOnboardingWorkflowStep();
+        return;
+      }
+    } else {
+      models = normalizeModelOptions(onboardingRef.current.providerModels || []);
+      if (models.length === 0) {
+        store.pushNotice('no provider models available; open /providers to sign in', 'warn');
+        openOnboardingAuthStep();
+        return;
+      }
+    }
     const overrides = onboardingRef.current.agentRoutes || {};
-    const currentRoute = isLead ? defaultRoute : (overrides[target] || defaultRoute);
+    // Current effective route for pre-marking: Main/Search show their own stored
+    // route (or none); agents show their explicit override only (unset = none,
+    // so we don't falsely mark the Main Model row on an untouched agent).
+    const currentRoute = isLead
+      ? (onboardingRef.current.defaultRoute || null)
+      : isSearch
+        ? (onboardingRef.current.searchRoute || null)
+        : (overrides[target] || null);
     const routeMatchesModel = (route, m) => route?.provider === m.provider && route?.model === m.id;
-    const items = models.map((m) => ({
+    // Non-lead targets get a leading "Default" row that makes the target follow
+    // the Main Model at runtime. For agents this clears the override (null);
+    // for search this stores the SEARCH_DEFAULT marker route. "Default" is the
+    // pre-marked row when the target is unset (agent) or on the marker (search).
+    const isDefaultSelected = isSearch
+      ? (!currentRoute || isSearchDefaultRoute(currentRoute))
+      : !currentRoute;
+    const isUnset = isDefaultSelected;
+    const modelItems = models.map((m) => ({
       value: `${m.provider}:${m.id}`,
       label: m.display || m.id,
       marker: routeMatchesModel(currentRoute, m) ? '✓' : '',
@@ -5388,27 +5700,64 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       description: modelDescription(m),
       _model: m,
     }));
-    const initialIndex = Math.max(0, models.findIndex((m) => routeMatchesModel(currentRoute, m)));
+    const items = isLead
+      ? modelItems
+      : [
+          {
+            value: '__default__',
+            label: 'Default',
+            marker: isUnset ? '✓' : '',
+            markerColor: theme.success,
+            description: 'follows Main Model',
+            _default: true,
+          },
+          ...modelItems,
+        ];
+    const matchIdx = models.findIndex((m) => routeMatchesModel(currentRoute, m));
+    const initialIndex = isLead
+      ? Math.max(0, matchIdx)
+      : (isUnset || matchIdx < 0 ? 0 : matchIdx + 1);
     const label = isLead
-      ? 'Main Model'
-      : (onboardingRef.current.agents || []).find((a) => a.id === target)?.label || target;
+      ? 'Main'
+      : isSearch
+        ? 'Search'
+        : (onboardingRef.current.agents || []).find((a) => a.id === target)?.label || target;
     setPicker({
       title: `First Run · ${label}`,
       description: isLead
         ? 'Pick the main model. Agents inherit this unless individually changed.'
-        : `Pick the model for ${label}.`,
+        : isSearch
+          ? 'Pick the native web-search model, or Default to follow the Main Model.'
+          : `Pick the model for ${label}, or Default to follow the Main Model.`,
       initialIndex,
       items,
       onSelect: (_value, item) => {
+        // "Default" → clear the override so this target follows the Main Model.
+        if (item?._default) {
+          if (isSearch) {
+            // Store the SEARCH_DEFAULT marker so finish persists it and the
+            // runtime follows the Main Model (not a null that drops the field).
+            onboardingRef.current.searchRoute = { ...SEARCH_DEFAULT_ROUTE };
+          } else {
+            const nextOverrides = { ...(onboardingRef.current.agentRoutes || {}) };
+            delete nextOverrides[target];
+            onboardingRef.current.agentRoutes = nextOverrides;
+          }
+          setPicker(null);
+          void openOnboardingWorkflowStep();
+          return;
+        }
         const next = item?._model ? routeFromModel(item._model) : null;
         if (!next) {
           store.pushNotice('select a provider model first', 'warn');
           setPicker(null);
-          openOnboardingAuthStep();
+          void openOnboardingWorkflowStep();
           return;
         }
         if (isLead) {
           onboardingRef.current.defaultRoute = next;
+        } else if (isSearch) {
+          onboardingRef.current.searchRoute = next;
         } else {
           onboardingRef.current.agentRoutes = {
             ...(onboardingRef.current.agentRoutes || {}),
@@ -5456,6 +5805,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       }
     }
     const defaultRoute = onboardingRef.current.defaultRoute;
+    const searchRoute = onboardingRef.current.searchRoute || null;
     const overrides = onboardingRef.current.agentRoutes || {};
     const agents = onboardingRef.current.agents || [];
     setProviderPrompt(null);
@@ -5465,18 +5815,34 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     setPicker({
       title: 'First Run · Step 2/5 · Models',
       description: 'Set the Main Model; each agent inherits it unless changed.',
+      indexMode: 'always',
+      labelWidth: 18,
+      metaWidth: 33,
       items: [
         {
           value: 'main-model',
-          label: 'Main Model',
-          description: `${routeLabel(defaultRoute)} · main chat, planning, and agent default`,
+          label: 'Main',
+          metaParts: agentModelParts(defaultRoute),
+          description: 'main chat, planning, and agent default',
           _action: 'slot',
           _target: 'lead',
+        },
+        {
+          value: 'search-model',
+          label: 'Search',
+          // Marker route = follow Main Model → show a hint, not 'default/default'.
+          metaParts: isSearchDefaultRoute(searchRoute)
+            ? [{ text: '(follows main)', width: 17 }, { text: '', width: 6 }, { text: '', width: 4 }]
+            : agentModelParts(searchRoute),
+          description: 'native search model',
+          _action: 'slot',
+          _target: 'search',
         },
         ...agents.map((agent) => ({
           value: `agent:${agent.id}`,
           label: agent.label,
-          description: `${overrides[agent.id] ? routeLabel(overrides[agent.id]) : 'Default · follows Main Model'}${agent.description ? ` · ${agent.description}` : ''}`,
+          metaParts: agentModelParts(overrides[agent.id] || null),
+          description: agent.description || '',
           _action: 'slot',
           _target: agent.id,
         })),
@@ -6943,6 +7309,14 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         store.pushNotice(enabled ? 'Remote mode ON' : 'Remote mode OFF', 'info');
         return true;
       }
+      case 'voice': {
+        // Step1 only: toggleVoice() owns config persistence (voice.enabled) +
+        // the missing-component install sequence + its own notices (OFF/ON/
+        // progress/failure). We don't push a redundant notice here; a null
+        // return means "already running" or "failed", both already noticed.
+        void toggleVoice({ pushNotice: store.pushNotice });
+        return true;
+      }
       case 'search':
         if (state.busy) {
           store.pushNotice('wait for the current turn to finish before /search', 'warn');
@@ -7649,6 +8023,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   }, [slashCommands.length, activeSlashQuery]);
 
   const onPromptDraftChange = useCallback((value) => {
+    if (String(value ?? '').length > 0) dismissWelcomePromptHint();
     syncPromptLayoutRows(value);
     const suppressPromptHint = promptHistoryDraftChangeRef.current;
     promptHistoryDraftChangeRef.current = false;
@@ -7688,7 +8063,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     if (slashDismissedFor) {
       setSlashDismissedFor((dismissed) => (dismissed && dismissed !== value ? '' : dismissed));
     }
-  }, [clearPromptHint, resetPromptHistoryNav, showPromptHint, slashDismissedFor, syncPromptLayoutRows]);
+  }, [clearPromptHint, dismissWelcomePromptHint, resetPromptHistoryNav, showPromptHint, slashDismissedFor, syncPromptLayoutRows]);
 
   const cancelProviderPrompt = useCallback(() => {
     try { providerPrompt?.login?.cancel?.(); } catch {}
@@ -8045,23 +8420,32 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   //   the blank spacer instead of reserving an extra row. This keeps late errors
   //   from pushing the prompt/statusline upward, and when thinking starts the
   //   hint moves into the live row on the same render instead of double-painting.
-  // Transient hint (toast/error/prompt hint) placement while no spinner owns the
-  // band: render it into the one-row guard above the prompt (replacing the blank
-  // spacer, no extra reserved row). While a spinner IS live the band renders the
-  // hint on the spinner row instead, so this stays false then.
-  const overlayHintVisible = overlayHintRequested && floatingPanelRows <= 0 && transcriptGuardRows > 0;
+  // Transient hint placement while no spinner owns the band is resolved after
+  // transcript windowing (see overlayHintOnLastItem / overlayHintFallbackRow).
   const spinnerHintWidth = inputHint
     ? Math.max(1, Math.min(Math.max(1, frameColumns - 4), Math.max(12, Math.floor(frameColumns * 0.42))))
     : 0;
   // When no live spinner owns a status band, the transient hint/error is drawn
-  // into the existing transcript guard row directly above the prompt. Give that
-  // guard-row overlay the full line and truncate it there; do not reserve another
-  // layout row or let a long error wrap/push transcript rows.
-  const guardHintWidth = inputHint ? Math.max(1, frameColumns - 2) : 0;
+  // into the existing transcript guard row directly above the prompt. Mirror the
+  // spinner-row placement: a fixed-width right slot, not a full-width left box.
+  const guardHintWidth = inputHint
+    ? Math.max(1, Math.min(Math.max(1, frameColumns - 4), Math.max(12, Math.floor(frameColumns * 0.42))))
+    : 0;
   const transientStatusWidth = liveSpinner ? spinnerHintWidth : guardHintWidth;
   const promptSpinnerColumns = liveSpinner && inputHint
     ? Math.max(1, frameColumns - spinnerHintWidth - 1)
     : frameColumns;
+  const welcomePromptHintText = conditionalWelcomePromptHint || welcomePromptHintRef.current || '';
+  const welcomePromptHintVisible = Boolean(
+    welcomePromptHintText
+    && !welcomePromptHintDismissed
+    && state.items.length === 0
+    && !hasFloatingPanel
+    && !inputBoxHidden
+    && !queuedVisible
+    && !liveSpinner
+    && !inputHint
+  );
   // Key the heavy O(n) row-index + windowing memos on a STRUCTURE signature
   // instead of the `state.items` array identity. The engine swaps `state.items`
   // for a new array on every streaming flush (~8ms) while only the final
@@ -8215,6 +8599,23 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   // transcript for it. A finished turn's done row (turndone/statusdone) renders
   // inline in scrollback like any other item — no filtering, no double-paint.
   const renderedTranscriptItems = transcriptVisibleItems;
+  let overlayHintAttachItemIndex = -1;
+  for (let i = renderedTranscriptItems.length - 1; i >= 0; i--) {
+    const item = renderedTranscriptItems[i];
+    if (item?.kind === 'tool' && shouldSuppressFullyFailedToolItem(item)) continue;
+    overlayHintAttachItemIndex = i;
+    break;
+  }
+  const transcriptTailPinned = Math.max(0, Number(transcriptWindow.effectiveScrollOffset) || 0) <= transcriptBottomSlackRows;
+  const overlayHintOnLastItem = overlayHintRequested
+    && floatingPanelRows <= 0
+    && transcriptWindow.bottomSpacerRows === 0
+    && transcriptTailPinned
+    && overlayHintAttachItemIndex >= 0;
+  const overlayHintFallbackRow = overlayHintRequested
+    && floatingPanelRows <= 0
+    && transcriptGuardRows > 0
+    && !overlayHintOnLastItem;
   // ── App-level measured height harvest (ScrollBox/useVirtualScroll-inspired) ─
   // Runs after EVERY commit (no deps): Yoga has just laid out the mounted rows,
   // so each tracked item Box's getComputedHeight() is its REAL terminal height.
@@ -8511,6 +8912,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       onTab={cycleWorkflowFromPrompt}
       onPasteText={handlePromptPaste}
       onHistoryNavigate={handlePromptHistoryNavigate}
+      onVoiceToggle={handleVoiceToggle}
       commandPaletteActive={slashPaletteOpen}
       onCommandPaletteNavigate={(direction) => {
         setSlashIndex((index) => {
@@ -8600,15 +9002,16 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
              */}
            {renderedTranscriptItems.map((item, i, arr) => {
              const measureRef = transcriptMeasureRef(item);
+             const attachOverlayHint = overlayHintOnLastItem && i === overlayHintAttachItemIndex;
              const itemNode = (
                <Item
                  item={item}
                  prevKind={i > 0 ? arr[i - 1].kind : state.items[transcriptWindow.startIndex - 1]?.kind ?? null}
                  columns={frameColumns}
                  toolOutputExpanded={toolOutputExpanded}
-                 rightMessage={''}
-                 rightTone={inputHintTone}
-                 rightMessageWidth={transientStatusWidth || 24}
+                 rightMessage={attachOverlayHint ? inputHint : ''}
+                 rightTone={attachOverlayHint ? inputHintTone : 'info'}
+                 rightMessageWidth={attachOverlayHint ? (guardHintWidth || transientStatusWidth || 24) : 24}
                  themeEpoch={state.themeEpoch || 0}
                />
              );
@@ -8629,11 +9032,17 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
              <Box height={transcriptWindow.bottomSpacerRows} flexShrink={0} />
            ) : null}
         </Box>
+        {welcomePromptHintVisible ? (
+          <Box height={1} flexShrink={0} width="100%" overflow="hidden">
+            <Text color={theme.inactive} wrap="truncate">{centerLine(welcomePromptHintText, frameColumns, 2)}</Text>
+          </Box>
+        ) : null}
         </Box>
         {transcriptGuardRows > 0 ? (
-          <Box height={transcriptGuardRows} flexShrink={0} backgroundColor={surfaceBackground()} flexDirection="row" width="100%">
-            {overlayHintVisible ? (
-              <Box flexShrink={0} width={guardHintWidth || 1} marginLeft={1} marginRight={1} overflow="hidden">
+          <Box height={transcriptGuardRows} flexShrink={0} backgroundColor={surfaceBackground()} flexDirection="row" width="100%" overflow="hidden">
+            <Box flexGrow={1} flexShrink={1} overflow="hidden" />
+            {overlayHintFallbackRow ? (
+              <Box flexShrink={0} width={guardHintWidth || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
                 <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
               </Box>
             ) : null}

@@ -15,14 +15,20 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { theme, TURN_MARKER } from '../theme.mjs';
-import { Markdown, StreamingMarkdown } from './Markdown.jsx';
+import { Markdown, StreamingMarkdown, resetStreamingMarkdownStablePrefix } from './Markdown.jsx';
 import { assistantBodyWidth } from '../markdown/table-layout.mjs';
 
 // `themeEpoch` is a memo-busting prop (threaded from App): the active theme
 // mutates `theme` in-place, so a /theme switch must re-render this memoized row
 // and recompute its markdown colors. It is forwarded into Markdown so the
 // token/AnsiText caches include it as a dep.
-export const AssistantMessage = React.memo(function AssistantMessage({ text, streaming = false, columns = 80, themeEpoch = 0 }) {
+export const AssistantMessage = React.memo(function AssistantMessage({
+  text,
+  streaming = false,
+  columns = 80,
+  themeEpoch = 0,
+  assistantId,
+}) {
   // The body column needs an EXPLICIT numeric width. Without it, ink/Yoga
   // measures the wrapped markdown body before the row's available width is
   // resolved and caches its height as a single row — so a multi-line assistant
@@ -32,6 +38,10 @@ export const AssistantMessage = React.memo(function AssistantMessage({ text, str
   // assistant line reach the terminal's last column can auto-wrap/scroll on
   // Windows Terminal/conhost and make the next redraw appear to lose leading
   // CJK characters even though the backing transcript is intact.
+  React.useEffect(() => {
+    if (!streaming && assistantId) resetStreamingMarkdownStablePrefix(assistantId);
+  }, [streaming, assistantId]);
+
   const bodyWidth = assistantBodyWidth(columns);
   return (
     <Box flexDirection="row" marginTop={1}>
@@ -40,7 +50,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({ text, str
       </Box>
       <Box flexDirection="column" flexShrink={0} width={bodyWidth}>
         {streaming
-          ? <StreamingMarkdown themeEpoch={themeEpoch} columns={bodyWidth}>{text}</StreamingMarkdown>
+          ? <StreamingMarkdown themeEpoch={themeEpoch} columns={bodyWidth} streamKey={assistantId}>{text}</StreamingMarkdown>
           : <Markdown themeEpoch={themeEpoch} columns={bodyWidth}>{text}</Markdown>}
       </Box>
     </Box>

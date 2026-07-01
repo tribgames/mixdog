@@ -530,13 +530,23 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
                     name: event.item.name || '',
                     callId: event.item.call_id || '',
                 });
+                state.toolInFlight = true;
+            } else if (event.item?.type === 'custom_tool_call') {
+                state.toolInFlight = true;
             }
             try { onStreamDelta?.(); } catch {}
             break;
         case 'response.function_call_arguments.delta':
+            // A tool call's args are streaming — mark tool work in-flight so a
+            // mid-args stall is NEVER accepted as a text-only partial-final.
+            state.toolInFlight = true;
             try { onStreamDelta?.(); } catch {}
             break;
         case 'response.custom_tool_call_input.delta':
+            // Custom-tool input streams before output_item.done records the call
+            // in pendingCalls; flag it so a mid-input stall gates out partial-
+            // final success (otherwise a tool-bearing turn looks text-only).
+            state.toolInFlight = true;
             try { onStreamDelta?.(); } catch {}
             break;
         case 'response.function_call_arguments.done': {
@@ -761,7 +771,11 @@ export async function consumeCompatResponsesStream(stream, {
         if (err?.streamStalled === true) {
             try {
                 err.partialContent = state.content || '';
-                err.pendingToolUse = state.emittedToolCall === true || leakedCalls.length > 0;
+                err.pendingToolUse = state.emittedToolCall === true
+                    || leakedCalls.length > 0
+                    || (state.pendingCalls && state.pendingCalls.size > 0)
+                    || (Array.isArray(state.toolCalls) && state.toolCalls.length > 0)
+                    || state.toolInFlight === true;
                 err.partialModel = state.model || undefined;
             } catch { /* best-effort */ }
         }

@@ -29,12 +29,12 @@ import {
     traceAgentUsage,
 } from '../agent-trace.mjs';
 import {
-    PROVIDER_GENERATE_TOTAL_TIMEOUT_MS,
     PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
     PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
     PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
     streamStalledError,
     createTimeoutSignal,
+    createPassthroughSignal,
 } from '../stall-policy.mjs';
 import { populateHttpStatusFromMessage, shouldFallbackTransport } from './retry-classifier.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
@@ -164,6 +164,17 @@ function _displayCodexModel(id) {
     return id.replace(/-\d{4}-\d{2}-\d{2}$/, '');
 }
 
+function _positiveCodexContextWindow(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function _codexContextWindowFromApi(m) {
+    return _positiveCodexContextWindow(m?.context_window)
+        || _positiveCodexContextWindow(m?.max_context_window)
+        || null;
+}
+
 function _normalizeCodexModel(m) {
     const id = m?.slug || m?.id;
     const family = _codexFamily(id);
@@ -186,8 +197,8 @@ function _normalizeCodexModel(m) {
         display: m?.display_name || id,
         family,
         provider: 'openai-oauth',
-        contextWindow: m?.context_window || m?.max_context_window || 1000000,
-        maxContextWindow: m?.max_context_window || null,
+        contextWindow: _codexContextWindowFromApi(m),
+        maxContextWindow: _positiveCodexContextWindow(m?.max_context_window),
         outputTokens: m?.max_output_tokens || m?.output_tokens || 32768,
         autoCompactTokenLimit: m?.auto_compact_token_limit || null,
         effectiveContextWindowPercent: m?.effective_context_window_percent || null,
@@ -777,11 +788,20 @@ export async function sendViaHttpSse({
     useModel,
     fetchFn = fetch,
 } = {}) {
-    const totalTimeout = createTimeoutSignal(
-        externalSignal,
-        PROVIDER_GENERATE_TOTAL_TIMEOUT_MS,
-        'OpenAI OAuth HTTP fallback total',
-    );
+    // P1 audit fix: no fixed wall-clock total cap on the HTTP/SSE fallback
+    // stream. The old createTimeoutSignal(..., PROVIDER_GENERATE_TOTAL_TIMEOUT_MS)
+    // killed a healthy, still-streaming turn purely on elapsed time, unlike
+    // every other streaming provider path (anthropic-oauth uses the same
+    // createPassthroughSignal pattern — see anthropic-oauth.mjs "Option A").
+    // The stream is bounded instead by:
+    //   (a) headerTimeout below (PROVIDER_HTTP_RESPONSE_TIMEOUT_MS) for a
+    //       socket that never sends the initial response,
+    //   (b) the SEMANTIC idle watchdog (_armSemanticIdle /
+    //       PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS), which resets on every
+    //       meaningful() chunk — a live stream stays alive, a truly silent
+    //       one still aborts, and
+    //   (c) externalSignal (client disconnect / replaced-by-newer-request).
+    const totalTimeout = createPassthroughSignal(externalSignal);
     const headerTimeout = createTimeoutSignal(
         totalTimeout.signal,
         PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
@@ -1219,7 +1239,7 @@ export async function sendViaHttpSse({
 
     try {
         while (true) {
-            if (totalTimeout.signal.aborted) {
+            if (totalTimeout.signal?.aborted) {
                 _clearSemanticIdle();
                 const reason = totalTimeout.signal.reason;
                 throw reason instanceof Error ? reason : new Error('OpenAI OAuth HTTP fallback aborted');
@@ -1310,6 +1330,12 @@ export async function sendViaHttpSse({
         webSearchCalls: webSearchCalls.length ? webSearchCalls : undefined,
         usage: usage || undefined,
         stopReason: stopReason || undefined,
+        // P1 audit fix: text-only max-output cutoff (openai-oauth HTTP/SSE
+        // fallback maps status:'incomplete'/reason=max_output_tokens to
+        // stopReason='length' above and treats it as success). Flag it so
+        // loop.mjs can surface a truncation warning instead of accepting
+        // silently-cut content as a clean final answer.
+        ...(stopReason === 'length' && content.length > 0 ? { truncated: true } : {}),
         responseId: responseId || undefined,
         serviceTier: serviceTier || undefined,
     };

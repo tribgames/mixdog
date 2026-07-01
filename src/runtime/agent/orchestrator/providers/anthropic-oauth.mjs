@@ -67,6 +67,7 @@ const SSE_MIDSTREAM_POLICY = {
 };
 
 function formatRetryAfter(ms) {
+    if (ms == null) return '';
     const n = Number(ms);
     if (!Number.isFinite(n) || n < 0) return '';
     if (n >= 60_000 && n % 60_000 === 0) return `${Math.round(n / 60_000)}m`;
@@ -319,9 +320,11 @@ function resolveCliVersion() {
 }
 
 function requiresSystemPrefix(model) {
-    // Opus / Sonnet require the OAuth system prefix when authenticated
-    // via OAuth. Haiku does not.
-    return /^claude-(opus|sonnet)/i.test(String(model || ''));
+    // High-tier Claude OAuth models require the first-party system prefix for
+    // OAuth pool routing. Haiku does not; keep every other Claude family (Opus,
+    // Sonnet, Fable, and future non-Haiku families) on the prefixed path.
+    const id = String(model || '').toLowerCase();
+    return /^claude-/.test(id) && !/^claude-haiku(?:-|$)/.test(id);
 }
 
 // OAuth rate-limit pool routing is gated by the server inspecting the first

@@ -764,6 +764,8 @@ function claimBridgeOwnership(reason) {
   logOwnership(`claimed owner (${reason})`);
 }
 async function bindPersistedTranscriptIfAny() {
+  // Main-channel fallback requires channelBridgeActive (set in start() before
+  // refreshBridgeOwnership → startOwnedRuntime, including pre-connect binds).
   // Resolve channelId first from persisted status; fall back to the most
   // recent status-*.json snapshot, then to the configured main channel when
   // the bridge is active. No exists-gate here — once we have a channelId,
@@ -929,13 +931,24 @@ async function startOwnedRuntime(options = {}) {
     _ownedRuntimeStopRequested = false;
     return true;
   };
+  const restoreBinding = options.restoreBinding !== false;
+  const bindPersistedTranscriptTask = restoreBinding
+    ? bindPersistedTranscriptIfAny().catch((e) => {
+      process.stderr.write(`mixdog: bindPersistedTranscriptIfAny failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
+    })
+    : null;
   // Await backend.connect() so callers (and bindingReady) only resolve after
   // the Discord binding is real. Previously this was fire-and-forget and
   // refreshBridgeOwnership returned immediately, letting bindingReady fire
   // before backend listeners were attached.
   try {
     await startingBackend.connect();
-    if (await bailIfStopRequested()) return;
+    if (await bailIfStopRequested()) {
+      cancelPendingTranscriptRearm();
+      try { forwarder.stopWatch(); } catch {}
+      if (bindPersistedTranscriptTask) await bindPersistedTranscriptTask;
+      return;
+    }
     bridgeRuntimeConnected = true;
     refreshActiveInstance(INSTANCE_ID, { backendReady: true });
     // initProviders must complete before scheduler.start() — otherwise the
@@ -948,17 +961,35 @@ async function startOwnedRuntime(options = {}) {
     } catch (e) {
       process.stderr.write(`mixdog: initProviders failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
     }
-    if (await bailIfStopRequested()) return;
+    if (await bailIfStopRequested()) {
+      cancelPendingTranscriptRearm();
+      try { forwarder.stopWatch(); } catch {}
+      if (bindPersistedTranscriptTask) await bindPersistedTranscriptTask;
+      return;
+    }
     scheduler.start();
     startSnapshotWriter(scheduler);
     syncOwnedWebhookAndEventRuntime();
-    if (options.restoreBinding !== false) bindPersistedTranscriptIfAny().catch((e) => {
-      process.stderr.write(`mixdog: bindPersistedTranscriptIfAny failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
-    });
+    if (restoreBinding) {
+      if (bindPersistedTranscriptTask) await bindPersistedTranscriptTask;
+      const pendingTranscriptPath = forwarder.transcriptPath;
+      if (pendingTranscriptPath && !fs.existsSync(pendingTranscriptPath)) {
+        // Pre-connect bind may have armed rearm while !bridgeRuntimeConnected;
+        // the first tick then exits without rescheduling. Re-arm now that we own.
+        schedulePendingTranscriptRearm(statusState.read().channelId, pendingTranscriptPath);
+      } else {
+        void forwarder.forwardNewText().catch((err) => {
+          process.stderr.write(`mixdog: post-connect forwardNewText failed (non-fatal): ${err instanceof Error ? err.message : String(err)}\n`);
+        });
+      }
+    }
     process.stderr.write(`mixdog: running with ${backend.name} backend\n`);
     logOwnership(`active owner lead=${TERMINAL_LEAD_PID} pid=${process.pid}`);
   } catch (e) {
     process.stderr.write(`mixdog: backend connect failed (non-fatal, cycle1/MCP still up): ${e instanceof Error ? e.message : String(e)}\n`);
+    cancelPendingTranscriptRearm();
+    try { forwarder.stopWatch(); } catch {}
+    if (bindPersistedTranscriptTask) await bindPersistedTranscriptTask;
     // Roll back partial owner-side state advertised before connect() ran:
     // heartbeat and active-instance entry.
     try { stopOwnerHeartbeat(); } catch {}
@@ -2221,24 +2252,29 @@ async function handleInbound(msg, route, options = {}) {
   let text = msg.text;
   const voiceAtts = msg.attachments.filter((a) => isVoiceAttachment(a.contentType));
   if (voiceAtts.length > 0) {
-    try {
-      const files = await backend.downloadAttachment(msg.chatId, msg.messageId);
-      // concurrency handled inside transcribeVoice queue; loop is sequential so last att wins
-      for (const f of voiceAtts.map(a => files.find(df => df.id === a.id) ?? null).filter(Boolean)) {
-        const _t0 = Date.now();
-        const transcript = await transcribeVoice(f.path, { attachmentId: f.id });
-        const _elapsed = Date.now() - _t0;
-        if (transcript) {
-          text = transcript;
-          process.stderr.write(`mixdog: voice.transcription ok (${f.name}, ${_elapsed}ms): ${transcript.slice(0, 50)}\n`);
-        } else {
-          process.stderr.write(`mixdog: voice.transcription empty (${f.name})\n`);
-          text = text || "[voice message \u2014 transcription failed]";
+    if (config.voice?.enabled === false) {
+      process.stderr.write(`mixdog: voice.transcription skipped — voice.enabled=false\n`);
+      text = text || "[voice message]";
+    } else {
+      try {
+        const files = await backend.downloadAttachment(msg.chatId, msg.messageId);
+        // concurrency handled inside transcribeVoice queue; loop is sequential so last att wins
+        for (const f of voiceAtts.map(a => files.find(df => df.id === a.id) ?? null).filter(Boolean)) {
+          const _t0 = Date.now();
+          const transcript = await transcribeVoice(f.path, { attachmentId: f.id });
+          const _elapsed = Date.now() - _t0;
+          if (transcript) {
+            text = transcript;
+            process.stderr.write(`mixdog: voice.transcription ok (${f.name}, ${_elapsed}ms): ${transcript.slice(0, 50)}\n`);
+          } else {
+            process.stderr.write(`mixdog: voice.transcription empty (${f.name})\n`);
+            text = text || "[voice message \u2014 transcription failed]";
+          }
         }
+      } catch (err) {
+        process.stderr.write(`mixdog: voice.transcription error: ${err}\n`);
+        text = text || `[voice message \u2014 transcription error: ${err?.message || err}]`;
       }
-    } catch (err) {
-      process.stderr.write(`mixdog: voice.transcription error: ${err}\n`);
-      text = text || `[voice message \u2014 transcription error: ${err?.message || err}]`;
     }
   }
   const hasVoiceAtt = voiceAtts.length > 0;
@@ -2333,6 +2369,7 @@ async function start() {
   // (e.g. runtime not installed) are swallowed; per-request ensureReady retries.
   void (async () => {
     try {
+      if (config.voice?.enabled === false) return;
       const runtime = resolveVoiceRuntime(DATA_DIR);
       if (!runtime?.installed) return;
       const _cpuCount = (() => { try { return os.cpus().length; } catch { return 2; } })();

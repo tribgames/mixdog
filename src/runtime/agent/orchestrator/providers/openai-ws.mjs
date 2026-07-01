@@ -71,6 +71,24 @@ export class OpenAIDirectProvider {
         // so gpt-5.4-mini can opt into Priority even when the OAuth catalog does
         // not advertise a Fast tier for its OAuth endpoint.
         applyOpenAIDirectFastTier(body, useModel, opts);
+        // P0 audit fix: buildRequestBody (openai-oauth.mjs) defaults
+        // store:false (env-gated, MIXDOG_OAI_STORE), which is correct for
+        // the openai-oauth ChatGPT-subscription backend — that backend keeps
+        // its own conversation state via the WS handshake session_id
+        // (see openai-oauth-ws.mjs "conversation slot ... in-memory prefix
+        // state"), independent of the public Responses API `store` field.
+        // The public OpenAI direct WS path below, however, talks to the real
+        // api.openai.com Responses API, where `previous_response_id`
+        // continuation is only valid when the anchored response was actually
+        // stored — store:false + previous_response_id is a broken
+        // combination there (the server has nothing to look up). This
+        // provider's WS transport always injects previous_response_id via
+        // openai-oauth-ws.mjs's delta path once a response id is cached, so
+        // force store:true here — same override xAI's Responses path takes
+        // (see openai-compat.mjs _doSendXaiResponses/_doSendXaiResponsesWebSocket:
+        // "the public endpoint currently returns previous_response_not_found
+        // ... unless the chain is stored").
+        body.store = true;
         // Public Responses API supports prompt_cache_retention='24h' at no
         // extra cost (same cached_input_tokens billing as the default 5–10
         // min in-memory cache). openai-oauth rejects the parameter, so it's

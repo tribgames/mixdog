@@ -389,12 +389,26 @@ export function redactToolCallSecretsInMessages(messages) {
     return messages.map((m) => redactMessageToolCallSecrets(m));
 }
 
+// Floor for the reserve-adjusted compact budget. When the tool-schema/request
+// reserve rivals the whole budget (huge agent tool surfaces), subtracting the
+// full reserve could leave a degenerate target; keep enough room to attempt a
+// summary and let the final fit check decide. Logged as degraded because a
+// floored budget can still overflow on the next send.
+const MIN_EFFECTIVE_COMPACT_BUDGET_TOKENS = 1024;
 export function effectiveBudget(budgetTokens, opts) {
     if (!(budgetTokens > 0)) throw new Error('compact: budgetTokens must be > 0');
     const reserve = Number(opts?.reserveTokens) || 0;
     if (reserve <= 0) return budgetTokens;
-    const effectiveReserve = Math.min(reserve, Math.floor(budgetTokens * 0.5));
-    return Math.max(1, budgetTokens - effectiveReserve);
+    // Subtract the FULL reserve so an accepted compact actually fits next to
+    // the request reserve on the following send. The previous 50%-of-budget cap
+    // under-reserved large tool surfaces (agent sessions): a compact could be
+    // "accepted" at budget/2 while the true remaining room was smaller, then
+    // overflow immediately on the next request.
+    const remaining = budgetTokens - reserve;
+    if (remaining >= MIN_EFFECTIVE_COMPACT_BUDGET_TOKENS) return remaining;
+    const floored = Math.max(1, Math.min(budgetTokens, MIN_EFFECTIVE_COMPACT_BUDGET_TOKENS));
+    try { process.stderr.write(`[compact] degraded budget: reserve=${reserve} leaves ${remaining} of budget=${budgetTokens}; flooring to ${floored}\n`); } catch { /* best-effort */ }
+    return floored;
 }
 
 const PRUNE_TOOL_OUTPUT_MAX_CHARS = 2_000;

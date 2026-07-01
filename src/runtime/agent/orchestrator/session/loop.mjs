@@ -6,7 +6,7 @@ import { executePatchTool, takeApplyPatchUiDiff } from '../tools/patch.mjs';
 import { executeInternalTool, isInternalTool } from '../internal-tools.mjs';
 import { collectSkillsCached, loadSkillResource, buildSkillToolEnvelope } from '../context/collect.mjs';
 import { normalizeToolEnvelope, makeToolEnvelope } from './tool-envelope.mjs';
-import { traceAgentLoop, traceAgentTool, traceAgentToolFailure, traceAgentCompact, estimateProviderPayloadBytes, messagePrefixHash } from '../agent-trace.mjs';
+import { traceAgentLoop, traceAgentTool, traceAgentToolFailure, traceAgentCompact, estimateProviderPayloadBytes, messagePrefixHash, appendAgentTrace } from '../agent-trace.mjs';
 import { resolveSessionMaxLoopIterations } from '../agent-runtime/agent-loop-policy.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { markSessionToolCall, updateSessionStage, SessionClosedError, getSessionAbortSignal, enqueuePendingMessage, bumpUsageMetricsEpoch } from './manager.mjs';
@@ -1985,6 +1985,51 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     partialFinal: true,
                 };
             } else
+            // Partial tool-call recovery (agent-hang fix): a stream that stalls
+            // AFTER fully-parsed tool calls were emitted used to lose the whole
+            // turn — unsafeToRetry blocks the mid-stream replay (correct: a
+            // replay would re-run side-effecting tools) and the old code threw,
+            // discarding tool work that had ALREADY completed via eager dispatch.
+            // But the parsed calls are complete (pendingToolUse false ⇒ no
+            // half-streamed tool input), so instead of replaying the request we
+            // accept the partial as a normal tool-call turn and fall through to
+            // the standard execution path: eager-dispatched (read-only) calls
+            // resolve from the pending map without re-running, side-effecting
+            // calls were never started during streaming and execute exactly
+            // once. providerState stays undefined so the next iteration resends
+            // a full frame on a fresh stream.
+            if (
+                sendErr?.streamStalled === true
+                && sendErr.pendingToolUse !== true
+                && Array.isArray(sendErr.partialToolCalls)
+                && sendErr.partialToolCalls.length > 0
+            ) {
+                try {
+                    process.stderr.write(
+                        `[loop] stream stalled after ${sendErr.partialToolCalls.length} complete tool call(s) `
+                        + `(sess=${sessionId || 'unknown'} iter=${nextIteration}); `
+                        + `recovering as tool-call turn instead of failing\n`,
+                    );
+                } catch { /* best-effort */ }
+                try {
+                    appendAgentTrace({
+                        kind: 'stall_tool_recovery',
+                        sessionId: sessionId || null,
+                        iteration: nextIteration,
+                        toolCalls: sendErr.partialToolCalls.length,
+                        partialContentLen: typeof sendErr.partialContent === 'string' ? sendErr.partialContent.length : 0,
+                    });
+                } catch { /* best-effort */ }
+                response = {
+                    content: typeof sendErr.partialContent === 'string' ? sendErr.partialContent : '',
+                    model: sendErr.partialModel || model,
+                    toolCalls: sendErr.partialToolCalls.slice(),
+                    usage: sendErr.partialUsage || undefined,
+                    stopReason: 'tool_use',
+                    hasThinkingContent: sendErr.partialHasThinking === true,
+                    partialToolRecovery: true,
+                };
+            } else
             // Context-window-exceeded is a deterministic refusal from the API.
             // Recover context overflow reactively by compacting and retrying
             // in the same active turn. MixDog's proactive estimator can miss a
@@ -2063,6 +2108,37 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // Provider may have returned despite an abort (SDKs that don't honour
         // signal) — bail before processing any of its output.
         throwIfAborted();
+        // P1 audit fix (Step4): a text-only turn truncated by the provider's
+        // max-output limit (response.truncated, set by the provider layer
+        // when stopReason==='length' AND content is non-empty) used to look
+        // identical to a clean completion — the model's answer could be
+        // silently cut mid-sentence with zero signal to the operator. Surface
+        // it as a one-line stderr warning + trace event WITHOUT failing the
+        // turn (the partial content is still usable and the loop's own
+        // isIncompleteStop nudge below already re-prompts when content is
+        // empty).
+        if (response?.truncated === true) {
+            try {
+                process.stderr.write(
+                    `[loop] provider output truncated at max-output limit (sess=${sessionId || 'unknown'} `
+                    + `iter=${iterations} stopReason=${response.stopReason ?? response.stop_reason ?? 'length'} `
+                    + `contentLen=${typeof response.content === 'string' ? response.content.length : 0}); `
+                    + `answer may be cut off mid-sentence.\n`,
+                );
+            } catch { /* best-effort */ }
+            try {
+                appendAgentTrace({
+                    sessionId,
+                    iteration: iterations,
+                    kind: 'output_truncated',
+                    payload: {
+                        stop_reason: response.stopReason ?? response.stop_reason ?? 'length',
+                        content_len: typeof response.content === 'string' ? response.content.length : 0,
+                        agent: sessionAgent || null,
+                    },
+                });
+            } catch { /* best-effort */ }
+        }
         // Incremental metric persistence (fix A): push per-iteration token delta
         // immediately so watchdog / agent type=list sees live totals mid-turn.
         if (sessionId && opts.onUsageDelta && response.usage) {

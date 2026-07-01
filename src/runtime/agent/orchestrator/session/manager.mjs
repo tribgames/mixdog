@@ -685,15 +685,32 @@ function defaultEffectiveContextWindowPercent(provider) {
     // capacity so /context, the TUI statusline, and gateway telemetry agree.
     return 90;
 }
+const PROVIDER_SYNTHETIC_CONTEXT_DEFAULT = 1_000_000;
+function providerRawContextWindow(info, catalogInfo) {
+    if (!info || typeof info !== 'object') return null;
+    const fromApiFields = positiveContextWindow(info.context_window)
+        || positiveContextWindow(info.max_context_window);
+    if (fromApiFields) return fromApiFields;
+    const fromCache = positiveContextWindow(info.contextWindow)
+        || positiveContextWindow(info.maxContextWindow);
+    if (!fromCache) return null;
+    const catalogWindow = positiveContextWindow(catalogInfo?.contextWindow)
+        || positiveContextWindow(catalogInfo?.maxContextWindow)
+        || positiveContextWindow(catalogInfo?.context_window)
+        || positiveContextWindow(catalogInfo?.max_context_window);
+    if (fromCache === PROVIDER_SYNTHETIC_CONTEXT_DEFAULT
+        && catalogWindow
+        && fromCache !== catalogWindow) {
+        return null;
+    }
+    return fromCache;
+}
 function resolveSessionContextMeta(provider, model, seed = {}) {
     const info = typeof provider?.getCachedModelInfo === 'function'
         ? provider.getCachedModelInfo(model)
         : null;
     const catalogInfo = getModelMetadataSync(model, providerNameOf(provider));
-    const rawContextWindow = positiveContextWindow(info?.contextWindow)
-        || positiveContextWindow(info?.maxContextWindow)
-        || positiveContextWindow(info?.context_window)
-        || positiveContextWindow(info?.max_context_window)
+    const rawContextWindow = providerRawContextWindow(info, catalogInfo)
         || positiveContextWindow(catalogInfo?.contextWindow)
         || positiveContextWindow(catalogInfo?.maxContextWindow)
         || positiveContextWindow(catalogInfo?.context_window)
@@ -966,7 +983,11 @@ async function runSessionCompaction(session, opts = {}) {
                 recallText: recallPayload.recallText,
                 query: recallPayload.query,
                 querySha: recallPayload.querySha,
-                allowEmptyRecall: true,
+                // Ingest just ran on the live transcript, so an empty recall dump
+                // means the memory pipeline is broken — do NOT erase history
+                // behind an empty summary shell. Empty recall now throws and is
+                // handled by the semantic fallback below (or recorded failure).
+                allowEmptyRecall: false,
                 tailTurns: positiveContextWindow(session.compaction?.tailTurns) || 2,
                 keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
                 preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
@@ -980,6 +1001,48 @@ async function runSessionCompaction(session, opts = {}) {
             try {
                 process.stderr.write(`[session] recall-fasttrack ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}\n`);
             } catch { /* best-effort */ }
+            // Degraded-compact fallback: recall-fasttrack failed (empty recall,
+            // ingest error, fit failure). Before recording a hard failure, try
+            // the semantic path once so auto-clear/manual compaction still makes
+            // progress WITHOUT shipping an empty-recall summary. History is only
+            // replaced when the semantic summary actually succeeds.
+            if (semanticCompactionEnabledForSession(session)
+                && provider && typeof provider.send === 'function') {
+                try {
+                    semanticCompactResult = await semanticCompactMessages(
+                        provider,
+                        messages,
+                        opts.model || session.model,
+                        budget,
+                        {
+                            reserveTokens,
+                            providerName: session.provider || provider?.name || null,
+                            sessionId: opts.sessionId || session.id || null,
+                            signal: opts.signal || null,
+                            promptCacheKey: session.promptCacheKey || null,
+                            providerCacheKey: session.promptCacheKey || null,
+                            timeoutMs: positiveContextWindow(session.compaction?.timeoutMs) || 30_000,
+                            tailTurns: positiveContextWindow(session.compaction?.tailTurns) || 2,
+                            keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
+                            preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
+                            force: true,
+                        },
+                    );
+                    if (Array.isArray(semanticCompactResult?.messages)) {
+                        compacted = semanticCompactResult.messages;
+                        compactError = null;
+                        addCompactUsageToSession(session, semanticCompactResult.usage);
+                        try {
+                            process.stderr.write(`[session] degraded compact: recall-fasttrack failed, semantic fallback succeeded (sess=${session.id || 'unknown'}, mode=${mode})\n`);
+                        } catch { /* best-effort */ }
+                    }
+                } catch (fallbackErr) {
+                    semanticCompactError = fallbackErr;
+                    try {
+                        process.stderr.write(`[session] degraded compact: semantic fallback also failed (sess=${session.id || 'unknown'}): ${fallbackErr?.message || fallbackErr}\n`);
+                    } catch { /* best-effort */ }
+                }
+            }
         }
     } else if (compactTypeIsSemantic(compactType)) {
         try {

@@ -1261,6 +1261,10 @@ export async function _streamResponse({
     const citations = [];
     const citationKeys = new Set();
     const pendingCalls = new Map();
+    // Tool-work-in-flight flag: set the moment a function/custom tool call's
+    // input starts streaming (before it lands in pendingCalls/toolCalls).
+    // Gates partial-final SUCCESS so a stall mid tool-input never looks text-only.
+    let _toolInFlight = false;
     // Fix 2: cross-path name+args dedupe. A text-leaked synthetic and an
     // identical native function_call must fire onToolCall exactly once. Every
     // dispatch site routes through emitToolCallDedupe.
@@ -1563,7 +1567,10 @@ export async function _streamResponse({
                 try {
                     terminalError.partialContent = content;
                     terminalError.partialToolCalls = toolCalls.length ? toolCalls.slice() : undefined;
-                    terminalError.pendingToolUse = pendingCalls.size > 0 || !!midState?.emittedToolCall;
+                    terminalError.pendingToolUse = pendingCalls.size > 0
+                        || !!midState?.emittedToolCall
+                        || toolCalls.length > 0
+                        || _toolInFlight === true;
                     terminalError.partialModel = model || undefined;
                 } catch { /* best-effort enrichment */ }
                 try { terminalError.wsCloseCode = 4000; } catch {}
@@ -1613,6 +1620,10 @@ export async function _streamResponse({
                 webSearchCalls: webSearchCalls.length ? webSearchCalls : undefined,
                 usage,
                 stopReason: stopReason || undefined,
+                // P1 audit fix: mirror the HTTP/SSE fallback's truncated flag
+                // for the WS path (sendViaWebSocket spreads this result
+                // through to the provider caller unchanged).
+                ...(stopReason === 'length' && content.length > 0 ? { truncated: true } : {}),
                 incompleteReason: incompleteReason || undefined,
                 responseId: responseId || undefined,
                 serviceTier: responseServiceTier || undefined,
@@ -1692,13 +1703,18 @@ export async function _streamResponse({
                             name: event.item.name || '',
                             callId: event.item.call_id || '',
                         });
+                        _toolInFlight = true;
+                    } else if (event.item?.type === 'custom_tool_call') {
+                        _toolInFlight = true;
                     }
                     break;
                 case 'response.function_call_arguments.delta':
+                    _toolInFlight = true;
                     try { onStreamDelta?.(); } catch {}
                     bumpSemanticIdle();
                     break;
                 case 'response.custom_tool_call_input.delta':
+                    _toolInFlight = true;
                     try { onStreamDelta?.(); } catch {}
                     bumpSemanticIdle();
                     break;

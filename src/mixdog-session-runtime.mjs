@@ -1126,7 +1126,12 @@ function routeForStatusline(route) {
   const preset = route.preset || {};
   if (preset.id) out.presetId = preset.id;
   if (preset.name) out.presetName = preset.name;
-  if (preset.modelDisplay) out.modelDisplay = preset.modelDisplay;
+  // Prefer the preset's curated label, then the route's resolved model display
+  // (set by refreshRouteEffort from the live/offline catalog). Without the
+  // route fallback, a preset-less direct model (e.g. claude-fable-5) reaches
+  // the statusline with no display and renders as the raw id.
+  const modelDisplay = clean(preset.modelDisplay) || clean(route.modelDisplay);
+  if (modelDisplay) out.modelDisplay = modelDisplay;
   if (route.fast === true || route.fast === false) out.fast = route.fast;
   else if (preset.fast === true || preset.fast === false) out.fast = preset.fast;
   if (route.effectiveEffort) {
@@ -2502,6 +2507,7 @@ export async function createMixdogSessionRuntime({
   let sessionNeedsCwdRefresh = false;
   let closeRequested = false;
   let channelStartTimer = null;
+  let channelStartPromise = null;
   let providerSetupWarmupTimer = null;
   let providerWarmupTimer = null;
   let providerModelWarmupTimer = null;
@@ -3819,12 +3825,22 @@ function parsedProviderModelVersion(id) {
     const requested = hasOwn(route, 'effort') ? route.effort : (route.preset?.effort || null);
     const effectiveEffort = coerceEffortFor(route.provider, modelMeta, requested);
     const fastCapable = fastCapableFor(route.provider, modelMeta);
+    // Carry the catalog display name onto the route so the statusline shows a
+    // human label (e.g. "Claude Fable 5") for preset-less direct models instead
+    // of the raw id. `name` is only trusted when it differs from the raw model
+    // id (some providers echo the id as `name`), so it can't clobber a better
+    // already-resolved label. Falls back to existing route.modelDisplay, then unset.
+    const metaName = clean(modelMeta?.name);
+    const modelDisplay = clean(modelMeta?.display) || clean(modelMeta?.displayName)
+      || (metaName && metaName !== clean(route.model) ? metaName : '')
+      || clean(route.modelDisplay);
     route = {
       ...route,
       fast: fastCapable ? route.fast === true : false,
       fastCapable,
       effectiveEffort,
       effortOptions: effortItemsFor(route.provider, modelMeta, effectiveEffort),
+      ...(modelDisplay ? { modelDisplay } : {}),
     };
     return route;
   }
@@ -4127,6 +4143,22 @@ function parsedProviderModelVersion(id) {
     statuslineUsageRefreshTimer.unref?.();
   }
 
+  function invokeChannelStart() {
+    if (channelStartPromise) return channelStartPromise;
+    const startedAt = performance.now();
+    bootProfile('channels:start:begin');
+    channelStartPromise = channels.start()
+      .then(() => bootProfile('channels:start:ready', { ms: (performance.now() - startedAt).toFixed(1) }))
+      .catch((error) => bootProfile('channels:start:failed', {
+        ms: (performance.now() - startedAt).toFixed(1),
+        error: error?.message || String(error),
+      }))
+      .finally(() => {
+        channelStartPromise = null;
+      });
+    return channelStartPromise;
+  }
+
   function scheduleChannelStart(delayMs = channelStartDelayMs) {
     if (envFlag('MIXDOG_DISABLE_CHANNEL_START')) {
       bootProfile('channels:start-skipped');
@@ -4136,7 +4168,7 @@ function parsedProviderModelVersion(id) {
       bootProfile('channels:start-disabled');
       return;
     }
-    if (channelStartTimer || closeRequested) return;
+    if (channelStartTimer || channelStartPromise || closeRequested) return;
     bootProfile('channels:start-scheduled', { delayMs });
     channelStartTimer = setTimeout(() => {
       channelStartTimer = null;
@@ -4149,14 +4181,7 @@ function parsedProviderModelVersion(id) {
         scheduleChannelStart(backgroundBusyRetryMs);
         return;
       }
-      const startedAt = performance.now();
-      bootProfile('channels:start:begin');
-      channels.start()
-        .then(() => bootProfile('channels:start:ready', { ms: (performance.now() - startedAt).toFixed(1) }))
-        .catch((error) => bootProfile('channels:start:failed', {
-          ms: (performance.now() - startedAt).toFixed(1),
-          error: error?.message || String(error),
-        }));
+      void invokeChannelStart();
     }, delayMs);
     channelStartTimer.unref?.();
   }
@@ -4166,7 +4191,21 @@ function parsedProviderModelVersion(id) {
   // boots the channel worker and contends for channel ownership.
   function startRemote() {
     remoteEnabled = true;
-    scheduleChannelStart(0);
+    if (envFlag('MIXDOG_DISABLE_CHANNEL_START')) {
+      bootProfile('channels:start-skipped');
+      return true;
+    }
+    if (!channelsEnabled()) {
+      bootProfile('channels:start-disabled');
+      return true;
+    }
+    if (closeRequested) return true;
+    if (channelStartTimer) {
+      clearTimeout(channelStartTimer);
+      channelStartTimer = null;
+    }
+    bootProfile('channels:start-scheduled', { delayMs: 0, immediate: true });
+    void invokeChannelStart();
     return true;
   }
 
@@ -4652,7 +4691,13 @@ function parsedProviderModelVersion(id) {
       return { ...normalizeAutoClearConfig(config.autoClear), label: formatDurationMs(normalizeAutoClearConfig(config.autoClear).idleMs) };
     },
     async completeOnboarding(payload = {}) {
-      const defaultRoute = normalizeWorkflowRoute(payload.defaultRoute, route);
+      // Only fall back to the live runtime route when the caller actually sent a
+      // defaultRoute. The onboarding "partial save" path (Main left unset, only
+      // Search/agent picks) omits defaultRoute entirely and must NOT persist the
+      // current route as Main or recreate the session.
+      const defaultRoute = hasOwn(payload, 'defaultRoute')
+        ? normalizeWorkflowRoute(payload.defaultRoute, route)
+        : null;
       const workflowInput = payload.workflowRoutes && typeof payload.workflowRoutes === 'object'
         ? payload.workflowRoutes
         : {};
@@ -4666,6 +4711,9 @@ function parsedProviderModelVersion(id) {
       }
       let presets = Array.isArray(nextConfig.presets) ? nextConfig.presets.slice() : [];
       const workflowRoutes = { ...(nextConfig.workflowRoutes || {}) };
+      // Track slots actually written THIS call so maintenance mirroring never
+      // clobbers an existing slot the payload did not touch.
+      const touchedWorkflowSlots = new Set();
 
       if (defaultRoute) {
         presets = upsertWorkflowPreset(presets, 'lead', defaultRoute);
@@ -4678,17 +4726,18 @@ function parsedProviderModelVersion(id) {
         if (!normalized) continue;
         workflowRoutes[slot] = normalized;
         presets = upsertWorkflowPreset(presets, slot, normalized);
+        touchedWorkflowSlots.add(slot);
       }
 
       nextConfig.presets = presets;
       nextConfig.workflowRoutes = workflowRoutes;
-      // Maintenance slots store a direct {provider, model} route. Reuse the
-      // onboarding workflow routes directly; only overwrite a slot when its
-      // workflow route was actually provided, otherwise keep the existing slot.
+      // Maintenance slots store a direct {provider, model} route. Only mirror a
+      // slot that was actually written this call (touchedWorkflowSlots); an
+      // untouched slot keeps its existing maintenance value.
       nextConfig.maintenance = {
         ...(nextConfig.maintenance || {}),
-        ...(workflowRoutes.explorer ? { explore: normalizeWorkflowRoute(workflowRoutes.explorer) } : {}),
-        ...(workflowRoutes.memory ? { memory: normalizeWorkflowRoute(workflowRoutes.memory) } : {}),
+        ...(touchedWorkflowSlots.has('explorer') ? { explore: normalizeWorkflowRoute(workflowRoutes.explorer) } : {}),
+        ...(touchedWorkflowSlots.has('memory') ? { memory: normalizeWorkflowRoute(workflowRoutes.memory) } : {}),
       };
       // Per-agent onboarding routes (id → route) for the full FIXED_AGENT_SLOTS
       // roster. Mirrors setAgentRoute persistence: config.agents[id], an
@@ -4701,11 +4750,12 @@ function parsedProviderModelVersion(id) {
         const nextAgents = { ...(nextConfig.agents || {}) };
         const nextMaintenance = { ...(nextConfig.maintenance || {}) };
         for (const agent of FIXED_AGENT_SLOTS) {
-          // Only accept a self-contained {provider, model} route; a partial
-          // payload must fall back to the Main Model as a UNIT rather than
-          // field-merging (e.g. provider-only + default model).
-          const routeToSave = normalizeWorkflowRoute(agentInput[agent.id])
-            || defaultRoute;
+          // Persist ONLY agents with an explicit override in the payload. An
+          // omitted agent is left untouched (existing value preserved, or
+          // unwritten so the runtime dynamically follows the Main Model). Never
+          // fall back to defaultRoute here — that would overwrite an agent the
+          // user did not choose.
+          const routeToSave = normalizeWorkflowRoute(agentInput[agent.id]);
           if (!routeToSave) continue;
           nextAgents[agent.id] = routeToSave;
           presets = upsertWorkflowPreset(presets, agentPresetSlot(agent.id), routeToSave);
@@ -4727,6 +4777,14 @@ function parsedProviderModelVersion(id) {
         version: ONBOARDING_VERSION,
         completedAt: new Date().toISOString(),
       };
+
+      // Optional native web-search route. Only persisted when provided; mirrors
+      // setSearchRoute's config write (skip provider capability validation here
+      // since onboarding routes come from the vetted provider model list).
+      if (payload.searchRoute) {
+        const searchToSave = normalizeSearchRouteConfig(payload.searchRoute);
+        if (searchToSave) nextConfig.searchRoute = searchToSave;
+      }
 
       saveConfigAndAdopt(nextConfig);
       if (defaultRoute) {

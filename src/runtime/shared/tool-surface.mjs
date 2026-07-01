@@ -591,6 +591,22 @@ function countNonEmptyLines(text) {
     .filter((line) => line.trim()).length;
 }
 
+// Zero-result recognizer (audit HIGH): result text that SAYS "nothing found"
+// must summarize as an explicit zero, not be line-counted into "1 match".
+// Matches the shapes emitted by grep/glob/find/list/recall backends:
+//   "(no matches)", "no matches found", "(no results)", "No results",
+//   "(no fuzzy match for \"...\")", "0 matches", "(empty)", "(no entries)".
+function looksLikeZeroResultText(text) {
+  const trimmed = String(text ?? '').trim();
+  if (!trimmed) return false;
+  // Only trust short, single-line-ish payloads — a real listing that merely
+  // CONTAINS the words "no matches" somewhere must not be zeroed.
+  if (trimmed.length > 200 || trimmed.includes('\n')) return false;
+  return /^\(?\s*(?:no|0)\s+(?:fuzzy\s+)?(?:match(?:es)?|results?|files?|entries|candidates?|hits?)\b/i.test(trimmed)
+    || /^\(?\s*(?:empty|none)\s*\)?$/i.test(trimmed)
+    || /^no\s+\S+\s+(?:found|matched)\b/i.test(trimmed);
+}
+
 function splitPathAndDelta(value, explicitDelta = '') {
   let path = String(value ?? '').trim();
   let delta = String(explicitDelta ?? '').trim();
@@ -761,13 +777,48 @@ function summarizeGenericResult(text) {
   return truncateSingleLine(line, AGENT_SURFACE_BRIEF_MAX);
 }
 
+// Error-cause extractor (audit HIGH): when a tool result is an error, surface
+// the actual cause line instead of a bare "Failed"/raw first line. Handles
+// JSON error envelopes ({error|message|cause|detail}) and plain-text bodies
+// (first line that carries error-ish signal, else first non-empty line).
+// Exported for ToolExecution's collapsed detail row.
+export function extractErrorCause(resultText) {
+  const text = String(resultText ?? '').trim();
+  if (!text) return '';
+  // JSON envelope: prefer explicit error-ish keys.
+  if (text.startsWith('{') || text.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(text);
+      const obj = Array.isArray(parsed) ? parsed[0] : parsed;
+      if (obj && typeof obj === 'object') {
+        const cause = firstText(
+          typeof obj.error === 'string' ? obj.error : obj.error?.message,
+          obj.message, obj.cause, obj.detail, obj.reason, obj.status,
+        );
+        if (cause) return truncateSingleLine(String(cause), AGENT_SURFACE_BRIEF_MAX);
+      }
+    } catch { /* fall through to text scan */ }
+  }
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  // Prefer the first line that looks like an error statement.
+  const errorish = lines.find((l) => /\b(error|failed|failure|denied|refused|timed?\s*out|timeout|not\s+found|missing|invalid|cannot|can't|exception|exit\s+(?:code\s+)?[1-9])\b/i.test(l));
+  const picked = errorish || lines[0] || '';
+  return truncateSingleLine(stripInlineMarkdown(picked), AGENT_SURFACE_BRIEF_MAX);
+}
+
 /**
  * Derive a short semantic one-liner for a completed tool call using only the
  * tool name, parsed args, and the raw result text. Returns null when nothing
  * reliable can be derived, so the caller falls back to the raw result block.
  */
 export function summarizeToolResult(name, args, resultText, isError = false) {
-  if (isError) return null;
+  if (isError) {
+    // Audit HIGH: errors used to disable semantic summaries entirely, leaving
+    // the UI with a raw first line or a bare "Failed". Surface the extracted
+    // cause so the collapsed card answers "why" without ctrl+o.
+    const cause = extractErrorCause(resultText);
+    return cause || null;
+  }
   const text = String(resultText ?? '');
   const trimmed = text.trim();
   if (/^(?:undefined|null)$/i.test(trimmed)) return null;
@@ -807,18 +858,21 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     }
     case 'grep': {
       if (!trimmed || !looksLineOriented(text)) return null;
+      if (looksLikeZeroResultText(text)) return '0 matches';
       const n = countNonEmptyLines(text);
       if (n === 0) return null;
       return `${n} ${pluralize(n, 'match', 'matches')}`;
     }
     case 'glob': {
       if (!trimmed || !looksLineOriented(text)) return null;
+      if (looksLikeZeroResultText(text)) return '0 files';
       const n = countNonEmptyLines(text);
       if (n === 0) return null;
       return `${n} ${pluralize(n, 'file')}`;
     }
     case 'find': {
       if (!trimmed || !looksLineOriented(text)) return null;
+      if (looksLikeZeroResultText(text)) return '0 candidates';
       const n = countNonEmptyLines(text);
       if (n === 0) return null;
       return `${n} ${pluralize(n, 'candidate')}`;
@@ -826,6 +880,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     case 'list':
     case 'ls': {
       if (!trimmed || !looksLineOriented(text)) return null;
+      if (looksLikeZeroResultText(text)) return '0 entries';
       const n = countNonEmptyLines(text);
       if (n === 0) return null;
       return `${n} ${pluralize(n, 'entry', 'entries')}`;
@@ -852,10 +907,25 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     case 'code_graph': {
       const match = /(\d+)\s+(references|definitions|symbols|callers|callees|results|matches)/i.exec(text);
       if (match) return `${match[1]} ${String(match[2]).toLowerCase()}`;
+      if (looksLikeZeroResultText(text)) return 'No results';
       return null;
     }
     case 'web_fetch':
     case 'fetch': {
+      // Audit HIGH: channel `fetch` (Discord message fetch — args carry
+      // channel/messageId/limit, never url/uri) was summarized as a WEB fetch,
+      // so its result missed both the status/size probes and fell to raw JSON.
+      // Route it to the generic JSON/text summarizer instead.
+      if (normalized === 'fetch') {
+        const a = parseToolArgs(args);
+        const isChannelFetch = !firstText(a.url, a.uri)
+          && Boolean(firstText(a.channel, a.channelId, a.chatId, a.messageId) || a.limit != null);
+        if (isChannelFetch) {
+          const n = countNonEmptyLines(text);
+          if (trimmed && looksLineOriented(text) && n > 0) return `${n} ${pluralize(n, 'message')}`;
+          return summarizeGenericResult(text);
+        }
+      }
       // Status: require a status-like context (HTTP NNN, "Status: NNN",
       // or "NNN OK"/"NNN Not Found") rather than any bare 3-digit number.
       const status = /(?:HTTP[\s/]*\d?\.?\d?\s*|status[:\s]+)([1-5]\d{2})\b/i.exec(text)
@@ -893,7 +963,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
     case 'recall':
     case 'search_memories':
     case 'memory': {
-      if (!trimmed || trimmed === '(no results)') return 'No Results';
+      if (!trimmed || trimmed === '(no results)' || looksLikeZeroResultText(text)) return 'No Results';
       let n = 0;
       for (const line of text.split('\n')) {
         if (/#\d+\s*$/.test(line)) n += 1;

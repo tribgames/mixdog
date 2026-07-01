@@ -24,6 +24,37 @@ import { loadConfig } from '../config.mjs';
 import { AGENT_OWNER } from '../agent-owner.mjs';
 import { resolvePublicAgentMaxLoopIterations } from './agent-loop-policy.mjs';
 
+import {
+    COMPACT_TYPE_RECALL_FASTTRACK,
+    COMPACT_TYPE_SEMANTIC,
+    normalizeCompactType,
+} from '../session/compact.mjs';
+
+function memoryModuleEnabled(config) {
+    const entry = config?.modules?.memory;
+    if (entry && typeof entry === 'object' && entry.enabled === false) return false;
+    return true;
+}
+
+function normalizeAgentCompactionConfig(value = {}, { memoryEnabled = true } = {}) {
+    const raw = value && typeof value === 'object' ? value : {};
+    let compactType = normalizeCompactType(
+        raw.compactType ?? raw.compact_type ?? raw.type,
+        COMPACT_TYPE_SEMANTIC,
+    );
+    // recall-fasttrack depends on memory ingest/recall; fall back to semantic when
+    // the memory module is disabled (same rule as Lead session runtime).
+    if (compactType === COMPACT_TYPE_RECALL_FASTTRACK && memoryEnabled === false) {
+        compactType = COMPACT_TYPE_SEMANTIC;
+    }
+    return {
+        ...raw,
+        auto: raw.auto !== false && raw.enabled !== false,
+        type: compactType,
+        compactType,
+    };
+}
+
 /**
  * @param {object} opts
  * @param {string}  opts.agent         — canonical agent name ('worker', 'explorer', ...)
@@ -87,12 +118,11 @@ export function prepareAgentSession({
     let compaction = null;
     try {
         const cfg = loadConfig({ secrets: false });
-        // Agent worker sessions should keep the higher-quality semantic compact
-        // path even when the Lead session uses recall-fasttrack for cheap
-        // auto-clear/auto-compact. Cycle maintenance prompts are small enough
-        // that this normally only matters for long-lived worker conversations.
-        const base = cfg?.compaction && typeof cfg.compaction === 'object' ? cfg.compaction : {};
-        compaction = { ...base, type: '1', compactType: '1' };
+        if (cfg?.compaction && typeof cfg.compaction === 'object') {
+            compaction = normalizeAgentCompactionConfig(cfg.compaction, {
+                memoryEnabled: memoryModuleEnabled(cfg),
+            });
+        }
     } catch { /* config is best-effort for agent compaction policy */ }
     const sessionOpts = {
         preset,

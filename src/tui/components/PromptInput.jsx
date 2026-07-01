@@ -149,6 +149,7 @@ export function PromptInput({
   onRestoreQueued,
   onHistoryNavigate,
   onPasteText,
+  onVoiceToggle,
   selectionRef,
   valueRef,
   boxRectRef,
@@ -776,6 +777,18 @@ export function PromptInput({
       return;
     }
 
+    // Ctrl+Space voice-record toggle. Two encodings observed across
+    // terminals: a lone NUL byte (legacy Ctrl+Space, many terminals send
+    // 0x00 directly) or the kitty CSI-u form `\x1b[32;5u` (codepoint 32
+    // = space, modifier 5 = 1+4 = ctrl). Consumed here — never typed into
+    // the prompt — and forwarded to the App-level recorder state machine
+    // via onVoiceToggle; a no-op when the prop isn't wired (e.g. embedded
+    // pickers) so this never throws.
+    if (rawInput === '\x00' || /^(?:\x1b)?\[32;5u$/.test(rawInput)) {
+      onVoiceToggle?.();
+      return;
+    }
+
     // Printable input (ignore other control keys). Strip any embedded SGR mouse
     // sequences as a belt-and-suspenders guard (the early return above catches
     // whole-sequence inputs; this removes partials that rode in with real text).
@@ -796,7 +809,19 @@ export function PromptInput({
   // resetAfterCommit BEFORE React layout effects — that lag made the 2nd+ char
   // appear to land behind the caret (the observed scramble). Computing inside
   // the fork, from the real layout + current refs, fixes that by construction.
-  cursorEnabledRef.current = !disabled && isRawModeSupported;
+  // Park the hardware cursor only when the prompt is a real, active edit target.
+  // While a turn/tool run is in flight (`interruptActive`) AND the draft is
+  // empty, suppress the anchor: otherwise ink parks + emits `\x1b[?25h` every
+  // frame on an empty idle prompt, and any transcript height change mid-turn
+  // (e.g. a tool failure appending an error row) makes ink's cursor-origin math
+  // paint that shown cursor one row off for a frame before it snaps back — the
+  // "cursor leaks out then returns" bug. Steering input is preserved: as soon
+  // as the user types (draft non-empty) the anchor re-enables so the caret is
+  // visible at the insertion point even during an active turn.
+  const draftIsEmpty = draftRef.current.value.length === 0;
+  cursorEnabledRef.current = !disabled
+    && isRawModeSupported
+    && !(interruptActive && draftIsEmpty);
   installCursorAnchor();
 
   useLayoutEffect(() => {

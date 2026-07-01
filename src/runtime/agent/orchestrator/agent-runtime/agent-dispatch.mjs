@@ -50,6 +50,41 @@ function applyBriefCap(text) {
     return `${head}\n\n... [TRUNCATED — full answer was ~${approxTokens} tokens / ${Math.round(text.length / 1024)} KB. Re-run with brief:false for the complete synthesis]`;
 }
 
+function formatCompactElapsedSeconds(ms) {
+    const value = Math.max(0, Number(ms) || 0);
+    if (value <= 0) return '';
+    return `${Math.max(1, Math.ceil(value / 1000))}s`;
+}
+
+function agentCompactEventLabel(event = {}) {
+    const status = String(event.status || '').toLowerCase();
+    const reactive = String(event.trigger || '').toLowerCase() === 'reactive';
+    if (status === 'failed') return reactive ? 'Compact failed (overflow retry)' : 'Compact failed';
+    if (status === 'skipped') return 'Compact skipped';
+    if (status === 'no_change') return 'Compact checked';
+    return reactive ? 'Compact complete (overflow recovery)' : 'Compact complete';
+}
+
+function agentCompactEventDetail(event = {}) {
+    const parts = [];
+    const elapsed = formatCompactElapsedSeconds(Number(event.durationMs ?? event.elapsedMs ?? 0));
+    if (elapsed) parts.push(elapsed);
+    const type = String(event.compactType || event.type || '').trim();
+    if (type && type !== 'semantic') parts.push(type);
+    const trigger = String(event.trigger || '').toLowerCase();
+    if (trigger === 'reactive') parts.push('reactive');
+    else if (trigger === 'manual') parts.push('manual');
+    const before = Number(event.beforeTokens ?? event.pressureTokens ?? 0);
+    const after = Number(event.afterTokens ?? 0);
+    const fmtTok = (n) => {
+        const v = Number(n) || 0;
+        if (v >= 1000) return `${(v / 1000).toFixed(v >= 10_000 ? 0 : 1)}k`;
+        return `${Math.round(v)}`;
+    };
+    if (before > 0 && after > 0 && after !== before) parts.push(`${fmtTok(before)}→${fmtTok(after)}`);
+    return parts.join(' · ');
+}
+
 // Unified-shard policy — most agent sessions (Pool B + Pool C) share the
 // same tool schema so BP_1 is bit-identical across roles and one provider-side
 // cache shard serves every caller. Per-role behaviour is steered by:
@@ -345,7 +380,18 @@ export function makeAgentDispatch(opts = {}) {
         process.stderr.write(`[agent-dispatch] agent=${agent} preset=${presetName} model=${preset.model} provider=${preset.provider} session=${session.id}\n`);
         const _agentDispatchT0 = Date.now();
         try {
-            const result = await askSession(session.id, finalPrompt, null, null, cwd);
+            const result = await askSession(session.id, finalPrompt, null, null, cwd, undefined, {
+                onCompactEvent: (event) => {
+                    try {
+                        const label = agentCompactEventLabel(event);
+                        const detail = agentCompactEventDetail(event);
+                        const suffix = detail ? ` (${detail})` : '';
+                        process.stderr.write(
+                            `[agent-dispatch] agent=${agent} session=${session.id} compact: ${label}${suffix}\n`,
+                        );
+                    } catch { /* best-effort compact visibility */ }
+                },
+            });
             process.stderr.write(`[agent-dispatch] agent=${agent} session=${session.id} elapsed=${Date.now() - _agentDispatchT0}ms\n`);
             const raw = result?.content || '';
             // Brief cap. Agent role answers (explore/recall/search)

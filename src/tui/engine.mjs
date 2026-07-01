@@ -18,6 +18,7 @@ import {
   modelVisibleToolCompletionMessage,
 } from '../runtime/shared/tool-execution-contract.mjs';
 import { listThemes, getThemeSetting, setThemeSetting } from './theme.mjs';
+import { resetAllStreamingMarkdownStablePrefixes } from './markdown/streaming-markdown.mjs';
 
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
 const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
@@ -1132,7 +1133,12 @@ export async function createEngineSession({
     }
     return nextItems;
   };
+  let flushDeferredBeforeImmediatePush = null;
+  let pushingFromDeferredEntry = false;
   const pushItem = (item) => {
+    if (!pushingFromDeferredEntry && flushDeferredBeforeImmediatePush) {
+      flushDeferredBeforeImmediatePush();
+    }
     const index = state.items.length;
     const items = [...state.items, item];
     if (item?.id != null) itemIndexById.set(item.id, index);
@@ -1488,14 +1494,15 @@ export async function createEngineSession({
     return chunks.join('\n\n');
   }
 
-  function aggregateBucketForCategory(_category) {
-    // Merge consecutive tool batches into one aggregate card. Every generic tool
-    // call shares a single bucket so a run of read/grep/patch calls collapses
-    // into one card whose header shows per-category counts (formatAggregateHeader)
-    // and whose collapsed detail is a bare status word. The numbered+labelled raw
-    // (aggregateRawResult) is preserved for ctrl+o expansion. Hook/approval
-    // denials keep their dedicated ToolHookDenialCard path in App.jsx.
-    return 'default';
+  function aggregateBucketForCategory(category) {
+    // Merge consecutive tool calls of the SAME category into one aggregate card;
+    // a different category opens a fresh card (no cross-category merge). The
+    // bucket key is the category itself, so a run of Search calls collapses into
+    // one Search card while an adjacent Read/Patch stays separate. Falls back to
+    // 'default' when a call has no resolved category. Hook/approval denials keep
+    // their dedicated ToolHookDenialCard path in App.jsx.
+    const key = String(category || '').trim();
+    return key ? `category:${key}` : 'default';
   }
 
   function aggregateSummaries(aggregate) {
@@ -1767,12 +1774,31 @@ export async function createEngineSession({
         try { e.push(); } catch {}
       }
     };
+    const hasUnpushedDeferredAfter = (holder) => {
+      const seq = holder?.deferred?.seq;
+      if (seq == null) return false;
+      for (const e of deferredEntries) {
+        if (e.seq > seq && !e.pushed) return true;
+      }
+      return false;
+    };
+    flushDeferredBeforeImmediatePush = () => {
+      if (!deferredEntries.length) return;
+      const last = deferredEntries[deferredEntries.length - 1];
+      if (last) flushDeferredUpTo(last);
+    };
     const registerDeferredCard = (card) => {
       const entry = {
         seq: deferredSeqCounter++,
         pushed: false,
         timer: null,
-        push: () => { card.pushed = true; if (card.spec) { card.spec.deferredDisplayReady = true; pushItem(card.spec); } },
+        push: () => {
+          card.pushed = true;
+          if (!card.spec) return;
+          card.spec.deferredDisplayReady = true;
+          pushingFromDeferredEntry = true;
+          try { pushItem(card.spec); } finally { pushingFromDeferredEntry = false; }
+        },
       };
       card.deferred = entry;
       card.ensureVisible = () => flushDeferredUpTo(entry);
@@ -1789,7 +1815,13 @@ export async function createEngineSession({
         seq: deferredSeqCounter++,
         pushed: false,
         timer: null,
-        push: () => { aggregate.pushed = true; if (aggregate.pendingSpec) { aggregate.pendingSpec.deferredDisplayReady = true; pushItem(aggregate.pendingSpec); } },
+        push: () => {
+          aggregate.pushed = true;
+          if (!aggregate.pendingSpec) return;
+          aggregate.pendingSpec.deferredDisplayReady = true;
+          pushingFromDeferredEntry = true;
+          try { pushItem(aggregate.pendingSpec); } finally { pushingFromDeferredEntry = false; }
+        },
       };
       aggregate.deferred = entry;
       aggregate.ensureVisible = () => flushDeferredUpTo(entry);
@@ -1896,14 +1928,23 @@ export async function createEngineSession({
       // same-bucket call in the SAME batch must merge even though the card is
       // not yet visible in state.items (isAggregateTail would be false).
       if (openAggregateCard?.bucket === bucket
-          && (!openAggregateCard.pushed || isAggregateTail(openAggregateCard))) return openAggregateCard;
+          && (!openAggregateCard.pushed || isAggregateTail(openAggregateCard))
+          && !hasUnpushedDeferredAfter(openAggregateCard)) return openAggregateCard;
       // If the previous aggregate was finalized/closed but is still the tail of
       // the transcript (or was never pushed), continue that exact card instead
       // of pushing a duplicate directly below it. Never reach past a visible
       // assistant/tool/status item: that would make an older card's count change
       // "in the middle" of history.
+      //
+      // Only continue a bucket's prior card when it is the VISIBLE tail. A
+      // not-yet-pushed same-category card from earlier in this batch must NOT be
+      // reused once a different category opened after it (e.g. Search→Read→Search)
+      // — that would merge non-consecutive Search calls across the Read card.
+      // In-batch consecutive reuse is already handled by the openAggregateCard
+      // check above, so here we require the card to actually be the tail.
       const tailAggregate = aggregateByBucket.get(bucket);
-      if (tailAggregate && (!tailAggregate.pushed || isAggregateTail(tailAggregate))) {
+      if (tailAggregate && tailAggregate.pushed && isAggregateTail(tailAggregate)
+          && !hasUnpushedDeferredAfter(tailAggregate)) {
         openAggregateCard = tailAggregate;
         rememberActiveAggregate(tailAggregate);
         return tailAggregate;
@@ -2203,7 +2244,10 @@ export async function createEngineSession({
             const c = batchCalls[i];
             const name = toolCallName(c);
             const args = toolCallArgs(c);
-            const bucket = aggregateBucketForCategory();
+            // Category drives the aggregate bucket so only same-category calls
+            // merge into one card; classify first, then bucket by it.
+            const category = classifyToolCategory(name, args);
+            const bucket = aggregateBucketForCategory(category);
             const callId = toolCallId(c);
             const callKey = callId || `__tool_${toolCards.length}_${i}`;
 
@@ -2241,7 +2285,6 @@ export async function createEngineSession({
               continue;
             }
 
-            const category = classifyToolCategory(name, args);
             const categoryEntry = aggregateToolCategoryEntry(name, args, category);
             const aggregateCard = ensureAggregateCard(bucket);
             if (!aggregateCard.categories.has(categoryEntry.key)) aggregateCard.categoryOrder.push(categoryEntry.key);
@@ -2261,6 +2304,17 @@ export async function createEngineSession({
 
           for (const aggregateCard of touchedAggregates) {
             syncAggregateHeader(aggregateCard);
+          }
+          if (committedAssistantSegment) {
+            // A pre-tool assistant preamble has already had one render frame to
+            // settle. Do not let the first grouped tool card sit off-screen until
+            // the normal 1s deferred timer: when it later inserts its real 3 rows,
+            // the already-wrapped preamble visibly jumps. Surface the first card
+            // now via the existing deferredDisplayReady path, so the post-
+            // preamble frame contains the intended Running tool card immediately
+            // (no blank placeholder, no delayed row insertion).
+            const firstTouchedAggregate = [...touchedAggregates][0] || null;
+            firstTouchedAggregate?.ensureVisible?.();
           }
           for (const [bufferedCallId, bufferedMessage] of earlyResultBuffer) {
             if (!cardByCallId.has(bufferedCallId)) continue;
@@ -2434,6 +2488,7 @@ export async function createEngineSession({
         if (last) flushDeferredUpTo(last);
         clearDeferredTimers();
       }
+      flushDeferredBeforeImmediatePush = null;
       const producedTranscriptItem = state.items.length > itemsAtTurnStart;
       const reclaimed = cancelled && activePromptRestore?.reclaimed === true;
       activePromptRestore = null;
@@ -3565,6 +3620,7 @@ export async function createEngineSession({
       if (state.commandBusy) return false;
       set({ commandBusy: true });
       clearToastTimers();
+      resetAllStreamingMarkdownStablePrefixes();
       const rollbackSnapshot = snapshotTuiBeforeSessionReset();
       resetTuiForPendingSessionReset();
       set({
@@ -3600,6 +3656,7 @@ export async function createEngineSession({
       if (state.commandBusy) return false;
       set({ commandBusy: true });
       clearToastTimers();
+      resetAllStreamingMarkdownStablePrefixes();
       const rollbackSnapshot = snapshotTuiBeforeSessionReset();
       resetTuiForPendingSessionReset();
       set({

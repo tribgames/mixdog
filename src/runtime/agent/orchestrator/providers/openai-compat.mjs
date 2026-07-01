@@ -1491,6 +1491,13 @@ export class OpenAICompatProvider {
             model: response.model || useModel,
             toolCalls,
             stopReason,
+            // P1 audit fix: a text-only completion that hit finish_reason=
+            // 'length' (no tool calls, so not thrown above as
+            // ProviderIncompleteError) previously returned as an ordinary
+            // success with no signal that the content is a mid-sentence
+            // cutoff. Flag it so loop.mjs can surface a one-line warning
+            // instead of silently treating a truncated answer as complete.
+            ...(stopReason === 'length' && (assembled.content || '').length > 0 ? { truncated: true } : {}),
             ...(reasoningContent ? { reasoningContent } : {}),
             usage: response.usage ? (() => {
                 const input = response.usage.prompt_tokens ?? response.usage.input_tokens ?? 0;
@@ -1659,6 +1666,10 @@ export class OpenAICompatProvider {
             model: response.model || useModel,
             toolCalls,
             stopReason: streamed.stopReason || null,
+            // P1 audit fix: mirror the chat-completions truncated flag for
+            // the xAI Responses HTTP path — a max-output cutoff with real
+            // content must not look identical to a clean stop.
+            ...(streamed.stopReason === 'length' && (streamed.content || '').length > 0 ? { truncated: true } : {}),
             citations: searchSources.citations.length ? searchSources.citations : undefined,
             webSearchCalls: searchSources.webSearchCalls.length ? searchSources.webSearchCalls : undefined,
             providerState: {
@@ -1814,6 +1825,9 @@ export class OpenAICompatProvider {
             model: result.model || useModel,
             toolCalls: result.toolCalls,
             stopReason: result.stopReason || null,
+            // P1 audit fix: same truncated signal as the HTTP path (see
+            // _doSendXaiResponses above) for the WebSocket transport.
+            ...(result.stopReason === 'length' && (result.content || '').length > 0 ? { truncated: true } : {}),
             providerState: {
                 ...(opts.providerState || {}),
                 xaiResponses: {

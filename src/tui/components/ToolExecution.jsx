@@ -797,11 +797,11 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     // color; the status placeholder is rendered dim.
     const isPlaceholderDetail = !(expanded && hasRawResult) && !detailText;
     const showRawAggregate = expanded && hasRawResult;
-    // Pending placeholder carries the elapsed time (`Running · 12s`) once it
-    // reaches >=1s — this is still ONE logical detail row (only its text
-    // changes), so estimateTranscriptItemRows stays in lockstep.
+    // Aggregate cards intentionally omit elapsed time once grouped. A brief
+    // `Running · 1s` tick during the grouped→finished handoff reads as visual
+    // noise, and the grouped header already communicates that work is active.
     const pendingPlaceholder = headerPending
-      ? (elapsed ? `Running · ${elapsed}` : 'Running')
+      ? 'Running'
       : 'Finished';
     const detailLines = showRawAggregate
       ? rawRt.split('\n')
@@ -865,7 +865,11 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     : (isBackgroundTaskTool(normalizedName) ? backgroundTaskElapsed(parsedArgs, elapsed) : '');
 
   const toolArgPath = parsedArgs?.path ?? parsedArgs?.file_path ?? parsedArgs?.file ?? '';
-  const imageDetail = normalizedName === 'view_image' && toolArgPath ? String(toolArgPath) : '';
+  // Audit HIGH: on a FAILED view_image the path detail used to win over the
+  // error cause (nonShellDetail order puts imageDetail before genericDetail),
+  // so the card showed the filename instead of why it failed. Suppress the
+  // path detail on error; the error-cause summary/first line takes the row.
+  const imageDetail = normalizedName === 'view_image' && toolArgPath && !isError ? String(toolArgPath) : '';
   const isBackgroundResult = !pending && isBackgroundTaskTool(normalizedName) && Boolean(backgroundMeta);
   const isBackgroundResponse = isBackgroundResult && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgs(normalizedName, parsedArgs));
   const isBackgroundMetadataResult = isBackgroundResult && !isBackgroundResponse && Boolean(backgroundMeta);
@@ -950,7 +954,10 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // collapsed; ctrl+o expand still surfaces the full body.
   let visibleDetailLines = detailLines;
   if (isSkillSurface && !showRawResult) {
-    visibleDetailLines = [];
+    // Audit HIGH: a FAILED skill load used to drop its detail row with the
+    // success path, hiding the one-line cause entirely. Keep the detail row
+    // when the call errored; only the redundant success repeat is dropped.
+    visibleDetailLines = isError && collapsedDetail ? [collapsedDetail] : [];
   } else if (isBackgroundMetadataResult && backgroundMetadataHeaderFailure && !showRawResult) {
     visibleDetailLines = [];
   } else if (isAgentSurfaceCard && !showRawResult) {
