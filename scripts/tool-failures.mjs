@@ -17,7 +17,7 @@ const mixdogHome = process.env.MIXDOG_HOME || resolve(homedir(), '.mixdog');
 const mixdogDataDir = process.env.MIXDOG_DATA_DIR || resolve(mixdogHome, 'data');
 const sinceArg = argValue('--since', null);
 const toolFilter = argValue('--tool', null);
-const roleFilter = argValue('--role', null);
+const agentFilter = argValue('--agent', null);
 const categoryFilter = argValue('--category', null);
 const jsonMode = process.argv.includes('--json');
 const files = dataDir
@@ -91,7 +91,7 @@ const sinceTs = parseSince(sinceArg);
 const rows = files.flatMap(readRows)
   .filter((row) => sinceTs == null || Number(row.ts || 0) >= sinceTs)
   .filter((row) => !toolFilter || rowTool(row) === toolFilter)
-  .filter((row) => !roleFilter || String(row.role || '-') === roleFilter)
+  .filter((row) => !agentFilter || String(row.agent || '-') === agentFilter)
   .filter((row) => !categoryFilter || rowCategory(row) === categoryFilter)
   .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
 const recent = rows.slice(-limit);
@@ -111,7 +111,7 @@ if (jsonMode) {
     since: sinceTs ? new Date(sinceTs).toISOString() : null,
     filters: {
       tool: toolFilter,
-      role: roleFilter,
+      agent: agentFilter,
       category: categoryFilter,
     },
     sources: files.filter(existsSync),
@@ -126,7 +126,7 @@ console.log(`tool failures: ${recent.length}/${rows.length} shown`);
 if (sinceTs) console.log(`since: ${new Date(sinceTs).toISOString()}`);
 const filterParts = [
   toolFilter ? `tool=${toolFilter}` : '',
-  roleFilter ? `role=${roleFilter}` : '',
+  agentFilter ? `agent=${agentFilter}` : '',
   categoryFilter ? `category=${categoryFilter}` : '',
 ].filter(Boolean);
 if (filterParts.length) console.log(`filters: ${filterParts.join(', ')}`);
@@ -138,6 +138,6 @@ for (const row of recent) {
   const category = rowCategory(row);
   const args = short(JSON.stringify(row.tool_args || row.args || {}), 140);
   const result = short(row.error_first_line || row.error_preview || row.result || row.error || row.message || '', 220);
-  const role = row.role || '-';
-  console.log(`- ${timeLabel(row.ts)} iter=${row.iteration ?? '-'} role=${role} ${tool} ${category} args=${args}${result ? ` result=${result}` : ''}`);
+  const agent = row.agent || '-';
+  console.log(`- ${timeLabel(row.ts)} iter=${row.iteration ?? '-'} agent=${agent} ${tool} ${category} args=${args}${result ? ` result=${result}` : ''}`);
 }

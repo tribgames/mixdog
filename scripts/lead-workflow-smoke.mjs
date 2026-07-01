@@ -315,7 +315,7 @@ function agentSummary(call) {
     id: call?.id || call?.callId || null,
     name: call?.name || call?.toolName || 'tool',
     type: input?.type || input?.action || null,
-    role: input?.role || null,
+    agent: input?.agent || null,
     tag: input?.tag || null,
     mode: input?.mode || null,
     wait: input?.wait ?? null,
@@ -491,15 +491,15 @@ async function runScenario(name) {
     .filter(Number.isFinite);
   const firstMutationIter = mutationIters.length ? Math.min(...mutationIters) : null;
   const implementationSpawnCalls = spawnCalls.filter((call) => {
-    const role = String(call.role || '').toLowerCase();
+    const agent = String(call.agent || '').toLowerCase();
     const tag = String(call.tag || '').toLowerCase();
-    if (!['worker', 'heavy-worker', 'debugger'].includes(role)) return false;
+    if (!['worker', 'heavy-worker', 'debugger'].includes(agent)) return false;
     return !/(verify|smoke|review|policy)/.test(tag);
   });
   const preEditImplementationSpawns = firstMutationIter == null
     ? implementationSpawnCalls.length
     : implementationSpawnCalls.filter((call) => Number(call.iter) < firstMutationIter).length;
-  const distinctRoles = [...new Set(agentCalls.map((call) => call.role).filter(Boolean))];
+  const distinctRoles = [...new Set(agentCalls.map((call) => call.agent).filter(Boolean))];
   const distinctTags = [...new Set(agentCalls.map((call) => call.tag).filter(Boolean))];
   const firstAgentIter = Math.min(...agentCalls.map((call) => Number(call.iter)).filter(Number.isFinite));
   const firstIterAgentCount = Number.isFinite(firstAgentIter)

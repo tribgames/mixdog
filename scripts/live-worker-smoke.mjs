@@ -107,7 +107,7 @@ async function main() {
       if (/debug/i.test(prompt)) {
         return { content: `debugger ${readFileSync(join(cwdOverride, 'notes.txt'), 'utf8').trim()}` };
       }
-      return { content: `ack ${session?.role || 'worker'}` };
+      return { content: `ack ${session?.agent || 'worker'}` };
     } finally {
       activeAsks -= 1;
       if (session) {
@@ -152,7 +152,7 @@ async function main() {
 
   const spawnOut = await agentRunner.execute({
     type: 'spawn',
-    role: 'worker',
+    agent: 'worker',
     tag: 'impl1',
     cwd: root,
     prompt: 'write implementation: update feature.txt with apply_patch',
@@ -169,14 +169,14 @@ async function main() {
 
   const reviewOut = await agentRunner.execute({
     type: 'spawn',
-    role: 'reviewer',
+    agent: 'reviewer',
     tag: 'rev1',
     cwd: root,
     prompt: 'review feature.txt for the worker change',
   }, { invocationSource: 'model-tool', cwd: root });
   const debugOut = await agentRunner.execute({
     type: 'spawn',
-    role: 'debugger',
+    agent: 'debugger',
     tag: 'dbg1',
     cwd: root,
     prompt: 'debug notes.txt timeout clue',
@@ -187,21 +187,21 @@ async function main() {
   const parallelSpawns = await Promise.all([
     agentRunner.execute({
       type: 'spawn',
-      role: 'worker',
+      agent: 'worker',
       tag: 'parWorker',
       cwd: root,
       prompt: 'parallel slow worker task',
     }, { invocationSource: 'model-tool', cwd: root }),
     agentRunner.execute({
       type: 'spawn',
-      role: 'reviewer',
+      agent: 'reviewer',
       tag: 'parReviewer',
       cwd: root,
       prompt: 'parallel slow review task',
     }, { invocationSource: 'model-tool', cwd: root }),
     agentRunner.execute({
       type: 'spawn',
-      role: 'debugger',
+      agent: 'debugger',
       tag: 'parDebugger',
       cwd: root,
       prompt: 'parallel slow debug task',
@@ -217,7 +217,7 @@ async function main() {
 
   const busyOut = await agentRunner.execute({
     type: 'spawn',
-    role: 'worker',
+    agent: 'worker',
     tag: 'busy1',
     cwd: root,
     prompt: 'long busy worker task',

@@ -105,7 +105,7 @@ async function fakeAskSession(sessionId, prompt) {
   maxAskConcurrency = Math.max(maxAskConcurrency, askConcurrency);
   try {
     await sleep(300); // each agent's "work" lasts noticeably longer than spawn return
-    return { content: `ack ${session?.role || 'worker'}` };
+    return { content: `ack ${session?.agent || 'worker'}` };
   } finally {
     askConcurrency -= 1;
     if (session) { session.status = 'idle'; session.lastStreamDeltaAt = Date.now(); }
@@ -147,7 +147,7 @@ async function main() {
   const outs = await Promise.all(
     Array.from({ length: batchSize }, (_, i) => agent.execute({
       type: 'spawn',
-      role: i % 2 === 0 ? 'worker' : 'reviewer',
+      agent: i % 2 === 0 ? 'worker' : 'reviewer',
       tag: `par${i}`,
       cwd: root,
       prompt: `parallel task ${i}`,
@@ -178,7 +178,7 @@ async function main() {
   const initBatch = await Promise.all(
     Array.from({ length: 4 }, (_, i) => agent.execute({
       type: 'spawn',
-      role: 'worker',
+      agent: 'worker',
       tag: `init${i}`,
       cwd: root,
       prompt: `init task ${i}`,
@@ -197,14 +197,14 @@ async function main() {
   const callsBeforeChange = initProvidersCalls;
   // Same config first: must be skipped (no new init).
   await waitJob(await agent.execute({
-    type: 'spawn', role: 'worker', tag: 'cfgSame', cwd: root, prompt: 'cfg same',
+    type: 'spawn', agent: 'worker', tag: 'cfgSame', cwd: root, prompt: 'cfg same',
   }, { invocationSource: 'model-tool', cwd: root }), /ack worker/, 'cfg same');
   assert(initProvidersCalls === callsBeforeChange,
     `unchanged config must not re-init; before=${callsBeforeChange} after=${initProvidersCalls}`);
   // Now mutate the provider config and spawn again → must re-init once.
   providerConfig = { 'openai-oauth': { enabled: true, baseUrl: 'https://changed.example' } };
   await waitJob(await agent.execute({
-    type: 'spawn', role: 'worker', tag: 'cfgChanged', cwd: root, prompt: 'cfg changed',
+    type: 'spawn', agent: 'worker', tag: 'cfgChanged', cwd: root, prompt: 'cfg changed',
   }, { invocationSource: 'model-tool', cwd: root }), /ack worker/, 'cfg changed');
   assert(initProvidersCalls === callsBeforeChange + 1,
     `config change must trigger exactly one re-init; before=${callsBeforeChange} after=${initProvidersCalls}`);
@@ -269,7 +269,7 @@ async function main() {
   // Fire A (slow), then B and C back-to-back while A is still running. B is
   // superseded by C before A's chain link releases.
   const aOut = await raceAgent.execute({
-    type: 'spawn', role: 'worker', tag: 'raceA', cwd: raceRoot, prompt: 'race A',
+    type: 'spawn', agent: 'worker', tag: 'raceA', cwd: raceRoot, prompt: 'race A',
     spawnPrepTimeoutMs: 0, // testing init serialization, not the prep cap
   }, { invocationSource: 'model-tool', cwd: raceRoot });
   // Let A's deferred job reach ensureProvider and START its slow (200ms) init,
@@ -279,12 +279,12 @@ async function main() {
   await sleep(60);
   raceConfig = { providers: { 'openai-oauth': { enabled: true, baseUrl: 'gen-b' } } };
   const bOut = await raceAgent.execute({
-    type: 'spawn', role: 'worker', tag: 'raceB', cwd: raceRoot, prompt: 'race B',
+    type: 'spawn', agent: 'worker', tag: 'raceB', cwd: raceRoot, prompt: 'race B',
     spawnPrepTimeoutMs: 0,
   }, { invocationSource: 'model-tool', cwd: raceRoot });
   raceConfig = { providers: { 'openai-oauth': { enabled: true, baseUrl: 'gen-c' } } };
   const cOut = await raceAgent.execute({
-    type: 'spawn', role: 'worker', tag: 'raceC', cwd: raceRoot, prompt: 'race C',
+    type: 'spawn', agent: 'worker', tag: 'raceC', cwd: raceRoot, prompt: 'race C',
     spawnPrepTimeoutMs: 0,
   }, { invocationSource: 'model-tool', cwd: raceRoot });
   await Promise.all([
@@ -327,7 +327,7 @@ async function main() {
   const wedgeStart = Date.now();
   const wedged = await hangAgent.execute({
     type: 'spawn',
-    role: 'worker',
+    agent: 'worker',
     tag: 'wedge1',
     cwd: hangRoot,
     prompt: 'wedge prep',
@@ -361,7 +361,7 @@ async function main() {
   const retryAgent = createStandaloneAgent({ cfgMod, reg: retryReg, mgr, dataDir: retryDataDir, cwd: retryRoot });
   const retryFirst = await retryAgent.execute({
     type: 'spawn',
-    role: 'worker',
+    agent: 'worker',
     tag: 'retrySameTag',
     cwd: retryRoot,
     prompt: 'retry first should timeout before provider init releases',
@@ -371,7 +371,7 @@ async function main() {
   assert(retryInitCalls === 1, `first retry spawn should start one gated init; calls=${retryInitCalls}`);
   const retrySecond = await retryAgent.execute({
     type: 'spawn',
-    role: 'worker',
+    agent: 'worker',
     tag: 'retrySameTag',
     cwd: retryRoot,
     prompt: 'retry second should succeed after init releases',
@@ -406,7 +406,7 @@ async function main() {
   const slowStart = Date.now();
   const slowOut = await slowAgent.execute({
     type: 'spawn',
-    role: 'worker',
+    agent: 'worker',
     tag: 'slowprep1',
     cwd: slowRoot,
     prompt: 'slow prep override',

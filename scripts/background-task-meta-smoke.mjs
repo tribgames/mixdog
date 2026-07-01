@@ -11,7 +11,7 @@ const task = registerBackgroundTask({
   label: 'smoke',
   meta: {
     tag: 'w1',
-    role: 'worker',
+    agent: 'worker',
     firstResponseTimeoutMs: 30_000,
     idleTimeoutMs: 120_000,
     spawnPrepTimeoutMs: 90_000,

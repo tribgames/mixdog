@@ -1459,7 +1459,7 @@ export class OpenAIOAuthProvider {
         // Prefer WebSocket for hot cache/delta transport; fall back to HTTP/SSE
         // after retry-exhausted handshake/acquire/no-first-event failures.
         try {
-            if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] provider-send-start model=${useModel} role=${_sendRole} sessionHash=${createHash('sha256').update(String(_sendSessionId)).digest('hex').slice(0, 8)} iteration=${iteration ?? '(none)'}\n`); }
+            if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] provider-send-start model=${useModel} agent=${_sendAgent} sessionHash=${createHash('sha256').update(String(_sendSessionId)).digest('hex').slice(0, 8)} iteration=${iteration ?? '(none)'}\n`); }
             const result = await dispatchWs(false);
             if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok\n`); }
             return recordLiveModel(result);

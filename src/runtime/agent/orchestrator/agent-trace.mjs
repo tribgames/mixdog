@@ -617,7 +617,7 @@ function classifyToolFailure(resultText, toolName) {
     return 'runtime/failure';
 }
 
-function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, agent, model, cwd, resultText, resultKind = 'error' }) {
+function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, agent, model, cwd, resultText, resultKind = 'error' }) {
     if (process.env.MIXDOG_AGENT_TRACE_DISABLE === '1') return;
     if (!_resolveToolFailurePath()) return;
     try {
@@ -630,8 +630,7 @@ function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolM
             tool_kind: toolKind || null,
             result_kind: resultKind || 'error',
             category: classifyToolFailure(cleanText, toolName),
-            agent: agent || role || null,
-            role: role || agent || null,
+            agent: agent || null,
             model: model || null,
             cwd: cwd || null,
             tool_ms: Number.isFinite(Number(toolMs)) ? Number(toolMs) : null,
@@ -647,7 +646,7 @@ function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolM
     }
 }
 
-function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, agent, resultKind, model, resultText, cwd }) {
+function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, agent, resultKind, model, resultText, cwd }) {
     const nextCallCount = countJsonNextCalls(resultText);
     const resultBytesEst = typeof resultText === 'string' ? Buffer.byteLength(resultText, 'utf8') : 0;
     const resultLinesEst = typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0;
@@ -662,8 +661,7 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
         sessionId,
         iteration,
         kind: 'tool',
-        agent: agent || role || null,
-        role: role || agent || null,
+        agent: agent || null,
         model: model || null,
         tool_name: toolName,
         tool_kind: toolKind,
@@ -686,8 +684,7 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
             sessionId,
             iteration,
             kind: 'tool_slow',
-            agent: agent || role || null,
-            role: role || agent || null,
+            agent: agent || null,
             model: model || null,
             tool_name: toolName,
             tool_kind: toolKind,
@@ -707,7 +704,7 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
         });
     }
     if (resultKind === 'error') {
-        traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, role, agent, model, cwd, resultText, resultKind });
+        traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, agent, model, cwd, resultText, resultKind });
     }
 }
 
@@ -765,7 +762,7 @@ function traceStreamAborted({ sessionId, info }) {
     });
 }
 
-function traceAgentPreset({ sessionId, role, agent, presetName, model, provider, parentSessionId }) {
+function traceAgentPreset({ sessionId, agent, presetName, model, provider, parentSessionId }) {
     // Fires once per dispatch right after the preset has been resolved and
     // its runtime spec (provider/model) assembled. Useful for after-the-fact
     // routing analysis: "which agent landed on which preset / provider / model
@@ -773,8 +770,7 @@ function traceAgentPreset({ sessionId, role, agent, presetName, model, provider,
     appendAgentTrace({
         sessionId,
         kind: 'preset_assign',
-        agent: agent || role || null,
-        role: role || agent || null,
+        agent: agent || null,
         preset_name: presetName || null,
         model: model || null,
         provider: provider || null,

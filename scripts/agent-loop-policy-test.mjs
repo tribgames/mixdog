@@ -1,4 +1,3 @@
-@@
 #!/usr/bin/env node
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,7 +22,7 @@ test('hidden internal roles do not inherit public caps', () => {
 test('agent owner session resolves role cap when maxLoopIterations unset', () => {
     const cap = resolveSessionMaxLoopIterations({
         owner: 'agent',
-        role: 'heavy-worker',
+        agent: 'heavy-worker',
         permission: 'read-write',
         maxLoopIterations: null,
     });
@@ -31,12 +30,12 @@ test('agent owner session resolves role cap when maxLoopIterations unset', () =>
 });
 
 test('lead session keeps high ceiling when unset', () => {
-    assert.equal(resolveSessionMaxLoopIterations({ owner: 'user', role: null }), LEAD_MAX_LOOP_ITERATIONS);
+    assert.equal(resolveSessionMaxLoopIterations({ owner: 'user', agent: null }), LEAD_MAX_LOOP_ITERATIONS);
 });
 
 test('explicit maxLoopIterations wins', () => {
     assert.equal(
-        resolveSessionMaxLoopIterations({ owner: 'agent', role: 'heavy-worker', maxLoopIterations: 4 }, 4),
+        resolveSessionMaxLoopIterations({ owner: 'agent', agent: 'heavy-worker', maxLoopIterations: 4 }, 4),
         4,
     );
 });
