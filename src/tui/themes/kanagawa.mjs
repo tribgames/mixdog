@@ -31,8 +31,8 @@ export const kanagawaPalette = {
   timerText: 'rgb(114,113,105)', // fujiGray
   text: 'rgb(220,215,186)', // fujiWhite #DCD7BA
   inverseText: 'rgb(31,31,40)', // background
-  selectionText: 'rgb(31,31,40)', // background
-  selectionBackground: 'rgb(220,215,186)', // fg
+  selectionText: 'rgb(238,232,204)',
+  selectionBackground: 'rgb(61,70,96)',
   inactive: 'rgb(114,113,105)', // fujiGray
   subtle: 'rgb(114,113,105)', // fujiGray
   promptBorder: 'rgb(114,113,105)', // fujiGray (muted grey)

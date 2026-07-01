@@ -30,8 +30,8 @@ export const tokyonightPalette = {
   timerText: 'rgb(86,95,137)', // comment
   text: 'rgb(192,202,245)', // fg #c0caf5
   inverseText: 'rgb(36,40,59)', // background
-  selectionText: 'rgb(36,40,59)', // background
-  selectionBackground: 'rgb(192,202,245)', // fg
+  selectionText: 'rgb(225,232,255)',
+  selectionBackground: 'rgb(52,72,130)',
   inactive: 'rgb(86,95,137)', // comment
   subtle: 'rgb(86,95,137)', // comment
   promptBorder: 'rgb(86,95,137)', // comment (muted grey)

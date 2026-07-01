@@ -27,6 +27,7 @@
 import {
   THEME_REGISTRY,
   THEME_ORDER,
+  THEME_ALIASES,
   DEFAULT_THEME_ID,
   basicPalette,
 } from './themes/index.mjs';
@@ -54,6 +55,7 @@ export function getThemeSetting() {
 /** Coerce any value to a known theme id, falling back to the default. */
 export function resolveThemeId(id) {
   const key = String(id || '').trim();
+  if (THEME_ALIASES[key] && THEME_REGISTRY[THEME_ALIASES[key]]) return THEME_ALIASES[key];
   return THEME_REGISTRY[key] ? key : DEFAULT_THEME_ID;
 }
 
@@ -141,8 +143,9 @@ export async function loadThemeSettingFromConfig() {
     const { readConfig } = await loadConfigModule();
     const cfg = readConfig() || {};
     const stored = cfg && cfg.ui && typeof cfg.ui === 'object' ? cfg.ui.theme : null;
-    if (stored && THEME_REGISTRY[resolveThemeId(stored)] && resolveThemeId(stored) === String(stored)) {
-      applyPalette(stored);
+    const storedKey = String(stored || '').trim();
+    if (storedKey && (THEME_REGISTRY[storedKey] || THEME_ALIASES[storedKey])) {
+      applyPalette(resolveThemeId(storedKey));
     }
   } catch {
     // Fall back to the already-applied default theme.

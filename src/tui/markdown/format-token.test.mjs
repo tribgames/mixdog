@@ -344,7 +344,7 @@ test('every palette defines the full extended key set', () => {
     'syntaxComment', 'syntaxKeyword', 'syntaxFunction', 'syntaxVariable',
     'syntaxString', 'syntaxNumber', 'syntaxType', 'syntaxOperator', 'syntaxPunctuation',
   ];
-  for (const id of ['basic', 'basicIndigo', 'warm', 'teal', 'onedark', 'tokyonight', 'kanagawa', 'catppuccin', 'dracula', 'rosepine', 'nord', 'gruvbox', 'everforest']) {
+  for (const id of ['basic', 'indigo', 'warm', 'light', 'teal', 'onedark', 'tokyonight', 'kanagawa', 'catppuccin', 'dracula', 'rosepine', 'nord', 'gruvbox', 'everforest']) {
     setThemeSetting(id, { persist: false });
     for (const key of required) {
       assert.ok(/^rgb\(\d+,\s*\d+,\s*\d+\)$/.test(String(theme[key])), `${id}.${key} is an rgb() string`);

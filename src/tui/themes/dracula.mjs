@@ -5,8 +5,8 @@ export const draculaPalette = {
   background: 'transparent',
   text: 'rgb(248,248,242)',
   inverseText: 'rgb(40,42,54)',
-  selectionText: 'rgb(40,42,54)',
-  selectionBackground: 'rgb(248,248,242)',
+  selectionText: 'rgb(248,248,242)',
+  selectionBackground: 'rgb(68,71,120)',
   claude: 'rgb(189,147,249)',
   logo: 'rgb(214,180,255)', // welcome banner — brighter than accent
   claudeShimmer: 'rgb(212,182,251)',

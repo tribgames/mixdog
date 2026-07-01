@@ -5,8 +5,8 @@ export const rosepinePalette = {
   background: 'transparent',
   text: 'rgb(224,222,244)',
   inverseText: 'rgb(25,23,36)',
-  selectionText: 'rgb(25,23,36)',
-  selectionBackground: 'rgb(224,222,244)',
+  selectionText: 'rgb(238,232,255)',
+  selectionBackground: 'rgb(65,52,92)',
   claude: 'rgb(196,167,231)',
   logo: 'rgb(220,196,245)', // welcome banner — brighter than accent
   claudeShimmer: 'rgb(235,188,186)',

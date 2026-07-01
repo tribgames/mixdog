@@ -11,6 +11,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
+import stripAnsi from 'strip-ansi';
 import { theme, TURN_MARKER, RESULT_GUTTER, RESULT_GUTTER_CONT } from '../theme.mjs';
 import { formatElapsed } from '../time-format.mjs';
 import { BULLET_OPERATOR } from '../figures.mjs';
@@ -42,6 +43,21 @@ const TOOL_BLINK_LIMIT_MS = 3000;
 const TOOL_PENDING_SHOW_DELAY_MS = 1000;
 // Read `theme.subtle` at use-time (not captured here) so a live `/theme`
 // switch re-tones the tool hints. `theme` is mutated in-place on switch.
+// Collapsed tool headers/details are laid out as single terminal rows. Never let
+// raw C0/control bytes (CR, tabs, cursor escapes, etc.) reach those rows: a
+// terminal can apply them after Ink has already clipped/measured the row, which
+// makes a scrolled tool card appear to write through the prompt/statusline.
+const INLINE_CONTROL_RE = /[\u0000-\u001F\u007F]/g;
+
+function safeInlineText(value) {
+  return stripAnsi(String(value ?? ''))
+    .replace(/\r\n?/g, '\n')
+    .replace(/\t/g, ' ')
+    .replace(/\n+/g, ' ')
+    .replace(INLINE_CONTROL_RE, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 function normalizeCount(value) {
   const n = Number(value || 0);
@@ -207,13 +223,13 @@ function statusCopy(name, label, count, doneCount, pending, isError, args = {}) 
 
 function fitResultLine(line, columns) {
   const max = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
-  const text = String(line ?? '');
+  const text = safeInlineText(line);
   return stringWidth(text) > max ? truncateToWidth(text, max) : text;
 }
 
 /** Trim text from the end (by display width) so it fits maxWidth, appending '…'. */
 function truncateToWidth(text, maxWidth) {
-  const str = String(text ?? '');
+  const str = safeInlineText(text);
   if (maxWidth < 1) return '';
   if (stringWidth(str) <= maxWidth) return str;
   const chars = Array.from(str);
@@ -695,7 +711,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     // No stableVerbWidth: see statusCopy — the padding only left a mid-header
     // gap ("Searched  1 pattern, Read    1 file") since Ink trims trailing
     // spaces and never stabilized the flip.
-    const headerText = formatAggregateHeader(displayCategories || {}, { pending: headerPending, order: headerOrder });
+    const headerText = safeInlineText(formatAggregateHeader(displayCategories || {}, { pending: headerPending, order: headerOrder }));
     let detailText;
     if (hasResult) {
       // The aggregate card reserves EXACTLY ONE detail row when it is not
@@ -706,7 +722,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
       // "settle" taller than reserved. Collapse to a single logical line
       // (whitespace-normalized); fitResultLine below trims it to the column
       // width so it can never exceed one terminal row.
-      detailText = String(rt).replace(/\s+/g, ' ').trim();
+      detailText = safeInlineText(rt);
     } else {
       detailText = '';
     }
@@ -908,14 +924,15 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   else if (isBackgroundMetadataResult) labelText = backgroundTaskActionTitle(normalizedName, backgroundMeta);
   else if (isShellSurface) labelText = shellHeader(shellStatus, displayGroupCount);
   else labelText = (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs) : '') || statusCopy(name, label, displayGroupCount, doneCount, headerPending, isError, parsedArgs);
+  labelText = safeInlineText(labelText);
   // Show the parenthesized arg summary for grouped cards too, matching single
   // calls so the header carries the same context.
   const toolSearchSummary = !pending && normalizedName === 'tool_search' && hasResult
     ? toolSearchLoadedSummary(displayedResultText)
     : '';
-  const summaryText = isAgentResponse || isBackgroundResponse
+  const summaryText = safeInlineText(isAgentResponse || isBackgroundResponse
     ? ''
-    : toolSearchSummary || (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary);
+    : toolSearchSummary || (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary));
   // Agent cards hide their collapsed body but still expose ctrl+o expand only
   // when expanding would actually reveal something: an agent response body, or a
   // multiline / clipped raw result (e.g. the "agents: N …" worker list). A

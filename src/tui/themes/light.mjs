@@ -16,7 +16,7 @@ export const lightPalette = {
   text: 'rgb(36,41,47)', // lightFg #24292f
   inverseText: 'rgb(255,255,255)',
   selectionText: 'rgb(36,41,47)',
-  selectionBackground: 'rgb(208,215,222)', // #d0d7de border-ish selection band
+  selectionBackground: 'rgb(180,213,255)', // classic light-mode selection blue
   inactive: 'rgb(87,96,106)', // lightFgMuted #57606a
   subtle: 'rgb(110,119,129)', // #6e7781
   promptBorder: 'rgb(208,215,222)', // #d0d7de
@@ -28,6 +28,7 @@ export const lightPalette = {
   thinkingAccent: 'rgb(87,96,106)',
   thinkingGlow: 'rgb(20,24,28)',
   claude: 'rgb(9,105,218)', // lightBlue #0969da (signature accent)
+  logo: 'rgb(9,105,218)', // welcome banner — high-contrast on white
   claudeShimmer: 'rgb(84,153,237)',
   mixdogOrange: 'rgb(9,105,218)',
   mixdogAmber: 'rgb(84,153,237)',

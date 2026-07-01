@@ -32,8 +32,8 @@ export const tealPalette = {
   timerText: 'rgb(128,128,128)',
   text: 'rgb(212,212,212)', // text #d4d4d4
   inverseText: 'rgb(24,24,30)',
-  selectionText: 'rgb(24,24,30)',
-  selectionBackground: 'rgb(212,212,212)',
+  selectionText: 'rgb(220,245,242)',
+  selectionBackground: 'rgb(35,78,82)',
   inactive: 'rgb(128,128,128)', // muted/gray #808080
   subtle: 'rgb(102,102,102)', // dim/dimGray #666666
   promptBorder: 'rgb(80,80,80)', // borderMuted/darkGray #505050

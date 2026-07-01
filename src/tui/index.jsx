@@ -181,9 +181,9 @@ function installTuiStderrGuard() {
   };
 }
 
-export async function runTui({ provider, model, toolMode } = {}) {
+export async function runTui({ provider, model, toolMode, remote } = {}) {
   const startedAt = performance.now();
-  bootProfile('run:start', { provider, model, toolMode });
+  bootProfile('run:start', { provider, model, toolMode, remote });
   // The React/ink TUI needs a raw-mode-capable TTY (interactive input). In a
   // pipe/redirect/CI, ink's input hooks throw — bail with a clear hint instead.
   if (!process.stdin.isTTY) {
@@ -237,7 +237,7 @@ export async function runTui({ provider, model, toolMode } = {}) {
 
   let store;
   try {
-    store = await createEngineSession({ provider, model, toolMode });
+    store = await createEngineSession({ provider, model, toolMode, remote });
     bootProfile('store:ready', { ms: (performance.now() - startedAt).toFixed(1) });
   } catch (error) {
     restoreTerminal();

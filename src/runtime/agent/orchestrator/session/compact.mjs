@@ -441,6 +441,39 @@ export function compactTypeIsRecallFastTrack(value) {
     return normalizeCompactType(value) === COMPACT_TYPE_RECALL_FASTTRACK;
 }
 
+function compactDebugEnabled() {
+    return String(process.env.MIXDOG_COMPACT_DEBUG || '').trim() === '1';
+}
+
+function compactDebugLog(scope, details = {}) {
+    if (!compactDebugEnabled()) return;
+    try {
+        process.stderr.write(`[compact] ${scope} ${JSON.stringify(details)}\n`);
+    } catch { /* best-effort diagnostics only */ }
+}
+
+function safeEstimateMessagesTokens(messages) {
+    try { return estimateMessagesTokens(messages); }
+    catch { return null; }
+}
+
+function textByteLength(text) {
+    try { return Buffer.byteLength(String(text || ''), 'utf8'); }
+    catch { return String(text || '').length; }
+}
+
+function messageContentHasMarker(m, marker) {
+    if (!m || !marker) return false;
+    if (typeof m.content === 'string') return m.content.includes(marker);
+    if (Array.isArray(m.content)) {
+        return m.content.some((part) => {
+            if (!part || typeof part !== 'object') return false;
+            return String(part.text || part.content || '').includes(marker);
+        });
+    }
+    return false;
+}
+
 // Count raw (unchunked) pending rows still present in a dump_session_roots
 // payload. recall-fasttrack must keep cycle1-chunking until this reaches 0 so
 // the injected root is the chunked summary, not the raw transcript tail.
@@ -1476,13 +1509,29 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
     if (!provider || typeof provider.send !== 'function') {
         throw new Error('semanticCompactMessages: provider.send is required');
     }
+    const startedAt = Date.now();
     let budget = effectiveBudget(budgetTokens, opts);
     const baseSanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
+    const baseTokens = safeEstimateMessagesTokens(baseSanitized);
     // No-op fast path: if the original sanitized transcript already fits and we
     // are not forced, return it UNCHANGED (no preserved-tail redaction applied)
     // to keep prior no-compaction semantics.
-    if (estimateMessagesTokens(baseSanitized) <= budget && opts.force !== true) {
-        return { messages: baseSanitized, usage: null, semantic: false };
+    if (baseTokens != null && baseTokens <= budget && opts.force !== true) {
+        return {
+            messages: baseSanitized,
+            usage: null,
+            semantic: false,
+            compactType: COMPACT_TYPE_SEMANTIC,
+            diagnostics: {
+                noOp: true,
+                reason: 'fits_budget',
+                inputMessages: Array.isArray(messages) ? messages.length : 0,
+                baseMessages: baseSanitized.length,
+                baseTokens,
+                budgetTokens: budget,
+                durationMs: Date.now() - startedAt,
+            },
+        };
     }
     // Compaction will proceed: redact sensitive tool-call argument VALUES before
     // window selection so the preserved tail/system that survive verbatim are
@@ -1499,6 +1548,7 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
 
     const mandatory = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs([...selected.system, ...selected.tail])));
     const mandatoryCost = estimateMessagesTokens(mandatory);
+    const originalBudget = budget;
     // The preserved tail is kept verbatim and the head is replaced by a much
     // smaller summary, so the compacted result is always smaller than the
     // input regardless of how the configured target budget compares to the
@@ -1508,6 +1558,7 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
     if (mandatoryCost + COMPACT_SUMMARY_MIN_ROOM_TOKENS > budget) {
         budget = mandatoryCost + COMPACT_SUMMARY_MIN_ROOM_TOKENS;
     }
+    const budgetRaisedBy = Math.max(0, budget - originalBudget);
 
     const callBudget = Math.max(1, Math.floor((opts.compactionInputBudgetTokens || budget) * COMPACTION_PROMPT_HEADROOM));
     const prompt = fitCompactionPrompt(selected, callBudget);
@@ -1574,6 +1625,41 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
     if (finalTokens > budget) {
         throw new Error(`semanticCompactMessages: compacted result exceeds budget=${budget} (result=${finalTokens})`);
     }
+    const diagnostics = {
+        noOp: false,
+        inputMessages: Array.isArray(messages) ? messages.length : 0,
+        baseMessages: baseSanitized.length,
+        baseTokens,
+        systemMessages: selected.system.length,
+        headMessages: selected.head.length,
+        originalHeadMessages: selected.originalHead.length,
+        tailMessages: selected.tail.length,
+        mandatoryMessages: mandatory.length,
+        finalMessages: result.length,
+        systemTokens: safeEstimateMessagesTokens(selected.system),
+        headTokens: safeEstimateMessagesTokens(selected.head),
+        tailTokens: safeEstimateMessagesTokens(selected.tail),
+        mandatoryCost,
+        finalTokens,
+        originalBudgetTokens: originalBudget,
+        budgetTokens: budget,
+        budgetRaised: budgetRaisedBy > 0,
+        budgetRaisedBy,
+        remainingTokens: budget - mandatoryCost,
+        callBudgetTokens: callBudget,
+        promptChars: String(prompt || '').length,
+        promptBytes: textByteLength(prompt),
+        promptTokens: safeEstimateMessagesTokens([
+            { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
+            { role: 'user', content: prompt },
+        ]),
+        summaryChars: String(summary || '').length,
+        rawSummaryChars: String(rawSummary || '').length,
+        summaryRepaired: enforced.repaired === true,
+        previousSummary: !!selected.previousSummary,
+        durationMs: Date.now() - startedAt,
+    };
+    compactDebugLog('semantic result', diagnostics);
     return {
         messages: result,
         usage: response?.usage || null,
@@ -1582,6 +1668,7 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
         compactType: COMPACT_TYPE_SEMANTIC,
         summary,
         summaryRepaired: enforced.repaired === true,
+        diagnostics,
     };
 }
 
@@ -1751,10 +1838,26 @@ function selectRecallTailUserMessages(tail, opts = {}) {
 }
 
 function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
+    const startedAt = Date.now();
     let budget = effectiveBudget(budgetTokens, opts);
     const baseSanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
-    if (estimateMessagesTokens(baseSanitized) <= budget && opts.force !== true) {
-        return { messages: baseSanitized, recallFastTrack: false };
+    const baseTokens = safeEstimateMessagesTokens(baseSanitized);
+    if (baseTokens != null && baseTokens <= budget && opts.force !== true) {
+        return {
+            messages: baseSanitized,
+            recallFastTrack: false,
+            compactType: COMPACT_TYPE_RECALL_FASTTRACK,
+            query: opts.query || '',
+            diagnostics: {
+                noOp: true,
+                reason: 'fits_budget',
+                inputMessages: Array.isArray(messages) ? messages.length : 0,
+                baseMessages: baseSanitized.length,
+                baseTokens,
+                budgetTokens: budget,
+                durationMs: Date.now() - startedAt,
+            },
+        };
     }
     const sanitized = redactToolCallSecretsInMessages(baseSanitized);
 
@@ -1772,9 +1875,11 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
 
     const mandatory = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs([...safeSystem, ...recallTail])));
     const mandatoryCost = estimateMessagesTokens(mandatory);
+    const originalBudget = budget;
     if (mandatoryCost + COMPACT_SUMMARY_MIN_ROOM_TOKENS > budget) {
         budget = mandatoryCost + COMPACT_SUMMARY_MIN_ROOM_TOKENS;
     }
+    const budgetRaisedBy = Math.max(0, budget - originalBudget);
 
     if (!recallFit.recall && !recallFit.prior && opts.allowEmptyRecall !== true) {
         throw new Error('recallFastTrackCompactMessages: recall text is empty');
@@ -1800,10 +1905,50 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
     if (finalTokens > budget) {
         throw new Error(`recallFastTrackCompactMessages: compacted result exceeds budget=${budget} (result=${finalTokens})`);
     }
+    const summaryContent = String(summaryMessage?.content || '');
+    const diagnostics = {
+        noOp: false,
+        inputMessages: Array.isArray(messages) ? messages.length : 0,
+        baseMessages: baseSanitized.length,
+        baseTokens,
+        systemMessages: safeSystem.length,
+        liveMessages: live.length,
+        headMessages: recallHead.length,
+        tailMessages: recallTail.length,
+        mandatoryMessages: mandatory.length,
+        finalMessages: result.length,
+        systemTokens: safeEstimateMessagesTokens(safeSystem),
+        liveTokens: safeEstimateMessagesTokens(live),
+        headTokens: safeEstimateMessagesTokens(recallHead),
+        tailTokens: safeEstimateMessagesTokens(recallTail),
+        mandatoryCost,
+        finalTokens,
+        originalBudgetTokens: originalBudget,
+        budgetTokens: budget,
+        budgetRaised: budgetRaisedBy > 0,
+        budgetRaisedBy,
+        remainingTokens: budget - mandatoryCost,
+        recallChars: recallFit.recall.length,
+        recallBytes: textByteLength(recallFit.recall),
+        priorChars: recallFit.prior.length,
+        priorBytes: textByteLength(recallFit.prior),
+        summaryMessageChars: summaryContent.length,
+        summaryMessageBytes: textByteLength(summaryContent),
+        recallEmpty: !recallFit.recall,
+        priorEmpty: !recallFit.prior,
+        recallTruncatedInSummary: !!recallFit.recall && !summaryContent.includes(recallFit.recall),
+        priorTruncatedInSummary: !!recallFit.prior && !summaryContent.includes(recallFit.prior),
+        tailTruncated: recallTail.some((m) => messageContentHasMarker(m, RECALL_TAIL_TRUNCATION_MARKER) || messageContentHasMarker(m, RECALL_TAIL_SHORT_TRUNCATION_MARKER)),
+        tailOptions: recallTailOpts,
+        previousSummary: !!previousSummary,
+        durationMs: Date.now() - startedAt,
+    };
+    compactDebugLog('recall-fasttrack result', diagnostics);
     return {
         messages: result,
         recallFastTrack: true,
         compactType: COMPACT_TYPE_RECALL_FASTTRACK,
         query: opts.query || '',
+        diagnostics,
     };
 }

@@ -1,83 +1,80 @@
 /**
- * src/tui/themes/warm.mjs — Warm (sunset amber / gold).
+ * src/tui/themes/warm.mjs — Warm (terracotta / cream sunset).
  *
- * A soft golden-amber accent over a warm near-black surface with a near-neutral
- * body text — the amber/gold cast is confined to accents (logo, headings,
- * code, links) instead of washing over body text and frames. Less saturated
- * and more editorial than a pure orange brand:
- * the signature is honeyed amber `#f0b45a` with a lighter gold shimmer, paired
- * with a complementary warm-rose for emphasis. Spreads `basePalette` first so
+ * A warmer split from Basic: terracotta, peach, rose-gold and cream over a
+ * brown-black surface. Basic now owns clean amber/yellow-orange; Warm leans
+ * softer, earthier and more sunset/editorial. Spreads `basePalette` first so
  * the full key set is always present.
  */
 import { basePalette } from './base.mjs';
 
-/** Warm — sunset amber / gold accent with a near-neutral body. */
+/** Warm — terracotta / cream sunset dark. */
 export const warmPalette = {
   ...basePalette,
   background: 'transparent',
-  // Signature honeyed amber + lighter gold shimmer.
-  claude: 'rgb(240,180,90)',
-  logo: 'rgb(255,170,70)', // welcome banner — brighter, more saturated amber-orange
-  claudeShimmer: 'rgb(250,210,140)',
-  mixdogOrange: 'rgb(240,180,90)',
-  mixdogAmber: 'rgb(250,210,140)',
-  mixdogIvory: 'rgb(236,232,226)', // near-neutral — accent color carries emphasis, not the body tone
-  spinnerGlyph: 'rgb(255,120,70)', // most-emphasized: reddish coral-orange
-  spinnerText: 'rgb(255,120,70)',
-  spinnerShimmer: 'rgb(255,160,110)', // brighter coral shimmer
-  thinkingAccent: 'rgb(156,153,147)',
-  thinkingText: 'rgb(206,202,196)',
-  thinkingBase: 'rgb(156,153,147)',
-  thinkingGlow: 'rgb(226,222,216)',
-  statusText: 'rgb(225,221,215)',
-  statusSubtle: 'rgb(156,153,147)',
-  timerText: 'rgb(156,153,147)',
-  text: 'rgb(225,221,215)', // near-neutral body — warm wash removed, accents carry the warmth
-  inverseText: 'rgb(24,22,19)',
-  selectionText: 'rgb(24,22,19)',
-  selectionBackground: 'rgb(225,221,215)',
-  inactive: 'rgb(148,145,140)',
-  subtle: 'rgb(130,127,122)',
-  promptBorder: 'rgb(110,107,101)', // frame — near-neutral, no more honeyed cast
+  // Signature terracotta + peach shimmer; cream body makes it warmer than Basic.
+  claude: 'rgb(205,86,58)',
+  logo: 'rgb(255,125,84)', // welcome banner — brighter peach terracotta
+  claudeShimmer: 'rgb(255,176,130)',
+  mixdogOrange: 'rgb(205,86,58)',
+  mixdogAmber: 'rgb(255,176,130)',
+  mixdogIvory: 'rgb(244,226,204)',
+  spinnerGlyph: 'rgb(255,84,48)', // most-emphasized: hot sunset orange
+  spinnerText: 'rgb(255,84,48)',
+  spinnerShimmer: 'rgb(255,140,96)',
+  thinkingAccent: 'rgb(178,106,82)',
+  thinkingText: 'rgb(226,188,164)',
+  thinkingBase: 'rgb(132,72,58)',
+  thinkingGlow: 'rgb(252,220,190)',
+  statusText: 'rgb(244,226,204)',
+  statusSubtle: 'rgb(176,118,96)',
+  timerText: 'rgb(176,118,96)',
+  text: 'rgb(244,226,204)',
+  inverseText: 'rgb(36,17,14)',
+  selectionText: 'rgb(255,228,204)',
+  selectionBackground: 'rgb(102,48,34)',
+  inactive: 'rgb(170,124,102)',
+  subtle: 'rgb(146,94,78)',
+  promptBorder: 'rgb(120,70,58)',
   success: 'rgb(150,194,120)',
-  error: 'rgb(232,118,108)',
-  warning: 'rgb(240,180,90)',
-  suggestion: 'rgb(250,210,140)',
-  panelTitle: 'rgb(240,180,90)',
-  permission: 'rgb(232,118,108)',
-  code: 'rgb(250,210,140)',
-  codeBlock: 'rgb(220,216,210)',
-  mdHeading: 'rgb(240,180,90)',
-  mdCode: 'rgb(250,210,140)',
-  mdCodeBlock: 'rgb(220,216,210)',
-  mdQuote: 'rgb(144,141,136)',
-  mdQuoteBorder: 'rgb(144,141,136)',
-  mdHr: 'rgb(144,141,136)',
-  mdListBullet: 'rgb(240,180,90)',
-  mdCodeBlockBorder: 'rgb(54,51,47)',
-  mdCodeBlockBg: 'rgb(30,29,27)',
-  mdCodeSpanBg: 'rgb(40,38,34)',
-  mdLink: 'rgb(250,210,140)',
-  mdLinkText: 'rgb(224,158,120)',
-  mdStrong: 'rgb(250,210,140)',
-  mdEmph: 'rgb(232,170,130)',
+  error: 'rgb(230,86,78)',
+  warning: 'rgb(238,142,78)',
+  suggestion: 'rgb(255,176,130)',
+  panelTitle: 'rgb(205,86,58)',
+  permission: 'rgb(230,86,78)',
+  code: 'rgb(255,176,130)',
+  codeBlock: 'rgb(238,214,190)',
+  mdHeading: 'rgb(205,86,58)',
+  mdCode: 'rgb(255,176,130)',
+  mdCodeBlock: 'rgb(238,214,190)',
+  mdQuote: 'rgb(178,118,94)',
+  mdQuoteBorder: 'rgb(146,94,78)',
+  mdHr: 'rgb(146,94,78)',
+  mdListBullet: 'rgb(205,86,58)',
+  mdCodeBlockBorder: 'rgb(76,38,30)',
+  mdCodeBlockBg: 'rgb(42,22,18)',
+  mdCodeSpanBg: 'rgb(62,31,24)',
+  mdLink: 'rgb(255,176,130)',
+  mdLinkText: 'rgb(255,126,104)',
+  mdStrong: 'rgb(255,176,130)',
+  mdEmph: 'rgb(230,126,112)',
   mdDiffAdded: 'rgb(150,194,120)',
-  mdDiffRemoved: 'rgb(232,118,108)',
-  mdDiffHunk: 'rgb(224,158,120)',
-  mdDiffHeader: 'rgb(240,180,90)',
-  mdDiffContext: 'rgb(144,141,136)',
-  mdDiffAddedBg: 'rgb(30,42,28)',
-  mdDiffRemovedBg: 'rgb(50,28,28)',
-  syntaxComment: 'rgb(144,141,136)',
-  syntaxKeyword: 'rgb(240,180,90)',
-  syntaxFunction: 'rgb(250,210,140)',
-  syntaxVariable: 'rgb(232,118,108)',
+  mdDiffRemoved: 'rgb(230,86,78)',
+  mdDiffHunk: 'rgb(255,126,104)',
+  mdDiffHeader: 'rgb(255,176,130)',
+  mdDiffContext: 'rgb(178,118,94)',
+  mdDiffAddedBg: 'rgb(38,50,30)',
+  mdDiffRemovedBg: 'rgb(64,26,24)',
+  syntaxComment: 'rgb(178,118,94)',
+  syntaxKeyword: 'rgb(205,86,58)',
+  syntaxFunction: 'rgb(255,176,130)',
+  syntaxVariable: 'rgb(230,86,78)',
   syntaxString: 'rgb(180,196,130)',
-  syntaxNumber: 'rgb(232,170,130)',
-  syntaxType: 'rgb(224,158,120)',
-  syntaxOperator: 'rgb(188,182,174)',
-  syntaxPunctuation: 'rgb(225,221,215)',
-  userMessageBackground: 'rgb(42,40,37)',
-  userMessageBackgroundHover: 'rgb(54,52,48)',
-  fastMode: 'rgb(255,150,40)',
+  syntaxNumber: 'rgb(230,126,112)',
+  syntaxType: 'rgb(255,126,104)',
+  syntaxOperator: 'rgb(226,188,164)',
+  syntaxPunctuation: 'rgb(244,226,204)',
+  userMessageBackground: 'rgb(58,32,25)',
+  userMessageBackgroundHover: 'rgb(76,38,30)',
+  fastMode: 'rgb(255,84,48)',
 };

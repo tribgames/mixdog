@@ -569,7 +569,7 @@ ${_bt.trim()}` : _bt.trim();
     // isHidden, because that helper would re-consult the module-local
     // HIDDEN_TOOLS Set and ignore the OutputForwarder static.
     if (OutputForwarder.HIDDEN_TOOLS.has(name)) return true;
-    if ((name.includes("plugin_mixdog") && !name.endsWith("recall_memory")) || name === "reply" || name === "react" || name === "edit_message" || name === "fetch" || name === "download_attachment") return true;
+    if (name === "reply" || name === "react" || name === "edit_message" || name === "fetch" || name === "download_attachment") return true;
     return false;
   };
   /** Concatenate text blocks from a transcript entry (user or assistant). */

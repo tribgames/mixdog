@@ -27,6 +27,7 @@ import {
     DEFAULT_COMPACT_TYPE,
     DEFAULT_COMPACTION_KEEP_TOKENS,
     drainSessionCycle1,
+    countRawPendingRows,
 } from './compact.mjs';
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
 import { stripSoftWarns } from '../tool-loop-guard.mjs';
@@ -153,6 +154,27 @@ const COMPACT_BUFFER_MAX_WINDOW_FRACTION = 0.25;
 function estimateMessagesTokensSafe(messages) {
     try { return estimateMessagesTokens(messages); }
     catch { return null; }
+}
+
+function compactDebugEnabled() {
+    return String(process.env.MIXDOG_COMPACT_DEBUG || '').trim() === '1';
+}
+
+function compactDiagnosticError(err) {
+    if (!err) return null;
+    const text = String(err?.message || err);
+    return text.length > 500 ? `${text.slice(0, 499)}…` : text;
+}
+
+function compactByteLength(text) {
+    try { return Buffer.byteLength(String(text || ''), 'utf8'); }
+    catch { return String(text || '').length; }
+}
+
+function compactDebugLog(scope, details = {}) {
+    if (!compactDebugEnabled()) return;
+    try { process.stderr.write(`[compact] ${scope} ${JSON.stringify(details)}\n`); }
+    catch { /* best-effort diagnostics only */ }
 }
 
 function steeringContentText(content) {
@@ -446,6 +468,27 @@ function resolveCompactTypeSetting(_sessionRef, cfg = {}) {
 
 async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTokens, compactPolicy, sessionId, signal }) {
     if (!sessionId) throw new Error('recall-fasttrack requires a session id');
+    const startedAt = Date.now();
+    const diagnostics = {
+        hydrateLimit: null,
+        ingestMs: null,
+        ingestSkipped: false,
+        ingestError: null,
+        initialDumpMs: null,
+        initialDumpBytes: null,
+        initialDumpChars: null,
+        initialRawPending: null,
+        cycle1Ms: null,
+        cycle1Skipped: false,
+        cycle1SkipReason: null,
+        cycle1Passes: null,
+        cycle1RawRemaining: null,
+        cycle1TextBytes: null,
+        cycle1Error: null,
+        finalRecallBytes: null,
+        finalRecallChars: null,
+        totalMs: null,
+    };
     const query = `session:${sessionId}:all-chunks`;
     const querySha = createHash('sha256').update(query).digest('hex').slice(0, 16);
     const callerCtx = {
@@ -457,6 +500,8 @@ async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTo
     };
     const hydrateLimit = positiveTokenInt(sessionRef?.compaction?.recallIngestLimit)
         || Math.max(500, Math.min(5000, messages.length || 0));
+    diagnostics.hydrateLimit = hydrateLimit;
+    let t0 = Date.now();
     try {
         await executeInternalTool('memory', {
             action: 'ingest_session',
@@ -466,7 +511,11 @@ async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTo
             limit: hydrateLimit,
         }, callerCtx);
     } catch (err) {
+        diagnostics.ingestSkipped = true;
+        diagnostics.ingestError = compactDiagnosticError(err);
         try { process.stderr.write(`[loop] recall-fasttrack ingest skipped (sess=${sessionId || 'unknown'}): ${err?.message || err}\n`); } catch {}
+    } finally {
+        diagnostics.ingestMs = Date.now() - t0;
     }
     const dumpArgs = {
         action: 'dump_session_roots',
@@ -475,10 +524,16 @@ async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTo
         limit: positiveTokenInt(sessionRef?.compaction?.recallChunkLimit ?? sessionRef?.compaction?.recallLimit) || hydrateLimit,
     };
     const runTool = (name, args) => executeInternalTool(name, args, callerCtx);
+    t0 = Date.now();
     let recallText = await executeInternalTool('memory', dumpArgs, callerCtx);
+    diagnostics.initialDumpMs = Date.now() - t0;
+    diagnostics.initialDumpChars = String(recallText || '').length;
+    diagnostics.initialDumpBytes = compactByteLength(recallText);
+    diagnostics.initialRawPending = countRawPendingRows(recallText);
     let cycle1Text = '';
     const hasRawRows = /(?:^|\n)# raw_pending\s+\d+\s+id=/i.test(String(recallText || ''));
     if (hasRawRows) {
+        t0 = Date.now();
         try {
             // Drain this session's cycle1 in window×concurrency units until no
             // raw rows remain, so the injected root is fully chunked rather than
@@ -499,19 +554,32 @@ async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTo
             });
             recallText = drained.recallText;
             cycle1Text = drained.cycle1Text;
+            diagnostics.cycle1Passes = drained.passes;
+            diagnostics.cycle1RawRemaining = drained.rawRemaining;
+            diagnostics.cycle1TextBytes = compactByteLength(cycle1Text);
             if (drained.rawRemaining > 0) {
                 try { process.stderr.write(`[loop] recall-fasttrack drained passes=${drained.passes} rawRemaining=${drained.rawRemaining} (sess=${sessionId || 'unknown'})\n`); } catch {}
             }
         } catch (err) {
+            diagnostics.cycle1Error = compactDiagnosticError(err);
             try { process.stderr.write(`[loop] recall-fasttrack cycle1 skipped (sess=${sessionId || 'unknown'}): ${err?.message || err}\n`); } catch {}
+        } finally {
+            diagnostics.cycle1Ms = Date.now() - t0;
         }
     } else {
+        diagnostics.cycle1Skipped = true;
+        diagnostics.cycle1SkipReason = 'session chunks already hydrated';
+        diagnostics.cycle1Passes = 0;
+        diagnostics.cycle1RawRemaining = 0;
         cycle1Text = 'cycle1: skipped (session chunks already hydrated)';
     }
-    return recallFastTrackCompactMessages(messages, compactBudgetTokens, {
+    const combinedRecallText = [`session_id=${sessionId}`, cycle1Text, recallText].map(v => String(v || '').trim()).filter(Boolean).join('\n\n');
+    diagnostics.finalRecallChars = combinedRecallText.length;
+    diagnostics.finalRecallBytes = compactByteLength(combinedRecallText);
+    const result = recallFastTrackCompactMessages(messages, compactBudgetTokens, {
         reserveTokens: compactPolicy.reserveTokens,
         force: true,
-        recallText: [`session_id=${sessionId}`, cycle1Text, recallText].map(v => String(v || '').trim()).filter(Boolean).join('\n\n'),
+        recallText: combinedRecallText,
         query,
         querySha,
         allowEmptyRecall: true,
@@ -519,6 +587,15 @@ async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTo
         keepTokens: compactPolicy.keepTokens,
         preserveRecentTokens: compactPolicy.preserveRecentTokens,
     });
+    diagnostics.totalMs = Date.now() - startedAt;
+    if (result && typeof result === 'object') {
+        result.diagnostics = {
+            ...(result.diagnostics || {}),
+            pipeline: diagnostics,
+        };
+    }
+    compactDebugLog('recall-fasttrack pipeline', diagnostics);
+    return result;
 }
 const COMPACT_TARGET_RATIO = 0.02;
 const COMPACT_TARGET_MIN_TOKENS = 4_000;
@@ -1513,6 +1590,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         iteration: iterations + 1,
                         stage: 'pre_send',
                         trigger: compactTrigger,
+                        compact_type: compactPolicy.compactType || compactPolicy.type || DEFAULT_COMPACT_TYPE,
                         prune_count: pruneCount,
                         compact_changed: false,
                         input_prefix_hash: messagePrefixHash(messages),
@@ -1522,13 +1600,23 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         after_bytes: getBeforeBytes(),
                         context_window: compactPolicy.contextWindow,
                         budget_tokens: compactPolicy.boundaryTokens,
+                        boundary_tokens: compactPolicy.boundaryTokens,
                         target_budget_tokens: compactBudgetTokens,
                         reserve_tokens: compactPolicy.reserveTokens,
+                        pressure_tokens: pressureTokens,
+                        trigger_tokens: compactPolicy.triggerTokens,
                         message_tokens_est: messageTokensEst,
+                        duration_ms: Date.now() - compactStartedAt,
                         provider: sessionRef.provider,
                         model: sessionRef.model || model,
                         error: compactFailMsg,
                         error_code: compactFailCode,
+                        details: {
+                            semantic: semanticCompactResult?.diagnostics || null,
+                            recallFastTrack: recallFastTrackResult?.diagnostics || null,
+                            semanticError: semanticFailMsg,
+                            recallFastTrackError: recallFailMsg,
+                        },
                     });
                     emitCompactEvent(opts, {
                         sessionId,
@@ -1604,6 +1692,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     iteration: iterations + 1,
                     stage: 'pre_send',
                     trigger: compactTrigger,
+                    compact_type: compactPolicy.compactType || compactPolicy.type || DEFAULT_COMPACT_TYPE,
                     prune_count: pruneCount,
                     compact_changed: compactChanged || summaryChanged,
                     input_prefix_hash: messagePrefixHash(messages),
@@ -1613,11 +1702,19 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     after_bytes: afterBytes,
                     context_window: compactPolicy.contextWindow,
                     budget_tokens: compactPolicy.boundaryTokens,
+                    boundary_tokens: compactPolicy.boundaryTokens,
                     target_budget_tokens: compactBudgetTokens,
                     reserve_tokens: compactPolicy.reserveTokens,
+                    pressure_tokens: pressureTokens,
+                    trigger_tokens: compactPolicy.triggerTokens,
                     message_tokens_est: messageTokensEst,
+                    duration_ms: compactDurationMs,
                     provider: sessionRef.provider,
                     model: sessionRef.model || model,
+                    details: {
+                        semantic: semanticCompactResult?.diagnostics || null,
+                        recallFastTrack: recallFastTrackResult?.diagnostics || null,
+                    },
                 });
                 emitCompactEvent(opts, {
                     sessionId,

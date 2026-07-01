@@ -99,6 +99,7 @@ const SLASH_COMMANDS = [
   { name: 'hooks', usage: '/hooks', description: 'Manage before-tool hook rules and events' },
   { name: 'providers', usage: '/providers', description: 'Manage auth, API keys, OAuth, and local endpoints' },
   { name: 'channels', usage: '/channels', description: 'Manage Discord, channels, schedules, webhooks' },
+  { name: 'remote', usage: '/remote', description: 'Toggle Discord remote mode for this session' },
   { name: 'schedules', usage: '/schedules', description: 'Manage schedules' },
   { name: 'webhooks', usage: '/webhooks', description: 'Manage inbound webhooks' },
   { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings' },
@@ -520,25 +521,34 @@ function isAgentResponseResultText(text) {
 function ToolHookDenialCard({ item, columns = 80 }) {
   const { label, summary } = formatToolSurface(item.name, item.args);
   const detail = formatHookDenialDetail(toolItemResultText(item));
-  const summaryText = summary ? ` (${summary})` : '';
+  const safeLabel = stripAnsi(String(label || '')).replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
+  const safeSummary = stripAnsi(String(summary || '')).replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
+  const safeDetail = stripAnsi(String(detail || '')).replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
+  const summaryText = safeSummary ? ` (${safeSummary})` : '';
+  const rowWidth = Math.max(1, Number(columns || 80));
+  const detailWidth = Math.max(1, rowWidth - stringWidth(RESULT_GUTTER));
   return (
-    <Box flexDirection="column" marginTop={1}>
-      <Box flexDirection="row">
+    <Box flexDirection="column" marginTop={1} width={rowWidth} overflow="hidden">
+      <Box flexDirection="row" width={rowWidth} overflow="hidden">
         <Box flexShrink={0} minWidth={2}>
           <Text color={theme.error}>{TURN_MARKER}</Text>
         </Box>
-        <Text wrap="truncate">
-          <Text bold color={theme.text}>{label}</Text>
-          {summaryText ? <Text color={theme.text}>{summaryText}</Text> : null}
-          <Text color={theme.error}> · Denied</Text>
-        </Text>
+        <Box flexGrow={1} flexShrink={1} overflow="hidden" minWidth={0}>
+          <Text wrap="truncate">
+            <Text bold color={theme.text}>{safeLabel}</Text>
+            {summaryText ? <Text color={theme.text}>{summaryText}</Text> : null}
+            <Text color={theme.error}> · Denied</Text>
+          </Text>
+        </Box>
       </Box>
-      {detail ? (
-        <Box flexDirection="row">
-          <Box flexShrink={0}>
+      {safeDetail ? (
+        <Box flexDirection="row" width={rowWidth} overflow="hidden">
+          <Box flexShrink={0} width={stringWidth(RESULT_GUTTER)}>
             <Text color={theme.subtle}>{RESULT_GUTTER}</Text>
           </Box>
-          <Text color={theme.error} wrap="truncate">{detail}</Text>
+          <Box flexShrink={0} width={detailWidth} overflow="hidden">
+            <Text color={theme.error} wrap="truncate">{safeDetail}</Text>
+          </Box>
         </Box>
       ) : null}
     </Box>
@@ -6288,6 +6298,11 @@ export function App({ store, initialStatusLine = '' }) {
           .then(ok => store.pushNotice(ok ? modelSwitchNotice() : 'Model switch is already running.', ok ? 'info' : 'warn'))
           .catch((e) => store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error'));
         return true;
+      case 'remote': {
+        const enabled = store.toggleRemote?.() === true;
+        store.pushNotice(enabled ? 'Remote mode ON' : 'Remote mode OFF', 'info');
+        return true;
+      }
       case 'search':
         if (state.busy) {
           store.pushNotice('wait for the current turn to finish before /search', 'warn');
@@ -7308,9 +7323,21 @@ export function App({ store, initialStatusLine = '' }) {
     : PANEL_MAX_VISIBLE;
   const bottomReserve = baseReserve + floatingPanelRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
+  // Keep one physical row between the transcript clip and the bottom cluster
+  // even when pinned to the live tail. Windows Terminal/conhost can still
+  // surface one clipped/off-by-one transcript row below the statusline during
+  // rapid tool-card updates; a permanent guard row makes that row blank instead
+  // of a tool header/detail.
+  const transcriptGuardRows = viewportHeight > 1 ? 1 : 0;
+  const transcriptContentHeight = Math.max(1, viewportHeight - transcriptGuardRows);
+  // The guard is a physical safety row, not user-visible scrollback. If a stale
+  // pre-guard offset of 1 survives while no reading anchor is active, still treat
+  // the viewport as pinned to the live tail so streaming/tool output continues
+  // to auto-follow instead of freezing one row above bottom.
+  const transcriptBottomSlackRows = Math.max(0, transcriptGuardRows);
   transcriptViewportRef.current = {
     top: WELCOME_ROWS,
-    bottom: Math.max(WELCOME_ROWS, WELCOME_ROWS + viewportHeight - 1),
+    bottom: Math.max(WELCOME_ROWS, WELCOME_ROWS + transcriptContentHeight - 1),
   };
   // [mixdog] Keep the live terminal row count current for the mouse handler's
   // region routing + status-band selection clip (see onData).
@@ -7381,9 +7408,16 @@ export function App({ store, initialStatusLine = '' }) {
   const anchorLockActive = !!transcriptAnchorRef.current
     && !transcriptAnchorDirtyRef.current
     && !followingRef.current;
-  let renderScrollOffset = scrollOffset;
+  const nearBottomWithoutAnchor = !transcriptAnchorRef.current
+    && !transcriptAnchorDirtyRef.current
+    && Math.max(
+      Math.max(0, Number(scrollTargetRef.current) || 0),
+      Math.max(0, Number(scrollPositionRef.current) || 0),
+      Math.max(0, Number(scrollOffset) || 0),
+    ) <= transcriptBottomSlackRows;
+  let renderScrollOffset = nearBottomWithoutAnchor ? 0 : scrollOffset;
   if (anchorLockActive) {
-    const lockViewRows = Math.max(1, Number(viewportHeight) || 1);
+    const lockViewRows = Math.max(1, Number(transcriptContentHeight) || 1);
     const lockTotalRows = Math.max(0, Number(transcriptRowIndex?.totalRows) || 0);
     const lockMaxRows = Math.max(0, lockTotalRows - lockViewRows);
     const locked = resolveAnchorScrollOffset({
@@ -7398,19 +7432,19 @@ export function App({ store, initialStatusLine = '' }) {
   }
   const transcriptWindow = useMemo(() => transcriptRenderWindow(state.items, {
     scrollOffset: renderScrollOffset,
-    viewportHeight,
+    viewportHeight: transcriptContentHeight,
     columns: frameColumns,
     toolOutputExpanded,
     rowIndex: transcriptRowIndex,
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: sig+scroll/viewport capture the relevant changes
-  }), [transcriptStructureSig, renderScrollOffset, viewportHeight, transcriptRowIndex]);
+  }), [transcriptStructureSig, renderScrollOffset, transcriptContentHeight, transcriptRowIndex]);
   maxScrollRowsRef.current = transcriptWindow.maxScrollRows;
   // Publish this frame's geometry so a manual scroll can capture the reading
   // anchor synchronously (see captureTranscriptAnchorAt).
   transcriptGeomRef.current = {
     prefixRows: transcriptRowIndex?.prefixRows || null,
     totalRows: Math.max(0, Number(transcriptWindow.totalRows) || 0),
-    viewRows: Math.max(1, Number(viewportHeight) || 1),
+    viewRows: Math.max(1, Number(transcriptContentHeight) || 1),
     items: state.items || null,
   };
   // The window memo is keyed on a structure signature that intentionally
@@ -7520,7 +7554,9 @@ export function App({ store, initialStatusLine = '' }) {
     const currentPosition = Math.max(0, Number(scrollPositionRef.current) || 0);
     const currentOffset = Math.max(0, Number(scrollOffset) || 0);
     const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
-    const pinnedToBottom = currentTarget <= 0 && currentPosition <= 0 && currentOffset <= 0;
+    const pinnedToBottom = !transcriptAnchorRef.current
+      && !transcriptAnchorDirtyRef.current
+      && Math.max(currentTarget, currentPosition, currentOffset) <= transcriptBottomSlackRows;
     const followOnGrowth = followingRef.current && rowDelta > 0;
     const shouldFollowBottom = rowDelta > 0 && (followOnGrowth || pinnedToBottom);
     if (shouldFollowBottom) {
@@ -7552,7 +7588,7 @@ export function App({ store, initialStatusLine = '' }) {
     // only moves the bottom — the top is rock-stable. Changes ABOVE the anchor
     // move the item's prefix start and are absorbed the same way. No deltas, no
     // fallback, no drift.
-    const viewRows = Math.max(1, Number(viewportHeight) || 1);
+    const viewRows = Math.max(1, Number(transcriptContentHeight) || 1);
     const items = state.items || [];
     let anchor = transcriptAnchorRef.current;
     // (Re)capture the anchor from the current viewport-top edge when missing or
@@ -7597,12 +7633,25 @@ export function App({ store, initialStatusLine = '' }) {
     scrollPositionRef.current = Math.max(0, Math.min(maxRows, currentPosition + appliedDelta));
     preservedScrollDeltaRef.current += appliedDelta;
     setScrollOffset(Math.max(0, Math.round(desired)));
-  }, [transcriptWindow.totalRows, transcriptWindow.maxScrollRows, transcriptRowIndex, viewportHeight, scrollOffset, stopSmoothScroll]);
+  }, [transcriptWindow.totalRows, transcriptWindow.maxScrollRows, transcriptRowIndex, transcriptContentHeight, transcriptBottomSlackRows, scrollOffset, stopSmoothScroll]);
+  useLayoutEffect(() => {
+    if (transcriptBottomSlackRows <= 0) return;
+    if (transcriptAnchorRef.current || transcriptAnchorDirtyRef.current || followingRef.current) return;
+    const currentTarget = Math.max(0, Number(scrollTargetRef.current) || 0);
+    const currentPosition = Math.max(0, Number(scrollPositionRef.current) || 0);
+    const currentOffset = Math.max(0, Number(scrollOffset) || 0);
+    if (Math.max(currentTarget, currentPosition, currentOffset) === 0) return;
+    if (Math.max(currentTarget, currentPosition, currentOffset) > transcriptBottomSlackRows) return;
+    stopSmoothScroll();
+    scrollTargetRef.current = 0;
+    scrollPositionRef.current = 0;
+    setScrollOffset(0);
+  }, [transcriptBottomSlackRows, scrollOffset, stopSmoothScroll]);
   useLayoutEffect(() => {
     const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
     const next = {
       top,
-      height: Math.max(1, Number(viewportHeight) || 1),
+      height: Math.max(1, Number(transcriptContentHeight) || 1),
       totalRows: Math.max(0, Number(transcriptWindow.totalRows) || 0),
       scrollOffset: Math.max(0, Number(transcriptWindow.effectiveScrollOffset) || 0),
     };
@@ -7622,7 +7671,7 @@ export function App({ store, initialStatusLine = '' }) {
     const clippedRect = withSelectionClip(shiftSelectionRectY(dragRef.current.rect, deltaY));
     dragRef.current = { ...dragRef.current, rect: clippedRect };
     paintSelectionRect(clippedRect, { rememberText: true, immediate: true });
-  }, [viewportHeight, transcriptWindow.totalRows, transcriptWindow.effectiveScrollOffset, withSelectionClip, paintSelectionRect]);
+  }, [transcriptContentHeight, transcriptWindow.totalRows, transcriptWindow.effectiveScrollOffset, withSelectionClip, paintSelectionRect]);
   useEffect(() => {
     const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
     if (scrollTargetRef.current <= maxRows && scrollPositionRef.current <= maxRows && scrollOffset <= maxRows) return;
@@ -7748,6 +7797,14 @@ export function App({ store, initialStatusLine = '' }) {
         overflow="hidden"
         justifyContent="flex-end"
       >
+        <Box
+          flexDirection="column"
+          width="100%"
+          height={transcriptContentHeight}
+          flexShrink={0}
+          overflow="hidden"
+          justifyContent="flex-end"
+        >
         {/* Wheel scroll: with the viewport bottom-anchored (flex-end), a NEGATIVE
             marginBottom pushes the transcript column DOWN past the bottom edge,
             bringing older content above the window into view (overflow hidden
@@ -7797,6 +7854,8 @@ export function App({ store, initialStatusLine = '' }) {
              <Box height={transcriptWindow.bottomSpacerRows} flexShrink={0} />
            ) : null}
         </Box>
+        </Box>
+        {transcriptGuardRows > 0 ? <Box height={transcriptGuardRows} flexShrink={0} backgroundColor={surfaceBackground()} /> : null}
       </Box>
 
       {/* Live reasoning and transient status live just above the prompt: reasoning

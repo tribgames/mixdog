@@ -167,7 +167,7 @@ export const TOOL_DEFS = [
       properties: {
         command: {
           type: "string",
-          enum: ["reload-plugins", "clear"],
+          enum: ["clear"],
           description: "Slash command."
         }
       },

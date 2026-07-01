@@ -4,8 +4,7 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
-import { spawn, execSync, spawnSync } from "child_process";
-import * as crypto from "crypto";
+import { spawn } from "child_process";
 import * as fs from "fs";
 import * as http from "http";
 import * as os from "os";
@@ -169,9 +168,6 @@ if (process.env.MIXDOG_CHANNELS_NO_CONNECT) {
   process.exit(0);
 }
 const _isWorkerMode = process.env.MIXDOG_WORKER_MODE === '1'
-const _isCliOwnedMode = process.env.MIXDOG_CLI_OWNED === '1'
-const _isChannelDaemonMode = process.env.MIXDOG_CHANNEL_DAEMON === '1'
-const CHANNEL_DAEMON_IDLE_TTL_MS = Math.max(0, Number(process.env.MIXDOG_CHANNEL_IDLE_TTL_MS) || 60_000)
 const _bootLogEarly = path.join(
   DATA_DIR || path.join(os.tmpdir(), "mixdog"),
   "boot.log"
@@ -329,10 +325,6 @@ const INSTRUCTIONS = "";
 // never `connect()`ed to any transport, so `.notification()` silently
 // threw 'Not connected' inside the SDK and every call was dropped by an
 // outer `.catch(() => {})`. That regression is what this path replaces.
-let _channelNotifyBusSeq = 0;
-const CHANNEL_NOTIFY_BUS_FILE = path.join(RUNTIME_ROOT, 'channel-notifications.jsonl');
-const CHANNEL_NOTIFY_BUS_MAX_BYTES = 5 * 1024 * 1024;
-
 function normalizeChannelNotifyParams(method, params) {
   if (method === 'notifications/claude/channel' && params && params.meta) {
     const m = {};
@@ -345,29 +337,6 @@ function normalizeChannelNotifyParams(method, params) {
   return params;
 }
 
-function publishChannelNotify(method, params) {
-  try {
-    fs.mkdirSync(RUNTIME_ROOT, { recursive: true });
-    try {
-      const st = fs.statSync(CHANNEL_NOTIFY_BUS_FILE);
-      if (st.size > CHANNEL_NOTIFY_BUS_MAX_BYTES) {
-        try { fs.unlinkSync(CHANNEL_NOTIFY_BUS_FILE + '.1'); } catch {}
-        try { fs.renameSync(CHANNEL_NOTIFY_BUS_FILE, CHANNEL_NOTIFY_BUS_FILE + '.1'); } catch {}
-      }
-    } catch {}
-    const item = {
-      id: `${Date.now()}-${process.pid}-${++_channelNotifyBusSeq}`,
-      ts: Date.now(),
-      pid: process.pid,
-      method,
-      params,
-    };
-    fs.appendFileSync(CHANNEL_NOTIFY_BUS_FILE, JSON.stringify(item) + '\n');
-  } catch (err) {
-    try { process.stderr.write(`mixdog channels: notify bus write failed: ${err && err.message || err}\n`); } catch {}
-  }
-}
-
 function sendNotifyToParent(method, params) {
   // CC channel schema requires meta: Record<string,string> (channelNotification.ts).
   // Coerce every meta value to string so a non-string (e.g. a Discord
@@ -375,9 +344,8 @@ function sendNotifyToParent(method, params) {
   // silent_to_agent stays boolean — an internal routing flag the daemon
   // router / agentNotify consume (=== true) before the CC zod boundary.
   const outParams = normalizeChannelNotifyParams(method, params);
-  publishChannelNotify(method, outParams);
   if (!process.send) {
-    try { process.stderr.write(`mixdog channels: notify queued on bus (no IPC): ${method}\n`); } catch {}
+    try { process.stderr.write(`mixdog channels: notify dropped (no IPC channel): ${method}\n`); } catch {}
     return;
   }
   try {
@@ -454,6 +422,9 @@ const TURN_END_FILE = getTurnEndPath(INSTANCE_ID);
 const TURN_END_BASENAME = path.basename(TURN_END_FILE);
 const TURN_END_DIR = path.dirname(TURN_END_FILE);
 let turnEndWatcher = null;
+// Config hot-reload watcher (installed by start(); torn down by stop()).
+let _configWatcher = null;
+let _reloadDebounce = null;
 if (!_isWorkerMode) {
   removeFileIfExists(TURN_END_FILE);
   turnEndWatcher = fs.watch(TURN_END_DIR, async (_event, filename) => {
@@ -513,9 +484,9 @@ forwarder.setOnIdle(() => {
 // also sets this, but that path only runs when the event pipeline starts
 // (webhook enabled or event rules present). Without an event pipeline the
 // forwarder's ownerGetter stayed null and _isOwner() failed open, letting a
-// non-owner / proxy process forward transcript output (duplicate Discord
-// sends). The closure reads bridgeRuntimeConnected/proxyMode at call time.
-forwarder.setOwnerGetter(() => bridgeRuntimeConnected && !proxyMode);
+// non-owner process forward transcript output (duplicate Discord sends).
+// The closure reads bridgeRuntimeConnected at call time.
+forwarder.setOwnerGetter(() => bridgeRuntimeConnected);
 function applyTranscriptBinding(channelId, transcriptPath, options = {}) {
   if (!transcriptPath) return;
   forwarder.setContext(channelId, transcriptPath, { replayFromStart: options.replayFromStart, catchUpFromPersisted: options.catchUpFromPersisted });
@@ -636,688 +607,15 @@ const ACTIVE_OWNER_STALE_MS = 1e4;
 // never blocks process exit. Single JSON atomic write, no measurable load.
 const OWNER_HEARTBEAT_INTERVAL_MS = 5e3;
 let ownerHeartbeatTimer = null;
-let channelDaemonIdleTimer = null;
-let channelDaemonLastClientAt = Date.now();
-let channelDaemonBackgroundLogAt = 0;
-const CHANNEL_CLIENT_DIR = path.join(RUNTIME_ROOT, 'channel-clients');
-
-function pidAlive(pid) {
-  const n = Number(pid);
-  if (!Number.isInteger(n) || n <= 0) return false;
-  try {
-    process.kill(n, 0);
-    return true;
-  } catch (e) {
-    return e?.code === 'EPERM';
-  }
-}
-
-function countLiveChannelClients() {
-  let live = 0;
-  const now = Date.now();
-  try {
-    fs.mkdirSync(CHANNEL_CLIENT_DIR, { recursive: true });
-    for (const file of fs.readdirSync(CHANNEL_CLIENT_DIR)) {
-      if (!file.endsWith('.json')) continue;
-      const full = path.join(CHANNEL_CLIENT_DIR, file);
-      let item = null;
-      let st = null;
-      try {
-        st = fs.statSync(full);
-        item = JSON.parse(fs.readFileSync(full, 'utf8'));
-      } catch {
-        try { fs.unlinkSync(full); } catch {}
-        continue;
-      }
-      const pid = Number(item?.pid ?? file.replace(/\.json$/, ''));
-      const fresh = now - Math.max(Number(item?.updatedAt) || 0, st.mtimeMs) < 20_000;
-      if (pidAlive(pid) && fresh) {
-        live += 1;
-      } else {
-        try { fs.unlinkSync(full); } catch {}
-      }
-    }
-  } catch {}
-  return live;
-}
-
-function hasChannelBackgroundWork() {
-  if (!channelBridgeActive || !bridgeRuntimeConnected) return false;
-  if (config.webhook?.enabled === true) return true;
-  if (Array.isArray(config.events?.rules) && config.events.rules.length > 0) return true;
-  if (Array.isArray(config.nonInteractive) && config.nonInteractive.length > 0) return true;
-  if (Array.isArray(config.interactive) && config.interactive.length > 0) return true;
-  return false;
-}
-
-function checkChannelDaemonIdle() {
-  if (!_isChannelDaemonMode || CHANNEL_DAEMON_IDLE_TTL_MS <= 0) return;
-  const liveClients = countLiveChannelClients();
-  if (liveClients > 0) {
-    channelDaemonLastClientAt = Date.now();
-    return;
-  }
-  if (hasChannelBackgroundWork()) {
-    const now = Date.now();
-    if (now - channelDaemonBackgroundLogAt > 60_000) {
-      channelDaemonBackgroundLogAt = now;
-      try { process.stderr.write('[channels-worker] daemon idle: keeping alive for configured background work\n'); } catch {}
-    }
-    channelDaemonLastClientAt = Date.now();
-    return;
-  }
-  if (Date.now() - channelDaemonLastClientAt < CHANNEL_DAEMON_IDLE_TTL_MS) return;
-  try { process.stderr.write(`[channels-worker] daemon idle TTL elapsed (${CHANNEL_DAEMON_IDLE_TTL_MS}ms) — shutting down\n`); } catch {}
-  stop()
-    .then(() => process.exit(0))
-    .catch((e) => {
-      try { process.stderr.write(`[channels-worker] daemon idle shutdown failed: ${e?.message || e}\n`); } catch {}
-      process.exit(1);
-    });
-}
-
-function startChannelDaemonIdleMonitor() {
-  if (!_isChannelDaemonMode || CHANNEL_DAEMON_IDLE_TTL_MS <= 0 || channelDaemonIdleTimer) return;
-  channelDaemonLastClientAt = Date.now();
-  channelDaemonIdleTimer = setInterval(checkChannelDaemonIdle, 5000);
-  channelDaemonIdleTimer.unref?.();
-}
-
-function stopChannelDaemonIdleMonitor() {
-  if (!channelDaemonIdleTimer) return;
-  clearInterval(channelDaemonIdleTimer);
-  channelDaemonIdleTimer = null;
-}
 // Owner gating here is multi-process runtime coordination: only the active
 // bindingReady gates all send paths until the boot-time refreshBridgeOwnership
 // ({ restoreBinding: true }) call completes. Without this, scheduler/webhook
 // emissions fired within the first ~few hundred ms after restart drop because
 // the Discord backend binding has not yet been established.
 let bindingReadyStatus = "pending";
-// Channel-flag detection result, stored at module scope so the worker-mode
-// ready IPC can forward it to the daemon for caching across respawns.
-let _channelFlagDetected = false;
 let _bindingReadyResolve;
 const bindingReady = new Promise((r) => { _bindingReadyResolve = r; });
 dropTrace("bindingReady.create", { status: bindingReadyStatus });
-// owner runs webhook/event ticks. It is not webhook HTTP authentication.
-let proxyMode = false;
-let ownerHttpPort = 0;
-let ownerHttpServer = null;
-const PROXY_PORT_MIN = 3460;
-const PROXY_PORT_MAX = 3467;
-// Per-owner-process auth secret. Generated once at HTTP server start and
-// published into runtime/owner-secret-<instanceId>.json with 0o600 perms so
-// only the owner UID can read it back. requireOwnerToken below checks THIS
-// secret (not the public-by-/ping instanceId) so any local caller that
-// scrapes /ping cannot forge owner-side calls. The file is keyed on the
-// owner's INSTANCE_ID — the SAME identifier published into active-instance
-// as `instanceId` and validated by requireOwnerToken's x-owner-instance
-// header check — so proxy readers can resolve the path off readActiveInstance()
-// without depending on getActiveOwnerPid(), which prefers ownerLeadPid/
-// terminalLeadPid/supervisor_pid and would diverge from process.pid in
-// supervisor-backed sessions.
-let OWNER_SECRET = "";
-function getOwnerSecretPath(instanceId) {
-  return path.join(RUNTIME_ROOT, `owner-secret-${String(instanceId)}.json`);
-}
-function publishOwnerSecret(secret) {
-  const file = getOwnerSecretPath(INSTANCE_ID);
-  try { ensureDir(RUNTIME_ROOT); } catch {}
-  // Best-effort restrictive write: O_CREAT|O_TRUNC|O_WRONLY with mode 0o600.
-  // On Windows mode bits are largely ignored, but the file still lives in
-  // the per-user tmp dir; an attacker without the same UID cannot read it.
-  try { fs.unlinkSync(file); } catch {}
-  const fd = fs.openSync(file, fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_WRONLY, 0o600);
-  try {
-    fs.writeSync(fd, JSON.stringify({ instanceId: INSTANCE_ID, pid: process.pid, secret, updatedAt: Date.now() }));
-  } finally {
-    try { fs.closeSync(fd); } catch {}
-  }
-  try { fs.chmodSync(file, 0o600); } catch {}
-}
-function clearOwnerSecret() {
-  try { fs.unlinkSync(getOwnerSecretPath(INSTANCE_ID)); } catch {}
-}
-function readOwnerSecretFor(ownerInstanceId) {
-  if (!ownerInstanceId) return "";
-  try {
-    const raw = fs.readFileSync(getOwnerSecretPath(ownerInstanceId), "utf8");
-    const parsed = JSON.parse(raw);
-    return typeof parsed?.secret === "string" ? parsed.secret : "";
-  } catch {
-    return "";
-  }
-}
-async function proxyRequest(endpoint, method, body) {
-  return new Promise((resolve) => {
-    const url = new URL(`http://127.0.0.1:${ownerHttpPort}${endpoint}`);
-    // Auth: read the owner's per-process secret from the restricted
-    // owner-secret file (0o600). The instanceId header is kept only as a
-    // secondary diagnostic — requireOwnerToken on the owner side checks
-    // the secret, not the instanceId.
-    const active = readActiveInstance();
-    const ownerInstanceId = active?.instanceId || INSTANCE_ID;
-    // Key the secret-file lookup on the owner's published instanceId — the
-    // SAME identifier the owner used when writing owner-secret-<instanceId>.json
-    // (publishOwnerSecret above) and what requireOwnerToken's x-owner-instance
-    // header check compares against. Do NOT route this through
-    // getActiveOwnerPid(active): that helper prefers ownerLeadPid /
-    // terminalLeadPid / supervisor_pid, which in a supervisor-backed session
-    // diverge from the owner-HTTP process.pid (== owner's INSTANCE_ID),
-    // causing the proxy to read owner-secret-<supervisorPid>.json while the
-    // owner wrote owner-secret-<process.pid>.json → empty secret → 401.
-    const ownerSecret = readOwnerSecretFor(ownerInstanceId);
-    if (!ownerSecret) {
-      resolve({ ok: false, error: "owner secret unavailable (file missing or unreadable)" });
-      return;
-    }
-    const reqOpts = {
-      hostname: "127.0.0.1",
-      port: ownerHttpPort,
-      path: url.pathname + url.search,
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        "x-owner-token": ownerSecret,
-        "x-owner-instance": ownerInstanceId,
-      },
-      timeout: 3e4
-    };
-    const req = http.request(reqOpts, (res) => {
-      let data = "";
-      res.on("data", (chunk) => {
-        data += chunk;
-      });
-      res.on("end", () => {
-        try {
-          const parsed = JSON.parse(data);
-          resolve({ ok: res.statusCode === 200, data: parsed, error: parsed.error });
-        } catch {
-          resolve({ ok: false, error: `invalid response from owner: ${data.slice(0, 200)}` });
-        }
-      });
-    });
-    req.on("error", (err) => {
-      resolve({ ok: false, error: `proxy request failed: ${err.message}` });
-    });
-    req.on("timeout", () => {
-      req.destroy();
-      resolve({ ok: false, error: "proxy request timed out" });
-    });
-    if (body) req.write(JSON.stringify(body));
-    req.end();
-  });
-}
-async function pingOwner(port) {
-  return new Promise((resolve) => {
-    const req = http.request({
-      hostname: "127.0.0.1",
-      port,
-      path: "/ping",
-      method: "GET",
-      timeout: 3e3
-    }, (res) => {
-      res.resume();
-      resolve(res.statusCode === 200);
-    });
-    req.on("error", () => resolve(false));
-    req.on("timeout", () => {
-      req.destroy();
-      resolve(false);
-    });
-    req.end();
-  });
-}
-function tryListenPort(server, port) {
-  return new Promise((resolve) => {
-    server.once("error", () => resolve(false));
-    server.listen(port, "127.0.0.1", () => resolve(true));
-  });
-}
-// Owner-token auth gate. Compares x-owner-token against the per-process
-// OWNER_SECRET generated at startOwnerHttpServer time. The secret is NOT
-// returned by /ping (only the public instanceId is) so a local caller that
-// scrapes /ping still cannot forge owner-side calls. Constant-time compare
-// to avoid trivial timing leakage on the local socket. Optional secondary
-// instanceId check via x-owner-instance: when present it must match this
-// process's INSTANCE_ID, catching stale clients targeting an old owner.
-function requireOwnerToken(req, res) {
-  const token = req.headers["x-owner-token"];
-  if (!OWNER_SECRET || typeof token !== "string" || token.length !== OWNER_SECRET.length) {
-    res.writeHead(401, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "unauthorized: x-owner-token required" }));
-    return false;
-  }
-  let ok = false;
-  try {
-    ok = crypto.timingSafeEqual(Buffer.from(token), Buffer.from(OWNER_SECRET));
-  } catch {
-    ok = false;
-  }
-  if (!ok) {
-    res.writeHead(401, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "unauthorized: x-owner-token required" }));
-    return false;
-  }
-  const instanceHeader = req.headers["x-owner-instance"];
-  if (instanceHeader && instanceHeader !== INSTANCE_ID) {
-    res.writeHead(401, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "unauthorized: instance mismatch" }));
-    return false;
-  }
-  return true;
-}
-// Per-route handler table. Each handler matches the original switch-case
-// behavior byte-for-byte (auth checks, status codes, response shapes); the
-// outer dispatch loop just looks up the entry instead of running a long
-// switch. `methods` mirrors any pre-existing 405 guard.
-const OWNER_ROUTES = {
-  "/ping": async (req, res /*, body, url*/) => {
-    res.writeHead(200);
-    res.end(JSON.stringify({ ok: true, instanceId: INSTANCE_ID, pid: process.pid }));
-  },
-  "/send": async (req, res, body) => {
-    if (!requireOwnerToken(req, res)) return;
-    // Pre/post-send activity bumps keep idle gating consistent across
-    // slow network / attachment / rate-limited sends; double bump is
-    // harmless.
-    scheduler.noteActivity();
-    const sendResult = await backend.sendMessage(body.chatId, body.text, body.opts);
-    scheduler.noteActivity();
-    res.writeHead(200);
-    res.end(JSON.stringify({ sentIds: sendResult.sentIds }));
-  },
-  "/react": async (req, res, body) => {
-    if (!requireOwnerToken(req, res)) return;
-    await backend.react(body.chatId, body.messageId, body.emoji);
-    res.writeHead(200);
-    res.end(JSON.stringify({ ok: true }));
-  },
-  "/edit": async (req, res, body) => {
-    if (!requireOwnerToken(req, res)) return;
-    const editId = await backend.editMessage(body.chatId, body.messageId, body.text, body.opts);
-    res.writeHead(200);
-    res.end(JSON.stringify({ id: editId }));
-  },
-  "/fetch": async (req, res, body, url) => {
-    if (!requireOwnerToken(req, res)) return;
-    const channelId = url.searchParams.get("channel") ?? "";
-    const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
-    const msgs = await backend.fetchMessages(channelId, limit);
-    recordFetchedMessages(channelId, labelForChannelId(channelId), msgs);
-    res.writeHead(200);
-    res.end(JSON.stringify({ messages: msgs }));
-  },
-  "/download": async (req, res, body) => {
-    if (!requireOwnerToken(req, res)) return;
-    const files = await backend.downloadAttachment(body.chatId, body.messageId);
-    res.writeHead(200);
-    res.end(JSON.stringify({ files }));
-  },
-  "/typing/start": async (req, res, body) => {
-    if (!requireOwnerToken(req, res)) return;
-    backend.startTyping(body.channelId);
-    res.writeHead(200);
-    res.end(JSON.stringify({ ok: true }));
-  },
-  "/typing/stop": async (req, res, body) => {
-    if (!requireOwnerToken(req, res)) return;
-    backend.stopTyping(body.channelId);
-    res.writeHead(200);
-    res.end(JSON.stringify({ ok: true }));
-  },
-  "/inject": async (req, res, body) => {
-    // Require owner-token header to prevent unauthenticated local injection.
-    if (!requireOwnerToken(req, res)) return;
-    const content = body.content;
-    if (!content) {
-      res.writeHead(400);
-      res.end(JSON.stringify({ error: "content required" }));
-      return;
-    }
-    const source = body.source || "mixdog-agent";
-    const injMeta = { user: source, user_id: "system", ts: (/* @__PURE__ */ new Date()).toISOString() };
-    if (body.instruction) injMeta.instruction = body.instruction;
-    if (body.type) injMeta.type = body.type;
-    sendNotifyToParent("notifications/claude/channel", { content, meta: injMeta });
-    res.writeHead(200);
-    res.end(JSON.stringify({ ok: true }));
-  },
-  "/trigger-schedule": async (req, res, body) => {
-    // Native fallback for `mcp__trigger_schedule` so out-of-band
-    // verification works when the MCP stdio bridge is down (host agent
-    // disconnected, supervisor restart pending, etc.). Same authz as
-    // /inject — x-owner-token must equal INSTANCE_ID.
-    if (req.method !== "POST") { res.writeHead(405); res.end(JSON.stringify({ error: "POST required" })); return; }
-    if (!requireOwnerToken(req, res)) return;
-    const triggerName = body.name;
-    if (!triggerName) {
-      res.writeHead(400);
-      res.end(JSON.stringify({ error: "name required" }));
-      return;
-    }
-    try {
-      const r = await scheduler.triggerManual(triggerName);
-      res.writeHead(200);
-      res.end(JSON.stringify({ ok: true, result: r ?? null }));
-    } catch (e) {
-      res.writeHead(500);
-      res.end(JSON.stringify({ error: e?.message || String(e) }));
-    }
-  },
-  "/schedule-status": async (req, res) => {
-    // Owner-side schedule_status so standby/proxy sessions read the LIVE
-    // scheduler instead of their own stale local state. Mirrors the MCP
-    // schedule_status handler's formatting (kept byte-identical via the
-    // shared scheduleStatusResult() helper).
-    if (!requireOwnerToken(req, res)) return;
-    try {
-      const r = scheduleStatusResult();
-      res.writeHead(200);
-      res.end(JSON.stringify({ ok: true, result: r }));
-    } catch (e) {
-      res.writeHead(500);
-      res.end(JSON.stringify({ error: e?.message || String(e) }));
-    }
-  },
-  "/schedule-control": async (req, res, body) => {
-    // Owner-side schedule_control so standby/proxy sessions mutate the LIVE
-    // scheduler (defer/skip_today) instead of their own stale local state.
-    // Validation lives here because the proxy side's scheduler.nonInteractive/
-    // interactive lists are not authoritative.
-    if (req.method !== "POST") { res.writeHead(405); res.end(JSON.stringify({ error: "POST required" })); return; }
-    if (!requireOwnerToken(req, res)) return;
-    try {
-      const r = scheduleControlResult(body || {});
-      res.writeHead(200);
-      res.end(JSON.stringify({ ok: true, result: r }));
-    } catch (e) {
-      res.writeHead(500);
-      res.end(JSON.stringify({ error: e?.message || String(e) }));
-    }
-  },
-  "/bridge": async (req, res, body) => {
-    if (req.method !== "POST") { res.writeHead(405); res.end(JSON.stringify({ error: "POST required" })); return; }
-    if (!requireOwnerToken(req, res)) return;
-    const bridgeFile = body.file;
-    const bridgePrompt = body.prompt;
-    const bridgeRef = body.ref;
-    const bridgeRole = body.role;
-    const bridgeContext = body.context;
-    let bridgePromptFinal = bridgePrompt;
-    if (!bridgePromptFinal && bridgeFile) {
-      try { bridgePromptFinal = fs.readFileSync(bridgeFile, "utf-8").trim(); } catch (e) {
-        res.writeHead(400); res.end(JSON.stringify({ error: `Cannot read file: ${e.message}` })); return;
-      }
-    }
-    if (!bridgePromptFinal && !bridgeRef) { res.writeHead(400); res.end(JSON.stringify({ error: "prompt, file, or ref required" })); return; }
-    try {
-      const agentMod = await import(pathToFileURL(path.join(path.dirname(import.meta.url.replace("file:///", "").replace(/\//g, path.sep)), "..", "agent", "index.mjs")).href);
-      if (agentMod.init) await agentMod.init();
-      const toolArgs = {};
-      if (bridgePromptFinal) toolArgs.prompt = bridgePromptFinal;
-      if (bridgeRef) toolArgs.ref = bridgeRef;
-      if (bridgeRole) toolArgs.role = bridgeRole;
-      if (bridgeContext) toolArgs.context = bridgeContext;
-      const notifyFn = (text, extraMeta) => {
-        sendNotifyToParent("notifications/claude/channel", {
-          content: text,
-          meta: {
-            user: "mixdog-agent",
-            user_id: "system",
-            ts: new Date().toISOString(),
-            ...(extraMeta || {})
-          }
-        });
-      };
-      const BRIDGE_HTTP_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
-      const bridgeAbort = new AbortController();
-      const bridgeTimer = setTimeout(() => bridgeAbort.abort(new Error("bridge HTTP timeout")), BRIDGE_HTTP_TIMEOUT_MS);
-      const onReqClose = () => bridgeAbort.abort(new Error("client disconnected"));
-      req.on("close", onReqClose);
-      let result;
-      try {
-        result = await Promise.race([
-          agentMod.handleToolCall("bridge", toolArgs, { notifyFn, requestSignal: bridgeAbort.signal }),
-          new Promise((_, reject) => bridgeAbort.signal.addEventListener("abort", () => reject(bridgeAbort.signal.reason), { once: true })),
-        ]);
-      } finally {
-        clearTimeout(bridgeTimer);
-        req.removeListener("close", onReqClose);
-      }
-      res.writeHead(200);
-      res.end(JSON.stringify(result));
-    } catch (e) {
-      res.writeHead(500); res.end(JSON.stringify({ error: e.message })); return;
-    }
-  },
-  "/bridge/activate": async (req, res, body) => {
-    if (!requireOwnerToken(req, res)) return;
-    const active = Boolean(body.active);
-    const wasActive = channelBridgeActive;
-    channelBridgeActive = active;
-    writeBridgeState(active);
-    if (!active && wasActive) {
-      // Mirror the MCP activate_channel_bridge deactivate path: tear down
-      // owner-side runtime (Discord/scheduler/webhook/event/owner-HTTP/
-      // heartbeat) so a deactivated bridge doesn't keep running and this
-      // owner can't later proxyMode against its own port.
-      stopServerTyping();
-      try { await stopOwnedRuntime("bridge deactivated"); } catch (e) {
-        process.stderr.write(`mixdog: stopOwnedRuntime on deactivate failed: ${e?.message || e}\n`);
-      }
-    }
-    res.writeHead(200);
-    res.end(JSON.stringify({ ok: true, active: channelBridgeActive }));
-  },
-  "/mcp": async (req, res, body) => {
-    if (req.method === "POST") {
-      // Require owner-token header to prevent unauthenticated local MCP dispatch.
-      if (!requireOwnerToken(req, res)) return;
-      const httpMcp = createHttpMcpServer();
-      const httpTransport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: void 0,
-        enableJsonResponse: true
-      });
-      res.on("close", () => {
-        httpTransport.close();
-        void httpMcp.close();
-      });
-      await httpMcp.connect(httpTransport);
-      await httpTransport.handleRequest(req, res, body);
-    } else {
-      res.writeHead(405);
-      res.end(JSON.stringify({ error: "Method not allowed" }));
-    }
-  },
-  "/cycle1": async (req, res, body) => {
-    if (req.method !== "POST") { res.writeHead(405); res.end(JSON.stringify({ ok: false, reason: "method-not-allowed", error: "POST required" })); return; }
-    if (!requireOwnerToken(req, res)) return;
-    const tCycleEntry = Date.now();
-    const timeoutMs = Number(body?.timeout_ms) > 0 ? Math.min(60000, Number(body.timeout_ms)) : 15000;
-    // IPC timer must outlive the worker-side deadline so a graceful
-    // {timedOutWaiting:true} resolve has time to traverse IPC before
-    // the channel timer rejects with memory-timeout. Without the
-    // buffer, the worker resolves at deadline-0ms and the local
-    // setTimeout fires at deadline+0ms in the same tick — race won by
-    // whichever scheduler ordering wins, turning intended 200 flags
-    // into 503 responses.
-    const ipcTimeoutMs = timeoutMs + 2000;
-    try {
-      // Carry the caller deadline through to the memory worker so a
-      // pending cycle1 in-flight is awaited under the same budget.
-      // Without this, when the previous cycle1's LLM call lives past
-      // 60s, every later SessionStart slot stacks another full 60s
-      // wait behind the same zombie promise.
-      const result = await callMemoryAction(
-        'cycle1',
-        { ...(body?.args || {}), _callerDeadlineMs: timeoutMs },
-        ipcTimeoutMs,
-      );
-      // A successful IPC round-trip can still carry a nested MCP error
-      // envelope ({ isError: true }) when the memory worker served the
-      // call but the action failed — e.g. a promoted fork-proxy whose
-      // local `db` is still null. Surfacing that as outer { ok: true }
-      // masks the failure and makes session-start log a phantom success.
-      // Return a transient 503 so the hook's 503-retry path (which gates
-      // only on statusCode===503) re-polls instead of trusting it.
-      if (result && typeof result === 'object' && result.isError === true) {
-        const nestedText = Array.isArray(result.content)
-          ? result.content.map(c => (c && c.text) || '').join(' ').trim()
-          : '';
-        try { process.stderr.write(`[cycle1-time] route ms=${Date.now() - tCycleEntry} nestedError=1\n`); } catch {}
-        res.writeHead(503);
-        res.end(JSON.stringify({ ok: false, reason: 'memory-not-ready', error: nestedText || 'memory cycle1 returned isError' }));
-      } else {
-        try { process.stderr.write(`[cycle1-time] route ms=${Date.now() - tCycleEntry}\n`); } catch {}
-        res.writeHead(200);
-        res.end(JSON.stringify({ ok: true, result }));
-      }
-    } catch (e) {
-      // Classify transient/unavailable failures so the session-start hook
-      // (and other 503-retry callers) can distinguish boot-time races from
-      // IPC-layer faults and timeouts. All four reasons stay on 503 to
-      // preserve the hook retry contract (hooks/session-start.cjs:516
-      // gates only on statusCode===503); only the `reason` label changes.
-      //
-      // Source → reason mapping (upstream messages from server.mjs
-      // callWorker at 457-490 and local callMemoryAction at 169-187):
-      //   server.mjs:470 "not ready (still booting)"       → memory-not-ready
-      //   server.mjs:464/467 "not available (...)"         → worker-unavailable
-      //   server.mjs:435 "exited unexpectedly"             → worker-unavailable
-      //   local "not a worker process" guard               → worker-unavailable
-      //   server.mjs:483 "IPC channel full or closed"      → ipc-error
-      //   server.mjs:488 "send failed: ..."                → ipc-error
-      //   server.mjs:475 "worker ... call ... timed out"   → memory-timeout
-      //   local "memory_call <action> timed out after Nms" → memory-timeout
-      const msg = e?.message || String(e);
-      let reason;
-      if (/worker memory not ready/i.test(msg)) {
-        reason = 'memory-not-ready';
-      } else if (/worker memory (IPC channel|send failed)/i.test(msg)) {
-        reason = 'ipc-error';
-      } else if (/timed out/i.test(msg)) {
-        reason = 'memory-timeout';
-      } else if (msg.includes('restart cap exceeded') || msg.includes('degraded')) {
-        // Permanent degraded state: restart cap hit or boot-time init failure.
-        // Use a distinct reason so callers can fail-fast without retrying.
-        // NOTE: checked before 'not available' — the error message
-        // "worker memory not available (restart cap exceeded)" contains both
-        // substrings and must land in 'memory-degraded', not 'worker-unavailable'.
-        reason = 'memory-degraded';
-      } else if (msg.includes('worker memory not available') || msg.includes('worker memory exited unexpectedly') || msg.includes('not a worker process')) {
-        reason = 'worker-unavailable';
-      }
-      const transient = Boolean(reason);
-      res.writeHead(transient ? 503 : 500);
-      res.end(JSON.stringify({ ok: false, reason, error: msg }));
-    }
-  },
-  "/rebind": async (req, res, body) => {
-    if (!requireOwnerToken(req, res)) return;
-    const channelId = statusState.read().channelId;
-    if (!channelId) {
-      res.writeHead(200);
-      res.end(JSON.stringify({ rebound: false, reason: "no channelId" }));
-      return;
-    }
-    const previousPath = getPersistedTranscriptPath();
-    const explicitTranscriptPath = typeof body?.transcriptPath === "string" ? body.transcriptPath.trim() : "";
-    const bound = await rebindTranscriptContext(channelId, {
-      previousPath,
-      persistStatus: true,
-      catchUp: true,
-      ...(explicitTranscriptPath ? { transcriptPath: explicitTranscriptPath } : {})
-    });
-    const reboundChanged = Boolean(bound) && bound !== previousPath;
-    res.writeHead(200);
-    res.end(JSON.stringify({ rebound: reboundChanged, path: bound || null }));
-  },
-};
-const BACKEND_DEPENDENT_PATHS = new Set([
-  "/send",
-  "/react",
-  "/edit",
-  "/fetch",
-  "/download",
-  "/typing/start",
-  "/typing/stop",
-  "/mcp"
-]);
-async function ownerRequestHandler(req, res) {
-    res.setHeader("Content-Type", "application/json");
-    let body = {};
-    if (req.method === "POST") {
-      const chunks = [];
-      for await (const chunk of req) chunks.push(chunk);
-      try {
-        const rawBody = Buffer.concat(chunks).toString();
-        body = rawBody.trim() ? JSON.parse(rawBody) : {};
-      } catch {
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: "invalid JSON body" }));
-        return;
-      }
-    }
-    try {
-      const url = new URL(req.url ?? "/", `http://127.0.0.1`);
-      if (BACKEND_DEPENDENT_PATHS.has(url.pathname) && !bridgeRuntimeConnected) {
-        res.writeHead(503);
-        res.end(JSON.stringify({ ok: false, reason: "backend-not-ready" }));
-        return;
-      }
-      const handler = OWNER_ROUTES[url.pathname];
-      if (handler) {
-        await handler(req, res, body, url);
-        return;
-      }
-      res.writeHead(404);
-      res.end(JSON.stringify({ error: "not found" }));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      res.writeHead(500);
-      res.end(JSON.stringify({ error: msg }));
-    }
-}
-async function startOwnerHttpServer() {
-  if (ownerHttpServer) return ownerHttpServer.address().port;
-  // Generate a fresh cryptographic owner-secret BEFORE the listener accepts
-  // traffic so requireOwnerToken always has a real secret to compare. Stored
-  // in a 0o600 sidecar file (owner-secret-<pid>.json) under RUNTIME_ROOT so
-  // only the same UID + same active owner pid can read it back. /ping does
-  // NOT return this value — only the public instanceId.
-  if (!OWNER_SECRET) {
-    OWNER_SECRET = crypto.randomBytes(32).toString("hex");
-    try { publishOwnerSecret(OWNER_SECRET); }
-    catch (e) {
-      process.stderr.write(`mixdog: failed to publish owner secret: ${e?.message || e}\n`);
-    }
-  }
-  const server = http.createServer(ownerRequestHandler);
-  for (let port = PROXY_PORT_MIN; port <= PROXY_PORT_MAX; port++) {
-    if (await tryListenPort(server, port)) {
-      ownerHttpServer = server;
-      process.stderr.write(`mixdog: owner HTTP server listening on 127.0.0.1:${port}
-`);
-      return port;
-    }
-    server.removeAllListeners("error");
-  }
-  throw new Error(`no available port in range ${PROXY_PORT_MIN}-${PROXY_PORT_MAX}`);
-}
-function stopOwnerHttpServer() {
-  if (!ownerHttpServer) return;
-  ownerHttpServer.close();
-  ownerHttpServer = null;
-  // Drop the per-process secret + sidecar file. A future startOwnerHttpServer()
-  // call regenerates a fresh one, so a stale standby that read the old secret
-  // before the restart cannot authenticate against the new owner.
-  OWNER_SECRET = "";
-  try { clearOwnerSecret(); } catch {}
-  globalThis.__mixdogBeaconRealHandler = null;
-  globalThis.__mixdogBeacon = null;
-}
 function logOwnership(note) {
   if (lastOwnershipNote === note) return;
   lastOwnershipNote = note;
@@ -1328,45 +626,20 @@ function currentOwnerState() {
   const active = readActiveInstance();
   return {
     active,
-    owned: active?.instanceId === INSTANCE_ID || getActiveOwnerPid(active) === TERMINAL_LEAD_PID
+    // Strict last-wins: this process owns the bridge ONLY when active-instance
+    // names exactly this INSTANCE_ID. A newer remote session that claims the
+    // seat overwrites instanceId, so the old owner immediately reads owned=false
+    // and disconnects on its next refresh tick. No PID/terminal fallback —
+    // that used to let a co-terminal worker wrongly self-claim.
+    owned: active?.instanceId === INSTANCE_ID
   };
 }
 function getBridgeOwnershipSnapshot() {
   return currentOwnerState();
 }
-// MIXDOG_PIN_OWNER=1 in the owning process writes `pinned:true` into
-// active-instance.json. Pinned owners ignore the 10 s stale window — they
-// only relinquish ownership when their OS process actually dies. Set per
-// session (env var on the host agent shell) to lock that Lead as the
-// schedule/webhook receiver across multi-session use.
-function canStealOwnership(active) {
-  if (!active) return true;
-  if (active.instanceId === INSTANCE_ID || getActiveOwnerPid(active) === TERMINAL_LEAD_PID) return true;
-  if (active.pinned) {
-    const pinnedPid = getActiveOwnerPid(active);
-    if (!pinnedPid) return true;
-    try { process.kill(pinnedPid, 0); return false; }
-    catch { return true; }
-  }
-  if (Date.now() - active.updatedAt > ACTIVE_OWNER_STALE_MS) return true;
-  const ownerPid = getActiveOwnerPid(active);
-  try {
-    if (!ownerPid) throw new Error("missing owner pid");
-    process.kill(ownerPid, 0);
-    return false;
-  } catch {
-    return true;
-  }
-}
 function claimBridgeOwnership(reason) {
   refreshActiveInstance(INSTANCE_ID);
   logOwnership(`claimed owner (${reason})`);
-}
-function noteStartupHandoff(previous) {
-  if (!previous) return;
-  if (previous.instanceId === INSTANCE_ID) return;
-  if (getActiveOwnerPid(previous) === TERMINAL_LEAD_PID) return;
-  logOwnership(`startup handoff from ${previous.instanceId}`);
 }
 async function bindPersistedTranscriptIfAny() {
   // Resolve channelId first from persisted status; fall back to the most
@@ -1505,17 +778,10 @@ async function startOwnedRuntime(options = {}) {
   if (!channelBridgeActive) return;
   bridgeRuntimeStarting = true;
   _ownedRuntimeStopRequested = false;
-  // Advertise active-instance.json BEFORE backend connect so peers can
-  // discover this owner (httpPort) immediately. backendReady=false marks
-  // the partial state until backend.connect() succeeds.
-  let httpPort;
-  try {
-    httpPort = await startOwnerHttpServer();
-  } catch (e) {
-    process.stderr.write(`mixdog: HTTP server start failed (non-fatal): ${e instanceof Error ? e.message : String(e)}
-`);
-  }
-  refreshActiveInstance(INSTANCE_ID, { ...httpPort ? { httpPort } : {}, backendReady: false });
+  // Advertise active-instance.json BEFORE backend connect so a newer remote
+  // session's last-wins claim is visible immediately. backendReady=false
+  // marks the partial state until backend.connect() succeeds.
+  refreshActiveInstance(INSTANCE_ID, { backendReady: false });
   startOwnerHeartbeat();
   // Re-check after each post-connect await so a stopOwnedRuntime() landing
   // mid-start cannot be overridden by the resuming start (scheduler/snapshot/
@@ -1527,7 +793,6 @@ async function startOwnedRuntime(options = {}) {
   const bailIfStopRequested = async () => {
     if (!_ownedRuntimeStopRequested) return false;
     try { await backend.disconnect(); } catch {}
-    try { stopOwnerHttpServer(); } catch {}
     try { stopOwnerHeartbeat(); } catch {}
     try { releaseOwnedChannelLocks(INSTANCE_ID); } catch {}
     try { clearActiveInstance(INSTANCE_ID); } catch {}
@@ -1543,8 +808,7 @@ async function startOwnedRuntime(options = {}) {
     await backend.connect();
     if (await bailIfStopRequested()) return;
     bridgeRuntimeConnected = true;
-    refreshActiveInstance(INSTANCE_ID, { ...httpPort ? { httpPort } : {}, backendReady: true });
-    proxyMode = false;
+    refreshActiveInstance(INSTANCE_ID, { backendReady: true });
     // initProviders must complete before scheduler.start() — otherwise the
     // scheduler's first fire can land before the registry is populated and
     // return `Provider "<name>" not found or not enabled`. The previous
@@ -1567,65 +831,10 @@ async function startOwnedRuntime(options = {}) {
   } catch (e) {
     process.stderr.write(`mixdog: backend connect failed (non-fatal, cycle1/MCP still up): ${e instanceof Error ? e.message : String(e)}\n`);
     // Roll back partial owner-side state advertised before connect() ran:
-    // HTTP server, heartbeat, and active-instance entry. Without this cleanup
-    // stopOwnedRuntime() at shutdown will short-circuit on !bridgeRuntimeConnected
-    // and leave the port bound + active-instance.json stale.
-    try { stopOwnerHttpServer(); } catch {}
+    // heartbeat and active-instance entry.
     try { stopOwnerHeartbeat(); } catch {}
     try { releaseOwnedChannelLocks(INSTANCE_ID); } catch {}
     try { clearActiveInstance(INSTANCE_ID); } catch {}
-  } finally {
-    bridgeRuntimeStarting = false;
-  }
-}
-async function startCliOwnedRuntime(options = {}) {
-  if (bridgeRuntimeConnected) return;
-  if (bridgeRuntimeStarting) return;
-  if (!channelBridgeActive) return;
-  const startedAt = performance.now();
-  bootProfile("cli-owned:start");
-  bridgeRuntimeStarting = true;
-  _ownedRuntimeStopRequested = false;
-  try {
-    const backendStartedAt = performance.now();
-    await backend.connect();
-    bootProfile("backend:connected", { ms: (performance.now() - backendStartedAt).toFixed(1), backend: backend.name });
-    if (_ownedRuntimeStopRequested) {
-      try { await backend.disconnect(); } catch {}
-      bridgeRuntimeConnected = false;
-      _ownedRuntimeStopRequested = false;
-      return;
-    }
-    bridgeRuntimeConnected = true;
-    proxyMode = false;
-    ownerHttpPort = 0;
-    try {
-      const providersStartedAt = performance.now();
-      const agentCfg = loadAgentConfig();
-      await initProviders(agentCfg.providers || {});
-      bootProfile("providers:ready", { ms: (performance.now() - providersStartedAt).toFixed(1) });
-    } catch (e) {
-      bootProfile("providers:failed", { error: e instanceof Error ? e.message : String(e) });
-      process.stderr.write(`mixdog: initProviders failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
-    }
-    if (_ownedRuntimeStopRequested) {
-      await stopOwnedRuntime("cli-owned start cancelled");
-      return;
-    }
-    scheduler.start();
-    startSnapshotWriter(scheduler);
-    bootProfile("scheduler:started");
-    syncOwnedWebhookAndEventRuntime();
-    bootProfile("webhook-event:ready");
-    if (options.restoreBinding !== false) bindPersistedTranscriptIfAny().catch((e) => {
-      process.stderr.write(`mixdog: bindPersistedTranscriptIfAny failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
-    });
-    bootProfile("cli-owned:ready", { ms: (performance.now() - startedAt).toFixed(1) });
-    process.stderr.write(`mixdog: running with ${backend.name} backend (cli-owned)\n`);
-  } catch (e) {
-    bootProfile("cli-owned:failed", { ms: (performance.now() - startedAt).toFixed(1), error: e instanceof Error ? e.message : String(e) });
-    process.stderr.write(`mixdog: backend connect failed (non-fatal, cli-owned): ${e instanceof Error ? e.message : String(e)}\n`);
-    try { await stopOwnedRuntime("cli-owned start failed"); } catch {}
   } finally {
     bridgeRuntimeStarting = false;
   }
@@ -1649,7 +858,6 @@ async function stopOwnedRuntime(reason) {
   // and the drain/retry timers stay live after ownership is dropped, leaking a
   // file handle + timers for the rest of the process lifetime.
   try { forwarder.stopWatch(); } catch {}
-  stopOwnerHttpServer();
   stopOwnerHeartbeat();
   scheduler.stop();
   stopSnapshotWriter();
@@ -1671,8 +879,14 @@ function refreshBridgeOwnershipSafe(options = {}) {
 function startOwnerHeartbeat() {
   if (ownerHeartbeatTimer) return;
   ownerHeartbeatTimer = setInterval(() => {
-    try { refreshActiveInstance(INSTANCE_ID); }
-    catch (e) {
+    try {
+      // Last-wins guard: only refresh the seat if we STILL own it. If a newer
+      // remote session claimed active-instance.json since our last tick, do
+      // NOT overwrite it back — that would re-steal ownership and cause
+      // ping-pong / double backend connections. The bridgeOwnershipTimer's
+      // refreshBridgeOwnership() will observe owned=false and disconnect us.
+      if (currentOwnerState().owned) refreshActiveInstance(INSTANCE_ID);
+    } catch (e) {
       process.stderr.write(`[ownership] heartbeat refresh failed: ${e instanceof Error ? e.message : String(e)}\n`);
     }
   }, OWNER_HEARTBEAT_INTERVAL_MS);
@@ -1689,98 +903,41 @@ async function refreshBridgeOwnership(options = {}) {
   // instead of returning early and observing spurious auto-connect failure.
   if (bridgeOwnershipRefreshInFlight) return bridgeOwnershipRefreshInFlight;
   bridgeOwnershipRefreshInFlight = (async () => {
+    // Opt-in remote, single-owner, last-wins. Only a remote session with an
+    // active bridge participates. If this instance is the active owner (its
+    // INSTANCE_ID is the one advertised in active-instance.json) it ensures
+    // the owned runtime is up. If a newer remote session has since claimed
+    // ownership (last-wins overwrite), this instance is no longer owner and
+    // quietly tears its backend down on the next tick. No proxy, no steal.
     if (!channelBridgeActive) {
-      const { active: active2 } = currentOwnerState();
-      if (active2?.httpPort && !proxyMode) {
-        const alive = await pingOwner(active2.httpPort);
-        if (alive) {
-          proxyMode = true;
-          ownerHttpPort = active2.httpPort;
-          logOwnership(`non-channel session \u2014 proxy mode via ${active2.instanceId}`);
-        }
-      }
+      if (bridgeRuntimeConnected) await stopOwnedRuntime("bridge inactive");
       return;
     }
     const { active, owned } = currentOwnerState();
-    const activeHttpPort = Number(active?.httpPort) || 0;
-    let activeHttpChecked = false;
-    let activeHttpAlive = false;
-    const checkActiveHttp = async () => {
-      if (!activeHttpPort) return false;
-      if (!activeHttpChecked) {
-        activeHttpAlive = await pingOwner(activeHttpPort);
-        activeHttpChecked = true;
-      }
-      return activeHttpAlive;
-    };
-    const enterProxyMode = (note) => {
-      proxyMode = true;
-      ownerHttpPort = activeHttpPort;
-      if (note) logOwnership(note);
-    };
-    if (proxyMode && !owned && activeHttpPort) {
-      const alive = await checkActiveHttp();
-      if (!alive) {
-        process.stderr.write(`[ownership] owner ping failed, attempting takeover
-`);
-        proxyMode = false;
-        ownerHttpPort = 0;
-        claimBridgeOwnership(`owner ${active.instanceId} unreachable`);
-        const next2 = currentOwnerState();
-        if (next2.owned) {
-          refreshActiveInstance(INSTANCE_ID);
-          await startOwnedRuntime(options);
-        }
-        return;
-      }
-      // Active owner is alive but may have rebound to a new port since the
-      // previous refresh (owner restart on a different PROXY_PORT). Sync
-      // ownerHttpPort so subsequent proxyRequest() hits the new port instead
-      // of the stale value cached at proxy-mode entry.
-      if (ownerHttpPort !== activeHttpPort) {
-        ownerHttpPort = activeHttpPort;
-        logOwnership(`proxy mode via owner ${active.instanceId} port ${activeHttpPort}`);
-      }
-      return;
-    }
-    if (!owned && activeHttpPort) {
-      const alive = await checkActiveHttp();
-      if (alive) {
-        enterProxyMode(`proxy mode via owner ${active.instanceId} port ${activeHttpPort}`);
-        return;
-      }
-      const updatedAt = Number(active?.updatedAt);
-      const activeAgeMs = Number.isFinite(updatedAt) ? Date.now() - updatedAt : Number.POSITIVE_INFINITY;
-      if (active?.backendReady === true || activeAgeMs > ACTIVE_OWNER_STALE_MS) {
-        logOwnership(`owner ${active.instanceId} port ${activeHttpPort} unreachable`);
-        claimBridgeOwnership(`owner ${active.instanceId} unreachable`);
-      }
-    }
-    if (!owned && canStealOwnership(active)) {
-      claimBridgeOwnership(active ? `takeover from ${active.instanceId}` : "startup");
-    }
-    const next = currentOwnerState();
-    if (next.owned) {
+    if (owned) {
       refreshActiveInstance(INSTANCE_ID);
       await startOwnedRuntime(options);
       return;
     }
-    if (bridgeRuntimeConnected) {
-      const reason = next.active?.instanceId ? `newer server ${next.active.instanceId}` : "no active owner";
-      await stopOwnedRuntime(reason);
+    // Not the owner. Two sub-cases:
+    //   (a) A live remote session holds the seat (active-instance names a
+    //       different, non-stale instance) → last-wins: we lost, go quiet
+    //       (disconnect if we were connected).
+    //   (b) There is NO live owner (active is null/stale — e.g. our own entry
+    //       was cleared after a backend-connect failure or a bridge
+    //       deactivate/reactivate) → this remote session claims the empty seat
+    //       and starts the owned runtime. Without this, a remote session could
+    //       never (re)acquire ownership once its active entry was cleared.
+    if (active && active.instanceId && active.instanceId !== INSTANCE_ID) {
+      if (bridgeRuntimeConnected) {
+        await stopOwnedRuntime("ownership lost (newer remote session)");
+      }
       return;
     }
-    if (next.active?.httpPort && !proxyMode) {
-      const alive = await pingOwner(next.active.httpPort);
-      if (alive) {
-        proxyMode = true;
-        ownerHttpPort = next.active.httpPort;
-        logOwnership(`proxy mode via owner ${next.active.instanceId} port ${next.active.httpPort}`);
-        return;
-      }
-    }
-    if (next.active?.instanceId) {
-      logOwnership(`standby under owner ${next.active.instanceId}`);
+    // No live owner — claim the empty seat and start.
+    claimBridgeOwnership("no active owner");
+    if (currentOwnerState().owned) {
+      await startOwnedRuntime(options);
     }
   })();
   try {
@@ -1983,11 +1140,10 @@ function wireEventQueueHandlers(eventQueue) {
     injectAndRecord(channelId, name, content, options);
   });
   // Defensive ownership probe: the queue tick should only run in the active
-  // owner process. Standby / proxy instances see bridgeRuntimeConnected=false
-  // or proxyMode=true and will skip the tick even if an errant start() slipped
-  // through.
-  eventQueue.setOwnerGetter(() => bridgeRuntimeConnected && !proxyMode);
-  forwarder.setOwnerGetter(() => bridgeRuntimeConnected && !proxyMode);
+  // owner process. Non-owner instances see bridgeRuntimeConnected=false and
+  // will skip the tick even if an errant start() slipped through.
+  eventQueue.setOwnerGetter(() => bridgeRuntimeConnected);
+  forwarder.setOwnerGetter(() => bridgeRuntimeConnected);
 }
 function editDiscordMessage(channelId, messageId, label) {
   // Behavior-preserving: route through the backend abstraction (which uses
@@ -2423,10 +1579,9 @@ function createHttpMcpServer() {
 // `createHttpMcpServer()` above. There is no orphan worker-level Server.
 const BACKEND_TOOLS = /* @__PURE__ */ new Set(["reply", "fetch", "react", "edit_message", "download_attachment", "trigger_schedule"]);
 // ── Backend-tool dispatch helpers ───────────────────────────────────────────
-// Each helper transparently routes through proxyRequest() when this instance
-// is in proxyMode (non-owner), or through the local backend otherwise. The
-// MCP-result formatting (text shape, cache invalidation, isError flag) is
-// shared so both branches produce byte-identical output.
+// Each helper dispatches through the local backend (this process is always the
+// owner in opt-in remote mode). The MCP-result formatting (text shape, cache
+// invalidation, isError flag) is kept here so results stay consistent.
 // schedule_status / schedule_control share their result-formatting between
 // the local (owner) MCP case handlers and the owner-side HTTP routes that
 // serve proxied standby sessions. Keeping the body here makes both paths
@@ -2473,24 +1628,11 @@ async function dispatchReply(args) {
     components: args.components ?? []
   };
   let ids;
-  if (proxyMode) {
-    const proxyResult = await proxyRequest("/send", "POST", {
-      chatId: args.chat_id,
-      text: args.text,
-      opts: sendOpts
-    });
-    if (!proxyResult.ok) {
-      return { content: [{ type: "text", text: `proxy reply failed: ${proxyResult.error}` }], isError: true };
-    }
-    ids = proxyResult.data?.sentIds ?? [];
-  } else {
-    // Pre-send activity bump keeps idle gating consistent during the await.
-    scheduler.noteActivity();
-    const sendResult = await backend.sendMessage(args.chat_id, args.text, sendOpts);
-    // Lead-originated reply via proxy-mode MCP — bump activity.
-    scheduler.noteActivity();
-    ids = sendResult.sentIds;
-  }
+  // Pre-send activity bump keeps idle gating consistent during the await.
+  scheduler.noteActivity();
+  const sendResult = await backend.sendMessage(args.chat_id, args.text, sendOpts);
+  scheduler.noteActivity();
+  ids = sendResult.sentIds;
   const text = ids.length === 1 ? `sent (id: ${ids[0]})` : `sent ${ids.length} parts (ids: ${ids.join(", ")})`;
   return { content: [{ type: "text", text }] };
 }
@@ -2498,17 +1640,8 @@ async function dispatchFetch(args) {
   const channelId = resolveChannelLabel(config.channelsConfig, args.channel);
   const limit = args.limit ?? 20;
   let msgs;
-  if (proxyMode) {
-    const proxyResult = await proxyRequest(`/fetch?channel=${encodeURIComponent(channelId)}&limit=${limit}`, "GET");
-    if (!proxyResult.ok) {
-      return { content: [{ type: "text", text: `proxy fetch failed: ${proxyResult.error}` }], isError: true };
-    }
-    msgs = proxyResult.data?.messages ?? [];
-    // recordFetchedMessages already ran on the owner side (/fetch route).
-  } else {
-    msgs = await backend.fetchMessages(channelId, limit);
-    recordFetchedMessages(channelId, args.channel !== channelId ? args.channel : labelForChannelId(channelId), msgs);
-  }
+  msgs = await backend.fetchMessages(channelId, limit);
+  recordFetchedMessages(channelId, args.channel !== channelId ? args.channel : labelForChannelId(channelId), msgs);
   const text = msgs.length === 0 ? "(no messages)" : msgs.map((m) => {
     const atts = m.attachmentCount > 0 ? ` +${m.attachmentCount}att` : "";
     return `[${m.ts}] ${m.user}: ${m.text}  (id: ${m.id}${atts})`;
@@ -2516,53 +1649,18 @@ async function dispatchFetch(args) {
   return { content: [{ type: "text", text }] };
 }
 async function dispatchReact(args) {
-  if (proxyMode) {
-    const proxyResult = await proxyRequest("/react", "POST", {
-      chatId: args.chat_id,
-      messageId: args.message_id,
-      emoji: args.emoji
-    });
-    if (!proxyResult.ok) {
-      return { content: [{ type: "text", text: `proxy react failed: ${proxyResult.error}` }], isError: true };
-    }
-  } else {
-    await backend.react(args.chat_id, args.message_id, args.emoji);
-  }
+  await backend.react(args.chat_id, args.message_id, args.emoji);
   return { content: [{ type: "text", text: "reacted" }] };
 }
 async function dispatchEditMessage(args) {
   const opts = { embeds: args.embeds ?? [], components: args.components ?? [] };
   let id;
-  if (proxyMode) {
-    const proxyResult = await proxyRequest("/edit", "POST", {
-      chatId: args.chat_id,
-      messageId: args.message_id,
-      text: args.text,
-      opts
-    });
-    if (!proxyResult.ok) {
-      return { content: [{ type: "text", text: `proxy edit failed: ${proxyResult.error}` }], isError: true };
-    }
-    id = proxyResult.data?.id;
-  } else {
-    id = await backend.editMessage(args.chat_id, args.message_id, args.text, opts);
-  }
+  id = await backend.editMessage(args.chat_id, args.message_id, args.text, opts);
   return { content: [{ type: "text", text: `edited (id: ${id})` }] };
 }
 async function dispatchDownloadAttachment(args) {
   let files;
-  if (proxyMode) {
-    const proxyResult = await proxyRequest("/download", "POST", {
-      chatId: args.chat_id,
-      messageId: args.message_id
-    });
-    if (!proxyResult.ok) {
-      return { content: [{ type: "text", text: `proxy download failed: ${proxyResult.error}` }], isError: true };
-    }
-    files = proxyResult.data?.files ?? [];
-  } else {
-    files = await backend.downloadAttachment(args.chat_id, args.message_id);
-  }
+  files = await backend.downloadAttachment(args.chat_id, args.message_id);
   if (files.length === 0) {
     return { content: [{ type: "text", text: "message has no attachments" }] };
   }
@@ -2603,97 +1701,35 @@ async function handleToolCall(name, args, _signal) {
         result = await dispatchDownloadAttachment(args);
         break;
       case "schedule_status": {
-          if (proxyMode) {
-            const proxyResult = await proxyRequest("/schedule-status", "GET");
-            if (!proxyResult.ok) {
-              result = { content: [{ type: "text", text: `proxy schedule_status failed: ${proxyResult.error}` }], isError: true };
-              break;
-            }
-            result = proxyResult.data?.result ?? { content: [{ type: "text", text: "no schedules configured" }] };
-          } else {
-            result = scheduleStatusResult();
-          }
+          result = scheduleStatusResult();
           break;
         }
       case "trigger_schedule": {
-          if (proxyMode) {
-            const proxyResult = await proxyRequest("/trigger-schedule", "POST", { name: args.name });
-            if (!proxyResult.ok) {
-              result = { content: [{ type: "text", text: `proxy trigger_schedule failed: ${proxyResult.error}` }], isError: true };
-              break;
-            }
-            const triggerResult = proxyResult.data?.result;
-            result = { content: [{ type: "text", text: triggerResult == null ? "" : String(triggerResult) }] };
-          } else {
-            const triggerResult = await scheduler.triggerManual(args.name);
-            result = { content: [{ type: "text", text: triggerResult }] };
-          }
+          const triggerResult = await scheduler.triggerManual(args.name);
+          result = { content: [{ type: "text", text: triggerResult }] };
           break;
         }
       case "schedule_control": {
-          if (proxyMode) {
-            const proxyResult = await proxyRequest("/schedule-control", "POST", {
-              name: args.name,
-              action: args.action,
-              minutes: args.minutes
-            });
-            if (!proxyResult.ok) {
-              result = { content: [{ type: "text", text: `proxy schedule_control failed: ${proxyResult.error}` }], isError: true };
-              break;
-            }
-            result = proxyResult.data?.result ?? { content: [{ type: "text", text: `unknown action: ${args.action}` }], isError: true };
-          } else {
-            result = scheduleControlResult(args);
-          }
+          result = scheduleControlResult(args);
           break;
         }
       case "activate_channel_bridge": {
-          if (proxyMode) {
-            const proxyRes = await proxyRequest("/bridge/activate", "POST", { active: args.active === true });
-            if (!proxyRes.ok) {
-              result = { content: [{ type: "text", text: `proxy bridge activate failed: ${proxyRes.error}` }], isError: true };
-            } else {
-              channelBridgeActive = Boolean(args.active);
-              writeBridgeState(channelBridgeActive);
-              // Remote owner just deactivated and is tearing its owner-HTTP
-              // server down. Drop our proxy pointer so subsequent direct
-              // tool calls don't route through proxyRequest() to a port
-              // about to close (ECONNREFUSED) or stripped of auth (401).
-              if (!args.active) {
-                proxyMode = false;
-                ownerHttpPort = 0;
-              }
-              result = { content: [{ type: "text", text: `channel bridge ${args.active ? "activated" : "deactivated"}` }] };
-            }
-          } else {
-            const active = args.active === true;
-            const wasActive = channelBridgeActive;
-            channelBridgeActive = active;
-            writeBridgeState(active);
-            if (active && !wasActive) {
-              refreshBridgeOwnershipSafe({ restoreBinding: true });
-            }
-            if (!active && wasActive) {
-              stopServerTyping();
-              // Tear down the owner-side runtime so Discord/scheduler/webhook/
-              // event-pipeline/owner-HTTP/heartbeat don't keep running on a
-              // deactivated bridge (and to prevent this owner from later
-              // entering proxyMode against its own port).
-              try { await stopOwnedRuntime("bridge deactivated"); } catch (e) {
-                process.stderr.write(`mixdog: stopOwnedRuntime on deactivate failed: ${e?.message || e}\n`);
-              }
-              // Also clear proxyMode/ownerHttpPort. Without this, a session
-              // that was acting as proxy when deactivate landed keeps the
-              // stale flag + port set; later direct tool calls then route
-              // through proxyRequest() to a port whose owner has just been
-              // stopped or stripped of auth, returning ECONNREFUSED/401.
-              if (proxyMode) {
-                proxyMode = false;
-                ownerHttpPort = 0;
-              }
-            }
-            result = { content: [{ type: "text", text: `channel bridge ${active ? "activated" : "deactivated"}` }] };
+          const active = args.active === true;
+          const wasActive = channelBridgeActive;
+          channelBridgeActive = active;
+          writeBridgeState(active);
+          if (active && !wasActive) {
+            refreshBridgeOwnershipSafe({ restoreBinding: true });
           }
+          if (!active && wasActive) {
+            stopServerTyping();
+            // Tear down the owner-side runtime so Discord/scheduler/webhook/
+            // event-pipeline don't keep running on a deactivated bridge.
+            try { await stopOwnedRuntime("bridge deactivated"); } catch (e) {
+              process.stderr.write(`mixdog: stopOwnedRuntime on deactivate failed: ${e?.message || e}\n`);
+            }
+          }
+          result = { content: [{ type: "text", text: `channel bridge ${active ? "activated" : "deactivated"}` }] };
           break;
         }
       case "reload_config": {
@@ -2716,7 +1752,7 @@ async function handleToolCall(name, args, _signal) {
         }
       case "inject_command": {
           const cmd = String(args?.command || "").trim();
-          const ALLOW = new Set(["reload-plugins", "clear"]);
+          const ALLOW = new Set(["clear"]);
           if (!ALLOW.has(cmd)) {
             result = { content: [{ type: "text", text: `inject_command: '${cmd}' not in allow-list (${[...ALLOW].join(", ")})` }], isError: true };
             break;
@@ -2772,35 +1808,20 @@ async function handleToolCallWithBridgeRetry(toolName, args, signal) {
     _lastForwardMs = now;
     await forwarder.forwardNewText();
   }
-  if (BACKEND_TOOLS.has(toolName) && !bridgeRuntimeConnected && !proxyMode) {
-    if (_isCliOwnedMode) {
-      await startCliOwnedRuntime({ restoreBinding: true });
-      if (!bridgeRuntimeConnected) {
-        return {
-          content: [{ type: "text", text: `Channel runtime is not connected. Check token and network.` }],
-          isError: true
-        };
-      }
-    } else {
-    // Do NOT pre-claim ownership here. claimBridgeOwnership() overwrites the
-    // active-instance advert immediately, which kicks a live owner offline if
-    // refreshBridgeOwnership() would have otherwise discovered them via
-    // pingOwner() and entered proxyMode. Let refreshBridgeOwnership() below
-    // ping/proxy the existing owner first and only fall through to a takeover
-    // when the live owner is unreachable.
-    for (let i = 0; i < 2 && !bridgeRuntimeConnected && !proxyMode; i++) {
+  if (BACKEND_TOOLS.has(toolName) && !bridgeRuntimeConnected) {
+    // Remote-owner startup: ensure this owner's backend is connected.
+    for (let i = 0; i < 2 && !bridgeRuntimeConnected; i++) {
       try {
         await refreshBridgeOwnership();
       } catch {
       }
-      if (!bridgeRuntimeConnected && !proxyMode) await new Promise((r) => setTimeout(r, 300));
+      if (!bridgeRuntimeConnected) await new Promise((r) => setTimeout(r, 300));
     }
-    if (!bridgeRuntimeConnected && !proxyMode) {
+    if (!bridgeRuntimeConnected) {
       return {
         content: [{ type: "text", text: `Discord auto-connect failed after retries. Check token and network.` }],
         isError: true
       };
-    }
     }
   }
   const result = await handleToolCall(toolName, args, signal);
@@ -3085,13 +2106,40 @@ async function init(_sharedMcp) {
   });
 }
 async function start() {
-  startChannelDaemonIdleMonitor();
   channelBridgeActive = true;
   writeBridgeState(true);
-  if (_isCliOwnedMode) {
-    await startCliOwnedRuntime({ restoreBinding: true });
-  } else {
-  await refreshBridgeOwnership({ restoreBinding: true });
+  // Opt-in remote, single-owner, last-wins. Claim the seat immediately so a
+  // later `mixdog --remote` session overwrites us and we drop on our next
+  // refresh tick. Then connect the owned runtime and arm the ownership timer
+  // that keeps checking whether a newer session has taken over.
+  claimBridgeOwnership("remote start");
+  const _bindingReadyStart = Date.now();
+  try {
+    await refreshBridgeOwnership({ restoreBinding: true });
+    bindingReadyStatus = "resolved";
+    dropTrace("bindingReady.resolve", { elapsedMs: Date.now() - _bindingReadyStart, status: bindingReadyStatus });
+    _bindingReadyResolve(true);
+  } catch (e) {
+    bindingReadyStatus = "rejected";
+    dropTrace("bindingReady.reject", { elapsedMs: Date.now() - _bindingReadyStart, status: bindingReadyStatus, err: String(e) });
+    _bindingReadyResolve(e);
+  }
+  // Ownership timer: keep checking whether a newer remote session has taken
+  // over (last-wins) so a superseded owner disconnects promptly.
+  if (!bridgeOwnershipTimer) {
+    bridgeOwnershipTimer = setInterval(() => {
+      refreshBridgeOwnershipSafe();
+    }, 3e3);
+    bridgeOwnershipTimer.unref?.();
+  }
+  // Hot-reload config on file change (schedules/webhooks/events).
+  if (!_configWatcher) {
+    try {
+      _configWatcher = fs.watch(path.join(DATA_DIR, "mixdog-config.json"), () => {
+        if (_reloadDebounce) clearTimeout(_reloadDebounce);
+        _reloadDebounce = setTimeout(() => { reloadRuntimeConfig().catch(() => {}); }, 500);
+      });
+    } catch {}
   }
   // Pre-warm the whisper-server manager once at owner startup so the first
   // voice transcription does not pay cold-start cost. Non-blocking: failures
@@ -3109,7 +2157,6 @@ async function start() {
   })();
 }
 async function stop() {
-  stopChannelDaemonIdleMonitor();
   try { await stopVoiceWhisperServer(); } catch {}
   await stopOwnedRuntime("unified server stop");
   cleanupInstanceRuntimeFiles(INSTANCE_ID);
@@ -3117,112 +2164,12 @@ async function stop() {
     clearInterval(bridgeOwnershipTimer);
     bridgeOwnershipTimer = null;
   }
+  if (_reloadDebounce) { clearTimeout(_reloadDebounce); _reloadDebounce = null; }
+  if (_configWatcher) { try { _configWatcher.close(); } catch {} _configWatcher = null; }
   if (turnEndWatcher) {
     try { turnEndWatcher.close(); } catch {}
     turnEndWatcher = null;
   }
-}
-if (process.env.MIXDOG_CHANNELS_AUTO_BOOT !== '0') {
-  let detectChannelFlag = function() {
-    const isWin = process.platform === "win32";
-    const flagRe = /--channels\b|--dangerously-load-development-channels\b/;
-    if (process.env.MIXDOG_CHANNEL_FLAG === "1") return true;
-    if (process.env.MIXDOG_CHANNEL_FLAG === "0") return false;
-    if (isWin) {
-      // Single CIM snapshot + in-process chain walk: one powershell.exe spawn
-      // instead of up to 12 synchronous wmic/powershell spawns. Snapshots all
-      // processes into a map, walks from process.ppid up to 6 ancestors
-      // (closest first), and emits each ancestor CommandLine on its own line
-      // for the same flagRe test below. Any failure returns false.
-      try {
-        const ps = [
-          '$procs = Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine;',
-          '$map = @{};',
-          'foreach ($p in $procs) { $map[[int]$p.ProcessId] = $p }',
-          `$cur = ${Number(process.ppid)};`,
-          'for ($i = 0; $i -lt 6; $i++) {',
-          '  if (-not $cur -or $cur -le 1) { break }',
-          '  $p = $map[[int]$cur]; if ($null -eq $p) { break }',
-          '  [Console]::WriteLine($p.CommandLine);',
-          '  $next = [int]$p.ParentProcessId;',
-          '  if ($next -eq [int]$cur -or $next -le 1) { break }',
-          '  $cur = $next',
-          '}',
-        ].join(" ");
-        const r = spawnSync("powershell.exe", ["-NoProfile", "-Command", ps], {
-          encoding: "utf8",
-          timeout: 5e3,
-          windowsHide: true,
-        });
-        const out = String(r.stdout || "");
-        for (const line of out.split(/\r?\n/)) {
-          if (flagRe.test(line)) return true;
-        }
-      } catch {}
-      return false;
-    }
-    let pid = process.ppid;
-    for (let depth = 0; pid && pid > 1 && depth < 6; depth++) {
-      try {
-        const cmdLine = execSync(`ps -p ${pid} -o args=`, { encoding: "utf8", timeout: 3e3, windowsHide: true });
-        if (flagRe.test(cmdLine)) return true;
-        pid = parseInt(execSync(`ps -p ${pid} -o ppid=`, { encoding: "utf8", timeout: 3e3, windowsHide: true }).trim(), 10);
-      } catch {
-        break;
-      }
-    }
-    return false;
-  };
-  _channelFlagDetected = detectChannelFlag();
-  if (isMixdogDebug()) {
-    fs.appendFileSync(_bootLog, `[${localTimestamp()}] channelFlag: ${_channelFlagDetected}\n`);
-    if (_channelFlagDetected) {
-      fs.appendFileSync(_bootLog, `[${localTimestamp()}] channel mode detected — bridge auto-activated\n`);
-    }
-  }
-  if (_channelFlagDetected) {
-    channelBridgeActive = true;
-  }
-  writeBridgeState(channelBridgeActive);
-  const previousOwner = readActiveInstance();
-  noteStartupHandoff(previousOwner);
-  // Do not claim ownership just because this terminal is channel-capable.
-  // refreshBridgeOwnership() below pings/proxies a live owner first and only
-  // claims when there is no reachable active owner or the record is stale.
-  const _bindingReadyStart = Date.now();
-  void refreshBridgeOwnership({ restoreBinding: true }).then(
-    (v) => {
-      bindingReadyStatus = "resolved";
-      dropTrace("bindingReady.resolve", { elapsedMs: Date.now() - _bindingReadyStart, status: bindingReadyStatus });
-      _bindingReadyResolve(v);
-    },
-    (e) => {
-      bindingReadyStatus = "rejected";
-      dropTrace("bindingReady.reject", { elapsedMs: Date.now() - _bindingReadyStart, status: bindingReadyStatus, err: String(e) });
-      _bindingReadyResolve(e);
-    }
-  );
-  bridgeOwnershipTimer = setInterval(() => {
-    refreshBridgeOwnershipSafe();
-  }, 3e3);
-  // Hook/statusline IPC is owned by the MCP parent process so it is available
-  // before channels finishes bridge ownership and backend startup.
-  const configPath = path.join(DATA_DIR, "mixdog-config.json");
-  let reloadDebounce = null;
-  let configWatcher = null;
-  try {
-    configWatcher = fs.watch(configPath, () => {
-      if (reloadDebounce) clearTimeout(reloadDebounce);
-      reloadDebounce = setTimeout(() => {
-        reloadRuntimeConfig().catch(() => {});
-      }, 500);
-    });
-  } catch {
-  }
-  process.on("exit", () => {
-    if (configWatcher) { try { configWatcher.close(); } catch {} }
-    if (bridgeOwnershipTimer) { clearInterval(bridgeOwnershipTimer); }
-  });
 }
 // ── IPC worker mode ──────────────────────────────────────────────
 if (_isWorkerMode && process.send) {
@@ -3385,11 +2332,11 @@ if (_isWorkerMode && process.send) {
     try {
       await start()
       bootProfile("worker:ready", { ms: (performance.now() - startedAt).toFixed(1) })
-      process.send({ type: 'ready', channelFlag: _channelFlagDetected })
+      process.send({ type: 'ready' })
     } catch (e) {
       bootProfile("worker:failed", { ms: (performance.now() - startedAt).toFixed(1), error: e?.message || String(e) })
       process.stderr.write(`[channels-worker] start() failed: ${e && (e.message || e)}\n`)
-      process.send({ type: 'ready', channelFlag: _channelFlagDetected, degraded: true, error: e?.message || String(e) })
+      process.send({ type: 'ready', degraded: true, error: e?.message || String(e) })
     }
   })()
 }

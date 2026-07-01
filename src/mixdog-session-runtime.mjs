@@ -12,6 +12,8 @@ import { createStandaloneMemoryRuntime } from './standalone/memory-runtime-proxy
 import { createStandaloneHookBus } from './standalone/hook-bus.mjs';
 import { writeLastSessionCwd } from './runtime/shared/user-cwd.mjs';
 import { cancelBackgroundTasks } from './runtime/shared/background-tasks.mjs';
+import { createTranscriptWriter } from './runtime/shared/transcript-writer.mjs';
+import { mixdogHome } from './runtime/shared/plugin-paths.mjs';
 import {
   modelVisibleToolCompletionMessage,
   shouldPersistModelVisibleToolCompletion,
@@ -2049,6 +2051,13 @@ export async function createMixdogSessionRuntime({
 } = {}) {
   bootProfile('session-runtime:start', { provider, model, toolMode, cwd });
   let remoteEnabled = remote === true;
+  // Remote-mode transcript writer (Discord outbound). Lazily created per
+  // session.id + cwd inside ask(); only active while remoteEnabled.
+  let _transcriptWriter = null;
+  let _twKey = '';
+  // Last assistant text handed to the transcript writer (via onAssistantText),
+  // so the post-turn final-content append can skip an exact duplicate.
+  let _lastAppendedAssistant = '';
   process.env.MIXDOG_QUIET_SESSION_LOG ??= '1';
   const standaloneStartedAt = performance.now();
   ensureStandaloneEnvironment({
@@ -4937,6 +4946,32 @@ function parsedProviderModelVersion(id) {
       try {
         await refreshSessionForCwdIfNeeded('cwd-change');
         if (!session?.id) await createCurrentSession('turn');
+        // Remote outbound: ensure a transcript writer bound to the current
+        // session.id + cwd. The channel worker's OutputForwarder tails this
+        // JSONL and pushes the surface view to Discord. Gated on remoteEnabled
+        // so non-remote sessions write nothing.
+        if (remoteEnabled) {
+          const twKey = `${session.id}\u0000${currentCwd}`;
+          // Reset per-turn dedup tracker so an identical answer in a later turn
+          // is still written (the guard only prevents same-turn double-write).
+          _lastAppendedAssistant = '';
+          if (_twKey !== twKey) {
+            try {
+              _transcriptWriter = createTranscriptWriter({
+                mixdogHome: mixdogHome(),
+                sessionId: session.id,
+                cwd: currentCwd,
+                pid: process.pid,
+              });
+              _transcriptWriter.writeSessionRecord();
+              _twKey = twKey;
+            } catch (error) {
+              process.stderr.write(`mixdog: transcript-writer: init failed: ${error?.message || error}\n`);
+              _transcriptWriter = null;
+              _twKey = '';
+            }
+          }
+        }
         hooks.emit('turn:start', { sessionId: session.id, prompt, cwd: currentCwd });
         // UserPromptSubmit: bridge to the standard hook bus. A hook FAILURE
         // must not block the turn, but a genuine blocked===true MUST throw.
@@ -4965,6 +5000,14 @@ function parsedProviderModelVersion(id) {
                 name: call?.name || 'tool',
                 callId: call?.id || null,
               });
+              // Mirror each tool card the TUI shows into the transcript so the
+              // forwarder renders the same one-line tool summary on Discord.
+              // calls carry { name, arguments, id } (loop.mjs response.toolCalls);
+              // some providers use `input` — accept either.
+              if (remoteEnabled && _transcriptWriter) {
+                try { _transcriptWriter.appendToolUse(call?.name, call?.input ?? call?.arguments); }
+                catch (error) { process.stderr.write(`mixdog: transcript-writer: onToolCall failed: ${error?.message || error}\n`); }
+              }
             }
             if (typeof options.onToolCall === 'function') {
               return await options.onToolCall(iter, calls);
@@ -4976,9 +5019,40 @@ function parsedProviderModelVersion(id) {
           {
             onTextDelta: options.onTextDelta,
             onReasoningDelta: options.onReasoningDelta,
-            onAssistantText: options.onAssistantText,
+            onAssistantText: (text) => {
+              // Capture the same assistant text the TUI renders (final answer +
+              // mid-turn preamble). Feed the writer, then ALWAYS call through to
+              // the caller's hook so terminal rendering is never affected.
+              if (remoteEnabled && _transcriptWriter) {
+                try {
+                  const value = typeof text === 'string' ? text : (text == null ? '' : String(text));
+                  if (value.trim()) {
+                    _transcriptWriter.appendAssistant(value);
+                    // Track the last line we wrote so the post-turn final
+                    // append below can skip an identical re-write (buffered
+                    // providers surface the final answer here AND in result).
+                    _lastAppendedAssistant = value;
+                  }
+                }
+                catch (error) { process.stderr.write(`mixdog: transcript-writer: onAssistantText failed: ${error?.message || error}\n`); }
+              }
+              return options.onAssistantText?.(text);
+            },
             onUsageDelta: options.onUsageDelta,
-            onToolResult: options.onToolResult,
+            onToolResult: (message) => {
+              // Surface Edit diffs only: the forwarder reads toolUseResult
+              // {oldString,newString}. Other tool results carry no diff payload,
+              // so we append only when those fields are present.
+              if (remoteEnabled && _transcriptWriter) {
+                try {
+                  const tur = message?.toolUseResult;
+                  if (tur && (tur.oldString != null || tur.newString != null)) {
+                    _transcriptWriter.appendToolResult({ oldString: tur.oldString ?? '', newString: tur.newString ?? '' });
+                  }
+                } catch (error) { process.stderr.write(`mixdog: transcript-writer: onToolResult failed: ${error?.message || error}\n`); }
+              }
+              return options.onToolResult?.(message);
+            },
             onToolApproval: options.onToolApproval,
             onCompactEvent: options.onCompactEvent,
             onStageChange: options.onStageChange,
@@ -4989,6 +5063,24 @@ function parsedProviderModelVersion(id) {
           },
         );
         session = mgr.getSession(session.id) || session;
+        // Final assistant text: onAssistantText fires only for buffered
+        // (non-streaming) providers and for mid-turn preamble. Streaming
+        // providers deliver the final answer via onTextDelta (which we do NOT
+        // tap, to avoid per-delta spam), so append the authoritative final
+        // content here from result.content. To avoid double-writing the
+        // buffered case, only append when it differs from the last assistant
+        // line onAssistantText already wrote.
+        if (remoteEnabled && _transcriptWriter) {
+          try {
+            const finalText = result?.content != null ? String(result.content) : '';
+            if (finalText.trim() && finalText !== _lastAppendedAssistant) {
+              _transcriptWriter.appendAssistant(finalText);
+              _lastAppendedAssistant = finalText;
+            }
+          } catch (error) {
+            process.stderr.write(`mixdog: transcript-writer: final append failed: ${error?.message || error}\n`);
+          }
+        }
         hooks.emit('turn:end', { sessionId: session.id, elapsedMs: Date.now() - startedAt });
         // Stop: bridge to the standard hook bus. Best-effort; ignore result,
         // never throw.

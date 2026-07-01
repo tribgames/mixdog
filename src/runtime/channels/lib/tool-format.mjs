@@ -42,7 +42,7 @@ function isMemoryFile(filePath) {
 function isHidden(name) {
   if (HIDDEN_TOOLS.has(name)) return true;
   if (formatToolSurface(name, {}).label === "Memory") return false;
-  if (name.includes("plugin_mixdog") && !name.endsWith("recall_memory") || name === "reply" || name === "react" || name === "edit_message" || name === "fetch" || name === "download_attachment") return true;
+  if (name === "reply" || name === "react" || name === "edit_message" || name === "fetch" || name === "download_attachment") return true;
   return false;
 }
 /**

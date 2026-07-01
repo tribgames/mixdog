@@ -3,31 +3,55 @@
  *
  * Each theme lives in its own module and exports a COMPLETE palette built on
  * `basePalette` (One Dark). This index wires them into the registry consumed by
- * theme.mjs. The runtime singleton (`theme`) is seeded from `basePalette`.
+ * theme.mjs. The runtime singleton (`theme`) is seeded from the softened
+ * `basicPalette` export below.
  */
 import { basePalette } from './base.mjs';
-import { basicPalette } from './basic.mjs';
-import { basicIndigoPalette } from './basicIndigo.mjs';
-import { warmPalette } from './warm.mjs';
-import { tealPalette } from './teal.mjs';
-import { onedarkPalette } from './onedark.mjs';
-import { tokyonightPalette } from './tokyonight.mjs';
-import { kanagawaPalette } from './kanagawa.mjs';
-import { catppuccinPalette } from './catppuccin.mjs';
-import { draculaPalette } from './dracula.mjs';
-import { rosepinePalette } from './rosepine.mjs';
-import { nordPalette } from './nord.mjs';
-import { gruvboxPalette } from './gruvbox.mjs';
-import { everforestPalette } from './everforest.mjs';
+import { basicPalette as rawBasicPalette } from './basic.mjs';
+import { indigoPalette as rawIndigoPalette } from './indigo.mjs';
+import { warmPalette as rawWarmPalette } from './warm.mjs';
+import { lightPalette as rawLightPalette } from './light.mjs';
+import { tealPalette as rawTealPalette } from './teal.mjs';
+import { onedarkPalette as rawOnedarkPalette } from './onedark.mjs';
+import { tokyonightPalette as rawTokyonightPalette } from './tokyonight.mjs';
+import { kanagawaPalette as rawKanagawaPalette } from './kanagawa.mjs';
+import { catppuccinPalette as rawCatppuccinPalette } from './catppuccin.mjs';
+import { draculaPalette as rawDraculaPalette } from './dracula.mjs';
+import { rosepinePalette as rawRosepinePalette } from './rosepine.mjs';
+import { nordPalette as rawNordPalette } from './nord.mjs';
+import { gruvboxPalette as rawGruvboxPalette } from './gruvbox.mjs';
+import { everforestPalette as rawEverforestPalette } from './everforest.mjs';
+import { softenTypographyColors } from './utils.mjs';
 
-/** Default theme id (Basic — deep blue accent + orange spinner dark). */
+/** Default theme id (Basic — amber-gold default dark). */
 export const DEFAULT_THEME_ID = 'basic';
+
+/** Backward-compatible ids accepted from older persisted configs. */
+export const THEME_ALIASES = {
+  basicIndigo: 'indigo',
+};
+
+export const basicPalette = softenTypographyColors(rawBasicPalette);
+const indigoPalette = softenTypographyColors(rawIndigoPalette);
+const warmPalette = softenTypographyColors(rawWarmPalette);
+const lightPalette = softenTypographyColors(rawLightPalette);
+const tealPalette = softenTypographyColors(rawTealPalette);
+const onedarkPalette = softenTypographyColors(rawOnedarkPalette);
+const tokyonightPalette = softenTypographyColors(rawTokyonightPalette);
+const kanagawaPalette = softenTypographyColors(rawKanagawaPalette);
+const catppuccinPalette = softenTypographyColors(rawCatppuccinPalette);
+const draculaPalette = softenTypographyColors(rawDraculaPalette);
+const rosepinePalette = softenTypographyColors(rawRosepinePalette);
+const nordPalette = softenTypographyColors(rawNordPalette);
+const gruvboxPalette = softenTypographyColors(rawGruvboxPalette);
+const everforestPalette = softenTypographyColors(rawEverforestPalette);
 
 /** Theme registry: id -> { id, label, description, palette }. */
 export const THEME_REGISTRY = {
-  basic:       { id: 'basic',       label: 'Basic',        description: 'Deep blue accent with a warm orange thinking spinner.', palette: basicPalette },
-  basicIndigo: { id: 'basicIndigo', label: 'Basic Indigo', description: 'Mixdog indigo + blue brand dark.', palette: basicIndigoPalette },
-  warm:       { id: 'warm',       label: 'Warm',          description: 'Sunset amber / gold accent with a faint cream body.', palette: warmPalette },
+  basic:      { id: 'basic',      label: 'Basic',        description: 'Amber-gold default dark with a hot orange live state.', palette: basicPalette },
+  indigo:     { id: 'indigo',     label: 'Indigo',       description: 'Cool violet-blue brand dark with orange live state.', palette: indigoPalette },
+  warm:       { id: 'warm',       label: 'Warm',         description: 'Terracotta / cream sunset dark.', palette: warmPalette },
+  light:      { id: 'light',      label: 'Light',        description: 'GitHub Light — bright surface with high-contrast dark ink.', palette: lightPalette },
   teal:       { id: 'teal',       label: 'Teal',          description: 'pi-style teal accent with soft body text.', palette: tealPalette },
   onedark:    { id: 'onedark',    label: 'One Dark',      description: 'Atom One Dark — blue accent on slate, balanced syntax.', palette: onedarkPalette },
   tokyonight: { id: 'tokyonight', label: 'Tokyo Night',   description: 'Storm variant — soft blue/purple dark with neon markdown.', palette: tokyonightPalette },
@@ -41,6 +65,6 @@ export const THEME_REGISTRY = {
 };
 
 /** Display order for the theme picker. */
-export const THEME_ORDER = ['basic', 'basicIndigo', 'warm', 'teal', 'onedark', 'tokyonight', 'kanagawa', 'catppuccin', 'dracula', 'rosepine', 'nord', 'gruvbox', 'everforest'];
+export const THEME_ORDER = ['basic', 'indigo', 'warm', 'light', 'teal', 'onedark', 'tokyonight', 'kanagawa', 'catppuccin', 'dracula', 'rosepine', 'nord', 'gruvbox', 'everforest'];
 
-export { basePalette, basicPalette };
+export { basePalette };

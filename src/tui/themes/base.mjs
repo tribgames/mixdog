@@ -32,8 +32,8 @@ export const basePalette = {
   timerText: 'rgb(132,139,152)', // light_grey
   text: 'rgb(171,178,191)', // fg
   inverseText: 'rgb(40,44,52)', // background
-  selectionText: 'rgb(40,44,52)', // background
-  selectionBackground: 'rgb(171,178,191)', // fg
+  selectionText: 'rgb(230,238,255)', // readable on selectionBackground
+  selectionBackground: 'rgb(38,79,120)', // classic dark-mode selection blue
   inactive: 'rgb(132,139,152)', // light_grey
   subtle: 'rgb(132,139,152)', // light_grey
   promptBorder: 'rgb(92,99,112)', // grey
