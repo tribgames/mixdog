@@ -12,6 +12,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
+import { displayWidth } from '../display-width.mjs';
 import { theme, TURN_MARKER, RESULT_GUTTER, RESULT_GUTTER_CONT } from '../theme.mjs';
 import { formatElapsed } from '../time-format.mjs';
 import { BULLET_OPERATOR } from '../figures.mjs';
@@ -224,18 +225,18 @@ function statusCopy(name, label, count, doneCount, pending, isError, args = {}) 
 function fitResultLine(line, columns) {
   const max = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
   const text = safeInlineText(line);
-  return stringWidth(text) > max ? truncateToWidth(text, max) : text;
+  return displayWidth(text) > max ? truncateToWidth(text, max) : text;
 }
 
 /** Trim text from the end (by display width) so it fits maxWidth, appending '…'. */
 function truncateToWidth(text, maxWidth) {
   const str = safeInlineText(text);
   if (maxWidth < 1) return '';
-  if (stringWidth(str) <= maxWidth) return str;
+  if (displayWidth(str) <= maxWidth) return str;
   const chars = Array.from(str);
   let out = '';
   for (const ch of chars) {
-    if (stringWidth(out + ch + '…') > maxWidth) break;
+    if (displayWidth(out + ch + '…') > maxWidth) break;
     out += ch;
   }
   return `${out}…`;
@@ -313,7 +314,10 @@ function agentResponseTitle(args) {
 
 function agentActionTitle(args) {
   const name = titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '');
-  const action = String(args?.type || args?.action || '').toLowerCase();
+  // Runtime treats an omitted type/action as "spawn" (see agent-tool.mjs default),
+  // so mirror that contract here instead of falling through to the generic
+  // "Called agent" status copy.
+  const action = String(args?.type || args?.action || 'spawn').toLowerCase();
   // Fixed action verbs regardless of running/completed status. No generic
   // "Agent" fallback for the agent: when the agent is unknown render the action
   // word alone ("Spawn") instead of "Spawn Agent".

@@ -85,7 +85,7 @@ const stripKittyQueryResponsesAndTrailingPartial = (buffer) => {
 // desynchronizes the incremental erase used for frames that exactly fill the
 // viewport, leaving stale copies of previous frames behind (#969). Keep the
 // pre-7.0 behavior of fully clearing between fullscreen frames there.
-const isWindowsConsole = process.platform === 'win32';
+const isWindowsConsole = process.platform === 'win32' || Boolean(process.env.WT_SESSION);
 const shouldClearTerminalForFrame = ({ isTty, viewportRows, previousOutputHeight, nextOutputHeight, isUnmounting, }) => {
     if (!isTty) {
         return false;
@@ -336,7 +336,9 @@ export default class Ink {
                 a.y2 === rect.y2 &&
                 a.clipY1 === rect.clipY1 &&
                 a.clipY2 === rect.clipY2 &&
-                a.captureText === rect.captureText);
+                a.captureText === rect.captureText &&
+                a.selectionForeground === rect.selectionForeground &&
+                a.selectionBackground === rect.selectionBackground);
         if (same) {
             if (!options.immediate) {
                 return;

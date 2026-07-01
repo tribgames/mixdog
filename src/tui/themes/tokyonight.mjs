@@ -46,8 +46,8 @@ export const tokyonightPalette = {
   mdHeading: 'rgb(187,154,247)', // magenta #bb9af7
   mdCode: 'rgb(158,206,106)', // green
   mdCodeBlock: 'rgb(192,202,245)', // fg
-  mdQuote: 'rgb(86,95,137)', // comment
-  mdQuoteBorder: 'rgb(86,95,137)', // comment
+  mdQuote: 'rgb(110,120,162)', // lifted comment
+  mdQuoteBorder: 'rgb(110,120,162)', // lifted comment
   mdHr: 'rgb(86,95,137)', // comment
   mdListBullet: 'rgb(122,162,247)', // blue accent
   mdCodeBlockBorder: 'rgb(65,72,104)', // terminalBlack #414868
@@ -64,7 +64,7 @@ export const tokyonightPalette = {
   mdDiffContext: 'rgb(86,95,137)', // comment
   mdDiffAddedBg: 'rgb(32,48,40)', // dark green derived from bg
   mdDiffRemovedBg: 'rgb(55,34,44)', // dark red derived from bg
-  syntaxComment: 'rgb(86,95,137)', // comment
+  syntaxComment: 'rgb(110,120,162)', // lifted comment
   syntaxKeyword: 'rgb(187,154,247)', // magenta
   syntaxFunction: 'rgb(122,162,247)', // blue
   syntaxVariable: 'rgb(247,118,142)', // red

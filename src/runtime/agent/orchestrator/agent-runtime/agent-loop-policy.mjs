@@ -1,12 +1,10 @@
 /**
- * Public workflow agent loop caps — prevents unbounded tool/reasoning turns on
- * delegated sub-sessions while leaving Lead (owner=user) on the high ceiling.
+ * Agent loop ceiling — a single high runaway-guard shared by every session
+ * (Lead and delegated sub-agents alike). There are intentionally NO low
+ * per-agent caps: a worker/heavy-worker must be free to run as many tool +
+ * synthesis turns as the task needs. This ceiling exists ONLY to stop a truly
+ * runaway loop; it is not a task-length budget.
  */
-
-import { getHiddenAgent } from '../internal-agents.mjs';
-import { isAgentOwner } from '../agent-owner.mjs';
-
-export const LEAD_MAX_LOOP_ITERATIONS = 200;
 
 function envPositiveInt(name, fallback) {
     const raw = process.env[name];
@@ -15,42 +13,30 @@ function envPositiveInt(name, fallback) {
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
-const AGENT_LOOP_CAPS = Object.freeze({
-    'heavy-worker': () => envPositiveInt('MIXDOG_AGENT_HEAVY_WORKER_MAX_LOOP', 12),
-    worker: () => envPositiveInt('MIXDOG_AGENT_WORKER_MAX_LOOP', 16),
-    explore: () => envPositiveInt('MIXDOG_AGENT_EXPLORE_MAX_LOOP', 10),
-    reviewer: () => envPositiveInt('MIXDOG_AGENT_REVIEWER_MAX_LOOP', 10),
-    debugger: () => envPositiveInt('MIXDOG_AGENT_DEBUGGER_MAX_LOOP', 12),
-    maintainer: () => envPositiveInt('MIXDOG_AGENT_MAINTAINER_MAX_LOOP', 8),
-});
+// Single runaway guard for ALL sessions. High by design; env-overridable only
+// to raise/lower the safety ceiling, never used as a per-agent task budget.
+export const LEAD_MAX_LOOP_ITERATIONS = envPositiveInt('MIXDOG_AGENT_MAX_LOOP', 200);
 
 /**
- * Default iteration cap for a public workflow agent (agent-tool spawn / Lead delegate).
- * Hidden internal roles return null so the loop keeps the legacy 200 ceiling unless
- * the caller passes an explicit maxLoopIterations.
+ * Retained for API compatibility with callers that used to inject a low
+ * per-agent cap. There are no low per-agent caps anymore, so this always
+ * returns null — every session falls through to the shared runaway guard
+ * (LEAD_MAX_LOOP_ITERATIONS) unless the caller passes an explicit override.
  */
-export function resolvePublicAgentMaxLoopIterations(agent, permission) {
-    const id = String(agent || '').trim().toLowerCase();
-    if (!id || getHiddenAgent(id)) return null;
-    const byAgent = AGENT_LOOP_CAPS[id];
-    if (byAgent) return byAgent();
-    if (permission === 'read') {
-        return envPositiveInt('MIXDOG_AGENT_READONLY_MAX_LOOP', 10);
-    }
-    return envPositiveInt('MIXDOG_AGENT_PUBLIC_MAX_LOOP', 14);
+export function resolvePublicAgentMaxLoopIterations(_agent, _permission) {
+    return null;
 }
 
 /**
  * Resolve the hard cap used by agentLoop for this session.
+ *
+ * Order: explicit override → session-pinned value → shared runaway guard.
+ * No per-agent low caps are applied.
  */
 export function resolveSessionMaxLoopIterations(sessionRef, explicit) {
     if (Number.isFinite(explicit) && explicit > 0) return Math.floor(explicit);
     if (Number.isFinite(sessionRef?.maxLoopIterations) && sessionRef.maxLoopIterations > 0) {
         return Math.floor(sessionRef.maxLoopIterations);
-    }
-    if (sessionRef && isAgentOwner(sessionRef) && sessionRef.agent) {
-        const cap = resolvePublicAgentMaxLoopIterations(sessionRef.agent, sessionRef.permission);
-        if (Number.isFinite(cap) && cap > 0) return cap;
     }
     return LEAD_MAX_LOOP_ITERATIONS;
 }

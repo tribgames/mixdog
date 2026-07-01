@@ -34,7 +34,8 @@ export const THEME_ALIASES = {
 export const basicPalette = softenTypographyColors(rawBasicPalette);
 const indigoPalette = softenTypographyColors(rawIndigoPalette);
 const warmPalette = softenTypographyColors(rawWarmPalette);
-const lightPalette = softenTypographyColors(rawLightPalette);
+// Light is terminal high-contrast; skip soften so syntax/accents stay saturated.
+const lightPalette = rawLightPalette;
 const tealPalette = softenTypographyColors(rawTealPalette);
 const onedarkPalette = softenTypographyColors(rawOnedarkPalette);
 const tokyonightPalette = softenTypographyColors(rawTokyonightPalette);
@@ -49,9 +50,8 @@ const everforestPalette = softenTypographyColors(rawEverforestPalette);
 /** Theme registry: id -> { id, label, description, palette }. */
 export const THEME_REGISTRY = {
   basic:      { id: 'basic',      label: 'Basic',        description: 'Amber-gold default dark with a hot orange live state.', palette: basicPalette },
-  indigo:     { id: 'indigo',     label: 'Indigo',       description: 'Cool violet-blue brand dark with orange live state.', palette: indigoPalette },
-  warm:       { id: 'warm',       label: 'Warm',         description: 'Terracotta / cream sunset dark.', palette: warmPalette },
-  light:      { id: 'light',      label: 'Light',        description: 'GitHub Light — bright surface with high-contrast dark ink.', palette: lightPalette },
+  indigo:     { id: 'indigo',     label: 'Indigo',       description: 'Cool blue-indigo brand dark with orange live state.', palette: indigoPalette },
+  warm:       { id: 'warm',       label: 'Warm',         description: 'Soft sunset coral on neutral charcoal.', palette: warmPalette },
   teal:       { id: 'teal',       label: 'Teal',          description: 'pi-style teal accent with soft body text.', palette: tealPalette },
   onedark:    { id: 'onedark',    label: 'One Dark',      description: 'Atom One Dark — blue accent on slate, balanced syntax.', palette: onedarkPalette },
   tokyonight: { id: 'tokyonight', label: 'Tokyo Night',   description: 'Storm variant — soft blue/purple dark with neon markdown.', palette: tokyonightPalette },
@@ -62,9 +62,10 @@ export const THEME_REGISTRY = {
   nord:       { id: 'nord',       label: 'Nord',          description: 'Cool arctic blue/teal frost dark.', palette: nordPalette },
   gruvbox:    { id: 'gruvbox',    label: 'Gruvbox',       description: 'Retro warm earthy dark with green/orange accents.', palette: gruvboxPalette },
   everforest: { id: 'everforest', label: 'Everforest',    description: 'Soft natural green dark, easy on the eyes.', palette: everforestPalette },
+  light:      { id: 'light',      label: 'Light',        description: 'GitHub Light high-contrast — solid blue selection, terminal-ready chrome.', palette: lightPalette },
 };
 
 /** Display order for the theme picker. */
-export const THEME_ORDER = ['basic', 'indigo', 'warm', 'light', 'teal', 'onedark', 'tokyonight', 'kanagawa', 'catppuccin', 'dracula', 'rosepine', 'nord', 'gruvbox', 'everforest'];
+export const THEME_ORDER = ['basic', 'indigo', 'warm', 'teal', 'onedark', 'tokyonight', 'kanagawa', 'catppuccin', 'dracula', 'rosepine', 'nord', 'gruvbox', 'everforest', 'light'];
 
 export { basePalette };

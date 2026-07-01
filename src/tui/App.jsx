@@ -1473,9 +1473,11 @@ export function App({ store, initialStatusLine = '' }) {
   const exitRequestedRef = useRef(false);
   const [resizeState, setResizeState] = useState(() => ({ ...terminalSize(stdout), epoch: 0 }));
   // Windows Terminal/conhost scrolls the alt-screen (auto-wrap/DECAWM) when the
-  // bottom-right cell is written, so reserve one cell on win32. Other platforms
-  // render at full width. This width is also needed for prompt row reservation.
-  const rightSafetyColumns = process.platform === 'win32' ? 1 : 0;
+  // bottom-right cell is written. WT_SESSION is also set when the UI runs under
+  // a Unix-ish shell hosted by Windows Terminal, where process.platform is not
+  // necessarily win32 but the terminal behavior is still Windows-like.
+  const windowsLikeTerminal = process.platform === 'win32' || Boolean(process.env.WT_SESSION);
+  const rightSafetyColumns = windowsLikeTerminal ? 1 : 0;
   const frameColumns = Math.max(1, resizeState.columns - rightSafetyColumns);
   // scrollOffset = how many transcript ROWS we've scrolled UP from the bottom
   // (0 = pinned to the latest, showing the newest content). Mouse wheel adjusts
@@ -1985,6 +1987,8 @@ export function App({ store, initialStatusLine = '' }) {
       ...rect,
       clipY1: clip.y1,
       clipY2: Math.max(clip.y1, clip.y2),
+      selectionForeground: theme.selectionHighlightText || theme.selectionText,
+      selectionBackground: theme.selectionHighlightBackground || theme.selectionBackground,
     };
     if (options.captureText === false) clipped.captureText = false;
     return clipped;
@@ -7224,7 +7228,8 @@ export function App({ store, initialStatusLine = '' }) {
   //                  − welcome header  (empty transcript only)
   //                  − live status     (thinking / spinner / TurnDone)
   //                  − queued prompts  (marginTop 1 + N rows, only when queued)
-  //                  − input box       (marginTop 1 + 2 border + 1 content)
+  //                  − prompt meta     (spinner / transient message / queued)
+  //                  − input box       (2 border + wrapped content)
   //                  − statusline      (reserved L1 + L2 + outer gap; total 3 rows)
   //
   // Every sibling outside the viewport must be accounted for here; otherwise
@@ -7249,28 +7254,24 @@ export function App({ store, initialStatusLine = '' }) {
   const toastHint = latestToast ? latestToast.text : '';
   const inputHint = promptHint || toastHint;
   const inputHintTone = promptHint ? promptHintTone : (latestToast?.tone || 'info');
-  // Latest done row (TurnDone/StatusDone) ownership: the engine pushes the
-  // `turndone`/`statusdone` item AND clears the spinner in the same coalesced
-  // state update, so when a turn ends the spinner-reserved meta band is freed
-  // while a 2-row done item is appended to the transcript tail — the new tail
-  // then overprints the input box. Fix: when the newest transcript item is a
-  // done row and no spinner is live, OWN that row in the same bottom meta band
-  // the spinner uses (reserve its rows, render it there, and drop it from the
-  // transcript map) so it renders in exactly one place and never bleeds into
-  // the prompt. The item stays in state.items for scrollback; once another
-  // item is appended, latestDoneItem is null and it shows in the transcript.
-  const lastTranscriptItem = (state.items || []).at(-1) ?? null;
-  const lastItemIsDoneRow = lastTranscriptItem?.kind === 'turndone'
-    || lastTranscriptItem?.kind === 'statusdone';
-  const latestDoneItem = (!liveSpinner && lastItemIsDoneRow) ? lastTranscriptItem : null;
-  // While the slash palette is open it owns the area above the prompt, so the
-  // live spinner/meta row is suppressed entirely — no reservation and no render.
-  const promptMetaRows = !inputBoxHidden && !slashPaletteOpen && (liveSpinner || latestDoneItem) ? 2 : 0;
+  const latestTranscriptItem = state.items[state.items.length - 1] || null;
+  const latestDoneAtTail = latestTranscriptItem?.kind === 'turndone' || latestTranscriptItem?.kind === 'statusdone';
+  // Bottom meta band ownership is LIVE-SPINNER ONLY. A finished turn's done row
+  // (turndone/statusdone) is a normal transcript item and flows into scrollback
+  // like anything else, so the area directly above the prompt is CLEAR when the
+  // user is idle. Earlier this row was pinned in the meta band until the next
+  // transcript item was appended (to dodge an autowrap overprint/bleed), which
+  // left the completed status row stuck above the prompt while the user typed or
+  // sat idle. That bleed is now fixed at the source by the tool-output width
+  // clamp, so the pin is no longer needed. Kept as a named null const so the
+  // downstream meta-band/hint logic collapses cleanly to the spinner-only path.
+  const latestDoneItem = null;
   const SCROLL_HINT_ROWS = 0;
   const LIVE_STATUS_ROWS = 0;
   // The standalone prompt box is 2 border rows + the wrapped PromptInput body.
-  // Normal mode keeps a one-row top gap, but slash mode pins the command palette
-  // flush to the prompt, so reserve only the actual prompt height there.
+  // The one-row scroll baseline gap ABOVE the prompt is owned by
+  // transcriptGuardRows, not the prompt box itself. That keeps the scroll
+  // reference at "textbox + 1" while the prompt/statusline bottom stays fixed.
   //
   // This must track the prompt draft's REAL wrapped height. Reserving a constant
   // one-line prompt lets long/multiline input grow the bottom cluster after the
@@ -7278,7 +7279,7 @@ export function App({ store, initialStatusLine = '' }) {
   // body text overprint the textbox or slash command window.
   const currentPromptLayoutRows = promptContentRows(promptLayoutValueRef.current, promptContentColumns);
   const promptInputRows = inputBoxHidden ? 0 : currentPromptLayoutRows;
-  const INPUT_BOX_ROWS = inputBoxHidden ? 0 : (slashPaletteOpen ? 2 : 3) + promptInputRows + promptMetaRows;
+  const promptBoxRows = inputBoxHidden ? 0 : 2 + promptInputRows;
   const STATUSLINE_ROWS = 3;
   // Shared panel chrome math. Every floating panel follows the same vertical
   // rhythm INSIDE its round border: title row, blank, description/hint row,
@@ -7295,11 +7296,25 @@ export function App({ store, initialStatusLine = '' }) {
   const TEXT_ENTRY_ROWS = PANEL_CHROME_ROWS + 1;
   const OPTION_PANEL_EXTRA_ROWS = expandedOptionPanel ? 3 : 0;
   const queuedVisible = !hasFloatingPanel && !inputBoxHidden && state.queued?.length > 0;
-  // QueuedCommands has its own top margin, and the prompt box drops its normal
-  // top margin while a queue is visible. Net extra height is therefore only the
-  // queued rows themselves; counting the queue margin as an extra row over-
-  // reserves by one and makes the bottom input cluster float upward.
-  const queuedRows = queuedVisible ? state.queued.length : 0;
+  // While the slash palette is open it owns the area above the prompt, so the
+  // live spinner/meta row is suppressed entirely — no reservation and no render.
+  // Normalize the spinner → TurnDone handoff by making them occupy the SAME
+  // two-row slot. Engine appends turndone/statusdone before clearing spinner, so
+  // a transient frame can otherwise contain BOTH: transcript grows by two rows
+  // while the bottom spinner still reserves two rows, making the viewport visibly
+  // jump. As soon as the done row is the transcript tail, drop the spinner slot;
+  // the new done row replaces that height in the same frame, with no ms timer.
+  const promptMetaVisible = !inputBoxHidden && !slashPaletteOpen && !!liveSpinner && !latestDoneAtTail;
+  const promptMetaRows = promptMetaVisible ? 2 : 0;
+  // Toast/error text without a live spinner uses the row directly above the
+  // prompt. Reserve it explicitly because the prompt no longer carries a spare
+  // top margin; the permanent transcript guard remains the "textbox + 1" gap.
+  const overlayHintRequested = !inputBoxHidden && !hasFloatingPanel && !liveSpinner && !!inputHint && !queuedVisible;
+  const overlayHintRows = overlayHintRequested ? 1 : 0;
+  // QueuedCommands renders its own one-row top margin plus one row per queued
+  // command, all pinned above the prompt box.
+  const queuedRows = queuedVisible ? state.queued.length + 1 : 0;
+  const INPUT_BOX_ROWS = promptBoxRows + promptMetaRows + overlayHintRows;
   const baseReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const maxFloatingPanelRows = Math.max(0, resizeState.rows - baseReserve - 1);
   const desiredFloatingPanelRows = toolApproval
@@ -7328,13 +7343,27 @@ export function App({ store, initialStatusLine = '' }) {
   // surface one clipped/off-by-one transcript row below the statusline during
   // rapid tool-card updates; a permanent guard row makes that row blank instead
   // of a tool header/detail.
-  const transcriptGuardRows = viewportHeight > 1 ? 1 : 0;
+  const baseGuardRows = viewportHeight > 1 ? 1 : 0;
+  // ── Scroll-time overprint guard ───────────────────────────────────────────
+  // Wheel/manual scroll pushes the transcript column DOWN via a negative
+  // marginBottom (see the viewport render). Under conhost/Windows Terminal the
+  // incremental redraw can leave the row that slid past the clip edge painted
+  // OVER the bottom cluster (input box / statusline) for a frame — the reported
+  // "scrolled text shows on the statusline row" bug. One guard row is enough
+  // while pinned to the live tail, but during an active scroll the slid row can
+  // still bleed one line further, so widen the guard to TWO rows whenever the
+  // viewport is genuinely scrolled up. The extra blank row absorbs the stray
+  // paint instead of the statusline. Requires a viewport tall enough to spare
+  // the row, and never shrinks below the base guard.
+  const transcriptGuardRows = baseGuardRows;
   const transcriptContentHeight = Math.max(1, viewportHeight - transcriptGuardRows);
-  // The guard is a physical safety row, not user-visible scrollback. If a stale
+  // Bottom-follow / pin semantics must NOT widen with the scroll-time guard, or
+  // the "pinned to tail" threshold would drift and streaming could freeze a row
+  // above bottom. Keep the slack anchored to the BASE (single) guard: if a stale
   // pre-guard offset of 1 survives while no reading anchor is active, still treat
   // the viewport as pinned to the live tail so streaming/tool output continues
   // to auto-follow instead of freezing one row above bottom.
-  const transcriptBottomSlackRows = Math.max(0, transcriptGuardRows);
+  const transcriptBottomSlackRows = Math.max(0, baseGuardRows);
   transcriptViewportRef.current = {
     top: WELCOME_ROWS,
     bottom: Math.max(WELCOME_ROWS, WELCOME_ROWS + transcriptContentHeight - 1),
@@ -7346,18 +7375,6 @@ export function App({ store, initialStatusLine = '' }) {
   // bottom area), drop its stale measured rect so the mouse handler does not
   // route presses to a prompt box that is not on screen.
   if (inputBoxHidden) promptBoxRectRef.current = null;
-  // The bottom meta band renders when a live spinner OR the latest done row
-  // owns it (lastTranscriptItem / lastItemIsDoneRow / latestDoneItem computed
-  // earlier, alongside promptMetaRows).
-  const promptMetaVisible = !inputBoxHidden && !slashPaletteOpen && (!!liveSpinner || !!latestDoneItem);
-  // Same-row done hint: when the latest done row owns the meta band and there is
-  // a transient hint to show, attach the hint to that done row's right side
-  // instead of reserving a separate overlay row. overlayHintVisible excludes
-  // this case so the hint is not double-painted.
-  const attachInputHintToTurnDone = !inputBoxHidden
-    && !liveSpinner
-    && !!inputHint
-    && !!latestDoneItem;
   // Toast/error text has two mutually exclusive placements:
   // - while a live status row exists (thinking/compacting/responding), attach it
   //   to that row so the bottom cluster reserves exactly one status band;
@@ -7365,7 +7382,11 @@ export function App({ store, initialStatusLine = '' }) {
   //   the blank spacer instead of reserving an extra row. This keeps late errors
   //   from pushing the prompt/statusline upward, and when thinking starts the
   //   hint moves into the live row on the same render instead of double-painting.
-  const overlayHintVisible = !inputBoxHidden && !liveSpinner && !!inputHint && !queuedVisible && floatingPanelRows <= 0 && !attachInputHintToTurnDone;
+  // Transient hint (toast/error/prompt hint) placement while no spinner owns the
+  // band: render it into the one-row gap above the prompt (replacing the blank
+  // spacer, no extra reserved row). While a spinner IS live the band renders the
+  // hint on the spinner row instead, so this stays false then.
+  const overlayHintVisible = overlayHintRequested && floatingPanelRows <= 0;
   const transientStatusWidth = inputHint
     ? Math.max(1, Math.min(Math.max(1, frameColumns - 4), Math.max(12, Math.floor(frameColumns * 0.42))))
     : 0;
@@ -7405,30 +7426,91 @@ export function App({ store, initialStatusLine = '' }) {
   // SAME render, so the completed line fills its space with no one-frame gap.
   // Falls back to the live scrollOffset state when there is no active anchor
   // (bottom-follow / pinned) or it cannot be aligned (anchor item gone).
-  const anchorLockActive = !!transcriptAnchorRef.current
-    && !transcriptAnchorDirtyRef.current
-    && !followingRef.current;
+  const hasReadingAnchor = !!transcriptAnchorRef.current && !transcriptAnchorDirtyRef.current;
+  const scrolledUpRows = Math.max(
+    Math.max(0, Number(scrollTargetRef.current) || 0),
+    Math.max(0, Number(scrollPositionRef.current) || 0),
+    Math.max(0, Number(scrollOffset) || 0),
+  );
+  // "Genuinely scrolled up" = the viewport is above the bottom slack band. The
+  // bottom-follow / pinned path owns everything at-or-below the slack; anything
+  // above it is the user reading older transcript.
+  const scrolledUp = scrolledUpRows > transcriptBottomSlackRows;
+  // A genuine reading anchor wins even if followingRef is stale-true while the
+  // user is scrolled up. The follow-arm SHOULD have been cleared when the anchor
+  // was captured, but if it lingers true we must not fall through to the stale-
+  // offset render path (that is one half of the newline-jump bug). Keep the
+  // plain !following gate for the anchor-less follow case.
+  const anchorLockActive = hasReadingAnchor && (!followingRef.current || scrolledUp);
   const nearBottomWithoutAnchor = !transcriptAnchorRef.current
     && !transcriptAnchorDirtyRef.current
-    && Math.max(
-      Math.max(0, Number(scrollTargetRef.current) || 0),
-      Math.max(0, Number(scrollPositionRef.current) || 0),
-      Math.max(0, Number(scrollOffset) || 0),
-    ) <= transcriptBottomSlackRows;
+    && !scrolledUp;
   let renderScrollOffset = nearBottomWithoutAnchor ? 0 : scrollOffset;
+  const lockViewRows = Math.max(1, Number(transcriptContentHeight) || 1);
+  const lockTotalRows = Math.max(0, Number(transcriptRowIndex?.totalRows) || 0);
+  const lockMaxRows = Math.max(0, lockTotalRows - lockViewRows);
+  const curPrefixForLock = transcriptRowIndex?.prefixRows || null;
   if (anchorLockActive) {
-    const lockViewRows = Math.max(1, Number(transcriptContentHeight) || 1);
-    const lockTotalRows = Math.max(0, Number(transcriptRowIndex?.totalRows) || 0);
-    const lockMaxRows = Math.max(0, lockTotalRows - lockViewRows);
     const locked = resolveAnchorScrollOffset({
       anchor: transcriptAnchorRef.current,
       items: state.items,
-      curPrefix: transcriptRowIndex?.prefixRows || null,
+      curPrefix: curPrefixForLock,
       totalRows: lockTotalRows,
       viewRows: lockViewRows,
       maxRows: lockMaxRows,
     });
     if (locked != null) renderScrollOffset = locked;
+  } else if (!nearBottomWithoutAnchor && scrolledUp) {
+    // ── Same-frame anchor CAPTURE for the missing/dirty-anchor case ─────────
+    // The viewport is genuinely scrolled up but there is NO usable same-frame
+    // anchor: it is missing, or dirtied by a manual scroll whose synchronous
+    // capture failed, or a stale-true follow-arm already dropped it. Without an
+    // anchor this frame would render with the STALE bottom-relative
+    // scrollOffset, so any row growth THIS frame (a streaming newline
+    // completing a line, a transcript row expanding) shifts the visible top by
+    // the delta BEFORE the post-commit rowDelta effect can capture/correct — and
+    // that effect would then capture from the ALREADY-shifted totalRows. That is
+    // the confirmed one-frame jump/jitter.
+    //
+    // Fix it at render time: capture an anchor from the PREVIOUS published
+    // geometry (transcriptGeomRef still holds the prior frame here — THIS
+    // frame's geom is published a few lines below), identifying the item id +
+    // row offset that sat at the previous visible-TOP edge, then resolve the
+    // offset against the CURRENT prefix table with the same pure helper so that
+    // exact top row stays put THIS frame. Persist the captured anchor so the
+    // post-commit effect keeps the identical anchor stable instead of
+    // re-deriving one from the already-shifted totalRows.
+    const geom = transcriptGeomRef.current || {};
+    const prevPrefix = geom.prefixRows;
+    if (Array.isArray(prevPrefix) && prevPrefix.length > 1) {
+      const prevTotal = Math.max(0, Number(geom.totalRows) || 0);
+      const prevView = Math.max(1, Number(geom.viewRows) || 1);
+      const prevOffset = Math.max(0, Number(geom.renderOffset) || 0);
+      const prevItems = geom.items || [];
+      // Bottom-relative window math (same as transcriptRenderWindow): the top
+      // edge sits `offset + viewRows` rows up from the previous total.
+      const prevTopRow = Math.max(0, Math.min(prevTotal, prevTotal - prevOffset - prevView));
+      let idx = upperBound(prevPrefix, prevTopRow) - 1;
+      if (idx < 0) idx = 0;
+      if (idx > prevPrefix.length - 2) idx = prevPrefix.length - 2;
+      const anchorItem = prevItems[idx];
+      if (anchorItem && anchorItem.id != null) {
+        const captured = { id: anchorItem.id, offset: Math.max(0, prevTopRow - (prevPrefix[idx] || 0)) };
+        const locked = resolveAnchorScrollOffset({
+          anchor: captured,
+          items: state.items,
+          curPrefix: curPrefixForLock,
+          totalRows: lockTotalRows,
+          viewRows: lockViewRows,
+          maxRows: lockMaxRows,
+        });
+        if (locked != null) {
+          renderScrollOffset = locked;
+          transcriptAnchorRef.current = captured;
+          transcriptAnchorDirtyRef.current = false;
+        }
+      }
+    }
   }
   const transcriptWindow = useMemo(() => transcriptRenderWindow(state.items, {
     scrollOffset: renderScrollOffset,
@@ -7446,6 +7528,12 @@ export function App({ store, initialStatusLine = '' }) {
     totalRows: Math.max(0, Number(transcriptWindow.totalRows) || 0),
     viewRows: Math.max(1, Number(transcriptContentHeight) || 1),
     items: state.items || null,
+    // The offset THIS frame actually rendered with. The same-frame anchor
+    // CAPTURE for a missing/dirty anchor (above) reads this from the PREVIOUS
+    // frame to reconstruct the exact top-edge row that was on screen, so the
+    // capture matches what the user saw rather than the stale scrollOffset
+    // state. Bottom-relative, matching transcriptRenderWindow's window math.
+    renderOffset: Math.max(0, Number(renderScrollOffset) || 0),
   };
   // The window memo is keyed on a structure signature that intentionally
   // ignores per-character growth of the streaming assistant text, so its
@@ -7457,14 +7545,10 @@ export function App({ store, initialStatusLine = '' }) {
     transcriptWindow.startIndex,
     transcriptWindow.endIndex,
   );
-  // When the latest done row is owned by the bottom meta band (latestDoneItem),
-  // drop it from the transcript render so it is not painted twice. Only filter
-  // the actual tail item by id; older done rows in scrollback are untouched.
-  const renderedTranscriptItems = latestDoneItem
-    ? transcriptVisibleItems.filter((it) => it.id !== latestDoneItem.id)
-    : transcriptVisibleItems;
-  // (attachInputHintToTurnDone / lastTranscriptItem computed earlier, before
-  // overlayHintVisible, so the overlay can exclude the same-row attach case.)
+  // The bottom meta band is spinner-only, so nothing is pulled out of the
+  // transcript for it. A finished turn's done row (turndone/statusdone) renders
+  // inline in scrollback like any other item — no filtering, no double-paint.
+  const renderedTranscriptItems = transcriptVisibleItems;
   // ── App-level measured height harvest (ScrollBox/useVirtualScroll-inspired) ─
   // Runs after EVERY commit (no deps): Yoga has just laid out the mounted rows,
   // so each tracked item Box's getComputedHeight() is its REAL terminal height.
@@ -7557,7 +7641,19 @@ export function App({ store, initialStatusLine = '' }) {
     const pinnedToBottom = !transcriptAnchorRef.current
       && !transcriptAnchorDirtyRef.current
       && Math.max(currentTarget, currentPosition, currentOffset) <= transcriptBottomSlackRows;
-    const followOnGrowth = followingRef.current && rowDelta > 0;
+    // A genuine reading anchor must win over a stale follow-arm. followingRef
+    // is meant to be cleared the moment a scroll-up captures an anchor, but if
+    // it lingers true while the user is scrolled up with an active (not dirty)
+    // anchor, letting followOnGrowth fire here would null the anchor and snap
+    // the viewport to the bottom on the next row growth — the same newline jump
+    // we fix at render time, just one frame later. Gate the follow so an active
+    // reading anchor blocks it; the anchor-lock branch below then keeps the top
+    // row fixed. The pinnedToBottom path is unchanged (it already requires no
+    // anchor), so bottom-follow during streaming is not regressed.
+    const activeReadingAnchor = !!transcriptAnchorRef.current
+      && !transcriptAnchorDirtyRef.current
+      && Math.max(currentTarget, currentPosition, currentOffset) > transcriptBottomSlackRows;
+    const followOnGrowth = followingRef.current && rowDelta > 0 && !activeReadingAnchor;
     const shouldFollowBottom = rowDelta > 0 && (followOnGrowth || pinnedToBottom);
     if (shouldFollowBottom) {
       // Bottom follow: while pinned to the newest output,
@@ -7672,6 +7768,12 @@ export function App({ store, initialStatusLine = '' }) {
     dragRef.current = { ...dragRef.current, rect: clippedRect };
     paintSelectionRect(clippedRect, { rememberText: true, immediate: true });
   }, [transcriptContentHeight, transcriptWindow.totalRows, transcriptWindow.effectiveScrollOffset, withSelectionClip, paintSelectionRect]);
+  useEffect(() => {
+    if (!dragRef.current.rect) return;
+    const clippedRect = withSelectionClip(dragRef.current.rect);
+    dragRef.current = { ...dragRef.current, rect: clippedRect };
+    paintSelectionRect(clippedRect, { rememberText: true, immediate: true });
+  }, [state.themeEpoch, withSelectionClip, paintSelectionRect]);
   useEffect(() => {
     const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
     if (scrollTargetRef.current <= maxRows && scrollPositionRef.current <= maxRows && scrollOffset <= maxRows) return;
@@ -8061,7 +8163,8 @@ export function App({ store, initialStatusLine = '' }) {
           <>
           {promptMetaVisible ? (
             <Box
-              marginTop={floatingPanelRows > 0 ? 0 : 1}
+              marginTop={0}
+              marginBottom={1}
               height={1}
               width="100%"
               flexDirection="row"
@@ -8079,37 +8182,12 @@ export function App({ store, initialStatusLine = '' }) {
                     columns={promptSpinnerColumns}
                     marginTop={0}
                   />
-                ) : latestDoneItem ? (
-                  latestDoneItem.kind === 'statusdone' ? (
-                    <StatusDone
-                      label={latestDoneItem.label}
-                      detail={latestDoneItem.detail}
-                      rightMessage={attachInputHintToTurnDone ? inputHint : ''}
-                      rightTone={inputHintTone}
-                      rightMessageWidth={transientStatusWidth || 24}
-                      marginTop={0}
-                    />
-                  ) : (
-                    <TurnDone
-                      elapsedMs={latestDoneItem.elapsedMs}
-                      status={latestDoneItem.status}
-                      outputTokens={latestDoneItem.outputTokens}
-                      thinkingElapsedMs={latestDoneItem.thinkingElapsedMs}
-                      verb={latestDoneItem.verb}
-                      rightMessage={attachInputHintToTurnDone ? inputHint : ''}
-                      rightTone={inputHintTone}
-                      rightMessageWidth={transientStatusWidth || 24}
-                      marginTop={0}
-                    />
-                  )
                 ) : null}
               </Box>
               {inputHint ? (
-                attachInputHintToTurnDone ? null : (
                 <Box flexShrink={0} width={transientStatusWidth || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
                   <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
                 </Box>
-                )
               ) : null}
             </Box>
           ) : null}
@@ -8130,7 +8208,7 @@ export function App({ store, initialStatusLine = '' }) {
             <QueuedCommands queued={state.queued} columns={frameColumns} />
           ) : null}
           <Box
-            marginTop={queuedVisible || overlayHintVisible ? 0 : (floatingPanelRows > 0 ? 0 : 1)}
+            marginTop={0}
             width="100%"
             borderStyle="round"
             borderColor={theme.promptBorder}

@@ -80,6 +80,45 @@ export const AGENT_TOOL = {
 };
 
 const WORKER_INDEX_FILE = 'agent-workers.json';
+
+// A worker that hits the loop iteration ceiling, gets truncated mid-synthesis,
+// or produces an empty terminal turn returns content:'' but never throws — so
+// the background task would otherwise reconcile as a benign `completed` empty
+// success. That is wrong: an empty final answer is an error. loop.mjs is the
+// single classifier: it tags result.terminationReason for abnormal finishes
+// (carried through manager.mjs terminalResultPreview). We key purely off that
+// here. iteration_cap / truncated are real problems for EVERY agent (hidden
+// too). The plain `empty` case is tagged by the loop ONLY for public agents;
+// hidden agents (explorer/cycle/…) legitimately emit empty terminal turns and
+// are left untagged, so they stay benign.
+function abnormalEmptyFinishError(result, agent) {
+  // The loop (loop.mjs) is the single classifier: it tags terminationReason
+  // ONLY for abnormal finishes, and gates the `empty` case behind !hidden.
+  // So we key purely off terminationReason here — no separate content/hidden
+  // check, which previously (a) exempted hidden agents from cap/truncated and
+  // (b) let a capped tool-call turn with preamble text slip through as success.
+  const reason = result?.terminationReason;
+  if (!reason) return null;
+  const iterations = result?.iterations ?? 0;
+  const toolCallsTotal = result?.toolCallsTotal ?? 0;
+  const maxLoopIterations = result?.maxLoopIterations ?? 0;
+  const stopReason = result?.stopReason ?? result?.stop_reason ?? null;
+  switch (reason) {
+    case 'iteration_cap':
+      // Real problem for EVERY agent (hidden too): the loop never terminated on
+      // its own contract, so any preamble text is not a trustworthy final answer.
+      return `agent '${agent}' hit the loop iteration ceiling (${maxLoopIterations} iterations, ${toolCallsTotal} tool calls) without producing a final answer`;
+    case 'truncated':
+      return `agent '${agent}' response was truncated (stopReason=${stopReason}) before a final answer (${iterations} iterations, ${toolCallsTotal} tool calls)`;
+    case 'empty':
+      // Only tagged for PUBLIC agents (hidden agents legitimately emit empty
+      // terminal turns and are left untagged by the loop).
+      return `agent '${agent}' finished without a final answer (stopReason=${stopReason ?? 'none'}, ${iterations} iterations, ${toolCallsTotal} tool calls)`;
+    default:
+      return null;
+  }
+}
+
 function envTimeoutMs(name, fallback) {
   const raw = process.env[name];
   if (raw === undefined || raw === '') return fallback;
@@ -1321,14 +1360,19 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     const ownerSessionId = clean(notifyContext?.callerSessionId || notifyContext?.sessionId);
     const upstream = typeof notifyContext?.notifyFn === 'function' ? notifyContext.notifyFn : null;
     const finishedAt = new Date().toISOString();
+    // An abnormal-empty finish carries an `error` — the early preview must NOT
+    // present it as a benign `completed` card, or the Lead sees success before
+    // the later `failed` reconcile lands. Mirror the terminal status/instruction.
+    const earlyStatus = resultValue && resultValue.error ? 'failed' : 'completed';
     const snapshot = {
       ...job,
-      status: 'completed',
+      status: earlyStatus,
       finishedAt,
       finishedAtMs: Date.now(),
       result: resultValue,
       resultType: job.resultType || 'agent_task_result',
       meta: sanitizeTaskMeta(job.meta || {}),
+      ...(resultValue && resultValue.error ? { error: resultValue.error } : {}),
     };
     // An early notification is only a header-only *preview*: it fires before
     // the worker's session is persisted to signal the running→completed
@@ -1341,8 +1385,8 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       type: snapshot.resultType,
       execution_surface: 'agent',
       execution_id: job.taskId || null,
-      status: 'completed',
-      instruction: `The async agent task ${job.taskId || ''} has finished (completed) - review this result in your next step.`,
+      status: earlyStatus,
+      instruction: `The async agent task ${job.taskId || ''} has finished (${earlyStatus}) - review this result in your next step.`,
       ...(ownerSessionId ? { caller_session_id: ownerSessionId } : {}),
     };
     let delivered = false;
@@ -1576,17 +1620,26 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       stage: 'running',
     });
     try {
-      const completionValue = (result) => ({
-        tag,
-        sessionId: session.id,
-        agent,
-        preset: presetKey(preset) || presetName,
-        provider: preset.provider,
-        model: preset.model,
-        effort: preset.effort || null,
-        fast: preset.fast === true,
-        content: result?.content || '',
-      });
+      const completionValue = (result) => {
+        // Promote an abnormal finish (iteration cap, truncation, or a public
+        // agent's empty terminal turn) to an explicit error, so the Lead
+        // receives it as a failure with an accurate reason instead of a silent
+        // `completed` empty result. Keyed off loop.mjs terminationReason;
+        // hidden agents finishing normally-empty are left untagged (benign).
+        const abnormalError = abnormalEmptyFinishError(result, agent);
+        return {
+          tag,
+          sessionId: session.id,
+          agent,
+          preset: presetKey(preset) || presetName,
+          provider: preset.provider,
+          model: preset.model,
+          effort: preset.effort || null,
+          fast: preset.fast === true,
+          content: result?.content || '',
+          ...(abnormalError ? { error: abnormalError } : {}),
+        };
+      };
       const result = await mgr.askSession(session.id, prompt, args.context || null, null, workerCwd, null, {
         notifyFn: workerNotifyFn(session.id, notifyContext || {}),
         ...(job ? {
@@ -1600,11 +1653,21 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
             // reconcile remains a backup for the error/no-terminal-result path.
             if (job?.taskId) {
               try {
-                reconcileBackgroundTask(job.taskId, {
-                  status: 'completed',
-                  result: value,
-                  terminalReason: 'agent-terminal-result',
-                });
+                // An empty/abnormal finish is a failure, not a completion:
+                // reconcile as `failed` with the accurate error so the Lead
+                // card renders `error: …` instead of a header-only empty card.
+                reconcileBackgroundTask(job.taskId, value.error
+                  ? {
+                      status: 'failed',
+                      result: value,
+                      error: value.error,
+                      terminalReason: 'agent-empty-final',
+                    }
+                  : {
+                      status: 'completed',
+                      result: value,
+                      terminalReason: 'agent-terminal-result',
+                    });
               } catch {}
             }
           },
@@ -1613,7 +1676,17 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       // The early preview no longer promises body suppression, so the canonical
       // notifyTaskCompletion is left to fire exactly once with output via the
       // resolve/reconcile/finally path.
-      return completionValue(result);
+      const finalValue = completionValue(result);
+      // Non-job return path (or job path where the terminal-result reconcile
+      // already ran): if the finish was abnormal-empty, surface it as a thrown
+      // error so finalStatus becomes 'error' and the caller's error path (and
+      // the finally reconcile below, as `failed`) render the accurate reason.
+      if (finalValue.error) {
+        finalStatus = 'error';
+        if (job) job._terminalResultValue = finalValue;
+        throw new Error(finalValue.error);
+      }
+      return finalValue;
     } catch (error) {
       finalStatus = 'error';
       throw error;
@@ -1640,6 +1713,9 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
           reconcileBackgroundTask(job.taskId, {
             status: finalStatus === 'error' ? 'failed' : 'completed',
             result: job._terminalResultValue,
+            ...(finalStatus === 'error' && job._terminalResultValue?.error
+              ? { error: job._terminalResultValue.error }
+              : {}),
             terminalReason: 'agent-finally-reconcile',
           });
         } catch {}
@@ -1673,14 +1749,21 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     let finalStatus = 'idle';
     upsertWorkerSessionDeferred(session, tag, { status: 'running', stage: 'running' });
     try {
-      const completionValue = (result) => ({
-        tag,
-        sessionId,
-        agent: session.agent || null,
-        provider: session.provider,
-        model: session.model,
-        content: result?.content || '',
-      });
+      const completionValue = (result) => {
+        // Same abnormal-empty → error promotion as runSpawn: a reused/`send`
+        // worker that hits the cap, truncates, or finishes empty must surface
+        // as a failure with an accurate reason, not a silent completed empty.
+        const abnormalError = abnormalEmptyFinishError(result, session.agent || sendAgent);
+        return {
+          tag,
+          sessionId,
+          agent: session.agent || null,
+          provider: session.provider,
+          model: session.model,
+          content: result?.content || '',
+          ...(abnormalError ? { error: abnormalError } : {}),
+        };
+      };
       const result = await mgr.askSession(sessionId, prompt, args.context || null, null, session.cwd || defaultCwd, null, {
         notifyFn: workerNotifyFn(sessionId, notifyContext || {}),
         ...(job ? {
@@ -1692,11 +1775,18 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
             // post-result save can't strand the task in `running`. Idempotent.
             if (job?.taskId) {
               try {
-                reconcileBackgroundTask(job.taskId, {
-                  status: 'completed',
-                  result: value,
-                  terminalReason: 'agent-terminal-result',
-                });
+                reconcileBackgroundTask(job.taskId, value.error
+                  ? {
+                      status: 'failed',
+                      result: value,
+                      error: value.error,
+                      terminalReason: 'agent-empty-final',
+                    }
+                  : {
+                      status: 'completed',
+                      result: value,
+                      terminalReason: 'agent-terminal-result',
+                    });
               } catch {}
             }
           },
@@ -1704,7 +1794,13 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       });
       // Early preview no longer suppresses the canonical body notification;
       // notifyTaskCompletion fires once with output via resolve/reconcile.
-      return completionValue(result);
+      const finalValue = completionValue(result);
+      if (finalValue.error) {
+        finalStatus = 'error';
+        if (job) job._terminalResultValue = finalValue;
+        throw new Error(finalValue.error);
+      }
+      return finalValue;
     } catch (error) {
       finalStatus = 'error';
       throw error;
@@ -1722,6 +1818,9 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
           reconcileBackgroundTask(job.taskId, {
             status: finalStatus === 'error' ? 'failed' : 'completed',
             result: job._terminalResultValue,
+            ...(finalStatus === 'error' && job._terminalResultValue?.error
+              ? { error: job._terminalResultValue.error }
+              : {}),
             terminalReason: 'agent-finally-reconcile',
           });
         } catch {}

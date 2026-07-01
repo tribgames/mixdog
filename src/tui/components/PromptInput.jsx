@@ -817,7 +817,7 @@ export function PromptInput({
   const hintMeta = hintStyle(hintTone);
 
   return (
-    <Box ref={boxRef} flexDirection="row" flexGrow={1} flexShrink={1} backgroundColor={surfaceBackground()}>
+    <Box ref={boxRef} flexDirection="row" width="100%" flexGrow={1} flexShrink={1} backgroundColor={surfaceBackground()}>
       <Box width={IME_LEFT_GUARD_COLUMNS} flexShrink={0} backgroundColor={surfaceBackground()} />
       <Text color={theme.text} wrap="hard">{renderedValue}</Text>
       {!value && hint ? (

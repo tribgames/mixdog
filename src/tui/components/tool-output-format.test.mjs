@@ -10,6 +10,7 @@ import {
   tryFormatJson,
 } from './tool-output-format.mjs';
 import stringWidth from 'string-width';
+import { displayWidthWith } from '../display-width.mjs';
 
 const stripAnsi = (s) => String(s).replace(/\x1b\[[0-9;]*m/g, '').replace(/\x1b\]8;;[^\x07]*\x07/g, '');
 
@@ -344,4 +345,55 @@ test('shell logical truncation marker precedes retained tail', () => {
   assert.ok(/omitted above/i.test(visible[0]), 'shell marker is first row');
   assert.ok(visible[visible.length - 1].includes('line4999'), 'newest logical line is last');
   assert.ok(!visible[visible.length - 1].includes('re-read a narrower range'));
+});
+
+test('wide policy OFF: displayWidth is byte-for-byte identical to string-width for arrow lines', () => {
+  // Guards the "non-WT terminals unchanged" invariant: with the policy OFF
+  // (default in this test process — no WT_SESSION, no override), the arrow is
+  // still 1 cell, so wrap output must be identical to the string-width world.
+  const arrowLine = '  12\u2192const x = 1; \u2190 done';
+  assert.equal(displayWidthWith(arrowLine, false), stringWidth(arrowLine),
+    'policy OFF must equal plain string-width');
+  const logical = formatExpandedResult(arrowLine, { pathArg: 'a.mjs' });
+  const physical = wrapExpandedResultLines(logical, 40);
+  const maxW = expandedResultBodyWidth(40);
+  for (const row of physical) {
+    assert.ok(stringWidth(stripAnsi(row)) <= maxW,
+      `row width ${stringWidth(stripAnsi(row))} exceeds ${maxW} (policy OFF)`);
+  }
+});
+
+test('wide policy ON (forced): every emitted arrow row fits the display-width budget', async () => {
+  // The policy is resolved ONCE at module load, so forcing it requires a fresh
+  // process. Spawn a child with MIXDOG_TUI_AMBIGUOUS_WIDE=1 and assert that
+  // every wrapped read row (containing U+2192) measures <= expandedResultBodyWidth
+  // under the SAME wide policy the terminal will use. Without the clamp,
+  // string-width accepts arrow rows as fitting while the terminal renders them
+  // one cell wider, bleeding into the prompt box.
+  const { execFileSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const modUrl = new URL('./tool-output-format.mjs', import.meta.url).href;
+  const dwUrl = new URL('../display-width.mjs', import.meta.url).href;
+  const script = `
+    import { formatExpandedResult, wrapExpandedResultLines, expandedResultBodyWidth } from ${JSON.stringify(modUrl)};
+    import { displayWidth, AMBIGUOUS_WIDE } from ${JSON.stringify(dwUrl)};
+    const strip = (s) => String(s).replace(/\\x1b\\[[0-9;]*m/g, '').replace(/\\x1b\\]8;;[^\\x07]*\\x07/g, '');
+    if (AMBIGUOUS_WIDE !== true) { console.log('POLICY_OFF'); process.exit(2); }
+    const columns = 30;
+    // Many arrows so a naive string-width fit accepts an over-wide row.
+    const body = 'x'.repeat(24) + ' ' + '\\u2192'.repeat(12) + ' tail';
+    const logical = formatExpandedResult('42\\u2192' + body, { pathArg: 'a.mjs' });
+    const physical = wrapExpandedResultLines(logical, columns);
+    const maxW = expandedResultBodyWidth(columns);
+    let bad = 0;
+    for (const row of physical) {
+      if (displayWidth(strip(row)) > maxW) bad++;
+    }
+    console.log(bad === 0 ? 'OK ' + physical.length : 'BAD ' + bad);
+  `;
+  const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+    env: { ...process.env, MIXDOG_TUI_AMBIGUOUS_WIDE: '1', WT_SESSION: '' },
+    encoding: 'utf8',
+  }).trim();
+  assert.ok(out.startsWith('OK'), `expected all rows within budget, got: ${out}`);
 });

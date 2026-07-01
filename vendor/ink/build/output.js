@@ -5,6 +5,37 @@ import { styledCharsFromTokens, styledCharsToString, tokenize, } from '@alcalzon
 // Terminal, matching OUR wrap/row math. See display-width.js (kept in sync with
 // src/tui/display-width.mjs).
 import { displayStringWidth as stringWidth } from './display-width.js';
+const RGB_COLOR_RE = /^rgb\(\s*(\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})\s*\)$/;
+const rgbStyle = (value, type, fallback) => {
+    const match = RGB_COLOR_RE.exec(String(value || ''));
+    const parts = match
+        ? match.slice(1, 4).map(part => Math.max(0, Math.min(255, Number(part) || 0)))
+        : fallback;
+    const sgr = type === 'foreground' ? 38 : 48;
+    const reset = type === 'foreground' ? '\x1b[39m' : '\x1b[49m';
+    return { code: `\x1b[${sgr};2;${parts[0]};${parts[1]};${parts[2]}m`, endCode: reset };
+};
+const intersectClips = (clips) => {
+    if (clips.length === 0) {
+        return undefined;
+    }
+    const out = {};
+    for (const clip of clips) {
+        if (typeof clip?.x1 === 'number') {
+            out.x1 = typeof out.x1 === 'number' ? Math.max(out.x1, clip.x1) : clip.x1;
+        }
+        if (typeof clip?.x2 === 'number') {
+            out.x2 = typeof out.x2 === 'number' ? Math.min(out.x2, clip.x2) : clip.x2;
+        }
+        if (typeof clip?.y1 === 'number') {
+            out.y1 = typeof out.y1 === 'number' ? Math.max(out.y1, clip.y1) : clip.y1;
+        }
+        if (typeof clip?.y2 === 'number') {
+            out.y2 = typeof out.y2 === 'number' ? Math.min(out.y2, clip.y2) : clip.y2;
+        }
+    }
+    return out;
+};
 class OutputCaches {
     widths = new Map();
     blockWidths = new Map();
@@ -116,10 +147,19 @@ export default class Output {
                 const { text, transformers } = operation;
                 let { x, y } = operation;
                 let lines = text.split('\n');
-                const clip = clips.at(-1);
+                // [mixdog fork] Nested overflow:hidden boxes must be clipped to
+                // the INTERSECTION of every active ancestor clip. Using only the
+                // innermost clip lets child components such as ToolExecution /
+                // TurnDone (which have their own overflow hidden rows) escape the
+                // transcript viewport and paint over command/prompt/status rows.
+                const clip = intersectClips(clips);
                 if (clip) {
                     const clipHorizontally = typeof clip?.x1 === 'number' && typeof clip?.x2 === 'number';
                     const clipVertically = typeof clip?.y1 === 'number' && typeof clip?.y2 === 'number';
+                    if ((clipHorizontally && clip.x2 <= clip.x1) ||
+                        (clipVertically && clip.y2 <= clip.y1)) {
+                        continue;
+                    }
                     // If text is positioned outside of clipping area altogether,
                     // skip to the next operation to avoid unnecessary calculations
                     if (clipHorizontally) {
@@ -228,8 +268,8 @@ export default class Output {
                 selectedText = undefined;
             }
             const selectionStyles = [
-                { code: '[38;2;0;0;0m', endCode: '[39m' },
-                { code: '[48;2;245;245;245m', endCode: '[49m' },
+                rgbStyle(sel.selectionForeground, 'foreground', [0, 0, 0]),
+                rgbStyle(sel.selectionBackground, 'background', [245, 245, 245]),
             ];
             const linear = sel.mode === 'linear';
             const start = linear && (sel.y1 > sel.y2 || (sel.y1 === sel.y2 && sel.x1 > sel.x2))
@@ -321,8 +361,30 @@ export default class Output {
         const generatedOutput = output
             .map(line => {
             // See https://github.com/vadimdemedes/ink/pull/564#issuecomment-1637022742
-            const lineWithoutEmptyItems = line.filter(item => item !== undefined);
-            return styledCharsToString(lineWithoutEmptyItems).trimEnd();
+            // [mixdog fork] Keep the serialized row inside Output.width as a
+            // final invariant. Component-level width budgeting can miss
+            // background fills, resize races, or wide-char edge cases; if the
+            // terminal receives a row wider than its modeled width it may
+            // soft-wrap/scroll outside Ink's cursor-origin model.
+            const lineWithinWidth = [];
+            let usedWidth = 0;
+            for (const item of line) {
+                if (item === undefined) {
+                    continue;
+                }
+                const value = item.value ?? '';
+                if (value === '') {
+                    lineWithinWidth.push(item);
+                    continue;
+                }
+                const itemWidth = Math.max(1, this.caches.getStringWidth(value));
+                if (usedWidth + itemWidth > this.width) {
+                    break;
+                }
+                lineWithinWidth.push(item);
+                usedWidth += itemWidth;
+            }
+            return styledCharsToString(lineWithinWidth).trimEnd();
         })
             .join('\n');
         return {

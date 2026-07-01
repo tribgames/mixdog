@@ -72,8 +72,18 @@ export function listThemes() {
   });
 }
 
-/** Paintable Box background: rgb themes return their background; others stay transparent. */
+/**
+ * Paintable Box background.
+ *
+ * Keep this disabled by default: applying a full-screen Box background makes
+ * every descendant Text inherit that background through Ink's BackgroundContext,
+ * which is fragile with nested/ANSI-heavy output and can destabilize theme
+ * switching on some terminals. Themes may still set `background` for terminal
+ * OSC 11 (`emitTerminalBackground`) and for future opt-in surfaces, but the TUI
+ * itself stays transparent unless explicitly allowed.
+ */
 export function surfaceBackground() {
+  if (theme.paintSurfaceBackground !== true) return undefined;
   return /^rgb\(\d+,\s*\d+,\s*\d+\)$/.test(String(theme.background || '')) ? theme.background : undefined;
 }
 

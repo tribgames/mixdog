@@ -46,7 +46,6 @@ import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
 import {
     PROVIDER_RETRY_MAX_ATTEMPTS,
     PROVIDER_WS_ACQUIRE_TIMEOUT_MS,
-    PROVIDER_WS_FIRST_MEANINGFUL_TIMEOUT_MS,
     PROVIDER_WS_HANDSHAKE_TIMEOUT_MS,
     PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS,
     resolveTimeoutMs,
@@ -66,14 +65,12 @@ const WS_IDLE_MS = resolveTimeoutMs(
 );
 const WS_HANDSHAKE_TIMEOUT_MS = PROVIDER_WS_HANDSHAKE_TIMEOUT_MS;
 const WS_ACQUIRE_TIMEOUT_MS = PROVIDER_WS_ACQUIRE_TIMEOUT_MS;
-// Pre-stream watchdog uses the shared provider deadline so it fails before
-// the 5-minute session slow warning.
-const WS_FIRST_MEANINGFUL_MS = PROVIDER_WS_FIRST_MEANINGFUL_TIMEOUT_MS;
 // Pre-`response.created` deadline. Once the socket is open and the
 // response.create frame is sent, a healthy server emits response.created
 // within seconds. If it stalls past this short bound the socket has wedged
 // post-upgrade with zero server events — treat it as a fast, retryable
-// first-byte timeout rather than waiting the longer first-meaningful window.
+// first-byte timeout. This is the ONLY pre-stream watchdog; once any server
+// event arrives the single inter-chunk idle timer below takes over.
 // Only this short window is shortened; the post-`response.created`
 // inter-chunk / reasoning span keeps the longer deadlines below.
 const WS_PRE_RESPONSE_CREATED_MS = (() => {
@@ -82,7 +79,9 @@ const WS_PRE_RESPONSE_CREATED_MS = (() => {
     if (Number.isFinite(n) && n > 0) return Math.min(Math.max(n, 1_000), 120_000);
     return 10_000;
 })();
-// Inter-chunk inactivity after first meaningful output.
+// Single inter-chunk idle timer. Resets on EVERY received frame (matches codex
+// responses_websocket.rs timeout(idle_timeout, ws_stream.next()) and mixdog
+// anthropic-oauth resetIdleTimer on every chunk).
 const WS_INTER_CHUNK_MS = PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS;
 // Mid-stream retry budgets + backoff now live in the shared MIDSTREAM_RETRY_POLICY
 // table (retry-classifier.mjs). These aliases keep the local call sites readable
@@ -1242,7 +1241,6 @@ export async function _streamResponse({
     const errLabel = _wsErrLabel(traceProvider);
     const socket = entry.socket;
     const preResponseCreatedMs = _positiveInt(_timeouts?.preResponseCreatedMs, WS_PRE_RESPONSE_CREATED_MS);
-    const firstMeaningfulMs = _positiveInt(_timeouts?.firstMeaningfulMs, WS_FIRST_MEANINGFUL_MS);
     const interChunkMs = _positiveInt(_timeouts?.interChunkMs, WS_INTER_CHUNK_MS);
     const _streamingStart = Date.now();
     let _firstDeltaEmitted = false;
@@ -1397,10 +1395,10 @@ export async function _streamResponse({
         // after our last frame. The socket is open and the response.create
         // frame was sent, but no server event has come back — a wedged
         // post-upgrade socket. Healthy servers ack within seconds, so this
-        // window is intentionally short (~25s). Once response.created (or
-        // any other meaningful event) arrives, the timer is cancelled and
-        // the longer inter-chunk inactivity watchdog takes over — silent
-        // gaps mid-reasoning (openai-oauth spending 50s+ producing reasoning
+        // window is intentionally short (WS_PRE_RESPONSE_CREATED_MS, ~10s).
+        // Once ANY server event arrives, resetIdle() cancels this watchdog and
+        // the single inter-chunk idle timer takes over — silent gaps
+        // mid-reasoning (openai-oauth spending 50s+ producing reasoning
         // tokens) are normal and should not abort the turn.
         const armPreStreamWatchdog = () => {
             if (idleTimer) clearTimeout(idleTimer);
@@ -1432,8 +1430,6 @@ export async function _streamResponse({
             }, preResponseCreatedMs);
         };
         let interChunkTimer = null;
-        let firstMeaningfulTimer = null;
-        let firstMeaningfulSeen = false;
         const traceWsTimeout = (event, timeoutMs) => {
             try {
                 const iteration = Number(midState.iteration);
@@ -1448,7 +1444,6 @@ export async function _streamResponse({
                     attempt_index: Number.isFinite(attemptIndex) ? attemptIndex : null,
                     warmup: midState.warmup === true,
                     saw_response_created: midState.sawResponseCreated === true,
-                    first_meaningful_seen: firstMeaningfulSeen === true,
                 };
                 appendAgentTrace({
                     sessionId: midState.sessionId || null,
@@ -1465,29 +1460,6 @@ export async function _streamResponse({
                 idleTimer = null;
             }
         };
-        const clearFirstMeaningfulWatchdog = () => {
-            if (firstMeaningfulTimer) {
-                clearTimeout(firstMeaningfulTimer);
-                firstMeaningfulTimer = null;
-            }
-        };
-        const armFirstMeaningfulWatchdog = () => {
-            if (firstMeaningfulSeen || firstMeaningfulMs <= 0) return;
-            clearFirstMeaningfulWatchdog();
-            firstMeaningfulTimer = setTimeout(() => {
-                if (process.env.MIXDOG_DEBUG_AGENT) {
-                    process.stderr.write(`[agent-trace] ws-timeout kind=first-meaningful afterMs=${firstMeaningfulMs}\n`);
-                }
-                traceWsTimeout('first_meaningful_timeout', firstMeaningfulMs);
-                const err = new Error(`WS stream: no meaningful output within ${firstMeaningfulMs}ms after response.created`);
-                err.wsCloseCode = 4000;
-                err.firstMeaningfulTimeout = true;
-                midState.firstMeaningfulTimeout = true;
-                terminalError = err;
-                try { socket.close(4000, 'first_meaningful_timeout'); } catch {}
-                finish();
-            }, firstMeaningfulMs);
-        };
         const resetInterChunk = () => {
             if (interChunkTimer) clearTimeout(interChunkTimer);
             interChunkTimer = setTimeout(() => {
@@ -1502,29 +1474,17 @@ export async function _streamResponse({
                 finish();
             }, interChunkMs);
         };
-        const onResponseCreated = () => {
+        // Single idle reset — called on EVERY parsed server event (matches
+        // codex, which resets one idle timer on every received WS frame). Any
+        // frame proves the socket is live; there is no separate "meaningful
+        // output" gate. Also clears the pre-stream watchdog defensively in case
+        // the first event is not response.created.
+        const resetIdle = () => {
             clearPreStreamWatchdog();
-            if (!firstMeaningfulSeen) armFirstMeaningfulWatchdog();
-            else resetInterChunk();
-        };
-        // Called on every event that carries real output tokens or tool
-        // progress. `response.created` is only an ACK and must not count here:
-        // a wedged openai-oauth stream can ACK immediately and then never produce
-        // text/reasoning/tool deltas, holding the prompt-cache lane for the
-        // full inter-chunk window.
-        const onMeaningfulOutput = () => {
-            if (!firstMeaningfulSeen) {
-                firstMeaningfulSeen = true;
-                clearPreStreamWatchdog();
-                clearFirstMeaningfulWatchdog();
-            }
             resetInterChunk();
         };
-        // resetIdle kept for compat; metadata frames no longer disarm pre-stream watchdog.
-        const resetIdle = () => { /* noop — only onMeaningfulOutput() disarms */ };
         const cleanup = () => {
             if (idleTimer) clearTimeout(idleTimer);
-            clearFirstMeaningfulWatchdog();
             if (interChunkTimer) { clearTimeout(interChunkTimer); interChunkTimer = null; }
             if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
             if (messageHandler) socket.off('message', messageHandler);
@@ -1554,7 +1514,10 @@ export async function _streamResponse({
 
         messageHandler = (data) => {
             resetIdle();
-            // Do NOT call onStreamDelta for every frame — metadata/keepalive frames
+            // resetIdle() above resets the SINGLE inter-chunk idle timer on
+            // EVERY received frame (codex parity) — response.created, metadata,
+            // rate_limits, and all deltas keep the socket alive. Separately, do
+            // NOT call onStreamDelta for every frame — metadata/keepalive frames
             // must not reset the agent stall watchdog's lastStreamDeltaAt. Only
             // meaningful output (text delta / tool call) updates that timestamp.
             const text = typeof data === 'string' ? data : data.toString('utf-8');
@@ -1576,10 +1539,9 @@ export async function _streamResponse({
                     midState.sawResponseCreated = true;
                     if (event.response?.model) model = event.response.model;
                     if (event.response?.id) responseId = event.response.id;
-                    // Server ack: cancel only the pre-created watchdog. Keep
-                    // a separate first-meaningful watchdog armed until real
-                    // model progress arrives.
-                    onResponseCreated();
+                    // Server ack (first event). resetIdle() at the top of
+                    // messageHandler already cleared the pre-stream watchdog and
+                    // armed the single idle timer — no extra bookkeeping here.
                     break;
                 case 'response.output_text.delta':
                     content += event.delta || '';
@@ -1603,7 +1565,6 @@ export async function _streamResponse({
                         if (state) state.emittedText = true;
                         try { onTextDelta(event.delta); } catch {}
                     }
-                    onMeaningfulOutput();
                     break;
                 case 'response.reasoning_text.delta':
                 case 'response.reasoning_summary_text.delta':
@@ -1611,16 +1572,11 @@ export async function _streamResponse({
                     else reasoningSummaryTextDeltaCount += 1;
                     // Reasoning text is live model progress — refresh
                     // lastStreamDeltaAt so stream-watchdog does not flag a
-                    // long reasoning span as a stall. It also counts as
-                    // liveness for the local pre-stream / inter-chunk
-                    // watchdogs: a long reasoning span without any
-                    // output_text delta would otherwise trip the
-                    // first-meaningful timer and abort an otherwise healthy
-                    // stream. Reasoning is still suppressed from user
-                    // content (no `content +=` here) — only the watchdog
-                    // timers are reset.
+                    // long reasoning span as a stall. The local WS idle timer
+                    // was already reset by resetIdle() at the top of
+                    // messageHandler. Reasoning is still suppressed from user
+                    // content (no `content +=` here).
                     try { onStreamDelta?.(); } catch {}
-                    onMeaningfulOutput();
                     break;
                 case 'response.output_item.added':
                     if (event.item?.type === 'function_call') {
@@ -1628,16 +1584,13 @@ export async function _streamResponse({
                             name: event.item.name || '',
                             callId: event.item.call_id || '',
                         });
-                        onMeaningfulOutput();
                     }
                     break;
                 case 'response.function_call_arguments.delta':
                     try { onStreamDelta?.(); } catch {}
-                    onMeaningfulOutput();
                     break;
                 case 'response.custom_tool_call_input.delta':
                     try { onStreamDelta?.(); } catch {}
-                    onMeaningfulOutput();
                     break;
                 case 'response.function_call_arguments.done': {
                     const itemId = event.item_id || '';
@@ -1689,7 +1642,6 @@ export async function _streamResponse({
                         });
                     }
                     try { onStreamDelta?.(); } catch {}
-                    onMeaningfulOutput();
                     break;
                 }
                 case 'response.output_item.done':
@@ -1703,11 +1655,9 @@ export async function _streamResponse({
                     if (event.item?.type === 'web_search_call') pushWebSearchCall(event.item);
                     if (event.item?.type === 'tool_search_call') {
                         pushToolSearchCall(event.item);
-                        onMeaningfulOutput();
                     }
                     if (event.item?.type === 'custom_tool_call') {
                         pushCustomToolCall(event.item);
-                        onMeaningfulOutput();
                     }
                     break;
                 case 'response.completed': {
@@ -2048,9 +1998,6 @@ export function _classifyHandshakeError(err) {
  *                          response.create frame sent, but the server never
  *                          emitted response.created within the short
  *                          pre-stream deadline. Fast-fail retryable.
- *   'first_meaningful_timeout' — server ACKed response.created, then emitted
- *                          no real text/reasoning/tool progress before the
- *                          first-meaningful deadline.
  *   'response_failed_network'       — response.failed with network_error
  *   'response_failed_disconnected'  — response.failed with stream_disconnected
  *
@@ -2669,7 +2616,6 @@ export async function sendViaWebSocket({
                 transport: 'websocket',
                 ws_mode: mode,
                 ws_pre_response_created_timeout_ms: WS_PRE_RESPONSE_CREATED_MS,
-                ws_first_meaningful_timeout_ms: WS_FIRST_MEANINGFUL_MS,
                 ws_inter_chunk_timeout_ms: WS_INTER_CHUNK_MS,
                 ws_idle_ms: WS_IDLE_MS,
                 iteration_delta_tokens: deltaTokens,

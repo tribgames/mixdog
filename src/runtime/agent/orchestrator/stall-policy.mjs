@@ -137,16 +137,16 @@ export const PROVIDER_WS_ACQUIRE_TIMEOUT_MS = resolveTimeoutMs(
     { minMs: 5_000, maxMs: PROVIDER_MAX_BEFORE_WARN_MS },
 );
 
-export const PROVIDER_WS_FIRST_MEANINGFUL_TIMEOUT_MS = resolveTimeoutMs(
-    'MIXDOG_PROVIDER_WS_FIRST_MEANINGFUL_TIMEOUT_MS',
-    Math.min(PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_GENERATE_TOTAL_TIMEOUT_MS),
-    { minMs: MIN_PROVIDER_TIMEOUT_MS, maxMs: PROVIDER_MAX_BEFORE_WARN_MS },
-);
-
+// Single inter-chunk idle timer, matching codex's DEFAULT_STREAM_IDLE_TIMEOUT_MS
+// (300s). codex resets one idle timer on every received WS frame; mixdog does
+// the same (openai-oauth-ws messageHandler resets on every parsed event). There
+// is deliberately no separate "first-meaningful" watchdog — a live stream
+// (including server-side reasoning ACKed via response.created) keeps this timer
+// fresh, and only true socket silence trips it. Env-tunable.
 export const PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS = resolveTimeoutMs(
     'MIXDOG_PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS',
-    STALL_ABORT_MS,
-    { minMs: STALL_WARN_MS, maxMs: STALL_ABORT_MS },
+    300_000,
+    { minMs: MIN_PROVIDER_TIMEOUT_MS, maxMs: STALL_ABORT_MS },
 );
 
 // First retry has a small floor (250ms) instead of 0ms: an immediate reissue on

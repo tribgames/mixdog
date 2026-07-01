@@ -105,14 +105,15 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
 const CommandRow = React.memo(function CommandRow({ command, isSelected, labelWidth, descriptionWidth, query }) {
   const label = truncateText(commandDisplayLabel(command, query), labelWidth);
   const description = truncateText(command.description, descriptionWidth);
+  const rowText = isSelected ? theme.selectionText : theme.text;
 
   return (
-    <Box flexDirection="row" width="100%" backgroundColor={isSelected ? theme.userMessageBackground : undefined}>
-      <Text color={theme.text}>
+    <Box flexDirection="row" width="100%" backgroundColor={isSelected ? theme.selectionBackground : undefined}>
+      <Text color={rowText}>
         {padCells(label, labelWidth)}
       </Text>
       {description ? (
-        <Text color={theme.text}>
+        <Text color={rowText}>
           {'  '}
           {description}
         </Text>

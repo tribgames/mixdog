@@ -47,8 +47,8 @@ export const kanagawaPalette = {
   mdHeading: 'rgb(149,127,184)', // oniViolet
   mdCode: 'rgb(152,187,108)', // lotusGreen #98BB6C
   mdCodeBlock: 'rgb(220,215,186)', // fg
-  mdQuote: 'rgb(114,113,105)', // fujiGray
-  mdQuoteBorder: 'rgb(114,113,105)', // fujiGray
+  mdQuote: 'rgb(142,140,132)', // lifted fujiGray
+  mdQuoteBorder: 'rgb(142,140,132)', // lifted fujiGray
   mdHr: 'rgb(114,113,105)', // fujiGray
   mdListBullet: 'rgb(126,156,216)', // crystalBlue accent
   mdCodeBlockBorder: 'rgb(54,54,70)', // sumiInk5 #363646
@@ -65,7 +65,7 @@ export const kanagawaPalette = {
   mdDiffContext: 'rgb(114,113,105)', // fujiGray
   mdDiffAddedBg: 'rgb(37,46,37)', // #252E25
   mdDiffRemovedBg: 'rgb(54,32,32)', // #362020
-  syntaxComment: 'rgb(114,113,105)', // fujiGray
+  syntaxComment: 'rgb(142,140,132)', // lifted fujiGray
   syntaxKeyword: 'rgb(149,127,184)', // oniViolet
   syntaxFunction: 'rgb(126,156,216)', // crystalBlue
   syntaxVariable: 'rgb(220,215,186)', // fujiWhite

@@ -403,9 +403,11 @@ function applyToolPermissionNarrowing(tools, toolPermission, warnRole = null) {
 function recursiveWrapperToolNameForPublicAgent(agent) {
     if (!agent) return null;
     const key = String(agent).trim();
+    if (key === 'explore') return 'explore';
     for (const hiddenName of listHiddenAgentNames()) {
         const def = getHiddenAgent(hiddenName);
         const invokedBy = typeof def?.invokedBy === 'string' ? def.invokedBy.trim() : '';
+        if (hiddenName === key && invokedBy) return invokedBy;
         if (invokedBy && invokedBy === key) return invokedBy;
     }
     return null;
@@ -1467,7 +1469,7 @@ export function createSession(opts) {
     const id = `sess_${process.pid}_${nextId++}_${Date.now()}_${randomBytes(16).toString('hex')}`;
     const messages = [];
     const ownerIsAgent = isAgentOwner(opts.owner);
-    const resolvedAgent = opts.agent || profile?.taskType || null;
+    const resolvedAgent = opts.agent || opts.role || profile?.taskType || null;
     const hiddenAgent = getHiddenAgent(resolvedAgent);
     const isRetrievalAgent = hiddenAgent?.kind === 'retrieval';
     // Skill schema is fixed for public agent sessions, but hidden retrieval /
@@ -1479,7 +1481,7 @@ export function createSession(opts) {
     // BP1 is shared tool policy (+ compact skill manifest in compose). BP2 is
     // role/system rules. User-defined schedules/webhooks ride as normal user
     // context below so event data does not rewrite BP3 memory/meta.
-    const agentRulesAgent = opts.agent || profile?.taskType || null;
+    const agentRulesAgent = opts.agent || opts.role || profile?.taskType || null;
     const agentRulesProfile = isRetrievalAgent ? 'retrieval' : 'full';
     const skipAgentRules = opts.skipAgentRules === true;
     // Retrieval roles already inject a compact # Tool Use via BP2; skip the full BP1 shared tool policy to avoid duplicating it.

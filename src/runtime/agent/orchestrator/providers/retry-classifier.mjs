@@ -282,7 +282,7 @@ export function classifyMidstreamError(err, signals, policy = {}) {
 
 // Verbatim relocation of openai-oauth-ws's _classifyMidstreamError. `signals`
 // carries sawResponseCreated / sawCompleted / emittedText / emittedToolCall /
-// wsCloseCode / firstByteTimeout / firstMeaningfulTimeout / wsSendFailed /
+// wsCloseCode / firstByteTimeout / wsSendFailed /
 // userAbort / watchdogAbort / responseFailedPayload exactly as before.
 function _classifyMidstreamWs(err, state, attemptIndex, policy) {
   if (state.sawCompleted) return null
@@ -293,9 +293,6 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
   if (state.emittedText || err?.liveTextEmitted) return null
   if (state.firstByteTimeout || err?.firstByteTimeout) {
     return _allowMidstream('first_byte_timeout', attemptIndex, policy)
-  }
-  if (state.firstMeaningfulTimeout || err?.firstMeaningfulTimeout) {
-    return _allowMidstream('first_meaningful_timeout', attemptIndex, policy)
   }
   if (err?.wsSendFailed || state.wsSendFailed) {
     return _allowMidstream('ws_send_failed', attemptIndex, policy)
@@ -379,7 +376,7 @@ function _classifyMidstreamSse(err, state, attemptIndex, policy) {
 //    env-flag check (caller computes the flag and passes it).
 const TRANSPORT_FALLBACK_CLASSIFIERS = new Set([
   'timeout', 'reset', 'dns', 'refused', 'network', 'acquire_timeout', 'http_5xx',
-  'first_byte_timeout', 'first_meaningful_timeout',
+  'first_byte_timeout',
   'ws_1006', 'ws_1011', 'ws_1012', 'ws_1000', 'ws_4000', 'agent_stall', 'stream_stalled',
   'response_failed_disconnected', 'response_failed_network', 'response_failed_auth_expired',
   'ws_send_failed',
@@ -403,7 +400,6 @@ export function shouldFallbackTransport(err, { signal, enabled = true } = {}) {
   if (TRANSPORT_FALLBACK_CLASSIFIERS.has(classifier)) return true
   if (/^http_5\d\d$/.test(classifier)) return true
   if (err?.firstByteTimeout) return true
-  if (err?.firstMeaningfulTimeout) return true
   const msg = String(err?.message || '')
   return /opening handshake has timed out|socket hang up|acquire timed out|no first server event|no meaningful output/i.test(msg)
 }

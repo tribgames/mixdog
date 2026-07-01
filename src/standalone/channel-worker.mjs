@@ -164,6 +164,7 @@ export function createStandaloneChannelWorker({
         MIXDOG_DATA_DIR: dataDir,
         MIXDOG_STANDALONE: '1',
         MIXDOG_WORKER_MODE: '1',
+        MIXDOG_CLI_OWNED: '0',
         MIXDOG_QUIET_SESSION_LOG: process.env.MIXDOG_QUIET_SESSION_LOG ?? '1',
       },
       windowsHide: true,

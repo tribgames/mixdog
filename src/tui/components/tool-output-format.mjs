@@ -18,6 +18,7 @@
  */
 import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
+import { displayWidth } from '../display-width.mjs';
 import {
   extraColorizers,
   highlightCodeLine,
@@ -473,21 +474,17 @@ function splitAnsiByPlainWidth(text, plainTarget) {
   while (i < src.length) {
     if (plain >= target) break;
     if (src[i] === '\x1b') {
-      const rest = src.slice(i);
-      const sgr = rest.match(/^\x1b\[[0-9;]*m/);
-      if (sgr) {
-        i += sgr[0].length;
-        continue;
-      }
-      const osc = rest.match(/^\x1b\]8;;[^\x07]*\x07/);
-      if (osc) {
-        i += osc[0].length;
+      // Recognize SGR + OSC-8 (BEL- OR ST-terminated) via the shared matcher so
+      // the split never lands inside an escape sequence for either terminator.
+      const m = ANSI_SEQ_AT_START_RE.exec(src.slice(i));
+      if (m) {
+        i += m[0].length;
         continue;
       }
     }
     const cp = src.codePointAt(i);
     const ch = String.fromCodePoint(cp);
-    plain += stringWidth(ch);
+    plain += displayWidth(ch);
     i += cp > 0xffff ? 2 : 1;
   }
   return [src.slice(0, i), src.slice(i)];
@@ -495,30 +492,88 @@ function splitAnsiByPlainWidth(text, plainTarget) {
 
 function leadingPrefixPlainWidth(plainLine) {
   const rm = READ_LINE_RE.exec(plainLine);
-  if (rm) return stringWidth(rm[1] + rm[2] + rm[3]);
+  if (rm) return displayWidth(rm[1] + rm[2] + rm[3]);
   const gm = GREP_LINE_RE.exec(plainLine);
-  if (gm) return stringWidth(gm[1] + gm[2] + gm[3]);
+  if (gm) return displayWidth(gm[1] + gm[2] + gm[3]);
   return 0;
+}
+
+/**
+ * Hard-cut an ANSI string so its VISIBLE (displayWidth) width is <= maxWidth.
+ * ANSI/OSC-8 escapes are preserved verbatim (zero visible width) and never cut
+ * mid-sequence. This is the final safety clamp: `wrapText` measures with
+ * string-width, so an arrow-bearing row it accepts as fitting can still render
+ * 1+ cells wider under the wide policy — this guarantees no emitted row can
+ * exceed maxWidth in real terminal cells and trigger terminal autowrap.
+ *
+ * Single forward pass: accumulate visible code points until the next one would
+ * overflow `max`, then drop the remaining VISIBLE glyphs while still copying
+ * every trailing escape (SGR resets, OSC-8 closers) verbatim — so a clamped
+ * colored/hyperlinked row can never leak an unbalanced/open sequence into later
+ * TUI cells. Escapes are zero-width, so keeping all of them can never push the
+ * result past `max`; the pass always terminates (i advances every iteration).
+ */
+function clampRowToDisplayWidth(row, maxWidth) {
+  const src = String(row ?? '');
+  const max = Math.max(0, Math.floor(Number(maxWidth) || 0));
+  if (max <= 0) return src;
+  if (displayWidth(src) <= max) return src;
+  let out = '';
+  let plain = 0;
+  let overflowed = false;
+  let i = 0;
+  while (i < src.length) {
+    if (src[i] === '\x1b') {
+      // Copy any recognized escape (SGR / OSC-8 BEL or ST) verbatim — including
+      // trailing resets/closers AFTER the visible cut point.
+      const m = ANSI_SEQ_AT_START_RE.exec(src.slice(i));
+      if (m) {
+        out += m[0];
+        i += m[0].length;
+        continue;
+      }
+    }
+    const cp = src.codePointAt(i);
+    const step = cp > 0xffff ? 2 : 1;
+    if (!overflowed) {
+      const ch = String.fromCodePoint(cp);
+      const w = displayWidth(ch);
+      if (plain + w > max) {
+        // This glyph would overflow: stop emitting visible text but keep
+        // scanning so trailing escapes are still preserved.
+        overflowed = true;
+      } else {
+        out += ch;
+        plain += w;
+      }
+    }
+    i += step;
+  }
+  return out;
 }
 
 function wrapOneExpandedLogicalLine(line, maxWidth) {
   const src = String(line ?? '');
   if (!src) return [' '];
-  if (stringWidth(src) <= maxWidth) return [src];
+  if (displayWidth(src) <= maxWidth) return [src];
 
   const prefixPlainW = leadingPrefixPlainWidth(stripAnsi(src));
   const [prefix, body] = prefixPlainW > 0
     ? splitAnsiByPlainWidth(src, prefixPlainW)
     : ['', src];
-  const prefixW = stringWidth(prefix);
+  const prefixW = displayWidth(prefix);
   const bodyBudget = Math.max(1, maxWidth - prefixW);
   const bodyPieces = wrapText(body, bodyBudget, { hard: true });
-  if (bodyPieces.length <= 1) return [src];
+  // wrapText measures with string-width, so even the single-piece fast path can
+  // exceed maxWidth under the wide policy — always run the display-width clamp.
+  if (bodyPieces.length <= 1) return [clampRowToDisplayWidth(src, maxWidth)];
 
   const out = [];
   for (let i = 0; i < bodyPieces.length; i++) {
-    if (i === 0) out.push(`${prefix}${bodyPieces[i]}`);
-    else out.push(`${padDisplaySpaces(prefixW)}${bodyPieces[i]}`);
+    const row = i === 0
+      ? `${prefix}${bodyPieces[i]}`
+      : `${padDisplaySpaces(prefixW)}${bodyPieces[i]}`;
+    out.push(clampRowToDisplayWidth(row, maxWidth));
   }
   return out;
 }
@@ -534,11 +589,16 @@ export function wrapExpandedResultLines(logicalLines, columns = 80, { isShell = 
   const lines = Array.isArray(logicalLines) ? logicalLines : [];
   const out = [];
 
+  // Safety net: EVERY emitted row (including omitted/oversize markers that
+  // bypass wrapOneExpandedLogicalLine) must satisfy the display-width clamp so
+  // no physical row can exceed maxWidth and trigger terminal autowrap.
+  const clampAll = (rows) => rows.map((row) => clampRowToDisplayWidth(row, maxWidth));
+
   if (!capOn) {
     for (const line of lines) {
       for (const row of wrapOneExpandedLogicalLine(line, maxWidth)) out.push(row);
     }
-    return out.length > 0 ? out : [' '];
+    return out.length > 0 ? clampAll(out) : [' '];
   }
 
   if (isShell) {
@@ -552,7 +612,7 @@ export function wrapExpandedResultLines(logicalLines, columns = 80, { isShell = 
         }
       }
     }
-    return finalizeShellPhysicalCap(out, omitted, maxRows);
+    return clampAll(finalizeShellPhysicalCap(out, omitted, maxRows));
   }
 
   // Non-shell surfaces keep the head of the expanded body (read/grep/json).
@@ -571,7 +631,7 @@ export function wrapExpandedResultLines(logicalLines, columns = 80, { isShell = 
     const bodySlots = Math.max(0, maxRows - 1);
     if (out.length > bodySlots) out.length = bodySlots;
     if (maxRows > 0) out.push(omittedPhysicalRowsMarker(1, false));
-    return out.length > 0 ? out.slice(0, maxRows) : [' '];
+    return out.length > 0 ? clampAll(out.slice(0, maxRows)) : [' '];
   }
-  return out.length > 0 ? out : [' '];
+  return out.length > 0 ? clampAll(out) : [' '];
 }

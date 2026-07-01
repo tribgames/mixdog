@@ -1314,6 +1314,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     let response;
     let contractNudges = 0;
     let contextOverflowRetryUsed = false;
+    // Set when the hard iteration-cap break below fires. Consumed at the final
+    // return to tag terminationReason='iteration_cap' so a worker that exhausts
+    // the loop without a final answer surfaces to Lead as an explicit error
+    // instead of a silent empty "completed".
+    let terminatedByCap = false;
     // Set when a provider context-overflow refusal triggers the in-turn
     // reactive compact retry below; consumed by the next pre-send compact pass
     // so its telemetry/events carry trigger:'reactive' (distinct from the
@@ -1405,6 +1410,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         throwIfAborted();
         if (iterations >= maxLoopIterations) {
             process.stderr.write(`[loop] hard iteration cap ${maxLoopIterations} reached (sess=${sessionId || 'unknown'}); stopping loop.\n`);
+            terminatedByCap = true;
             break;
         }
         // Drain queued steering/prompts BEFORE the
@@ -2551,6 +2557,33 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // About to re-send with tool results — transition back to connecting for the next turn.
         if (sessionId) updateSessionStage(sessionId, 'connecting');
     }
+    // Classify WHY the loop ended so agent-tool can promote an empty/abnormal
+    // finish to an explicit Lead-facing error instead of a silent empty
+    // "completed". Determine "has content" exactly the way the no-tool-call
+    // branch above does (trimmed string content, or any reasoning content).
+    const _finalHasContent = (typeof response?.content === 'string' && response.content.trim().length > 0)
+        || (typeof response?.reasoningContent === 'string' && response.reasoningContent.trim().length > 0);
+    const _finalStopReason = response?.stopReason ?? response?.stop_reason ?? null;
+    const _finalIncompleteStop = _finalStopReason && INCOMPLETE_STOP_REASONS.has(_finalStopReason);
+    const _finalIsHidden = HIDDEN_AGENT_NAMES.has(sessionAgent);
+    let terminationReason;
+    if (terminatedByCap) {
+        // Real problem regardless of hidden/public: the loop never terminated
+        // on its own contract.
+        terminationReason = 'iteration_cap';
+    } else if (!_finalHasContent && _finalIncompleteStop) {
+        // Cut short mid-synthesis (token cap / provider pause). Real problem
+        // for hidden agents too.
+        terminationReason = 'truncated';
+    } else if (!_finalHasContent && !_finalIsHidden) {
+        // Empty terminal turn. Only public agents violate their contract by
+        // finishing empty — hidden agents (explorer/cycle/…) legitimately emit
+        // text-only/empty terminal turns per their own role contract, so leave
+        // terminationReason undefined for them.
+        terminationReason = 'empty';
+    } else {
+        terminationReason = undefined;
+    }
     return {
         ...response,
         usage: lastUsage || response.usage,
@@ -2559,5 +2592,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         iterations,
         toolCallsTotal,
         providerState,
+        terminationReason,
+        maxLoopIterations,
     };
 }
