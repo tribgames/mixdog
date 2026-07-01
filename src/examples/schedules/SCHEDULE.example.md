@@ -1,7 +1,7 @@
 ---
 time: 0 9 * * *
 timezone: Asia/Seoul
-days: weekdays
+days: weekday
 channel: main
 model: gpt-5
 enabled: true
@@ -17,7 +17,9 @@ Frontmatter keys:
 
 - `time` — required. 5- or 6-field cron expression (e.g. `0 9 * * *`).
 - `timezone` — optional IANA tz (e.g. `Asia/Seoul`); host-local when omitted.
-- `days` — optional; omit for `daily`. Written only when not `daily`.
+- `days` — optional; omit for `daily`. Allowed values: `weekday`, `weekend`, or
+  a comma list of day abbreviations (`mon,tue,wed,thu,fri,sat,sun`). Written
+  only when not `daily`.
 - `channel` — optional channel label. WITH a channel the run dispatches to that
   channel (non-interactive) and REQUIRES `model`; WITHOUT it the run injects
   into the current session (interactive).
