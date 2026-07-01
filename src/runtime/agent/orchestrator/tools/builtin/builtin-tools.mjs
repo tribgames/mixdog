@@ -17,7 +17,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read known file path(s). Use line+context for small windows. Batch paths.',
+        description: 'Read known file path(s). Batch every path/region into ONE call rather than many follow-up reads.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -34,6 +34,8 @@ export const BUILTIN_TOOLS = [
                 },
                 line: { type: 'number', minimum: 1, description: 'Anchor line.' },
                 context: { type: 'number', minimum: 0, maximum: 200, description: 'Lines around line; max 200.' },
+                offset: { type: 'number', minimum: 1, description: 'Start line for a large-file window.' },
+                limit: { type: 'number', minimum: 1, description: 'Max lines from offset.' },
             },
         },
     },

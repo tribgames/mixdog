@@ -1,4 +1,5 @@
 import { SMART_READ_MAX_BYTES } from './read-formatting.mjs';
+import { TOOL_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
 
 // Read tool caps.
 //
@@ -28,7 +29,7 @@ import { SMART_READ_MAX_BYTES } from './read-formatting.mjs';
 // cleanly without a tokenizer.
 export const READ_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 export const READ_WHOLE_FILE_MAX_BYTES = 256 * 1024;
-export const READ_MAX_OUTPUT_BYTES = 30_000;
+export const READ_MAX_OUTPUT_BYTES = TOOL_OUTPUT_MAX_BYTES;
 export const READ_STREAM_RANGE_MIN_BYTES = 128 * 1024;
 export const READ_SMART_STREAM_MIN_BYTES = SMART_READ_MAX_BYTES;
 export const READ_BATCH_RANGE_COALESCE_GAP_LINES = 256;

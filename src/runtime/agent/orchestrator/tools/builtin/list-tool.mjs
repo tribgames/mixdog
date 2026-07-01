@@ -26,7 +26,8 @@ import {
     NOISE_DIR_NAMES,
     walkDir,
 } from './glob-walk.mjs';
-import { formatMtime } from './list-formatting.mjs';
+import { formatMtime, formatListSize } from './list-formatting.mjs';
+import { TOOL_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
 import { runRg } from './rg-runner.mjs';
 import { fuzzyRank } from './fuzzy-match.mjs';
 import { assertPathReachable } from './fs-reachability.mjs';
@@ -169,7 +170,7 @@ export async function executeListTool(args, workDir, options = {}) {
         }
     }
     const lines = sliced.map(r =>
-        `${normalizeOutputPath(r.path)}\t${r.type}\t${r.size}\t${formatMtime(r.mtimeMs)}`);
+        `${normalizeOutputPath(r.path)}\t${r.type}\t${formatListSize(r.type, r.size)}\t${formatMtime(r.mtimeMs)}`);
     if (windowed.length > sliced.length) lines.push(`... [entries ${offset + 1}-${offset + sliced.length} of ${rows.length}; pass offset:${offset + sliced.length} to continue]`);
     if (truncatedByCap) lines.push(`... walk truncated at ${LIST_ABSOLUTE_CAP} rows or ${LIST_WALK_TIMEOUT_MS}ms timeout; narrow the path or lower depth for a complete listing`);
     let emptyMsg = '(empty directory)';
@@ -282,7 +283,7 @@ export async function executeTreeTool(args, workDir, options = {}) {
         const totalLabel = body.length >= gatherCap ? `${body.length}+` : `${body.length}`;
         outLines.push(`... [entries ${offset + 1}-${offset + sliced.length} of ${totalLabel}; pass offset:${offset + sliced.length} to continue]`);
     }
-    const TREE_OUTPUT_CHAR_CAP = 50_000;
+    const TREE_OUTPUT_CHAR_CAP = TOOL_OUTPUT_MAX_BYTES;
     let out = outLines.join('\n');
     let outputCharTruncated = false;
     if (out.length > TREE_OUTPUT_CHAR_CAP) {
@@ -603,7 +604,7 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
     const windowed = offset > 0 ? matches.slice(offset) : matches;
     const sliced = headLimit > 0 ? windowed.slice(0, headLimit) : windowed;
     const lines = sliced.map(m =>
-        `${normalizeOutputPath(m.path)}\t${m.size}\t${formatMtime(m.mtimeMs)}`);
+        `${normalizeOutputPath(m.path)}\t${formatListSize('file', m.size)}\t${formatMtime(m.mtimeMs)}`);
     if (windowed.length > sliced.length) lines.push(`... [entries ${offset + 1}-${offset + sliced.length} of ${matches.length}; pass offset:${offset + sliced.length} to continue]`);
     if (rgStdoutTruncated) lines.push('... [warning] rg stdout truncated at 20MB cap; results incomplete');
     if (rgStdoutPartial) lines.push('... [warning] rg exit 2 (partial results); listing may be incomplete');

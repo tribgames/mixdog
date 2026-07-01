@@ -1,9 +1,10 @@
 import { countSplitLines } from './path-utils.mjs';
+import { TOOL_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
 
-export const SHELL_OUTPUT_MAX_CHARS = 30_000;
+export const SHELL_OUTPUT_MAX_CHARS = TOOL_OUTPUT_MAX_BYTES;
 
 export const SMART_BASH_MAX_LINES = 400;
-export const SMART_BASH_MAX_BYTES = 30_000;
+export const SMART_BASH_MAX_BYTES = TOOL_OUTPUT_MAX_BYTES;
 export const SMART_BASH_HEAD_LINES = 80;
 export const SMART_BASH_TAIL_LINES = 80;
 

@@ -84,6 +84,7 @@ const RUNNERS = {
           ...process.env,
           ...(opts.effort ? { MIXDOG_AGENT_EFFORT: opts.effort } : {}),
           ...(opts.fast ? { MIXDOG_AGENT_FAST: '1' } : {}),
+          ...(opts.env || {}),
         },
       });
       ok = true;
@@ -128,13 +129,25 @@ const round = argValue('--round', '1');
 const savePath = argValue('--save', null);
 const jsonMode = hasFlag('--json');
 const _mo = resolveModelOpts(argValue('--model', null), argValue('--provider', null));
+// A/B knobs -> child env. --read-max-lines is a convenience for the read-policy
+// bench; --env KEY=VAL (repeatable) passes any override verbatim.
+const _env = {};
+const _readMax = argValue('--read-max-lines', null);
+if (_readMax) _env.MIXDOG_READ_MAX_LINES = String(_readMax);
+for (let i = 0; i < process.argv.length; i++) {
+  if (process.argv[i] === '--env' && process.argv[i + 1]) {
+    const eq = process.argv[i + 1].indexOf('=');
+    if (eq > 0) _env[process.argv[i + 1].slice(0, eq)] = process.argv[i + 1].slice(eq + 1);
+  }
+}
 const opts = {
   provider: _mo.provider,
   model: _mo.model,
   effort: argValue('--effort', null),
   fast: hasFlag('--fast'),
+  env: _env,
 };
-process.stderr.write(`[bench-run] model=${opts.model || '(agent default)'} provider=${opts.provider || '(agent default)'} effort=${opts.effort || '-'} fast=${opts.fast}\n`);
+process.stderr.write(`[bench-run] model=${opts.model || '(agent default)'} provider=${opts.provider || '(agent default)'} effort=${opts.effort || '-'} fast=${opts.fast} env=${JSON.stringify(_env)}\n`);
 
 const results = [];
 for (const task of tasks) {

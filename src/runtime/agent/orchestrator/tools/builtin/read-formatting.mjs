@@ -1,9 +1,18 @@
 import { mergeReadRanges } from './read-ranges.mjs';
+import { TOOL_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
 
-export const SMART_READ_MAX_BYTES = 30 * 1024;
-export const SMART_READ_MAX_LINES = 600;
-export const SMART_READ_HEAD_LINES = 200;
-export const SMART_READ_TAIL_LINES = 100;
+// Smart-truncate cap: a no-window read returns the file until this cap, past
+// which head+tail are shown and the model pages the rest with offset (footer
+// says how). Byte budget is the shared TOOL_OUTPUT_MAX_BYTES; line/head/tail
+// stay read-specific. Env-overridable for bench: MIXDOG_READ_MAX_LINES/_HEAD/_TAIL.
+function _readEnvInt(name, fallback) {
+    const v = parseInt(process.env[name], 10);
+    return Number.isFinite(v) && v > 0 ? v : fallback;
+}
+export const SMART_READ_MAX_BYTES = TOOL_OUTPUT_MAX_BYTES;
+export const SMART_READ_MAX_LINES = _readEnvInt('MIXDOG_READ_MAX_LINES', 2000);
+export const SMART_READ_HEAD_LINES = _readEnvInt('MIXDOG_READ_HEAD_LINES', 1200);
+export const SMART_READ_TAIL_LINES = _readEnvInt('MIXDOG_READ_TAIL_LINES', 400);
 // Only the genuinely large full reads warrant the anti-re-read advisory; below
 // this the smart-truncate path (30 KB) already caps normal reads, so a 16 KB
 // floor mostly fired on full:true mid-size reads where the advisory was pure
