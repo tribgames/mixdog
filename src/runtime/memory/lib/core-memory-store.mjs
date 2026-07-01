@@ -170,7 +170,7 @@ async function _llmJudgeMerge(existing, incoming) {
     `INCOMING: ${incoming.element} — ${String(incoming.summary || '')}`
   try {
     const raw = await callAgentDispatch({
-      role: 'cycle2-agent',
+      agent: 'cycle2-agent',
       taskType: 'maintenance',
       mode: 'core-merge-judge',
       preset: resolveMaintenancePreset('memory'),

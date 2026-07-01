@@ -36,7 +36,7 @@ function resourceDir() {
 
 async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispatch) {
   return await llmCall({
-    role: 'cycle3-agent',
+    agent: 'cycle3-agent',
     taskType: 'maintenance',
     mode,
     preset,

@@ -305,7 +305,7 @@ async function runExploreSync(args = {}, ctx = {}) {
   await ensureExploreProviderReady(config);
   const presetName = config?.maintenance?.explore || '';
   const llm = makeAgentDispatch({
-    role: 'explorer',
+    agent: 'explorer',
     cwd: resolvedCwd,
     brief: true,
     parentSessionId: ctx.callerSessionId || null,
