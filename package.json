@@ -50,6 +50,8 @@
     "bench:session": "node scripts/session-bench.mjs",
     "bench:task": "node scripts/task-bench.mjs",
     "bench:corpus": "node scripts/routing-corpus.mjs",
+    "bench:run": "node scripts/bench-run.mjs",
+    "patch:replay": "node scripts/patch-replay.mjs",
     "build:tui": "node scripts/build-tui.mjs"
   },
   "engines": {

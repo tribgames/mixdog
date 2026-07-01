@@ -27,7 +27,7 @@
 //     responds with OK_PARTIAL plus a hex-encoded failures payload that
 //     the JS side surfaces per-entry.
 
-import { existsSync, readFileSync, realpathSync, statSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
@@ -2867,6 +2867,74 @@ async function apply_patch(args, cwd, options = {}) {
 export const __patchTestHooks = { findFirstFailingUnifiedHunk, computeUnifiedChangeBand, collectUnifiedOps, unifiedOldLinesMatchAt, splitBufferLinesForPatch };
 
 export async function executePatchTool(name, args, cwd, options = {}) {
+  // --- Opt-in failure replay capture -------------------------------------
+  // When MIXDOG_PATCH_REPLAY_CAPTURE=1, a FAILED apply_patch (throw or
+  // "Error:" body) is frozen to a replay file with the ORIGINAL patch args,
+  // cwd, error, and a full snapshot of every target file's current bytes, so
+  // scripts/patch-replay.mjs can re-run the exact failing call against updated
+  // code. Local dev only; the patch body is stored verbatim (no redaction).
+  return _executePatchTool(name, args, cwd, options);
+}
+
+function patchReplayDir() {
+  const base = process.env.MIXDOG_PATCH_REPLAY_DIR
+    || pathJoin(getPluginDataDir(), 'history', 'patch-replays');
+  return base;
+}
+
+function getPluginDataDir() {
+  try { return getPluginData(); } catch { /* fall through */ }
+  return process.env.MIXDOG_DATA_DIR || pathJoin(process.env.USERPROFILE || process.env.HOME || '.', '.mixdog', 'data');
+}
+
+function patchTargetPaths(patchStr, basePath) {
+  const out = [];
+  const re = /^\*\*\* (?:Update|Add|Delete) File:\s*(.+)$/gm;
+  let m;
+  while ((m = re.exec(String(patchStr || '')))) {
+    const rel = m[1].trim();
+    if (rel) out.push(rel);
+  }
+  // unified headers
+  const ure = /^\+\+\+ (?:b\/)?(.+)$/gm;
+  while ((m = ure.exec(String(patchStr || '')))) {
+    const rel = m[1].trim();
+    if (rel && rel !== '/dev/null') out.push(rel);
+  }
+  return [...new Set(out)];
+}
+
+function maybeCapturePatchReplay(args, cwd, errorText) {
+  if (process.env.MIXDOG_PATCH_REPLAY_CAPTURE !== '1') return;
+  try {
+    const patchStr = typeof args?.patch === 'string' ? args.patch : '';
+    const basePath = pathResolve(String(args?.base_path || cwd || process.cwd()));
+    const dir = patchReplayDir();
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const rels = patchTargetPaths(patchStr, basePath);
+    const files = {};
+    for (const rel of rels) {
+      try {
+        const abs = isAbsolute(rel) ? rel : pathResolve(basePath, rel);
+        files[rel] = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
+      } catch { files[rel] = null; }
+    }
+    const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const record = {
+      id,
+      ts: Date.now(),
+      tool: 'apply_patch',
+      args: { patch: patchStr, base_path: args?.base_path ?? null, format: args?.format ?? null, dry_run: args?.dry_run ?? null, fuzzy: args?.fuzzy ?? null, reject_partial: args?.reject_partial ?? null },
+      cwd: basePath,
+      error_first_line: String(errorText || '').split('\n')[0].slice(0, 400),
+      targets: rels,
+      file_snapshots: files,
+    };
+    writeFileSync(pathJoin(dir, `${id}.json`), JSON.stringify(record, null, 2), { mode: 0o600 });
+  } catch { /* capture is best-effort; never affect the tool result */ }
+}
+
+async function _executePatchTool(name, args, cwd, options = {}) {
   const effectiveCwd = cwd || process.cwd();
   switch (name) {
     case 'apply_patch': {
@@ -2874,8 +2942,11 @@ export async function executePatchTool(name, args, cwd, options = {}) {
       try {
         result = await apply_patch(args || {}, effectiveCwd, options);
       } catch (err) {
-        return `Error: ${err?.message || String(err)}`;
+        const errText = `Error: ${err?.message || String(err)}`;
+        maybeCapturePatchReplay(args, effectiveCwd, errText);
+        return errText;
       }
+      if (isPatchErrorText(String(result))) maybeCapturePatchReplay(args, effectiveCwd, String(result));
       // ② completion progress (claude "Found N" parity). Best-effort, no-op
       // when onProgress is absent (no progressToken). Never throws — only
       // emits on success (an "Error:" body is left to the tool result alone).

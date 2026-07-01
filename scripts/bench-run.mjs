@@ -1,0 +1,157 @@
+#!/usr/bin/env node
+// bench-run.mjs — repeatable internal A/B bench runner (mixdog).
+//
+// Runs a FIXED task set through the LIVE headless path (runHeadlessRole in a
+// fresh child node process = identical to `mixdog <agent> <msg>` and loads the
+// latest on-disk code), captures each task's session id, scores the round with
+// task-bench, and freezes it to a round file. Change rules/briefs between
+// rounds; the task set stays constant so rounds are comparable.
+//
+//   node scripts/bench-run.mjs --tasks tasks.json --round 1 --save round1.json
+//   (edit rules/briefs)
+//   node scripts/bench-run.mjs --tasks tasks.json --round 2 --save round2.json
+//   node scripts/task-bench.mjs --vs round1.json round2.json
+//
+// tasks.json: [{ "id":"...", "agent":"worker", "prompt":"...", "cwd":"." }, ...]
+//
+// This is INTERNAL A/B only (mixdog vs its own prior round). Cross-CLI compare
+// vs codex/claude (tree-total vs solo) is a separate future mode; codex/claude
+// runners are left as slots.
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const __dir = dirname(fileURLToPath(import.meta.url));
+const HEADLESS = pathToFileURL(resolve(__dir, '../src/headless-role.mjs')).href;
+const TASK_BENCH = resolve(__dir, 'task-bench.mjs');
+
+function argValue(name, fallback = null) {
+  const idx = process.argv.indexOf(name);
+  if (idx >= 0 && idx + 1 < process.argv.length) return process.argv[idx + 1];
+  const pref = `${name}=`;
+  const hit = process.argv.find((a) => a.startsWith(pref));
+  return hit ? hit.slice(pref.length) : fallback;
+}
+function hasFlag(name) { return process.argv.includes(name); }
+
+function extractSessionId(text) {
+  const s = String(text || '');
+  const m = s.match(/sessionId:\s*(sess_[A-Za-z0-9_]+)/) || s.match(/\b(sess_[A-Za-z0-9_]+)/);
+  return m ? m[1] : null;
+}
+
+const RUNNERS = {
+  mixdog(task, opts) {
+    const driver = [
+      `import { runHeadlessRole } from ${JSON.stringify(HEADLESS)};`,
+      `const out = [];`,
+      `const code = await runHeadlessRole({`,
+      `  agent: ${JSON.stringify(task.agent || 'worker')},`,
+      `  message: ${JSON.stringify(task.prompt || '')},`,
+      `  provider: ${JSON.stringify(opts.provider || null)},`,
+      `  model: ${JSON.stringify(opts.model || null)},`,
+      `  cwd: ${JSON.stringify(task.cwd ? resolve(task.cwd) : process.cwd())},`,
+      `  write: (t) => out.push(t),`,
+      `  writeErr: (t) => process.stderr.write(t),`,
+      `});`,
+      `process.stdout.write(out.join(''));`,
+      `process.exit(code);`,
+    ].join('\n');
+    const started = Date.now();
+    let raw = '';
+    let ok = false;
+    try {
+      raw = execFileSync('node', ['--input-type=module', '-e', driver], {
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+        env: {
+          ...process.env,
+          ...(opts.effort ? { MIXDOG_AGENT_EFFORT: opts.effort } : {}),
+          ...(opts.fast ? { MIXDOG_AGENT_FAST: '1' } : {}),
+        },
+      });
+      ok = true;
+    } catch (e) {
+      raw = String(e.stdout || '') + String(e.stderr || '');
+      ok = false;
+    }
+    return { sessionId: extractSessionId(raw), ok, ms: Date.now() - started, raw };
+  },
+  codex() {
+    throw new Error('runner "codex" not implemented (slot: codex exec --json). Cross-CLI compare is a separate mode.');
+  },
+  claude() {
+    throw new Error('runner "claude" not implemented (slot: claude -p --output-format json). Cross-CLI compare is a separate mode.');
+  },
+};
+
+function scoreSessions(ids) {
+  if (!ids.length) return null;
+  const raw = execFileSync('node', [TASK_BENCH, '--session', ids.join(','), '--group', '--json'], {
+    encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+  });
+  const s = raw.replace(/^\uFEFF/, '');
+  const i = s.indexOf('{');
+  return JSON.parse(i >= 0 ? s.slice(i) : s);
+}
+
+// ---- main ----
+const tasksPath = argValue('--tasks', null);
+if (!tasksPath) {
+  console.error('usage: --tasks <tasks.json> [--round N] [--runner mixdog] [--provider P] [--model M] [--effort E] [--fast] [--save round.json] [--json]');
+  process.exit(1);
+}
+if (!existsSync(resolve(tasksPath))) { console.error(`tasks file not found: ${tasksPath}`); process.exit(1); }
+const tasks = JSON.parse(readFileSync(resolve(tasksPath), 'utf8'));
+if (!Array.isArray(tasks) || !tasks.length) { console.error('tasks.json must be a non-empty array'); process.exit(1); }
+
+const runnerName = argValue('--runner', 'mixdog');
+const runner = RUNNERS[runnerName];
+if (!runner) { console.error(`unknown runner "${runnerName}" (mixdog|codex|claude)`); process.exit(1); }
+const round = argValue('--round', '1');
+const savePath = argValue('--save', null);
+const jsonMode = hasFlag('--json');
+const opts = {
+  provider: argValue('--provider', null),
+  model: argValue('--model', null),
+  effort: argValue('--effort', null),
+  fast: hasFlag('--fast'),
+};
+
+const results = [];
+for (const task of tasks) {
+  process.stderr.write(`[bench-run] round=${round} runner=${runnerName} task=${task.id || task.agent} ...\n`);
+  let r;
+  try { r = runner(task, opts); }
+  catch (e) { console.error(`[bench-run] runner error: ${e.message}`); process.exit(1); }
+  process.stderr.write(`[bench-run]   -> ${r.ok ? 'ok' : 'FAIL'} ${Math.round(r.ms / 1000)}s session=${r.sessionId || '(none)'}\n`);
+  results.push({ id: task.id || null, agent: task.agent || null, ok: r.ok, ms: r.ms, sessionId: r.sessionId });
+}
+
+const sessionIds = results.map((r) => r.sessionId).filter(Boolean);
+const score = sessionIds.length ? scoreSessions(sessionIds) : null;
+const completed = results.filter((r) => r.ok).length;
+const roundResult = {
+  round, runner: runnerName, opts,
+  tasks: results.length, completed,
+  completion_rate: results.length ? Math.round((completed / results.length) * 100) : 0,
+  sessions: sessionIds, results,
+  group: score?.group || null,
+  cards: score?.cards || null,
+};
+
+if (savePath) {
+  writeFileSync(resolve(savePath), JSON.stringify(roundResult, null, 2));
+  console.error(`[bench-run] saved round ${round} -> ${resolve(savePath)}`);
+}
+if (jsonMode) {
+  console.log(JSON.stringify(roundResult, null, 2));
+} else {
+  console.log(`round=${round} runner=${runnerName} tasks=${results.length} completed=${completed} (${roundResult.completion_rate}%)`);
+  for (const r of results) console.log(`- ${r.id || r.agent}: ${r.ok ? 'ok' : 'FAIL'} ${Math.round(r.ms / 1000)}s ${r.sessionId ? r.sessionId.slice(0, 22) : '(no session)'}`);
+  if (roundResult.group) {
+    const g = roundResult.group;
+    console.log(`group: wall=${Math.round((g.wall_ms || 0) / 1000)}s turns=${g.turns} tools=${g.tool_calls} tpt=${g.tools_per_turn} tool_ms=${Math.round((g.total_tool_ms || 0) / 1000)}s cache=${Math.round((g.cache_ratio || 0) * 100)}% antipatterns=${g.antipatterns}`);
+  }
+}
