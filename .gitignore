@@ -33,3 +33,5 @@ scratch/
 
 # Tool backups
 .codex-backups/
+
+.bench/

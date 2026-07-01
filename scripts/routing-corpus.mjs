@@ -80,6 +80,20 @@ function normGrep(args) {
   return String(Array.isArray(p) ? p.join('|') : (p ?? '')).trim().toLowerCase();
 }
 
+// shell used to INSPECT the filesystem (read/list/search/exists) instead of a
+// dedicated tool — the anti-pattern the shell description targets. Concept, not
+// an exhaustive list: a command whose leading verb only reads/lists/searches
+// files and does not change state or run a program (git/node/npm/build/test).
+const SHELL_INSPECT_VERB = /(?:^|[\s;|&(]|\bforeach-object\s*\{)\s*(get-content|get-childitem|gci|select-string|cat|type|ls|dir|head|tail|find|findstr|grep|rg|wc|test-path|resolve-path|readlink|realpath|stat)\b/i;
+const SHELL_EXEC_VERB = /(?:^|[\s;|&])\s*(git|node|npm|npx|pnpm|yarn|python|cargo|go|make|docker|rm|remove-item|mkdir|new-item|set-content|out-file|move-item|copy-item|>>|>)\b/i;
+function isShellInspect(command) {
+  const c = String(command || '');
+  if (!c.trim()) return false;
+  // If the command also changes state or runs a program, it is legitimate.
+  if (SHELL_EXEC_VERB.test(c)) return false;
+  return SHELL_INSPECT_VERB.test(c);
+}
+
 function buildCase(sid, toolRows) {
   const sorted = [...toolRows].sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
   const agent = field(sorted[0], 'agent') || field(sorted.find((r) => field(r, 'agent')), 'agent') || null;
@@ -116,6 +130,8 @@ function buildCase(sid, toolRows) {
   const grepCounts = new Map();
   for (const s of sequence) { if (s.tool !== 'grep') continue; const k = normGrep(s.rawArgs); if (!k) continue; grepCounts.set(k, (grepCounts.get(k) || 0) + 1); }
   if ([...grepCounts.values()].some((c) => c >= 2)) flags.push('grep_retry');
+  // shell used for filesystem inspection instead of dedicated tools
+  if (sequence.some((s) => s.tool === 'shell' && isShellInspect(s.rawArgs?.command))) flags.push('shell_inspect');
 
   return {
     session_id: sid,
@@ -131,7 +147,7 @@ function buildCase(sid, toolRows) {
   };
 }
 
-const FLAG_KEYS = ['explore_overuse', 'explore_multiquery', 'explore_first', 'find_symbol_noscope', 'serial_single_tool', 'read_fragmentation', 'grep_retry'];
+const FLAG_KEYS = ['explore_overuse', 'explore_multiquery', 'explore_first', 'find_symbol_noscope', 'serial_single_tool', 'read_fragmentation', 'grep_retry', 'shell_inspect'];
 
 function buildCorpus(rows, { limit, sinceTs, agentFilter }) {
   let filtered = rows.filter((r) => r.kind === 'tool' && sessionId(r));
@@ -175,6 +191,44 @@ function renderText(corpus, showCases) {
   return L.join('\n');
 }
 
+// Extract one case by session id (or short-id prefix) from the current trace.
+function extractCaseById(rows, wanted) {
+  const q = String(wanted || '');
+  const tr = rows.filter((r) => r.kind === 'tool' && sessionId(r) && (sessionId(r) === q || sessionId(r).startsWith(q) || shortId(sessionId(r)).startsWith(q)));
+  if (!tr.length) return null;
+  const sid = sessionId(tr[0]);
+  return buildCase(sid, tr.filter((r) => sessionId(r) === sid));
+}
+
+// tool-name -> count for a case (the tool mix).
+function toolMix(cas) {
+  const mix = {};
+  for (const s of cas.sequence) mix[s.tool] = (mix[s.tool] || 0) + 1;
+  return mix;
+}
+
+function renderVs(before, after) {
+  const L = [];
+  const fmtMix = (m) => Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${v}`).join(' ') || '(none)';
+  L.push(`routing A/B  before=${before.short_id} (${before.agent || '-'}/${shortModel(before.model)})  after=${after.short_id} (${after.agent || '-'}/${shortModel(after.model)})`);
+  L.push('');
+  const metric = (label, b, a, lowerBetter = true) => {
+    const d = a - b; const arrow = d === 0 ? '=' : (lowerBetter ? (d < 0 ? 'v' : '^') : (d > 0 ? 'v' : '^'));
+    L.push(`- ${label.padEnd(14)} ${String(b).padStart(5)} -> ${String(a).padStart(5)}  (${d > 0 ? '+' : ''}${d}) ${arrow}`);
+  };
+  metric('turns', before.turns, after.turns);
+  metric('tools', before.tools, after.tools);
+  metric('flags', before.flags.length, after.flags.length);
+  L.push(`  before tool-mix: ${fmtMix(toolMix(before))}`);
+  L.push(`  after  tool-mix: ${fmtMix(toolMix(after))}`);
+  const gained = after.flags.filter((f) => !before.flags.includes(f));
+  const cleared = before.flags.filter((f) => !after.flags.includes(f));
+  if (cleared.length) L.push(`  cleared flags: ${cleared.join(', ')}`);
+  if (gained.length) L.push(`  NEW flags: ${gained.join(', ')}`);
+  if (!cleared.length && !gained.length) L.push(`  flags unchanged: [${before.flags.join(', ') || 'none'}]`);
+  return L.join('\n');
+}
+
 // ---- main ----
 const tracePath = argValue('--trace') ? resolve(argValue('--trace')) : defaultTracePath();
 const sinceTs = parseDuration(argValue('--since', null));
@@ -183,6 +237,21 @@ const agentFilter = argValue('--agent', null);
 const jsonMode = hasFlag('--json');
 const savePath = argValue('--save', null);   // freeze the corpus (session id list + cases) to a file
 const evalPath = argValue('--eval', null);   // re-score a frozen corpus's sessions against CURRENT trace
+const vsIdx = process.argv.indexOf('--vs');  // --vs <before-sid> <after-sid>: routing diff
+
+if (vsIdx >= 0) {
+  const beforeId = process.argv[vsIdx + 1];
+  const afterId = process.argv[vsIdx + 2];
+  if (!beforeId || !afterId) { console.error('usage: --vs <before-session> <after-session>'); process.exit(1); }
+  const rows = readRows(tracePath);
+  const before = extractCaseById(rows, beforeId);
+  const after = extractCaseById(rows, afterId);
+  if (!before) { console.error(`before session not found: ${beforeId}`); process.exit(1); }
+  if (!after) { console.error(`after session not found: ${afterId}`); process.exit(1); }
+  if (jsonMode) console.log(JSON.stringify({ before, after }, null, 2));
+  else console.log(renderVs(before, after));
+  process.exit(0);
+}
 
 if (evalPath) {
   // A/B: load frozen corpus, re-extract those exact sessions from the current

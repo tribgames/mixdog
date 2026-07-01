@@ -35,6 +35,21 @@ function argValue(name, fallback = null) {
 }
 function hasFlag(name) { return process.argv.includes(name); }
 
+// Model aliases so a round switches model+provider with one flag
+// (--model opus|gpt|grok). Full provider/model pairs still work verbatim.
+const MODEL_ALIASES = {
+  opus:   { provider: 'anthropic-oauth', model: 'claude-opus-4-8' },
+  sonnet: { provider: 'anthropic-oauth', model: 'claude-sonnet-5' },
+  gpt:    { provider: 'openai-oauth', model: 'gpt-5.5' },
+  'gpt-5.5': { provider: 'openai-oauth', model: 'gpt-5.5' },
+  grok:   { provider: 'grok-oauth', model: 'grok-composer-2.5-fast' },
+};
+function resolveModelOpts(modelArg, providerArg) {
+  const key = String(modelArg || '').trim().toLowerCase();
+  if (MODEL_ALIASES[key] && !providerArg) return { ...MODEL_ALIASES[key] };
+  return { provider: providerArg || null, model: modelArg || null };
+}
+
 function extractSessionId(text) {
   const s = String(text || '');
   const m = s.match(/sessionId:\s*(sess_[A-Za-z0-9_]+)/) || s.match(/\b(sess_[A-Za-z0-9_]+)/);
@@ -112,12 +127,14 @@ if (!runner) { console.error(`unknown runner "${runnerName}" (mixdog|codex|claud
 const round = argValue('--round', '1');
 const savePath = argValue('--save', null);
 const jsonMode = hasFlag('--json');
+const _mo = resolveModelOpts(argValue('--model', null), argValue('--provider', null));
 const opts = {
-  provider: argValue('--provider', null),
-  model: argValue('--model', null),
+  provider: _mo.provider,
+  model: _mo.model,
   effort: argValue('--effort', null),
   fast: hasFlag('--fast'),
 };
+process.stderr.write(`[bench-run] model=${opts.model || '(agent default)'} provider=${opts.provider || '(agent default)'} effort=${opts.effort || '-'} fast=${opts.fast}\n`);
 
 const results = [];
 for (const task of tasks) {

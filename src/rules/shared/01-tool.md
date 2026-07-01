@@ -17,4 +17,6 @@
   probes unless the anchors conflict or are missing.
 - If editing is available, put related multi-file edits in one `apply_patch`.
   Do not run state-changing edits or shell alongside other tool calls.
-- Use available `shell` only for git/build/test/run/verification, not browsing.
+- `shell` only CHANGES state or RUNS programs (git/build/test/run). Inspecting
+  the filesystem — read, list, search, existence — always goes through the
+  dedicated tools, never a shell command.

@@ -61,7 +61,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run shell for git/build/test/run. Not for source browsing; use code_graph/grep/read/list/glob. Set shell: powershell or bash. ${TOOL_ASYNC_EXECUTION_CONTRACT}`,
+        description: `Run shell to CHANGE state or RUN programs (git/build/test/run). Never to inspect the filesystem — reading, listing, searching, or checking existence go through the dedicated tools, never a shell command. Set shell: powershell or bash. ${TOOL_ASYNC_EXECUTION_CONTRACT}`,
         inputSchema: {
             type: 'object',
             properties: {
