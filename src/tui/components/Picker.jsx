@@ -17,6 +17,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
+import { ConfirmBar, clampConfirmFocus } from './ConfirmBar.jsx';
 
 /** Max items visible at once before scrolling kicks in. */
 const MAX_VISIBLE = 8;
@@ -92,6 +93,10 @@ export function Picker({
   indexMode = 'auto',
   fillHeight = false,
   visibleCount = MAX_VISIBLE,
+  // Onboarding confirm bar: { buttons:[{value,label}], onConfirm(button,index) }.
+  // When present, ←/→ and Tab drive button focus (mutually exclusive with
+  // onLeft/onRight), and Enter fires onConfirm while a button is focused.
+  confirmBar = null,
   // Memo-busting epoch: ItemRow is React.memo and reads theme.* directly, so a
   // live /theme switch (or picker preview) must re-render every row. Threading
   // the epoch into each ItemRow breaks its shallow-equality on a theme change.
@@ -99,6 +104,14 @@ export function Picker({
 }) {
   const visibleLimit = Math.max(1, Math.floor(Number(visibleCount) || MAX_VISIBLE));
   const [selectedIndex, setSelectedIndex] = useState(() => Math.max(0, Math.min(Number(initialIndex) || 0, Math.max(0, items.length - 1))));
+  const confirmButtons = Array.isArray(confirmBar?.buttons) ? confirmBar.buttons.filter(Boolean) : [];
+  const hasConfirm = confirmButtons.length > 0;
+  // -1 = list focus; 0..n-1 = confirm-bar button focus.
+  const [confirmFocus, setConfirmFocus] = useState(-1);
+  useEffect(() => {
+    // Reset to list focus whenever the bar identity/shape changes (step switch).
+    setConfirmFocus(-1);
+  }, [confirmButtons.length, confirmBar]);
 
   useEffect(() => {
     setSelectedIndex((i) => Math.min(Math.max(0, i), Math.max(0, items.length - 1)));
@@ -122,13 +135,15 @@ export function Picker({
   const footerLines = normalizeFooterLines(activeFooter, columns);
   const footerGap = footerLines.length > 0 ? Math.max(0, Math.floor(Number(footerGapRows) || 0)) : 0;
   const footerReserveRows = footerLines.length > 0 ? footerLines.length + footerGap : 0;
-  const effectiveVisibleLimit = Math.max(1, visibleLimit - footerReserveRows);
+  const confirmReserveRows = hasConfirm ? 2 : 0;
+  const effectiveVisibleLimit = Math.max(1, visibleLimit - footerReserveRows - confirmReserveRows);
   const helpText = help || (onLeft || onRight || onTab ? ADJUST_HELP : SELECT_HELP);
 
   useInput(
     useCallback(
       (input, key) => {
         if (key.upArrow) {
+          if (hasConfirm && confirmFocus >= 0) { setConfirmFocus(-1); return; }
           setSelectedIndex((i) => {
             const total = items.length;
             return total > 0 ? (i - 1 + total) % total : 0;
@@ -136,6 +151,7 @@ export function Picker({
           return;
         }
         if (key.downArrow) {
+          if (hasConfirm && confirmFocus >= 0) { setConfirmFocus(-1); return; }
           setSelectedIndex((i) => {
             const total = items.length;
             return total > 0 ? (i + 1) % total : 0;
@@ -159,18 +175,35 @@ export function Picker({
           return;
         }
         if (key.leftArrow) {
+          if (hasConfirm) {
+            setConfirmFocus((f) => (f <= 0 ? -1 : f - 1));
+            return;
+          }
           if (onLeft) onLeft(items[selectedIndex], selectedIndex);
           return;
         }
         if (key.rightArrow) {
+          if (hasConfirm) {
+            setConfirmFocus((f) => (f < 0 ? 0 : Math.min(confirmButtons.length - 1, f + 1)));
+            return;
+          }
           if (onRight) onRight(items[selectedIndex], selectedIndex);
           return;
         }
         if (key.tab || input === '\t') {
+          if (hasConfirm) {
+            setConfirmFocus((f) => (f < 0 ? 0 : (f + 1 > confirmButtons.length - 1 ? -1 : f + 1)));
+            return;
+          }
           if (onTab) onTab(items[selectedIndex], selectedIndex);
           return;
         }
         if (key.return) {
+          if (hasConfirm && confirmFocus >= 0) {
+            const button = confirmButtons[confirmFocus];
+            if (button && confirmBar?.onConfirm) confirmBar.onConfirm(button, confirmFocus);
+            return;
+          }
           const selected = items[selectedIndex];
           if (selected && onSelect) onSelect(selected.value, selected);
           return;
@@ -187,7 +220,7 @@ export function Picker({
           return;
         }
       },
-      [items, selectedIndex, onSelect, onCancel, onLeft, onRight, onTab, onKey, effectiveVisibleLimit],
+      [items, selectedIndex, onSelect, onCancel, onLeft, onRight, onTab, onKey, effectiveVisibleLimit, hasConfirm, confirmFocus, confirmButtons, confirmBar],
     ),
   );
 
@@ -303,6 +336,13 @@ export function Picker({
                 <Text color={theme.text}>{line.text}</Text>
               </Text>
             ))}
+          </>
+        ) : null}
+        {hasConfirm ? (
+          <>
+            {footerLines.length > 0 ? null : <Box flexGrow={1} />}
+            <Text> </Text>
+            <ConfirmBar buttons={confirmButtons} focusedIndex={clampConfirmFocus(confirmFocus, confirmButtons.length)} />
           </>
         ) : null}
       </Box>

@@ -1,0 +1,242 @@
+{
+  "round": "cwc18-p4",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_40352_1782929851780_1782929853350_248e42a891539316e796ec08349d60a9",
+    "sess_8824_1782929919607_1782929921050_723cda28317e015d28949b6bfe722b60",
+    "sess_52568_1782930006314_1782930007680_30fcb3eb1bca37619a7113a3101ccf1e"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 67626,
+      "sessionId": "sess_40352_1782929851780_1782929853350_248e42a891539316e796ec08349d60a9",
+      "card": {
+        "session": "sess_40352_1782929851780_1782929853350_248e42a891539316e796ec08349d60a9",
+        "provider": "grok-oauth",
+        "model": "grok-composer-2.5-fast",
+        "wall_ms": 65671,
+        "turns": 18,
+        "tool_calls": 43,
+        "tools_per_turn": 2.4,
+        "total_tool_ms": 3283,
+        "llm_stream_ms": 0,
+        "cache_ratio": 0.43448577016808043,
+        "cached_tokens": 166163,
+        "prompt_tokens": 382436,
+        "uncached_tokens": 216273,
+        "output_tokens": 4198,
+        "cache_weighted_input_10": 232889.3,
+        "cache_weighted_input_25": 257813.75,
+        "prompt_growth": 14466,
+        "antipatterns": 3,
+        "issues": 3,
+        "issue_types": [
+          "read_fragmentation",
+          "grep_sweep"
+        ],
+        "read_fragmentation_paths": [
+          "C:\\Project\\mixdog\\src\\standalone\\hook-bus.mjs",
+          "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\session\\manager.mjs"
+        ],
+        "grep_sweep_count": 1
+      }
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 86502,
+      "sessionId": "sess_8824_1782929919607_1782929921050_723cda28317e015d28949b6bfe722b60",
+      "card": {
+        "session": "sess_8824_1782929919607_1782929921050_723cda28317e015d28949b6bfe722b60",
+        "provider": "grok-oauth",
+        "model": "grok-composer-2.5-fast",
+        "wall_ms": 84371,
+        "turns": 23,
+        "tool_calls": 53,
+        "tools_per_turn": 2.3,
+        "total_tool_ms": 3175,
+        "llm_stream_ms": 0,
+        "cache_ratio": 0.5681902766581455,
+        "cached_tokens": 395411,
+        "prompt_tokens": 695913,
+        "uncached_tokens": 300502,
+        "output_tokens": 4643,
+        "cache_weighted_input_10": 340043.1,
+        "cache_weighted_input_25": 399354.75,
+        "prompt_growth": 32598,
+        "antipatterns": 4,
+        "issues": 6,
+        "issue_types": [
+          "tool_error",
+          "read_fragmentation",
+          "grep_sweep",
+          "missed_parallelism",
+          "tool_churn_cluster"
+        ],
+        "read_fragmentation_paths": [
+          "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\agent-trace.mjs",
+          "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\providers\\openai-oauth.mjs"
+        ],
+        "grep_sweep_count": 1
+      }
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 47959,
+      "sessionId": "sess_52568_1782930006314_1782930007680_30fcb3eb1bca37619a7113a3101ccf1e",
+      "card": {
+        "session": "sess_52568_1782930006314_1782930007680_30fcb3eb1bca37619a7113a3101ccf1e",
+        "provider": "grok-oauth",
+        "model": "grok-composer-2.5-fast",
+        "wall_ms": 46140,
+        "turns": 11,
+        "tool_calls": 26,
+        "tools_per_turn": 2.4,
+        "total_tool_ms": 1224,
+        "llm_stream_ms": 0,
+        "cache_ratio": 0.7501696413563838,
+        "cached_tokens": 120502,
+        "prompt_tokens": 160633,
+        "uncached_tokens": 40131,
+        "output_tokens": 3547,
+        "cache_weighted_input_10": 52181.2,
+        "cache_weighted_input_25": 70256.5,
+        "prompt_growth": 4124,
+        "antipatterns": 0,
+        "issues": 0,
+        "issue_types": [],
+        "read_fragmentation_paths": [],
+        "grep_sweep_count": 0
+      }
+    }
+  ],
+  "task_complete": true,
+  "task_errors": [],
+  "score_complete": true,
+  "score_errors": [],
+  "group": {
+    "n": 3,
+    "wall_ms": 65394,
+    "turns": 17.3,
+    "tool_calls": 40.7,
+    "tools_per_turn": 2.4,
+    "total_tool_ms": 2560.7,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.6,
+    "cached_tokens": 227358.7,
+    "prompt_tokens": 412994,
+    "uncached_tokens": 185635.3,
+    "output_tokens": 4129.3,
+    "cache_weighted_input_10": 208371.2,
+    "cache_weighted_input_25": 242475,
+    "prompt_growth": 17062.7,
+    "antipatterns": 2.3,
+    "issues": 3,
+    "grep_sweep_count": 0.7
+  },
+  "cards": [
+    {
+      "session": "sess_40352_1782929851780_1782929853350_248e42a891539316e796ec08349d60a9",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 65671,
+      "turns": 18,
+      "tool_calls": 43,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 3283,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.43448577016808043,
+      "cached_tokens": 166163,
+      "prompt_tokens": 382436,
+      "uncached_tokens": 216273,
+      "output_tokens": 4198,
+      "cache_weighted_input_10": 232889.3,
+      "cache_weighted_input_25": 257813.75,
+      "prompt_growth": 14466,
+      "antipatterns": 3,
+      "issues": 3,
+      "issue_types": [
+        "read_fragmentation",
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\standalone\\hook-bus.mjs",
+        "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\session\\manager.mjs"
+      ],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_8824_1782929919607_1782929921050_723cda28317e015d28949b6bfe722b60",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 84371,
+      "turns": 23,
+      "tool_calls": 53,
+      "tools_per_turn": 2.3,
+      "total_tool_ms": 3175,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.5681902766581455,
+      "cached_tokens": 395411,
+      "prompt_tokens": 695913,
+      "uncached_tokens": 300502,
+      "output_tokens": 4643,
+      "cache_weighted_input_10": 340043.1,
+      "cache_weighted_input_25": 399354.75,
+      "prompt_growth": 32598,
+      "antipatterns": 4,
+      "issues": 6,
+      "issue_types": [
+        "tool_error",
+        "read_fragmentation",
+        "grep_sweep",
+        "missed_parallelism",
+        "tool_churn_cluster"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\agent-trace.mjs",
+        "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\providers\\openai-oauth.mjs"
+      ],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_52568_1782930006314_1782930007680_30fcb3eb1bca37619a7113a3101ccf1e",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 46140,
+      "turns": 11,
+      "tool_calls": 26,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 1224,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.7501696413563838,
+      "cached_tokens": 120502,
+      "prompt_tokens": 160633,
+      "uncached_tokens": 40131,
+      "output_tokens": 3547,
+      "cache_weighted_input_10": 52181.2,
+      "cache_weighted_input_25": 70256.5,
+      "prompt_growth": 4124,
+      "antipatterns": 0,
+      "issues": 0,
+      "issue_types": [],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 0
+    }
+  ]
+}

@@ -126,7 +126,7 @@ export function classifyError(err) {
     || code === 'EAI_AGAIN' || code === 'ENOTFOUND' || code === 'EAI_NODATA'
     || code === 'ECONNREFUSED' || code === 'ENETUNREACH' || code === 'EHOSTUNREACH'
     || code === 'EPIPE'
-    || code === 'EPROVIDERTIMEOUT' || code === 'EGEMINITIMEOUT'
+    || code === 'EPROVIDERTIMEOUT' || code === 'EGEMINITIMEOUT' || code === 'ESTREAMSTALL'
     || code === 'EWSACQUIRETIMEOUT') {
     return 'transient'
   }

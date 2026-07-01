@@ -1,8 +1,15 @@
 import { displayModelName as sharedDisplayModelName } from '../../ui/model-display.mjs';
 
-const DEFAULT_SUMMARY_MAX = 160;
-// Semantic cap for collapsed agent/task card one-liners (spawn, send, response).
-export const AGENT_SURFACE_BRIEF_MAX = 120;
+// Default cap for tool-arg summaries (header parenthetical, channel tool lines).
+// Unified at 80 so every tool surface line — header arg summary and collapsed
+// detail alike — shares one width ceiling; per-call sites still clamp lower
+// (header 48, channel 50) where a tighter line is wanted.
+const DEFAULT_SUMMARY_MAX = 80;
+// Semantic cap for collapsed tool/agent/task card one-liners — the second row
+// under the ⎿ gutter (spawn, send, response, generic/shell result summaries).
+// Kept at 80 so every collapsed detail line is truncated to the same width
+// regardless of terminal columns; ctrl+o expand still shows the full body.
+export const AGENT_SURFACE_BRIEF_MAX = 80;
 const STATUS_SEPARATOR = ' · ';
 
 export function stripToolPrefix(name) {
@@ -734,8 +741,8 @@ function summarizeGenericResult(text) {
       if (Array.isArray(parsed)) return `${parsed.length} ${pluralize(parsed.length, 'item')}`;
       if (parsed && typeof parsed === 'object') {
         const status = firstText(parsed.status, parsed.state, parsed.result, parsed.message);
-        if (status) return truncateSingleLine(titleStatus(status), 120);
-        if (parsed.cwd) return truncateSingleLine(parsed.cwd, 120);
+        if (status) return truncateSingleLine(titleStatus(status), AGENT_SURFACE_BRIEF_MAX);
+        if (parsed.cwd) return truncateSingleLine(parsed.cwd, AGENT_SURFACE_BRIEF_MAX);
         if (typeof parsed.ok === 'boolean') return parsed.ok ? 'Ok' : 'Failed';
         for (const key of ['items', 'results', 'resources', 'templates', 'providers', 'schedules', 'channels', 'tools']) {
           if (Array.isArray(parsed[key])) return `${parsed[key].length} ${pluralize(parsed[key].length, (key.slice(0, -1) || 'item').toLowerCase())}`;
@@ -751,7 +758,7 @@ function summarizeGenericResult(text) {
   if (/^(ok|done|success|saved|sent|updated|reloaded|connected|enabled|disabled|active|inactive)$/i.test(line)) {
     return titleStatus(line);
   }
-  return truncateSingleLine(line, 120);
+  return truncateSingleLine(line, AGENT_SURFACE_BRIEF_MAX);
 }
 
 /**
@@ -840,7 +847,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
         ]);
       }
       const firstLine = trimmed.split('\n').map((line) => line.trim()).find(Boolean) || trimmed;
-      return truncateSingleLine(firstLine, 120);
+      return truncateSingleLine(firstLine, AGENT_SURFACE_BRIEF_MAX);
     }
     case 'code_graph': {
       const match = /(\d+)\s+(references|definitions|symbols|callers|callees|results|matches)/i.exec(text);

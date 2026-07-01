@@ -31,6 +31,7 @@ import {
   PROVIDER_STATUS_TOOL,
   beginOAuthProviderLogin,
   forgetProviderAuth,
+  isKnownProvider,
   loginOAuthProvider,
   providerSetup,
   renderProviderStatus,
@@ -151,6 +152,14 @@ const STANDALONE_DATA_DIR = process.env.MIXDOG_DATA_DIR || join(MIXDOG_HOME, 'da
 
 const DEFAULT_PROVIDER = 'anthropic-oauth';
 const DEFAULT_MODEL = '';
+
+// Resolve the provider to use when a route carries no explicit provider.
+// Priority: config.defaultProvider (when it names a known provider) > DEFAULT_PROVIDER.
+function resolveDefaultProvider(config) {
+  const configured = clean(config?.defaultProvider);
+  if (configured && isKnownProvider(configured)) return configured;
+  return DEFAULT_PROVIDER;
+}
 const TOOL_MODES = new Set(['full', 'readonly', 'lead']);
 const ALL_EFFORT_LEVELS = new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
 const EFFORT_LABELS = {
@@ -864,7 +873,7 @@ function resolveRoute(config, { provider, model, effort, fast } = {}) {
     }
   }
 
-  const p = explicitProvider || DEFAULT_PROVIDER;
+  const p = explicitProvider || resolveDefaultProvider(config);
   const m = explicitModel || DEFAULT_MODEL;
   const saved = modelSettingsFor(config, p, m);
   return {
@@ -1458,10 +1467,15 @@ function upsertWorkflowPreset(presets, slot, routeLike) {
 
 function summarizeWorkflowRoutes(config) {
   const routes = config?.workflowRoutes && typeof config.workflowRoutes === 'object' ? config.workflowRoutes : {};
+  const fallbackProvider = resolveDefaultProvider(config);
   const out = {};
   for (const slot of WORKFLOW_ROUTE_SLOTS) {
     const route = routes[slot];
-    if (route?.provider && route?.model) out[slot] = normalizeWorkflowRoute(route);
+    // Read/interpret path: a route with a model but no provider falls back to
+    // config.defaultProvider (then DEFAULT_PROVIDER).
+    if (route?.model && (route?.provider || fallbackProvider)) {
+      out[slot] = normalizeWorkflowRoute(route, { provider: fallbackProvider });
+    }
   }
   return out;
 }
@@ -1481,13 +1495,16 @@ function routeFromPreset(config, slotValue) {
 function agentRouteFromConfig(config, agentId, _dataDir) {
   const id = normalizeAgentId(agentId);
   if (!id) return null;
-  const explicit = normalizeWorkflowRoute(config?.agents?.[id])
-    || (id === 'maintainer' ? normalizeWorkflowRoute(config?.agents?.maintenance) : null);
+  // Read/interpret path: inject config.defaultProvider (then DEFAULT_PROVIDER)
+  // when a stored route omits its provider.
+  const fallback = { provider: resolveDefaultProvider(config) };
+  const explicit = normalizeWorkflowRoute(config?.agents?.[id], fallback)
+    || (id === 'maintainer' ? normalizeWorkflowRoute(config?.agents?.maintenance, fallback) : null);
   if (explicit) return explicit;
 
   const agent = FIXED_AGENT_SLOTS.find((item) => item.id === id);
   if (agent?.workflowSlot) {
-    const workflowRoute = normalizeWorkflowRoute(config?.workflowRoutes?.[agent.workflowSlot]);
+    const workflowRoute = normalizeWorkflowRoute(config?.workflowRoutes?.[agent.workflowSlot], fallback);
     if (workflowRoute) return workflowRoute;
   }
 
@@ -4618,6 +4635,13 @@ function parsedProviderModelVersion(id) {
         ? payload.workflowRoutes
         : {};
       const nextConfig = { ...config };
+      if (hasOwn(payload, 'defaultProvider')) {
+        const requested = clean(payload.defaultProvider);
+        if (requested) {
+          if (!isKnownProvider(requested)) throw new Error(`unknown provider "${payload.defaultProvider}"`);
+          nextConfig.defaultProvider = requested;
+        }
+      }
       let presets = Array.isArray(nextConfig.presets) ? nextConfig.presets.slice() : [];
       const workflowRoutes = { ...(nextConfig.workflowRoutes || {}) };
 
@@ -4986,6 +5010,13 @@ function parsedProviderModelVersion(id) {
       }
       saveConfigAndAdopt(nextConfig);
       return routeToSave;
+    },
+    async setDefaultProvider(provider) {
+      const requested = clean(provider);
+      if (!requested) throw new Error('provider is required');
+      if (!isKnownProvider(requested)) throw new Error(`unknown provider "${provider}"`);
+      saveConfigAndAdopt({ ...config, defaultProvider: requested });
+      return requested;
     },
     async ask(prompt, options = {}) {
       activeTurnCount += 1;

@@ -1,13 +1,14 @@
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
-    PROVIDER_SSE_IDLE_TIMEOUT_MS,
     PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
+    PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
+    streamStalledError,
     createTimeoutSignal,
     providerTimeoutError,
 } from '../stall-policy.mjs';
 import { populateHttpStatusFromMessage } from './retry-classifier.mjs';
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
-import { createLeakGuard, createToolCallDedupe } from './anthropic-leaked-toolcall.mjs';
+import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
 import { randomBytes } from 'crypto';
 
 // Synthesize a native-shaped OpenAI tool call from a recovered leaked call.
@@ -111,8 +112,12 @@ async function nextAsyncWithWatchdog(iterator, { signal, idleMs, idleEnabled, id
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
             idleTimedOut = true;
-            const e = providerTimeoutError(idleLabel || 'compat SSE idle', idleMs);
-            e.code = 'ETIMEDOUT';
+            // SEMANTIC idle abort: this timer is (re)armed only around waiting
+            // for the NEXT stream event, so keepalive/comment frames the SDK
+            // filters out cannot keep it alive. Throw the named terminal
+            // StreamStalledError so the retry-classifier treats it as a stream
+            // failure (owner gets notified) rather than a user cancel.
+            const e = streamStalledError(idleLabel || 'compat SSE', idleMs);
             if (idleReject) {
                 const r = idleReject;
                 idleReject = null;
@@ -158,7 +163,7 @@ async function nextAsyncWithWatchdog(iterator, { signal, idleMs, idleEnabled, id
         return result;
     } catch (err) {
         if (idleTimer) clearTimeout(idleTimer);
-        if (idleTimedOut) throw providerTimeoutError(idleLabel || 'compat SSE idle', idleMs);
+        if (idleTimedOut) throw streamStalledError(idleLabel || 'compat SSE', idleMs);
         throw err;
     }
 }
@@ -285,7 +290,10 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
     const iterator = stream[Symbol.asyncIterator]();
     const firstByteTimeout = createTimeoutSignal(signal, PROVIDER_FIRST_BYTE_TIMEOUT_MS, `${label} first byte`);
     const idleEnabled = PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
-    const idleMs = PROVIDER_SSE_IDLE_TIMEOUT_MS;
+    // Per-event (last-event-relative) SEMANTIC idle: nextAsyncWithWatchdog arms
+    // the timer only while awaiting the NEXT stream event, so a stream that
+    // emits some deltas then goes silent trips it within the window.
+    const idleMs = PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
     let sawFirstEvent = false;
     let content = '';
     let reasoningContent = '';
@@ -434,9 +442,12 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
     }
     // Fold recovered leaked calls into the returned toolCalls so the dispatch
     // loop treats them exactly like native ones. They were already emitted via
-    // onToolCall in relayText/flushLeak, so no re-dispatch here.
+    // onToolCall in relayText/flushLeak, so no re-dispatch here. Dedupe the
+    // final array by name+args (Fix 2, array side): a synthetic leaked call and
+    // an identical native tool_call must not both remain, else the loop runs
+    // the side-effecting tool twice.
     if (leakedCalls.length) {
-        toolCalls = [...(Array.isArray(toolCalls) ? toolCalls : []), ...leakedCalls];
+        toolCalls = dedupeToolCallList([...(Array.isArray(toolCalls) ? toolCalls : []), ...leakedCalls]);
     }
     return {
         response,
@@ -644,7 +655,8 @@ export async function consumeCompatResponsesStream(stream, {
     const iterator = stream[Symbol.asyncIterator]();
     const firstByteTimeout = createTimeoutSignal(signal, PROVIDER_FIRST_BYTE_TIMEOUT_MS, `${label} first byte`);
     const idleEnabled = PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
-    const idleMs = PROVIDER_SSE_IDLE_TIMEOUT_MS;
+    // Per-event (last-event-relative) SEMANTIC idle — see the Chat path note.
+    const idleMs = PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
     const state = {
         content: '',
         model: '',
@@ -746,8 +758,9 @@ export async function consumeCompatResponsesStream(stream, {
         ? state.toolCalls.map(({ _pendingItemId, ...t }) => t)
         : parseResponsesToolCalls(response, label);
     // Fold recovered leaked calls in (already emitted via onToolCall above).
+    // Dedupe by name+args so an identical native+synthetic pair can't run twice.
     if (leakedCalls.length) {
-        toolCalls = [...(Array.isArray(toolCalls) ? toolCalls : []), ...leakedCalls];
+        toolCalls = dedupeToolCallList([...(Array.isArray(toolCalls) ? toolCalls : []), ...leakedCalls]);
     }
     return {
         response,

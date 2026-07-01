@@ -29,6 +29,7 @@ import {
 } from '../src/runtime/agent/orchestrator/agent-runtime/cache-strategy.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, validateBuiltinArgs } from '../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
+import { normaliseReadLineWindowArgs } from '../src/runtime/agent/orchestrator/tools/builtin/read-args.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
 import { runResultCacheInFlight } from '../src/runtime/agent/orchestrator/tools/builtin/cache-layers.mjs';
 import { executeCodeGraphTool } from '../src/runtime/agent/orchestrator/tools/code-graph.mjs';
@@ -608,6 +609,18 @@ const offsetReadWindow = {
 const readWindowErr = validateBuiltinArgs('read', offsetReadWindow);
 if (readWindowErr) {
   throw new Error(`read offset/limit window guard failed: err=${readWindowErr} args=${JSON.stringify(offsetReadWindow)}`);
+}
+const readLineErr = validateBuiltinArgs('read', { path: 'scripts/smoke.mjs', line: 10, context: 2 });
+if (!/line.*not supported.*offset\/limit only/i.test(readLineErr || '')) {
+  throw new Error(`read guard must reject legacy line/context args: ${readLineErr}`);
+}
+const batchedReadLineErr = validateBuiltinArgs('read', { path: [{ path: 'scripts/smoke.mjs', line: 10, context: 2 }] });
+if (!/path\[0\]\.line.*not supported.*offset\/limit only/i.test(batchedReadLineErr || '')) {
+  throw new Error(`read guard must reject batched legacy line/context args: ${batchedReadLineErr}`);
+}
+const pathLineWithLimit = normaliseReadLineWindowArgs({ path: 'scripts/smoke.mjs#L10', limit: 5 }, root);
+if (pathLineWithLimit.offset !== 9 || pathLineWithLimit.limit !== 5) {
+  throw new Error(`read path#line compatibility must anchor offset when limit is explicit: ${JSON.stringify(pathLineWithLimit)}`);
 }
 
 function assertHas(set, name) {
@@ -1403,8 +1416,27 @@ if (/line\+context/i.test(readDescription) || !/offset\+limit/i.test(readDescrip
 if (readProps.line || readProps.context) {
   throw new Error('read schema must not expose legacy line/context window fields');
 }
-if (readProps.offset?.minimum !== 0 || !/Lines to skip/i.test(readProps.offset?.description || '') || !/offset:N/i.test(readProps.offset?.description || '') || !/Do not use line\/context/i.test(readProps.offset?.description || '')) {
+if (readProps.offset?.minimum !== 0 || !/Lines to skip/i.test(readProps.offset?.description || '') || !/offset:N/i.test(readProps.offset?.description || '')) {
   throw new Error('read offset schema must describe Mixdog paging cursor semantics');
+}
+if (/line\/context/i.test(JSON.stringify(readTool?.inputSchema || {}))) {
+  throw new Error('read schema surface must not mention legacy line/context');
+}
+{
+  const benchRunSrc = readFileSync(resolve(root, 'scripts/bench-run.mjs'), 'utf8');
+  if (!/task_complete:\s*results\.length > 0 && completed === results\.length/.test(benchRunSrc)) {
+    throw new Error('bench-run must require every task to complete before saving a round');
+  }
+  if (!/score_complete:\s*results\.length > 0 && taskErrors\.length === 0 && scoreErrors\.length === 0 && \(score\?\.cards\?\.length \|\| 0\) === results\.length/.test(benchRunSrc)) {
+    throw new Error('bench-run must require a scorecard for every task before saving a round');
+  }
+  if (!/not saving incomplete round/.test(benchRunSrc) || !/process\.exit\(1\)/.test(benchRunSrc)) {
+    throw new Error('bench-run must not save incomplete rounds and must exit non-zero');
+  }
+  const taskBenchSrc = readFileSync(resolve(root, 'scripts/task-bench.mjs'), 'utf8');
+  if (!/const allowPartial = hasFlag\('--allow-partial'\)/.test(taskBenchSrc) || !/skipped\.length && !allowPartial/.test(taskBenchSrc) || !/process\.exit\(1\)/.test(taskBenchSrc)) {
+    throw new Error('task-bench must fail partial scoring unless --allow-partial is explicit');
+  }
 }
 {
   // setRoute must default to "next session only": a bare
@@ -1441,8 +1473,8 @@ if (codeGraphSymbolSearchErr) {
 if (!/code structure/i.test(codeGraphDescription) || !/symbol_search/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
 }
-if (!/Shortest route/i.test(codeGraphDescription) || !/before grep/i.test(codeGraphDescription)) {
-  throw new Error('code_graph description must steer symbol/caller lookups to the shortest route before grep');
+if (!/structure lookup/i.test(codeGraphDescription) || !/before grep/i.test(codeGraphDescription)) {
+  throw new Error('code_graph description must steer symbol/caller lookups to structure lookup before grep');
 }
 if (!/repo-local/i.test(codeGraphDescription) || !/NOT web search|not web/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must mark itself repo-local (not web search)');
@@ -1698,10 +1730,10 @@ const grepPathDescription = grepTool?.inputSchema?.properties?.path?.description
 const grepGlobDescription = grepTool?.inputSchema?.properties?.glob?.description || '';
 const grepOutputModeDescription = grepTool?.inputSchema?.properties?.output_mode?.description || '';
 const grepHeadLimitDescription = grepTool?.inputSchema?.properties?.head_limit?.description || '';
-if (!/Array = OR/i.test(grepPatternDescription) || !/ONE grep/i.test(grepPatternDescription) || !/serial rewording/i.test(grepPatternDescription) || !/variant sweeps/i.test(grepPatternDescription) || !/Narrowest file\/dir/i.test(grepPathDescription)) {
+if (!/Array = OR/i.test(grepPatternDescription) || !/ONE grep/i.test(grepPatternDescription) || !/serial rewording/i.test(grepPatternDescription) || !/equivalent repeats/i.test(grepPatternDescription) || !/Narrowest file\/dir/i.test(grepPathDescription) || !/refine from returned paths/i.test(grepPathDescription)) {
   throw new Error('grep schema must keep compact pattern/path guidance');
 }
-if (!/same grep/i.test(grepGlobDescription) || !/follow up with another grep/i.test(grepGlobDescription) || !/nearby files/i.test(grepGlobDescription)) {
+if (!/same grep/i.test(grepGlobDescription) || !/no follow-up grep/i.test(grepGlobDescription) || !/equivalent scope changes/i.test(grepGlobDescription)) {
   throw new Error('grep glob schema must steer narrowing into the same grep call');
 }
 if (!/answer from/i.test(grepOutputModeDescription) || !/skip read/i.test(grepOutputModeDescription) || !/span is not shown/i.test(grepOutputModeDescription)) {
@@ -1713,7 +1745,7 @@ if (grepTool?.inputSchema?.properties?.head_limit?.minimum !== 0 || !/keep small
 if (grepTool?.inputSchema?.properties?.type) {
   throw new Error('grep type schema must stay hidden; prefer glob for extension narrowing');
 }
-if (!/structure beats grep/i.test(codeGraphProps.mode?.description || '') || !/stop searching/i.test(codeGraphProps.symbol?.description || '') || !/one call/i.test(codeGraphProps.symbols?.description || '')) {
+if (!/structure before text search/i.test(codeGraphProps.mode?.description || '') || !/one anchor is enough/i.test(codeGraphProps.symbol?.description || '') || !/one call/i.test(codeGraphProps.symbols?.description || '')) {
   throw new Error('code_graph schema fields must steer away from repeated lookup loops');
 }
 

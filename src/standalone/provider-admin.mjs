@@ -52,6 +52,17 @@ const API_PROVIDER_IDS = new Set(API_PROVIDERS.map((p) => p.id));
 const OAUTH_BY_ID = new Map(OAUTH_PROVIDERS.map((p) => [p.id, p]));
 const LOCAL_BY_ID = new Map(LOCAL_PROVIDERS.map((p) => [p.id, p]));
 
+const ALL_PROVIDER_IDS = new Set([
+  ...API_PROVIDERS.map((p) => p.id),
+  ...OAUTH_PROVIDERS.map((p) => p.id),
+  ...LOCAL_PROVIDERS.map((p) => p.id),
+]);
+
+export function isKnownProvider(provider) {
+  const id = String(provider || '').trim();
+  return id !== '' && ALL_PROVIDER_IDS.has(id);
+}
+
 async function detectLocalProvider(baseURL) {
   const url = String(baseURL || '').replace(/\/+$/, '') + '/models';
   const controller = new AbortController();

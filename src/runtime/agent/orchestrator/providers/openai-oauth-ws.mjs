@@ -43,12 +43,15 @@ import {
     sleepWithAbort,
 } from './retry-classifier.mjs';
 import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
-import { createLeakGuard, createToolCallDedupe } from './anthropic-leaked-toolcall.mjs';
+import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
 import {
     PROVIDER_RETRY_MAX_ATTEMPTS,
     PROVIDER_WS_ACQUIRE_TIMEOUT_MS,
     PROVIDER_WS_HANDSHAKE_TIMEOUT_MS,
     PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS,
+    PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
+    PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
+    streamStalledError,
     resolveTimeoutMs,
 } from '../stall-policy.mjs';
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
@@ -1449,6 +1452,16 @@ export async function _streamResponse({
     let messageHandler = null;
     let closeHandler = null;
     let errorHandler = null;
+    // SEMANTIC idle timer (pi per-event parity): distinct from the inter-chunk
+    // timer, which resets on EVERY frame (rate_limits/metadata/keepalive keep
+    // the socket "alive"). This timer resets ONLY on meaningful output deltas
+    // (text/reasoning/tool args — the same events that call onStreamDelta) so a
+    // stream that emits some deltas then goes silent (server keepalive frames
+    // only) trips a short, named terminal StreamStalledError instead of coasting
+    // to the 300s inter-chunk cap / 30-min agent watchdog.
+    let semanticIdleTimer = null;
+    const semanticIdleMs = PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
+    const semanticIdleEnabled = PROVIDER_SSE_IDLE_WATCHDOG_ENABLED && semanticIdleMs > 0;
 
     return new Promise((resolve, reject) => {
         // Pre-stream watchdog: the timer fires if the server never sends a
@@ -1535,6 +1548,21 @@ export async function _streamResponse({
                 finish();
             }, interChunkMs);
         };
+        // pi per-event idle: (re)armed only on meaningful output deltas via
+        // bumpSemanticIdle(). Keepalive/metadata frames DON'T touch it, so a
+        // deltas-then-silent wedge trips this short semantic window.
+        const resetSemanticIdle = () => {
+            if (!semanticIdleEnabled) return;
+            if (semanticIdleTimer) clearTimeout(semanticIdleTimer);
+            semanticIdleTimer = setTimeout(() => {
+                traceWsTimeout('semantic_idle_timeout', semanticIdleMs);
+                terminalError = streamStalledError('Responses WS', semanticIdleMs);
+                try { terminalError.wsCloseCode = 4000; } catch {}
+                try { socket.close(4000, 'semantic_idle_timeout'); } catch {}
+                finish();
+            }, semanticIdleMs);
+            try { semanticIdleTimer.unref?.(); } catch {}
+        };
         // Single idle reset — called on EVERY parsed server event (matches
         // codex, which resets one idle timer on every received WS frame). Any
         // frame proves the socket is live; there is no separate "meaningful
@@ -1544,9 +1572,13 @@ export async function _streamResponse({
             clearPreStreamWatchdog();
             resetInterChunk();
         };
+        // Meaningful-output progress bump: called by the same delta cases that
+        // call onStreamDelta (text/reasoning/tool args). Arms the semantic idle.
+        const bumpSemanticIdle = () => { resetSemanticIdle(); };
         const cleanup = () => {
             if (idleTimer) clearTimeout(idleTimer);
             if (interChunkTimer) { clearTimeout(interChunkTimer); interChunkTimer = null; }
+            if (semanticIdleTimer) { clearTimeout(semanticIdleTimer); semanticIdleTimer = null; }
             if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
             if (messageHandler) socket.off('message', messageHandler);
             if (closeHandler) socket.off('close', closeHandler);
@@ -1565,7 +1597,9 @@ export async function _streamResponse({
                 model,
                 reasoningItems: reasoningItems.length ? reasoningItems : undefined,
                 responseItems: responseItemsAdded.length ? responseItemsAdded : undefined,
-                toolCalls: toolCalls.length ? toolCalls : undefined,
+                // Dedupe by name+args (Fix 2, array side) so an identical
+                // synthetic-leaked + native pair can't run the tool twice.
+                toolCalls: toolCalls.length ? dedupeToolCallList(toolCalls) : undefined,
                 citations: citations.length ? citations : undefined,
                 webSearchCalls: webSearchCalls.length ? webSearchCalls : undefined,
                 usage,
@@ -1617,6 +1651,7 @@ export async function _streamResponse({
                         }
                         onStreamDelta?.();
                     } catch {}
+                    bumpSemanticIdle();
                     // Live text relay (gateway): forward the raw text chunk so
                     // the client renders first tokens before the final replay.
                     // Tool-call/argument deltas intentionally stay off this path.
@@ -1640,6 +1675,7 @@ export async function _streamResponse({
                     // messageHandler. Reasoning is still suppressed from user
                     // content (no `content +=` here).
                     try { onStreamDelta?.(); } catch {}
+                    bumpSemanticIdle();
                     break;
                 case 'response.output_item.added':
                     if (event.item?.type === 'function_call') {
@@ -1651,9 +1687,11 @@ export async function _streamResponse({
                     break;
                 case 'response.function_call_arguments.delta':
                     try { onStreamDelta?.(); } catch {}
+                    bumpSemanticIdle();
                     break;
                 case 'response.custom_tool_call_input.delta':
                     try { onStreamDelta?.(); } catch {}
+                    bumpSemanticIdle();
                     break;
                 case 'response.function_call_arguments.done': {
                     const itemId = event.item_id || '';
@@ -1704,6 +1742,7 @@ export async function _streamResponse({
                         });
                     }
                     try { onStreamDelta?.(); } catch {}
+                    bumpSemanticIdle();
                     break;
                 }
                 case 'response.output_item.done':
@@ -2176,7 +2215,7 @@ export async function _acquireWithRetry({
                     try { err.retryClassifier = classifier; } catch {}
                 }
                 try {
-                    process.stderr.write(
+                    if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(
                         `[openai-oauth-ws] handshake failed after ${attempt}/${HANDSHAKE_MAX_ATTEMPTS} attempts: ${err?.message || err}\n`,
                     );
                 } catch {}
@@ -2185,7 +2224,7 @@ export async function _acquireWithRetry({
             // Schedule backoff and emit progress.
             const backoff = _backoffFor(attempt);
             try {
-                process.stderr.write(
+                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(
                     `[openai-oauth-ws] worker retry ${attempt}/${HANDSHAKE_MAX_ATTEMPTS} (transient: ${classifier}, backoff ${backoff}ms)\n`,
                 );
             } catch {}
@@ -2588,7 +2627,7 @@ export async function sendViaWebSocket({
                 const backoff = _midstreamBackoffFor(retryNumber);
                 try {
                     const line = `[openai-oauth-ws] mid-stream recovered: retry ${retryNumber}/${retryLimit} (cause: ${classifier}, backoff ${backoff}ms)\n`;
-                    process.stderr.write(line);
+                    if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(line);
                     emittedProgress.push(line);
                 } catch {}
                 await _sleepWithAbort(backoff, externalSignal, _sleepFn);

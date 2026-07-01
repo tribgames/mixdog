@@ -125,6 +125,33 @@ export const PROVIDER_SSE_IDLE_TIMEOUT_MS = resolveTimeoutMs(
     { minMs: 10_000, maxMs: STALL_WARN_MS },
 );
 
+// Semantic (last-meaningful-event) idle window. Distinct name from the
+// transport-byte SSE idle so provider loops can key their mid-stream abort off
+// SEMANTIC progress (message/content/tool deltas) rather than raw keepalive
+// bytes (Anthropic `:ping`, comment frames). A truly silent stream — one that
+// emits no semantic event for this window — trips it; a live extended-thinking
+// stream (which emits thinking deltas) stays alive. Default 120s, floor 10s,
+// env-overridable and disablable via MIXDOG_ENABLE_STREAM_WATCHDOG=0.
+export const PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS = resolveTimeoutMs(
+    ['MIXDOG_PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS', 'MIXDOG_PROVIDER_SSE_IDLE_TIMEOUT_MS'],
+    120_000,
+    { minMs: 10_000, maxMs: STALL_WARN_MS },
+);
+
+// Named terminal error for a mid-stream SEMANTIC idle abort. Distinct from a
+// user cancel (signal.aborted): the retry-classifier treats this as a terminal
+// STREAM FAILURE so the owner (Lead) receives a failure notification instead of
+// the task hanging. The message keeps "timed out after …ms of inactivity" so
+// the SSE mid-stream classifier's text match (sse_idle_timeout) still fires,
+// and code 'ESTREAMSTALL' routes it through the transient/notify path.
+export function streamStalledError(label, timeoutMs) {
+    const err = new Error(`${label} stream timed out after ${timeoutMs}ms of inactivity`);
+    err.name = 'StreamStalledError';
+    err.code = 'ESTREAMSTALL';
+    err.streamStalled = true;
+    return err;
+}
+
 export const PROVIDER_WS_HANDSHAKE_TIMEOUT_MS = resolveTimeoutMs(
     'MIXDOG_PROVIDER_WS_HANDSHAKE_TIMEOUT_MS',
     30_000,

@@ -44,7 +44,19 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
         const { abort } = resolveAgentStallThresholds(agent);
         idleStaleMs = abort * 1000;
     } else {
-        idleStaleMs = DEFAULT_STALE_TIMEOUT_MS;
+        // Part B: the primary mid-stream stall catch is now the provider-level
+        // SEMANTIC idle abort (~120s, ping-immune). This public-agent idle is a
+        // BACKSTOP only, so it must not exceed the stall abort (600s default) —
+        // the old 30-min value meant a ping-only wedge that slipped past the
+        // provider layer would still hang the owner for half an hour. Cap it at
+        // the stall abort while keeping 30 min as an absolute ceiling. The
+        // tool-running heartbeat exemption (toolRunningMs, below) is unchanged,
+        // so legitimately long tool calls still refresh progress and are safe.
+        const { abort } = resolveAgentStallThresholds(agent);
+        const backstopMs = Math.max(0, Math.floor(abort * 1000));
+        idleStaleMs = backstopMs > 0
+            ? Math.min(DEFAULT_STALE_TIMEOUT_MS, backstopMs)
+            : DEFAULT_STALE_TIMEOUT_MS;
     }
 
     const idleSec = idleStaleMs / 1000;

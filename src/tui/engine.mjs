@@ -10,7 +10,6 @@ import { SPINNER_VERBS } from './spinner-verbs.mjs';
 import {
   aggregateToolCategoryEntry,
   classifyToolCategory,
-  formatAggregateDetail,
   summarizeToolResult,
 } from '../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody, presentErrorText } from '../runtime/shared/err-text.mjs';
@@ -289,6 +288,10 @@ function toolResultText(content) {
 
 const TOOL_RESULT_PART_MAX_DEPTH = 12;
 const TOOL_RESULT_JSON_FALLBACK_MAX = 480;
+// Absolute cap for a collapsed tool detail line (the second row under the ⎿
+// gutter). Terminal-width independent so a wide terminal never lets a long line
+// stretch the row; lockstep with ToolExecution RESULT_LINE_HARD_MAX (80).
+const TOOL_DETAIL_LINE_MAX = 80;
 
 function compactToolResultObjectFallback(obj) {
   if (obj?.type === 'tool_result') return '';
@@ -357,7 +360,7 @@ function toolAggregateDetailFallback(detailText, rawResult) {
   if (!raw) return detailText;
   const line = raw.split('\n').map((l) => l.trim()).find(Boolean) || '';
   if (!line) return detailText;
-  return line.length > 160 ? `${line.slice(0, 157)}…` : line;
+  return line.length > TOOL_DETAIL_LINE_MAX ? `${line.slice(0, TOOL_DETAIL_LINE_MAX - 3)}…` : line;
 }
 
 function toolGroupedDisplayFallback(resultText, text, rawText) {
@@ -1383,6 +1386,51 @@ export async function createEngineSession({
     });
   }
 
+  const CANCELLED_RESULT_STATUS_LINE = '[status: cancelled]';
+
+  function normalizedResultStatusToken(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return '';
+    if (/^(running|pending|queued|in_progress|in-progress)$/.test(raw)) return 'running';
+    if (/^(completed|complete|done|success|succeeded|ok)$/.test(raw)) return 'completed';
+    if (/^(failed|fail|error|errored|timeout|timed_out|killed)$/.test(raw)) return 'failed';
+    if (/^(cancelled|canceled|cancel)$/.test(raw)) return 'cancelled';
+    return '';
+  }
+
+  function resultTextTerminalStatus(text) {
+    const body = String(text || '');
+    const tagged = body.match(/<status[^>]*>([\s\S]*?)<\/status>/i)?.[1]?.trim();
+    if (tagged) return normalizedResultStatusToken(tagged);
+    const bracketed = body.match(/^\[status:\s*([^\]]*)\]/mi)?.[1]?.trim();
+    if (bracketed) return normalizedResultStatusToken(bracketed);
+    const inline = body.match(/^(?:status|state):\s*([^\s·,;]+)/mi)?.[1]?.trim();
+    return normalizedResultStatusToken(inline);
+  }
+
+  function itemHasKnownTerminalStatus(item, texts = []) {
+    const settled = (token) => token === 'completed' || token === 'failed' || token === 'cancelled';
+    if (settled(normalizedResultStatusToken(item?.args?.status))) return true;
+    for (const text of texts) {
+      if (settled(resultTextTerminalStatus(text))) return true;
+    }
+    return false;
+  }
+
+  function withCancelledResultMarker(text, item) {
+    const body = String(text || '');
+    // Do NOT inspect item.rawResult here: aggregate rawResult is child tool
+    // output (`1. grep\n<result>…`) that can incidentally contain a `status:`
+    // line, which would false-positive as an already-terminal status and skip
+    // the cancelled marker. Only result/text/body are engine-controlled
+    // collapsed detail (empty / status word / an existing marker), so they are
+    // the trustworthy terminal-status sources.
+    const sources = [item?.result, item?.text, body];
+    if (itemHasKnownTerminalStatus(item, sources)) return body;
+    if (!body.trim()) return `${CANCELLED_RESULT_STATUS_LINE}\n`;
+    return `${CANCELLED_RESULT_STATUS_LINE}\n${body}`;
+  }
+
   function groupedToolResultText(group) {
     const completed = Math.min(group.count, group.completed);
     if (group.count <= 1) return group.results.at(-1)?.text ?? '';
@@ -1431,25 +1479,14 @@ export async function createEngineSession({
     return chunks.join('\n\n');
   }
 
-  function aggregateDisplayDetail(summaries, allCalls) {
-    const fromSummaries = formatAggregateDetail(summaries);
-    if (String(fromSummaries || '').trim()) return fromSummaries;
-    let line = '';
-    for (const rec of allCalls || []) {
-      const text = String(rec?.resultText || '').replace(/\s+$/, '');
-      line = text.split('\n').map((l) => l.trim()).find(Boolean) || '';
-      if (line) break;
-    }
-    if (!line) return '';
-    return line.length > 160 ? `${line.slice(0, 157)}…` : line;
-  }
-
   function aggregateBucketForCategory(_category) {
-    // Keep normal tool calls as explicit per-tool cards. Hook/approval denials
-    // have their own dedicated ToolHookDenialCard path in App.jsx; this generic
-    // aggregate card is intentionally disabled so read/search/patch results do
-    // not intermittently collapse into a shared expandable raw dump.
-    return null;
+    // Merge consecutive tool batches into one aggregate card. Every generic tool
+    // call shares a single bucket so a run of read/grep/patch calls collapses
+    // into one card whose header shows per-category counts (formatAggregateHeader)
+    // and whose collapsed detail is a bare status word. The numbered+labelled raw
+    // (aggregateRawResult) is preserved for ctrl+o expansion. Hook/approval
+    // denials keep their dedicated ToolHookDenialCard path in App.jsx.
+    return 'default';
   }
 
   function aggregateSummaries(aggregate) {
@@ -1498,22 +1535,20 @@ export async function createEngineSession({
       const allCalls = [...aggregate.calls.values()];
       const completed = allCalls.filter((r) => r.resolved).length;
       const errors = allCalls.filter((r) => r.isError).length;
-      const summaries = aggregateSummaries(aggregate);
-      let detailText;
-      if (errors > 0 && summaries.length === 0) {
-        const succeeded = completed - errors;
-        detailText = succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`;
-      } else {
-        detailText = aggregateDisplayDetail(summaries, allCalls);
-        if (errors > 0) {
-          detailText = detailText ? `${detailText} · ${errors} Failed` : `${errors} Failed`;
-        }
-      }
+      // Collapsed detail is status-only (no per-result summary). Failures keep a
+      // bare 'N Failed' status so an error stays visible while collapsed.
+      const succeeded = completed - errors;
+      const detailText = errors > 0
+        ? (succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`)
+        : '';
       const currentItem = state.items.find((it) => it.id === card.itemId);
       const earlyCompleted = allCalls.filter((r) => r.resolved || r.completedEarly).length;
       const visualCompleted = Math.max(completed, earlyCompleted, Math.min(allCalls.length, Number(currentItem?.completedCount || 0)));
       const rawResult = aggregateRawResult(allCalls);
-      const displayDetail = toolAggregateDetailFallback(detailText, rawResult);
+      // Collapsed aggregate detail carries no per-result summary — the card body
+      // shows only a status word ('Finished') or, on failure, 'N Failed'. The
+      // numbered+labelled raw (rawResult) is preserved for ctrl+o expansion.
+      const displayDetail = detailText;
       patchItem(card.itemId, {
         result: displayDetail,
         text: displayDetail,
@@ -1562,7 +1597,7 @@ export async function createEngineSession({
     return true;
   }
 
-  const flushToolResults = (messages, toolCards, cardByCallId, toolGroups, done, { finalize = false } = {}) => {
+  const flushToolResults = (messages, toolCards, cardByCallId, toolGroups, done, { finalize = false, cancelled = false } = {}) => {
     const results = [];
     for (const m of messages || []) {
       if (!m || m.role !== 'tool') continue;
@@ -1604,10 +1639,20 @@ export async function createEngineSession({
         const remaining = allCalls.length - completed;
         const totalCompleted = remaining > 0 ? completed + remaining : completed;
         const errors = allCalls.filter((r) => r.isError).length;
-        const summaries = aggregateSummaries(aggregate);
-        const detailText = aggregateDisplayDetail(summaries, allCalls);
+        const succeeded = completed - errors;
         const rawResult = aggregateRawResult(allCalls);
-        const displayDetail = toolAggregateDetailFallback(detailText, rawResult);
+        // Collapsed detail is status-only: no per-result summary. Failures keep a
+        // bare 'N Failed' status. The numbered+labelled raw is kept for ctrl+o.
+        let displayDetail = errors > 0
+          ? (succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`)
+          : '';
+        if (cancelled) {
+          // Cancelled aggregates MUST keep the [status: cancelled] marker on the
+          // result so terminalStatus parsing resolves to 'cancelled'. Only normal
+          // completions drop the summary; cancelled ones prepend the marker.
+          const currentItem = state.items.find((it) => it.id === card.itemId);
+          displayDetail = withCancelledResultMarker(displayDetail, currentItem);
+        }
         patchItem(card.itemId, {
           result: displayDetail,
           text: displayDetail,
@@ -1629,7 +1674,11 @@ export async function createEngineSession({
       const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, results: [] };
       group.completed = Math.min(group.count, group.completed + 1);
       toolGroups.set(card.itemId, group);
-      const resultText = groupedToolResultText(group);
+      let resultText = groupedToolResultText(group);
+      if (cancelled) {
+        const currentItem = state.items.find((it) => it.id === card.itemId);
+        resultText = withCancelledResultMarker(resultText, currentItem);
+      }
       patchItem(card.itemId, { result: resultText, text: resultText, isError: group.errors > 0, errorCount: group.errors, count: group.count, completedCount: group.completed, completedAt: Date.now() });
       card.done = true;
       if (card.callId) done.add(card.callId);
@@ -1791,10 +1840,14 @@ export async function createEngineSession({
         if (allCalls.length === 0) continue;
         aggregate.ensureVisible?.();
         const errors = allCalls.filter((r) => r.isError).length;
-        const summaries = aggregateSummaries(aggregate);
-        const detailText = aggregateDisplayDetail(summaries, allCalls);
+        const completed = allCalls.filter((r) => r.resolved).length;
+        const succeeded = completed - errors;
         const rawResult = aggregateRawResult(allCalls);
-        const displayDetail = toolAggregateDetailFallback(detailText, rawResult);
+        // Status-only collapsed detail (see patchToolCardResult): no per-result
+        // summary; failures keep 'N Failed'. Raw preserved for ctrl+o expansion.
+        const displayDetail = errors > 0
+          ? (succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`)
+          : '';
         patchItem(aggregate.itemId, {
           result: displayDetail,
           text: displayDetail,
@@ -2052,19 +2105,13 @@ export async function createEngineSession({
         const allCalls = [...aggregate.calls.values()];
         const completedCount = allCalls.filter((r) => r.resolved || r.completedEarly).length;
         const errors = allCalls.filter((r) => r.isError).length;
-        const summaries = aggregateSummaries(aggregate);
-        let detailText;
-        if (errors > 0 && summaries.length === 0) {
-          const succeeded = completedCount - errors;
-          detailText = succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`;
-        } else {
-          detailText = aggregateDisplayDetail(summaries, allCalls);
-          if (errors > 0) {
-            detailText = detailText ? `${detailText} · ${errors} Failed` : `${errors} Failed`;
-          }
-        }
+        const succeeded = completedCount - errors;
         const rawResult = aggregateRawResult(allCalls);
-        const displayDetail = toolAggregateDetailFallback(detailText, rawResult);
+        // Status-only collapsed detail (no per-result summary); failures keep
+        // 'N Failed'. Raw preserved for ctrl+o expansion.
+        const displayDetail = errors > 0
+          ? (succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`)
+          : '';
         const currentItem = state.items.find((it) => it.id === card.itemId);
         const visualCompleted = Math.max(
           completedCount,
@@ -2133,7 +2180,14 @@ export async function createEngineSession({
           }
           const batchCalls = (calls || []).filter(Boolean);
           if (batchCalls.length === 0) return;
-          commitAssistantSegment({ sealToolBlock: true });
+          const committedAssistantSegment = commitAssistantSegment({ sealToolBlock: true });
+          if (committedAssistantSegment) {
+            // Let the pre-tool assistant preamble paint as its own frame before
+            // the tool card reserves/pushes rows. When both enter the transcript
+            // in the same render, the bottom-pinned viewport can appear to jump
+            // upward by the combined height ("preamble + tool card" at once).
+            await yieldToRenderer();
+          }
 
           const touchedAggregates = new Set();
           for (let i = 0; i < batchCalls.length; i++) {
@@ -2354,7 +2408,7 @@ export async function createEngineSession({
         // shows "cancelled", but in-flight tool cards remain in a perpetual
         // pending/blinking state because the normal finalize path (line 992)
         // was skipped when the error interrupted the try block.
-        flushToolResults([], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
+        flushToolResults([], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true, cancelled: true });
         finalizeToolHeaders();
       } else {
         finalizeToolHeaders();
@@ -3166,8 +3220,20 @@ export async function createEngineSession({
       if (!state.busy) return false;
       denyAllToolApprovals('interrupted by user');
       const restoreState = activePromptRestore;
-      const restoreText = restoreState?.restorable ? restoreState.text : '';
-      const restorePastedImages = restoreState?.restorable && restoreState?.pastedImages ? restoreState.pastedImages : null;
+      // A queued steering prompt means the user already redirected the turn:
+      // interrupting should just cancel the running turn and let the steering
+      // prompt run next, NOT resurrect the in-flight prompt back into the draft.
+      const hasPendingSteering = pending.some((entry) => isQueuedEntryEditable(entry));
+      const canRestore = restoreState?.restorable && !hasPendingSteering;
+      const restoreText = canRestore ? restoreState.text : '';
+      const restorePastedImages = canRestore && restoreState?.pastedImages ? restoreState.pastedImages : null;
+      // When steering suppresses the restore, the interrupted prompt's pasted
+      // images never get committed (onCommitted won't fire) nor re-installed into
+      // the draft, so hand them back for cleanup to avoid a stale `[Image #id]`
+      // lingering in the paste snapshot.
+      const discardPastedImages = restoreState?.restorable && hasPendingSteering && restoreState?.pastedImages
+        ? restoreState.pastedImages
+        : null;
       const requeueEntries = restoreState && !restoreState.committed && Array.isArray(restoreState.requeueEntries)
         ? restoreState.requeueEntries.slice()
         : [];
@@ -3189,7 +3255,7 @@ export async function createEngineSession({
         restoreState.restorable = false;
         restoreState.requeueEntries = [];
       }
-      return { aborted, restoreText, pastedImages: restorePastedImages };
+      return { aborted, restoreText, pastedImages: restorePastedImages, discardPastedImages };
     },
     resolveToolApproval: (id, decision = {}) => {
       const approved = decision === true || decision?.approved === true;
@@ -3294,6 +3360,9 @@ export async function createEngineSession({
     },
     setAgentRoute: async (agentId, opts) => {
       return await runtime.setAgentRoute?.(agentId, opts);
+    },
+    setDefaultProvider: async (provider) => {
+      return await runtime.setDefaultProvider?.(provider);
     },
     listProviders: () => {
       return runtime.listProviders();

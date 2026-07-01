@@ -17,7 +17,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read known file path(s) or offset+limit regions after grep/code_graph anchors. Dirs use list. Batch paths/regions; avoid serial reads.',
+        description: 'Read verified file path(s) or offset+limit regions after grep/code_graph anchors. Dirs use list. Batch paths/regions; avoid serial reads.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -42,9 +42,9 @@ export const BUILTIN_TOOLS = [
                             minItems: 1,
                         },
                     ],
-                    description: 'File path(s) or {path,offset,limit} regions. Batch multiple spans in one array. Dirs use list.',
+                    description: 'Verified file path(s) or {path,offset,limit} regions. Batch multiple spans in one array. Dirs use list.',
                 },
-                offset: { type: 'number', minimum: 0, description: 'Lines to skip (0=line 1); continue with offset:N. Do not use line/context.' },
+                offset: { type: 'number', minimum: 0, description: 'Lines to skip (0=line 1); continue with offset:N.' },
                 limit: { type: 'number', minimum: 1, description: 'Max lines after offset.' },
             },
         },
@@ -113,7 +113,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Search file contents by text/regex. Use content_with_context for code answers. One concept → one grep; pattern[] = OR. For file names use find/glob.',
+        description: 'Search file contents by text/regex in a known scope. Use content_with_context for code answers. One concept → one grep; unknown paths use find/glob.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -122,15 +122,15 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Text/regex. Array = OR in ONE grep; no serial rewording or variant sweeps.',
+                    description: 'Text/regex. Array = OR in ONE grep; no serial rewording or equivalent repeats.',
                 },
-                path: { type: 'string', description: 'Narrowest file/dir.' },
+                path: { type: 'string', description: 'Known narrowest file/dir; refine from returned paths. Unknown paths use find/glob first.' },
                 glob: {
                     anyOf: [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Narrow in same grep; do not follow up with another grep for nearby files.',
+                    description: 'Narrow in same grep; no follow-up grep for equivalent scope changes.',
                 },
                 output_mode: { type: 'string', enum: ['content_with_context', 'content', 'files_with_matches', 'count'], description: 'content_with_context frames matches; answer from it, skip read unless span is not shown.' },
                 context: { type: 'number', minimum: 0, description: 'Lines before/after each match; keep bounded.' },
@@ -144,7 +144,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Mixdog Glob',
         annotations: { title: 'Mixdog Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Find files by glob.',
+        description: 'Find files by exact glob. Unknown path/name uses find.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -153,7 +153,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Glob pattern(s).',
+                    description: 'Exact glob pattern(s).',
                 },
                 path: {
                     anyOf: [
@@ -172,11 +172,11 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Mixdog Find Files',
         annotations: { title: 'Mixdog Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Find files by partial path/name. Exact patterns use glob. Returns paths.',
+        description: 'Find files by partial path/name. Exact structure uses glob. Returns verified paths.',
         inputSchema: {
             type: 'object',
             properties: {
-                query: { type: 'string', description: 'Partial path/name words.' },
+                query: { type: 'string', description: 'Partial path/name words; not file contents.' },
                 path: { type: 'string', description: 'Base directory.' },
                 head_limit: { type: 'number', description: 'Max paths.' },
             },

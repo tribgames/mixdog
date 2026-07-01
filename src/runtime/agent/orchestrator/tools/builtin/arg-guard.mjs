@@ -198,14 +198,34 @@ function guardRead(a) {
         if (!ok) {
             return `Error: read arg "path" must be string, string[], or object[] (got ${describeType(p)})`;
         }
+        if (Array.isArray(p)) {
+            for (let i = 0; i < p.length; i++) {
+                const entry = p[i];
+                if (typeof entry === 'string') continue;
+                if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+                    return `Error: read arg "path[${i}]" must be string or {path,offset,limit} object (got ${describeType(entry)})`;
+                }
+                if (hasOwn(entry, 'line') && entry.line !== undefined && entry.line !== null) {
+                    return `Error: read arg "path[${i}].line" is not supported; use offset/limit only`;
+                }
+                if (hasOwn(entry, 'context') && entry.context !== undefined && entry.context !== null) {
+                    return `Error: read arg "path[${i}].context" is not supported; use offset/limit only`;
+                }
+            }
+        }
     }
     if (hasOwn(a, 'file_path') && !isNonEmptyString(a.file_path)) {
         return `Error: read arg "file_path" must be a non-empty string (got ${describeType(a.file_path)})`;
     }
-    // Window-family normalization happens in read-args.mjs. Do not reject a
-    // mixed line/context + offset/limit payload here: model callers often carry
-    // stale optional fields, and the read normalizer can safely prefer the
-    // explicit line anchor instead of surfacing a noisy tool-call failure.
+    // Read's public surface is offset/limit only (Claude Code shape). Do not
+    // accept the old line/context family even though read-args.mjs still keeps a
+    // private compatibility normalizer for path:line/internal callers.
+    if (hasOwn(a, 'line') && a.line !== undefined && a.line !== null) {
+        return 'Error: read arg "line" is not supported; use offset/limit only';
+    }
+    if (hasOwn(a, 'context') && a.context !== undefined && a.context !== null) {
+        return 'Error: read arg "context" is not supported; use offset/limit only';
+    }
     // offset >=0
     {
         const err = checkIntInRange('offset', a.offset, 0, MAX_INT);
@@ -218,11 +238,6 @@ function guardRead(a) {
     // read is stripped on the symbol path. Negatives still error.
     {
         const err = checkIntInRange('limit', a.limit, 0, MAX_INT);
-        if (err) return err;
-    }
-    // context 0..200
-    {
-        const err = checkIntInRange('context', a.context, 0, 200);
         if (err) return err;
     }
     // n 0..10000 — accept 0 rather than erroring: the read-mode handlers coerce

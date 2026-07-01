@@ -281,9 +281,18 @@ export function scanLeakedToolCalls(buffer, { isKnownTool, final, harmony = fals
     // so `isInCode` at a sentinel reflects the running markdown context —
     // including a fence opened in an earlier chunk (caller threads fenceState).
     let fence = fenceState || initialFenceState();
+    // `asText` controls both whether the slice is emitted AND whether it
+    // advances markdown fence state. A recovered/SUPPRESSED tool-call block
+    // (asText=false) is hidden from the visible stream, so it must NOT feed the
+    // fence tracker either (Fix 2 follow-up / reviewer Medium): an unmatched
+    // backtick inside the hidden XML/harmony args would otherwise leave a fence
+    // "open" and wrongly suppress a subsequent REAL leaked call as in-code.
+    // Fence state only ever reflects text the user actually sees.
     const consume = (to, asText) => {
-        fence = advanceFenceState(fence, buf.slice(pos, to));
-        if (asText) emit += buf.slice(pos, to);
+        if (asText) {
+            fence = advanceFenceState(fence, buf.slice(pos, to));
+            emit += buf.slice(pos, to);
+        }
         pos = to;
     };
 
@@ -398,6 +407,32 @@ export function createToolCallDedupe() {
         },
         has(name, args) { return seen.has(toolCallFingerprint(name, args)); },
     };
+}
+
+/**
+ * Drop duplicate tool calls from a RETURNED `toolCalls` array by name+args
+ * fingerprint (Fix 2, array side). Dispatch-time dedupe (`createToolCallDedupe`)
+ * only suppresses the second `onToolCall`; providers that also RETURN a
+ * `toolCalls` array (which the agent loop executes) can still carry a
+ * synthetic-leaked + identical-native duplicate. Run the final array through
+ * this so the loop never executes a side-effecting tool twice. Order is
+ * preserved; the FIRST occurrence of each fingerprint wins.
+ *
+ * @param {Array<{name?:string,arguments?:object}>} calls
+ * @returns {Array} the array with later duplicate-fingerprint calls removed.
+ */
+export function dedupeToolCallList(calls) {
+    if (!Array.isArray(calls) || calls.length < 2) return calls;
+    const seen = new Set();
+    const out = [];
+    for (const call of calls) {
+        if (!call || typeof call !== 'object') { out.push(call); continue; }
+        const fp = toolCallFingerprint(call.name, call.arguments);
+        if (seen.has(fp)) continue;
+        seen.add(fp);
+        out.push(call);
+    }
+    return out.length === calls.length ? calls : out;
 }
 
 // Exposed for focused unit tests.

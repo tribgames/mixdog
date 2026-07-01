@@ -31,12 +31,15 @@ import {
 import {
     PROVIDER_GENERATE_TOTAL_TIMEOUT_MS,
     PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
+    PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
+    PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
+    streamStalledError,
     createTimeoutSignal,
 } from '../stall-policy.mjs';
 import { populateHttpStatusFromMessage, shouldFallbackTransport } from './retry-classifier.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
-import { createLeakGuard, createToolCallDedupe } from './anthropic-leaked-toolcall.mjs';
+import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
 import {
     normalizeContentForOpenAIResponses,
     splitToolContentForOpenAIResponses,
@@ -852,6 +855,23 @@ export async function sendViaHttpSse({
         if (totalTimeout.signal.aborted) _onTotalAbort();
         else totalTimeout.signal.addEventListener('abort', _onTotalAbort, { once: true });
     }
+    // SEMANTIC idle watchdog: reset ONLY on meaningful() (text/reasoning/tool
+    // deltas), never on raw bytes/keepalive frames, so a stream that emits some
+    // deltas then goes silent trips a short, named terminal failure instead of
+    // hanging until the 30-min agent watchdog. Disablable via the shared env.
+    let _semanticIdleTimer = null;
+    const _clearSemanticIdle = () => {
+        if (_semanticIdleTimer) { clearTimeout(_semanticIdleTimer); _semanticIdleTimer = null; }
+    };
+    const _armSemanticIdle = () => {
+        if (!PROVIDER_SSE_IDLE_WATCHDOG_ENABLED || !(PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS > 0)) return;
+        _clearSemanticIdle();
+        _semanticIdleTimer = setTimeout(() => {
+            _streamAbortReason = streamStalledError('OpenAI OAuth HTTP fallback', PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS);
+            try { reader.cancel(_streamAbortReason).catch(() => {}); } catch {}
+        }, PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS);
+        try { _semanticIdleTimer.unref?.(); } catch {}
+    };
     let buffer = '';
     let content = '';
     let model = '';
@@ -1002,6 +1022,7 @@ export async function sendViaHttpSse({
     };
     const meaningful = () => {
         if (ttftMs == null) ttftMs = Date.now() - sseStartedAt;
+        _armSemanticIdle();
         try { onStreamDelta?.(); } catch {}
     };
     const handleEvent = (event) => {
@@ -1189,9 +1210,11 @@ export async function sendViaHttpSse({
     try {
         while (true) {
             if (totalTimeout.signal.aborted) {
+                _clearSemanticIdle();
                 const reason = totalTimeout.signal.reason;
                 throw reason instanceof Error ? reason : new Error('OpenAI OAuth HTTP fallback aborted');
             }
+            if (_streamAbortReason) throw _streamAbortReason;
             const { value, done } = await reader.read();
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
@@ -1221,6 +1244,7 @@ export async function sendViaHttpSse({
         if (emittedText && err) { try { err.liveTextEmitted = true; err.unsafeToRetry = true; } catch {} }
         throw err;
     } finally {
+        _clearSemanticIdle();
         try { reader.releaseLock?.(); } catch {}
         if (_onTotalAbort && totalTimeout.signal) {
             try { totalTimeout.signal.removeEventListener('abort', _onTotalAbort); } catch {}
@@ -1261,11 +1285,17 @@ export async function sendViaHttpSse({
             serviceTier,
         });
     }
+    // Dedupe the returned array by name+args (Fix 2, array side): a synthetic
+    // leaked call and an identical native function_call must not both survive,
+    // else the agent loop executes the side-effecting tool twice.
+    const _returnedToolCalls = toolCalls.length
+        ? dedupeToolCallList(toolCalls.map(({ _pendingItemId, ...t }) => t))
+        : undefined;
     return {
         content,
         model: liveModel,
         reasoningItems: reasoningItems.length ? reasoningItems : undefined,
-        toolCalls: toolCalls.length ? toolCalls.map(({ _pendingItemId, ...t }) => t) : undefined,
+        toolCalls: _returnedToolCalls,
         citations: citations.length ? citations : undefined,
         webSearchCalls: webSearchCalls.length ? webSearchCalls : undefined,
         usage: usage || undefined,
@@ -1506,7 +1536,7 @@ export class OpenAIOAuthProvider {
                     process.stderr.write('[openai-oauth] WebSocket bypassed (forced); using HTTP/SSE\n');
                 }
             } else {
-                process.stderr.write(`[openai-oauth] WebSocket unhealthy (${reason}); falling back to HTTP/SSE\n`);
+                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[openai-oauth] WebSocket unhealthy (${reason}); falling back to HTTP/SSE\n`);
             }
             const result = await sendHttp({
                 auth,

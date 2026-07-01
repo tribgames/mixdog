@@ -1,0 +1,93 @@
+{
+  "round": "cwc15-p3",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_45492_1782928227612_1782928229173_f12cb6cd58aa5a89339c168a07b43ca2",
+    "sess_8744_1782928279002_1782928280409_2430bf385e24b7a695e8dae7b44b94a7",
+    "sess_48180_1782928378728_1782928380151_52893822c2bc2a200b4370834fb3c8d9"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 51395,
+      "sessionId": "sess_45492_1782928227612_1782928229173_f12cb6cd58aa5a89339c168a07b43ca2"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 99730,
+      "sessionId": "sess_8744_1782928279002_1782928280409_2430bf385e24b7a695e8dae7b44b94a7"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 77645,
+      "sessionId": "sess_48180_1782928378728_1782928380151_52893822c2bc2a200b4370834fb3c8d9"
+    }
+  ],
+  "group": {
+    "n": 1,
+    "wall_ms": 75809,
+    "turns": 20,
+    "tool_calls": 42,
+    "tools_per_turn": 2.1,
+    "total_tool_ms": 3012,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.8,
+    "cached_tokens": 411317,
+    "prompt_tokens": 516452,
+    "uncached_tokens": 105135,
+    "output_tokens": 4307,
+    "cache_weighted_input_10": 146266.7,
+    "cache_weighted_input_25": 207964.3,
+    "prompt_growth": 9516,
+    "antipatterns": 2,
+    "issues": 2,
+    "grep_sweep_count": 1
+  },
+  "cards": [
+    {
+      "session": "sess_48180_1782928378728_1782928380151_52893822c2bc2a200b4370834fb3c8d9",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 75809,
+      "turns": 20,
+      "tool_calls": 42,
+      "tools_per_turn": 2.1,
+      "total_tool_ms": 3012,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.7964283224772098,
+      "cached_tokens": 411317,
+      "prompt_tokens": 516452,
+      "uncached_tokens": 105135,
+      "output_tokens": 4307,
+      "cache_weighted_input_10": 146266.7,
+      "cache_weighted_input_25": 207964.25,
+      "prompt_growth": 9516,
+      "antipatterns": 2,
+      "issues": 2,
+      "issue_types": [
+        "read_fragmentation",
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\session\\loop.mjs"
+      ],
+      "grep_sweep_count": 1
+    }
+  ]
+}

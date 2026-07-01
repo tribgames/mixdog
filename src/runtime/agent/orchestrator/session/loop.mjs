@@ -20,6 +20,7 @@ import {
 import {
     recallFastTrackCompactMessages,
     pruneToolOutputs,
+    pruneToolOutputsUnanchored,
     semanticCompactMessages,
     compactTypeIsRecallFastTrack,
     compactTypeIsSemantic,

@@ -1,0 +1,144 @@
+{
+  "round": "cwc14-p1",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_25452_1782927725436_1782927727051_3071a491efec5eedf9c268e7fa953ceb",
+    "sess_35328_1782927848598_1782927850023_06e47f005404159bd2decbb8f96d2698",
+    "sess_50172_1782927984187_1782927985571_f74da2ccc164236043715863f2143620"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 123159,
+      "sessionId": "sess_25452_1782927725436_1782927727051_3071a491efec5eedf9c268e7fa953ceb"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 135600,
+      "sessionId": "sess_35328_1782927848598_1782927850023_06e47f005404159bd2decbb8f96d2698"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 55689,
+      "sessionId": "sess_50172_1782927984187_1782927985571_f74da2ccc164236043715863f2143620"
+    }
+  ],
+  "group": {
+    "n": 3,
+    "wall_ms": 102716.7,
+    "turns": 24.3,
+    "tool_calls": 52,
+    "tools_per_turn": 2.1,
+    "total_tool_ms": 3363.3,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.8,
+    "cached_tokens": 554112.7,
+    "prompt_tokens": 767360,
+    "uncached_tokens": 213247.3,
+    "output_tokens": 4738.3,
+    "cache_weighted_input_10": 268658.6,
+    "cache_weighted_input_25": 351775.5,
+    "prompt_growth": 25611,
+    "antipatterns": 1.3,
+    "issues": 1.7,
+    "grep_sweep_count": 1
+  },
+  "cards": [
+    {
+      "session": "sess_25452_1782927725436_1782927727051_3071a491efec5eedf9c268e7fa953ceb",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 120805,
+      "turns": 30,
+      "tool_calls": 71,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 4222,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.6432336118348156,
+      "cached_tokens": 601426,
+      "prompt_tokens": 935004,
+      "uncached_tokens": 333578,
+      "output_tokens": 5273,
+      "cache_weighted_input_10": 393720.6,
+      "cache_weighted_input_25": 483934.5,
+      "prompt_growth": 35509,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_35328_1782927848598_1782927850023_06e47f005404159bd2decbb8f96d2698",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 133630,
+      "turns": 27,
+      "tool_calls": 55,
+      "tools_per_turn": 2,
+      "total_tool_ms": 3505,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.7178670482694053,
+      "cached_tokens": 673215,
+      "prompt_tokens": 937799,
+      "uncached_tokens": 264584,
+      "output_tokens": 4953,
+      "cache_weighted_input_10": 331905.5,
+      "cache_weighted_input_25": 432887.75,
+      "prompt_growth": 22816,
+      "antipatterns": 2,
+      "issues": 3,
+      "issue_types": [
+        "tool_error",
+        "grep_sweep",
+        "tool_churn_cluster"
+      ],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_50172_1782927984187_1782927985571_f74da2ccc164236043715863f2143620",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 53715,
+      "turns": 16,
+      "tool_calls": 30,
+      "tools_per_turn": 1.9,
+      "total_tool_ms": 2363,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.903139464727903,
+      "cached_tokens": 387697,
+      "prompt_tokens": 429277,
+      "uncached_tokens": 41580,
+      "output_tokens": 3989,
+      "cache_weighted_input_10": 80349.70000000001,
+      "cache_weighted_input_25": 138504.25,
+      "prompt_growth": 18508,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 1
+    }
+  ]
+}

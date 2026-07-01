@@ -160,13 +160,17 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
 
       let streamedText = '';
       let printedAny = false;
+      let printedToolCard = false;
       try {
         const runtime = await ensureRuntime();
         const { result } = await runtime.ask(
           line,
           {
             onToolCall: async (_iter, calls) => {
-              for (const c of calls || []) stdout.write('\n' + (await renderToolCardLazy(c)) + '\n');
+              for (const c of calls || []) {
+                printedToolCard = true;
+                stdout.write('\n' + (await renderToolCardLazy(c)) + '\n');
+              }
           },
             onTextDelta: (chunk) => {
               printedAny = true;
@@ -184,12 +188,18 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
         // raw text already on screen is fine (and we must not emit cursor escapes
         // into a pipe).
         if (finalText) {
-          if (printedAny && colorEnabled()) {
+          if (printedAny && colorEnabled() && !printedToolCard) {
             eraseStreamedBlock(streamedText);
             stdout.write(await renderMarkdownLazy(finalText) + '\n');
           } else if (!printedAny) {
             // Nothing streamed live (provider without onTextDelta) — render once.
             stdout.write(await renderMarkdownLazy(finalText) + '\n');
+          } else if (printedToolCard) {
+            // Tool cards are printed after the streamed text. Erasing only the
+            // streamed text from the current cursor position would clear/move
+            // through the card rows and make the terminal scroll jump. Keep the
+            // live transcript as-is for mixed text+tool turns.
+            stdout.write('\n');
           } else {
             // Non-TTY / NO_COLOR: leave the raw stream, just terminate the line.
             stdout.write('\n');

@@ -820,6 +820,9 @@ test('anthropic leak guard (dedupe): text-leaked call + identical native tool_us
     assert.equal(captured.length, 1);
     assert.equal(captured[0].name, 'shell');
     assert.deepEqual(captured[0].arguments, { command: 'ls' });
+    // ...and the RETURNED array carries exactly one — else the loop would
+    // execute the side-effecting tool twice (Fix 2 array side).
+    assert.equal(result.toolCalls.length, 1);
 });
 
 test('openai-compat (chat) leak guard (dedupe): text-leaked call + identical native tool_calls → onToolCall fires ONCE', async () => {
@@ -840,8 +843,11 @@ test('openai-compat (chat) leak guard (dedupe): text-leaked call + identical nat
     assert.equal(captured.length, 1);
     assert.equal(captured[0].name, 'read');
     assert.deepEqual(captured[0].arguments, { path: 'a' });
-    // out.toolCalls holds both the synthetic and native entries, but onToolCall
-    // (the actual dispatch) fired exactly once.
+    // The RETURNED array is deduped too (Fix 2 array side): the agent loop
+    // executes returned toolCalls, so a synthetic+native duplicate here would
+    // run the side-effecting tool twice. Exactly one must survive.
+    assert.equal(out.toolCalls.length, 1);
+    assert.equal(out.toolCalls[0].name, 'read');
 });
 
 // --- Fix 3: bare `antml:invoke` in prose (no `<`) → streamed, not held ------
@@ -871,4 +877,31 @@ test('anthropic leak guard (bare-antml CONTROL): <invoke> bracket form still rec
     assert.equal(captured.length, 1);
     assert.equal(captured[0].name, 'read');
     assert.deepEqual(captured[0].arguments, { path: 'z' });
+});
+
+// --- Reviewer Medium: suppressed call args must NOT poison fence state -------
+// A recovered/suppressed leaked call whose args contain an unmatched backtick
+// must not leave the markdown fence "open" and wrongly suppress a LATER real
+// leaked call as if it were inside a code span.
+test('anthropic leak guard (fence): unmatched backtick inside a suppressed call\'s args does not swallow a later real call', async () => {
+    // First leaked call carries a lone backtick in its arg value; second is a
+    // clean leaked call that MUST still be recovered.
+    const first = '<invoke name="read"><parameter name="path">a`b</parameter></invoke>';
+    const between = ' some visible prose ';
+    const second = '<invoke name="shell"><parameter name="command">ls</parameter></invoke>';
+    const texts = [];
+    const captured = [];
+    const result = await anthropicParseSSEStream(
+        anthropicSseResponse(textDeltaEvents([first + between + second])),
+        null, () => {}, () => {}, (c) => captured.push(c), {}, (t) => texts.push(t), LEAK_TOOLS,
+    );
+    // BOTH leaked calls recovered — the stray backtick in call #1's args did
+    // not open a fence that suppressed call #2.
+    assert.equal(captured.length, 2);
+    assert.equal(result.toolCalls.length, 2);
+    assert.deepEqual(captured.map((c) => c.name), ['read', 'shell']);
+    // The in-between prose streamed; the tag/arg text did not leak.
+    assert.equal(texts.join('').includes('some visible prose'), true);
+    assert.equal(texts.join('').includes('<invoke'), false);
+    assert.equal(texts.join('').includes('`'), false);
 });

@@ -719,6 +719,39 @@ export function pruneToolOutputs(messages, budgetTokens, opts = {}) {
     return reconcileDedupStubs(result);
 }
 
+// Anchor-independent tool-output prune (loop overflow safety net).
+//
+// pruneToolOutputs protects the most-recent tailTurns of USER-anchored history,
+// so a single-turn transcript with no user boundary yields protectFrom=0 and
+// prunes nothing. This variant needs no user anchor: it middle-truncates the
+// OLDEST oversized tool_result bodies first, walking forward, until the
+// transcript fits the budget. The newest tool_result is truncated last (and
+// only if still necessary) so fresh state is preserved as long as possible.
+// Structure/pairing is preserved (only string content shrinks), and the result
+// is re-reconciled so tool pairing stays provider-valid.
+export function pruneToolOutputsUnanchored(messages, budgetTokens, opts = {}) {
+    const budget = effectiveBudget(budgetTokens, opts);
+    let result = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
+    if (estimateMessagesTokens(result) <= budget) return result;
+
+    const maxChars = Math.max(256, Number(opts?.maxToolOutputChars) || PRUNE_TOOL_OUTPUT_MAX_CHARS);
+    // Oldest -> newest so recent tool output survives longest. No user-turn
+    // protection: every oversized tool_result is a candidate.
+    for (let i = 0; i < result.length; i += 1) {
+        const m = result[i];
+        if (m?.role !== 'tool' || typeof m.content !== 'string') continue;
+        if (m.content.length <= maxChars) continue;
+        result[i] = {
+            ...m,
+            content: pruneToolOutputText(m.content, maxChars, m.toolCallId),
+            compacted: true,
+            compactedKind: 'tool_output_prune',
+        };
+        if (estimateMessagesTokens(result) <= budget) break;
+    }
+    return reconcileDedupStubs(result);
+}
+
 function preserveRecentBudget(budget, opts = {}) {
     const maxForBudget = Math.max(1, Math.floor(Number(budget || 0) * 0.8));
     const explicit = Number(opts.preserveRecentTokens ?? opts.keepTokens);
@@ -783,14 +816,29 @@ function splitLiveCompactionContext(messages) {
     return { system: protectedPrefix, live, previousSummary, sanitized };
 }
 
-function selectCompactionWindow(messages, budget, opts = {}) {
-    const { system, live, previousSummary } = splitLiveCompactionContext(messages);
-    if (!userIndexes(live).length) throw new Error('semanticCompactMessages: no user turn to preserve');
+// A tail may begin ONLY at an index that is not a tool result: a tool result
+// must stay paired with the assistant tool_call that precedes it, so it can
+// never be the first message of the preserved tail. Every other role (user /
+// assistant / developer / ...) is a valid tail boundary. This replaces the old
+// "the tail must begin at a real user turn" rule, which threw whenever the
+// recent window carried no user message (single-turn agent sessions whose tail
+// is assistant/tool only).
+function findValidCutIndices(live) {
+    const out = [];
+    for (let i = 0; i < live.length; i += 1) {
+        if (live[i]?.role === 'tool') continue;
+        out.push(i);
+    }
+    return out;
+}
 
-    const tailTurns = Math.max(1, Number(opts.tailTurns) || DEFAULT_TAIL_TURNS);
-    const recentBudget = preserveRecentBudget(budget, opts);
+// User-anchored path (unchanged behaviour): keep up to tailTurns recent turns
+// bounded by recentBudget, splitting the newest turn's suffix when it alone is
+// too large. Preserved verbatim so Lead / normal sessions with real user turns
+// compact exactly as before.
+function selectTailStartByTurns(live, recentBudget, tailTurns, previousSummary, opts) {
     const indexedTurns = indexLiveTurns(live);
-    if (indexedTurns.length === 0) throw new Error('semanticCompactMessages: no user turn to preserve');
+    if (indexedTurns.length === 0) return live.length;
 
     let tailStartIdx = live.length;
     let keptTurns = 0;
@@ -839,21 +887,70 @@ function selectCompactionWindow(messages, budget, opts = {}) {
             }
         }
     }
+    return tailStartIdx;
+}
+
+// No-user path: pick the tail boundary from valid cut points. Walk newest ->
+// oldest, growing the tail across valid cut points while its suffix still fits
+// recentBudget, and stop before it overflows. Never anchors on a user turn, so
+// an assistant/tool-only single-turn transcript still yields a head to
+// summarize and a paired tail to keep.
+function selectTailStartByCutPoint(live, recentBudget, previousSummary) {
+    const validCuts = findValidCutIndices(live);
+    if (validCuts.length === 0) return live.length; // degenerate: only tool results
+
+    let chosen = null;
+    for (let k = validCuts.length - 1; k >= 0; k -= 1) {
+        const idx = validCuts[k];
+        if (estimateMessagesTokens(live.slice(idx)) <= recentBudget) {
+            chosen = idx; // fits — try to grow the tail toward an older cut
+            continue;
+        }
+        break; // this cut overflows recentBudget; keep the previous (newer) choice
+    }
+
+    if (chosen === null) {
+        // Even the newest valid cut's suffix exceeds recentBudget (a single huge
+        // message run). Keep the minimal tail from the newest valid cut so a head
+        // remains to summarize; if that cut is at index 0 there is nothing to
+        // split off, so keep everything in the head instead. The oversized tail
+        // is tolerated downstream (mandatory-cost budget raise) rather than
+        // throwing.
+        const newestCut = validCuts[validCuts.length - 1];
+        return newestCut > 0 ? newestCut : live.length;
+    }
+
+    if (chosen <= 0) {
+        // Whole transcript would become the tail => nothing to compact. With no
+        // prior summary to build on, pull the tail start forward to the next
+        // valid cut so the leading message(s) become the compactable head.
+        if (!previousSummary && validCuts.length >= 2) return validCuts[1];
+        return chosen;
+    }
+    return chosen;
+}
+
+function selectCompactionWindow(messages, budget, opts = {}) {
+    const { system, live, previousSummary } = splitLiveCompactionContext(messages);
+    const tailTurns = Math.max(1, Number(opts.tailTurns) || DEFAULT_TAIL_TURNS);
+    const recentBudget = preserveRecentBudget(budget, opts);
+
+    const tailStartIdx = userIndexes(live).length
+        ? selectTailStartByTurns(live, recentBudget, tailTurns, previousSummary, opts)
+        : selectTailStartByCutPoint(live, recentBudget, previousSummary);
 
     const head = live.slice(0, tailStartIdx);
     let tail = live.slice(tailStartIdx);
+    // sanitizeToolPairs/dedup/reconcile repairs any orphan tool_result the cut
+    // may have left; because valid cut points never start on a tool result, an
+    // assistant tool_call and its trailing tool_results always land on the same
+    // side of the boundary, so pairing stays provider-valid.
     tail = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(tail)));
 
+    // Only a genuinely empty live window is unrecoverable. Absence of a user
+    // turn in the tail is no longer an error.
     if (!head.length && !tail.length) {
-        throw new Error('semanticCompactMessages: no user turn to preserve');
-    }
-    if (tail.length && !tail.some((m) => m?.role === 'user')) {
-        const lastUserIdx = live.findLastIndex
-            ? live.findLastIndex((m) => m?.role === 'user')
-            : (() => { for (let i = live.length - 1; i >= 0; i -= 1) { if (live[i]?.role === 'user') return i; } return -1; })();
-        if (lastUserIdx < 0 || lastUserIdx >= tailStartIdx) {
-            throw new Error('semanticCompactMessages: no user turn to preserve');
-        }
+        throw new Error('semanticCompactMessages: nothing to compact (empty live window)');
     }
 
     const preservedFacts = extractPreservedFacts(head);

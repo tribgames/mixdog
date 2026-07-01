@@ -30,6 +30,11 @@ import { backgroundTaskFailureStatusLabel, isBackgroundErrorOnlyBody } from '../
 import { formatExpandedResult, wrapExpandedResultLines } from './tool-output-format.mjs';
 
 const MIN_RESULT_LINE_CHARS = 24;
+// Hard cap for the collapsed result detail row (the second line under the ⎿
+// gutter). Independent of terminal width so a wide terminal never lets a long
+// line (e.g. an agent response brief) stretch the whole row — anything past
+// this is truncated with an ellipsis. ctrl+o expand still shows the full body.
+const RESULT_LINE_HARD_MAX = 80;
 // Hard cap for the parenthesized header arg summary so a long path/query does
 // not eat the whole header line; anything longer is truncated with an ellipsis.
 const SUMMARY_MAX_CHARS = 48;
@@ -190,6 +195,18 @@ function resultTerminalStatus(value) {
   return normalizeTerminalStatus(inline);
 }
 
+const LEADING_STATUS_MARKER_LINE_RE = /^\[status:\s*[^\]]*\]\s*$/i;
+
+function stripLeadingStatusMarkerLines(lines) {
+  const out = Array.isArray(lines) ? lines.slice() : [];
+  if (out.length > 0 && LEADING_STATUS_MARKER_LINE_RE.test(String(out[0] ?? '').trim())) out.shift();
+  return out;
+}
+
+function stripLeadingStatusMarkerFromText(text) {
+  return stripLeadingStatusMarkerLines(String(text || '').split('\n')).join('\n');
+}
+
 function shellDisplayStatus({ pending = false, failedCount = 0, isError = false, result = '' } = {}) {
   const status = shellResultStatus(result);
   if (pending || /^(running|pending|queued)$/.test(status)) return 'running';
@@ -223,7 +240,7 @@ function statusCopy(name, label, count, doneCount, pending, isError, args = {}) 
 }
 
 function fitResultLine(line, columns) {
-  const max = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
+  const max = Math.min(RESULT_LINE_HARD_MAX, Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7));
   const text = safeInlineText(line);
   return displayWidth(text) > max ? truncateToWidth(text, max) : text;
 }
@@ -735,7 +752,18 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
       detailText = '';
     }
 
-    const dotColor = !hasResult && !pending ? theme.subtle : statusColor;
+    // statusColor (line ~650) is computed WITHOUT terminalStatus, so it stays
+    // success even for a cancelled/failed aggregate. The non-aggregate path adds
+    // terminalStatus far below (line ~880), after this early return. Recompute
+    // the aggregate dot color here from what the aggregate actually controls:
+    // the collapsed detail `rt` (which carries the `[status: cancelled]` marker
+    // for a cancelled aggregate) plus isError/failedCount for failures. Pending
+    // stays success; a clean completion stays success (no marker, no errors).
+    const aggregateTerminalStatus = pending
+      ? 'running'
+      : (resultTerminalStatus(rt) || (isError || failedCount > 0 ? 'failed' : 'completed'));
+    const aggregateStatusColor = toolStatusColor({ pending, groupCount, failedCount, terminalStatus: aggregateTerminalStatus });
+    const dotColor = !hasResult && !pending ? theme.subtle : aggregateStatusColor;
     const dotText = pending && !blinkExpired && !blinkOn ? ' ' : TURN_MARKER;
     const gutter = 2;
     const showHeaderExpandHint = hasRawResult;
@@ -813,21 +841,23 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const backgroundResultText = backgroundMeta?.hasResponse ? backgroundMeta.body : '';
   const displayedResultText = backgroundResultText || (errorOnlyResult ? '' : (rt || ''));
   const hasDisplayResult = Boolean(String(displayedResultText || '').trim());
-  const lines = displayedResultText ? displayedResultText.split('\n') : [];
+  const displayedResultBodyText = stripLeadingStatusMarkerFromText(displayedResultText);
+  const hasDisplayBody = Boolean(String(displayedResultBodyText || '').trim());
+  const lines = displayedResultBodyText ? displayedResultBodyText.split('\n') : [];
   const totalLines = lines.length;
   // Semantic one-line summary derived purely from name/args/result text.
   // Shown in the collapsed, non-error view in place of the raw result block.
   // Grouped cards ("Searched N files" / "Read N files") get the same treatment
   // as single calls: a one-line semantic summary stands in for the raw block.
-  const resultSummary = !pending && hasDisplayResult
-    ? surfaceSummarizeToolResult(name, args, displayedResultText, isError)
+  const resultSummary = !pending && hasDisplayBody
+    ? surfaceSummarizeToolResult(name, args, displayedResultBodyText, isError)
     : null;
   // Same fit budget fitResultLine() uses, to detect a line that will be clipped.
-  const maxResultChars = Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7);
+  const maxResultChars = Math.min(RESULT_LINE_HARD_MAX, Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7));
   const resultColor = theme.text;
   const firstResultLine = hasDisplayResult ? String(lines[0] ?? '') : '';
-  const firstResultLineClipped = hasDisplayResult && stringWidth(firstResultLine) > maxResultChars;
-  const hasHiddenDetail = !pending && hasDisplayResult && (totalLines > 1 || firstResultLineClipped || Boolean(resultSummary));
+  const firstResultLineClipped = hasDisplayBody && stringWidth(firstResultLine) > maxResultChars;
+  const hasHiddenDetail = !pending && hasDisplayBody && (totalLines > 1 || firstResultLineClipped || Boolean(resultSummary));
   const shellStatus = isShellSurface ? shellDisplayStatus({ pending, failedCount, isError, result: displayedResultText }) : '';
   const shellElapsed = isShellSurface ? (shellResultElapsed(displayedResultText) || elapsed) : '';
   const backgroundElapsed = backgroundMeta
@@ -895,10 +925,10 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
       ? prefixElapsed(mergeTerminalDetail(shellStatus, shellCollapsedSummary), shellElapsed)
       : mergeTerminalDetail(terminalStatus, nonShellDetail);
   const backgroundMetadataExpandable = isBackgroundMetadataResult && hasRawResult && !pending;
-  const showRawResult = expanded && (hasDisplayResult || hasRawResult)
+  const showRawResult = expanded && (hasDisplayBody || hasRawResult)
     && (!isBackgroundMetadataResult || hasRawResult);
   const detailLines = showRawResult
-    ? (hasDisplayResult ? lines : (rawRt ? rawRt.split('\n') : []))
+    ? (hasDisplayBody ? lines : (rawRt ? stripLeadingStatusMarkerLines(rawRt.split('\n')) : []))
     : (collapsedDetail ? [collapsedDetail] : []);
   const isPendingPlaceholderDetail = !showRawResult && Boolean(pendingDetailPlaceholder);
   const detailColor = isPendingPlaceholderDetail ? theme.subtle : theme.text;
@@ -969,6 +999,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // hasHiddenDetail, which goes true for any single-line resultSummary and would
   // wrongly show ctrl+o on a status-only one-liner that has nothing to expand.
   const shellHasExpandableBody = isShellSurface && !pending && hasDisplayResult
+    && hasDisplayBody
     && (totalLines > 1 || firstResultLineClipped || Boolean(shellCollapsedSummary && shellCollapsedSummary !== firstResultLine));
   const showHeaderExpandHint = (isShellSurface ? shellHasExpandableBody : (isAgentSurfaceCard ? agentHasExpandableBody : (hasHiddenDetail || backgroundMetadataExpandable)))
     && normalizedName !== 'tool_search';
@@ -1039,7 +1070,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
 
       <ResultBody
         lines={visibleDetailLines}
-        rawText={hasDisplayResult ? displayedResultText : (rawRt || '')}
+        rawText={hasDisplayBody ? displayedResultBodyText : stripLeadingStatusMarkerFromText(rawRt || '')}
         pathArg={toolArgPath}
         isShell={isShellSurface}
         columns={columns}

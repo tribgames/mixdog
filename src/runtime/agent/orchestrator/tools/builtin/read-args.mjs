@@ -1,19 +1,9 @@
 import { existsSync } from 'fs';
 import { normalizeInputPath, resolveAgainstCwd } from './path-utils.mjs';
-import { parseLineLimitArg } from './read-formatting.mjs';
-
-const READ_LINE_CONTEXT_DEFAULT = 20;
-const READ_LINE_CONTEXT_MAX = 200;
 
 export function parseReadLineNumberArg(value) {
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
-}
-
-export function parseReadLineContextArg(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return READ_LINE_CONTEXT_DEFAULT;
-    return Math.min(READ_LINE_CONTEXT_MAX, Math.max(0, Math.trunc(n)));
 }
 
 export function parseReadPathLineSpec(rawPath) {
@@ -51,7 +41,6 @@ export function normalizePathAndStripLineCoordinate(rawPath, workDir) {
 
 export function normaliseReadLineWindowArgs(inputArgs, workDir) {
     const args = { ...inputArgs };
-    let lineNo = parseReadLineNumberArg(args.line);
     let pathLineRange = null;
     if (typeof args.path === 'string' && args.path) {
         const spec = resolveExistingPathLineCoordinate(args.path, workDir);
@@ -61,48 +50,21 @@ export function normaliseReadLineWindowArgs(inputArgs, workDir) {
                 return args;
             }
             args.path = spec.path;
-            if (!lineNo) lineNo = spec.lineNo;
             if (spec.endLine) pathLineRange = { startLine: spec.lineNo, endLine: spec.endLine };
+            else pathLineRange = { startLine: spec.lineNo, endLine: spec.lineNo };
         }
     }
     const isFullMode = !args.mode || args.mode === 'full';
-    // line= and offset= are ALTERNATIVE window anchors. Prefer an explicit line
-    // anchor and drop stale paging fields instead of failing the tool call: LLM
-    // callers commonly carry optional offset/limit defaults from a previous
-    // shape. When context is explicit, limit is part of the stale paging family
-    // too; otherwise line+limit remains a supported "start at line, cap rows"
-    // shorthand below.
-    if (isFullMode && lineNo && args.context !== undefined && args.context !== null) {
-        delete args.offset;
-        delete args.limit;
-    } else if (isFullMode && lineNo && args.offset !== undefined && args.offset !== null) {
-        delete args.offset;
-    }
-    if (isFullMode && lineNo) {
-        if (pathLineRange && args.context === undefined && (args.limit === undefined || args.limit === null)) {
-            args.offset = Math.max(0, pathLineRange.startLine - 1);
+    // Public Read args are offset/limit only. Keep a narrow private
+    // compatibility path for file#Lx/file:line strings by converting them into
+    // offset/limit; do not interpret line/context fields here.
+    if (isFullMode && pathLineRange && args.offset === undefined) {
+        args.offset = Math.max(0, pathLineRange.startLine - 1);
+        if (args.limit === undefined) {
             args.limit = Math.max(1, pathLineRange.endLine - pathLineRange.startLine + 1);
-        } else {
-            const contextExplicit = args.context !== undefined && args.context !== null;
-            const limitExplicit = args.limit !== undefined && args.limit !== null;
-            const context = parseReadLineContextArg(args.context);
-            if (limitExplicit && !contextExplicit) {
-                // Explicit limit, no explicit context: anchor the window AT the
-                // requested line so it is always included. (Was: offset centered
-                // by the default context, which a small limit then truncated to
-                // exclude the very line the caller asked for.)
-                args.offset = Math.max(0, lineNo - 1);
-                args.limit = parseLineLimitArg(args.limit, (context * 2) + 1);
-            } else {
-                const limit = limitExplicit
-                    ? parseLineLimitArg(args.limit, (context * 2) + 1)
-                    : (context * 2) + 1;
-                args.offset = Math.max(0, lineNo - context - 1);
-                args.limit = limit;
-            }
         }
-        delete args.line;
-        delete args.context;
     }
+    delete args.line;
+    delete args.context;
     return args;
 }

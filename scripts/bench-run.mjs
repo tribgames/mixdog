@@ -112,6 +112,46 @@ function scoreSessions(ids) {
   return JSON.parse(i >= 0 ? s.slice(i) : s);
 }
 
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(0, ms));
+}
+
+function scoreSession(sessionId, { attempts = 5 } = {}) {
+  let lastError = null;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const raw = execFileSync('node', [TASK_BENCH, '--session', sessionId, '--json'], {
+        encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+      });
+      const s = raw.replace(/^\uFEFF/, '');
+      const j = JSON.parse(s.slice(Math.max(0, s.indexOf('{'))));
+      const card = Array.isArray(j.cards) ? j.cards.find((c) => c?.session === sessionId) || j.cards[0] : null;
+      if (card) return { ok: true, card };
+      lastError = new Error(`no scorecard returned for ${sessionId}`);
+    } catch (e) {
+      lastError = e;
+    }
+    sleepMs(250 * (i + 1));
+  }
+  return { ok: false, error: lastError?.message || String(lastError || 'score failed') };
+}
+
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function averageCards(cards) {
+  if (!cards.length) return null;
+  const keys = Object.keys(cards[0]).filter((k) => cards.some((c) => typeof c[k] === 'number' && Number.isFinite(c[k])));
+  const out = { n: cards.length };
+  for (const k of keys) {
+    const vals = cards.map((c) => num(c[k]));
+    out[k] = Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+  }
+  return out;
+}
+
 // ---- main ----
 const tasksPath = argValue('--tasks', null);
 if (!tasksPath) {
@@ -156,24 +196,58 @@ for (const task of tasks) {
   try { r = runner(task, opts); }
   catch (e) { console.error(`[bench-run] runner error: ${e.message}`); process.exit(1); }
   process.stderr.write(`[bench-run]   -> ${r.ok ? 'ok' : 'FAIL'} ${Math.round(r.ms / 1000)}s session=${r.sessionId || '(none)'}\n`);
-  results.push({ id: task.id || null, agent: task.agent || null, ok: r.ok, ms: r.ms, sessionId: r.sessionId });
+  const result = { id: task.id || null, agent: task.agent || null, ok: r.ok, ms: r.ms, sessionId: r.sessionId };
+  if (r.sessionId) {
+    const scored = scoreSession(r.sessionId);
+    if (scored.ok) {
+      result.card = scored.card;
+      process.stderr.write(`[bench-run]   -> scored ${r.sessionId.slice(0, 22)} turns=${scored.card.turns} tools=${scored.card.tool_calls}\n`);
+    } else {
+      result.scoreError = scored.error;
+      process.stderr.write(`[bench-run]   -> SCORE FAIL ${r.sessionId.slice(0, 22)} ${scored.error}\n`);
+    }
+  }
+  results.push(result);
 }
 
 const sessionIds = results.map((r) => r.sessionId).filter(Boolean);
-const score = sessionIds.length ? scoreSessions(sessionIds) : null;
+const scoredCards = results.map((r) => r.card).filter(Boolean);
+const scoreErrors = results
+  .filter((r) => !r.card)
+  .map((r) => ({ id: r.id, sessionId: r.sessionId || null, error: r.sessionId ? (r.scoreError || 'missing scorecard') : 'missing sessionId' }));
+const score = scoredCards.length ? { cards: scoredCards, group: averageCards(scoredCards.map(({ session, ...c }) => c)) } : null;
 const completed = results.filter((r) => r.ok).length;
+const taskErrors = results
+  .filter((r) => !r.ok)
+  .map((r) => ({ id: r.id, sessionId: r.sessionId || null, error: 'task failed' }));
 const roundResult = {
   round, runner: runnerName, opts,
   tasks: results.length, completed,
   completion_rate: results.length ? Math.round((completed / results.length) * 100) : 0,
   sessions: sessionIds, results,
+  task_complete: results.length > 0 && completed === results.length,
+  task_errors: taskErrors,
+  score_complete: results.length > 0 && taskErrors.length === 0 && scoreErrors.length === 0 && (score?.cards?.length || 0) === results.length,
+  score_errors: scoreErrors,
   group: score?.group || null,
   cards: score?.cards || null,
 };
 
+if (roundResult.task_complete === false) {
+  console.error(`[bench-run] incomplete tasks: completed=${completed}/${results.length}`);
+  for (const e of taskErrors) console.error(`[bench-run] task error ${e.id || '-'} ${e.sessionId || '(no session)'}`);
+}
+if (roundResult.score_complete === false) {
+  console.error(`[bench-run] incomplete scoring: scored=${roundResult.cards?.length || 0}/${results.length}`);
+  for (const e of scoreErrors) console.error(`[bench-run] score error ${e.id || '-'} ${e.sessionId || '(no session)'}: ${e.error}`);
+}
 if (savePath) {
+  if (roundResult.task_complete === false || roundResult.score_complete === false) {
+    console.error(`[bench-run] not saving incomplete round -> ${resolve(savePath)}`);
+  } else {
   writeFileSync(resolve(savePath), JSON.stringify(roundResult, null, 2));
   console.error(`[bench-run] saved round ${round} -> ${resolve(savePath)}`);
+  }
 }
 if (jsonMode) {
   console.log(JSON.stringify(roundResult, null, 2));
@@ -185,3 +259,4 @@ if (jsonMode) {
     console.log(`group: wall=${Math.round((g.wall_ms || 0) / 1000)}s turns=${g.turns} tools=${g.tool_calls} tpt=${g.tools_per_turn} tool_ms=${Math.round((g.total_tool_ms || 0) / 1000)}s cache=${Math.round((g.cache_ratio || 0) * 100)}% antipatterns=${g.antipatterns}`);
   }
 }
+if (roundResult.task_complete === false || roundResult.score_complete === false) process.exit(1);

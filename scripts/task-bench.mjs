@@ -152,6 +152,7 @@ function renderDiff(before, after) {
 
 // ---- main ----
 const jsonMode = hasFlag('--json');
+const allowPartial = hasFlag('--allow-partial');
 const vs = argValue('--vs', null);
 
 if (vs) {
@@ -170,24 +171,34 @@ if (vs) {
 }
 
 const sessionArg = argValue('--session', null);
-if (!sessionArg) { console.error('usage: --session <id[,id2,...]> [--group] [--save file.json] [--json]  |  --vs before.json after.json'); process.exit(1); }
+if (!sessionArg) { console.error('usage: --session <id[,id2,...]> [--group] [--save file.json] [--json] [--allow-partial]  |  --vs before.json after.json'); process.exit(1); }
 const ids = sessionArg.split(',').map((s) => s.trim()).filter(Boolean);
 const cards = [];
+const skipped = [];
 for (const id of ids) {
   try { cards.push({ session: id, ...scorecard(runSessionBench(id)) }); }
-  catch (e) { console.error(`skip ${id}: ${e.message}`); }
+  catch (e) {
+    skipped.push({ session: id, error: e.message || String(e) });
+    console.error(`skip ${id}: ${e.message}`);
+  }
 }
 if (!cards.length) { console.error('no sessions scored'); process.exit(1); }
+if (skipped.length && !allowPartial) {
+  const partial = { error: `only scored ${cards.length}/${ids.length} sessions`, sessions: ids, skipped, cards, group: averageCards(cards.map(({ session, ...c }) => c)) };
+  if (jsonMode) console.log(JSON.stringify(partial, null, 2));
+  else console.error(partial.error);
+  process.exit(1);
+}
 
 const group = hasFlag('--group') || argValue('--save', null);
 const groupCard = averageCards(cards.map(({ session, ...c }) => c));
 const savePath = argValue('--save', null);
 if (savePath) {
-  writeFileSync(resolve(savePath), JSON.stringify({ sessions: ids, cards, group: groupCard }, null, 2));
+  writeFileSync(resolve(savePath), JSON.stringify({ sessions: ids, cards, skipped, group: groupCard }, null, 2));
   console.error(`saved group (n=${cards.length}) → ${resolve(savePath)}`);
 }
 if (jsonMode) {
-  console.log(JSON.stringify({ cards, group: groupCard }, null, 2));
+  console.log(JSON.stringify({ cards, skipped, group: groupCard }, null, 2));
 } else if (group) {
   console.log(renderCard(`group (n=${cards.length})`, groupCard));
 } else {

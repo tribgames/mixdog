@@ -1,0 +1,146 @@
+{
+  "round": "cwc14-p4",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_52072_1782927725843_1782927727471_019108c4bedb9d48aa54af852d0a92cd",
+    "sess_43340_1782927801712_1782927803191_f6f4ee14f7f3532d0a82e2b1a140ac93",
+    "sess_51440_1782927874371_1782927875803_c1c1e72e830ec6efe2a4b0f8a7c590dd"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 75908,
+      "sessionId": "sess_52072_1782927725843_1782927727471_019108c4bedb9d48aa54af852d0a92cd"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 72660,
+      "sessionId": "sess_43340_1782927801712_1782927803191_f6f4ee14f7f3532d0a82e2b1a140ac93"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 70539,
+      "sessionId": "sess_51440_1782927874371_1782927875803_c1c1e72e830ec6efe2a4b0f8a7c590dd"
+    }
+  ],
+  "group": {
+    "n": 3,
+    "wall_ms": 71079.3,
+    "turns": 15,
+    "tool_calls": 34.3,
+    "tools_per_turn": 2.3,
+    "total_tool_ms": 1948,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.6,
+    "cached_tokens": 189261.7,
+    "prompt_tokens": 307647.3,
+    "uncached_tokens": 118385.7,
+    "output_tokens": 3514.3,
+    "cache_weighted_input_10": 137311.8,
+    "cache_weighted_input_25": 165701.1,
+    "prompt_growth": 8039.7,
+    "antipatterns": 1.3,
+    "issues": 1.7,
+    "grep_sweep_count": 0.7
+  },
+  "cards": [
+    {
+      "session": "sess_52072_1782927725843_1782927727471_019108c4bedb9d48aa54af852d0a92cd",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 73659,
+      "turns": 19,
+      "tool_calls": 43,
+      "tools_per_turn": 2.3,
+      "total_tool_ms": 2145,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.5820479451567712,
+      "cached_tokens": 245541,
+      "prompt_tokens": 421857,
+      "uncached_tokens": 176316,
+      "output_tokens": 3923,
+      "cache_weighted_input_10": 200870.1,
+      "cache_weighted_input_25": 237701.25,
+      "prompt_growth": 19382,
+      "antipatterns": 2,
+      "issues": 3,
+      "issue_types": [
+        "grep_sweep",
+        "missed_parallelism",
+        "tool_churn_cluster"
+      ],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_43340_1782927801712_1782927803191_f6f4ee14f7f3532d0a82e2b1a140ac93",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 70815,
+      "turns": 14,
+      "tool_calls": 33,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 2083,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.614860274181361,
+      "cached_tokens": 193665,
+      "prompt_tokens": 314974,
+      "uncached_tokens": 121309,
+      "output_tokens": 3377,
+      "cache_weighted_input_10": 140675.5,
+      "cache_weighted_input_25": 169725.25,
+      "prompt_growth": 11979,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_51440_1782927874371_1782927875803_c1c1e72e830ec6efe2a4b0f8a7c590dd",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 68764,
+      "turns": 12,
+      "tool_calls": 27,
+      "tools_per_turn": 2.3,
+      "total_tool_ms": 1616,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.6908726512672545,
+      "cached_tokens": 128579,
+      "prompt_tokens": 186111,
+      "uncached_tokens": 57532,
+      "output_tokens": 3243,
+      "cache_weighted_input_10": 70389.9,
+      "cache_weighted_input_25": 89676.75,
+      "prompt_growth": -7242,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "read_fragmentation"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\session\\context-utils.mjs"
+      ],
+      "grep_sweep_count": 0
+    }
+  ]
+}

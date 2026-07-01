@@ -49,8 +49,7 @@ function _guardedReadError(p, helpers) {
 }
 
 // Reachability preflight for EVERY read shape (scalar / array / reads[]). MUST
-// run before any sync FS — including line-coordinate disambiguation (existsSync
-// in readPathStringGuardError / normaliseReadLineWindowArgs) and the image
+// run before any sync FS — including path normalization and the image
 // stat/read. A dead mount would otherwise freeze the event loop, defeating even
 // the 630s dispatch ceiling.
 async function _readReachPreflight(rawPath, workDir, helpers) {
@@ -58,10 +57,9 @@ async function _readReachPreflight(rawPath, workDir, helpers) {
         normalizeInputPath, resolveAgainstCwd,
     } = helpers;
     // A guarded path (UNC/SMB, Windows device, ADS, /dev/* block) must be
-    // REJECTED here, not skipped: skipping would let the later sync existsSync
-    // line-coordinate disambiguation (normaliseReadLineWindowArgs /
-    // readPathStringGuardError) touch it and trigger NTLM/raw-device access or
-    // hang. Reject up front with the same message the inline guards emit.
+    // REJECTED here, not skipped: skipping would let the later sync guard/open
+    // path touch it and trigger NTLM/raw-device access or hang. Reject up front
+    // with the same message the inline guards emit.
     // normalizeInputPath FIRST (FS-pure) so we stat the same path the real read
     // opens (e.g. /mnt/z/... -> Z:\...). Reachability is per-mount/dir, so the
     // line-coordinate strip only needs to land in the right directory — exact
@@ -113,7 +111,7 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
     }
     args.path = coerceShapeFlex(args.path);
     // Reachability preflight up front (all shapes) — before readPathStringGuardError /
-    // normaliseReadLineWindowArgs / image stat, all of which can touch sync FS.
+    // image stat, all of which can touch sync FS.
     {
         const _reErr = await _readReachPreflight(args.path, workDir, helpers);
         if (_reErr) return _reErr;
@@ -186,8 +184,6 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
                 }
             }
             if (r?.limit !== undefined) entry.limit = r.limit;
-            if (r?.line !== undefined) entry.line = r.line;
-            if (r?.context !== undefined) entry.context = r.context;
             if (r?.full !== undefined) entry.full = r.full;
             entry = normaliseReadLineWindowArgs(entry, workDir);
             return entry;
@@ -235,8 +231,6 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
             if (args.n !== undefined) entry.n = args.n;
             if (args.offset !== undefined) entry.offset = args.offset;
             if (args.limit !== undefined) entry.limit = args.limit;
-            if (args.line !== undefined) entry.line = args.line;
-            if (args.context !== undefined) entry.context = args.context;
             if (args.full !== undefined) entry.full = args.full;
             entry = normaliseReadLineWindowArgs(entry, workDir);
             return entry;
@@ -464,14 +458,13 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
                 if (span.note) args._symbolReadNote = `symbol ${sym}: ${span.note}`;
             }
         }
-        // A window (offset/limit/line or a path:line coordinate) beats a glance
+        // A window (offset/limit or a path:line coordinate) beats a glance
         // mode (head/tail/summary), which would otherwise read from a file end and
-        // silently drop the window. Drop the glance mode BEFORE line-window
-        // normalization so a line / path:line coordinate is actually converted to
-        // offset/limit (normaliseReadLineWindowArgs only converts when no mode is
-        // set). count/hex are not text-window ops and keep their mode.
+        // silently drop the window. Drop the glance mode BEFORE path:line
+        // compatibility normalization so any path coordinate is converted to
+        // offset/limit. count/hex are not text-window ops and keep their mode.
         {
-            const _win = args.offset != null || args.limit != null || args.line != null || hasLineCoordinate(args.path);
+            const _win = args.offset != null || args.limit != null || hasLineCoordinate(args.path);
             if (_win && (args.mode === 'head' || args.mode === 'tail' || args.mode === 'summary')) {
                 args = { ...args, mode: undefined };
             }

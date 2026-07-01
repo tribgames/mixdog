@@ -1,0 +1,90 @@
+{
+  "round": "cwc15-p1",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_43892_1782928227410_1782928229007_7162727cd8621ee02d43d8124bfa042e",
+    "sess_26620_1782928277557_1782928278971_dc31bb221831286b5360b9e22261e0a8",
+    "sess_22440_1782928373721_1782928375205_738f4136c7d1b8f3b54b49c6083a3df5"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 50156,
+      "sessionId": "sess_43892_1782928227410_1782928229007_7162727cd8621ee02d43d8124bfa042e"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 96157,
+      "sessionId": "sess_26620_1782928277557_1782928278971_dc31bb221831286b5360b9e22261e0a8"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 82331,
+      "sessionId": "sess_22440_1782928373721_1782928375205_738f4136c7d1b8f3b54b49c6083a3df5"
+    }
+  ],
+  "group": {
+    "n": 1,
+    "wall_ms": 73459,
+    "turns": 20,
+    "tool_calls": 44,
+    "tools_per_turn": 2.2,
+    "total_tool_ms": 2860,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.8,
+    "cached_tokens": 445429,
+    "prompt_tokens": 574598,
+    "uncached_tokens": 129169,
+    "output_tokens": 3610,
+    "cache_weighted_input_10": 173711.9,
+    "cache_weighted_input_25": 240526.3,
+    "prompt_growth": 33692,
+    "antipatterns": 1,
+    "issues": 1,
+    "grep_sweep_count": 1
+  },
+  "cards": [
+    {
+      "session": "sess_22440_1782928373721_1782928375205_738f4136c7d1b8f3b54b49c6083a3df5",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 73459,
+      "turns": 20,
+      "tool_calls": 44,
+      "tools_per_turn": 2.2,
+      "total_tool_ms": 2860,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.7752010971148525,
+      "cached_tokens": 445429,
+      "prompt_tokens": 574598,
+      "uncached_tokens": 129169,
+      "output_tokens": 3610,
+      "cache_weighted_input_10": 173711.9,
+      "cache_weighted_input_25": 240526.25,
+      "prompt_growth": 33692,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 1
+    }
+  ]
+}

@@ -814,6 +814,14 @@ function toolItemPendingForRows(item) {
 }
 
 // Mirror ToolExecution displayedResultText for row estimates (agent brief, etc.).
+const LEADING_STATUS_MARKER_LINE_RE = /^\[status:\s*[^\]]*\]\s*$/i;
+
+function stripLeadingStatusMarkerFromTextForRows(text) {
+  const lines = String(text || '').split('\n');
+  if (lines.length > 0 && LEADING_STATUS_MARKER_LINE_RE.test(String(lines[0] ?? '').trim())) lines.shift();
+  return lines.join('\n');
+}
+
 function toolDisplayedResultTextForRows(item) {
   const rt = item?.result == null ? '' : String(item.result).replace(/\s+$/, '');
   const bgArgs = backgroundArgsForRows(item?.args);
@@ -822,9 +830,11 @@ function toolDisplayedResultTextForRows(item) {
   const normalizedName = String(normalizeToolName(item?.name) || '').toLowerCase();
   if (!toolItemPendingForRows(item) && isBackgroundTaskToolName(normalizedName)) {
     const meta = parseBackgroundTaskResultForRows(rt);
-    if (meta?.hasResponse && String(meta.body || '').trim()) return String(meta.body);
+    if (meta?.hasResponse && String(meta.body || '').trim()) {
+      return stripLeadingStatusMarkerFromTextForRows(String(meta.body));
+    }
   }
-  return errorOnlyResult ? '' : (rt || '');
+  return stripLeadingStatusMarkerFromTextForRows(errorOnlyResult ? '' : (rt || ''));
 }
 
 function toolHasDisplayResultForRows(item) {
@@ -846,7 +856,7 @@ function toolExpandedRawTextForRows(item, rawRt) {
   if (item?.aggregate) return rawRt;
   const hasDisplayResult = toolHasDisplayResultForRows(item);
   if (hasDisplayResult) return toolDisplayedResultTextForRows(item);
-  return rawRt;
+  return stripLeadingStatusMarkerFromTextForRows(rawRt || '');
 }
 
 function toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult) {
@@ -2799,13 +2809,14 @@ export function App({ store, initialStatusLine = '' }) {
     const result = store.abort?.();
     if (result?.aborted === false) return undefined;
     if (result?.pastedImages) installPastedImages(result.pastedImages, { merge: true });
+    if (result?.discardPastedImages) clearPastedImagesSnapshot(result.discardPastedImages);
     const restoreText = String(result?.restoreText || '').trim();
     if (!restoreText) return undefined;
     const existingText = String(currentText || '').trim();
     const nextText = [restoreText, existingText].filter(Boolean).join('\n');
     clearPromptHint();
     return nextText;
-  }, [store, clearPromptHint, installPastedImages]);
+  }, [store, clearPromptHint, installPastedImages, clearPastedImagesSnapshot]);
 
   // Ctrl+O toggles the global tool-output expansion, matching common terminal-chat
   // expectation that this is a view mode rather than a per-card hidden state.
@@ -3739,6 +3750,7 @@ export function App({ store, initialStatusLine = '' }) {
       help: returnTo ? '↑/↓ Select · Enter Choose · Esc Settings' : '↑/↓ Select · Enter Choose · Esc Back',
       labelWidth: 18,
       items,
+      confirmBar: options.confirmBar || null,
       onSelect: (_value, item) => {
         const style = item?._style;
         if (!style) return;
@@ -3805,6 +3817,7 @@ export function App({ store, initialStatusLine = '' }) {
       labelWidth: 22,
       initialIndex: Math.max(0, items.findIndex((item) => item.value === currentId)),
       items,
+      confirmBar: options.confirmBar || null,
       // Live preview while moving: apply (no persist) so the surface re-tones
       // as the selection moves. Enter persists; Esc restores the original.
       onHighlight: (_value, item) => {
@@ -4728,7 +4741,7 @@ export function App({ store, initialStatusLine = '' }) {
     }
 
     const items = [];
-    if (returnTo || onContinue) {
+    if ((returnTo || onContinue) && !options.confirmBar) {
       items.push({
         value: 'continue-setup',
         label: options.continueLabel || 'Continue setup',
@@ -5132,6 +5145,7 @@ export function App({ store, initialStatusLine = '' }) {
       pickerKey: `providers-main:${options.highlightProviderValue || 'root'}`,
       initialIndex: providerMainInitialIndex(),
       items,
+      confirmBar: options.confirmBar || null,
       onHighlight: (_value, item) => {
         if (item?._providerId) rememberProviderSelection(item);
       },
@@ -5541,6 +5555,8 @@ export function App({ store, initialStatusLine = '' }) {
       setChannelPrompt(prompt);
     };
 
+    const channelRemoteEnabled = store.isRemoteEnabled?.() === true;
+
     if (focus === 'schedules') {
       const schedules = setup.schedules || [];
       const items = [
@@ -5550,8 +5566,8 @@ export function App({ store, initialStatusLine = '' }) {
           value: `schedule:${schedule.name}`,
           label: schedule.name,
           marker: enabled ? '●' : '○',
-          markerColor: enabled ? theme.success : theme.inactive,
-          description: `${schedule.time || '(no cron)'} · ${schedule.route}${schedule.model ? ` · ${schedule.model}` : ''}`,
+          markerColor: channelRemoteEnabled ? (enabled ? theme.success : theme.inactive) : theme.inactive,
+          description: `${schedule.time || '(no cron)'} · ${schedule.route}${schedule.model ? ` · ${schedule.model}` : ''}${channelRemoteEnabled ? '' : ' · channel off'}`,
           _action: 'schedule-toggle',
           _name: schedule.name,
           _enabled: enabled,
@@ -5565,6 +5581,10 @@ export function App({ store, initialStatusLine = '' }) {
       ];
       const toggleSchedule = (item) => {
         if (item._action !== 'schedule-toggle') return;
+        if (!channelRemoteEnabled) {
+          store.pushNotice('enable channel first', 'warn');
+          return;
+        }
         try {
           store.setScheduleEnabled?.(item._name, !item._enabled);
           void openChannelSetupPicker('schedules', { highlightValue: `schedule:${item._name}` });
@@ -5574,7 +5594,7 @@ export function App({ store, initialStatusLine = '' }) {
       };
       setPicker({
         title: 'Schedules',
-        description: 'Enable or disable cron schedules.',
+        description: channelRemoteEnabled ? 'Enable or disable cron schedules.' : 'Enable channel to toggle schedules.',
         initialIndex: Math.max(0, items.findIndex((entry) => entry.value === options.highlightValue)),
         items,
         onSelect: (_value, item) => toggleSchedule(item),
@@ -5653,8 +5673,8 @@ export function App({ store, initialStatusLine = '' }) {
             value: `webhook:${hook.name}`,
             label: hook.name,
             marker: enabled ? '●' : '○',
-            markerColor: enabled ? theme.success : theme.inactive,
-            description: `${hook.parser || 'github'} · ${hook.route} · secret:${hook.secretSet ? 'set' : 'missing'}`,
+            markerColor: channelRemoteEnabled ? (enabled ? theme.success : theme.inactive) : theme.inactive,
+            description: `${hook.parser || 'github'} · ${hook.route} · secret:${hook.secretSet ? 'set' : 'missing'}${channelRemoteEnabled ? '' : ' · channel off'}`,
             _action: 'webhook-toggle',
             _name: hook.name,
             _enabled: enabled,
@@ -5668,6 +5688,10 @@ export function App({ store, initialStatusLine = '' }) {
       ];
       const toggleWebhook = (item) => {
         if (item._action !== 'webhook-toggle') return;
+        if (!channelRemoteEnabled) {
+          store.pushNotice('enable channel first', 'warn');
+          return;
+        }
         try {
           store.setWebhookEnabled?.(item._name, !item._enabled);
           void openChannelSetupPicker('webhooks', { highlightValue: `webhook:${item._name}` });
@@ -5677,7 +5701,7 @@ export function App({ store, initialStatusLine = '' }) {
       };
       setPicker({
         title: 'Webhooks',
-        description: 'Enable or disable inbound webhook endpoints.',
+        description: channelRemoteEnabled ? 'Enable or disable inbound webhook endpoints.' : 'Enable channel to toggle webhooks.',
         initialIndex: Math.max(0, items.findIndex((entry) => entry.value === options.highlightValue)),
         items,
         onSelect: (_value, item) => toggleWebhook(item),
@@ -8518,6 +8542,7 @@ export function App({ store, initialStatusLine = '' }) {
                 visibleCount={pickerVisibleRows}
                 fillHeight={expandedOptionPanel}
                 themeEpoch={state.themeEpoch || 0}
+                confirmBar={picker.confirmBar}
               />
             ) : contextPanel ? (
               <ContextPanel

@@ -33,6 +33,7 @@ import {
 } from './agent-task-status.mjs';
 import { AGENT_OWNER } from '../runtime/agent/orchestrator/agent-owner.mjs';
 import { clearGatewaySessionRoute, writeGatewaySessionRoute } from '../vendor/statusline/src/gateway/session-routes.mjs';
+import { isKnownProvider } from './provider-admin.mjs';
 
 const STANDALONE_SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -48,6 +49,11 @@ const DEFAULT_AGENT_PRESETS = Object.freeze({
   reviewer: 'opus-xhigh',
   debugger: 'opus-xhigh',
 });
+
+// Mirrors DEFAULT_PROVIDER in mixdog-session-runtime.mjs. Used only as the
+// last-resort fallback when a stored agent route omits its provider and the
+// config carries no defaultProvider.
+const DEFAULT_PROVIDER = 'anthropic-oauth';
 
 export const AGENT_TOOL = {
   name: 'agent',
@@ -287,8 +293,8 @@ function synthesizePreset(config, key) {
   };
 }
 
-function normalizeAgentRoute(routeLike) {
-  const provider = clean(routeLike?.provider);
+function normalizeAgentRoute(routeLike, fallbackProvider = '') {
+  const provider = clean(routeLike?.provider) || clean(fallbackProvider);
   const model = clean(routeLike?.model);
   if (!provider || !model) return null;
   return {
@@ -1074,9 +1080,13 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     }
 
     const agentName = normalizeAgentName(args.agent);
+    const configuredDefault = clean(config?.defaultProvider);
+    const fallbackProvider = configuredDefault && isKnownProvider(configuredDefault)
+      ? configuredDefault
+      : DEFAULT_PROVIDER;
     const agentRoute = !clean(args.preset)
-      ? (normalizeAgentRoute(config?.agents?.[agentName])
-        || (agentName === 'maintainer' ? normalizeAgentRoute(config?.agents?.maintenance) : null))
+      ? (normalizeAgentRoute(config?.agents?.[agentName], fallbackProvider)
+        || (agentName === 'maintainer' ? normalizeAgentRoute(config?.agents?.maintenance, fallbackProvider) : null))
       : null;
     if (agentRoute) {
       return {
@@ -1689,6 +1699,22 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       return finalValue;
     } catch (error) {
       finalStatus = 'error';
+      // Part C: a mid-stream stall (StreamStalledError / ESTREAMSTALL) throws
+      // here WITHOUT a terminal result, so the finally reconcile below (gated on
+      // _terminalResultValue) would be skipped and only the outer task-reject
+      // path would notify. Belt-and-suspenders: reconcile this job to `failed`
+      // now so the owner (Lead) always gets a failure notification instead of a
+      // task stranded in `running`. Idempotent — completeBackgroundTask no-ops
+      // once terminal, so the outer reject path can't double-notify.
+      if (job?.taskId && job._terminalResultValue === undefined) {
+        try {
+          reconcileBackgroundTask(job.taskId, {
+            status: 'failed',
+            error: presentErrorText(error, { surface: 'agent' }),
+            terminalReason: 'agent-stream-stalled',
+          });
+        } catch {}
+      }
       throw error;
     } finally {
       watchdog?.stop?.();
@@ -1803,6 +1829,18 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       return finalValue;
     } catch (error) {
       finalStatus = 'error';
+      // Part C (send path mirror): a mid-stream stall throws with no terminal
+      // result — reconcile to `failed` so the owner is notified rather than the
+      // task hanging in `running`. Idempotent (see runSpawn note).
+      if (job?.taskId && job._terminalResultValue === undefined) {
+        try {
+          reconcileBackgroundTask(job.taskId, {
+            status: 'failed',
+            error: presentErrorText(error, { surface: 'agent' }),
+            terminalReason: 'agent-stream-stalled',
+          });
+        } catch {}
+      }
       throw error;
     } finally {
       watchdog?.stop?.();

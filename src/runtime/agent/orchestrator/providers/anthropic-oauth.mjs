@@ -25,8 +25,9 @@ import {
     PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
     PROVIDER_RETRY_BACKOFF_MS,
     PROVIDER_RETRY_MAX_ATTEMPTS,
-    PROVIDER_SSE_IDLE_TIMEOUT_MS,
     PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
+    PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
+    streamStalledError,
     createPassthroughSignal,
 } from '../stall-policy.mjs';
 import {
@@ -961,7 +962,16 @@ function _anthropicSseError(event) {
 async function parseSSEStream(response, signal, abortStream, onStreamDelta, onToolCall, state, onTextDelta, knownToolNames) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    const SSE_IDLE_TIMEOUT_MS = PROVIDER_SSE_IDLE_TIMEOUT_MS;
+    // SEMANTIC idle window: reset only by real model events (message/content/
+    // tool deltas), NOT by raw keepalive bytes. A ping-only wedge therefore
+    // trips this within the window instead of hanging until the 30-min agent
+    // watchdog. See resetIdleTimer + the per-event reset in the loop below.
+    // state.semanticIdleTimeoutMs is a test/override seam (same shape as
+    // firstMessageTimeoutMs); production uses the shared env-backed default.
+    const SSE_IDLE_TIMEOUT_MS = Number.isFinite(Number(state?.semanticIdleTimeoutMs))
+        && Number(state.semanticIdleTimeoutMs) > 0
+        ? Number(state.semanticIdleTimeoutMs)
+        : PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
     const SSE_FIRST_MESSAGE_TIMEOUT_MS = Number.isFinite(Number(state?.firstMessageTimeoutMs))
         && Number(state.firstMessageTimeoutMs) > 0
         ? Number(state.firstMessageTimeoutMs)
@@ -1105,13 +1115,14 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
             // pending forever and the SSE idle timeout never unblocks the loop —
             // the 391s-hang root cause.
             if (idleReject) {
-                const e = new Error(`Anthropic OAuth SSE stream timed out after ${SSE_IDLE_TIMEOUT_MS}ms of inactivity`);
-                e.code = 'ETIMEDOUT';
+                const e = streamStalledError('Anthropic OAuth SSE', SSE_IDLE_TIMEOUT_MS);
                 const r = idleReject; idleReject = null; r(e);
             }
-        // Shared provider policy: short inter-chunk inactivity catches the
-        // sess_9cfd11-class stuck pattern where SSE starts but then goes silent.
+        // Shared provider policy: short SEMANTIC-event inactivity catches the
+        // ping-only wedge where SSE starts, emits some deltas, then goes silent
+        // while `:ping` keepalives keep the transport socket warm.
         }, SSE_IDLE_TIMEOUT_MS);
+        try { idleTimer.unref?.(); } catch {}
     };
 
     const onAbort = () => {
@@ -1144,9 +1155,7 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
                 });
             } catch (err) {
                 if (idleTimedOut) {
-                    const idleErr = new Error(`Anthropic OAuth SSE stream timed out after ${SSE_IDLE_TIMEOUT_MS}ms of inactivity`);
-                    idleErr.code = 'ETIMEDOUT';
-                    throw idleErr;
+                    throw streamStalledError('Anthropic OAuth SSE', SSE_IDLE_TIMEOUT_MS);
                 }
                 if (firstMessageTimedOut) {
                     throw firstMessageTimeoutError();
@@ -1162,7 +1171,6 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
             const { done, value } = chunk;
             if (done) break;
 
-            resetIdleTimer();
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
             buffer = lines.pop() || '';
@@ -1173,8 +1181,15 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
                     // at transport level only: comments must not refresh the
                     // agent's semantic progress timestamp, or a ping-only 200
                     // can look alive forever without message_start/content.
+                    // Crucially it also does NOT reset the SEMANTIC idle timer
+                    // below — a ping-only wedge must trip the idle abort.
                     continue;
                 }
+                // Blank lines are SSE record separators — emitted after EVERY
+                // frame, including `:ping` keepalives — so they are NOT semantic
+                // progress and must not reset the idle timer (else a ping frame's
+                // trailing blank would keep a wedge alive forever).
+                if (line === '') continue;
                 if (line.startsWith('event: ')) {
                     currentEvent = line.slice(7).trim();
                     continue;
@@ -1185,6 +1200,18 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
 
                 try {
                     const event = JSON.parse(data);
+
+                    // SEMANTIC idle reset (Part A): reset the idle timer ONLY for
+                    // real progress events, NOT for Anthropic keepalives. Anthropic
+                    // sends pings as a NAMED event (`event: ping` /
+                    // `data: {"type":"ping"}`), not just `:` comment frames, so a
+                    // named ping must be excluded here or a ping-only wedge keeps
+                    // the timer alive forever. Everything that is not a ping is a
+                    // genuine server event (message_start/content/tool/thinking
+                    // deltas, message_delta/stop, errors) and counts as progress.
+                    if (currentEvent !== 'ping' && event?.type !== 'ping') {
+                        resetIdleTimer();
+                    }
 
                     if (currentEvent === 'error' || event?.type === 'error' || event?.error) {
                         throw _anthropicSseError(event);
@@ -1301,18 +1328,23 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
                                 name: pending.name,
                                 arguments: parsedArgs,
                             };
-                            toolCalls.push(call);
                             pendingToolInputs.delete(event.index);
-                            if (state) state.emittedToolCall = true;
                             // Eager dispatch: let the loop start this tool
                             // before message_stop arrives. The loop keys
                             // pending promises by call.id so order is safe.
-                            // Fix 2: skip if a text-leaked synthetic of the same
-                            // (name,args) already dispatched. An invalid-args
-                            // marker never fingerprint-collides with a real
-                            // recovered call, so malformed native calls still
+                            // Fix 2: skip the ENTIRE call (push + dispatch) when a
+                            // text-leaked synthetic of the same (name,args) already
+                            // fired — otherwise the duplicate stays in `toolCalls`
+                            // and the loop executes the side-effecting tool twice.
+                            // An invalid-args marker never fingerprint-collides with
+                            // a real recovered call, so malformed native calls still
                             // dispatch (the marker path is unaffected).
                             if (_toolDedupe.shouldDispatch(call.name, call.arguments)) {
+                                toolCalls.push(call);
+                                if (state) state.emittedToolCall = true;
+                                // Eager dispatch: let the loop start this tool
+                                // before message_stop arrives. The loop keys
+                                // pending promises by call.id so order is safe.
                                 try { onToolCall?.(call); } catch {}
                             }
                             try { onStreamDelta?.(); } catch {}
