@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { createRequire } from 'node:module';
 import { loadConfig } from '../config.mjs';
 import { sanitizeToolPairs, sanitizeAnthropicContentPairs } from '../session/context-utils.mjs';
 import { classifyError, midstreamBackoffFor, sleepWithAbort, withRetry } from './retry-classifier.mjs';
@@ -18,6 +18,16 @@ import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropi
 import { normalizeContentForAnthropic } from './media-normalization.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
+
+const require = createRequire(import.meta.url);
+let _Anthropic = null;
+function loadAnthropic() {
+    if (!_Anthropic) {
+        const mod = require('@anthropic-ai/sdk');
+        _Anthropic = mod.default || mod.Anthropic || mod;
+    }
+    return _Anthropic;
+}
 
 // Abort-aware mid-stream backoff sleep → shared sleepWithAbort
 // (retry-classifier.mjs). abortMessage preserves the prior fallback text.
@@ -406,7 +416,7 @@ export class AnthropicProvider {
         this.config = config;
         this.name = config.name || 'anthropic';
         const betaHeaders = config.disableBetaHeaders ? null : buildAnthropicBetaHeaders({ toolSearch: true });
-        this.client = new Anthropic({
+        this.client = new (loadAnthropic())({
             apiKey: config.apiKey || process.env.ANTHROPIC_API_KEY,
             ...(config.baseURL ? { baseURL: config.baseURL } : {}),
             defaultHeaders: { ...(betaHeaders ? { 'anthropic-beta': betaHeaders } : {}), ...(config.extraHeaders || {}) },
@@ -420,7 +430,7 @@ export class AnthropicProvider {
             if (newKey) {
                 this.config = { ...(this.config || {}), ...(cfg || {}), apiKey: newKey };
                 const betaHeaders = this.config.disableBetaHeaders ? null : buildAnthropicBetaHeaders({ toolSearch: true });
-                this.client = new Anthropic({
+                this.client = new (loadAnthropic())({
                     apiKey: newKey,
                     ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
                     defaultHeaders: { ...(betaHeaders ? { 'anthropic-beta': betaHeaders } : {}), ...(this.config.extraHeaders || {}) },
@@ -498,6 +508,14 @@ export class AnthropicProvider {
             // Anthropic prefix semantics (order: tools → system → messages).
             params.tools = [...nativeTools, ...toAnthropicTools([...(tools || []), ...deferredAnthropicTools(tools || [], opts)])];
         }
+        // Known tool names for the shared parseSSEStream leaked-tool-call guard
+        // (same guard fixes both Anthropic providers). Recovered leaked calls
+        // are only synthesized when they name a tool actually offered here.
+        const knownToolNames = new Set(
+            (Array.isArray(params.tools) ? params.tools : [])
+                .map((t) => (t && typeof t.name === 'string' ? t.name : null))
+                .filter(Boolean),
+        );
         // Effort → extended thinking budget. Gateway inherit mode may pass the
         // exact OAuth client budget from the incoming Anthropic request.
         const thinkingBudgetTokens = Number(opts.thinkingBudgetTokens);
@@ -698,6 +716,7 @@ export class AnthropicProvider {
                         onToolCall,
                         midState,
                         onTextDelta,
+                        knownToolNames,
                     );
 
                     if (firstBytePoll) {

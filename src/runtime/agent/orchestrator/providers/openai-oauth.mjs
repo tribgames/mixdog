@@ -36,6 +36,7 @@ import {
 import { populateHttpStatusFromMessage, shouldFallbackTransport } from './retry-classifier.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
+import { createLeakGuard, createToolCallDedupe } from './anthropic-leaked-toolcall.mjs';
 import {
     normalizeContentForOpenAIResponses,
     splitToolContentForOpenAIResponses,
@@ -885,11 +886,73 @@ export async function sendViaHttpSse({
     // first complete frame still emits; only redundant re-emits are
     // suppressed.
     const emittedToolCallIds = new Set();
+    // Fix 2: cross-path name+args dedupe. A text-leaked synthetic and an
+    // identical native function_call must fire onToolCall exactly once.
+    const _toolDedupe = createToolCallDedupe();
     const emitToolCall = (call) => {
         if (!call || !call.id) return;
         if (emittedToolCallIds.has(call.id)) return;
         emittedToolCallIds.add(call.id);
+        if (!_toolDedupe.shouldDispatch(call.name, call.arguments)) return;
         try { onToolCall?.(call); } catch {}
+    };
+
+    // Leaked tool-call guard. The model sometimes emits a tool call as plain
+    // text (XML `<invoke>`/`<function_calls>` or gpt-oss harmony
+    // `<|channel|>...to=functions.NAME...<|call|>`) inside
+    // `response.output_text.delta` instead of a native function_call. Route
+    // text through the guard so leaked calls are suppressed from the visible
+    // stream, synthesized (native `call_...` id shape), and dispatched like
+    // native ones. Known tool names come from the request body so recovery
+    // only fires for tools the model was actually offered. Additive: the
+    // native function_call path is untouched.
+    const _leakKnownTools = new Set(
+        (Array.isArray(body?.tools) ? body.tools : [])
+            .map((t) => (typeof t?.name === 'string' ? t.name : null))
+            .filter(Boolean),
+    );
+    const leakGuard = createLeakGuard({ knownToolNames: _leakKnownTools, harmony: true });
+    const dispatchLeakedCall = (recovered) => {
+        let args = recovered?.arguments;
+        if (args === null || typeof args !== 'object' || Array.isArray(args)) args = {};
+        const call = {
+            id: `call_leaked_${randomBytes(8).toString('hex')}`,
+            name: recovered.name,
+            arguments: args,
+        };
+        toolCalls.push(call);
+        emitToolCall(call);
+    };
+    const relayLeakText = (delta) => {
+        if (!leakGuard.enabled) {
+            content += delta || '';
+            if (delta && onTextDelta) {
+                emittedText = true;
+                try { onTextDelta(delta); } catch {}
+            }
+            return;
+        }
+        const { text, calls } = leakGuard.push(delta);
+        if (text) {
+            content += text;
+            if (onTextDelta) {
+                emittedText = true;
+                try { onTextDelta(text); } catch {}
+            }
+        }
+        for (const c of calls) dispatchLeakedCall(c);
+    };
+    const flushLeak = () => {
+        if (!leakGuard.enabled) return;
+        const { text, calls } = leakGuard.flush();
+        if (text) {
+            content += text;
+            if (onTextDelta) {
+                emittedText = true;
+                try { onTextDelta(text); } catch {}
+            }
+        }
+        for (const c of calls) dispatchLeakedCall(c);
     };
 
     const pushWebSearchCall = (item) => {
@@ -949,12 +1012,8 @@ export async function sendViaHttpSse({
                 if (event.response?.id) responseId = event.response.id;
                 break;
             case 'response.output_text.delta':
-                content += event.delta || '';
                 meaningful();
-                if (event.delta && onTextDelta) {
-                    emittedText = true;
-                    try { onTextDelta(event.delta); } catch {}
-                }
+                relayLeakText(event.delta || '');
                 break;
             case 'response.reasoning_text.delta':
             case 'response.reasoning_summary_text.delta':
@@ -1030,7 +1089,20 @@ export async function sendViaHttpSse({
                 for (const item of resp.output || []) {
                     if (item.type === 'message') {
                         for (const part of item.content || []) {
-                            if (!content && part.type === 'output_text') content += part.text || '';
+                            if (!content && part.type === 'output_text') {
+                                // Completed-output fallback (no streamed text).
+                                // Route through the leak guard so a tool call
+                                // leaked only in the final bundle is recovered
+                                // rather than surfaced as visible content. push
+                                // with final=true flushes fully (no held tail).
+                                if (leakGuard.enabled) {
+                                    const { text, calls } = leakGuard.push(part.text || '', true);
+                                    content += text;
+                                    for (const c of calls) dispatchLeakedCall(c);
+                                } else {
+                                    content += part.text || '';
+                                }
+                            }
                             if (part.type === 'output_text') _pushOutputTextAnnotations(part, citations, citationKeys);
                         }
                     } else if (item.type === 'reasoning') {
@@ -1140,6 +1212,9 @@ export async function sendViaHttpSse({
             const event = _parseSseFrame(frame);
             if (event) handleEvent(event);
         }
+        // Flush any partial-sentinel tail held back mid-stream so legitimate
+        // trailing text is never lost (streamed-text path).
+        flushLeak();
     } catch (err) {
         // Live-text invariant: once a non-empty chunk has been relayed it
         // cannot be withdrawn — flag the error so no upstream layer retries.
@@ -1389,6 +1464,26 @@ export class OpenAIOAuthProvider {
             this._forceHttpFallback = true;
             this._forceHttpFallbackUntil = Date.now() + ttlMs;
         };
+        const traceWsError = (err, stage = 'primary') => {
+            try {
+                appendAgentTrace({
+                    sessionId: poolKey,
+                    iteration,
+                    kind: 'transport_error',
+                    provider: 'openai-oauth',
+                    model: useModel,
+                    transport: 'websocket',
+                    payload: {
+                        stage,
+                        error_code: err?.code || null,
+                        error_http_status: Number(err?.httpStatus || 0) || null,
+                        error_classifier: err?.retryClassifier || err?.midstreamClassifier || null,
+                        live_text_emitted: err?.liveTextEmitted === true || err?.unsafeToRetry === true,
+                        message: String(err?.message || err || '').slice(0, 500),
+                    },
+                });
+            } catch {}
+        };
         const dispatchHttp = async (reason, originalErr = null, { sticky = false } = {}) => {
             appendAgentTrace({
                 sessionId: poolKey,
@@ -1464,6 +1559,7 @@ export class OpenAIOAuthProvider {
             if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok\n`); }
             return recordLiveModel(result);
         } catch (err) {
+            traceWsError(err, 'primary');
             const status = err?.httpStatus;
             // Live-text invariant: if the WS attempt already relayed a
             // non-empty text chunk to the client, NO recovery path may reissue
@@ -1482,6 +1578,7 @@ export class OpenAIOAuthProvider {
                     if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok\n`); }
                     return recordLiveModel(result);
                 } catch (retryErr) {
+                    traceWsError(retryErr, 'auth_retry');
                     if (_shouldUseOpenAIHttpFallback(retryErr, externalSignal)) {
                         try {
                             return await dispatchHttp(

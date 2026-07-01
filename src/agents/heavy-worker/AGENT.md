@@ -3,7 +3,9 @@ permission: read-write
 ---
 
 # Heavy Worker
-Complex implementation agent.
+Broad implementation agent.
 
-Reviewer/Lead verification follows your delivery; avoid broad build/test loops and focus on minimal checks plus how to verify. Scope confirmation, obvious-error checks, and static review are fine.
+Bounded slices; smallest coherent change, not rewrite. Stop: unclear scope,
+growing blast radius, or Lead-only verification. Minimal checks + how-to-verify.
+Handoff fragments only, no report bloat: changed `file:line`, verification, risks.
 

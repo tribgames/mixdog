@@ -1,0 +1,142 @@
+{
+  "round": "cwc9-p2",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_51444_1782925528039_1782925530055_52ad8db2d105a4455157cc35a720c5e9",
+    "sess_42820_1782925565505_1782925566992_465750c2b7840c8fdf45f6be5e201cee",
+    "sess_53224_1782925608911_1782925610381_cae061ef3b3ca1ccafe92267a8b33d3f"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 37478,
+      "sessionId": "sess_51444_1782925528039_1782925530055_52ad8db2d105a4455157cc35a720c5e9"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 43390,
+      "sessionId": "sess_42820_1782925565505_1782925566992_465750c2b7840c8fdf45f6be5e201cee"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 69490,
+      "sessionId": "sess_53224_1782925608911_1782925610381_cae061ef3b3ca1ccafe92267a8b33d3f"
+    }
+  ],
+  "group": {
+    "n": 3,
+    "wall_ms": 47901.7,
+    "turns": 13.3,
+    "tool_calls": 28.7,
+    "tools_per_turn": 2.2,
+    "total_tool_ms": 2514,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.4,
+    "cached_tokens": 99953.3,
+    "prompt_tokens": 256493.3,
+    "uncached_tokens": 156540,
+    "output_tokens": 3145.3,
+    "cache_weighted_input_10": 166535.3,
+    "cache_weighted_input_25": 181528.3,
+    "prompt_growth": 6459.3,
+    "antipatterns": 0.7,
+    "issues": 0.7,
+    "grep_sweep_count": 0.3
+  },
+  "cards": [
+    {
+      "session": "sess_51444_1782925528039_1782925530055_52ad8db2d105a4455157cc35a720c5e9",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 35071,
+      "turns": 11,
+      "tool_calls": 26,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 2365,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.44974388376796437,
+      "cached_tokens": 71382,
+      "prompt_tokens": 158717,
+      "uncached_tokens": 87335,
+      "output_tokens": 2452,
+      "cache_weighted_input_10": 94473.2,
+      "cache_weighted_input_25": 105180.5,
+      "prompt_growth": 8421,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "read_fragmentation"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\standalone\\hook-bus.mjs"
+      ],
+      "grep_sweep_count": 0
+    },
+    {
+      "session": "sess_42820_1782925565505_1782925566992_465750c2b7840c8fdf45f6be5e201cee",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 41253,
+      "turns": 11,
+      "tool_calls": 24,
+      "tools_per_turn": 2.2,
+      "total_tool_ms": 2674,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.30832369385000963,
+      "cached_tokens": 63971,
+      "prompt_tokens": 207480,
+      "uncached_tokens": 143509,
+      "output_tokens": 3236,
+      "cache_weighted_input_10": 149906.1,
+      "cache_weighted_input_25": 159501.75,
+      "prompt_growth": -4782,
+      "antipatterns": 0,
+      "issues": 0,
+      "issue_types": [],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 0
+    },
+    {
+      "session": "sess_53224_1782925608911_1782925610381_cae061ef3b3ca1ccafe92267a8b33d3f",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 67381,
+      "turns": 18,
+      "tool_calls": 36,
+      "tools_per_turn": 2,
+      "total_tool_ms": 2503,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.407919500698021,
+      "cached_tokens": 164507,
+      "prompt_tokens": 403283,
+      "uncached_tokens": 238776,
+      "output_tokens": 3748,
+      "cache_weighted_input_10": 255226.7,
+      "cache_weighted_input_25": 279902.75,
+      "prompt_growth": 15739,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 1
+    }
+  ]
+}

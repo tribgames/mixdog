@@ -1,0 +1,118 @@
+{
+  "round": "cwc7-p1",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_45388_1782923478163_1782923479759_5c391567ac66bd8f964525a3ebfe2e49",
+    "sess_27992_1782923507168_1782923508526_1093acba2cea19eea034d321ff4956ed",
+    "sess_26020_1782923572513_1782923574000_cbb40d4bd50ab06f18528fb79cdfbc97"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 29007,
+      "sessionId": "sess_45388_1782923478163_1782923479759_5c391567ac66bd8f964525a3ebfe2e49"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 65443,
+      "sessionId": "sess_27992_1782923507168_1782923508526_1093acba2cea19eea034d321ff4956ed"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 49537,
+      "sessionId": "sess_26020_1782923572513_1782923574000_cbb40d4bd50ab06f18528fb79cdfbc97"
+    }
+  ],
+  "group": {
+    "n": 3,
+    "wall_ms": 45922.7,
+    "turns": 12,
+    "tool_calls": 32.3,
+    "tools_per_turn": 2.7,
+    "total_tool_ms": 1793,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.4,
+    "cached_tokens": 97980.7,
+    "prompt_tokens": 231923,
+    "prompt_growth": 6360,
+    "antipatterns": 0.7,
+    "issues": 0.7
+  },
+  "cards": [
+    {
+      "session": "sess_45388_1782923478163_1782923479759_5c391567ac66bd8f964525a3ebfe2e49",
+      "wall_ms": 26960,
+      "turns": 9,
+      "tool_calls": 26,
+      "tools_per_turn": 2.9,
+      "total_tool_ms": 1983,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.349497694040256,
+      "cached_tokens": 48879,
+      "prompt_tokens": 139855,
+      "prompt_growth": -11821,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "read_fragmentation"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\standalone\\hook-bus.mjs"
+      ]
+    },
+    {
+      "session": "sess_27992_1782923507168_1782923508526_1093acba2cea19eea034d321ff4956ed",
+      "wall_ms": 63285,
+      "turns": 16,
+      "tool_calls": 43,
+      "tools_per_turn": 2.7,
+      "total_tool_ms": 1940,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.43855200142714035,
+      "cached_tokens": 159793,
+      "prompt_tokens": 364365,
+      "prompt_growth": 23915,
+      "antipatterns": 0,
+      "issues": 0,
+      "issue_types": [],
+      "read_fragmentation_paths": []
+    },
+    {
+      "session": "sess_26020_1782923572513_1782923574000_cbb40d4bd50ab06f18528fb79cdfbc97",
+      "wall_ms": 47523,
+      "turns": 11,
+      "tool_calls": 28,
+      "tools_per_turn": 2.5,
+      "total_tool_ms": 1456,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.44516024620332134,
+      "cached_tokens": 85270,
+      "prompt_tokens": 191549,
+      "prompt_growth": 6986,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "read_fragmentation"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\session\\context-utils.mjs"
+      ]
+    }
+  ]
+}

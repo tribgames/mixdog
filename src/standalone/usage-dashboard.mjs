@@ -29,7 +29,7 @@ function clean(value) {
 
 function money(value) {
   const n = Number(value);
-  if (!Number.isFinite(n)) return 'n/a';
+  if (!Number.isFinite(n)) return 'N/A';
   if (n === 0) return '$0';
   if (n >= 10) return `$${n.toFixed(0)}`;
   if (n >= 1) return `$${n.toFixed(2)}`;

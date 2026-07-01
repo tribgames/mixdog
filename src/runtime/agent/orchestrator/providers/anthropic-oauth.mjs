@@ -42,6 +42,7 @@ import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropi
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { normalizeContentForAnthropic } from './media-normalization.mjs';
 import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
+import { scanLeakedToolCalls, createToolCallDedupe } from './anthropic-leaked-toolcall.mjs';
 
 // --- Model catalog cache helpers ---
 // Disk-backed cache so repeated process starts (cron, tool calls) don't
@@ -957,7 +958,7 @@ function _anthropicSseError(event) {
     return err;
 }
 
-async function parseSSEStream(response, signal, abortStream, onStreamDelta, onToolCall, state, onTextDelta) {
+async function parseSSEStream(response, signal, abortStream, onStreamDelta, onToolCall, state, onTextDelta, knownToolNames) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     const SSE_IDLE_TIMEOUT_MS = PROVIDER_SSE_IDLE_TIMEOUT_MS;
@@ -980,6 +981,64 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
     let currentEvent = '';
 
     const pendingToolInputs = new Map();
+
+    // Leaked tool-call guard. The model (esp. Opus via OAuth) occasionally
+    // emits a tool call as plain text tags inside `text_delta` instead of a
+    // native `tool_use` block. `leakBuffer` is a minimal rolling window that
+    // only holds back text when a partial sentinel prefix is present, so a
+    // tag split across chunk boundaries is still detected while ordinary text
+    // still streams promptly. The guard is additive: the native tool_use path
+    // (content_block_start/input_json_delta/content_block_stop) is untouched.
+    const _knownTools = knownToolNames instanceof Set
+        ? knownToolNames
+        : new Set(Array.isArray(knownToolNames) ? knownToolNames : []);
+    const _leakGuardEnabled = _knownTools.size > 0;
+    const _isKnownTool = (name) => _knownTools.has(name);
+    let leakBuffer = '';
+    // Running markdown fence/inline-code state threaded across text_delta
+    // chunks (Fix 1): a tool-call tag inside a ```code fence``` or inline span
+    // is a doc example, not a real call — the guard emits it as text.
+    let leakFenceState = undefined;
+    // Cross-path fingerprint dedupe (Fix 2): a synthesized text-leaked call and
+    // an identical native tool_use block must dispatch onToolCall exactly once.
+    const _toolDedupe = createToolCallDedupe();
+
+    // Synthesize + dispatch a recovered leaked call exactly like the native
+    // content_block_stop path (push into toolCalls, flag state, eager
+    // onToolCall). A generated id mirrors the `toolu_`-prefixed native shape.
+    const dispatchLeakedCall = (recovered) => {
+        let args = recovered?.arguments;
+        if (args === null || typeof args !== 'object' || Array.isArray(args)) args = {};
+        // Skip if an identical native (or prior synthetic) call already fired.
+        if (!_toolDedupe.shouldDispatch(recovered.name, args)) return;
+        const call = {
+            id: `toolu_leaked_${randomBytes(8).toString('hex')}`,
+            name: recovered.name,
+            arguments: args,
+        };
+        toolCalls.push(call);
+        if (state) state.emittedToolCall = true;
+        try { onToolCall?.(call); } catch {}
+        try { onStreamDelta?.(); } catch {}
+    };
+
+    // Feed accumulated text through the scanner. On `final` nothing is held
+    // back so legitimate text is never lost at stream end.
+    const pumpLeakBuffer = (final) => {
+        if (!_leakGuardEnabled) return;
+        if (!leakBuffer && !final) return;
+        const { emit, calls, rest, fenceState } = scanLeakedToolCalls(leakBuffer, { isKnownTool: _isKnownTool, final, fenceState: leakFenceState });
+        leakBuffer = rest;
+        leakFenceState = fenceState;
+        if (emit) {
+            content += emit;
+            if (onTextDelta) {
+                if (state) state.emittedText = true;
+                try { onTextDelta(emit); } catch {}
+            }
+        }
+        for (const c of calls) dispatchLeakedCall(c);
+    };
 
     // Holds the in-flight reader.read() race rejector so the idle timer can
     // force-unblock the loop even when reader.cancel() fails to settle the
@@ -1164,7 +1223,6 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
                         // ttftMs was always null and reported as 0ms.
                         if (state && !state.ttftAt) state.ttftAt = Date.now();
                         if (delta?.type === 'text_delta') {
-                            content += delta.text || '';
                             try { onStreamDelta?.(); } catch {}
                             // Live text relay (gateway): forward the explicit
                             // text chunk. thinking/signature/input_json deltas
@@ -1173,9 +1231,21 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
                             // live it cannot be withdrawn, so flag the attempt so
                             // the mid-stream retry loop treats any later failure
                             // as final (a retry would concatenate attempts).
-                            if (delta.text && onTextDelta) {
-                                if (state) state.emittedText = true;
-                                try { onTextDelta(delta.text); } catch {}
+                            if (_leakGuardEnabled) {
+                                // Route text through the leaked-tool-call guard.
+                                // It appends to `content`, forwards visible text
+                                // via onTextDelta, and synthesizes/dispatches any
+                                // recovered known-tool call — suppressing the
+                                // tags from the visible stream. A partial sentinel
+                                // is held in leakBuffer until the next chunk.
+                                leakBuffer += delta.text || '';
+                                pumpLeakBuffer(false);
+                            } else {
+                                content += delta.text || '';
+                                if (delta.text && onTextDelta) {
+                                    if (state) state.emittedText = true;
+                                    try { onTextDelta(delta.text); } catch {}
+                                }
                             }
                         }
                         if (delta?.type === 'thinking_delta' || delta?.type === 'signature_delta') {
@@ -1237,7 +1307,14 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
                             // Eager dispatch: let the loop start this tool
                             // before message_stop arrives. The loop keys
                             // pending promises by call.id so order is safe.
-                            try { onToolCall?.(call); } catch {}
+                            // Fix 2: skip if a text-leaked synthetic of the same
+                            // (name,args) already dispatched. An invalid-args
+                            // marker never fingerprint-collides with a real
+                            // recovered call, so malformed native calls still
+                            // dispatch (the marker path is unaffected).
+                            if (_toolDedupe.shouldDispatch(call.name, call.arguments)) {
+                                try { onToolCall?.(call); } catch {}
+                            }
                             try { onStreamDelta?.(); } catch {}
                         }
                     }
@@ -1277,6 +1354,12 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
                 }
             }
         }
+
+        // Stream ended: flush any held-back leaked-tool-call buffer. `final`
+        // holds nothing back, so a trailing partial sentinel that never
+        // resolved into a real call is surfaced as ordinary text — legitimate
+        // user-visible content is never lost on the failure path.
+        pumpLeakBuffer(true);
 
         // Truncated-stream guard: if the reader loop exited (EOF or break)
         // after message_start but without seeing message_stop / a tool_use
@@ -1603,6 +1686,15 @@ export class AnthropicOAuthProvider {
         if (body.speed === 'fast') {
             this.fastModeBetaHeaderLatched = true;
         }
+        // Known tool names for the leaked-tool-call guard in parseSSEStream:
+        // recovered leaked calls are only synthesized when they name a tool
+        // actually offered to this request (native + lowered). Derived from the
+        // final request body so it matches exactly what the model was given.
+        const knownToolNames = new Set(
+            (Array.isArray(body.tools) ? body.tools : [])
+                .map((t) => (t && typeof t.name === 'string' ? t.name : null))
+                .filter(Boolean),
+        );
         const sessionId = opts.sessionId || null;
         const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
         // Option A: no absolute wall-clock cap on streaming generation. A stream
@@ -1836,6 +1928,7 @@ export class AnthropicOAuthProvider {
                     onToolCall,
                     midState,
                     onTextDelta,
+                    knownToolNames,
                 );
 
                 const ttftMs = midState.ttftAt ? midState.ttftAt - sseStartedAt : null;

@@ -16,6 +16,7 @@ import {
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { traceHash, stableTraceStringify, summarizeTraceTools, traceTextShape } from './trace-utils.mjs';
 import { normalizeContentForGeminiParts, splitToolContentForGemini } from './media-normalization.mjs';
+import { scanLeakedToolCalls } from './anthropic-leaked-toolcall.mjs';
 
 const MODELS = [
     { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', provider: 'gemini', contextWindow: 1048576 },
@@ -412,7 +413,104 @@ function geminiChunkText(chunk) {
     return text;
 }
 
-async function consumeGeminiRestStreamResponse(response, { signal, onStreamDelta, onTextDelta, label }) {
+function relayGeminiStreamText(t, { onTextDelta, textLeakGuard }) {
+    if (!t) return;
+    if (textLeakGuard) textLeakGuard.feedText(t);
+    else if (onTextDelta) { try { onTextDelta(t); } catch {} }
+}
+
+/**
+ * Rolling scanner for tool calls leaked as plain XML/antml tags inside Gemini
+ * `part.text` streams. Mirrors the Anthropic OAuth guard: suppress tags from
+ * visible text, synthesize known-tool calls, dispatch via onToolCall.
+ */
+export function createGeminiTextLeakGuard({ knownToolNames, onTextDelta, onToolCall, onStreamDelta }) {
+    const _knownTools = knownToolNames instanceof Set
+        ? knownToolNames
+        : new Set(Array.isArray(knownToolNames) ? knownToolNames : []);
+    const _enabled = _knownTools.size > 0;
+    const _isKnownTool = (name) => _knownTools.has(name);
+    let leakBuffer = '';
+    const leakedCalls = [];
+    const dispatchedFingerprints = new Set();
+
+    const toolCallFingerprint = (name, args) => {
+        let a = args;
+        if (a === null || typeof a !== 'object' || Array.isArray(a)) a = {};
+        return traceHash(stableTraceStringify({ name: name || '', args: a }));
+    };
+
+    const dispatchLeakedCall = (recovered) => {
+        let args = recovered?.arguments;
+        if (args === null || typeof args !== 'object' || Array.isArray(args)) args = {};
+        const fp = toolCallFingerprint(recovered.name, args);
+        if (dispatchedFingerprints.has(fp)) return;
+        dispatchedFingerprints.add(fp);
+        const idHash = traceHash(stableTraceStringify({
+            name: recovered.name,
+            args,
+            leak: true,
+        })).slice(0, 16);
+        const call = {
+            id: `gemini_leaked_${idHash}`,
+            name: recovered.name,
+            arguments: args,
+        };
+        leakedCalls.push(call);
+        try { onToolCall?.(call); } catch {}
+        try { onStreamDelta?.(); } catch {}
+    };
+
+    const pumpLeakBuffer = (final) => {
+        if (!_enabled) return;
+        if (!leakBuffer && !final) return;
+        const { emit, calls, rest } = scanLeakedToolCalls(leakBuffer, { isKnownTool: _isKnownTool, final });
+        leakBuffer = rest;
+        if (emit && onTextDelta) {
+            try { onTextDelta(emit); } catch {}
+        }
+        for (const c of calls) dispatchLeakedCall(c);
+    };
+
+    return {
+        get enabled() { return _enabled; },
+        feedText(text) {
+            if (!text) return;
+            if (!_enabled) {
+                try { onTextDelta?.(text); } catch {}
+                return;
+            }
+            leakBuffer += text;
+            pumpLeakBuffer(false);
+        },
+        finalize() {
+            pumpLeakBuffer(true);
+        },
+        scrubAssistantText(raw) {
+            if (!raw) return '';
+            if (!_enabled) return raw;
+            const { emit, calls, rest } = scanLeakedToolCalls(raw, { isKnownTool: _isKnownTool, final: true });
+            for (const c of calls) dispatchLeakedCall(c);
+            return emit + rest;
+        },
+        filterNativeToolCalls(nativeCalls) {
+            if (!_enabled || !nativeCalls?.length) return nativeCalls;
+            const kept = [];
+            for (const call of nativeCalls) {
+                const fp = toolCallFingerprint(call?.name, call?.arguments);
+                if (dispatchedFingerprints.has(fp)) continue;
+                dispatchedFingerprints.add(fp);
+                kept.push(call);
+            }
+            return kept.length ? kept : undefined;
+        },
+        getLeakedToolCalls() {
+            return leakedCalls.length ? [...leakedCalls] : [];
+        },
+    };
+}
+
+async function consumeGeminiRestStreamResponse(response, { signal, onStreamDelta, onTextDelta, textLeakGuard, label }) {
     if (!response?.body) throw new Error(`${label}: missing response body`);
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -509,9 +607,9 @@ async function consumeGeminiRestStreamResponse(response, { signal, onStreamDelta
                 }
                 allChunks.push(parsed);
                 try { onStreamDelta?.(); } catch {}
-                if (onTextDelta) {
+                if (onTextDelta || textLeakGuard) {
                     const t = geminiChunkText(parsed);
-                    if (t) { try { onTextDelta(t); } catch {} }
+                    relayGeminiStreamText(t, { onTextDelta, textLeakGuard });
                 }
             }
         }
@@ -528,9 +626,9 @@ async function consumeGeminiRestStreamResponse(response, { signal, onStreamDelta
                         }
                         allChunks.push(parsed);
                         try { onStreamDelta?.(); } catch {}
-                        if (onTextDelta) {
+                        if (onTextDelta || textLeakGuard) {
                             const t = geminiChunkText(parsed);
-                            if (t) { try { onTextDelta(t); } catch {} }
+                            relayGeminiStreamText(t, { onTextDelta, textLeakGuard });
                         }
                     } catch { /* skip malformed tail */ }
                 }
@@ -541,6 +639,7 @@ async function consumeGeminiRestStreamResponse(response, { signal, onStreamDelta
         if (idleTimer) clearTimeout(idleTimer);
         if (signal) signal.removeEventListener('abort', onAbort);
         try { reader.releaseLock(); } catch {}
+        try { textLeakGuard?.finalize(); } catch {}
     }
 
     const aggregated = aggregateGeminiStreamChunks(allChunks);
@@ -549,7 +648,7 @@ async function consumeGeminiRestStreamResponse(response, { signal, onStreamDelta
     return aggregated;
 }
 
-async function consumeGeminiSdkStream(streamResult, { signal, onStreamDelta, onTextDelta, label }) {
+async function consumeGeminiSdkStream(streamResult, { signal, onStreamDelta, onTextDelta, textLeakGuard, label }) {
     let sawStreamChunk = false;
     let idleTimedOut = false;
     let idleTimer = null;
@@ -665,9 +764,9 @@ async function consumeGeminiSdkStream(streamResult, { signal, onStreamDelta, onT
             }
             resetIdleTimer();
             try { onStreamDelta?.(); } catch {}
-            if (onTextDelta) {
+            if (onTextDelta || textLeakGuard) {
                 const t = geminiChunkText(step.value);
-                if (t) { try { onTextDelta(t); } catch {} }
+                relayGeminiStreamText(t, { onTextDelta, textLeakGuard });
             }
         }
         if (idleTimedOut) {
@@ -686,6 +785,7 @@ async function consumeGeminiSdkStream(streamResult, { signal, onStreamDelta, onT
         if (signal && onSignalAbort) {
             try { signal.removeEventListener('abort', onSignalAbort); } catch {}
         }
+        try { textLeakGuard?.finalize(); } catch {}
     }
 
     let response;
@@ -1322,6 +1422,14 @@ export class GeminiProvider {
         const toolConfig = functionGeminiTools.length ? toGeminiToolConfig(opts.toolChoice) : undefined;
         try { opts.onStageChange?.('requesting'); } catch {}
 
+        const buildTextLeakGuard = () => createGeminiTextLeakGuard({
+            knownToolNames: tools?.map((t) => t.name).filter(Boolean) ?? [],
+            onTextDelta,
+            onToolCall,
+            onStreamDelta,
+        });
+        let textLeakGuard = null;
+
         // Explicit cachedContents (system + tools + prior-turn transcript).
         // Per Google docs, `tools` must be supplied on BOTH the cache create
         // call AND every subsequent generate_content call — the cache stores
@@ -1401,10 +1509,12 @@ export class GeminiProvider {
                             err.status = res.status;
                             throw err;
                         }
+                        textLeakGuard = buildTextLeakGuard();
                         return await consumeGeminiRestStreamResponse(res, {
                             signal: attemptSignal,
                             onStreamDelta,
                             onTextDelta,
+                            textLeakGuard,
                             label: 'Gemini REST streamGenerateContent',
                         });
                     },
@@ -1485,10 +1595,12 @@ export class GeminiProvider {
                             // timer but KEEP the parent link attached so a later
                             // abort during streaming still reaches the request.
                             clearConnectTimer();
+                            textLeakGuard = buildTextLeakGuard();
                             return await consumeGeminiSdkStream(streamResult, {
                                 signal: attemptSignal,
                                 onStreamDelta,
                                 onTextDelta,
+                                textLeakGuard,
                                 label: 'Gemini SDK streamGenerateContent',
                             });
                         } finally {
@@ -1519,10 +1631,21 @@ export class GeminiProvider {
         });
         const candidate = response.candidates?.[0] || null;
         const textParts = candidate?.content?.parts?.filter(p => 'text' in p) ?? [];
-        const content = textParts.map(p => 'text' in p ? p.text : '').join('');
-        const toolCalls = parseToolCalls(candidate?.content?.parts ?? []);
+        const rawContent = textParts.map(p => 'text' in p ? p.text : '').join('');
+        const content = textLeakGuard?.enabled
+            ? textLeakGuard.scrubAssistantText(rawContent)
+            : rawContent;
+        const leakedToolCalls = textLeakGuard?.getLeakedToolCalls() ?? [];
+        let nativeToolCalls = parseToolCalls(candidate?.content?.parts ?? []);
+        if (textLeakGuard?.enabled) {
+            nativeToolCalls = textLeakGuard.filterNativeToolCalls(nativeToolCalls);
+        }
+        let toolCalls = nativeToolCalls;
+        if (leakedToolCalls.length) {
+            toolCalls = toolCalls?.length ? [...toolCalls, ...leakedToolCalls] : leakedToolCalls;
+        }
         const citations = collectGeminiGroundingSources(candidate);
-        emitGeminiToolCalls(toolCalls, onToolCall);
+        emitGeminiToolCalls(nativeToolCalls, onToolCall);
         // Inspect candidate.finishReason — Gemini reports terminal status here.
         // Only STOP (and the legacy "FINISH_REASON_STOP") plus tool/function-
         // call paths represent a fully delivered turn. MAX_TOKENS / SAFETY /

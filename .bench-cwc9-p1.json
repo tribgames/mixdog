@@ -1,0 +1,150 @@
+{
+  "round": "cwc9-p1",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_27096_1782925527982_1782925530047_766ecc004aece35d59c83b12246428e2",
+    "sess_54104_1782925598628_1782925600169_a8a6086fe1288d0754327bbb2d86571b",
+    "sess_53052_1782925702584_1782925704142_bffc5549c66f7b63308620aa4151e55e"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 70632,
+      "sessionId": "sess_27096_1782925527982_1782925530047_766ecc004aece35d59c83b12246428e2"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 103981,
+      "sessionId": "sess_54104_1782925598628_1782925600169_a8a6086fe1288d0754327bbb2d86571b"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 45026,
+      "sessionId": "sess_53052_1782925702584_1782925704142_bffc5549c66f7b63308620aa4151e55e"
+    }
+  ],
+  "group": {
+    "n": 3,
+    "wall_ms": 70959,
+    "turns": 21,
+    "tool_calls": 44.7,
+    "tools_per_turn": 2.1,
+    "total_tool_ms": 3520.3,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.6,
+    "cached_tokens": 272421,
+    "prompt_tokens": 529550,
+    "uncached_tokens": 257129,
+    "output_tokens": 4110,
+    "cache_weighted_input_10": 284371.1,
+    "cache_weighted_input_25": 325234.3,
+    "prompt_growth": 17812.7,
+    "antipatterns": 2.3,
+    "issues": 2.7,
+    "grep_sweep_count": 0.7
+  },
+  "cards": [
+    {
+      "session": "sess_27096_1782925527982_1782925530047_766ecc004aece35d59c83b12246428e2",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 67980,
+      "turns": 21,
+      "tool_calls": 47,
+      "tools_per_turn": 2.2,
+      "total_tool_ms": 4373,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.45683182031376707,
+      "cached_tokens": 208435,
+      "prompt_tokens": 456262,
+      "uncached_tokens": 247827,
+      "output_tokens": 3979,
+      "cache_weighted_input_10": 268670.5,
+      "cache_weighted_input_25": 299935.75,
+      "prompt_growth": 14995,
+      "antipatterns": 3,
+      "issues": 3,
+      "issue_types": [
+        "read_fragmentation",
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [
+        "src/standalone/hook-bus.mjs",
+        "src/runtime/agent/orchestrator/session/context-utils.mjs"
+      ],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_54104_1782925598628_1782925600169_a8a6086fe1288d0754327bbb2d86571b",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 101921,
+      "turns": 28,
+      "tool_calls": 56,
+      "tools_per_turn": 2,
+      "total_tool_ms": 4006,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.4763431353465804,
+      "cached_tokens": 406234,
+      "prompt_tokens": 852818,
+      "uncached_tokens": 446584,
+      "output_tokens": 4946,
+      "cache_weighted_input_10": 487207.4,
+      "cache_weighted_input_25": 548142.5,
+      "prompt_growth": 24576,
+      "antipatterns": 4,
+      "issues": 5,
+      "issue_types": [
+        "tool_error",
+        "read_fragmentation",
+        "grep_sweep",
+        "missed_parallelism",
+        "tool_churn_cluster"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\agent-trace.mjs"
+      ],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_53052_1782925702584_1782925704142_bffc5549c66f7b63308620aa4151e55e",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 42976,
+      "turns": 14,
+      "tool_calls": 31,
+      "tools_per_turn": 2.2,
+      "total_tool_ms": 2182,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.7246628751296634,
+      "cached_tokens": 202594,
+      "prompt_tokens": 279570,
+      "uncached_tokens": 76976,
+      "output_tokens": 3405,
+      "cache_weighted_input_10": 97235.4,
+      "cache_weighted_input_25": 127624.5,
+      "prompt_growth": 13867,
+      "antipatterns": 0,
+      "issues": 0,
+      "issue_types": [],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 0
+    }
+  ]
+}

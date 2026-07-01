@@ -6,7 +6,7 @@
  */
 import React from 'react';
 import { render } from 'ink';
-import { createWriteStream, mkdirSync } from 'node:fs';
+import { closeSync, constants as fsConstants, createWriteStream, mkdirSync, openSync, readSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -140,6 +140,47 @@ function resolveTuiStderrLogPath() {
     || join(process.env.MIXDOG_RUNTIME_ROOT || join(tmpdir(), 'mixdog'), 'mixdog-tui.stderr.log');
 }
 
+/** Drain stdin so queued key/mouse bytes do not leak into the shell after exit. */
+function drainStdin(stdin = process.stdin) {
+  if (!stdin.isTTY) return;
+  try {
+    while (stdin.read() !== null) {
+      /* discard */
+    }
+  } catch {
+    /* stream may be destroyed */
+  }
+  if (process.platform === 'win32') return;
+  const tty = stdin;
+  const wasRaw = tty.isRaw === true;
+  let fd = -1;
+  try {
+    if (!wasRaw) tty.setRawMode?.(true);
+    fd = openSync('/dev/tty', fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
+    const buf = Buffer.alloc(1024);
+    for (let i = 0; i < 64; i++) {
+      if (readSync(fd, buf, 0, buf.length, null) <= 0) break;
+    }
+  } catch {
+    /* EAGAIN, ENXIO, ENOENT, EBADF, EIO */
+  } finally {
+    if (fd >= 0) {
+      try {
+        closeSync(fd);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!wasRaw) {
+      try {
+        tty.setRawMode?.(false);
+      } catch {
+        /* TTY may be gone */
+      }
+    }
+  }
+}
+
 function installTuiStderrGuard() {
   if (process.env.MIXDOG_TUI_ALLOW_STDERR === '1') return () => {};
   const originalWrite = process.stderr.write.bind(process.stderr);
@@ -195,7 +236,7 @@ export async function runTui({ provider, model, toolMode, remote } = {}) {
   }
 
   const restoreStderr = installTuiStderrGuard();
-  const restorePrimedInput = () => {}; // stdin raw mode is owned by Ink's useInput effects
+  const restorePrimedInput = () => drainStdin(process.stdin);
   let restored = false;
   const restoreTerminal = () => {
     if (restored) return;
@@ -294,6 +335,9 @@ export async function runTui({ provider, model, toolMode, remote } = {}) {
     }
     if (mouseTracking && typeof instance.getWordRectAt === 'function') {
       store.getWordRectAt = instance.getWordRectAt;
+    }
+    if (mouseTracking && typeof instance.getLineRectAt === 'function') {
+      store.getLineRectAt = instance.getLineRectAt;
     }
     await waitUntilExit();
   } finally {

@@ -262,15 +262,34 @@ export default class Output {
         // dim text, and status colors do not bleed through.
         const sel = this.selection;
         let selectedText = null;
+        // [mixdog fork] noSelect exclusion (claude-code skips gutter / line-number
+        // / diff-sigil cells from both highlight and copy via screen.noSelect):
+        // mixdog's cell model has NO noSelect marker — the Output grid stores only
+        // {value, styles} per cell, with no flag distinguishing gutter cells from
+        // content. Inferring gutters from position/content would be a fragile
+        // heuristic (line numbers, diff +/- sigils, and real content are
+        // indistinguishable at the cell level), so this is deliberately NOT
+        // implemented. It needs a noSelect bit threaded through the render
+        // pipeline before it can be done cleanly.
         if (sel) {
             const captureSelectedText = sel.captureText !== false;
             if (!captureSelectedText) {
                 selectedText = undefined;
             }
-            const selectionStyles = [
-                rgbStyle(sel.selectionForeground, 'foreground', [0, 0, 0]),
-                rgbStyle(sel.selectionBackground, 'background', [245, 245, 245]),
-            ];
+            // [mixdog fork] Port applySelectionOverlay's fg-preserving principle
+            // from claude-code's selection.ts: REPLACE only the background and
+            // PRESERVE each cell's own foreground/attribute styles, so syntax
+            // highlighting, OSC-8 links, and dim text stay readable under the
+            // selection. The old code forced a black fg + light bg, flattening
+            // every colored glyph to one color. selectionForeground is now
+            // intentionally unused (kept in the setter API for compatibility).
+            const selectionBg = rgbStyle(sel.selectionBackground, 'background', [245, 245, 245]);
+            // A style entry sets the background when its opening SGR code begins
+            // with a background parameter: 40-47 (basic), 48 (256/truecolor),
+            // 49 (default), or 100-107 (bright). ansi-tokenize emits one entry
+            // per SGR attribute, so a prefix test on `.code` cleanly isolates the
+            // bg-only entries we want to drop before appending the selection bg.
+            const isBackgroundStyle = (s) => typeof s?.code === 'string' && /^\x1b\[(?:4[0-9]|10[0-7])[;m]/.test(s.code);
             const linear = sel.mode === 'linear';
             const start = linear && (sel.y1 > sel.y2 || (sel.y1 === sel.y2 && sel.x1 > sel.x2))
                 ? { x: sel.x2, y: sel.y2 }
@@ -325,9 +344,16 @@ export default class Output {
                     if (contentStart === -1 || x < contentStart || x > contentEnd) {
                         continue;
                     }
+                    // [mixdog fork] fg-preserving highlight: keep the cell's own
+                    // style entries (foreground color, bold/dim/underline, link
+                    // attrs) and swap ONLY the background. Drop any existing
+                    // background entry so the two bgs don't fight, then append the
+                    // selection bg last so it wins for this cell.
+                    const baseStyles = Array.isArray(cell.styles) ? cell.styles : [];
+                    const preserved = baseStyles.filter(style => !isBackgroundStyle(style));
                     row[x] = {
                         ...cell,
-                        styles: selectionStyles,
+                        styles: [...preserved, selectionBg],
                     };
                 }
                 // Trailing spaces in a selected row are padding, not content.
@@ -346,6 +372,20 @@ export default class Output {
                 while (selRows.length > 0 && selRows[selRows.length - 1].trim() === '') {
                     selRows.pop();
                 }
+                // [mixdog fork] SOFT-WRAP JOIN (claude-code getSelectedText):
+                // claude-code rejoins word-wrapped continuation rows into one
+                // logical line using screen.softWrap, a per-row bitmap set at
+                // wrap time marking a row as a continuation of the one above.
+                // mixdog's rect(linear) render model carries NO softWrap metadata
+                // — the Output grid is a flat array of visual rows with no record
+                // of which line breaks were inserted by wrapping vs. present in
+                // the source. Detecting "this row filled to content width AND the
+                // next continues the same logical block" from cell values alone is
+                // a guess (a source line that legitimately fills the width would be
+                // wrongly glued to the next). Per the correctness-over-cleverness
+                // rule we keep the honest per-visual-row '\n' join rather than
+                // fabricate wrap boundaries. Revisit if the render pipeline starts
+                // emitting a softWrap bit per row.
                 selectedText = selRows.join('\n');
             }
         }

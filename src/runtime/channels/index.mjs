@@ -601,7 +601,9 @@ async function rebindTranscriptContext(channelId, options = {}) {
   // seconds after inbound time.
   let pendingTranscriptPath = "";
   let pendingTranscriptCwd = null;
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  const maxAttempts = Number.isFinite(options.maxAttempts) ? Math.max(1, Math.floor(options.maxAttempts)) : 30;
+  const pollMs = Number.isFinite(options.pollMs) ? Math.max(25, Math.floor(options.pollMs)) : 150;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const bound = discoverSessionBoundTranscript();
     if (bound?.exists) {
       const acceptable = mode === "same" || !previousPath || bound.transcriptPath !== previousPath;
@@ -628,7 +630,7 @@ async function rebindTranscriptContext(channelId, options = {}) {
         pendingTranscriptCwd = bound.sessionCwd ?? null;
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
   // No existing transcript surfaced during the loop, but the session record
   // named a concrete transcript path that simply is not on disk yet. Bind it
@@ -671,7 +673,7 @@ async function rebindTranscriptContext(channelId, options = {}) {
       return pendingTranscriptPath;
     }
   }
-  if (previousPath) {
+  if (previousPath && options.fallbackPrevious !== false) {
     applyTranscriptBinding(channelId, previousPath, { catchUpFromPersisted: true, cwd: statusState.read().sessionCwd });
     if (fs.existsSync(previousPath)) {
       await forwarder.forwardNewText();
@@ -2125,13 +2127,14 @@ backend.onMessage = (msg) => {
   // keep tailing the wrong session for the whole turn.
   if (transcriptPath) {
     const selfBound = discoverSessionBoundTranscript();
-    if (
+    const shouldStealBoundTranscript = Boolean(
       selfBound?.transcriptPath &&
       !sameResolvedPath(selfBound.transcriptPath, transcriptPath) &&
-      selfBound.parentChain === true &&
-      selfBound.active === true
-    ) {
-      process.stderr.write(`mixdog: inbound rebind: stealing transcript ${transcriptPath} -> ${selfBound.transcriptPath} (self session, exists=${selfBound.exists})\n`);
+      selfBound.active === true &&
+      (selfBound.parentChain === true || selfBound.cwdMatches === true)
+    );
+    if (shouldStealBoundTranscript) {
+      process.stderr.write(`mixdog: inbound rebind: stealing transcript ${transcriptPath} -> ${selfBound.transcriptPath} (source=${selfBound.source || "unknown"}, exists=${selfBound.exists})\n`);
       transcriptPath = selfBound.transcriptPath;
       boundTranscript = selfBound;
       stoleSelfTranscript = true;

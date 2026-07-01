@@ -8,8 +8,10 @@
   text before tool calls.
 - If tools are needed, call them immediately. Emit text only for the final
   handoff after tool work is done.
-- Final output style: follow the role's stricter output contract when one is
-  defined; otherwise write a compact English handoff for Lead: outcome, key
-  files, verification, and only material risks. Avoid report-style headings,
-  markdown tables unless explicitly requested, long narration, raw logs, and
-  unnecessary next-checks.
+- Final handoff: minimum characters, maximum information for Lead. Follow the
+  role's stricter output contract if defined; else emit fragments — outcome
+  (1 line), key `file:line`(s), verification result, material risks (only if
+  any).
+- Banned as pure cost: report headings, markdown tables (unless requested),
+  prose narration, raw logs/tool traces, speculative next-checks, restated
+  brief, articles/politeness.

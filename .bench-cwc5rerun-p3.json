@@ -1,0 +1,124 @@
+{
+  "round": "cwc5rerun-p3",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_43224_1782924755797_1782924757454_3449c21c19592766488e4e0e749a1f57",
+    "sess_48876_1782924818323_1782924819805_80b9956aecca7d5dbde25bc53c9fbc81",
+    "sess_48884_1782924903757_1782924905255_57d257c980505c76c69e0c415c31899a"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 62545,
+      "sessionId": "sess_43224_1782924755797_1782924757454_3449c21c19592766488e4e0e749a1f57"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 85408,
+      "sessionId": "sess_48876_1782924818323_1782924819805_80b9956aecca7d5dbde25bc53c9fbc81"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 69127,
+      "sessionId": "sess_48884_1782924903757_1782924905255_57d257c980505c76c69e0c415c31899a"
+    }
+  ],
+  "group": {
+    "n": 3,
+    "wall_ms": 70244,
+    "turns": 16.7,
+    "tool_calls": 40.3,
+    "tools_per_turn": 2.4,
+    "total_tool_ms": 2519,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.7,
+    "cached_tokens": 257902.7,
+    "prompt_tokens": 370593,
+    "prompt_growth": 15300,
+    "antipatterns": 1.7,
+    "issues": 1.7
+  },
+  "cards": [
+    {
+      "session": "sess_43224_1782924755797_1782924757454_3449c21c19592766488e4e0e749a1f57",
+      "wall_ms": 60229,
+      "turns": 14,
+      "tool_calls": 34,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 2574,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.5497613111876163,
+      "cached_tokens": 152821,
+      "prompt_tokens": 277977,
+      "prompt_growth": 17377,
+      "antipatterns": 2,
+      "issues": 2,
+      "issue_types": [
+        "read_fragmentation",
+        "tool_churn_cluster"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\standalone\\hook-bus.mjs"
+      ]
+    },
+    {
+      "session": "sess_48876_1782924818323_1782924819805_80b9956aecca7d5dbde25bc53c9fbc81",
+      "wall_ms": 83237,
+      "turns": 18,
+      "tool_calls": 43,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 2285,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.6832805512284411,
+      "cached_tokens": 305725,
+      "prompt_tokens": 447437,
+      "prompt_growth": 13106,
+      "antipatterns": 2,
+      "issues": 2,
+      "issue_types": [
+        "read_fragmentation"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\runtime\\memory\\lib\\trace-store.mjs",
+        "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\agent-trace.mjs"
+      ]
+    },
+    {
+      "session": "sess_48884_1782924903757_1782924905255_57d257c980505c76c69e0c415c31899a",
+      "wall_ms": 67266,
+      "turns": 18,
+      "tool_calls": 44,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 2698,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.8157105327863549,
+      "cached_tokens": 315162,
+      "prompt_tokens": 386365,
+      "prompt_growth": 15417,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "read_fragmentation"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\session\\context-utils.mjs"
+      ]
+    }
+  ]
+}

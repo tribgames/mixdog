@@ -11,6 +11,7 @@ import {
   readLatestGatewayHostRoute,
   readGatewaySessionRoute,
 } from '../src/gateway/session-routes.mjs';
+import { compactBoundaryDenominator } from '../src/gateway/route-meta.mjs';
 
 function positiveInt(value) {
   const n = parseInt(String(value || ''), 10);
@@ -278,16 +279,8 @@ function resolveStatusAutoCompactTokenLimit(configured, active = {}, lastCompact
 export const _resolveStatusAutoCompactTokenLimit = resolveStatusAutoCompactTokenLimit;
 
 export function compactBoundaryForStatus(routeInfo = {}, compact = null) {
-  const compactLimit = num(routeInfo?.autoCompactTokenLimit ?? compact?.compactLimitTokens, 0);
-  const contextWindow = num(routeInfo?.contextWindow ?? compact?.contextWindow, 0);
-  const budgetWindow = num(compact?.budgetWindow, 0);
-  const rawContextWindow = num(routeInfo?.rawContextWindow ?? compact?.rawContextWindow, 0);
-  if (compactLimit > 0 && contextWindow > 0) return Math.min(compactLimit, contextWindow);
-  if (compactLimit > 0) return compactLimit;
-  if (budgetWindow > 0 && contextWindow > 0) return Math.min(budgetWindow, contextWindow);
-  if (budgetWindow > 0) return budgetWindow;
-  if (contextWindow > 0) return contextWindow;
-  return rawContextWindow > 0 ? rawContextWindow : null;
+  const n = compactBoundaryDenominator(routeInfo, compact);
+  return n > 0 ? n : null;
 }
 
 function sessionIdFromTranscriptPath(transcriptPath) {

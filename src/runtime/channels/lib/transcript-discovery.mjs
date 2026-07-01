@@ -154,6 +154,12 @@ function compareTranscriptCandidates(left, right) {
   const leftSelf = Boolean(left.active && left.parentChain);
   const rightSelf = Boolean(right.active && right.parentChain);
   if (leftSelf !== rightSelf) return rightSelf ? 1 : -1;
+  // A live same-cwd session is a stronger ownership signal than an older
+  // transcript's mtime. The previous ordering let a stale-but-recent transcript
+  // keep winning after a remote runtime restart, so the output forwarder stayed
+  // bound to the old JSONL while inbound was delivered to the live session.
+  const affinityDiff = candidateAffinity(right) - candidateAffinity(left);
+  if (affinityDiff !== 0 && (left.active || right.active)) return affinityDiff;
   const leftMtime = Number(left.transcriptMtime) || 0;
   const rightMtime = Number(right.transcriptMtime) || 0;
   if (leftMtime > 0 && rightMtime > 0) {
@@ -161,7 +167,6 @@ function compareTranscriptCandidates(left, right) {
     if (mtimeDelta >= TRANSCRIPT_MTIME_DECISIVE_MS) return 1;
     if (-mtimeDelta >= TRANSCRIPT_MTIME_DECISIVE_MS) return -1;
   }
-  const affinityDiff = candidateAffinity(right) - candidateAffinity(left);
   if (affinityDiff !== 0) return affinityDiff;
   if (Number(right.exists) !== Number(left.exists)) return Number(right.exists) - Number(left.exists);
   if (right.transcriptMtime !== left.transcriptMtime) return right.transcriptMtime - left.transcriptMtime;

@@ -41,6 +41,13 @@ const CODE_GRAPH_DISK_MAX_BYTES = Math.max(
   1 * 1024 * 1024,
   Math.floor((Number(process.env.MIXDOG_CODE_GRAPH_CACHE_MAX_MB) || 80) * 1024 * 1024),
 );
+// Reap writeFileAtomicSync debris only after this age (see _sweepCodeGraphCacheDir).
+// Younger .tmp files may belong to an in-flight persist still holding the sibling .lock;
+// DEFAULT_LOCK_TIMEOUT_MS is 8s — 120s is a safe margin for large graph JSON writes.
+const ORPHAN_TMP_MIN_AGE_MS = 120_000;
+const RE_CACHE_TMP = /^\.[0-9a-f]{16}\.json\.[0-9a-f]{24}\.tmp$/i;
+const RE_MANIFEST_TMP = /^\.manifest\.json\.[0-9a-f]{24}\.tmp$/i;
+const RE_CACHE_LOCK = /^[0-9a-f]{16}\.json\.lock$/i;
 const CODE_GRAPH_MEMORY_MAX_ENTRIES = Math.max(
   1,
   Math.floor(Number(process.env.MIXDOG_CODE_GRAPH_MEMORY_MAX_ENTRIES) || 6),
@@ -412,6 +419,73 @@ export function _pruneCodeGraphManifestForBudget(manifest, dir, options = {}) {
   return { manifest: pruned, evicted, totalBytes: Math.max(0, totalBytes) };
 }
 
+function _readCacheLockOwnerPid(lockPath) {
+  try {
+    const raw = readFileSync(lockPath, 'utf8');
+    const tok = String(raw).trim().split(/\s+/)[0];
+    const pid = Number.parseInt(tok, 10);
+    return Number.isFinite(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function _cacheLockOwnerIsDead(lockPath) {
+  const pid = _readCacheLockOwnerPid(lockPath);
+  // Unparseable/unreadable owner pid: keep the lock (conservative). Truly stale
+  // locks are reclaimed on the next writeJsonAtomicSync via atomic-file.mjs
+  // stale-lock recovery (mtime > staleMs, dead owner pid).
+  if (pid === null) return false;
+  if (pid === process.pid) return false;
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (err) {
+    return err?.code === 'ESRCH';
+  }
+}
+
+function _cacheFileOlderThanGuard(fullPath, now, minAgeMs) {
+  try {
+    const st = statSync(fullPath);
+    return now - st.mtimeMs > minAgeMs;
+  } catch {
+    return false;
+  }
+}
+
+// Best-effort orphan cleanup: evicted <hash>.json plus aged atomic-write .tmp/.lock
+// left by crash/kill between temp write and rename (writeFileAtomicSync). Young temps
+// are kept because a live persist may still hold the matching .lock while writing.
+function _sweepCodeGraphCacheDir(dir, validHashes, opts = {}) {
+  const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+  const sweepJson = opts.sweepJson !== false;
+  try {
+    for (const f of readdirSync(dir)) {
+      const full = join(dir, f);
+      if (f === 'manifest.json') continue;
+      if (f.endsWith('.json')) {
+        if (!sweepJson) continue;
+        const hash = f.slice(0, -5);
+        if (!validHashes.has(hash)) {
+          try { unlinkSync(full); } catch { /* best-effort */ }
+        }
+        continue;
+      }
+      if (RE_CACHE_TMP.test(f) || RE_MANIFEST_TMP.test(f)) {
+        if (!_cacheFileOlderThanGuard(full, now, ORPHAN_TMP_MIN_AGE_MS)) continue;
+        try { unlinkSync(full); } catch { /* best-effort */ }
+        continue;
+      }
+      if (f === 'manifest.json.lock' || RE_CACHE_LOCK.test(f)) {
+        if (!_cacheFileOlderThanGuard(full, now, ORPHAN_TMP_MIN_AGE_MS)) continue;
+        if (!_cacheLockOwnerIsDead(full)) continue;
+        try { unlinkSync(full); } catch { /* best-effort */ }
+      }
+    }
+  } catch { /* sweep best-effort */ }
+}
+
 function _loadDiskCodeGraphCache(now = Date.now()) {
   if (_diskCodeGraphCacheLoaded) return;
   _diskCodeGraphCacheLoaded = true;
@@ -423,17 +497,32 @@ function _loadDiskCodeGraphCache(now = Date.now()) {
   // Manifest-only load: per-cwd entries are picked up by _ensureCwdLoaded()
   // at lookup time. Cold start now pays a single small JSON.parse instead
   // of reading every per-cwd file (~24 × ~2 MB on long-running workspaces).
+  let manifestTrusted = false;
   try {
     const manifestFile = join(_codeGraphDiskDir(), 'manifest.json');
     if (existsSync(manifestFile)) {
       const parsed = JSON.parse(readFileSync(manifestFile, 'utf8'));
-      if (parsed && typeof parsed === 'object') _diskManifest = parsed;
+      if (parsed && typeof parsed === 'object') {
+        _diskManifest = parsed;
+        manifestTrusted = true;
+      }
     }
   } catch (err) {
     process.stderr.write(`[code-graph] disk manifest load failed: ${err?.message || err}\n`);
   }
   if (!_diskManifest) _diskManifest = {};
   _pruneDiskCodeGraphEntries(now);
+  try {
+    const dir = _codeGraphDiskDir();
+    mkdirSync(dir, { recursive: true });
+    const validHashes = new Set();
+    for (const meta of Object.values(_diskManifest)) {
+      if (meta && typeof meta === 'object' && meta.hash) validHashes.add(meta.hash);
+    }
+    // Without a successfully loaded manifest we must not delete <hash>.json
+    // files (validHashes would be empty or incomplete after a parse failure).
+    _sweepCodeGraphCacheDir(dir, validHashes, { now, sweepJson: manifestTrusted });
+  } catch { /* boot sweep best-effort */ }
 }
 
 // Demand-load one cwd's per-file entry. Callers invoke this right before
@@ -495,15 +584,7 @@ function _persistDiskCodeGraphCacheNow() {
     // Sweep orphan per-cwd files. validHashes now includes every hash in
     // the merged manifest (preserved + ours) so cross-instance cache files
     // are never collateral damage.
-    try {
-      for (const f of readdirSync(dir)) {
-        if (f === 'manifest.json' || !f.endsWith('.json')) continue;
-        const hash = f.slice(0, -5);
-        if (!validHashes.has(hash)) {
-          try { unlinkSync(join(dir, f)); } catch { /* best-effort */ }
-        }
-      }
-    } catch { /* sweep best-effort */ }
+    _sweepCodeGraphCacheDir(dir, validHashes, { sweepJson: true });
   } catch (err) {
     process.stderr.write(`[code-graph] disk cache persist failed (target: ${_codeGraphDiskDir()}): ${err?.message || err}\n`);
   }
@@ -3537,7 +3618,7 @@ export async function _buildCodeGraph(cwd) {
 // Modes that operate on a single named symbol and can be looped to serve a
 // multi-symbol request in one call (the graph is cwd-cached, so per-symbol
 // re-entry is cheap). impact is excluded — it is file-scoped, not symbol-list.
-const CODE_GRAPH_BATCHABLE_MODES = new Set(['symbol', 'find_symbol', 'callers', 'callees', 'references']);
+const CODE_GRAPH_BATCHABLE_MODES = new Set(['symbol', 'find_symbol', 'symbol_search', 'callers', 'callees', 'references']);
 // Collect requested symbol names from symbols[] (array), symbols (comma/space
 // string), or symbol (single name OR comma/space-separated multi), de-duped in
 // request order.
@@ -3551,8 +3632,12 @@ function _collectGraphSymbolList(args) {
 }
 
 async function codeGraph(args, cwd, signal = null, options = {}) {
-  const mode = String(args?.mode || '').trim();
+  let mode = String(args?.mode || '').trim();
   if (!mode) throw new Error('code_graph: "mode" is required');
+  // Alias: `search` reads like the web-search tool and misleads models into
+  // firing broad keyword queries. `symbol_search` is the canonical name; keep
+  // `search` working for back-compat by folding it in here.
+  if (mode === 'search') mode = 'symbol_search';
 
   if (mode === 'prewarm') {
     // R5-③: TRUE fire-and-forget. Previously this function awaited
@@ -3746,9 +3831,9 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     return _findSymbolAcrossGraph(graph, symbol, cwd, { language, limit, fileRel: rel, body: args?.body !== false });
   }
 
-  if (mode === 'search') {
+  if (mode === 'symbol_search') {
     const keyword = String(args?.symbol || '').trim();
-    if (!keyword) throw new Error('code_graph search: "symbol" is required.');
+    if (!keyword) throw new Error('code_graph symbol_search: "symbol" is required.');
     const language = String(args?.language || '').trim() || null;
     const limit = Math.max(1, Math.min(100, Number(args?.limit || 30)));
     return _searchSymbolsByKeyword(graph, keyword, cwd, { language, limit });
@@ -4140,6 +4225,7 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
         // standalone find_symbol tool used to provide (prewarm + file-overview
         // without a symbol). All other modes flow through codeGraph().
         const rawMode = String(args?.mode || '').trim();
+        const batchMode = rawMode === 'search' ? 'symbol_search' : rawMode;
         const declModes = new Set(['symbol', 'find_symbol']);
         const dispatchOne = (a) => (declModes.has(rawMode)
           ? findSymbolTool(_stripEmptyArgs(a), effectiveCwd, signal, options)
@@ -4147,7 +4233,7 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
         // Multi-symbol batch: run a batchable mode once per requested name and
         // concatenate, so N lookups cost ONE call. A single name falls through
         // unchanged (no header) — existing single calls are byte-identical.
-        if (CODE_GRAPH_BATCHABLE_MODES.has(rawMode)) {
+        if (CODE_GRAPH_BATCHABLE_MODES.has(batchMode)) {
           const symbolList = _collectGraphSymbolList(args);
           if (symbolList.length > 1) {
             return (async () => {
@@ -4156,7 +4242,7 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
                 let body;
                 try { body = await dispatchOne({ ...args, symbol: sym, symbols: undefined }); }
                 catch (e) { body = `Error: ${e?.message || String(e)}`; }
-                sections.push(`# ${rawMode} ${sym}\n${body}`);
+                sections.push(`# ${batchMode} ${sym}\n${body}`);
               }
               return sections.join('\n\n');
             })();

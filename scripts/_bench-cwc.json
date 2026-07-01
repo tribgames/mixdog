@@ -1,0 +1,20 @@
+[
+  {
+    "id": "cwc-hookflow",
+    "agent": "worker",
+    "prompt": "In this repo (mixdog), how does a tool call get denied by a hook? Trace from where the hook decision is made to where the denial error is returned to the model. Give file paths and function names. Do not modify anything.",
+    "cwd": "."
+  },
+  {
+    "id": "cwc-cacheusage",
+    "agent": "worker",
+    "prompt": "In this repo (mixdog), how are cached token counts recorded and surfaced in usage metrics? Find where cached_tokens comes from and how it flows into the usage record. Give file paths and function names. Do not modify anything.",
+    "cwd": "."
+  },
+  {
+    "id": "cwc-compacttrigger",
+    "agent": "worker",
+    "prompt": "In this repo (mixdog), what triggers a context compaction and where is that threshold decided? Trace the trigger condition to the compaction entry point. Give file paths and function names. Do not modify anything.",
+    "cwd": "."
+  }
+]

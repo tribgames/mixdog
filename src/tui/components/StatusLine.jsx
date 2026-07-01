@@ -33,6 +33,20 @@ function resetStatuslineModuleLoad() {
 
 const RESET = '\x1b[0m';
 const STATUSLINE_RENDER_DEBOUNCE_MS = 150;
+/** Background import of statusline.mjs before the +1000ms full-render tick. */
+const STATUSLINE_MODULE_PREWARM_DELAY_MS = 300;
+
+let statuslineModulePrewarmScheduled = false;
+
+function scheduleStatuslineModulePrewarm() {
+  if (statuslineModulePrewarmScheduled) return;
+  statuslineModulePrewarmScheduled = true;
+  const timer = setTimeout(() => {
+    loadStatuslineModule().catch(() => {});
+  }, STATUSLINE_MODULE_PREWARM_DELAY_MS);
+  timer.unref?.();
+}
+
 const STATUSLINE_BOOT_FULL_DELAY_MS = 1000;
 const STATUSLINE_BOOT_FULL_DELAY_ACTIVE_MS = 2200;
 const STATUSLINE_BOOT_FULL_RETRY_MS = 2000;
@@ -143,8 +157,8 @@ function localContextPct({
       : (localNum(contextWindow) > 0
         ? localNum(contextWindow)
         : (localNum(rawContextWindow) > 0 ? localNum(rawContextWindow) : 200_000)));
-  const compactTrigger = localNum(autoCompactTokenLimit);
-  const window = compactTrigger > 0 && compactTrigger < baseWindow ? compactTrigger : baseWindow;
+  // autoCompactTokenLimit is the compaction trigger only; pct uses the boundary window.
+  const window = baseWindow;
   const s = stats && typeof stats === 'object' ? stats : {};
   const source = String(s.currentContextSource || '').toLowerCase();
   const estimated = localNum(s.currentEstimatedContextTokens);
@@ -412,12 +426,13 @@ export function normalizeStatusLine(text) {
   return normalizeStatuslineAnsi(text, statusColors(), { reset: RESET });
 }
 
-function workflowModeLabel(workflow = {}) {
+function workflowModeLabel(workflow = {}, remoteEnabled = false) {
   const name = String(workflow?.name || workflow?.id || 'Default').trim() || 'Default';
-  return `${name} Mode`;
+  const base = `${name} Mode`;
+  return remoteEnabled === true ? `Remote / ${base}` : base;
 }
 
-function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow = 0, compactBoundaryTokens = 0, autoCompactTokenLimit = 0, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], activeTools = null, initialLine = '', workflow = null, themeEpoch = 0 }) {
+function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow = 0, compactBoundaryTokens = 0, autoCompactTokenLimit = 0, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], activeTools = null, initialLine = '', workflow = null, remoteEnabled = false, themeEpoch = 0 }) {
   const [line, setLine] = useState(() => normalizeStatusLine(initialLine || localBootStatusLine({
     provider,
     model,
@@ -468,6 +483,10 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
       ].join('|')
     : '';
   const refreshMs = hasActiveStatuslineWork(line, agentWorkers, agentJobs, activeTools) ? STATUSLINE_ACTIVE_REFRESH_MS : STATUSLINE_REFRESH_MS;
+
+  useEffect(() => {
+    scheduleStatuslineModulePrewarm();
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -629,7 +648,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow, compactBoundaryTokens, autoCompactTokenLimit, rawContextWindow, resizeEpoch, agentRevision, agentWorkers, agentJobs, activeToolsSignature, refreshTick, themeEpoch]);
 
   const lines = line ? line.split('\n').slice(0, 2) : [' ', ' '];
-  const workflowLabel = workflowModeLabel(workflow);
+  const workflowLabel = workflowModeLabel(workflow, remoteEnabled);
   // Footer footprint stays 3 rows total (L1 + L2 + one spacer). Keep L1/L2 in
   // the TOP two rows so the statusline is visually attached to the prompt box;
   // the leftover breathing row sits below L2 at the terminal bottom.

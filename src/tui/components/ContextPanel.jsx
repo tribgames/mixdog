@@ -47,7 +47,7 @@ function percent(value, total) {
 
 function percentLabel(value, total) {
   const pct = percent(value, total);
-  if (pct === null) return 'n/a';
+  if (pct === null) return 'N/A';
   return `${pct > 0 && pct < 1 ? pct.toFixed(1) : Math.round(pct)}%`;
 }
 
@@ -188,7 +188,7 @@ function ContextUsageView({ detail, columns }) {
     `uncached/out ${formatTokens(lastApi.inputTokens)}/${formatTokens(lastApi.outputTokens)}`,
     lastApi.rawInputTokens && lastApi.rawInputTokens !== lastApi.inputTokens ? `raw in ${formatTokens(lastApi.rawInputTokens)}` : '',
     cache.writeTokens ? `write ${formatTokens(cache.writeTokens)}` : '',
-    `cache ${cache.hitRate || 'n/a'}`,
+    `cache ${cache.hitRate || 'N/A'}`,
   ]);
   const categories = [
     { label: 'Messages', tokens: semanticTokens(semantic, ['chat', 'assistant']), meta: '' },

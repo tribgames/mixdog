@@ -1,0 +1,145 @@
+{
+  "round": "cwc9-p4",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_52420_1782925528337_1782925530463_3d45e183b6a3bdaba54b7069f91b09a5",
+    "sess_46832_1782925599410_1782925600983_be2145475b60ed3b413722baaf2c38db",
+    "sess_53120_1782925642345_1782925643768_6002665364f44883b8694f79f270f6f7"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 71092,
+      "sessionId": "sess_52420_1782925528337_1782925530463_3d45e183b6a3bdaba54b7069f91b09a5"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 42947,
+      "sessionId": "sess_46832_1782925599410_1782925600983_be2145475b60ed3b413722baaf2c38db"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 56613,
+      "sessionId": "sess_53120_1782925642345_1782925643768_6002665364f44883b8694f79f270f6f7"
+    }
+  ],
+  "group": {
+    "n": 3,
+    "wall_ms": 54722,
+    "turns": 15,
+    "tool_calls": 36,
+    "tools_per_turn": 2.4,
+    "total_tool_ms": 2304.3,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.4,
+    "cached_tokens": 144508.3,
+    "prompt_tokens": 347928.3,
+    "uncached_tokens": 203420,
+    "output_tokens": 3861,
+    "cache_weighted_input_10": 217870.8,
+    "cache_weighted_input_25": 239547.1,
+    "prompt_growth": 2275.3,
+    "antipatterns": 1,
+    "issues": 1.3,
+    "grep_sweep_count": 0.7
+  },
+  "cards": [
+    {
+      "session": "sess_52420_1782925528337_1782925530463_3d45e183b6a3bdaba54b7069f91b09a5",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 68596,
+      "turns": 19,
+      "tool_calls": 47,
+      "tools_per_turn": 2.5,
+      "total_tool_ms": 2986,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.34726464704543547,
+      "cached_tokens": 173940,
+      "prompt_tokens": 500886,
+      "uncached_tokens": 326946,
+      "output_tokens": 4162,
+      "cache_weighted_input_10": 344340,
+      "cache_weighted_input_25": 370431,
+      "prompt_growth": 10844,
+      "antipatterns": 2,
+      "issues": 2,
+      "issue_types": [
+        "read_fragmentation",
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\standalone\\hook-bus.mjs"
+      ],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_46832_1782925599410_1782925600983_be2145475b60ed3b413722baaf2c38db",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 40917,
+      "turns": 11,
+      "tool_calls": 28,
+      "tools_per_turn": 2.5,
+      "total_tool_ms": 1643,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.342376900146483,
+      "cached_tokens": 60069,
+      "prompt_tokens": 175447,
+      "uncached_tokens": 115378,
+      "output_tokens": 3016,
+      "cache_weighted_input_10": 121384.9,
+      "cache_weighted_input_25": 130395.25,
+      "prompt_growth": 8334,
+      "antipatterns": 0,
+      "issues": 1,
+      "issue_types": [
+        "tool_error"
+      ],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 0
+    },
+    {
+      "session": "sess_53120_1782925642345_1782925643768_6002665364f44883b8694f79f270f6f7",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 54653,
+      "turns": 15,
+      "tool_calls": 33,
+      "tools_per_turn": 2.2,
+      "total_tool_ms": 2284,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.5429715990115715,
+      "cached_tokens": 199516,
+      "prompt_tokens": 367452,
+      "uncached_tokens": 167936,
+      "output_tokens": 4405,
+      "cache_weighted_input_10": 187887.6,
+      "cache_weighted_input_25": 217815,
+      "prompt_growth": -12352,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 1
+    }
+  ]
+}

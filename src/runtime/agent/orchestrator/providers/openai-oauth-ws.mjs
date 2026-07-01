@@ -43,6 +43,7 @@ import {
     sleepWithAbort,
 } from './retry-classifier.mjs';
 import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
+import { createLeakGuard, createToolCallDedupe } from './anthropic-leaked-toolcall.mjs';
 import {
     PROVIDER_RETRY_MAX_ATTEMPTS,
     PROVIDER_WS_ACQUIRE_TIMEOUT_MS,
@@ -1237,6 +1238,7 @@ export async function _streamResponse({
     logSuppressedReasoningDeltas = true,
     traceProvider = 'openai-oauth',
     _timeouts = null,
+    knownToolNames = null,
 }) {
     const errLabel = _wsErrLabel(traceProvider);
     const socket = entry.socket;
@@ -1256,6 +1258,15 @@ export async function _streamResponse({
     const citations = [];
     const citationKeys = new Set();
     const pendingCalls = new Map();
+    // Fix 2: cross-path name+args dedupe. A text-leaked synthetic and an
+    // identical native function_call must fire onToolCall exactly once. Every
+    // dispatch site routes through emitToolCallDedupe.
+    const _toolDedupe = createToolCallDedupe();
+    const emitToolCallDedupe = (call) => {
+        if (!_toolDedupe.shouldDispatch(call?.name, call?.arguments)) return;
+        midState.emittedToolCall = true;
+        try { onToolCall?.(call); } catch {}
+    };
     // Reasoning items collected from response.output_item.done (or salvaged
     // from response.completed.response.output). The request still includes
     // `reasoning.encrypted_content` so the server keeps emitting the blobs,
@@ -1343,8 +1354,7 @@ export async function _streamResponse({
         const call = customToolCallFromResponseItem(item);
         if (!call || toolCalls.some((existing) => existing.id === call.id)) return;
         toolCalls.push(call);
-        midState.emittedToolCall = true;
-        try { onToolCall?.(call); } catch {}
+        emitToolCallDedupe(call);
     };
     const pushToolSearchCall = (item) => {
         if (!item || item.type !== 'tool_search_call') return;
@@ -1357,8 +1367,59 @@ export async function _streamResponse({
             nativeType: 'tool_search_call',
         };
         toolCalls.push(call);
+        emitToolCallDedupe(call);
+    };
+    // Leaked tool-call guard. The model sometimes emits a tool call as plain
+    // text (XML `<invoke>`/`<function_calls>` or gpt-oss harmony
+    // `<|channel|>...to=functions.NAME...<|call|>`) inside
+    // `response.output_text.delta` instead of a native function_call. Route
+    // text through the guard so leaked calls are suppressed from the visible
+    // stream, synthesized (native `call_...` id shape), and dispatched like
+    // native ones. Additive: the native function_call path is untouched.
+    const leakGuard = createLeakGuard({ knownToolNames, harmony: true });
+    const dispatchLeakedCall = (recovered) => {
+        let args = recovered?.arguments;
+        if (args === null || typeof args !== 'object' || Array.isArray(args)) args = {};
+        const call = {
+            id: `call_leaked_${randomBytes(8).toString('hex')}`,
+            name: recovered.name,
+            arguments: args,
+        };
+        if (!_toolDedupe.shouldDispatch(call.name, call.arguments)) return;
+        toolCalls.push(call);
         midState.emittedToolCall = true;
         try { onToolCall?.(call); } catch {}
+    };
+    const relayLeakText = (delta) => {
+        if (!leakGuard.enabled) {
+            content += delta || '';
+            if (delta && onTextDelta) {
+                if (state) state.emittedText = true;
+                try { onTextDelta(delta); } catch {}
+            }
+            return;
+        }
+        const { text, calls } = leakGuard.push(delta);
+        if (text) {
+            content += text;
+            if (onTextDelta) {
+                if (state) state.emittedText = true;
+                try { onTextDelta(text); } catch {}
+            }
+        }
+        for (const c of calls) dispatchLeakedCall(c);
+    };
+    const flushLeak = () => {
+        if (!leakGuard.enabled) return;
+        const { text, calls } = leakGuard.flush();
+        if (text) {
+            content += text;
+            if (onTextDelta) {
+                if (state) state.emittedText = true;
+                try { onTextDelta(text); } catch {}
+            }
+        }
+        for (const c of calls) dispatchLeakedCall(c);
     };
     const logReasoningDeltaSuppression = () => {
         if (!logSuppressedReasoningDeltas) return;
@@ -1494,6 +1555,9 @@ export async function _streamResponse({
         };
         const finish = () => {
             logReasoningDeltaSuppression();
+            // Flush any partial-sentinel tail held back mid-stream so
+            // legitimate trailing text is never lost (streamed-text path).
+            flushLeak();
             cleanup();
             if (terminalError) { reject(terminalError); return; }
             resolve({
@@ -1544,7 +1608,6 @@ export async function _streamResponse({
                     // armed the single idle timer — no extra bookkeeping here.
                     break;
                 case 'response.output_text.delta':
-                    content += event.delta || '';
                     try {
                         if (!_firstDeltaEmitted) {
                             _firstDeltaEmitted = true;
@@ -1561,10 +1624,10 @@ export async function _streamResponse({
                     // cannot be withdrawn, so flag the attempt so a later
                     // mid-stream/truncated failure is NOT retried (retry would
                     // concatenate a second attempt onto rendered text).
-                    if (event.delta && onTextDelta) {
-                        if (state) state.emittedText = true;
-                        try { onTextDelta(event.delta); } catch {}
-                    }
+                    // Routed through the leaked-tool-call guard: appends to
+                    // `content`, forwards visible text via onTextDelta, and
+                    // recovers/dispatches any leaked known-tool call.
+                    relayLeakText(event.delta || '');
                     break;
                 case 'response.reasoning_text.delta':
                 case 'response.reasoning_summary_text.delta':
@@ -1621,8 +1684,7 @@ export async function _streamResponse({
                     if (pending?.callId && pending?.name) {
                         const call = { id: pending.callId, name: pending.name, arguments: args };
                         toolCalls.push(call);
-                        midState.emittedToolCall = true;
-                        try { onToolCall?.(call); } catch {}
+                        emitToolCallDedupe(call);
                     } else {
                         // Synthesizing a `tc_${Date.now()}` callId here would
                         // make the next turn fail to match the model's
@@ -1689,7 +1751,18 @@ export async function _streamResponse({
                             if (!content && item.type === 'message') {
                                 for (const c of item.content || []) {
                                     if (c.type === 'output_text') {
-                                        content += c.text || '';
+                                        // Completed-output fallback (no streamed
+                                        // text). Route through the leak guard so
+                                        // a tool call leaked only in the final
+                                        // bundle is recovered, not surfaced as
+                                        // visible content. final=true → full flush.
+                                        if (leakGuard.enabled) {
+                                            const { text, calls } = leakGuard.push(c.text || '', true);
+                                            content += text;
+                                            for (const lc of calls) dispatchLeakedCall(lc);
+                                        } else {
+                                            content += c.text || '';
+                                        }
                                         pushOutputTextAnnotations(c);
                                     }
                                 }
@@ -1725,8 +1798,7 @@ export async function _streamResponse({
                                     if (tc.id && tc.name) {
                                         delete tc._deferred;
                                         delete tc._pendingItemId;
-                                        midState.emittedToolCall = true;
-                                        try { onToolCall?.(tc); } catch {}
+                                        emitToolCallDedupe(tc);
                                     }
                                 }
                             }
@@ -2201,6 +2273,14 @@ export async function sendViaWebSocket({
     const MAX_MIDSTREAM_RETRIES = MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT;
     let firstAttemptError = null;
     let firstAttemptClassifier = null;
+    // Known tool names for the leaked-tool-call guard in _streamResponse.
+    // Derived from the exact request body so a recovered leaked call only
+    // synthesizes when it names a tool actually offered to this request.
+    const knownToolNames = new Set(
+        (Array.isArray(body?.tools) ? body.tools : [])
+            .map((t) => (typeof t?.name === 'string' ? t.name : null))
+            .filter(Boolean),
+    );
     // Live-text invariant across attempts: once ANY attempt has relayed a
     // non-empty text chunk to the client, no error thrown out of this function
     // may omit the liveTextEmitted/unsafeToRetry markers — otherwise an
@@ -2461,6 +2541,7 @@ export async function sendViaWebSocket({
                 logSuppressedReasoningDeltas,
                 traceProvider,
                 _timeouts: streamTimeouts,
+                knownToolNames,
             });
         } catch (err) {
             // Snapshot the xAI conversation anchor BEFORE releasing the

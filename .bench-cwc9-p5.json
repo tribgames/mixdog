@@ -1,0 +1,145 @@
+{
+  "round": "cwc9-p5",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_45592_1782925528552_1782925530578_a3baf2a7ad7ef251a937318abbafe1d6",
+    "sess_43628_1782925613438_1782925614869_274c716074d7d21bfafe324fe8e4076a",
+    "sess_45448_1782925703985_1782925705465_d72fbe8f882a4eb46c7ce2478115fbf3"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 84959,
+      "sessionId": "sess_45592_1782925528552_1782925530578_a3baf2a7ad7ef251a937318abbafe1d6"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 90541,
+      "sessionId": "sess_43628_1782925613438_1782925614869_274c716074d7d21bfafe324fe8e4076a"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 44431,
+      "sessionId": "sess_45448_1782925703985_1782925705465_d72fbe8f882a4eb46c7ce2478115fbf3"
+    }
+  ],
+  "group": {
+    "n": 3,
+    "wall_ms": 71116,
+    "turns": 21,
+    "tool_calls": 49,
+    "tools_per_turn": 2.3,
+    "total_tool_ms": 3582.7,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.6,
+    "cached_tokens": 299571.7,
+    "prompt_tokens": 530778,
+    "uncached_tokens": 231206.3,
+    "output_tokens": 4151.3,
+    "cache_weighted_input_10": 261163.5,
+    "cache_weighted_input_25": 306099.3,
+    "prompt_growth": 1967.3,
+    "antipatterns": 1.3,
+    "issues": 1.7,
+    "grep_sweep_count": 0.7
+  },
+  "cards": [
+    {
+      "session": "sess_45592_1782925528552_1782925530578_a3baf2a7ad7ef251a937318abbafe1d6",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 82205,
+      "turns": 24,
+      "tool_calls": 56,
+      "tools_per_turn": 2.3,
+      "total_tool_ms": 5653,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.4986008464300935,
+      "cached_tokens": 301836,
+      "prompt_tokens": 605366,
+      "uncached_tokens": 303530,
+      "output_tokens": 4578,
+      "cache_weighted_input_10": 333713.6,
+      "cache_weighted_input_25": 378989,
+      "prompt_growth": -9185,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_43628_1782925613438_1782925614869_274c716074d7d21bfafe324fe8e4076a",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 88596,
+      "turns": 25,
+      "tool_calls": 59,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 3571,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.5630898962803276,
+      "cached_tokens": 413741,
+      "prompt_tokens": 734769,
+      "uncached_tokens": 321028,
+      "output_tokens": 4608,
+      "cache_weighted_input_10": 362402.1,
+      "cache_weighted_input_25": 424463.25,
+      "prompt_growth": 27706,
+      "antipatterns": 3,
+      "issues": 4,
+      "issue_types": [
+        "read_fragmentation",
+        "grep_sweep",
+        "missed_parallelism",
+        "tool_churn_cluster"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\agent-trace.mjs"
+      ],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_45448_1782925703985_1782925705465_d72fbe8f882a4eb46c7ce2478115fbf3",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 42547,
+      "turns": 14,
+      "tool_calls": 32,
+      "tools_per_turn": 2.3,
+      "total_tool_ms": 1524,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.7261646556885634,
+      "cached_tokens": 183138,
+      "prompt_tokens": 252199,
+      "uncached_tokens": 69061,
+      "output_tokens": 3268,
+      "cache_weighted_input_10": 87374.8,
+      "cache_weighted_input_25": 114845.5,
+      "prompt_growth": -12619,
+      "antipatterns": 0,
+      "issues": 0,
+      "issue_types": [],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 0
+    }
+  ]
+}

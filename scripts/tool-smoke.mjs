@@ -28,7 +28,7 @@ import {
   shouldRecordObservedForProvider,
 } from '../src/runtime/agent/orchestrator/agent-runtime/cache-strategy.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
-import { validateBuiltinArgs } from '../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
+import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, validateBuiltinArgs } from '../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
 import { runResultCacheInFlight } from '../src/runtime/agent/orchestrator/tools/builtin/cache-layers.mjs';
 import { executeCodeGraphTool } from '../src/runtime/agent/orchestrator/tools/code-graph.mjs';
@@ -376,6 +376,7 @@ const grepOut = await executeBuiltinTool('grep', {
   pattern: ['standalone mixdog CLI/TUI coding agent', 'smoke passed'],
   path: 'scripts',
   glob: '*.mjs',
+  output_mode: 'content_with_context',
   head_limit: 10,
 }, root);
 assertOk('grep', grepOut, /smoke\.mjs/);
@@ -411,8 +412,8 @@ assertOk('find', findOut, /scripts[\\/]tool-smoke\.mjs/i);
 
 const readOut = await executeBuiltinTool('read', {
   path: 'scripts/smoke.mjs',
-  line: 1,
-  context: 3,
+  offset: 0,
+  limit: 4,
 }, root);
 assertOk('read', readOut, /spawnSync/);
 
@@ -423,11 +424,35 @@ if (!/^Error[\s:[]/.test(String(readDirOut)) || !/read expects a file/i.test(Str
   throw new Error(`read directory must be classified as Error:\n${readDirOut}`);
 }
 
+const readRegionBatchOut = await executeBuiltinTool('read', {
+  path: [
+    { path: 'scripts/smoke.mjs', offset: 0, limit: 2 },
+    { path: 'scripts/smoke.mjs', offset: 2, limit: 2 },
+  ],
+}, root);
+if (!/^read 2\b/m.test(String(readRegionBatchOut))
+  || (String(readRegionBatchOut).match(/scripts\/smoke\.mjs \[full\] \[ok\]/g) || []).length < 2
+  || !/1→import \{ spawnSync \}/.test(String(readRegionBatchOut))
+  || !/3→import \{ fileURLToPath \}/.test(String(readRegionBatchOut))
+  || !/pass offset:2 to continue/.test(String(readRegionBatchOut))
+  || !/pass offset:4 to continue/.test(String(readRegionBatchOut))) {
+  throw new Error(`read region batch must preserve both requested spans:\n${readRegionBatchOut}`);
+}
+
 const graphOut = await executeCodeGraphTool('code_graph', {
   mode: 'symbols',
   file: 'scripts/smoke.mjs',
 }, root);
 assertOk('code_graph', graphOut, /binding|spawnSync|symbol/i);
+
+const graphSymbolBatchOut = await executeCodeGraphTool('code_graph', {
+  mode: 'symbol_search',
+  symbols: ['executeBuiltinTool', 'validateBuiltinArgs'],
+  limit: 2,
+}, root);
+if (!/# symbol_search executeBuiltinTool\b/.test(String(graphSymbolBatchOut)) || !/# symbol_search validateBuiltinArgs\b/.test(String(graphSymbolBatchOut))) {
+  throw new Error(`code_graph symbol_search symbols[] batch execution failed:\n${graphSymbolBatchOut}`);
+}
 
 const graphMissingFileOut = await executeCodeGraphTool('code_graph', {
   mode: 'symbols',
@@ -533,6 +558,12 @@ if (literalBackslashPipeArray) {
   throw new Error(`grep array literal \\| should be allowed: ${literalBackslashPipeArray}`);
 }
 
+const grepContextPolicyArgs = { pattern: 'smoke', path: root, context: GREP_CONTEXT_MAX + 999 };
+applyGrepContextLeadPolicy(grepContextPolicyArgs);
+if (grepContextPolicyArgs['-C'] !== GREP_CONTEXT_MAX || Object.prototype.hasOwnProperty.call(grepContextPolicyArgs, 'context')) {
+  throw new Error(`grep context policy must canonicalize and clamp explicit context: ${JSON.stringify(grepContextPolicyArgs)}`);
+}
+
 const invalidGrepPath = validateBuiltinArgs('grep', {
   pattern: 'providerStatus',
   path: 'C:\\Project\\mixdog\\src\\tui C:\\Project\\mixdog\\src\\mixdog-session-runtime.mjs',
@@ -569,16 +600,14 @@ if (!/cwd.*workdir.*conflict/i.test(invalidShellCwdAliasConflict || '')) {
 const shellWorkdirOut = await shellWorkdirOutPromise;
 assertOk('shell workdir alias', shellWorkdirOut, /scripts\s*$/i);
 
-const mixedReadWindow = {
+const offsetReadWindow = {
   path: 'scripts/smoke.mjs',
-  line: 1,
-  context: 3,
-  offset: 1,
+  offset: 0,
   limit: 20,
 };
-const readWindowErr = validateBuiltinArgs('read', mixedReadWindow);
-if (!/exactly one window family/i.test(readWindowErr || '')) {
-  throw new Error(`read mixed-window guard failed: err=${readWindowErr} args=${JSON.stringify(mixedReadWindow)}`);
+const readWindowErr = validateBuiltinArgs('read', offsetReadWindow);
+if (readWindowErr) {
+  throw new Error(`read offset/limit window guard failed: err=${readWindowErr} args=${JSON.stringify(offsetReadWindow)}`);
 }
 
 function assertHas(set, name) {
@@ -670,7 +699,7 @@ if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not
     agentRules: '# Tool Use',
     skillManifest: '',
   });
-  if (!heavyPrompt.stableSystemContext.includes('## heavy-worker') || !heavyPrompt.stableSystemContext.includes('Complex implementation agent')) {
+  if (!heavyPrompt.stableSystemContext.includes('## heavy-worker') || !heavyPrompt.stableSystemContext.includes('Handoff fragments only')) {
     throw new Error(`heavy-worker AGENT.md must be included in scoped role instructions: ${heavyPrompt.stableSystemContext}`);
   }
   const workerPrompt = composeSystemPrompt({
@@ -679,7 +708,7 @@ if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not
     agentRules: '# Tool Use',
     skillManifest: '',
   });
-  if (!workerPrompt.stableSystemContext.includes('## worker') || !workerPrompt.stableSystemContext.includes('Basic implementation agent')) {
+  if (!workerPrompt.stableSystemContext.includes('## worker') || !workerPrompt.stableSystemContext.includes('Handoff fragments only')) {
     throw new Error(`worker AGENT.md must be included in scoped role instructions: ${workerPrompt.stableSystemContext}`);
   }
 }
@@ -707,7 +736,7 @@ if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not
     throw new Error(`headless model-only route must preserve --model without forcing provider: ${JSON.stringify(modelOnlySpawn)}`);
   }
 }
-if (!/always start background tasks/i.test(AGENT_TOOL.description || '') || !/distinct tags/i.test(AGENT_TOOL.description || '') || !/completion notification/i.test(AGENT_TOOL.description || '') || !/do not (?:call|poll) status\/read/i.test(AGENT_TOOL.description || '')) {
+if (!/always start background tasks/i.test(AGENT_TOOL.description || '') || !/distinct tags/i.test(AGENT_TOOL.description || '') || !/same scope/i.test(AGENT_TOOL.description || '') || !/send/i.test(AGENT_TOOL.description || '') || !/completion notification/i.test(AGENT_TOOL.description || '') || !/do not (?:call|poll) status\/read/i.test(AGENT_TOOL.description || '')) {
   throw new Error('agent description must preserve async tagged delegation contract');
 }
 const agentSmoke = createStandaloneAgent({
@@ -1355,21 +1384,71 @@ for (const requiredGrammarLine of [
     throw new Error(`custom apply_patch SSE parser must eager-emit patch args: ${JSON.stringify(emitted)}`);
   }
 }
-const readPathDescription = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.inputSchema?.properties?.path?.description || '';
-if (!/File path or array/i.test(readPathDescription) || !/Dirs use list/i.test(readPathDescription)) {
+const readPathSchema = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.inputSchema?.properties?.path || {};
+const readPathDescription = readPathSchema.description || '';
+if (!/File path/i.test(readPathDescription) || !/\{path,offset,limit\}/i.test(readPathDescription) || !/Dirs use list/i.test(readPathDescription)) {
   throw new Error('read schema must keep directory-vs-file guidance');
 }
-const readDescription = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.description || '';
-if (!/known file path\(s\)/i.test(readDescription) || !/line\+context/i.test(readDescription)) {
-  throw new Error('read description must stay narrow-target oriented');
+const readTool = BUILTIN_TOOLS.find((tool) => tool.name === 'read');
+const readDescription = readTool?.description || '';
+const readProps = readTool?.inputSchema?.properties || {};
+const readArraySchema = readPathSchema.anyOf?.find((entry) => entry?.type === 'array');
+const readArrayItemAnyOf = readArraySchema?.items?.anyOf || [];
+if (!readArrayItemAnyOf.some((entry) => entry?.type === 'object' && entry?.properties?.offset && entry?.properties?.limit)) {
+  throw new Error('read schema must expose array-of-region objects for batched spans');
+}
+if (/line\+context/i.test(readDescription) || !/offset\+limit/i.test(readDescription) || !/Batch paths\/regions/i.test(readDescription) || !/after grep\/code_graph anchors/i.test(readDescription) || !/avoid serial reads/i.test(readDescription)) {
+  throw new Error('read description must expose offset/limit as the single window form');
+}
+if (readProps.line || readProps.context) {
+  throw new Error('read schema must not expose legacy line/context window fields');
+}
+if (readProps.offset?.minimum !== 0 || !/Lines to skip/i.test(readProps.offset?.description || '') || !/offset:N/i.test(readProps.offset?.description || '') || !/Do not use line\/context/i.test(readProps.offset?.description || '')) {
+  throw new Error('read offset schema must describe Mixdog paging cursor semantics');
+}
+{
+  // setRoute must default to "next session only": a bare
+  // runtime.setRoute({model}) call (no options) must NOT rewrite a live
+  // session's provider/model in place, or a mid-conversation model/provider
+  // switch silently forces a full prompt-cache rewrite (seen as a
+  // promptΔ spike + cache_ratio=0% turn in session-bench).
+  const runtimeSrc = readFileSync(resolve(root, 'src/mixdog-session-runtime.mjs'), 'utf8');
+  const setRouteBlock = runtimeSrc.match(/async setRoute\(next, options = \{\}\) \{[\s\S]*?\n    \},\n/)?.[0] || '';
+  if (!/applyToCurrentSession = options\?\.applyToCurrentSession === true/.test(setRouteBlock)) {
+    throw new Error('setRoute must default applyToCurrentSession to false (model changes apply to the next session only)');
+  }
+  if (!/if \(!applyToCurrentSession\)/.test(setRouteBlock) || !/return route;/.test(setRouteBlock)) {
+    throw new Error('setRoute must early-return before touching the live session when applyToCurrentSession is false');
+  }
+  const engineSrc = readFileSync(resolve(root, 'src/tui/engine.mjs'), 'utf8');
+  if (/setRoute\(\{ model: m \}, \{ applyToCurrentSession: true \}\)/.test(engineSrc)) {
+    throw new Error('TUI setModel must not force applyToCurrentSession:true (model changes must apply to the next session only)');
+  }
+  if (!/routeOpts\.applyToCurrentSession === true/.test(engineSrc)) {
+    throw new Error('TUI setRoute wrapper must default applyToCurrentSession to false');
+  }
 }
 const codeGraphDescription = CODE_GRAPH_TOOL_DEFS[0]?.description || '';
 const codeGraphProps = CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties || {};
-if (!/Code structure/i.test(codeGraphDescription) || !/symbols/i.test(codeGraphDescription) || codeGraphDescription.length > 90) {
-  throw new Error('code_graph description must stay compact and structure-oriented');
+const codeGraphSymbolSearchErr = validateBuiltinArgs('code_graph', { mode: 'symbol_search', symbols: ['hook', 'deny'], limit: 5 });
+if (codeGraphSymbolSearchErr) {
+  throw new Error(`code_graph guard must accept symbol_search with symbols[] batching: ${codeGraphSymbolSearchErr}`);
 }
-if (!/^Operation\.$/i.test(codeGraphProps.mode?.description || '') || !/^Source file\.$/i.test(codeGraphProps.file?.description || '')) {
-  throw new Error('code_graph schema must keep compact field descriptions');
+// code_graph description stays structure-oriented and must actively route
+// symbol/definition/caller lookups AWAY from repeated grep (the grep_retry +
+// find_symbol_noscope anti-patterns). It is allowed to be verbose enough to
+// enumerate modes, but must not drift into web-search territory.
+if (!/code structure/i.test(codeGraphDescription) || !/symbol_search/i.test(codeGraphDescription)) {
+  throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
+}
+if (!/Shortest route/i.test(codeGraphDescription) || !/before grep/i.test(codeGraphDescription)) {
+  throw new Error('code_graph description must steer symbol/caller lookups to the shortest route before grep');
+}
+if (!/repo-local/i.test(codeGraphDescription) || !/NOT web search|not web/i.test(codeGraphDescription)) {
+  throw new Error('code_graph description must mark itself repo-local (not web search)');
+}
+if (!/repo-local|not web/i.test(codeGraphProps.mode?.description || '') || !/source file/i.test(codeGraphProps.file?.description || '')) {
+  throw new Error('code_graph schema must keep compact, repo-local field descriptions');
 }
 const recallTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'recall');
 const recallProps = recallTool?.inputSchema?.properties || {};
@@ -1616,8 +1695,26 @@ if (!/NOT for URLs/i.test(fetchTool?.description || '') || !/web_fetch/i.test(fe
 const grepTool = BUILTIN_TOOLS.find((tool) => tool.name === 'grep');
 const grepPatternDescription = grepTool?.inputSchema?.properties?.pattern?.description || '';
 const grepPathDescription = grepTool?.inputSchema?.properties?.path?.description || '';
-if (!/Array = OR/i.test(grepPatternDescription) || !/^File or directory\.$/i.test(grepPathDescription)) {
+const grepGlobDescription = grepTool?.inputSchema?.properties?.glob?.description || '';
+const grepOutputModeDescription = grepTool?.inputSchema?.properties?.output_mode?.description || '';
+const grepHeadLimitDescription = grepTool?.inputSchema?.properties?.head_limit?.description || '';
+if (!/Array = OR/i.test(grepPatternDescription) || !/ONE grep/i.test(grepPatternDescription) || !/serial rewording/i.test(grepPatternDescription) || !/variant sweeps/i.test(grepPatternDescription) || !/Narrowest file\/dir/i.test(grepPathDescription)) {
   throw new Error('grep schema must keep compact pattern/path guidance');
+}
+if (!/same grep/i.test(grepGlobDescription) || !/follow up with another grep/i.test(grepGlobDescription) || !/nearby files/i.test(grepGlobDescription)) {
+  throw new Error('grep glob schema must steer narrowing into the same grep call');
+}
+if (!/answer from/i.test(grepOutputModeDescription) || !/skip read/i.test(grepOutputModeDescription) || !/span is not shown/i.test(grepOutputModeDescription)) {
+  throw new Error('grep output_mode schema must steer content_with_context away from follow-up reads');
+}
+if (grepTool?.inputSchema?.properties?.head_limit?.minimum !== 0 || !/keep small/i.test(grepHeadLimitDescription)) {
+  throw new Error('grep head_limit schema must keep locator caps explicit');
+}
+if (grepTool?.inputSchema?.properties?.type) {
+  throw new Error('grep type schema must stay hidden; prefer glob for extension narrowing');
+}
+if (!/structure beats grep/i.test(codeGraphProps.mode?.description || '') || !/stop searching/i.test(codeGraphProps.symbol?.description || '') || !/one call/i.test(codeGraphProps.symbols?.description || '')) {
+  throw new Error('code_graph schema fields must steer away from repeated lookup loops');
 }
 
 const longToolSearchText = compactToolSearchDescription(`${patchDescription}\n${patchDescription}`);

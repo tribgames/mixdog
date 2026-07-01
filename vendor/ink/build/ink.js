@@ -382,9 +382,22 @@ export default class Ink {
         });
     };
     // [mixdog fork] Given a 0-based cell (x, y), return the inclusive rect of the
-    // word (maximal run of non-whitespace cells) on that single row, or null if
-    // the cell is whitespace/empty or out of range. Reuses the cached cell-value
-    // rows from the last render so it works without retaining the Output instance.
+    // word at that cell on that single row, or null if the cell is whitespace/empty
+    // or out of range. Reuses the cached cell-value rows from the last render so it
+    // works without retaining the Output instance.
+    //
+    // Ported from claude-code's selection.ts charClass/wordBoundsAt (3-class word
+    // model) onto mixdog's rect(linear) infra. Instead of a naive "non-space run",
+    // expansion stops at a CHARACTER-CLASS change:
+    //   class 1 = WORD_CHAR — letters (any script), digits, and the punctuation
+    //             iTerm2 treats as word-part by default (/-+~_.\), so a path like
+    //             `/usr/bin/bash` or `~/.claude/config.json` selects whole.
+    //   class 2 = other punctuation — so `->` selects just `->`, not the words
+    //             on either side.
+    //   class 0 = space/empty. claude-code treats a space run as selectable
+    //             (class 0), but mixdog intentionally returns null on empty/space
+    //             so a double-click on blank does nothing (safer for our transcript
+    //             where most alt-screen cells are padding).
     getWordRectAt = (x, y) => {
         const rows = this.lastPlainRows;
         if (!rows)
@@ -392,15 +405,88 @@ export default class Ink {
         const cells = rows[y];
         if (!Array.isArray(cells))
             return null;
-        const isWordChar = (v) => !!v && !/^\s$/u.test(v);
-        if (!isWordChar(cells[x]))
+        // Unicode-aware word-char set (matches selection.ts WORD_CHAR).
+        const WORD_CHAR = /[\p{L}\p{N}_/.\-+~\\]/u;
+        const charClass = (v) => {
+            if (!v || v === ' ')
+                return 0;
+            return WORD_CHAR.test(v) ? 1 : 2;
+        };
+        // [mixdog fork] Wide/CJK glyphs occupy 2+ grid cells: the HEAD cell
+        // holds the glyph and each TRAILING cell is stored as '' (spacer tail)
+        // carrying the glyph's styles — see output.js ~L237-243 for how wide
+        // chars are laid into the grid. A '' cell is a wide-char TAIL only when
+        // it directly follows a non-empty non-space glyph (class !== 0); a ''
+        // after '' or after a space is genuine blank padding. This mirrors
+        // selection.ts wordBoundsAt's SpacerTail step-back (L172-178) and
+        // expansion step-over (L206-221) on mixdog's string-cell grid.
+        const isWideTail = (i) => i > 0 && cells[i] === '' && charClass(cells[i - 1]) !== 0;
+        // On entry: if the click landed on a spacer tail, step back to the head
+        // so charClass sees the actual glyph. Genuine blank padding is left
+        // alone, preserving the null-on-blank behavior below.
+        let sx = x;
+        if (isWideTail(sx))
+            sx = sx - 1;
+        const cls = charClass(cells[sx]);
+        // Preserve mixdog's null-on-space/empty behavior (class 0).
+        if (cls === 0)
             return null;
-        let x1 = x, x2 = x;
-        while (x1 - 1 >= 0 && isWordChar(cells[x1 - 1]))
-            x1--;
-        while (x2 + 1 < cells.length && isWordChar(cells[x2 + 1]))
-            x2++;
+        let x1 = sx, x2 = sx;
+        // Expand left: step OVER a spacer tail to the wide-char head and include
+        // both columns when the head matches the class; otherwise stop at a
+        // class change.
+        while (x1 - 1 >= 0) {
+            const p = x1 - 1;
+            if (isWideTail(p)) {
+                if (p - 1 >= 0 && charClass(cells[p - 1]) === cls) {
+                    x1 = p - 1;
+                    continue;
+                }
+                break;
+            }
+            if (charClass(cells[p]) === cls) {
+                x1 = p;
+                continue;
+            }
+            break;
+        }
+        // Expand right: INCLUDE a spacer tail that follows an in-run glyph so x2
+        // covers the wide glyph's full width; otherwise stop at a class change.
+        while (x2 + 1 < cells.length) {
+            const n = x2 + 1;
+            if (isWideTail(n)) {
+                x2 = n;
+                continue;
+            }
+            if (charClass(cells[n]) === cls) {
+                x2 = n;
+                continue;
+            }
+            break;
+        }
         return { x1, y1: y, x2, y2: y };
+    };
+    // [mixdog fork] Given a 0-based row y, return the inclusive rect of the whole
+    // logical line at that row (mirrors claude-code's selectLineAt intent on
+    // mixdog's rect infra). x1 is always 0; x2 is the last non-space content cell
+    // so trailing padding isn't selected. Returns null for an empty/blank row.
+    // Exposed symmetrically to getWordRectAt (index.jsx wires it into the store).
+    getLineRectAt = (y) => {
+        const rows = this.lastPlainRows;
+        if (!rows)
+            return null;
+        const cells = rows[y];
+        if (!Array.isArray(cells))
+            return null;
+        let x2 = -1;
+        for (let x = 0; x < cells.length; x++) {
+            const v = cells[x];
+            if (v && !/^\s$/u.test(v))
+                x2 = x;
+        }
+        if (x2 < 0)
+            return null;
+        return { x1: 0, y1: y, x2, y2: y };
     };
     restoreLastOutput = () => {
         if (!this.interactive) {

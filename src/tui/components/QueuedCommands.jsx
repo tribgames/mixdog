@@ -22,7 +22,7 @@ export function QueuedCommands({ queued, columns }) {
   // Windows auto-wrap/scroll that drifts the alt-screen frame (see UserMessage).
   const bandColumns = Math.max(1, columns - 1);
   return (
-    <Box marginTop={1} flexDirection="column">
+    <Box flexDirection="column">
       {queued.map((item) => {
         // Truncate to 1 line so the row reservation (queued.length in App.jsx)
         // stays accurate — wrapped text would push the input box off-screen.

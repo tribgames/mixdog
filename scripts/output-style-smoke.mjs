@@ -49,7 +49,8 @@ const defaultStyle = readFileSync(join(root, 'src', 'output-styles', 'default.md
 for (const required of [
   'name: default',
   'Concise engineering summaries',
-  'Mixdog default — concise engineering summaries',
+  'Mixdog default — the most detailed of the three styles',
+  'match length to the work',
   'Use labels such as',
   '`바뀐 점`, `확인한 것`,',
   'Synthesize agent or retrieval results',
@@ -60,7 +61,7 @@ for (const required of [
 assert(!defaultStyle.includes('Claude Code-compact'), 'default.md must not reference the old compact style name');
 assert(!defaultStyle.includes('Hard cap user-visible replies'), 'default.md must not hard-cap replies to two short sentences');
 assert(!defaultStyle.includes('Be short and direct.'), 'default.md must not keep the old generic concise preset');
-assert(!defaultStyle.includes('Practical concise — outcome-first'), 'default.md must not use the simple preset body');
+assert(!defaultStyle.includes('Practical concise — outcome-first handoffs'), 'default.md must not use the simple preset body');
 
 const simpleStyle = readFileSync(join(root, 'src', 'output-styles', 'simple.md'), 'utf8');
 for (const required of [
@@ -75,11 +76,12 @@ for (const required of [
 ]) {
   assert(simpleStyle.includes(required), `simple.md missing: ${required}`);
 }
-assert(!simpleStyle.includes('Mixdog default — concise engineering summaries'), 'simple.md must not duplicate default preset body');
+assert(!simpleStyle.includes('Mixdog default — the most detailed of the three styles'), 'simple.md must not duplicate default preset body');
 for (const [name, style] of Object.entries({
   default: defaultStyle,
   simple: simpleStyle,
-  extreme: readFileSync(join(root, 'src', 'output-styles', 'extreme-simple.md'), 'utf8'),
+  minimal: readFileSync(join(root, 'src', 'output-styles', 'minimal.md'), 'utf8'),
+  oneline: readFileSync(join(root, 'src', 'output-styles', 'oneline.md'), 'utf8'),
 })) {
   assert(!style.includes('pre-tool preamble'), `${name} output style must not own language preamble rules`);
   assert(!style.includes('selected/default user language'), `${name} output style must not duplicate profile language rules`);
@@ -101,7 +103,7 @@ try {
   writeFileSync(join(dataDir, 'output-styles', 'custom-smoke.md'), '---\nname: custom-smoke\n---\n\n# Custom Output Style\n\ncustom smoke style\n');
   const customRules = rulesBuilder.buildInjectionContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
   assert(customRules.includes('# Custom Output Style'), 'configured outputStyle must select custom style');
-  assert(!customRules.includes('Mixdog default — concise engineering summaries'), 'custom outputStyle should not append default style');
+  assert(!customRules.includes('Mixdog default — the most detailed of the three styles'), 'custom outputStyle should not append default style');
   const profileMeta = rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
   assert(profileMeta.includes('Use "재영님" when directly addressing the user'), 'profile title must inject into Lead BP3 meta');
   assert(profileMeta.includes('Do not repeat it in routine progress updates or pre-tool preambles'), 'profile title must not encourage title in preambles');
@@ -111,12 +113,13 @@ try {
   rmSync(dataDir, { recursive: true, force: true });
 }
 
+// assertCleanOutput encodes the Simple style compact contract (not Default, which may be longer).
 const goodOutputs = {
-  explanation: '기본 출력은 결과 한 줄과 근거 한 가지로 끝내고, 최종 보고만 짧은 bullet 라벨을 씁니다.',
-  implementation: '- 바뀐 점: `src/output-styles/default.md`에 이전 simple 프리셋을 반영했습니다.\n- 확인한 것: `node scripts/output-style-smoke.mjs`를 실행했습니다.',
-  crowded: '- 바뀐 점: default는 요약 라벨 보고, simple은 handoff용 controlled detail을 씁니다.\n- 확인한 것: smoke 예시가 compact guardrail을 유지합니다.',
-  blocker: '`src/output-styles/default.md`를 찾을 수 없어 변경이 막혔습니다.',
-  semicolon: '`default.md`를 갱신했고; 출력 스모크가 예시 응답 모양을 검증합니다.',
+  explanation: 'Simple 스타일은 결과 한 줄과 근거 한 가지로 끝내고, 최종 handoff만 짧은 bullet 라벨을 씁니다.',
+  implementation: '- 바뀐 점: `scripts/output-style-smoke.mjs`의 default/simple 문자열 검증을 현재 프리셋에 맞췄습니다.\n- 확인한 것: `node scripts/output-style-smoke.mjs`를 실행했습니다.',
+  crowded: '- 바뀐 점: compact guardrail은 Simple handoff용 controlled detail을 검증합니다.\n- 확인한 것: bad 샘플 거부 규칙은 그대로입니다.',
+  blocker: '`scripts/output-style-smoke.mjs`를 찾을 수 없어 변경이 막혔습니다.',
+  semicolon: '스모크 스크립트를 갱신했고; Simple 계약에 맞는 예시 응답만 통과합니다.',
 };
 for (const [name, output] of Object.entries(goodOutputs)) assertCleanOutput(name, output, { allowedLabels: DEFAULT_REPORT_LABELS });
 

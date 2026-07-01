@@ -136,9 +136,18 @@ export async function init(db, dims) {
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_phase_sweep ON entries(status, is_root, error_count, reviewed_at, id)`)
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_promoted_at ON entries(promoted_at) WHERE promoted_at IS NOT NULL`)
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_tsv         ON entries USING GIN (search_tsv)`)
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_content_trgm ON entries USING GIN (content gin_trgm_ops) WHERE is_root = 1`)
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_element_trgm ON entries USING GIN (element gin_trgm_ops) WHERE is_root = 1 AND element IS NOT NULL`)
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE is_root = 1 AND embedding IS NOT NULL`)
+  // Recall CTEs (memory-recall-store.mjs dense/trgm legs) intentionally match
+  // BOTH root and leaf/chunk rows, so their SQL has NO `is_root = 1` predicate
+  // (only `embedding IS NOT NULL` / content|element|summary text filters).
+  // The old root-only PARTIAL indexes therefore could not be used by those
+  // queries — the planner fell back to a Seq Scan + top-N heapsort over every
+  // embedding (verified via EXPLAIN ANALYZE). Broaden the predicates to match
+  // the query shape so HNSW/GIN are actually used. A `summary` trgm index is
+  // added because the trgm leg also filters on `summary` but had no index.
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_content_trgm ON entries USING GIN (content gin_trgm_ops)`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_element_trgm ON entries USING GIN (element gin_trgm_ops) WHERE element IS NOT NULL`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_summary_trgm ON entries USING GIN (summary gin_trgm_ops) WHERE summary IS NOT NULL`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL`)
 
   // BEFORE INSERT/UPDATE trigger keeps score in sync with category + last_seen_at
   // automatically; cycle code no longer needs to UPDATE entries SET score = ...
@@ -333,13 +342,85 @@ export async function validateEmbeddingDims(db, dimCount) {
   }
 }
 
+// One-time migration: broaden the recall indexes that were created as root-only
+// PARTIAL indexes (`WHERE is_root = 1 ...`) so they match the recall CTE query
+// predicates (which do NOT restrict is_root — recall matches leaf/chunk rows
+// too). A stale root-only index is unusable by those queries and forces a Seq
+// Scan. This runs on every boot (via ensureCurrentSchemaExtensions), so it is
+// carefully guarded: it only DROP+CREATEs an index when the CURRENT definition
+// still contains the `is_root = 1` predicate. Once broadened, every check is a
+// cheap catalog read and no rebuild happens. Best-effort: catalog-read or DDL
+// failures are logged and swallowed so a boot is never blocked by this.
+async function _migrateRecallIndexesIfStale(db) {
+  // Each entry: [indexName, newDefTailPredicate] where the presence of
+  // "is_root" in the live indexdef signals the stale root-only shape.
+  const targets = [
+    { name: 'idx_entries_content_trgm',   create: `CREATE INDEX idx_entries_content_trgm ON entries USING GIN (content gin_trgm_ops)` },
+    { name: 'idx_entries_element_trgm',   create: `CREATE INDEX idx_entries_element_trgm ON entries USING GIN (element gin_trgm_ops) WHERE element IS NOT NULL` },
+    { name: 'idx_entries_embedding_hnsw', create: `CREATE INDEX idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL` },
+  ]
+  try {
+    for (const t of targets) {
+      let def = null
+      try {
+        const r = await db.query(`SELECT indexdef FROM pg_indexes WHERE indexname = $1`, [t.name])
+        def = r.rows?.[0]?.indexdef ?? null
+      } catch { def = null }
+      // Missing index → post-loop IF-NOT-EXISTS ensures below self-heal trgm
+      // indexes; embedding_hnsw is also re-ensured by ensureCurrentSchemaExtensions.
+      if (def == null) continue
+      // Already broadened (no is_root predicate) → no-op, no rebuild.
+      if (!/is_root/i.test(def)) continue
+      try {
+        await db.exec(`DROP INDEX IF EXISTS ${t.name}`)
+        await db.exec(t.create)
+        __mixdogMemoryLog(`[memory] migrated stale root-only index ${t.name} → broadened to match recall query predicates\n`)
+      } catch (err) {
+        __mixdogMemoryLog(`[memory] recall index migration for ${t.name} failed: ${err?.message || err}\n`)
+      }
+    }
+    // Self-heal trgm recall indexes on already-bootstrapped DBs: init() will
+    // not re-run, and a missing index is not handled by the stale-shape loop
+    // above (def == null → continue). These IF-NOT-EXISTS ensures recreate any
+    // trgm index that never existed or whose migrate-create failed. No-op (cheap
+    // catalog check) when the broadened index is already present.
+    try {
+      await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_content_trgm ON entries USING GIN (content gin_trgm_ops)`)
+    } catch (err) {
+      __mixdogMemoryLog(`[memory] idx_entries_content_trgm ensure failed: ${err?.message || err}\n`)
+    }
+    try {
+      await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_element_trgm ON entries USING GIN (element gin_trgm_ops) WHERE element IS NOT NULL`)
+    } catch (err) {
+      __mixdogMemoryLog(`[memory] idx_entries_element_trgm ensure failed: ${err?.message || err}\n`)
+    }
+    try {
+      await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_summary_trgm ON entries USING GIN (summary gin_trgm_ops) WHERE summary IS NOT NULL`)
+    } catch (err) {
+      __mixdogMemoryLog(`[memory] idx_entries_summary_trgm ensure failed: ${err?.message || err}\n`)
+    }
+  } catch (err) {
+    __mixdogMemoryLog(`[memory] _migrateRecallIndexesIfStale failed: ${err?.message || err}\n`)
+  }
+}
+
 export async function ensureCurrentSchemaExtensions(db, dims) {
   // core_entries gained an embedding column for cross-table semantic dedup
   // between user-curated rows and cycle2-promoted entries. ALTER + index are
   // idempotent and define the current runtime schema.
   if (Number.isInteger(dims) && dims > 0) {
     await db.exec(`ALTER TABLE core_entries ADD COLUMN IF NOT EXISTS embedding halfvec(${dims})`)
-    await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE is_root = 1 AND embedding IS NOT NULL`)
+    // One-time migration for EXISTING deployments (bootstrap-complete DBs never
+    // re-run init(), so the broadened index definitions there would otherwise
+    // never reach them). This path runs on EVERY boot, so we must NOT
+    // unconditionally DROP+CREATE an HNSW index (that would rebuild it on every
+    // startup). Only rebuild when the current index still carries the stale
+    // root-only `is_root = 1` predicate; once broadened, the check is a no-op.
+    await _migrateRecallIndexesIfStale(db)
+    // Residual (low risk, no action needed): cycle2's root-active embedding
+    // scans (memory-cycle2.mjs) now share this broader all-embedding HNSW
+    // instead of a root-only partial index; acceptable at current scale.
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL`)
     await db.exec(`CREATE INDEX IF NOT EXISTS core_entries_embedding_hnsw ON core_entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL`)
   }
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS core_summary text`)

@@ -30,6 +30,9 @@ function argValue(name, fallback = null) {
 }
 function hasFlag(name) { return process.argv.includes(name); }
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+function uniq(items) {
+  return [...new Set((items || []).filter(Boolean))];
+}
 
 function runSessionBench(sessionId) {
   // Returns the parsed session-bench JSON for one session id (BOM-safe).
@@ -47,17 +50,31 @@ function scorecard(report) {
   const cache = report.cache || {};
   const tools = report.tools || {};
   const tr = report.time_range || {};
+  const route = Array.isArray(report.stages?.turns) ? report.stages.turns.find((t) => t?.model || t?.provider) : null;
+  const tokenSession = Array.isArray(report.tokens?.sessions) ? report.tokens.sessions[0] : null;
+  const issues = Array.isArray(report.issues) ? report.issues : [];
   const antipatterns =
     (tools.read_fragmentation?.length || 0) +
+    (tools.grep_sweeps?.length || 0) +
     (tools.sequential_tool_clusters?.length || 0) +
     (tools.duplicates?.length || 0) +
     (tools.failed_repeats?.length || 0);
   const turns = num(sum.turns);
   const toolCalls = num(sum.tool_calls);
+  const promptTokens = num(cache.prompt_tokens);
+  const cachedTokens = num(cache.cached_tokens);
+  const uncachedTokens = tokenSession?.uncached_tokens != null
+    ? num(tokenSession.uncached_tokens)
+    : Math.max(0, promptTokens - cachedTokens);
+  const outputTokens = tokenSession
+    ? num(tokenSession.total_output) + num(tokenSession.total_thinking)
+    : 0;
   // prompt growth = last prompt - first prompt across growth_turns if present
   const growth = report.tokens?.growth_turns || [];
   const promptGrowth = growth.length ? num(growth[growth.length - 1]?.prompt_tokens) - num(growth[0]?.prompt_tokens) : null;
   return {
+    provider: route?.provider || null,
+    model: route?.model || null,
     wall_ms: num(tr.span_ms),
     turns,
     tool_calls: toolCalls,
@@ -65,17 +82,24 @@ function scorecard(report) {
     total_tool_ms: num(sum.total_tool_ms),
     llm_stream_ms: num(sum.llm_stream_ms),
     cache_ratio: num(cache.usage_cache_ratio ?? sum.cache_ratio),
-    cached_tokens: num(cache.cached_tokens),
-    prompt_tokens: num(cache.prompt_tokens),
+    cached_tokens: cachedTokens,
+    prompt_tokens: promptTokens,
+    uncached_tokens: uncachedTokens,
+    output_tokens: outputTokens,
+    cache_weighted_input_10: Math.max(0, uncachedTokens + cachedTokens * 0.1),
+    cache_weighted_input_25: Math.max(0, uncachedTokens + cachedTokens * 0.25),
     prompt_growth: promptGrowth,
     antipatterns,
-    issues: Array.isArray(report.issues) ? report.issues.length : 0,
+    issues: issues.length,
+    issue_types: uniq(issues.map((i) => i?.type)),
+    read_fragmentation_paths: uniq((tools.read_fragmentation || []).map((f) => f?.path)),
+    grep_sweep_count: (tools.grep_sweeps || []).length,
   };
 }
 
 function averageCards(cards) {
   if (!cards.length) return null;
-  const keys = Object.keys(cards[0]);
+  const keys = Object.keys(cards[0]).filter((k) => cards.some((c) => typeof c[k] === 'number' && Number.isFinite(c[k])));
   const out = { n: cards.length };
   for (const k of keys) {
     const vals = cards.map((c) => num(c[k]));
@@ -88,12 +112,12 @@ function fmtMs(ms) { const n = num(ms); return n >= 1000 ? `${(n / 1000).toFixed
 function fmtTok(n) { const v = num(n); return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v)); }
 function fmtPct(n) { return `${Math.round(num(n) * 100)}%`; }
 
-const CARD_ORDER = ['wall_ms', 'turns', 'tool_calls', 'tools_per_turn', 'total_tool_ms', 'llm_stream_ms', 'cache_ratio', 'prompt_growth', 'antipatterns', 'issues'];
+const CARD_ORDER = ['wall_ms', 'turns', 'tool_calls', 'tools_per_turn', 'cache_ratio', 'cache_weighted_input_10', 'prompt_growth', 'antipatterns', 'issues'];
 function fmtCardVal(k, v) {
   if (v == null) return '-';
   if (k === 'wall_ms' || k === 'total_tool_ms' || k === 'llm_stream_ms') return fmtMs(v);
   if (k === 'cache_ratio') return fmtPct(v);
-  if (k === 'prompt_growth') return fmtTok(v);
+  if (k === 'prompt_growth' || k === 'cache_weighted_input_10') return fmtTok(v);
   return String(v);
 }
 function renderCard(label, card) {
@@ -108,7 +132,7 @@ function pctDelta(before, after) {
   return `${d > 0 ? '+' : ''}${d}%`;
 }
 // For these metrics LOWER is better (efficiency); cache_ratio higher is better.
-const LOWER_BETTER = new Set(['wall_ms', 'turns', 'tool_calls', 'tools_per_turn', 'total_tool_ms', 'llm_stream_ms', 'prompt_growth', 'antipatterns', 'issues']);
+const LOWER_BETTER = new Set(['wall_ms', 'turns', 'tool_calls', 'tools_per_turn', 'total_tool_ms', 'llm_stream_ms', 'prompt_growth', 'cache_weighted_input_10', 'cache_weighted_input_25', 'antipatterns', 'issues']);
 
 function renderDiff(before, after) {
   const L = [];

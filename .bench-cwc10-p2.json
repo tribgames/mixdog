@@ -1,0 +1,147 @@
+{
+  "round": "cwc10-p2",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_33696_1782925879290_1782925880952_d1a732ecb7a07c0e45855b8468ff6892",
+    "sess_38656_1782925920716_1782925922199_4ba992b999655f94c28c8d46a554ec8d",
+    "sess_38660_1782925993819_1782925995326_84821ca5a84701e957b1f1075d378a9f"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 41433,
+      "sessionId": "sess_33696_1782925879290_1782925880952_d1a732ecb7a07c0e45855b8468ff6892"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 73101,
+      "sessionId": "sess_38656_1782925920716_1782925922199_4ba992b999655f94c28c8d46a554ec8d"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 38303,
+      "sessionId": "sess_38660_1782925993819_1782925995326_84821ca5a84701e957b1f1075d378a9f"
+    }
+  ],
+  "group": {
+    "n": 3,
+    "wall_ms": 48925.7,
+    "turns": 14.7,
+    "tool_calls": 35,
+    "tools_per_turn": 2.4,
+    "total_tool_ms": 2000.7,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.6,
+    "cached_tokens": 183376,
+    "prompt_tokens": 299750,
+    "uncached_tokens": 116374,
+    "output_tokens": 3184.3,
+    "cache_weighted_input_10": 134711.6,
+    "cache_weighted_input_25": 162218,
+    "prompt_growth": 13442.3,
+    "antipatterns": 1.3,
+    "issues": 1.7,
+    "grep_sweep_count": 0
+  },
+  "cards": [
+    {
+      "session": "sess_33696_1782925879290_1782925880952_d1a732ecb7a07c0e45855b8468ff6892",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 39342,
+      "turns": 14,
+      "tool_calls": 36,
+      "tools_per_turn": 2.6,
+      "total_tool_ms": 2603,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.5394007659382744,
+      "cached_tokens": 131692,
+      "prompt_tokens": 244145,
+      "uncached_tokens": 112453,
+      "output_tokens": 3179,
+      "cache_weighted_input_10": 125622.2,
+      "cache_weighted_input_25": 145376,
+      "prompt_growth": 14580,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "read_fragmentation"
+      ],
+      "read_fragmentation_paths": [
+        "src/standalone/hook-bus.mjs"
+      ],
+      "grep_sweep_count": 0
+    },
+    {
+      "session": "sess_38656_1782925920716_1782925922199_4ba992b999655f94c28c8d46a554ec8d",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 71159,
+      "turns": 20,
+      "tool_calls": 45,
+      "tools_per_turn": 2.3,
+      "total_tool_ms": 2107,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.6574103048495454,
+      "cached_tokens": 340340,
+      "prompt_tokens": 517698,
+      "uncached_tokens": 177358,
+      "output_tokens": 4015,
+      "cache_weighted_input_10": 211392,
+      "cache_weighted_input_25": 262443,
+      "prompt_growth": 20433,
+      "antipatterns": 3,
+      "issues": 4,
+      "issue_types": [
+        "read_fragmentation",
+        "missed_parallelism",
+        "tool_churn_cluster"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\agent-trace.mjs",
+        "C:\\Project\\mixdog\\src\\runtime\\memory\\lib\\trace-store.mjs"
+      ],
+      "grep_sweep_count": 0
+    },
+    {
+      "session": "sess_38660_1782925993819_1782925995326_84821ca5a84701e957b1f1075d378a9f",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 36276,
+      "turns": 10,
+      "tool_calls": 24,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 1292,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.5683553239645724,
+      "cached_tokens": 78096,
+      "prompt_tokens": 137407,
+      "uncached_tokens": 59311,
+      "output_tokens": 2359,
+      "cache_weighted_input_10": 67120.6,
+      "cache_weighted_input_25": 78835,
+      "prompt_growth": 5314,
+      "antipatterns": 0,
+      "issues": 0,
+      "issue_types": [],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 0
+    }
+  ]
+}

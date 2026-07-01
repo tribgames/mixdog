@@ -36,6 +36,11 @@ import {
 import { recordReadSnapshot } from './read-snapshot-runtime.mjs';
 import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX } from './arg-guard.mjs';
 
+// Default surrounding-lines window applied by output_mode:'content_with_context'
+// when the caller does not pass an explicit -A/-B/-C/context. Sized to cover a
+// typical function/block so a match arrives readable without a follow-up read.
+const GREP_AUTO_CONTEXT_LINES = 25;
+
 const MIXDOG_GREP_CASE_HINT_PROBE = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_GREP_CASE_HINT_PROBE || ''));
 
 function expandLegacyEscapedAlternationPattern(rawPattern) {
@@ -353,18 +358,23 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         .map(canonicalizeGlobSlashes)
         .filter((g) => !isRedundantAllFilesGlob(g)));
 
-    const ALLOWED_OUTPUT_MODES = new Set(['files_with_matches', 'content', 'count']);
+    const ALLOWED_OUTPUT_MODES = new Set(['files_with_matches', 'content', 'content_with_context', 'count']);
     const rawOutputMode = typeof args.output_mode === 'string' ? args.output_mode.trim() : '';
     if (rawOutputMode && !ALLOWED_OUTPUT_MODES.has(rawOutputMode)) {
         return `Error: invalid output_mode ${JSON.stringify(args.output_mode)}; expected one of ${[...ALLOWED_OUTPUT_MODES].join(', ')}`;
     }
+    // `content_with_context` is a convenience alias for `content` that auto-applies
+    // a generous surrounding-lines window, so the model can read a match in place
+    // without following up with `read`. It maps to content mode; the default
+    // context is applied below unless the caller passed an explicit -A/-B/-C/context.
+    const wantAutoContext = rawOutputMode === 'content_with_context';
     // Default to `content` when output_mode is omitted. A pattern is always
     // present here (the no-pattern case returned above), so this is a content
     // search — it should return the matching lines WITH line numbers, not just
     // filenames. Filename-only was forcing callers to re-grep for the actual
     // coordinates (the explorer over-iteration root cause). `files_with_matches`
     // is now opt-in; pure filename discovery belongs to `glob`.
-    const outputMode = rawOutputMode || 'content';
+    const outputMode = (rawOutputMode === 'content_with_context') ? 'content' : (rawOutputMode || 'content');
     const headLimitRaw = args.head_limit;
     const headLimitCoerced = coerceNonNegInt(headLimitRaw);
     if (Number.isNaN(headLimitCoerced)) {
@@ -391,6 +401,12 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     let contextN = args['-C'] !== undefined && args['-C'] !== null && args['-C'] !== ''
         ? coerceContext(args['-C'])
         : coerceContext(args.context);
+    // content_with_context: if no explicit context flag was supplied, apply a
+    // generous default so the match arrives with enough surrounding code to
+    // understand it (function-sized) without a separate read.
+    if (wantAutoContext && afterN === null && beforeN === null && contextN === null) {
+        contextN = GREP_AUTO_CONTEXT_LINES;
+    }
     if (contextN !== null && contextN > 0) {
         if (afterN === 0) afterN = null;
         if (beforeN === 0) beforeN = null;

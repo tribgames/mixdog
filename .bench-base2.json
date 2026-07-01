@@ -1,0 +1,89 @@
+{
+  "round": "b2",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_45436_1782907688454_1782907689789_0601ae93b720f3f2bc47c7f98af8363d",
+    "sess_34296_1782907727840_1782907729086_7683e49fd0d6387ab69edb331fb5672a",
+    "sess_23532_1782907796903_1782907798187_aa00c6d7c4c4e1f4505c923e98345dda"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 39393,
+      "sessionId": "sess_45436_1782907688454_1782907689789_0601ae93b720f3f2bc47c7f98af8363d"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 69059,
+      "sessionId": "sess_34296_1782907727840_1782907729086_7683e49fd0d6387ab69edb331fb5672a"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 41783,
+      "sessionId": "sess_23532_1782907796903_1782907798187_aa00c6d7c4c4e1f4505c923e98345dda"
+    }
+  ],
+  "group": {
+    "n": 2,
+    "wall_ms": 19950.5,
+    "turns": 7,
+    "tool_calls": 15.5,
+    "tools_per_turn": 1.2,
+    "total_tool_ms": 691,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.8,
+    "cached_tokens": 84078,
+    "prompt_tokens": 126465,
+    "prompt_growth": 5690,
+    "antipatterns": 0.5,
+    "issues": 0.5
+  },
+  "cards": [
+    {
+      "session": "sess_34296_1782907727840_1782907729086_7683e49fd0d6387ab69edb331fb5672a",
+      "wall_ms": 3,
+      "turns": 1,
+      "tool_calls": 0,
+      "tools_per_turn": 0,
+      "total_tool_ms": 0,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.9854991133358774,
+      "cached_tokens": 43903,
+      "prompt_tokens": 44549,
+      "prompt_growth": null,
+      "antipatterns": 0,
+      "issues": 0
+    },
+    {
+      "session": "sess_23532_1782907796903_1782907798187_aa00c6d7c4c4e1f4505c923e98345dda",
+      "wall_ms": 39898,
+      "turns": 13,
+      "tool_calls": 31,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 1382,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.5962779716000979,
+      "cached_tokens": 124253,
+      "prompt_tokens": 208381,
+      "prompt_growth": 11380,
+      "antipatterns": 1,
+      "issues": 1
+    }
+  ]
+}

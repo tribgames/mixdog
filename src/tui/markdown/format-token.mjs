@@ -12,8 +12,8 @@
  *   - Hyperlinks/issue-ref linkify are dropped (no OSC-8 dependency); link text
  *     is shown plainly with its URL.
  */
+import { createRequire } from 'node:module';
 import { Chalk } from 'chalk';
-import { highlight, supportsLanguage } from 'cli-highlight';
 import stripAnsi from 'strip-ansi';
 import wrapAnsi from 'wrap-ansi';
 import { theme, getThemeVersion } from '../theme.mjs';
@@ -303,6 +303,27 @@ function collectDiffBodyLines(text, c, bandWidth) {
 }
 
 // ── cli-highlight (highlight.js) ────────────────────────────────────────────
+const requireCliHighlight = createRequire(import.meta.url);
+/** @type {{ highlight: typeof import('cli-highlight').highlight, supportsLanguage: typeof import('cli-highlight').supportsLanguage } | null} */
+let cliHighlightModule = null;
+
+function getCliHighlight() {
+  if (cliHighlightModule) return cliHighlightModule;
+  try {
+    const clihl = requireCliHighlight('cli-highlight');
+    cliHighlightModule = {
+      highlight: clihl.highlight,
+      supportsLanguage: clihl.supportsLanguage,
+    };
+  } catch {
+    cliHighlightModule = {
+      highlight: null,
+      supportsLanguage: () => false,
+    };
+  }
+  return cliHighlightModule;
+}
+
 /** Internal family → highlight.js language id (when alias alone is insufficient). */
 const FAMILY_TO_HLJS = {
   js: 'javascript',
@@ -447,6 +468,7 @@ function getCliHighlightTheme() {
 
 function hljsLanguageFromFamily(family) {
   if (!family || family === 'md') return null;
+  const { supportsLanguage } = getCliHighlight();
   const mapped = FAMILY_TO_HLJS[family];
   if (mapped && supportsLanguage(mapped)) return mapped;
   if (supportsLanguage(family)) return family;
@@ -459,6 +481,7 @@ function resolveHljsLanguage(lang) {
   if (!normalized) return null;
   const viaFamily = hljsLanguageFromFamily(LANG_FAMILY[normalized]);
   if (viaFamily) return viaFamily;
+  const { supportsLanguage } = getCliHighlight();
   return supportsLanguage(normalized) ? normalized : null;
 }
 
@@ -467,7 +490,8 @@ function resolveHljsLanguage(lang) {
  * or highlighting fails (caller falls back to flat body color).
  */
 function highlightCodeText(text, hljsLang) {
-  if (!hljsLang || !supportsLanguage(hljsLang)) return null;
+  const { highlight, supportsLanguage } = getCliHighlight();
+  if (!hljsLang || !supportsLanguage(hljsLang) || typeof highlight !== 'function') return null;
   const src = String(text ?? '');
   if (!src.trim()) return null;
   if (!/[A-Za-z0-9]/.test(src)) return null;

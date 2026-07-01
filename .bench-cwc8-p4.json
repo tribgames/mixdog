@@ -1,0 +1,118 @@
+{
+  "round": "cwc8-p4",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_6288_1782924359686_1782924361425_1b5919646c571f52bba475466190d5bf",
+    "sess_51300_1782924409414_1782924410880_c53ed673cb7ceaf70e4a547e43d7f206",
+    "sess_33692_1782924484067_1782924485556_1ac0ad527c98d95624fb89b9529907da"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 49747,
+      "sessionId": "sess_6288_1782924359686_1782924361425_1b5919646c571f52bba475466190d5bf"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 74653,
+      "sessionId": "sess_51300_1782924409414_1782924410880_c53ed673cb7ceaf70e4a547e43d7f206"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 75655,
+      "sessionId": "sess_33692_1782924484067_1782924485556_1ac0ad527c98d95624fb89b9529907da"
+    }
+  ],
+  "group": {
+    "n": 3,
+    "wall_ms": 64586,
+    "turns": 15.3,
+    "tool_calls": 38.7,
+    "tools_per_turn": 2.5,
+    "total_tool_ms": 2394.3,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.6,
+    "cached_tokens": 213735,
+    "prompt_tokens": 347284,
+    "prompt_growth": 18244.7,
+    "antipatterns": 0.7,
+    "issues": 0.7
+  },
+  "cards": [
+    {
+      "session": "sess_6288_1782924359686_1782924361425_1b5919646c571f52bba475466190d5bf",
+      "wall_ms": 47423,
+      "turns": 12,
+      "tool_calls": 29,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 1936,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.3853844777672966,
+      "cached_tokens": 94783,
+      "prompt_tokens": 245944,
+      "prompt_growth": 13690,
+      "antipatterns": 0,
+      "issues": 0,
+      "issue_types": [],
+      "read_fragmentation_paths": []
+    },
+    {
+      "session": "sess_51300_1782924409414_1782924410880_c53ed673cb7ceaf70e4a547e43d7f206",
+      "wall_ms": 72475,
+      "turns": 16,
+      "tool_calls": 43,
+      "tools_per_turn": 2.7,
+      "total_tool_ms": 2913,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.6301938545708387,
+      "cached_tokens": 255485,
+      "prompt_tokens": 405407,
+      "prompt_growth": 27434,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "read_fragmentation"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\session\\manager.mjs"
+      ]
+    },
+    {
+      "session": "sess_33692_1782924484067_1782924485556_1ac0ad527c98d95624fb89b9529907da",
+      "wall_ms": 73860,
+      "turns": 18,
+      "tool_calls": 44,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 2334,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.7450352239815007,
+      "cached_tokens": 290937,
+      "prompt_tokens": 390501,
+      "prompt_growth": 13610,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "read_fragmentation"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\session\\context-utils.mjs"
+      ]
+    }
+  ]
+}

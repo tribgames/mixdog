@@ -7,6 +7,21 @@ import {
 } from '../stall-policy.mjs';
 import { populateHttpStatusFromMessage } from './retry-classifier.mjs';
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
+import { createLeakGuard, createToolCallDedupe } from './anthropic-leaked-toolcall.mjs';
+import { randomBytes } from 'crypto';
+
+// Synthesize a native-shaped OpenAI tool call from a recovered leaked call.
+// Matches the `call_...` id scheme the native Responses/Chat paths use so the
+// dispatch loop and any downstream tool_result reference line up.
+function synthLeakedOpenAICall(recovered) {
+    let args = recovered?.arguments;
+    if (args === null || typeof args !== 'object' || Array.isArray(args)) args = {};
+    return {
+        id: `call_leaked_${randomBytes(8).toString('hex')}`,
+        name: recovered.name,
+        arguments: args,
+    };
+}
 
 function truncatedCompatStreamError(label, detail) {
     return Object.assign(
@@ -213,6 +228,15 @@ function emitCompatToolCallOnce(state, call, onToolCall) {
     const key = `id:${call.id}`;
     if (!state.emittedToolCallKeys) state.emittedToolCallKeys = new Set();
     if (state.emittedToolCallKeys.has(key)) return false;
+    // Fix 2: cross-path name+args dedupe. A synthesized text-leaked call and an
+    // identical native tool_call must fire onToolCall exactly once. state._toolDedupe
+    // is created per stream; when absent (older callers) behavior is unchanged.
+    if (state._toolDedupe && !state._toolDedupe.shouldDispatch(call.name, call.arguments)) {
+        // Still mark the id as emitted so later id-frames for the same native
+        // call don't retry, but do NOT invoke onToolCall (already dispatched).
+        state.emittedToolCallKeys.add(key);
+        return false;
+    }
     state.emittedToolCallKeys.add(key);
     state.emittedToolCall = true;
     const { _pendingItemId, ...cleanCall } = call;
@@ -257,7 +281,7 @@ function isMaxOutputIncompleteReason(reason) {
     return /^(?:max_output_tokens|max_tokens|length|output_token_limit)$/i.test(String(reason || '').trim());
 }
 
-export async function consumeCompatChatCompletionStream(stream, { signal, label, onStreamDelta, onToolCall, onTextDelta, parseToolCalls } = {}) {
+export async function consumeCompatChatCompletionStream(stream, { signal, label, onStreamDelta, onToolCall, onTextDelta, parseToolCalls, knownToolNames } = {}) {
     const iterator = stream[Symbol.asyncIterator]();
     const firstByteTimeout = createTimeoutSignal(signal, PROVIDER_FIRST_BYTE_TIMEOUT_MS, `${label} first byte`);
     const idleEnabled = PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
@@ -276,6 +300,46 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
     let rawUsage = null;
     const toolAcc = new Map();
     const toolBucketState = { _orderSeq: 0, _nextAnonId: 0, _lastAnonKey: null };
+    // Fix 2: one dedupe per stream, shared by the synthetic leaked-call
+    // dispatch and every native emit so an identical (name,args) fires once.
+    const _toolDedupe = createToolCallDedupe();
+    // Leaked tool-call guard: the model sometimes emits a tool call as plain
+    // text (XML `<invoke>`/`<function_calls>` or gpt-oss harmony
+    // `<|channel|>...to=functions.NAME...<|call|>`) inside `delta.content`
+    // instead of a native `tool_calls` delta. Route content through the guard
+    // so leaked calls are suppressed from visible text, synthesized, and
+    // dispatched like native calls. Additive: the native tool_calls path is
+    // untouched. Harmony detection is opt-in here (gpt-oss compat backends).
+    const leakGuard = createLeakGuard({ knownToolNames, harmony: true });
+    const dispatchLeakedCall = (recovered) => {
+        const call = synthLeakedOpenAICall(recovered);
+        const emitState = { emittedToolCallKeys: new Set(), _toolDedupe };
+        emitCompatToolCallOnce(emitState, call, onToolCall);
+        return call;
+    };
+    const leakedCalls = [];
+    const relayText = (delta) => {
+        const { text, calls } = leakGuard.push(delta);
+        if (text) {
+            content += text;
+            if (onTextDelta) {
+                emittedText = true;
+                try { onTextDelta(text); } catch {}
+            }
+        }
+        for (const c of calls) leakedCalls.push(dispatchLeakedCall(c));
+    };
+    const flushLeak = () => {
+        const { text, calls } = leakGuard.flush();
+        if (text) {
+            content += text;
+            if (onTextDelta) {
+                emittedText = true;
+                try { onTextDelta(text); } catch {}
+            }
+        }
+        for (const c of calls) leakedCalls.push(dispatchLeakedCall(c));
+    };
     try {
         while (true) {
             const { value: chunk, done } = await nextAsyncWithWatchdog(iterator, {
@@ -296,12 +360,18 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
             if (chunk?.model) model = chunk.model;
             const choice = chunk?.choices?.[0];
             if (choice?.delta?.content) {
-                content += choice.delta.content;
-                // Live text relay (gateway): explicit assistant text delta.
+                // Live text relay (gateway): explicit assistant text delta,
+                // routed through the leaked-tool-call guard (which appends to
+                // `content`, forwards visible text, and recovers leaked calls).
                 // reasoning_content + tool_calls deltas stay off this path.
-                if (onTextDelta) {
-                    emittedText = true;
-                    try { onTextDelta(choice.delta.content); } catch {}
+                if (leakGuard.enabled) {
+                    relayText(choice.delta.content);
+                } else {
+                    content += choice.delta.content;
+                    if (onTextDelta) {
+                        emittedText = true;
+                        try { onTextDelta(choice.delta.content); } catch {}
+                    }
                 }
             }
             if (typeof choice?.delta?.reasoning_content === 'string') {
@@ -311,6 +381,9 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
             if (choice?.finish_reason) stopReason = choice.finish_reason;
             if (chunk?.usage) rawUsage = chunk.usage;
         }
+        // Flush any partial-sentinel tail held back mid-stream so legitimate
+        // trailing text is never lost.
+        if (leakGuard.enabled) flushLeak();
     } catch (err) {
         // Any mid-stream failure after live text was relayed is non-retryable.
         if (emittedText) throw markErrorLiveTextEmitted(err);
@@ -356,8 +429,14 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
         throw err;
     }
     if (Array.isArray(toolCalls) && toolCalls.length) {
-        const emitState = { emittedToolCallKeys: new Set() };
+        const emitState = { emittedToolCallKeys: new Set(), _toolDedupe };
         for (const call of toolCalls) emitCompatToolCallOnce(emitState, call, onToolCall);
+    }
+    // Fold recovered leaked calls into the returned toolCalls so the dispatch
+    // loop treats them exactly like native ones. They were already emitted via
+    // onToolCall in relayText/flushLeak, so no re-dispatch here.
+    if (leakedCalls.length) {
+        toolCalls = [...(Array.isArray(toolCalls) ? toolCalls : []), ...leakedCalls];
     }
     return {
         response,
@@ -370,7 +449,7 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
     };
 }
 
-function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesToolCalls, responseOutputText, onStreamDelta, onToolCall, onTextDelta }) {
+function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesToolCalls, responseOutputText, onStreamDelta, onToolCall, onTextDelta, relayLeakText }) {
     if (!event || typeof event.type !== 'string') return;
     const pushToolSearchCall = (item) => {
         if (!item || item.type !== 'tool_search_call') return;
@@ -399,12 +478,17 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
             if (event.response?.id) state.responseId = event.response.id;
             break;
         case 'response.output_text.delta':
-            state.content += event.delta || '';
             state.sawOutput = true;
             try { onStreamDelta?.(); } catch {}
-            if (event.delta && onTextDelta) {
-                state.emittedText = true;
-                try { onTextDelta(event.delta); } catch {}
+            // Route assistant text through the leaked-tool-call guard (appends
+            // to state.content, forwards visible text, recovers leaked calls).
+            if (relayLeakText) relayLeakText(event.delta || '');
+            else {
+                state.content += event.delta || '';
+                if (event.delta && onTextDelta) {
+                    state.emittedText = true;
+                    try { onTextDelta(event.delta); } catch {}
+                }
             }
             break;
         case 'response.output_item.added':
@@ -555,6 +639,7 @@ export async function consumeCompatResponsesStream(stream, {
     onTextDelta,
     parseResponsesToolCalls,
     responseOutputText,
+    knownToolNames,
 } = {}) {
     const iterator = stream[Symbol.asyncIterator]();
     const firstByteTimeout = createTimeoutSignal(signal, PROVIDER_FIRST_BYTE_TIMEOUT_MS, `${label} first byte`);
@@ -572,13 +657,51 @@ export async function consumeCompatResponsesStream(stream, {
         completed: false,
         completedResponse: null,
         sawOutput: false,
+        // Fix 2: cross-path name+args dedupe shared by synthetic leaked-call
+        // dispatch and every native emit in this Responses stream.
+        _toolDedupe: createToolCallDedupe(),
         // Gateway live-text relay invariant: set once a non-empty text chunk
         // has been forwarded. A later failure is non-retryable (rendered text
         // cannot be withdrawn; a retry would concatenate attempts).
         emittedText: false,
     };
     let sawFirstEvent = false;
-    const deps = { label, parseResponsesToolCalls, responseOutputText, onStreamDelta, onToolCall, onTextDelta };
+    // Leaked tool-call guard for the Responses text stream. Same recovery as
+    // the Chat path: leaked XML/harmony tool syntax in `output_text.delta` is
+    // suppressed from visible text, synthesized, and dispatched like native.
+    const leakGuard = createLeakGuard({ knownToolNames, harmony: true });
+    const leakedCalls = [];
+    const dispatchLeakedCall = (recovered) => {
+        const call = synthLeakedOpenAICall(recovered);
+        emitCompatToolCallOnce(state, call, onToolCall);
+        leakedCalls.push(call);
+    };
+    const relayLeakText = leakGuard.enabled
+        ? (delta) => {
+            const { text, calls } = leakGuard.push(delta);
+            if (text) {
+                state.content += text;
+                if (onTextDelta) {
+                    state.emittedText = true;
+                    try { onTextDelta(text); } catch {}
+                }
+            }
+            for (const c of calls) dispatchLeakedCall(c);
+        }
+        : null;
+    const flushLeak = () => {
+        if (!leakGuard.enabled) return;
+        const { text, calls } = leakGuard.flush();
+        if (text) {
+            state.content += text;
+            if (onTextDelta) {
+                state.emittedText = true;
+                try { onTextDelta(text); } catch {}
+            }
+        }
+        for (const c of calls) dispatchLeakedCall(c);
+    };
+    const deps = { label, parseResponsesToolCalls, responseOutputText, onStreamDelta, onToolCall, onTextDelta, relayLeakText };
     try {
         while (true) {
             const { value: event, done } = await nextAsyncWithWatchdog(iterator, {
@@ -594,6 +717,7 @@ export async function consumeCompatResponsesStream(stream, {
             }
             handleCompatResponsesStreamEvent(event, state, deps);
         }
+        flushLeak();
     } catch (err) {
         throw markUnsafeRetryIfToolEmitted(err, state);
     } finally {
@@ -618,9 +742,13 @@ export async function consumeCompatResponsesStream(stream, {
         output_text: state.content,
         output: [],
     };
-    const toolCalls = state.toolCalls.length
+    let toolCalls = state.toolCalls.length
         ? state.toolCalls.map(({ _pendingItemId, ...t }) => t)
         : parseResponsesToolCalls(response, label);
+    // Fold recovered leaked calls in (already emitted via onToolCall above).
+    if (leakedCalls.length) {
+        toolCalls = [...(Array.isArray(toolCalls) ? toolCalls : []), ...leakedCalls];
+    }
     return {
         response,
         content: state.content || responseOutputText(response),

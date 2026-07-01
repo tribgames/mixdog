@@ -7,10 +7,16 @@ import {
   _compactTriggerForSession as compactTriggerForSession,
   _preserveBufferConfigFields as preserveBufferConfigFields,
 } from '../src/runtime/agent/orchestrator/session/manager.mjs';
-import { _autoCompactTokenLimit as routeMetaAutoCompactTokenLimit } from '../src/vendor/statusline/src/gateway/route-meta.mjs';
+import {
+  _autoCompactTokenLimit as routeMetaAutoCompactTokenLimit,
+  autoCompactWindowForRoute,
+  compactBoundaryDenominator,
+  summarizeGatewayUsage,
+} from '../src/vendor/statusline/src/gateway/route-meta.mjs';
 import {
   _routeContextMeta as routeContextMeta,
   _resolveStatusAutoCompactTokenLimit as resolveStatusAutoCompactTokenLimit,
+  compactBoundaryForStatus,
 } from '../src/vendor/statusline/bin/statusline-route.mjs';
 
 function assert(condition, message) {
@@ -182,6 +188,66 @@ function assert(condition, message) {
   );
   assert(configuredExplicit === 120000,
     `status: configured explicit limit should surface, got ${configuredExplicit}`);
+}
+
+// 10) Boundary / window denominators ignore autoCompactTokenLimit (trigger-only).
+{
+  const boundary = 200000;
+  const trigger = 150000;
+  const route = {
+    contextWindow: boundary,
+    compactBoundaryTokens: boundary,
+    rawContextWindow: boundary,
+    autoCompactTokenLimit: trigger,
+  };
+  assert(compactBoundaryForStatus(route) === boundary,
+    `status boundary should be ${boundary}, got ${compactBoundaryForStatus(route)}`);
+  assert(compactBoundaryForStatus({ contextWindow: boundary, autoCompactTokenLimit: trigger }) === boundary,
+    `status boundary should use contextWindow ${boundary}, got ${compactBoundaryForStatus({ contextWindow: boundary, autoCompactTokenLimit: trigger })}`);
+  assert(autoCompactWindowForRoute({ contextWindow: boundary, autoCompactTokenLimit: trigger }) === boundary,
+    `route compact window should be ${boundary}, got ${autoCompactWindowForRoute({ contextWindow: boundary, autoCompactTokenLimit: trigger })}`);
+  const trig = compactTriggerForSession({ autoCompactTokenLimit: trigger, compaction: {} }, boundary);
+  assert(trig === trigger, `trigger resolver should stay ${trigger}, got ${trig}`);
+}
+
+// 11) Boundary fallback order and compact boundary fields.
+{
+  const context = 200000;
+  const smallerBudget = 150000;
+  assert(
+    compactBoundaryForStatus({ contextWindow: context }, { budgetWindow: smallerBudget, compactLimitTokens: smallerBudget }) === context,
+    `contextWindow ${context} must win over smaller budgetWindow ${smallerBudget}`,
+  );
+  assert(
+    compactBoundaryDenominator({ contextWindow: context }, { budgetWindow: smallerBudget }) === context,
+    `route denominator: contextWindow must win over budgetWindow`,
+  );
+  assert(
+    compactBoundaryForStatus({ contextWindow: context }, { boundaryTokens: 180000 }) === 180000,
+    'compact.boundaryTokens should be honored',
+  );
+  assert(
+    compactBoundaryForStatus({ contextWindow: context }, { compactBoundaryTokens: 190000 }) === 190000,
+    'compact.compactBoundaryTokens should be honored',
+  );
+  assert(
+    compactBoundaryForStatus({ boundaryTokens: 175000, contextWindow: context }, { budgetWindow: smallerBudget }) === 175000,
+    'routeInfo.boundaryTokens should be honored',
+  );
+  const withLimitOnly = compactBoundaryForStatus(
+    { contextWindow: context, autoCompactTokenLimit: smallerBudget },
+    { compactLimitTokens: smallerBudget, budgetWindow: smallerBudget },
+  );
+  assert(withLimitOnly === context,
+    `compactLimitTokens/budget must not shrink boundary; expected ${context}, got ${withLimitOnly}`);
+  const usage = summarizeGatewayUsage(
+    { provider: 'openai-oauth', model: 'gpt-5.5', contextWindow: context },
+    { usage: { inputTokens: 1, outputTokens: 1 } },
+    { boundaryTokens: 180000, budgetWindow: smallerBudget, compactLimitTokens: smallerBudget, afterTokens: 90000 },
+    1,
+  );
+  assert(usage.contextUsedPct === 50,
+    `gateway usage pct should use compact.boundaryTokens denominator 180000; got ${usage.contextUsedPct}`);
 }
 
 process.stdout.write('compact-trigger-migration smoke passed ✓\n');

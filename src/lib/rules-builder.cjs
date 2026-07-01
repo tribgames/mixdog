@@ -247,34 +247,15 @@ function composeUserAddressBullet(memoryConfig) {
 }
 
 function splitLeadGeneral(general, addressBullet = '') {
-  const lines = String(general || '').split(/\r?\n/);
-  const roleLines = [];
-  const metaLines = [];
-  let inMeta = false;
-  for (const line of lines) {
-    if (/language used by the user/i.test(line)) {
-      if (!inMeta) {
-        metaLines.push('# General');
-        metaLines.push('');
-        inMeta = true;
-      }
-      metaLines.push(line);
-    } else {
-      roleLines.push(line);
-    }
-  }
-  if (addressBullet) {
-    if (!inMeta) {
-      metaLines.push('# General');
-      metaLines.push('');
-      inMeta = true;
-    }
-    metaLines.push(addressBullet);
-  }
-  return {
-    role: roleLines.join('\n').trim(),
-    meta: metaLines.join('\n').trim(),
-  };
+  // Language is owned solely by the `# Language` section (buildLanguageSection);
+  // general.md never carries a language line, so there is no language content to
+  // promote into the meta layer here. The only meta-tier content this split
+  // emits is the optional user address-form bullet.
+  const role = String(general || '').trim();
+  const meta = addressBullet
+    ? ['# General', '', addressBullet].join('\n').trim()
+    : '';
+  return { role, meta };
 }
 
 function buildSharedToolContent({ PLUGIN_ROOT }) {

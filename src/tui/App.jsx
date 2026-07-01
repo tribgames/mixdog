@@ -653,6 +653,15 @@ function shiftSelectionRectY(rect, deltaY) {
   return { ...rect, y1: rect.y1 + dy, y2: rect.y2 + dy };
 }
 
+// Reading-order compare (row then col): -1 if a<b, 1 if a>b, 0 equal. Shared by
+// buildSpanRect (word/line drag-extension). Module scope so both the mouse
+// handler and the auto-scroll path can reach it.
+function comparePoints(a, b) {
+  if (a.y !== b.y) return a.y < b.y ? -1 : 1;
+  if (a.x !== b.x) return a.x < b.x ? -1 : 1;
+  return 0;
+}
+
 // Count how many terminal rows ONE logical line (no '\n') occupies once ink
 // word-wraps it. ink/Yoga break on whitespace (wrap-ansi wordWrap), NOT on a
 // hard column count: a word that does not fit the remaining space is pushed
@@ -1708,7 +1717,11 @@ export function App({ store, initialStatusLine = '' }) {
   // region: which surface the in-progress (or last) selection belongs to —
   // 'transcript' | 'status' (both ink-grid) | 'prompt' (PromptInput's own engine)
   // | null. Press decides it; motion/release stay in that region.
-  const dragRef = useRef({ anchor: null, anchorScroll: 0, last: null, active: false, rect: null, region: null });
+  // anchorSpan: for word/line multi-click selections, the initial word/line
+  // bounds ({ lo:{x,y}, hi:{x,y}, kind:'word'|'line' }) so a subsequent drag
+  // extends the selection whole-word/whole-line from that span (see selection.ts
+  // extendSelection). Null ⇔ ordinary char-drag selection.
+  const dragRef = useRef({ anchor: null, anchorScroll: 0, last: null, active: false, rect: null, region: null, anchorSpan: null });
   const selectionPaintRef = useRef({ t: 0, rect: null, pending: null, timer: null });
   const transcriptViewportRef = useRef({ top: 0, bottom: 0 });
   // [mixdog] Latest terminal row count + the statusline band (bottom rows),
@@ -1731,8 +1744,12 @@ export function App({ store, initialStatusLine = '' }) {
   const selectionTextRef = useRef('');
   const selectionTextTimerRef = useRef(null);
   // lastClickRef tracks the previous left-press cell + time so the mouse handler
-  // can detect a double-click (same cell within 400ms) for word selection.
-  const lastClickRef = useRef({ x: -1, y: -1, t: 0 });
+  // can detect a double-click (same cell within 500ms) for word selection.
+  // count = consecutive qualifying presses on the same cell (1=single,
+  // 2=double/word, 3=triple/line). A 4th qualifying press restarts the
+  // sequence at 1 (claude-code cycles; simplest reset). Any non-qualifying
+  // press resets to a fresh single.
+  const lastClickRef = useRef({ x: -1, y: -1, t: 0, count: 0 });
 
   const showSelectionCopyHint = useCallback((text, tone = 'plain') => {
     if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
@@ -2067,6 +2084,124 @@ export function App({ store, initialStatusLine = '' }) {
     };
   }, []);
 
+  // Port of selection.ts extendSelection onto the linear-rect model, hoisted to
+  // component scope so BOTH the mouse handler (motion/release) AND the
+  // auto-scroll path (scrollTranscriptRows) can rebuild a span-aware rect. Grows
+  // a word/line multi-click selection from its anchor span to the word/line under
+  // the cursor: target ends before the span → extend backward (span.hi→targetLo);
+  // target starts after → extend forward (span.lo→targetHi); overlapping → the
+  // span. The moving end snaps to the word (getWordRectAt) or line (getLineRectAt)
+  // at the cursor; a miss (blank/gutter) falls back to the raw cell. spanScroll
+  // re-anchors the span to the current transcript scroll (status never scrolls) so
+  // the original word/line tracks the content while dragging/auto-scrolling.
+  const buildSpanRect = useCallback((span, x, y, region, spanScroll = 0) => {
+    const conv = (pt) => (region === 'status' ? pt : selectionPointAtCurrentScroll(pt, spanScroll));
+    const spanLo = conv(span.lo);
+    const spanHi = conv(span.hi);
+    let mLo;
+    let mHi;
+    if (span.kind === 'word') {
+      const wr = store.getWordRectAt?.(x, y);
+      if (wr) { mLo = { x: wr.x1, y: wr.y1 }; mHi = { x: wr.x2, y: wr.y2 }; }
+      else { mLo = { x, y }; mHi = { x, y }; }
+    } else {
+      const lr = store.getLineRectAt?.(y);
+      if (lr) { mLo = { x: lr.x1, y: lr.y1 }; mHi = { x: lr.x2, y: lr.y2 }; }
+      else { mLo = { x: 0, y }; mHi = { x, y }; }
+    }
+    const rect = (a, b) => ({ mode: 'linear', x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+    if (comparePoints(mHi, spanLo) < 0) return rect(spanHi, mLo);
+    if (comparePoints(mLo, spanHi) > 0) return rect(spanLo, mHi);
+    return rect(spanLo, spanHi);
+  }, [store, selectionPointAtCurrentScroll]);
+
+  const transcriptViewportRows = useCallback(() => {
+    const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
+    const bottom = Math.max(top, Number(transcriptViewportRef.current?.bottom) || top);
+    return { top, bottom };
+  }, []);
+
+  const statusBandRows = useCallback(() => {
+    const rows = Math.max(1, Number(frameRowsRef.current) || 24);
+    const top = Math.max(0, rows - STATUSLINE_BAND_ROWS);
+    return { top, bottom: Math.max(top, rows - 1) };
+  }, []);
+
+  const selectionMaxColAtRow = useCallback((row) => {
+    const lr = store.getLineRectAt?.(row);
+    if (lr != null && Number.isFinite(lr.x2)) return Math.max(0, lr.x2);
+    return Math.max(0, frameColumns - 1);
+  }, [store, frameColumns]);
+
+  const moveSelectionFocus = useCallback((move) => {
+    const drag = dragRef.current;
+    if (drag.active) return false;
+    const region = drag.region;
+    if (region !== 'transcript' && region !== 'status') return false;
+    const rect = drag.rect;
+    if (!rect) return false;
+    if (rect.x1 === rect.x2 && rect.y1 === rect.y2) return false;
+
+    const anchor = { x: rect.x1, y: rect.y1 };
+    let col = rect.x2;
+    let row = rect.y2;
+    const beforeCol = col;
+    const beforeRow = row;
+
+    const { top, bottom } = region === 'status' ? statusBandRows() : transcriptViewportRows();
+
+    switch (move) {
+      case 'left':
+        if (col > 0) col -= 1;
+        else if (row > top) {
+          row -= 1;
+          col = selectionMaxColAtRow(row);
+        }
+        break;
+      case 'right': {
+        const maxCol = selectionMaxColAtRow(row);
+        if (col < maxCol) col += 1;
+        else if (row < bottom) {
+          row += 1;
+          col = 0;
+        }
+        break;
+      }
+      case 'up':
+        if (row > top) row -= 1;
+        break;
+      case 'down':
+        if (row < bottom) row += 1;
+        break;
+      case 'lineStart':
+        col = 0;
+        break;
+      case 'lineEnd':
+        col = selectionMaxColAtRow(row);
+        break;
+      default:
+        return false;
+    }
+
+    row = Math.max(top, Math.min(bottom, row));
+    col = Math.max(0, Math.min(selectionMaxColAtRow(row), col));
+
+    if (col === beforeCol && row === beforeRow) return false;
+
+    if (drag.anchorSpan) drag.anchorSpan = null;
+
+    const focus = { x: col, y: row };
+    applySelectionRect({
+      mode: 'linear',
+      x1: anchor.x,
+      y1: anchor.y,
+      x2: focus.x,
+      y2: focus.y,
+    });
+    drag.last = { x: focus.x, y: focus.y };
+    return true;
+  }, [applySelectionRect, statusBandRows, transcriptViewportRows, selectionMaxColAtRow]);
+
   useEffect(() => () => {
     const paintState = selectionPaintRef.current;
     if (paintState.timer) clearTimeout(paintState.timer);
@@ -2122,9 +2257,16 @@ export function App({ store, initialStatusLine = '' }) {
     if (appliedDelta !== 0 && dragRef.current.rect) {
       let rect;
       if (dragRef.current.active) {
-        const { anchor, anchorScroll, last } = dragRef.current;
-        const currentAnchor = selectionPointAtCurrentScroll(anchor, anchorScroll);
-        rect = currentAnchor && last ? { mode: 'linear', x1: currentAnchor.x, y1: currentAnchor.y, x2: last.x, y2: last.y } : null;
+        const { anchor, anchorScroll, last, anchorSpan, region } = dragRef.current;
+        if (anchorSpan && last) {
+          // Word/line multi-click drag that reached the edge: keep extending by
+          // whole words/lines from the span to the word/line at the current cell,
+          // NOT collapsing to a char {anchor->last} rect. Mirrors the motion path.
+          rect = buildSpanRect(anchorSpan, last.x, last.y, region, anchorScroll);
+        } else {
+          const currentAnchor = selectionPointAtCurrentScroll(anchor, anchorScroll);
+          rect = currentAnchor && last ? { mode: 'linear', x1: currentAnchor.x, y1: currentAnchor.y, x2: last.x, y2: last.y } : null;
+        }
       } else {
         rect = shiftSelectionRectY(dragRef.current.rect, appliedDelta);
       }
@@ -2139,7 +2281,7 @@ export function App({ store, initialStatusLine = '' }) {
     stopSmoothScroll();
     scrollPositionRef.current = target;
     setScrollOffset(Math.round(target));
-  }, [startSmoothScroll, stopSmoothScroll, paintSelectionRect, selectionPointAtCurrentScroll, withSelectionClip, cancelTranscriptFollow]);
+  }, [startSmoothScroll, stopSmoothScroll, paintSelectionRect, selectionPointAtCurrentScroll, withSelectionClip, cancelTranscriptFollow, buildSpanRect]);
 
   const passthroughCtrlWheelZoom = useCallback(() => {
     if (!stdout?.write) return;
@@ -2196,6 +2338,8 @@ export function App({ store, initialStatusLine = '' }) {
         y2: b.y,
       };
     };
+    // Word/line multi-click drag-extension uses the hoisted buildSpanRect (same
+    // logic reachable from the auto-scroll path in scrollTranscriptRows).
     const transcriptViewport = () => {
       const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
       const bottom = Math.max(top, Number(transcriptViewportRef.current?.bottom) || top);
@@ -2289,7 +2433,7 @@ export function App({ store, initialStatusLine = '' }) {
             applySelectionRect(null);
             const offset = promptOffsetAt(x, y);
             stopSmoothScroll();
-            dragRef.current = { anchor: { x, y }, anchorScroll: 0, last: { x, y }, active: true, rect: null, region: 'prompt' };
+            dragRef.current = { anchor: { x, y }, anchorScroll: 0, last: { x, y }, active: true, rect: null, region: 'prompt', anchorSpan: null };
             if (offset != null) promptMouseSelectionRef.current?.anchorAt?.(offset);
             continue;
           }
@@ -2299,45 +2443,65 @@ export function App({ store, initialStatusLine = '' }) {
             lastClickRef.current = { x: -1, y: -1, t: 0 };
             dragRef.current.active = false;
             dragRef.current.region = null;
+            dragRef.current.anchorSpan = null;
             clearAllSelections();
             continue;
           }
           const region = inTranscript ? 'transcript' : 'status';
           // A press always clears the prompt-box selection (single active region).
           promptMouseSelectionRef.current?.clear?.();
-          // Double-click on a word: select just that word and copy it, reusing
-          // the existing selection/copy pipeline, then advance to the next event.
-          // Works for transcript AND status rows since getWordRectAt is grid-based.
+          // Multi-click sequence: 2nd consecutive press = word (double-click),
+          // 3rd = whole line (triple-click). Each press must land near the prior
+          // one within 500ms — up to 2 columns and 1 row of drift (terminals
+          // often report a shifted cell on repeat clicks); tighter matching made
+          // word selection unreliable. A 4th qualifying press restarts the
+          // sequence at 1 (claude-code cycles; simplest: reset). Works for
+          // transcript AND status rows since getWordRectAt/getLineRectAt are
+          // grid-based. Copy still happens on Ctrl+C, never here.
           const now = Date.now();
           const lc = lastClickRef.current;
-          // Treat a second press as a double-click when it lands near the first
-          // press within 500ms: up to 2 columns and 1 row of drift (terminals
-          // often report a shifted cell on the second click). Tighter matching
-          // made double-click word selection unreliable.
-          const isDouble = (now - lc.t) < 500
+          const qualifies = (now - lc.t) < 500
             && Math.abs(lc.y - y) <= 1
             && Math.abs(lc.x - x) <= 2;
-          if (isDouble) {
-            // Consume this click so a following press is not mistaken for another
-            // double-click (avoids a stray single-cell selection flicker).
-            lastClickRef.current = { x: -1, y: -1, t: 0 };
-            const wr = store.getWordRectAt?.(x, y);
+          let clickCount = qualifies ? (lc.count || 1) + 1 : 1;
+          if (clickCount > 3) clickCount = 1;
+          if (clickCount === 2 || clickCount === 3) {
+            // Word (2) or line (3) select. Snap to the word/line under the cell
+            // and record the span on dragRef so a following drag extends by whole
+            // words/lines from this span (see buildSpanRect). Leave the drag
+            // ARMED (active:true): a release without motion keeps this highlight
+            // (buildSpanRect returns the span for an in-span target), while
+            // any motion extends it. Mirrors selectWordAt/selectLineAt setting
+            // isDragging=true + anchorSpan; the mouse-up finalizes.
+            const kind = clickCount === 2 ? 'word' : 'line';
+            const wr = kind === 'word' ? store.getWordRectAt?.(x, y) : store.getLineRectAt?.(y);
             if (wr) {
-              const rect = linearSelection({ x: wr.x1, y: wr.y1 }, { x: wr.x2, y: wr.y2 });
+              const lo = { x: wr.x1, y: wr.y1 };
+              const hi = { x: wr.x2, y: wr.y2 };
+              const rect = linearSelection(lo, hi);
               stopSmoothScroll();
-              dragRef.current = { anchor: null, anchorScroll: 0, last: null, active: false, rect: null, region };
+              dragRef.current = {
+                anchor: { x, y },
+                anchorScroll: region === 'transcript' ? scrollTargetRef.current : 0,
+                last: { x, y },
+                active: true,
+                rect: null,
+                region,
+                anchorSpan: { lo, hi, kind },
+              };
               applySelectionRect(rect);
-              // Selection only — copy happens on Ctrl+C (see useInput), not here.
+              lastClickRef.current = { x, y, t: now, count: clickCount };
               continue;
             }
           }
-          lastClickRef.current = { x, y, t: now };
+          lastClickRef.current = { x, y, t: now, count: 1 };
           // Left-button press: begin a new selection anchored here.
           // Anchor the drag but do NOT paint a zero-width selection yet; a plain
           // single click should not flash a one-cell highlight. The selection is
           // only rendered once a drag actually extends past the anchor.
           // Status-band selections do NOT scroll, so anchorScroll is irrelevant
           // there; keep the transcript scroll anchor only for the transcript.
+          // Plain single press clears any word/line anchorSpan (char-drag mode).
           stopSmoothScroll();
           dragRef.current = {
             anchor: { x, y },
@@ -2346,6 +2510,7 @@ export function App({ store, initialStatusLine = '' }) {
             active: true,
             rect: null,
             region,
+            anchorSpan: null,
           };
         } else if (baseButton === 0 && isMotion && dragRef.current.active) {
           const region = dragRef.current.region;
@@ -2362,11 +2527,19 @@ export function App({ store, initialStatusLine = '' }) {
           // current cell, clamped to the owning region's band.
           const selectionY = region === 'status' ? clampToStatusBand(y) : clampToTranscriptViewport(y);
           dragRef.current.last = { x, y: selectionY };
-          const anchor = region === 'status'
-            ? dragRef.current.anchor
-            : selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
-          const rect = linearSelection(anchor, { x, y: selectionY });
-          applySelectionRectThrottled(rect);
+          const span = dragRef.current.anchorSpan;
+          if (span) {
+            // Word/line multi-click drag: extend by whole words/lines from the
+            // anchor span to the word/line under the cursor (see buildSpanRect).
+            const rect = buildSpanRect(span, x, selectionY, region, dragRef.current.anchorScroll);
+            applySelectionRectThrottled(rect);
+          } else {
+            const anchor = region === 'status'
+              ? dragRef.current.anchor
+              : selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
+            const rect = linearSelection(anchor, { x, y: selectionY });
+            applySelectionRectThrottled(rect);
+          }
           // Auto-scroll-while-dragging is transcript-only (the status band does
           // not scroll).
           if (region === 'transcript') {
@@ -2390,18 +2563,28 @@ export function App({ store, initialStatusLine = '' }) {
           // (the SGR release event carries col/row) and keep the selection
           // visible. Copy is NOT automatic — the user presses Ctrl+C to copy.
           // The highlight stays until ESC or a plain click.
-          const anchor = region === 'status'
-            ? dragRef.current.anchor
-            : selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
-          dragRef.current.active = false;
+          const span = dragRef.current.anchorSpan;
           const releaseY = region === 'status' ? clampToStatusBand(y) : clampToTranscriptViewport(y);
-          const rect = linearSelection(anchor, { x, y: releaseY });
-          const empty = rect.x1 === rect.x2 && rect.y1 === rect.y2;
-          if (empty) {
-            applySelectionRect(null); // a plain click clears any prior highlight
-          } else {
-            // Push the final rect so ink re-renders the visible selection.
+          dragRef.current.active = false;
+          if (span) {
+            // Word/line multi-click release: finalize from the span to the
+            // word/line at the release cell. A release-without-motion resolves
+            // to the span itself (in-span target), so the original word/line
+            // highlight stays — never cleared as "empty" like a bare click.
+            const rect = buildSpanRect(span, x, releaseY, region, dragRef.current.anchorScroll);
             applySelectionRect(rect);
+          } else {
+            const anchor = region === 'status'
+              ? dragRef.current.anchor
+              : selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
+            const rect = linearSelection(anchor, { x, y: releaseY });
+            const empty = rect.x1 === rect.x2 && rect.y1 === rect.y2;
+            if (empty) {
+              applySelectionRect(null); // a plain click clears any prior highlight
+            } else {
+              // Push the final rect so ink re-renders the visible selection.
+              applySelectionRect(rect);
+            }
           }
           // Drag is over: the measured-height harvest was skipped for every
           // motion commit (see the harvest effect's dragRef guard), so force one
@@ -2427,7 +2610,7 @@ export function App({ store, initialStatusLine = '' }) {
     };
     inkInput.on('input', onData);
     return () => { inkInput.off('input', onData); };
-  }, [inkInput, isRawModeSupported, store, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll]);
+  }, [inkInput, isRawModeSupported, store, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll, buildSpanRect]);
 
   // Enable extended keyboard reporting (kitty + xterm modifyOtherKeys) the same
   // way Claude Code does: SYNCHRONOUSLY, ONCE, with NO query/round-trip. ink
@@ -2672,6 +2855,20 @@ export function App({ store, initialStatusLine = '' }) {
       toggleExpand();
       return;
     }
+    if (
+      !picker
+      && key.shift
+      && (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow || key.home || key.end)
+    ) {
+      let move = null;
+      if (key.leftArrow) move = 'left';
+      else if (key.rightArrow) move = 'right';
+      else if (key.upArrow) move = 'up';
+      else if (key.downArrow) move = 'down';
+      else if (key.home) move = 'lineStart';
+      else if (key.end) move = 'lineEnd';
+      if (move && moveSelectionFocus(move)) return;
+    }
     if (key.escape && usagePanel && !picker) {
       closeUsagePanel();
       return;
@@ -2699,6 +2896,7 @@ export function App({ store, initialStatusLine = '' }) {
     if (key.escape && !picker) {
       dragRef.current.active = false;
       dragRef.current.region = null;
+      dragRef.current.anchorSpan = null;
       // Clear whichever region's selection is active. PromptInput's own ESC also
       // clears its selection when focused/enabled; this covers the disabled case
       // and a status/transcript ink-grid selection in one press.
@@ -4090,6 +4288,17 @@ export function App({ store, initialStatusLine = '' }) {
     const plugins = store.pluginsStatus?.() || { count: 0 };
     const skills = store.skillsStatus?.() || { count: 0 };
     const channelWorker = store.getChannelWorkerStatus?.();
+    let channelBackend = 'discord';
+    try {
+      channelBackend = store.getChannelSetup?.()?.backend || 'discord';
+    } catch {
+      channelBackend = 'discord';
+    }
+    const channelBackendLabel = channelBackend === 'telegram' ? 'Telegram' : 'Discord';
+    const remoteEnabled = store.isRemoteEnabled?.() === true;
+    const remoteRuntimeDescription = channelWorker?.running
+      ? `runtime running · pid ${channelWorker.pid}`
+      : 'runtime stopped';
     const compactType = compaction.compactType || compaction.type || 'semantic';
     const compactTypeLabel = compactType === 'recall-fasttrack' ? 'Fast-track' : 'Default';
     const outputStyleLabel = outputStyle?.current?.label || outputStyle?.current?.id || outputStyle?.configured || 'Default';
@@ -4216,6 +4425,31 @@ export function App({ store, initialStatusLine = '' }) {
       }
       openSettingsPicker();
     };
+    const applyRemoteRuntime = () => {
+      const enabled = store.toggleRemote?.() === true;
+      store.pushNotice(enabled ? 'Remote mode ON' : 'Remote mode OFF', 'info');
+      openSettingsPicker();
+    };
+    const cycleChannelBackend = (direction = 1) => {
+      const backends = ['discord', 'telegram'];
+      const currentIndex = Math.max(0, backends.indexOf(channelBackend));
+      const chosen = backends[(currentIndex + direction + backends.length) % backends.length];
+      if (chosen === channelBackend) {
+        openSettingsPicker();
+        return;
+      }
+      try {
+        store.setBackend(chosen);
+        const label = chosen === 'telegram' ? 'Telegram' : 'Discord';
+        const restartHint = (store.isRemoteEnabled?.() === true || channelWorker?.running)
+          ? `Channel set to ${label}. Restart remote to apply.`
+          : `Channel set to ${label}.`;
+        store.pushNotice(restartHint, 'info');
+      } catch (e) {
+        store.pushNotice(`channel backend failed: ${e?.message || e}`, 'error');
+      }
+      openSettingsPicker();
+    };
     const items = [
       {
         value: 'profile',
@@ -4276,10 +4510,24 @@ export function App({ store, initialStatusLine = '' }) {
         _action: 'channels',
       },
       {
-        value: 'channels-setup',
-        label: 'Channels setup',
-        description: channelWorker?.running ? `runtime running · pid ${channelWorker.pid}` : 'runtime stopped',
-        _action: 'channels-setup',
+        value: 'remote-runtime',
+        label: 'Remote Runtime',
+        meta: boolLabel(remoteEnabled),
+        description: remoteRuntimeDescription,
+        _action: 'remote-runtime',
+      },
+      {
+        value: 'channel-backend',
+        label: 'Channel',
+        meta: channelBackendLabel,
+        description: 'Left/Right or Enter changes channel type (Discord or Telegram).',
+        _action: 'channel-backend',
+      },
+      {
+        value: 'channel-setting',
+        label: 'Setting',
+        description: 'Configure credentials and main channel/chat for the active type.',
+        _action: 'channel-setting',
       },
       {
         value: 'output-style',
@@ -4375,6 +4623,8 @@ export function App({ store, initialStatusLine = '' }) {
         }
         else if (item?._action === 'memory') applyMemory(!(memory.enabled !== false));
         else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
+        else if (item?._action === 'remote-runtime') applyRemoteRuntime();
+        else if (item?._action === 'channel-backend') cycleChannelBackend(-1);
         else if (item?._action === 'output-style') cycleOutputStyle(-1);
         else if (item?._action === 'theme') cycleTheme(-1);
         else if (item?._action === 'workflow') cycleWorkflow(-1);
@@ -4388,6 +4638,8 @@ export function App({ store, initialStatusLine = '' }) {
         }
         else if (item?._action === 'memory') applyMemory(!(memory.enabled !== false));
         else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
+        else if (item?._action === 'remote-runtime') applyRemoteRuntime();
+        else if (item?._action === 'channel-backend') cycleChannelBackend(1);
         else if (item?._action === 'output-style') cycleOutputStyle(1);
         else if (item?._action === 'theme') cycleTheme(1);
         else if (item?._action === 'workflow') cycleWorkflow(1);
@@ -4404,7 +4656,9 @@ export function App({ store, initialStatusLine = '' }) {
         else if (item._action === 'memory') applyMemory(!(memory.enabled !== false));
         else if (item._action === 'memory-dashboard') openMemoryPicker();
         else if (item._action === 'channels') applyChannels(!(channels.enabled !== false));
-        else if (item._action === 'channels-setup') void openChannelSetupPicker('all');
+        else if (item._action === 'remote-runtime') applyRemoteRuntime();
+        else if (item._action === 'channel-backend') cycleChannelBackend(1);
+        else if (item._action === 'channel-setting') openChannelSettingTypePicker({ returnTo: openSettingsPicker });
         else if (item._action === 'output-style') openOutputStylePicker({ returnTo: openSettingsPicker });
         else if (item._action === 'theme') openThemePicker({ returnTo: openSettingsPicker });
         else if (item._action === 'workflow') openWorkflowPicker({ returnTo: openSettingsPicker });
@@ -5100,7 +5354,174 @@ export function App({ store, initialStatusLine = '' }) {
     };
   }, [store]);
 
-  const openChannelSetupPicker = async (focus = 'all') => {
+  const openChannelTypeActionsPicker = (backend, options = {}) => {
+    const parentReturn = typeof options.returnTo === 'function'
+      ? options.returnTo
+      : () => openChannelSettingTypePicker();
+    setProviderPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setContextPanel(null);
+    let setup;
+    try {
+      setup = store.getChannelSetup();
+    } catch (e) {
+      store.pushNotice(`channels failed: ${e?.message || e}`, 'error');
+      return;
+    }
+    const isTelegram = backend === 'telegram';
+    const activeBackend = setup.backend || 'discord';
+    const tokenDescription = isTelegram
+      ? `${setup.telegram?.status ?? 'Off'}${setup.telegram?.problem ? ' · Invalid' : ''}`
+      : `${setup.discord.status}${setup.discord.problem ? ' · Invalid' : ''}`;
+    const mainEntry = (setup.channels || []).find((ch) => ch.main)
+      || (setup.channels || []).find((ch) => ch.name === 'main');
+    const mainTarget = isTelegram
+      ? (mainEntry?.telegramChatId || (activeBackend === 'telegram' ? mainEntry?.channelId : ''))
+      : (mainEntry?.discordChannelId || (activeBackend === 'discord' ? mainEntry?.channelId : ''));
+    const mainDescription = isTelegram
+      ? (mainTarget ? `Chat ID ${mainTarget}` : 'Not set · Enter Telegram chat ID')
+      : (mainTarget ? `Channel ID ${mainTarget}` : 'Not set · Enter Discord channel ID');
+
+    const openChannelPrompt = (prompt) => {
+      setPicker(null);
+      setContextPanel(null);
+      setChannelPrompt({
+        ...prompt,
+        afterSave: () => openChannelTypeActionsPicker(backend, options),
+      });
+    };
+
+    setPicker({
+      title: isTelegram ? 'Telegram' : 'Discord',
+      description: activeBackend === backend
+        ? 'Active channel type · token and main target'
+        : 'Token and main target settings',
+      help: '↑/↓ Select · Enter Edit · Esc Back',
+      indexMode: 'always',
+      labelWidth: 18,
+      items: [
+        {
+          value: 'token',
+          label: 'Bot token',
+          description: tokenDescription,
+          _action: isTelegram ? 'telegram-token' : 'discord-token',
+        },
+        {
+          value: 'main',
+          label: isTelegram ? 'Main chat' : 'Main channel',
+          description: mainDescription,
+          _action: 'main-target',
+        },
+      ],
+      onSelect: (_value, item) => {
+        try {
+          if (item._action === 'discord-token') {
+            openChannelPrompt({
+              kind: 'discord-token',
+              label: 'Discord bot token',
+              hint: 'Paste the Discord bot token. It is stored in the OS keychain.',
+            });
+            return;
+          }
+          if (item._action === 'telegram-token') {
+            openChannelPrompt({
+              kind: 'telegram-token',
+              label: 'Telegram bot token',
+              hint: 'Paste the Telegram bot token from @BotFather. Stored in the OS keychain.',
+            });
+            return;
+          }
+          if (item._action === 'main-target') {
+            openChannelPrompt({
+              kind: 'channel-add',
+              backend,
+              label: isTelegram ? 'Main chat' : 'Main channel',
+              hint: isTelegram
+                ? 'Format: main | Telegram chat ID | mode(interactive/broadcast) | main'
+                : 'Format: main | Discord channel ID | mode(interactive/broadcast) | main',
+            });
+          }
+        } catch (e) {
+          store.pushNotice(`channels update failed: ${e?.message || e}`, 'error');
+        }
+      },
+      onCancel: () => {
+        parentReturn();
+      },
+    });
+  };
+
+  const openChannelSettingTypePicker = (options = {}) => {
+    const returnTo = typeof options.returnTo === 'function' ? options.returnTo : () => {};
+    setProviderPrompt(null);
+    setChannelPrompt(null);
+    setHookPrompt(null);
+    setSettingsPrompt(null);
+    setContextPanel(null);
+    let setup;
+    try {
+      setup = store.getChannelSetup();
+    } catch (e) {
+      store.pushNotice(`channels failed: ${e?.message || e}`, 'error');
+      return;
+    }
+    const activeBackend = setup.backend || 'discord';
+    const mainEntry = (setup.channels || []).find((ch) => ch.main)
+      || (setup.channels || []).find((ch) => ch.name === 'main');
+    const typeDescription = (backend) => {
+      const selected = activeBackend === backend;
+      const hasToken = backend === 'telegram'
+        ? setup.telegram?.authenticated === true
+        : setup.discord?.authenticated === true;
+      const hasTarget = backend === 'telegram'
+        ? Boolean(mainEntry?.telegramChatId || (activeBackend === 'telegram' && mainEntry?.channelId))
+        : Boolean(mainEntry?.discordChannelId || (activeBackend === 'discord' && mainEntry?.channelId));
+      const needs = [
+        ...(hasToken ? [] : ['token']),
+        ...(hasTarget ? [] : [backend === 'telegram' ? 'chat ID' : 'channel ID']),
+      ];
+      return [
+        ...(selected ? ['Selected'] : []),
+        needs.length ? `Needs ${needs.join(' + ')}` : 'Ready',
+      ].join(' · ');
+    };
+    setPicker({
+      title: 'Channel Type Settings',
+      description: 'Choose a type. Selected is the active backend; Ready means token and main target are set.',
+      help: '↑/↓ Select · Enter Open · Esc Back',
+      indexMode: 'always',
+      labelWidth: 18,
+      items: [
+        {
+          value: 'discord',
+          label: 'Discord',
+          description: typeDescription('discord'),
+          _backend: 'discord',
+        },
+        {
+          value: 'telegram',
+          label: 'Telegram',
+          description: typeDescription('telegram'),
+          _backend: 'telegram',
+        },
+      ],
+      onSelect: (value, item) => {
+        const backend = item?._backend || (value === 'telegram' ? 'telegram' : value === 'discord' ? 'discord' : null);
+        if (!backend) return;
+        setPicker(null);
+        openChannelTypeActionsPicker(backend, {
+          returnTo: () => openChannelSettingTypePicker(options),
+        });
+      },
+      onCancel: () => {
+        setPicker(null);
+        returnTo();
+      },
+    });
+  };
+
+  const openChannelSetupPicker = async (focus = 'all', options = {}) => {
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
@@ -5123,12 +5544,6 @@ export function App({ store, initialStatusLine = '' }) {
     if (focus === 'schedules') {
       const schedules = setup.schedules || [];
       const items = [
-        {
-          value: 'schedule-add',
-          label: 'Add schedule',
-          description: 'name | cron | instructions | optional channel | optional model',
-          _action: 'schedule-add',
-        },
         ...(schedules.length ? schedules.map((schedule) => {
         const enabled = schedule.enabled !== false;
         return {
@@ -5147,38 +5562,24 @@ export function App({ store, initialStatusLine = '' }) {
           description: 'no schedules configured',
           _action: 'noop',
         }]),
-        {
-          value: 'back',
-          label: 'Back',
-          description: 'return to channel setup',
-          _action: 'back',
-        },
       ];
+      const toggleSchedule = (item) => {
+        if (item._action !== 'schedule-toggle') return;
+        try {
+          store.setScheduleEnabled?.(item._name, !item._enabled);
+          void openChannelSetupPicker('schedules', { highlightValue: `schedule:${item._name}` });
+        } catch (e) {
+          store.pushNotice(`schedule toggle failed: ${e?.message || e}`, 'error');
+        }
+      };
       setPicker({
         title: 'Schedules',
-        description: 'Add, enable, or disable cron schedules.',
+        description: 'Enable or disable cron schedules.',
+        initialIndex: Math.max(0, items.findIndex((entry) => entry.value === options.highlightValue)),
         items,
-        onSelect: (_value, item) => {
-          try {
-            if (item._action === 'schedule-add') {
-              openChannelPrompt({
-                kind: 'schedule-add',
-                label: 'Add schedule',
-                hint: 'Format: name | cron (5 or 6 fields) | instructions | channel(optional) | model(required with channel)',
-              });
-              return;
-            }
-            if (item._action === 'back') {
-              void openChannelSetupPicker('all');
-              return;
-            }
-            if (item._action !== 'schedule-toggle') return;
-            store.setScheduleEnabled?.(item._name, !item._enabled);
-            void openChannelSetupPicker('schedules');
-          } catch (e) {
-            store.pushNotice(`schedule toggle failed: ${e?.message || e}`, 'error');
-          }
-        },
+        onSelect: (_value, item) => toggleSchedule(item),
+        onLeft: (item) => toggleSchedule(item),
+        onRight: (item) => toggleSchedule(item),
         onCancel: () => {
           setPicker(null);
         },
@@ -5186,31 +5587,66 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
 
-    if (focus === 'webhooks') {
-      const hooks = setup.webhooks || [];
-      const serverEnabled = setup.webhook.enabled !== false;
+    if (focus === 'webhook-endpoint') {
+      const returnTo = typeof options.returnTo === 'function'
+        ? options.returnTo
+        : () => setPicker(null);
+      const domain = setup.webhook?.ngrokDomain || setup.webhook?.domain || '';
       const items = [
         {
-          value: 'webhook-add',
-          label: 'Add webhook',
-          description: 'name | instructions | optional channel | optional model | parser',
-          _action: 'webhook-add',
+          value: 'endpoint-domain',
+          label: 'ngrok domain',
+          description: domain ? domain : 'Not set · Enter ngrok domain',
+          _action: 'endpoint-domain',
         },
         {
-          value: 'webhook-server',
-          label: 'Webhook server',
-          marker: serverEnabled ? '●' : '○',
-          markerColor: serverEnabled ? theme.success : theme.inactive,
-          description: `port ${setup.webhook.port || 3333} · auth ${setup.webhook.status}`,
-          _action: 'server-toggle',
-          _enabled: serverEnabled,
+          value: 'endpoint-authtoken',
+          label: 'authtoken',
+          description: setup.webhook?.authenticated === true ? 'Set' : 'Not set · Enter authtoken',
+          _action: 'endpoint-authtoken',
         },
-        {
-          value: 'webhook-token',
-          label: 'Webhook auth',
-          description: `ngrok/webhook authtoken · ${setup.webhook.status}`,
-          _action: 'webhook-token',
+      ];
+      setPicker({
+        title: 'Webhook endpoint',
+        description: 'ngrok domain and authtoken. Toggle individual webhooks in /webhooks.',
+        help: '↑/↓ Select · Enter Edit · Esc Back',
+        indexMode: 'always',
+        labelWidth: 18,
+        items,
+        onSelect: (_value, item) => {
+          try {
+            if (item._action === 'endpoint-domain') {
+              openChannelPrompt({
+                kind: 'webhook-domain',
+                label: 'ngrok domain',
+                hint: 'Paste the reserved ngrok domain (e.g. my-app.ngrok-free.app).',
+                afterSave: () => void openChannelSetupPicker('webhook-endpoint', options),
+              });
+              return;
+            }
+            if (item._action === 'endpoint-authtoken') {
+              openChannelPrompt({
+                kind: 'webhook-token',
+                label: 'Webhook/ngrok authtoken',
+                hint: 'Paste the webhook/ngrok authtoken. It is stored in the OS keychain.',
+                afterSave: () => void openChannelSetupPicker('webhook-endpoint', options),
+              });
+            }
+          } catch (e) {
+            store.pushNotice(`webhook endpoint failed: ${e?.message || e}`, 'error');
+          }
         },
+        onCancel: () => {
+          setPicker(null);
+          returnTo();
+        },
+      });
+      return;
+    }
+
+    if (focus === 'webhooks') {
+      const hooks = setup.webhooks || [];
+      const items = [
         ...(hooks.length ? hooks.map((hook) => {
           const enabled = hook.enabled !== false;
           return {
@@ -5229,52 +5665,24 @@ export function App({ store, initialStatusLine = '' }) {
           description: 'no webhook endpoints configured',
           _action: 'noop',
         }]),
-        {
-          value: 'back',
-          label: 'Back',
-          description: 'return to channel setup',
-          _action: 'back',
-        },
       ];
+      const toggleWebhook = (item) => {
+        if (item._action !== 'webhook-toggle') return;
+        try {
+          store.setWebhookEnabled?.(item._name, !item._enabled);
+          void openChannelSetupPicker('webhooks', { highlightValue: `webhook:${item._name}` });
+        } catch (e) {
+          store.pushNotice(`webhook toggle failed: ${e?.message || e}`, 'error');
+        }
+      };
       setPicker({
         title: 'Webhooks',
-        description: 'Manage inbound webhook endpoints and server settings.',
+        description: 'Enable or disable inbound webhook endpoints.',
+        initialIndex: Math.max(0, items.findIndex((entry) => entry.value === options.highlightValue)),
         items,
-        onSelect: (_value, item) => {
-          try {
-            if (item._action === 'webhook-add') {
-              openChannelPrompt({
-                kind: 'webhook-add',
-                label: 'Add webhook',
-                hint: 'Format: name | instructions | channel(optional) | model(required with channel) | parser(github/generic/stripe/sentry)',
-              });
-              return;
-            }
-            if (item._action === 'webhook-token') {
-              openChannelPrompt({
-                kind: 'webhook-token',
-                label: 'Webhook/ngrok authtoken',
-                hint: 'Paste the webhook/ngrok authtoken. It is stored in the OS keychain.',
-              });
-              return;
-            }
-            if (item._action === 'back') {
-              void openChannelSetupPicker('all');
-              return;
-            }
-            if (item._action === 'server-toggle') {
-              store.setWebhookConfig?.({ enabled: !item._enabled });
-              void openChannelSetupPicker('webhooks');
-              return;
-            }
-            if (item._action === 'webhook-toggle') {
-              store.setWebhookEnabled?.(item._name, !item._enabled);
-              void openChannelSetupPicker('webhooks');
-            }
-          } catch (e) {
-            store.pushNotice(`webhook toggle failed: ${e?.message || e}`, 'error');
-          }
-        },
+        onSelect: (_value, item) => toggleWebhook(item),
+        onLeft: (item) => toggleWebhook(item),
+        onRight: (item) => toggleWebhook(item),
         onCancel: () => {
           setPicker(null);
         },
@@ -5283,123 +5691,115 @@ export function App({ store, initialStatusLine = '' }) {
     }
 
     const worker = store.getChannelWorkerStatus?.();
-    const activeBackend = setup.backend || 'discord';
+    const activeBackend = setup.backend === 'telegram' ? 'telegram' : 'discord';
+    const backendLabel = activeBackend === 'telegram' ? 'Telegram' : 'Discord';
+    const remoteEnabled = store.isRemoteEnabled?.() === true;
+    const boolLabel = (enabled) => enabled ? 'On' : 'Off';
+    const applyRemoteRuntime = (highlightValue = 'remote-runtime') => {
+      const enabled = store.toggleRemote?.() === true;
+      store.pushNotice(enabled ? 'Remote mode ON' : 'Remote mode OFF', 'info');
+      void openChannelSetupPicker('all', { highlightValue });
+    };
+    const cycleChannelBackend = (direction = 1, highlightValue = 'channel-backend') => {
+      const backends = ['discord', 'telegram'];
+      const currentIndex = Math.max(0, backends.indexOf(activeBackend));
+      const chosen = backends[(currentIndex + direction + backends.length) % backends.length];
+      if (chosen === activeBackend) {
+        void openChannelSetupPicker('all', { highlightValue, backendOverride: activeBackend });
+        return;
+      }
+      try {
+        store.setBackend(chosen);
+        const label = chosen === 'telegram' ? 'Telegram' : 'Discord';
+        const restartHint = (store.isRemoteEnabled?.() === true || worker?.running)
+          ? `Channel set to ${label}. Restart remote to apply.`
+          : `Channel set to ${label}.`;
+        store.pushNotice(restartHint, 'info');
+      } catch (e) {
+        store.pushNotice(`channel backend failed: ${e?.message || e}`, 'error');
+      }
+      void openChannelSetupPicker('all', { highlightValue, backendOverride: chosen });
+    };
     const items = [
       {
-        value: 'worker-status',
-        label: 'Channel runtime',
-        description: worker?.running ? `running · pid ${worker.pid}` : 'stopped',
-        _action: 'worker-status',
+        value: 'remote-runtime',
+        label: 'Remote Runtime',
+        meta: boolLabel(remoteEnabled),
+        description: worker?.running ? `Running · pid ${worker.pid}` : 'Stopped',
+        _action: 'remote-runtime',
       },
       {
-        value: 'backend-select',
-        label: 'Backend',
-        description: `${activeBackend}`,
-        _action: 'backend-select',
+        value: 'channel-backend',
+        label: 'Channel',
+        meta: backendLabel,
+        description: 'Select Discord or Telegram',
+        _action: 'channel-backend',
       },
       {
-        value: 'discord-token',
-        label: 'Discord token',
-        description: `Bot token · ${setup.discord.status}${setup.discord.problem ? ' · invalid' : ''}`,
-        _action: 'discord-token',
+        value: 'channel-setting',
+        label: 'Setting',
+        description: 'Token and main target',
+        _action: 'channel-setting',
       },
       {
-        value: 'telegram-token',
-        label: 'Telegram token',
-        description: `Bot token · ${setup.telegram?.status ?? 'Off'}${setup.telegram?.problem ? ' · invalid' : ''}`,
-        _action: 'telegram-token',
+        value: 'webhook-endpoint',
+        label: 'Webhook endpoint',
+        meta: (() => {
+          const hasDomain = Boolean(setup.webhook?.ngrokDomain || setup.webhook?.domain);
+          const hasAuth = setup.webhook?.authenticated === true;
+          return (hasDomain && hasAuth) ? 'On' : 'Off';
+        })(),
+        description: (() => {
+          const hasDomain = Boolean(setup.webhook?.ngrokDomain || setup.webhook?.domain);
+          const hasAuth = setup.webhook?.authenticated === true;
+          const needs = [
+            ...(hasDomain ? [] : ['domain']),
+            ...(hasAuth ? [] : ['authtoken']),
+          ];
+          return needs.length ? `Needs ${needs.join(' + ')}` : 'ngrok domain and authtoken set';
+        })(),
+        _action: 'webhook-endpoint',
       },
-      {
-        value: 'channel-add',
-        label: 'Add channel',
-        description: 'name | channelId | mode(interactive/broadcast)',
-        _action: 'channel-add',
-      },
-      ...((setup.channels || []).map((ch) => ({
-          value: `channel:${ch.name}`,
-          label: `# ${ch.name}`,
-          description: `${ch.channelId || '(unset)'} · ${ch.mode}${ch.main ? ' · main' : ''} · edit`,
-          _action: 'channel-edit',
-          _channel: ch,
-        }))),
     ];
 
     setPicker({
       title: 'Channels',
-      description: 'Discord token and channel links.',
+      description: 'Remote access and channel setup.',
+      help: '↑/↓ Select · ←/→ Change · Enter Choose/Toggle · Esc Back',
+      indexMode: 'always',
+      labelWidth: 18,
+      metaWidth: 12,
+      pickerKey: `channels:${activeBackend}:${remoteEnabled ? 'on' : 'off'}:${options.highlightValue || 'root'}`,
+      initialIndex: Math.max(0, items.findIndex((entry) => entry.value === options.highlightValue)),
       items,
+      onLeft: (item) => {
+        if (item?._action === 'remote-runtime') applyRemoteRuntime(item.value);
+        else if (item?._action === 'channel-backend') cycleChannelBackend(-1, item.value);
+      },
+      onRight: (item) => {
+        if (item?._action === 'remote-runtime') applyRemoteRuntime(item.value);
+        else if (item?._action === 'channel-backend') cycleChannelBackend(1, item.value);
+      },
       onSelect: (_value, item) => {
         try {
-          if (item._action === 'worker-status') {
-            store.pushNotice(worker?.running ? `channel runtime running: pid ${worker.pid}` : 'channel runtime stopped', 'info');
+          if (item._action === 'remote-runtime') {
+            applyRemoteRuntime(item.value);
             return;
           }
-          if (item._action === 'backend-select') {
-            setPicker({
-              title: 'Backend',
-              description: 'Channel runtime backend.',
-              items: [
-                {
-                  value: 'discord',
-                  label: 'discord',
-                  description: activeBackend === 'discord' ? '· active' : '',
-                  _backend: 'discord',
-                },
-                {
-                  value: 'telegram',
-                  label: 'telegram',
-                  description: activeBackend === 'telegram' ? '· active' : '',
-                  _backend: 'telegram',
-                },
-              ],
-              onSelect: (_value, backendItem) => {
-                const chosen = backendItem?._backend;
-                if (!chosen || chosen === activeBackend) {
-                  void openChannelSetupPicker('all');
-                  return;
-                }
-                store.setBackend(chosen);
-                store.pushNotice(`backend set to ${chosen} (restart remote to apply)`, 'info');
-                void openChannelSetupPicker('all');
-              },
-              onCancel: () => {
-                void openChannelSetupPicker('all');
-              },
+          if (item._action === 'channel-backend') {
+            cycleChannelBackend(1, item.value);
+            return;
+          }
+          if (item._action === 'channel-setting') {
+            openChannelSettingTypePicker({
+              returnTo: () => void openChannelSetupPicker('all'),
             });
             return;
           }
-          if (item._action === 'discord-token') {
-            openChannelPrompt({
-              kind: 'discord-token',
-              label: 'Discord bot token',
-              hint: 'Paste the Discord bot token. It is stored in the OS keychain.',
+          if (item._action === 'webhook-endpoint') {
+            void openChannelSetupPicker('webhook-endpoint', {
+              returnTo: () => void openChannelSetupPicker('all'),
             });
-            return;
-          }
-          if (item._action === 'telegram-token') {
-            openChannelPrompt({
-              kind: 'telegram-token',
-              label: 'Telegram bot token',
-              hint: 'Paste the Telegram bot token from @BotFather. Stored in the OS keychain.',
-            });
-            return;
-          }
-          if (item._action === 'channel-add') {
-            openChannelPrompt({
-              kind: 'channel-add',
-              label: 'Add channel',
-              hint: 'Format: name | Discord channel ID | mode(interactive/broadcast) | main(optional)',
-            });
-            return;
-          }
-          if (item._action === 'channel-edit') {
-            const ch = item._channel || {};
-            openChannelPrompt({
-              kind: 'channel-add',
-              label: `Edit channel · ${ch.name}`,
-              hint: `Format: ${ch.name} | ${ch.channelId || '<channel-id>'} | ${ch.mode || 'interactive'} | ${ch.main ? 'main' : 'main(optional)'}`,
-            });
-            return;
           }
         } catch (e) {
           store.pushNotice(`channels update failed: ${e?.message || e}`, 'error');
@@ -5422,46 +5822,7 @@ export function App({ store, initialStatusLine = '' }) {
     return { ...status, servers: status.servers || [] };
   };
 
-  const openMcpServerPicker = (server) => {
-    if (server?.error) store.pushNotice(`${server.name}: ${server.error}`, 'warn');
-    const enabled = server?.enabled !== false;
-    const items = [
-      {
-        value: enabled ? 'disable' : 'enable',
-        label: enabled ? 'Disable server' : 'Enable server',
-        description: server?.configured ? `${server?.status || 'unknown'} · ${server?.transport || 'unknown'}` : 'server is not configured',
-        _action: server?.configured ? (enabled ? 'disable' : 'enable') : 'noop',
-      },
-      {
-        value: 'reconnect',
-        label: 'Reconnect server',
-        description: 'refresh configured MCP servers',
-        _action: 'reconnect',
-      },
-    ];
-    setPicker({
-      title: `MCP · ${server?.name || 'server'}`,
-      description: 'Enable, disable, or reconnect this MCP server.',
-      items,
-      onSelect: (_toolValue, toolItem) => {
-        setPicker(null);
-        if (toolItem._action === 'enable' || toolItem._action === 'disable') {
-          void store.setMcpServerEnabled?.(server.name, toolItem._action === 'enable')
-            .then(() => openMcpServersPicker())
-            .catch((e) => store.pushNotice(`mcp toggle failed: ${e?.message || e}`, 'error'));
-          return;
-        }
-        if (toolItem._action === 'reconnect') {
-          void store.reconnectMcp?.()
-            .then(() => openMcpServersPicker())
-            .catch((e) => store.pushNotice(`mcp reconnect failed: ${e?.message || e}`, 'error'));
-        }
-      },
-      onCancel: () => openMcpServersPicker(),
-    });
-  };
-
-  const openMcpServersPicker = () => {
+  const openMcpServersPicker = (options = {}) => {
     const status = mcpStatus();
     if (!status) return;
     const servers = status.servers || [];
@@ -5475,27 +5836,36 @@ export function App({ store, initialStatusLine = '' }) {
       });
     }
     for (const server of servers) {
+      const enabled = server.enabled !== false;
       items.push({
         value: `server:${server.name}`,
-        label: server.enabled === false ? `${server.name} (off)` : server.name,
+        label: server.name,
+        marker: enabled ? '●' : '○',
+        markerColor: enabled ? theme.success : theme.inactive,
         description: `${server.status || 'unknown'} · ${server.transport || 'unknown'} · ${server.toolCount || 0} tools${server.error ? ` · ${server.error}` : ''}`,
         _action: 'server',
         _server: server,
+        _enabled: enabled,
       });
     }
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
+    const toggleServer = (item) => {
+      if (item._action !== 'server' || !item._server?.name) return;
+      void store.setMcpServerEnabled?.(item._server.name, !item._enabled)
+        .then(() => openMcpServersPicker({ highlightValue: `server:${item._server.name}` }))
+        .catch((e) => store.pushNotice(`mcp toggle failed: ${e?.message || e}`, 'error'));
+    };
     setPicker({
       title: 'MCP servers',
-      description: 'Configured MCP servers and connection status.',
+      description: 'Enable or disable configured MCP servers.',
+      initialIndex: Math.max(0, items.findIndex((entry) => entry.value === options?.highlightValue)),
       items,
-      onSelect: (_value, item) => {
-        setPicker(null);
-        if (item._action !== 'server') return;
-        openMcpServerPicker(item._server);
-      },
+      onSelect: (_value, item) => toggleServer(item),
+      onLeft: (item) => toggleServer(item),
+      onRight: (item) => toggleServer(item),
       onCancel: () => {
         setPicker(null);
       },
@@ -5559,10 +5929,11 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
-  const openSkillsPicker = () => {
+  const openSkillsPicker = (options = {}) => {
     const status = skillsStatus();
     if (!status) return;
     const skills = status.skills || [];
+    const disabledSet = options.disabledOverride instanceof Set ? options.disabledOverride : disabledSkills;
     const items = [];
     if (skills.length === 0) {
       items.push({
@@ -5573,28 +5944,39 @@ export function App({ store, initialStatusLine = '' }) {
       });
     }
     for (const skill of skills) {
-      const disabled = disabledSkills.has(skill.name);
+      const enabled = !disabledSet.has(skill.name);
       items.push({
         value: skill.name,
-        label: disabled ? `${skill.name} (disabled)` : skill.name,
-        description: `${disabled ? 'disabled · ' : ''}${skill.source || 'skill'} · ${skill.description || skill.filePath || ''}`,
+        label: skill.name,
+        marker: enabled ? '●' : '○',
+        markerColor: enabled ? theme.success : theme.inactive,
+        description: `${skill.source || 'skill'} · ${skill.description || skill.filePath || ''}`,
         _action: 'skill',
         _skill: skill,
+        _enabled: enabled,
       });
     }
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
+    const toggleSkill = (item) => {
+      if (item._action !== 'skill' || !item._skill?.name) return;
+      const name = item._skill.name;
+      const next = new Set(disabledSet);
+      if (item._enabled) next.add(name); else next.delete(name);
+      setDisabledSkills(next);
+      store.pushNotice(`skill ${item._enabled ? 'disabled' : 'enabled'}: ${name}`, 'info');
+      openSkillsPicker({ highlightValue: name, disabledOverride: next });
+    };
     setPicker({
       title: 'Skills',
-      description: 'Project skills available to the assistant.',
+      description: 'Enable or disable project skills.',
+      initialIndex: Math.max(0, items.findIndex((entry) => entry.value === options.highlightValue)),
       items,
-      onSelect: (_value, item) => {
-        setPicker(null);
-        if (item._action !== 'skill' || !item._skill?.name) return;
-        openSkillDetailPicker(item._skill);
-      },
+      onSelect: (_value, item) => toggleSkill(item),
+      onLeft: (item) => toggleSkill(item),
+      onRight: (item) => toggleSkill(item),
       onCancel: () => {
         setPicker(null);
       },
@@ -5876,21 +6258,22 @@ export function App({ store, initialStatusLine = '' }) {
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
+    const toggleRule = (item) => {
+      if (item._action !== 'rule') return;
+      try {
+        store.setHookRuleEnabled?.(item._rule.index, !item._rule.enabled);
+        void openHooksPicker();
+      } catch (e) {
+        store.pushNotice(`hook toggle failed: ${e?.message || e}`, 'error');
+      }
+    };
     setPicker({
       title: 'Hooks',
       description: 'Before-tool hook rules; Enter toggles a rule.',
       items,
-      onSelect: (_value, item) => {
-        setPicker(null);
-        if (item._action === 'rule') {
-          try {
-            store.setHookRuleEnabled?.(item._rule.index, !item._rule.enabled);
-            void openHooksPicker();
-          } catch (e) {
-            store.pushNotice(`hook toggle failed: ${e?.message || e}`, 'error');
-          }
-        }
-      },
+      onSelect: (_value, item) => toggleRule(item),
+      onLeft: (item) => toggleRule(item),
+      onRight: (item) => toggleRule(item),
       onCancel: () => {
         setPicker(null);
       },
@@ -6790,33 +7173,42 @@ export function App({ store, initialStatusLine = '' }) {
         return false;
       }
       try {
+        const resumeAfterChannelPrompt = (prompt) => {
+          const afterSave = prompt?.afterSave;
+          setChannelPrompt(null);
+          if (typeof afterSave === 'function') afterSave();
+          else void openChannelSetupPicker('all');
+        };
         if (channelPrompt.kind === 'discord-token') {
           if (!commandText) return false;
           store.saveDiscordToken(commandText);
-          setChannelPrompt(null);
-          void openChannelSetupPicker('all');
+          resumeAfterChannelPrompt(channelPrompt);
           return true;
         }
         if (channelPrompt.kind === 'telegram-token') {
           if (!commandText) return false;
           store.saveTelegramToken(commandText);
-          setChannelPrompt(null);
-          void openChannelSetupPicker('all');
+          resumeAfterChannelPrompt(channelPrompt);
           return true;
         }
         if (channelPrompt.kind === 'webhook-token') {
           if (!commandText) return false;
           store.saveWebhookAuthtoken(commandText);
-          setChannelPrompt(null);
-          void openChannelSetupPicker('all');
+          resumeAfterChannelPrompt(channelPrompt);
+          return true;
+        }
+        if (channelPrompt.kind === 'webhook-domain') {
+          if (!commandText) return false;
+          store.setWebhookConfig?.({ ngrokDomain: commandText });
+          resumeAfterChannelPrompt(channelPrompt);
           return true;
         }
         const parts = commandText.split('|').map((part) => part.trim());
         if (channelPrompt.kind === 'channel-add') {
-          const [name, channelId, mode] = parts;
-          store.saveChannel({ name, channelId, mode });
-          setChannelPrompt(null);
-          void openChannelSetupPicker('all');
+          const [name, channelId, mode, mainFlag] = parts;
+          const main = String(mainFlag || '').toLowerCase() === 'main' || String(name || '').toLowerCase() === 'main';
+          store.saveChannel({ name, channelId, mode, main, backend: channelPrompt.backend });
+          resumeAfterChannelPrompt(channelPrompt);
           return true;
         }
         if (channelPrompt.kind === 'schedule-add') {
@@ -7114,8 +7506,12 @@ export function App({ store, initialStatusLine = '' }) {
   }, [providerPrompt, showPromptHint]);
 
   const cancelChannelPrompt = useCallback(() => {
+    const onCancel = channelPrompt?.onCancel;
+    const afterSave = channelPrompt?.afterSave;
     setChannelPrompt(null);
-  }, [showPromptHint]);
+    if (typeof onCancel === 'function') onCancel();
+    else if (typeof afterSave === 'function') afterSave();
+  }, [channelPrompt, showPromptHint]);
 
   const cancelHookPrompt = useCallback(() => {
     setHookPrompt(null);
@@ -7370,15 +7766,15 @@ export function App({ store, initialStatusLine = '' }) {
   // jump. As soon as the done row is the transcript tail, drop the spinner slot;
   // the new done row replaces that height in the same frame, with no ms timer.
   const promptMetaVisible = !inputBoxHidden && !slashPaletteOpen && !!liveSpinner && !latestDoneAtTail;
-  const promptMetaRows = promptMetaVisible ? 1 : 0;
+  const promptMetaRows = promptMetaVisible ? 2 : 0;
   // Toast/error text without a live spinner uses the row directly above the
   // prompt. Reserve it explicitly because the prompt no longer carries a spare
   // top margin; the permanent transcript guard remains the "textbox + 1" gap.
   const overlayHintRequested = !inputBoxHidden && !hasFloatingPanel && !liveSpinner && !!inputHint && !queuedVisible;
   const overlayHintRows = overlayHintRequested ? 1 : 0;
-  // QueuedCommands renders its own one-row top margin plus one row per queued
-  // command, all pinned above the prompt box.
-  const queuedRows = queuedVisible ? state.queued.length + 1 : 0;
+  // QueuedCommands renders one row per queued command, pinned above the prompt
+  // box (no extra top-margin row).
+  const queuedRows = queuedVisible ? state.queued.length : 0;
   const INPUT_BOX_ROWS = promptBoxRows + promptMetaRows + overlayHintRows;
   const baseReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const maxFloatingPanelRows = Math.max(0, resizeState.rows - baseReserve - 1);
@@ -8237,34 +8633,37 @@ export function App({ store, initialStatusLine = '' }) {
         {!inputBoxHidden ? (
           <>
           {promptMetaVisible ? (
-            <Box
-              marginTop={0}
-              marginBottom={0}
-              height={1}
-              width="100%"
-              flexDirection="row"
-              backgroundColor={surfaceBackground()}
-            >
-              <Box flexGrow={1} flexShrink={1} overflow="hidden">
-                {liveSpinner ? (
-                  <Spinner
-                    verb={liveSpinner.verb}
-                    startedAt={liveSpinner.startedAt}
-                    outputTokens={liveSpinner?.outputTokens ?? liveSpinner?.tokens ?? 0}
-                    thinking={!!(state.thinking || liveSpinner?.thinking)}
-                    thinkingActiveSince={liveSpinner?.thinkingSegmentStartedAt ?? 0}
-                    mode={liveSpinner?.mode || 'responding'}
-                    columns={promptSpinnerColumns}
-                    marginTop={0}
-                  />
+            <>
+              <Box
+                marginTop={0}
+                marginBottom={0}
+                height={1}
+                width="100%"
+                flexDirection="row"
+                backgroundColor={surfaceBackground()}
+              >
+                <Box flexGrow={1} flexShrink={1} overflow="hidden">
+                  {liveSpinner ? (
+                    <Spinner
+                      verb={liveSpinner.verb}
+                      startedAt={liveSpinner.startedAt}
+                      outputTokens={liveSpinner?.outputTokens ?? liveSpinner?.tokens ?? 0}
+                      thinking={!!(state.thinking || liveSpinner?.thinking)}
+                      thinkingActiveSince={liveSpinner?.thinkingSegmentStartedAt ?? 0}
+                      mode={liveSpinner?.mode || 'responding'}
+                      columns={promptSpinnerColumns}
+                      marginTop={0}
+                    />
+                  ) : null}
+                </Box>
+                {inputHint ? (
+                  <Box flexShrink={0} width={transientStatusWidth || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
+                    <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
+                  </Box>
                 ) : null}
               </Box>
-              {inputHint ? (
-                <Box flexShrink={0} width={transientStatusWidth || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
-                  <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
-                </Box>
-              ) : null}
-            </Box>
+              <Box height={1} width="100%" backgroundColor={surfaceBackground()} />
+            </>
           ) : null}
           {overlayHintVisible ? (
             <Box
@@ -8315,6 +8714,7 @@ export function App({ store, initialStatusLine = '' }) {
           activeTools={activeTools}
           initialLine={initialStatusLine}
           workflow={state.workflow}
+          remoteEnabled={state.remoteEnabled === true}
           themeEpoch={state.themeEpoch || 0}
         />
       </Box>

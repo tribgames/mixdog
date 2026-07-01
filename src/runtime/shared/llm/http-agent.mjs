@@ -19,7 +19,14 @@
  * so a shared long-lived pool is appropriate here.
  */
 
-import { Agent, getGlobalDispatcher, setGlobalDispatcher, request as undiciRequest } from 'undici'
+import { createRequire } from 'node:module'
+
+const require = createRequire(import.meta.url)
+let _undici = null
+function undici() {
+  if (!_undici) _undici = require('undici')
+  return _undici
+}
 
 let _agent = null
 let _globalInstalled = false
@@ -53,7 +60,7 @@ function proxyConfigured() {
   if (env.HTTP_PROXY || env.HTTPS_PROXY || env.http_proxy || env.https_proxy) return true
   if (env.NODE_USE_ENV_PROXY) return true
   try {
-    const g = getGlobalDispatcher?.()
+    const g = undici().getGlobalDispatcher?.()
     // Any non-default global dispatcher (constructor name other than the plain
     // `Agent` undici installs by default) is treated as custom — ProxyAgent,
     // EnvHttpProxyAgent, MockAgent, or a user subclass — and we step aside.
@@ -77,7 +84,7 @@ function proxyConfigured() {
 export function getLlmDispatcher() {
   if (proxyConfigured()) return undefined
   if (!_agent) {
-    _agent = new Agent({
+    _agent = new (undici().Agent)({
       keepAliveTimeout: envInt('MIXDOG_LLM_KEEPALIVE_MS', 60_000),
       keepAliveMaxTimeout: envInt('MIXDOG_LLM_KEEPALIVE_MAX_MS', 90_000),
       connections: envInt('MIXDOG_LLM_CONNECTIONS', 16),
@@ -87,7 +94,7 @@ export function getLlmDispatcher() {
   // a per-request dispatcher throws UND_ERR_INVALID_ARG. Install globally once
   // and omit the per-request dispatcher. See port-plan D7.
   if (!_globalInstalled) {
-    try { setGlobalDispatcher(_agent); _globalInstalled = true } catch { /* fall back */ }
+    try { undici().setGlobalDispatcher(_agent); _globalInstalled = true } catch { /* fall back */ }
   }
   return _globalInstalled ? undefined : _agent
 }
@@ -130,7 +137,7 @@ export function preconnect(origin) {
     // A throwaway HEAD lands a pooled socket without fetching a body. Any
     // failure (offline, DNS, 4xx/5xx) is irrelevant — the handshake is the
     // point, and the real request will surface genuine errors.
-    undiciRequest(key, {
+    undici().request(key, {
       method: 'HEAD',
       dispatcher: getLlmDispatcher(),
       signal: AbortSignal.timeout(10_000),

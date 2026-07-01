@@ -10,12 +10,19 @@
 // `file_path` alias for read.path).
 
 const MAX_INT = 100000;
-export const GREP_CONTEXT_MAX = 12;
+// Explicit grep context should be large enough to frame a function/block without
+// letting one match explode into a huge tool result. `content_with_context` still
+// defaults to 25 lines; this is only the upper bound for caller-supplied -A/-B/-C.
+export const GREP_CONTEXT_MAX = 200;
 
+// ripgrep-flavored aliases: models trained on `rg` emit short flags (-A/-B/-C),
+// long flags (--after-context / --before-context / --context), or snake/camel
+// spellings. All fold onto the canonical -A/-B/-C so a caller can write grep
+// the way they would write ripgrep on the shell.
 const GREP_CONTEXT_KEY_GROUPS = [
-    ['-A', ['-A', 'A', 'after', 'after_context', 'afterContext']],
-    ['-B', ['-B', 'B', 'before', 'before_context', 'beforeContext']],
-    ['-C', ['-C', 'C', 'context', 'context_lines', 'contextLines']],
+    ['-A', ['-A', 'A', 'after', 'after_context', 'afterContext', '--after-context', 'after-context', 'afterLines', 'after_lines']],
+    ['-B', ['-B', 'B', 'before', 'before_context', 'beforeContext', '--before-context', 'before-context', 'beforeLines', 'before_lines']],
+    ['-C', ['-C', 'C', 'context', 'context_lines', 'contextLines', '--context', 'contextN', 'around', 'surrounding']],
 ];
 
 function grepContextKeyPresent(a, k) {
@@ -157,7 +164,6 @@ function guardGrep(a) {
             return `Error: grep arg "${k}" contains multiple absolute paths in one string. Use one common parent path plus glob, or separate grep calls.`;
         }
     }
-    // numeric clamps (grep context 0..12, mirrors read line-context tightening)
     for (const k of ['head_limit', 'offset']) {
         const err = checkIntInRange(k, a[k], 0, MAX_INT);
         if (err) return err;
@@ -168,11 +174,11 @@ function guardGrep(a) {
     }
     // output_mode / mode enum
     const modeKeys = ['output_mode', 'mode'];
-    const allowed = new Set(['files_with_matches', 'content', 'count']);
+    const allowed = new Set(['files_with_matches', 'content', 'content_with_context', 'count']);
     for (const k of modeKeys) {
         if (hasOwn(a, k)) {
             if (!isString(a[k]) || !allowed.has(a[k])) {
-                return `Error: grep arg "${k}" must be one of files_with_matches|content|count (got ${JSON.stringify(a[k])})`;
+                return `Error: grep arg "${k}" must be one of content_with_context|content|files_with_matches|count (got ${JSON.stringify(a[k])})`;
             }
         }
     }
@@ -196,9 +202,10 @@ function guardRead(a) {
     if (hasOwn(a, 'file_path') && !isNonEmptyString(a.file_path)) {
         return `Error: read arg "file_path" must be a non-empty string (got ${describeType(a.file_path)})`;
     }
-    if (hasOwn(a, 'line') && (hasOwn(a, 'offset') || hasOwn(a, 'limit'))) {
-        return 'Error: read window args conflict — use exactly one window family: line+context OR offset+limit OR symbol.';
-    }
+    // Window-family normalization happens in read-args.mjs. Do not reject a
+    // mixed line/context + offset/limit payload here: model callers often carry
+    // stale optional fields, and the read normalizer can safely prefer the
+    // explicit line anchor instead of surfacing a noisy tool-call failure.
     // offset >=0
     {
         const err = checkIntInRange('offset', a.offset, 0, MAX_INT);
@@ -351,7 +358,7 @@ function guardGlob(a) {
 // find_symbol, references, callers, imports, dependents.
 const CODE_GRAPH_MODES = new Set([
     'overview', 'imports', 'dependents', 'related', 'impact',
-    'symbols', 'find_symbol', 'search', 'references', 'callers', 'callees', 'prewarm',
+    'symbols', 'find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees', 'prewarm',
 ]);
 
 function guardCodeGraph(a) {

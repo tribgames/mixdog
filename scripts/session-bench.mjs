@@ -129,6 +129,33 @@ function toolArgsHash(row) {
   return field(row, 'tool_args_hash') || hashValue(args);
 }
 
+function grepPatternTerms(pattern) {
+  const raw = Array.isArray(pattern) ? pattern.join('|') : String(pattern || '');
+  return [...new Set(raw
+    .split(/[|,\s()"'`[\]{}.*+?^$\\:-]+/g)
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length >= 4))];
+}
+
+function normalizePathForCompare(pathValue) {
+  return String(pathValue || '.')
+    .replace(/\\/g, '/')
+    .replace(/^([A-Za-z]):/, (_, d) => d.toLowerCase() + ':')
+    .replace(/\/+/g, '/')
+    .replace(/\/$/, '') || '.';
+}
+
+function grepSweepKey(row) {
+  const args = toolArgs(row) || {};
+  const path = normalizePathForCompare(String(args.path || '.'));
+  const glob = Array.isArray(args.glob) ? args.glob.join(',') : String(args.glob || '');
+  const terms = grepPatternTerms(args.pattern).slice(0, 3).join('|');
+  return `${path}::${glob}::${terms}`;
+}
+
+const GREP_SWEEP_MIN_CALLS = 20;
+const GREP_SWEEP_MIN_UNIQUE = 16;
+
 function fmtMs(ms) {
   const n = Number(ms);
   if (!Number.isFinite(n)) return '-';
@@ -620,6 +647,37 @@ function buildToolDiagnostics(rows, failureRows = []) {
   }
   readFragmentation.sort((a, b) => b.count - a.count);
 
+  const grepSweeps = [];
+  for (const [sid, srows] of groupBy(tools.filter((r) => field(r, 'tool_name') === 'grep'), sessionId).entries()) {
+    const sorted = [...srows].sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
+    let cluster = [];
+    const flush = () => {
+      if (cluster.length < GREP_SWEEP_MIN_CALLS) { cluster = []; return; }
+      const unique = new Set(cluster.map(grepSweepKey));
+      const spanMs = Number(cluster[cluster.length - 1].ts || 0) - Number(cluster[0].ts || 0);
+      if (unique.size >= GREP_SWEEP_MIN_UNIQUE && spanMs <= 10 * 60_000) {
+        const pathCounts = countBy(cluster, (r) => normalizePathForCompare(String((toolArgs(r) || {}).path || '.'))).slice(0, 3);
+        const patterns = cluster.slice(0, 5).map((r) => compactText(String((toolArgs(r) || {}).pattern || ''), 70));
+        grepSweeps.push({
+          session_id: sid,
+          count: cluster.length,
+          unique_queries: unique.size,
+          span_ms: spanMs,
+          paths: pathCounts.map(([path, count]) => ({ path, count })),
+          examples: patterns,
+        });
+      }
+      cluster = [];
+    };
+    for (const row of sorted) {
+      const prev = cluster[cluster.length - 1];
+      if (!prev || Number(row.ts || 0) - Number(prev.ts || 0) <= 45_000) cluster.push(row);
+      else { flush(); cluster = [row]; }
+    }
+    flush();
+  }
+  grepSweeps.sort((a, b) => b.count - a.count || b.unique_queries - a.unique_queries);
+
   const singleToolBatches = rows.filter((r) => r.kind === 'batch' && Number(field(r, 'tool_call_count')) === 1)
     .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
   let missedParallelism = 0;
@@ -684,6 +742,7 @@ function buildToolDiagnostics(rows, failureRows = []) {
     failed_repeats: failedRepeats.slice(0, 20),
     broad_results: broadResults.slice(0, 20),
     read_fragmentation: readFragmentation.slice(0, 20),
+    grep_sweeps: grepSweeps.slice(0, 20),
     missed_parallelism_heuristic: {
       consecutive_single_tool_batches: missedParallelism,
       single_tool_batches: singleToolBatches.length,
@@ -1042,6 +1101,10 @@ function buildIssues(routeGroups, cache, tools) {
   }
   for (const frag of tools.read_fragmentation.slice(0, 5)) {
     issues.push({ severity: 'low', type: 'read_fragmentation', message: `read fragmentation x${frag.count} within ${frag.line_span} lines: ${frag.path}` });
+  }
+  for (const sweep of (tools.grep_sweeps || []).slice(0, 3)) {
+    const scope = sweep.paths?.[0]?.path || '-';
+    issues.push({ severity: 'low', type: 'grep_sweep', message: `grep sweep x${sweep.count}/${sweep.unique_queries} over ${fmtMs(sweep.span_ms)} in ${scope}`, session_id: sweep.session_id });
   }
   if (tools.missed_parallelism_heuristic.consecutive_single_tool_batches >= 3) {
     issues.push({ severity: 'low', type: 'missed_parallelism', message: `${tools.missed_parallelism_heuristic.consecutive_single_tool_batches} close consecutive single-tool batches` });
@@ -1403,6 +1466,14 @@ function renderText(report) {
     if (report.tools.read_fragmentation.length) {
       lines.push('read fragmentation:');
       for (const f of report.tools.read_fragmentation.slice(0, 10)) lines.push(`- x${f.count} span=${f.line_span} lines: ${f.path}`);
+    }
+    if (report.tools.grep_sweeps?.length) {
+      lines.push('grep sweeps:');
+      for (const s of report.tools.grep_sweeps.slice(0, 8)) {
+        const scope = s.paths?.map((p) => `${p.count}×${p.path}`).join(', ') || '-';
+        lines.push(`- x${s.count}/${s.unique_queries} span=${fmtMs(s.span_ms)} scope=${scope}`);
+        if (s.examples?.length) lines.push(`  e.g. ${s.examples.join(' | ')}`);
+      }
     }
     if (report.tools.sequential_tool_clusters?.length) {
       lines.push('sequential single-tool clusters:');

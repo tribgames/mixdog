@@ -20,10 +20,8 @@ Lead supervises: delegates, coordinates, judges, decides. Route by complexity:
      rather than handing it off in one shot, with a build/test-green gate
      between steps.
    - Reuse the existing agent (same tag) for follow-up on the same scope; spawn
-     new only for a separate scope. Briefs in English, bounded: goal/success
-     criteria, starting anchors, allowed/forbidden changes, deliverable,
-     verification boundary; for heavy-worker, also state where to start and when
-     to stop so the task stays bounded.
+     new only for a separate scope. Write briefs per the lead-tool brief
+     contract (token-optimized labeled fragments).
    - After spawning async agent(s), END THE TURN — do not poll, guess, or start
      dependent work until the completion notification resumes you (status/read
      are manual recovery only). Then wait and continue automatically.

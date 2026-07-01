@@ -1,0 +1,143 @@
+{
+  "round": "cwc12-p4",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_33956_1782926976231_1782926977929_0a95f89be87c8a866caae7d3e97309cb",
+    "sess_28660_1782927034176_1782927035746_b3804cfa9a35a62b687ec7e51fbd8cc5",
+    "sess_52144_1782927105165_1782927106739_4e3f0acc45d008990e962bf077a4cadd"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 57963,
+      "sessionId": "sess_33956_1782926976231_1782926977929_0a95f89be87c8a866caae7d3e97309cb"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 70999,
+      "sessionId": "sess_28660_1782927034176_1782927035746_b3804cfa9a35a62b687ec7e51fbd8cc5"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 62277,
+      "sessionId": "sess_52144_1782927105165_1782927106739_4e3f0acc45d008990e962bf077a4cadd"
+    }
+  ],
+  "group": {
+    "n": 3,
+    "wall_ms": 61626.7,
+    "turns": 16.3,
+    "tool_calls": 44,
+    "tools_per_turn": 2.7,
+    "total_tool_ms": 2902.7,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.7,
+    "cached_tokens": 284547.7,
+    "prompt_tokens": 412778.7,
+    "uncached_tokens": 128231,
+    "output_tokens": 3768.3,
+    "cache_weighted_input_10": 156685.8,
+    "cache_weighted_input_25": 199367.9,
+    "prompt_growth": 16262,
+    "antipatterns": 1,
+    "issues": 1.7,
+    "grep_sweep_count": 0.7
+  },
+  "cards": [
+    {
+      "session": "sess_33956_1782926976231_1782926977929_0a95f89be87c8a866caae7d3e97309cb",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 55735,
+      "turns": 14,
+      "tool_calls": 38,
+      "tools_per_turn": 2.7,
+      "total_tool_ms": 2849,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.6383159980188212,
+      "cached_tokens": 193314,
+      "prompt_tokens": 302850,
+      "uncached_tokens": 109536,
+      "output_tokens": 2979,
+      "cache_weighted_input_10": 128867.4,
+      "cache_weighted_input_25": 157864.5,
+      "prompt_growth": 14774,
+      "antipatterns": 0,
+      "issues": 0,
+      "issue_types": [],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 0
+    },
+    {
+      "session": "sess_28660_1782927034176_1782927035746_b3804cfa9a35a62b687ec7e51fbd8cc5",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 69039,
+      "turns": 19,
+      "tool_calls": 52,
+      "tools_per_turn": 2.7,
+      "total_tool_ms": 2703,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.7280057990321885,
+      "cached_tokens": 371596,
+      "prompt_tokens": 510430,
+      "uncached_tokens": 138834,
+      "output_tokens": 4724,
+      "cache_weighted_input_10": 175993.6,
+      "cache_weighted_input_25": 231733,
+      "prompt_growth": 11499,
+      "antipatterns": 2,
+      "issues": 3,
+      "issue_types": [
+        "tool_error",
+        "grep_sweep",
+        "tool_churn_cluster"
+      ],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_52144_1782927105165_1782927106739_4e3f0acc45d008990e962bf077a4cadd",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 60106,
+      "turns": 16,
+      "tool_calls": 42,
+      "tools_per_turn": 2.6,
+      "total_tool_ms": 3156,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.6792822592787774,
+      "cached_tokens": 288733,
+      "prompt_tokens": 425056,
+      "uncached_tokens": 136323,
+      "output_tokens": 3602,
+      "cache_weighted_input_10": 165196.3,
+      "cache_weighted_input_25": 208506.25,
+      "prompt_growth": 22513,
+      "antipatterns": 1,
+      "issues": 2,
+      "issue_types": [
+        "tool_error",
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 1
+    }
+  ]
+}

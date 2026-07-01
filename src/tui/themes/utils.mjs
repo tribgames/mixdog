@@ -17,7 +17,6 @@ const RGB_RE = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/;
 const SOFTEN_KEYS = [
   'mdHeading',
   'code',
-  'mdCode',
   'mdLink',
   'mdLinkText',
   'mdStrong',
@@ -31,6 +30,14 @@ const SOFTEN_KEYS = [
   'syntaxType',
   'syntaxOperator',
 ];
+
+// Inline codespan (`emphasis`). Kept only lightly muted with a FIXED small
+// amount instead of the saturation-scaled soften, so accented inline code reads
+// a touch brighter/livelier instead of graying out on long sessions.
+const ACCENT_SOFTEN_KEYS = [
+  'mdCode',
+];
+const ACCENT_SOFTEN_AMOUNT = 0.14;
 
 const SUBTLE_SOFTEN_KEYS = [
   'mdListBullet',
@@ -63,13 +70,13 @@ function saturation([r, g, b]) {
   return l > 0.5 ? d / (2 - max - min) : d / (max + min);
 }
 
-function softenAmount(rgb, base = 0.08) {
+function softenAmount(rgb, base = 0.05) {
   const s = saturation(rgb);
-  if (s >= 0.85) return base + 0.34;
-  if (s >= 0.65) return base + 0.26;
-  if (s >= 0.45) return base + 0.18;
-  if (s >= 0.25) return base + 0.10;
-  return base + 0.04;
+  if (s >= 0.85) return base + 0.20;
+  if (s >= 0.65) return base + 0.15;
+  if (s >= 0.45) return base + 0.10;
+  if (s >= 0.25) return base + 0.06;
+  return base + 0.02;
 }
 
 function softenKey(out, key, target, baseAmount = 0.08) {
@@ -78,14 +85,21 @@ function softenKey(out, key, target, baseAmount = 0.08) {
   out[key] = rgbString(mix(rgb, target, softenAmount(rgb, baseAmount)));
 }
 
+function softenKeyFixed(out, key, target, amount) {
+  const rgb = parseRgb(out[key]);
+  if (!rgb || !target) return;
+  out[key] = rgbString(mix(rgb, target, amount));
+}
+
 export function softenTypographyColors(palette) {
   const out = { ...palette };
   const text = parseRgb(out.text) || parseRgb(out.mdCodeBlock) || parseRgb(out.statusText);
   const subtle = parseRgb(out.subtle) || parseRgb(out.inactive) || text;
   if (!text) return out;
-  const neutralText = subtle ? mix(text, subtle, 0.42) : text;
+  const neutralText = subtle ? mix(text, subtle, 0.26) : text;
 
-  for (const key of SOFTEN_KEYS) softenKey(out, key, neutralText, 0.10);
+  for (const key of SOFTEN_KEYS) softenKey(out, key, neutralText, 0.06);
+  for (const key of ACCENT_SOFTEN_KEYS) softenKeyFixed(out, key, neutralText, ACCENT_SOFTEN_AMOUNT);
   for (const key of SUBTLE_SOFTEN_KEYS) softenKey(out, key, subtle || neutralText, 0.22);
   for (const key of UI_SOFTEN_KEYS) softenKey(out, key, neutralText, 0.05);
   return out;

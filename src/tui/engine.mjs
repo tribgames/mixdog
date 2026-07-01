@@ -963,6 +963,7 @@ export async function createEngineSession({
     searchRoute: runtime.getSearchRoute?.() || runtime.searchRoute || null,
     autoClear: autoClearState(),
     workflow: runtime.workflow || null,
+    remoteEnabled: runtime.isRemoteEnabled?.() === true,
   });
 
   const routeState = () => ({
@@ -1423,15 +1424,6 @@ export async function createEngineSession({
     for (const rec of calls || []) {
       if (rec?.resolved !== true) continue;
       let text = String(rec?.resultText || '').replace(/\s+$/, '');
-      // UI-only: apply_patch carries a standard unified diff (rec.uiDiff)
-      // delivered out-of-band on the tool-result message. Append it under the
-      // summary so the expanded (ctrl+o) raw view colorizes it as a +/- diff
-      // (formatExpandedResult auto-detects unified diffs). Never part of the
-      // model-visible result.
-      const uiDiff = String(rec?.uiDiff || '').replace(/\s+$/, '');
-      if (uiDiff.trim()) {
-        text = text.trim() ? `${text}\n${uiDiff}` : uiDiff;
-      }
       if (!text.trim()) continue;
       const label = String(rec?.name || rec?.category || 'tool').trim() || 'tool';
       chunks.push(`${chunks.length + 1}. ${label}\n${text}`);
@@ -1452,24 +1444,12 @@ export async function createEngineSession({
     return line.length > 160 ? `${line.slice(0, 157)}…` : line;
   }
 
-  function aggregateBucketForCategory(category) {
-    switch (category) {
-      case 'Read':
-      case 'Search':
-        return 'local-discovery';
-      case 'Web Research':
-        return 'web-research';
-      case 'Memory':
-        return 'memory';
-      case 'Explore':
-        return 'explore';
-      case 'Patch':
-        return 'patch';
-      default:
-        // Shell/Agent/Channel/Setup/Other stay as their own cards so risky or
-        // semantically distinct actions do not disappear inside a discovery log.
-        return null;
-    }
+  function aggregateBucketForCategory(_category) {
+    // Keep normal tool calls as explicit per-tool cards. Hook/approval denials
+    // have their own dedicated ToolHookDenialCard path in App.jsx; this generic
+    // aggregate card is intentionally disabled so read/search/patch results do
+    // not intermittently collapse into a shared expandable raw dump.
+    return null;
   }
 
   function aggregateSummaries(aggregate) {
@@ -1515,10 +1495,6 @@ export async function createEngineSession({
       callRec.isError = isError;
       callRec.resultText = text;
       callRec.resolved = true;
-      // UI-only unified diff (apply_patch) delivered out-of-band on the
-      // tool-result message; carried into aggregateRawResult for the expanded
-      // colored-diff view. Never surfaced to the model.
-      if (message?.uiDiff) callRec.uiDiff = String(message.uiDiff);
       const allCalls = [...aggregate.calls.values()];
       const completed = allCalls.filter((r) => r.resolved).length;
       const errors = allCalls.filter((r) => r.isError).length;
@@ -2164,9 +2140,7 @@ export async function createEngineSession({
             const c = batchCalls[i];
             const name = toolCallName(c);
             const args = toolCallArgs(c);
-            const category = classifyToolCategory(name, args);
-            const bucket = aggregateBucketForCategory(category);
-            const categoryEntry = aggregateToolCategoryEntry(name, args, category);
+            const bucket = aggregateBucketForCategory();
             const callId = toolCallId(c);
             const callKey = callId || `__tool_${toolCards.length}_${i}`;
 
@@ -2204,6 +2178,8 @@ export async function createEngineSession({
               continue;
             }
 
+            const category = classifyToolCategory(name, args);
+            const categoryEntry = aggregateToolCategoryEntry(name, args, category);
             const aggregateCard = ensureAggregateCard(bucket);
             if (!aggregateCard.categories.has(categoryEntry.key)) aggregateCard.categoryOrder.push(categoryEntry.key);
             const prevCategory = aggregateCard.categories.get(categoryEntry.key);
@@ -2492,6 +2468,7 @@ export async function createEngineSession({
     if (pending.length === 0) return [];
     const max = queuePriorityValue(maxPriority);
     const predicate = typeof options.predicate === 'function' ? options.predicate : () => true;
+    const limit = Math.max(1, Number(options.limit) || Infinity);
     let bestPriority = Infinity;
     let targetMode = null;
     for (const entry of pending) {
@@ -2510,6 +2487,7 @@ export async function createEngineSession({
       if (predicate(entry) && (entry.mode || 'prompt') === targetMode && queuePriorityValue(entry.priority) === bestPriority) {
         batch.push(entry);
         pending.splice(i, 1);
+        if (batch.length >= limit) break;
       } else {
         i += 1;
       }
@@ -2522,12 +2500,14 @@ export async function createEngineSession({
     if (draining) return;
     if (autoClearRunning) return;
     draining = true;
+    let firstBatch = true;
     try {
       while (pending.length > 0) {
         // Drain one priority/mode bucket at a time (unified command queue):
         // unified command queue semantics: prompt steering stays editable and
         // task notifications stay non-editable but model-visible.
-        const batch = dequeueQueueBatch('later');
+        const batch = dequeueQueueBatch('later', { limit: firstBatch ? 1 : Infinity });
+        firstBatch = false;
         if (batch.length === 0) break;
         const ids = new Set(batch.map((e) => e.id));
         const merged = mergePromptContents(batch);
@@ -2571,9 +2551,12 @@ export async function createEngineSession({
 
   function drainPendingSteering() {
     // Mid-turn steering drain:
-    // getCommandsByMaxPriority('next') and exclude slash commands. Slash
-    // commands must run through the normal command processor after the turn,
-    // not be sent to the model as plain text.
+    // Injects queued user prompts (steering) plus non-editable internal entries
+    // into the CURRENT provider pre-send window so the user can redirect a turn
+    // that is already running. Slash commands are still excluded: they must run
+    // through the normal command processor after the turn, not be sent as plain
+    // text. Consumed entries are spliced out of `pending` here, so the post-turn
+    // drain() loop will not re-execute them.
     const batch = dequeueQueueBatch('next', { predicate: (entry) => !isSlashQueuedEntry(entry) });
     if (batch.length === 0) return [];
     const out = batch
@@ -2604,6 +2587,11 @@ export async function createEngineSession({
     const startedAt = Date.now();
     set({ commandStatus: { active: true, verb: 'Auto-clearing idle conversation', startedAt, mode: 'auto-clear' } });
     try {
+      // Give Ink one event-loop turn to paint the auto-clear status before the
+      // clear/compact path starts doing synchronous session/transcript work.
+      // Without this, long idle clears can look like a frozen prompt followed by
+      // an already-complete status row.
+      await new Promise((resolve) => setTimeout(resolve, 0));
       const compaction = runtime.getCompactionSettings();
       const compactType = compaction.compactType || compaction.type;
       await runtime.clear({ compactType, requireCompactSuccess: !!compactType });
@@ -2766,8 +2754,10 @@ export async function createEngineSession({
       if (state.commandBusy) return false;
       set({ commandBusy: true });
       try {
-        await runtime.setRoute({ model: m }, { applyToCurrentSession: true });
-        syncContextStats({ allowEstimated: true });
+        // Model changes apply to the NEXT session only (default setRoute
+        // behavior) — never rewrite the live session's provider/model, which
+        // would force a full prompt-cache rewrite mid-conversation.
+        await runtime.setRoute({ model: m });
         set({ ...routeState(), stats: { ...state.stats } });
         return true;
       } finally {
@@ -3286,8 +3276,11 @@ export async function createEngineSession({
       const enabled = runtime.isRemoteEnabled?.() === true;
       if (enabled) runtime.stopRemote?.();
       else runtime.startRemote?.();
-      return runtime.isRemoteEnabled?.() === true;
+      const next = runtime.isRemoteEnabled?.() === true;
+      set({ remoteEnabled: next });
+      return next;
     },
+    isRemoteEnabled: () => runtime.isRemoteEnabled?.() === true,
     // Theme is a TUI-local concern (no runtime round-trip). listThemes returns
     // picker metadata; getTheme reports the active id; setTheme applies the
     // palette in-place + persists ui.theme and bumps a themeEpoch so the React
@@ -3391,6 +3384,8 @@ export async function createEngineSession({
     getChannelSetup: () => {
       return runtime.getChannelSetup();
     },
+    getChannelWorkerStatus: () => runtime.getChannelWorkerStatus?.(),
+    setBackend: (name) => runtime.setBackend?.(name),
     saveDiscordToken: (token) => {
       const result = runtime.saveDiscordToken(token);
       pushNotice('discord token saved', 'info');
@@ -3399,6 +3394,16 @@ export async function createEngineSession({
     forgetDiscordToken: () => {
       const result = runtime.forgetDiscordToken();
       pushNotice('discord token forgotten', 'info');
+      return result;
+    },
+    saveTelegramToken: (token) => {
+      const result = runtime.saveTelegramToken?.(token);
+      pushNotice('telegram token saved', 'info');
+      return result;
+    },
+    forgetTelegramToken: () => {
+      const result = runtime.forgetTelegramToken?.();
+      pushNotice('telegram token forgotten', 'info');
       return result;
     },
     saveWebhookAuthtoken: (token) => {
@@ -3461,7 +3466,9 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const routeOpts = opts && typeof opts === 'object' ? opts : {};
-        const applyToCurrentSession = routeOpts.applyToCurrentSession === false ? false : true;
+        // Default: apply to the NEXT session only. Only an explicit
+        // `applyToCurrentSession: true` rewrites the live session in place.
+        const applyToCurrentSession = routeOpts.applyToCurrentSession === true;
         const { applyToCurrentSession: _drop, ...nextRoute } = routeOpts;
         await runtime.setRoute(nextRoute, { applyToCurrentSession });
         if (applyToCurrentSession) syncContextStats({ allowEstimated: true });

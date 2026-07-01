@@ -49,6 +49,22 @@ function applyDefaults(config) {
   out.webhook = { ...CONFIG_DEFAULTS.webhook, ...(out.webhook || {}) };
   return out;
 }
+
+function channelIdForBackend(entry = {}, backend = "discord") {
+  if (backend === "telegram") {
+    return String(entry?.telegramChatId || (entry?.discordChannelId ? "" : entry?.channelId) || "");
+  }
+  return String(entry?.discordChannelId || (entry?.telegramChatId ? "" : entry?.channelId) || "");
+}
+
+function channelsConfigForBackend(rawChannelsConfig = {}, backend = "discord") {
+  return Object.fromEntries(Object.entries(rawChannelsConfig || {}).map(([name, entry]) => {
+    const value = entry && typeof entry === "object" ? entry : {};
+    const channelId = channelIdForBackend(value, backend);
+    return [name, { ...value, channelId }];
+  }));
+}
+
 /**
  * Shared DND / quiet-window helper used by scheduler + webhook.
  *
@@ -191,10 +207,12 @@ function loadConfig() {
     // Anything else falls back to the discord default.
     const backend = raw.backend === "telegram" ? "telegram" : "discord";
     const telegramToken = getTelegramToken();
+    const rawChannelsConfig = { ...DEFAULT_CONFIG.channelsConfig, ...(raw.channelsConfig || {}) };
     return applyDefaults({
       ...DEFAULT_CONFIG,
       ...raw,
       backend,
+      channelsConfig: channelsConfigForBackend(rawChannelsConfig, backend),
       discord: { ...DEFAULT_CONFIG.discord, ...(({ token: _, ...rest }) => rest)(raw.discord || {}), ...(discordToken && !discordTokenProblem ? { token: discordToken } : {}) },
       // Merge the keychain-resolved telegram token (harmless when backend is
       // discord; the secret never lands in the on-disk config either way).

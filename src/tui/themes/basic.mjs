@@ -27,12 +27,12 @@ export const basicPalette = {
   statusSubtle: 'rgb(154,156,162)',
   timerText: 'rgb(154,156,162)',
   promptBorder: 'rgb(112,112,118)',
-  // Accent: amber-gold across titles, headings, links and code.
-  claude: 'rgb(232,156,48)',
-  logo: 'rgb(255,184,72)', // welcome banner — brighter than the accent
-  mixdogOrange: 'rgb(232,156,48)',
-  panelTitle: 'rgb(232,156,48)',
-  mdHeading: 'rgb(232,156,48)',
+  // Accent: bright orange across titles, headings, links and code.
+  claude: 'rgb(255,150,58)',
+  logo: 'rgb(238,150,64)', // welcome banner — slightly deeper than the accent
+  mixdogOrange: 'rgb(255,150,58)',
+  panelTitle: 'rgb(255,150,58)',
+  mdHeading: 'rgb(255,150,58)',
   claudeShimmer: 'rgb(255,210,118)',
   mixdogAmber: 'rgb(255,210,118)',
   suggestion: 'rgb(255,196,92)',
@@ -41,10 +41,11 @@ export const basicPalette = {
   mdListBullet: 'rgb(184,140,74)', // muted amber structural marker
   mdCode: 'rgb(246,184,78)',
   mdLinkText: 'rgb(255,218,138)',
-  // Spinner glyph/text/shimmer run hotter orange (separate from the gold accent).
-  spinnerGlyph: 'rgb(242,136,48)',
-  spinnerText: 'rgb(242,136,48)',
-  spinnerShimmer: 'rgb(255,184,96)',
+  // Spinner glyph/text/shimmer run a warm orange (a touch hotter than the gold
+  // accent, but no longer strongly red) so they harmonize with the thinking tone.
+  spinnerGlyph: 'rgb(244,120,58)',
+  spinnerText: 'rgb(244,120,58)',
+  spinnerShimmer: 'rgb(255,164,110)',
   codeBlock: 'rgb(224,226,230)',
   mdCodeBlock: 'rgb(224,226,230)',
   success: 'rgb(140,190,118)',
@@ -55,7 +56,7 @@ export const basicPalette = {
   mdEmph: 'rgb(255,218,138)',
   inverseText: 'rgb(24,18,18)',
   selectionText: 'rgb(255,238,208)',
-  selectionBackground: 'rgb(92,62,24)',
+  selectionBackground: 'rgb(96,58,28)',
   mdCodeBlockBg: 'rgb(27,27,30)',
   mdCodeSpanBg: 'rgb(38,37,38)',
   mdCodeBlockBorder: 'rgb(50,49,50)',

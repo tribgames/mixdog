@@ -450,7 +450,10 @@ function prefixElapsed(detail, elapsed = '') {
   const text = String(detail || '').trim();
   const time = String(elapsed || '').trim();
   if (!time) return text;
-  return text ? `${time} · ${text}` : time;
+  // Unified convention: the elapsed time ALWAYS goes at the END, ` · ` separated.
+  // Guard against a double-append when the text already ends with the same time.
+  if (text && text.endsWith(`· ${time}`)) return text;
+  return text ? `${text} · ${time}` : time;
 }
 
 function mergeTerminalDetail(status, detail = '') {
@@ -572,7 +575,8 @@ function agentTerminalDetail(status, isError, elapsed, error = '') {
       : /done|success|complete|closed/.test(s)
         ? 'Finished'
         : '';
-  return word ? `${word}${elapsed ? ` after ${elapsed}` : ''}` : '';
+  // Unified ` · <time>` convention (previously "Finished after 12s").
+  return word ? `${word}${elapsed ? ` · ${elapsed}` : ''}` : '';
 }
 
 function clampFailureCount(errorCount, groupCount, isError) {
@@ -737,22 +741,21 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     const showHeaderExpandHint = hasRawResult;
     const hintLabel = `ctrl+o ${expanded ? 'collapse' : 'expand'}`;
     const hintText = ` ${BULLET_OPERATOR} ${hintLabel}`;
-    const headerMetaText = pending && elapsed ? ` (${elapsed} elapsed)` : '';
-    // Reserve the expand-hint slot for the card's whole lifecycle so the header
-    // body never reflows when the hint appears on completion. During pending the
-    // elapsed meta shares this same right region; reserving the wider of the two
-    // keeps `avail` (and the header clip point) fixed, so nothing "appears then
-    // shrinks back" on the right edge as counts/results land.
-    const rightReserve = Math.max(stringWidth(hintText), stringWidth(headerMetaText));
+    // The header right-side trailing slot only ever shows the ctrl+o hint. The
+    // pending elapsed meta was removed from the header — it lives on the detail
+    // row now (`Running · 12s`) so a per-second digit change never reflows the
+    // header. Still reserve the hint slot for the whole lifecycle so the body
+    // clip point stays fixed when the hint appears on completion.
+    const rightReserve = stringWidth(hintText);
     const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - rightReserve);
-    const trailingText = headerMetaText || (showHeaderExpandHint ? hintText : '');
+    const trailingText = showHeaderExpandHint ? hintText : '';
     const trailingColor = theme.subtle;
     const clippedHeader = stringWidth(headerText) > avail
       ? truncateToWidth(headerText, avail)
       : headerText;
-    // Trailing content (elapsed while pending, ctrl+o hint when done) always
-    // sits immediately after the header body — no fixed right-edge pin — so it
-    // never jumps to the right edge and snaps back on the pending→done flip.
+    // Trailing content (ctrl+o hint only; pending elapsed lives on the detail
+    // row) sits immediately after the header body — no fixed right-edge pin — so
+    // it never jumps to the right edge and snaps back on the pending→done flip.
     // Keep the aggregate card at a fixed height (header + one detail row) for
     // its whole lifecycle. Pending cards have no result yet, so reserve the
     // detail row up front instead of growing from 1→2 rows when the summary
@@ -766,9 +769,15 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     // color; the status placeholder is rendered dim.
     const isPlaceholderDetail = !(expanded && hasRawResult) && !detailText;
     const showRawAggregate = expanded && hasRawResult;
+    // Pending placeholder carries the elapsed time (`Running · 12s`) once it
+    // reaches >=1s — this is still ONE logical detail row (only its text
+    // changes), so estimateTranscriptItemRows stays in lockstep.
+    const pendingPlaceholder = headerPending
+      ? (elapsed ? `Running · ${elapsed}` : 'Running')
+      : 'Finished';
     const detailLines = showRawAggregate
       ? rawRt.split('\n')
-      : (detailText ? [detailText] : [headerPending ? 'Running' : 'Finished']);
+      : (detailText ? [detailText] : [pendingPlaceholder]);
     const aggregateDetailColor = isPlaceholderDetail ? theme.subtle : theme.text;
     return (
       <Box flexDirection="column" marginTop={attached ? 0 : 1} width={rowWidth} overflow="hidden">
@@ -874,14 +883,16 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // the final summary just fills in place. Skill surfaces collapse to a single
   // row in BOTH the estimate and the render (visibleDetailLines drops the row
   // for isSkillSurface below), so they get no placeholder.
-  const pendingDetailPlaceholder = pending && !isSkillSurface ? 'Running' : '';
+  const pendingDetailPlaceholder = pending && !isSkillSurface
+    ? (elapsed ? `Running · ${elapsed}` : 'Running')
+    : '';
   const shellCollapsedSummary = isShellSurface && !pending && hasDisplayResult
     ? (resultSummary || truncateToWidth(firstResultLine, Math.min(120, maxResultChars)))
     : resultSummary;
   const collapsedDetail = pending
     ? pendingDetailPlaceholder
     : isShellSurface
-      ? mergeTerminalDetail(shellStatus, shellCollapsedSummary)
+      ? prefixElapsed(mergeTerminalDetail(shellStatus, shellCollapsedSummary), shellElapsed)
       : mergeTerminalDetail(terminalStatus, nonShellDetail);
   const backgroundMetadataExpandable = isBackgroundMetadataResult && hasRawResult && !pending;
   const showRawResult = expanded && (hasDisplayResult || hasRawResult)
@@ -934,9 +945,19 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const toolSearchSummary = !pending && normalizedName === 'tool_search' && hasResult
     ? toolSearchLoadedSummary(displayedResultText)
     : '';
-  const summaryText = safeInlineText(isAgentResponse || isBackgroundResponse
+  const rawSummaryText = safeInlineText(isAgentResponse || isBackgroundResponse
     ? ''
     : toolSearchSummary || (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary));
+  // Drop the parenthesized arg summary when it is a bare "<n> <unit>" count
+  // that the header verb already spells out (e.g. header "Searching 6 patterns"
+  // + summary "6 patterns"). Multi-arg array calls hit this; single calls keep
+  // their descriptive summary ("pattern: \"foo\"") since it never matches the
+  // header tail. Channel surfaces are unaffected — they build the summary from
+  // summarizeToolArgs directly and never render this header verb.
+  const summaryIsHeaderCount = rawSummaryText
+    && /^\d+\s+\S+$/.test(rawSummaryText)
+    && labelText.endsWith(rawSummaryText);
+  const summaryText = summaryIsHeaderCount ? '' : rawSummaryText;
   // Agent cards hide their collapsed body but still expose ctrl+o expand only
   // when expanding would actually reveal something: an agent response body, or a
   // multiline / clipped raw result (e.g. the "agents: N …" worker list). A
@@ -961,25 +982,22 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const gutter = 2;
   const hintLabel = showHeaderExpandHint ? `ctrl+o ${expanded ? 'collapse' : 'expand'}` : '';
   const hintText = hintLabel ? ` ${BULLET_OPERATOR} ${hintLabel}` : '';
-  const headerMetaText = pending && elapsed ? ` (${elapsed} elapsed)` : '';
-  // The expand hint (post-completion) and the elapsed meta (pending) occupy the
-  // SAME trailing region but never at the same time. Subtracting both widths
-  // made `avail` shrink/grow across the pending→completed transition, so the
-  // label/summary clip point shifted and the header text "jumped out then
-  // snapped back" right as a tool finished or cards merged. Reserve the wider of
-  // the two for the whole lifecycle (matching the aggregate card's rightReserve)
-  // so `avail` stays fixed and nothing reflows. The hint slot is reserved even
-  // while pending so its later appearance does not push the body either.
+  // The header right-side trailing slot only ever shows the ctrl+o hint. The
+  // pending elapsed meta was removed from the header — it lives on the detail
+  // row now (`Running · 12s`) so a per-second digit change (9s→10s) or the
+  // pending→done swap never reflows the header. The hint slot is reserved for
+  // the whole lifecycle (even while pending) so its later appearance on
+  // completion does not push the body clip point.
   const hintReserveLabel = `ctrl+o ${expanded ? 'collapse' : 'expand'}`;
   const hintReserveText = ` ${BULLET_OPERATOR} ${hintReserveLabel}`;
   const headerFailureText = headerFailureStatus
     ? truncateToWidth(headerFailureStatus, HEADER_FAILURE_STATUS_MAX)
     : '';
   const inlineFailureText = headerFailureText ? ` ${BULLET_OPERATOR} ${headerFailureText}` : '';
-  const rightReserve = Math.max(stringWidth(hintReserveText), stringWidth(headerMetaText)) + stringWidth(inlineFailureText);
+  const rightReserve = stringWidth(hintReserveText) + stringWidth(inlineFailureText);
   const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - rightReserve);
-  const trailingText = headerMetaText || (showHeaderExpandHint ? hintText : '');
-  const trailingColor = headerMetaText ? theme.subtle : expandHintColor;
+  const trailingText = showHeaderExpandHint ? hintText : '';
+  const trailingColor = expandHintColor;
   let labelOut;
   let summaryOut;
   if (stringWidth(labelText) >= avail) {
@@ -996,11 +1014,11 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
       : '';
     summaryOut = truncatedSummary ? ` (${truncatedSummary})` : '';
   }
-  // Keep trailing content (pending elapsed / completed ctrl+o hint) attached
-  // directly after the body for the whole lifecycle. The fixed-column pin
-  // previously used for elapsed is what made the trailing text jump to the right
-  // edge and snap back on the pending→done flip, so there is no pad. `avail`
-  // stays reserved (rightReserve) so the body clip point never reflows.
+  // Keep trailing content (ctrl+o hint only; pending elapsed lives on the detail
+  // row) attached directly after the body for the whole lifecycle. The
+  // fixed-column pin previously used for elapsed is what made the trailing text
+  // jump to the right edge and snap back on the pending→done flip, so there is no
+  // pad. `avail` stays reserved (rightReserve) so the body clip point never reflows.
   return (
     <Box flexDirection="column" marginTop={attached ? 0 : 1} width={rowWidth} overflow="hidden">
       <Box flexDirection="row" width="100%">

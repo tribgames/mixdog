@@ -472,3 +472,12 @@ export async function warmModelMetadataCatalogs() {
     const [litellm] = await Promise.all([loadCatalog(), loadModelsDevCatalog()]);
     return litellm;
 }
+
+/** Fire-and-forget warm of both in-memory catalog caches (disk-first, then remote). */
+export async function warmCatalogsInBackground() {
+    try {
+        await Promise.all([loadCatalog(), loadModelsDevCatalog()]);
+    } catch {
+        /* never throw — boot/statusline must not fail on catalog warm */
+    }
+}

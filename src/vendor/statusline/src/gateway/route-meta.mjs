@@ -343,25 +343,44 @@ export function readGatewayRouteInfo(seed = {}, providerObj = null) {
   };
 }
 
-function compactBoundaryForRoute(routeInfo = {}, compact = null) {
-  const compactLimit = num(routeInfo?.autoCompactTokenLimit ?? compact?.compactLimitTokens, 0);
+// Boundary denominator for status %, overflow checks, and gateway env window.
+// Order: explicit boundary (routeInfo or compact) → contextWindow → budgetWindow
+// → rawContextWindow. autoCompactTokenLimit / compactLimitTokens are triggers
+// only and are never read here.
+export function compactBoundaryDenominator(routeInfo = {}, compact = null) {
+  const fromRoute = num(
+    routeInfo?.compactBoundaryTokens
+      ?? routeInfo?.compact_boundary_tokens
+      ?? routeInfo?.boundaryTokens,
+    0,
+  );
+  const fromCompact = num(
+    compact?.boundaryTokens
+      ?? compact?.compactBoundaryTokens
+      ?? compact?.compact_boundary_tokens,
+    0,
+  );
+  const boundaryTokens = fromRoute > 0 ? fromRoute : fromCompact;
   const contextWindow = num(routeInfo?.contextWindow ?? compact?.contextWindow, 0);
   const budgetWindow = num(compact?.budgetWindow, 0);
   const rawContextWindow = num(routeInfo?.rawContextWindow ?? compact?.rawContextWindow, 0);
-  if (compactLimit > 0 && contextWindow > 0) return Math.min(compactLimit, contextWindow);
-  if (compactLimit > 0) return compactLimit;
-  if (budgetWindow > 0 && contextWindow > 0) return Math.min(budgetWindow, contextWindow);
-  if (budgetWindow > 0) return budgetWindow;
+  if (boundaryTokens > 0) return boundaryTokens;
   if (contextWindow > 0) return contextWindow;
+  if (budgetWindow > 0) return budgetWindow;
   return rawContextWindow > 0 ? rawContextWindow : 0;
+}
+
+function compactBoundaryForRoute(routeInfo = {}, compact = null) {
+  return compactBoundaryDenominator(routeInfo, compact);
 }
 
 // Single source of truth for the value synced to host env
 // CLAUDE_CODE_AUTO_COMPACT_WINDOW. BOTH the --enable-time write
 // (scripts/gateway-model.mjs) and the runtime sync (src/gateway/server.mjs)
 // must derive the window the SAME way, or they disagree on the value written to
-// settings.json. Prefer the explicit compact limit, bounded by the effective
-// context window, then fall back to context/raw metadata. Returns a positive
+// settings.json. Denominator order: compactBoundaryTokens / boundaryTokens (route
+// or compact) → contextWindow → budgetWindow → rawContextWindow. Never
+// autoCompactTokenLimit or compactLimitTokens (trigger-only). Returns a positive
 // integer, or null when unknown.
 export function autoCompactWindowForRoute(routeInfo) {
   const n = compactBoundaryForRoute(routeInfo);
@@ -428,12 +447,7 @@ function usageCostUsd(routeInfo, usage) {
 }
 
 function contextUsageBoundary(routeInfo, compact = null) {
-  const contextWindow = num(routeInfo?.contextWindow ?? compact?.contextWindow, 0);
-  const budgetWindow = num(compact?.budgetWindow, 0);
-  const rawContextWindow = num(routeInfo?.rawContextWindow ?? compact?.rawContextWindow, 0);
-  if (contextWindow > 0) return contextWindow;
-  if (budgetWindow > 0) return budgetWindow;
-  return rawContextWindow > 0 ? rawContextWindow : compactBoundaryForRoute(routeInfo, compact);
+  return compactBoundaryDenominator(routeInfo, compact);
 }
 
 export function summarizeGatewayUsage(routeInfo, providerOut, compact = null, durationMs = null) {

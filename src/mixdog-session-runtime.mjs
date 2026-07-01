@@ -19,6 +19,10 @@ import {
   shouldPersistModelVisibleToolCompletion,
 } from './runtime/shared/tool-execution-contract.mjs';
 import {
+  channelNotificationModelContent,
+  shouldMirrorChannelNotificationToPending,
+} from './runtime/shared/channel-notification-routing.mjs';
+import {
   normalizeAgentPermissionOrNone,
   readMarkdownDocument,
 } from './runtime/shared/markdown-frontmatter.mjs';
@@ -37,7 +41,10 @@ import {
 } from './standalone/provider-admin.mjs';
 import { createUsageDashboard } from './standalone/usage-dashboard.mjs';
 import { fetchOAuthUsageSnapshot } from './runtime/agent/orchestrator/providers/oauth-usage.mjs';
-import { getModelMetadataSync } from './runtime/agent/orchestrator/providers/model-catalog.mjs';
+import {
+  getModelMetadataSync,
+  warmCatalogsInBackground,
+} from './runtime/agent/orchestrator/providers/model-catalog.mjs';
 import {
   isResponsesFreeformTool,
   toResponsesCustomTool,
@@ -590,14 +597,18 @@ function modelMetaLooksResolved(meta) {
   return Object.keys(meta).some((key) => key !== 'id' && key !== 'provider');
 }
 
-const OUTPUT_STYLE_ORDER = ['default', 'simple', 'extreme-simple'];
+const OUTPUT_STYLE_ORDER = ['default', 'simple', 'minimal', 'oneline'];
 const OUTPUT_STYLE_ALIASES = new Map([
   ['compact', 'default'],
   ['normal', 'default'],
-  ['extreme', 'extreme-simple'],
-  ['extremesimple', 'extreme-simple'],
-  ['extreme-simple', 'extreme-simple'],
-  ['extreme_simple', 'extreme-simple'],
+  ['extreme', 'minimal'],
+  ['extremesimple', 'minimal'],
+  ['extreme-simple', 'minimal'],
+  ['extreme_simple', 'minimal'],
+  ['mono', 'oneline'],
+  ['oneline', 'oneline'],
+  ['one-line', 'oneline'],
+  ['one_line', 'oneline'],
 ]);
 
 function normalizeOutputStyleId(value) {
@@ -2470,6 +2481,7 @@ export async function createMixdogSessionRuntime({
   let providerSetupWarmupTimer = null;
   let providerWarmupTimer = null;
   let providerModelWarmupTimer = null;
+  let modelCatalogWarmupTimer = null;
   let codeGraphPrewarmTimer = null;
   let codeGraphPrewarmInFlight = false;
   let codeGraphPrewarmQueuedCwd = '';
@@ -2499,6 +2511,7 @@ export async function createMixdogSessionRuntime({
   }
   const sessionPrewarmDelayMs = envDelayMs('MIXDOG_SESSION_PREWARM_DELAY_MS', 50, { min: 0, max: 10_000 });
   const providerSetupWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_SETUP_WARMUP_DELAY_MS', 300, { min: 0, max: 60_000 });
+  const modelCatalogWarmupDelayMs = envDelayMs('MIXDOG_MODEL_CATALOG_WARMUP_DELAY_MS', 200, { min: 0, max: 60_000 });
   const providerWarmupDelayMs = envDelayMs('MIXDOG_PROVIDER_WARMUP_DELAY_MS', 1_500, { min: 0, max: 60_000 });
   // Background model-catalog prefetch delay. Kept short so the first `/model`
   // open finds a warm cache instead of paying a cold full network load. The
@@ -2532,6 +2545,7 @@ export async function createMixdogSessionRuntime({
   const modelPrefetchEnabled = !envFlag('MIXDOG_DISABLE_PROVIDER_WARMUP')
     && !envFlag('MIXDOG_DISABLE_MODEL_PREFETCH');
   const codeGraphPrewarmEnabled = !envFlag('MIXDOG_DISABLE_CODE_GRAPH_PREWARM');
+  const modelCatalogWarmupEnabled = !envFlag('MIXDOG_DISABLE_MODEL_CATALOG_WARMUP');
   // Lazy code-graph prewarm (default ON): do NOT prewarm at startup / on cwd
   // change — that fired ~250ms after the first frame and, in a large tree,
   // burned a worker (and felt like a freeze) before the user did anything.
@@ -3005,10 +3019,12 @@ export async function createMixdogSessionRuntime({
       if (msg?.method !== 'notifications/claude/channel') return;
       const params = msg?.params && typeof msg.params === 'object' ? msg.params : {};
       const meta = params.meta && typeof params.meta === 'object' ? params.meta : {};
-      if (meta.silent_to_agent === true || meta.silent_to_agent === 'true') return;
-      const instruction = typeof meta.instruction === 'string' ? meta.instruction.trim() : '';
-      const content = instruction || String(params.content || '').trim();
-      emitRuntimeNotification(content, meta);
+      const content = channelNotificationModelContent(params);
+      if (!content) return;
+      const handled = emitRuntimeNotification(content, meta);
+      if (!handled && session?.id && shouldMirrorChannelNotificationToPending(meta)) {
+        try { mgr.enqueuePendingMessage(session.id, content); } catch {}
+      }
     },
   });
   bootProfile('channels:worker-ready', { ms: (performance.now() - channelsStartedAt).toFixed(1) });
@@ -4006,6 +4022,27 @@ function parsedProviderModelVersion(id) {
     providerModelWarmupTimer.unref?.();
   }
 
+  function scheduleModelCatalogWarmup(delayMs = modelCatalogWarmupDelayMs) {
+    if (!modelCatalogWarmupEnabled) {
+      bootProfile('model-catalog:warm-skipped', { reason: 'disabled' });
+      return;
+    }
+    if (modelCatalogWarmupTimer || closeRequested) return;
+    modelCatalogWarmupTimer = setTimeout(() => {
+      modelCatalogWarmupTimer = null;
+      if (closeRequested) return;
+      if (activeTurnCount > 0 || sessionCreatePromise) {
+        bootProfile('model-catalog:warm-deferred', { reason: activeTurnCount > 0 ? 'turn-active' : 'session-create' });
+        scheduleModelCatalogWarmup(backgroundBusyRetryMs);
+        return;
+      }
+      void warmCatalogsInBackground()
+        .then(() => bootProfile('model-catalog:warm-ready'))
+        .catch((error) => bootProfile('model-catalog:warm-failed', { error: error?.message || String(error) }));
+    }, delayMs);
+    modelCatalogWarmupTimer.unref?.();
+  }
+
   function scheduleStatuslineUsageWarmup(delayMs = statuslineUsageWarmupDelayMs) {
     const providerId = clean(route?.provider);
     if (!providerId || !providerId.includes('oauth')) {
@@ -4148,6 +4185,7 @@ function parsedProviderModelVersion(id) {
     bootProfile('code-graph:prewarm-lazy', { reason: 'startup-deferred-to-first-turn' });
   }
   scheduleProviderSetupWarmup();
+  scheduleModelCatalogWarmup();
   scheduleProviderWarmup();
   // Warm the provider model catalog in the background, but keep it on its own
   // delay so short-lived detached runtimes can exit before /models I/O starts.
@@ -4658,7 +4696,6 @@ function parsedProviderModelVersion(id) {
     },
     setBackend(name) {
       const result = setBackend(name);
-      reloadChannelsSoon();
       return result;
     },
     saveWebhookAuthtoken(token) {
@@ -5406,7 +5443,15 @@ function parsedProviderModelVersion(id) {
       return result;
     },
     async setRoute(next, options = {}) {
-      const applyToCurrentSession = options?.applyToCurrentSession !== false;
+      // Model/provider changes take effect on the NEXT session only — never
+      // rewrite a running session's provider/model in place. A live turn's
+      // prompt cache (Anthropic/OpenAI/etc.) is provider-keyed; flipping
+      // session.provider mid-conversation forces a full cache-miss rewrite
+      // of the entire history on the very next turn (seen as a promptΔ
+      // spike + cache_ratio=0% in session-bench). `route` (this closure
+      // variable) still updates immediately so the NEXT createCurrentSession()
+      // picks it up; only the currently-open session is left untouched.
+      const applyToCurrentSession = options?.applyToCurrentSession === true;
       const requested = { ...(next || {}) };
       validateRequestedModelSelector(config, requested);
       const providerExplicitlyRequested = clean(next?.provider) !== '';
@@ -5434,12 +5479,6 @@ function parsedProviderModelVersion(id) {
       const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta);
       selectedRoute = { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false };
       adoptConfig(saveModelSettings(cfgMod, selectedRoute, { fastCapable, baseConfig: config }), { hasSecrets: configHasSecrets });
-      if (!applyToCurrentSession) {
-        persistLeadRoute(selectedRoute);
-        refreshStatuslineUsageSnapshot(route);
-        scheduleStatuslineUsageRefresh();
-        return selectedRoute;
-      }
       const leadRoute = persistLeadRoute(selectedRoute);
       route = resolveRoute(config, leadRoute
         ? { model: workflowPresetId('lead') }
@@ -5447,6 +5486,11 @@ function parsedProviderModelVersion(id) {
       await refreshRouteEffort(modelMeta);
       refreshStatuslineUsageSnapshot(route);
       scheduleStatuslineUsageRefresh();
+      if (!applyToCurrentSession) {
+        // `route` is updated for the next session; the open session (and its
+        // live provider/model/cache chain) is left alone on purpose.
+        return route;
+      }
       if (session) {
         const updated = mgr.updateSessionRoute?.(session.id, {
           provider: route.provider,
@@ -5532,6 +5576,10 @@ function parsedProviderModelVersion(id) {
       if (providerModelWarmupTimer) {
         clearTimeout(providerModelWarmupTimer);
         providerModelWarmupTimer = null;
+      }
+      if (modelCatalogWarmupTimer) {
+        clearTimeout(modelCatalogWarmupTimer);
+        modelCatalogWarmupTimer = null;
       }
       if (codeGraphPrewarmTimer) {
         clearTimeout(codeGraphPrewarmTimer);

@@ -41,6 +41,10 @@ const render = (node, options) => {
         getSelectionText: () => instance.selectedText,
         // [mixdog fork] resolve the word rect at a cell for double-click select.
         getWordRectAt: (x, y) => instance.getWordRectAt(x, y),
+        // [mixdog fork] resolve the whole-line rect at a row for triple-click /
+        // line select. Symmetric to getWordRectAt; index.jsx wires it into the
+        // store as store.getLineRectAt.
+        getLineRectAt: (y) => instance.getLineRectAt(y),
     };
 };
 export default render;

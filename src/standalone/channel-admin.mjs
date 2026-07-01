@@ -89,6 +89,22 @@ function normalizeChannelsConfig(raw = {}) {
   };
 }
 
+function channelIdForBackend(entry = {}, backend = 'discord') {
+  if (backend === 'telegram') {
+    return String(entry?.telegramChatId || (entry?.discordChannelId ? '' : entry?.channelId) || '');
+  }
+  return String(entry?.discordChannelId || (entry?.telegramChatId ? '' : entry?.channelId) || '');
+}
+
+function seedBackendChannelIds(entry = {}, backend = 'discord') {
+  const next = { ...(entry || {}) };
+  if (next.channelId) {
+    if (backend === 'telegram' && !next.telegramChatId && !next.discordChannelId) next.telegramChatId = next.channelId;
+    if (backend !== 'telegram' && !next.discordChannelId && !next.telegramChatId) next.discordChannelId = next.channelId;
+  }
+  return next;
+}
+
 function updateChannelsSection(build) {
   let next;
   updateSection('channels', (current) => {
@@ -111,11 +127,14 @@ function listEntryDirs(dir) {
 
 export function listChannels(config = {}) {
   const cfg = normalizeChannelsConfig(config);
+  const backend = cfg.backend === 'telegram' ? 'telegram' : 'discord';
   return Object.entries(cfg.channelsConfig || {})
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([name, value]) => ({
       name,
-      channelId: String(value?.channelId || ''),
+      channelId: channelIdForBackend(value, backend),
+      discordChannelId: String(value?.discordChannelId || ''),
+      telegramChatId: String(value?.telegramChatId || ''),
       mode: value?.mode || 'interactive',
       main: cfg.mainChannel === name,
     }));
@@ -157,19 +176,31 @@ export function forgetWebhookAuthtoken() {
   return { ok: true };
 }
 
-export function saveChannel({ name, channelId, mode = 'interactive', main = false } = {}) {
+export function saveChannel({ name, channelId, mode = 'interactive', main = false, backend = null } = {}) {
   const label = assertName(name, 'channel name');
   const id = String(channelId || '').trim();
   if (!id) throw new Error('channelId is required');
   const nextMode = mode === 'broadcast' ? 'broadcast' : 'interactive';
-  return updateChannelsSection((cfg) => ({
-    ...cfg,
-    mainChannel: main || !cfg.mainChannel ? label : cfg.mainChannel,
-    channelsConfig: {
-      ...(cfg.channelsConfig || {}),
-      [label]: { ...(cfg.channelsConfig?.[label] || {}), channelId: id, mode: nextMode },
-    },
-  }));
+  const targetBackend = backend === 'telegram' || backend === 'discord' ? backend : null;
+  return updateChannelsSection((cfg) => {
+    const activeBackend = cfg.backend === 'telegram' ? 'telegram' : 'discord';
+    const current = seedBackendChannelIds(cfg.channelsConfig?.[label] || {}, activeBackend);
+    const nextEntry = { ...current, mode: nextMode };
+    if (targetBackend === 'telegram') nextEntry.telegramChatId = id;
+    else if (targetBackend === 'discord') nextEntry.discordChannelId = id;
+    else nextEntry.channelId = id;
+    nextEntry.channelId = targetBackend
+      ? (channelIdForBackend(nextEntry, activeBackend) || (targetBackend === activeBackend ? id : ''))
+      : id;
+    return {
+      ...cfg,
+      mainChannel: main || !cfg.mainChannel ? label : cfg.mainChannel,
+      channelsConfig: {
+        ...(cfg.channelsConfig || {}),
+        [label]: nextEntry,
+      },
+    };
+  });
 }
 
 export function deleteChannel(name) {
@@ -201,7 +232,17 @@ export function setBackend(name) {
   if (value !== 'discord' && value !== 'telegram') {
     throw new Error('backend must be discord or telegram');
   }
-  updateChannelsSection((cfg) => ({ ...cfg, backend: value }));
+  updateChannelsSection((cfg) => {
+    const activeBackend = cfg.backend === 'telegram' ? 'telegram' : 'discord';
+    const channelsConfig = Object.fromEntries(Object.entries(cfg.channelsConfig || {}).map(([key, entry]) => [
+      key,
+      (() => {
+        const seeded = seedBackendChannelIds(entry, activeBackend);
+        return { ...seeded, channelId: channelIdForBackend(seeded, value) };
+      })(),
+    ]));
+    return { ...cfg, channelsConfig, backend: value };
+  });
   return { ok: true, backend: value };
 }
 

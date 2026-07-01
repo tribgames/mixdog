@@ -66,14 +66,17 @@ export function normaliseReadLineWindowArgs(inputArgs, workDir) {
         }
     }
     const isFullMode = !args.mode || args.mode === 'full';
-    // line= and offset= are ALTERNATIVE window anchors. Silently preferring
-    // offset used to discard line/context and (with a bare low offset) fall
-    // through to a whole-file smart-truncate dump — the exact read explosion
-    // a 7-line `line+context` request was trying to avoid. Make it a hard
-    // conflict instead.
-    if (isFullMode && lineNo && args.offset !== undefined && args.offset !== null) {
-        args._invertedRangeError = `Error: conflicting window args — both line (${lineNo}) and offset (${args.offset}) were given; line/context and offset/limit are alternative window forms, pass only one`;
-        return args;
+    // line= and offset= are ALTERNATIVE window anchors. Prefer an explicit line
+    // anchor and drop stale paging fields instead of failing the tool call: LLM
+    // callers commonly carry optional offset/limit defaults from a previous
+    // shape. When context is explicit, limit is part of the stale paging family
+    // too; otherwise line+limit remains a supported "start at line, cap rows"
+    // shorthand below.
+    if (isFullMode && lineNo && args.context !== undefined && args.context !== null) {
+        delete args.offset;
+        delete args.limit;
+    } else if (isFullMode && lineNo && args.offset !== undefined && args.offset !== null) {
+        delete args.offset;
     }
     if (isFullMode && lineNo) {
         if (pathLineRange && args.context === undefined && (args.limit === undefined || args.limit === null)) {

@@ -1,0 +1,149 @@
+{
+  "round": "cwc11-p2",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_54472_1782926407489_1782926409141_204fa118186812aae79cdcf3875e8831",
+    "sess_40876_1782926454047_1782926455518_7e2a6bd0207755c62736fe8727c6e834",
+    "sess_50672_1782926526213_1782926527747_80183b0795f35823ac5ddef61449e4b6"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 46558,
+      "sessionId": "sess_54472_1782926407489_1782926409141_204fa118186812aae79cdcf3875e8831"
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 72136,
+      "sessionId": "sess_40876_1782926454047_1782926455518_7e2a6bd0207755c62736fe8727c6e834"
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 76374,
+      "sessionId": "sess_50672_1782926526213_1782926527747_80183b0795f35823ac5ddef61449e4b6"
+    }
+  ],
+  "group": {
+    "n": 3,
+    "wall_ms": 63068.7,
+    "turns": 15.7,
+    "tool_calls": 36.3,
+    "tools_per_turn": 2.4,
+    "total_tool_ms": 3032.3,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.6,
+    "cached_tokens": 227975.3,
+    "prompt_tokens": 391993.7,
+    "uncached_tokens": 164018.3,
+    "output_tokens": 3502.3,
+    "cache_weighted_input_10": 186815.9,
+    "cache_weighted_input_25": 221012.2,
+    "prompt_growth": 17736,
+    "antipatterns": 1.7,
+    "issues": 2,
+    "grep_sweep_count": 0.7
+  },
+  "cards": [
+    {
+      "session": "sess_54472_1782926407489_1782926409141_204fa118186812aae79cdcf3875e8831",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 44611,
+      "turns": 13,
+      "tool_calls": 33,
+      "tools_per_turn": 2.5,
+      "total_tool_ms": 1854,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.5983709796263561,
+      "cached_tokens": 164853,
+      "prompt_tokens": 275503,
+      "uncached_tokens": 110650,
+      "output_tokens": 3449,
+      "cache_weighted_input_10": 127135.3,
+      "cache_weighted_input_25": 151863.25,
+      "prompt_growth": 9756,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "read_fragmentation"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\standalone\\hook-bus.mjs"
+      ],
+      "grep_sweep_count": 0
+    },
+    {
+      "session": "sess_40876_1782926454047_1782926455518_7e2a6bd0207755c62736fe8727c6e834",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 70373,
+      "turns": 14,
+      "tool_calls": 35,
+      "tools_per_turn": 2.5,
+      "total_tool_ms": 2223,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.5632962344590383,
+      "cached_tokens": 179825,
+      "prompt_tokens": 319237,
+      "uncached_tokens": 139412,
+      "output_tokens": 3495,
+      "cache_weighted_input_10": 157394.5,
+      "cache_weighted_input_25": 184368.25,
+      "prompt_growth": 28489,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_50672_1782926526213_1782926527747_80183b0795f35823ac5ddef61449e4b6",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 74222,
+      "turns": 20,
+      "tool_calls": 41,
+      "tools_per_turn": 2.1,
+      "total_tool_ms": 5020,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.5836615104577964,
+      "cached_tokens": 339248,
+      "prompt_tokens": 581241,
+      "uncached_tokens": 241993,
+      "output_tokens": 3563,
+      "cache_weighted_input_10": 275917.8,
+      "cache_weighted_input_25": 326805,
+      "prompt_growth": 14963,
+      "antipatterns": 3,
+      "issues": 4,
+      "issue_types": [
+        "read_fragmentation",
+        "grep_sweep",
+        "missed_parallelism",
+        "tool_churn_cluster"
+      ],
+      "read_fragmentation_paths": [
+        "src/runtime/agent/orchestrator/session/loop.mjs"
+      ],
+      "grep_sweep_count": 1
+    }
+  ]
+}

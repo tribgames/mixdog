@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { createRequire } from 'node:module';
 import { createHash } from 'crypto';
 import { loadConfig } from '../config.mjs';
 import { shouldFallbackTransport, withRetry } from './retry-classifier.mjs';
@@ -33,6 +33,17 @@ import {
     customToolCallFromResponseItem,
 } from './custom-tool-wire.mjs';
 import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
+
+const requireOpenAI = createRequire(import.meta.url);
+let _OpenAI = null;
+
+function loadOpenAI() {
+    if (!_OpenAI) {
+        const mod = requireOpenAI('openai');
+        _OpenAI = mod.default || mod.OpenAI || mod;
+    }
+    return _OpenAI;
+}
 export { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
 const PRESETS = OPENAI_COMPAT_PRESETS;
 const MODEL_LIST_TIMEOUT_MS = resolveTimeoutMs(
@@ -971,6 +982,25 @@ function nativeResponsesTools(opts) {
         ? opts.nativeTools.filter(t => t && typeof t === 'object')
         : [];
 }
+// Known tool-name sets for the leaked-tool-call guard, derived from the exact
+// request body so a recovered leaked call is only synthesized when it names a
+// tool the model was actually offered. Chat tools nest the name under
+// `function.name`; Responses tools carry a top-level `name`.
+function knownToolNamesFromOpenAITools(tools) {
+    return new Set(
+        (Array.isArray(tools) ? tools : [])
+            .map((t) => (typeof t?.function?.name === 'string' ? t.function.name
+                : typeof t?.name === 'string' ? t.name : null))
+            .filter(Boolean),
+    );
+}
+function knownToolNamesFromResponsesTools(tools) {
+    return new Set(
+        (Array.isArray(tools) ? tools : [])
+            .map((t) => (typeof t?.name === 'string' ? t.name : null))
+            .filter(Boolean),
+    );
+}
 export function parseToolCalls(choice, label) {
     const calls = choice.message?.tool_calls;
     if (!calls?.length)
@@ -1199,7 +1229,7 @@ export class OpenAICompatProvider {
         // extraHeaders behave exactly as before.
         this.defaultHeaders = { ...(preset?.extraHeaders || {}), ...(config.extraHeaders || {}) };
         this.defaultModel = preset?.defaultModel || 'default';
-        this.client = new OpenAI({
+        this.client = new (loadOpenAI())({
             baseURL,
             apiKey,
             defaultHeaders: this.defaultHeaders,
@@ -1227,7 +1257,7 @@ export class OpenAICompatProvider {
                 this.baseURL = baseURL;
                 this.apiKey = newKey;
                 this.defaultHeaders = { ...(preset?.extraHeaders || {}), ...(this.config.extraHeaders || {}) };
-                this.client = new OpenAI({
+                this.client = new (loadOpenAI())({
                     baseURL,
                     apiKey: newKey,
                     defaultHeaders: this.defaultHeaders,
@@ -1374,6 +1404,10 @@ export class OpenAICompatProvider {
                         onToolCall: opts.onToolCall,
                         onTextDelta: opts.onTextDelta,
                         parseToolCalls,
+                        // Known tool names for the leaked-tool-call guard:
+                        // recovered leaked calls only synthesize when they name
+                        // a tool actually offered to this request.
+                        knownToolNames: knownToolNamesFromOpenAITools(params.tools),
                     });
                 },
                 {
@@ -1555,6 +1589,7 @@ export class OpenAICompatProvider {
                             onTextDelta: opts.onTextDelta,
                             parseResponsesToolCalls,
                             responseOutputText,
+                            knownToolNames: knownToolNamesFromResponsesTools(params.tools),
                         });
                     },
                     {
