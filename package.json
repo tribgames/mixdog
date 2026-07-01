@@ -47,6 +47,9 @@
     "trace:llm": "node scripts/llm-trace-summary.mjs",
     "diag:sessions": "node scripts/session-diag.mjs",
     "diag:session": "node scripts/session-diag.mjs",
+    "bench:session": "node scripts/session-bench.mjs",
+    "bench:task": "node scripts/task-bench.mjs",
+    "bench:corpus": "node scripts/routing-corpus.mjs",
     "build:tui": "node scripts/build-tui.mjs"
   },
   "engines": {
