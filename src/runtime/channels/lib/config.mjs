@@ -1,7 +1,8 @@
 import { readFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { DiscordBackend } from "../backends/discord.mjs";
-import { readSection, updateSection, CONFIG_PATH as MIXDOG_CONFIG_PATH, getDiscordToken, diagnoseDiscordTokenValue } from "../../shared/config.mjs";
+import { TelegramBackend } from "../backends/telegram.mjs";
+import { readSection, updateSection, CONFIG_PATH as MIXDOG_CONFIG_PATH, getDiscordToken, getTelegramToken, diagnoseDiscordTokenValue } from "../../shared/config.mjs";
 import { listSchedules } from "../../shared/schedules-store.mjs";
 import { resolvePluginData } from "../../shared/plugin-paths.mjs";
 import { isHolidaySync } from "./holidays.mjs";
@@ -15,6 +16,7 @@ const DEFAULT_ACCESS = {
 const DEFAULT_CONFIG = {
   backend: "discord",
   discord: { token: "" },
+  telegram: { token: "" },
   access: DEFAULT_ACCESS,
   mainChannel: "main",
   channelsConfig: {
@@ -185,11 +187,18 @@ function loadConfig() {
     if (discordTokenProblem) {
       process.stderr.write(`mixdog: discord token ignored: ${discordTokenProblem}\n`);
     }
+    // Single-backend select: config.backend picks ONE of discord|telegram.
+    // Anything else falls back to the discord default.
+    const backend = raw.backend === "telegram" ? "telegram" : "discord";
+    const telegramToken = getTelegramToken();
     return applyDefaults({
       ...DEFAULT_CONFIG,
       ...raw,
-      backend: "discord",
+      backend,
       discord: { ...DEFAULT_CONFIG.discord, ...(({ token: _, ...rest }) => rest)(raw.discord || {}), ...(discordToken && !discordTokenProblem ? { token: discordToken } : {}) },
+      // Merge the keychain-resolved telegram token (harmless when backend is
+      // discord; the secret never lands in the on-disk config either way).
+      telegram: { ...DEFAULT_CONFIG.telegram, ...(({ token: _t, ...rest }) => rest)(raw.telegram || {}), ...(telegramToken ? { token: telegramToken } : {}) },
       access: {
         ...DEFAULT_ACCESS,
         // Drop the retired pairing-era keys at the config layer too (the
@@ -218,6 +227,10 @@ function loadConfig() {
 }
 const HEADLESS_BACKEND = {
   name: "headless",
+  MAX_MESSAGE_LENGTH: 2000,
+  formatOutgoing(t) {
+    return t;
+  },
   async connect() {
   },
   async disconnect() {
@@ -244,6 +257,26 @@ const HEADLESS_BACKEND = {
   }
 };
 function createBackend(config) {
+  // Single-backend select: exactly one backend is constructed based on
+  // config.backend (discord|telegram). The two are mutually exclusive.
+  if (config.backend === "telegram") {
+    const telegramToken = getTelegramToken();
+    if (!telegramToken) {
+      process.stderr.write("mixdog: telegram bot not configured; channel runtime running in headless mode\n");
+      return HEADLESS_BACKEND;
+    }
+    const tgStateDir = config.telegram?.stateDir ?? join(DATA_DIR, "telegram");
+    mkdirSync(tgStateDir, { recursive: true });
+    return new TelegramBackend({
+      ...config.telegram,
+      configPath: CONFIG_FILE,
+      access: config.access,
+      // Single-source channel setup: the main chat is auto-allowed inside
+      // TelegramBackend.loadAccess() so a configured channelsConfig.main.channelId
+      // is enough for both inbound gating and outbound.
+      mainChannelId: config.channelsConfig?.main?.channelId
+    }, tgStateDir);
+  }
   const discordToken = getDiscordToken();
   const discordTokenProblem = diagnoseDiscordTokenValue(discordToken, config);
   if (discordTokenProblem) {
@@ -278,6 +311,7 @@ export {
   DEFAULT_HOLIDAY_COUNTRY,
   createBackend,
   getDiscordToken,
+  getTelegramToken,
   isInQuietWindow,
   loadConfig,
   loadProfileConfig

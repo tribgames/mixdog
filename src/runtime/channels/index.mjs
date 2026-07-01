@@ -460,12 +460,13 @@ function pickUsableTranscriptPath(bound, previousPath) {
   return sessionIdFromTranscriptPath(previousPath) === bound.sessionId ? previousPath : "";
 }
 const forwarder = new OutputForwarder({
-  send: async (ch, text) => {
+  send: async (ch, text, opts) => {
     if (!channelBridgeActive) {
       throw new Error("send() called while channel bridge is inactive");
     }
-    await backend.sendMessage(ch, text);
+    await backend.sendMessage(ch, text, opts);
   },
+  formatOutgoing: (text) => backend.formatOutgoing ? backend.formatOutgoing(text) : text,
   recordAssistantTurn: async () => {
   },
   react: (ch, mid, emoji) => {
@@ -897,6 +898,13 @@ async function startOwnedRuntime(options = {}) {
   if (!channelBridgeActive) return;
   bridgeRuntimeStarting = true;
   _ownedRuntimeStopRequested = false;
+  // Capture the backend instance that THIS start operation will connect. A
+  // reloadRuntimeConfig() hot-swap can replace the global `backend` while this
+  // start is still awaiting connect(); using the captured instance for both
+  // connect() and the bail-path disconnect() guarantees we tear down the
+  // backend WE started (not the freshly-swapped one), closing the
+  // both-backends-live window.
+  const startingBackend = backend;
   // Advertise active-instance.json BEFORE backend connect so a newer remote
   // session's last-wins claim is visible immediately. backendReady=false
   // marks the partial state until backend.connect() succeeds.
@@ -911,7 +919,7 @@ async function startOwnedRuntime(options = {}) {
   // (stop did disconnect; redo to be defensive).
   const bailIfStopRequested = async () => {
     if (!_ownedRuntimeStopRequested) return false;
-    try { await backend.disconnect(); } catch {}
+    try { await startingBackend.disconnect(); } catch {}
     try { stopOwnerHeartbeat(); } catch {}
     try { releaseOwnedChannelLocks(INSTANCE_ID); } catch {}
     try { clearActiveInstance(INSTANCE_ID); } catch {}
@@ -924,7 +932,7 @@ async function startOwnedRuntime(options = {}) {
   // refreshBridgeOwnership returned immediately, letting bindingReady fire
   // before backend listeners were attached.
   try {
-    await backend.connect();
+    await startingBackend.connect();
     if (await bailIfStopRequested()) return;
     bridgeRuntimeConnected = true;
     refreshActiveInstance(INSTANCE_ID, { backendReady: true });
@@ -1090,6 +1098,24 @@ async function reloadRuntimeConfig() {
     const shouldRestart = bridgeRuntimeConnected || bridgeRuntimeStarting;
     if (shouldRestart) await stopOwnedRuntime("backend config changed");
     backend = nextBackend;
+    // The persisted routing channelId belongs to the OLD backend (e.g. a
+    // Discord snowflake) and is meaningless for the new one — sending to it
+    // would 400 "chat not found". There is no id mapping between platforms, so
+    // CLEAR the stale binding: drop the forwarder's context + watcher and wipe
+    // status.channelId/transcriptPath. The next inbound from the new backend
+    // rebinds the correct chat via applyTranscriptBinding(). Only done on
+    // backendChanged — same-backend reloads keep their binding untouched.
+    // (active-instance is cleared by stopOwnedRuntime on the restart path; we
+    // don't re-advertise here to avoid resurrecting a just-cleared entry.)
+    try { forwarder.stopWatch(); } catch {}
+    forwarder.channelId = "";
+    forwarder.transcriptPath = "";
+    try {
+      statusState.update((state) => {
+        state.channelId = "";
+        state.transcriptPath = "";
+      });
+    } catch {}
     if (shouldRestart) refreshBridgeOwnershipSafe({ restoreBinding: false });
   } else if (nextBackend !== previousBackend) {
     try { await nextBackend.disconnect?.(); } catch {}
@@ -2082,14 +2108,41 @@ backend.onMessage = (msg) => {
   }).finally(() => forwarder.reset());
   const previousPath = getPersistedTranscriptPath();
   let boundTranscript = null;
+  let stoleSelfTranscript = false;
   let transcriptPath = forwarder.hasBinding() ? forwarder.transcriptPath : "";
+  // Reuse the current binding only while it still points at THIS owner's own
+  // session. discoverSessionBoundTranscript() now ranks the live parent-chain
+  // session (the one that forked this worker and receives injected input)
+  // above a more-recently-touched neighbour, so when a co-located session
+  // owns the stale binding we steal it back here instead of tailing the wrong
+  // transcript for the rest of the process lifetime. Steal whenever the live
+  // parent-chain (self) candidate resolves to a different path — even when its
+  // transcript is not on disk yet: we keep selfBound.exists=false so the
+  // downstream `!boundTranscript?.exists` branch routes through
+  // rebindTranscriptContext()'s pending-bind + re-arm poll, which forwards the
+  // first assistant reply once the self transcript is created. Marking the
+  // stale neighbour path as exists=true here would suppress that rearm and
+  // keep tailing the wrong session for the whole turn.
   if (transcriptPath) {
-    boundTranscript = {
-      sessionId: sessionIdFromTranscriptPath(transcriptPath),
-      sessionCwd: statusState.read().sessionCwd ?? null,
-      transcriptPath,
-      exists: true
-    };
+    const selfBound = discoverSessionBoundTranscript();
+    if (
+      selfBound?.transcriptPath &&
+      !sameResolvedPath(selfBound.transcriptPath, transcriptPath) &&
+      selfBound.parentChain === true &&
+      selfBound.active === true
+    ) {
+      process.stderr.write(`mixdog: inbound rebind: stealing transcript ${transcriptPath} -> ${selfBound.transcriptPath} (self session, exists=${selfBound.exists})\n`);
+      transcriptPath = selfBound.transcriptPath;
+      boundTranscript = selfBound;
+      stoleSelfTranscript = true;
+    } else {
+      boundTranscript = {
+        sessionId: sessionIdFromTranscriptPath(transcriptPath),
+        sessionCwd: statusState.read().sessionCwd ?? null,
+        transcriptPath,
+        exists: true
+      };
+    }
   } else {
     boundTranscript = discoverSessionBoundTranscript();
     transcriptPath = pickUsableTranscriptPath(boundTranscript, previousPath);
@@ -2128,8 +2181,17 @@ backend.onMessage = (msg) => {
     });
     if (!boundTranscript?.exists) {
       await rebindTranscriptContext(route.targetChatId, {
+        // For a stolen self transcript (not yet on disk) the sync bind above
+        // persisted lastFileSize=0 for this path, so catchUpFromPersisted makes
+        // setContext resume from offset 0 once the file appears — forwarding
+        // the first assistant reply. Relying on replayFromStart instead would
+        // race: the discovery loop only sets replayFromStart when it first saw
+        // the transcript as PENDING, so a file that already exists on the first
+        // loop iteration would bind at EOF and skip the reply. Non-steal keeps
+        // the original catch-up-from-cursor behaviour.
         previousPath: transcriptPath,
         catchUp: true,
+        catchUpFromPersisted: stoleSelfTranscript ? true : undefined,
         persistStatus: true
       });
     }

@@ -1,6 +1,6 @@
 import { existsSync, statSync, watch, openSync, readSync, closeSync } from "fs";
 import { createHash } from "crypto";
-import { formatForDiscord, chunk, safeCodeBlock } from "./format.mjs";
+import { safeCodeBlock } from "./format.mjs";
 import { dropTrace, _dtPreview } from "./drop-trace.mjs";
 import {
   formatToolSurface,
@@ -282,7 +282,12 @@ class OutputForwarder {
       this.commitReadProgress(item.nextFileSize);
       return;
     }
-    const formatted = item.preformatted ? item.text : formatForDiscord(item.text);
+    // Formatting is routed through the active backend via the send-callback so
+    // the forwarder stays backend-agnostic (Discord/Telegram/etc). Preformatted
+    // items (tool logs) are sent as-is. Fallback to raw text when no hook.
+    const formatted = item.preformatted
+      ? item.text
+      : (this.cb.formatOutgoing ? this.cb.formatOutgoing(item.text) : item.text);
     const hash = item.skipHashDedup
       ? ""
       : item.dedupKey
@@ -292,48 +297,25 @@ class OutputForwarder {
       this.commitReadProgress(item.nextFileSize);
       return;
     }
-    const chunks = chunk(formatted, 2e3);
-    const _t0Send = Date.now();
-    // Resume from _nextChunkIdx if this item is being retried after a partial send.
-    // This avoids re-sending chunks that already landed successfully.
-    if (item._chunks === undefined) {
-      item._chunks = chunks;
-      item._nextChunkIdx = 0;
-      item._sendRetries = 0;
-    }
-    for (let _ci = item._nextChunkIdx; _ci < item._chunks.length; _ci++) {
-      const c = item._chunks[_ci];
-      try {
-        await this.cb.send(targetChannelId, c);
-        item._nextChunkIdx = _ci + 1;
-        dropTrace("discord.send.ok", null);
-      } catch (err) {
-        // Discord 429 or transient error — honour Retry-After then re-throw so
-        // drainQueue's retry loop calls deliverQueueItem again. Chunk progress
-        // is stored on item so we resume from the failed chunk, not chunk 0.
-        const status = err?.status ?? err?.code ?? err?.httpStatus;
-        const retryAfter = err?.retryAfter ?? err?.retry_after
-          ?? err?.headers?.["retry-after"] ?? err?.response?.headers?.["retry-after"];
-        dropTrace("discord.send.err", { channelId: this.channelId, chunkIndex: _ci, status, retryAfter: retryAfter ?? "(none)", err: String(err) });
-        item._sendRetries = (item._sendRetries || 0) + 1;
-        if (item._sendRetries >= 3) {
-          // Cap retries to avoid infinite duplicate loop — give up on this item
-          process.stderr.write(`[output-forwarder] chunk send exceeded 3 retries at chunk ${_ci}, dropping item\n`);
-          item._nextChunkIdx = item._chunks.length; // mark exhausted
-          return;
-        }
-        if (status === 429) {
-          if (retryAfter != null) {
-            const ms = Number(retryAfter) > 1000 ? Number(retryAfter) : Number(retryAfter) * 1000;
-            if (Number.isFinite(ms) && ms > 0) {
-              await new Promise((r) => setTimeout(r, Math.min(ms, 60_000)));
-            }
-          } else {
-            await new Promise((r) => setTimeout(r, 1000));
-          }
-        }
-        throw err;
-      }
+    // Backend owns chunking + send retry: pass the whole (unchunked) text once.
+    // On failure the backend has already exhausted its per-chunk retries and
+    // throws; we re-throw so drainQueue/scheduleRetry requeues the whole item.
+    try {
+      // Hand back any opaque resume token stored from a prior partial-send
+      // failure so the backend resumes at the failed chunk instead of
+      // re-sending chunks that already landed. The token is opaque here —
+      // the forwarder only stores/passes/clears it, never interprets it.
+      await this.cb.send(targetChannelId, formatted, item._resumeToken ? { resumeToken: item._resumeToken } : undefined);
+      // Full success — drop any stale token so a later reuse of this item
+      // object can't carry a dead token.
+      item._resumeToken = undefined;
+      dropTrace("discord.send.ok", null);
+    } catch (err) {
+      // Persist the opaque resume token (if any) on the item so the requeued
+      // retry resumes from the failed chunk.
+      if (err?.resumeToken) item._resumeToken = err.resumeToken;
+      dropTrace("discord.send.err", { channelId: this.channelId, err: String(err) });
+      throw err;
     }
     if (!item.skipHashDedup) {
       this.lastHash = hash;
@@ -344,7 +326,9 @@ class OutputForwarder {
 
 ${_bt.trim()}` : _bt.trim();
     }
-    this.sentCount += chunks.length;
+    // sentCount now tracks delivered items (the forwarder no longer knows the
+    // backend's chunk count). Increment by 1 per delivered item.
+    this.sentCount += 1;
     this.commitReadProgress(item.nextFileSize);
   }
   scheduleRetry() {
@@ -375,7 +359,13 @@ ${_bt.trim()}` : _bt.trim();
     // finalLane[0] is being drained when this.sending; coalesce into tail only
     // when tail is not index 0 (i.e. length >= 2) or drain is not in flight.
     const ftLen = this.finalLane.length;
-    const ftTail = (ftLen > 0 && !(this.sending && ftLen === 1))
+    // A partially-delivered item carries an opaque _resumeToken pinned (by
+    // hash) to its exact text. Mutating its text here would break that hash on
+    // the next retry, forcing the backend to full-resend from chunk 0 and
+    // duplicate the chunks already delivered. Treat any tokenized item as
+    // sealed: never coalesce/cap-merge into it; new text goes behind it as a
+    // separate item.
+    const ftTail = (ftLen > 0 && !(this.sending && ftLen === 1) && !this.finalLane[ftLen - 1]._resumeToken)
       ? this.finalLane[ftLen - 1] : null;
     if (ftTail) {
       ftTail.text = `${ftTail.text}\n\n${newText}`;
@@ -391,6 +381,8 @@ ${_bt.trim()}` : _bt.trim();
       const capEnd = this.sending ? 1 : 0;
       for (let i = this.finalLane.length - 1; i >= capEnd; i--) {
         const cap = this.finalLane[i];
+        // Never fold into a sealed (partially-delivered) item — see above.
+        if (cap._resumeToken) continue;
         cap.text = `${cap.text}\n\n${newText}`;
         cap.bufferText = `${cap.bufferText}\n\n${newText}`;
         cap.nextFileSize = nextFileSize;
@@ -446,8 +438,20 @@ ${_bt.trim()}` : _bt.trim();
           }
           lane.shift();
         } catch (err) {
-          process.stderr.write(`mixdog: send failed: ${err}
-`);
+          // Permanent (non-retryable) send failure — e.g. Telegram 400 "chat
+          // not found", Discord 403/404. Retrying would loop forever and wedge
+          // the queue, so DROP the item: advance the read cursor past its bytes
+          // (so it never reprocesses), clear any stale resume token, and keep
+          // draining the next item.
+          if (err?.permanent) {
+            process.stderr.write(`[output-forwarder] permanent send failure, dropping item: ${err?.message || err}\n`);
+            dropTrace("drain.send.permanent", { lane: fromFinal ? "final" : "stream", itemType: item?.type, err: String(err) });
+            item._resumeToken = undefined;
+            this.commitReadProgress(item.nextFileSize);
+            lane.shift();
+            continue;
+          }
+          process.stderr.write(`[output-forwarder] send failed: ${err}\n`);
           dropTrace("drain.send.err", { finalLen: this.finalLane.length, streamLen: this.streamLane.length, lane: fromFinal ? "final" : "stream", itemType: item?.type, err: String(err) });
           this.scheduleRetry();
           break;
@@ -467,8 +471,7 @@ ${_bt.trim()}` : _bt.trim();
         }
         await this.cb.react(this.channelId, this.userMessageId, newEmoji);
         this.emoji = newEmoji;
-      } catch {
-      }
+      } catch {} // best-effort: reaction is non-critical
     }
     await this.deliverQueueItem(item);
   }
@@ -487,7 +490,7 @@ ${_bt.trim()}` : _bt.trim();
       try {
         this.pendingFinalFlush = true;
         this.updateState((state) => { state.pendingFinalFlush = true; });
-      } catch {}
+      } catch {} // best-effort: durable flush marker is non-critical
       if (retries < 5) {
         setTimeout(() => void this.forwardFinalText(retries + 1, channelId), 300);
       } else {
@@ -511,8 +514,7 @@ ${_bt.trim()}` : _bt.trim();
       if (this.userMessageId && this.emoji) {
         try {
           await this.cb.removeReaction(channelId, this.userMessageId, this.emoji);
-        } catch {
-        }
+        } catch {} // best-effort: remove reaction is non-critical
       }
       const { text: newText, nextFileSize } = this.extractNewText();
       if (newText) {
@@ -520,14 +522,23 @@ ${_bt.trim()}` : _bt.trim();
         try {
           await this.deliverQueueItem(finalItem);
         } catch (err) {
-          // Transient send failure: extractNewText already advanced the read
-          // cursor past these bytes, so dropping the item here would lose the
-          // final text. Requeue it (it retains per-chunk send progress) and let
-          // drainQueue retry instead of silently discarding. pendingFinalFlush
-          // stays set so a process restart can also resume the flush.
-          this.finalLane.push(finalItem);
-          this.scheduleRetry();
-          return;
+          // Permanent (non-retryable) failure — drop instead of requeue so we
+          // don't loop forever on a dead channel. extractNewText already
+          // advanced the read cursor, so commit it and let the frame go.
+          if (err?.permanent) {
+            process.stderr.write(`[output-forwarder] permanent final-send failure, dropping: ${err?.message || err}\n`);
+            this.commitReadProgress(nextFileSize);
+          } else {
+            // Transient send failure: extractNewText already advanced the read
+            // cursor past these bytes, so dropping the item here would lose the
+            // final text. Requeue the WHOLE item and let drainQueue retry
+            // instead of silently discarding. The backend owns chunking+retry,
+            // so a requeued send restarts from chunk 0. pendingFinalFlush stays
+            // set so a process restart can also resume the flush.
+            this.finalLane.push(finalItem);
+            this.scheduleRetry();
+            return;
+          }
         }
       } else {
         this.commitReadProgress(nextFileSize);
@@ -546,7 +557,7 @@ ${_bt.trim()}` : _bt.trim();
       try {
         this.pendingFinalFlush = false;
         this.updateState((state) => { state.pendingFinalFlush = false; });
-      } catch {}
+      } catch {} // best-effort: clear flush marker is non-critical
       this.updateState((state) => {
         state.sessionIdle = true;
       });
@@ -684,13 +695,12 @@ ${_bt.trim()}` : _bt.trim();
       this.watchDebounce = null;
       let _wfStat = null;
       if (this.transcriptPath) {
-        try { _wfStat = statSync(this.transcriptPath); } catch {}
+        try { _wfStat = statSync(this.transcriptPath); } catch {} // best-effort: stat during flush
       }
       if (this.transcriptPath && !_wfStat) {
         const relocated = detectCurrentSessionTranscript()?.transcriptPath ?? findLatestTranscriptByMtime();
         if (relocated && relocated !== this.transcriptPath) {
-          process.stderr.write(`mixdog: watched transcript gone during flush, relocated to ${relocated}
-`);
+          process.stderr.write(`[output-forwarder] watched transcript gone during flush, relocated to ${relocated}\n`);
           dropTrace("watch.flush.relocate", { from: this.transcriptPath, to: relocated });
           this.closeWatcher();
           this.transcriptPath = relocated;

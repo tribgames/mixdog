@@ -16,10 +16,11 @@ import {
   realpathSync
 } from "fs";
 import { join, sep } from "path";
-import { chunk } from "../lib/format.mjs";
+import { createHash } from "crypto";
+import { chunk, formatForDiscord, MAX_DISCORD_MESSAGE } from "../lib/format.mjs";
 import { withConfigLock } from "../lib/config-lock.mjs";
 import { readSection, updateSection } from "../../shared/config.mjs";
-const MAX_CHUNK_LIMIT = 2e3;
+const MAX_CHUNK_LIMIT = MAX_DISCORD_MESSAGE;
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const RECENT_SENT_CAP = 200;
 function defaultAccess() {
@@ -52,6 +53,7 @@ function safeAttName(att) {
 }
 class DiscordBackend {
   name = "discord";
+  MAX_MESSAGE_LENGTH = MAX_DISCORD_MESSAGE;
   onMessage = null;
   onInteraction = null;
   onModalRequest = null;
@@ -76,6 +78,9 @@ class DiscordBackend {
     this.isStatic = config.accessMode === "static";
     this.initialAccess = normalizeAccess(config.access);
     this.client = null;
+  }
+  formatOutgoing(text) {
+    return formatForDiscord(text);
   }
   // ── Lifecycle ──────────────────────────────────────────────────────
   async connect() {
@@ -335,33 +340,118 @@ class DiscordBackend {
       }
     }
     if (files.length > 10) throw new Error("max 10 attachments per message");
-    if (text && this.sendCount > 0) {
+    // Resume-token support (opaque to callers). A partial-send failure hands the
+    // caller a token { hash, nextChunkIdx, sentIds, prefixed }; a requeued retry
+    // passes it back so we resume at the failed chunk instead of re-sending
+    // chunks that already landed.
+    //
+    // The "\u3164\n" prefix is applied from this.sendCount, which advances when
+    // ANY backend send fully succeeds. Between the original partial failure and
+    // this retry, an unrelated send (scheduler/lifecycle/permission) can flip
+    // sendCount from 0 to >0, which would change the prefix — and therefore the
+    // chunked text and its hash — breaking the token match and forcing a
+    // duplicate full-resend. To keep the retry byte-identical to the original
+    // attempt, freeze the prefix decision in the token and reuse it here instead
+    // of recomputing from the (possibly changed) current sendCount.
+    const resumeToken = opts?.resumeToken;
+    const applyPrefix = (resumeToken && typeof resumeToken.prefixed === "boolean")
+      ? resumeToken.prefixed
+      : (text && this.sendCount > 0 ? true : false);
+    if (text && applyPrefix) {
       text = "\u3164\n" + text;
     }
     const access = this.loadAccess();
     const limit = Math.max(1, Math.min(access.textChunkLimit ?? MAX_CHUNK_LIMIT, MAX_CHUNK_LIMIT));
     const replyMode = access.replyToMode ?? "off";
     const chunks = chunk(text, limit);
+    // Hash the FINAL prefixed text so the token pins to the exact bytes sent.
+    const contentHash = createHash("md5").update(text).digest("hex");
+    let startIdx = 0;
     const sentIds = [];
+    // Resume only when BOTH the text hash AND the effective chunk limit match.
+    // The token's nextChunkIdx is an index into the chunk array, which is only
+    // meaningful for the same `limit`; if access.textChunkLimit changed during
+    // the retry window the same text can split differently, so a stale index
+    // could skip or duplicate a range. On mismatch fall through to startIdx=0
+    // (full, safe resend).
+    if (resumeToken && resumeToken.hash === contentHash && resumeToken.limit === limit) {
+      startIdx = Math.max(0, Math.min(resumeToken.nextChunkIdx ?? 0, chunks.length));
+      // Seed sentIds with the already-delivered ids so the returned list stays
+      // complete across the resume boundary.
+      if (Array.isArray(resumeToken.sentIds)) sentIds.push(...resumeToken.sentIds);
+    }
     try {
-      for (let i = 0; i < chunks.length; i++) {
+      for (let i = startIdx; i < chunks.length; i++) {
         const shouldReplyTo = replyTo != null && replyMode !== "off" && (replyMode === "all" || i === 0);
         const embeds = i === 0 ? opts?.embeds ?? [] : [];
         const components = i === 0 ? opts?.components ?? [] : [];
-        const sent = await ch.send({
+        const payload = {
           content: chunks[i],
           ...embeds.length > 0 ? { embeds } : {},
           ...components.length > 0 ? { components } : {},
           ...i === 0 && files.length > 0 ? { files } : {},
           ...shouldReplyTo ? { reply: { messageReference: replyTo, failIfNotExists: false } } : {}
-        });
-        this.noteSent(sent.id);
-        sentIds.push(sent.id);
+        };
+        // Per-chunk send with retry. On 429 honour Retry-After; on other
+        // transient errors do a short backoff. Cap at 3 attempts per chunk;
+        // after the cap throw an error carrying a resume token so the caller
+        // (output-forwarder) requeues the WHOLE item and the next sendMessage
+        // resumes at this chunk index instead of re-sending 0..i-1.
+        let attempt = 0;
+        for (;;) {
+          try {
+            const sent = await ch.send(payload);
+            this.noteSent(sent.id);
+            sentIds.push(sent.id);
+            break;
+          } catch (err) {
+            attempt++;
+            const status = err?.status ?? err?.code ?? err?.httpStatus;
+            // Classify: PERMANENT = a 4xx client error (unknown channel/message,
+            // missing access/permissions, 404 …) that will never succeed on
+            // retry. TRANSIENT = 429, any 5xx, or network error (no status). A
+            // permanent error must NOT retry-loop and must NOT carry a resume
+            // token — throw it immediately flagged so the forwarder drops the
+            // item instead of requeuing forever.
+            const isPermanent = typeof status === "number" && status >= 400 && status < 500 && status !== 429;
+            if (isPermanent) {
+              const e = err instanceof Error ? err : new Error(String(err));
+              e.permanent = true;
+              throw e;
+            }
+            if (attempt >= 3) {
+              // Attach an opaque resume token pointing at the chunk that failed
+              // (i). sentIds holds every chunk already delivered (including any
+              // seeded from a prior token).
+              const e = err instanceof Error ? err : new Error(String(err));
+              e.resumeToken = { hash: contentHash, nextChunkIdx: i, sentIds: [...sentIds], prefixed: applyPrefix, limit };
+              throw e;
+            }
+            if (status === 429) {
+              // @discordjs/rest RateLimitError.retryAfter is ALWAYS in ms
+              // (no unit guess). Clamp to [0, 60000]; fall back to 1s when the
+              // field is absent/invalid. (discord.js also auto-sleeps rate
+              // limits internally, so we rarely even reach this branch.)
+              const retryAfterMs = Number(err?.retryAfter);
+              const ms = Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? Math.min(retryAfterMs, 60_000) : 1000;
+              await new Promise((r) => setTimeout(r, ms));
+            } else {
+              // Other transient error (5xx / network): short backoff.
+              await new Promise((r) => setTimeout(r, 1000));
+            }
+          }
+        }
       }
       this.sendCount += sentIds.length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`send failed after ${sentIds.length}/${chunks.length} chunk(s): ${msg}`);
+      const wrapped = new Error(`send failed after ${sentIds.length}/${chunks.length} chunk(s): ${msg}`);
+      // Preserve the opaque resume token across the rewrap so the caller can
+      // persist it on the queue item and resume on retry.
+      if (err?.resumeToken) wrapped.resumeToken = err.resumeToken;
+      // Propagate the permanent flag so the forwarder drops (not requeues) it.
+      if (err?.permanent) wrapped.permanent = true;
+      throw wrapped;
     }
     return { sentIds };
   }

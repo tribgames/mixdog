@@ -48,13 +48,16 @@ import {
   deleteSchedule,
   deleteWebhook,
   forgetDiscordToken,
+  forgetTelegramToken,
   forgetWebhookAuthtoken,
   renderChannelStatus,
   saveChannel,
   saveDiscordToken,
+  saveTelegramToken,
   saveSchedule,
   saveWebhook,
   saveWebhookAuthtoken,
+  setBackend,
   setScheduleEnabled,
   setWebhookEnabled,
   setWebhookConfig,
@@ -4640,6 +4643,21 @@ function parsedProviderModelVersion(id) {
     },
     forgetDiscordToken() {
       const result = forgetDiscordToken();
+      reloadChannelsSoon();
+      return result;
+    },
+    saveTelegramToken(token) {
+      const result = saveTelegramToken(token);
+      reloadChannelsSoon();
+      return result;
+    },
+    forgetTelegramToken() {
+      const result = forgetTelegramToken();
+      reloadChannelsSoon();
+      return result;
+    },
+    setBackend(name) {
+      const result = setBackend(name);
       reloadChannelsSoon();
       return result;
     },

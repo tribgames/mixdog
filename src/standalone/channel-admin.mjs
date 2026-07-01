@@ -14,6 +14,7 @@ import {
   deleteSecret,
   diagnoseDiscordTokenValue,
   getDiscordToken,
+  getTelegramToken,
   getWebhookAuthtoken,
   hasStoredSecret,
   readSection,
@@ -132,6 +133,18 @@ export function forgetDiscordToken() {
   return { ok: true };
 }
 
+export function saveTelegramToken(token) {
+  const value = String(token || '').trim();
+  if (!value) throw new Error('Telegram bot token is required');
+  saveSecret(SECRET_ACCOUNTS.telegramToken, value);
+  return { ok: true, configured: Boolean(getTelegramToken()) };
+}
+
+export function forgetTelegramToken() {
+  deleteSecret(SECRET_ACCOUNTS.telegramToken);
+  return { ok: true };
+}
+
 export function saveWebhookAuthtoken(token) {
   const value = String(token || '').trim();
   if (!value) throw new Error('Webhook/ngrok authtoken is required');
@@ -181,6 +194,15 @@ export function setWebhookConfig(patch = {}) {
       ...(patch.ngrokDomain ? { ngrokDomain: String(patch.ngrokDomain).trim() } : {}),
     },
   }));
+}
+
+export function setBackend(name) {
+  const value = String(name || '').trim();
+  if (value !== 'discord' && value !== 'telegram') {
+    throw new Error('backend must be discord or telegram');
+  }
+  updateChannelsSection((cfg) => ({ ...cfg, backend: value }));
+  return { ok: true, backend: value };
 }
 
 function normalizeCron(time) {
@@ -322,13 +344,22 @@ export function channelSetup(config = null) {
   const discordToken = getDiscordToken();
   const discordProblem = diagnoseDiscordTokenValue(discordToken, cfg);
   const webhookAuth = getWebhookAuthtoken();
+  const telegramToken = getTelegramToken();
   return {
+    backend: cfg.backend || 'discord',
     discord: {
       backend: 'discord',
       authenticated: Boolean(discordToken && !discordProblem),
       stored: hasStoredSecret(SECRET_ACCOUNTS.discordToken),
       status: discordToken ? (discordProblem ? 'Invalid' : 'Set') : 'Off',
       problem: discordProblem || null,
+    },
+    telegram: {
+      backend: 'telegram',
+      authenticated: Boolean(telegramToken),
+      stored: hasStoredSecret(SECRET_ACCOUNTS.telegramToken),
+      status: telegramToken ? 'Set' : 'Off',
+      problem: null,
     },
     webhook: {
       ...(cfg.webhook || {}),

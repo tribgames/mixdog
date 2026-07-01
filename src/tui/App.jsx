@@ -1487,6 +1487,7 @@ export function App({ store, initialStatusLine = '' }) {
   const scrollPositionRef = useRef(0);
   const scrollTargetRef = useRef(0);
   const maxScrollRowsRef = useRef(0);
+  const transcriptBottomSlackRowsRef = useRef(0);
   const scrollAnimationRef = useRef(null);
   const transcriptTotalRowsRef = useRef(0);
   const preservedScrollDeltaRef = useRef(0);
@@ -1951,6 +1952,8 @@ export function App({ store, initialStatusLine = '' }) {
     // long transcript jump to the bottom, then jump again when the new row is
     // appended. Keep the current viewport stable and let the row-delta effect
     // perform the single bottom-follow when the transcript actually grows.
+    transcriptAnchorRef.current = null;
+    transcriptAnchorDirtyRef.current = false;
     followingRef.current = true;
     stopSmoothScroll();
   }, [stopSmoothScroll]);
@@ -2087,7 +2090,7 @@ export function App({ store, initialStatusLine = '' }) {
     // streaming growth could lurch the view. At/over the bottom, drop the anchor
     // so the bottom-follow path owns the viewport again.
     if (appliedDelta !== 0) {
-      if (target <= 0) {
+      if (target <= Math.max(0, Number(transcriptBottomSlackRowsRef.current) || 0)) {
         transcriptAnchorRef.current = null;
         transcriptAnchorDirtyRef.current = false;
       } else {
@@ -2458,7 +2461,7 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
     if (count === previousCount || dragRef.current.active) return;
-    if (scrollTargetRef.current <= 0 || followingRef.current) followingRef.current = true;
+    if (scrollTargetRef.current <= transcriptBottomSlackRows || followingRef.current) followingRef.current = true;
   }, [state.items.length, resetTranscriptScroll]);
 
   // `exiting` removes the inline caret (PromptInput draws none when disabled) and
@@ -3869,7 +3872,7 @@ export function App({ store, initialStatusLine = '' }) {
     const pct = (value, total = windowTokens) => {
       const n = Number(value || 0);
       const d = Number(total || 0);
-      if (!d) return 'n/a';
+      if (!d) return 'N/A';
       return `${((n / d) * 100).toFixed(n > 0 && n < d / 100 ? 1 : 0)}%`;
     };
     const fmt = (value) => {
@@ -3890,7 +3893,7 @@ export function App({ store, initialStatusLine = '' }) {
     const cacheDenom = Number(usage.lastContextTokens || 0) || (cachedRead + freshInput + cacheWrite);
     const cacheHitRate = cacheDenom > 0
       ? `${((cachedRead / cacheDenom) * 100).toFixed(0)}%`
-      : 'n/a';
+      : 'N/A';
     const cacheWriteLabel = cacheWrite > 0 ? ` · ${fmt(cacheWrite)} write` : '';
     const contextSource = context.usedSource === 'last_api_request' ? 'last API request' : 'estimated';
     const lastApiLabel = context.lastApiRequestStale ? 'last API request (pre-compact)' : 'last API request';
@@ -4867,7 +4870,7 @@ export function App({ store, initialStatusLine = '' }) {
       title: options.title || 'Providers',
       description: options.description || 'Choose a provider. Enter opens provider actions.',
       footer: providerFooter,
-      footerGapRows: 0,
+      footerGapRows: 1,
       help: '↑/↓ Select · Enter Open · Esc Back',
       indexMode: 'always',
       labelWidth: 18,
@@ -5280,6 +5283,7 @@ export function App({ store, initialStatusLine = '' }) {
     }
 
     const worker = store.getChannelWorkerStatus?.();
+    const activeBackend = setup.backend || 'discord';
     const items = [
       {
         value: 'worker-status',
@@ -5288,10 +5292,22 @@ export function App({ store, initialStatusLine = '' }) {
         _action: 'worker-status',
       },
       {
+        value: 'backend-select',
+        label: 'Backend',
+        description: `${activeBackend}`,
+        _action: 'backend-select',
+      },
+      {
         value: 'discord-token',
         label: 'Discord token',
         description: `Bot token · ${setup.discord.status}${setup.discord.problem ? ' · invalid' : ''}`,
         _action: 'discord-token',
+      },
+      {
+        value: 'telegram-token',
+        label: 'Telegram token',
+        description: `Bot token · ${setup.telegram?.status ?? 'Off'}${setup.telegram?.problem ? ' · invalid' : ''}`,
+        _action: 'telegram-token',
       },
       {
         value: 'channel-add',
@@ -5318,11 +5334,53 @@ export function App({ store, initialStatusLine = '' }) {
             store.pushNotice(worker?.running ? `channel runtime running: pid ${worker.pid}` : 'channel runtime stopped', 'info');
             return;
           }
+          if (item._action === 'backend-select') {
+            setPicker({
+              title: 'Backend',
+              description: 'Channel runtime backend.',
+              items: [
+                {
+                  value: 'discord',
+                  label: 'discord',
+                  description: activeBackend === 'discord' ? '· active' : '',
+                  _backend: 'discord',
+                },
+                {
+                  value: 'telegram',
+                  label: 'telegram',
+                  description: activeBackend === 'telegram' ? '· active' : '',
+                  _backend: 'telegram',
+                },
+              ],
+              onSelect: (_value, backendItem) => {
+                const chosen = backendItem?._backend;
+                if (!chosen || chosen === activeBackend) {
+                  void openChannelSetupPicker('all');
+                  return;
+                }
+                store.setBackend(chosen);
+                store.pushNotice(`backend set to ${chosen} (restart remote to apply)`, 'info');
+                void openChannelSetupPicker('all');
+              },
+              onCancel: () => {
+                void openChannelSetupPicker('all');
+              },
+            });
+            return;
+          }
           if (item._action === 'discord-token') {
             openChannelPrompt({
               kind: 'discord-token',
               label: 'Discord bot token',
               hint: 'Paste the Discord bot token. It is stored in the OS keychain.',
+            });
+            return;
+          }
+          if (item._action === 'telegram-token') {
+            openChannelPrompt({
+              kind: 'telegram-token',
+              label: 'Telegram bot token',
+              hint: 'Paste the Telegram bot token from @BotFather. Stored in the OS keychain.',
             });
             return;
           }
@@ -6739,6 +6797,13 @@ export function App({ store, initialStatusLine = '' }) {
           void openChannelSetupPicker('all');
           return true;
         }
+        if (channelPrompt.kind === 'telegram-token') {
+          if (!commandText) return false;
+          store.saveTelegramToken(commandText);
+          setChannelPrompt(null);
+          void openChannelSetupPicker('all');
+          return true;
+        }
         if (channelPrompt.kind === 'webhook-token') {
           if (!commandText) return false;
           store.saveWebhookAuthtoken(commandText);
@@ -7305,7 +7370,7 @@ export function App({ store, initialStatusLine = '' }) {
   // jump. As soon as the done row is the transcript tail, drop the spinner slot;
   // the new done row replaces that height in the same frame, with no ms timer.
   const promptMetaVisible = !inputBoxHidden && !slashPaletteOpen && !!liveSpinner && !latestDoneAtTail;
-  const promptMetaRows = promptMetaVisible ? 2 : 0;
+  const promptMetaRows = promptMetaVisible ? 1 : 0;
   // Toast/error text without a live spinner uses the row directly above the
   // prompt. Reserve it explicitly because the prompt no longer carries a spare
   // top margin; the permanent transcript guard remains the "textbox + 1" gap.
@@ -7328,13 +7393,18 @@ export function App({ store, initialStatusLine = '' }) {
         : slashPaletteOpen
           ? PANEL_MAX_VISIBLE + PANEL_CHROME_ROWS
           : hasTextEntryPrompt
-            ? TEXT_ENTRY_ROWS + OPTION_PANEL_EXTRA_ROWS
+            ? TEXT_ENTRY_ROWS
             : 0;
   const floatingPanelRows = desiredFloatingPanelRows > 0
     ? Math.min(desiredFloatingPanelRows, maxFloatingPanelRows)
     : 0;
+  // Give the list every content row the panel exposes. The panel already grew
+  // by OPTION_PANEL_EXTRA_ROWS; previously that growth was subtracted back out
+  // here, so the rows leaked into an empty flexGrow gap instead of the list.
+  // Reserving only PICKER_CHROME_ROWS lets the list occupy the full interior
+  // (the footer's own reservation is handled inside Picker).
   const pickerVisibleRows = picker
-    ? Math.max(1, floatingPanelRows - PICKER_CHROME_ROWS - (picker.fillAvailable ? 0 : OPTION_PANEL_EXTRA_ROWS))
+    ? Math.max(1, floatingPanelRows - PICKER_CHROME_ROWS)
     : PANEL_MAX_VISIBLE;
   const bottomReserve = baseReserve + floatingPanelRows;
   const viewportHeight = Math.max(1, resizeState.rows - bottomReserve);
@@ -7364,6 +7434,7 @@ export function App({ store, initialStatusLine = '' }) {
   // the viewport as pinned to the live tail so streaming/tool output continues
   // to auto-follow instead of freezing one row above bottom.
   const transcriptBottomSlackRows = Math.max(0, baseGuardRows);
+  transcriptBottomSlackRowsRef.current = transcriptBottomSlackRows;
   transcriptViewportRef.current = {
     top: WELCOME_ROWS,
     bottom: Math.max(WELCOME_ROWS, WELCOME_ROWS + transcriptContentHeight - 1),
@@ -7427,11 +7498,7 @@ export function App({ store, initialStatusLine = '' }) {
   // Falls back to the live scrollOffset state when there is no active anchor
   // (bottom-follow / pinned) or it cannot be aligned (anchor item gone).
   const hasReadingAnchor = !!transcriptAnchorRef.current && !transcriptAnchorDirtyRef.current;
-  const scrolledUpRows = Math.max(
-    Math.max(0, Number(scrollTargetRef.current) || 0),
-    Math.max(0, Number(scrollPositionRef.current) || 0),
-    Math.max(0, Number(scrollOffset) || 0),
-  );
+  const scrolledUpRows = Math.max(0, Number(scrollTargetRef.current) || 0);
   // "Genuinely scrolled up" = the viewport is above the bottom slack band. The
   // bottom-follow / pinned path owns everything at-or-below the slack; anything
   // above it is the user reading older transcript.
@@ -7441,11 +7508,12 @@ export function App({ store, initialStatusLine = '' }) {
   // was captured, but if it lingers true we must not fall through to the stale-
   // offset render path (that is one half of the newline-jump bug). Keep the
   // plain !following gate for the anchor-less follow case.
-  const anchorLockActive = hasReadingAnchor && (!followingRef.current || scrolledUp);
+  const anchorLockActive = hasReadingAnchor && !followingRef.current && scrolledUp;
+  const targetNearBottom = followingRef.current || !scrolledUp;
   const nearBottomWithoutAnchor = !transcriptAnchorRef.current
     && !transcriptAnchorDirtyRef.current
-    && !scrolledUp;
-  let renderScrollOffset = nearBottomWithoutAnchor ? 0 : scrollOffset;
+    && targetNearBottom;
+  let renderScrollOffset = targetNearBottom ? 0 : scrollOffset;
   const lockViewRows = Math.max(1, Number(transcriptContentHeight) || 1);
   const lockTotalRows = Math.max(0, Number(transcriptRowIndex?.totalRows) || 0);
   const lockMaxRows = Math.max(0, lockTotalRows - lockViewRows);
@@ -7460,7 +7528,7 @@ export function App({ store, initialStatusLine = '' }) {
       maxRows: lockMaxRows,
     });
     if (locked != null) renderScrollOffset = locked;
-  } else if (!nearBottomWithoutAnchor && scrolledUp) {
+  } else if (!followingRef.current && !nearBottomWithoutAnchor && scrolledUp) {
     // ── Same-frame anchor CAPTURE for the missing/dirty-anchor case ─────────
     // The viewport is genuinely scrolled up but there is NO usable same-frame
     // anchor: it is missing, or dirtied by a manual scroll whose synchronous
@@ -7638,21 +7706,17 @@ export function App({ store, initialStatusLine = '' }) {
     const currentPosition = Math.max(0, Number(scrollPositionRef.current) || 0);
     const currentOffset = Math.max(0, Number(scrollOffset) || 0);
     const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
-    const pinnedToBottom = !transcriptAnchorRef.current
-      && !transcriptAnchorDirtyRef.current
-      && Math.max(currentTarget, currentPosition, currentOffset) <= transcriptBottomSlackRows;
-    // A genuine reading anchor must win over a stale follow-arm. followingRef
-    // is meant to be cleared the moment a scroll-up captures an anchor, but if
-    // it lingers true while the user is scrolled up with an active (not dirty)
-    // anchor, letting followOnGrowth fire here would null the anchor and snap
-    // the viewport to the bottom on the next row growth — the same newline jump
-    // we fix at render time, just one frame later. Gate the follow so an active
-    // reading anchor blocks it; the anchor-lock branch below then keeps the top
-    // row fixed. The pinnedToBottom path is unchanged (it already requires no
-    // anchor), so bottom-follow during streaming is not regressed.
+    const nearBottom = followingRef.current || currentTarget <= transcriptBottomSlackRows;
+    const pinnedToBottom = nearBottom;
+    // A genuine reading anchor must win over ordinary stream growth, but an
+    // explicit follow arm (prompt submit / pinned bottom) must win over stale
+    // anchor state. Manual scroll cancels followingRef before anchor capture, so
+    // deliberate reading still stays anchored while automatic bottom-follow
+    // stays armed across spinner/tool/stream height corrections.
     const activeReadingAnchor = !!transcriptAnchorRef.current
       && !transcriptAnchorDirtyRef.current
-      && Math.max(currentTarget, currentPosition, currentOffset) > transcriptBottomSlackRows;
+      && !followingRef.current
+      && !nearBottom;
     const followOnGrowth = followingRef.current && rowDelta > 0 && !activeReadingAnchor;
     const shouldFollowBottom = rowDelta > 0 && (followOnGrowth || pinnedToBottom);
     if (shouldFollowBottom) {
@@ -7662,7 +7726,18 @@ export function App({ store, initialStatusLine = '' }) {
       // during streaming makes the transcript jump down/up and can clip the
       // currently generated assistant text. Keep all scroll refs at zero so
       // character generation stays visually stable.
-      followingRef.current = false;
+      stopSmoothScroll();
+      scrollTargetRef.current = 0;
+      scrollPositionRef.current = 0;
+      transcriptAnchorRef.current = null;
+      transcriptAnchorDirtyRef.current = false;
+      if (currentOffset !== 0) setScrollOffset(0);
+      return;
+    }
+
+    // Viewport-only changes, such as swapping TextEntryPanel for a picker, must
+    // not turn a bottom-pinned transcript into a reading-anchor lock.
+    if (rowDelta <= 0 && nearBottom) {
       stopSmoothScroll();
       scrollTargetRef.current = 0;
       scrollPositionRef.current = 0;
@@ -7689,7 +7764,7 @@ export function App({ store, initialStatusLine = '' }) {
     let anchor = transcriptAnchorRef.current;
     // (Re)capture the anchor from the current viewport-top edge when missing or
     // invalidated by a manual scroll. anchorRow = absolute row at the top edge.
-    if (!anchor || transcriptAnchorDirtyRef.current) {
+    if (!followingRef.current && (!anchor || transcriptAnchorDirtyRef.current)) {
       if (curPrefix && curPrefix.length > 1) {
         const anchorRow = Math.max(0, Math.min(totalRows, totalRows - currentTarget - viewRows));
         let idx = upperBound(curPrefix, anchorRow) - 1;
@@ -8114,7 +8189,7 @@ export function App({ store, initialStatusLine = '' }) {
               <TextEntryPanel
                 title={channelPrompt.label}
                 hint={channelPrompt.hint || 'Save channel setting.'}
-                mask={channelPrompt.kind === 'discord-token' || channelPrompt.kind === 'webhook-token'}
+                mask={channelPrompt.kind === 'discord-token' || channelPrompt.kind === 'telegram-token' || channelPrompt.kind === 'webhook-token'}
                 columns={frameColumns}
                 promptLabel="Value > "
                 onSubmit={onSubmit}
@@ -8164,7 +8239,7 @@ export function App({ store, initialStatusLine = '' }) {
           {promptMetaVisible ? (
             <Box
               marginTop={0}
-              marginBottom={1}
+              marginBottom={0}
               height={1}
               width="100%"
               flexDirection="row"

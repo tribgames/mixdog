@@ -140,7 +140,8 @@ function safeCodeBlock(content, lang = "") {
   const escaped = content.replace(/```/g, "`​``");
   return "```" + lang + "\n" + escaped + "\n```";
 }
-function chunk(text, limit = 2e3) {
+const MAX_DISCORD_MESSAGE = 2000;
+function chunk(text, limit = MAX_DISCORD_MESSAGE) {
   if (text.length <= limit) return [text];
   const out = [];
   let rest = text;
@@ -184,5 +185,6 @@ function chunk(text, limit = 2e3) {
 export {
   chunk,
   formatForDiscord,
-  safeCodeBlock
+  safeCodeBlock,
+  MAX_DISCORD_MESSAGE
 };

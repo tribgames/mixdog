@@ -246,6 +246,7 @@ export function getCapabilities() {
 // the migration logic in seed.mjs.
 export const SECRET_ACCOUNTS = Object.freeze({
   discordToken: 'discord.token',
+  telegramToken: 'telegram.token',
   webhookAuth:  'webhook.authtoken',
   agentApiKey:  (provider) => `agent.${provider}.apiKey`,
   openaiUsageSessionKey: 'agent.openai.usageSessionKey',
@@ -291,6 +292,14 @@ function _readSecret(account) {
  */
 export function getDiscordToken() {
   return _readSecret(SECRET_ACCOUNTS.discordToken)
+}
+
+/**
+ * Returns the Telegram bot token.
+ * Priority: MIXDOG_TELEGRAM_TOKEN → keychain('telegram.token') → null
+ */
+export function getTelegramToken() {
+  return _readSecret(SECRET_ACCOUNTS.telegramToken)
 }
 
 /**

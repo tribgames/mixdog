@@ -141,6 +141,19 @@ function candidateAffinity(candidate) {
 }
 const TRANSCRIPT_MTIME_DECISIVE_MS = 30_000;
 function compareTranscriptCandidates(left, right) {
+  // Identity beats recency. A live "parent-chain" candidate is the session
+  // that actually forked THIS owner worker (process.ppid walk) — it is the
+  // same session that receives injected input. When another co-located
+  // session (same cwd) writes its transcript more recently, the mtime rule
+  // below would otherwise hand the output-forwarder the wrong session's
+  // transcript: input lands in our window while output tails the sibling.
+  // Anchoring on the parent-chain session keeps forward output pinned to the
+  // owning session and lets it "steal back" the binding from a busier
+  // neighbour. Only decisive when exactly one side is the live self session;
+  // standalone remote (no parent session) falls through to the heuristics.
+  const leftSelf = Boolean(left.active && left.parentChain);
+  const rightSelf = Boolean(right.active && right.parentChain);
+  if (leftSelf !== rightSelf) return rightSelf ? 1 : -1;
   const leftMtime = Number(left.transcriptMtime) || 0;
   const rightMtime = Number(right.transcriptMtime) || 0;
   if (leftMtime > 0 && rightMtime > 0) {
