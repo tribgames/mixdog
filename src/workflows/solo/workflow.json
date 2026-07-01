@@ -1,7 +1,0 @@
-{
-  "id": "solo",
-  "name": "Solo",
-  "description": "Lead-only workflow; delegation to any agent is forbidden.",
-  "entry": "WORKFLOW.md",
-  "agents": []
-}

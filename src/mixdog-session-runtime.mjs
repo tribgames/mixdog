@@ -1262,22 +1262,27 @@ function agentSourceDirs(dataDir, id) {
   ];
 }
 
-function readWorkflowPackFromDir(dir, source = 'built-in') {
-  const manifest = readJsonSafe(join(dir, 'workflow.json'));
-  if (!manifest || typeof manifest !== 'object') return null;
-  const id = normalizeWorkflowId(manifest.id || manifest.name);
-  if (!id) return null;
-  const entry = clean(manifest.entry) || 'WORKFLOW.md';
-  const body = readTextSafe(join(dir, entry));
+function readWorkflowPackFromDir(dir, source = 'built-in', dirName = '') {
+  const entry = 'WORKFLOW.md';
+  const doc = readMarkdownDocument(readTextSafe(join(dir, entry)));
+  const body = doc.body;
   if (!body) return null;
-  const agentsConfigured = Array.isArray(manifest.agents);
+  const fm = doc.frontmatter || {};
+  const id = normalizeWorkflowId(clean(fm.id) || dirName || basename(dir));
+  if (!id) return null;
+  const agentsConfigured = Object.prototype.hasOwnProperty.call(fm, 'agents');
   return {
     id,
-    name: clean(manifest.name) || id,
-    description: clean(manifest.description),
+    name: clean(fm.name) || id,
+    description: clean(fm.description),
     entry,
     agentsConfigured,
-    agents: agentsConfigured ? manifest.agents.map((agent) => normalizeAgentId(agent) || normalizeWorkflowId(agent)).filter(Boolean) : [],
+    agents: agentsConfigured
+      ? String(fm.agents || '')
+          .split(',')
+          .map((agent) => normalizeAgentId(agent) || normalizeWorkflowId(agent))
+          .filter(Boolean)
+      : [],
     body,
     source,
   };
@@ -1291,7 +1296,9 @@ function listWorkflowPacks(dataDir) {
     try { entries = readdirSync(root, { withFileTypes: true }); } catch { entries = []; }
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const pack = readWorkflowPackFromDir(join(root, entry.name), source);
+      const dir = join(root, entry.name);
+      if (!existsSync(join(dir, 'WORKFLOW.md'))) continue;
+      const pack = readWorkflowPackFromDir(dir, source, entry.name);
       if (pack) byId.set(pack.id, pack);
     }
   }
@@ -1309,10 +1316,10 @@ function activeWorkflowId(config) {
 function loadWorkflowPack(dataDir, id) {
   const wanted = normalizeWorkflowId(id, DEFAULT_WORKFLOW_ID);
   for (const { root, source } of workflowSourceDirs(dataDir).reverse()) {
-    const pack = readWorkflowPackFromDir(join(root, wanted), source);
+    const pack = readWorkflowPackFromDir(join(root, wanted), source, wanted);
     if (pack) return pack;
   }
-  return readWorkflowPackFromDir(join(STANDALONE_ROOT, 'workflows', DEFAULT_WORKFLOW_ID), 'built-in');
+  return readWorkflowPackFromDir(join(STANDALONE_ROOT, 'workflows', DEFAULT_WORKFLOW_ID), 'built-in', DEFAULT_WORKFLOW_ID);
 }
 
 function workflowSummary(pack) {

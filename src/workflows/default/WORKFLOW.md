@@ -1,3 +1,10 @@
+---
+id: default
+name: Default
+description: "Default agent workflow — fan-out parallel delegation across independent scopes."
+agents: worker, heavy-worker, reviewer, debugger, maintainer
+---
+
 # Default Workflow
 
 Lead supervises: delegates, coordinates, judges, decides. Route by complexity:

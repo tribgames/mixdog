@@ -1,3 +1,10 @@
+---
+id: solo
+name: Solo
+description: "Solo workflow — Lead handles everything directly; delegation forbidden."
+agents:
+---
+
 # Solo Workflow
 
 1. Plan — Lead discusses the request with the user, forms a plan, and waits for
