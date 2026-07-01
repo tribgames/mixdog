@@ -113,6 +113,19 @@ let _endpointWatcher = null;
 function _endpointConfigPath(name) {
   return join(WEBHOOKS_DIR, name, "WEBHOOK.md");
 }
+// Per-endpoint HMAC secret is stored in a side file (WEBHOOKS_DIR/<name>/secret),
+// not in WEBHOOK.md frontmatter — frontmatter is a lossy `key: value` format
+// (unquote strips surrounding quotes) and would corrupt user secrets on the
+// save->rewrite round-trip. Read fresh on each verify (no cache): the signing
+// path is not hot and a stale secret would silently reject valid deliveries.
+function _readEndpointSecret(name) {
+  try {
+    const s = readFileSync(join(WEBHOOKS_DIR, name, "secret"), "utf8").trim();
+    return s || null;
+  } catch {
+    return null;
+  }
+}
 function _ensureEndpointWatcher() {
   if (_endpointWatcher) return;
   try {
@@ -819,7 +832,11 @@ class WebhookServer {
   // Returns true when the request may proceed; otherwise writes the
   // appropriate 401/403 response and returns false.
   _verifySignatureGate(name, endpoint, body, headers, res) {
-    const secret = endpoint?.secret || this.config.secret;
+    // Per-endpoint secret lives in the side file WEBHOOKS_DIR/<name>/secret
+    // (plaintext, one line) — NOT in WEBHOOK.md frontmatter, so a user
+    // secret containing quotes/colons/newlines round-trips losslessly and
+    // setWebhookEnabled (which only rewrites WEBHOOK.md) cannot corrupt it.
+    const secret = _readEndpointSecret(name) || this.config.secret;
     const parser = endpoint?.parser || this.config.endpoints?.[name]?.parser;
     if (secret) {
       const signature = extractSignature(headers, parser);
