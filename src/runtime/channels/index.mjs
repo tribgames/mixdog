@@ -32,7 +32,8 @@ import { startCliWorker } from "./lib/cli-worker-host.mjs";
 import {
   OutputForwarder,
   discoverSessionBoundTranscript,
-  findLatestTranscriptByMtime
+  findLatestTranscriptByMtime,
+  sameResolvedPath
 } from "./lib/output-forwarder.mjs";
 import { controlClaudeSession } from "./lib/session-control.mjs";
 import { JsonStateFile, ensureDir, removeFileIfExists, writeTextFile } from "./lib/state-file.mjs";
@@ -507,9 +508,68 @@ function applyTranscriptBinding(channelId, transcriptPath, options = {}) {
     });
   }
 }
+// ── Pending-transcript re-arm ────────────────────────────────────────
+// fs.watch cannot watch a file that does not exist yet, so when we bind a
+// session's known-but-not-yet-written transcript path, OutputForwarder.
+// startWatch() silently fails (watch.start.catch) and the file's later
+// creation is never observed. This bounded poll bridges that gap: once the
+// transcript-writer creates the file, we install the watch and forward the
+// backlog. It self-cancels on success, on timeout, and whenever a fresh
+// (re)bind supersedes it — so no timers leak and no double-forward occurs.
+let _pendingRearmTimer = null;
+const PENDING_REARM_INTERVAL_MS = 250;
+const PENDING_REARM_MAX_MS = 60_000;
+function cancelPendingTranscriptRearm() {
+  if (_pendingRearmTimer) {
+    clearTimeout(_pendingRearmTimer);
+    _pendingRearmTimer = null;
+    dropTrace("rebind.rearm.cancel");
+  }
+}
+function schedulePendingTranscriptRearm(channelId, boundPath) {
+  cancelPendingTranscriptRearm();
+  if (!boundPath) return;
+  const deadline = Date.now() + PENDING_REARM_MAX_MS;
+  dropTrace("rebind.rearm.schedule", { channelId, path: boundPath });
+  const tick = () => {
+    _pendingRearmTimer = null;
+    // A different transcript got bound in the meantime — abandon this poll.
+    if (forwarder.transcriptPath !== boundPath) {
+      dropTrace("rebind.rearm.superseded", { path: boundPath, now: forwarder.transcriptPath || "(none)" });
+      return;
+    }
+    // Ownership may have been lost (bridge deactivated / superseded owner)
+    // while this poll was pending. Do not reinstall the fs.watch handle after
+    // teardown; startWatch() is not owner-gated so guard it here.
+    if (!bridgeRuntimeConnected) {
+      dropTrace("rebind.rearm.not-owner", { path: boundPath });
+      return;
+    }
+    if (fs.existsSync(boundPath)) {
+      dropTrace("rebind.rearm.fire", { channelId, path: boundPath });
+      forwarder.startWatch();
+      void forwarder.forwardNewText().catch((err) => {
+        try { process.stderr.write(`mixdog: rearm forwardNewText rejection: ${err?.stack || err}\n`); } catch {}
+      });
+      return;
+    }
+    if (Date.now() >= deadline) {
+      dropTrace("rebind.rearm.timeout", { channelId, path: boundPath });
+      return;
+    }
+    _pendingRearmTimer = setTimeout(tick, PENDING_REARM_INTERVAL_MS);
+    _pendingRearmTimer?.unref?.();
+  };
+  _pendingRearmTimer = setTimeout(tick, PENDING_REARM_INTERVAL_MS);
+  _pendingRearmTimer?.unref?.();
+}
 async function rebindTranscriptContext(channelId, options = {}) {
   const previousPath = options.previousPath ?? "";
   const mode = options.mode ?? "same";
+  // A new (re)bind supersedes any pending re-arm poll left over from a prior
+  // bind of a not-yet-existing transcript, so we never leak timers or
+  // double-forward once the fresh bind takes over.
+  cancelPendingTranscriptRearm();
   const explicitTranscriptPath = typeof options.transcriptPath === "string" ? options.transcriptPath.trim() : "";
   if (explicitTranscriptPath) {
     let explicitExists = false;
@@ -532,6 +592,14 @@ async function rebindTranscriptContext(channelId, options = {}) {
   }
   let sawPendingTranscript = false;
   let pendingSessionId = "";
+  // Distinct from sawPendingTranscript/pendingSessionId (which only track the
+  // sessionId): remember the FULL not-yet-on-disk candidate — its concrete
+  // transcriptPath (from the session record) + cwd — so we can bind it after
+  // the loop even though the `.jsonl` does not exist yet. This breaks the
+  // chicken-and-egg deadlock where the first assistant reply is only written
+  // seconds after inbound time.
+  let pendingTranscriptPath = "";
+  let pendingTranscriptCwd = null;
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const bound = discoverSessionBoundTranscript();
     if (bound?.exists) {
@@ -554,12 +622,63 @@ async function rebindTranscriptContext(channelId, options = {}) {
     } else if (bound?.sessionId) {
       sawPendingTranscript = true;
       pendingSessionId = bound.sessionId;
+      if (bound.transcriptPath) {
+        pendingTranscriptPath = bound.transcriptPath;
+        pendingTranscriptCwd = bound.sessionCwd ?? null;
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
+  // No existing transcript surfaced during the loop, but the session record
+  // named a concrete transcript path that simply is not on disk yet. Bind it
+  // now: applyTranscriptBinding persists state.transcriptPath (so the
+  // getPersistedTranscriptPath() fallback works for future rebinds) and calls
+  // forwarder.startWatch(). Because fs.watch cannot watch a missing file, we
+  // also schedule a bounded re-arm poll that installs the watch + catches up
+  // once the transcript-writer creates the file.
+  if (pendingTranscriptPath) {
+    // Same wrong-session guard as the exists:true path: refuse to bind a
+    // candidate that conflicts with an explicit previousPath when this is a
+    // switch (mode!=="same").
+    const acceptable = mode === "same" || !previousPath || pendingTranscriptPath !== previousPath;
+    if (acceptable) {
+      dropTrace("rebind.pending.bind", { channelId, path: pendingTranscriptPath, sessionId: pendingSessionId });
+      // If the persisted cursor belongs to THIS transcript, resume from it;
+      // otherwise this is a freshly-discovered session transcript that was
+      // never bound before (the chicken-and-egg case), so forward from the
+      // start of file. Binding with catchUpFromPersisted against a
+      // non-matching persisted path would set the read cursor to EOF and
+      // silently skip the first reply (output-forwarder setContext).
+      // Resume from the persisted cursor only when it belongs to THIS
+      // transcript; otherwise forward from the start of file (see comment
+      // above). sameResolvedPath handles Windows case-insensitive paths.
+      const samePersisted = sameResolvedPath(getPersistedTranscriptPath(), pendingTranscriptPath);
+      applyTranscriptBinding(channelId, pendingTranscriptPath, {
+        replayFromStart: !samePersisted,
+        catchUpFromPersisted: samePersisted,
+        cwd: pendingTranscriptCwd,
+        persistStatus: options.persistStatus,
+      });
+      const boundPath = forwarder.transcriptPath || pendingTranscriptPath;
+      if (fs.existsSync(boundPath)) {
+        // Raced: file appeared between discovery and bind — forward immediately.
+        await forwarder.forwardNewText();
+      } else {
+        schedulePendingTranscriptRearm(channelId, boundPath);
+      }
+      process.stderr.write(`mixdog: rebind pending: bound not-yet-existing transcript ${boundPath}\n`);
+      return pendingTranscriptPath;
+    }
+  }
   if (previousPath) {
     applyTranscriptBinding(channelId, previousPath, { catchUpFromPersisted: true, cwd: statusState.read().sessionCwd });
-    await forwarder.forwardNewText();
+    if (fs.existsSync(previousPath)) {
+      await forwarder.forwardNewText();
+    } else {
+      // Same not-yet-on-disk situation as the pending branch: arm a poll so
+      // forwarding starts when the file is created.
+      schedulePendingTranscriptRearm(channelId, forwarder.transcriptPath || previousPath);
+    }
     process.stderr.write(`mixdog: rebind fallback: bound previous transcript ${previousPath}\n`);
     return previousPath;
   }
@@ -840,6 +959,11 @@ async function startOwnedRuntime(options = {}) {
   }
 }
 async function stopOwnedRuntime(reason) {
+  // Cancel any pending transcript re-arm poll BEFORE the connected/starting
+  // early-return below. Otherwise a poll armed against a not-yet-existing
+  // transcript could fire after teardown and reinstall the fs.watch handle
+  // (startWatch is not owner-gated), leaking a live watcher past shutdown.
+  cancelPendingTranscriptRearm();
   // startOwnedRuntime() advertises owner HTTP/heartbeat/active-instance and
   // claims channel locks BEFORE awaiting backend.connect(). If shutdown lands
   // during that window (bridgeRuntimeStarting=true, bridgeRuntimeConnected
@@ -2058,7 +2182,6 @@ async function handleInbound(msg, route, options = {}) {
     attachments: msg.attachments.map((a) => `${a.name} (${a.contentType}, ${(a.size / 1024).toFixed(0)}KB)`).join("; ")
   } : {};
   const messageBody = route.sourceMode === "monitor" && route.sourceLabel ? `[monitor:${route.sourceLabel}] ${text}` : text;
-  const now = (/* @__PURE__ */ new Date()).toLocaleString();
   const notificationMeta = {
     chat_id: route.targetChatId,
     message_id: msg.messageId,
@@ -2073,8 +2196,7 @@ async function handleInbound(msg, route, options = {}) {
     ...attMeta,
     ...msg.imagePath ? { image_path: msg.imagePath } : {}
   };
-  const notificationContent = `[${now}]
-${messageBody}`;
+  const notificationContent = messageBody;
   sendNotifyToParent("notifications/claude/channel", {
     content: notificationContent,
     meta: notificationMeta

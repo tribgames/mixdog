@@ -756,5 +756,6 @@ ${_bt.trim()}` : _bt.trim();
 export {
   OutputForwarder,
   discoverSessionBoundTranscript,
-  findLatestTranscriptByMtime
+  findLatestTranscriptByMtime,
+  sameResolvedPath
 };
