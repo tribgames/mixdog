@@ -1,0 +1,234 @@
+{
+  "round": "cwc21-p3",
+  "runner": "mixdog",
+  "opts": {
+    "provider": null,
+    "model": null,
+    "effort": null,
+    "fast": false,
+    "env": {}
+  },
+  "tasks": 3,
+  "completed": 3,
+  "completion_rate": 100,
+  "sessions": [
+    "sess_39760_1782931498399_1782931499920_4498c84b2d91d144bf5824c22b774e52",
+    "sess_53156_1782931573469_1782931574789_27667e9cc842026554085164c08a02af",
+    "sess_29636_1782931654615_1782931655981_b3e922db6957350c1ee44c01fabaf6f4"
+  ],
+  "results": [
+    {
+      "id": "cwc-hookflow",
+      "agent": "worker",
+      "ok": true,
+      "ms": 74866,
+      "sessionId": "sess_39760_1782931498399_1782931499920_4498c84b2d91d144bf5824c22b774e52",
+      "card": {
+        "session": "sess_39760_1782931498399_1782931499920_4498c84b2d91d144bf5824c22b774e52",
+        "provider": "grok-oauth",
+        "model": "grok-composer-2.5-fast",
+        "wall_ms": 72689,
+        "turns": 19,
+        "tool_calls": 45,
+        "tools_per_turn": 2.4,
+        "total_tool_ms": 2661,
+        "llm_stream_ms": 0,
+        "cache_ratio": 0.6182385575589459,
+        "cached_tokens": 297761,
+        "prompt_tokens": 481628,
+        "uncached_tokens": 183867,
+        "output_tokens": 3535,
+        "cache_weighted_input_10": 213643.1,
+        "cache_weighted_input_25": 258307.25,
+        "prompt_growth": 17294,
+        "antipatterns": 2,
+        "issues": 2,
+        "issue_types": [
+          "read_fragmentation",
+          "grep_sweep"
+        ],
+        "read_fragmentation_paths": [
+          "src/standalone/hook-bus.mjs"
+        ],
+        "grep_sweep_count": 1
+      }
+    },
+    {
+      "id": "cwc-cacheusage",
+      "agent": "worker",
+      "ok": true,
+      "ms": 80925,
+      "sessionId": "sess_53156_1782931573469_1782931574789_27667e9cc842026554085164c08a02af",
+      "card": {
+        "session": "sess_53156_1782931573469_1782931574789_27667e9cc842026554085164c08a02af",
+        "provider": "grok-oauth",
+        "model": "grok-composer-2.5-fast",
+        "wall_ms": 79160,
+        "turns": 17,
+        "tool_calls": 37,
+        "tools_per_turn": 2.2,
+        "total_tool_ms": 1957,
+        "llm_stream_ms": 0,
+        "cache_ratio": 0.3565093308956322,
+        "cached_tokens": 159898,
+        "prompt_tokens": 448510,
+        "uncached_tokens": 288612,
+        "output_tokens": 4114,
+        "cache_weighted_input_10": 304601.8,
+        "cache_weighted_input_25": 328586.5,
+        "prompt_growth": 29710,
+        "antipatterns": 1,
+        "issues": 1,
+        "issue_types": [
+          "grep_sweep"
+        ],
+        "read_fragmentation_paths": [],
+        "grep_sweep_count": 1
+      }
+    },
+    {
+      "id": "cwc-compacttrigger",
+      "agent": "worker",
+      "ok": true,
+      "ms": 35167,
+      "sessionId": "sess_29636_1782931654615_1782931655981_b3e922db6957350c1ee44c01fabaf6f4",
+      "card": {
+        "session": "sess_29636_1782931654615_1782931655981_b3e922db6957350c1ee44c01fabaf6f4",
+        "provider": "grok-oauth",
+        "model": "grok-composer-2.5-fast",
+        "wall_ms": 33231,
+        "turns": 10,
+        "tool_calls": 24,
+        "tools_per_turn": 2.4,
+        "total_tool_ms": 1424,
+        "llm_stream_ms": 0,
+        "cache_ratio": 0.5857072275550537,
+        "cached_tokens": 82983,
+        "prompt_tokens": 141680,
+        "uncached_tokens": 58697,
+        "output_tokens": 2654,
+        "cache_weighted_input_10": 66995.3,
+        "cache_weighted_input_25": 79442.75,
+        "prompt_growth": 14338,
+        "antipatterns": 1,
+        "issues": 1,
+        "issue_types": [
+          "read_fragmentation"
+        ],
+        "read_fragmentation_paths": [
+          "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\session\\context-utils.mjs"
+        ],
+        "grep_sweep_count": 0
+      }
+    }
+  ],
+  "task_complete": true,
+  "task_errors": [],
+  "score_complete": true,
+  "score_errors": [],
+  "group": {
+    "n": 3,
+    "wall_ms": 61693.3,
+    "turns": 15.3,
+    "tool_calls": 35.3,
+    "tools_per_turn": 2.3,
+    "total_tool_ms": 2014,
+    "llm_stream_ms": 0,
+    "cache_ratio": 0.5,
+    "cached_tokens": 180214,
+    "prompt_tokens": 357272.7,
+    "uncached_tokens": 177058.7,
+    "output_tokens": 3434.3,
+    "cache_weighted_input_10": 195080.1,
+    "cache_weighted_input_25": 222112.2,
+    "prompt_growth": 20447.3,
+    "antipatterns": 1.3,
+    "issues": 1.3,
+    "grep_sweep_count": 0.7
+  },
+  "cards": [
+    {
+      "session": "sess_39760_1782931498399_1782931499920_4498c84b2d91d144bf5824c22b774e52",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 72689,
+      "turns": 19,
+      "tool_calls": 45,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 2661,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.6182385575589459,
+      "cached_tokens": 297761,
+      "prompt_tokens": 481628,
+      "uncached_tokens": 183867,
+      "output_tokens": 3535,
+      "cache_weighted_input_10": 213643.1,
+      "cache_weighted_input_25": 258307.25,
+      "prompt_growth": 17294,
+      "antipatterns": 2,
+      "issues": 2,
+      "issue_types": [
+        "read_fragmentation",
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [
+        "src/standalone/hook-bus.mjs"
+      ],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_53156_1782931573469_1782931574789_27667e9cc842026554085164c08a02af",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 79160,
+      "turns": 17,
+      "tool_calls": 37,
+      "tools_per_turn": 2.2,
+      "total_tool_ms": 1957,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.3565093308956322,
+      "cached_tokens": 159898,
+      "prompt_tokens": 448510,
+      "uncached_tokens": 288612,
+      "output_tokens": 4114,
+      "cache_weighted_input_10": 304601.8,
+      "cache_weighted_input_25": 328586.5,
+      "prompt_growth": 29710,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "grep_sweep"
+      ],
+      "read_fragmentation_paths": [],
+      "grep_sweep_count": 1
+    },
+    {
+      "session": "sess_29636_1782931654615_1782931655981_b3e922db6957350c1ee44c01fabaf6f4",
+      "provider": "grok-oauth",
+      "model": "grok-composer-2.5-fast",
+      "wall_ms": 33231,
+      "turns": 10,
+      "tool_calls": 24,
+      "tools_per_turn": 2.4,
+      "total_tool_ms": 1424,
+      "llm_stream_ms": 0,
+      "cache_ratio": 0.5857072275550537,
+      "cached_tokens": 82983,
+      "prompt_tokens": 141680,
+      "uncached_tokens": 58697,
+      "output_tokens": 2654,
+      "cache_weighted_input_10": 66995.3,
+      "cache_weighted_input_25": 79442.75,
+      "prompt_growth": 14338,
+      "antipatterns": 1,
+      "issues": 1,
+      "issue_types": [
+        "read_fragmentation"
+      ],
+      "read_fragmentation_paths": [
+        "C:\\Project\\mixdog\\src\\runtime\\agent\\orchestrator\\session\\context-utils.mjs"
+      ],
+      "grep_sweep_count": 0
+    }
+  ]
+}

@@ -312,7 +312,12 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
 
   const name = err?.name || ''
   if (name === 'AgentStallAbortError') return _allowMidstream('agent_stall', attemptIndex, policy)
-  if (name === 'StreamStalledAbortError') return _allowMidstream('stream_stalled', attemptIndex, policy)
+  if (name === 'StreamStalledAbortError' || name === 'StreamStalledError' || err?.code === 'ESTREAMSTALL' || err?.streamStalled === true) {
+    // A stall that fired AFTER a tool call was emitted is unsafe to replay
+    // (double side-effect); surface it as terminal so the turn is not retried.
+    if (err?.unsafeToRetry === true) return null
+    return _allowMidstream('stream_stalled', attemptIndex, policy)
+  }
 
   if (state.watchdogAbort === 'AgentStallAbortError') return _allowMidstream('agent_stall', attemptIndex, policy)
   if (state.watchdogAbort === 'StreamStalledAbortError') return _allowMidstream('stream_stalled', attemptIndex, policy)
@@ -354,7 +359,12 @@ function _classifyMidstreamSse(err, state, attemptIndex, policy) {
 
   const name = err?.name || ''
   if (name === 'AgentStallAbortError') return 'agent_stall'
-  if (name === 'StreamStalledAbortError') return 'stream_stalled'
+  if (name === 'StreamStalledAbortError' || name === 'StreamStalledError' || err?.code === 'ESTREAMSTALL' || err?.streamStalled === true) {
+    // A stall AFTER a tool emit is unsafe to replay (double side-effect) →
+    // terminal (null), no mid-stream retry. Otherwise route to stream_stalled.
+    if (err?.unsafeToRetry === true) return null
+    return 'stream_stalled'
+  }
   if (state.watchdogAbort === 'AgentStallAbortError') return 'agent_stall'
   if (state.watchdogAbort === 'StreamStalledAbortError') return 'stream_stalled'
 

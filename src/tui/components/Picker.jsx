@@ -24,6 +24,7 @@ const MAX_VISIBLE = 8;
 const DEFAULT_LABEL_WIDTH = 28;
 const SELECT_HELP = '↑/↓ Select · Enter Choose · Esc Back';
 const ADJUST_HELP = '↑/↓ Select · ←/→ Adjust · Enter Choose · Esc Back';
+const CONFIRM_HELP = '↑/↓ Select · ←/→ Back/Next · Enter Choose · Esc Skip';
 
 function truncateText(value, width) {
   const text = String(value || '');
@@ -137,13 +138,22 @@ export function Picker({
   const footerReserveRows = footerLines.length > 0 ? footerLines.length + footerGap : 0;
   const confirmReserveRows = hasConfirm ? 2 : 0;
   const effectiveVisibleLimit = Math.max(1, visibleLimit - footerReserveRows - confirmReserveRows);
-  const helpText = help || (onLeft || onRight || onTab ? ADJUST_HELP : SELECT_HELP);
+  const helpText = help || (hasConfirm ? CONFIRM_HELP : (onLeft || onRight || onTab ? ADJUST_HELP : SELECT_HELP));
 
   useInput(
     useCallback(
       (input, key) => {
         if (key.upArrow) {
-          if (hasConfirm && confirmFocus >= 0) { setConfirmFocus(-1); return; }
+          // Single vertical loop over [list items...] + [confirm buttons...].
+          if (hasConfirm) {
+            const last = items.length - 1;
+            if (confirmFocus > 0) { setConfirmFocus((f) => f - 1); return; }
+            if (confirmFocus === 0) { setConfirmFocus(-1); setSelectedIndex(Math.max(0, last)); return; }
+            // list focus: first row ↑ → last confirm button.
+            if (items.length === 0 || selectedIndex === 0) { setConfirmFocus(confirmButtons.length - 1); return; }
+            setSelectedIndex((i) => i - 1);
+            return;
+          }
           setSelectedIndex((i) => {
             const total = items.length;
             return total > 0 ? (i - 1 + total) % total : 0;
@@ -151,7 +161,19 @@ export function Picker({
           return;
         }
         if (key.downArrow) {
-          if (hasConfirm && confirmFocus >= 0) { setConfirmFocus(-1); return; }
+          if (hasConfirm) {
+            const last = items.length - 1;
+            const lastBtn = confirmButtons.length - 1;
+            if (confirmFocus >= 0) {
+              if (confirmFocus < lastBtn) { setConfirmFocus((f) => f + 1); return; }
+              // last button ↓ → first list row.
+              setConfirmFocus(-1); setSelectedIndex(0); return;
+            }
+            // list focus: last row ↓ → first confirm button.
+            if (items.length === 0 || selectedIndex === last) { setConfirmFocus(0); return; }
+            setSelectedIndex((i) => i + 1);
+            return;
+          }
           setSelectedIndex((i) => {
             const total = items.length;
             return total > 0 ? (i + 1) % total : 0;
@@ -247,6 +269,13 @@ export function Picker({
           <Text color={theme.text}>{emptyLine || ' '}</Text>
           <Text> </Text>
           <Text color={theme.inactive}>(empty)</Text>
+          {hasConfirm ? (
+            <>
+              <Box flexGrow={1} />
+              <Text> </Text>
+              <ConfirmBar buttons={confirmButtons} focusedIndex={clampConfirmFocus(confirmFocus, confirmButtons.length)} />
+            </>
+          ) : null}
         </Box>
       </Box>
     );
@@ -303,7 +332,7 @@ export function Picker({
         <Text> </Text>
         {visible.map((item, i) => {
           const idx = start + i;
-          const isSelected = idx === selectedIndex;
+          const isSelected = idx === selectedIndex && confirmFocus < 0;
           return (
             <ItemRow
               key={item.value}

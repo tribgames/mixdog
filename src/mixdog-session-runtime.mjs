@@ -4498,6 +4498,21 @@ function parsedProviderModelVersion(id) {
         workflowRoutes: summarizeWorkflowRoutes(nextConfig),
       };
     },
+    // Mark onboarding as done WITHOUT touching routes/agents/provider. Used by
+    // the TUI "skip" (Esc) path so the wizard doesn't reappear next launch,
+    // while leaving any existing config routes untouched.
+    skipOnboarding() {
+      const nextConfig = { ...config };
+      nextConfig.onboarding = {
+        ...(nextConfig.onboarding || {}),
+        completed: true,
+        version: ONBOARDING_VERSION,
+        completedAt: new Date().toISOString(),
+        skipped: true,
+      };
+      saveConfigAndAdopt(nextConfig);
+      return this.getOnboardingStatus();
+    },
     getAutoClear() {
       return normalizeAutoClearConfig(config.autoClear);
     },
@@ -4675,6 +4690,37 @@ function parsedProviderModelVersion(id) {
         ...(workflowRoutes.explorer ? { explore: normalizeWorkflowRoute(workflowRoutes.explorer) } : {}),
         ...(workflowRoutes.memory ? { memory: normalizeWorkflowRoute(workflowRoutes.memory) } : {}),
       };
+      // Per-agent onboarding routes (id → route) for the full FIXED_AGENT_SLOTS
+      // roster. Mirrors setAgentRoute persistence: config.agents[id], an
+      // agent-<id> preset, and (for workflow-backed agents) the workflowRoute +
+      // maintenance slot. Agents omitted from the payload inherit defaultRoute.
+      const agentInput = payload.agentRoutes && typeof payload.agentRoutes === 'object'
+        ? payload.agentRoutes
+        : null;
+      if (agentInput) {
+        const nextAgents = { ...(nextConfig.agents || {}) };
+        const nextMaintenance = { ...(nextConfig.maintenance || {}) };
+        for (const agent of FIXED_AGENT_SLOTS) {
+          // Only accept a self-contained {provider, model} route; a partial
+          // payload must fall back to the Main Model as a UNIT rather than
+          // field-merging (e.g. provider-only + default model).
+          const routeToSave = normalizeWorkflowRoute(agentInput[agent.id])
+            || defaultRoute;
+          if (!routeToSave) continue;
+          nextAgents[agent.id] = routeToSave;
+          presets = upsertWorkflowPreset(presets, agentPresetSlot(agent.id), routeToSave);
+          if (agent.workflowSlot) {
+            workflowRoutes[agent.workflowSlot] = routeToSave;
+            presets = upsertWorkflowPreset(presets, agent.workflowSlot, routeToSave);
+            if (agent.id === 'explore') nextMaintenance.explore = routeToSave;
+            if (agent.id === 'maintainer') nextMaintenance.memory = routeToSave;
+          }
+        }
+        nextConfig.agents = nextAgents;
+        nextConfig.presets = presets;
+        nextConfig.workflowRoutes = workflowRoutes;
+        nextConfig.maintenance = nextMaintenance;
+      }
       nextConfig.onboarding = {
         ...(nextConfig.onboarding || {}),
         completed: true,

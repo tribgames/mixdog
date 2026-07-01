@@ -26,7 +26,7 @@ export function ConfirmBar({ buttons = [], focusedIndex = -1 }) {
   const list = Array.isArray(buttons) ? buttons.filter(Boolean) : [];
   if (list.length === 0) return null;
   return (
-    <Box flexDirection="row" width="100%">
+    <Box flexDirection="row" width="100%" justifyContent="flex-end">
       {list.map((button, index) => {
         const isFocused = index === focusedIndex;
         return (

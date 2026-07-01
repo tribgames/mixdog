@@ -9,6 +9,8 @@
 // callers may pass either spelling (e.g. `glob` alias for grep, or
 // `file_path` alias for read.path).
 
+import { coerceShapeFlex } from './path-utils.mjs';
+
 const MAX_INT = 100000;
 // Explicit grep context should be large enough to frame a function/block without
 // letting one match explode into a huge tool result. `content_with_context` still
@@ -190,6 +192,13 @@ function guardRead(a) {
     const hasPath = hasOwn(a, 'path') || hasOwn(a, 'file_path');
     if (!hasPath) {
         return 'Error: read requires "path" (or alias file_path).';
+    }
+    // Some providers/models send a batched path array as a JSON string despite
+    // the schema. The executor already accepts that shape via coerceShapeFlex(),
+    // but validation runs first; apply the same lossless shape coercion here so
+    // valid batched reads do not waste a retry turn.
+    if (hasOwn(a, 'path')) {
+        a.path = coerceShapeFlex(a.path);
     }
     // path can be string | string[] | object[]; file_path is string
     if (hasOwn(a, 'path')) {

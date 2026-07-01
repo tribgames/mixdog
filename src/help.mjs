@@ -6,6 +6,7 @@ export const HELP_LINES = [
   '',
   'Usage:',
   '  mixdog [--provider <name>] [--model <name>] [--readonly]',
+  '  mixdog [--onboarding]      re-run the first-run setup wizard',
   '  mixdog <role> <message...>',
   '  mixdog --help',
   '',

@@ -1472,9 +1472,13 @@ function transcriptRenderWindow(items, { scrollOffset = 0, viewportHeight = 24, 
   };
 }
 
-export function App({ store, initialStatusLine = '' }) {
+export function App({ store, initialStatusLine = '', forceOnboarding = false }) {
   const state = useEngine(store);
   const [toolOutputExpanded, setToolOutputExpanded] = useState(false);
+  // True for the entire first-run onboarding wizard (every step + nested depth)
+  // so the welcome banner stays reserved and the layout doesn't jump when the
+  // step pickers mount. Cleared on finish/cancel.
+  const [onboardingActive, setOnboardingActive] = useState(false);
   const { exit } = useApp();
   // internal_eventEmitter is ink's parsed-input bus. ink 7 consumes stdin via
   // the 'readable' event + stdin.read() (see ink's App.js), draining the buffer
@@ -1706,14 +1710,19 @@ export function App({ store, initialStatusLine = '' }) {
   const slashPaletteRef = useRef({ open: false, count: 0 });
   const scrollFocusRef = useRef({});
   const onboardingStartedRef = useRef(false);
-  const onboardingRef = useRef({ defaultRoute: null, workflowRoutes: {}, providerModels: [] });
+  const onboardingRef = useRef({ defaultRoute: null, agentRoutes: {}, agents: [], providerModels: [] });
   const providerModelsCacheRef = useRef({ models: null, at: 0 });
   const searchModelsCacheRef = useRef({ models: null, at: 0 });
   const modelPickerRequestRef = useRef(0);
+  // Generation guard for the Step 1 background prefetch: bumped on every
+  // provider-scope cache clear (e.g. after auth) so a stale in-flight
+  // listProviderModels() cannot repopulate the ref after invalidation.
+  const onboardingPrefetchSeqRef = useRef(0);
   const clearModelCaches = useCallback((scope = 'all') => {
     if (scope === 'all' || scope === 'provider') {
       providerModelsCacheRef.current = { models: null, at: 0 };
       onboardingRef.current.providerModels = [];
+      onboardingPrefetchSeqRef.current += 1;
     }
     if (scope === 'all' || scope === 'search') {
       searchModelsCacheRef.current = { models: null, at: 0 };
@@ -3717,6 +3726,10 @@ export function App({ store, initialStatusLine = '' }) {
 
   const openOutputStylePicker = (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    // Onboarding mode: Enter (row select) and ConfirmBar Next must both persist
+    // the chosen style, then advance. `onboarding.onAdvance/onBack` drive the
+    // wizard; the confirm bar is built here so both paths share `saveStyle`.
+    const onboarding = options.onboarding || null;
     let status = null;
     try {
       status = store.listOutputStyles?.() || null;
@@ -3730,6 +3743,7 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
     const currentId = status?.current?.id || 'default';
+    let highlightedStyleId = currentId;
     const items = styles.map((style) => ({
       value: style.id,
       label: style.label || style.id,
@@ -3744,31 +3758,55 @@ export function App({ store, initialStatusLine = '' }) {
     setSettingsPrompt(null);
     setContextPanel(null);
     closeUsagePanel();
+    const saveStyle = (styleId, { advance = false } = {}) => {
+      if (!styleId) return;
+      setPicker(null);
+      void store.setOutputStyle?.(styleId)
+        .then((result) => {
+          if (!result) {
+            store.pushNotice('Output style switch is already running.', 'warn');
+          } else {
+            store.pushNotice(outputStyleNotice(result), 'info');
+          }
+          if (advance && onboarding) onboarding.onAdvance?.();
+          else if (returnTo) returnTo();
+        })
+        .catch((e) => store.pushNotice(`Couldn’t switch output style: ${e?.message || e}`, 'error'));
+    };
     setPicker({
       title: 'Output Style',
       description: 'Select response style.',
-      help: returnTo ? '↑/↓ Select · Enter Choose · Esc Settings' : '↑/↓ Select · Enter Choose · Esc Back',
+      // Onboarding uses a ConfirmBar (←/→ = Back/Next); let the Picker supply
+      // its ConfirmBar help instead of a stale ←/→ hint.
+      help: onboarding ? undefined : (returnTo ? '↑/↓ Select · Enter Choose · Esc Settings' : '↑/↓ Select · Enter Choose · Esc Back'),
       labelWidth: 18,
       items,
-      confirmBar: options.confirmBar || null,
+      confirmBar: onboarding ? {
+        buttons: [
+          { value: 'back', label: '◀ Back' },
+          { value: 'next', label: 'Next ▶' },
+        ],
+        onConfirm: (button) => {
+          if (button.value === 'back') {
+            setPicker(null);
+            onboarding.onBack?.();
+            return;
+          }
+          saveStyle(highlightedStyleId, { advance: true });
+        },
+      } : (options.confirmBar || null),
+      onHighlight: onboarding ? (_value, item) => {
+        if (item?._style?.id) highlightedStyleId = item._style.id;
+      } : undefined,
       onSelect: (_value, item) => {
         const style = item?._style;
         if (!style) return;
-        setPicker(null);
-        void store.setOutputStyle?.(style.id)
-          .then((result) => {
-            if (!result) {
-              store.pushNotice('Output style switch is already running.', 'warn');
-              return;
-            }
-            store.pushNotice(outputStyleNotice(result), 'info');
-            if (returnTo) returnTo();
-          })
-          .catch((e) => store.pushNotice(`Couldn’t switch output style: ${e?.message || e}`, 'error'));
+        saveStyle(style.id, { advance: Boolean(onboarding) });
       },
       onCancel: () => {
         setPicker(null);
-        if (returnTo) returnTo();
+        if (onboarding) onboarding.onCancel?.();
+        else if (returnTo) returnTo();
       },
     });
   };
@@ -3777,6 +3815,7 @@ export function App({ store, initialStatusLine = '' }) {
 
   const openThemePicker = (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    const onboarding = options.onboarding || null;
     let themes = [];
     try {
       themes = store.listThemes?.() || [];
@@ -3789,6 +3828,7 @@ export function App({ store, initialStatusLine = '' }) {
       return;
     }
     const currentId = store.getTheme?.() || themes.find((t) => t.current)?.id || themes[0]?.id;
+    let highlightedThemeId = currentId;
     const items = themes.map((entry) => ({
       value: entry.id,
       label: entry.label || entry.id,
@@ -3810,32 +3850,57 @@ export function App({ store, initialStatusLine = '' }) {
         return null;
       }
     };
+    // Onboarding: Enter (row) and ConfirmBar Next both persist the highlighted
+    // theme, then advance; Back restores the original palette then steps back.
+    const saveTheme = (id, { advance = false } = {}) => {
+      setPicker(null);
+      const applied = applyTheme(id, { persist: true });
+      store.pushNotice(themeNotice(applied || { id }), 'info');
+      if (advance && onboarding) onboarding.onAdvance?.();
+      else if (returnTo) returnTo();
+    };
     setPicker({
       title: 'Theme',
       description: 'Choose the color theme that looks best with your terminal.',
-      help: returnTo ? '↑/↓ Preview · Enter Choose · Esc Settings' : '↑/↓ Preview · Enter Choose · Esc Back',
+      help: onboarding ? undefined : (returnTo ? '↑/↓ Preview · Enter Choose · Esc Settings' : '↑/↓ Preview · Enter Choose · Esc Back'),
       labelWidth: 22,
       initialIndex: Math.max(0, items.findIndex((item) => item.value === currentId)),
       items,
-      confirmBar: options.confirmBar || null,
+      confirmBar: onboarding ? {
+        buttons: [
+          { value: 'back', label: '◀ Back' },
+          { value: 'next', label: 'Next ▶' },
+        ],
+        onConfirm: (button) => {
+          if (button.value === 'back') {
+            setPicker(null);
+            // Restore the palette active before the picker opened, then step back.
+            if (currentId) applyTheme(currentId, { persist: false });
+            onboarding.onBack?.();
+            return;
+          }
+          saveTheme(highlightedThemeId, { advance: true });
+        },
+      } : (options.confirmBar || null),
       // Live preview while moving: apply (no persist) so the surface re-tones
       // as the selection moves. Enter persists; Esc restores the original.
       onHighlight: (_value, item) => {
-        if (item?._theme?.id) applyTheme(item._theme.id, { persist: false });
+        if (item?._theme?.id) {
+          highlightedThemeId = item._theme.id;
+          applyTheme(item._theme.id, { persist: false });
+        }
       },
       onSelect: (_value, item) => {
         const entry = item?._theme;
         if (!entry) return;
-        setPicker(null);
-        const applied = applyTheme(entry.id, { persist: true });
-        store.pushNotice(themeNotice(applied || entry), 'info');
-        if (returnTo) returnTo();
+        saveTheme(entry.id, { advance: Boolean(onboarding) });
       },
       onCancel: () => {
         setPicker(null);
         // Restore the theme that was active before the picker opened.
         if (currentId) applyTheme(currentId, { persist: false });
-        if (returnTo) returnTo();
+        if (onboarding) onboarding.onCancel?.();
+        else if (returnTo) returnTo();
       },
     });
   };
@@ -5138,7 +5203,7 @@ export function App({ store, initialStatusLine = '' }) {
       description: options.description || 'Choose a provider. Enter opens provider actions.',
       footer: providerFooter,
       footerGapRows: 1,
-      help: '↑/↓ Select · Enter Open · Esc Back',
+      help: options.confirmBar ? undefined : '↑/↓ Select · Enter Open · Esc Back',
       indexMode: 'always',
       labelWidth: 18,
       metaWidth: 12,
@@ -5175,70 +5240,181 @@ export function App({ store, initialStatusLine = '' }) {
     });
   };
 
+  // First-run onboarding is a 5-step wizard. Each step's ROOT screen carries a
+  // ConfirmBar (Back/Next, Finish on the last step); the Picker owns the bar
+  // focus and only fires onConfirm from the bar. Nested depths (API-key entry,
+  // model route picker, channel setting/webhook) render without a ConfirmBar so
+  // their own key semantics are untouched and step-switching is disabled there.
+  // Esc/cancel during onboarding = confirm skip. Mark onboarding complete
+  // (routes/agents/provider untouched) so it does not reopen next launch;
+  // `mixdog --onboarding` (forceOnboarding) still reopens regardless.
+  const onboardingWarnReopen = () => {
+    setOnboardingActive(false);
+    try {
+      store.skipOnboarding?.();
+      store.pushNotice('Setup skipped. Run `mixdog --onboarding` to set up later.', 'info');
+    } catch (e) {
+      store.pushNotice(`Couldn’t save skip: ${e?.message || e}`, 'error');
+    }
+  };
+
+  // Warm the Step 2 data (provider models + agent roster) in the background as
+  // soon as Step 1 opens, so advancing to Step 2 renders instantly instead of
+  // flashing an empty panel while the async load runs.
+  const prefetchOnboardingStep2 = () => {
+    if (!Array.isArray(onboardingRef.current.providerModels) || onboardingRef.current.providerModels.length === 0) {
+      const seq = onboardingPrefetchSeqRef.current;
+      void Promise.resolve(store.listProviderModels?.())
+        .then((models) => {
+          // Drop a stale result: if the provider cache was invalidated (auth
+          // change) while this load was in flight, its generation moved on.
+          if (seq !== onboardingPrefetchSeqRef.current) return;
+          if (Array.isArray(models) && models.length) {
+            onboardingRef.current.providerModels = models;
+            providerModelsCacheRef.current = { models, at: Date.now() };
+          }
+        })
+        .catch(() => { /* Step 2 falls back to its own load on entry. */ });
+    }
+    if (!Array.isArray(onboardingRef.current.agents) || onboardingRef.current.agents.length === 0) {
+      try {
+        const roster = (store.listAgents?.() || []).map((a) => ({ id: a.id, label: a.label || a.id, description: a.description || '' }));
+        if (roster.length) onboardingRef.current.agents = roster;
+      } catch { /* Step 2 retries on entry. */ }
+    }
+  };
+
   const openOnboardingAuthStep = () => {
+    prefetchOnboardingStep2();
     void openProviderSetupPicker({
-      title: 'First Run · Step 1/2 · Provider Auth',
-      continueLabel: 'Continue to model setup',
-      continueDescription: 'choose the default and workflow models',
+      title: 'First Run · Step 1/5 · Provider Auth',
       returnTo: () => openOnboardingAuthStep(),
-      onContinue: () => void openOnboardingWorkflowStep(),
-      onCancel: () => store.pushNotice('first-run setup will open again next launch', 'warn'),
+      confirmBar: {
+        buttons: [{ value: 'next', label: 'Next ▶' }],
+        onConfirm: () => { setPicker(null); void openOnboardingWorkflowStep(); },
+      },
+      onCancel: onboardingWarnReopen,
     });
   };
 
-  const openOnboardingRoleModelPicker = (slot) => {
+  const openOnboardingThemeStep = () => {
+    openThemePicker({
+      onboarding: {
+        onAdvance: () => openOnboardingOutputStyleStep(),
+        onBack: () => void openOnboardingWorkflowStep(),
+        onCancel: onboardingWarnReopen,
+      },
+    });
+  };
+
+  const openOnboardingOutputStyleStep = () => {
+    openOutputStylePicker({
+      onboarding: {
+        onAdvance: () => void openOnboardingRemoteStep(),
+        onBack: () => openOnboardingThemeStep(),
+        onCancel: onboardingWarnReopen,
+      },
+    });
+  };
+
+  const openOnboardingRemoteStep = () => {
+    void openChannelSetupPicker('all', {
+      onboarding: true,
+      confirmBar: {
+        buttons: [
+          { value: 'back', label: '◀ Back' },
+          { value: 'finish', label: 'Finish ✓' },
+        ],
+        onConfirm: (button) => {
+          if (button.value === 'back') {
+            setPicker(null);
+            openOnboardingOutputStyleStep();
+            return;
+          }
+          finishOnboarding();
+        },
+      },
+    });
+  };
+
+  const finishOnboarding = () => {
+    const defaultRoute = onboardingRef.current.defaultRoute;
+    if (!defaultRoute) {
+      store.pushNotice('select a provider model before finishing setup', 'warn');
+      openOnboardingWorkflowStep();
+      return;
+    }
+    setPicker(null);
+    setOnboardingActive(false);
+    // Build the full per-agent route map. Agents the user never touched inherit
+    // the Main Model (defaultRoute); explicit overrides live in agentRoutes.
+    const agents = onboardingRef.current.agents || [];
+    const overrides = onboardingRef.current.agentRoutes || {};
+    const agentRoutes = {};
+    for (const agent of agents) {
+      agentRoutes[agent.id] = overrides[agent.id] || defaultRoute;
+    }
+    void store.completeOnboarding?.({
+      defaultRoute,
+      defaultProvider: defaultRoute.provider,
+      agentRoutes,
+    })
+      .then(() => store.pushNotice('First-run setup complete.', 'info'))
+      .catch((e) => store.pushNotice(`Couldn’t save setup: ${e?.message || e}`, 'error'));
+  };
+
+  // Onboarding Step 2 per-target model picker. `target` is either the pseudo
+  // slot 'lead' (Main Model) or a real agent id from listAgents(). No
+  // recommendation logic: the current effective route is pre-highlighted, and
+  // the plain model list is shown. Selecting Main Model updates defaultRoute;
+  // agents that have no explicit override keep inheriting it.
+  const openOnboardingRoleModelPicker = (target) => {
     const models = normalizeModelOptions(onboardingRef.current.providerModels || []);
-    const fallbackRoute = onboardingRef.current.defaultRoute || null;
+    const defaultRoute = onboardingRef.current.defaultRoute || null;
     if (models.length === 0) {
       store.pushNotice('no provider models available; open /providers to sign in', 'warn');
       openOnboardingAuthStep();
       return;
     }
-    const recommendedRoute = chooseRecommendedModel(models, slot, fallbackRoute);
-    const items = [
-      {
-        value: 'recommended',
-        label: 'Use recommended',
-        description: routeLabel(recommendedRoute),
-        _action: 'recommended',
-      },
-      ...models.map((m) => ({
-        value: `${m.provider}:${m.id}`,
-        label: m.display || m.id,
-        description: modelDescription(m),
-        _action: 'select-model',
-        _model: m,
-      })),
-      ...(fallbackRoute ? [{
-        value: 'fallback',
-        label: 'Use lead model',
-        description: routeLabel(fallbackRoute),
-        _action: 'fallback',
-      }] : []),
-    ];
+    const isLead = target === 'lead';
+    const overrides = onboardingRef.current.agentRoutes || {};
+    const currentRoute = isLead ? defaultRoute : (overrides[target] || defaultRoute);
+    const routeMatchesModel = (route, m) => route?.provider === m.provider && route?.model === m.id;
+    const items = models.map((m) => ({
+      value: `${m.provider}:${m.id}`,
+      label: m.display || m.id,
+      marker: routeMatchesModel(currentRoute, m) ? '✓' : '',
+      markerColor: theme.success,
+      description: modelDescription(m),
+      _model: m,
+    }));
+    const initialIndex = Math.max(0, models.findIndex((m) => routeMatchesModel(currentRoute, m)));
+    const label = isLead
+      ? 'Main Model'
+      : (onboardingRef.current.agents || []).find((a) => a.id === target)?.label || target;
     setPicker({
-      title: `First Run · ${slot} model`,
-      description: 'Pick the model route for this workflow role.',
+      title: `First Run · ${label}`,
+      description: isLead
+        ? 'Pick the main model. Agents inherit this unless individually changed.'
+        : `Pick the model for ${label}.`,
+      initialIndex,
       items,
       onSelect: (_value, item) => {
-        const next = item._action === 'select-model'
-          ? routeFromModel(item._model)
-          : item._action === 'recommended'
-            ? recommendedRoute
-            : fallbackRoute;
+        const next = item?._model ? routeFromModel(item._model) : null;
         if (!next) {
           store.pushNotice('select a provider model first', 'warn');
           setPicker(null);
           openOnboardingAuthStep();
           return;
         }
-        if (slot === 'lead') {
+        if (isLead) {
           onboardingRef.current.defaultRoute = next;
+        } else {
+          onboardingRef.current.agentRoutes = {
+            ...(onboardingRef.current.agentRoutes || {}),
+            [target]: next,
+          };
         }
-        onboardingRef.current.workflowRoutes = {
-          ...(onboardingRef.current.workflowRoutes || {}),
-          [slot]: next,
-        };
         setPicker(null);
         void openOnboardingWorkflowStep();
       },
@@ -5262,90 +5438,69 @@ export function App({ store, initialStatusLine = '' }) {
     const models = onboardingRef.current.providerModels || [];
     if (models.length === 0) {
       onboardingRef.current.defaultRoute = null;
-      onboardingRef.current.workflowRoutes = {};
+      onboardingRef.current.agentRoutes = {};
       store.pushNotice('no provider models available; open /providers to sign in', 'warn');
       openOnboardingAuthStep();
       return;
     }
-    if (!onboardingRef.current.defaultRoute) {
-      onboardingRef.current.defaultRoute = chooseRecommendedModel(models, 'lead', null);
+    // Main Model stays unset until the user picks one; no auto-recommendation.
+    // Load the real agent roster once (explore/maintainer/worker/heavy-worker/
+    // reviewer/debugger). Each agent defaults to the Main Model unless the user
+    // set an explicit override in agentRoutes.
+    if (!Array.isArray(onboardingRef.current.agents) || onboardingRef.current.agents.length === 0) {
+      try {
+        onboardingRef.current.agents = (store.listAgents?.() || []).map((a) => ({ id: a.id, label: a.label || a.id, description: a.description || '' }));
+      } catch (e) {
+        onboardingRef.current.agents = [];
+        store.pushNotice(`could not list agents: ${e?.message || e}`, 'warn');
+      }
     }
-    if (!onboardingRef.current.workflowRoutes || Object.keys(onboardingRef.current.workflowRoutes).length === 0) {
-      onboardingRef.current.workflowRoutes = buildWorkflowDefaults(models, onboardingRef.current.defaultRoute);
-    }
-    onboardingRef.current.workflowRoutes = {
-      ...(onboardingRef.current.workflowRoutes || {}),
-      lead: onboardingRef.current.defaultRoute,
-    };
-    const routes = onboardingRef.current.workflowRoutes || {};
-    const slots = [
-      ['agent', 'Agent', 'agent dispatch route'],
-      ['explorer', 'Explorer', 'code graph, file reading, repo exploration'],
-      ['memory', 'Memory', 'memory cycles and curation'],
-    ];
+    const defaultRoute = onboardingRef.current.defaultRoute;
+    const overrides = onboardingRef.current.agentRoutes || {};
+    const agents = onboardingRef.current.agents || [];
     setProviderPrompt(null);
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
     setPicker({
-      title: 'First Run · Step 2/2 · Workflow Routes',
-      description: 'Assign lead and workflow routes, then finish setup.',
+      title: 'First Run · Step 2/5 · Models',
+      description: 'Set the Main Model; each agent inherits it unless changed.',
       items: [
         {
-          value: 'finish',
-          label: 'Finish setup',
-          description: 'save model and workflow route mapping',
-          _action: 'finish',
-        },
-        {
-          value: 'lead',
-          label: 'Default model',
-          description: `${routeLabel(onboardingRef.current.defaultRoute)} · main chat and planning route`,
+          value: 'main-model',
+          label: 'Main Model',
+          description: `${routeLabel(defaultRoute)} · main chat, planning, and agent default`,
           _action: 'slot',
-          _slot: 'lead',
+          _target: 'lead',
         },
-        ...slots.map(([slot, label, description]) => ({
-          value: slot,
-          label,
-          description: `${routeLabel(routes[slot])} · ${description}`,
+        ...agents.map((agent) => ({
+          value: `agent:${agent.id}`,
+          label: agent.label,
+          description: `${overrides[agent.id] ? routeLabel(overrides[agent.id]) : 'Default · follows Main Model'}${agent.description ? ` · ${agent.description}` : ''}`,
           _action: 'slot',
-          _slot: slot,
+          _target: agent.id,
         })),
-        {
-          value: 'back',
-          label: 'Back to provider auth',
-          description: 'change API keys, OAuth, or local endpoints',
-          _action: 'back',
-        },
       ],
+      confirmBar: {
+        buttons: [
+          { value: 'back', label: '◀ Back' },
+          { value: 'next', label: 'Next ▶' },
+        ],
+        onConfirm: (button) => {
+          setPicker(null);
+          if (button.value === 'back') openOnboardingAuthStep();
+          else openOnboardingThemeStep();
+        },
+      },
       onSelect: (_value, item) => {
         setPicker(null);
-        if (item._action === 'finish') {
-          const defaultRoute = onboardingRef.current.defaultRoute;
-          if (!defaultRoute) {
-            store.pushNotice('select a provider model before finishing setup', 'warn');
-            openOnboardingAuthStep();
-            return;
-          }
-          void store.completeOnboarding?.({
-            defaultRoute,
-            workflowRoutes: onboardingRef.current.workflowRoutes || {},
-          })
-            .then(() => store.pushNotice('First-run setup complete.', 'info'))
-            .catch((e) => store.pushNotice(`Couldn’t save setup: ${e?.message || e}`, 'error'));
-          return;
-        }
-        if (item._action === 'back') {
-          openOnboardingAuthStep();
-          return;
-        }
         if (item._action === 'slot') {
-          openOnboardingRoleModelPicker(item._slot);
+          openOnboardingRoleModelPicker(item._target);
         }
       },
       onCancel: () => {
         setPicker(null);
-        store.pushNotice('first-run setup will open again next launch', 'warn');
+        onboardingWarnReopen();
       },
     });
   };
@@ -5355,8 +5510,9 @@ export function App({ store, initialStatusLine = '' }) {
     let canceled = false;
     try {
       const status = store.getOnboardingStatus?.();
-      if (status?.completed === true) return undefined;
+      if (status?.completed === true && !forceOnboarding) return undefined;
       onboardingStartedRef.current = true;
+      setOnboardingActive(true);
       setTimeout(() => {
         if (!canceled) openOnboardingAuthStep();
       }, 0);
@@ -5366,7 +5522,7 @@ export function App({ store, initialStatusLine = '' }) {
     return () => {
       canceled = true;
     };
-  }, [store]);
+  }, [store, forceOnboarding]);
 
   const openChannelTypeActionsPicker = (backend, options = {}) => {
     const parentReturn = typeof options.returnTo === 'function'
@@ -5719,17 +5875,26 @@ export function App({ store, initialStatusLine = '' }) {
     const backendLabel = activeBackend === 'telegram' ? 'Telegram' : 'Discord';
     const remoteEnabled = store.isRemoteEnabled?.() === true;
     const boolLabel = (enabled) => enabled ? 'On' : 'Off';
+    // Onboarding Step 5 reuses this root picker with a ConfirmBar. Reopens after
+    // a toggle must carry the onboarding context (confirmBar + flag) forward so
+    // Back/Finish stay wired and the general /channels path keeps its own opts.
+    const reopenRoot = (extra = {}) => {
+      const preserved = options.onboarding
+        ? { onboarding: true, confirmBar: options.confirmBar || null }
+        : {};
+      void openChannelSetupPicker('all', { ...preserved, ...extra });
+    };
     const applyRemoteRuntime = (highlightValue = 'remote-runtime') => {
       const enabled = store.toggleRemote?.() === true;
       store.pushNotice(enabled ? 'Remote mode ON' : 'Remote mode OFF', 'info');
-      void openChannelSetupPicker('all', { highlightValue });
+      reopenRoot({ highlightValue });
     };
     const cycleChannelBackend = (direction = 1, highlightValue = 'channel-backend') => {
       const backends = ['discord', 'telegram'];
       const currentIndex = Math.max(0, backends.indexOf(activeBackend));
       const chosen = backends[(currentIndex + direction + backends.length) % backends.length];
       if (chosen === activeBackend) {
-        void openChannelSetupPicker('all', { highlightValue, backendOverride: activeBackend });
+        reopenRoot({ highlightValue, backendOverride: activeBackend });
         return;
       }
       try {
@@ -5742,7 +5907,7 @@ export function App({ store, initialStatusLine = '' }) {
       } catch (e) {
         store.pushNotice(`channel backend failed: ${e?.message || e}`, 'error');
       }
-      void openChannelSetupPicker('all', { highlightValue, backendOverride: chosen });
+      reopenRoot({ highlightValue, backendOverride: chosen });
     };
     const items = [
       {
@@ -5789,18 +5954,21 @@ export function App({ store, initialStatusLine = '' }) {
     setPicker({
       title: 'Channels',
       description: 'Remote access and channel setup.',
-      help: '↑/↓ Select · ←/→ Change · Enter Choose/Toggle · Esc Back',
+      // Onboarding overlays a ConfirmBar (←/→ drive Back/Finish, not toggles),
+      // so drop the ←/→ Change hint there and use the Picker's ConfirmBar help.
+      help: options.confirmBar ? undefined : '↑/↓ Select · ←/→ Change · Enter Choose/Toggle · Esc Back',
       indexMode: 'always',
       labelWidth: 18,
       metaWidth: 12,
       pickerKey: `channels:${activeBackend}:${remoteEnabled ? 'on' : 'off'}:${options.highlightValue || 'root'}`,
       initialIndex: Math.max(0, items.findIndex((entry) => entry.value === options.highlightValue)),
       items,
-      onLeft: (item) => {
+      confirmBar: options.confirmBar || null,
+      onLeft: options.confirmBar ? undefined : (item) => {
         if (item?._action === 'remote-runtime') applyRemoteRuntime(item.value);
         else if (item?._action === 'channel-backend') cycleChannelBackend(-1, item.value);
       },
-      onRight: (item) => {
+      onRight: options.confirmBar ? undefined : (item) => {
         if (item?._action === 'remote-runtime') applyRemoteRuntime(item.value);
         else if (item?._action === 'channel-backend') cycleChannelBackend(1, item.value);
       },
@@ -5816,13 +5984,14 @@ export function App({ store, initialStatusLine = '' }) {
           }
           if (item._action === 'channel-setting') {
             openChannelSettingTypePicker({
-              returnTo: () => void openChannelSetupPicker('all'),
+              returnTo: () => reopenRoot({ highlightValue: 'channel-setting' }),
             });
             return;
           }
           if (item._action === 'webhook-endpoint') {
             void openChannelSetupPicker('webhook-endpoint', {
-              returnTo: () => void openChannelSetupPicker('all'),
+              ...(options.onboarding ? { onboarding: true, confirmBar: options.confirmBar || null } : {}),
+              returnTo: () => reopenRoot({ highlightValue: 'webhook-endpoint' }),
             });
           }
         } catch (e) {
@@ -5831,6 +6000,8 @@ export function App({ store, initialStatusLine = '' }) {
       },
       onCancel: () => {
         setPicker(null);
+        // Onboarding Step 5 Esc mirrors the other steps' reopen-next-launch warning.
+        if (options.onboarding) onboardingWarnReopen();
       },
     });
   };
@@ -7732,7 +7903,7 @@ export function App({ store, initialStatusLine = '' }) {
   // Slash search floats above the normal prompt. Actual option panels own the
   // prompt/status area, so they hide those rows and expand into that space.
   const inputBoxHidden = expandedOptionPanel;
-  const showWelcomeBanner = (state.items.length === 0 && !hasFloatingPanel) || projectSelectionActive;
+  const showWelcomeBanner = (state.items.length === 0 && !hasFloatingPanel) || projectSelectionActive || onboardingActive;
   const WELCOME_ROWS = showWelcomeBanner ? 11 : 0;
   const liveSpinner = state.spinner?.active ? state.spinner : (state.commandStatus?.active ? state.commandStatus : null);
   const latestToast = state.toasts?.length ? state.toasts[state.toasts.length - 1] : null;
@@ -7791,11 +7962,12 @@ export function App({ store, initialStatusLine = '' }) {
   // the new done row replaces that height in the same frame, with no ms timer.
   const promptMetaVisible = !inputBoxHidden && !slashPaletteOpen && !!liveSpinner && !latestDoneAtTail;
   const promptMetaRows = promptMetaVisible ? 2 : 0;
-  // Toast/error text without a live spinner uses the row directly above the
-  // prompt. Reserve it explicitly because the prompt no longer carries a spare
-  // top margin; the permanent transcript guard remains the "textbox + 1" gap.
+  // Toast/error text without a live spinner uses the existing transcript guard
+  // row directly above the prompt. Do NOT reserve another row here: that made a
+  // transient hint add a visible newline/prompt jump whenever no spinner was
+  // active.
   const overlayHintRequested = !inputBoxHidden && !hasFloatingPanel && !liveSpinner && !!inputHint && !queuedVisible;
-  const overlayHintRows = overlayHintRequested ? 1 : 0;
+  const overlayHintRows = 0;
   // QueuedCommands renders one row per queued command, pinned above the prompt
   // box (no extra top-margin row).
   const queuedRows = queuedVisible ? state.queued.length : 0;
@@ -7874,15 +8046,21 @@ export function App({ store, initialStatusLine = '' }) {
   //   from pushing the prompt/statusline upward, and when thinking starts the
   //   hint moves into the live row on the same render instead of double-painting.
   // Transient hint (toast/error/prompt hint) placement while no spinner owns the
-  // band: render it into the one-row gap above the prompt (replacing the blank
+  // band: render it into the one-row guard above the prompt (replacing the blank
   // spacer, no extra reserved row). While a spinner IS live the band renders the
   // hint on the spinner row instead, so this stays false then.
-  const overlayHintVisible = overlayHintRequested && floatingPanelRows <= 0;
-  const transientStatusWidth = inputHint
+  const overlayHintVisible = overlayHintRequested && floatingPanelRows <= 0 && transcriptGuardRows > 0;
+  const spinnerHintWidth = inputHint
     ? Math.max(1, Math.min(Math.max(1, frameColumns - 4), Math.max(12, Math.floor(frameColumns * 0.42))))
     : 0;
+  // When no live spinner owns a status band, the transient hint/error is drawn
+  // into the existing transcript guard row directly above the prompt. Give that
+  // guard-row overlay the full line and truncate it there; do not reserve another
+  // layout row or let a long error wrap/push transcript rows.
+  const guardHintWidth = inputHint ? Math.max(1, frameColumns - 2) : 0;
+  const transientStatusWidth = liveSpinner ? spinnerHintWidth : guardHintWidth;
   const promptSpinnerColumns = liveSpinner && inputHint
-    ? Math.max(1, frameColumns - transientStatusWidth - 1)
+    ? Math.max(1, frameColumns - spinnerHintWidth - 1)
     : frameColumns;
   // Key the heavy O(n) row-index + windowing memos on a STRUCTURE signature
   // instead of the `state.items` array identity. The engine swaps `state.items`
@@ -8452,7 +8630,15 @@ export function App({ store, initialStatusLine = '' }) {
            ) : null}
         </Box>
         </Box>
-        {transcriptGuardRows > 0 ? <Box height={transcriptGuardRows} flexShrink={0} backgroundColor={surfaceBackground()} /> : null}
+        {transcriptGuardRows > 0 ? (
+          <Box height={transcriptGuardRows} flexShrink={0} backgroundColor={surfaceBackground()} flexDirection="row" width="100%">
+            {overlayHintVisible ? (
+              <Box flexShrink={0} width={guardHintWidth || 1} marginLeft={1} marginRight={1} overflow="hidden">
+                <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
+              </Box>
+            ) : null}
+          </Box>
+        ) : null}
       </Box>
 
       {/* Live reasoning and transient status live just above the prompt: reasoning
@@ -8689,19 +8875,6 @@ export function App({ store, initialStatusLine = '' }) {
               </Box>
               <Box height={1} width="100%" backgroundColor={surfaceBackground()} />
             </>
-          ) : null}
-          {overlayHintVisible ? (
-            <Box
-              height={1}
-              width="100%"
-              flexDirection="row"
-              backgroundColor={surfaceBackground()}
-            >
-              <Box flexGrow={1} flexShrink={1} overflow="hidden" />
-              <Box flexShrink={0} width={transientStatusWidth || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
-                <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
-              </Box>
-            </Box>
           ) : null}
           {queuedVisible ? (
             <QueuedCommands queued={state.queued} columns={frameColumns} />

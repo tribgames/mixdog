@@ -657,7 +657,16 @@ function parseToolArgs(args) {
   return typeof args === 'object' ? args : {};
 }
 
-const yieldToRenderer = () => new Promise((resolve) => setImmediate(resolve));
+// Ink renders through a maxFps throttle (120fps in index.jsx, ≈8.3ms). A plain
+// setImmediate only yields to the event loop; if Ink already painted within the
+// current throttle window, the next paint may still be queued and our following
+// transcript mutation can coalesce into the same visible frame. Wait just past
+// one render window when we intentionally split transcript commits for visual
+// stability (preamble frame → tool-card frame).
+const RENDER_THROTTLE_FLUSH_MS = 12;
+const yieldToRenderer = () => new Promise((resolve) => {
+  setTimeout(resolve, RENDER_THROTTLE_FLUSH_MS);
+});
 
 function parseAgentJob(text) {
   const value = String(text || '');
@@ -3375,6 +3384,10 @@ export async function createEngineSession({
     },
     getOnboardingStatus: () => {
       return runtime.getOnboardingStatus?.() || { completed: true, workflowRoutes: {} };
+    },
+    skipOnboarding: () => {
+      // Completed-marking only; no route/agent/provider writes.
+      return runtime.skipOnboarding?.() || null;
     },
     completeOnboarding: async (payload = {}) => {
       if (state.commandBusy) return null;

@@ -22,6 +22,7 @@ import {
     pruneToolOutputs,
     pruneToolOutputsUnanchored,
     semanticCompactMessages,
+    effectiveBudget as compactEffectiveBudget,
     compactTypeIsRecallFastTrack,
     compactTypeIsSemantic,
     normalizeCompactType,
@@ -1574,6 +1575,51 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     }
                     summaryChanged = messagesArrayChanged(compactInputMessages, compacted);
                 } catch (compactErr) {
+                    // Anchor-independent prune safety net. When SEMANTIC compact
+                    // throws (e.g. a degenerate single-turn transcript, or a
+                    // summary that cannot fit), attempt one non-LLM prune that
+                    // needs no user anchor: middle-truncate the oldest oversized
+                    // tool_result bodies until the transcript fits the budget.
+                    // If it shrinks the transcript we continue with that result
+                    // instead of escalating to overflow. Structure/pairing is
+                    // preserved (only string content shrinks) and the result is
+                    // re-reconciled inside the helper.
+                    //
+                    // GATED to the non-recall path: a recall-fasttrack failure
+                    // must NOT be silently recovered by this prune (that would
+                    // change the type-2 path's contract by shipping a pruned
+                    // transcript with no recall output). When recallFastTrackError
+                    // is set the fallback is skipped and the original overflow
+                    // escalation runs unchanged.
+                    if (!recallFastTrackError) {
+                        try {
+                            // Accept only if the pruned transcript fits the SAME
+                            // effective budget the prune targets (compactBudgetTokens
+                            // minus the request reserve) — comparing against the raw
+                            // compactBudgetTokens would accept a result with no
+                            // reserve headroom and overflow on the very next send.
+                            const acceptThreshold = compactEffectiveBudget(compactBudgetTokens, {
+                                reserveTokens: compactPolicy.reserveTokens,
+                            });
+                            const salvaged = pruneToolOutputsUnanchored(messages, compactBudgetTokens, {
+                                reserveTokens: compactPolicy.reserveTokens,
+                            });
+                            if (messagesArrayChanged(messages, salvaged)
+                                && estimateMessagesTokensSafe(salvaged) <= acceptThreshold) {
+                                compacted = salvaged;
+                                pruneCount = countPrunedToolOutputs(messages, salvaged);
+                                summaryChanged = true;
+                            }
+                        } catch { /* fall through to overflow escalation */ }
+                    }
+                    if (compacted !== undefined) {
+                        try {
+                            process.stderr.write(
+                                `[loop] compact fallback prune recovered (sess=${sessionId || 'unknown'}): ` +
+                                `${compactErr?.message || compactErr}\n`,
+                            );
+                        } catch { /* best-effort */ }
+                    } else {
                     const compactFailMsg = compactErr && compactErr.message ? compactErr.message : String(compactErr);
                     const semanticFailMsg = semanticCompactError?.message || null;
                     const recallFailMsg = recallFastTrackError?.message || null;
@@ -1655,6 +1701,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                         reserveTokens: compactPolicy.reserveTokens,
                         messageTokensEst,
                     }, compactErr);
+                    }
                 }
                 try { opts.onStageChange?.('requesting'); } catch { /* best-effort */ }
                 const compactChanged = messagesArrayChanged(messages, compacted);
@@ -1901,6 +1948,43 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         try {
             response = await provider.send(messages, model, sendTools.length ? sendTools : undefined, opts);
         } catch (sendErr) {
+            // Partial-final recovery (owner-notify fix): the recurring "worker
+            // finished but the task hung / no result delivered" case is a FINAL,
+            // no-tool summary stream that wedges (ping-only) AFTER all real tool
+            // work completed in earlier iterations. The provider attaches its
+            // partial stream state to the StreamStalledError. When the stall
+            // carries streamed assistant text, has NO pending tool_use, and did
+            // NOT emit a tool call this iteration, accept the partial as a
+            // successful terminal response (deliver the summary we have) instead
+            // of throwing — which would strand/notify-as-failure a turn whose
+            // work actually succeeded. A stall WITH a pending/emitted tool call
+            // is NOT recoverable (a tool whose input never completed must never
+            // look done) and falls through to the normal error path.
+            if (
+                sendErr?.streamStalled === true
+                && sendErr.pendingToolUse !== true
+                && sendErr.unsafeToRetry !== true
+                && typeof sendErr.partialContent === 'string'
+                && sendErr.partialContent.trim().length > 0
+                && !(Array.isArray(sendErr.partialToolCalls) && sendErr.partialToolCalls.length > 0)
+            ) {
+                try {
+                    process.stderr.write(
+                        `[loop] final stream stalled with partial text (sess=${sessionId || 'unknown'} `
+                        + `iter=${nextIteration} len=${sendErr.partialContent.length}); `
+                        + `accepting as partial-final success\n`,
+                    );
+                } catch { /* best-effort */ }
+                response = {
+                    content: sendErr.partialContent,
+                    model: sendErr.partialModel || model,
+                    toolCalls: undefined,
+                    usage: sendErr.partialUsage || undefined,
+                    stopReason: sendErr.partialStopReason || 'end_turn',
+                    hasThinkingContent: sendErr.partialHasThinking === true,
+                    partialFinal: true,
+                };
+            } else
             // Context-window-exceeded is a deterministic refusal from the API.
             // Recover context overflow reactively by compacting and retrying
             // in the same active turn. MixDog's proactive estimator can miss a

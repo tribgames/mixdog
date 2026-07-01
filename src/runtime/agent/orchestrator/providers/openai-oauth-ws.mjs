@@ -1556,7 +1556,16 @@ export async function _streamResponse({
             if (semanticIdleTimer) clearTimeout(semanticIdleTimer);
             semanticIdleTimer = setTimeout(() => {
                 traceWsTimeout('semantic_idle_timeout', semanticIdleMs);
-                terminalError = streamStalledError('Responses WS', semanticIdleMs);
+                terminalError = streamStalledError('Responses WS', semanticIdleMs, { emittedToolCall: !!midState?.emittedToolCall });
+                // Partial-final recovery parity: attach streamed partial state so
+                // a wedged FINAL no-tool summary can be accepted as partial-final
+                // success by the loop. pendingToolUse gates out mid-flight tools.
+                try {
+                    terminalError.partialContent = content;
+                    terminalError.partialToolCalls = toolCalls.length ? toolCalls.slice() : undefined;
+                    terminalError.pendingToolUse = pendingCalls.size > 0 || !!midState?.emittedToolCall;
+                    terminalError.partialModel = model || undefined;
+                } catch { /* best-effort enrichment */ }
                 try { terminalError.wsCloseCode = 4000; } catch {}
                 try { socket.close(4000, 'semantic_idle_timeout'); } catch {}
                 finish();
@@ -1974,6 +1983,13 @@ export async function _streamResponse({
                         && event.type.startsWith('response.reasoning')
                         && event.type.endsWith('.delta')) {
                         reasoningOtherDeltaCount += 1;
+                        // These ARE live model progress (reviewer Medium): a
+                        // provider that emits only these reasoning variants for a
+                        // long span would otherwise trip the SEMANTIC idle abort.
+                        // Refresh both the watchdog and the semantic idle timer,
+                        // matching the named reasoning_text.delta case above.
+                        try { onStreamDelta?.(); } catch {}
+                        bumpSemanticIdle();
                     }
                     // Trace-only events (response.in_progress, etc.)
                     break;

@@ -7,6 +7,7 @@ import { getWebhookAuthtoken } from "../../shared/config.mjs";
 import { appendFileSync, readFileSync, readdirSync, mkdirSync, writeFileSync, unlinkSync, existsSync, renameSync, watch as fsWatch } from "fs";
 import { appendFile } from "fs/promises";
 import { randomUUID } from "crypto";
+import { readMarkdownDocument } from "../../shared/markdown-frontmatter.mjs";
 const WEBHOOKS_DIR = join(DATA_DIR, "webhooks");
 const WEBHOOK_LOG = join(DATA_DIR, "webhook.log");
 let webhookLogBuffer = [];
@@ -101,15 +102,16 @@ function verifySignature(secret, rawBody, signatureValue, parser) {
 }
 
 // ── Endpoint config loader ─────────────────────────────────────────────
-// Reads DATA_DIR/webhooks/<name>/config.json (written by setup-server.mjs
-// via POST /webhooks). Cached in-memory, invalidated by fs.watch on the
-// webhooks directory. Returns { secret, parser, channel, mode, role }
-// where mode ∈ {"delegate","interactive"} and role names a user-workflow
-// entry (e.g. "reviewer") when mode=delegate.
+// Reads DATA_DIR/webhooks/<name>/WEBHOOK.md (written by setup-server.mjs
+// via POST /webhooks). The frontmatter IS the config object; the markdown
+// body is the instructions/prompt. Cached in-memory, invalidated by
+// fs.watch on the webhooks directory. Returns the frontmatter object
+// { secret, parser, channel, model, role, enabled } where routing is by
+// `channel` presence and `role` names a user-workflow entry when set.
 const _endpointCache = new Map();
 let _endpointWatcher = null;
 function _endpointConfigPath(name) {
-  return join(WEBHOOKS_DIR, name, "config.json");
+  return join(WEBHOOKS_DIR, name, "WEBHOOK.md");
 }
 function _ensureEndpointWatcher() {
   if (_endpointWatcher) return;
@@ -117,7 +119,7 @@ function _ensureEndpointWatcher() {
     if (!existsSync(WEBHOOKS_DIR)) return;
     _endpointWatcher = fsWatch(WEBHOOKS_DIR, { recursive: true }, (_event, filename) => {
       if (!filename) { _endpointCache.clear(); return; }
-      // filename is like "<endpoint>/config.json" or "<endpoint>"
+      // filename is like "<endpoint>/WEBHOOK.md" or "<endpoint>"
       const parts = String(filename).split(/[\\/]/);
       const endpointName = parts[0];
       if (endpointName) _endpointCache.delete(endpointName);
@@ -138,7 +140,7 @@ function loadEndpointConfig(name) {
   if (!name) return null;
   // A cached entry is only authoritative while the fs.watch handle is
   // armed — otherwise a later mkdir+write of WEBHOOKS_DIR/<name>/
-  // config.json has no way to invalidate the cache and a stale `null`
+  // WEBHOOK.md has no way to invalidate the cache and a stale `null`
   // (e.g. captured before WEBHOOKS_DIR existed) would pin forever.
   if (_endpointCache.has(name) && _endpointWatcher) return _endpointCache.get(name);
   _ensureEndpointWatcher();
@@ -151,7 +153,14 @@ function loadEndpointConfig(name) {
     return null;
   }
   try {
-    const cfg = JSON.parse(readFileSync(p, "utf8"));
+    // Frontmatter is the config object; `enabled` arrives as a string and
+    // is cast so `endpoint?.enabled === false` gates match a written
+    // `enabled: false`.
+    const { frontmatter } = readMarkdownDocument(readFileSync(p, "utf8"));
+    const cfg = { ...frontmatter };
+    if (Object.prototype.hasOwnProperty.call(cfg, "enabled")) {
+      cfg.enabled = cfg.enabled !== "false" && cfg.enabled !== false;
+    }
     _endpointCache.set(name, cfg);
     return cfg;
   } catch {
@@ -631,7 +640,7 @@ class WebhookServer {
     }
     const _registeredPre = !!(
       _endpointPreCheck
-      || existsSync(join(WEBHOOKS_DIR, name, "instructions.md"))
+      || existsSync(join(WEBHOOKS_DIR, name, "WEBHOOK.md"))
     );
     if (!_registeredPre) {
       logWebhook(`rejected: unknown endpoint ${name}`);
@@ -707,7 +716,7 @@ class WebhookServer {
       // routing is reachable only through a registered endpoint.
       const _registered = !!(
         endpoint
-        || existsSync(join(WEBHOOKS_DIR, name, "instructions.md"))
+        || existsSync(join(WEBHOOKS_DIR, name, "WEBHOOK.md"))
       );
       if (!_registered) {
         logWebhook(`rejected: unknown endpoint ${name}`);
@@ -836,18 +845,18 @@ class WebhookServer {
       res.end(JSON.stringify({ error: "webhook secret required for signed parser" }));
       return false;
     }
-    // instructions.md folder endpoint with no resolved signature
+    // WEBHOOK.md folder endpoint with no resolved signature
     // mode. handleWebhook's instructions.md branch enqueues the body as
     // an interactive prompt (or dispatches a delegate) — both are
     // privileged. With no per-endpoint secret/parser AND no global
     // secret/parser, there is no signature mode to fall back on, so
     // accepting the request would inject attacker-controlled input.
-    // Fail closed. (Endpoints that DO carry a config.json with a
+    // Fail closed. (Endpoints that DO carry a WEBHOOK.md with a
     // secret/parser are handled by the branches above.)
-    if (!secret && !parser && existsSync(join(WEBHOOKS_DIR, name, "instructions.md"))) {
-      logWebhook(`${name}: rejected (instructions.md endpoint requires a webhook secret)`);
+    if (!secret && !parser && existsSync(join(WEBHOOKS_DIR, name, "WEBHOOK.md"))) {
+      logWebhook(`${name}: rejected (WEBHOOK.md endpoint requires a webhook secret)`);
       res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "webhook secret required for instructions.md endpoint" }));
+      res.end(JSON.stringify({ error: "webhook secret required for WEBHOOK.md endpoint" }));
       return false;
     }
     if (!this.noSecretWarned) {
@@ -1139,21 +1148,24 @@ class WebhookServer {
   }
   // ── Webhook handler ───────────────────────────────────────────────
   _readFolderHandler(folderPath) {
-    const configPath = join(folderPath, "config.json");
+    const mdPath = join(folderPath, "WEBHOOK.md");
     // Routing by channel presence (no `mode` field): an endpoint WITH a
     // channel dispatches to the hidden webhook-handler role and reports to
     // that channel; an endpoint WITHOUT a channel injects into the current
     // (Lead) session. `channel` starts NULL so its absence is detectable;
     // `role` defaults to the mandatory webhook-handler for the direct path.
-    // The signature gate (below) fails closed on any instructions.md
+    // The signature gate (below) fails closed on any WEBHOOK.md
     // endpoint lacking a secret, so dropping `mode` does not weaken auth.
-    const handler = { channel: null, role: "webhook-handler", model: null };
-    if (existsSync(configPath)) {
+    // `instructions` carries the markdown body (the prompt) so callers read
+    // one file instead of a config.json + instructions.md pair.
+    const handler = { channel: null, role: "webhook-handler", model: null, instructions: "" };
+    if (existsSync(mdPath)) {
       try {
-        const cfg = JSON.parse(readFileSync(configPath, "utf8"));
-        if (cfg.channel) handler.channel = cfg.channel;
-        if (typeof cfg.role === "string" && cfg.role) handler.role = cfg.role;
-        if (typeof cfg.model === "string" && cfg.model) handler.model = cfg.model;
+        const { frontmatter, body } = readMarkdownDocument(readFileSync(mdPath, "utf8"));
+        if (frontmatter.channel) handler.channel = frontmatter.channel;
+        if (typeof frontmatter.role === "string" && frontmatter.role) handler.role = frontmatter.role;
+        if (typeof frontmatter.model === "string" && frontmatter.model) handler.model = frontmatter.model;
+        handler.instructions = String(body || "").trim();
       } catch {
       }
     }
@@ -1222,21 +1234,20 @@ ${payload}
   }
   handleWebhook(name, body, headers, res, deliveryId) {
     const folderPath = join(WEBHOOKS_DIR, name);
-    const instructionsPath = join(folderPath, "instructions.md");
-    if (existsSync(instructionsPath)) {
+    const mdPath = join(folderPath, "WEBHOOK.md");
+    if (existsSync(mdPath)) {
       try {
-        const instructions = readFileSync(instructionsPath, "utf8").trim();
-        const { channel, role, model } = this._readFolderHandler(folderPath);
+        const { channel, role, model, instructions } = this._readFolderHandler(folderPath);
         const payloadContent = this._buildFencedPayload(body, headers);
         if (channel) {
           if (!role) {
-            appendDelivery(name, { id: deliveryId, status: "failed", error: "delegate mode requires role in config.json" });
+            appendDelivery(name, { id: deliveryId, status: "failed", error: "delegate mode requires role in WEBHOOK.md" });
             logWebhook(`${name}: delegate mode requires role - rejected`);
             res.writeHead(400, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ status: "rejected", error: "delegate mode requires role" }));
             return;
           } else if (!model) {
-            appendDelivery(name, { id: deliveryId, status: "failed", error: "delegate mode requires model in config.json" });
+            appendDelivery(name, { id: deliveryId, status: "failed", error: "delegate mode requires model in WEBHOOK.md" });
             logWebhook(`${name}: delegate mode requires model - rejected`);
             res.writeHead(400, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ status: "rejected", error: "delegate mode requires model" }));

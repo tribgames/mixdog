@@ -440,6 +440,26 @@ if (!/^read 2\b/m.test(String(readRegionBatchOut))
   throw new Error(`read region batch must preserve both requested spans:\n${readRegionBatchOut}`);
 }
 
+const readStringifiedRegionArgs = {
+  path: JSON.stringify([{ path: 'scripts/smoke.mjs', offset: 0, limit: 2 }]),
+};
+const readStringifiedRegionErr = validateBuiltinArgs('read', readStringifiedRegionArgs);
+if (readStringifiedRegionErr || !Array.isArray(readStringifiedRegionArgs.path)) {
+  throw new Error(`read guard must losslessly coerce stringified path arrays: err=${readStringifiedRegionErr} args=${JSON.stringify(readStringifiedRegionArgs)}`);
+}
+const readStringifiedRegionOut = await executeBuiltinTool('read', {
+  path: JSON.stringify([{ path: 'scripts/smoke.mjs', offset: 0, limit: 2 }]),
+}, root);
+if (!/^read 1\b/m.test(String(readStringifiedRegionOut)) || !/scripts\/smoke\.mjs \[full\] \[ok\]/.test(String(readStringifiedRegionOut)) || !/1→import \{ spawnSync \}/.test(String(readStringifiedRegionOut))) {
+  throw new Error(`read stringified region batch must execute after guard coercion:\n${readStringifiedRegionOut}`);
+}
+const readStringifiedLineErr = validateBuiltinArgs('read', {
+  path: JSON.stringify([{ path: 'scripts/smoke.mjs', line: 10, context: 2 }]),
+});
+if (!/path\[0\]\.line.*not supported.*offset\/limit only/i.test(readStringifiedLineErr || '')) {
+  throw new Error(`read guard must reject legacy line/context inside stringified arrays: ${readStringifiedLineErr}`);
+}
+
 const graphOut = await executeCodeGraphTool('code_graph', {
   mode: 'symbols',
   file: 'scripts/smoke.mjs',
@@ -1399,7 +1419,7 @@ for (const requiredGrammarLine of [
 }
 const readPathSchema = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.inputSchema?.properties?.path || {};
 const readPathDescription = readPathSchema.description || '';
-if (!/File path/i.test(readPathDescription) || !/\{path,offset,limit\}/i.test(readPathDescription) || !/Dirs use list/i.test(readPathDescription)) {
+if (!/File path/i.test(readPathDescription) || !/\{path,offset,limit\}\[\]/i.test(readPathDescription) || !/Pass arrays directly/i.test(readPathDescription) || !/legacy recovery only/i.test(readPathDescription) || !/Dirs use list/i.test(readPathDescription)) {
   throw new Error('read schema must keep directory-vs-file guidance');
 }
 const readTool = BUILTIN_TOOLS.find((tool) => tool.name === 'read');
@@ -1410,13 +1430,13 @@ const readArrayItemAnyOf = readArraySchema?.items?.anyOf || [];
 if (!readArrayItemAnyOf.some((entry) => entry?.type === 'object' && entry?.properties?.offset && entry?.properties?.limit)) {
   throw new Error('read schema must expose array-of-region objects for batched spans');
 }
-if (/line\+context/i.test(readDescription) || !/offset\+limit/i.test(readDescription) || !/Batch paths\/regions/i.test(readDescription) || !/after grep\/code_graph anchors/i.test(readDescription) || !/avoid serial reads/i.test(readDescription)) {
+if (/line\+context/i.test(readDescription) || !/numeric offset\+limit/i.test(readDescription) || !/Batch paths\/regions as real arrays/i.test(readDescription) || !/grep content_with_context or code_graph anchors/i.test(readDescription)) {
   throw new Error('read description must expose offset/limit as the single window form');
 }
 if (readProps.line || readProps.context) {
   throw new Error('read schema must not expose legacy line/context window fields');
 }
-if (readProps.offset?.minimum !== 0 || !/Lines to skip/i.test(readProps.offset?.description || '') || !/offset:N/i.test(readProps.offset?.description || '')) {
+if (readProps.offset?.minimum !== 0 || !/Numeric lines to skip/i.test(readProps.offset?.description || '') || !/offset:N/i.test(readProps.offset?.description || '') || !/Numeric max lines/i.test(readProps.limit?.description || '')) {
   throw new Error('read offset schema must describe Mixdog paging cursor semantics');
 }
 if (/line\/context/i.test(JSON.stringify(readTool?.inputSchema || {}))) {
@@ -1470,10 +1490,10 @@ if (codeGraphSymbolSearchErr) {
 // symbol/definition/caller lookups AWAY from repeated grep (the grep_retry +
 // find_symbol_noscope anti-patterns). It is allowed to be verbose enough to
 // enumerate modes, but must not drift into web-search territory.
-if (!/code structure/i.test(codeGraphDescription) || !/symbol_search/i.test(codeGraphDescription)) {
+if (!/code structure\/flow/i.test(codeGraphDescription) || !/symbols\/references\/calls\/deps/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
 }
-if (!/structure lookup/i.test(codeGraphDescription) || !/before grep/i.test(codeGraphDescription)) {
+if (!/before text grep/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must steer symbol/caller lookups to structure lookup before grep');
 }
 if (!/repo-local/i.test(codeGraphDescription) || !/NOT web search|not web/i.test(codeGraphDescription)) {
@@ -1730,13 +1750,13 @@ const grepPathDescription = grepTool?.inputSchema?.properties?.path?.description
 const grepGlobDescription = grepTool?.inputSchema?.properties?.glob?.description || '';
 const grepOutputModeDescription = grepTool?.inputSchema?.properties?.output_mode?.description || '';
 const grepHeadLimitDescription = grepTool?.inputSchema?.properties?.head_limit?.description || '';
-if (!/Array = OR/i.test(grepPatternDescription) || !/ONE grep/i.test(grepPatternDescription) || !/serial rewording/i.test(grepPatternDescription) || !/equivalent repeats/i.test(grepPatternDescription) || !/Narrowest file\/dir/i.test(grepPathDescription) || !/refine from returned paths/i.test(grepPathDescription)) {
+if (!/synonyms in pattern\[\]/i.test(grepPatternDescription) || !/OR in ONE grep/i.test(grepPatternDescription) || !/serial rewording/i.test(grepPatternDescription) || !/equivalent repeats/i.test(grepPatternDescription) || !/Narrowest file\/dir/i.test(grepPathDescription) || !/broad scopes return paths first/i.test(grepPathDescription) || !/refine from returned paths/i.test(grepPathDescription)) {
   throw new Error('grep schema must keep compact pattern/path guidance');
 }
 if (!/same grep/i.test(grepGlobDescription) || !/no follow-up grep/i.test(grepGlobDescription) || !/equivalent scope changes/i.test(grepGlobDescription)) {
   throw new Error('grep glob schema must steer narrowing into the same grep call');
 }
-if (!/answer from/i.test(grepOutputModeDescription) || !/skip read/i.test(grepOutputModeDescription) || !/span is not shown/i.test(grepOutputModeDescription)) {
+if (!/Broad scope: files_with_matches\/count/i.test(grepOutputModeDescription) || !/Narrow scope: content_with_context/i.test(grepOutputModeDescription) || !/answer from/i.test(grepOutputModeDescription) || !/skip read/i.test(grepOutputModeDescription) || !/span is not shown/i.test(grepOutputModeDescription)) {
   throw new Error('grep output_mode schema must steer content_with_context away from follow-up reads');
 }
 if (grepTool?.inputSchema?.properties?.head_limit?.minimum !== 0 || !/keep small/i.test(grepHeadLimitDescription)) {
@@ -1745,7 +1765,7 @@ if (grepTool?.inputSchema?.properties?.head_limit?.minimum !== 0 || !/keep small
 if (grepTool?.inputSchema?.properties?.type) {
   throw new Error('grep type schema must stay hidden; prefer glob for extension narrowing');
 }
-if (!/structure before text search/i.test(codeGraphProps.mode?.description || '') || !/one anchor is enough/i.test(codeGraphProps.symbol?.description || '') || !/one call/i.test(codeGraphProps.symbols?.description || '')) {
+if (!/code flow before text search/i.test(codeGraphProps.mode?.description || '') || !/one anchor is enough/i.test(codeGraphProps.symbol?.description || '') || !/one call/i.test(codeGraphProps.symbols?.description || '')) {
   throw new Error('code_graph schema fields must steer away from repeated lookup loops');
 }
 

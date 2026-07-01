@@ -103,10 +103,18 @@ function firstByteCompatStreamError(label) {
     return err;
 }
 
-async function nextAsyncWithWatchdog(iterator, { signal, idleMs, idleEnabled, idleLabel } = {}) {
+async function nextAsyncWithWatchdog(iterator, { signal, idleMs, idleEnabled, idleLabel, emittedToolCall } = {}) {
     let idleTimer = null;
     let idleReject = null;
     let idleTimedOut = false;
+    // Double-dispatch guard (reviewer High): if a tool call was already emitted
+    // this stream, a stall must be unsafe-to-retry so withRetry() won't replay
+    // the turn and re-run the side-effecting tool. `emittedToolCall` may be a
+    // boolean or a getter evaluated at abort time (state mutates mid-stream).
+    const didEmitToolCall = () => {
+        try { return typeof emittedToolCall === 'function' ? !!emittedToolCall() : !!emittedToolCall; }
+        catch { return false; }
+    };
     const armIdle = () => {
         if (!idleEnabled || !(idleMs > 0)) return;
         if (idleTimer) clearTimeout(idleTimer);
@@ -117,7 +125,7 @@ async function nextAsyncWithWatchdog(iterator, { signal, idleMs, idleEnabled, id
             // filters out cannot keep it alive. Throw the named terminal
             // StreamStalledError so the retry-classifier treats it as a stream
             // failure (owner gets notified) rather than a user cancel.
-            const e = streamStalledError(idleLabel || 'compat SSE', idleMs);
+            const e = streamStalledError(idleLabel || 'compat SSE', idleMs, { emittedToolCall: didEmitToolCall() });
             if (idleReject) {
                 const r = idleReject;
                 idleReject = null;
@@ -163,7 +171,7 @@ async function nextAsyncWithWatchdog(iterator, { signal, idleMs, idleEnabled, id
         return result;
     } catch (err) {
         if (idleTimer) clearTimeout(idleTimer);
-        if (idleTimedOut) throw streamStalledError(idleLabel || 'compat SSE', idleMs);
+        if (idleTimedOut) throw streamStalledError(idleLabel || 'compat SSE', idleMs, { emittedToolCall: didEmitToolCall() });
         throw err;
     }
 }
@@ -357,6 +365,9 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
                 idleMs,
                 idleEnabled: sawFirstEvent && idleEnabled,
                 idleLabel: `${label} SSE idle`,
+                // A stall after a tool call has already been dispatched (native
+                // or recovered-leaked) must be unsafe-to-retry (no double-run).
+                emittedToolCall: () => leakedCalls.length > 0 || toolAcc.size > 0,
             });
             if (done) break;
             if (!sawFirstEvent) {
@@ -395,6 +406,17 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
     } catch (err) {
         // Any mid-stream failure after live text was relayed is non-retryable.
         if (emittedText) throw markErrorLiveTextEmitted(err);
+        // Partial-final recovery parity: on a mid-stream stall, attach the
+        // streamed partial state so the loop can accept a wedged FINAL no-tool
+        // summary as partial-final success. pendingToolUse gates out any
+        // in-flight/emitted tool call.
+        if (err?.streamStalled === true) {
+            try {
+                err.partialContent = content;
+                err.pendingToolUse = toolAcc.size > 0 || leakedCalls.length > 0;
+                err.partialModel = model || undefined;
+            } catch { /* best-effort */ }
+        }
         throw err;
     } finally {
         firstByteTimeout.cleanup();
@@ -721,6 +743,9 @@ export async function consumeCompatResponsesStream(stream, {
                 idleMs,
                 idleEnabled: sawFirstEvent && idleEnabled,
                 idleLabel: `${label} SSE idle`,
+                // Unsafe-to-retry once any tool call (native or recovered-leaked)
+                // has been emitted this stream — avoid a double side-effect.
+                emittedToolCall: () => state.emittedToolCall || leakedCalls.length > 0,
             });
             if (done) break;
             if (!sawFirstEvent) {
@@ -731,6 +756,15 @@ export async function consumeCompatResponsesStream(stream, {
         }
         flushLeak();
     } catch (err) {
+        // Partial-final recovery parity: attach streamed partial state so a
+        // wedged FINAL no-tool summary can be accepted as partial-final success.
+        if (err?.streamStalled === true) {
+            try {
+                err.partialContent = state.content || '';
+                err.pendingToolUse = state.emittedToolCall === true || leakedCalls.length > 0;
+                err.partialModel = state.model || undefined;
+            } catch { /* best-effort */ }
+        }
         throw markUnsafeRetryIfToolEmitted(err, state);
     } finally {
         firstByteTimeout.cleanup();

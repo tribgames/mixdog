@@ -5,7 +5,7 @@ import { performance } from 'node:perf_hooks';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VALUE_OPTIONS = new Set(['--provider', '--model']);
-const FLAG_OPTIONS = new Set(['--readonly', '--help', '-h', '--plain', '--react', '--remote']);
+const FLAG_OPTIONS = new Set(['--readonly', '--help', '-h', '--plain', '--react', '--remote', '--onboarding']);
 const HEADLESS_ROLE_ALIASES = new Map([
   ['explorer', 'explore'],
   ['explore', 'explore'],
@@ -111,11 +111,13 @@ export async function run(argv = []) {
   const modelIdx = argv.indexOf('--model');
   const toolMode = argv.includes('--readonly') ? 'readonly' : 'full';
   const remote = argv.includes('--remote');
+  const forceOnboarding = argv.includes('--onboarding');
   const opts = {
     provider: provIdx >= 0 ? argv[provIdx + 1] : undefined,
     model: modelIdx >= 0 ? argv[modelIdx + 1] : undefined,
     toolMode,
     remote,
+    forceOnboarding,
   };
 
   // `--help` / `-h`: keep this path tiny; do not import the REPL/runtime stack.

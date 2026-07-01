@@ -17,7 +17,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read verified file path(s) or offset+limit regions after grep/code_graph anchors. Dirs use list. Batch paths/regions; avoid serial reads.',
+        description: 'Read known file path(s). Prefer grep content_with_context or code_graph anchors first. Window with numeric offset+limit only. Batch paths/regions as real arrays. Dirs use list.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -42,10 +42,10 @@ export const BUILTIN_TOOLS = [
                             minItems: 1,
                         },
                     ],
-                    description: 'Verified file path(s) or {path,offset,limit} regions. Batch multiple spans in one array. Dirs use list.',
+                    description: 'File path, path[], or {path,offset,limit}[] region objects. Pass arrays directly; JSON strings are legacy recovery only. Dirs use list.',
                 },
-                offset: { type: 'number', minimum: 0, description: 'Lines to skip (0=line 1); continue with offset:N.' },
-                limit: { type: 'number', minimum: 1, description: 'Max lines after offset.' },
+                offset: { type: 'number', minimum: 0, description: 'Numeric lines to skip before reading; 0 starts at line 1. Continue with offset:N.' },
+                limit: { type: 'number', minimum: 1, description: 'Numeric max lines to return after offset.' },
             },
         },
     },
@@ -113,7 +113,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Search file contents by text/regex in a known scope. Use content_with_context for code answers. One concept → one grep; unknown paths use find/glob.',
+        description: 'Search file contents by text/regex in a known scope. Use files_with_matches/count for broad anchors, content_with_context for narrow code answers. One concept → one grep.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -122,9 +122,9 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Text/regex. Array = OR in ONE grep; no serial rewording or equivalent repeats.',
+                    description: 'Text/regex. Put synonyms in pattern[] as OR in ONE grep; no serial rewording or equivalent repeats.',
                 },
-                path: { type: 'string', description: 'Known narrowest file/dir; refine from returned paths. Unknown paths use find/glob first.' },
+                path: { type: 'string', description: 'Known narrowest file/dir; broad scopes return paths first, then refine from returned paths.' },
                 glob: {
                     anyOf: [
                         { type: 'string' },
@@ -132,7 +132,7 @@ export const BUILTIN_TOOLS = [
                     ],
                     description: 'Narrow in same grep; no follow-up grep for equivalent scope changes.',
                 },
-                output_mode: { type: 'string', enum: ['content_with_context', 'content', 'files_with_matches', 'count'], description: 'content_with_context frames matches; answer from it, skip read unless span is not shown.' },
+                output_mode: { type: 'string', enum: ['content_with_context', 'content', 'files_with_matches', 'count'], description: 'Broad scope: files_with_matches/count. Narrow scope: content_with_context; answer from it, skip read unless span is not shown.' },
                 context: { type: 'number', minimum: 0, description: 'Lines before/after each match; keep bounded.' },
                 head_limit: { type: 'number', minimum: 0, description: 'Max output lines; keep small.' },
                 offset: { type: 'number', minimum: 0, description: 'Skip output lines for paging.' },

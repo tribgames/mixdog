@@ -144,11 +144,18 @@ export const PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS = resolveTimeoutMs(
 // the task hanging. The message keeps "timed out after …ms of inactivity" so
 // the SSE mid-stream classifier's text match (sse_idle_timeout) still fires,
 // and code 'ESTREAMSTALL' routes it through the transient/notify path.
-export function streamStalledError(label, timeoutMs) {
+export function streamStalledError(label, timeoutMs, { emittedToolCall = false } = {}) {
     const err = new Error(`${label} stream timed out after ${timeoutMs}ms of inactivity`);
     err.name = 'StreamStalledError';
     err.code = 'ESTREAMSTALL';
     err.streamStalled = true;
+    // Double-dispatch guard (reviewer High): once a tool call has already been
+    // emitted this turn (including a recovered text-leaked call), retrying the
+    // request would RE-RUN that side-effecting tool. Mark such a stall
+    // unsafe-to-retry so withRetry() throws it straight through to the terminal
+    // notify path instead of replaying the turn. A stall BEFORE any tool emit is
+    // still safely retryable (nothing has executed yet).
+    if (emittedToolCall) err.unsafeToRetry = true;
     return err;
 }
 

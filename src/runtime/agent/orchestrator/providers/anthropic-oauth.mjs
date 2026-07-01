@@ -1093,6 +1093,28 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
         try { firstMessageTimer.unref?.(); } catch {}
     };
 
+    // Attach the partial stream state to a mid-stream stall error so the agent
+    // loop can decide SUCCESS vs FAILURE. The recurring "worker finished but
+    // owner never notified" case is a FINAL no-tool summary stream that wedges
+    // ping-only after the real work (tool calls) already completed in earlier
+    // iterations: there is streamed `content`, no pending tool_use, and no
+    // emitted tool call this iteration. The loop treats that as a successful
+    // partial-final (deliver the summary we have) instead of dropping it. A
+    // stall WITH a pending/emitted tool call stays a hard failure (a tool whose
+    // input never completed must never be reported as done).
+    const _attachStallPartial = (err) => {
+        try {
+            err.partialContent = content;
+            err.partialToolCalls = toolCalls.length ? toolCalls.slice() : undefined;
+            err.pendingToolUse = pendingToolInputs.size > 0;
+            err.partialModel = model || undefined;
+            err.partialUsage = usage;
+            err.partialStopReason = stopReason || undefined;
+            err.partialHasThinking = hasThinkingContent;
+        } catch { /* best-effort enrichment */ }
+        return err;
+    };
+
     const resetIdleTimer = () => {
         // OFF by default. When disabled the
         // idle timer never arms, so the stream is never killed on inactivity;
@@ -1115,7 +1137,7 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
             // pending forever and the SSE idle timeout never unblocks the loop —
             // the 391s-hang root cause.
             if (idleReject) {
-                const e = streamStalledError('Anthropic OAuth SSE', SSE_IDLE_TIMEOUT_MS);
+                const e = _attachStallPartial(streamStalledError('Anthropic OAuth SSE', SSE_IDLE_TIMEOUT_MS, { emittedToolCall: !!state?.emittedToolCall }));
                 const r = idleReject; idleReject = null; r(e);
             }
         // Shared provider policy: short SEMANTIC-event inactivity catches the
@@ -1142,7 +1164,12 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
     }
 
     try {
-        resetIdleTimer();
+        // Part A / reviewer fix: do NOT arm the SEMANTIC idle timer before the
+        // stream has produced its first event. A slow first response is governed
+        // by armFirstMessageTimer() (first-byte window) alone; arming the
+        // semantic idle here could let it win and mis-abort a legitimately slow
+        // first response as a stall. The semantic idle is first armed at
+        // `message_start` (see below), so it only ever guards MID-stream silence.
         armFirstMessageTimer();
         streamLoop: while (true) {
             let chunk;
@@ -1155,7 +1182,7 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
                 });
             } catch (err) {
                 if (idleTimedOut) {
-                    throw streamStalledError('Anthropic OAuth SSE', SSE_IDLE_TIMEOUT_MS);
+                    throw _attachStallPartial(streamStalledError('Anthropic OAuth SSE', SSE_IDLE_TIMEOUT_MS, { emittedToolCall: !!state?.emittedToolCall }));
                 }
                 if (firstMessageTimedOut) {
                     throw firstMessageTimeoutError();

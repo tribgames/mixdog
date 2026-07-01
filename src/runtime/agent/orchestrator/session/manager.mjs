@@ -12,6 +12,8 @@ import { fetchOAuthUsageSnapshot } from '../providers/oauth-usage.mjs';
 import {
     recallFastTrackCompactMessages,
     semanticCompactMessages,
+    pruneToolOutputsUnanchored,
+    effectiveBudget as compactEffectiveBudget,
     compactTypeIsRecallFastTrack,
     compactTypeIsSemantic,
     normalizeCompactType,
@@ -879,6 +881,18 @@ async function runRecallFastTrackForSession(session, messages, opts = {}) {
     }
     return { query, querySha, recallText: [`session_id=${sessionId}`, cycle1Text, recallText].map(v => String(v || '').trim()).filter(Boolean).join('\n\n') };
 }
+// Element-identity change detection (mirrors loop.mjs messagesArrayChanged): two
+// arrays are "unchanged" only when same length AND every slot is the same object
+// reference. Used to reject a no-op prune (which returns a fresh array whose
+// elements are the untouched originals) from being accepted as a recovery.
+function messagesChanged(before, after) {
+    if (!Array.isArray(before) || !Array.isArray(after)) return before !== after;
+    if (before.length !== after.length) return true;
+    for (let i = 0; i < before.length; i += 1) {
+        if (before[i] !== after[i]) return true;
+    }
+    return false;
+}
 async function runSessionCompaction(session, opts = {}) {
     if (!session || session.closed === true) return null;
     const mode = opts.mode === 'auto' ? 'auto' : 'manual';
@@ -893,7 +907,16 @@ async function runSessionCompaction(session, opts = {}) {
         if (force) throw new Error('compact: no context window is available for this session');
         return null;
     }
-    const reserveTokens = estimateRequestReserveTokens(session.tools || []);
+    // Reserve must mirror loop.mjs (buildCompactPolicy): request reserve (tool
+    // schema) PLUS the configured reserve (session.compaction.reservedTokens or
+    // MIXDOG_AGENT_COMPACT_RESERVED_TOKENS env). The old request-only value left
+    // the manual / auto-clear compact budget without the configured headroom the
+    // loop path reserves, so a compacted transcript could overflow on next send.
+    const requestReserveTokens = estimateRequestReserveTokens(session.tools || []);
+    const configuredReserveTokens = positiveContextWindow(session.compaction?.reservedTokens)
+        || positiveContextWindow(process.env.MIXDOG_AGENT_COMPACT_RESERVED_TOKENS)
+        || 0;
+    const reserveTokens = requestReserveTokens + configuredReserveTokens;
     const beforeMessageTokens = estimateMessagesTokens(messages);
     const triggerTokens = compactTriggerForSession(session, boundary)
         || positiveContextWindow(session.compaction?.triggerTokens)
@@ -999,6 +1022,32 @@ async function runSessionCompaction(session, opts = {}) {
     }
     if (!compacted && !compactError) {
         compactError = new Error(`${compactType} compact produced no messages`);
+    }
+    // Anchor-independent prune safety net (mirror loop.mjs compact catch): when a
+    // non-recall (semantic) compact failed, try one non-LLM prune that needs no
+    // user anchor before recording failure, so Lead manual / auto-clear paths
+    // recover the same transcripts the loop path does. Gated off the recall
+    // path — a recall failure keeps its original contract (no silent prune).
+    if (!compacted && !recallFastTrackError) {
+        try {
+            const acceptThreshold = compactEffectiveBudget(budget, { reserveTokens });
+            const salvaged = pruneToolOutputsUnanchored(messages, budget, { reserveTokens });
+            // pruneToolOutputsUnanchored ALWAYS returns a fresh reconciled array
+            // (never the input identity), so `salvaged !== messages` is always
+            // true and cannot detect a no-op. Compare by element identity so a
+            // transcript that already fit (nothing pruned) is NOT falsely accepted
+            // as a recovery — that would clear compactError and unconditionally
+            // invalidate providerState for an unchanged transcript.
+            if (Array.isArray(salvaged)
+                && messagesChanged(messages, salvaged)
+                && estimateMessagesTokens(salvaged) <= acceptThreshold) {
+                compacted = salvaged;
+                compactError = null;
+                try {
+                    process.stderr.write(`[session] compact fallback prune recovered (sess=${session.id || 'unknown'}, mode=${mode})\n`);
+                } catch { /* best-effort */ }
+            }
+        } catch { /* fall through to failure record */ }
     }
     if (!compacted) {
         const now = Date.now();

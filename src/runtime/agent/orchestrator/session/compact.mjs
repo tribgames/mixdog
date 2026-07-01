@@ -389,7 +389,7 @@ export function redactToolCallSecretsInMessages(messages) {
     return messages.map((m) => redactMessageToolCallSecrets(m));
 }
 
-function effectiveBudget(budgetTokens, opts) {
+export function effectiveBudget(budgetTokens, opts) {
     if (!(budgetTokens > 0)) throw new Error('compact: budgetTokens must be > 0');
     const reserve = Number(opts?.reserveTokens) || 0;
     if (reserve <= 0) return budgetTokens;
@@ -925,6 +925,13 @@ function selectTailStartByCutPoint(live, recentBudget, previousSummary) {
         // prior summary to build on, pull the tail start forward to the next
         // valid cut so the leading message(s) become the compactable head.
         if (!previousSummary && validCuts.length >= 2) return validCuts[1];
+        // Only ONE valid cut (or a leading tool run before it) and no prior
+        // summary: there is no older cut to pull forward to. Returning 0 would
+        // make the whole transcript the tail with an empty head, and
+        // semanticCompactMessages throws on head.length===0 && !previousSummary.
+        // Keep everything in the HEAD instead (empty tail) so a head remains to
+        // summarize; an empty tail is valid downstream (mandatory = system+tail).
+        if (!previousSummary && validCuts.length < 2) return live.length;
         return chosen;
     }
     return chosen;
@@ -1121,7 +1128,47 @@ function fitCompactionPrompt(input, targetTokens) {
             { role: 'user', content: withFacts },
         ]) <= targetTokens) return withFacts;
     }
-    return tryFit(false);
+    const fitted = tryFit(false);
+    if (fitted) return fitted;
+
+    // Emergency deterministic reduction: even at perMessageChars=0 the prompt can
+    // overflow when the head carries a very large NUMBER of messages (each still
+    // emits a `N. role` line). Keep only the newest K head messages and collapse
+    // the rest into a single `[K older messages omitted]` stub line, binary
+    // searching the largest K that fits. This bounds the head by COUNT, not just
+    // per-message chars, so a huge-head transcript still yields a minimal prompt
+    // instead of null (which surfaced as a hard compaction throw).
+    const head = Array.isArray(input.head) ? input.head : [];
+    const baseNoFacts = { ...input, preservedFacts: null };
+    const buildReduced = (k) => {
+        const kept = k > 0 ? head.slice(head.length - k) : [];
+        const omitted = head.length - kept.length;
+        const stubHead = omitted > 0
+            ? [{ role: 'user', content: `[${omitted} older messages omitted]` }, ...kept]
+            : kept;
+        let inp = { ...baseNoFacts, head: stubHead };
+        // Also shrink/drop a prior <previous-summary> (same as the normal fitAt
+        // path) — a large prior summary can keep the prompt over budget even at
+        // K=0. fitPreviousSummaryForCompactionPrompt is a no-op when there is no
+        // previousSummary, so this is safe for the summary-less case.
+        if (estimateCompactionPromptTokens(inp, 0) > targetTokens) {
+            const fitted = fitPreviousSummaryForCompactionPrompt(inp, 0, targetTokens);
+            if (!fitted) return null;
+            inp = fitted;
+            if (estimateCompactionPromptTokens(inp, 0) > targetTokens) return null;
+        }
+        return buildCompactionPrompt(inp, 0);
+    };
+    let lo = 0;
+    let hi = head.length;
+    let best = null;
+    while (lo <= hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        const candidate = buildReduced(mid);
+        if (candidate) { best = candidate; lo = mid + 1; }
+        else hi = mid - 1;
+    }
+    return best;
 }
 
 function extractResponseText(response) {
@@ -1869,7 +1916,54 @@ function fitSingleRecallTurnToCap(turn, cap) {
 function truncateTailToCap(messages, cap) {
     const turn = Array.isArray(messages) ? messages : [];
     if (turn.length === 0) return [];
-    return fitSingleRecallTurnToCap(turn, cap);
+    // No user anchor in this turn: keep the NEWEST messages that fit `cap`,
+    // walking backward. (Previously this delegated back to
+    // fitSingleRecallTurnToCap, which re-entered here on a no-user turn —
+    // infinite mutual recursion. Unreachable while a no-user tail threw upstream;
+    // now that a no-user tail is allowed, this path must terminate on its own.)
+    let out = [];
+    let startIdx = turn.length; // index in `turn` where `out` begins
+    for (let i = turn.length - 1; i >= 0; i -= 1) {
+        const candidate = [turn[i], ...out];
+        if (estimateMessagesTokens(candidate) <= cap) {
+            out = candidate;
+            startIdx = i;
+            continue;
+        }
+        if (out.length === 0) {
+            // Even the newest single message exceeds cap: middle-truncate its
+            // string content so at least one message survives.
+            const m = turn[i];
+            const text = typeof m?.content === 'string' ? m.content : extractText(m);
+            const truncated = truncateMessageForRecallTail(text, Math.max(1, cap * RECALL_TAIL_CHARS_PER_TOKEN));
+            out = [{ ...m, content: truncated }];
+            startIdx = i;
+        }
+        break;
+    }
+    // A leading tool_result with no preceding assistant tool_call is an orphan
+    // that sanitizeToolPairs drops — which could empty the whole tail. Extend the
+    // window backward to swallow the preceding non-tool boundary (the assistant
+    // that owns the tool_call), so the pair survives sanitize. Bounded by
+    // startIdx so it always terminates.
+    while (startIdx > 0 && out[0]?.role === 'tool') {
+        startIdx -= 1;
+        out = [turn[startIdx], ...out];
+    }
+    let sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(out)));
+    // Final guard: if sanitize still emptied the tail but the turn has a non-tool
+    // message, rebuild from the newest non-tool message forward so the tail is
+    // never empty when preservable content exists.
+    if (sanitized.length === 0) {
+        let nt = -1;
+        for (let i = turn.length - 1; i >= 0; i -= 1) {
+            if (turn[i]?.role !== 'tool') { nt = i; break; }
+        }
+        if (nt >= 0) {
+            sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(turn.slice(nt))));
+        }
+    }
+    return sanitized;
 }
 
 function stripNestedSummaryHeaderLines(text) {
@@ -1918,10 +2012,10 @@ function selectRecallPreservedTail(live, opts = {}) {
         tail = fitSingleRecallTurnToCap(kept[kept.length - 1], cap);
     }
 
-    if (!tail.some((m) => m?.role === 'user')) {
-        throw new Error('recallFastTrackCompactMessages: preserved tail missing user anchor');
-    }
-
+    // A no-user tail is valid: a single-turn agent session may keep only
+    // assistant/tool structure recently. Mirror the semantic cut-point model —
+    // preserve the recent structured turn(s) verbatim without demanding a user
+    // anchor rather than throwing. tool-pairing is already reconciled above.
     const tailStartIdx = recallTailStartIndex(msgs, tail);
     const head = msgs.slice(0, tailStartIdx);
     return { tail, head, tailStartIdx };

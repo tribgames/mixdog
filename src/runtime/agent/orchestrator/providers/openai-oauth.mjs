@@ -867,7 +867,17 @@ export async function sendViaHttpSse({
         if (!PROVIDER_SSE_IDLE_WATCHDOG_ENABLED || !(PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS > 0)) return;
         _clearSemanticIdle();
         _semanticIdleTimer = setTimeout(() => {
-            _streamAbortReason = streamStalledError('OpenAI OAuth HTTP fallback', PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS);
+            _streamAbortReason = streamStalledError('OpenAI OAuth HTTP fallback', PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS, { emittedToolCall: emittedToolCallIds.size > 0 });
+            // Partial-final recovery parity with anthropic-oauth: attach the
+            // streamed partial state so the agent loop can accept a wedged FINAL
+            // no-tool summary as a successful partial-final instead of dropping
+            // the result. pendingToolUse gates out any mid-flight tool call.
+            try {
+                _streamAbortReason.partialContent = content;
+                _streamAbortReason.partialToolCalls = toolCalls.length ? toolCalls.slice() : undefined;
+                _streamAbortReason.pendingToolUse = pendingCalls.size > 0 || emittedToolCallIds.size > 0;
+                _streamAbortReason.partialModel = model || undefined;
+            } catch { /* best-effort enrichment */ }
             try { reader.cancel(_streamAbortReason).catch(() => {}); } catch {}
         }, PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS);
         try { _semanticIdleTimer.unref?.(); } catch {}

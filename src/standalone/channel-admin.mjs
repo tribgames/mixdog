@@ -22,6 +22,7 @@ import {
   updateSection,
 } from '../runtime/shared/config.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
+import { readMarkdownDocument } from '../runtime/shared/markdown-frontmatter.mjs';
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DEFAULT_CHANNELS = Object.freeze({
@@ -49,10 +50,6 @@ function webhooksDir() {
   return join(dataDir(), 'webhooks');
 }
 
-function readJson(path, fallback = {}) {
-  try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return fallback; }
-}
-
 function readText(path, fallback = '') {
   try { return readFileSync(path, 'utf8'); } catch { return fallback; }
 }
@@ -64,8 +61,22 @@ function writeTextAtomic(path, text) {
   renameSync(tmp, path);
 }
 
-function writeJsonAtomic(path, data) {
-  writeTextAtomic(path, JSON.stringify(data, null, 2) + '\n');
+// Serialize a single-file frontmatter markdown document:
+//   ---
+//   key: value
+//   ---
+//
+//   <body>
+// Values are stringified as-is (enabled:false -> "false"); the reader casts
+// types back. Mirrors the WORKFLOW.md / SKILL.md single-file convention.
+function serializeFrontmatterDoc(meta = {}, body = '') {
+  const lines = ['---'];
+  for (const [key, value] of Object.entries(meta)) {
+    if (value === undefined || value === null) continue;
+    lines.push(`${key}: ${value}`);
+  }
+  lines.push('---', '');
+  return `${lines.join('\n')}\n${String(body || '').trim()}\n`;
 }
 
 function assertName(name, kind = 'name') {
@@ -258,12 +269,15 @@ function normalizeCron(time) {
 export function listSchedules() {
   return listEntryDirs(schedulesDir()).map((name) => {
     const dir = join(schedulesDir(), name);
-    const config = readJson(join(dir, 'config.json'), {});
-    const instructions = readText(join(dir, 'instructions.md'), '');
+    const { frontmatter, body } = readMarkdownDocument(readText(join(dir, 'SCHEDULE.md'), ''));
+    const config = { ...frontmatter };
+    if (Object.prototype.hasOwnProperty.call(config, 'enabled')) {
+      config.enabled = config.enabled !== 'false' && config.enabled !== false;
+    }
     return {
       name,
       ...config,
-      instructions,
+      instructions: body,
       route: config.channel ? `channel:${config.channel}` : 'session',
     };
   });
@@ -294,8 +308,7 @@ export function saveSchedule({
   if (channel) config.channel = String(channel).trim();
   if (model) config.model = String(model).trim();
   if (enabled === false) config.enabled = false;
-  writeJsonAtomic(join(dir, 'config.json'), config);
-  writeTextAtomic(join(dir, 'instructions.md'), body + '\n');
+  writeTextAtomic(join(dir, 'SCHEDULE.md'), serializeFrontmatterDoc(config, body));
   return { name: id, ...config, instructions: body };
 }
 
@@ -308,24 +321,31 @@ export function deleteSchedule(name) {
 export function setScheduleEnabled(name, enabled) {
   const id = assertName(name, 'schedule name');
   const dir = join(schedulesDir(), id);
-  const configPath = join(dir, 'config.json');
-  if (!existsSync(configPath)) throw new Error(`schedule "${id}" does not exist`);
-  const config = readJson(configPath, {});
-  writeJsonAtomic(configPath, { ...config, enabled: enabled !== false });
+  const mdPath = join(dir, 'SCHEDULE.md');
+  if (!existsSync(mdPath)) throw new Error(`schedule "${id}" does not exist`);
+  const { frontmatter, body } = readMarkdownDocument(readText(mdPath, ''));
+  writeTextAtomic(mdPath, serializeFrontmatterDoc({ ...frontmatter, enabled: enabled !== false }, body));
   return { name: id, enabled: enabled !== false };
 }
 
 export function listWebhooks() {
   return listEntryDirs(webhooksDir()).map((name) => {
     const dir = join(webhooksDir(), name);
-    const config = readJson(join(dir, 'config.json'), {});
-    const instructions = readText(join(dir, 'instructions.md'), '');
+    const { frontmatter, body } = readMarkdownDocument(readText(join(dir, 'WEBHOOK.md'), ''));
+    const config = { ...frontmatter };
+    if (Object.prototype.hasOwnProperty.call(config, 'enabled')) {
+      config.enabled = config.enabled !== 'false' && config.enabled !== false;
+    }
+    // Secret lives in a side file (<name>/secret), never in frontmatter, so
+    // an arbitrary user-supplied secret (quotes/colon/newline) round-trips
+    // losslessly and setWebhookEnabled cannot corrupt it.
+    const hasSecret = Boolean(readText(join(dir, 'secret'), '').trim());
     return {
       name,
       ...config,
-      secretSet: Boolean(config.secret),
+      secretSet: hasSecret,
       secret: undefined,
-      instructions,
+      instructions: body,
       route: config.channel ? `channel:${config.channel}` : 'session',
     };
   });
@@ -352,16 +372,17 @@ export function saveWebhook({
   const dir = join(webhooksDir(), id);
   if (existsSync(dir) && overwrite !== true) throw new Error(`webhook "${id}" already exists`);
   mkdirSync(dir, { recursive: true });
-  const config = {
-    secret: String(secret || randomBytes(24).toString('hex')).trim(),
-    parser: nextParser,
-  };
+  const secretValue = String(secret || randomBytes(24).toString('hex')).trim();
+  const config = { parser: nextParser };
   if (channel) config.channel = String(channel).trim();
   if (model) config.model = String(model).trim();
   if (enabled === false) config.enabled = false;
-  writeJsonAtomic(join(dir, 'config.json'), config);
-  writeTextAtomic(join(dir, 'instructions.md'), body + '\n');
-  return { name: id, ...config, instructions: body };
+  // Secret to a side file (plaintext, same exposure level as the former
+  // config.json), kept OUT of the frontmatter to avoid unquote round-trip
+  // corruption. deleteWebhook rmSync's the whole dir, so this is removed too.
+  writeTextAtomic(join(dir, 'secret'), secretValue + '\n');
+  writeTextAtomic(join(dir, 'WEBHOOK.md'), serializeFrontmatterDoc(config, body));
+  return { name: id, ...config, secret: secretValue, instructions: body };
 }
 
 export function deleteWebhook(name) {
@@ -373,10 +394,10 @@ export function deleteWebhook(name) {
 export function setWebhookEnabled(name, enabled) {
   const id = assertName(name, 'webhook name');
   const dir = join(webhooksDir(), id);
-  const configPath = join(dir, 'config.json');
-  if (!existsSync(configPath)) throw new Error(`webhook "${id}" does not exist`);
-  const config = readJson(configPath, {});
-  writeJsonAtomic(configPath, { ...config, enabled: enabled !== false });
+  const mdPath = join(dir, 'WEBHOOK.md');
+  if (!existsSync(mdPath)) throw new Error(`webhook "${id}" does not exist`);
+  const { frontmatter, body } = readMarkdownDocument(readText(mdPath, ''));
+  writeTextAtomic(mdPath, serializeFrontmatterDoc({ ...frontmatter, enabled: enabled !== false }, body));
   return { name: id, enabled: enabled !== false };
 }
 

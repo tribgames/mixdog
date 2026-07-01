@@ -222,7 +222,7 @@ function installTuiStderrGuard() {
   };
 }
 
-export async function runTui({ provider, model, toolMode, remote } = {}) {
+export async function runTui({ provider, model, toolMode, remote, forceOnboarding } = {}) {
   const startedAt = performance.now();
   bootProfile('run:start', { provider, model, toolMode, remote });
   // The React/ink TUI needs a raw-mode-capable TTY (interactive input). In a
@@ -319,7 +319,7 @@ export async function runTui({ provider, model, toolMode, remote } = {}) {
   // does not exit abruptly. Explicit exits go through /exit or /quit so teardown
   // still restores the cursor, mouse mode, and alternate screen cleanly.
   try {
-    const instance = render(<App store={store} />, { exitOnCtrlC: false, maxFps: 120, onRender: makeRenderProfiler() });
+    const instance = render(<App store={store} forceOnboarding={forceOnboarding === true} />, { exitOnCtrlC: false, maxFps: 120, onRender: makeRenderProfiler() });
     bootProfile('render:mounted', { ms: (performance.now() - startedAt).toFixed(1) });
     const { waitUntilExit } = instance;
     // [mixdog fork] Hand the ink renderer's drag-selection setter to the store so

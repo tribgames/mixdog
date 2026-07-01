@@ -432,6 +432,8 @@ function workflowModeLabel(workflow = {}, remoteEnabled = false) {
   return remoteEnabled === true ? `Remote / ${base}` : base;
 }
 
+const WORKFLOW_TAB_SHORTCUT_LABEL = '(change tab)';
+
 function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow = 0, compactBoundaryTokens = 0, autoCompactTokenLimit = 0, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], activeTools = null, initialLine = '', workflow = null, remoteEnabled = false, themeEpoch = 0 }) {
   const [line, setLine] = useState(() => normalizeStatusLine(initialLine || localBootStatusLine({
     provider,
@@ -662,7 +664,14 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
           <Text color={theme.statusText} wrap="truncate">{workflowLabel}</Text>
         </Box>
       </Box>
-      <Text wrap="truncate">{lines[1] || ' '}</Text>
+      <Box flexDirection="row" width="100%" overflow="hidden">
+        <Box flexGrow={1} flexShrink={1} overflow="hidden">
+          <Text wrap="truncate">{lines[1] || ' '}</Text>
+        </Box>
+        <Box flexShrink={0} marginLeft={1} marginRight={1}>
+          <Text color={theme.statusSubtle} wrap="truncate">{WORKFLOW_TAB_SHORTCUT_LABEL}</Text>
+        </Box>
+      </Box>
     </Box>
   );
 }
