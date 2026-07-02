@@ -4,77 +4,75 @@
  * Runs mixdog's session manager outside React and exposes a tiny subscribable
  * store. The React/ink layer consumes it via useSyncExternalStore
  * (see hooks/useEngine.mjs).
+ *
+ * Pure/stateless helpers live in ./engine/* (boot-profile, session-stats,
+ * labels, notice-text, tool-result-text, tool-call-fields, agent-envelope,
+ * queue-helpers) and are re-exported here so the public surface is unchanged.
+ * This file keeps the stateful createEngineSession store + notification plan.
  */
 import { performance } from 'node:perf_hooks';
-import { SPINNER_VERBS } from './spinner-verbs.mjs';
 import {
   aggregateToolCategoryEntry,
   classifyToolCategory,
   formatAggregateDetail,
   summarizeToolResult,
 } from '../runtime/shared/tool-surface.mjs';
-import { isBackgroundErrorOnlyBody, presentErrorText } from '../runtime/shared/err-text.mjs';
 import {
   isModelVisibleToolCompletionWrapper,
   modelVisibleToolCompletionMessage,
 } from '../runtime/shared/tool-execution-contract.mjs';
+import { presentErrorText } from '../runtime/shared/err-text.mjs';
 import { listThemes, getThemeSetting, setThemeSetting } from './theme.mjs';
 import { resetAllStreamingMarkdownStablePrefixes } from './markdown/streaming-markdown.mjs';
-
-const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
-const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
-
-function bootProfile(event, fields = {}) {
-  if (!BOOT_PROFILE_ENABLED) return;
-  const elapsedMs = performance.now() - BOOT_PROFILE_START;
-  const parts = [`[mixdog-boot] +${elapsedMs.toFixed(1)}ms`, `tui:${event}`];
-  for (const [key, value] of Object.entries(fields || {})) {
-    if (value === undefined || value === null || value === '') continue;
-    parts.push(`${key}=${String(value).replace(/\s+/g, '_')}`);
-  }
-  try { process.stderr.write(`${parts.join(' ')}\n`); } catch {}
-}
-
-// Session-usage accumulator - inlined (not imported from ui/statusline.mjs) so
-// engine.mjs has no static dependency on the vendored statusline closure.
-function createSessionStats() {
-  return {
-    inputTokens: 0,
-    outputTokens: 0,
-    cachedTokens: 0,
-    cacheWriteTokens: 0,
-    promptTokens: 0,
-    latestInputTokens: 0,
-    latestOutputTokens: 0,
-    latestCachedTokens: 0,
-    latestCacheWriteTokens: 0,
-    latestPromptTokens: 0,
-    currentContextTokens: 0,
-    costUsd: 0,
-    turns: 0,
-  };
-}
-function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
-function applyUsageDelta(stats, delta = {}) {
-  if (!stats || !delta) return stats;
-  const inputTokens = num(delta.deltaInput);
-  const outputTokens = num(delta.deltaOutput);
-  const cachedTokens = num(delta.deltaCachedRead);
-  const cacheWriteTokens = num(delta.deltaCacheWrite);
-  const promptTokens = num(delta.deltaPrompt);
-  stats.inputTokens += inputTokens;
-  stats.outputTokens += outputTokens;
-  stats.cachedTokens += cachedTokens;
-  stats.cacheWriteTokens += cacheWriteTokens;
-  stats.promptTokens += promptTokens;
-  stats.latestInputTokens = inputTokens;
-  stats.latestOutputTokens = outputTokens;
-  stats.latestCachedTokens = cachedTokens;
-  stats.latestCacheWriteTokens = cacheWriteTokens;
-  stats.latestPromptTokens = promptTokens;
-  stats.costUsd += num(delta.costUsd);
-  return stats;
-}
+import { bootProfile } from './engine/boot-profile.mjs';
+import { createSessionStats, applyUsageDelta } from './engine/session-stats.mjs';
+import {
+  pickVerb,
+  pickDoneVerb,
+  formatElapsedSeconds,
+  compactEventLabel,
+  compactEventDetail,
+  projectNameFromPath,
+} from './engine/labels.mjs';
+import { polishNoticeText } from './engine/notice-text.mjs';
+import {
+  toolResultText,
+  toolAggregateDetailFallback,
+  toolGroupedDisplayFallback,
+  toolErrorDisplay,
+} from './engine/tool-result-text.mjs';
+import {
+  toolCallId,
+  toolResultCallId,
+  toolCallName,
+  toolCallArgs,
+} from './engine/tool-call-fields.mjs';
+import {
+  parseAgentJob,
+  parseAgentResultEnvelope,
+  parseBackgroundTaskEnvelope,
+  parseSyntheticAgentMessage,
+  isStatusOnlyAgentCompletionNotification,
+  agentJobResultText,
+  agentArgsWithResultMetadata,
+  toolResultStatus,
+  isErrorToolStatus,
+} from './engine/agent-envelope.mjs';
+import {
+  queuePriorityValue,
+  defaultQueuePriority,
+  isQueuedEntryEditable,
+  isQueuedEntryVisible,
+  isSlashQueuedEntry,
+  shortTextFingerprint,
+  notificationDisplayText,
+  sessionActivityTimestamp,
+  promptDisplayText,
+  mergePromptContents,
+  mergePastedImages,
+  mergePastedTexts,
+  callCommitCallbacks,
+} from './engine/queue-helpers.mjs';
 
 // Source tests resolve from src/tui/engine.mjs; the built bundle resolves from
 // src/tui/dist/index.mjs.
@@ -90,574 +88,10 @@ const TOOL_APPROVAL_TIMEOUT_MS = (() => {
 let _idSeq = 0;
 const nextId = () => `it_${++_idSeq}`;
 
-function pickVerb(turn) {
-  return SPINNER_VERBS[(turn * 7 + 3) % SPINNER_VERBS.length];
-}
-
-const TURN_DONE_VERBS = [
-  'Thought',
-  'Reasoned',
-  'Mapped',
-  'Checked',
-  'Solved',
-  'Composed',
-  'Synthesized',
-  'Wrapped',
-];
-
-function pickDoneVerb(turn) {
-  return TURN_DONE_VERBS[(turn * 5 + 2) % TURN_DONE_VERBS.length];
-}
-
-function formatElapsedSeconds(ms) {
-  const value = Math.max(0, Number(ms) || 0);
-  if (value <= 0) return '0s';
-  return `${Math.max(1, Math.ceil(value / 1000))}s`;
-}
-
-function compactEventLabel(event = {}) {
-  const status = String(event.status || '').toLowerCase();
-  const reactive = String(event.trigger || '').toLowerCase() === 'reactive';
-  if (status === 'failed') return reactive ? 'Compact failed (overflow retry)' : 'Compact failed';
-  if (status === 'skipped') return 'Compact skipped';
-  if (status === 'no_change') return 'Compact checked';
-  return reactive ? 'Compact complete (overflow recovery)' : 'Compact complete';
-}
-
-function compactEventDetail(event = {}) {
-  // Keep the elapsed time as the lead detail, but no longer discard the rest of
-  // the compact metadata. Surface type/trigger and the boundary/pressure so the
-  // statusdone marker reflects what actually fired.
-  const parts = [];
-  const elapsed = formatElapsedSeconds(Number(event.durationMs ?? event.elapsedMs ?? 0));
-  if (elapsed) parts.push(elapsed);
-  const type = String(event.compactType || event.type || '').trim();
-  if (type && type !== 'semantic') parts.push(type);
-  const trigger = String(event.trigger || '').toLowerCase();
-  if (trigger === 'reactive') parts.push('reactive');
-  else if (trigger === 'manual') parts.push('manual');
-  const before = Number(event.beforeTokens ?? event.pressureTokens ?? 0);
-  const after = Number(event.afterTokens ?? 0);
-  const fmtTok = (n) => {
-    const v = Number(n) || 0;
-    if (v >= 1000) return `${(v / 1000).toFixed(v >= 10_000 ? 0 : 1)}k`;
-    return `${Math.round(v)}`;
-  };
-  if (before > 0 && after > 0 && after !== before) parts.push(`${fmtTok(before)}→${fmtTok(after)}`);
-  return parts.join(' · ');
-}
-
-function projectNameFromPath(value) {
-  const text = String(value || '').replace(/[\\/]+$/, '');
-  return text.split(/[\\/]/).pop() || text || '(current)';
-}
-
-const FAILED_NOTICE_ACTIONS = new Map([
-  ['api key save', 'save API key'],
-  ['auth-forget', 'forget auth'],
-  ['auto-clear', 'update auto-clear'],
-  ['autoclear', 'update auto-clear'],
-  ['agent', 'run agent command'],
-  ['channels', 'load channels'],
-  ['channels update', 'update channels'],
-  ['clear', 'clear chat'],
-  ['compact', 'compact context'],
-  ['copy', 'copy'],
-  ['core memory', 'load core memory'],
-  ['cwd', 'update working directory'],
-  ['effort switch', 'switch effort'],
-  ['fast', 'update fast mode'],
-  ['hook rule update', 'update hook rule'],
-  ['hook toggle', 'toggle hook'],
-  ['hook update', 'update hook'],
-  ['hooks status', 'load hooks'],
-  ['local provider update', 'update local provider'],
-  ['mcp add', 'add MCP server'],
-  ['mcp reconnect', 'reconnect MCP server'],
-  ['mcp status', 'load MCP status'],
-  ['mcp toggle', 'toggle MCP server'],
-  ['memory', 'run memory command'],
-  ['memory status', 'load memory status'],
-  ['model save', 'save model'],
-  ['model switch', 'switch model'],
-  ['oauth code', 'finish OAuth login'],
-  ['oauth login', 'start OAuth login'],
-  ['output style switch', 'switch output style'],
-  ['OpenAI usage auth save', 'save OpenAI usage auth'],
-  ['OpenCode Go usage auth save', 'save OpenCode Go usage auth'],
-  ['plugin add', 'add plugin'],
-  ['plugin MCP enable', 'enable plugin MCP'],
-  ['plugin uninstall', 'uninstall plugin'],
-  ['plugin update', 'update plugin'],
-  ['plugins status', 'load plugins'],
-  ['providers', 'load providers'],
-  ['recall', 'run recall'],
-  ['resume', 'resume chat'],
-  ['schedule toggle', 'toggle schedule'],
-  ['setup save', 'save setup'],
-  ['settings update', 'update settings'],
-  ['skill add', 'add skill'],
-  ['skills status', 'load skills'],
-  ['tools status', 'load tool status'],
-  ['usage', 'load usage'],
-  ['webhook toggle', 'toggle webhook'],
-  ['workflow switch', 'switch workflow'],
-]);
-
-function polishNoticeAction(action) {
-  const value = String(action || '').trim();
-  if (!value) return 'finish';
-  const key = value.toLowerCase();
-  for (const [candidate, replacement] of FAILED_NOTICE_ACTIONS.entries()) {
-    if (candidate.toLowerCase() === key) return replacement;
-  }
-  const suffixes = [
-    [' save', 'save'],
-    [' switch', 'switch'],
-    [' update', 'update'],
-    [' toggle', 'toggle'],
-    [' reconnect', 'reconnect'],
-    [' enable', 'enable'],
-    [' uninstall', 'uninstall'],
-    [' add', 'add'],
-  ];
-  for (const [suffix, verb] of suffixes) {
-    if (!key.endsWith(suffix)) continue;
-    const subject = value.slice(0, -suffix.length).trim();
-    return subject ? `${verb} ${subject}` : verb;
-  }
-  return value;
-}
-
-function sentenceStart(text) {
-  const value = String(text || '').trim();
-  return value ? `${value[0].toUpperCase()}${value.slice(1)}` : value;
-}
-
-function polishNoticeText(text) {
-  let value = String(text ?? '').trim().replace(/^✓\s*/, '');
-  if (!value) return '';
-  const error = /^error\s*:\s*(.+)$/i.exec(value);
-  if (error?.[1]) value = error[1].trim();
-  const couldNot = /^could not\s+(.+?)(?::\s*(.+))?$/i.exec(value);
-  if (couldNot) {
-    return couldNot[2]
-      ? `Couldn’t ${couldNot[1]}: ${couldNot[2]}`
-      : `Couldn’t ${couldNot[1]}.`;
-  }
-  const failed = /^(.+?)\s+failed(?::\s*(.+))?$/i.exec(value);
-  if (failed) {
-    const action = polishNoticeAction(failed[1]);
-    return failed[2] ? `Couldn’t ${action}: ${failed[2]}` : `Couldn’t ${action}.`;
-  }
-  const busy = /^(.+?)\s+already in progress\.?$/i.exec(value);
-  if (busy) return `${sentenceStart(polishNoticeAction(busy[1]))} is already running.`;
-  const required = /^(.+?)\s+is required(?:\s+for\s+(.+))?\.?$/i.exec(value);
-  if (required) {
-    const subject = required[1].trim();
-    const target = required[2]?.trim();
-    return `${subject}${target ? ` required for ${target}` : ' required'}.`;
-  }
-  return value;
-}
-
-function toolResultText(content) {
-  if (content == null) return '';
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content.map((c) => toolResultPartText(c)).filter((t) => t !== '').join('\n');
-  }
-  if (typeof content === 'object') {
-    if (Array.isArray(content.content)) {
-      const nested = content.content.map((c) => toolResultPartText(c)).filter((t) => t !== '').join('\n');
-      if (nested) return nested;
-    } else if (content.content != null && typeof content.content === 'object') {
-      const nested = toolResultPartText(content.content);
-      if (nested) return nested;
-    }
-    if (Array.isArray(content.parts)) {
-      const nested = content.parts.map((c) => toolResultPartText(c)).filter((t) => t !== '').join('\n');
-      if (nested) return nested;
-    }
-    const fromPart = toolResultPartText(content);
-    if (fromPart) return fromPart;
-    if (content?.type === 'tool_result') return '';
-    if (typeof content.text === 'string') return content.text;
-    if (typeof content.content === 'string') return content.content;
-  }
-  try { return JSON.stringify(content); } catch { return String(content); }
-}
-
-const TOOL_RESULT_PART_MAX_DEPTH = 12;
-const TOOL_RESULT_JSON_FALLBACK_MAX = 480;
-// Absolute cap for a collapsed tool detail line (the second row under the ⎿
-// gutter). Terminal-width independent so a wide terminal never lets a long line
-// stretch the row; lockstep with ToolExecution RESULT_LINE_HARD_MAX (80).
-const TOOL_DETAIL_LINE_MAX = 80;
-
-function compactToolResultObjectFallback(obj) {
-  if (obj?.type === 'tool_result') return '';
-  try {
-    const json = JSON.stringify(obj);
-    if (!json || json === '{}') return '';
-    if (json.length <= TOOL_RESULT_JSON_FALLBACK_MAX) return json;
-    return `${json.slice(0, TOOL_RESULT_JSON_FALLBACK_MAX - 1)}…`;
-  } catch {
-    return String(obj);
-  }
-}
-
-function toolResultPartText(part, depth = 0) {
-  if (part == null) return '';
-  if (depth > TOOL_RESULT_PART_MAX_DEPTH) return '';
-  if (typeof part === 'string') return part;
-  if (part?.type === 'image' || part?.type === 'input_image') {
-    return `[image: ${part.mimeType || part.mediaType || part.source?.media_type || 'image'}]`;
-  }
-  if (part?.type === 'tool_result') {
-    const inner = part.content;
-    if (typeof inner === 'string') return inner;
-    if (Array.isArray(inner)) {
-      return inner.map((c) => toolResultPartText(c, depth + 1)).filter((t) => t !== '').join('\n');
-    }
-    if (inner != null && typeof inner === 'object') {
-      return toolResultPartText(inner, depth + 1);
-    }
-    return '';
-  }
-  if (part?.type === 'text' || part?.type === 'output_text' || part?.type === 'input_text') {
-    return part.text ?? '';
-  }
-  if (Array.isArray(part)) {
-    return part.map((c) => toolResultPartText(c, depth + 1)).filter((t) => t !== '').join('\n');
-  }
-  if (typeof part === 'object') {
-    if (Array.isArray(part.content)) {
-      const nested = part.content.map((c) => toolResultPartText(c, depth + 1)).filter((t) => t !== '').join('\n');
-      if (nested) return nested;
-    }
-    if (part.content != null && typeof part.content === 'object') {
-      const nested = toolResultPartText(part.content, depth + 1);
-      if (nested) return nested;
-    }
-    if (Array.isArray(part.parts)) {
-      const nested = part.parts.map((c) => toolResultPartText(c, depth + 1)).filter((t) => t !== '').join('\n');
-      if (nested) return nested;
-    }
-    if (typeof part.text === 'string' && part.text) return part.text;
-    if (typeof part.output === 'string' && part.output) return part.output;
-    if (typeof part.message === 'string' && part.message) return part.message;
-    if (typeof part.content === 'string') return part.content;
-    if (part.source?.type === 'base64' && part.source?.data) {
-      return `[image: ${part.source.media_type || part.source.mediaType || 'base64'}]`;
-    }
-    return compactToolResultObjectFallback(part);
-  }
-  return '';
-}
-
-function toolAggregateDetailFallback(detailText, rawResult) {
-  if (String(detailText || '').trim()) return detailText;
-  const raw = String(rawResult || '').replace(/\s+$/, '').trim();
-  if (!raw) return detailText;
-  const line = raw.split('\n').map((l) => l.trim()).find(Boolean) || '';
-  if (!line) return detailText;
-  return line.length > TOOL_DETAIL_LINE_MAX ? `${line.slice(0, TOOL_DETAIL_LINE_MAX - 3)}…` : line;
-}
-
-function toolGroupedDisplayFallback(resultText, text, rawText) {
-  if (String(resultText || '').trim()) return resultText;
-  const body = String(text || rawText || '').trim();
-  if (body) return text || rawText;
-  return resultText;
-}
-
-function toolErrorDisplay(value, surface = 'tool') {
-  const text = presentErrorText(value, { surface });
-  if (/^(?:Search failed|Fetch failed|No first response|The .+ went stale|(?:Web search agent|Agent|Tool) (?:stopped|was cancelled))/i.test(text)) {
-    return text;
-  }
-  return /^error\s*:/i.test(text) ? text : `Error: ${text}`;
-}
-
-function toolCallId(call) {
-  return call?.id ?? call?.toolCallId ?? call?.tool_call_id ?? call?.call_id;
-}
-
-function toolResultCallId(message) {
-  return message?.toolCallId
-    ?? message?.tool_call_id
-    ?? message?.tool_use_id
-    ?? message?.call_id
-    ?? message?.id;
-}
-
-function toolCallName(call) {
-  return call?.name ?? call?.function?.name ?? call?.toolName ?? call?.tool_name ?? 'tool';
-}
-
-function toolCallArgs(call) {
-  return call?.arguments ?? call?.args ?? call?.input ?? call?.function?.arguments;
-}
-
-function textBetweenTag(text, tag) {
-  const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
-  const match = re.exec(String(text ?? ''));
-  return match ? match[1].trim() : '';
-}
-
-function stripSyntheticAgentTags(text) {
-  const value = String(text ?? '').trim();
-  const finalAnswer = textBetweenTag(value, 'final-answer');
-  if (finalAnswer) return finalAnswer;
-  const taskResult = textBetweenTag(value, 'result');
-  if (taskResult) return taskResult;
-  return value
-    .replace(/^agent result[^\n]*(?:\n|$)/i, '')
-    .replace(/<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>/gi, '')
-    .trim();
-}
-
-function splitBridgeEnvelope(text) {
-  const value = String(text ?? '').trim();
-  if (!value) return { head: '', body: '' };
-  const match = /\n\s*\n/.exec(value);
-  if (!match) return { head: value, body: '' };
-  return {
-    head: value.slice(0, match.index).trim(),
-    body: value.slice(match.index + match[0].length).trim(),
-  };
-}
-
-function agentJobStatusText(parsed) {
-  if (!parsed) return '';
-  const parts = [];
-  if (parsed.status) parts.push(`status: ${parsed.status}`);
-  if (parsed.taskId) parts.push(`task_id: ${parsed.taskId}`);
-  return parts.join(' · ');
-}
-
-function agentJobResultText(text, parsed = parseAgentJob(text)) {
-  const value = String(text ?? '').trim();
-  if (!value) return '';
-  if (parsed?.taskId) {
-    const { body } = splitBridgeEnvelope(value);
-    const cleanBody = stripSyntheticAgentTags(body);
-    if (cleanBody) return cleanBody;
-    return agentJobStatusText(parsed);
-  }
-  return stripSyntheticAgentTags(value) || value;
-}
-
-function parseAgentResultEnvelope(text, fallback = {}) {
-  const value = String(text ?? '').trim();
-  if (!/^agent result\b/i.test(value)) return null;
-  const [head = '', ...restLines] = value.split('\n');
-  const body = stripSyntheticAgentTags(restLines.join('\n'));
-  const attrs = {};
-  const attrRe = /([a-zA-Z][\w-]*)=("[^"]*"|'[^']*'|\S+)/g;
-  let match;
-  while ((match = attrRe.exec(head))) {
-    attrs[match[1].toLowerCase()] = String(match[2] || '').replace(/^["']|["']$/g, '');
-  }
-  const providerModel = /\s([a-zA-Z0-9_.-]+)\/([^\s]+)\s*$/i.exec(head);
-  const agent = attrs.agent || fallback.agent || '';
-  return {
-    name: 'agent',
-    label: String(fallback.status || attrs.status || 'completed').toLowerCase(),
-    args: {
-      type: 'result',
-      status: fallback.status || attrs.status || 'completed',
-      task_id: fallback.taskId || attrs.task_id || attrs.taskid || undefined,
-      tag: fallback.tag || attrs.tag || undefined,
-      agent: agent || undefined,
-      provider: fallback.provider || attrs.provider || providerModel?.[1] || undefined,
-      model: fallback.model || attrs.model || providerModel?.[2] || undefined,
-      preset: fallback.preset || attrs.preset || undefined,
-      effort: fallback.effort || attrs.effort || undefined,
-      fast: fallback.fast ?? attrs.fast,
-    },
-    result: body || agentJobStatusText({ status: fallback.status || attrs.status || 'completed', taskId: fallback.taskId || attrs.task_id || attrs.taskid || '' }),
-    isError: /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(fallback.status || attrs.status || ''),
-  };
-}
-
+// Re-export the shared tool-result/notification helpers so importers (and tests)
+// keep resolving them from engine.mjs unchanged.
 export { toolResultText, toolAggregateDetailFallback, toolGroupedDisplayFallback };
-
-export function parseBackgroundTaskEnvelope(text) {
-  const value = String(text ?? '').trim();
-  if (!/^background task\b/i.test(value)) return null;
-  const allLines = value.split('\n');
-  const rest = allLines.slice(1);
-  const blank = rest.findIndex((line) => !line.trim());
-  const headLines = blank >= 0 ? rest.slice(0, blank) : rest;
-  const body = blank >= 0 ? rest.slice(blank + 1).join('\n').trim() : '';
-  const fields = {};
-  for (const line of headLines) {
-    const match = /^([a-zA-Z][\w-]*):\s*(.*)$/.exec(line.trim());
-    if (match) fields[match[1].toLowerCase()] = match[2].trim();
-  }
-  const surface = String(fields.surface || fields.operation || 'task').toLowerCase();
-  const name = surface === 'explore' || surface === 'search' || surface === 'shell' || surface === 'agent' ? surface : 'task';
-  const status = String(fields.status || '').toLowerCase();
-  const taskId = fields.task_id || fields.taskid || '';
-  const errorText = fields.error || '';
-  const agentResult = parseAgentResultEnvelope(body, {
-    status,
-    taskId,
-    tag: fields.tag || fields.label || '',
-    agent: fields.agent || '',
-    provider: fields.provider || '',
-    model: fields.model || '',
-    preset: fields.preset || '',
-    effort: fields.effort || '',
-    fast: fields.fast,
-  });
-  if (agentResult) return { ...agentResult, rawResult: value };
-  const errorOnlyBody = isBackgroundErrorOnlyBody(body, errorText);
-  const resultBody = body && !errorOnlyBody ? body : '';
-  return {
-    name,
-    label: status || 'notification',
-    args: {
-      type: body ? 'result' : (fields.operation || 'status'),
-      status,
-      task_id: taskId || undefined,
-      surface,
-      operation: fields.operation || undefined,
-      label: fields.label || undefined,
-      tag: fields.tag || undefined,
-      agent: fields.agent || undefined,
-      provider: fields.provider || undefined,
-      model: fields.model || undefined,
-      preset: fields.preset || undefined,
-      effort: fields.effort || undefined,
-      fast: fields.fast || undefined,
-      error: errorText || undefined,
-      startedAt: fields.started || fields.startedat || undefined,
-      finishedAt: fields.finished || fields.finishedat || undefined,
-    },
-    result: resultBody || (!errorText ? [status ? `status: ${status}` : '', taskId ? `task_id: ${taskId}` : ''].filter(Boolean).join(' · ') : ''),
-    rawResult: value,
-    isError: /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status) || /^error:/i.test(body) || Boolean(errorText),
-  };
-}
-
-function isStatusOnlyAgentCompletionNotification(text) {
-  const background = parseBackgroundTaskEnvelope(text);
-  if (background?.name === 'agent' && /^(completed|cancelled|canceled)$/i.test(background.label || '')) {
-    return !(hasAgentResponseResultText(background.result) || hasAgentResponseResultText(text));
-  }
-  const parsed = parseAgentJob(text);
-  const result = agentJobResultText(text, parsed);
-  if (!parsed?.taskId || !/^(completed|cancelled|canceled)$/i.test(parsed.status || '')) return false;
-  return !(hasAgentResponseResultText(result) || hasAgentResponseResultText(text));
-}
-
-function hasAgentResponseResultText(text) {
-  const value = String(text || '').trim();
-  if (!value) return false;
-  if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(value)) return false;
-  if (/^(?:background task\b|agent task:|task_id:)/i.test(value) && !/\n\s*\n[\s\S]*\S/.test(value)) return false;
-  return true;
-}
-
-function bracketField(text, name) {
-  const re = new RegExp(`^\\[${name}:\\s*([^\\]]*)\\]`, 'mi');
-  return re.exec(String(text ?? ''))?.[1]?.trim() || '';
-}
-
-function toolResultStatus(text) {
-  const value = String(text ?? '');
-  const tagged = textBetweenTag(value, 'status');
-  if (tagged) return tagged.trim();
-  const bracketed = bracketField(value, 'status');
-  if (bracketed) return bracketed.trim();
-  const inline = /^(?:status|state):\s*([^\s·,;]+)/mi.exec(value);
-  return inline ? inline[1].trim() : '';
-}
-
-function isErrorToolStatus(status) {
-  return /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(String(status || '').trim());
-}
-
-function parseSyntheticAgentMessage(text) {
-  const value = String(text ?? '').trim();
-  if (!value) return null;
-  const finalAnswer = textBetweenTag(value, 'final-answer');
-  if (finalAnswer) {
-    return {
-      name: 'agent',
-      label: 'final',
-      args: { type: 'read', description: 'agent result' },
-      result: finalAnswer,
-    };
-  }
-  const agentResult = parseAgentResultEnvelope(value);
-  if (agentResult) return agentResult;
-  const backgroundTask = parseBackgroundTaskEnvelope(value);
-  if (backgroundTask) return backgroundTask;
-  const shellTaskId = bracketField(value, 'task_id');
-  if (shellTaskId) {
-    const status = bracketField(value, 'status') || 'done';
-    const exit = bracketField(value, 'exit');
-    const command = bracketField(value, 'command');
-    return {
-      name: 'shell',
-      label: status,
-      args: { type: 'result', task_id: shellTaskId, command },
-      result: value,
-      isError: /^(failed|error|timeout|cancelled|killed)$/i.test(status) || (exit && exit !== '0' && exit !== 'n/a'),
-    };
-  }
-  const agentJob = parseAgentJob(value);
-  if (agentJob?.taskId) {
-    const label = agentJob.status || 'notification';
-    const result = agentJobResultText(value, agentJob);
-    return {
-      name: 'agent',
-      label,
-      args: agentArgsWithResultMetadata({ type: agentJob.type || 'notification', description: 'agent notification' }, agentJob),
-      result: result || agentJobStatusText(agentJob) || 'agent notification',
-      isError: /^(failed|error|timeout|cancelled|killed)$/i.test(label),
-    };
-  }
-  if (/<task-notification\b/i.test(value)) {
-    const status = textBetweenTag(value, 'status') || 'completed';
-    const summary = textBetweenTag(value, 'summary') || `Agent ${status}`;
-    const taskId = textBetweenTag(value, 'task-id');
-    const result = stripSyntheticAgentTags(value);
-    return {
-      name: 'agent',
-      label: status,
-      taskId,
-      summary,
-      result: result || summary,
-    };
-  }
-  return null;
-}
-
-function normalizeToolName(name) {
-  return String(name || 'tool')
-    .replace(/^mcp__.*__/, '')
-    .replace(/^functions\./, '')
-    .replace(/-/g, '_')
-    .toLowerCase();
-}
-
-function parseToolArgs(args) {
-  if (!args) return {};
-  if (typeof args === 'string') {
-    try {
-      const parsed = JSON.parse(args);
-      return parsed && typeof parsed === 'object' ? parsed : {};
-    } catch {
-      return {};
-    }
-  }
-  return typeof args === 'object' ? args : {};
-}
+export { parseBackgroundTaskEnvelope };
 
 // Ink renders through a maxFps throttle (120fps in index.jsx, ≈8.3ms). A plain
 // setImmediate only yields to the event loop; if Ink already painted within the
@@ -669,182 +103,6 @@ const RENDER_THROTTLE_FLUSH_MS = 12;
 const yieldToRenderer = () => new Promise((resolve) => {
   setTimeout(resolve, RENDER_THROTTLE_FLUSH_MS);
 });
-
-function parseAgentJob(text) {
-  const value = String(text || '');
-  const idMatch = /^agent task:\s*([^\s]+)/m.exec(value) || /^task_id:\s*([^\s]+)/m.exec(value);
-  if (!idMatch) return null;
-  const statusMatch = /^status:\s*([^\s(]+)/m.exec(value);
-  const typeMatch = /^type:\s*(.+)$/m.exec(value);
-  const targetMatch = /^target:\s*(.+)$/m.exec(value);
-  const agentMatch = /^agent:\s*(.+)$/m.exec(value);
-  const presetMatch = /^preset:\s*(.+)$/m.exec(value);
-  const modelMatch = /^model:\s*([^/\s]+)\/(.+)$/m.exec(value);
-  const effortMatch = /^effort:\s*(.+)$/m.exec(value);
-  const fastMatch = /^fast:\s*(on|off|true|false)$/m.exec(value);
-  return {
-    taskId: idMatch[1],
-    status: (statusMatch?.[1] || '').toLowerCase(),
-    type: (typeMatch?.[1] || '').trim(),
-    target: (targetMatch?.[1] || '').trim(),
-    agent: (agentMatch?.[1] || '').trim(),
-    preset: (presetMatch?.[1] || '').trim(),
-    provider: (modelMatch?.[1] || '').trim(),
-    model: (modelMatch?.[2] || '').trim(),
-    effort: (effortMatch?.[1] || '').trim(),
-    fast: fastMatch ? /^(on|true)$/i.test(fastMatch[1]) : undefined,
-  };
-}
-
-const QUEUE_PRIORITY = { now: 0, next: 1, later: 2 };
-
-function queuePriorityValue(value) {
-  return QUEUE_PRIORITY[String(value || 'next')] ?? QUEUE_PRIORITY.next;
-}
-
-function defaultQueuePriority(mode) {
-  // Queue priority defaults:
-  // - user/bashed prompt input defaults to `next`, so it can be attached at the
-  //   next model-send boundary while a turn is active.
-  // - task notifications default to `later`, unless the caller explicitly marks
-  //   them urgent (e.g. interactive shell stall/completion).
-  return mode === 'task-notification' ? 'later' : 'next';
-}
-
-function isQueuedEntryEditable(entry) {
-  const mode = entry?.mode || 'prompt';
-  return mode !== 'task-notification' && mode !== 'pending-resume';
-}
-
-function isQueuedEntryVisible(entry) {
-  // state.queued drives the user-command wait list above the prompt. Background
-  // task completions stay in the internal pending queue, but should never look
-  // like commands typed by the user while they wait to be drained.
-  const mode = entry?.mode || 'prompt';
-  if (mode === 'pending-resume') return false;
-  return isQueuedEntryEditable(entry);
-}
-
-function isSlashQueuedEntry(entry) {
-  if (entry?.skipSlashCommands) return false;
-  const text = promptContentText(entry?.content ?? entry?.text ?? '');
-  return text.trim().startsWith('/');
-}
-
-function firstQueueLine(text) {
-  return String(text || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
-}
-
-function shortTextFingerprint(text) {
-  const value = String(text || '').trim();
-  let hash = 2166136261;
-  for (let i = 0; i < value.length; i += 1) {
-    hash ^= value.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
-
-function notificationDisplayText(text) {
-  const parsed = parseAgentJob(text);
-  const result = agentJobResultText(text, parsed);
-  const synthetic = parseSyntheticAgentMessage(text);
-  return firstQueueLine(synthetic?.result || result || text) || 'agent notification';
-}
-
-function promptContentText(content) {
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content.map((part) => {
-      if (typeof part === 'string') return part;
-      if (part?.type === 'text') return part.text || '';
-      if (part?.type === 'image') return '[Image]';
-      return part?.text || '';
-    }).filter(Boolean).join('\n');
-  }
-  return String(content ?? '');
-}
-
-function timestampMs(value) {
-  if (value == null || value === '') return 0;
-  const n = Number(value);
-  if (Number.isFinite(n) && n > 0) return n;
-  const parsed = Date.parse(String(value));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
-
-function hasModelVisibleConversation(session) {
-  const messages = Array.isArray(session?.messages) ? session.messages : [];
-  return messages.some((message) => {
-    const role = message?.role;
-    if (role !== 'user' && role !== 'assistant' && role !== 'tool') return false;
-    const text = promptContentText(message.content).trim();
-    if (role === 'user' && text.startsWith('<system-reminder>')) return false;
-    if (role === 'assistant' && text === '.' && !Array.isArray(message.toolCalls)) return false;
-    return !!text || role === 'assistant' || role === 'tool';
-  });
-}
-
-function sessionActivityTimestamp(session, fallback = 0) {
-  if (!hasModelVisibleConversation(session)) return 0;
-  return timestampMs(session?.lastUsedAt)
-    || timestampMs(session?.updatedAt)
-    || timestampMs(fallback);
-}
-
-function promptDisplayText(content, options = {}) {
-  if (typeof options.displayText === 'string') return options.displayText;
-  return promptContentText(content);
-}
-
-function mergePromptContents(entries) {
-  const batch = Array.isArray(entries) ? entries : [];
-  if (batch.every((entry) => typeof entry?.content === 'string')) {
-    return batch.map((entry) => entry.content).filter((text) => String(text || '').trim()).join('\n');
-  }
-  const parts = [];
-  for (const entry of batch) {
-    const content = entry?.content;
-    if (typeof content === 'string') {
-      if (content.trim()) parts.push({ type: 'text', text: content });
-    } else if (Array.isArray(content)) {
-      parts.push(...content);
-    }
-    parts.push({ type: 'text', text: '\n' });
-  }
-  while (parts.length && parts[parts.length - 1]?.type === 'text' && parts[parts.length - 1]?.text === '\n') parts.pop();
-  return parts.length === 1 && parts[0]?.type === 'text' ? parts[0].text : parts;
-}
-
-function mergePastedImages(entries) {
-  const out = {};
-  for (const entry of entries || []) {
-    const images = entry?.pastedImages;
-    if (!images || typeof images !== 'object') continue;
-    for (const [id, image] of Object.entries(images)) {
-      if (image) out[id] = image;
-    }
-  }
-  return Object.keys(out).length > 0 ? out : null;
-}
-
-function mergePastedTexts(entries) {
-  const out = {};
-  for (const entry of entries || []) {
-    const texts = entry?.pastedTexts;
-    if (!texts || typeof texts !== 'object') continue;
-    for (const [id, text] of Object.entries(texts)) {
-      if (text) out[id] = text;
-    }
-  }
-  return Object.keys(out).length > 0 ? out : null;
-}
-
-function callCommitCallbacks(entries) {
-  for (const entry of entries || []) {
-    try { entry?.onCommitted?.(); } catch {}
-  }
-}
 
 function notificationQueueKey(event, text, parsed) {
   const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
@@ -904,33 +162,6 @@ function isExecutionNotification(event, text, parsed) {
   if (parseAgentResultEnvelope(text)) return true;
   if (parseBackgroundTaskEnvelope(text)) return true;
   return Boolean(parsed?.taskId && /^(?:agent task:|task_id:)/mi.test(String(text || '')));
-}
-
-function agentArgsWithResultMetadata(args, parsed) {
-  if (!parsed) return args;
-  const next = { ...(args && typeof args === 'object' ? args : {}) };
-  const requestedAction = String(next.type || next.action || next.mode || '').trim().toLowerCase();
-  if (parsed.type) {
-    // Job status envelopes report the original job type (usually "spawn").
-    // Preserve the user's current agent tool action ("status", "read", …) so
-    // manual checks render as "Reviewer status" instead of another
-    // "Spawning Reviewer" card. Keep the job type as metadata for detail.
-    if (!requestedAction || /^(notification|result|completion)$/i.test(requestedAction)) next.type = parsed.type;
-    else next.jobType = parsed.type;
-  }
-  if (parsed.status) next.status = parsed.status;
-  if (parsed.taskId) next.task_id = parsed.taskId;
-  if (parsed.agent) next.agent = parsed.agent;
-  if (parsed.preset) next.preset = parsed.preset;
-  if (parsed.provider) next.provider = parsed.provider;
-  if (parsed.model) next.model = parsed.model;
-  if (parsed.effort) next.effort = parsed.effort;
-  if (parsed.fast !== undefined) next.fast = parsed.fast;
-  if (!next.tag && parsed.target) {
-    const target = parsed.target.split(/\s+/)[0];
-    if (target && !target.startsWith('sess_')) next.tag = target;
-  }
-  return next;
 }
 
 export async function createEngineSession({

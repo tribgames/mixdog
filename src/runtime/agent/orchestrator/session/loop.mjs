@@ -4,30 +4,18 @@ import { canonicalizeBuiltinToolName, executeBuiltinTool, formatUnknownBuiltinTo
 import { executeBashSessionTool } from '../tools/bash-session.mjs';
 import { executePatchTool, takeApplyPatchUiDiff } from '../tools/patch.mjs';
 import { executeInternalTool, isInternalTool } from '../internal-tools.mjs';
-import { collectSkillsCached, loadSkillResource, buildSkillToolEnvelope } from '../context/collect.mjs';
 import { normalizeToolEnvelope, makeToolEnvelope } from './tool-envelope.mjs';
 import { traceAgentLoop, traceAgentTool, traceAgentToolFailure, traceAgentCompact, estimateProviderPayloadBytes, messagePrefixHash, appendAgentTrace } from '../agent-trace.mjs';
 import { resolveSessionMaxLoopIterations } from '../agent-runtime/agent-loop-policy.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { markSessionToolCall, updateSessionStage, SessionClosedError, getSessionAbortSignal, enqueuePendingMessage, bumpUsageMetricsEpoch } from './manager.mjs';
 import {
-    estimateMessagesTokens,
-    estimateRequestReserveTokens,
-    sanitizeToolPairs,
-    resolveCompactBufferRatio,
-    resolveCompactBufferTokens,
-} from './context-utils.mjs';
-import {
     recallFastTrackCompactMessages,
     pruneToolOutputs,
     pruneToolOutputsUnanchored,
     semanticCompactMessages,
     effectiveBudget as compactEffectiveBudget,
-    compactTypeIsRecallFastTrack,
-    compactTypeIsSemantic,
-    normalizeCompactType,
     DEFAULT_COMPACT_TYPE,
-    DEFAULT_COMPACTION_KEEP_TOKENS,
     drainSessionCycle1,
     countRawPendingRows,
 } from './compact.mjs';
@@ -40,26 +28,15 @@ import { modelVisibleToolCompletionMessage } from '../../../shared/tool-executio
 import { createHash } from 'crypto';
 import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../providers/openai-compat-stream.mjs';
 
-// Tool-name classification for cross-turn read dedup.
-// Strips the MCP prefix so direct calls and MCP-wrapped calls share the
-// same cache.
-function _stripMcpPrefix(name) {
-    return typeof name === 'string' && name.startsWith(MCP_TOOL_PREFIX)
-        ? name.slice(MCP_TOOL_PREFIX.length) : name;
-}
-function _isReadTool(name) {
-    return _stripMcpPrefix(name) === 'read';
-}
-function _isMutationTool(name) {
-    const n = _stripMcpPrefix(name);
-    return n === 'apply_patch';
-}
-const SCOPED_CACHEABLE_TOOLS = new Set([
-    'code_graph',
-    'grep',
-    'list',
-    'glob',
-]);
+import {
+    _stripMcpPrefix,
+    _isReadTool,
+    _isMutationTool,
+    _isScopedCacheableTool,
+    _isShellTool,
+    _intraTurnSig,
+} from './loop/tool-classify.mjs';
+import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 let codeGraphRuntimePromise = null;
 async function executeCodeGraphToolLazy(name, args, cwd, signal = null, options = {}) {
     codeGraphRuntimePromise ??= import('../tools/code-graph.mjs');
@@ -67,218 +44,72 @@ async function executeCodeGraphToolLazy(name, args, cwd, signal = null, options 
     if (typeof mod.executeCodeGraphTool !== 'function') throw new Error('code_graph runtime is not available');
     return mod.executeCodeGraphTool(name, args, cwd, signal, options);
 }
-function _isScopedCacheableTool(name) {
-    const n = _stripMcpPrefix(name);
-    return SCOPED_CACHEABLE_TOOLS.has(n);
-}
-function _isShellTool(name) {
-    const n = _stripMcpPrefix(name);
-    return n === 'shell' || n === 'bash_session';
-}
 
 // classifyResultKind is imported from result-classification.mjs at the top of
 // this file; import it from there directly rather than via this module.
-
-// Canonical signature for intra-turn duplicate detection. Sorting keys
-// produces a stable hash regardless of arg-object key order. Anything
-// non-serializable falls back to String(args) — still deterministic for
-// the model's typical structured-arg shape.
-function _canonicalArgs(args) {
-    if (args == null || typeof args !== 'object') {
-        try { return JSON.stringify(args); } catch { return String(args); }
-    }
-    try {
-        const keys = Object.keys(args).sort();
-        const sorted = {};
-        for (const k of keys) sorted[k] = args[k];
-        return JSON.stringify(sorted);
-    } catch { return String(args); }
-}
-function _intraTurnSig(name, args) {
-    return createHash('sha256').update(`${name}:${_canonicalArgs(args)}`).digest('hex').slice(0, 16);
-}
-
-// Shared pre-dispatch deny — single source of truth for the remaining
-// control-plane / role scoping rejects. Called by BOTH the eager dispatch
-// path (startEagerTool) and the serial dispatch path (executeTool body).
-// Returns null when the call is allowed to proceed; otherwise returns the
-// Error string the serial path would emit. The eager caller ignores the
-// message body and just treats non-null as "do not start eager".
-//
-// This is NOT a permission gate — runtime permission enforcement was removed
-// (every tool call is trusted). What remains is architectural scoping:
-// agent workers are sandboxed to code/research tools. They must never reach
-// owner/host control surfaces: session management, the ENTIRE channels module
-// (Discord messaging, schedules, webhook/config, channel-bridge toggle,
-// command injection), or host input injection. Explicit name list (no imports)
-// keeps this hot-path gate dependency-free; add new owner/channel tools here.
-const WORKER_DENIED_TOOLS = new Set([
-    // session control-plane — unified into the single `agent` tool
-    // (type=spawn|send|close|list). Denying the one name blocks all worker
-    // session control.
-    'agent',
-    // channels module (owner/Discord-facing)
-    'reply', 'react', 'edit_message', 'download_attachment', 'fetch',
-    'schedule_status', 'trigger_schedule', 'schedule_control',
-    'activate_channel_bridge', 'reload_config', 'inject_command',
-    // host input injection
-    'inject_input',
-]);
-function _preDispatchDeny(call, toolKind, sessionRef) {
-    const name = call?.name;
-    if (typeof name !== 'string' || !name) return null;
-    const _agentOwned = sessionRef?.scope?.startsWith?.('agent:')
-        || isAgentOwner(sessionRef);
-    const _controlPlaneTool = WORKER_DENIED_TOOLS.has(name);
-    if (_agentOwned && _controlPlaneTool) {
-        return `Error: control-plane tool "${name}" is Lead-only and not available to agent workers.`;
-    }
-    const noToolAgent = sessionRef?.agent === 'cycle1-agent' || sessionRef?.agent === 'cycle2-agent';
-    if (noToolAgent) {
-        return `Error: tool "${name}" is not available in agent "${sessionRef.agent}". Re-emit the answer as pipe-separated text per the agent's output format (first character a digit, NO tool_use blocks, NO JSON, NO prose, NO apology).`;
-    }
-    return null;
-}
-/** Exported for smoke tests — same runtime deny as the agent loop. */
-export function preDispatchDenyForSession(sessionRef, call, toolKind = 'builtin') {
-    return _preDispatchDeny(call, toolKind, sessionRef);
-}
 import { compressToolResult, recordToolBatch } from '../tools/result-compression.mjs';
 
 
-import { readFileSync as _readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, resolve as resolvePath, isAbsolute } from 'path';
-const MCP_TOOL_PREFIX = 'mcp__plugin_mixdog_mixdog__';
-const COMPACT_SAFETY_PERCENT = 1.00;
-const COMPACT_BUFFER_MAX_WINDOW_FRACTION = 0.25;
+import { resolve as resolvePath, isAbsolute } from 'path';
+import {
+    estimateMessagesTokensSafe,
+    compactDiagnosticError,
+    compactByteLength,
+    compactDebugLog,
+} from './loop/compact-debug.mjs';
+import { mergeSteeringEntries, steeringContentText } from './loop/steering.mjs';
+import { agentContextOverflowError } from './loop/context-overflow.mjs';
+import { positiveTokenInt } from './loop/env.mjs';
+import { normalizeUsage, addUsage } from './loop/usage.mjs';
+import { HIDDEN_AGENT_NAMES } from './loop/hidden-agents.mjs';
+import {
+    resolveWorkerCompactPolicy,
+    compactionTelemetryPressureTokens,
+    compactTargetBudget,
+    shouldCompactForSession,
+    countPrunedToolOutputs,
+    rememberCompactTelemetry,
+    emitCompactEvent,
+    compactEventType,
+} from './loop/compact-policy.mjs';
+import {
+    isEagerDispatchable,
+    messagesArrayChanged,
+    getToolKind,
+    buildSkillsListResponse,
+    viewSkill,
+    normalizeHookUpdatedToolOutput,
+    resolveToolResultAfterHook,
+    parseNativeToolSearchPayload,
+    extractBashSessionId,
+    buildAgentBashSessionArgs,
+    formatMissingToolApprovalUiDenial,
+    resolvePreToolAskApproval,
+    approvalGranted,
+    approvalReason,
+} from './loop/tool-helpers.mjs';
+import {
+    compactToolCallsForHistory,
+    restoreToolCallBodyForId,
+} from './loop/stored-tool-args.mjs';
+import { repairTranscriptBeforeProviderSend } from './loop/transcript-repair.mjs';
 
-function estimateMessagesTokensSafe(messages) {
-    try { return estimateMessagesTokens(messages); }
-    catch { return null; }
-}
+// Facade re-exports: these symbols moved to split modules under ./loop/ but
+// remain part of loop.mjs's public surface (imported by scripts/tests and other
+// runtime modules). Re-export the already-imported local bindings so every
+// existing import path keeps working (no duplicate module binding).
+export {
+    preDispatchDenyForSession,
+    repairTranscriptBeforeProviderSend,
+    normalizeHookUpdatedToolOutput,
+    resolveToolResultAfterHook,
+    buildAgentBashSessionArgs,
+    formatMissingToolApprovalUiDenial,
+    resolvePreToolAskApproval,
+    approvalGranted,
+    approvalReason,
+};
 
-function compactDebugEnabled() {
-    return String(process.env.MIXDOG_COMPACT_DEBUG || '').trim() === '1';
-}
-
-function compactDiagnosticError(err) {
-    if (!err) return null;
-    const text = String(err?.message || err);
-    return text.length > 500 ? `${text.slice(0, 499)}…` : text;
-}
-
-function compactByteLength(text) {
-    try { return Buffer.byteLength(String(text || ''), 'utf8'); }
-    catch { return String(text || '').length; }
-}
-
-function compactDebugLog(scope, details = {}) {
-    if (!compactDebugEnabled()) return;
-    try { process.stderr.write(`[compact] ${scope} ${JSON.stringify(details)}\n`); }
-    catch { /* best-effort diagnostics only */ }
-}
-
-function steeringContentText(content) {
-    if (typeof content === 'string') return content;
-    if (Array.isArray(content)) {
-        return content.map((part) => {
-            if (typeof part === 'string') return part;
-            if (part?.type === 'text') return part.text || '';
-            if (part?.type === 'image') return '[Image]';
-            return part?.text || '';
-        }).filter(Boolean).join('\n');
-    }
-    return String(content ?? '');
-}
-
-function normalizeSteeringEntry(entry) {
-    if (typeof entry === 'string') {
-        const text = entry.trim();
-        return text ? { content: text, text } : null;
-    }
-    if (!entry || typeof entry !== 'object') return null;
-    const content = Object.prototype.hasOwnProperty.call(entry, 'content') ? entry.content : entry;
-    const text = typeof entry.text === 'string' ? entry.text.trim() : steeringContentText(content).trim();
-    if (Array.isArray(content)) return content.length > 0 ? { content, text } : null;
-    if (typeof content === 'string') {
-        const value = content.trim();
-        return value ? { content: value, text: text || value } : null;
-    }
-    const fallback = steeringContentText(content).trim();
-    return fallback ? { content: fallback, text: text || fallback } : null;
-}
-
-function mergeSteeringEntries(entries) {
-    const normalized = (Array.isArray(entries) ? entries : [])
-        .map(normalizeSteeringEntry)
-        .filter(Boolean);
-    if (normalized.length === 0) return null;
-    const displayText = normalized.map((entry) => entry.text || steeringContentText(entry.content))
-        .filter((text) => String(text || '').trim())
-        .join('\n');
-    if (normalized.every((entry) => typeof entry.content === 'string')) {
-        return {
-            content: normalized.map((entry) => entry.content).filter(Boolean).join('\n'),
-            text: displayText,
-            count: normalized.length,
-        };
-    }
-    const parts = [];
-    for (const entry of normalized) {
-        if (typeof entry.content === 'string') {
-            if (entry.content.trim()) parts.push({ type: 'text', text: entry.content });
-        } else if (Array.isArray(entry.content)) {
-            parts.push(...entry.content);
-        } else {
-            const text = steeringContentText(entry.content);
-            if (text.trim()) parts.push({ type: 'text', text });
-        }
-        parts.push({ type: 'text', text: '\n' });
-    }
-    while (parts.length && parts[parts.length - 1]?.type === 'text' && parts[parts.length - 1]?.text === '\n') parts.pop();
-    return { content: parts, text: displayText || steeringContentText(parts), count: normalized.length };
-}
-
-class AgentContextOverflowError extends Error {
-    constructor({ stage, sessionId, provider, model, contextWindow, budgetTokens, reserveTokens, messageTokensEst }, cause) {
-        const target = [provider, model].filter(Boolean).join('/') || 'target model';
-        const causeMsg = cause && cause.message ? `: ${cause.message}` : '';
-        super(
-            `agent context overflow (${target}, stage=${stage || 'compact'}): ` +
-            `latest turn cannot fit target context budget=${budgetTokens ?? 'unknown'} ` +
-            `reserve=${reserveTokens ?? 'unknown'} contextWindow=${contextWindow ?? 'unknown'} ` +
-            `messageTokensEst=${messageTokensEst ?? 'unknown'}${causeMsg}`,
-        );
-        this.name = 'AgentContextOverflowError';
-        this.code = 'AGENT_CONTEXT_OVERFLOW';
-        this.sessionId = sessionId || null;
-        this.provider = provider || null;
-        this.model = model || null;
-        this.contextWindow = contextWindow ?? null;
-        this.budgetTokens = budgetTokens ?? null;
-        this.reserveTokens = reserveTokens ?? null;
-        this.messageTokensEst = messageTokensEst ?? null;
-        if (cause) this.cause = cause;
-    }
-}
-
-function agentContextOverflowError({ stage, sessionId, sessionRef, model, budgetTokens, reserveTokens, messageTokensEst }, cause) {
-    return new AgentContextOverflowError({
-        stage,
-        sessionId,
-        provider: sessionRef?.provider || null,
-        model: sessionRef?.model || model || null,
-        contextWindow: sessionRef?.contextWindow ?? null,
-        budgetTokens,
-        reserveTokens,
-        messageTokensEst,
-    }, cause);
-}
-
-// Cache-hit results always inline the cached body. The earlier size-gated
-// `[cache-hit-ref]` branch confused agents whose context did not
-// contain the referenced prior tool_result, triggering shell-cat detours.
 // Hard iteration ceiling for every agent loop. Reset to 0 whenever the
 // transcript is compacted (see the trim block below): a long task that keeps
 // compacting can proceed past this count, while a tight NON-compacting loop
@@ -289,185 +120,6 @@ function agentContextOverflowError({ stage, sessionId, sessionRef, model, budget
 // this catches tight deterministic-failure loops (e.g. a command that errors
 // the same way every time) far earlier than 100 iterations.
 const REPEAT_FAIL_LIMIT = 3;
-const _AGENTS_JSON = resolvePath(dirname(fileURLToPath(import.meta.url)), '../../../../defaults/agents.json');
-let _hiddenAgentsCache = null;
-function _getHiddenAgents() {
-    if (_hiddenAgentsCache) return _hiddenAgentsCache;
-    try {
-        _hiddenAgentsCache = JSON.parse(_readFileSync(_AGENTS_JSON, 'utf8'));
-    } catch { _hiddenAgentsCache = { agents: [] }; }
-    return _hiddenAgentsCache;
-}
-// Transcript pairing guard. Anthropic 400-rejects when an assistant message
-// ends with tool_use blocks and the next message isn't tool results for
-// those exact ids. abort/timeout/error race in the loop body can leave a
-// dangling assistant tool_use at the tail (e.g. the structure_probe loop
-// running 12 deep then aborting between push-assistant and push-tool).
-// Strip any trailing assistant tool_use that has no matching tool result
-// so provider.send sees a valid transcript instead of leaking the 400 to
-// the user. Repair runs every iteration but is a no-op on healthy paths.
-function _ensureTranscriptPairing(msgs, sessionId) {
-    // Walk backwards to find the last assistant message that emitted
-    // tool_use, then validate that every id has a matching tool result
-    // inside the CONTIGUOUS tool-message block immediately following it.
-    // Earlier guard splice'd the entire tail — which silently deleted any
-    // user prompt appended after the dangling assistant by manager.mjs:
-    // when the guard fired with shape
-    //     [..., assistant{a,b}, tool{a}, user{new prompt}]
-    // the splice removed user{new prompt} along with the orphan suffix.
-    // Fix: remove only assistant + the contiguous tool block; preserve
-    // anything past it (user / system / next assistant) untouched.
-    let popped = 0;
-    while (msgs.length > 0) {
-        let lastAssistantIdx = -1;
-        for (let i = msgs.length - 1; i >= 0; i--) {
-            const m = msgs[i];
-            if (m?.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length > 0) {
-                lastAssistantIdx = i;
-                break;
-            }
-        }
-        if (lastAssistantIdx === -1) break;
-        // Collect the contiguous tool messages directly after this assistant.
-        // Anything past that block is unrelated (next user prompt, system
-        // marker, etc.) and must survive the repair.
-        let toolBlockEnd = lastAssistantIdx + 1;
-        while (toolBlockEnd < msgs.length && msgs[toolBlockEnd]?.role === 'tool') {
-            toolBlockEnd += 1;
-        }
-        const toolBlock = msgs.slice(lastAssistantIdx + 1, toolBlockEnd);
-        const ids = msgs[lastAssistantIdx].toolCalls.map(c => c.id);
-        const matched = ids.every(id => toolBlock.some(m => m.toolCallId === id));
-        if (matched) break;
-        const removed = toolBlockEnd - lastAssistantIdx;
-        msgs.splice(lastAssistantIdx, removed);
-        popped += removed;
-    }
-    // Second sweep — catch dangling tool results that survived the
-    // contiguous-block splice. Anthropic strict spec requires every
-    // tool result to sit in a contiguous block right after the
-    // assistant whose toolCalls produced it; a `[..., assistant{a,b},
-    // tool{a}, user, tool{b}]` shape leaves tool{b} orphaned even
-    // after assistant + tool{a} are repaired by the loop above.
-    // Walk back from each tool message to the nearest non-tool
-    // ancestor; if it is not an assistant whose toolCalls include
-    // this id, drop the orphan.
-    for (let i = msgs.length - 1; i >= 0; i--) {
-        const m = msgs[i];
-        if (m?.role !== 'tool') continue;
-        if (!m.toolCallId) {
-            msgs.splice(i, 1);
-            popped += 1;
-            continue;
-        }
-        let prevIdx = i - 1;
-        while (prevIdx >= 0 && msgs[prevIdx]?.role === 'tool') prevIdx--;
-        const anchor = prevIdx >= 0 ? msgs[prevIdx] : null;
-        const anchorOk = anchor?.role === 'assistant'
-            && Array.isArray(anchor.toolCalls)
-            && anchor.toolCalls.some(c => c.id === m.toolCallId);
-        if (!anchorOk) {
-            msgs.splice(i, 1);
-            popped += 1;
-        }
-    }
-    if (popped > 0 && sessionId) {
-        try { process.stderr.write(`[transcript-repair] sess=${sessionId} popped=${popped} dangling assistant tool_use\n`); } catch {}
-    }
-}
-
-/**
- * Pre-provider transcript repair for the agent loop. Reattach valid tool
- * results (non-destructive) before any destructive orphan pairing cleanup.
- * Mutates `messages` in place to preserve the session array reference.
- */
-export function repairTranscriptBeforeProviderSend(messages, sessionId = null) {
-    if (!Array.isArray(messages)) return messages;
-    const sanitized = sanitizeToolPairs(messages);
-    if (sanitized !== messages) {
-        messages.length = 0;
-        messages.push(...sanitized);
-    }
-    _ensureTranscriptPairing(messages, sessionId);
-    return messages;
-}
-
-// Eager-dispatch: tools with readOnlyHint:true in their declaration are safe
-// to execute during SSE parsing so tool work overlaps with the rest of the
-// stream. Writes, bash, MCP and skills stay serial after send() returns.
-function isEagerDispatchable(name, tools) {
-    if (!Array.isArray(tools)) return false;
-    const def = tools.find(t => t?.name === name);
-    return def?.annotations?.readOnlyHint === true;
-}
-function messagesArrayChanged(before, after) {
-    if (!Array.isArray(before) || !Array.isArray(after)) return before !== after;
-    if (before.length !== after.length) return true;
-    for (let i = 0; i < before.length; i += 1) {
-        if (before[i] !== after[i]) return true;
-    }
-    return false;
-}
-function normalizeUsage(usage) {
-    if (!usage) return null;
-    const costUsd = Number(usage.costUsd);
-    return {
-        inputTokens: usage.inputTokens || 0,
-        outputTokens: usage.outputTokens || 0,
-        cachedTokens: usage.cachedTokens || 0,
-        cacheWriteTokens: usage.cacheWriteTokens || 0,
-        promptTokens: usage.promptTokens || 0,
-        ...(Number.isFinite(costUsd) ? { costUsd } : {}),
-        raw: usage.raw,
-    };
-}
-function addUsage(total, usage) {
-    const delta = normalizeUsage(usage);
-    if (!delta) return total;
-    if (!total) return { ...delta };
-    const next = {
-        ...total,
-        inputTokens: (total.inputTokens || 0) + delta.inputTokens,
-        outputTokens: (total.outputTokens || 0) + delta.outputTokens,
-        cachedTokens: (total.cachedTokens || 0) + delta.cachedTokens,
-        cacheWriteTokens: (total.cacheWriteTokens || 0) + delta.cacheWriteTokens,
-        promptTokens: (total.promptTokens || 0) + delta.promptTokens,
-    };
-    if (delta.costUsd != null || total.costUsd != null) {
-        next.costUsd = (total.costUsd || 0) + (delta.costUsd || 0);
-    }
-    return next;
-}
-function positiveTokenInt(value) {
-    const n = Number(value);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
-}
-function envFlag(name, fallback = false) {
-    const v = process.env[name];
-    if (v === undefined) return fallback;
-    return !['0', 'false', 'off', 'no'].includes(String(v).trim().toLowerCase());
-}
-function envTokenInt(name) {
-    return positiveTokenInt(process.env[name]);
-}
-function resolveSemanticCompactSetting(sessionRef, cfg = {}) {
-    if (process.env.MIXDOG_AGENT_COMPACT_SEMANTIC !== undefined) return envFlag('MIXDOG_AGENT_COMPACT_SEMANTIC', true);
-    if (cfg.semantic === false || cfg.semantic === 'false' || cfg.semantic === 'off') return false;
-    if (cfg.semantic === true || cfg.semantic === 'true' || cfg.semantic === 'on') return true;
-    // The compact type is already explicit (`semantic` by default). Honor it
-    // directly instead of substituting another compaction path.
-    return true;
-}
-
-function resolveCompactTypeSetting(_sessionRef, cfg = {}) {
-    const configured = process.env.MIXDOG_AGENT_COMPACT_TYPE
-        ?? process.env.MIXDOG_COMPACT_TYPE
-        ?? cfg.type
-        ?? cfg.compactType
-        ?? cfg.compact_type;
-    return normalizeCompactType(configured, DEFAULT_COMPACT_TYPE);
-}
-
 async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTokens, compactPolicy, sessionId, signal }) {
     if (!sessionId) throw new Error('recall-fasttrack requires a session id');
     const startedAt = Date.now();
@@ -599,503 +251,6 @@ async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTo
     compactDebugLog('recall-fasttrack pipeline', diagnostics);
     return result;
 }
-const COMPACT_TARGET_RATIO = 0.02;
-const COMPACT_TARGET_MIN_TOKENS = 4_000;
-const COMPACT_TARGET_MAX_TOKENS = 16_000;
-function resolveCompactTargetRatio(cfg = {}) {
-    const raw = cfg.targetPercent
-        ?? cfg.targetPct
-        ?? cfg.targetRatio
-        ?? cfg.targetFraction
-        ?? process.env.MIXDOG_AGENT_COMPACT_TARGET_PERCENT
-        ?? process.env.MIXDOG_COMPACT_TARGET_PERCENT
-        ?? COMPACT_TARGET_RATIO;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return COMPACT_TARGET_RATIO;
-    return n > 1 ? n / 100 : n;
-}
-function resolveCompactTargetTokens(boundaryTokens, cfg = {}) {
-    const boundary = positiveTokenInt(boundaryTokens);
-    if (!boundary) return null;
-    const explicit = positiveTokenInt(cfg.targetTokens ?? cfg.target)
-        || envTokenInt('MIXDOG_AGENT_COMPACT_TARGET_TOKENS')
-        || envTokenInt('MIXDOG_COMPACT_TARGET_TOKENS');
-    if (explicit) return Math.max(1, Math.min(boundary, explicit));
-    const minTarget = Math.min(boundary, positiveTokenInt(cfg.targetMinTokens ?? cfg.minTargetTokens)
-        || envTokenInt('MIXDOG_AGENT_COMPACT_TARGET_MIN_TOKENS')
-        || envTokenInt('MIXDOG_COMPACT_TARGET_MIN_TOKENS')
-        || COMPACT_TARGET_MIN_TOKENS);
-    const maxTarget = Math.min(boundary, positiveTokenInt(cfg.targetMaxTokens ?? cfg.maxTargetTokens)
-        || envTokenInt('MIXDOG_AGENT_COMPACT_TARGET_MAX_TOKENS')
-        || envTokenInt('MIXDOG_COMPACT_TARGET_MAX_TOKENS')
-        || COMPACT_TARGET_MAX_TOKENS);
-    const byRatio = Math.max(1, Math.floor(boundary * resolveCompactTargetRatio(cfg)));
-    return Math.max(1, Math.min(boundary, maxTarget, Math.max(minTarget, byRatio)));
-}
-function resolveCompactKeepTokens(cfg = {}) {
-    return positiveTokenInt(cfg.keepTokens ?? cfg.keep?.tokens ?? cfg.preserveRecentTokens)
-        || envTokenInt('MIXDOG_AGENT_COMPACT_KEEP_TOKENS')
-        || DEFAULT_COMPACTION_KEEP_TOKENS;
-}
-function resolveWorkerCompactPolicy(sessionRef, tools) {
-    if (!sessionRef) return null;
-    const cfg = sessionRef.compaction || {};
-    const auto = cfg.auto !== false && envFlag('MIXDOG_AGENT_COMPACT_AUTO', true);
-    if (!auto) return { auto: false };
-    const contextWindow = positiveTokenInt(sessionRef.contextWindow ?? cfg.contextWindow);
-    const explicitBoundary = positiveTokenInt(sessionRef.compactBoundaryTokens ?? cfg.boundaryTokens);
-    const autoLimit = positiveTokenInt(sessionRef.autoCompactTokenLimit ?? cfg.autoCompactTokenLimit);
-    const boundaryTokens = explicitBoundary && contextWindow
-        ? Math.min(explicitBoundary, contextWindow)
-        : (explicitBoundary || contextWindow || autoLimit);
-    if (!boundaryTokens) return null;
-    const compactBoundaryTokens = Math.max(1, Math.floor(boundaryTokens * COMPACT_SAFETY_PERCENT));
-    // Only an explicit auto-compact limit STRICTLY BELOW the boundary acts as
-    // the trigger. A persisted value == boundary (legacy derived full-window
-    // autoCompactTokenLimit) would set autoTriggerTokens == boundary and
-    // collapse/override the default trigger, so it is ignored in favor of the
-    // default boundary trigger.
-    const autoTriggerTokens = autoLimit && autoLimit < compactBoundaryTokens ? Math.max(1, autoLimit) : null;
-    // Sanitized explicit limit: only a sub-boundary value is a real auto-compact
-    // limit. Anything >= boundary is a legacy derived full-window artifact and
-    // is reported as null so rememberCompactTelemetry does not re-persist it
-    // back onto the session and re-collapse the buffer on the next turn.
-    const explicitAutoCompactTokenLimit = autoTriggerTokens;
-    const bufferTokens = autoTriggerTokens
-        ? Math.max(0, compactBoundaryTokens - autoTriggerTokens)
-        : resolveCompactBufferTokens(compactBoundaryTokens, cfg);
-    const bufferRatio = compactBoundaryTokens ? (bufferTokens / compactBoundaryTokens) : resolveCompactBufferRatio(cfg);
-    const triggerTokens = autoTriggerTokens || Math.max(1, compactBoundaryTokens - bufferTokens);
-    const configuredReserve = positiveTokenInt(cfg.reservedTokens)
-        || envTokenInt('MIXDOG_AGENT_COMPACT_RESERVED_TOKENS')
-        || 0;
-    const requestReserve = estimateRequestReserveTokens(tools);
-    const keepTokens = resolveCompactKeepTokens(cfg);
-    const compactType = resolveCompactTypeSetting(sessionRef, cfg);
-    return {
-        auto: true,
-        type: compactType,
-        compactType,
-        prune: cfg.prune === true || envFlag('MIXDOG_AGENT_COMPACT_PRUNE', false),
-        boundaryTokens: compactBoundaryTokens,
-        triggerTokens,
-        bufferTokens,
-        bufferRatio,
-        contextWindow,
-        rawContextWindow: positiveTokenInt(sessionRef.rawContextWindow ?? cfg.rawContextWindow) || contextWindow,
-        effectiveContextWindowPercent: Number.isFinite(Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent))
-            ? Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent)
-            : null,
-        autoCompactTokenLimit: explicitAutoCompactTokenLimit,
-        semantic: compactTypeIsSemantic(compactType) && resolveSemanticCompactSetting(sessionRef, cfg),
-        recallFastTrack: compactTypeIsRecallFastTrack(compactType),
-        semanticTimeoutMs: positiveTokenInt(cfg.timeoutMs) || envTokenInt('MIXDOG_AGENT_COMPACT_TIMEOUT_MS') || 30_000,
-        tailTurns: positiveTokenInt(cfg.tailTurns) || envTokenInt('MIXDOG_AGENT_COMPACT_TAIL_TURNS') || 2,
-        keepTokens,
-        preserveRecentTokens: positiveTokenInt(cfg.preserveRecentTokens) || envTokenInt('MIXDOG_AGENT_COMPACT_PRESERVE_RECENT_TOKENS') || keepTokens,
-        reserveTokens: requestReserve + configuredReserve,
-        requestReserveTokens: requestReserve,
-        configuredReserveTokens: configuredReserve,
-    };
-}
-/** Transcript + request reserve only (never provider lastContextTokens). */
-function compactPressureTokens(messageTokensEst, policy) {
-    if (messageTokensEst === null) return 0;
-    return Math.max(0, messageTokensEst + (policy?.reserveTokens || 0));
-}
-
-/** Telemetry pressure when a reactive overflow retry forces the next compact. */
-function compactionTelemetryPressureTokens(messageTokensEst, policy, { reactivePending = false } = {}) {
-    const base = compactPressureTokens(messageTokensEst, policy);
-    if (!reactivePending) return base;
-    const floor = positiveTokenInt(policy?.triggerTokens) || positiveTokenInt(policy?.boundaryTokens) || 0;
-    return floor ? Math.max(base, floor) : base;
-}
-function compactTargetBudget(policy) {
-    const boundary = positiveTokenInt(policy?.boundaryTokens);
-    if (!boundary) return null;
-    const reserve = Math.max(0, Number(policy?.reserveTokens) || 0);
-    const targetEffective = resolveCompactTargetTokens(boundary, policy) || boundary;
-    return Math.max(1, Math.min(boundary, targetEffective + reserve));
-}
-function shouldCompactForSession(messageTokensEst, policy, { forceReactive = false } = {}) {
-    if (!policy?.auto || !policy.boundaryTokens) return false;
-    if (forceReactive) return true;
-    if (messageTokensEst === null) return true;
-    return compactPressureTokens(messageTokensEst, policy) >= (policy.triggerTokens || policy.boundaryTokens);
-}
-function countPrunedToolOutputs(before, after) {
-    if (!Array.isArray(before) || !Array.isArray(after)) return 0;
-    let count = 0;
-    const n = Math.min(before.length, after.length);
-    for (let i = 0; i < n; i += 1) {
-        if (before[i]?.role !== 'tool' || after[i]?.role !== 'tool') continue;
-        if (before[i]?.content !== after[i]?.content && after[i]?.compactedKind === 'tool_output_prune') count += 1;
-    }
-    return count;
-}
-function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
-    if (!sessionRef || !policy) return;
-    const prev = sessionRef.compaction && typeof sessionRef.compaction === 'object'
-        ? sessionRef.compaction
-        : {};
-    const changed = meta.compactChanged === true || meta.pruneCount > 0;
-    sessionRef.compaction = {
-        ...prev,
-        auto: policy.auto !== false,
-        prune: policy.prune === true,
-        reservedTokens: policy.configuredReserveTokens || prev.reservedTokens || null,
-        requestReserveTokens: policy.requestReserveTokens || 0,
-        reserveTokens: policy.reserveTokens || 0,
-        boundaryTokens: policy.boundaryTokens || null,
-        triggerTokens: policy.triggerTokens || null,
-        bufferTokens: policy.bufferTokens || 0,
-        bufferRatio: policy.bufferRatio ?? prev.bufferRatio ?? null,
-        contextWindow: policy.contextWindow || null,
-        rawContextWindow: policy.rawContextWindow || null,
-        effectiveContextWindowPercent: policy.effectiveContextWindowPercent ?? null,
-        autoCompactTokenLimit: policy.autoCompactTokenLimit || null,
-        type: policy.compactType || policy.type || DEFAULT_COMPACT_TYPE,
-        compactType: policy.compactType || policy.type || DEFAULT_COMPACT_TYPE,
-        semantic: policy.semantic === true ? 'auto' : false,
-        recallFastTrack: policy.recallFastTrack === true,
-        semanticModel: policy.semanticModel || null,
-        semanticTimeoutMs: policy.semanticTimeoutMs || null,
-        tailTurns: policy.tailTurns || null,
-        keepTokens: policy.keepTokens || null,
-        preserveRecentTokens: policy.preserveRecentTokens || null,
-        lastCheckedAt: Date.now(),
-        lastBeforeTokens: meta.beforeTokens ?? null,
-        lastAfterTokens: meta.afterTokens ?? null,
-        lastPressureTokens: meta.pressureTokens ?? null,
-        currentEstimatedTokens: meta.pressureTokens ?? prev.currentEstimatedTokens ?? null,
-        lastApiRequestTokens: positiveTokenInt(sessionRef?.lastContextTokens) || prev.lastApiRequestTokens || null,
-        lastStage: meta.stage || prev.lastStage || null,
-        lastChanged: changed,
-        lastTrigger: meta.trigger || prev.lastTrigger || null,
-        lastSemantic: meta.semanticCompact === true,
-        lastSemanticError: Object.hasOwn(meta, 'semanticError')
-            ? (meta.semanticError ?? null)
-            : (prev.lastSemanticError ?? null),
-        lastRecallFastTrack: meta.recallFastTrack === true,
-        lastRecallFastTrackError: Object.hasOwn(meta, 'recallFastTrackError')
-            ? (meta.recallFastTrackError ?? null)
-            : (prev.lastRecallFastTrackError ?? null),
-        lastError: Object.hasOwn(meta, 'compactError') || Object.hasOwn(meta, 'lastError')
-            ? (meta.compactError ?? meta.lastError ?? null)
-            : (prev.lastError ?? null),
-        lastPruneCount: meta.pruneCount || 0,
-        lastDurationMs: meta.durationMs != null && Number.isFinite(Number(meta.durationMs))
-            ? Math.max(0, Math.round(Number(meta.durationMs)))
-            : null,
-        compactCount: (prev.compactCount || 0) + (changed ? 1 : 0),
-    };
-    if (changed) {
-        const changedAt = Date.now();
-        sessionRef.compaction.lastChangedAt = changedAt;
-        sessionRef.compaction.lastCompactAt = changedAt;
-        sessionRef.lastContextTokensStaleAfterCompact = true;
-    }
-    sessionRef.contextWindow = policy.contextWindow || sessionRef.contextWindow;
-    sessionRef.rawContextWindow = policy.rawContextWindow || sessionRef.rawContextWindow;
-    sessionRef.compactBoundaryTokens = policy.boundaryTokens || sessionRef.compactBoundaryTokens || null;
-    // Persist only the sanitized (sub-boundary) explicit limit. policy.autoCompactTokenLimit
-    // is already null for legacy derived full-window values, so a stale
-    // boundary-sized autoCompactTokenLimit on the session is cleared here rather
-    // than carried forward to re-collapse the buffer next turn.
-    {
-        const _boundary = positiveTokenInt(sessionRef.compactBoundaryTokens);
-        const _prevLimit = positiveTokenInt(sessionRef.autoCompactTokenLimit);
-        const _keepPrev = _prevLimit && (!_boundary || _prevLimit < _boundary) ? _prevLimit : null;
-        sessionRef.autoCompactTokenLimit = policy.autoCompactTokenLimit || _keepPrev || null;
-    }
-    if (policy.effectiveContextWindowPercent !== null) {
-        sessionRef.effectiveContextWindowPercent = policy.effectiveContextWindowPercent;
-    }
-}
-
-function emitCompactEvent(opts, event = {}) {
-    if (!opts || typeof opts.onCompactEvent !== 'function') return;
-    try { opts.onCompactEvent({ ts: Date.now(), ...event }); }
-    catch { /* best-effort UI/log hook */ }
-}
-
-function compactEventType(policy, fallback = DEFAULT_COMPACT_TYPE) {
-    return policy?.compactType || policy?.type || fallback;
-}
-const SKILL_TOOL_NAMES = new Set(['Skill', 'skills_list', 'skill_view']);
-const SPECIAL_TOOL_NAMES = new Set(['bash_session', 'apply_patch', 'code_graph']);
-const BASH_SESSION_HEADER_RE = /\[session: ([^\]\r\n]+)\]/;
-const STORED_TOOL_ARG_BODY_KEY_RE = /^(?:content|old_string|new_string|patch|rewrite)$/i;
-const STORED_TOOL_ARG_LONG_KEY_RE = /^(?:command|script)$/i;
-const STORED_TOOL_ARG_BODY_LIMIT = 2_000;
-const STORED_TOOL_ARG_LONG_LIMIT = 8_000;
-const STORED_TOOL_ARG_PREVIEW_HEAD = 360;
-const STORED_TOOL_ARG_PREVIEW_TAIL = 160;
-
-function compactStoredToolArgString(value, key = '') {
-    if (typeof value !== 'string') return value;
-    const isBody = STORED_TOOL_ARG_BODY_KEY_RE.test(key);
-    const isLong = isBody || STORED_TOOL_ARG_LONG_KEY_RE.test(key);
-    const limit = isBody ? STORED_TOOL_ARG_BODY_LIMIT : (isLong ? STORED_TOOL_ARG_LONG_LIMIT : Infinity);
-    if (value.length <= limit) return value;
-    const hash = createHash('sha256').update(value).digest('hex').slice(0, 16);
-    const head = value.slice(0, STORED_TOOL_ARG_PREVIEW_HEAD).replace(/\r\n/g, '\n');
-    const tail = value.slice(-STORED_TOOL_ARG_PREVIEW_TAIL).replace(/\r\n/g, '\n');
-    return `[mixdog compacted ${key || 'string'}: ${value.length} chars, sha256:${hash}]\n${head}\n... [middle omitted from stored tool-call args] ...\n${tail}`;
-}
-
-function compactStoredToolArgValue(value, key = '', depth = 0) {
-    if (value === null || value === undefined) return value;
-    if (typeof value === 'string') return compactStoredToolArgString(value, key);
-    if (typeof value !== 'object') return value;
-    if (depth >= 6) return Array.isArray(value) ? `[${value.length} items]` : '{...}';
-    if (Array.isArray(value)) {
-        return value.map((item) => compactStoredToolArgValue(item, key, depth + 1));
-    }
-    const out = {};
-    for (const [k, v] of Object.entries(value)) {
-        out[k] = compactStoredToolArgValue(v, k, depth + 1);
-    }
-    return out;
-}
-
-function compactToolCallsForHistory(calls) {
-    if (!Array.isArray(calls)) return calls;
-    return calls.map((call) => {
-        if (!call || typeof call !== 'object') return call;
-        return {
-            ...call,
-            arguments: compactStoredToolArgValue(call.arguments),
-        };
-    });
-}
-
-// Restore the FULL body of ONE tool call inside a history assistant message
-// whose toolCalls were compacted at push time. Used for a failed edit call so
-// the model sees the original patch/old_string on retry instead of a
-// `[mixdog compacted …]` placeholder it cannot act on. Must run BEFORE the
-// message is first transmitted so it never mutates an already-cached prefix
-// (the prompt cache is content-prefix matched).
-//
-// Only the compactable body/long keys (patch, old_string, new_string, content,
-// rewrite, command, script) are restored, and at ANY depth — compaction is
-// recursive (compactStoredToolArgValue), so batch shapes like edits[].old_string
-// or writes[].content carry nested compacted bodies too. Every other field
-// (e.g. `path`, which a tool may mutate in place during execution) is taken from
-// the compacted snapshot captured at push time, before any mutation. The
-// compacted args tree is built fresh by compactToolCallsForHistory and is not
-// shared with originalCalls, so rebuilding it here is safe.
-function restoreToolCallBodyForId(assistantMsg, originalCalls, callId) {
-    if (!assistantMsg || !Array.isArray(assistantMsg.toolCalls) || !callId) return;
-    if (!Array.isArray(originalCalls)) return;
-    const tc = assistantMsg.toolCalls.find((t) => t && t.id === callId);
-    const orig = originalCalls.find((c) => c && c.id === callId);
-    if (!tc || !orig) return;
-    if (!tc.arguments || typeof tc.arguments !== 'object'
-        || !orig.arguments || typeof orig.arguments !== 'object') return;
-    tc.arguments = _restoreCompactedBodies(tc.arguments, orig.arguments, '');
-}
-
-// Recursively rebuild a compacted args tree: replace ONLY compactable body/long
-// string fields (matched by key at any depth) with their full originals, and
-// keep every other field from the compacted snapshot. tcVal and origVal share
-// the same structure (compaction only shortens body strings), so the walk
-// descends them in parallel; a missing or non-object origVal falls back to the
-// compacted value rather than throwing.
-function _restoreCompactedBodies(tcVal, origVal, key) {
-    if ((STORED_TOOL_ARG_BODY_KEY_RE.test(key) || STORED_TOOL_ARG_LONG_KEY_RE.test(key))
-        && typeof origVal === 'string') {
-        return origVal;
-    }
-    if (Array.isArray(tcVal) && Array.isArray(origVal)) {
-        return tcVal.map((item, i) => _restoreCompactedBodies(item, origVal[i], key));
-    }
-    if (tcVal && typeof tcVal === 'object' && origVal && typeof origVal === 'object') {
-        const out = {};
-        for (const k of Object.keys(tcVal)) {
-            out[k] = (k in origVal) ? _restoreCompactedBodies(tcVal[k], origVal[k], k) : tcVal[k];
-        }
-        return out;
-    }
-    return tcVal;
-}
-/**
- * Execute a single tool call — routes to MCP or builtin.
- */
-function getToolKind(name) {
-    if (SKILL_TOOL_NAMES.has(name)) return 'skill';
-    if (SPECIAL_TOOL_NAMES.has(name)) return 'builtin';
-    if (isMcpTool(name)) return 'mcp';
-    if (isInternalTool(name)) return 'internal';
-    if (isBuiltinTool(name)) return 'builtin';
-    return 'builtin';
-}
-function buildSkillsListResponse(cwd) {
-    const skills = collectSkillsCached(cwd);
-    const entries = skills.map(s => ({ name: s.name, description: s.description || '' }));
-    return JSON.stringify({ skills: entries });
-}
-function viewSkill(cwd, name) {
-    if (!name) return 'Error: skill name is required';
-    const res = loadSkillResource(name, cwd);
-    if (!res) return `Error: skill "${name}" not found`;
-    // Return the general tool envelope: the model-visible tool_result is the
-    // short stub (`Loaded skill: <name>`) and the full SKILL.md body is
-    // delivered ONCE as a separate injected role:'user' message (newMessages).
-    return buildSkillToolEnvelope(name, res.content, res.dir);
-}
-
-/** Normalize PostToolUse hook override values (legacy MCP text envelopes only). */
-export function normalizeHookUpdatedToolOutput(value) {
-    if (typeof value === 'string') return value;
-    if (value == null) return '';
-    if (typeof value === 'object' && Array.isArray(value.content)) {
-        const hasNonText = value.content.some((c) => c && typeof c === 'object' && c.type && c.type !== 'text');
-        if (hasNonText) return value;
-        return value.content
-            .map((c) => (c?.type === 'text' ? c.text || '' : JSON.stringify(c)))
-            .join('\n');
-    }
-    return value;
-}
-
-export function resolveToolResultAfterHook(originalResult, hookResult) {
-    if (!hookResult || typeof hookResult !== 'object' || hookResult.updatedToolOutput === undefined) {
-        return originalResult;
-    }
-    const updated = normalizeHookUpdatedToolOutput(hookResult.updatedToolOutput);
-    return updated === undefined ? originalResult : updated;
-}
-
-function parseNativeToolSearchPayload(toolName, result) {
-    if (toolName !== 'tool_search' || typeof result !== 'string') return null;
-    try {
-        const parsed = JSON.parse(result);
-        const native = parsed?.nativeToolSearch;
-        if (!native || typeof native !== 'object') return null;
-        const rawToolReferences = Array.isArray(native.toolReferences) ? native.toolReferences : [];
-        const toolReferences = rawToolReferences
-            .filter((name) => typeof name === 'string')
-            .map((name) => name.trim())
-            .filter(Boolean);
-        const rawOpenaiTools = Array.isArray(native.openaiTools) ? native.openaiTools : [];
-        const openaiTools = rawOpenaiTools.filter((tool) => (
-            tool
-            && typeof tool === 'object'
-            && !Array.isArray(tool)
-            && typeof tool.name === 'string'
-            && tool.name.trim()
-            && (tool.type === undefined || typeof tool.type === 'string')
-        ));
-        if (!toolReferences.length && !openaiTools.length) return null;
-        const baseSummary = typeof native.summary === 'string' && native.summary
-            ? native.summary
-            : `Loaded deferred tools: ${toolReferences.join(', ') || openaiTools.map((tool) => tool.name).filter(Boolean).join(', ')}`;
-        const selectedTools = parsed?.selected?.tools;
-        const missing = Array.isArray(selectedTools?.missing)
-            ? selectedTools.missing.map((name) => String(name || '').trim()).filter(Boolean)
-            : [];
-        const blocked = Array.isArray(selectedTools?.blocked)
-            ? selectedTools.blocked
-                .map((entry) => {
-                    if (entry && typeof entry === 'object') {
-                        const name = String(entry.name || '').trim();
-                        if (!name) return '';
-                        const reason = String(entry.reason || '').trim();
-                        return reason ? `${name} (${reason})` : name;
-                    }
-                    return String(entry || '').trim();
-                })
-                .filter(Boolean)
-            : [];
-        const extraLines = [];
-        if (missing.length) extraLines.push(`missing: ${missing.join(', ')}`);
-        if (blocked.length) extraLines.push(`blocked: ${blocked.join(', ')}`);
-        const summary = extraLines.length ? `${baseSummary}\n${extraLines.join('; ')}` : baseSummary;
-        return {
-            toolReferences,
-            openaiTools,
-            summary,
-        };
-    } catch {
-        return null;
-    }
-}
-function extractBashSessionId(result) {
-    if (typeof result !== 'string') return null;
-    const match = BASH_SESSION_HEADER_RE.exec(result);
-    return match ? match[1] : null;
-}
-
-export function buildAgentBashSessionArgs(args, sessionRef) {
-    if (!isAgentOwner(sessionRef)) return null;
-    // run_in_background is a detached one-shot job, incompatible with the
-    // persistent bash session. Fall through to the background-job path
-    // (executeBuiltinTool -> startBackgroundShellJob) so the worker gets a
-    // task_id that task control can resolve — otherwise the persistent
-    // session returns a [session: ...] header and task control reports "task not found".
-    if (args?.run_in_background === true) return null;
-    const routedArgs = { ...(args || {}) };
-    const explicitSessionId = typeof routedArgs.session_id === 'string' && routedArgs.session_id.trim()
-        ? routedArgs.session_id.trim()
-        : null;
-    const wantsPersistent = routedArgs.persistent === true || !!explicitSessionId;
-    if (!wantsPersistent) return null;
-    if (!explicitSessionId && sessionRef?.implicitBashSessionId) {
-        routedArgs.session_id = sessionRef.implicitBashSessionId;
-    } else if (explicitSessionId) {
-        routedArgs.session_id = explicitSessionId;
-    }
-    delete routedArgs.persistent;
-    return routedArgs;
-}
-
-export function formatMissingToolApprovalUiDenial(toolName, askReason) {
-    const reason = String(askReason || 'approval requested by hook').trim();
-    const name = String(toolName || 'tool');
-    return `Error: tool "${name}" denied by hook: approval required but no approval UI is available${reason ? ` (${reason})` : ''}`;
-}
-
-/**
- * Resolve PreToolUse `{ action: 'ask' }` against an optional approval callback.
- * Returns `{ denial }` when the tool must not run; otherwise `{ approval }`.
- */
-export async function resolvePreToolAskApproval({
-    toolName,
-    args,
-    cwd,
-    sessionId,
-    toolCallId,
-    askReason,
-    toolApprovalHook,
-}) {
-    const name = String(toolName || 'tool');
-    const reason = String(askReason || 'approval requested by hook').trim();
-    if (typeof toolApprovalHook !== 'function') {
-        return { denial: formatMissingToolApprovalUiDenial(name, reason) };
-    }
-    let approval;
-    try {
-        approval = await toolApprovalHook({
-            name,
-            args,
-            cwd,
-            sessionId,
-            toolCallId: toolCallId || null,
-            reason,
-        });
-    } catch (error) {
-        const detail = error?.message || String(error || 'approval failed');
-        return { denial: `Error: tool "${name}" denied by hook: ${detail}` };
-    }
-    if (!approvalGranted(approval)) {
-        const detail = approvalReason(approval, reason || 'not approved');
-        return { denial: `Error: tool "${name}" denied by hook: ${detail}` };
-    }
-    return { approval };
-}
-
 function _scopedCacheOutcomeForCall(sessionRef, toolCallId, toolName, callerSessionId, executeOpts = {}) {
     if (executeOpts.scopedCacheOutcome) {
         if (sessionRef && toolCallId) {
@@ -1312,13 +467,6 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
  *                wrapper can propagate a clean cancellation.
  *   - `onStageChange(stage)` / `onStreamDelta()` — forwarded to provider.send for heartbeats
  */
-// Source of truth: defaults/agents.json (loaded via _getHiddenAgents
-// above). Build the name Set eagerly at module load so HIDDEN_AGENT_NAMES
-// stays in sync with the declarative registry — no hardcoded duplicate.
-const HIDDEN_AGENT_NAMES = new Set(
-    (_getHiddenAgents().agents || []).map((r) => r && r.agent).filter((n) => typeof n === 'string' && n.length > 0)
-);
-
 // Stop reasons that signal the turn was cut short mid-synthesis (token cap,
 // provider pause). Empty content + one of these reasons means the worker
 // was not done — re-prompt instead of accepting empty as final.
@@ -1327,22 +475,6 @@ const HIDDEN_AGENT_NAMES = new Set(
 const INCOMPLETE_STOP_REASONS = new Set([
     'pause_turn', 'max_tokens', 'length', 'MAX_TOKENS', 'OTHER',
 ]);
-
-export function approvalGranted(value) {
-    if (value === true) return true;
-    if (!value || typeof value !== 'object') return false;
-    if (value.approved === true || value.allow === true || value.allowed === true) return true;
-    const decision = String(value.decision || value.action || value.result || '').trim().toLowerCase();
-    return decision === 'approve' || decision === 'approved' || decision === 'allow' || decision === 'yes';
-}
-
-export function approvalReason(value, fallback = '') {
-    if (value && typeof value === 'object') {
-        const reason = String(value.reason || value.message || '').trim();
-        if (reason) return reason;
-    }
-    return fallback;
-}
 
 export async function agentLoop(provider, messages, model, tools, onToolCall, cwd, sendOpts) {
     let iterations = 0;
@@ -1905,7 +1037,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // Shared pre-dispatch deny: identical predicate runs in the
             // serial path below. If any role/permission guard would reject
             // this call there, never start it eagerly here.
-            if (_preDispatchDeny(call, toolKind, sessionRef) !== null) return null;
+            if (preDispatchDenyForSession(sessionRef, call, toolKind) !== null) return null;
             const entry = { startedAt: Date.now(), endedAt: null, mutationEpoch: _mutationEpoch };
             _eagerInFlightSigs.set(_sig, call.id);
             entry.promise = (async () => {
@@ -2478,12 +1610,12 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     // Runtime pre-dispatch deny. Schema profiles may hide
                     // tools for routing efficiency, but this remains the
                     // control-plane boundary for any tool_use that still
-                    // reaches the loop. _preDispatchDeny is the SHARED helper
+                    // reaches the loop. preDispatchDenyForSession is the SHARED helper
                     // used by both the eager dispatch path (startEagerTool)
                     // and this serial path — keeps the agent-owned control-
                     // plane reject and no-tool role guards consistent across
                     // both paths.
-                    const _denyMsg = _preDispatchDeny(call, toolKind, sessionRef);
+                    const _denyMsg = preDispatchDenyForSession(sessionRef, call, toolKind);
                     if (_denyMsg !== null) {
                         result = _denyMsg;
                         toolEndedAt = Date.now();

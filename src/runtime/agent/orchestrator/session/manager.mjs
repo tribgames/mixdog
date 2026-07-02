@@ -1,9 +1,7 @@
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { randomBytes, createHash } from 'crypto';
-import { join } from 'path';
 import { getProvider, providerInputExcludesCache } from '../providers/registry.mjs';
-import { getModelMetadataSync } from '../providers/model-catalog.mjs';
 import { fetchOAuthUsageSnapshot } from '../providers/oauth-usage.mjs';
 // Image content is kept in-memory and in the model-visible history so multi-turn
 // recognition works reliably (live transcript always retains images). The
@@ -21,56 +19,72 @@ import {
     SUMMARY_PREFIX,
     drainSessionCycle1,
 } from './compact.mjs';
-import { estimateMessagesTokens, estimateRequestReserveTokens, estimateTranscriptContextUsage, resolveCompactTriggerTokens } from './context-utils.mjs';
-import { getMcpTools } from '../mcp/client.mjs';
-import { getInternalTools, executeInternalTool } from '../internal-tools.mjs';
-import { BUILTIN_TOOLS } from '../tools/builtin/builtin-tools.mjs';
-import { PATCH_TOOL_DEFS } from '../tools/patch-tool-defs.mjs';
-import { CODE_GRAPH_TOOL_DEFS } from '../tools/code-graph-tool-defs.mjs';
-import { collectSkillsCached, buildSkillManifest, buildSkillToolDefs, composeSystemPrompt } from '../context/collect.mjs';
+import { estimateMessagesTokens, estimateRequestReserveTokens, estimateTranscriptContextUsage } from './context-utils.mjs';
+import { executeInternalTool } from '../internal-tools.mjs';
+import { collectSkillsCached, buildSkillManifest, composeSystemPrompt } from '../context/collect.mjs';
 import { saveSession, saveSessionAsync, loadSession, listStoredSessionSummaries, sweepStaleSessions, markSessionClosed, publishHeartbeat, deleteHeartbeat, setLiveSession } from './store.mjs';
 import { clearReadDedupSession, tryPrefetchCached, setPrefetchCached } from './read-dedup.mjs';
 import { clearOffloadSession } from './tool-result-offload.mjs';
 import { classifyResultKind } from './result-classification.mjs';
 import { createAbortController } from '../../../shared/abort-controller.mjs';
-import { isInternalRuntimeNotificationText as contractIsInternalRuntimeNotificationText } from '../../../shared/tool-execution-contract.mjs';
 import { logLlmCall } from '../../../shared/llm/usage-log.mjs';
-import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
-import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { appendAgentTrace } from '../agent-trace.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
-import { maxMtimeRecursive } from '../cache-mtime.mjs';
-import { getHiddenAgent, getAgentInstructionDir, listHiddenAgentNames } from '../internal-agents.mjs';
+import { getHiddenAgent } from '../internal-agents.mjs';
 import { DEFAULT_ACTIVITY_HEARTBEAT_MS } from '../stall-policy.mjs';
 import {
     buildGatewayLimits,
     recordGatewayUsageEvent,
     summarizeGatewayUsage,
 } from '../providers/statusline-route-meta.mjs';
-// Phase B: Pool B Tier 2 content builder (common rules only).
-// Loaded once per process via createRequire so the CJS module reaches us.
-const _require = createRequire(import.meta.url);
-const _rulesBuilder = (() => {
-    const candidates = [
-        join(mixdogRoot(), 'lib', 'rules-builder.cjs'),
-    ].filter(Boolean);
-    for (const p of candidates) {
-        try { return _require(p); } catch { /* fall through */ }
-    }
-    // Fallback: walk up from this file's location to find lib/rules-builder.cjs.
-    try { return _require('../../../../lib/rules-builder.cjs'); } catch { return null; }
-})();
-
-// BP1/BP2/BP3 prompt-layer caches — invalidated by source file mtime, not a
-// timer. Cheap: O(sentinel-count) stat calls on each session creation, no file
-// I/O when warm.
-let _sharedRulesCache = null;
-let _sharedRulesMtime = 0;
-const _agentRulesCacheByProfile = new Map();
-let _leadRulesCache = null;
-let _leadRulesMtime = 0;
-let _leadMetaCache = null;
-let _leadMetaMtime = 0;
+// Split modules — see manager/ directory. manager.mjs is now a thin facade that
+// orchestrates these cohesive units while keeping the exact public surface.
+import {
+    _buildSharedRules,
+    _buildAgentRules,
+    _buildLeadRules,
+    _buildLeadMetaContext,
+    _buildAgentSpecific,
+} from './manager/rules-cache.mjs';
+import {
+    applyToolPermissionNarrowing,
+    finalizeSessionToolList,
+    resolveSessionTools,
+    previewSessionTools,
+    permissionFromToolSpec,
+} from './manager/tool-resolution.mjs';
+import {
+    guessContextWindow,
+    positiveContextWindow,
+    preserveBufferConfigFields,
+    resolveSessionContextMeta,
+    compactTriggerForSession,
+    compactTargetBudget,
+    semanticCompactionEnabledForSession,
+    compactTypeForSession,
+} from './manager/context-meta.mjs';
+import {
+    promptContentText,
+    hasModelVisiblePromptContent,
+    promptContentBytes,
+    prefixUserTurnContent,
+    prefixSessionStartContent,
+    buildCurrentTimeBlock,
+    buildSessionStartBlock,
+    hasUserConversationMessage,
+    isInternalRuntimeNotificationText,
+} from './manager/prompt-utils.mjs';
+import {
+    _mergePendingMessageEntries,
+    enqueuePendingMessage,
+    drainPendingMessages,
+    _dropPendingMessageState,
+} from './manager/pending-messages.mjs';
+// Re-export split-module public/test surface unchanged so every importer of the
+// old symbol names keeps resolving through the facade.
+export { previewSessionTools };
+export { _mergePendingMessageEntries, enqueuePendingMessage, drainPendingMessages };
+export { isInternalRuntimeNotificationText as _isInternalRuntimeNotificationText };
 let _codeGraphRuntimePromise = null;
 let _agentLoopPromise = null;
 let _bashSessionRuntimePromise = null;
@@ -93,127 +107,9 @@ function _closeBashSessionLazy(sessionId, reason) {
         .then((mod) => { if (typeof mod.closeBashSession === 'function') mod.closeBashSession(sessionId, reason); })
         .catch(() => {});
 }
-function _buildSharedRules() {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildSharedToolContent !== 'function') return '';
-    const PLUGIN_ROOT = mixdogRoot();
-    const RULES_DIR = join(PLUGIN_ROOT, 'rules');
-    const mtime = maxMtimeRecursive([
-        join(RULES_DIR, 'shared'),
-    ]);
-    if (_sharedRulesCache !== null && mtime <= _sharedRulesMtime) {
-        return _sharedRulesCache;
-    }
-    try {
-        const built = _rulesBuilder.buildSharedToolContent({ PLUGIN_ROOT, DATA_DIR: resolvePluginData() });
-        _sharedRulesCache = built;
-        _sharedRulesMtime = mtime;
-        return built;
-    } catch (e) {
-        throw new Error(`[session] shared tool rules build failed: ${e.message}`);
-    }
-}
-
-function _buildAgentRules(profile = 'full') {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildAgentRoleContent !== 'function') return '';
-    const key = String(profile || 'full');
-    const PLUGIN_ROOT = mixdogRoot();
-    const DATA_DIR = resolvePluginData();
-    const RULES_DIR = join(PLUGIN_ROOT, 'rules');
-    const mtime = maxMtimeRecursive([
-        join(RULES_DIR, 'agent'),
-        join(DATA_DIR, 'mixdog-config.json'),
-    ]);
-    const cached = _agentRulesCacheByProfile.get(key);
-    if (cached && mtime <= cached.mtime) {
-        return cached.value;
-    }
-    try {
-        const built = _rulesBuilder.buildAgentRoleContent({ PLUGIN_ROOT, DATA_DIR, profile: key });
-        _agentRulesCacheByProfile.set(key, { mtime, value: built });
-        return built;
-    } catch (e) {
-        throw new Error(`[session] agent role rules build failed: ${e.message}`);
-    }
-}
-
-function _buildLeadRules() {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildLeadRoleContent !== 'function') return '';
-    const PLUGIN_ROOT = mixdogRoot();
-    const DATA_DIR = resolvePluginData();
-    const RULES_DIR = join(PLUGIN_ROOT, 'rules');
-    const mtime = maxMtimeRecursive([
-        join(RULES_DIR, 'lead'),
-        join(DATA_DIR, 'mixdog-config.json'),
-    ]);
-    if (_leadRulesCache !== null && mtime <= _leadRulesMtime) {
-        return _leadRulesCache;
-    }
-    try {
-        const built = _rulesBuilder.buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR });
-        _leadRulesCache = built;
-        _leadRulesMtime = mtime;
-        return built;
-    } catch (e) {
-        throw new Error(`[session] lead role rules build failed: ${e.message}`);
-    }
-}
-
-function _buildLeadMetaContext() {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildLeadMetaContent !== 'function') return '';
-    const PLUGIN_ROOT = mixdogRoot();
-    const DATA_DIR = resolvePluginData();
-    const RULES_DIR = join(PLUGIN_ROOT, 'rules');
-    const mtime = maxMtimeRecursive([
-        join(RULES_DIR, 'lead'),
-        join(DATA_DIR, 'history'),
-        join(DATA_DIR, 'mixdog-config.json'),
-        join(DATA_DIR, 'user-workflow.md'),
-        join(PLUGIN_ROOT, 'output-styles'),
-        join(DATA_DIR, 'output-styles'),
-    ]);
-    if (_leadMetaCache !== null && mtime <= _leadMetaMtime) {
-        return _leadMetaCache;
-    }
-    try {
-        const built = _rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR });
-        _leadMetaCache = built;
-        _leadMetaMtime = mtime;
-        return built;
-    } catch (e) {
-        throw new Error(`[session] lead meta context build failed: ${e.message}`);
-    }
-}
-
-// BP4-adjacent agent-specific data cache — keyed by agent. webhook / schedule
-// agents each have their own scoped instruction set; other agents return ''.
-const _roleSpecificCache = new Map(); // agent → { value, mtime }
-function _buildAgentSpecific(currentAgent) {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildAgentRoleSpecificContent !== 'function') return '';
-    if (!currentAgent) return '';
-    const PLUGIN_ROOT = mixdogRoot();
-    const DATA_DIR = resolvePluginData();
-    const RULES_DIR = join(PLUGIN_ROOT, 'rules');
-    const roleInstructionDir = getAgentInstructionDir(currentAgent);
-    const mtime = maxMtimeRecursive([
-        join(RULES_DIR, 'shared'),
-        join(DATA_DIR, 'mixdog-config.json'),
-        join(DATA_DIR, 'webhooks'),
-        join(DATA_DIR, 'schedules'),
-        ...(roleInstructionDir ? [join(DATA_DIR, roleInstructionDir)] : []),
-        join(PLUGIN_ROOT, 'defaults', 'agents.json'),
-    ]);
-    const entry = _roleSpecificCache.get(currentAgent);
-    if (entry && mtime <= entry.mtime) {
-        return entry.value;
-    }
-    try {
-        const built = _rulesBuilder.buildAgentRoleSpecificContent({ PLUGIN_ROOT, DATA_DIR, currentAgent });
-        _roleSpecificCache.set(currentAgent, { mtime, value: built });
-        return built;
-    } catch (e) {
-        throw new Error(`[session] agent-specific rules build failed (agent: ${currentAgent}): ${e.message}`);
-    }
-}
+// Re-export the rules builders so any deep importer of the old symbol names
+// keeps working through the facade.
+export { _buildSharedRules, _buildAgentRules, _buildLeadRules, _buildLeadMetaContext, _buildAgentSpecific };
 
 // Agent Runtime is optional — injected via setAgentRuntime() during plugin init
 // so session creation never depends on a circular import. If never injected,
@@ -258,34 +154,10 @@ const HEARTBEAT_THROTTLE_MS = 60_000; // 60s
 // notification never fires. A slow write finishes in the background.
 const TERMINAL_SAVE_TIMEOUT_MS = nonNegativeIntEnv('MIXDOG_TERMINAL_SAVE_TIMEOUT_MS', 5_000);
 
-// Merge externally-connected MCP tools with the plugin's in-process tools
-// (registered by agent's toolExecutor adapter). Internal tools are exposed
-// under their bare names — no mcp__ prefix, since the dispatcher in
-// server.mjs handles them directly without a transport.
-// Sorted deterministically by name — protects BP_1 hash stability from
-// listTools() ordering churn. Anthropic / OpenAI / Gemini all hash the
-// tools array verbatim, so any reorder rewrites the prefix.
-// No cache: getMcpTools() and getInternalTools() are O(n) in-memory reads;
-// the sort overhead on ~30 tools is negligible.
-function _getMcpTools() {
-    const mcp = getMcpTools() || [];
-    const internalRaw = getInternalTools() || [];
-    const internal = internalRaw.map(t => ({
-        name: t.name,
-        description: typeof t.description === 'string' ? t.description : '',
-        inputSchema: t.inputSchema || { type: 'object', properties: {} },
-        // Keep annotations so the permission filter / role invariants can
-        // tell read-only from write-capable internal tools, and so
-        // agentHidden can be read during deny filtering.
-        annotations: t.annotations || {},
-    }));
-    return [...mcp, ...internal].sort((a, b) => {
-        const an = a?.name || '';
-        const bn = b?.name || '';
-        return an < bn ? -1 : an > bn ? 1 : 0;
-    });
-}
-
+// Session tool resolution + permission narrowing moved to
+// manager/tool-resolution.mjs (imported above). The following section-level
+// docs describe the toolSpec contract those helpers implement.
+//
 // Phase D-2 — profile.tools resolution.
 //
 // `toolSpec` may be:
@@ -308,469 +180,7 @@ function _getMcpTools() {
 // surface intentionally tiny; runtime permission guards in loop.mjs remain
 // the fail-safe either way.
 
-const SESSION_ROUTE_TOOL_ORDER = [
-    'code_graph',
-    'find',
-    'glob',
-    'list',
-    'grep',
-    'read',
-    'apply_patch',
-    'shell',
-    'task',
-];
-const SESSION_ROUTE_TOOL_RANK = new Map(SESSION_ROUTE_TOOL_ORDER.map((name, index) => [name, index]));
-const FILESYSTEM_TOOL_NAMES = new Set([
-    'code_graph',
-    'find',
-    'glob',
-    'list',
-    'grep',
-    'read',
-    'apply_patch',
-]);
-const READONLY_TOOL_NAMES = new Set([
-    'code_graph',
-    'find',
-    'glob',
-    'list',
-    'grep',
-    'read',
-]);
-
-const AGENT_STRING_PERMISSION_READ_ALLOW = Object.freeze([
-    'code_graph',
-    'find',
-    'glob',
-    'list',
-    'grep',
-    'read',
-    'explore',
-    'search',
-    'web_fetch',
-    'Skill',
-]);
-
-function stringToolPermissionAllowList(toolPermission) {
-    if (toolPermission === 'read') return AGENT_STRING_PERMISSION_READ_ALLOW;
-    if (toolPermission === 'read-write') return AGENT_STRING_PERMISSION_READ_WRITE_ALLOW;
-    if (toolPermission === 'none') return [];
-    return null;
-}
-
-const AGENT_STRING_PERMISSION_READ_WRITE_ALLOW = Object.freeze([
-    'code_graph',
-    'find',
-    'glob',
-    'list',
-    'grep',
-    'read',
-    'apply_patch',
-    'explore',
-    'search',
-    'web_fetch',
-    'Skill',
-]);
-
-function applyToolPermissionNarrowing(tools, toolPermission, warnRole = null) {
-    if (toolPermission === 'none') return [];
-    const allowList = stringToolPermissionAllowList(toolPermission);
-    if (allowList) {
-        const allowSet = new Set(allowList.map((n) => String(n).toLowerCase()));
-        return tools.filter((t) => allowSet.has(String(t?.name || '').toLowerCase()));
-    }
-    if (toolPermission && typeof toolPermission === 'object') {
-        const allowSet = Array.isArray(toolPermission.allow) && toolPermission.allow.length > 0
-            ? new Set(toolPermission.allow.map(n => String(n).toLowerCase()))
-            : null;
-        const denySet = Array.isArray(toolPermission.deny) && toolPermission.deny.length > 0
-            ? new Set(toolPermission.deny.map(n => String(n).toLowerCase()))
-            : null;
-        if (allowSet || denySet) {
-            const filtered = tools.filter(t => {
-                const name = String(t?.name || '').toLowerCase();
-                if (denySet && denySet.has(name)) return false;
-                if (allowSet && !allowSet.has(name)) return false;
-                return true;
-            });
-            if (filtered.length === 0) {
-                process.stderr.write(`[session] WARN: role permission intersection produced 0 tools — failing closed (role=${warnRole || 'unknown'})\n`);
-            }
-            return filtered;
-        }
-    }
-    return tools;
-}
-
-function recursiveWrapperToolNameForPublicAgent(agent) {
-    if (!agent) return null;
-    const key = String(agent).trim();
-    if (key === 'explore') return 'explore';
-    for (const hiddenName of listHiddenAgentNames()) {
-        const def = getHiddenAgent(hiddenName);
-        const invokedBy = typeof def?.invokedBy === 'string' ? def.invokedBy.trim() : '';
-        if (hiddenName === key && invokedBy) return invokedBy;
-        if (invokedBy && invokedBy === key) return invokedBy;
-    }
-    return null;
-}
-
-function finalizeSessionToolList(tools, {
-    schemaAllowedTools = null,
-    disallowedTools = null,
-    ownerIsAgent = false,
-    resolvedAgent = null,
-} = {}) {
-    let out = Array.isArray(tools) ? tools : [];
-    const hasCallerAllow = Array.isArray(schemaAllowedTools);
-    if (hasCallerAllow) {
-        const allowSet = new Set(schemaAllowedTools.map(n => String(n).toLowerCase()));
-        out = out.filter(t => allowSet.has(String(t?.name || '').toLowerCase()));
-    }
-    const callerDeny = Array.isArray(disallowedTools) ? disallowedTools.map(n => String(n)) : [];
-    if (callerDeny.length) {
-        const denySet = new Set(callerDeny.map(n => n.toLowerCase()));
-        out = out.filter(t => !denySet.has(String(t?.name || '').toLowerCase()));
-    }
-    const recursiveDeny = ownerIsAgent ? recursiveWrapperToolNameForPublicAgent(resolvedAgent) : null;
-    if (recursiveDeny) {
-        const deny = recursiveDeny.toLowerCase();
-        out = out.filter(t => String(t?.name || '').toLowerCase() !== deny);
-    }
-    if (ownerIsAgent) {
-        out = out.filter(t => !t?.annotations?.agentHidden);
-        out = orderSessionTools(out);
-    }
-    return out;
-}
-
-function orderSessionTools(tools) {
-    return tools.map((tool, index) => ({ tool, index }))
-        .sort((a, b) => {
-            const ar = SESSION_ROUTE_TOOL_RANK.get(a.tool?.name) ?? 10_000;
-            const br = SESSION_ROUTE_TOOL_RANK.get(b.tool?.name) ?? 10_000;
-            if (ar !== br) return ar - br;
-            return a.index - b.index;
-        })
-        .map((entry) => entry.tool);
-}
-
-const ALL_BUILTIN_SESSION_TOOLS = orderSessionTools(_dedupByName([
-    ...BUILTIN_TOOLS,
-    ...PATCH_TOOL_DEFS,
-    ...CODE_GRAPH_TOOL_DEFS,
-]));
-
-function resolveSessionTools(toolSpec, skills, { ownerIsAgentSession = false } = {}) {
-    const mcp = _getMcpTools();
-    // Agent sessions freeze the skill meta-tool into the schema
-    // unconditionally — concrete skill resolution is cwd-scoped at tool-call
-    // time (loop.mjs), so the schema bytes stay bit-identical across roles /
-    // cwds and the provider cache shard does not fragment.
-    const skillTools = buildSkillToolDefs(skills, { ownerIsAgentSession });
-    return _computeBaseTools(toolSpec, mcp, skillTools);
-}
-
-export function previewSessionTools(toolSpec, skills = [], options = {}) {
-    return resolveSessionTools(toolSpec, skills, options);
-}
-
-// Dedup by name, first occurrence wins. BUILTIN_TOOLS is passed in ahead
-// of the MCP-registered internal tools so plugin-side definitions take
-// precedence when both surfaces declare the same name (e.g. read / grep / glob).
-// Without this merge, Anthropic rejected the request with
-// "tools: Tool names must be unique" and the orchestrator burned up to
-// 20 iterations retrying before the final answer landed.
-function _dedupByName(tools) {
-    const seen = new Map();
-    for (const t of tools) {
-        const n = t?.name;
-        if (!n || seen.has(n)) continue;
-        seen.set(n, t);
-    }
-    return [...seen.values()];
-}
-
-// Agent visibility is declared per-tool via annotations.agentHidden.
-// Tools with agentHidden:true are stripped from agent sessions at schema
-// build time (see deny filtering below). No code-level name list needed.
-
-function _computeBaseTools(toolSpec, mcp, skillTools) {
-    if (Array.isArray(toolSpec)) {
-        if (toolSpec.length === 0) {
-            // Explicit "no tools" — skill meta tools still travel so the model
-            // can at least discover and invoke skills if that is the one
-            // dynamic surface the profile retains.
-            return _dedupByName([...skillTools]);
-        }
-        if (toolSpec.includes('full')) {
-            return _dedupByName([...ALL_BUILTIN_SESSION_TOOLS, ...mcp, ...skillTools]);
-        }
-        const byName = new Map();
-        const add = (tool) => { if (tool?.name && !byName.has(tool.name)) byName.set(tool.name, tool); };
-        const addMany = (arr) => { for (const t of arr) add(t); };
-        for (const tagRaw of toolSpec) {
-            const tag = String(tagRaw || '').trim();
-            switch (tag) {
-                case 'tools:filesystem':
-                    addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => FILESYSTEM_TOOL_NAMES.has(t.name)));
-                    break;
-                case 'tools:readonly':
-                    addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => READONLY_TOOL_NAMES.has(t.name)));
-                    break;
-                case 'tools:shell':
-                case 'tools:git':
-                case 'tools:analysis':
-                    // Shell-class toolset. `tools:git` / `tools:analysis` exist so
-                    // profile authors can name the intent (git workflows / data
-                    // analysis) without inventing new toolset ids.
-                    addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => t.name === 'shell' || t.name === 'task'));
-                    break;
-                case 'tools:mcp':
-                    addMany(mcp);
-                    break;
-                case 'tools:search':
-                    // Name-pattern match: picks up `search` and any future tool
-                    // whose name contains `search`. `recall` and `explore` deliberately do NOT match
-                    // — they need `tools:mcp` (full mcp surface) or their own
-                    // toolset id if a role wants targeted retrieval. Public agent
-                    // roles never reach the wrapper bodies regardless: see the
-                    // isBlockedPublicWrapperCall guard in session/loop.mjs.
-                    addMany(mcp.filter(t => /search/i.test(t?.name || '')));
-                    break;
-                default:
-                    process.stderr.write(`[session] unknown toolset id "${tag}" (profile.tools); skipping\n`);
-            }
-        }
-        return _dedupByName([...byName.values(), ...skillTools]);
-    }
-
-    switch (toolSpec) {
-        case 'mcp':
-            return _dedupByName([...mcp, ...skillTools]);
-        case 'readonly': {
-            const readTools = ALL_BUILTIN_SESSION_TOOLS.filter(t => READONLY_TOOL_NAMES.has(t.name));
-            return _dedupByName([...readTools, ...mcp, ...skillTools]);
-        }
-        case 'full':
-        default:
-            return _dedupByName([...ALL_BUILTIN_SESSION_TOOLS, ...mcp, ...skillTools]);
-    }
-}
-
-function permissionFromToolSpec(toolSpec) {
-    if (toolSpec === 'readonly') return 'read';
-    if (toolSpec === 'mcp') return 'mcp';
-    if (Array.isArray(toolSpec)) {
-        const tags = new Set(toolSpec.map(t => String(t || '').trim()));
-        const hasWriteOrShell = tags.has('full')
-            || tags.has('tools:filesystem')
-            || tags.has('tools:shell')
-            || tags.has('tools:git')
-            || tags.has('tools:analysis');
-        if (tags.has('tools:readonly') && !hasWriteOrShell) return 'read';
-    }
-    return null;
-}
-
 let nextId = Date.now();
-// Known context windows for the current-generation models this plugin
-// routes to. Anything not listed falls through to guessContextWindow() —
-// local llama/mistral/phi default to 8192, everything else 128000. Keep
-// this map trimmed to live models; older generations slow down reads
-// without buying anything.
-const CONTEXT_WINDOWS = {
-    // OpenAI GPT-5.x family (openai / openai-oauth)
-    'gpt-5.5': 272000,
-    'gpt-5.4': 272000,
-    'gpt-5.4-mini': 272000,
-    'gpt-5.4-nano': 272000,
-    // Anthropic Claude 4.x
-    'claude-opus-4-8': 1000000,
-    'claude-opus-4-7': 1000000,
-    'claude-sonnet-4-6': 1000000,
-    'claude-haiku-4-5-20251001': 200000,
-    // Google Gemini 3.x
-    'gemini-3.1-pro': 1000000,
-    'gemini-3-pro': 1000000,
-    'gemini-3.5-flash': 1000000,
-    'gemini-3-flash': 1000000,
-    // xAI Grok (catalog polyfill mirror — model-catalog PRICING_OVERRIDES)
-    'grok-build-0.1': 256000,
-    'grok-4.20': 1000000,
-};
-// Family-pattern fallback used only when both the provider catalog and the
-// exact-id table miss (cold metadata, before the LiteLLM/models.dev catalog
-// warms). Keep these aligned with the catalog so /context, gateway, and the
-// runtime agree on the boundary the first time a model is routed. Local models
-// (llama/mistral/phi/qwen/gemma) stay small so an unknown local id never claims
-// a giant window.
-function guessContextWindow(model) {
-    if (CONTEXT_WINDOWS[model])
-        return CONTEXT_WINDOWS[model];
-    const m = String(model || '').toLowerCase();
-    // Local/self-hosted families — never inflate an unknown local id.
-    if (m.includes('llama') || m.includes('mistral') || m.includes('mixtral')
-        || m.includes('phi') || m.includes('qwen') || m.includes('gemma')
-        || m.includes('deepseek-r1') || m.includes('codellama'))
-        return 8192;
-    // Current hosted families by name pattern.
-    if (m.startsWith('claude-opus') || m.startsWith('claude-sonnet')) return 1000000;
-    if (m.startsWith('claude-haiku') || m.startsWith('claude-')) return 200000;
-    if (m.startsWith('gemini-3') || m.startsWith('gemini-2')) return 1000000;
-    if (m.startsWith('gpt-5')) return 272000;
-    if (m.startsWith('grok-build')) return 256000;
-    if (m.startsWith('grok-')) return 1000000;
-    if (m.startsWith('deepseek-v')) return 1000000;
-    return 128000;
-}
-function positiveContextWindow(value) {
-    const n = Number(value);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
-}
-function envFlag(name, fallback = false) {
-    const v = process.env[name];
-    if (v === undefined) return fallback;
-    return !['0', 'false', 'off', 'no'].includes(String(v).trim().toLowerCase());
-}
-function boundedPercent(value, fallback = null) {
-    const n = Number(value);
-    if (Number.isFinite(n) && n > 0 && n <= 100) return n;
-    return fallback;
-}
-function providerNameOf(provider) {
-    if (typeof provider === 'string') return provider.toLowerCase();
-    return String(provider?.name || provider?.id || '').toLowerCase();
-}
-// Carry the percent/ratio-named buffer config from a compaction config object
-// onto session.compaction so the shared compact-policy parser honors configured
-// buffer
-// percent/ratio. Only finite positive values are copied; absent fields stay
-// undefined so the default-ratio fallback still applies.
-function preserveBufferConfigFields(cfg = {}) {
-    const out = {};
-    for (const key of ['bufferPercent', 'bufferPct', 'bufferRatio', 'bufferFraction']) {
-        const n = Number(cfg?.[key]);
-        if (Number.isFinite(n) && n > 0) out[key] = n;
-    }
-    return out;
-}
-const COMPACT_TARGET_RATIO = 0.02;
-const COMPACT_TARGET_MIN_TOKENS = 4_000;
-const COMPACT_TARGET_MAX_TOKENS = 16_000;
-function compactTargetRatio() {
-    const raw = process.env.MIXDOG_AGENT_COMPACT_TARGET_PERCENT
-        ?? process.env.MIXDOG_COMPACT_TARGET_PERCENT
-        ?? COMPACT_TARGET_RATIO;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return COMPACT_TARGET_RATIO;
-    return n > 1 ? n / 100 : n;
-}
-function compactTargetTokensForBoundary(boundaryTokens) {
-    const boundary = positiveContextWindow(boundaryTokens);
-    if (!boundary) return null;
-    const explicit = positiveContextWindow(
-        process.env.MIXDOG_AGENT_COMPACT_TARGET_TOKENS
-            ?? process.env.MIXDOG_COMPACT_TARGET_TOKENS,
-    );
-    if (explicit) return Math.max(1, Math.min(boundary, explicit));
-    const minTarget = Math.min(boundary, positiveContextWindow(process.env.MIXDOG_COMPACT_TARGET_MIN_TOKENS) || COMPACT_TARGET_MIN_TOKENS);
-    const maxTarget = Math.min(boundary, positiveContextWindow(process.env.MIXDOG_COMPACT_TARGET_MAX_TOKENS) || COMPACT_TARGET_MAX_TOKENS);
-    const byRatio = Math.max(1, Math.floor(boundary * compactTargetRatio()));
-    return Math.max(1, Math.min(boundary, maxTarget, Math.max(minTarget, byRatio)));
-}
-function defaultEffectiveContextWindowPercent(provider) {
-    // Gateway/statusline route metadata reserves a universal 10% headroom from
-    // the raw catalog window. Keep session compaction on the same effective
-    // capacity so /context, the TUI statusline, and gateway telemetry agree.
-    return 90;
-}
-const PROVIDER_SYNTHETIC_CONTEXT_DEFAULT = 1_000_000;
-function providerRawContextWindow(info, catalogInfo) {
-    if (!info || typeof info !== 'object') return null;
-    const fromApiFields = positiveContextWindow(info.context_window)
-        || positiveContextWindow(info.max_context_window);
-    if (fromApiFields) return fromApiFields;
-    const fromCache = positiveContextWindow(info.contextWindow)
-        || positiveContextWindow(info.maxContextWindow);
-    if (!fromCache) return null;
-    const catalogWindow = positiveContextWindow(catalogInfo?.contextWindow)
-        || positiveContextWindow(catalogInfo?.maxContextWindow)
-        || positiveContextWindow(catalogInfo?.context_window)
-        || positiveContextWindow(catalogInfo?.max_context_window);
-    if (fromCache === PROVIDER_SYNTHETIC_CONTEXT_DEFAULT
-        && catalogWindow
-        && fromCache !== catalogWindow) {
-        return null;
-    }
-    return fromCache;
-}
-function resolveSessionContextMeta(provider, model, seed = {}) {
-    const info = typeof provider?.getCachedModelInfo === 'function'
-        ? provider.getCachedModelInfo(model)
-        : null;
-    const catalogInfo = getModelMetadataSync(model, providerNameOf(provider));
-    const rawContextWindow = providerRawContextWindow(info, catalogInfo)
-        || positiveContextWindow(catalogInfo?.contextWindow)
-        || positiveContextWindow(catalogInfo?.maxContextWindow)
-        || positiveContextWindow(catalogInfo?.context_window)
-        || positiveContextWindow(catalogInfo?.max_context_window)
-        || positiveContextWindow(seed.rawContextWindow)
-        || positiveContextWindow(seed.raw_context_window)
-        || positiveContextWindow(seed.contextWindow)
-        || guessContextWindow(model);
-    const effectiveContextWindowPercent = boundedPercent(
-        seed.effectiveContextWindowPercent
-            ?? seed.effective_context_window_percent
-            ?? info?.effectiveContextWindowPercent
-            ?? info?.effective_context_window_percent
-            ?? catalogInfo?.effectiveContextWindowPercent
-            ?? catalogInfo?.effective_context_window_percent,
-        defaultEffectiveContextWindowPercent(provider),
-    );
-    const pct = boundedPercent(effectiveContextWindowPercent, 100);
-    const contextWindow = Math.max(1, Math.floor(rawContextWindow * pct / 100));
-    const compactBoundaryTokens = contextWindow;
-    const rawCompactLimit = positiveContextWindow(
-        seed.autoCompactTokenLimit
-            ?? seed.auto_compact_token_limit
-            ?? info?.autoCompactTokenLimit
-            ?? info?.auto_compact_token_limit
-            ?? catalogInfo?.autoCompactTokenLimit
-            ?? catalogInfo?.auto_compact_token_limit,
-    );
-    // Legacy-data migration: old implementations derived autoCompactTokenLimit
-    // from the full effective/raw window and persisted it onto the session.
-    // A resumed session therefore re-seeds autoCompactTokenLimit == boundary
-    // (or the raw window), which compactTriggerForSession / loop policy used to
-    // honor as an explicit trigger, collapsing the compaction buffer to 0. Only
-    // accept an explicit limit that is STRICTLY BELOW the boundary; a value at
-    // or above the boundary is a derived full-window artifact and is dropped to
-    // null so the trigger falls back to the default boundary trigger.
-    const explicitCompactLimit = rawCompactLimit && rawCompactLimit < compactBoundaryTokens
-        ? rawCompactLimit
-        : null;
-    // Do NOT derive the auto-compact limit from the full effective window.
-    // Setting it to contextWindow makes autoTriggerTokens == boundary and the
-    // compaction buffer collapse to 0 (loop.mjs:708-713 / compactTriggerForSession),
-    // so auto-compact only fires when the context is already at the limit —
-    // at which point semantic compact fails ("result exceeds budget" /
-    // "summary cannot fit") and the turn can no longer be resumed.
-    // Leave it null unless the provider/catalog/seed supplies an explicit
-    // limit; the downstream buffer logic (default 10%, capped 25%) then
-    // triggers compaction with headroom, matching the reference auto-compact threshold.
-    const autoCompactTokenLimit = explicitCompactLimit || null;
-    return {
-        contextWindow,
-        rawContextWindow,
-        effectiveContextWindowPercent,
-        autoCompactTokenLimit: autoCompactTokenLimit || null,
-        compactBoundaryTokens,
-    };
-}
-function compactTriggerForSession(session, boundaryTokens) {
-    return resolveCompactTriggerTokens(session, boundaryTokens);
-}
 // Test-only exports for the legacy auto-compact-limit migration + buffer-config
 // preservation (see scripts/compact-trigger-migration-smoke.mjs).
 export const _resolveSessionContextMeta = resolveSessionContextMeta;
@@ -792,30 +202,6 @@ function normalizeStaleCompactingStage(session) {
     c.inProgress = false;
     c.lastCheckedAt = Date.now();
     return true;
-}
-function compactTargetBudget(boundaryTokens, reserveTokens, _sourceTokens = null, _ratio = null) {
-    const boundary = positiveContextWindow(boundaryTokens);
-    if (!boundary) return null;
-    const reserve = Math.max(0, Number(reserveTokens) || 0);
-    const targetEffective = compactTargetTokensForBoundary(boundary) || boundary;
-    return Math.max(1, Math.min(boundary, targetEffective + reserve));
-}
-function semanticCompactionEnabledForSession(session) {
-    const cfg = session?.compaction || {};
-    if (process.env.MIXDOG_AGENT_COMPACT_SEMANTIC !== undefined) return envFlag('MIXDOG_AGENT_COMPACT_SEMANTIC', true);
-    if (process.env.MIXDOG_COMPACT_SEMANTIC !== undefined) return envFlag('MIXDOG_COMPACT_SEMANTIC', true);
-    if (cfg.semantic === false || cfg.semantic === 'false' || cfg.semantic === 'off') return false;
-    if (cfg.semantic === true || cfg.semantic === 'true' || cfg.semantic === 'on' || cfg.semantic === 'auto') return true;
-    return true;
-}
-function compactTypeForSession(session) {
-    const cfg = session?.compaction || {};
-    const configured = process.env.MIXDOG_AGENT_COMPACT_TYPE
-        ?? process.env.MIXDOG_COMPACT_TYPE
-        ?? cfg.type
-        ?? cfg.compactType
-        ?? cfg.compact_type;
-    return normalizeCompactType(configured, DEFAULT_COMPACT_TYPE);
 }
 function addCompactUsageToSession(session, usage) {
     if (!session || !usage) return;
@@ -2562,363 +1948,6 @@ const _sessionLocks = new Map();
 // queue contract, two call sites. Rich content is kept in memory for the live
 // relay path; the disk mirror stores only a text fallback so image bytes do not
 // leak into the pending-message JSON.
-const _sessionPendingMessages = new Map();
-const PENDING_MESSAGES_FILE = 'session-pending-messages.json';
-const PENDING_MESSAGES_MODE = 0o600;
-const _pendingPersistBuffers = new Map();
-let _pendingPersistImmediate = null;
-
-function pendingMessagesPath() {
-    return join(resolvePluginData(), PENDING_MESSAGES_FILE);
-}
-
-function isValidPendingSessionId(sessionId) {
-    return typeof sessionId === 'string' && /^[A-Za-z0-9_-]+$/.test(sessionId);
-}
-
-function normalizePendingStore(raw) {
-    const sessions = raw && typeof raw === 'object' && raw.sessions && typeof raw.sessions === 'object'
-        ? raw.sessions
-        : {};
-    const out = { version: 1, updatedAt: Date.now(), sessions: {} };
-    for (const [sid, value] of Object.entries(sessions)) {
-        if (!isValidPendingSessionId(sid) || !Array.isArray(value)) continue;
-        const q = value
-            .map((entry) => {
-                if (typeof entry === 'string') return entry;
-                if (entry && typeof entry === 'object' && typeof entry.message === 'string') return entry.message;
-                return '';
-            })
-            .filter(Boolean);
-        if (q.length > 0) out.sessions[sid] = q;
-    }
-    return out;
-}
-
-function normalizePendingMessageEntry(entry) {
-    if (typeof entry === 'string') {
-        const text = entry.trim();
-        return text ? { content: text, text } : null;
-    }
-    if (Array.isArray(entry)) {
-        if (entry.length === 0) return null;
-        const text = promptContentText(entry).trim();
-        return { content: entry, text };
-    }
-    if (!entry || typeof entry !== 'object') return null;
-    const content = Object.prototype.hasOwnProperty.call(entry, 'content') ? entry.content : null;
-    if (content == null) return null;
-    const text = typeof entry.text === 'string' ? entry.text.trim() : promptContentText(content).trim();
-    if (Array.isArray(content)) return content.length > 0 ? { content, text } : null;
-    if (typeof content === 'string') {
-        const value = content.trim();
-        return value ? { content: value, text: text || value } : null;
-    }
-    const fallback = promptContentText(content).trim();
-    return fallback ? { content: fallback, text: text || fallback } : null;
-}
-
-function pendingMessageText(entry) {
-    const normalized = normalizePendingMessageEntry(entry);
-    return normalized ? String(normalized.text || promptContentText(normalized.content) || '').trim() : '';
-}
-
-function pendingMessageQueueEntry(entry) {
-    const normalized = normalizePendingMessageEntry(entry);
-    if (!normalized) return null;
-    if (typeof normalized.content === 'string' && normalized.content === normalized.text) return normalized.content;
-    return { content: normalized.content, text: normalized.text || promptContentText(normalized.content).trim() };
-}
-
-function persistPendingMessages(sessionId, messages) {
-    if (!isValidPendingSessionId(sessionId)) return 0;
-    const persistedMessages = (Array.isArray(messages) ? messages : [messages])
-        .map(pendingMessageText)
-        .filter(Boolean);
-    if (persistedMessages.length === 0) return 0;
-    let depth = 0;
-    try {
-        updateJsonAtomicSync(pendingMessagesPath(), (raw) => {
-            const next = normalizePendingStore(raw);
-            const q = Array.isArray(next.sessions[sessionId]) ? next.sessions[sessionId] : [];
-            q.push(...persistedMessages);
-            next.sessions[sessionId] = q;
-            next.updatedAt = Date.now();
-            depth = q.length;
-            return next;
-        }, { compact: true, lock: true, mode: PENDING_MESSAGES_MODE, fsync: false });
-    } catch (err) {
-        try { process.stderr.write(`[session] pending-message persist failed sessionId=${sessionId}: ${err?.message || err}\n`); } catch {}
-    }
-    return depth;
-}
-
-function flushPendingMessagePersistsSync() {
-    if (_pendingPersistImmediate) {
-        try { clearImmediate(_pendingPersistImmediate); } catch {}
-        _pendingPersistImmediate = null;
-    }
-    if (_pendingPersistBuffers.size === 0) return;
-    const batches = [..._pendingPersistBuffers.entries()];
-    _pendingPersistBuffers.clear();
-    for (const [sid, messages] of batches) {
-        persistPendingMessages(sid, messages);
-    }
-}
-
-function schedulePendingMessagePersist(sessionId, message) {
-    if (!isValidPendingSessionId(sessionId)) return 0;
-    const persistedMessage = pendingMessageText(message);
-    if (!persistedMessage) return 0;
-    const q = _pendingPersistBuffers.get(sessionId) || [];
-    q.push(persistedMessage);
-    _pendingPersistBuffers.set(sessionId, q);
-    if (!_pendingPersistImmediate) {
-        _pendingPersistImmediate = setImmediate(() => {
-            _pendingPersistImmediate = null;
-            flushPendingMessagePersistsSync();
-        });
-    }
-    return q.length;
-}
-
-function takeBufferedPendingMessages(sessionId) {
-    if (!isValidPendingSessionId(sessionId)) return [];
-    const buffered = _pendingPersistBuffers.get(sessionId);
-    if (!buffered || buffered.length === 0) return [];
-    _pendingPersistBuffers.delete(sessionId);
-    return buffered.slice();
-}
-
-function drainPersistedPendingMessages(sessionId) {
-    if (!isValidPendingSessionId(sessionId)) return [];
-    let drained = [];
-    try {
-        updateJsonAtomicSync(pendingMessagesPath(), (raw) => {
-            const next = normalizePendingStore(raw);
-            const q = Array.isArray(next.sessions[sessionId]) ? next.sessions[sessionId] : [];
-            drained = q.filter((m) => typeof m === 'string' && m.length > 0);
-            if (drained.length === 0) return undefined;
-            delete next.sessions[sessionId];
-            next.updatedAt = Date.now();
-            return next;
-        }, { compact: true, lock: true, mode: PENDING_MESSAGES_MODE, fsync: false });
-    } catch (err) {
-        try { process.stderr.write(`[session] pending-message drain failed sessionId=${sessionId}: ${err?.message || err}\n`); } catch {}
-    }
-    return drained;
-}
-
-export function enqueuePendingMessage(sessionId, message) {
-    const entry = pendingMessageQueueEntry(message);
-    if (!sessionId || !entry) return 0;
-    let q = _sessionPendingMessages.get(sessionId);
-    if (!q) { q = []; _sessionPendingMessages.set(sessionId, q); }
-    q.push(entry);
-    const bufferedDepth = schedulePendingMessagePersist(sessionId, entry);
-    return Math.max(q.length, bufferedDepth || 0);
-}
-export function drainPendingMessages(sessionId) {
-    const q = _sessionPendingMessages.get(sessionId);
-    const memory = q && q.length > 0 ? q.slice() : [];
-    _sessionPendingMessages.delete(sessionId);
-    const persisted = [...takeBufferedPendingMessages(sessionId), ...drainPersistedPendingMessages(sessionId)];
-    const memoryVisible = modelVisiblePendingMessages(memory);
-    const persistedVisible = modelVisiblePendingMessages(persisted);
-    if (memoryVisible.length === 0) return persistedVisible;
-    if (persistedVisible.length === 0) return memoryVisible;
-    const persistedTexts = persistedVisible.map(pendingMessageText);
-    const prefixMatches = memoryVisible.every((m, i) => persistedTexts[i] === pendingMessageText(m));
-    if (prefixMatches) return [...memoryVisible, ...persistedVisible.slice(memoryVisible.length)];
-    const out = persistedVisible.slice();
-    const seen = new Set(persistedTexts);
-    for (const m of memoryVisible) {
-        const text = pendingMessageText(m);
-        if (!text || seen.has(text)) continue;
-        out.push(m);
-        seen.add(text);
-    }
-    return out;
-}
-
-function promptContentText(content) {
-    if (typeof content === 'string') return content;
-    if (Array.isArray(content)) {
-        return content.map((part) => {
-            if (typeof part === 'string') return part;
-            if (part?.type === 'text') return part.text || '';
-            if (part?.type === 'image') return '[Image]';
-            return part?.text || '';
-        }).filter(Boolean).join('\n');
-    }
-    return String(content ?? '');
-}
-
-function hasModelVisiblePromptContent(prompt) {
-    return !!promptContentText(prompt).trim();
-}
-
-function promptContentBytes(content) {
-    try {
-        if (typeof content === 'string') return Buffer.byteLength(content, 'utf8');
-        return Buffer.byteLength(JSON.stringify(content), 'utf8');
-    } catch {
-        return Buffer.byteLength(promptContentText(content), 'utf8');
-    }
-}
-
-function prefixUserTurnContent(content, contextBlock) {
-    if (!contextBlock) return content;
-    if (Array.isArray(content)) {
-        return [{ type: 'text', text: `${contextBlock}# Task\n` }, ...content];
-    }
-    return `${contextBlock}# Task\n${content}`;
-}
-
-function prefixSessionStartContent(content, sessionBlock) {
-    if (!sessionBlock) return content;
-    if (Array.isArray(content)) {
-        return [{ type: 'text', text: `${sessionBlock}\n\n` }, ...content];
-    }
-    return `${sessionBlock}\n\n${content}`;
-}
-
-function localIsoDate(date = new Date()) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
-
-function localDateTimeWithZone(date = new Date()) {
-    const datePart = localIsoDate(date);
-    const hh = String(date.getHours()).padStart(2, '0');
-    const mm = String(date.getMinutes()).padStart(2, '0');
-    const ss = String(date.getSeconds()).padStart(2, '0');
-    let zone = '';
-    try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch {}
-    return zone ? `${datePart} ${hh}:${mm}:${ss} ${zone}` : `${datePart} ${hh}:${mm}:${ss}`;
-}
-
-function temporalPromptText(content) {
-    const text = promptContentText(content)
-        .replace(/\s+/g, ' ')
-        .trim()
-        .toLowerCase();
-    return text;
-}
-
-function promptNeedsDateReminder(content) {
-    const text = temporalPromptText(content);
-    if (!text) return false;
-    return /(?:오늘|내일|어제|모레|그저께|요즘|최근|방금|아까|현재\s*(?:날짜|시간|시각)|지금\s*(?:몇\s*시|시간|날짜|요일)|몇\s*월\s*몇\s*일|몇\s*시|무슨\s*요일|요일|날짜|이번\s*(?:주|달|월|년)|지난\s*(?:주|달|월|년)|다음\s*(?:주|달|월|년)|올해|작년|내년|today|tomorrow|yesterday|recently|current\s+(?:date|time)|what\s+(?:date|time)|which\s+day|weekday|this\s+(?:week|month|year)|last\s+(?:week|month|year)|next\s+(?:week|month|year))/i.test(text);
-}
-
-function promptNeedsTimeReminder(content) {
-    const text = temporalPromptText(content);
-    if (!text) return false;
-    return /(?:현재\s*(?:시간|시각)|지금\s*(?:몇\s*시|시간)|몇\s*시|시각|시간|current\s+time|what\s+time|time\s+is\s+it)/i.test(text);
-}
-
-function buildCurrentTimeBlock(content) {
-    const needsTime = promptNeedsTimeReminder(content);
-    if (!needsTime && !promptNeedsDateReminder(content)) return '';
-    return localDateTimeWithZone(new Date());
-}
-
-function sessionModelDisplay(model) {
-    const text = String(model || '').trim();
-    if (!text) return '';
-    return text
-        .replace(/-\d{4}-\d{2}-\d{2}$/, '')
-        .replace(/^gpt-/i, 'GPT-')
-        .replace(/(?:^|-)([a-z])/g, (m) => m.toUpperCase());
-}
-
-function buildSessionStartBlock(session, cwd) {
-    if (!session || session.owner === 'agent') return '';
-    const lines = ['# Session'];
-    const effectiveCwd = String(cwd || session.cwd || '').trim();
-    if (effectiveCwd) lines.push(`Cwd: ${effectiveCwd}`);
-    const modelBits = [
-        sessionModelDisplay(session.model),
-        session.effort ? String(session.effort).trim().toUpperCase() : '',
-        session.fast === true ? 'FAST' : '',
-    ].filter(Boolean);
-    if (modelBits.length) lines.push(`Model: ${modelBits.join(' · ')}`);
-    const workflowName = String(session.workflow?.name || session.workflow?.id || '').trim();
-    if (workflowName) lines.push(`Workflow: ${workflowName}`);
-    return lines.length > 1 ? lines.join('\n') : '';
-}
-
-function isReferenceFilesMessage(message) {
-    return message?.role === 'user'
-        && typeof message.content === 'string'
-        && /^Reference files:\s*/i.test(message.content.trimStart());
-}
-
-function isProtectedContextUserMessage(message) {
-    return message?.role === 'user'
-        && typeof message.content === 'string'
-        && message.content.trimStart().startsWith('<system-reminder>');
-}
-
-function hasUserConversationMessage(messages) {
-    return (Array.isArray(messages) ? messages : []).some((message) => (
-        message?.role === 'user'
-        && !isProtectedContextUserMessage(message)
-        && !isReferenceFilesMessage(message)
-    ));
-}
-
-function modelVisiblePendingMessages(messages) {
-    return (Array.isArray(messages) ? messages : [])
-        .map(pendingMessageQueueEntry)
-        .filter(Boolean)
-        .filter((message) => !isInternalRuntimeNotificationText(
-            message && typeof message === 'object' && Object.prototype.hasOwnProperty.call(message, 'content')
-                ? message.content
-                : message,
-        ));
-}
-
-export function _mergePendingMessageEntries(entries) {
-    const normalized = (Array.isArray(entries) ? entries : [])
-        .map(normalizePendingMessageEntry)
-        .filter(Boolean);
-    if (normalized.length === 0) return null;
-    const displayText = normalized.map((entry) => entry.text || promptContentText(entry.content))
-        .filter((text) => String(text || '').trim())
-        .join('\n');
-    if (normalized.every((entry) => typeof entry.content === 'string')) {
-        return {
-            content: normalized.map((entry) => entry.content).filter(Boolean).join('\n'),
-            text: displayText,
-            count: normalized.length,
-        };
-    }
-    const parts = [];
-    for (const entry of normalized) {
-        if (typeof entry.content === 'string') {
-            if (entry.content.trim()) parts.push({ type: 'text', text: entry.content });
-        } else if (Array.isArray(entry.content)) {
-            parts.push(...entry.content);
-        } else {
-            const text = promptContentText(entry.content);
-            if (text.trim()) parts.push({ type: 'text', text });
-        }
-        parts.push({ type: 'text', text: '\n' });
-    }
-    while (parts.length && parts[parts.length - 1]?.type === 'text' && parts[parts.length - 1]?.text === '\n') parts.pop();
-    return { content: parts, text: displayText || promptContentText(parts), count: normalized.length };
-}
-
-function isInternalRuntimeNotificationText(content) {
-    return contractIsInternalRuntimeNotificationText(promptContentText(content));
-}
-
-export const _isInternalRuntimeNotificationText = isInternalRuntimeNotificationText;
-
 function isInternalCancelledAssistantMessage(message) {
     if (!message || message.role !== 'assistant') return false;
     if (message.cancelled === true) return true;
@@ -3961,8 +2990,7 @@ export function closeSession(id, reason = 'manual') {
     // Drop the in-memory pending-message queue and any buffered-persist entry
     // for this session — otherwise both Maps accumulate one entry per closed
     // session for the life of the mcp-server.
-    try { _sessionPendingMessages.delete(id); } catch { /* ignore */ }
-    try { _pendingPersistBuffers.delete(id); } catch { /* ignore */ }
+    _dropPendingMessageState(id);
     // 4. Defer runtime map clear to next tick so any settling askSession can
     //    observe `closed=true` / bumped generation before we yank the entry.
     //    Disk tombstone remains — that's what blocks resurrection.

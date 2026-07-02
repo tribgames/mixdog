@@ -1,16 +1,8 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema
-} from "@modelcontextprotocol/sdk/types.js";
 import { spawn } from "child_process";
 import * as fs from "fs";
-import * as http from "http";
 import * as os from "os";
 import * as path from "path";
 import { performance } from "perf_hooks";
-import { pathToFileURL } from "url";
 import { createRequire } from "module";
 const _require = createRequire(import.meta.url);
 import { loadConfig, createBackend, loadProfileConfig, DATA_DIR } from "./lib/config.mjs";
@@ -62,128 +54,27 @@ import {
   RUNTIME_ROOT
 } from "./lib/runtime-paths.mjs";
 import { getDiscordToken } from "./lib/config.mjs";
+import { bootProfile, localTimestamp } from "./lib/boot-profile.mjs";
+import {
+  isChannelsDegraded,
+  logCrash,
+  _isBenignCrash,
+  BENIGN_CRASH_FATAL_THRESHOLD,
+  BENIGN_CRASH_STREAK_WINDOW_MS,
+} from "./lib/crash-log.mjs";
+import { dropTrace, preview, _dtIdxFlush } from "./lib/index-drop-trace.mjs";
+import { normalizeWhisperLanguage, detectDeviceLanguage } from "./lib/whisper-language.mjs";
 const memoryClientModulePath = new URL("./lib/memory-client.mjs", import.meta.url).href;
 const {
   appendEntry: memoryAppendEntry,
   ingestTranscript: memoryIngestTranscript,
 } = await import(memoryClientModulePath);
-const DEFAULT_PLUGIN_VERSION = "0.0.1";
-const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ""));
-const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
-function bootProfile(event, fields = {}) {
-  if (!BOOT_PROFILE_ENABLED) return;
-  const elapsedMs = performance.now() - BOOT_PROFILE_START;
-  const parts = [`[mixdog-boot] +${elapsedMs.toFixed(1)}ms`, `channels:${event}`];
-  for (const [key, value] of Object.entries(fields || {})) {
-    if (value === undefined || value === null || value === "") continue;
-    parts.push(`${key}=${String(value).replace(/\s+/g, "_")}`);
-  }
-  try { process.stderr.write(`${parts.join(" ")}\n`); } catch {}
-}
-function localTimestamp() {
-  return (/* @__PURE__ */ new Date()).toLocaleString("sv-SE", { hour12: false });
-}
-function readPluginVersion() {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));
-    return pkg.version || DEFAULT_PLUGIN_VERSION;
-  } catch {
-    return DEFAULT_PLUGIN_VERSION;
-  }
-}
-const PLUGIN_VERSION = readPluginVersion();
-let crashLogging = false;
-let _channelsDegraded = false;
-let _stderrBroken = false;
-function isChannelsDegraded() { return _channelsDegraded; }
-
-// stderr can break when the parent stdio pipe closes. Node then emits an
-// async 'error' on process.stderr, which sync try/catch around write() does
-// not catch — without a listener, that error becomes uncaughtException and
-// re-enters logCrash, looping until the disk fills. Register a suppressor
-// once at load time and stop writing to stderr after the first EPIPE so the
-// loop cannot start.
-try {
-  process.stderr.on('error', (e) => {
-    if (e && (e.code === 'EPIPE' || /EPIPE/.test(String(e.message || '')))) {
-      _stderrBroken = true;
-      _channelsDegraded = true;
-    }
-  });
-} catch {}
-
-// Crash log guards: dedup repeated identical errors (a single broken handler
-// can fire thousands of times per minute) and rotate at a 10 MB cap so the
-// file cannot grow unbounded. One .old generation is kept; older rolls drop.
-const CRASH_LOG_MAX_BYTES = 10 * 1024 * 1024;
-let _lastCrashSig = "";
-let _crashRepeatCount = 0;
-
-function _writeCrashLine(crashLog, line) {
-  try {
-    let size = 0;
-    try { size = fs.statSync(crashLog).size; } catch {}
-    if (size + line.length > CRASH_LOG_MAX_BYTES) {
-      try { fs.renameSync(crashLog, crashLog + ".old"); } catch {}
-    }
-    fs.appendFileSync(crashLog, line);
-  } catch {}
-}
-
-function logCrash(label, err) {
-  if (crashLogging) return;
-  crashLogging = true;
-  const msg = `[${localTimestamp()}] mixdog: ${label}: ${err}
-${err instanceof Error ? err.stack : ""}
-`;
-  if (!_stderrBroken) {
-    try { process.stderr.write(msg); } catch (e) {
-      if (e && (e.code === 'EPIPE' || /EPIPE/.test(String(e.message || '')))) {
-        _stderrBroken = true;
-      }
-    }
-  }
-  const sig = `${label}|${err && err.message ? err.message : String(err)}`;
-  const crashLog = path.join(DATA_DIR, "crash.log");
-  if (sig === _lastCrashSig) {
-    // Same error repeating — count it but skip the disk write. The next
-    // distinct error (or EPIPE branch below) flushes the suppressed total.
-    _crashRepeatCount += 1;
-  } else {
-    if (_crashRepeatCount > 0) {
-      _writeCrashLine(crashLog, `[${localTimestamp()}] mixdog: previous error repeated ${_crashRepeatCount} more time(s)\n`);
-      _crashRepeatCount = 0;
-    }
-    _lastCrashSig = sig;
-    _writeCrashLine(crashLog, msg);
-  }
-  if (err instanceof Error && err.message.includes("EPIPE")) {
-    _channelsDegraded = true;
-    _stderrBroken = true;
-  }
-  crashLogging = false;
-}
 // Zombie-Lead repro (2026-07-02): logCrash-then-survive left a worker alive
 // after an unhandled rejection whose async state was already corrupted
 // (observed: EPERM on active-instance.json rename retry), so it spun
 // forever doing nothing useful — a zombie Lead. Fatal-exit on repeat.
-// Benign whitelist: transient EPERM/EACCES/EBUSY on the active-instance
-// rename path is expected under Windows file-lock contention and is
-// already retried elsewhere (atomic-file.mjs RETRY_CODES) — a single
-// occurrence must NOT be fatal, only a run of 3+ in a row without an
-// intervening distinct/successful event.
-const BENIGN_CRASH_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
-const BENIGN_CRASH_FATAL_THRESHOLD = 3;
-// "In a row" needs a time dimension: benign errors minutes/hours apart are
-// independent contention events, not a corrupted-state run. Only count a
-// streak when hits land within this window of the previous one.
-const BENIGN_CRASH_STREAK_WINDOW_MS = 60_000;
 let _benignCrashStreak = 0;
 let _lastBenignCrashAt = 0;
-function _isBenignCrash(err) {
-  const code = err?.code || (/\b(EPERM|EACCES|EBUSY)\b/.exec(String(err?.message || err)) || [])[0];
-  return BENIGN_CRASH_CODES.has(code);
-}
 function _fatalCrash(label, err) {
   logCrash(label, err);
   const benign = _isBenignCrash(err);
@@ -236,17 +127,6 @@ let config = loadConfig();
 let backend = createBackend(config);
 const INSTANCE_ID = makeInstanceId();
 const TERMINAL_LEAD_PID = getTerminalLeadPid();
-// ── drop-trace instrumentation ──────────────────────────────────────────────
-const _dropTraceLog = path.join(DATA_DIR, "drop-trace.log");
-const DROP_TRACE_ENABLED =
-  process.env.MIXDOG_DROP_TRACE === "1" ||
-  process.env.MIXDOG_DROP_TRACE === "true" ||
-  process.env.MIXDOG_DEBUG_CHANNELS === "1" ||
-  process.env.MIXDOG_DEBUG_CHANNELS === "true";
-// One-shot rotation for drop-trace.log at worker boot.
-if (DROP_TRACE_ENABLED) {
-  try { if (fs.statSync(_dropTraceLog).size > 10 * 1024 * 1024) fs.renameSync(_dropTraceLog, _dropTraceLog + '.1') } catch {}
-}
 // Rotate additional worker logs (10 MB threshold).
 for (const _rotLog of ["channels-worker.log", "schedule.log", "event.log", "memory-worker.log", "mcp-debug.log", "webhook.log", "pg.log", "session-start.log"]) {
   const _rotPath = path.join(DATA_DIR, _rotLog);
@@ -287,42 +167,6 @@ try {
 try {
   pruneStalePluginDataLogSiblings(DATA_DIR, DEFAULT_STALE_LOG_SIBLING_MAX);
 } catch {}
-
-// ── Buffered drop-trace writer (channels/index) ──────────────────────────────
-// Flushes every 1 s OR when buffer reaches 64 KB — whichever fires first.
-// Drains on process exit so no log lines are lost.
-let _dtIdxBuf = "";
-let _dtIdxBytes = 0;
-let _dtIdxFlushTimer = null;
-let _dtIdxStream = null;
-function _dtIdxGetStream() {
-  if (!_dtIdxStream) _dtIdxStream = fs.createWriteStream(_dropTraceLog, { flags: "a" });
-  return _dtIdxStream;
-}
-async function _dtIdxFlush() {
-  if (_dtIdxFlushTimer) { clearTimeout(_dtIdxFlushTimer); _dtIdxFlushTimer = null; }
-  if (!_dtIdxBuf) return;
-  const stream = _dtIdxGetStream();
-  const buf = _dtIdxBuf;
-  _dtIdxBuf = "";
-  _dtIdxBytes = 0;
-  try {
-    const ok = stream.write(buf);
-    if (!ok) { const { once } = await import("node:events"); await once(stream, "drain").catch(() => {}); }
-  } catch {}
-}
-function _dtIdxScheduleFlush() {
-  if (_dtIdxFlushTimer) return;
-  _dtIdxFlushTimer = setTimeout(() => { void _dtIdxFlush(); }, 1000);
-  if (_dtIdxFlushTimer.unref) _dtIdxFlushTimer.unref();
-}
-function _dtIdxAppend(line) {
-  _dtIdxBuf += line;
-  _dtIdxBytes += Buffer.byteLength(line);
-  if (_dtIdxBytes >= 65536) { void _dtIdxFlush(); return; }
-  _dtIdxScheduleFlush();
-}
-process.on("exit", () => { void _dtIdxFlush(); });
 // SIGTERM: flush the drop-trace buffer, but do NOT exit here. In worker
 // mode the graceful `_channelsShutdownHandler` below owns shutdown
 // (stop() → cleanup → process.exit). In non-worker mode no SIGTERM
@@ -332,21 +176,6 @@ process.on("SIGTERM", () => {
   void _dtIdxFlush();
   if (!_isWorkerMode) process.exit(0);
 });
-
-function preview(text) {
-  if (!text) return "";
-  const s = String(text).replace(/\n/g, "\\n");
-  return s.length > 120 ? s.slice(0, 120) + "…" : s;
-}
-function dropTrace(event, fields) {
-  if (!DROP_TRACE_ENABLED) return;
-  try {
-    const ts = (/* @__PURE__ */ new Date()).toISOString();
-    const loc = `[${ts}][pid=${process.pid}] ${event}`;
-    const kv = fields ? " " + Object.entries(fields).map(([k, v]) => `${k}=${v}`).join(" ") : "";
-    _dtIdxAppend(loc + kv + "\n");
-  } catch {}
-}
 // ────────────────────────────────────────────────────────────────────────────
 ensureRuntimeDirs();
 cleanupStaleRuntimeFiles();
@@ -1620,41 +1449,6 @@ function runCmd(cmd, args, capture = false) {
     proc.on("error", reject);
   });
 }
-let resolvedWhisperLanguage = null;
-function normalizeWhisperLanguage(value) {
-  const raw = String(value ?? "").trim().toLowerCase();
-  if (!raw || raw === "auto") return null;
-  if (raw.startsWith("ko")) return "ko";
-  if (raw.startsWith("ja")) return "ja";
-  if (raw.startsWith("en")) return "en";
-  if (raw.startsWith("zh")) return "zh";
-  if (raw.startsWith("de")) return "de";
-  if (raw.startsWith("fr")) return "fr";
-  if (raw.startsWith("es")) return "es";
-  if (raw.startsWith("it")) return "it";
-  if (raw.startsWith("pt")) return "pt";
-  if (raw.startsWith("ru")) return "ru";
-  return raw;
-}
-function detectDeviceLanguage() {
-  if (resolvedWhisperLanguage) return resolvedWhisperLanguage;
-  const candidates = [
-    process.env.MIXDOG_CHANNELS_WHISPER_LANGUAGE,
-    process.env.LC_ALL,
-    process.env.LC_MESSAGES,
-    process.env.LANG,
-    Intl.DateTimeFormat().resolvedOptions().locale
-  ];
-  for (const candidate of candidates) {
-    const normalized = normalizeWhisperLanguage(candidate);
-    if (normalized) {
-      resolvedWhisperLanguage = normalized;
-      return normalized;
-    }
-  }
-  resolvedWhisperLanguage = "auto";
-  return resolvedWhisperLanguage;
-}
 // ── voice.transcription concurrency queue (max=1 by default, config-driven) ──
 const _voiceTranscriptionQueue = (() => {
   let running = 0;
@@ -1789,23 +1583,10 @@ async function _doTranscribeVoice(audioPath, attachmentId) {
   }
 }
 import { TOOL_DEFS } from './tool-defs.mjs';
-function createHttpMcpServer() {
-  const s = new Server(
-    { name: "mixdog", version: PLUGIN_VERSION },
-    { capabilities: { tools: {} }, instructions: INSTRUCTIONS }
-  );
-  s.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_DEFS }));
-  s.setRequestHandler(CallToolRequestSchema, async (req) => {
-    const toolName = req.params.name;
-    const args = req.params.arguments ?? {};
-    return handleToolCallWithBridgeRetry(toolName, args);
-  });
-  return s;
-}
 // Tool dispatch in worker mode goes through the IPC `call` handler at the
-// bottom of this file (parent's `callWorker` → `handleToolCall`). The HTTP
-// MCP path uses its own short-lived `Server` instance built by
-// `createHttpMcpServer()` above. There is no orphan worker-level Server.
+// bottom of this file (parent's `callWorker` → `handleToolCall`). There is no
+// orphan worker-level MCP Server: the parent (server.mjs) owns the single
+// connected transport and routes CallTool through the IPC `call` path.
 const BACKEND_TOOLS = /* @__PURE__ */ new Set(["reply", "fetch", "react", "edit_message", "download_attachment", "trigger_schedule"]);
 // ── Backend-tool dispatch helpers ───────────────────────────────────────────
 // Each helper dispatches through the local backend (this process is always the
@@ -1908,7 +1689,7 @@ async function dispatchDownloadAttachment(args) {
 ${lines.join("\n")}` }] };
 }
 async function handleToolCall(name, args, _signal) {
-  if (_channelsDegraded) {
+  if (isChannelsDegraded()) {
     return { content: [{ type: 'text', text: `[channels degraded] ${name} unavailable — restart MCP to recover` }], isError: true }
   }
   let result;
