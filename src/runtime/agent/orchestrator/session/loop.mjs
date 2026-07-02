@@ -37,6 +37,7 @@ import {
     _intraTurnSig,
 } from './loop/tool-classify.mjs';
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
+import { loadConfig as loadOrchestratorConfig } from '../config.mjs';
 let codeGraphRuntimePromise = null;
 async function executeCodeGraphToolLazy(name, args, cwd, signal = null, options = {}) {
     codeGraphRuntimePromise ??= import('../tools/code-graph.mjs');
@@ -186,7 +187,19 @@ async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTo
     diagnostics.initialRawPending = countRawPendingRows(recallText);
     let cycle1Text = '';
     const hasRawRows = /(?:^|\n)# raw_pending\s+\d+\s+id=/i.test(String(recallText || ''));
-    if (hasRawRows) {
+    // Recap off = NO memory-pipeline LLM calls: skip the cycle1 drain entirely
+    // and let the dump's raw transcript lines (includeRaw:true above) ride into
+    // the injected summary as-is. Poll-on-use: re-read the flag per compact so
+    // a runtime toggle applies without restart. Default on if config read fails.
+    let recapOn = true;
+    try { recapOn = loadOrchestratorConfig({ secrets: false })?.recap?.enabled !== false; } catch { /* default on */ }
+    if (hasRawRows && !recapOn) {
+        diagnostics.cycle1Skipped = true;
+        diagnostics.cycle1SkipReason = 'recap disabled';
+        diagnostics.cycle1Passes = 0;
+        diagnostics.cycle1RawRemaining = countRawPendingRows(recallText);
+        cycle1Text = 'cycle1: skipped (recap disabled — raw transcript lines kept as-is)';
+    } else if (hasRawRows) {
         t0 = Date.now();
         try {
             // Drain this session's cycle1 in window×concurrency units until no

@@ -110,6 +110,7 @@ import {
   memoryCoreResultErrorText,
 } from './app/input-parsers.mjs';
 import { copyToClipboard } from './app/clipboard.mjs';
+import { wrappedTextRows, promptContentRows } from './app/text-layout.mjs';
 
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
@@ -4394,11 +4395,11 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     const outputStyleLabel = outputStyle?.current?.label || outputStyle?.current?.id || outputStyle?.configured || 'Default';
     const workflowLabel = workflowDisplayName(workflow);
     const boolLabel = (enabled) => enabled ? 'On' : 'Off';
-    const compactTypeDescription = memory.enabled === false
-      ? 'Default summarization is active; fast-track needs Memory.'
-      : compactType === 'recall-fasttrack'
-        ? 'Uses Memory recall to rebuild context faster on large histories.'
-        : 'Uses semantic summarization for predictable context compaction.';
+    const compactTypeDescription = compactType === 'recall-fasttrack'
+      ? (memory.enabled === false
+        ? 'Injects raw transcript lines (Recap off: no LLM chunking).'
+        : 'Uses Memory recall to rebuild context faster on large histories.')
+      : 'Uses semantic summarization for predictable context compaction.';
     const applyAutoClear = (enabled) => {
       try {
         const next = store.setAutoClear?.({ enabled });
@@ -4425,12 +4426,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       void Promise.resolve(store.setMemoryEnabled?.(enabled))
         .then((next) => {
           if (!next) {
-            store.pushNotice('memory setting is busy', 'warn');
+            store.pushNotice('recap setting is busy', 'warn');
             return;
           }
-          store.pushNotice(`Memory ${next.enabled ? 'on' : 'off'}`, 'info');
+          store.pushNotice(`Recap ${next.enabled ? 'on' : 'off'}`, 'info');
         })
-        .catch((e) => store.pushNotice(`memory setting failed: ${e?.message || e}`, 'error'))
+        .catch((e) => store.pushNotice(`recap setting failed: ${e?.message || e}`, 'error'))
         .finally(() => openSettingsPicker({ light: true }));
     };
     const applyChannels = (enabled) => {
@@ -4577,11 +4578,11 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       },
       {
         value: 'memory',
-        label: 'Memory enabled',
+        label: 'Recap enabled',
         meta: boolLabel(memory.enabled !== false),
         description: memory.enabled === false
-          ? 'Recall and memory disabled.'
-          : 'Recall, memory, and fast-track support.',
+          ? 'Background memory cycles off; recall serves stored chunks + raw rows.'
+          : 'Background memory cycles chunk conversations automatically.',
         _action: 'memory',
       },
       {
