@@ -3930,8 +3930,46 @@ export async function stop() {
     // postmaster keeps running after the memory service exits.
     if (!memorySecondaryMode()) {
       try {
-        const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs')
-        await stopPgForShutdown()
+        // Conservative check: only skip stopPgForShutdown when the owner
+        // record is unambiguously (a) a memory-runtime-daemon owner record
+        // (kind check — guards against a stale/foreign pid reusing this pid
+        // number for an unrelated process) and (b) that pid is alive AND not
+        // this process. Any read/parse failure or ambiguous state falls back
+        // to stopping PG (previous unconditional behavior) rather than
+        // risking an orphaned PG postmaster.
+        const anotherOwnerAlive = await (async () => {
+          try {
+            const { readSingletonOwner } = await import('../shared/singleton-owner.mjs')
+            const ownerPath = path.join(DATA_DIR, 'memory-runtime-owner.json')
+            const { owner, alive } = readSingletonOwner(ownerPath)
+            if (!alive) return false
+            if (owner?.kind !== 'memory-runtime-daemon') return false
+            const ownerPid = Number(owner?.pid)
+            if (!Number.isInteger(ownerPid) || ownerPid === process.pid) return false
+            // Best-effort process-name check (mirrors supervisor.mjs's
+            // isPostgresPid pattern) — confirms the pid is actually a node
+            // process before trusting it as a live sibling memory owner.
+            // Falls back to true (trust the owner file) when the platform
+            // check is unavailable or inconclusive.
+            try {
+              if (process.platform === 'win32') {
+                const { execFileSync } = await import('node:child_process')
+                const out = execFileSync('tasklist', ['/FI', `PID eq ${ownerPid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true })
+                if (!String(out || '').toLowerCase().includes('node')) return false
+              } else if (process.platform === 'linux') {
+                const comm = fs.readFileSync(`/proc/${ownerPid}/comm`, 'utf8').trim()
+                if (!comm.includes('node')) return false
+              }
+            } catch { /* inconclusive — trust the owner file (already alive+kind-matched) */ }
+            return true
+          } catch { return false }
+        })()
+        if (anotherOwnerAlive) {
+          __mixdogMemoryLog('[memory-service] shutdown: another live memory owner holds memory-runtime-owner.json — leaving PG running\n')
+        } else {
+          const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs')
+          await stopPgForShutdown()
+        }
       } catch {}
     } else {
       __mixdogMemoryLog('[memory-service] secondary mode; leaving shared PG running\n')

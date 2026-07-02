@@ -105,31 +105,50 @@ const _checkedConnect = checkedConnect
 // native PG db shim
 // ---------------------------------------------------------------------------
 
-function makeCompatDb(pgPool, schema) {
+function makeCompatDb(pgPool, schema, dataDir) {
   const db = {
     // query: use pool directly for single-statement queries
     query: async (sql, params) => {
-      const client = await _checkedConnect(pgPool, schema)
-      try {
-        return await client.query(sql, params)
-      } finally {
-        client.release()
-      }
+      return await withPgRetry(dataDir, schema, async (pool) => {
+        const client = await _checkedConnect(pool, schema)
+        try {
+          return await client.query(sql, params)
+        } finally {
+          client.release()
+        }
+      })
     },
 
     // exec: multi-statement SQL (semicolon-separated); single client for session state
     exec: async (sql) => {
-      const client = await _checkedConnect(pgPool, schema)
+      // Not retried: exec runs arbitrary multi-statement SQL where a partial
+      // failure mid-sequence is unobservable from here — replaying the whole
+      // string after recovery risks double-applying already-committed
+      // statements. On ECONNREFUSED, trigger recovery in the background (so
+      // the NEXT call gets a fresh pool) and propagate the original error.
+      const pool = instances.get(`${resolve(dataDir)}|${schema}`)?.pool ?? pgPool
       try {
-        await client.query(sql)
-      } finally {
-        client.release()
+        const client = await _checkedConnect(pool, schema)
+        try {
+          await client.query(sql)
+        } finally {
+          client.release()
+        }
+      } catch (err) {
+        if (err?.code === 'ECONNREFUSED') _recoverPgConnection(dataDir, schema).catch(() => {})
+        throw err
       }
     },
 
     // transaction: check out one client, BEGIN, run callback(tx), COMMIT or ROLLBACK
     transaction: async (fn) => {
-      const client = await _checkedConnect(pgPool, schema)
+      // Not retried — same rationale as exec(): a COMMIT that fails with
+      // ECONNREFUSED leaves the transaction's applied/rolled-back state
+      // unknown to this process; blindly replaying fn() could double-apply
+      // side effects. Recover in the background for the next caller and
+      // propagate the original error immediately.
+      const pool = instances.get(`${resolve(dataDir)}|${schema}`)?.pool ?? pgPool
+      const client = await _checkedConnect(pool, schema)
       try {
         await client.query('BEGIN')
         const tx = {
@@ -141,6 +160,7 @@ function makeCompatDb(pgPool, schema) {
         return result
       } catch (err) {
         try { await client.query('ROLLBACK') } catch {}
+        if (err?.code === 'ECONNREFUSED') _recoverPgConnection(dataDir, schema).catch(() => {})
         throw err
       } finally {
         client.release()
@@ -150,10 +170,114 @@ function makeCompatDb(pgPool, schema) {
     // close: drain pool
     close: () => pgPool.end(),
 
-    // Internal access for callers that need raw pool
-    _pool: pgPool,
+    // Internal access for callers that need raw pool. Getter (not a fixed
+    // field) so callers that hold onto `db` across a recovery cycle (e.g.
+    // trace-store's checkedConnect/pool.connect() call sites) transparently
+    // see the refreshed pool after withPgRetry swaps the cached instance —
+    // otherwise db._pool would keep pointing at the dead pre-recovery pool.
+    get _pool() {
+      return instances.get(`${resolve(dataDir)}|${schema}`)?.pool ?? pgPool
+    },
   }
   return db
+}
+
+// ---------------------------------------------------------------------------
+// Self-healing: pool query fails with ECONNREFUSED (target pg_port down while
+// the server process itself stays alive) → discard the stale pool via
+// closePgInstance and re-run ensurePgInstance so supervisor-pg restarts/
+// re-attaches PG, then retry the failed operation exactly once against the
+// fresh pool.
+//
+// Guards against runaway restart loops:
+//   - _recoverInFlight: at most one recovery coroutine per dataDir at a time;
+//     concurrent callers await the same promise instead of racing restarts.
+//   - _lastRecoverAt / RECOVER_COOLDOWN_MS: after a recovery attempt (success
+//     or failure) further ECONNREFUSED hits within the cooldown window
+//     surface the original error instead of re-triggering PG restart.
+// ---------------------------------------------------------------------------
+
+const RECOVER_COOLDOWN_MS = 15_000
+const _lastRecoverAt = new Map()   // dataDirKey → epoch ms of last recovery attempt
+const _recoverInFlight = new Map() // dataDirKey → Promise<boolean>
+
+function _instanceKeysForDataDir(dataDirKey) {
+  const prefix = `${dataDirKey}|`
+  return Array.from(instances.keys()).filter(k => k.startsWith(prefix))
+}
+
+async function _recoverPgConnection(dataDir, schema) {
+  const dataDirKey = resolve(dataDir)
+  // In-flight check FIRST: a concurrent recovery already running for this
+  // dataDir must be awaited by every caller (even ones arriving inside the
+  // cooldown window that starts once that recovery begins) — otherwise a
+  // caller that lands between the in-flight recovery's start and its cooldown
+  // stamp would see neither in-flight nor cooldown and could trigger a second
+  // redundant restart cycle.
+  if (_recoverInFlight.has(dataDirKey)) return _recoverInFlight.get(dataDirKey)
+  const now = Date.now()
+  const last = _lastRecoverAt.get(dataDirKey) || 0
+  if (now - last < RECOVER_COOLDOWN_MS) {
+    // Cooldown active — do not hammer PG restart on every failing query.
+    return false
+  }
+
+  const p = (async () => {
+    _lastRecoverAt.set(dataDirKey, Date.now())
+    __mixdogMemoryLog(`[pg-adapter] ECONNREFUSED on pool query — recovering PG for dataDir=${dataDirKey}\n`)
+    // memory + trace schemas share one PG cluster/port; discard every cached
+    // pool for this dataDir so a dead-port pool is never reused after restart.
+    // Track every schema whose pool was actually closed here so ALL of them
+    // get re-ensured below (not just the schema of the caller that happened
+    // to trigger this recovery) — otherwise a sibling schema's cached `db`
+    // handle is left pointing at an ended pool (its `_pool` getter falls back
+    // to the stale `pgPool` closure var) and its next query throws a
+    // "Cannot use a pool after calling end" TypeError instead of recovering.
+    const closedSchemas = new Set()
+    for (const key of _instanceKeysForDataDir(dataDirKey)) {
+      const sch = key.slice(dataDirKey.length + 1)
+      try { await closePgInstance(dataDir, { schema: sch }) } catch {}
+      closedSchemas.add(sch)
+    }
+    closedSchemas.add(schema) // the triggering schema, even if it had no cached instance yet
+    try {
+      for (const sch of closedSchemas) {
+        await ensurePgInstance(dataDir, { schema: sch })
+      }
+      __mixdogMemoryLog(`[pg-adapter] PG reconnect recovery complete for dataDir=${dataDirKey}\n`)
+      return true
+    } catch (e) {
+      __mixdogMemoryLog(`[pg-adapter] PG reconnect recovery failed for dataDir=${dataDirKey}: ${e?.message || e}\n`)
+      return false
+    }
+  })()
+  _recoverInFlight.set(dataDirKey, p)
+  try {
+    return await p
+  } finally {
+    _recoverInFlight.delete(dataDirKey)
+  }
+}
+
+/**
+ * Run `fn(pool)` against the current pool for (dataDir, schema); on
+ * ECONNREFUSED, recover PG (see _recoverPgConnection) and retry once against
+ * the refreshed pool. Non-ECONNREFUSED errors and cooldown/in-flight misses
+ * propagate the original error unchanged.
+ */
+async function withPgRetry(dataDir, schema, fn) {
+  const key = `${resolve(dataDir)}|${schema}`
+  const pool0 = instances.get(key)?.pool
+  try {
+    return await fn(pool0)
+  } catch (err) {
+    if (err?.code !== 'ECONNREFUSED') throw err
+    const recovered = await _recoverPgConnection(dataDir, schema)
+    if (!recovered) throw err
+    const pool1 = instances.get(key)?.pool
+    if (!pool1) throw err
+    return await fn(pool1)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -299,7 +423,7 @@ export async function ensurePgInstance(dataDir, opts = {}) {
     await bootstrapInstance(pgPool, resolve(dataDir))
 
     // 5. Build the compat db shim.
-    const db = makeCompatDb(pgPool, schema)
+    const db = makeCompatDb(pgPool, schema, dataDir)
 
     const result = { db, pool: pgPool, host, port, runtimeDir, pgdataDir }
     instances.set(key, result)

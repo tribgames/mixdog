@@ -103,6 +103,12 @@ async function init(client) {
     END $$
   `)
 
+  // Drift repair MUST run before index creation: an old cluster whose
+  // trace_events predates the `agent` column would otherwise die right below
+  // at idx_trace_agent_ts (CREATE INDEX references the missing column) before
+  // initAgentTables() ever gets a chance to repair it. Reviewer High fix.
+  await migrateSchemaDrift(client)
+
   // BRIN on ts — ~1000× smaller than btree for append-only timeseries; ideal
   // for time-window range scans where rows arrive in roughly ts order.
   await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_ts_brin      ON trace_events USING BRIN (ts) WITH (pages_per_range = 32)`)
@@ -123,12 +129,44 @@ async function init(client) {
 }
 
 // ---------------------------------------------------------------------------
+// Schema-drift repair — ALTER TABLE ... ADD COLUMN IF NOT EXISTS
+// ---------------------------------------------------------------------------
+// Observed failure: pg.log repeatedly logs
+//   column "agent" of relation "trace_events" does not exist
+// and the equivalent for agent_sessions — an older cluster/pgdata created
+// before the `agent` column was added to these two tables, so every INSERT/
+// UPSERT touching it fails forever until manually patched. CREATE TABLE IF
+// NOT EXISTS above is a no-op once the table exists, so it never repairs an
+// already-created table with a stale column set. Run these idempotent
+// ADD COLUMN migrations on every boot (init() and initAgentTables()) so
+// drifted clusters self-heal without a manual ALTER.
+async function migrateSchemaDrift(client) {
+  // Bounded lock wait: nullable ADD COLUMN is metadata-only once the ACCESS
+  // EXCLUSIVE lock is held, but acquiring that lock can queue behind live
+  // readers/writers indefinitely and wedge boot (reviewer Medium). 5s is
+  // generous for a metadata change; on timeout we leave the drift in place
+  // (inserts keep failing as before — no worse) instead of hanging startup.
+  await client.query(`SET LOCAL lock_timeout = '5s'`).catch(() => {})
+  try {
+    await client.query(`ALTER TABLE IF EXISTS trace_events   ADD COLUMN IF NOT EXISTS agent TEXT`)
+    await client.query(`ALTER TABLE IF EXISTS agent_sessions ADD COLUMN IF NOT EXISTS agent TEXT`)
+  } finally {
+    await client.query(`SET LOCAL lock_timeout = DEFAULT`).catch(() => {})
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Agent-specific analytic tables (added post-init via initAgentTables)
 // ---------------------------------------------------------------------------
 
-// Called once per openTraceDatabase boot (after the advisory lock is released).
-// Safe to call concurrently — all DDL is IF NOT EXISTS.
+// Called once per openTraceDatabase boot, inside the BOOTSTRAP advisory-lock
+// scope (see openTraceDatabase) so concurrent first-boot processes don't race
+// this DDL. All statements remain IF NOT EXISTS as a second line of defense.
 export async function initAgentTables(client) {
+  // Repair schema drift on already-created tables before anything else
+  // (trace_events already exists at this point via init(); agent_sessions
+  // is created just below in this same function).
+  await migrateSchemaDrift(client)
   // ── agent_calls: one row per tool invocation ─────────────────────────────
   await client.query(`
     CREATE TABLE IF NOT EXISTS agent_calls (
@@ -186,6 +224,10 @@ export async function initAgentTables(client) {
       total_output_tokens BIGINT      NOT NULL DEFAULT 0
     )
   `)
+
+  // Repair drift again post-creation for agent_sessions (belt-and-suspenders;
+  // no-op when the table was freshly created above with the column present).
+  await migrateSchemaDrift(client)
 }
 
 // ---------------------------------------------------------------------------
@@ -513,14 +555,19 @@ export async function openTraceDatabase(dataDir) {
           // are pre-created for this boot.
           await ensureCurrentAndNextMonthPartitions(client)
         }
+        // Agent-specific analytic tables — moved inside the advisory-lock
+        // scope (was previously run after client.release() with no lock,
+        // letting concurrent first-boot processes race the agent_calls/
+        // agent_llm/agent_sessions CREATE TABLE + migrateSchemaDrift DDL).
+        // Reuses the same lock-holding client/session; still idempotent
+        // (IF NOT EXISTS everywhere) but no longer racy across processes.
+        await initAgentTables(client)
       } finally {
         await client.query(`SELECT pg_advisory_unlock(${BOOTSTRAP_LOCK_KEY})`)
       }
     } finally {
       client.release()
     }
-    // Agent-specific analytic tables — idempotent, no advisory lock needed.
-    await initAgentTables(db)
 
     dbs.set(key, db)
 
