@@ -1,8 +1,0 @@
-[
-  {
-    "id": "impl-maxtokens-test",
-    "agent": "worker",
-    "prompt": "In this repo (mixdog), create a new test script scripts/anthropic-maxtokens-test.mjs using node:test + node:assert/strict that covers resolveMaxTokens from src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs (exported via the _test export). Cover: (1) claude-sonnet-5 returns 65536 with the shipped catalog or fallback, (2) an unknown model id falls back to a sane >=8192 value, (3) MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS=32768 overrides the result and an invalid value like '0' does not; save/restore the env var around each case. Run the test with node to confirm it passes before finishing. Only add that one file; do not modify existing files.",
-    "cwd": "."
-  }
-]

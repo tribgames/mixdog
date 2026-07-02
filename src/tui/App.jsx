@@ -5442,6 +5442,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
+    // Close full-panel overlays too: they render ahead of providerPrompt in
+    // the floating-panel chain, so a lingering usage/context panel would mask
+    // any text-entry prompt opened from the provider actions (e.g. the
+    // OpenCode Go cookie prompt appeared to do nothing).
+    setContextPanel(null);
+    closeUsagePanel();
     // Onboarding (and any caller) can pass a preloaded provider setup so we skip
     // the "Checking Providers" placeholder frame that otherwise flashes before
     // the real list — that swap is what looked like a jump on Step 1 entry.
