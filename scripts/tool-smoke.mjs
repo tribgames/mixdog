@@ -10,6 +10,7 @@ import { parseHeadlessRoleCommand } from '../src/app.mjs';
 import { buildHeadlessSpawnArgs } from '../src/headless-role.mjs';
 import { createStandaloneChannelWorker } from '../src/standalone/channel-worker.mjs';
 import { OpenAIOAuthProvider, buildRequestBody, sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
+import { _test as _anthropicOAuthTest } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import { _logicalResponseItemMatch, _resolveOpenAiPromptCacheRatePolicy } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
 import { _mergePendingMessageEntries, applyAskTerminalUsageTotals, closeSession, createSession, drainPendingMessages, enqueuePendingMessage, resumeSession } from '../src/runtime/agent/orchestrator/session/manager.mjs';
 import {
@@ -215,7 +216,9 @@ function assertOk(name, result, pattern = null) {
 {
   const publicStrategy = resolveCacheStrategy('worker');
   assert(publicStrategy.tools === 'none', `Anthropic tools must not spend a cache_control BP: ${JSON.stringify(publicStrategy)}`);
-  assert(publicStrategy.system === '1h' && publicStrategy.tier3 === '1h' && publicStrategy.messages === '1h', `public cache tiers changed unexpectedly: ${JSON.stringify(publicStrategy)}`);
+  // BP1~3 stay 1h (pool-stable prefix); volatile message tail is 5m for all
+  // sessions — see resolveCacheStrategy docs (trace p99 gap ≈ 4.5min).
+  assert(publicStrategy.system === '1h' && publicStrategy.tier3 === '1h' && publicStrategy.messages === '5m', `public cache tiers changed unexpectedly: ${JSON.stringify(publicStrategy)}`);
   assert(cacheCapabilityForProvider('anthropic-oauth') === 'explicit-breakpoint', 'Anthropic OAuth should remain explicit-breakpoint');
   assert(cacheCapabilityForProvider('openai-oauth') === 'key-prefix', 'OpenAI OAuth should remain key-prefix');
   assert(cacheCapabilityForProvider('xai') === 'key-prefix', 'xAI should remain key-prefix');
@@ -453,11 +456,12 @@ const readStringifiedRegionOut = await executeBuiltinTool('read', {
 if (!/^read 1\b/m.test(String(readStringifiedRegionOut)) || !/scripts\/smoke\.mjs \[full\] \[ok\]/.test(String(readStringifiedRegionOut)) || !/1→import \{ spawnSync \}/.test(String(readStringifiedRegionOut))) {
   throw new Error(`read stringified region batch must execute after guard coercion:\n${readStringifiedRegionOut}`);
 }
-const readStringifiedLineErr = validateBuiltinArgs('read', {
+const readStringifiedLineArgs = {
   path: JSON.stringify([{ path: 'scripts/smoke.mjs', line: 10, context: 2 }]),
-});
-if (!/path\[0\]\.line.*not supported.*offset\/limit only/i.test(readStringifiedLineErr || '')) {
-  throw new Error(`read guard must reject legacy line/context inside stringified arrays: ${readStringifiedLineErr}`);
+};
+const readStringifiedLineErr = validateBuiltinArgs('read', readStringifiedLineArgs);
+if (readStringifiedLineErr || readStringifiedLineArgs.path[0].offset !== 7 || readStringifiedLineArgs.path[0].limit !== 5) {
+  throw new Error(`read guard must losslessly convert legacy line/context inside stringified arrays to offset/limit: err=${readStringifiedLineErr} args=${JSON.stringify(readStringifiedLineArgs)}`);
 }
 
 const graphOut = await executeCodeGraphTool('code_graph', {
@@ -601,11 +605,20 @@ if (!/lookaround\/backrefs/i.test(invalidGrepLookaround || '')) {
   throw new Error(`grep unsupported-regex guard failed: ${invalidGrepLookaround}`);
 }
 
-const invalidShellPath = validateBuiltinArgs('shell', {
+// Windows drive path + no explicit shell used to be rejected with a retry hint;
+// the guard now auto-coerces to shell:'powershell' (drive paths are a definitive
+// powershell signal — they can never work under Git Bash unconverted).
+const shellDrivePathArgs = {
   command: 'cd C:\\Project\\mixdog && node scripts/build-tui.mjs',
-});
-if (process.platform === 'win32' && !/shell:'powershell'/i.test(invalidShellPath || '')) {
-  throw new Error(`shell Windows-path guard failed: ${invalidShellPath}`);
+};
+const shellDrivePathErr = validateBuiltinArgs('shell', shellDrivePathArgs);
+if (process.platform === 'win32') {
+  if (shellDrivePathErr !== null) {
+    throw new Error(`shell Windows-path auto-coercion failed: ${shellDrivePathErr}`);
+  }
+  if (shellDrivePathArgs.shell !== 'powershell') {
+    throw new Error(`shell Windows-path auto-coercion did not set shell:'powershell' (got ${JSON.stringify(shellDrivePathArgs.shell)})`);
+  }
 }
 
 const invalidShellCwdAliasConflict = validateBuiltinArgs('shell', {
@@ -630,13 +643,15 @@ const readWindowErr = validateBuiltinArgs('read', offsetReadWindow);
 if (readWindowErr) {
   throw new Error(`read offset/limit window guard failed: err=${readWindowErr} args=${JSON.stringify(offsetReadWindow)}`);
 }
-const readLineErr = validateBuiltinArgs('read', { path: 'scripts/smoke.mjs', line: 10, context: 2 });
-if (!/line.*not supported.*offset\/limit only/i.test(readLineErr || '')) {
-  throw new Error(`read guard must reject legacy line/context args: ${readLineErr}`);
+const readLineArgs = { path: 'scripts/smoke.mjs', line: 10, context: 2 };
+const readLineErr = validateBuiltinArgs('read', readLineArgs);
+if (readLineErr || readLineArgs.offset !== 7 || readLineArgs.limit !== 5 || 'line' in readLineArgs || 'context' in readLineArgs) {
+  throw new Error(`read guard must losslessly convert top-level legacy line/context args to offset/limit: err=${readLineErr} args=${JSON.stringify(readLineArgs)}`);
 }
-const batchedReadLineErr = validateBuiltinArgs('read', { path: [{ path: 'scripts/smoke.mjs', line: 10, context: 2 }] });
-if (!/path\[0\]\.line.*not supported.*offset\/limit only/i.test(batchedReadLineErr || '')) {
-  throw new Error(`read guard must reject batched legacy line/context args: ${batchedReadLineErr}`);
+const batchedReadLineArgs = { path: [{ path: 'scripts/smoke.mjs', line: 10, context: 2 }] };
+const batchedReadLineErr = validateBuiltinArgs('read', batchedReadLineArgs);
+if (batchedReadLineErr || batchedReadLineArgs.path[0].offset !== 7 || batchedReadLineArgs.path[0].limit !== 5) {
+  throw new Error(`read guard must losslessly convert batched legacy line/context args to offset/limit: err=${batchedReadLineErr} args=${JSON.stringify(batchedReadLineArgs)}`);
 }
 const pathLineWithLimit = normaliseReadLineWindowArgs({ path: 'scripts/smoke.mjs#L10', limit: 5 }, root);
 if (pathLineWithLimit.offset !== 9 || pathLineWithLimit.limit !== 5) {
@@ -1772,6 +1787,11 @@ if (!/code flow before text search/i.test(codeGraphProps.mode?.description || ''
 const longToolSearchText = compactToolSearchDescription(`${patchDescription}\n${patchDescription}`);
 if (longToolSearchText.length > 220 || /\n/.test(longToolSearchText)) {
   throw new Error(`tool_search descriptions must be compact single-line snippets, got ${longToolSearchText.length} chars`);
+}
+
+const sonnet5MaxTokens = _anthropicOAuthTest.resolveMaxTokens('claude-sonnet-5');
+if (!(sonnet5MaxTokens >= 8192)) {
+  throw new Error(`resolveMaxTokens('claude-sonnet-5') must return a sane positive budget, got ${sonnet5MaxTokens}`);
 }
 
 process.stdout.write(`tool smoke passed surface_chars=${surfaceSize}\n`);

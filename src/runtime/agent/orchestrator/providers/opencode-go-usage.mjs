@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, mkdirSync } from 'node:fs';
-import * as fsp from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getOpenCodeGoAuthCookie } from '../../../shared/config.mjs';
 
@@ -53,12 +53,18 @@ function readJson(file) {
   }
 }
 
+// Synchronous atomic+lock write (updateJsonAtomicSync) instead of the prior
+// fire-and-forget fsp.writeFile: this cache is single-entry (one snapshot
+// per file, no cross-process merge), so the lock protects against a torn
+// write racing readers, not a lost-update merge. Only one write happens
+// per successful fetch (TTL-gated, at most once per LIVE_TTL_MS), so the
+// switch off async has no meaningful latency impact on the request path.
 function writeJson(file, value) {
-  diskJsonCache = { at: Date.now(), file, value };
+  let next = null;
   try {
-    mkdirSync(resolvePluginData(), { recursive: true });
-    void fsp.writeFile(file, JSON.stringify(value, null, 2), 'utf8').catch(() => {});
+    next = updateJsonAtomicSync(file, () => value, { lock: true, fsyncDir: true, timeoutMs: 1000 }); // best-effort cache write: short lock timeout, don't block on contention
   } catch {}
+  if (next) diskJsonCache = { at: Date.now(), file, value: next }; // only mirror on confirmed write, avoid phantom cache on lock timeout
 }
 
 function freshSnapshot(snapshot, ttlMs) {

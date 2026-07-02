@@ -19,10 +19,9 @@
 
 import { createSession } from '../session/manager.mjs';
 import { traceAgentPreset } from '../agent-trace.mjs';
-import { getHiddenAgent, resolveAgentSessionPermission } from '../internal-agents.mjs';
+import { resolveAgentSessionPermission } from '../internal-agents.mjs';
 import { loadConfig } from '../config.mjs';
 import { AGENT_OWNER } from '../agent-owner.mjs';
-import { resolvePublicAgentMaxLoopIterations } from './agent-loop-policy.mjs';
 
 import {
     COMPACT_TYPE_RECALL_FASTTRACK,
@@ -95,18 +94,9 @@ export function prepareAgentSession({
     schemaAllowedTools,
 }) {
     const effectivePermission = resolveAgentSessionPermission(agent, permission);
-    let effectiveMaxLoopIterations = maxLoopIterations;
-    if (
-        !Number.isFinite(effectiveMaxLoopIterations)
-        && owner === AGENT_OWNER
-        && agent
-        && !getHiddenAgent(agent)
-    ) {
-        const agentCap = resolvePublicAgentMaxLoopIterations(agent, effectivePermission);
-        if (Number.isFinite(agentCap) && agentCap > 0) {
-            effectiveMaxLoopIterations = agentCap;
-        }
-    }
+    // No per-agent loop caps: sessions either pin maxLoopIterations explicitly
+    // or fall through to the shared runaway guard (LEAD_MAX_LOOP_ITERATIONS).
+    const effectiveMaxLoopIterations = maxLoopIterations;
     // Pass cwd through verbatim — null is the fixed agent sentinel meaning
     // "no caller workspace context" (cycle1-agent shards, etc). Upgrading
     // null → process.cwd() here would defeat cache-shard fork suppression.

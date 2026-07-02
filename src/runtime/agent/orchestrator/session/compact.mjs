@@ -1655,6 +1655,144 @@ function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remainingToken
     return best;
 }
 
+// --- Smart-compact root-based fitting (arrival-time replacement) -----------
+//
+// dump_session_roots (memory/index.mjs dumpSessionRootChunks) renders chunks
+// TIME-ORDERED (oldest first; chunks.sort by sourceTurn/ts/id ascending),
+// each root/raw block starting with one of:
+//   # chunk N root=ID[ category=X]
+//   # raw_pending N id=ID
+//   # raw_terminal N id=ID
+// and blocks joined by "\n\n". runRecallFastTrackForSession additionally
+// prepends a "session_id=..." / cycle1-drain-status preamble before the dump
+// text (also "\n\n"-joined) — preserved verbatim as a non-block segment.
+//
+// Unlike fitRecallFastTrackSummaryMessage (character-slice binary search,
+// used by the LLM-summary-free but still-mid-turn recall-fasttrack compact
+// path), the smart-compact arrival path must never cut a root block
+// mid-entry — losing half a root's content silently corrupts that entry.
+// This splitter finds block boundaries by the label pattern (robust to
+// blank lines inside member/raw content, since it anchors on the distinctive
+// "# chunk /raw_pending/raw_terminal" line rather than a blank-line split).
+const RECALL_ROOT_BLOCK_HEADER_RE = /^# (?:chunk \d+ root=\d+(?: category=\S+)?|raw_pending \d+ id=\d+|raw_terminal \d+ id=\d+)[ \t]*$/;
+
+export function splitRecallRootBlocks(text) {
+    const value = String(text || '');
+    if (!value.trim()) return { preamble: '', blocks: [] };
+    const re = new RegExp(RECALL_ROOT_BLOCK_HEADER_RE.source, 'gm');
+    const starts = [];
+    let m;
+    while ((m = re.exec(value)) !== null) {
+        starts.push(m.index);
+        if (re.lastIndex === m.index) re.lastIndex += 1; // zero-width guard, defensive
+    }
+    if (starts.length === 0) return { preamble: value.trim(), blocks: [] };
+    const preamble = value.slice(0, starts[0]).trim();
+    const blocks = [];
+    for (let i = 0; i < starts.length; i += 1) {
+        const start = starts[i];
+        const end = i + 1 < starts.length ? starts[i + 1] : value.length;
+        const raw = value.slice(start, end).trim();
+        if (raw) blocks.push(raw);
+    }
+    return { preamble, blocks };
+}
+
+// Minimal-header summary-message wrapper for the smart-compact roots path.
+// Keeps the SUMMARY_PREFIX anchor (isSummaryMessage / selectCompactionWindow
+// / clear-preserve / TUI all key off startsWith(SUMMARY_PREFIX)) but skips the
+// full sha256/roleCounts header line that fitRecallFastTrackSummaryMessage
+// computes — smart-arrival replacement is a lightweight prefix swap, not the
+// anchored LLM-summary compact, so a heavy per-call header is unneeded cost.
+function makeRecallRootsSummaryMessageParts(oldHistory, rootsPart, priorPart, recallMeta = {}) {
+    const header = `${SUMMARY_PREFIX}\nmessages=${(oldHistory || []).length} compact_type=${COMPACT_TYPE_RECALL_FASTTRACK} source=smart-arrival query_sha=${recallMeta.querySha || 'none'}`;
+    const parts = [header];
+    const priorBlock = formatPriorCompactedContextBlock(priorPart);
+    if (priorBlock) parts.push(priorBlock);
+    const roots = String(rootsPart || '').trim();
+    if (roots) parts.push(roots);
+    return makeSummaryMessage(parts.join('\n\n'));
+}
+
+// Root-block-aware fit for the smart-compact arrival path (Step1). Mirrors
+// fitRecallFastTrackSummaryMessage's prior-block binary-search fit, but the
+// recall body is fit at ROOT-BLOCK granularity: when the full set of root
+// blocks (kept in original time order) exceeds remainingTokens, the OLDEST
+// blocks are dropped WHOLE (never character-truncated mid-block) until the
+// remaining (newest-biased) suffix fits. Because dropping more leading
+// blocks can only shrink (never grow) the serialized size, the minimal-drop
+// threshold is found via binary search on the drop count.
+export function fitRecallRootsMessage(oldHistory, recallText, remainingTokens, recallMeta = {}, priorPart = '') {
+    const prior = String(priorPart || '').trim();
+
+    let fittedPrior = prior;
+    if (prior) {
+        let lo = 0;
+        let hi = prior.length;
+        let bestPriorLen = 0;
+        while (lo <= hi) {
+            const mid = Math.floor((lo + hi) / 2);
+            const candidate = makeRecallRootsSummaryMessageParts(oldHistory, '', prior.slice(0, mid), recallMeta);
+            if (estimateMessagesTokens([candidate]) <= remainingTokens) {
+                bestPriorLen = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        fittedPrior = prior.slice(0, bestPriorLen);
+        if (!fittedPrior && prior) {
+            const markerOnly = makeRecallRootsSummaryMessageParts(oldHistory, '', RECALL_TAIL_TRUNCATION_MARKER, recallMeta);
+            if (estimateMessagesTokens([markerOnly]) <= remainingTokens) {
+                fittedPrior = RECALL_TAIL_TRUNCATION_MARKER;
+            }
+        }
+    }
+
+    const minimal = makeRecallRootsSummaryMessageParts(oldHistory, '', fittedPrior, recallMeta);
+    if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
+
+    const { preamble, blocks } = splitRecallRootBlocks(recallText);
+    if (blocks.length === 0) {
+        // No parseable root-block boundaries (empty / non-dump recallText) —
+        // degrade to keep-whole-if-it-fits, else drop entirely. Never
+        // mid-truncates: a non-block body is treated as a single atomic unit.
+        const whole = String(recallText || '').trim();
+        if (!whole) return minimal;
+        const full = makeRecallRootsSummaryMessageParts(oldHistory, whole, fittedPrior, recallMeta);
+        if (estimateMessagesTokens([full]) <= remainingTokens) return full;
+        return minimal;
+    }
+
+    let loB = 0;
+    let hiB = blocks.length;
+    let bestLo = -1;
+    while (loB <= hiB) {
+        const mid = Math.floor((loB + hiB) / 2);
+        const kept = blocks.slice(mid);
+        const body = [preamble, ...kept].filter(Boolean).join('\n\n');
+        const candidate = makeRecallRootsSummaryMessageParts(oldHistory, body, fittedPrior, recallMeta);
+        if (estimateMessagesTokens([candidate]) <= remainingTokens) {
+            bestLo = mid;
+            hiB = mid - 1;
+        } else {
+            loB = mid + 1;
+        }
+    }
+    if (bestLo >= 0) {
+        const kept = blocks.slice(bestLo);
+        const body = [preamble, ...kept].filter(Boolean).join('\n\n');
+        return makeRecallRootsSummaryMessageParts(oldHistory, body, fittedPrior, recallMeta);
+    }
+    // Even zero root blocks (preamble alone) overflows alongside the fitted
+    // prior — try preamble alone, else the no-recall minimal header.
+    if (preamble) {
+        const preambleOnly = makeRecallRootsSummaryMessageParts(oldHistory, preamble, fittedPrior, recallMeta);
+        if (estimateMessagesTokens([preambleOnly]) <= remainingTokens) return preambleOnly;
+    }
+    return minimal;
+}
+
 function combinedSignal(parent, timeoutMs) {
     const ms = Number(timeoutMs);
     if (!Number.isFinite(ms) || ms <= 0) return parent || undefined;

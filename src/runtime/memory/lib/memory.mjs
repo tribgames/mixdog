@@ -405,6 +405,22 @@ async function _migrateRecallIndexesIfStale(db) {
 }
 
 export async function ensureCurrentSchemaExtensions(db, dims) {
+  // One-time cleanup: attachment-only placeholder rows ('(attachment)' user
+  // content, e.g. Discord backend discord.mjs:724) predate the
+  // shouldExcludeIngestMessage() ingest-time filter (session-ingest.mjs).
+  // Delete any already-persisted rows so they stop polluting recall/cycle1.
+  // Idempotent (no-op once cleaned); best-effort so a failure never blocks boot.
+  try {
+    const cleaned = await db.query(
+      `DELETE FROM entries WHERE content = '(attachment)' AND role = 'user'`,
+    )
+    const n = Number(cleaned?.rowCount ?? 0)
+    if (n > 0) {
+      __mixdogMemoryLog(`[memory] ensureCurrentSchemaExtensions: removed ${n} attachment-only placeholder rows\n`)
+    }
+  } catch (err) {
+    __mixdogMemoryLog(`[memory] attachment-placeholder cleanup failed: ${err?.message || err}\n`)
+  }
   // core_entries gained an embedding column for cross-table semantic dedup
   // between user-curated rows and cycle2-promoted entries. ALTER + index are
   // idempotent and define the current runtime schema.

@@ -74,13 +74,13 @@ export function canonicalModelDisplay(model, provider) {
     return `Grok ${grok[1].split('-').map(titleModelPart).filter(Boolean).join(' ')}`;
   }
 
-  const claudeLegacy = raw.match(/^claude-(\d+)(?:-(\d+))?-(opus|sonnet|haiku)(?:-|$)/i);
+  const claudeLegacy = raw.match(/^claude-(\d+)(?:-(\d+))?-(opus|sonnet|haiku|fable)(?:-|$)/i);
   if (claudeLegacy) {
     const version = `${claudeLegacy[1]}${claudeLegacy[2] ? `.${claudeLegacy[2]}` : ''}`;
     return `Claude ${titleModelPart(claudeLegacy[3])} ${version}`;
   }
 
-  const claude = raw.match(/^claude-(opus|sonnet|haiku)-(.+)$/i);
+  const claude = raw.match(/^claude-(opus|sonnet|haiku|fable)-(.+)$/i);
   if (claude) {
     return `Claude ${titleModelPart(claude[1])} ${claude[2].replace(/-/g, '.')}`;
   }

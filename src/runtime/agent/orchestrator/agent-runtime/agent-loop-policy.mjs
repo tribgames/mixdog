@@ -18,16 +18,6 @@ function envPositiveInt(name, fallback) {
 export const LEAD_MAX_LOOP_ITERATIONS = envPositiveInt('MIXDOG_AGENT_MAX_LOOP', 200);
 
 /**
- * Retained for API compatibility with callers that used to inject a low
- * per-agent cap. There are no low per-agent caps anymore, so this always
- * returns null — every session falls through to the shared runaway guard
- * (LEAD_MAX_LOOP_ITERATIONS) unless the caller passes an explicit override.
- */
-export function resolvePublicAgentMaxLoopIterations(_agent, _permission) {
-    return null;
-}
-
-/**
  * Resolve the hard cap used by agentLoop for this session.
  *
  * Order: explicit override → session-pinned value → shared runaway guard.

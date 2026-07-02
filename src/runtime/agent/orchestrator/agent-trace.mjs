@@ -29,7 +29,16 @@ let _toolFailureTimer = null;
 let _toolFailureFlushInFlight = false;
 const _LOCAL_TRACE_FLUSH_LINES = 100;
 const _LOCAL_TRACE_FLUSH_MS = 1000;
-const _LOCAL_TRACE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — rotate to .1 above this.
+const _LOCAL_TRACE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — rotate to .1/.2/.3 above this.
+// Rotation generations kept on disk (.1 newest … .N oldest). A single .1
+// generation proved too short a window — bench rounds (session-bench /
+// task-bench re-scoring) were losing their raw turn rows to a second rotation
+// within hours. 3 generations ≈ 40 MB worst case per log. Env-overridable via
+// MIXDOG_AGENT_TRACE_ROTATE_KEEP (positive integer).
+const _LOCAL_TRACE_ROTATE_KEEP = (() => {
+    const v = parseInt(process.env.MIXDOG_AGENT_TRACE_ROTATE_KEEP, 10);
+    return Number.isFinite(v) && v > 0 ? v : 3;
+})();
 const _TOOL_FAILURE_FLUSH_LINES = 50;
 const _TOOL_FAILURE_FLUSH_MS = 1000;
 const MIXDOG_SLOW_TOOL_TRACE_MS = (() => {
@@ -59,7 +68,15 @@ function _rotateLocalTraceIfNeeded(path) {
     try {
         const stat = statSync(path);
         if (stat && stat.size > _LOCAL_TRACE_MAX_BYTES) {
-            try { renameSync(path, `${path}.1`); }
+            try {
+                // Shift generations oldest-first: .2 → .3, .1 → .2, live → .1.
+                // The oldest (.KEEP) is overwritten by the rename below it.
+                for (let gen = _LOCAL_TRACE_ROTATE_KEEP - 1; gen >= 1; gen -= 1) {
+                    const src = `${path}.${gen}`;
+                    if (existsSync(src)) renameSync(src, `${path}.${gen + 1}`);
+                }
+                renameSync(path, `${path}.1`);
+            }
             catch (err) {
                 warnAgentOnce('agent-trace:local-rotate', `[agent-trace] local rotate failed (${err?.message})`);
             }

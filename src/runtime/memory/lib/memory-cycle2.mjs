@@ -1305,13 +1305,16 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
       )
     }
   } else if (rows.length > 0) {
-    // Parse failure — bump error_count, do not advance reviewed_at.
+    // Parse failure — bump error_count and advance reviewed_at so the
+    // failing row sorts to the back of reviewed_at ASC NULLS FIRST (see
+    // ~:1067-1073), matching CYCLE1_OMITTED_COOLDOWN_MS-style cooldown
+    // semantics instead of spinning forever on the same row.
     for (const r of rows) {
       throwIfAborted(signal)
       try {
         await db.query(
-          `UPDATE entries SET error_count = COALESCE(error_count, 0) + 1 WHERE id = $1`,
-          [r.id],
+          `UPDATE entries SET error_count = COALESCE(error_count, 0) + 1, reviewed_at = $1 WHERE id = $2`,
+          [sweepCursor, r.id],
         )
       } catch {}
     }

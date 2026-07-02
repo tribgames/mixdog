@@ -32,12 +32,19 @@ const DEFAULT_MODEL = MODELS[0].id;
 // Gemini's /models has no `created` timestamp, so latest-resolution is
 // VERSION-based (parse gemini-X.Y) rather than release-date based.
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
+// Bump when the on-disk cache shape changes so stale-shape entries are
+// discarded instead of misread (mirrors openai-oauth's schema-version gate).
+const GEMINI_MODEL_CACHE_SCHEMA_VERSION = 1;
 
 // De-dupes concurrent force-refreshes so they share one HTTP round-trip,
 // mirroring anthropic-oauth's _modelRefreshInFlight.
 let _modelRefreshInFlight = null;
 
-const _modelCache = makeModelCache({ fileName: 'gemini-models.json', ttlMs: MODEL_CACHE_TTL_MS });
+const _modelCache = makeModelCache({
+    fileName: 'gemini-models.json',
+    ttlMs: MODEL_CACHE_TTL_MS,
+    version: GEMINI_MODEL_CACHE_SCHEMA_VERSION,
+});
 
 // Mirror of anthropic-oauth.mjs _compareVersion: compare two gemini ids by the
 // X.Y version embedded in the id (gemini-3.5-flash -> [3, 5]). Falls back to a
@@ -183,6 +190,10 @@ function _geminiCachePrefixHash({ model, systemInstruction, geminiTools, content
 
 const GEMINI_GLOBAL_CACHE_MIN_LIVE_MS = 6 * 60 * 1000;
 const GEMINI_GLOBAL_CACHE_MAX_ENTRIES = 128;
+// Grace window before deleting a superseded cachedContents name (see the
+// cross-session race note at the L1341-1372 call site). Long enough that a
+// concurrent session still mid-flight on the old name has time to finish.
+const GEMINI_GLOBAL_CACHE_DELETE_GRACE_MS = 2 * 60 * 1000;
 const geminiGlobalCaches = new Map();
 const geminiGlobalCacheCreates = new Map();
 
@@ -1341,11 +1352,44 @@ export class GeminiProvider {
             // Best-effort cleanup of the previous cache so storage cost only
             // accrues on the live revision. Fire-and-forget; TTL expiry covers
             // any delete failures.
+            //
+            // Cross-session race: `_geminiGlobalCacheNameIsLive` only checks
+            // whether `priorCacheName` still appears as *some* entry's live
+            // cacheName in `geminiGlobalCaches`. If another session sharing the
+            // same globalCacheKey already overwrote that map slot with a newer
+            // cache (via `_setGeminiGlobalCache`), the check sees "not live" for
+            // a name that a *different* in-flight session still holds in its own
+            // `providerState.gemini.cacheName` (captured earlier via
+            // `_attachGeminiCacheState` and possibly already in-flight inside a
+            // `generateContent`/`streamGenerateContent` call at L1470-1473).
+            // Deleting immediately can 404 that concurrent request server-side.
+            //
+            // Fix chosen: delay the DELETE by a grace period instead of adding
+            // refcounting/last-used-session tracking. Rationale (minimal-change,
+            // matches the module's existing "best-effort, TTL is the backstop"
+            // posture at L1342-1343):
+            //   - Any session that captured `priorCacheName` did so before this
+            //     create finished, so its in-flight (or next) turn using that
+            //     name almost certainly completes within a couple of minutes;
+            //     a short grace window is enough for it to either finish or move
+            //     on to a fresh cache attach.
+            //   - The server-side cache TTL (1h) already reclaims any cache we
+            //     fail to delete, so skipping/delaying deletion is safe — it
+            //     only costs a little extra storage for at most the grace
+            //     window, never correctness.
+            //   - Refcounting/session tracking would need to plumb per-session
+            //     liveness into a shared map across concurrent providers, which
+            //     is a much larger change for a purely cosmetic cost saving.
+            // Re-check liveness right before firing the DELETE too, in case the
+            // name became live again (e.g. re-attached) during the wait.
             const priorCacheName = state?.cacheName || null;
-            if (priorCacheName && priorCacheName !== cacheName && !_geminiGlobalCacheNameIsLive(priorCacheName)) {
-                const delUrl = `https://generativelanguage.googleapis.com/v1beta/${priorCacheName}?key=${encodeURIComponent(apiKey)}`;
-                fetch(delUrl, { method: 'DELETE', signal: AbortSignal.timeout(10_000), dispatcher: getLlmDispatcher() })
-                    .catch(() => { /* TTL expiry will reclaim it */ });
+            if (priorCacheName && priorCacheName !== cacheName) {
+                setTimeout(() => {
+                    if (_geminiGlobalCacheNameIsLive(priorCacheName)) return;
+                    const delUrl = `https://generativelanguage.googleapis.com/v1beta/${priorCacheName}?key=${encodeURIComponent(apiKey)}`;
+                    fetch(delUrl, { method: 'DELETE', signal: AbortSignal.timeout(10_000), dispatcher: getLlmDispatcher() })
+                        .catch(() => { /* TTL expiry will reclaim it */ });
+                }, GEMINI_GLOBAL_CACHE_DELETE_GRACE_MS).unref?.();
             }
             const createdAt = Date.now();
             const entry = {

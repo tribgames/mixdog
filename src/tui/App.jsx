@@ -124,6 +124,7 @@ const SLASH_COMMANDS = [
   { name: 'webhooks', usage: '/webhooks', description: 'Manage inbound webhooks' },
   { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings' },
   { name: 'profile', usage: '/profile', description: 'Set your title and response language' },
+  { name: 'update', usage: '/update', description: 'Check version and update mixdog' },
   { name: 'voice', usage: '/voice', description: 'Toggle voice input (Ctrl+Space to record)' },
   { name: 'quit', usage: '/quit', aliases: ['exit', 'q'], aliasUsage: ['exit', 'q'], description: 'Quit the TUI' },
 ];
@@ -4927,6 +4928,21 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         description: `${skills.count || 0} available`,
         _action: 'skills',
       },
+      {
+        value: 'update',
+        label: 'Update',
+        meta: (() => {
+          try {
+            const upd = store.getUpdateSettings?.() || {};
+            const current = upd.currentVersion || 'unknown';
+            if (upd.updateAvailable && upd.latestVersion) return `${current} → ${upd.latestVersion}`;
+            if (!upd.currentVersion) return 'unknown';
+            return `${current} (latest)`;
+          } catch { return 'unknown'; }
+        })(),
+        description: 'Check version and update mixdog.',
+        _action: 'update',
+      },
     ];
     setProviderPrompt(null);
     setChannelPrompt(null);
@@ -5010,6 +5026,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         else if (item._action === 'plugins') openPluginsPicker();
         else if (item._action === 'hooks') openHooksPicker();
         else if (item._action === 'skills') openSkillsPicker();
+        else if (item._action === 'update') openUpdatePicker({ returnTo: openSettingsPicker });
       },
       onCancel: () => {
         setPicker(null);
@@ -6904,6 +6921,126 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       .catch((e) => store.pushNotice(`memory failed: ${e?.message || e}`, 'error'));
   };
 
+  const openUpdatePicker = (options = {}) => {
+    const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    const readSettings = () => {
+      try { return store.getUpdateSettings?.() || {}; } catch { return {}; }
+    };
+    const readStatus = () => {
+      try { return store.getUpdateStatus?.() || { phase: 'idle' }; } catch { return { phase: 'idle' }; }
+    };
+    const render = ({ checking = false } = {}) => {
+      const upd = readSettings();
+      const status = readStatus();
+      const current = upd.currentVersion || 'unknown';
+      const latestMeta = checking || status.phase === 'checking'
+        ? 'checking…'
+        : (upd.latestVersion || 'unknown');
+      const items = [
+        {
+          value: 'current',
+          label: 'Current version',
+          meta: current,
+          description: 'Installed mixdog version.',
+          _action: 'current',
+        },
+        {
+          value: 'latest',
+          label: 'Latest version',
+          meta: latestMeta,
+          description: 'Enter to re-check now.',
+          _action: 'latest',
+        },
+        {
+          value: 'auto-update',
+          label: 'Auto-update',
+          meta: upd.autoUpdate ? 'On' : 'Off',
+          description: '←/→ or Enter to toggle automatic updates.',
+          _action: 'auto-update',
+        },
+        {
+          value: 'update-now',
+          label: 'Update now',
+          description: upd.updateAvailable
+            ? `Install ${upd.latestVersion || 'latest'}.`
+            : 'Check and install the latest version.',
+          _action: 'update-now',
+        },
+      ];
+      setProviderPrompt(null);
+      setChannelPrompt(null);
+      setHookPrompt(null);
+      setSettingsPrompt(null);
+      setPicker({
+        title: 'Update',
+        description: 'Check version and update mixdog.',
+        help: '↑/↓ Select · ←/→ Change · Enter Open/Toggle · Esc Close',
+        indexMode: 'always',
+        labelWidth: 16,
+        metaWidth: 16,
+        fillAvailable: true,
+        items,
+        onLeft: (item) => {
+          if (item?._action === 'auto-update') toggleAutoUpdate(!upd.autoUpdate);
+        },
+        onRight: (item) => {
+          if (item?._action === 'auto-update') toggleAutoUpdate(!upd.autoUpdate);
+        },
+        onSelect: (_value, item) => {
+          if (item?._action === 'latest') {
+            recheck();
+          } else if (item?._action === 'auto-update') {
+            toggleAutoUpdate(!upd.autoUpdate);
+          } else if (item?._action === 'update-now') {
+            runUpdate();
+          }
+        },
+        onCancel: () => {
+          setPicker(null);
+          if (returnTo) returnTo();
+        },
+      });
+    };
+    const toggleAutoUpdate = (enabled) => {
+      try {
+        void Promise.resolve(store.setAutoUpdate?.(enabled)).finally(() => render());
+        store.pushNotice(`Auto-update ${enabled ? 'on' : 'off'}`, 'info');
+      } catch (e) {
+        store.pushNotice(`auto-update failed: ${e?.message || e}`, 'error');
+      }
+      render();
+    };
+    const recheck = () => {
+      render({ checking: true });
+      void Promise.resolve(store.checkForUpdate?.({ force: true }))
+        .then(() => render())
+        .catch((e) => {
+          store.pushNotice(`update check failed: ${e?.message || e}`, 'error');
+          render();
+        });
+    };
+    const runUpdate = () => {
+      store.pushNotice('Updating…', 'info');
+      void Promise.resolve(store.runUpdateNow?.())
+        .then((result) => {
+          if (result?.ok) {
+            store.pushNotice(`v${result.version} installed — restart to apply`, 'info');
+          } else {
+            store.pushNotice(`Update failed: ${result?.error || 'unknown error'}`, 'error');
+          }
+          render();
+        })
+        .catch((e) => {
+          store.pushNotice(`Update failed: ${e?.message || e}`, 'error');
+          render();
+        });
+    };
+    render({ checking: true });
+    void Promise.resolve(store.checkForUpdate?.({}))
+      .then(() => render())
+      .catch(() => render());
+  };
+
   const openMemoryPicker = () => {
     setProviderPrompt(null);
     setChannelPrompt(null);
@@ -7614,6 +7751,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         return true;
       case 'profile':
         openProfilePicker();
+        return true;
+      case 'update':
+        openUpdatePicker();
         return true;
       case 'quit':
         requestExit();

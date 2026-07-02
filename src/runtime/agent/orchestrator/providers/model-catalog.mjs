@@ -14,9 +14,10 @@
  * a stale number.
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { getPluginData } from '../config.mjs';
+import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 
 const CATALOG_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
 const CATALOG_CACHE_FILE = 'litellm-catalog.json';
@@ -187,7 +188,7 @@ async function _loadCatalogImpl() {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         try {
-            writeFileSync(cachePath(), JSON.stringify({ fetchedAt: Date.now(), data }));
+            writeJsonAtomicSync(cachePath(), { fetchedAt: Date.now(), data }, { lock: true, compact: true, fsyncDir: true, timeoutMs: 1000 });
         } catch { /* cache is best-effort */ }
         _memCache = data;
         _memCacheAt = Date.now();
@@ -239,7 +240,7 @@ async function _loadModelsDevImpl() {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         try {
-            writeFileSync(mdCachePath(), JSON.stringify({ fetchedAt: Date.now(), data }));
+            writeJsonAtomicSync(mdCachePath(), { fetchedAt: Date.now(), data }, { lock: true, compact: true, fsyncDir: true, timeoutMs: 1000 });
         } catch { /* cache is best-effort */ }
         _mdCache = data;
         _mdCacheAt = Date.now();

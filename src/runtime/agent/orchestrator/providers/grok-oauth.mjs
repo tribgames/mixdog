@@ -113,6 +113,9 @@ export function normalizeGrokModelId(id) {
     return (id && RETIRED_MODEL_ALIASES[id]) || id;
 }
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
+// Bump when the on-disk cache shape changes so stale-shape entries are
+// discarded instead of misread (mirrors openai-oauth's schema-version gate).
+const GROK_MODEL_CACHE_SCHEMA_VERSION = 1;
 const DISCOVERY_TIMEOUT_MS = 15_000;
 const TOKEN_TIMEOUT_MS = 30_000;
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
@@ -362,7 +365,11 @@ async function refreshTokens(tokens) {
 }
 
 // --- Model catalog cache (24h disk TTL) ---
-const _modelCache = makeModelCache({ fileName: 'grok-oauth-models.json', ttlMs: MODEL_CACHE_TTL_MS });
+const _modelCache = makeModelCache({
+    fileName: 'grok-oauth-models.json',
+    ttlMs: MODEL_CACHE_TTL_MS,
+    version: GROK_MODEL_CACHE_SCHEMA_VERSION,
+});
 const PROXY_MODEL_METADATA = {
     'grok-build': { display: 'Grok Build', contextWindow: 512000 },
     'grok-composer-2.5-fast': { display: 'Composer 2.5 Fast', contextWindow: 200000 },

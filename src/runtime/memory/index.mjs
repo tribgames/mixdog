@@ -100,6 +100,7 @@ import { loadConfig as loadAgentConfig } from '../agent/orchestrator/config.mjs'
 import { initProviders } from '../agent/orchestrator/providers/registry.mjs'
 import { makeAgentDispatch } from '../agent/orchestrator/agent-runtime/agent-dispatch.mjs'
 import { getInFlightCycle1 } from './lib/memory-cycle1.mjs'
+import { drainSessionCycle1 } from '../agent/orchestrator/session/compact.mjs'
 import { claimAndMarkScheduledCycle, makeCycleRequestSignature, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry } from './lib/memory-cycle-requests.mjs'
 import { searchRelevantHybrid } from './lib/memory-recall-store.mjs'
 import { fetchEntriesByIdsScoped } from './lib/memory-recall-id-patch.mjs'
@@ -400,6 +401,13 @@ let _startupTimeout = null
 // getting the real stats and others getting `skippedInFlight: true` from
 // the inner guard.
 let _cycle1InFlight = null // shared cycle1 promise (outer coalesce layer)
+// Per-session recall-drain in-flight map. Multiple terminals share one
+// memory daemon (active-instance.json memory_port); concurrent recall calls
+// for the SAME session must share one drain promise (dedup), while DIFFERENT
+// sessions drain in parallel (cycle1's own advisory-lock/coalesce guard in
+// memory-cycle1.mjs still serializes the actual DB work). A drain never
+// blocks recall for sessions other than its own.
+const _recallDrainInFlight = new Map() // sessionId -> Promise
 let _initialized = false
 let _initPromise = null
 let _stopPromise = null
@@ -683,6 +691,28 @@ async function readRawRowsInWindow(db, tsFromMs, tsToMs, hardLimit = 10, { proje
     const rows = (await db.query(sql, params)).rows
     return rows.map(r => ({ ...r, retrievalScore: 0, rrf: 0 }))
   } catch { return [] }
+}
+
+// Spread raw (unchunked) rows evenly across a hybrid-ranked list at a fixed
+// stride so every offset page draws its proportional share of raw rows,
+// instead of them all landing after the hybrid page-0 window (the old
+// append-only behaviour). Stride is derived from the ratio of hybrid:raw
+// counts so a small raw set doesn't get pushed arbitrarily deep, and a large
+// raw set doesn't crowd out every hybrid hit near the top.
+function interleaveRawRows(hybridRows, rawRows) {
+  if (!Array.isArray(rawRows) || rawRows.length === 0) return hybridRows
+  const out = []
+  const stride = Math.max(1, Math.round(hybridRows.length / (rawRows.length + 1)))
+  let rawIdx = 0
+  for (let i = 0; i < hybridRows.length; i += 1) {
+    out.push(hybridRows[i])
+    if ((i + 1) % stride === 0 && rawIdx < rawRows.length) {
+      out.push(rawRows[rawIdx])
+      rawIdx += 1
+    }
+  }
+  while (rawIdx < rawRows.length) out.push(rawRows[rawIdx++])
+  return out
 }
 
 function sessionRecallTerms(query) {
@@ -1827,10 +1857,94 @@ async function recallCoreRows(query, { projectScope, category, limit } = {}) {
   }))
 }
 
+// Session-scoped full drain before a recall(query) search. Chunking is
+// partitioned by session_id (memory-cycle1.mjs:409-431 selected_sessions
+// GROUP BY session_id + ROW_NUMBER PARTITION BY session_id), so this drains
+// ONLY the calling session's backlog via the same session_id override
+// (memory-cycle1.mjs:394) — other sessions' pending rows are left for the
+// periodic cycle1 sweep. Reuses recall-fasttrack's drainSessionCycle1
+// (session/compact.mjs:504) which loops cycle1 until raw rows hit 0 or a
+// no-progress pass. Safety limits: a 2,000-row hard cap (both in the pending
+// pre-check and as the per-call cycle1 batch ceiling) and cooperative
+// abort-signal propagation through handleMemoryAction — no time budget.
+//
+// Multi-terminal safety: the memory daemon is one shared instance across
+// terminals (active-instance.json memory_port). Concurrent recall(query)
+// calls for the SAME session share one in-flight drain promise (dedup);
+// different sessions drain independently in parallel (cycle1's own
+// advisory-lock/coalesce guard in memory-cycle1.mjs still serializes actual
+// DB writes). A drain only gates recall for its OWN session — every other
+// terminal's recall (different session, or no session) proceeds unblocked.
+const RECALL_DRAIN_HARD_CAP_ROWS = 2000
+async function _drainSessionForRecallQuery(sessionId, signal) {
+  if (!sessionId || signal?.aborted) return
+  const existing = _recallDrainInFlight.get(sessionId)
+  if (existing) { try { await existing } catch {} return }
+  let pendingCount = 0
+  try {
+    const r = await db.query(
+      `SELECT COUNT(*) c FROM entries WHERE chunk_root IS NULL AND session_id = $1`,
+      [sessionId],
+    )
+    pendingCount = Number(r.rows?.[0]?.c ?? 0)
+  } catch { return }
+  if (pendingCount <= 0) return
+  const runTool = async (_name, toolArgs) => {
+    const result = await handleMemoryAction(toolArgs, signal)
+    return result?.text ?? ''
+  }
+  const dumpArgs = {
+    action: 'dump_session_roots',
+    sessionId,
+    includeRaw: true,
+    limit: Math.min(RECALL_DRAIN_HARD_CAP_ROWS, Math.max(1000, pendingCount)),
+  }
+  const drainPromise = (async () => {
+    try {
+      return await drainSessionCycle1(runTool, {
+        sessionId,
+        dumpArgs,
+        deadlineMs: 0, // no time budget — drive the session's backlog to 0
+        maxPasses: 20, // safety stopper; drainSessionCycle1 also self-stops on no-progress
+        cycleArgs: {
+          min_batch: 1,
+          session_cap: 1,
+          batch_size: RECALL_DRAIN_HARD_CAP_ROWS,
+          rows_per_session: RECALL_DRAIN_HARD_CAP_ROWS,
+          window_size: 20,
+          concurrency: 4,
+        },
+      })
+    } catch (err) {
+      __mixdogMemoryLog(`[recall] session drain aborted/failed (sess=${sessionId}): ${err?.message || err}\n`)
+      return null
+    }
+  })()
+  _recallDrainInFlight.set(sessionId, drainPromise)
+  try {
+    await drainPromise
+  } finally {
+    if (_recallDrainInFlight.get(sessionId) === drainPromise) _recallDrainInFlight.delete(sessionId)
+  }
+}
+
 async function handleSearch(args, signal) {
   // Cooperative abort check: throw early if the caller already aborted
   // (IPC cancel handler signals the AbortController before re-entry).
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')
+  // Drain this session's unchunked backlog to zero BEFORE searching, so a
+  // query recall never returns raw/unclassified transcript tail instead of
+  // the chunked summary. Only runs when both a session and a query are
+  // present; a bare recent-browsing call (no query) skips this entirely.
+  {
+    const _drainSessionId = String(args?.sessionId || args?.session_id || '').trim()
+    const _drainHasQuery = Array.isArray(args?.query)
+      ? args.query.some((v) => String(v || '').trim())
+      : String(args?.query ?? '').trim() !== ''
+    if (_drainSessionId && _drainHasQuery) {
+      await _drainSessionForRecallQuery(_drainSessionId, signal)
+    }
+  }
   if (args?.currentSession === true || args?.sessionId || args?.session_id) {
     return await recallSessionRows(args)
   }
@@ -2081,13 +2195,16 @@ async function handleSearch(args, signal) {
       })
     }
     if (includeRaw) {
-      // Reserve slots for raw rows under sort=importance: hybrid rows are
-      // already score-sorted descending, so a full hybrid page (limit rows)
-      // would shut out raw rows entirely after slice(offset, offset+limit).
-      // Reserve up to RAW_RESERVE slots near the top of the post-slice
-      // window by trimming the hybrid prefix before merging, then re-sort
-      // for sort=date or otherwise append (already ranked) for importance.
-      const RAW_FETCH = 20
+      // Raw rows (chunk_root IS NULL) carry no retrievalScore, so a naive
+      // append-after-hybrid under sort=importance always lands them past
+      // slice(offset, offset+limit) once the hybrid pool exceeds one page —
+      // every page beyond the first silently drops them. Fetch a wider raw
+      // window (bounded like the hybrid candidate pool) and spread the
+      // fetched raw rows evenly across the WHOLE hybrid list before slicing,
+      // so every offset page gets its proportional share instead of only
+      // page 0. Same projectScope/ts window as the hybrid leg — filter
+      // parity (item 3) is deliberate, not accidental.
+      const RAW_FETCH = Math.min(500, Math.max(20, limit + offset))
       const rawRows = await readRawRowsInWindow(
         db,
         temporal?.startMs ?? null,
@@ -2101,10 +2218,10 @@ async function handleSearch(args, signal) {
         for (const r of newRaw) filtered.push(r)
         filtered.sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0))
       } else {
-        // sort=importance: append raw rows after the hybrid page (mostly
-        // ineffective — slice(offset, offset+limit) typically shuts them
-        // out). Proper includeRaw paging fix deferred (needs fetching extra rows / paging redesign).
-        for (const r of newRaw) filtered.push(r)
+        // sort=importance: interleave raw rows at a fixed stride through the
+        // full (pre-slice) hybrid list instead of appending at the tail, so
+        // offset > 0 pages also draw from the raw pool proportionally.
+        filtered = interleaveRawRows(filtered, newRaw)
       }
     }
     const coreRows = await recallCoreRows(query, { projectScope, category, limit })

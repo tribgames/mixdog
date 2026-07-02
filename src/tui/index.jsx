@@ -13,6 +13,7 @@ import { performance } from 'node:perf_hooks';
 import { App } from './App.jsx';
 import { createEngineSession } from './engine.mjs';
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
+import { touchUiHeartbeat } from '../runtime/channels/lib/runtime-paths.mjs';
 import { emitTerminalBackground, loadThemeSettingFromConfig, theme } from './theme.mjs';
 import { POP_KITTY, DISABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
 
@@ -315,6 +316,53 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     },
   });
 
+  // Zombie-Lead repro (2026-07-02): the render loop can wedge (all owning
+  // PIDs still alive) leaving active-instance.json's pid-only staleness
+  // check unable to detect it. Heartbeat every 30s so runtime-paths.mjs can
+  // fall back to a ui_heartbeat_at staleness check when pids look fine.
+  // Best-effort: a failed/late write just means the next tick catches up,
+  // and the timer is unref'd so it never keeps the process alive on its own.
+  const uiHeartbeatTimer = setInterval(() => {
+    try { touchUiHeartbeat(); } catch { /* ignore */ }
+  }, 30_000);
+  if (typeof uiHeartbeatTimer.unref === 'function') uiHeartbeatTimer.unref();
+  try { touchUiHeartbeat(); } catch { /* ignore */ }
+
+  // Zombie-Lead repro (2026-07-02): stdio can die (TTY hangup, EPIPE on a
+  // detached/piped stdout) without the process ever receiving SIGHUP/SIGTERM,
+  // leaving a zombie renderer looping forever with nothing left to draw to.
+  // Treat a dead stdio surface as fatal and route it through the same
+  // signalCleanup teardown used for signals.
+  // 'error' whitelist: only codes that mean the stream is truly gone.
+  // Transient EAGAIN (backpressure) or terminal-resize noise must NOT be
+  // treated as fatal here — only EPIPE / ERR_STREAM_DESTROYED / EIO.
+  const STDIO_DEATH_FATAL_CODES = new Set(['EPIPE', 'ERR_STREAM_DESTROYED', 'EIO']);
+  const stdioDeathListeners = [];
+  const registerStdioDeath = (stream, event, { requireCode = false } = {}) => {
+    if (!stream || typeof stream.on !== 'function') return;
+    const handler = (err) => {
+      if (requireCode && !(err && STDIO_DEATH_FATAL_CODES.has(err.code))) return;
+      void signalCleanup.run('stdio-dead', {
+        code: 1,
+        shouldExit: true,
+        error: err || new Error(`stdio ${event} (source: ${stream === process.stdin ? 'stdin' : stream === process.stdout ? 'stdout' : 'stderr'})`),
+      });
+    };
+    stream.on(event, handler);
+    stdioDeathListeners.push([stream, event, handler]);
+  };
+  // stdin end/close/error: TTY/pipe on the input side is gone — nothing left
+  // to read from, no point keeping the renderer alive.
+  registerStdioDeath(process.stdin, 'end');
+  registerStdioDeath(process.stdin, 'close');
+  registerStdioDeath(process.stdin, 'error', { requireCode: true });
+  // stdout/stderr: 'close' always means the fd is gone (fatal); 'error' is
+  // filtered to the whitelist above so resize/EAGAIN noise doesn't kill us.
+  registerStdioDeath(process.stdout, 'error', { requireCode: true });
+  registerStdioDeath(process.stdout, 'close');
+  registerStdioDeath(process.stderr, 'error', { requireCode: true });
+  registerStdioDeath(process.stderr, 'close');
+
   // exitOnCtrlC:false — App handles Ctrl+C as an interrupt/line-clear so Ink
   // does not exit abruptly. Explicit exits go through /exit or /quit so teardown
   // still restores the cursor, mouse mode, and alternate screen cleanly.
@@ -341,6 +389,10 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     }
     await waitUntilExit();
   } finally {
+    clearInterval(uiHeartbeatTimer);
+    for (const [stream, event, handler] of stdioDeathListeners.splice(0)) {
+      try { stream.off(event, handler); } catch { /* ignore */ }
+    }
     signalCleanup.uninstall();
     try {
       await disposeStoreOnce('cli-react-exit');

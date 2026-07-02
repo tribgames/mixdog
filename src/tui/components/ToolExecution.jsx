@@ -191,6 +191,11 @@ function resultTerminalStatus(value) {
   if (tagged) return normalizeTerminalStatus(tagged);
   const bracketed = text.match(/^\[status:\s*([^\]]*)\]/mi)?.[1]?.trim();
   if (bracketed) return normalizeTerminalStatus(bracketed);
+  // Loose inline `status: x` / `state: x` matches are a last-resort fallback —
+  // prefer the engine-controlled `<status>` tag or `[status: …]` marker above.
+  // A loose match can false-positive on prose that happens to start with
+  // "status:" (rare, but shellResultStatus below already owns real shell
+  // output parsing; this fallback stays narrow and unchanged in behavior).
   const inline = text.match(/^(?:status|state):\s*([^\s·,;]+)/mi)?.[1]?.trim();
   return normalizeTerminalStatus(inline);
 }
@@ -602,11 +607,19 @@ function clampFailureCount(errorCount, groupCount, isError) {
   return isError ? groupCount : 0;
 }
 
+// Single source of truth for the tool-card dot (●) color. Both the aggregate
+// and normal (single-tool) render paths must call this with a resolved
+// `terminalStatus` — do not recompute color inline elsewhere.
+//   running/pending      -> mixdogOrange || warning (blink handled by caller)
+// success               -> theme.success
+//   partial failure       -> mixdogOrange (some, not all, of the group failed)
+//   all failed            -> theme.error
+//   cancelled             -> theme.warning
 function toolStatusColor({ pending, groupCount, failedCount, terminalStatus = '' }) {
-  if (pending) return theme.success;
+  if (pending) return theme.mixdogOrange || theme.warning;
   const status = normalizeTerminalStatus(terminalStatus);
+  if (status === 'cancelled') return theme.warning;
   if (status === 'failed') return theme.error;
-  if (status === 'cancelled') return theme.warning || theme.mixdogOrange || theme.subtle;
   if (failedCount <= 0) return theme.success;
   if (groupCount > 1 && failedCount < groupCount) return theme.mixdogOrange || theme.warning;
   return theme.error;
@@ -647,7 +660,6 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const elapsedMs = startedAtMs ? Math.max(0, (pending ? Date.now() : (completedAtMs || Date.now())) - startedAtMs) : 0;
   const elapsed = elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
   const failedCount = clampFailureCount(errorCount, groupCount, isError);
-  const statusColor = toolStatusColor({ pending, groupCount, failedCount });
   const displayGroupCount = groupCount;
   const displayCategories = normalizeCountMap(categories || {});
 
@@ -752,18 +764,15 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
       detailText = '';
     }
 
-    // statusColor (line ~650) is computed WITHOUT terminalStatus, so it stays
-    // success even for a cancelled/failed aggregate. The non-aggregate path adds
-    // terminalStatus far below (line ~880), after this early return. Recompute
-    // the aggregate dot color here from what the aggregate actually controls:
-    // the collapsed detail `rt` (which carries the `[status: cancelled]` marker
-    // for a cancelled aggregate) plus isError/failedCount for failures. Pending
-    // stays success; a clean completion stays success (no marker, no errors).
+    // Resolve the aggregate's terminalStatus from the collapsed detail `rt`
+    // (which carries a `[status: cancelled]`/`<status>` marker when the
+    // aggregate was cancelled) plus isError/failedCount for failures. Pending
+    // stays running; a clean completion stays success. toolStatusColor is the
+    // single source of dot color for both aggregate and normal cards.
     const aggregateTerminalStatus = pending
       ? 'running'
       : (resultTerminalStatus(rt) || (isError || failedCount > 0 ? 'failed' : 'completed'));
-    const aggregateStatusColor = toolStatusColor({ pending, groupCount, failedCount, terminalStatus: aggregateTerminalStatus });
-    const dotColor = !hasResult && !pending ? theme.subtle : aggregateStatusColor;
+    const dotColor = toolStatusColor({ pending, groupCount, failedCount, terminalStatus: aggregateTerminalStatus });
     const dotText = pending && !blinkExpired && !blinkOn ? ' ' : TURN_MARKER;
     const gutter = 2;
     const showHeaderExpandHint = hasRawResult;

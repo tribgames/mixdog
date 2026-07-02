@@ -68,6 +68,7 @@ function isPidAlive(pid) {
     return e?.code === "EPERM";
   }
 }
+const UI_HEARTBEAT_STALE_MS = 5 * 60 * 1e3;
 function activeInstanceStaleReason(state) {
   const ownerPid = getActiveOwnerPid(state);
   if (!isPidAlive(ownerPid)) return `owner PID ${ownerPid ?? "unknown"} is dead`;
@@ -77,7 +78,34 @@ function activeInstanceStaleReason(state) {
   if (workerPid && !isPidAlive(workerPid)) return `worker PID ${workerPid} is dead`;
   const serverPid = parsePositivePid(state?.server_pid);
   if (serverPid && !isPidAlive(serverPid)) return `server PID ${serverPid} is dead`;
+  // Zombie-Lead repro (2026-07-02): a Lead's owner/channels/worker/server
+  // PIDs can all still be alive (process not killed) while the TUI's render
+  // loop is dead in the water — no signal ever fires, so pid-only staleness
+  // never trips. If the TUI is heartbeating (field present), treat a stale
+  // heartbeat as stale ownership too. Backward-compat: state written by an
+  // older/non-TUI process (or before the first heartbeat tick) simply omits
+  // ui_heartbeat_at, so this branch is a no-op and pid-only judgment stands.
+  const uiHeartbeatAt = Number(state?.ui_heartbeat_at);
+  if (Number.isFinite(uiHeartbeatAt) && uiHeartbeatAt > 0) {
+    const age = Date.now() - uiHeartbeatAt;
+    if (age > UI_HEARTBEAT_STALE_MS) {
+      return `ui heartbeat stale (${Math.round(age / 1000)}s since last tick)`;
+    }
+  }
   return null;
+}
+// Called from src/tui on a 30s timer while the render loop is alive. Only
+// touches ui_heartbeat_at (and updatedAt) so it never races/clobbers the
+// channels worker's own refreshActiveInstance() writes.
+function touchUiHeartbeat(instanceId) {
+  ensureRuntimeDirs();
+  try {
+    updateJsonAtomicSync(ACTIVE_INSTANCE_FILE, (curRaw) => {
+      if (!curRaw) return undefined;
+      if (instanceId && curRaw.instanceId !== instanceId) return undefined;
+      return { ...curRaw, ui_heartbeat_at: Date.now(), updatedAt: Date.now() };
+    }, { compact: true, fsync: false, fsyncDir: false });
+  } catch { /* best-effort; a missed tick just relies on the next one */ }
 }
 function buildRuntimeIdentity() {
   const terminalLeadPid = getTerminalLeadPid();
@@ -487,5 +515,6 @@ export {
   readActiveInstance,
   refreshActiveInstance,
   releaseOwnedChannelLocks,
+  touchUiHeartbeat,
   writeServerPid
 };

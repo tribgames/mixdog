@@ -220,5 +220,20 @@ export function coerceShapeFlex(value) {
             if (typeof parsed === 'string') return parsed;
         } catch {}
     }
+    // A single {path,offset,limit}-shaped object JSON string (e.g. a model
+    // emitting `path: "{\"path\":\"x\",\"offset\":10}"` instead of a real
+    // object) is a lossless single-entry batch. Wrap it in an array so the
+    // downstream object-array batch path (read-tool.mjs) picks it up instead
+    // of falling through to the plain-string path guard, which would
+    // misdetect the raw JSON text as a literal (and often invalid) filename.
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+                && typeof (parsed.path ?? parsed.file_path) === 'string') {
+                return [parsed];
+            }
+        } catch {}
+    }
     return value;
 }

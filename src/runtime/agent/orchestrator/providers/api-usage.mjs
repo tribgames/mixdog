@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import * as fsp from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getAgentApiKey, getOpenAIUsageSessionKey } from '../../../shared/config.mjs';
 
@@ -41,14 +41,6 @@ function readJson(file) {
   }
 }
 
-function writeJson(file, value) {
-  diskJsonCache = { at: Date.now(), file, value };
-  try {
-    mkdirSync(resolvePluginData(), { recursive: true });
-    void fsp.writeFile(file, JSON.stringify(value, null, 2), 'utf8').catch(() => {});
-  } catch {}
-}
-
 function cacheKey(provider) {
   return String(provider || '').trim().toLowerCase();
 }
@@ -68,16 +60,31 @@ export function readCachedApiUsageSnapshot(provider, { allowStale = true } = {})
 
 function writeCachedApiUsageSnapshot(provider, snapshot) {
   const file = cachePath();
-  const raw = readJson(file) || {};
-  const snapshots = raw.snapshots && typeof raw.snapshots === 'object' ? raw.snapshots : {};
-  writeJson(file, {
-    version: 1,
-    updatedAt: Date.now(),
-    snapshots: {
-      ...snapshots,
-      [cacheKey(provider)]: snapshot,
-    },
-  });
+  // Synchronous atomic+lock write (updateJsonAtomicSync) rather than the
+  // prior fire-and-forget fsp.writeFile: the read-modify-write of
+  // `snapshots` must happen inside the same file lock as the write, or two
+  // concurrent orchestrator processes updating different providers can
+  // clobber each other's snapshot merge (last writer wins, losing the
+  // other's entry). Usage snapshot writes are infrequent (once per
+  // provider per TTL window, not per-request), so trading the async/
+  // non-blocking write for lock+fsync-dir safety has no meaningful
+  // latency impact on the request path.
+  let next = null;
+  try {
+    next = updateJsonAtomicSync(file, (curRaw) => {
+      const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
+      const snapshots = cur.snapshots && typeof cur.snapshots === 'object' ? cur.snapshots : {};
+      return {
+        version: 1,
+        updatedAt: Date.now(),
+        snapshots: {
+          ...snapshots,
+          [cacheKey(provider)]: snapshot,
+        },
+      };
+    }, { lock: true, fsyncDir: true, timeoutMs: 1000 }); // best-effort cache write: short lock timeout, don't block on contention
+  } catch {}
+  if (next) diskJsonCache = { at: Date.now(), file, value: next };
 }
 
 function authHeaders(key, extra = {}) {

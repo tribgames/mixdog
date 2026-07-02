@@ -1651,9 +1651,18 @@ export async function createEngineSession({
       const aggregate = card.aggregate;
       if (aggregate && card.itemId === aggregate.itemId) {
         const allCalls = [...aggregate.calls.values()];
+        // Never let a call that truly never resolved be presented as a real
+        // completion. Stamp it resolved with an empty, non-error result so
+        // completedCount reflects an honest (if degenerate) accounting instead
+        // of manufacturing success out of a call that never came back.
+        for (const rec of allCalls) {
+          if (rec.resolved) continue;
+          rec.resolved = true;
+          rec.isError = false;
+          rec.resultText = rec.resultText || '';
+        }
         const completed = allCalls.filter((r) => r.resolved).length;
-        const remaining = allCalls.length - completed;
-        const totalCompleted = remaining > 0 ? completed + remaining : completed;
+        const totalCompleted = completed;
         const errors = allCalls.filter((r) => r.isError).length;
         const succeeded = completed - errors;
         const rawResult = aggregateRawResult(allCalls);
@@ -1740,8 +1749,7 @@ export async function createEngineSession({
     // cards (send() still in flight). Hold those by callId until the batch lands.
     const earlyResultBuffer = new Map();
     const aggregateCards = []; // active aggregate cards in the current consecutive tool block
-    const aggregateByBucket = new Map(); // tail-continuation cache; append only while still the last visible item
-    let openAggregateCard = null;
+    const aggregateByBucket = new Map(); // per-bucket reusable card for the current consecutive tool block; cleared on block seal
 
     // ── Deferred tool-card push (scroll/text sync) ────────────────────────────
     // A tool card used to enter the transcript the instant onToolCall fired,
@@ -1773,14 +1781,6 @@ export async function createEngineSession({
         if (e.timer) { clearTimeout(e.timer); e.timer = null; }
         try { e.push(); } catch {}
       }
-    };
-    const hasUnpushedDeferredAfter = (holder) => {
-      const seq = holder?.deferred?.seq;
-      if (seq == null) return false;
-      for (const e of deferredEntries) {
-        if (e.seq > seq && !e.pushed) return true;
-      }
-      return false;
     };
     flushDeferredBeforeImmediatePush = () => {
       if (!deferredEntries.length) return;
@@ -1905,13 +1905,11 @@ export async function createEngineSession({
       completeAggregateVisual();
       finalizeToolHeaders();
       aggregateCards.length = 0;
-      openAggregateCard = null;
-    };
-
-    const isAggregateTail = (aggregate) => {
-      if (!aggregate?.itemId) return false;
-      const last = state.items[state.items.length - 1];
-      return last?.kind === 'tool' && last.aggregate === true && last.id === aggregate.itemId;
+      // Seal the block: same-bucket calls after this point must open a fresh
+      // card, never continue one from before the seal (assistant text/turn
+      // end boundary). Cross-block behavior is unchanged by the in-block
+      // reuse relaxation below.
+      aggregateByBucket.clear();
     };
 
     const rememberActiveAggregate = (aggregate) => {
@@ -1921,33 +1919,19 @@ export async function createEngineSession({
     };
 
     const ensureAggregateCard = (bucket) => {
-      // Reuse the open aggregate when it is either still the transcript tail OR
-      // has not been pushed yet. The not-yet-pushed case matters for parallel
-      // tool batches: every call in one onToolCall batch is collected first and
-      // the card is pushed once afterward (syncAggregateHeader), so the 2nd+
-      // same-bucket call in the SAME batch must merge even though the card is
-      // not yet visible in state.items (isAggregateTail would be false).
-      if (openAggregateCard?.bucket === bucket
-          && (!openAggregateCard.pushed || isAggregateTail(openAggregateCard))
-          && !hasUnpushedDeferredAfter(openAggregateCard)) return openAggregateCard;
-      // If the previous aggregate was finalized/closed but is still the tail of
-      // the transcript (or was never pushed), continue that exact card instead
-      // of pushing a duplicate directly below it. Never reach past a visible
-      // assistant/tool/status item: that would make an older card's count change
-      // "in the middle" of history.
-      //
-      // Only continue a bucket's prior card when it is the VISIBLE tail. A
-      // not-yet-pushed same-category card from earlier in this batch must NOT be
-      // reused once a different category opened after it (e.g. Search→Read→Search)
-      // — that would merge non-consecutive Search calls across the Read card.
-      // In-batch consecutive reuse is already handled by the openAggregateCard
-      // check above, so here we require the card to actually be the tail.
-      const tailAggregate = aggregateByBucket.get(bucket);
-      if (tailAggregate && tailAggregate.pushed && isAggregateTail(tailAggregate)
-          && !hasUnpushedDeferredAfter(tailAggregate)) {
-        openAggregateCard = tailAggregate;
-        rememberActiveAggregate(tailAggregate);
-        return tailAggregate;
+      // Reuse any same-bucket aggregate created earlier in the SAME consecutive
+      // tool block, even when a different-category card was interleaved after
+      // it (Read, Search, Read → the two Reads merge into one card; the Search
+      // stays separate). The block is only sealed — forcing a fresh card per
+      // bucket — by clearAggregateContinuation (assistant text lands or the
+      // turn ends), which clears aggregateByBucket. Reusing a pushed, non-tail
+      // card is safe: the aggregate card body is a fixed header+1-detail-row
+      // height, so patching its count/completedCount later never reflows the
+      // cards that were pushed after it.
+      const cached = aggregateByBucket.get(bucket);
+      if (cached) {
+        rememberActiveAggregate(cached);
+        return cached;
       }
       const itemId = nextId();
       const aggregate = {
@@ -1964,7 +1948,6 @@ export async function createEngineSession({
       // pendingSpec current until the timer/result flushes it in call order.
       registerDeferredAggregate(aggregate);
       rememberActiveAggregate(aggregate);
-      openAggregateCard = aggregate;
       return aggregate;
     };
 
@@ -2252,7 +2235,6 @@ export async function createEngineSession({
             const callKey = callId || `__tool_${toolCards.length}_${i}`;
 
             if (!bucket) {
-              openAggregateCard = null;
               const itemId = nextId();
               // Defer the visible push: hold the spec and only enter the
               // transcript when the real header/detail will paint (delay
@@ -2929,6 +2911,11 @@ export async function createEngineSession({
       set({ autoClear: next });
       return next;
     },
+    getUpdateSettings: () => runtime.getUpdateSettings?.() || null,
+    setAutoUpdate: (enabled) => runtime.setAutoUpdate?.(enabled),
+    checkForUpdate: (input = {}) => runtime.checkForUpdate?.(input),
+    runUpdateNow: () => runtime.runUpdateNow?.(),
+    getUpdateStatus: () => runtime.getUpdateStatus?.() || { phase: 'idle' },
     getProfile: () => runtime.getProfile?.() || { title: '', language: 'system', languages: [] },
     setProfile: (input = {}) => {
       const next = runtime.setProfile?.(input) || runtime.getProfile?.() || null;

@@ -810,18 +810,12 @@ export function PromptInput({
   // appear to land behind the caret (the observed scramble). Computing inside
   // the fork, from the real layout + current refs, fixes that by construction.
   // Park the hardware cursor only when the prompt is a real, active edit target.
-  // While a turn/tool run is in flight (`interruptActive`) AND the draft is
-  // empty, suppress the anchor: otherwise ink parks + emits `\x1b[?25h` every
-  // frame on an empty idle prompt, and any transcript height change mid-turn
-  // (e.g. a tool failure appending an error row) makes ink's cursor-origin math
-  // paint that shown cursor one row off for a frame before it snaps back — the
-  // "cursor leaks out then returns" bug. Steering input is preserved: as soon
-  // as the user types (draft non-empty) the anchor re-enables so the caret is
-  // visible at the insertion point even during an active turn.
-  const draftIsEmpty = draftRef.current.value.length === 0;
-  cursorEnabledRef.current = !disabled
-    && isRawModeSupported
-    && !(interruptActive && draftIsEmpty);
+  // The anchor stays enabled during an active turn too: suppressing it while
+  // the draft was empty (an earlier guard against a one-frame row-off paint
+  // when the transcript height changed mid-turn) made the cursor vanish for
+  // the whole turn after Enter, which reads as "the caret disappeared". A
+  // momentary one-frame drift is the lesser evil versus a missing caret.
+  cursorEnabledRef.current = !disabled && isRawModeSupported;
   installCursorAnchor();
 
   useLayoutEffect(() => {

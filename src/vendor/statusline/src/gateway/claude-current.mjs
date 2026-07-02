@@ -119,7 +119,7 @@ export function resolveClaudeModelAlias(model) {
   if (!raw) return null;
   const stripped = stripClaudeContextSuffix(raw);
   if (/^claude-/i.test(stripped)) return stripped;
-  const family = stripped.match(/^(opus|sonnet|haiku)(?:[-_].*)?$/i)?.[1]?.toLowerCase();
+  const family = stripped.match(/^(opus|sonnet|haiku|fable)(?:[-_].*)?$/i)?.[1]?.toLowerCase();
   if (family) return familyDefaultModel(family);
   return null;
 }
@@ -128,11 +128,11 @@ export function displayClaudeModel(model, raw = '', display = '') {
   const explicit = cleanString(display);
   if (explicit) return explicit;
   const id = cleanString(model) || resolveClaudeModelAlias(raw) || cleanString(raw);
-  const m = id.match(/^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d{8})?$/i);
+  const m = id.match(/^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?(?:-\d{8})?$/i);
   if (m) {
     const family = `${m[1][0].toUpperCase()}${m[1].slice(1).toLowerCase()}`;
     const suffix = /\[1m\]/i.test(raw) || contextWindowFromRawModel(raw, id) === 1000000 ? ' (1M context)' : '';
-    return `${family} ${m[2]}.${m[3]}${suffix}`;
+    return `${family} ${m[2]}${m[3] ? `.${m[3]}` : ''}${suffix}`;
   }
   return id || raw || '';
 }

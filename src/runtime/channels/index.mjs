@@ -163,8 +163,54 @@ ${err instanceof Error ? err.stack : ""}
   }
   crashLogging = false;
 }
-process.on("unhandledRejection", (err) => logCrash("unhandled rejection", err));
-process.on("uncaughtException", (err) => logCrash("uncaught exception", err));
+// Zombie-Lead repro (2026-07-02): logCrash-then-survive left a worker alive
+// after an unhandled rejection whose async state was already corrupted
+// (observed: EPERM on active-instance.json rename retry), so it spun
+// forever doing nothing useful — a zombie Lead. Fatal-exit on repeat.
+// Benign whitelist: transient EPERM/EACCES/EBUSY on the active-instance
+// rename path is expected under Windows file-lock contention and is
+// already retried elsewhere (atomic-file.mjs RETRY_CODES) — a single
+// occurrence must NOT be fatal, only a run of 3+ in a row without an
+// intervening distinct/successful event.
+const BENIGN_CRASH_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
+const BENIGN_CRASH_FATAL_THRESHOLD = 3;
+// "In a row" needs a time dimension: benign errors minutes/hours apart are
+// independent contention events, not a corrupted-state run. Only count a
+// streak when hits land within this window of the previous one.
+const BENIGN_CRASH_STREAK_WINDOW_MS = 60_000;
+let _benignCrashStreak = 0;
+let _lastBenignCrashAt = 0;
+function _isBenignCrash(err) {
+  const code = err?.code || (/\b(EPERM|EACCES|EBUSY)\b/.exec(String(err?.message || err)) || [])[0];
+  return BENIGN_CRASH_CODES.has(code);
+}
+function _fatalCrash(label, err) {
+  logCrash(label, err);
+  const benign = _isBenignCrash(err);
+  if (benign) {
+    const now = Date.now();
+    _benignCrashStreak = (now - _lastBenignCrashAt) <= BENIGN_CRASH_STREAK_WINDOW_MS
+      ? _benignCrashStreak + 1
+      : 1;
+    _lastBenignCrashAt = now;
+    if (_benignCrashStreak < BENIGN_CRASH_FATAL_THRESHOLD) return;
+  } else {
+    _benignCrashStreak = 0;
+  }
+  Promise.resolve()
+    .then(() => (typeof stop === "function" ? stop(`fatal:${label}`) : null))
+    .catch(() => {})
+    .finally(() => {
+      try { process.exitCode = 1; } catch {}
+      process.exit(1);
+    });
+  // Best-effort stop() may itself hang (e.g. IPC to a dead child) — a bare
+  // .finally() would then never fire and we're back to a zombie. Force the
+  // exit unconditionally after a short grace window regardless of outcome.
+  setTimeout(() => { try { process.exit(1); } catch {} }, 3000).unref?.();
+}
+process.on("unhandledRejection", (err) => _fatalCrash("unhandled rejection", err));
+process.on("uncaughtException", (err) => _fatalCrash("uncaught exception", err));
 if (process.env.MIXDOG_CHANNELS_NO_CONNECT) {
   process.exit(0);
 }

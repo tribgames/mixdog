@@ -9,7 +9,7 @@
 // callers may pass either spelling (e.g. `glob` alias for grep, or
 // `file_path` alias for read.path).
 
-import { coerceShapeFlex } from './path-utils.mjs';
+import { coerceShapeFlex, hasGlobMagic } from './path-utils.mjs';
 
 const MAX_INT = 100000;
 // Explicit grep context should be large enough to frame a function/block without
@@ -107,8 +107,35 @@ function isFiniteInt(v) {
     return typeof v === 'number' && Number.isFinite(v) && Math.floor(v) === v;
 }
 
-function checkIntInRange(field, value, min, max) {
+// Lossless numeric-string coercion for integer-shaped args. Models
+// occasionally emit JSON-schema-violating numeric strings ("850",
+// "850.0") for fields the schema types as number (offset/limit/n/
+// head_limit/-A/-B/-C/context/line). Both are unambiguous integer
+// values, so coerce them to a real number before validating rather
+// than rejecting and forcing a retry turn. Non-integer or non-numeric
+// strings ("3.5", "soon") are left untouched and fall through to the
+// existing rejection below.
+function coerceIntegerString(v) {
+    if (typeof v !== 'string') return null;
+    const t = v.trim();
+    if (t === '' || !/^-?\d+(\.\d+)?$/.test(t)) return null;
+    const n = Number(t);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) return null;
+    return n;
+}
+
+// Mutates a[field] in place when it is a lossless integer string, then
+// validates the (possibly coerced) value against [min, max].
+function checkIntInRange(a, field, min, max) {
+    let value = a[field];
     if (value === undefined || value === null) return null;
+    if (typeof value === 'string') {
+        const coerced = coerceIntegerString(value);
+        if (coerced !== null) {
+            value = coerced;
+            a[field] = coerced;
+        }
+    }
     if (!isFiniteInt(value)) {
         return `Error: builtin arg "${field}" must be a finite integer (got ${describeType(value)})`;
     }
@@ -131,6 +158,38 @@ function hasOwn(o, k) {
     return o && Object.prototype.hasOwnProperty.call(o, k);
 }
 
+function isPresent(o, k) {
+    return hasOwn(o, k) && o[k] !== undefined && o[k] !== null;
+}
+
+function isNonEmptyPresent(o, k) {
+    return isPresent(o, k) && o[k] !== '';
+}
+
+// Strip trailing literal artifacts from a grep pattern: a literal two-char
+// "\n" (backslash + n) that ripgrep rejects outside multiline mode ("the
+// literal \"\\n\" is not allowed"), possibly preceded by concatenation
+// debris like `">` that rides along with it (e.g. a stray closing-tag
+// fragment glued on by string interpolation). `">` is ONLY stripped when
+// it is directly followed by one of those newline artifacts — a bare
+// trailing `">` with no newline riding along (e.g. a legit HTML/JSX
+// attribute pattern like `class="active">`) is a real search target and
+// must survive untouched. A \n in the middle of a pattern is also left
+// untouched; only the tail is ever trimmed.
+function stripTrailingPatternArtifacts(v) {
+    if (typeof v !== 'string') return v;
+    let out = v;
+    let changed = true;
+    while (changed) {
+        changed = false;
+        if (out.endsWith('">\n')) { out = out.slice(0, -3); changed = true; continue; }
+        if (out.endsWith('">\\n')) { out = out.slice(0, -4); changed = true; continue; }
+        if (out.endsWith('\n')) { out = out.slice(0, -1); changed = true; continue; }
+        if (out.endsWith('\\n')) { out = out.slice(0, -2); changed = true; continue; }
+    }
+    return out;
+}
+
 // ---- per-tool guards ----
 
 function guardGrep(a) {
@@ -138,6 +197,15 @@ function guardGrep(a) {
     const patternKeys = ['pattern', 'query', 'regex', 'needle'];
     // glob (file filter) aliases
     const globKeys = ['glob', 'file_pattern', 'include', 'files'];
+
+    // Lossless cleanup of trailing artifacts before validation (item 5b).
+    for (const k of patternKeys) {
+        if (hasOwn(a, k)) {
+            a[k] = Array.isArray(a[k])
+                ? a[k].map(stripTrailingPatternArtifacts)
+                : stripTrailingPatternArtifacts(a[k]);
+        }
+    }
 
     const hasPattern = patternKeys.some((k) => hasOwn(a, k));
     const hasGlob = globKeys.some((k) => hasOwn(a, k));
@@ -167,11 +235,11 @@ function guardGrep(a) {
         }
     }
     for (const k of ['head_limit', 'offset']) {
-        const err = checkIntInRange(k, a[k], 0, MAX_INT);
+        const err = checkIntInRange(a, k, 0, MAX_INT);
         if (err) return err;
     }
     for (const k of ['-A', '-B', '-C', 'context']) {
-        const err = checkIntInRange(k, a[k], 0, GREP_CONTEXT_MAX);
+        const err = checkIntInRange(a, k, 0, GREP_CONTEXT_MAX);
         if (err) return err;
     }
     // output_mode / mode enum
@@ -179,11 +247,64 @@ function guardGrep(a) {
     const allowed = new Set(['files_with_matches', 'content', 'content_with_context', 'count']);
     for (const k of modeKeys) {
         if (hasOwn(a, k)) {
+            // Some callers concatenate a second field's value onto the enum
+            // string with a literal newline (e.g. "content_with_context\ntrue").
+            // If the first line/token is a valid enum value, truncate to it
+            // losslessly rather than rejecting a shape that unambiguously
+            // names a real mode (item 5a).
+            if (typeof a[k] === 'string' && a[k].includes('\n')) {
+                const firstLine = a[k].split('\n')[0].trim();
+                const firstToken = firstLine.split(/\s+/)[0];
+                if (allowed.has(firstToken)) a[k] = firstToken;
+            }
             if (!isString(a[k]) || !allowed.has(a[k])) {
                 return `Error: grep arg "${k}" must be one of content_with_context|content|files_with_matches|count (got ${JSON.stringify(a[k])})`;
             }
         }
     }
+    return null;
+}
+
+// Convert a {line, context} pair into {offset, limit}, matching the
+// read-args.mjs private file#Lx compatibility normalizer's semantics
+// (offset = startLine - 1, limit = endLine - startLine + 1, clamped at 0)
+// generalized to a symmetric window: startLine = line - context,
+// endLine = line + context. offset/limit are treated as authoritative —
+// if either is already present, line/context are dropped unused rather
+// than overriding an explicit window. Mutates obj in place. Returns an
+// error string or null.
+function applyLineContextWindow(obj, labelPrefix) {
+    for (const k of ['line', 'context', 'offset', 'limit']) {
+        if (isPresent(obj, k) && typeof obj[k] === 'string') {
+            const coerced = coerceIntegerString(obj[k]);
+            if (coerced !== null) obj[k] = coerced;
+        }
+    }
+    const hasLine = isPresent(obj, 'line');
+    const hasContext = isPresent(obj, 'context');
+    if (!hasLine && !hasContext) return null;
+    if (isPresent(obj, 'offset') || isPresent(obj, 'limit')) {
+        delete obj.line;
+        delete obj.context;
+        return null;
+    }
+    if (!hasLine) {
+        return `Error: read arg "${labelPrefix}context" requires "${labelPrefix}line" to compute a window`;
+    }
+    if (!isFiniteInt(obj.line) || obj.line < 1) {
+        return `Error: read arg "${labelPrefix}line" must be a finite integer >= 1 (got ${describeType(obj.line)})`;
+    }
+    let ctx = 0;
+    if (hasContext) {
+        if (!isFiniteInt(obj.context) || obj.context < 0) {
+            return `Error: read arg "${labelPrefix}context" must be a non-negative finite integer (got ${describeType(obj.context)})`;
+        }
+        ctx = obj.context;
+    }
+    obj.offset = Math.max(0, obj.line - 1 - ctx);
+    obj.limit = 2 * ctx + 1;
+    delete obj.line;
+    delete obj.context;
     return null;
 }
 
@@ -214,11 +335,11 @@ function guardRead(a) {
                 if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
                     return `Error: read arg "path[${i}]" must be string or {path,offset,limit} object (got ${describeType(entry)})`;
                 }
-                if (hasOwn(entry, 'line') && entry.line !== undefined && entry.line !== null) {
-                    return `Error: read arg "path[${i}].line" is not supported; use offset/limit only`;
-                }
-                if (hasOwn(entry, 'context') && entry.context !== undefined && entry.context !== null) {
-                    return `Error: read arg "path[${i}].context" is not supported; use offset/limit only`;
+                const err = applyLineContextWindow(entry, `path[${i}].`);
+                if (err) return err;
+                for (const ek of ['offset', 'limit']) {
+                    const eErr = checkIntInRange(entry, ek, 0, MAX_INT);
+                    if (eErr) return eErr.replace(`"${ek}"`, `"path[${i}].${ek}"`);
                 }
             }
         }
@@ -226,18 +347,17 @@ function guardRead(a) {
     if (hasOwn(a, 'file_path') && !isNonEmptyString(a.file_path)) {
         return `Error: read arg "file_path" must be a non-empty string (got ${describeType(a.file_path)})`;
     }
-    // Read's public surface is offset/limit only (Claude Code shape). Do not
-    // accept the old line/context family even though read-args.mjs still keeps a
-    // private compatibility normalizer for path:line/internal callers.
-    if (hasOwn(a, 'line') && a.line !== undefined && a.line !== null) {
-        return 'Error: read arg "line" is not supported; use offset/limit only';
-    }
-    if (hasOwn(a, 'context') && a.context !== undefined && a.context !== null) {
-        return 'Error: read arg "context" is not supported; use offset/limit only';
+    // Read's public surface is offset/limit, but a top-level line/context pair
+    // is a deterministic, lossless spelling of the same window (matching
+    // read-args.mjs's internal file:line normalizer semantics); convert it
+    // instead of rejecting. offset/limit, if already present, win outright.
+    {
+        const err = applyLineContextWindow(a, '');
+        if (err) return err;
     }
     // offset >=0
     {
-        const err = checkIntInRange('offset', a.offset, 0, MAX_INT);
+        const err = checkIntInRange(a, 'offset', 0, MAX_INT);
         if (err) return err;
     }
     // limit: >=1 = explicit cap; 0 = unlimited sentinel (read-formatting maps 0 to
@@ -246,7 +366,7 @@ function guardRead(a) {
     // break that unbounded-batch contract. A placeholder limit:0 from a symbol
     // read is stripped on the symbol path. Negatives still error.
     {
-        const err = checkIntInRange('limit', a.limit, 0, MAX_INT);
+        const err = checkIntInRange(a, 'limit', 0, MAX_INT);
         if (err) return err;
     }
     // n 0..10000 — accept 0 rather than erroring: the read-mode handlers coerce
@@ -255,7 +375,7 @@ function guardRead(a) {
     // n is moot. Rejecting 0 only forced a wasted retry turn (the whole point of
     // these reads is to land in one shot). Negatives remain a real error.
     if (hasOwn(a, 'n') && a.n !== undefined && a.n !== null) {
-        const err = checkIntInRange('n', a.n, 0, 10000);
+        const err = checkIntInRange(a, 'n', 0, 10000);
         if (err) return err;
     }
     return null;
@@ -279,7 +399,10 @@ function guardShell(a) {
         return 'Error: shell arg "command" must be a non-empty string';
     }
     if (process.platform === 'win32' && !hasOwn(a, 'shell') && hasWindowsDrivePath(a.command)) {
-        return "Error: shell command contains a Windows drive path; set shell:'powershell' or convert paths for shell:'bash'.";
+        // A Windows drive path (C:\...) is unambiguous evidence the caller
+        // wants the Windows shell; default it losslessly instead of forcing
+        // a retry turn just to add shell:'powershell'.
+        a.shell = 'powershell';
     }
     for (const k of ['cwd', 'workdir']) {
         if (hasOwn(a, k) && (a[k] === undefined || a[k] === null || a[k] === '')) {
@@ -354,12 +477,28 @@ function guardFind(a) {
 
 function guardGlob(a) {
     // path alias root; pattern aliases glob/name/file_pattern
+    const globPatternKeys = ['pattern', 'glob', 'name', 'file_pattern'];
+    const hasAnyPattern = globPatternKeys.some((k) => isNonEmptyPresent(a, k));
+    // Skip the default when `path` itself carries glob magic (*?[{) — that
+    // shape means "path IS the pattern" and is handled by executeGlobTool's
+    // own path-magic fallback (splitting path into baseDir + pattern).
+    // Injecting pattern:'*' here would override that fallback and silently
+    // change "src/**/*.mjs" into "match everything under src/**/*.mjs".
+    const pathHasGlobMagic = Array.isArray(a.path)
+        ? a.path.some((p) => hasGlobMagic(p))
+        : hasGlobMagic(a.path);
+    if (!hasAnyPattern && isNonEmptyPresent(a, 'path') && !pathHasGlobMagic) {
+        // Missing pattern with a real path is an unambiguous "match
+        // everything under this path" request; default it instead of
+        // erroring out via globMissingPatternMessage() downstream.
+        a.pattern = '*';
+    }
     for (const k of ['path', 'root']) {
         if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
             return `Error: glob arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
         }
     }
-    for (const k of ['pattern', 'glob', 'name', 'file_pattern']) {
+    for (const k of globPatternKeys) {
         if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
             return `Error: glob arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
         }

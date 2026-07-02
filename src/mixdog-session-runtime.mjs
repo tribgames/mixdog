@@ -14,6 +14,7 @@ import { writeLastSessionCwd } from './runtime/shared/user-cwd.mjs';
 import { cancelBackgroundTasks } from './runtime/shared/background-tasks.mjs';
 import { createTranscriptWriter } from './runtime/shared/transcript-writer.mjs';
 import { mixdogHome } from './runtime/shared/plugin-paths.mjs';
+import { checkLatestVersion, runGlobalUpdate, localPackageVersion } from './runtime/shared/update-checker.mjs';
 import {
   modelVisibleToolCompletionMessage,
   shouldPersistModelVisibleToolCompletion,
@@ -2608,6 +2609,80 @@ export async function createMixdogSessionRuntime({
   hooks.emit('runtime:start', { cwd: currentCwd, provider: route.provider, model: route.model, toolMode: mode });
   bootProfile('hooks:ready', { ms: (performance.now() - hooksStartedAt).toFixed(1) });
 
+  // ---------------------------------------------------------------------
+  // Self-update (npm registry version check + optional auto-install).
+  // updateCheckState mirrors the last-known checkLatestVersion() result;
+  // updateProcessState tracks the in-flight install lifecycle so the TUI can
+  // poll getUpdateStatus() instead of needing a push/event channel. Both are
+  // purely in-memory (per runtime instance) — the on-disk cache lives inside
+  // update-checker.mjs and is what actually enforces the 24h TTL.
+  let updateCheckState = {
+    currentVersion: null,
+    latestVersion: null,
+    updateAvailable: false,
+    lastCheckedAt: 0,
+  };
+  // phase: 'idle' | 'checking' | 'installing' | 'installed' | 'failed'
+  let updateProcessState = { phase: 'idle', version: null, error: null };
+
+  function autoUpdateEnabled() {
+    return config?.update?.auto === true;
+  }
+
+  async function checkForUpdateInternal({ force = false } = {}) {
+    if (updateProcessState.phase !== 'installing') updateProcessState.phase = 'checking';
+    try {
+      const result = await checkLatestVersion({ force, dataDir: cfgMod.getPluginData?.() || STANDALONE_DATA_DIR });
+      updateCheckState = {
+        currentVersion: result.currentVersion,
+        latestVersion: result.latestVersion,
+        updateAvailable: result.updateAvailable,
+        lastCheckedAt: result.lastCheckedAt,
+      };
+    } catch {
+      // checkLatestVersion() is already silent-safe; this catch is belt-and-
+      // braces so a boot-time call can never crash the runtime.
+    } finally {
+      if (updateProcessState.phase === 'checking') updateProcessState.phase = 'idle';
+    }
+    return updateCheckState;
+  }
+
+  async function runUpdateNowInternal() {
+    if (updateProcessState.phase === 'installing') {
+      return { ...updateProcessState, alreadyInstalling: true, error: 'update already in progress' };
+    }
+    updateProcessState = { phase: 'installing', version: null, error: null };
+    try {
+      const result = await runGlobalUpdate();
+      if (result?.ok) {
+        updateProcessState = { phase: 'installed', version: result.version || null, error: null };
+      } else {
+        updateProcessState = { phase: 'failed', version: null, error: result?.error || 'update failed' };
+      }
+    } catch (err) {
+      updateProcessState = { phase: 'failed', version: null, error: err?.message || String(err) };
+    }
+    return updateProcessState;
+  }
+
+  // Non-blocking boot hook: fires after the runtime object below is fully
+  // constructed (setTimeout(0) defers past the synchronous return), so a
+  // slow/hanging registry request or npm install can never delay session
+  // boot. Auto-update defaults to OFF (config.update.auto is undefined until
+  // the user opts in via setAutoUpdate(true)); a failed check or install is
+  // swallowed — getUpdateStatus()/getUpdateSettings() are the only surfaces,
+  // there is no push notice channel from runtime -> TUI today.
+  const updateBootTimer = setTimeout(() => {
+    void (async () => {
+      await checkForUpdateInternal({ force: false });
+      if (autoUpdateEnabled() && updateCheckState.updateAvailable) {
+        await runUpdateNowInternal();
+      }
+    })().catch(() => {});
+  }, 0);
+  updateBootTimer.unref?.();
+
   function mcpTransportLabel(cfg = {}) {
     if (cfg.autoDetect) return `autoDetect:${cfg.autoDetect}`;
     try {
@@ -4689,6 +4764,33 @@ function parsedProviderModelVersion(id) {
       }
       saveConfigAndAdopt({ ...config, autoClear: next });
       return { ...normalizeAutoClearConfig(config.autoClear), label: formatDurationMs(normalizeAutoClearConfig(config.autoClear).idleMs) };
+    },
+    getUpdateSettings() {
+      return {
+        autoUpdate: autoUpdateEnabled(),
+        currentVersion: updateCheckState.currentVersion || localPackageVersion(),
+        latestVersion: updateCheckState.latestVersion,
+        updateAvailable: updateCheckState.updateAvailable,
+        lastCheckedAt: updateCheckState.lastCheckedAt,
+      };
+    },
+    setAutoUpdate(enabled) {
+      saveConfigAndAdopt({
+        ...config,
+        update: { ...(config.update || {}), auto: enabled === true },
+      });
+      return this.getUpdateSettings();
+    },
+    async checkForUpdate(options = {}) {
+      await checkForUpdateInternal({ force: options?.force === true });
+      return this.getUpdateSettings();
+    },
+    async runUpdateNow() {
+      const state = await runUpdateNowInternal();
+      return { ok: state.phase === 'installed', ...state };
+    },
+    getUpdateStatus() {
+      return { ...updateProcessState };
     },
     async completeOnboarding(payload = {}) {
       // Only fall back to the live runtime route when the caller actually sent a

@@ -10,7 +10,7 @@
  *   BP_1  system#1  (1h)  — shared tool policy + compact skill manifest
  *   BP_2  system#2  (1h)  — role/system rules (Lead / agent / hidden role)
  *   BP_3  system#3  (1h)  — stable memory/meta marker (sessionMarker system block; tier3)
- *   BP_4  messages  (1h/5m) — sliding tool_result / prior user-text tail
+ *   BP_4  messages  (5m)  — sliding tool_result / prior user-text tail
  *
  * Tool schemas still sit before system in the provider prompt prefix. We do
  * not spend a separate cache_control slot on tools; the first system BP covers
@@ -66,12 +66,15 @@ function isOneShotMaintenanceAgent(agent) {
  *   '5m'   → ephemeral 5m TTL  (1.25x write premium, 0.1x read)
  *   'none' → no breakpoint written on this layer
  *
- * Public agents stay resumable for up to 1h (the terminal-reap window)
- * for same-task reuse, so their message tail uses 1h too. Hidden multi-turn
- * roles (explorer / scheduler / webhook) run a single fan-out or entry-driven
- * session that is not resumed for same-task reuse, so their volatile tail stays
- * at the cheaper 5m TTL. (Tail TTL only affects explicit-breakpoint providers
- * — Anthropic; no-op elsewhere.)
+ * BP1~3 stay at 1h: the system/role/tier3 prefix is shared across sessions
+ * (pool-stable), so the 2x write premium is amortized cross-session and the
+ * warm window survives per-session gaps. The volatile message tail (BP4) is
+ * per-session and trace data (2026-06) shows request gaps are p99 ≈ 4.5min —
+ * 5m+ gaps mean a cold tail anyway, and the smart-compact path rebuilds the
+ * history at that boundary. So every session's tail uses the cheaper 5m TTL
+ * (1.25x write vs 2x), aligned with the 5m terminal-reap window for agents.
+ * (Tail TTL only affects explicit-breakpoint providers — Anthropic; no-op
+ * elsewhere.)
  *
  * Exception: one-shot LLM-only maintenance roles are asked once on a fresh
  * session and closed, so their volatile per-call message tail is never read
@@ -88,8 +91,8 @@ export function resolveCacheStrategy(agent) {
     if (getHiddenAgent(agent)) {
         return { tools: 'none', system: '1h', tier3: '1h', messages: '5m' };
     }
-    // Public agents: resumable up to 1h for same-task reuse -> 1h tail.
-    return { tools: 'none', system: '1h', tier3: '1h', messages: '1h' };
+    // Lead + public agents: per-session volatile tail -> 5m (see doc above).
+    return { tools: 'none', system: '1h', tier3: '1h', messages: '5m' };
 }
 
 /**

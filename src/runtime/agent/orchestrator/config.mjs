@@ -383,6 +383,7 @@ export function loadConfig(options = {}) {
                 trajectory: { enabled: true, ...raw.trajectory },
                 runtime: raw.runtime && typeof raw.runtime === 'object' ? raw.runtime : {},
                 shell: raw.shell && typeof raw.shell === 'object' ? raw.shell : {},
+                update: raw.update && typeof raw.update === 'object' ? { ...raw.update } : {},
             };
         }
         catch { /* fall through */ }
@@ -408,6 +409,7 @@ export function loadConfig(options = {}) {
         trajectory: { enabled: true },
         runtime: {},
         shell: {},
+        update: {},
     };
 }
 /**
@@ -482,6 +484,7 @@ export function saveConfig(config) {
         trajectory: config.trajectory || {},
         runtime: config.runtime || {},
         shell: config.shell || {},
+        update: config.update || {},
     }));
 }
 // --- Preset helpers ---

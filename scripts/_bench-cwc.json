@@ -2,7 +2,7 @@
   {
     "id": "cwc-hookflow",
     "agent": "worker",
-    "prompt": "In this repo (mixdog), how does a tool call get denied by a hook? Trace from where the hook decision is made to where the denial error is returned to the model. Give file paths and function names. Do not modify anything.",
+    "prompt": "In this repo (mixdog), what happens to a tool call when no hooks are configured? Verify the default observer/bypass path: where beforeTool() is invoked, what it returns with no configured rules, and where a configured custom hook rule could instead deny the call. Give file paths and function names. Do not modify anything.",
     "cwd": "."
   },
   {

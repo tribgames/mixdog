@@ -69,9 +69,10 @@ function scorecard(report) {
   const outputTokens = tokenSession
     ? num(tokenSession.total_output) + num(tokenSession.total_thinking)
     : 0;
-  // prompt growth = last prompt - first prompt across growth_turns if present
-  const growth = report.tokens?.growth_turns || [];
-  const promptGrowth = growth.length ? num(growth[growth.length - 1]?.prompt_tokens) - num(growth[0]?.prompt_tokens) : null;
+  // prompt growth = chronological last-first prompt from the per-session token
+  // summary. (growth_turns is sorted by prompt_delta desc — NOT chronological —
+  // so deriving growth from it produced garbage/negative values.)
+  const promptGrowth = tokenSession?.prompt_growth != null ? num(tokenSession.prompt_growth) : null;
   return {
     provider: route?.provider || null,
     model: route?.model || null,

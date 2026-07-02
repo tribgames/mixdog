@@ -2,26 +2,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    resolvePublicAgentMaxLoopIterations,
     resolveSessionMaxLoopIterations,
     LEAD_MAX_LOOP_ITERATIONS,
 } from '../src/runtime/agent/orchestrator/agent-runtime/agent-loop-policy.mjs';
 
 // No low per-agent caps: every public/delegated agent shares the single high
-// runaway guard. resolvePublicAgentMaxLoopIterations is retained for API
-// compatibility and always returns null.
-test('no per-agent low cap for heavy-worker', () => {
-    assert.equal(resolvePublicAgentMaxLoopIterations('heavy-worker', 'read-write'), null);
-});
-
-test('no per-agent low cap for read-only roles', () => {
-    assert.equal(resolvePublicAgentMaxLoopIterations('reviewer', 'read'), null);
-});
-
-test('hidden internal roles also have no low cap', () => {
-    assert.equal(resolvePublicAgentMaxLoopIterations('cycle1-agent', 'read'), null);
-});
-
+// runaway guard (LEAD_MAX_LOOP_ITERATIONS) unless a session pins its own value.
 test('agent owner session falls through to the shared runaway guard when unset', () => {
     const cap = resolveSessionMaxLoopIterations({
         owner: 'agent',

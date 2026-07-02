@@ -54,6 +54,9 @@ import { scanLeakedToolCalls, createToolCallDedupe } from './anthropic-leaked-to
 // Disk-backed cache so repeated process starts (cron, tool calls) don't
 // hammer /v1/models. 24h TTL matches the upstream client cadence.
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
+// Bump when the on-disk cache shape changes so stale-shape entries are
+// discarded instead of misread (mirrors openai-oauth's schema-version gate).
+const ANTHROPIC_MODEL_CACHE_SCHEMA_VERSION = 1;
 // SSE progress emits (per-request "Response …" and "Done:" lines). Off by default.
 const SSE_VERBOSE = process.env.MIXDOG_SSE_VERBOSE === '1';
 
@@ -102,6 +105,7 @@ function anthropicQuotaError(status, headers, bodyText = '') {
 const _modelCache = makeModelCache({
     fileName: 'anthropic-oauth-models.json',
     ttlMs: MODEL_CACHE_TTL_MS,
+    version: ANTHROPIC_MODEL_CACHE_SCHEMA_VERSION,
     onSave: (m) => { _inMemoryCatalog = Array.isArray(m) ? m.slice() : null; },
 });
 
@@ -382,13 +386,71 @@ const MAX_TOKENS = {
     'claude-haiku-4-5-20251001': 8192,
 };
 
-function resolveMaxTokens(model) {
+// Sanity floor/ceiling for resolveMaxTokens. Catalog-reported outputTokens
+// (from the Anthropic API, cached to disk) can be trusted above these
+// hardcoded fallbacks, but we still clamp to a safety cap so a bad/huge
+// catalog value can't blow the thinking+output budget, and floor so a
+// missing/zero catalog value never degenerates to an unusable cap.
+const MAX_TOKENS_FLOOR = 8192;
+const DEFAULT_SAFETY_CAP = 65536;
+function _resolveSafetyCap() {
+    const raw = process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS;
+    if (raw == null || raw === '') return DEFAULT_SAFETY_CAP;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return DEFAULT_SAFETY_CAP;
+    return Math.floor(n);
+}
+
+// Catalog-reported outputTokens for a model id, read from the in-memory
+// catalog mirror (lazily populated from the disk cache if the mirror hasn't
+// been warmed yet by listModels()). Never throws — any failure just means
+// "no catalog data", and callers fall back to the static heuristics below.
+function _catalogOutputTokens(model) {
+    if (!model) return null;
+    try {
+        if (!Array.isArray(_inMemoryCatalog)) {
+            const cached = _modelCache.loadSync();
+            if (Array.isArray(cached)) _inMemoryCatalog = cached.slice();
+        }
+        if (!Array.isArray(_inMemoryCatalog)) return null;
+        const entry = _inMemoryCatalog.find(m => m?.id === model);
+        const out = Number(entry?.outputTokens);
+        return Number.isFinite(out) && out > 0 ? out : null;
+    } catch {
+        return null;
+    }
+}
+
+function _fallbackMaxTokens(model) {
     if (MAX_TOKENS[model]) return MAX_TOKENS[model];
     const id = String(model || '').toLowerCase();
     if (id.includes('opus')) return 65536;
+    if (id.includes('fable')) return 65536;
+    // Sonnet 5+ ships a much larger output budget than the legacy 4.x line
+    // (this is the claude-sonnet-5 fix: 16384 was starving visible output
+    // once extended thinking ate into the same hard cap). Keep sonnet-4-x
+    // conservative at 16384; only bump 5+.
+    const sonnetVersion = id.match(/^claude-sonnet-(\d+)/);
+    if (sonnetVersion) return Number(sonnetVersion[1]) >= 5 ? 65536 : 16384;
     if (id.includes('sonnet')) return 16384;
     if (id.includes('haiku')) return 8192;
     return 8192;
+}
+
+// resolveMaxTokens: catalog-driven max_tokens for a model id.
+//   1. MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS env override, if set, wins outright.
+//   2. Catalog outputTokens (trusted over hardcoded heuristics when present),
+//      clamped to [MAX_TOKENS_FLOOR, safetyCap].
+//   3. Static MAX_TOKENS table / family heuristic fallback when the catalog
+//      has no entry for this model, also clamped to the safety cap.
+function resolveMaxTokens(model) {
+    const safetyCap = _resolveSafetyCap();
+    if (process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS) return safetyCap;
+    const catalogValue = _catalogOutputTokens(model);
+    if (catalogValue != null) {
+        return Math.max(MAX_TOKENS_FLOOR, Math.min(catalogValue, safetyCap));
+    }
+    return Math.min(_fallbackMaxTokens(model), safetyCap);
 }
 
 const MIN_THINKING_BUDGET = 1024;
@@ -2418,3 +2480,7 @@ export async function loginOAuth() {
 // Lets the SSE parser be exercised in isolation against a synthetic
 // ReadableStream without needing a live OAuth session.
 export { parseSSEStream };
+
+// Test-only escape hatch for scripts/tool-smoke.mjs to verify the
+// catalog-driven max-tokens resolution without duplicating its logic.
+export const _test = { resolveMaxTokens };

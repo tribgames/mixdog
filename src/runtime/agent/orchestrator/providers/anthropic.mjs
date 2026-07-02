@@ -542,13 +542,20 @@ export class AnthropicProvider {
             try { totalSignal.removeEventListener('abort', handler); } catch {}
         };
 
-        const betaHeaders = {
-            'anthropic-beta': buildAnthropicBetaHeaders({
-                fastMode: this.fastModeBetaHeaderLatched,
-                toolSearch: true,
-                effort: shouldIncludeEffortBeta(useModel, opts),
-            }),
-        };
+        // Per-call headers override the client defaultHeaders, so the
+        // constructor-level disableBetaHeaders opt-out must be honoured here
+        // too — otherwise opencode-go's anthropic-compatible routing
+        // (disableBetaHeaders:true) would still send beta strings that a
+        // third-party endpoint may reject.
+        const betaHeaders = this.config?.disableBetaHeaders
+            ? null
+            : {
+                'anthropic-beta': buildAnthropicBetaHeaders({
+                    fastMode: this.fastModeBetaHeaderLatched,
+                    toolSearch: true,
+                    effort: shouldIncludeEffortBeta(useModel, opts),
+                }),
+            };
 
         const MAX_MIDSTREAM_RETRIES = ANTHROPIC_MAX_MIDSTREAM_RETRIES;
         let firstAttemptError = null;
@@ -642,7 +649,7 @@ export class AnthropicProvider {
                         async ({ signal: attemptSignal }) => {
                             const res = await this.client.messages.create(params, {
                                 signal: attemptSignal,
-                                headers: betaHeaders,
+                                ...(betaHeaders ? { headers: betaHeaders } : {}),
                             }).asResponse();
                             if (!res.ok) {
                                 const text = await res.text().catch(() => '');

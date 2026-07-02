@@ -188,12 +188,14 @@ export function createStandaloneMemoryRuntime({
         releaseOwnerIfSelf();
       }
 
+      const daemonEnv = { ...process.env };
+      delete daemonEnv.MIXDOG_QUIET_MEMORY_LOG;
       child = fork(entry, [], {
         cwd,
         stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
         detached: true,
         env: {
-          ...process.env,
+          ...daemonEnv,
           MIXDOG_DATA_DIR: dataDir,
           MIXDOG_WORKER_MODE: '1',
           MIXDOG_STANDALONE: '1',

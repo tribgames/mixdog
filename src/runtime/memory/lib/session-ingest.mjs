@@ -275,6 +275,13 @@ export function shouldExcludeIngestMessage(m) {
   if (role === 'user' && typeof raw === 'string' && /^Reference files:\s*/i.test(raw.trimStart())) {
     return true
   }
+  // Attachment-only placeholder rows (e.g. Discord backend discord.mjs:724
+  // `"(attachment)"` fallback when a message carries no text, only files).
+  // Carries zero retrievable content — excluded so recall isn't polluted
+  // with bare "(attachment)" memory rows.
+  if (role === 'user' && typeof raw === 'string' && raw.trim() === '(attachment)') {
+    return true
+  }
   // Compaction summary user rows (compact.mjs isSummaryMessage / SUMMARY_PREFIX).
   if (role === 'user' && typeof raw === 'string' && raw.startsWith(SUMMARY_PREFIX_INGEST)) {
     return true
