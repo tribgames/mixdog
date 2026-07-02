@@ -40,6 +40,11 @@ import {
     withRetry,
 } from './retry-classifier.mjs';
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
+import {
+    applyAnthropicEffortToBody,
+    effortValuesForModel,
+    shouldIncludeEffortBeta,
+} from './anthropic-effort.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { normalizeContentForAnthropic } from './media-normalization.mjs';
 import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
@@ -138,16 +143,6 @@ function _displayModel(id) {
     return `claude-${m[1].toLowerCase()}-${m[2]}${m[3] ? `.${m[3]}` : ''}`;
 }
 
-function _effortValuesFromCapabilities(capabilities) {
-    const effort = capabilities?.effort;
-    const levels = ['low', 'medium', 'high', 'xhigh', 'max'];
-    if (!effort) return [];
-    if (effort === true) return levels;
-    const values = levels.filter((level) => effort?.[level] === true || effort?.[level]?.supported === true);
-    if (values.length) return values;
-    return effort.supported === true ? levels : [];
-}
-
 function _capabilitySupported(capability) {
     return capability === true || capability?.supported === true;
 }
@@ -168,7 +163,7 @@ function _normalizeAnthropicModel(raw) {
     const releaseDate = dated
         ? id.match(/-(\d{4})(\d{2})(\d{2})$/)
         : null;
-    const effortValues = _effortValuesFromCapabilities(raw?.capabilities);
+    const effortValues = effortValuesForModel(raw?.capabilities, id);
     return {
         id,
         display: raw?.display_name || _prettyName(id, family),
@@ -396,14 +391,6 @@ function resolveMaxTokens(model) {
     return 8192;
 }
 
-const EFFORT_BUDGET = {
-    low: 1024,
-    medium: 4096,
-    high: 16384,
-    xhigh: 32768,
-    max: 32768,
-};
-
 const MIN_THINKING_BUDGET = 1024;
 const THINKING_OUTPUT_RESERVE = 1024;
 
@@ -415,10 +402,6 @@ function clampThinkingBudgetTokens(value, maxTokens) {
     if (ceiling < MIN_THINKING_BUDGET) return null;
     return Math.max(MIN_THINKING_BUDGET, Math.min(desired, ceiling));
 }
-
-// Tracks which unknown effort labels we've already logged so a repeated
-// session-level misconfig doesn't flood stderr with the same warning.
-const _LOGGED_UNKNOWN_EFFORT = new Set();
 
 // Layered cache TTLs — stable layers get 1h, volatile layers get 5m.
 // Anthropic requires 1h entries to appear before 5m entries in the request.
@@ -1583,21 +1566,13 @@ function buildRequestBody(messages, model, tools, sendOpts) {
         body.tools = [...nativeTools, ...toAnthropicTools([...(tools || []), ...deferredTools])];
     }
 
-    const thinkingBudgetTokens = Number(opts.thinkingBudgetTokens);
-    if (Number.isFinite(thinkingBudgetTokens) && thinkingBudgetTokens > 0) {
-        const budgetTokens = clampThinkingBudgetTokens(thinkingBudgetTokens, maxTokens);
-        if (budgetTokens) body.thinking = { type: 'enabled', budget_tokens: budgetTokens };
-    } else if (opts.effort) {
-        if (EFFORT_BUDGET[opts.effort]) {
-            const budgetTokens = clampThinkingBudgetTokens(EFFORT_BUDGET[opts.effort], maxTokens);
-            if (budgetTokens) body.thinking = { type: 'enabled', budget_tokens: budgetTokens };
-        } else if (!_LOGGED_UNKNOWN_EFFORT.has(opts.effort)) {
-            _LOGGED_UNKNOWN_EFFORT.add(opts.effort);
-            try {
-                process.stderr.write(`[anthropic-oauth] unknown effort=${opts.effort} ignored (known: ${Object.keys(EFFORT_BUDGET).join(',')})\n`);
-            } catch {}
-        }
-    }
+    applyAnthropicEffortToBody(body, {
+        model,
+        opts,
+        maxTokens,
+        clampThinkingBudgetTokens,
+        logTag: 'anthropic-oauth',
+    });
 
     if (opts.fast === true && supportsAnthropicFastMode(model)) {
         body.speed = 'fast';
@@ -1825,6 +1800,7 @@ export class AnthropicOAuthProvider {
                             base: OAUTH_BETA_HEADERS,
                             fastMode: this.fastModeBetaHeaderLatched,
                             toolSearch: true,
+                            effort: shouldIncludeEffortBeta(useModel, opts),
                         }),
                         'anthropic-dangerous-direct-browser-access': 'true',
                         'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,

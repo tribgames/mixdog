@@ -15,6 +15,11 @@ import {
     _classifyMidstreamError,
 } from './anthropic-oauth.mjs';
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
+import {
+    applyAnthropicEffortToBody,
+    effortValuesForModel,
+    shouldIncludeEffortBeta,
+} from './anthropic-effort.mjs';
 import { normalizeContentForAnthropic } from './media-normalization.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
@@ -127,16 +132,6 @@ function _defaultContextForModel(id, family) {
     return 200000;
 }
 
-function _effortValuesFromCapabilities(capabilities) {
-    const effort = capabilities?.effort;
-    const levels = ['low', 'medium', 'high', 'xhigh', 'max'];
-    if (!effort) return [];
-    if (effort === true) return levels;
-    const values = levels.filter((level) => effort?.[level] === true || effort?.[level]?.supported === true);
-    if (values.length) return values;
-    return effort.supported === true ? levels : [];
-}
-
 function _capabilitySupported(capability) {
     return capability === true || capability?.supported === true;
 }
@@ -148,7 +143,7 @@ function _normalizeAnthropicModel(raw, provider = 'anthropic') {
     const family = familyMatch ? familyMatch[1].toLowerCase() : 'other';
     const dated = /-\d{8}$/.test(String(id));
     const versioned = !dated && /^claude-[a-z]+-\d+(?:-\d+)?$/i.test(String(id));
-    const effortValues = _effortValuesFromCapabilities(raw?.capabilities);
+    const effortValues = effortValuesForModel(raw?.capabilities, id);
     return {
         id,
         display: raw?.display_name || raw?.displayName || raw?.display || _prettyName(id, family),
@@ -171,15 +166,6 @@ function resolveMaxTokens(model) {
     if (id.includes('haiku')) return 8192;
     return 8192;
 }
-
-// Effort → thinking budget tokens (Anthropic extended thinking)
-const EFFORT_BUDGET = {
-    low: 1024,
-    medium: 4096,
-    high: 16384,
-    xhigh: 32768,
-    max: 32768,
-};
 
 const MIN_THINKING_BUDGET = 1024;
 const THINKING_OUTPUT_RESERVE = 1024;
@@ -516,16 +502,13 @@ export class AnthropicProvider {
                 .map((t) => (t && typeof t.name === 'string' ? t.name : null))
                 .filter(Boolean),
         );
-        // Effort → extended thinking budget. Gateway inherit mode may pass the
-        // exact OAuth client budget from the incoming Anthropic request.
-        const thinkingBudgetTokens = Number(opts.thinkingBudgetTokens);
-        const requestedThinkingBudget = Number.isFinite(thinkingBudgetTokens) && thinkingBudgetTokens > 0
-            ? thinkingBudgetTokens
-            : (opts.effort && EFFORT_BUDGET[opts.effort] ? EFFORT_BUDGET[opts.effort] : null);
-        const budgetTokens = clampThinkingBudgetTokens(requestedThinkingBudget, maxTokens);
-        if (budgetTokens) {
-            params.thinking = { type: 'enabled', budget_tokens: budgetTokens };
-        }
+        applyAnthropicEffortToBody(params, {
+            model: useModel,
+            opts,
+            maxTokens,
+            clampThinkingBudgetTokens,
+            logTag: this.name,
+        });
         // Fast mode → speed: "fast" on models Anthropic marks as speed-capable.
         if (opts.fast === true && supportsAnthropicFastMode(useModel)) {
             params.speed = 'fast';
@@ -563,6 +546,7 @@ export class AnthropicProvider {
             'anthropic-beta': buildAnthropicBetaHeaders({
                 fastMode: this.fastModeBetaHeaderLatched,
                 toolSearch: true,
+                effort: shouldIncludeEffortBeta(useModel, opts),
             }),
         };
 

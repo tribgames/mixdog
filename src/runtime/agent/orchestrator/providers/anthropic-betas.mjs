@@ -1,7 +1,10 @@
+import { EFFORT_BETA_HEADER } from './anthropic-effort.mjs';
+
 export const EXTENDED_CACHE_TTL_BETA_HEADER = 'extended-cache-ttl-2025-04-11';
 export const INTERLEAVED_THINKING_BETA_HEADER = 'interleaved-thinking-2025-05-14';
 export const FAST_MODE_BETA_HEADER = 'fast-mode-2026-02-01';
 export const TOOL_SEARCH_BETA_HEADER = 'advanced-tool-use-2025-11-20';
+export { EFFORT_BETA_HEADER };
 
 export function supportsAnthropicFastMode(model) {
     const id = String(model || '').toLowerCase().replace(/\./g, '-');
@@ -12,6 +15,7 @@ export function buildAnthropicBetaHeaders({
     base = `${INTERLEAVED_THINKING_BETA_HEADER},${EXTENDED_CACHE_TTL_BETA_HEADER}`,
     fastMode = false,
     toolSearch = false,
+    effort = false,
 } = {}) {
     const headers = String(base || '')
         .split(',')
@@ -22,6 +26,9 @@ export function buildAnthropicBetaHeaders({
     }
     if (toolSearch && !headers.includes(TOOL_SEARCH_BETA_HEADER)) {
         headers.push(TOOL_SEARCH_BETA_HEADER);
+    }
+    if (effort && !headers.includes(EFFORT_BETA_HEADER)) {
+        headers.push(EFFORT_BETA_HEADER);
     }
     return headers.join(',');
 }

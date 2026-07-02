@@ -29,6 +29,16 @@ import {
     parseToolCalls as geminiParseToolCalls,
 } from '../src/runtime/agent/orchestrator/providers/gemini.mjs';
 import { parseSSEStream as anthropicParseSSEStream } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
+import { _buildRequestBodyForCacheSmoke } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
+import {
+    EFFORT_BETA_HEADER,
+    LEGACY_EFFORT_BUDGET,
+    modelSupportsEffort,
+    modelSupportsMaxEffort,
+    normalizeAnthropicEffortInput,
+    shouldIncludeEffortBeta,
+} from '../src/runtime/agent/orchestrator/providers/anthropic-effort.mjs';
+import { buildAnthropicBetaHeaders } from '../src/runtime/agent/orchestrator/providers/anthropic-betas.mjs';
 import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
 
 // --- Helpers ---------------------------------------------------------------
@@ -904,4 +914,61 @@ test('anthropic leak guard (fence): unmatched backtick inside a suppressed call\
     assert.equal(texts.join('').includes('some visible prose'), true);
     assert.equal(texts.join('').includes('<invoke'), false);
     assert.equal(texts.join('').includes('`'), false);
+});
+
+// === 8. Anthropic effort (output_config vs legacy thinking budget) ==========
+
+test('anthropic effort: sonnet-4-6 uses output_config + effort beta, not thinking', () => {
+    const model = 'claude-sonnet-4-6';
+    const body = _buildRequestBodyForCacheSmoke(
+        [{ role: 'user', content: 'hi' }],
+        model,
+        [],
+        { effort: 'high' },
+    );
+    assert.deepEqual(body.output_config, { effort: 'high' });
+    assert.equal(body.thinking, undefined);
+    assert.equal(shouldIncludeEffortBeta(model, { effort: 'high' }), true);
+    const beta = buildAnthropicBetaHeaders({ effort: true });
+    assert.ok(beta.includes(EFFORT_BETA_HEADER));
+});
+
+test('anthropic effort: legacy sonnet-4-5 maps effort to thinking budget', () => {
+    const model = 'claude-sonnet-4-5-20250514';
+    const body = _buildRequestBodyForCacheSmoke(
+        [{ role: 'user', content: 'hi' }],
+        model,
+        [],
+        { effort: 'medium' },
+    );
+    assert.equal(body.output_config, undefined);
+    assert.deepEqual(body.thinking, { type: 'enabled', budget_tokens: LEGACY_EFFORT_BUDGET.medium });
+    assert.equal(modelSupportsEffort(model), false);
+});
+
+test('anthropic effort: xhigh on opus-4-8 normalizes to max in output_config', () => {
+    const model = 'claude-opus-4-8';
+    assert.equal(modelSupportsMaxEffort(model), true);
+    assert.equal(normalizeAnthropicEffortInput('xhigh', model), 'max');
+    const body = _buildRequestBodyForCacheSmoke(
+        [{ role: 'user', content: 'hi' }],
+        model,
+        [],
+        { effort: 'xhigh' },
+    );
+    assert.deepEqual(body.output_config, { effort: 'max' });
+    assert.equal(body.thinking, undefined);
+});
+
+test('anthropic effort: explicit thinkingBudgetTokens wins over effort', () => {
+    const model = 'claude-sonnet-4-6';
+    const body = _buildRequestBodyForCacheSmoke(
+        [{ role: 'user', content: 'hi' }],
+        model,
+        [],
+        { effort: 'low', thinkingBudgetTokens: 2048 },
+    );
+    assert.deepEqual(body.thinking, { type: 'enabled', budget_tokens: 2048 });
+    assert.equal(body.output_config, undefined);
+    assert.equal(shouldIncludeEffortBeta(model, { effort: 'low', thinkingBudgetTokens: 2048 }), false);
 });

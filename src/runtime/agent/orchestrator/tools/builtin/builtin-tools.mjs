@@ -65,7 +65,10 @@ export const BUILTIN_TOOLS = [
     {
         name: 'open_config',
         title: 'Open Config UI',
-        annotations: { title: 'Open Config UI', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        // agentHidden: a worker/reviewer session has no business popping the
+        // settings UI on the user's machine; it also wastes schema bytes on
+        // every agent request. Lead keeps it.
+        annotations: { title: 'Open Config UI', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false, agentHidden: true },
         description: 'Open settings UI; returns URL. No params.',
         inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     },
