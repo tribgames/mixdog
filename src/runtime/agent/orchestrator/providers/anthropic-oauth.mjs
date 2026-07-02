@@ -658,14 +658,6 @@ async function refreshOAuthCredentials(creds) {
     }
 }
 
-// Exported so callers can detect re-auth-required scenarios and prompt the user.
-export class ReauthRequired extends Error {
-    constructor(message) {
-        super(message);
-        this.name = 'ReauthRequired';
-    }
-}
-
 // --- Message conversion ---
 
 function withCacheControl(block, ttl = CACHE_TTL_VOLATILE) {

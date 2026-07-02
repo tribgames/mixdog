@@ -16,5 +16,6 @@ read-only calls without an edit = stalling — patch the piece you understand
 or stop and report blocked. Self-check comes AFTER edits; deep verification
 is Lead's.
 
-Minimal checks + how-to-verify.
+Minimal checks + how-to-verify. Hand off outcome as fragments anchored to
+`file:line`; no narration, no report bloat.
 

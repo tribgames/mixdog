@@ -75,12 +75,17 @@ function isUsableAsset(asset) {
 // ---------------------------------------------------------------------------
 
 async function loadManifest(dataDir) {
+  // Bundled manifest FIRST: it always matches the installed mixdog version.
+  // A cached <dataDir>/runtime/manifest.json from an older install must never
+  // shadow it — stale caches caused sha256 mismatches on already-installed
+  // machines after an upgrade. The cache is only a fallback for the rare case
+  // where the bundled file is missing (e.g. a stripped checkout).
+  if (existsSync(BUNDLED_MANIFEST_PATH)) {
+    return JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'))
+  }
   const runtimeManifestPath = join(dataDir, 'runtime', 'manifest.json')
   if (existsSync(runtimeManifestPath)) {
     try { return JSON.parse(readFileSync(runtimeManifestPath, 'utf8')) } catch {}
-  }
-  if (existsSync(BUNDLED_MANIFEST_PATH)) {
-    return JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'))
   }
   const res = await fetch(MANIFEST_URL, { signal: AbortSignal.timeout(30_000) })
   if (!res.ok) throw new Error(`[runtime-fetcher] manifest fetch failed: ${res.status} ${res.statusText}`)

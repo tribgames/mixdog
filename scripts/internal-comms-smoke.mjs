@@ -33,6 +33,7 @@ assert(/minimum characters, maximum information/i.test(flat(leadBrief)), 'lead-b
 for (const field of BRIEF_FIELDS) assert(leadBrief.includes(field), `lead-brief.md: brief missing labeled field ${field}`);
 assert(leadBrief.includes('Stop:'), 'lead-brief.md: brief must add Stop: for heavy-worker bound');
 assert(/role-known|already (?:owns|knows)|wasted cost|wasted/i.test(flat(leadBrief)), 'lead-brief.md: brief must ban restating known rules/background as cost');
+assert(/authoritative/i.test(flat(leadBrief)), 'lead-brief.md: brief must state spec-file precedence over summary');
 // WORKFLOW.md must not duplicate the field list; it defers to the lead brief contract.
 assert(/lead brief contract/i.test(flat(workflow)), 'WORKFLOW.md: must defer to the lead brief contract');
 assert(!BRIEF_FIELDS.every((field) => workflow.includes(field)), 'WORKFLOW.md: must not duplicate the full brief field list');

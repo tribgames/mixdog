@@ -357,11 +357,6 @@ function appendDelivery(name, entry) {
     return false;
   }
 }
-function readDeliveries(name) {
-  _ensureDeliveryIndex(name);
-  const byId = _deliveryIndexByEndpoint.get(name);
-  return byId ? [...byId.values()] : [];
-}
 // Dedup gate against a still-active claim or a successful prior delivery.
 // Only rows with status "received" (non-terminal claim) or "done"
 // (successful delivery) block a retry; terminal "failed" / "quiet-skip"
@@ -395,25 +390,6 @@ function buildHeadersSummary(headers) {
   if (headers["content-type"]) summary.content_type = headers["content-type"];
   return summary;
 }
-// Public read helper — used by setup-server API to list deliveries across endpoints.
-function listAllDeliveries({ endpoint = null, status = null, limit = 100 } = {}) {
-  const out = [];
-  if (!existsSync(WEBHOOKS_DIR)) return out;
-  const names = endpoint
-    ? [endpoint]
-    : readdirSync(WEBHOOKS_DIR, { withFileTypes: true })
-        .filter((d) => d.isDirectory())
-        .map((d) => d.name);
-  for (const name of names) {
-    for (const entry of readDeliveries(name)) {
-      if (status && entry.status !== status) continue;
-      out.push({ endpoint: name, ...entry });
-    }
-  }
-  out.sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
-  return out.slice(0, limit);
-}
-export { listAllDeliveries };
 function _readNgrokBinFromRegistry() {
   if (process.platform !== "win32") return null;
   try {

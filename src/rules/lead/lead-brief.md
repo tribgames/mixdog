@@ -11,3 +11,6 @@
 - Bridge language is ALWAYS English: every brief, follow-up `send`, and
   steering message to an agent is written in English regardless of the
   user-facing language.
+- When a brief includes a summary of a spec/test file, the file is
+  authoritative: on any conflict between the summary and the file, the
+  worker must follow the file, not the summary.

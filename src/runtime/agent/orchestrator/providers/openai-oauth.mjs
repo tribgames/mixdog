@@ -118,10 +118,6 @@ let _codexRefreshInFlight = null;
 let _oauthRefreshInFlight = null;
 let _lastCodexListModelsError = '';
 
-export function getOpenAIOAuthModelCatalogError() {
-    return _lastCodexListModelsError;
-}
-
 function _codexCatalogHas(id) {
     if (!id || !Array.isArray(_inMemoryCodexCatalog)) return false;
     return _inMemoryCodexCatalog.some(m => m.id === id);

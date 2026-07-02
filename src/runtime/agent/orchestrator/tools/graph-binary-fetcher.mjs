@@ -41,12 +41,15 @@ function graphBinDir(dataDir) {
 }
 
 async function loadManifest(dataDir) {
+  // Bundled manifest FIRST: it always matches the installed mixdog version.
+  // A stale cached manifest.json from an older install must never shadow it
+  // (caused sha256 mismatches on already-installed machines after upgrades).
+  if (existsSync(BUNDLED_MANIFEST_PATH)) {
+    return JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'));
+  }
   const cached = join(graphBinDir(dataDir), 'manifest.json');
   if (existsSync(cached)) {
     try { return JSON.parse(readFileSync(cached, 'utf8')); } catch { /* fall through */ }
-  }
-  if (existsSync(BUNDLED_MANIFEST_PATH)) {
-    return JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'));
   }
   const res = await fetch(MANIFEST_URL, { signal: AbortSignal.timeout(30_000) });
   if (!res.ok) throw new Error(`[graph-fetcher] manifest fetch failed: ${res.status} ${res.statusText}`);

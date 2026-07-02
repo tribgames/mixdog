@@ -5993,10 +5993,10 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     });
   };
 
-  // First-run onboarding is a 5-step wizard. Each step's ROOT screen carries a
+  // First-run onboarding is a 4-step wizard. Each step's ROOT screen carries a
   // ConfirmBar (Back/Next, Finish on the last step); the Picker owns the bar
   // focus and only fires onConfirm from the bar. Nested depths (API-key entry,
-  // model route picker, channel setting/webhook) render without a ConfirmBar so
+  // model route picker) render without a ConfirmBar so
   // their own key semantics are untouched and step-switching is disabled there.
   // Esc/cancel during onboarding = confirm skip. Mark onboarding complete
   // (routes/agents/provider untouched) so it does not reopen next launch;
@@ -6048,7 +6048,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       preloadedSetup = await store.getProviderSetup?.();
     } catch { /* openProviderSetupPicker will show its loading frame + error. */ }
     void openProviderSetupPicker({
-      title: 'First Run · Step 1/5 · Provider Auth',
+      title: 'First Run · Step 1/4 · Provider Auth',
       returnTo: () => openOnboardingAuthStep(),
       preloadedSetup,
       confirmBar: {
@@ -6072,29 +6072,10 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   const openOnboardingOutputStyleStep = () => {
     openOutputStylePicker({
       onboarding: {
-        onAdvance: () => void openOnboardingRemoteStep(),
+        isLastStep: true,
+        onAdvance: () => finishOnboarding(),
         onBack: () => openOnboardingThemeStep(),
         onCancel: onboardingWarnReopen,
-      },
-    });
-  };
-
-  const openOnboardingRemoteStep = () => {
-    void openChannelSetupPicker('all', {
-      onboarding: true,
-      confirmBar: {
-        buttons: [
-          { value: 'back', label: '◀ Back' },
-          { value: 'finish', label: 'Finish ✓' },
-        ],
-        onConfirm: (button) => {
-          if (button.value === 'back') {
-            setPicker(null);
-            openOnboardingOutputStyleStep();
-            return;
-          }
-          finishOnboarding();
-        },
       },
     });
   };
@@ -6310,7 +6291,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     setHookPrompt(null);
     setSettingsPrompt(null);
     setPicker({
-      title: 'First Run · Step 2/5 · Models',
+      title: 'First Run · Step 2/4 · Models',
       description: 'Set the Main Model; each agent inherits it unless changed.',
       indexMode: 'always',
       labelWidth: 18,
