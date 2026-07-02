@@ -111,6 +111,18 @@ import {
 } from './app/input-parsers.mjs';
 import { copyToClipboard } from './app/clipboard.mjs';
 import { wrappedTextRows, promptContentRows } from './app/text-layout.mjs';
+import {
+  TRANSCRIPT_WINDOW_MIN_ITEMS,
+  TRANSCRIPT_WINDOW_OVERSCAN_ROWS,
+  TRANSCRIPT_WINDOW_MAX_ITEMS,
+  SELECTION_PAINT_INTERVAL_MS,
+  SCROLL_COALESCE_MS,
+  PROMPT_HISTORY_LIMIT,
+  TRANSCRIPT_MEASURED_ROWS,
+  selectionRectsEqual,
+  shiftSelectionRectY,
+  comparePoints,
+} from './app/transcript-window.mjs';
 
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
