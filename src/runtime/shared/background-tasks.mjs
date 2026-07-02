@@ -5,7 +5,7 @@ import {
   normalizeToolNotifyContext,
   notifyToolCompletion,
 } from './tool-execution-contract.mjs';
-import { presentErrorText } from './err-text.mjs';
+import { presentErrorText, errorLine } from './err-text.mjs';
 
 export {
   TOOL_ASYNC_EXECUTION_CONTRACT,
@@ -465,8 +465,7 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
     if (body) {
       lines.push('', body);
     } else if (TERMINAL_STATUSES.has(task.status) && task.error) {
-      const errorText = String(task.error || '').trim();
-      lines.push('', /^error\s*:/i.test(errorText) ? errorText : `Error: ${errorText}`);
+      lines.push('', errorLine(task.error, { surface: task.surface }));
     } else if (TERMINAL_STATUSES.has(task.status) && task.status === 'completed') {
       // Terminal-completed task with no extractable body: surface a placeholder
       // instead of silently omitting the result so the owner isn't left with a

@@ -1789,9 +1789,36 @@ if (longToolSearchText.length > 220 || /\n/.test(longToolSearchText)) {
   throw new Error(`tool_search descriptions must be compact single-line snippets, got ${longToolSearchText.length} chars`);
 }
 
-const sonnet5MaxTokens = _anthropicOAuthTest.resolveMaxTokens('claude-sonnet-5');
-if (!(sonnet5MaxTokens >= 8192)) {
-  throw new Error(`resolveMaxTokens('claude-sonnet-5') must return a sane positive budget, got ${sonnet5MaxTokens}`);
+{
+  // Regression guard for the sonnet-5 16384 cap bug (thinking exhausted the
+  // whole output budget). Both the catalog path (outputTokens=128000 → capped
+  // 65536) and the catalog-miss heuristic (sonnet 5+ → 65536) must yield
+  // 65536, so assert the exact value with the env override cleared.
+  const _prevMaxOut = process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS;
+  delete process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS;
+  try {
+    const sonnet5MaxTokens = _anthropicOAuthTest.resolveMaxTokens('claude-sonnet-5');
+    if (sonnet5MaxTokens !== 65536) {
+      throw new Error(`resolveMaxTokens('claude-sonnet-5') must be 65536 (catalog-capped or sonnet-5+ fallback), got ${sonnet5MaxTokens}`);
+    }
+    const sonnet46MaxTokens = _anthropicOAuthTest.resolveMaxTokens('claude-sonnet-4-6');
+    if (!(sonnet46MaxTokens >= 16384)) {
+      throw new Error(`resolveMaxTokens('claude-sonnet-4-6') must be >= 16384, got ${sonnet46MaxTokens}`);
+    }
+    process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS = 'garbage';
+    const garbageOverride = _anthropicOAuthTest.resolveMaxTokens('claude-sonnet-5');
+    if (garbageOverride !== 65536) {
+      throw new Error(`invalid MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS must be ignored (catalog/fallback path), got ${garbageOverride}`);
+    }
+    process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS = '32768';
+    const validOverride = _anthropicOAuthTest.resolveMaxTokens('claude-sonnet-5');
+    if (validOverride !== 32768) {
+      throw new Error(`valid MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS=32768 must win, got ${validOverride}`);
+    }
+  } finally {
+    if (_prevMaxOut === undefined) delete process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS;
+    else process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS = _prevMaxOut;
+  }
 }
 
 process.stdout.write(`tool smoke passed surface_chars=${surfaceSize}\n`);

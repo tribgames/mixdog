@@ -46,6 +46,7 @@ import {
     extractPdfText,
 } from './builtin/read-special-files.mjs';
 import { computeUnifiedDiff } from './builtin/diff-utils.mjs';
+import { tryExecuteExternalToolAdapter, isExternalAdapterTool } from './builtin/external-tool-adapters.mjs';
 import { formatToolStartProgress } from './progress-message.mjs';
 import { BUILTIN_TOOLS } from './builtin/builtin-tools.mjs';
 import { validateBuiltinArgs } from './builtin/arg-guard.mjs';
@@ -517,6 +518,10 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
         case 'hex':
             return executeHexTool(args, workDir, readStateScope, _readModeHelpers);
         default:
+            {
+                const adapted = await tryExecuteExternalToolAdapter(name, args, workDir, options);
+                if (adapted !== null) return adapted;
+            }
             return formatUnknownBuiltinToolMessage(name, args);
     }
     })();
@@ -530,6 +535,12 @@ export function isBuiltinTool(name) {
     const toolName = canonicalizeBuiltinToolName(name);
     return BUILTIN_TOOLS.some(t => t.name === toolName);
 }
+
+// Re-export so the session loop can route foreign-CLI tool names
+// (StrReplace/Write/bash variants) into executeBuiltinTool — whose default:
+// case runs the native adapter — instead of short-circuiting to the
+// unknown-tool redirect message at the dispatch layer.
+export { isExternalAdapterTool };
 
 // Test-only exports for smart truncation helpers (see
 // scripts/test-smart-truncation.mjs). Runtime callers inside this module

@@ -13,7 +13,7 @@ export const TOOL_DEFS = [
       type: 'object',
       properties: {
         action: { type: 'string', enum: ['core','manage','status','sleep','cycle1','cycle2','cycle3','flush','backfill','prune','rebuild','purge','retro_eval_active'], description: 'Operation.' },
-        op: { type: 'string', enum: ['add','edit','delete','list'], description: 'Mutation op.' },
+        op: { type: 'string', enum: ['add','edit','delete','list','candidates','promote','dismiss'], description: 'Mutation op. candidates/promote/dismiss drive core-memory proposal approval.' },
         id: { type: 'number', description: 'Exact memory id.' },
         element: { type: 'string', description: 'Memory key/title.' },
         summary: { type: 'string', description: 'Memory content.' },

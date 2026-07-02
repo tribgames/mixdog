@@ -610,17 +610,21 @@ function clampFailureCount(errorCount, groupCount, isError) {
 // Single source of truth for the tool-card dot (●) color. Both the aggregate
 // and normal (single-tool) render paths must call this with a resolved
 // `terminalStatus` — do not recompute color inline elsewhere.
-//   running/pending      -> mixdogOrange || warning (blink handled by caller)
-// success               -> theme.success
-//   partial failure       -> mixdogOrange (some, not all, of the group failed)
-//   all failed            -> theme.error
-//   cancelled             -> theme.warning
+//   running/pending  -> theme.text (white; blink handled by caller)
+//   success          -> theme.success
+//   partial failure  -> mixdogOrange || warning (some, not all, of the group failed)
+//   all failed       -> theme.error
+//   cancelled        -> theme.warning
+// Note: callers resolve terminalStatus to 'failed' whenever failedCount > 0
+// (they cannot tell partial from total failure), so a 'failed' status must
+// still fall through to the failedCount check below rather than short-circuit
+// to error — otherwise a mixed-success batch (e.g. 1 of 3 failed) renders as
+// full-failure red instead of partial orange.
 function toolStatusColor({ pending, groupCount, failedCount, terminalStatus = '' }) {
-  if (pending) return theme.mixdogOrange || theme.warning;
+  if (pending) return theme.text;
   const status = normalizeTerminalStatus(terminalStatus);
   if (status === 'cancelled') return theme.warning;
-  if (status === 'failed') return theme.error;
-  if (failedCount <= 0) return theme.success;
+  if (failedCount <= 0) return status === 'failed' ? theme.error : theme.success;
   if (groupCount > 1 && failedCount < groupCount) return theme.mixdogOrange || theme.warning;
   return theme.error;
 }

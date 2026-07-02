@@ -1,6 +1,6 @@
 import { classifyResultKind } from './result-classification.mjs';
 import { executeMcpTool, isMcpTool, mcpToolHasField } from '../mcp/client.mjs';
-import { canonicalizeBuiltinToolName, executeBuiltinTool, formatUnknownBuiltinToolMessage, isBuiltinTool } from '../tools/builtin.mjs';
+import { canonicalizeBuiltinToolName, executeBuiltinTool, formatUnknownBuiltinToolMessage, isBuiltinTool, isExternalAdapterTool } from '../tools/builtin.mjs';
 import { executeBashSessionTool } from '../tools/bash-session.mjs';
 import { executePatchTool, takeApplyPatchUiDiff } from '../tools/patch.mjs';
 import { executeInternalTool, isInternalTool } from '../internal-tools.mjs';
@@ -1237,6 +1237,12 @@ async function executeTool(name, args, cwd, callerSessionId, sessionRef, execute
     if (isBuiltinTool(name)) {
         // clientHostPid threaded for the same per-terminal job-scope reason as
         // the bash branch above (see resolveJobOwnerHostPid).
+        return executeBuiltinTool(name, args, cwd, completionToolOpts);
+    }
+    if (isExternalAdapterTool(name)) {
+        // Foreign-CLI tool names (StrReplace/Write/bash variants) adapt to a
+        // native execution inside executeBuiltinTool's default: case; on a
+        // shape mismatch it falls back to the redirect guidance message.
         return executeBuiltinTool(name, args, cwd, completionToolOpts);
     }
     return formatUnknownBuiltinToolMessage(name, args, 'tool');

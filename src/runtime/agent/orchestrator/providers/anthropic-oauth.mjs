@@ -393,11 +393,15 @@ const MAX_TOKENS = {
 // missing/zero catalog value never degenerates to an unusable cap.
 const MAX_TOKENS_FLOOR = 8192;
 const DEFAULT_SAFETY_CAP = 65536;
-function _resolveSafetyCap() {
+// Parse MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS strictly: only a finite positive
+// number is a valid override. Invalid values ("0", negatives, garbage,
+// whitespace) are treated as unset — NOT as "use the default cap outright" —
+// so resolveMaxTokens still consults catalog/fallback for low-cap models.
+function _envMaxOutputOverride() {
     const raw = process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS;
-    if (raw == null || raw === '') return DEFAULT_SAFETY_CAP;
+    if (raw == null || String(raw).trim() === '') return null;
     const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return DEFAULT_SAFETY_CAP;
+    if (!Number.isFinite(n) || n <= 0) return null;
     return Math.floor(n);
 }
 
@@ -444,8 +448,9 @@ function _fallbackMaxTokens(model) {
 //   3. Static MAX_TOKENS table / family heuristic fallback when the catalog
 //      has no entry for this model, also clamped to the safety cap.
 function resolveMaxTokens(model) {
-    const safetyCap = _resolveSafetyCap();
-    if (process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS) return safetyCap;
+    const envOverride = _envMaxOutputOverride();
+    if (envOverride != null) return envOverride;
+    const safetyCap = DEFAULT_SAFETY_CAP;
     const catalogValue = _catalogOutputTokens(model);
     if (catalogValue != null) {
         return Math.max(MAX_TOKENS_FLOOR, Math.min(catalogValue, safetyCap));

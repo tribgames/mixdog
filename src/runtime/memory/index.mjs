@@ -108,7 +108,7 @@ import { retrieveEntries } from './lib/memory-retrievers.mjs'
 import { pruneOldEntries } from './lib/memory-maintenance-store.mjs'
 import { computeEntryScore } from './lib/memory-score.mjs'
 import { runFullBackfill } from './lib/memory-ops-policy.mjs'
-import { listCore, addCore, editCore, deleteCore, compactCoreIds, CORE_SUMMARY_MAX } from './lib/core-memory-store.mjs'
+import { listCore, addCore, editCore, deleteCore, compactCoreIds, listCoreCandidates, promoteCoreCandidate, dismissCoreCandidate, CORE_SUMMARY_MAX } from './lib/core-memory-store.mjs'
 import { resolveProjectId, resolveProjectScope } from './lib/project-id-resolver.mjs'
 import { openTraceDatabase, closeTraceDatabase, insertTraceEvents, enqueueTraceEvents, insertAgentCalls, registerTraceExitDrain } from './lib/trace-store.mjs'
 import { updateJsonAtomicSync, writeJsonAtomicSync } from '../shared/atomic-file.mjs'
@@ -655,39 +655,31 @@ async function setCycleLastRun(kind, ts) {
 // Raw-row priority lookup for narrow-window queries. Raw rows (is_root=0,
 // chunk_root IS NULL) are inserted immediately by ingestTranscriptFile before
 // cycle1 runs, so they always carry the freshest turns in the DB.
-async function readRawRowsInWindow(db, tsFromMs, tsToMs, hardLimit = 10, { projectScope } = {}) {
+async function readRawRowsInWindow(db, tsFromMs, tsToMs, hardLimit = 10, { projectScope, sessionId } = {}) {
   try {
-    let sql, params
+    // Composable WHERE assembly (mirrors retrieveEntries' filter semantics so
+    // raw and chunked legs stay in filter parity: projectScope AND sessionId
+    // apply identically to both pools).
+    const where = ['chunk_root IS NULL', 'is_root = 0', 'ts >= $1', 'ts <= $2']
+    const params = [tsFromMs ?? 0, tsToMs ?? Date.now()]
     if (projectScope === 'common') {
-      sql = `SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
-              element, category, summary, status, score, last_seen_at, project_id
-       FROM entries
-       WHERE chunk_root IS NULL AND is_root = 0
-         AND ts >= $1 AND ts <= $2
-         AND project_id IS NULL
-       ORDER BY ts DESC
-       LIMIT $3`
-      params = [tsFromMs ?? 0, tsToMs ?? Date.now(), hardLimit]
+      where.push('project_id IS NULL')
     } else if (projectScope && projectScope !== 'all') {
-      sql = `SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
-              element, category, summary, status, score, last_seen_at, project_id
-       FROM entries
-       WHERE chunk_root IS NULL AND is_root = 0
-         AND ts >= $1 AND ts <= $2
-         AND (project_id IS NULL OR project_id = $3)
-       ORDER BY ts DESC
-       LIMIT $4`
-      params = [tsFromMs ?? 0, tsToMs ?? Date.now(), projectScope, hardLimit]
-    } else {
-      sql = `SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
-              element, category, summary, status, score, last_seen_at, project_id
-       FROM entries
-       WHERE chunk_root IS NULL AND is_root = 0
-         AND ts >= $1 AND ts <= $2
-       ORDER BY ts DESC
-       LIMIT $3`
-      params = [tsFromMs ?? 0, tsToMs ?? Date.now(), hardLimit]
+      params.push(projectScope)
+      where.push(`(project_id IS NULL OR project_id = $${params.length})`)
     }
+    const sid = String(sessionId || '').trim()
+    if (sid) {
+      params.push(sid)
+      where.push(`session_id = $${params.length}`)
+    }
+    params.push(hardLimit)
+    const sql = `SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
+              element, category, summary, status, score, last_seen_at, project_id
+       FROM entries
+       WHERE ${where.join(' AND ')}
+       ORDER BY ts DESC
+       LIMIT $${params.length}`
     const rows = (await db.query(sql, params)).rows
     return rows.map(r => ({ ...r, retrievalScore: 0, rrf: 0 }))
   } catch { return [] }
@@ -1864,9 +1856,11 @@ async function recallCoreRows(query, { projectScope, category, limit } = {}) {
 // (memory-cycle1.mjs:394) — other sessions' pending rows are left for the
 // periodic cycle1 sweep. Reuses recall-fasttrack's drainSessionCycle1
 // (session/compact.mjs:504) which loops cycle1 until raw rows hit 0 or a
-// no-progress pass. Safety limits: a 2,000-row hard cap (both in the pending
+// no-progress pass. Safety limits: a 500-row hard cap (both in the pending
 // pre-check and as the per-call cycle1 batch ceiling) and cooperative
 // abort-signal propagation through handleMemoryAction — no time budget.
+// Window 20 rows per classifier prompt × concurrency 5 (haiku — cost is
+// negligible; 500 rows ≈ 25 prompts ≈ 5 waves).
 //
 // Multi-terminal safety: the memory daemon is one shared instance across
 // terminals (active-instance.json memory_port). Concurrent recall(query)
@@ -1875,7 +1869,7 @@ async function recallCoreRows(query, { projectScope, category, limit } = {}) {
 // advisory-lock/coalesce guard in memory-cycle1.mjs still serializes actual
 // DB writes). A drain only gates recall for its OWN session — every other
 // terminal's recall (different session, or no session) proceeds unblocked.
-const RECALL_DRAIN_HARD_CAP_ROWS = 2000
+const RECALL_DRAIN_HARD_CAP_ROWS = 500
 async function _drainSessionForRecallQuery(sessionId, signal) {
   if (!sessionId || signal?.aborted) return
   const existing = _recallDrainInFlight.get(sessionId)
@@ -1897,7 +1891,7 @@ async function _drainSessionForRecallQuery(sessionId, signal) {
     action: 'dump_session_roots',
     sessionId,
     includeRaw: true,
-    limit: Math.min(RECALL_DRAIN_HARD_CAP_ROWS, Math.max(1000, pendingCount)),
+    limit: Math.min(RECALL_DRAIN_HARD_CAP_ROWS, Math.max(1, pendingCount)),
   }
   const drainPromise = (async () => {
     try {
@@ -1912,7 +1906,7 @@ async function _drainSessionForRecallQuery(sessionId, signal) {
           batch_size: RECALL_DRAIN_HARD_CAP_ROWS,
           rows_per_session: RECALL_DRAIN_HARD_CAP_ROWS,
           window_size: 20,
-          concurrency: 4,
+          concurrency: 5,
         },
       })
     } catch (err) {
@@ -2096,7 +2090,15 @@ async function handleSearch(args, signal) {
     offset = Math.min(RECALL_OFFSET_CAP, offset)
   }
   const recallCapPrefix = recallCapNotes.length ? `${recallCapNotes.join('; ')}\n` : ''
-  const sort = args.sort != null ? String(args.sort) : 'importance'
+  // Recent-browsing default: a query-less recall is a "show me the latest
+  // messages" browse, not a relevance search — chronological order is the
+  // only ordering that makes sense there, so sort defaults to 'date' when
+  // no query is present (explicit args.sort still wins). Query recalls keep
+  // the importance default.
+  const hasQueryForSort = Array.isArray(args.query)
+    ? args.query.some((v) => String(v || '').trim())
+    : String(args.query ?? '').trim() !== ''
+  const sort = args.sort != null ? String(args.sort) : (hasQueryForSort ? 'importance' : 'date')
   // Chunk content is the primary recall output. Members default to true so
   // callers receive the raw chunk leaves (the cycle1-produced semantic
   // chunks) rather than just the root's cycle2-compressed summary line.
@@ -2269,7 +2271,32 @@ async function handleSearch(args, signal) {
   if (!includeArchived) filters.excludeStatuses = ['archived']
   if (includeMembers) filters.includeMembers = true
   const rows = await retrieveEntries(db, filters)
-  const sliced = rows.slice(offset, offset + limit)
+  // Recent-browsing raw merge: a query-less recall must show the freshest
+  // turns even when cycle1 hasn't chunked them yet. Roots lag ingest by up
+  // to a cycle interval, so on sort=date pull the raw (unchunked) window
+  // too and merge chronologically — original text first, no summaries.
+  // Query-less + includeRaw:false callers keep the roots-only view.
+  let merged = rows
+  if (sort === 'date' && args.includeRaw !== false) {
+    const rawRows = await readRawRowsInWindow(
+      db,
+      temporal?.startMs ?? null,
+      temporal?.endMs ?? (filters.ts_to ?? Date.now()),
+      Math.min(500, Math.max(20, limit + offset)),
+      { projectScope },
+    )
+    const seenIds = new Set(rows.map(r => Number(r.id)))
+    // Drop raw leaves already inlined as some returned root's member.
+    for (const r of rows) {
+      if (Array.isArray(r.members)) for (const m of r.members) seenIds.add(Number(m.id))
+    }
+    const newRaw = rawRows.filter(r => !seenIds.has(Number(r.id)))
+    if (newRaw.length > 0) {
+      merged = [...rows, ...newRaw]
+      merged.sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0) || (Number(b.id) || 0) - (Number(a.id) || 0))
+    }
+  }
+  const sliced = merged.slice(offset, offset + limit)
   return { text: recallCapPrefix + renderEntryLines(sliced) }
 }
 
@@ -2313,7 +2340,10 @@ function renderEntryLines(rows) {
       const body = element || summary
         ? `${element}${summary ? ' — ' + summary : ''}`
         : cleanMemoryText(String(r.content ?? '')).slice(0, 1000)
-      lines.push(`[${ts}] ${rolePrefix}${body.slice(0, 1000)} #${r.id}`)
+      // Unchunked raw leaf (cycle1 hasn't classified it yet): mark it so
+      // callers can tell fresh-but-unprocessed rows from chunked memory.
+      const pendingMark = (r.is_root === 0 && r.chunk_root == null) ? ' [pending]' : ''
+      lines.push(`[${ts}] ${rolePrefix}${body.slice(0, 1000)}${pendingMark} #${r.id}`)
     }
   }
   if (_capped) lines.push(`[recall truncated — showing first ${RECALL_LINE_CAP} lines; narrow the query (limit/period/projectScope) for the rest]`)
@@ -2951,11 +2981,38 @@ async function handleMemoryAction(args, signal) {
 
   if (action === 'core') {
     const op = String(args.op ?? '').trim().toLowerCase()
-    if (!['add', 'edit', 'delete', 'list'].includes(op)) {
-      return { text: 'core requires op: "add" | "edit" | "delete" | "list"', isError: true }
+    if (!['add', 'edit', 'delete', 'list', 'candidates', 'promote', 'dismiss'].includes(op)) {
+      return { text: 'core requires op: "add" | "edit" | "delete" | "list" | "candidates" | "promote" | "dismiss"', isError: true }
     }
     const dataDir = (typeof DATA_DIR === 'string' ? DATA_DIR : resolvePluginData())
     if (!dataDir) return { text: 'core: memory data dir is not initialized', isError: true }
+    // Core-candidate promotion pipeline (proposal mode). These ops operate on
+    // the generated `entries` pool (the candidate flag lives there), not on a
+    // project-scoped core pool, so they run before the project_id normalization
+    // below. UI scope calls exactly these op names.
+    if (op === 'candidates' || op === 'promote' || op === 'dismiss') {
+      try {
+        if (op === 'candidates') {
+          const list = await listCoreCandidates(dataDir)
+          if (list.length === 0) return { text: 'core candidates: none' }
+          return {
+            text: list.map(c =>
+              `id=${c.id} [${c.category}] score=${c.score == null ? '-' : c.score.toFixed(2)} ${c.element} — ${String(c.summary || '').slice(0, 200)} (${c.reason})`,
+            ).join('\n'),
+          }
+        }
+        if (op === 'promote') {
+          const entry = await promoteCoreCandidate(dataDir, args.id, args)
+          const mergeNote = entry.merged_with ? ` (merged into core id=${entry.merged_with}, sim=${entry.sim})` : ''
+          return { text: `core promoted candidate id=${args.id} → core id=${entry.id}${mergeNote}: [${entry.category}] ${entry.element}` }
+        }
+        // dismiss
+        const removed = await dismissCoreCandidate(dataDir, args.id)
+        return { text: `core candidate dismissed (id=${removed.id}): [${removed.category}] ${removed.element}` }
+      } catch (e) {
+        return { text: `core ${op} failed: ${e.message}`, isError: true }
+      }
+    }
     // Local trim helper — the manage-block trimOrNull at :1807 is scoped to
     // that branch and unreachable from here.
     // Normalize project_id: 'common' (case-insensitive) or null → null (COMMON pool); non-empty string → slug.

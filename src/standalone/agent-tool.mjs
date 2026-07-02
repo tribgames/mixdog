@@ -14,7 +14,7 @@ import {
   taskIdFromArgs,
 } from '../runtime/shared/background-tasks.mjs';
 import { modelVisibleToolCompletionMessage } from '../runtime/shared/tool-execution-contract.mjs';
-import { presentErrorText } from '../runtime/shared/err-text.mjs';
+import { presentErrorText, errorLine } from '../runtime/shared/err-text.mjs';
 import { updateJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import {
   normalizeAgentPermission,
@@ -135,7 +135,11 @@ function envTimeoutMs(name, fallback) {
 // Grace window during which a terminated/idle worker row is kept around so the
 // same terminal can re-use (or cleanly re-spawn) the same tag. Cached as a
 // constant like the other timeouts; override with MIXDOG_AGENT_TERMINAL_REAP_MS.
-const TERMINAL_REAP_MS = envTimeoutMs('MIXDOG_AGENT_TERMINAL_REAP_MS', 60 * 60_000);
+// 5m (was 1h): aligned with the BP4 message-tail cache TTL — past 5m the
+// session's prompt cache is cold anyway, so same-tag reuse pays a full prefix
+// rewrite; a fresh respawn (send dead-tag fallback) starts smaller and cheaper.
+// Trace replay (2026-07): agent tail cost 1h 1.77M -> 5m 1.11M (-37%).
+const TERMINAL_REAP_MS = envTimeoutMs('MIXDOG_AGENT_TERMINAL_REAP_MS', 5 * 60_000);
 // Independent hard cap for the spawn *prep* phase (ensureProvider /
 // prepareAgentSession / catalog+rules load). Kept separate from the
 // first-response watchdog so prep cannot hang a whole fanout before the model
@@ -1246,6 +1250,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       tag: meta.tag || null,
       sessionId: meta.sessionId || null,
       agent: meta.agent || null,
+      ...(meta.respawned === true ? { respawned: true, note: 'previous session reaped — fresh session, no prior context; re-supply anchors if needed' } : {}),
       preset: meta.preset || null,
       provider: meta.provider || null,
       model: meta.model || null,
@@ -1710,7 +1715,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         try {
           reconcileBackgroundTask(job.taskId, {
             status: 'failed',
-            error: presentErrorText(error, { surface: 'agent' }),
+            error,
             terminalReason: 'agent-stream-stalled',
           });
         } catch {}
@@ -1836,7 +1841,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         try {
           reconcileBackgroundTask(job.taskId, {
             status: 'failed',
-            error: presentErrorText(error, { surface: 'agent' }),
+            error,
             terminalReason: 'agent-stream-stalled',
           });
         } catch {}
@@ -1996,8 +2001,32 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       if (type === 'cancel') return renderResult(close(args, scopedContext));
       if (type === 'close') return renderResult(close(args, scopedContext));
       if (type === 'send') {
-        const prepared = await prepareSend(args, scopedContext);
-        return dispatchToExistingSession(prepared, notifyContext);
+        try {
+          const prepared = await prepareSend(args, scopedContext);
+          return dispatchToExistingSession(prepared, notifyContext);
+        } catch (err) {
+          // Reaped/dead-tag fallback: with the 5m terminal-reap window a
+          // same-scope follow-up often lands after the session is gone.
+          // Instead of bouncing an error back to Lead (who would just
+          // re-issue the same content as a spawn), respawn a FRESH session
+          // under the same tag with the message as its brief. `respawned:
+          // true` in the result tells Lead the worker has no prior session
+          // context — re-supply anchors on the next send if needed.
+          // Only tag-addressed sends fall back; explicit sessionId sends
+          // keep erroring (caller pinned a specific session on purpose).
+          const fallbackTag = clean(args.tag);
+          const isDeadTarget = /not found|is closed/i.test(String(err?.message || ''));
+          if (!fallbackTag || fallbackTag.startsWith('sess_') || !isDeadTarget) throw err;
+          const prompt = clean(args.message || args.prompt);
+          if (!prompt) throw err;
+          // Clear the terminal trace so the fresh spawn isn't rejected by
+          // the lingering-trace guard, then run the normal deferred spawn.
+          try { forgetTag(fallbackTag); } catch {}
+          try { removeWorkerRow({ tag: fallbackTag }); } catch {}
+          const spawnArgs = { ...args, type: 'spawn', tag: fallbackTag, prompt, message: undefined };
+          const job = startDeferredSpawnJob(spawnArgs, callerCwd, context, notifyContext, { respawned: true });
+          return renderResult(renderJob(job, false));
+        }
       }
       if (type === 'spawn') {
         // Explicit-tag spawn priority (auto nextTag always creates a fresh session):

@@ -11,6 +11,7 @@ import { getPluginData } from '../config.mjs';
 import { ensureGraphBinary, findCachedGraphBinary } from './graph-binary-fetcher.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from './code-graph-tool-defs.mjs';
+import { findFileByBasename } from './builtin/path-diagnostics.mjs';
 import { acquire as acquireChildSpawnSlot } from '../../../shared/child-spawn-gate.mjs';
 import { markScopedCacheIncomplete } from '../session/cache/scoped-cache-outcome.mjs';
 import {
@@ -1055,6 +1056,28 @@ function _extractExplainerAnchorLines(node, graph, { limit = 50, maxLineChars = 
 
 function _graphRel(absPath, cwd) {
   return toDisplayPath(absPath, cwd);
+}
+
+// When a "file not found in graph" error fires, the model often hallucinated
+// a plausible-looking path (e.g. src/runtime/agent/loop.mjs) that shares its
+// basename with a real, differently-located file already in the graph. Scan
+// the in-memory graph.nodes keys (no filesystem access) for a case-insensitive
+// basename match and append a recovery hint so the next call can self-correct
+// in one turn instead of a blind re-grep.
+function _appendSameBasenameHint(message, normFile, graph) {
+  const raw = String(normFile || '');
+  const base = raw.replace(/\\/g, '/').split('/').pop();
+  if (!base || !graph?.nodes) return message;
+  const baseLower = base.toLowerCase();
+  const matches = [];
+  for (const key of graph.nodes.keys()) {
+    if (key.split('/').pop().toLowerCase() === baseLower) {
+      matches.push(key);
+      if (matches.length >= 5) break;
+    }
+  }
+  if (!matches.length) return message;
+  return `${message} Same filename exists in graph at: ${matches.map((m) => `"${m}"`).join(', ')}. Use that path.`;
 }
 
 
@@ -3691,7 +3714,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
   const node = rel ? graph.nodes.get(rel) : null;
 
   if (mode === 'overview') {
-    if (rel && !node) return `Error: code_graph overview: file not found in graph: ${normFile}`;
+    if (rel && !node) return _appendSameBasenameHint(`Error: code_graph overview: file not found in graph: ${normFile}`, normFile, graph);
     if (node) return _buildExplainerFileSummary(node, graph, cwd);
     const byLang = new Map();
     for (const node of graph.nodes.values()) {
@@ -3711,7 +3734,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
   }
 
   if (mode === 'imports') {
-    if (!node) return `Error: code_graph imports: file not found in graph: ${normFile || '(missing file)'}`;
+    if (!node) return _appendSameBasenameHint(`Error: code_graph imports: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
     const GRAPH_LIST_CAP = 200;
     const resolvedAll = node.resolvedImports.map((p) => _graphRel(p, cwd));
     const rawAll = node.rawImports;
@@ -3733,7 +3756,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     // "(no dependents)" — indistinguishable from a real zero-dependent
     // file and a frequent source of "graph says nothing depends on X"
     // false negatives.
-    if (!node) return `Error: code_graph dependents: file not found in graph: ${normFile || '(missing file)'}`;
+    if (!node) return _appendSameBasenameHint(`Error: code_graph dependents: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
     const GRAPH_LIST_CAP = 200;
     const depsAll = [...(graph.reverse.get(rel) || [])].sort();
     if (!depsAll.length) return '(no dependents)';
@@ -3770,12 +3793,12 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
   }
 
   if (mode === 'related') {
-    if (!node) return `Error: code_graph related: file not found in graph: ${normFile || '(missing file)'}`;
+    if (!node) return _appendSameBasenameHint(`Error: code_graph related: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
     return _formatRelated(node, graph, cwd);
   }
 
   if (mode === 'impact') {
-    if (!node) return `Error: code_graph impact: file not found in graph: ${normFile || '(missing file)'}`;
+    if (!node) return _appendSameBasenameHint(`Error: code_graph impact: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
     const targetSymbol = String(args?.symbol || '').trim();
     return _formatImpact(node, graph, cwd, targetSymbol);
   }
@@ -3790,7 +3813,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     const symbol = String(args?.symbol || '').trim();
     if (!symbol) throw new Error('code_graph callees: "symbol" is required.');
     const explicitLanguage = String(args?.language || '').trim() || null;
-    if (rel && !node) return `Error: code_graph callees: file not found in graph: ${normFile || '(missing file)'}`;
+    if (rel && !node) return _appendSameBasenameHint(`Error: code_graph callees: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
     const allHits = _findSymbolHits(graph, symbol, { language: explicitLanguage });
     const hits = rel ? allHits.filter((h) => h.rel === rel) : allHits;
     const declHit = hits.find((h) => h.declarationLike) || hits[0];
@@ -3813,7 +3836,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
   }
 
   if (mode === 'symbols') {
-    if (!node) return `Error: code_graph symbols: file not found in graph: ${normFile || '(missing file)'}`;
+    if (!node) return _appendSameBasenameHint(`Error: code_graph symbols: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
     let text = '';
     try { text = readFileSync(node.abs, 'utf8'); } catch { return '(no symbols)'; }
     return _extractSymbolsCheap(text, node.lang);
@@ -3827,7 +3850,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     // SCOPE ISOLATION: if caller narrowed by `file`, validate it's indexed
     // then restrict hits to that file only (drop same-named symbols in
     // unrelated files).
-    if (rel && !node) return `Error: code_graph find_symbol: file not found in graph: ${normFile || '(missing file)'}`;
+    if (rel && !node) return _appendSameBasenameHint(`Error: code_graph find_symbol: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
     return _findSymbolAcrossGraph(graph, symbol, cwd, { language, limit, fileRel: rel, body: args?.body !== false });
   }
 
@@ -3858,7 +3881,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     // narrowed by file, but the message lets the caller pick the right
     // recovery (fix the path vs. drop the file filter / widen the search).
     if (rel && resolved.kind === 'file-not-found') {
-      return `Error: code_graph references: file not found in graph: ${normFile || '(missing file)'}`;
+      return _appendSameBasenameHint(`Error: code_graph references: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
     }
     if (rel && resolved.kind === 'symbol-not-present') {
       return `Error: code_graph references: symbol "${symbol}" not found in ${normFile || rel}`;
@@ -3907,7 +3930,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     const narrowedByCaller = Boolean(rel || scopeRelPrefix || explicitLanguage);
     const resolved = _resolveReferenceLanguageNode(graph, symbol, rel, cwd, explicitLanguage);
     if (rel && resolved.kind === 'file-not-found') {
-      return `Error: code_graph callers: file not found in graph: ${normFile || '(missing file)'}`;
+      return _appendSameBasenameHint(`Error: code_graph callers: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
     }
     if (rel && resolved.kind === 'symbol-not-present') {
       return `Error: code_graph callers: symbol "${symbol}" not found in ${normFile || rel}`;
@@ -3975,7 +3998,7 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
   const abs = normFile ? (isAbsolute(normFile) ? pathResolve(normFile) : pathResolve(cwd, normFile)) : null;
   const fileRel = abs ? _graphRel(abs, cwd) : null;
   if (fileRel && !graph.nodes.get(fileRel)) {
-    return `Error: find_symbol: file not found in graph: ${normFile}`;
+    return _appendSameBasenameHint(`Error: find_symbol: file not found in graph: ${normFile}`, normFile, graph);
   }
   // FILE-OVERVIEW MODE: `symbol` omitted but `file` given → list that file's
   // symbols (mirrors the dispatcher's `symbols` mode). The tool spec allows
@@ -4176,7 +4199,15 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
   if (fileArg) {
     const abs = isAbsolute(fileArg) ? pathResolve(fileArg) : pathResolve(baseCwd, fileArg);
     if (!existsSync(abs)) {
-      return `Error: ${name}: file not found: ${fileArg}`;
+      // Same right-name / wrong-directory recovery the read path provides
+      // (read-single-tool.mjs): most misses here are hallucinated-but-plausible
+      // paths whose basename exists elsewhere in the repo. Name the real
+      // location(s) so the next call self-corrects in one turn.
+      const elsewhere = findFileByBasename(pathResolve(baseCwd), abs);
+      const hint = elsewhere.length
+        ? ` Same filename exists at: ${elsewhere.map((p) => `"${toDisplayPath(p, baseCwd).replace(/\\/g, '/')}"`).join(', ')}. Use that path.`
+        : '';
+      return `Error: ${name}: file not found: ${fileArg}${hint}`;
     }
     let fileArgIsDirectory = false;
     try { fileArgIsDirectory = statSync(abs).isDirectory(); } catch { fileArgIsDirectory = false; }

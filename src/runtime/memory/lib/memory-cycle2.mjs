@@ -12,7 +12,7 @@ import { callAgentDispatch } from './agent-ipc.mjs'
 import {
   syncRootEmbedding, deleteRootEmbedding, flushEmbeddingDirty,
 } from './memory-embed.mjs'
-import { listCore, backfillCoreEmbeddings, CORE_SUMMARY_MAX } from './core-memory-store.mjs'
+import { listCore, backfillCoreEmbeddings, nominateCoreCandidates, CORE_SUMMARY_MAX } from './core-memory-store.mjs'
 import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
 
 export const CYCLE2_ACTIVE_TARGET_CAP = 100
@@ -865,6 +865,7 @@ function mergeCycle2Results(a, b) {
     merge_rejected: Number(a.merge_rejected || 0) + Number(b.merge_rejected || 0),
     missing_core_summary: Number(a.missing_core_summary || 0) + Number(b.missing_core_summary || 0),
     core_embedding_backfill: Number(a.core_embedding_backfill || 0) + Number(b.core_embedding_backfill || 0),
+    core_candidates_nominated: Number(a.core_candidates_nominated || 0) + Number(b.core_candidates_nominated || 0),
     rescore: mergeNestedNumeric(a.rescore, b.rescore),
     phase_merge: mergeNestedNumeric(a.phase_merge, b.phase_merge),
     cascade: mergeNestedNumeric(a.cascade, b.cascade),
@@ -1007,6 +1008,7 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
     merge_rejected: 0,
     missing_core_summary: 0,
     core_embedding_backfill: 0,
+    core_candidates_nominated: 0,
     rescore: { updated: 0 },
     phase_merge: { merged: 0, llm_calls: 0, tier1_pairs: 0, tier2_pairs: 0, core_overlap: 0 },
     cascade: { evaluated: 0, dropped: 0 },
@@ -1360,6 +1362,23 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
   throwIfAborted(signal)
   stats.phase_merge = phaseMergeStats
 
+  // Core-candidate nomination (proposal mode): flag strong durable active
+  // roots as core-memory candidates for user approval. Runs AFTER phase_merge
+  // so its core_overlap sweep has already archived active entries that restate
+  // an existing core row — nomination never re-surfaces those. NEVER
+  // auto-inserts into core_entries; the user promotes via action:'core'
+  // op:'promote'. Best-effort: a failure here must not fail the cycle.
+  if (dataDir) {
+    try {
+      throwIfAborted(signal)
+      stats.core_candidates_nominated = await nominateCoreCandidates(dataDir, { signal })
+      throwIfAborted(signal)
+    } catch (err) {
+      if (signal?.aborted) throw signal.reason ?? err
+      __mixdogMemoryLog(`[cycle2] core-candidate nomination failed: ${err.message}\n`)
+    }
+  }
+
   // Active-cap enforcement is delegated to the gate (phases 1-3): the prompt
   // exposes Active/cap counts and instructs aggressive `archived` verdicts on
   // overflow. No deterministic safety net here — if the gate ever fails to
@@ -1375,7 +1394,8 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
     ` missing_core=${stats.missing_core_summary}` +
     ` | cascade eval=${stats.cascade.evaluated} drop=${stats.cascade.dropped}` +
     ` | phase_merge merged=${stats.phase_merge.merged} core_overlap=${stats.phase_merge.core_overlap || 0}` +
-    ` llm=${stats.phase_merge.llm_calls}\n`,
+    ` llm=${stats.phase_merge.llm_calls}` +
+    ` | core_candidates=${stats.core_candidates_nominated || 0}\n`,
   )
 
   return stats

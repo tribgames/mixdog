@@ -1,5 +1,5 @@
-import { readdirSync } from 'fs';
-import { basename, dirname, extname, isAbsolute, join, relative } from 'path';
+import { readdirSync, statSync } from 'fs';
+import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'path';
 import { homedir } from 'os';
 import { resolvePluginData, mixdogRoot } from '../../../../shared/plugin-paths.mjs';
 
@@ -78,6 +78,46 @@ export function findFileByBasename(searchRoot, fullPath, { limit = 3, maxDirs = 
         }
         return matches;
     } catch { return []; }
+}
+
+// Recover a hallucinated absolute-path PREFIX: models frequently request
+// paths like /Users/foo/Local/Project/ink/src/tui/input-editing.mjs where the
+// TAIL (src/tui/input-editing.mjs) is the real repo-relative path but the
+// leading segments are an invented (or wrong-machine) prefix. findFileByBasename
+// only matches the final basename and walks the whole tree (skipping vendor/
+// noise dirs for performance); this instead peels leading segments off the
+// requested path one at a time and stats the remaining tail directly against
+// searchRoot — no directory walk, no skip-dir filtering, so it finds files
+// under vendor/ or any other normally-skipped directory. Min tail length is 2
+// segments so a bare basename (which would match almost anything) never
+// counts as a hit. Capped iterations; pure best-effort, never throws.
+export function findBySuffixStrip(searchRoot, fullPath, { maxIterations = 12 } = {}) {
+    try {
+        if (typeof searchRoot !== 'string' || !searchRoot) return null;
+        if (typeof fullPath !== 'string' || !fullPath) return null;
+        // Containment guard: drop `.`/`..` and drive/UNC-ish segments outright.
+        // Tails are joined under searchRoot; a `..` segment could stat (and
+        // hint) outside the repo, so no relative-traversal token may survive.
+        const segments = fullPath.replace(/\\/g, '/').split('/')
+            .filter((s) => s && s !== '.' && s !== '..' && !/^[A-Za-z]:$/.test(s));
+        // Peel 0..N leading segments; each peel costs one stat. maxIterations
+        // bounds the number of stats (strict <), and tails shorter than 2
+        // segments never count as a hit.
+        const iterations = Math.min(Math.max(segments.length - 1, 0), Math.max(maxIterations, 0));
+        for (let i = 0; i < iterations; i++) {
+            const tail = segments.slice(i);
+            if (tail.length < 2) break;
+            const candidate = join(searchRoot, ...tail);
+            const rel = relative(searchRoot, candidate);
+            if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue;
+            try {
+                if (statSync(candidate).isFile()) {
+                    return rel.replace(/\\/g, '/');
+                }
+            } catch { /* miss this tail length, keep peeling */ }
+        }
+        return null;
+    } catch { return null; }
 }
 
 // Node's native fs errors embed the failing path wrapped in single quotes

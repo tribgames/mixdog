@@ -3,7 +3,7 @@ import * as fsPromises from 'fs/promises';
 import { readFile } from 'fs/promises';
 import { extname } from 'path';
 import { normalizeInputPath } from './path-utils.mjs';
-import { findFileByBasename } from './path-diagnostics.mjs';
+import { findFileByBasename, findBySuffixStrip } from './path-diagnostics.mjs';
 import { getReadSnapshot } from './read-snapshot-runtime.mjs';
 import { snapshotCoversFullFile, statMatchesSnapshot } from './snapshot-helpers.mjs';
 import { formatBinaryReadPreview } from './binary-file.mjs';
@@ -209,9 +209,16 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         // path(s) directly — the route a model would otherwise reconstruct with
         // a grep/glob storm.
         if (!similar) {
-            const elsewhere = findFileByBasename(workDir, fullPath);
-            if (elsewhere.length) {
-                hint = ` Not found at this path; the same filename exists at: ${elsewhere.map((p) => `"${normalizeOutputPath(p)}"`).join(', ')}. Read that path directly.`;
+            // Hallucinated absolute-prefix recovery first: no directory walk,
+            // stats directly (finds vendor/ paths the basename BFS skips).
+            const suffixHit = findBySuffixStrip(workDir, fullPath);
+            if (suffixHit) {
+                hint = ` Not found at this path; the same filename exists at: "${normalizeOutputPath(suffixHit)}". Read that path directly.`;
+            } else {
+                const elsewhere = findFileByBasename(workDir, fullPath);
+                if (elsewhere.length) {
+                    hint = ` Not found at this path; the same filename exists at: ${elsewhere.map((p) => `"${normalizeOutputPath(p)}"`).join(', ')}. Read that path directly.`;
+                }
             }
         }
         const _rawMsg = err instanceof Error ? err.message : String(err);

@@ -1,6 +1,7 @@
 import { statSync } from 'fs';
 import { isAbsolute, resolve } from 'path';
 import { trueCasePath } from './path-utils.mjs';
+import { findBySuffixStrip } from './path-diagnostics.mjs';
 import {
     canonicalizeGlobSlashes,
     coerceShapeFlex,
@@ -478,6 +479,10 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     try { grepStat = statSync(grepResolvedPath); }
     catch (err) {
         const msg = `Error: path does not exist: ${normalizeOutputPath(grepResolvedPath)} (${err?.code || 'ENOENT'})`;
+        const suffixHit = findBySuffixStrip(workDir, grepResolvedPath);
+        if (suffixHit) {
+            return msg + ` Not found at this path; the same filename exists at: "${normalizeOutputPath(suffixHit)}". Search that path directly.`;
+        }
         return msg + await _suggestIndexedPaths(grepResolvedPath, executeChildBuiltinTool, workDir);
     }
     const filenameOmitted = grepStat.isFile();

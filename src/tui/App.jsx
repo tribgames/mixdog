@@ -89,6 +89,12 @@ const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
 const MOUSE_MODIFIER_MASK = 4 | 8 | 16;
 const MOUSE_CTRL_MASK = 16;
+// Bit 2 (4) of the SGR button byte = shift held during the click. Wheel/ctrl
+// masking above intentionally strips it for scroll routing; button-press
+// handling below reads it separately (before baseButton = button & 3 drops
+// every modifier bit) so a shift-held left-click can extend an existing
+// selection instead of starting a fresh one.
+const MOUSE_SHIFT_MASK = 4;
 // SEARCH_DEFAULT marker — mirrors backend SEARCH_DEFAULT_PROVIDER/MODEL
 // (mixdog-session-runtime.mjs 1167-1168). A search route of {provider:'default',
 // model:'default'} means "follow the Main Model" at runtime (nativeSearchRoutes).
@@ -115,6 +121,7 @@ const SLASH_COMMANDS = [
   { name: 'fast', usage: '/fast', params: '[on|off]', description: 'Toggle Fast mode for the current model' },
   { name: 'mcp', usage: '/mcp', description: 'Manage MCP servers and tools' },
   { name: 'skills', usage: '/skills', description: 'Choose a skill for the next request' },
+  { name: 'memory', usage: '/memory', description: 'Memory status, core memories, cycles' },
   { name: 'plugins', usage: '/plugins', description: 'Manage local plugin integrations' },
   { name: 'hooks', usage: '/hooks', description: 'Manage before-tool hook rules and events' },
   { name: 'providers', usage: '/providers', description: 'Manage auth, API keys, OAuth, and local endpoints' },
@@ -404,17 +411,21 @@ function parseMemoryStatusRows(text) {
 }
 
 function parseMemoryCoreRows(text) {
+  let currentProjectId = null;
   return String(text || '')
     .split('\n')
     .filter((line) => line.trim())
     .map((line, index) => {
       const raw = line.trim();
       if (raw.endsWith(':') && !raw.includes('id=')) {
+        const label = raw.slice(0, -1);
+        currentProjectId = label === 'COMMON' ? null : label;
         return {
           value: `core-group-${index}`,
-          label: raw.slice(0, -1),
+          label,
           description: 'core memory pool',
           _line: raw,
+          _group: true,
         };
       }
       const match = raw.match(/^id=(\d+)\s+\[([^\]]*)\]\s+(.+?)(?:\s+—\s+(.+))?$/);
@@ -423,12 +434,46 @@ function parseMemoryCoreRows(text) {
         return {
           value: `core-${id}`,
           label: `#${id} [${category}] ${element}`,
+          meta: currentProjectId || 'common',
           description: summary,
           _line: raw,
+          _action: 'core-entry',
+          _id: Number(id),
+          _category: category,
+          _element: element,
+          _summary: summary,
+          _projectId: currentProjectId,
         };
       }
       return {
         value: `core-${index}`,
+        label: raw,
+        description: '',
+        _line: raw,
+      };
+    });
+}
+
+function parseMemoryCandidateRows(text) {
+  return String(text || '')
+    .split('\n')
+    .filter((line) => line.trim())
+    .map((line, index) => {
+      const raw = line.trim();
+      const match = raw.match(/^id=(\d+)\s+\[([^\]]*)\]\s+(.+?)(?:\s+—\s+(.+))?$/);
+      if (match) {
+        const [, id, category, element, summary = ''] = match;
+        return {
+          value: `candidate-${id}`,
+          label: `#${id} [${category}] ${element}`,
+          description: summary,
+          _line: raw,
+          _action: 'candidate-entry',
+          _id: Number(id),
+        };
+      }
+      return {
+        value: `candidate-${index}`,
         label: raw,
         description: '',
         _line: raw,
@@ -2388,6 +2433,19 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     return Math.max(0, frameColumns - 1);
   }, [store, frameColumns]);
 
+  // Synchronous predicate: is a transcript/status ink-grid selection live? Used
+  // both by App (to consume Shift+Arrow even when focus clamps at an edge) and
+  // by PromptInput (via prop) to gate its own Shift+Arrow at event time — a flag
+  // set inside App's parent handler would be one event stale (parent handler
+  // runs AFTER the child prompt handler for the same key).
+  const gridSelectionActiveRef = useRef(() => {
+    const drag = dragRef.current;
+    if (!drag || drag.active) return false;
+    if (drag.region !== 'transcript' && drag.region !== 'status') return false;
+    const rect = drag.rect;
+    return Boolean(rect) && !(rect.x1 === rect.x2 && rect.y1 === rect.y2);
+  });
+
   const moveSelectionFocus = useCallback((move) => {
     const drag = dragRef.current;
     if (drag.active) return false;
@@ -2641,8 +2699,14 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       if (!r || !ctl) return null;
       const top = Math.max(0, Number(r.top) || 0);
       const left = Math.max(0, Number(r.left) || 0);
-      const row = Math.max(0, y - top);
-      const col = Math.max(0, x - left);
+      const height = Math.max(1, Number(r.height) || 1);
+      const width = Math.max(1, Number(r.contentWidth) || 1);
+      // Clamp the mapped row/col to the box's own bounds so a drag that runs
+      // outside the prompt (above/below/left/right, e.g. onto the transcript
+      // or off-screen) still tracks the nearest edge cell instead of jumping
+      // to whatever offset a raw negative/overflowing row would resolve to.
+      const row = Math.max(0, Math.min(height - 1, y - top));
+      const col = Math.max(0, Math.min(width, x - left));
       return ctl.offsetAtCell(row, col);
     };
     // Clear whichever selection is active (ink-grid rect AND/OR prompt engine).
@@ -2678,19 +2742,60 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         // Low 2 bits = button id; bit 5 (32) = motion-while-pressed flag.
         const baseButton = button & 3;
         const isMotion = (button & 32) !== 0;
+        // Shift bit must be read BEFORE baseButton drops every modifier bit
+        // (button & 3); MOUSE_MODIFIER_MASK above is scroll-routing-only and
+        // deliberately treats shift as noise there.
+        const shiftHeld = (button & MOUSE_SHIFT_MASK) !== 0;
         if (baseButton === 0 && press && !isMotion) {
           // Region router: a press decides which surface owns this selection.
           // Prompt box takes priority (it overlaps no transcript rows), then the
           // transcript viewport, then the bottom statusline band. A press
           // anywhere else clears any prior selection (plain click).
           if (isInPromptBox(x, y)) {
-            lastClickRef.current = { x: -1, y: -1, t: 0 };
             // Clear any ink-grid selection so only one highlight is ever visible.
             applySelectionRect(null);
             const offset = promptOffsetAt(x, y);
             stopSmoothScroll();
             dragRef.current = { anchor: { x, y }, anchorScroll: 0, last: { x, y }, active: true, rect: null, region: 'prompt', anchorSpan: null };
-            if (offset != null) promptMouseSelectionRef.current?.anchorAt?.(offset);
+            const ctl = promptMouseSelectionRef.current;
+            // Shift+click extends the EXISTING prompt selection (anchor stays
+            // put, cursor jumps to the click) instead of starting a fresh
+            // zero-width anchor at the click point.
+            if (shiftHeld && ctl?.hasSelection?.()) {
+              if (offset != null) ctl.extendTo?.(offset, true);
+              lastClickRef.current = { x: -1, y: -1, t: 0 };
+              continue;
+            }
+            // Multi-click word/line select (double = word, triple = line),
+            // same "qualifying press" window/drift tolerance used by the
+            // transcript/status path below. Reuses lastClickRef so a rapid
+            // double/triple click on the prompt box behaves the same as one on
+            // the transcript. A qualifying press advances the count; anything
+            // else (moved too far, too slow, or count already at 3) resets to
+            // a fresh single-click anchor.
+            const nowPrompt = Date.now();
+            const lcPrompt = lastClickRef.current;
+            const qualifiesPrompt = (nowPrompt - lcPrompt.t) < 500
+              && Math.abs(lcPrompt.y - y) <= 1
+              && Math.abs(lcPrompt.x - x) <= 2;
+            let promptClickCount = qualifiesPrompt ? (lcPrompt.count || 1) + 1 : 1;
+            if (promptClickCount > 3) promptClickCount = 1;
+            if ((promptClickCount === 2 || promptClickCount === 3) && offset != null) {
+              if (promptClickCount === 2) ctl?.selectWordAt?.(offset);
+              else ctl?.selectLineAt?.(offset);
+              // Click-select is already final (selectWordAt/selectLineAt set the
+              // full word/line range). Mark the drag inactive so a subsequent
+              // release does NOT fall into the generic prompt release handler
+              // below, which calls extendTo(releaseOffset) and would collapse
+              // this selection back down to anchor→releaseOffset (or empty on a
+              // no-motion release, since anchor was never re-anchored here).
+              dragRef.current.active = false;
+              lastClickRef.current = { x, y, t: nowPrompt, count: promptClickCount };
+              continue;
+            } else if (offset != null) {
+              ctl?.anchorAt?.(offset);
+            }
+            lastClickRef.current = { x, y, t: nowPrompt, count: 1 };
             continue;
           }
           const inTranscript = isInTranscriptViewport(y);
@@ -2706,6 +2811,37 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           const region = inTranscript ? 'transcript' : 'status';
           // A press always clears the prompt-box selection (single active region).
           promptMouseSelectionRef.current?.clear?.();
+          const now = Date.now();
+          // Shift+click extends the existing ink-grid selection in this SAME
+          // region from its original anchor to the new click point, instead of
+          // starting a fresh anchor here. Only applies to a plain char-drag
+          // selection (no anchorSpan) with a live non-empty rect; a word/line
+          // anchorSpan or an empty/absent selection falls through to a normal
+          // fresh press below.
+          if (
+            shiftHeld
+            && dragRef.current.region === region
+            && !dragRef.current.anchorSpan
+            && dragRef.current.anchor
+            && dragRef.current.rect
+            && !(dragRef.current.rect.x1 === dragRef.current.rect.x2 && dragRef.current.rect.y1 === dragRef.current.rect.y2)
+          ) {
+            const selectionY = region === 'status' ? clampToStatusBand(y) : clampToTranscriptViewport(y);
+            const anchor = region === 'status'
+              ? dragRef.current.anchor
+              : selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
+            const rect = linearSelection(anchor, { x, y: selectionY });
+            stopSmoothScroll();
+            dragRef.current = {
+              ...dragRef.current,
+              last: { x, y: selectionY },
+              active: true,
+              region,
+            };
+            applySelectionRect(rect);
+            lastClickRef.current = { x, y, t: now, count: 1 };
+            continue;
+          }
           // Multi-click sequence: 2nd consecutive press = word (double-click),
           // 3rd = whole line (triple-click). Each press must land near the prior
           // one within 500ms — up to 2 columns and 1 row of drift (terminals
@@ -2714,7 +2850,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           // sequence at 1 (claude-code cycles; simplest: reset). Works for
           // transcript AND status rows since getWordRectAt/getLineRectAt are
           // grid-based. Copy still happens on Ctrl+C, never here.
-          const now = Date.now();
           const lc = lastClickRef.current;
           const qualifies = (now - lc.t) < 500
             && Math.abs(lc.y - y) <= 1
@@ -3130,6 +3265,11 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       && key.shift
       && (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow || key.home || key.end)
     ) {
+      // Consume the chord whenever a transcript/status ink-grid selection is
+      // live — even if the focus clamps at an edge (moveSelectionFocus returns
+      // false there). PromptInput independently skips the same chord via the
+      // shared gridSelectionActiveRef predicate, so there is no double-handling.
+      // When no grid selection is live, fall through to PromptInput.
       let move = null;
       if (key.leftArrow) move = 'left';
       else if (key.rightArrow) move = 'right';
@@ -3137,7 +3277,10 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       else if (key.downArrow) move = 'down';
       else if (key.home) move = 'lineStart';
       else if (key.end) move = 'lineEnd';
-      if (move && moveSelectionFocus(move)) return;
+      if (move && gridSelectionActiveRef.current()) {
+        moveSelectionFocus(move);
+        return;
+      }
     }
     if (key.escape && usagePanel && !picker) {
       closeUsagePanel();
@@ -6955,16 +7098,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           value: 'auto-update',
           label: 'Auto-update',
           meta: upd.autoUpdate ? 'On' : 'Off',
-          description: '←/→ or Enter to toggle automatic updates.',
+          description: 'Enter to toggle automatic updates.',
           _action: 'auto-update',
-        },
-        {
-          value: 'update-now',
-          label: 'Update now',
-          description: upd.updateAvailable
-            ? `Install ${upd.latestVersion || 'latest'}.`
-            : 'Check and install the latest version.',
-          _action: 'update-now',
         },
       ];
       setProviderPrompt(null);
@@ -6974,25 +7109,29 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       setPicker({
         title: 'Update',
         description: 'Check version and update mixdog.',
-        help: '↑/↓ Select · ←/→ Change · Enter Open/Toggle · Esc Close',
+        help: '↑/↓ Select · Enter Open/Toggle · Esc Close',
         indexMode: 'always',
         labelWidth: 16,
         metaWidth: 16,
-        fillAvailable: true,
         items,
-        onLeft: (item) => {
-          if (item?._action === 'auto-update') toggleAutoUpdate(!upd.autoUpdate);
-        },
-        onRight: (item) => {
-          if (item?._action === 'auto-update') toggleAutoUpdate(!upd.autoUpdate);
+        confirmBar: {
+          buttons: [
+            {
+              value: 'update-now',
+              label: upd.updateAvailable
+                ? `Update to v${upd.latestVersion || 'latest'}`
+                : 'Update now',
+            },
+          ],
+          onConfirm: (button) => {
+            if (button?.value === 'update-now') runUpdate();
+          },
         },
         onSelect: (_value, item) => {
           if (item?._action === 'latest') {
             recheck();
           } else if (item?._action === 'auto-update') {
             toggleAutoUpdate(!upd.autoUpdate);
-          } else if (item?._action === 'update-now') {
-            runUpdate();
           }
         },
         onCancel: () => {
@@ -9045,6 +9184,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       selectionRef={promptSelectionRef}
       boxRectRef={promptBoxRectRef}
       mouseSelectionRef={promptMouseSelectionRef}
+      suppressShiftNavRef={gridSelectionActiveRef}
       hint=""
       hintTone={inputHintTone}
       mask={false}

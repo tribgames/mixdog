@@ -1652,14 +1652,19 @@ export async function createEngineSession({
       if (aggregate && card.itemId === aggregate.itemId) {
         const allCalls = [...aggregate.calls.values()];
         // Never let a call that truly never resolved be presented as a real
-        // completion. Stamp it resolved with an empty, non-error result so
-        // completedCount reflects an honest (if degenerate) accounting instead
-        // of manufacturing success out of a call that never came back.
+        // completion. Stamp it resolved so completedCount reflects an honest
+        // (if degenerate) accounting instead of manufacturing success out of
+        // a call that never came back. A record already marked completedEarly
+        // (via __earlyNotify) already carries a real isError/resultText/summary
+        // from its actual result — preserve those; only blank-fill for calls
+        // truly never heard from (no completedEarly, no resolved).
         for (const rec of allCalls) {
           if (rec.resolved) continue;
           rec.resolved = true;
-          rec.isError = false;
-          rec.resultText = rec.resultText || '';
+          if (!rec.completedEarly) {
+            rec.isError = false;
+            rec.resultText = rec.resultText || '';
+          }
         }
         const completed = allCalls.filter((r) => r.resolved).length;
         const totalCompleted = completed;
@@ -2194,7 +2199,11 @@ export async function createEngineSession({
           assistantText = '';
           const value = String(text || '').trim();
           if (value) {
-            finalizeToolHeaders();
+            // Any non-tool transcript item is a block boundary: seal the
+            // aggregate continuation (not just finalize headers) so a later
+            // same-category tool call opens a fresh card instead of reusing
+            // one whose count would then change ABOVE this steered user item.
+            clearAggregateContinuation();
             pushUserOrSyntheticItem(value);
           }
         },
@@ -2321,6 +2330,11 @@ export async function createEngineSession({
         },
         onCompactEvent: (event) => {
           flushStreamBatch();
+          // Non-tool transcript item — same block-boundary rule as the
+          // steered user item above: seal any live aggregate first so a
+          // later same-category tool call doesn't reuse a card whose count
+          // would then change above this statusdone item.
+          clearAggregateContinuation();
           pushItem({
             kind: 'statusdone',
             id: nextId(),

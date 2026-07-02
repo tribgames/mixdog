@@ -122,6 +122,31 @@ export function lineEnd(text, offset) {
   return end === -1 ? value.length : end;
 }
 
+// Return the [start,end) run of same-class characters (word-like vs
+// non-word-like) surrounding `offset`, used by double-click word selection.
+// Mirrors typical desktop double-click behavior: clicking inside a run of
+// letters/digits selects that whole run; clicking on a run of punctuation or
+// whitespace selects that run instead (still deterministic, never empty).
+export function wordRangeAt(text, offset) {
+  const value = String(text || '');
+  const units = graphemeUnits(value);
+  if (units.length === 0) return { start: 0, end: 0 };
+  const off = clampOffset(value, offset);
+  let idx = units.findIndex((u) => off >= u.start && off < u.end);
+  if (idx === -1) {
+    idx = units.length - 1;
+    for (let i = 0; i < units.length; i += 1) {
+      if (units[i].start >= off) { idx = i > 0 ? i - 1 : 0; break; }
+    }
+  }
+  const targetIsWord = wordLike(units[idx].segment);
+  let start = idx;
+  while (start > 0 && wordLike(units[start - 1].segment) === targetIsWord) start -= 1;
+  let end = idx;
+  while (end < units.length - 1 && wordLike(units[end + 1].segment) === targetIsWord) end += 1;
+  return { start: units[start].start, end: units[end].end };
+}
+
 export function caretPosition(text, offset, width) {
   const value = String(text || '');
   const before = value.slice(0, offset);

@@ -443,6 +443,19 @@ export async function ensureCurrentSchemaExtensions(db, dims) {
 
 
 
+  // Core-candidate promotion pipeline (proposal mode): active entries the
+  // cycle2 nomination pass flags as strong core-memory candidates. Never
+  // auto-inserted into core_entries — a user approves each via the
+  // action:'core' op:'promote' handler. Columns are nullable and the ALTERs
+  // are idempotent (ADD COLUMN IF NOT EXISTS), safe to re-run every boot.
+  //   core_candidate_status: NULL (not a candidate) | 'candidate' | 'promoted' | 'dismissed'
+  //   core_candidate_at:     ms timestamp of last nomination/state change
+  // 'dismissed'/'promoted' are terminal for a given root so the pass never
+  // re-nominates the same entry.
+  await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS core_candidate_status text`)
+  await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS core_candidate_at bigint`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_core_candidate ON entries(core_candidate_status, score DESC) WHERE is_root = 1 AND core_candidate_status = 'candidate'`)
+
   // Dedupe core_entries before creating the unique index — keeps the row with
   // the most recent updated_at (id breaks ties), drops the rest.
   const dedupe = await db.query(`

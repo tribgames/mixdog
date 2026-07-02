@@ -38,6 +38,7 @@ import {
   replaceSelection,
   selectionRange,
   verticalOffset,
+  wordRangeAt,
 } from '../input-editing.mjs';
 
 function hintStyle(tone) {
@@ -154,6 +155,7 @@ export function PromptInput({
   valueRef,
   boxRectRef,
   mouseSelectionRef,
+  suppressShiftNavRef,
 }) {
   const [draft, setDraft] = useState(() => {
     const value = String(initialValue || '');
@@ -173,6 +175,11 @@ export function PromptInput({
   const contentWidthRef = useRef(80);
   const preferredColumnRef = useRef(null);
   const mouseExtendCoalesceRef = useRef({ pendingNext: null, timer: null, t: 0 });
+  // Undo/redo snapshot stack. Each entry is a { value, cursor, selectionAnchor }
+  // draft snapshot. Continuous typing coalesces (see UNDO_COALESCE_MS) so a run
+  // of characters collapses into one undo step; cursor-only moves are NOT
+  // snapshotted. Reset on submit / draftOverride.
+  const undoRef = useRef({ past: [], future: [], lastPushAt: 0, lastValue: null });
   const { value, cursor } = draft;
   draftRef.current = draft;
   if (selectionRef) {
@@ -204,6 +211,7 @@ export function PromptInput({
     const sameDraft = draftStateEqual(draftRef.current, next);
     if (!options.keepPreferredColumn) preferredColumnRef.current = null;
     if (sameDraft) return;
+    if (!options.skipHistory) recordUndoSnapshot(draftRef.current, next, options);
     draftRef.current = next;
     setDraft(next);
     queueMicrotask(flushImmediate);
@@ -263,6 +271,70 @@ export function PromptInput({
   const updateDraft = (fn, options = {}) => {
     commitDraft(fn(draftRef.current), options);
   };
+
+  // --- undo/redo -----------------------------------------------------------
+  // Continuous-typing coalesce window: successive value-changing edits within
+  // this window collapse into a single undo step.
+  const UNDO_COALESCE_MS = 500;
+  const UNDO_MAX = 100;
+
+  const snapshotOf = (d) => ({ value: d.value, cursor: d.cursor, selectionAnchor: d.selectionAnchor ?? null });
+
+  const resetUndo = () => {
+    undoRef.current = { past: [], future: [], lastPushAt: 0, lastValue: null };
+  };
+
+  // Record a snapshot of the PREVIOUS state before applying `next`. Cursor-only
+  // moves (value unchanged) are never snapshotted. Consecutive value edits
+  // within UNDO_COALESCE_MS coalesce (we keep only the first snapshot of the
+  // run, so a single undo reverts the whole burst).
+  const recordUndoSnapshot = (prev, next, options = {}) => {
+    const stack = undoRef.current;
+    if (prev.value === next.value) {
+      // Cursor/selection-only move: don't snapshot, but BREAK the coalesce run
+      // so a following edit starts a fresh undo step (typing→move→typing must
+      // not collapse into one undo).
+      stack.lastPushAt = 0;
+      stack.lastValue = next.value;
+      return;
+    }
+    const now = Date.now();
+    const coalesce = !options.undoBreak
+      && stack.past.length > 0
+      && (now - stack.lastPushAt) < UNDO_COALESCE_MS
+      && stack.lastValue === prev.value;
+    if (!coalesce) {
+      stack.past.push(snapshotOf(prev));
+      if (stack.past.length > UNDO_MAX) stack.past.shift();
+    }
+    stack.lastPushAt = now;
+    stack.lastValue = next.value;
+    stack.future = [];
+  };
+
+  const performUndo = () => {
+    const stack = undoRef.current;
+    if (stack.past.length === 0) return false;
+    const prev = stack.past.pop();
+    stack.future.push(snapshotOf(draftRef.current));
+    stack.lastPushAt = 0;
+    stack.lastValue = prev.value;
+    commitDraft(prev, { skipHistory: true });
+    return true;
+  };
+
+  const performRedo = () => {
+    const stack = undoRef.current;
+    if (stack.future.length === 0) return false;
+    const next = stack.future.pop();
+    stack.past.push(snapshotOf(draftRef.current));
+    if (stack.past.length > UNDO_MAX) stack.past.shift();
+    stack.lastPushAt = 0;
+    stack.lastValue = next.value;
+    commitDraft(next, { skipHistory: true });
+    return true;
+  };
+  // -------------------------------------------------------------------------
 
   const cancelMouseExtendCoalesce = () => {
     const state = mouseExtendCoalesceRef.current;
@@ -331,6 +403,28 @@ export function PromptInput({
         const off = Math.max(0, Math.min(d.value.length, Math.floor(Number(offset) || 0)));
         const anchor = Number.isFinite(d.selectionAnchor) ? d.selectionAnchor : d.cursor;
         queueMouseExtendCommit({ ...d, cursor: off, selectionAnchor: anchor }, immediate);
+      },
+      hasSelection: () => selectionRange(draftRef.current) != null,
+      // Double-click word select: pick the word/punctuation run under the
+      // clicked offset and set selectionAnchor/cursor to its bounds so it
+      // paints via the normal selection highlight. Triple-click line select
+      // uses lineStart/lineEnd instead (see selectLineAt).
+      selectWordAt: (offset) => {
+        cancelMouseExtendCoalesce();
+        const value = draftRef.current.value;
+        const off = Math.max(0, Math.min(value.length, Math.floor(Number(offset) || 0)));
+        const { start, end } = wordRangeAt(value, off);
+        commitDraft({ ...draftRef.current, cursor: end, selectionAnchor: start });
+        mouseExtendCoalesceRef.current.t = Date.now();
+      },
+      selectLineAt: (offset) => {
+        cancelMouseExtendCoalesce();
+        const value = draftRef.current.value;
+        const off = Math.max(0, Math.min(value.length, Math.floor(Number(offset) || 0)));
+        const start = lineStart(value, off);
+        const end = lineEnd(value, off);
+        commitDraft({ ...draftRef.current, cursor: end, selectionAnchor: start });
+        mouseExtendCoalesceRef.current.t = Date.now();
       },
       clear: () => {
         cancelMouseExtendCoalesce();
@@ -405,7 +499,8 @@ export function PromptInput({
 
   useEffect(() => {
     if (!draftOverride || typeof draftOverride.value !== 'string') return;
-    commitDraft({ value: draftOverride.value, cursor: draftOverride.value.length, selectionAnchor: null });
+    commitDraft({ value: draftOverride.value, cursor: draftOverride.value.length, selectionAnchor: null }, { skipHistory: true });
+    resetUndo();
   }, [draftOverride?.id]);
 
   useEffect(() => () => {
@@ -419,7 +514,8 @@ export function PromptInput({
       commitDraft(next);
       return;
     }
-    commitDraft({ value: '', cursor: 0, selectionAnchor: null });
+    commitDraft({ value: '', cursor: 0, selectionAnchor: null }, { skipHistory: true });
+    resetUndo();
   };
 
   const submitEnterChunk = (prefix = '') => {
@@ -449,6 +545,21 @@ export function PromptInput({
 
     const rawInput = String(input ?? '');
     const inputKey = rawInput.toLowerCase();
+
+    // App owns Shift+Arrow when a transcript/status ink-grid selection is live.
+    // Because the parent (App) useInput handler fires AFTER this child handler
+    // for the same event, a flag SET in App's handler is always one event stale.
+    // Instead call a synchronous predicate derived from dragRef at event time.
+    const gridSelectionActive = typeof suppressShiftNavRef === 'function'
+      ? suppressShiftNavRef()
+      : (typeof suppressShiftNavRef?.current === 'function'
+        ? suppressShiftNavRef.current()
+        : Boolean(suppressShiftNavRef?.current));
+    if (gridSelectionActive) {
+      const isShiftArrow = key.shift
+        && (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow || key.home || key.end);
+      if (isShiftArrow) return;
+    }
 
     // Drop SGR mouse-tracking sequences (wheel/click). When app mouse tracking
     // is explicitly enabled, App parses these off raw stdin itself;
@@ -482,7 +593,22 @@ export function PromptInput({
     const rawShiftDown = rawInput === '\x1b[1;2B' || rawInput === '\x1b[b' || rawInput === '[1;2B';
     const rawShiftRight = rawInput === '\x1b[1;2C' || rawInput === '\x1b[c' || rawInput === '[1;2C';
     const rawShiftLeft = rawInput === '\x1b[1;2D' || rawInput === '\x1b[d' || rawInput === '[1;2D';
-    const shiftHeld = key.shift || rawShiftUp || rawShiftDown || rawShiftLeft || rawShiftRight;
+    // Ctrl+Shift+Arrow modifier sequences: xterm mod=6 (1 + shift(1) + ctrl(4))
+    // arrives as `\x1b[1;6<dir>`; kitty keyboard protocol reports the same chord
+    // as `\x1b[<code>;6<dir>` (also mod=6). Ink decodes neither the `;6` for
+    // arrows, so the bytes arrive raw. Fold into a ctrlShiftHeld signal used to
+    // drive whole-word selection-extend below. `\x1b[1;6<dir>` covers both the
+    // classic xterm form and kitty's default (which emits the legacy arrow form
+    // with the CSI-u modifier param for arrow keys).
+    const rawCtrlShiftUp = rawInput === '\x1b[1;6A' || rawInput === '[1;6A';
+    const rawCtrlShiftDown = rawInput === '\x1b[1;6B' || rawInput === '[1;6B';
+    const rawCtrlShiftRight = rawInput === '\x1b[1;6C' || rawInput === '[1;6C';
+    const rawCtrlShiftLeft = rawInput === '\x1b[1;6D' || rawInput === '[1;6D';
+    const ctrlShiftHeld =
+      rawCtrlShiftUp || rawCtrlShiftDown || rawCtrlShiftLeft || rawCtrlShiftRight
+      || (key.shift && key.ctrl && (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow));
+    const shiftHeld = key.shift || rawShiftUp || rawShiftDown || rawShiftLeft || rawShiftRight
+      || rawCtrlShiftUp || rawCtrlShiftDown || rawCtrlShiftLeft || rawCtrlShiftRight;
     const lineBreakIndex = rawInput.search(/[\r\n]/);
     const rawEnter = rawInput === '\r' || rawInput === '\n' || rawInput === '\r\n';
     const trailingEnterPrefix = singleTrailingLineBreakPrefix(rawInput);
@@ -566,25 +692,58 @@ export function PromptInput({
       return;
     }
 
-    if (key.upArrow || rawUpArrow || rawShiftUp) {
+    // Ctrl+Shift+Left/Right → extend selection whole-word. Kept before the plain
+    // shift-arrow branches so the ctrl+shift chord never falls through to a
+    // char-wise extend. (Up/Down ctrl+shift extend to line-relative vertical
+    // move with extend — same as shift alone; handled in the vertical branch.)
+    if (ctrlShiftHeld && (rawCtrlShiftLeft || (key.ctrl && key.shift && key.leftArrow))) {
+      if (!commandPaletteActive) {
+        updateDraft((d) => moveCursor(d, previousWordOffset(d.value, d.cursor), { extend: true }));
+      }
+      return;
+    }
+    if (ctrlShiftHeld && (rawCtrlShiftRight || (key.ctrl && key.shift && key.rightArrow))) {
+      if (!commandPaletteActive) {
+        updateDraft((d) => moveCursor(d, nextWordOffset(d.value, d.cursor), { extend: true }));
+      }
+      return;
+    }
+
+    if (key.upArrow || rawUpArrow || rawShiftUp || rawCtrlShiftUp) {
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.(-1);
       } else {
-        const hasDraftText = String(draftRef.current.value || '').trim().length > 0;
-        if (!hasDraftText) {
-          if (!restoreQueuedToDraft()) applyHistoryNavigation('up', { emptyDraft: true });
-        } else if (!moveDraftVertically(-1, { extend: shiftHeld })) {
-          applyHistoryNavigation('up', { emptyDraft: false });
+        // A Shift-held Up is a SELECTION gesture, never history navigation:
+        // extend the selection up one visual line, and if already on the first
+        // line extend all the way to document start (offset 0). History
+        // navigation (restoreQueued / applyHistoryNavigation) MUST NOT fire.
+        if (shiftHeld) {
+          if (!moveDraftVertically(-1, { extend: true })) {
+            updateDraft((d) => moveCursor(d, 0, { extend: true }));
+          }
+        } else {
+          const hasDraftText = String(draftRef.current.value || '').trim().length > 0;
+          if (!hasDraftText) {
+            if (!restoreQueuedToDraft()) applyHistoryNavigation('up', { emptyDraft: true });
+          } else if (!moveDraftVertically(-1, { extend: false })) {
+            applyHistoryNavigation('up', { emptyDraft: false });
+          }
         }
       }
       return;
     }
 
-    if (key.downArrow || rawDownArrow || rawShiftDown) {
+    if (key.downArrow || rawDownArrow || rawShiftDown || rawCtrlShiftDown) {
       if (commandPaletteActive) {
         onCommandPaletteNavigate?.(1);
       } else {
-        if (!moveDraftVertically(1, { extend: shiftHeld })) {
+        // Shift-held Down: extend selection down one line, or to document end
+        // (value.length) when already on the last line. Never history nav.
+        if (shiftHeld) {
+          if (!moveDraftVertically(1, { extend: true })) {
+            updateDraft((d) => moveCursor(d, d.value.length, { extend: true }));
+          }
+        } else if (!moveDraftVertically(1, { extend: false })) {
           applyHistoryNavigation('down', { emptyDraft: String(draftRef.current.value || '').trim().length === 0 });
         }
       }
@@ -701,6 +860,27 @@ export function PromptInput({
     }
 
     const editingKey = String(input || '').toLowerCase();
+
+    // Undo / redo. Covered encodings:
+    //  • kitty protocol: ctrl+z → input 'z' + key.ctrl; ctrl+y → 'y' + key.ctrl;
+    //    ctrl+shift+z → 'z' + key.ctrl + key.shift (redo).
+    //  • legacy control bytes: Ctrl+Z is \x1a (SUB, 0x1A), Ctrl+Y is \x19 (EM,
+    //    0x19). ink may deliver these as raw input without key.ctrl on some
+    //    terminals, so match the byte directly too.
+    const isCtrlZ = (key.ctrl && editingKey === 'z') || rawInput === '\x1a';
+    const isCtrlY = (key.ctrl && editingKey === 'y') || rawInput === '\x19';
+    if (isCtrlZ && (key.shift || shiftHeld)) {
+      performRedo();
+      return;
+    }
+    if (isCtrlZ) {
+      performUndo();
+      return;
+    }
+    if (isCtrlY) {
+      performRedo();
+      return;
+    }
 
     // ctrl+a selects all like a normal text box; ctrl+e keeps readline line-end.
     if (key.ctrl && editingKey === 'a') {
