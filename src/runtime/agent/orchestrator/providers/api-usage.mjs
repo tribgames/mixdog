@@ -3,25 +3,13 @@ import { join } from 'node:path';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getAgentApiKey, getOpenAIUsageSessionKey } from '../../../shared/config.mjs';
+import { num, round } from './lib/usage-primitives.mjs';
 
 const CACHE_FILE = 'api-usage-cache.json';
 const LIVE_TTL_MS = 5 * 60_000;
 const STALE_TTL_MS = 60 * 60_000;
 const DISK_JSON_MEMORY_TTL_MS = 1000;
 let diskJsonCache = { at: 0, file: '', value: null };
-
-function num(value, fallback = null) {
-  if (value === null || value === undefined || value === '') return fallback;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function round(value, digits = 4) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return null;
-  const scale = 10 ** digits;
-  return Math.round(n * scale) / scale;
-}
 
 function cachePath() {
   return join(resolvePluginData(), CACHE_FILE);

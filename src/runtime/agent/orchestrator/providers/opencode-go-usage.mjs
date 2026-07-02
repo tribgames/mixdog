@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getOpenCodeGoAuthCookie } from '../../../shared/config.mjs';
+import { round, cleanString as clean } from './lib/usage-primitives.mjs';
 
 const CACHE_FILE = 'opencode-go-usage-cache.json';
 const LIVE_TTL_MS = 5 * 60_000;
@@ -18,21 +19,12 @@ const LIMITS_USD = Object.freeze({
 const DISK_JSON_MEMORY_TTL_MS = 1000;
 let diskJsonCache = { at: 0, file: '', value: null };
 
+// Local unguarded `num`: this module intentionally coerces '' to 0 via
+// Number(''), unlike the guarded shared num() in lib/usage-primitives.mjs.
+// Behavior differs on empty-string input, so it stays local.
 function num(value, fallback = null) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function round(value, digits = 4) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return null;
-  const scale = 10 ** digits;
-  return Math.round(n * scale) / scale;
-}
-
-function clean(value) {
-  const text = typeof value === 'string' ? value.trim() : '';
-  return text || null;
 }
 
 function cachePath() {

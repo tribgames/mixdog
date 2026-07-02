@@ -62,7 +62,7 @@ import { initProviders } from '../agent/orchestrator/providers/registry.mjs'
 import { makeAgentDispatch } from '../agent/orchestrator/agent-runtime/agent-dispatch.mjs'
 import { getInFlightCycle1 } from './lib/memory-cycle1.mjs'
 import { drainSessionCycle1 } from '../agent/orchestrator/session/compact.mjs'
-import { claimAndMarkScheduledCycle, makeCycleRequestSignature, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry } from './lib/memory-cycle-requests.mjs'
+import { claimAndMarkScheduledCycle, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry } from './lib/memory-cycle-requests.mjs'
 import { searchRelevantHybrid } from './lib/memory-recall-store.mjs'
 import { fetchEntriesByIdsScoped } from './lib/memory-recall-id-patch.mjs'
 import { retrieveEntries } from './lib/memory-retrievers.mjs'
@@ -75,6 +75,8 @@ import { openTraceDatabase, closeTraceDatabase, insertTraceEvents, enqueueTraceE
 import { updateJsonAtomicSync, writeJsonAtomicSync } from '../shared/atomic-file.mjs'
 import { resolvePluginData, mixdogHome } from '../shared/plugin-paths.mjs'
 import { parsePeriod, formatTs, coreRecallTerms, normalizeRecallProjectScope, sessionRecallTerms, interleaveRawRows, renderEntryLines } from './lib/recall-format.mjs'
+import { readBody, sendJson, sendError, isLocalOrigin, normalizeCoreProjectId } from './lib/http-wire.mjs'
+import { scheduledCycle1Signature, scheduledCycle2Signature, scheduledCycle3Signature } from './lib/cycle-signatures.mjs'
 const IS_MEMORY_ENTRY = !!process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
 const USE_ARG_DATA_DIR = IS_MEMORY_ENTRY || process.env.MIXDOG_WORKER_MODE === '1'
 const DATA_DIR = process.env.MIXDOG_DATA_DIR || (USE_ARG_DATA_DIR ? process.argv[2] : '') || resolvePluginData()
@@ -1414,34 +1416,6 @@ function periodicCycle1Config() {
     concurrency: 2,
     ...(mainConfig?.cycle1 || {}),
   }
-}
-
-function scheduledCycle1Signature(config) {
-  return makeCycleRequestSignature('cycle1', config, {
-    preset: undefined,
-    concurrency: undefined,
-    maxConcurrent: undefined,
-  })
-}
-
-function scheduledCycle2Signature(config) {
-  return makeCycleRequestSignature('cycle2', config, {
-    cascadePreset: undefined,
-    concurrency: undefined,
-  })
-}
-
-function scheduledCycle3ApplyMode(config) {
-  const raw = String(config?.cycle3?.applyMode || 'conservative').trim().toLowerCase()
-  return (raw === 'proposal' || raw === 'dry-run' || raw === 'dryrun') ? 'proposal' : 'conservative'
-}
-
-function scheduledCycle3Signature(config) {
-  const retryConfig = config?.cycle3 || config
-  return makeCycleRequestSignature('cycle3', retryConfig, {
-    applyMode: scheduledCycle3ApplyMode(config),
-    apply: undefined,
-  })
 }
 
 async function enqueueScheduledCycle(kind, intervalMs, signature) {
@@ -3254,37 +3228,6 @@ function createHttpMcpServer() {
   return s
 }
 
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = []
-    req.on('data', c => chunks.push(c))
-    req.on('end', () => {
-      const raw = Buffer.concat(chunks).toString('utf8').trim()
-      if (!raw) { resolve({}); return }
-      try { resolve(JSON.parse(raw)) }
-      catch (error) {
-        const e = new Error(`invalid JSON body: ${error.message}`)
-        e.statusCode = 400
-        reject(e)
-      }
-    })
-    req.on('error', reject)
-  })
-}
-
-function sendJson(res, data, status = 200) {
-  const body = JSON.stringify(data)
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
-  })
-  res.end(body)
-}
-
-function sendError(res, msg, status = 500) {
-  sendJson(res, { error: msg }, status)
-}
-
 async function awaitRuntimeReadyForHttp(res) {
   if (_initialized) return true
   if (!_initPromise) {
@@ -3298,29 +3241,6 @@ async function awaitRuntimeReadyForHttp(res) {
     sendJson(res, { error: `memory runtime failed: ${e?.message || e}` }, 503)
     return false
   }
-}
-
-// Origin/Referer guard for /admin/* mutation routes. Memory-service binds
-// 127.0.0.1, but browser DNS-rebinding or a stray cross-origin fetch could
-// still reach destructive endpoints (purge, backfill, entry mutations).
-// Server-to-server callers (setup-server, hooks) issue raw http.request
-// without a browser Origin/Referer, so absent headers pass; any non-loopback
-// Origin/Referer is rejected. Mirrors setup-server.mjs isAllowedOrigin.
-function isLocalOrigin(req) {
-  const LOOP = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i
-  const origin = req.headers.origin || ''
-  const referer = req.headers.referer || ''
-  if (origin && !LOOP.test(origin)) return false
-  if (referer && !LOOP.test(referer)) return false
-  return true
-}
-
-function normalizeCoreProjectId(value, { allowStar = false } = {}) {
-  if (value == null) return null
-  const s = String(value).trim()
-  if (!s || s.toLowerCase() === 'common') return null
-  if (allowStar && s === '*') return '*'
-  return s
 }
 
 async function buildSessionCoreMemoryPayload(cwd) {

@@ -6,6 +6,7 @@ import { join } from 'path';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
+import { num, round, cleanString } from './lib/usage-primitives.mjs';
 
 const CACHE_FILE = 'gateway-oauth-usage-cache.json';
 const LIVE_CACHE_TTL_MS = 60_000;
@@ -20,24 +21,6 @@ const inflight = new Map();
 const lastWarnAt = new Map();
 let pendingDiskSnapshots = new Map();
 let pendingDiskFlushTimer = null;
-
-function num(value, fallback = null) {
-  if (value === null || value === undefined || value === '') return fallback;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function round(value, digits = 4) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return null;
-  const scale = 10 ** digits;
-  return Math.round(n * scale) / scale;
-}
-
-function cleanString(value) {
-  const s = typeof value === 'string' ? value.trim() : '';
-  return s || null;
-}
 
 function providerKey(routeInfo = {}) {
   return String(routeInfo?.provider || '').toLowerCase();
