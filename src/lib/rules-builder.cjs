@@ -21,6 +21,7 @@
  * Source files (rules/):
  *   - shared/01-tool.md              — universal tool policy (Lead + agent BP1, identical full set)
  *   - lead/lead-tool.md             — Lead-specific control-tower / delegation / ToolSearch guidance
+ *   - lead/lead-brief.md            — Lead brief contract (agent handoff briefs)
  *   - lead/01-02                     — Lead general / channels
  *   - output-styles/<name>.md        — Lead output style, selected by config outputStyle
  *   - agent/00-common.md             — agent common behavior + universal worker contract (BP2)
@@ -274,6 +275,9 @@ function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR }) {
 
   const toolLead = readOptional(path.join(LEAD_DIR, 'lead-tool.md'));
   if (toolLead) parts.push(toolLead);
+
+  const briefLead = readOptional(path.join(LEAD_DIR, 'lead-brief.md'));
+  if (briefLead) parts.push(briefLead);
 
   if (generalSplit.role) parts.push(generalSplit.role);
 

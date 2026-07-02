@@ -24,17 +24,17 @@ function flat(text) {
   return String(text || '').replace(/\s+/g, ' ');
 }
 
-// --- Lead brief contract: canonical in lead-tool.md, referenced from WORKFLOW -
+// --- Lead brief contract: canonical in lead-brief.md, referenced from WORKFLOW -
 const workflow = readSrc('workflows', 'default', 'WORKFLOW.md');
-const leadTool = readSrc('rules', 'lead', 'lead-tool.md');
+const leadBrief = readSrc('rules', 'lead', 'lead-brief.md');
 const BRIEF_FIELDS = ['Goal:', 'Anchors:', 'Allow/Forbid:', 'Deliver:', 'Verify:'];
-// Canonical brief contract lives in lead-tool.md (Lead tool-use rules).
-assert(/minimum characters, maximum information/i.test(flat(leadTool)), 'lead-tool.md: brief must state min-char/max-info principle');
-for (const field of BRIEF_FIELDS) assert(leadTool.includes(field), `lead-tool.md: brief missing labeled field ${field}`);
-assert(leadTool.includes('Stop:'), 'lead-tool.md: brief must add Stop: for heavy-worker bound');
-assert(/role-known|already (?:owns|knows)|wasted cost|wasted/i.test(flat(leadTool)), 'lead-tool.md: brief must ban restating known rules/background as cost');
-// WORKFLOW.md must not duplicate the field list; it defers to the lead-tool contract.
-assert(/lead-tool brief contract/i.test(flat(workflow)), 'WORKFLOW.md: must defer to the lead-tool brief contract');
+// Canonical brief contract lives in lead-brief.md (Lead brief contract).
+assert(/minimum characters, maximum information/i.test(flat(leadBrief)), 'lead-brief.md: brief must state min-char/max-info principle');
+for (const field of BRIEF_FIELDS) assert(leadBrief.includes(field), `lead-brief.md: brief missing labeled field ${field}`);
+assert(leadBrief.includes('Stop:'), 'lead-brief.md: brief must add Stop: for heavy-worker bound');
+assert(/role-known|already (?:owns|knows)|wasted cost|wasted/i.test(flat(leadBrief)), 'lead-brief.md: brief must ban restating known rules/background as cost');
+// WORKFLOW.md must not duplicate the field list; it defers to the lead brief contract.
+assert(/lead brief contract/i.test(flat(workflow)), 'WORKFLOW.md: must defer to the lead brief contract');
 assert(!BRIEF_FIELDS.every((field) => workflow.includes(field)), 'WORKFLOW.md: must not duplicate the full brief field list');
 
 // --- Agent handoff contract (00-common.md) ---------------------------------

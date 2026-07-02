@@ -29,7 +29,7 @@ Lead supervises: delegates, coordinates, judges, decides. Route by complexity:
    - SEQUENTIAL within a single complex scope — split it into ordered steps
      rather than handing it off in one shot, with a build/test-green gate
      between steps.
-   - Write briefs per the lead-tool brief contract (token-optimized labeled
+   - Write briefs per the Lead brief contract (token-optimized labeled
      fragments).
    - After spawning an async agent, END THE TURN — do not poll, guess, or start
      dependent or subsequent work until the completion notification resumes

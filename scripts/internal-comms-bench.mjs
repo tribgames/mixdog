@@ -36,6 +36,7 @@ const RULE_FILES = [
   'agents/debugger/AGENT.md',
   'workflows/default/WORKFLOW.md',
   'rules/lead/lead-tool.md',
+  'rules/lead/lead-brief.md',
 ];
 
 const DEFAULT_WORKER_PROMPT =
