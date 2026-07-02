@@ -535,6 +535,16 @@ export async function createEngineSession({
     pushItem({ kind: 'notice', id, text: value, tone });
     return id;
   };
+  // Remove a transcript notice previously created via pushNotice(...,
+  // {transcript:true}). Used for transient-but-persistent notices (e.g. the
+  // manual OAuth URL) that must disappear once their flow concludes.
+  const removeNotice = (id) => {
+    if (id == null) return false;
+    const items = state.items.filter((it) => !(it?.kind === 'notice' && it?.id === id));
+    if (items.length === state.items.length) return false;
+    set({ items: replaceItems(items) });
+    return true;
+  };
   // Sticky (non-TTL) input-hint-line progress state, for long-running
   // installs (e.g. voice runtime download) that would otherwise spam the
   // 3s toast queue. Distinct from pushToast/pushNotice: it persists across
@@ -745,6 +755,20 @@ export async function createEngineSession({
         displayText: delivery.displayText || text,
       });
       return true;
+    });
+  }
+
+  // Remote seat superseded by another session: runtime already stopped its
+  // worker; sync the indicator and tell the user. Non-user-initiated, so a
+  // toast (not transcript) is right.
+  let unsubscribeRemoteState = null;
+  if (typeof runtime.onRemoteStateChange === 'function') {
+    unsubscribeRemoteState = runtime.onRemoteStateChange(({ enabled, reason }) => {
+      if (disposed) return;
+      set({ remoteEnabled: enabled === true });
+      if (reason === 'superseded') {
+        pushNotice('Remote mode OFF — another session took over remote.', 'warn');
+      }
     });
   }
 
@@ -2856,6 +2880,16 @@ export async function createEngineSession({
       set({ remoteEnabled: next });
       return next;
     },
+    // Force-claim remote for this session (single-holder, last-wins). Always
+    // turns remote ON here and steals the bridge seat; the previous holder is
+    // superseded and flips itself OFF via onRemoteStateChange. Used by the
+    // `/remote` slash command — repeated /remote just re-claims (idempotent).
+    claimRemote: () => {
+      runtime.startRemote?.();
+      const next = runtime.isRemoteEnabled?.() === true;
+      set({ remoteEnabled: next });
+      return next;
+    },
     isRemoteEnabled: () => runtime.isRemoteEnabled?.() === true,
     // Theme is a TUI-local concern (no runtime round-trip). listThemes returns
     // picker metadata; getTheme reports the active id; setTheme applies the
@@ -3062,6 +3096,7 @@ export async function createEngineSession({
       }
     },
     pushNotice,
+    removeNotice,
     setProgressHint,
     clear: async () => {
       if (state.commandBusy) return false;
@@ -3199,6 +3234,8 @@ export async function createEngineSession({
       try { clearInterval(runtimePulseTimer); } catch {}
       try { unsubscribeRuntimeNotifications?.(); } catch {}
       unsubscribeRuntimeNotifications = null;
+      try { unsubscribeRemoteState?.(); } catch {}
+      unsubscribeRemoteState = null;
       denyAllToolApprovals('runtime closing');
       await runtime.close(reason, options);
       listeners.clear();

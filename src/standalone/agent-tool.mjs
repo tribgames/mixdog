@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { readFileSync, statSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   cancelBackgroundTask,
@@ -16,121 +16,51 @@ import {
 import { modelVisibleToolCompletionMessage } from '../runtime/shared/tool-execution-contract.mjs';
 import { presentErrorText, errorLine } from '../runtime/shared/err-text.mjs';
 import { updateJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
-import {
-  normalizeAgentPermission,
-  normalizeAgentPermissionOrNone,
-  parseMarkdownFrontmatter,
-} from '../runtime/shared/markdown-frontmatter.mjs';
+import { normalizeAgentPermission } from '../runtime/shared/markdown-frontmatter.mjs';
 import { prepareAgentSession } from '../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
 import {
   agentWatchdogPolicyActive,
   evaluateAgentWatchdogAbort,
   resolveAgentWatchdogPolicy,
 } from '../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
-import {
-  appendAgentProgressKv,
-  buildAgentTaskProgressFields,
-} from './agent-task-status.mjs';
+import { buildAgentTaskProgressFields } from './agent-task-status.mjs';
 import { AGENT_OWNER } from '../runtime/agent/orchestrator/agent-owner.mjs';
-import { clearGatewaySessionRoute, writeGatewaySessionRoute } from '../vendor/statusline/src/gateway/session-routes.mjs';
 import { isKnownProvider } from './provider-admin.mjs';
+import {
+  ACTIVE_STAGES,
+  AGENT_TOOL,
+  DEFAULT_AGENT_PRESETS,
+  DEFAULT_PROVIDER,
+  WORKER_INDEX_FILE,
+} from './agent-tool/tool-def.mjs';
+import {
+  agentPresetName,
+  agentScope,
+  agentTagOf,
+  clean,
+  clearAgentStatuslineRoute,
+  envTimeoutMs,
+  findPreset,
+  nonNegativeInt,
+  normalizeAgentName,
+  normalizeAgentRoute,
+  positiveInt,
+  presetKey,
+  readAgentFrontmatterPermission,
+  resolvePrompt,
+  rowMatchesContext,
+  sessionMatchesContext,
+  synthesizePreset,
+  terminalPidForContext,
+  withCwdHeader,
+  writeAgentStatuslineRoute,
+} from './agent-tool/helpers.mjs';
+import { abnormalEmptyFinishError, renderResult } from './agent-tool/render.mjs';
+// Re-export the static tool descriptor so importers of this facade keep the
+// identical public surface (`import { AGENT_TOOL } from './agent-tool.mjs'`).
+export { AGENT_TOOL };
 
 const STANDALONE_SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-
-const PRESET_ALIASES = new Map([
-  ['opus-xhigh', { base: 'opus-high', effort: 'xhigh', id: 'opus-xhigh', name: 'OPUS XHIGH' }],
-]);
-
-const DEFAULT_AGENT_PRESETS = Object.freeze({
-  explore: 'sonnet-high',
-  maintainer: 'haiku',
-  worker: 'sonnet-high',
-  'heavy-worker': 'sonnet-high',
-  reviewer: 'opus-xhigh',
-  debugger: 'opus-xhigh',
-});
-
-// Mirrors DEFAULT_PROVIDER in mixdog-session-runtime.mjs. Used only as the
-// last-resort fallback when a stored agent route omits its provider and the
-// config carries no defaultProvider.
-const DEFAULT_PROVIDER = 'anthropic-oauth';
-
-export const AGENT_TOOL = {
-  name: 'agent',
-  title: 'Agent',
-  annotations: {
-    title: 'Agent',
-    readOnlyHint: false,
-    destructiveHint: true,
-    idempotentHint: false,
-    openWorldHint: true,
-    agentHidden: true,
-  },
-  description: 'Delegate scoped work. Agent handoffs always start background tasks and return task IDs immediately. Spawn independent scopes in parallel with distinct tags; for the same scope/tag, use send or spawn with the same tag to reuse the live session. Wait for the completion notification before dependent work. Do not call status/read after spawn; status/read are manual recovery only.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: 'Action. Default spawn.' },
-      task_id: { type: 'string', description: 'Manual recovery task ID.' },
-      agent: { type: 'string', description: 'Workflow agent id.' },
-      tag: { type: 'string', description: 'Stable scope handle. Reuse the same tag for follow-up on the same scope; use distinct tags only for independent scopes.' },
-      sessionId: { type: 'string', description: 'Raw sess_ id.' },
-      prompt: { type: 'string', description: 'Scoped task brief.' },
-      message: { type: 'string', description: 'Follow-up for send/reuse, or brief.' },
-      file: { type: 'string', description: 'Prompt file.' },
-      cwd: { type: 'string', description: 'Working directory.' },
-      context: { type: 'string', description: 'Extra agent context.' },
-    },
-    additionalProperties: true,
-  },
-};
-
-const WORKER_INDEX_FILE = 'agent-workers.json';
-
-// A worker that hits the loop iteration ceiling, gets truncated mid-synthesis,
-// or produces an empty terminal turn returns content:'' but never throws — so
-// the background task would otherwise reconcile as a benign `completed` empty
-// success. That is wrong: an empty final answer is an error. loop.mjs is the
-// single classifier: it tags result.terminationReason for abnormal finishes
-// (carried through manager.mjs terminalResultPreview). We key purely off that
-// here. iteration_cap / truncated are real problems for EVERY agent (hidden
-// too). The plain `empty` case is tagged by the loop ONLY for public agents;
-// hidden agents (explorer/cycle/…) legitimately emit empty terminal turns and
-// are left untagged, so they stay benign.
-function abnormalEmptyFinishError(result, agent) {
-  // The loop (loop.mjs) is the single classifier: it tags terminationReason
-  // ONLY for abnormal finishes, and gates the `empty` case behind !hidden.
-  // So we key purely off terminationReason here — no separate content/hidden
-  // check, which previously (a) exempted hidden agents from cap/truncated and
-  // (b) let a capped tool-call turn with preamble text slip through as success.
-  const reason = result?.terminationReason;
-  if (!reason) return null;
-  const iterations = result?.iterations ?? 0;
-  const toolCallsTotal = result?.toolCallsTotal ?? 0;
-  const maxLoopIterations = result?.maxLoopIterations ?? 0;
-  const stopReason = result?.stopReason ?? result?.stop_reason ?? null;
-  switch (reason) {
-    case 'iteration_cap':
-      // Real problem for EVERY agent (hidden too): the loop never terminated on
-      // its own contract, so any preamble text is not a trustworthy final answer.
-      return `agent '${agent}' hit the loop iteration ceiling (${maxLoopIterations} iterations, ${toolCallsTotal} tool calls) without producing a final answer`;
-    case 'truncated':
-      return `agent '${agent}' response was truncated (stopReason=${stopReason}) before a final answer (${iterations} iterations, ${toolCallsTotal} tool calls)`;
-    case 'empty':
-      // Only tagged for PUBLIC agents (hidden agents legitimately emit empty
-      // terminal turns and are left untagged by the loop).
-      return `agent '${agent}' finished without a final answer (stopReason=${stopReason ?? 'none'}, ${iterations} iterations, ${toolCallsTotal} tool calls)`;
-    default:
-      return null;
-  }
-}
-
-function envTimeoutMs(name, fallback) {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
-}
 
 // Grace window during which a terminated/idle worker row is kept around so the
 // same terminal can re-use (or cleanly re-spawn) the same tag. Cached as a
@@ -146,329 +76,6 @@ const TERMINAL_REAP_MS = envTimeoutMs('MIXDOG_AGENT_TERMINAL_REAP_MS', 5 * 60_00
 // request starts. Set MIXDOG_AGENT_SPAWN_PREP_TIMEOUT_MS=0 to fully disable the
 // cap and restore strictly-unbounded prep.
 const DEFAULT_SPAWN_PREP_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_SPAWN_PREP_TIMEOUT_MS', 120_000);
-const ACTIVE_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'running', 'cancelling']);
-
-// Process-wide TTL cache for agent AGENT.md frontmatter permission. The file
-// rarely changes, but readAgentFrontmatterPermission() otherwise pays several
-// existsSync()+readFileSync() calls on EVERY spawn — multiplied across a
-// parallel fanout that is pure redundant synchronous I/O on the event loop,
-// which blocks every other concurrent spawn. Short TTL keeps edits picked up
-// quickly while collapsing burst reads.
-const _frontmatterPermCache = new Map(); // key -> { value, atMs }
-const FRONTMATTER_PERM_CACHE_TTL_MS = envTimeoutMs('MIXDOG_AGENT_FRONTMATTER_TTL_MS', 5_000);
-
-function clean(value) {
-  return String(value ?? '').trim();
-}
-
-function agentTagOf(session) {
-  return clean(session?.agentTag);
-}
-
-function normalizeAgentName(value) {
-  const id = clean(value).toLowerCase().replace(/[\s_]+/g, '-');
-  if (id === 'explorer') return 'explore';
-  if (id === 'maint' || id === 'maintenance' || id === 'memory') return 'maintainer';
-  if (id === 'heavy' || id === 'heavyworker') return 'heavy-worker';
-  if (id === 'review') return 'reviewer';
-  if (id === 'debug') return 'debugger';
-  return id;
-}
-
-function readAgentFrontmatterPermission(agent, dataDir) {
-  const cleanAgent = clean(agent);
-  if (!cleanAgent) return null;
-  const cacheKey = `${dataDir || ''}\u0000${cleanAgent}`;
-  const cached = _frontmatterPermCache.get(cacheKey);
-  if (cached && Date.now() - cached.atMs < FRONTMATTER_PERM_CACHE_TTL_MS) {
-    return cached.value;
-  }
-  const candidates = [];
-  if (dataDir) {
-    candidates.push(join(dataDir, 'agents', cleanAgent, 'AGENT.md'));
-    candidates.push(join(dataDir, 'agents', `${cleanAgent}.md`));
-  }
-  candidates.push(join(STANDALONE_SOURCE_ROOT, 'agents', cleanAgent, 'AGENT.md'));
-  candidates.push(join(STANDALONE_SOURCE_ROOT, 'agents', `${cleanAgent}.md`));
-  let resolved = null;
-  for (const file of candidates) {
-    if (!existsSync(file)) continue;
-    const fm = parseMarkdownFrontmatter(readFileSync(file, 'utf8'));
-    const permission = normalizeAgentPermissionOrNone(fm.permission);
-    if (permission) { resolved = permission; break; }
-  }
-  _frontmatterPermCache.set(cacheKey, { value: resolved, atMs: Date.now() });
-  return resolved;
-}
-
-function positiveInt(value) {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
-}
-
-function terminalPidForContext(context = {}) {
-  return positiveInt(context?.clientHostPid);
-}
-
-function agentScope(args = {}, context = {}) {
-  const scope = clean(args.scope || args.terminal || args.term).toLowerCase();
-  if (args.allTerminals === true || scope === 'all' || scope === 'global') return {};
-  return context || {};
-}
-
-function sessionMatchesContext(session, context = {}) {
-  const wantedPid = terminalPidForContext(context);
-  if (!wantedPid) return true;
-  const sessionPid = positiveInt(session?.clientHostPid);
-  return !!sessionPid && sessionPid === wantedPid;
-}
-
-function rowMatchesContext(row, context = {}) {
-  const wantedPid = terminalPidForContext(context);
-  if (!wantedPid) return true;
-  const rowPid = positiveInt(row?.clientHostPid);
-  return !!rowPid && rowPid === wantedPid;
-}
-
-function nonNegativeInt(value) {
-  if (value === undefined || value === null || value === '') return null;
-  const n = Number(value);
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
-}
-
-function presetKey(preset) {
-  return clean(preset?.id || preset?.name);
-}
-
-function bridgeRouteForStatusline(preset = {}) {
-  const provider = clean(preset.provider);
-  const model = clean(preset.model);
-  if (!provider || !model) return null;
-  const out = {
-    mode: 'fixed',
-    defaultProvider: provider,
-    defaultModel: model,
-  };
-  const id = clean(preset.id);
-  const name = clean(preset.name);
-  const modelDisplay = clean(preset.modelDisplay || preset.display || preset.displayName);
-  const effort = clean(preset.effort);
-  if (id) out.presetId = id;
-  if (name) out.presetName = name;
-  if (modelDisplay) out.modelDisplay = modelDisplay;
-  if (effort) {
-    out.effort = effort;
-    out.displayEffort = effort;
-  }
-  if (preset.fast === true || preset.fast === false) out.fast = preset.fast;
-  return out;
-}
-
-function writeAgentStatuslineRoute(sessionId, preset) {
-  const route = bridgeRouteForStatusline(preset);
-  if (!sessionId || !route) return false;
-  try { return writeGatewaySessionRoute(sessionId, route); } catch { return false; }
-}
-
-function clearAgentStatuslineRoute(sessionId) {
-  if (!sessionId) return false;
-  try { return clearGatewaySessionRoute(sessionId); } catch { return false; }
-}
-
-function findPreset(config, key) {
-  const wanted = clean(key).toLowerCase();
-  if (!wanted) return null;
-  const presets = Array.isArray(config?.presets) ? config.presets : [];
-  return presets.find((p) => {
-    return clean(p?.id).toLowerCase() === wanted || clean(p?.name).toLowerCase() === wanted;
-  }) || null;
-}
-
-function synthesizePreset(config, key) {
-  const alias = PRESET_ALIASES.get(clean(key).toLowerCase());
-  if (!alias) return null;
-  const base = findPreset(config, alias.base);
-  if (!base) return null;
-  return {
-    ...base,
-    id: alias.id,
-    name: alias.name,
-    effort: alias.effort,
-  };
-}
-
-function normalizeAgentRoute(routeLike, fallbackProvider = '') {
-  const provider = clean(routeLike?.provider) || clean(fallbackProvider);
-  const model = clean(routeLike?.model);
-  if (!provider || !model) return null;
-  return {
-    provider,
-    model,
-    effort: clean(routeLike?.effort) || undefined,
-    fast: routeLike?.fast === true,
-  };
-}
-
-function agentPresetName(agent) {
-  return `AGENT ${String(agent || '').toUpperCase()}`;
-}
-
-async function resolvePrompt(args, cwd) {
-  const prompt = clean(args.prompt || args.message);
-  const file = clean(args.file);
-  if (prompt && file) throw new Error('agent: provide only one of prompt/message or file');
-  if (prompt) return prompt;
-  if (file) {
-    const target = isAbsolute(file) ? file : resolve(cwd || process.cwd(), file);
-    return readFileSync(target, 'utf8');
-  }
-  throw new Error('agent: prompt/message/file is required');
-}
-
-function withCwdHeader(prompt, cwd) {
-  if (!cwd) return prompt;
-  if (String(prompt).startsWith('[effective-cwd]')) return prompt;
-  return `[effective-cwd] ${cwd}\n\n${prompt}`;
-}
-
-function oneLine(value, max = 180) {
-  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
-  return text.length > max ? `${text.slice(0, max)}...` : text;
-}
-
-function compactIso(value) {
-  const text = clean(value);
-  if (!text) return '';
-  return text.replace('T', ' ').replace(/\.\d+Z$/, 'Z');
-}
-
-function formatElapsedMs(ms) {
-  const n = Number(ms);
-  if (!Number.isFinite(n) || n < 0) return '';
-  const totalSec = Math.floor(n / 1000);
-  if (totalSec < 60) return `${totalSec}s`;
-  const min = Math.floor(totalSec / 60);
-  const sec = totalSec % 60;
-  if (min < 60) return sec ? `${min}m${sec}s` : `${min}m`;
-  const hr = Math.floor(min / 60);
-  const remMin = min % 60;
-  return remMin ? `${hr}h${remMin}m` : `${hr}h`;
-}
-
-function elapsedFromStamps(startedAt, finishedAt, status) {
-  const start = Date.parse(clean(startedAt));
-  if (!Number.isFinite(start)) return null;
-  const finish = Date.parse(clean(finishedAt));
-  const end = Number.isFinite(finish) ? finish : Date.now();
-  const label = formatElapsedMs(end - start);
-  if (!label) return null;
-  return Number.isFinite(finish) ? label : `${label} (running)`;
-}
-
-function stripFinalAnswerWrapper(value) {
-  const text = String(value ?? '').trim();
-  const match = /^<final-answer\b[^>]*>([\s\S]*?)<\/final-answer>\s*$/i.exec(text);
-  return match ? match[1].trim() : text;
-}
-
-function renderResult(value) {
-  if (value === undefined || value === null) return '';
-  if (typeof value === 'string') return value;
-  if (value && typeof value === 'object') {
-    const lines = [];
-
-    if (Array.isArray(value.workers) || Array.isArray(value.jobs)) {
-      const workers = Array.isArray(value.workers) ? value.workers : [];
-      lines.push(`agents: ${workers.length}`);
-      for (const worker of workers) {
-        const tokens = worker.windowTokens ? ` ctx=${worker.windowTokens}${worker.windowCap ? `/${worker.windowCap}` : ''}` : '';
-        const terminal = worker.clientHostPid ? ` term=${worker.clientHostPid}` : '';
-        const base = `- ${worker.tag} ${worker.agent || 'agent'} ${worker.status || 'idle'}/${worker.worker_stage || worker.stage || 'idle'} ${worker.provider}/${worker.model}${terminal}${tokens}`;
-        lines.push(appendAgentProgressKv(base, worker));
-      }
-      const jobs = Array.isArray(value.jobs) ? value.jobs : [];
-      lines.push(`tasks: ${jobs.length}`);
-      for (const job of jobs) {
-        const target = job.tag || job.sessionId || '-';
-        const terminal = job.clientHostPid ? ` term=${job.clientHostPid}` : '';
-        const base = `- ${job.task_id} ${job.type} ${job.status} target=${target}${terminal}${job.error ? ` error=${job.error}` : ''}`;
-        lines.push(appendAgentProgressKv(base, job));
-      }
-      if (workers.length === 0 && jobs.length === 0) lines.push('(no agents or tasks)');
-      return lines.join('\n');
-    }
-
-    if (value.task_id) {
-      lines.push(`agent task: ${value.task_id}`);
-      lines.push(`status: ${value.status}`);
-      if (value.type) lines.push(`type: ${value.type}`);
-      if (value.reused) lines.push('reused: true');
-      if (value.tag || value.sessionId) lines.push(`target: ${value.tag || '-'} ${value.sessionId || ''}`.trim());
-      if (value.agent) lines.push(`agent: ${value.agent}`);
-      if (value.provider && value.model) lines.push(`model: ${value.provider}/${value.model}`);
-      if (value.effort) lines.push(`effort: ${value.effort}`);
-      if (value.fast === true || value.fast === false) lines.push(`fast: ${value.fast ? 'on' : 'off'}`);
-      if (value.maxLoopIterations) {
-        const limitParts = [];
-        if (value.maxLoopIterations) limitParts.push(`loop=${value.maxLoopIterations}`);
-        lines.push(`limits: ${limitParts.join(' ')}`);
-      }
-      if (value.stage || value.workerStatus) lines.push(`worker: ${value.workerStatus || 'unknown'}/${value.stage || 'unknown'}`);
-      if (value.worker_stage) lines.push(`worker_stage: ${value.worker_stage}`);
-      if (value.last_progress) lines.push(`last_progress: ${value.last_progress}`);
-      if (Number.isFinite(value.silent_for)) lines.push(`silent_for: ${value.silent_for}s`);
-      if (value.watchdog) lines.push(`watchdog: ${value.watchdog}`);
-      if (Number.isFinite(value.queued_followups)) lines.push(`queued_followups: ${value.queued_followups}`);
-      if (value.diagnostic) lines.push(`diagnostic: ${value.diagnostic}`);
-      if (value.startedAt) lines.push(`started: ${compactIso(value.startedAt)}`);
-      if (value.finishedAt) lines.push(`finished: ${compactIso(value.finishedAt)}`);
-      {
-        const elapsed = elapsedFromStamps(value.startedAt, value.finishedAt, value.status);
-        if (elapsed) lines.push(`elapsed: ${elapsed}`);
-      }
-      if (value.error) lines.push(`error: ${value.error}`);
-      if (value.status === 'running') lines.push('notification: completion will be delivered to the owner session; use read/status only for manual recovery.');
-      if (value.result !== undefined) {
-        const result = value.result;
-        const content = typeof result === 'string' ? result : result?.content;
-        if (content) lines.push('', stripFinalAnswerWrapper(content));
-        else lines.push('', JSON.stringify(result, null, 2));
-      }
-      return lines.join('\n');
-    }
-
-    if (value.queued) {
-      return [
-        'agent message queued',
-        value.reused ? 'reused: true' : null,
-        `target: ${value.tag || '-'} ${value.sessionId || ''}`.trim(),
-        value.agent ? `agent: ${value.agent}` : null,
-        `queueDepth: ${value.queueDepth ?? 1}`,
-      ].filter(Boolean).join('\n');
-    }
-
-    if (value.closed !== undefined) {
-      return [
-        `agent close: ${value.closed ? 'ok' : 'not closed'}`,
-        value.tag ? `tag: ${value.tag}` : null,
-        value.sessionId ? `sessionId: ${value.sessionId}` : null,
-        value.task_id ? `task_id: ${value.task_id}` : null,
-        value.forgotten ? 'forgotten: true' : null,
-      ].filter(Boolean).join('\n');
-    }
-
-    if (value.content !== undefined) {
-      const header = [
-        value.respawned ? 'agent respawned' : 'agent result',
-        value.tag ? `tag=${value.tag}` : null,
-        value.agent ? `agent=${value.agent}` : null,
-        value.provider && value.model ? `${value.provider}/${value.model}` : null,
-      ].filter(Boolean).join(' ');
-      return `${header}\n${stripFinalAnswerWrapper(value.content)}`;
-    }
-  }
-  return JSON.stringify(value, null, 2);
-}
 
 export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultCwd, onSubagentEvent }) {
   // Optional bridge to the standard hook bus for SubagentStart / SubagentStop.
@@ -1556,7 +1163,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     const config = cfgMod.loadConfig();
     const agent = normalizeAgentName(args.agent);
     if (!agent) throw new Error('agent spawn: agent is required');
-    const agentPermission = readAgentFrontmatterPermission(agent, dataDir);
+    const agentPermission = readAgentFrontmatterPermission(agent, dataDir, STANDALONE_SOURCE_ROOT);
     const agentPerm = normalizeAgentPermission(agentPermission) || null;
     const { presetName, preset } = resolvePreset(config, args);
     await ensureProvider(config, preset.provider);

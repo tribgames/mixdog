@@ -350,6 +350,25 @@ function readMainConfig() {
   return readSection('memory')
 }
 
+// Recap toggle lives in the `agent` config section (agent.recap.enabled,
+// default true) — the same file the session runtime persists via
+// saveConfigAndAdopt. The memory daemon runs as a detached cross-process HTTP
+// worker, so it re-reads this section from disk each cycle tick (poll-on-use)
+// rather than relying on IPC. A legacy `agent.modules.memory === false` flag is
+// still honored as recap off (migration folds it on the session-runtime side).
+function readRecapEnabled() {
+  try {
+    const agent = readSection('agent')
+    const recap = agent?.recap
+    if (recap && typeof recap === 'object' && recap.enabled === false) return false
+    const legacyMemory = agent?.modules?.memory
+    if (legacyMemory && typeof legacyMemory === 'object' && legacyMemory.enabled === false) return false
+    return true
+  } catch {
+    return true
+  }
+}
+
 let db = null
 let mainConfig = null
 let _cycleInterval = null
@@ -416,7 +435,14 @@ function memoryLlmWorkerEnabled() {
 }
 
 function memoryCyclesEnabled() {
-  return !memorySecondaryMode() && !envFlagEnabled('MIXDOG_MEMORY_DISABLE_CYCLES')
+  // Background cycles run only when: not secondary mode, the env hard-override
+  // is not set, AND the user-facing recap toggle is on. The recap flag is
+  // re-read from disk here so toggling it at runtime takes effect without a
+  // daemon restart (checkCycles polls this each tick). The env override stays a
+  // hard kill switch regardless of recap.
+  return !memorySecondaryMode()
+    && !envFlagEnabled('MIXDOG_MEMORY_DISABLE_CYCLES')
+    && readRecapEnabled()
 }
 
 function secondaryPgAdvertised() {
@@ -547,7 +573,14 @@ async function _initStore() {
   // MIXDOG_MEMORY_DISABLE_LLM_WORKER=1 + cycles enabled hits an empty registry
   // and fails with "Provider not found". Non-fatal: a failure here is logged
   // and cycle1's own callLlm surfaces the unresolved-provider error per call.
-  if (memoryCyclesEnabled() || memoryLlmWorkerEnabled()) {
+  // Registry must be available whenever cycles COULD run in this process, not
+  // just when they are currently enabled: recap can be toggled on at runtime
+  // (memoryCyclesEnabled() now includes the recap flag), so gate registry init
+  // on the cycle-capable conditions (not secondary, env not hard-disabled) OR
+  // the llm worker gate — never on the runtime recap flag itself, or enabling
+  // recap later would hit an empty registry and fail with "Provider not found".
+  const cyclesCapable = !memorySecondaryMode() && !envFlagEnabled('MIXDOG_MEMORY_DISABLE_CYCLES')
+  if (cyclesCapable || memoryLlmWorkerEnabled()) {
     try {
       const agentCfg = loadAgentConfig()
       await initProviders(agentCfg.providers || {})
@@ -1566,6 +1599,11 @@ async function checkCycles() {
   // 60s poll bounds latency; manual `memory` tool calls already re-read per-call.
   mainConfig = readMainConfig();
   if (mainConfig?.enabled === false) return
+  // Recap toggle poll-on-use: when recap is off (or env hard-override / secondary
+  // mode), skip background cycle scheduling this tick. The transcript watcher and
+  // on-demand drains keep running regardless. Re-checked every tick so toggling
+  // recap on at runtime resumes scheduling without a daemon restart.
+  if (!memoryCyclesEnabled()) return
 
   const cycle1Ms = parseInterval(mainConfig?.cycle1?.interval || '10m')
   const cycle2Ms = parseInterval(mainConfig?.cycle2?.interval || '1h')
@@ -1718,11 +1756,22 @@ async function _initRuntime() {
   // increments, so deleted rows leave permanent gaps. Fast no-op when already
   // contiguous (or empty). Runs only here — never in cycle2/addCore/deleteCore.
   await compactCoreIds(DATA_DIR)
-  if (memoryCyclesEnabled()) {
+  // Memory module is always-on: the transcript watcher/ingest runs
+  // unconditionally except in secondary mode (secondary attaches to a primary's
+  // PG and must not double-ingest). The recap toggle only gates whether the
+  // background cycles actually schedule work — but we still start the tick loop
+  // so recap can be toggled ON at runtime (checkCycles polls recap each tick and
+  // no-ops while recap is off). The env hard-override / secondary mode skip the
+  // tick loop entirely.
+  if (!memorySecondaryMode()) {
     _transcriptWatcher = _initTranscriptWatcher()
+  } else {
+    __mixdogMemoryLog('[memory-service] secondary mode; skipping transcript watcher\n')
+  }
+  if (!memorySecondaryMode() && !envFlagEnabled('MIXDOG_MEMORY_DISABLE_CYCLES')) {
     _startCycles()
   } else {
-    __mixdogMemoryLog('[memory-service] secondary mode; skipping background cycles\n')
+    __mixdogMemoryLog('[memory-service] background cycle tick loop not started (secondary/env-disabled)\n')
   }
   _initialized = true
   // Boot complete — continue straight into the deferred embedding warmup.
@@ -1819,6 +1868,14 @@ async function recallCoreRows(query, { projectScope, category, limit } = {}) {
 const RECALL_DRAIN_HARD_CAP_ROWS = 500
 async function _drainSessionForRecallQuery(sessionId, signal, deadlineMs = 0) {
   if (!sessionId || signal?.aborted) return
+  // Recap off = NO memory-pipeline LLM calls. The recall drain runs cycle1
+  // (an LLM classifier) to turn raw rows into chunked roots before searching;
+  // when recap is disabled we skip it entirely and let recall serve whatever is
+  // already in the DB (existing chunk roots + raw rows via the query-path raw
+  // leg). Poll-on-use: readRecapEnabled() re-reads the flag each call so the
+  // toggle takes effect without a daemon restart. Ingest keeps accumulating raw
+  // rows regardless; env hard-override is folded into memoryCyclesEnabled.
+  if (!memoryCyclesEnabled()) return
   const existing = _recallDrainInFlight.get(sessionId)
   if (existing) { try { await existing } catch {} return }
   let pendingCount = 0
@@ -2075,7 +2132,14 @@ async function handleSearch(args, signal) {
   // chunks) rather than just the root's cycle2-compressed summary line.
   // Explicit `includeMembers:false` keeps the legacy summary-only mode.
   const includeMembers = args.includeMembers !== false
-  const includeRaw = Boolean(args.includeRaw)
+  // Recap off = no cycle1 drain ran, so raw (unchunked) rows are never promoted
+  // to chunk roots. The importance/query search leg only ranks chunked entries,
+  // so without forcing the raw leg on, a query recall under recap-off would miss
+  // everything ingested since the last chunking. Force includeRaw when recap is
+  // disabled so the query path's raw leg (readRawRowsInWindow, interleaved into
+  // the hybrid list) surfaces the unchunked rows the drain would otherwise have
+  // classified. Poll-on-use: re-read each call so runtime toggling applies.
+  const includeRaw = Boolean(args.includeRaw) || !memoryCyclesEnabled()
   const includeArchived = args.includeArchived !== false
   const category = args.category
   const temporal = parsePeriod(period, Boolean(query))

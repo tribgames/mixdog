@@ -2846,6 +2846,7 @@ export async function clearSessionMessages(sessionId, options = {}) {
     const afterTokens = estimateTranscriptContextUsage(keep, session.tools || []);
     const now = Date.now();
     session.messages = keep;
+    session.sessionStartMetaInjected = false;
     session.totalInputTokens = 0;
     session.totalOutputTokens = 0;
     session.totalCachedReadTokens = 0;

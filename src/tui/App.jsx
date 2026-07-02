@@ -16,8 +16,6 @@
  * layout, which <Static> collapses. The terminal handles scrollback itself as
  * the transcript column grows past the screen height.
  */
-import { Buffer } from 'node:buffer';
-import { spawn } from 'node:child_process';
 import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import stringWidth from 'string-width';
@@ -90,6 +88,28 @@ import {
 
 import { displayModelName } from '../ui/model-display.mjs';
 import { supportsExtendedKeys, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
+import {
+  SLASH_COMMANDS,
+  slashQuery,
+  slashCommandMatches,
+  compareSlashCommands,
+  overlayBlocksGlobalTranscriptScroll,
+  normalizeSlashCommandName,
+  slashCommandTokenForPaletteAccept,
+  slashCommandForName,
+  slashArgumentHint,
+} from './app/slash-commands.mjs';
+import {
+  parseHookRuleInput,
+  parseMcpServerInput,
+  parseSkillInput,
+  parseMemoryCommand,
+  parseMemoryStatusRows,
+  parseMemoryCoreRows,
+  parseMemoryCandidateRows,
+  memoryCoreResultErrorText,
+} from './app/input-parsers.mjs';
+import { copyToClipboard } from './app/clipboard.mjs';
 
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
@@ -109,148 +129,11 @@ const isSearchDefaultRoute = (route) =>
   String(route?.provider || '').toLowerCase() === 'default'
   && String(route?.model || '').toLowerCase() === 'default';
 
-const SLASH_COMMANDS = [
-  { name: 'clear', usage: '/clear', aliases: ['new'], aliasUsage: ['new'], description: 'Start a fresh chat' },
-  { name: 'project', usage: '/project', aliases: ['projects'], aliasUsage: ['projects'], showAliasUsage: false, description: 'Switch working directory (project)' },
-  { name: 'compact', usage: '/compact', description: 'Compact older conversation context' },
-  { name: 'autoclear', usage: '/autoclear', description: 'Reduce cache-miss cost after long idle gaps' },
-  { name: 'resume', usage: '/resume', description: 'Resume a saved chat' },
-  { name: 'context', usage: '/context', description: 'Show current context surface' },
-  { name: 'usage', usage: '/usage', params: '[refresh]', description: 'Show total provider quota / balance' },
-  { name: 'model', usage: '/model', description: 'Switch model for subsequent turns' },
-  { name: 'search', usage: '/search', description: 'Set the web search provider/model' },
-  { name: 'workflow', usage: '/workflow', description: 'Switch the active workflow' },
-  { name: 'outputstyle', usage: '/OutputStyle', aliases: ['output-style', 'style'], aliasUsage: ['style'], showAliasUsage: false, params: '[name]', description: 'Switch Lead output style' },
-  { name: 'theme', usage: '/theme', params: '[id]', description: 'Change the TUI color theme' },
-  { name: 'agents', usage: '/agents', description: 'Show available workflow agents' },
-  { name: 'effort', usage: '/effort', params: '[level]', description: 'Set reasoning effort for the current model' },
-  { name: 'fast', usage: '/fast', params: '[on|off]', description: 'Toggle Fast mode for the current model' },
-  { name: 'mcp', usage: '/mcp', description: 'Manage MCP servers and tools' },
-  { name: 'skills', usage: '/skills', description: 'Choose a skill for the next request' },
-  { name: 'memory', usage: '/memory', description: 'Memory status, core memories, cycles' },
-  { name: 'plugins', usage: '/plugins', description: 'Manage local plugin integrations' },
-  { name: 'hooks', usage: '/hooks', description: 'Manage before-tool hook rules and events' },
-  { name: 'providers', usage: '/providers', description: 'Manage auth, API keys, OAuth, and local endpoints' },
-  { name: 'channels', usage: '/channels', description: 'Manage Discord, channels, schedules, webhooks' },
-  { name: 'remote', usage: '/remote', description: 'Toggle Discord remote mode for this session' },
-  { name: 'schedules', usage: '/schedules', description: 'Manage schedules' },
-  { name: 'webhooks', usage: '/webhooks', description: 'Manage inbound webhooks' },
-  { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings' },
-  { name: 'profile', usage: '/profile', description: 'Set your title and response language' },
-  { name: 'update', usage: '/update', description: 'Check version and update mixdog' },
-  { name: 'voice', usage: '/voice', description: 'Toggle voice input (Ctrl+Space to record)' },
-  { name: 'quit', usage: '/quit', aliases: ['exit', 'q'], aliasUsage: ['exit', 'q'], description: 'Quit the TUI' },
-];
-
-function slashQuery(value) {
-  const text = String(value ?? '');
-  if (!/^\/[^\s]*$/.test(text)) return null;
-  return text.slice(1).toLowerCase();
-}
-
-function slashCommandMatches(command, query) {
-  const needle = String(query || '').toLowerCase();
-  if (!needle) return true;
-  if (String(command?.name || '').toLowerCase().startsWith(needle)) return true;
-  return (command?.aliases || []).some((alias) => String(alias || '').toLowerCase().startsWith(needle));
-}
-
-function compareSlashCommands(a, b) {
-  return String(a?.name || '').localeCompare(String(b?.name || ''), 'en', { sensitivity: 'base' });
-}
-
-/** Prompt-owned overlays absorb PageUp/PageDown and wheel scroll instead of the transcript. */
-function overlayBlocksGlobalTranscriptScroll(owner = {}) {
-  return !!(
-    owner.slashPaletteOpen ||
-    owner.picker ||
-    owner.toolApproval ||
-    owner.contextPanel ||
-    owner.usagePanel ||
-    owner.providerPrompt ||
-    owner.channelPrompt ||
-    owner.hookPrompt ||
-    owner.settingsPrompt
-  );
-}
-
-function normalizeSlashCommandName(cmd) {
-  const name = String(cmd || '').toLowerCase();
-  const command = SLASH_COMMANDS.find((item) => item.name === name || (item.aliases || []).includes(name));
-  return command?.name || name;
-}
-
-function slashCommandTokenForPaletteAccept(command, draftValue = '') {
-  if (!command) return '';
-  const text = String(draftValue ?? '').trim();
-  const typedToken = text.startsWith('/') ? text.slice(1).split(/\s+/)[0]?.toLowerCase() : '';
-  const canonical = String(command.name || '').toLowerCase();
-  const aliases = (command.aliases || []).map((alias) => String(alias || '').toLowerCase());
-  if (typedToken && (typedToken === canonical || aliases.includes(typedToken))) {
-    return typedToken;
-  }
-  return command.name;
-}
-
-function slashCommandForName(cmd) {
-  const name = normalizeSlashCommandName(cmd);
-  return SLASH_COMMANDS.find((item) => item.name === name) || null;
-}
-
-function slashArgumentHint(value) {
-  const text = String(value ?? '');
-  const match = text.match(/^\/([^\s]+)\s+$/);
-  if (!match) return '';
-  const command = slashCommandForName(match[1]);
-  return command?.params ? `${command.usage} ${command.params}` : '';
-}
-
 function terminalSize(stdout) {
   return {
     columns: stdout?.columns ?? 80,
     rows: stdout?.rows ?? 24,
   };
-}
-
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-
-function wrappedTextRows(value, width) {
-  const w = Math.max(1, Math.floor(Number(width) || 1));
-  let row = 0;
-  let col = 0;
-  const segments = [...graphemeSegmenter.segment(String(value ?? ''))];
-  for (let i = 0; i < segments.length; i += 1) {
-    const { segment } = segments[i];
-    if (segment === '\n') {
-      row += 1;
-      col = 0;
-      continue;
-    }
-    const segmentWidth = stringWidth(segment);
-    if (segmentWidth === 0) continue;
-    // Same wrap-ansi hard/wordWrap:false wrapping as caretPosition — keep the
-    // reserved row count in lock-step with the caret math so the prompt box
-    // height matches ink's actual wrap for wide-char lines.
-    if (col > 0 && col + segmentWidth > w) {
-      row += 1;
-      col = 0;
-    }
-    col += segmentWidth;
-    if (col === w && i < segments.length - 1) {
-      row += 1;
-      col = 0;
-    }
-  }
-  return row + 1;
-}
-
-function promptContentRows(value, contentColumns) {
-  // PromptInput appends a blank trailing cell when the caret is at end-of-input
-  // so the native cursor always has a rendered cell. App does not own the cursor
-  // offset, so reserve for the worst common case: caret at the end. This can
-  // over-reserve by one row at exact wrap boundaries, but never under-reserves
-  // and therefore prevents transcript rows from bleeding into the prompt box.
-  return wrappedTextRows(`${String(value ?? '')} `, contentColumns);
 }
 
 function clean(value) {
@@ -341,193 +224,6 @@ function formatSessionMessageCount(count) {
   return `${Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0} msg${n === 1 ? '' : 's'}`;
 }
 
-function parseHookRuleInput(text) {
-  const parts = String(text || '').split('|').map((part) => part.trim());
-  const [tool, actionRaw, match, reason, patchText] = parts;
-  const action = String(actionRaw || '').toLowerCase();
-  if (!tool || !action) return { error: 'usage: tool | allow|deny|modify | match(optional) | reason(optional) | json patch(optional)' };
-  if (!['allow', 'deny', 'block', 'modify', 'rewrite'].includes(action)) {
-    return { error: 'hook action must be allow, deny, block, modify, or rewrite' };
-  }
-  const rule = { tool, action };
-  if (match) rule.match = match;
-  if (reason) rule.reason = reason;
-  if (patchText) {
-    try {
-      const patch = JSON.parse(patchText);
-      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { error: 'json patch must be an object' };
-      rule.patch = patch;
-    } catch (e) {
-      return { error: `invalid json patch: ${e?.message || e}` };
-    }
-  }
-  if ((action === 'modify' || action === 'rewrite') && !rule.patch) {
-    return { error: 'modify/rewrite needs a json patch object in the last field' };
-  }
-  return { rule };
-}
-
-function parseMcpServerInput(text) {
-  const parts = String(text || '').split('|').map((part) => part.trim());
-  const [name, commandOrUrl, argsText = '', cwd = ''] = parts;
-  if (!name || !commandOrUrl) return { error: 'usage: name | command-or-url | args(optional) | cwd(optional)' };
-  if (/^(?:https?|wss?):\/\//i.test(commandOrUrl)) return { server: { name, url: commandOrUrl } };
-  return {
-    server: {
-      name,
-      command: commandOrUrl,
-      args: argsText.split(/\s+/).filter(Boolean),
-      cwd,
-    },
-  };
-}
-
-function parseSkillInput(text) {
-  const parts = String(text || '').split('|').map((part) => part.trim());
-  const [name, description = 'Project skill.'] = parts;
-  if (!name) return { error: 'usage: name | description(optional)' };
-  return { skill: { name, description } };
-}
-
-function parseMemoryCommand(text) {
-  const parts = String(text || '').trim().split(/\s+/).filter(Boolean);
-  const action = parts[0] || 'status';
-  const out = { action };
-  for (const part of parts.slice(1)) {
-    const [key, ...rest] = part.split('=');
-    if (!key || rest.length === 0) continue;
-    const raw = rest.join('=');
-    const num = Number(raw);
-    out[key] = Number.isFinite(num) && raw.trim() !== '' ? num : raw;
-  }
-  return out;
-}
-
-function parseMemoryStatusRows(text) {
-  return String(text || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line, index) => {
-      const sep = line.indexOf(':');
-      const label = sep === -1 ? line : line.slice(0, sep);
-      const description = sep === -1 ? '' : line.slice(sep + 1).trim();
-      return {
-        value: `status-${index}`,
-        label,
-        description,
-        _line: line,
-      };
-    });
-}
-
-function parseMemoryCoreRows(text) {
-  let currentProjectId = null;
-  return String(text || '')
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line, index) => {
-      const raw = line.trim();
-      if (raw.endsWith(':') && !raw.includes('id=')) {
-        const label = raw.slice(0, -1);
-        currentProjectId = label === 'COMMON' ? null : label;
-        return {
-          value: `core-group-${index}`,
-          label,
-          description: 'core memory pool',
-          _line: raw,
-          _group: true,
-        };
-      }
-      const match = raw.match(/^id=(\d+)\s+\[([^\]]*)\]\s+(.+?)(?:\s+—\s+(.+))?$/);
-      if (match) {
-        const [, id, category, element, summary = ''] = match;
-        return {
-          value: `core-${id}`,
-          label: `#${id} [${category}] ${element}`,
-          meta: currentProjectId || 'common',
-          description: summary,
-          _line: raw,
-          _action: 'core-entry',
-          _id: Number(id),
-          _category: category,
-          _element: element,
-          _summary: summary,
-          _projectId: currentProjectId,
-          // Raw pre-edit values, distinct from the (possibly later-mutated)
-          // _element/_summary above -- beginEditCoreMemory reads these to
-          // decide whether the row's element duplicated its summary (single-
-          // sentence entry) before deciding whether to touch element on edit.
-          _origElement: element,
-          _origSummary: summary,
-        };
-      }
-      return {
-        value: `core-${index}`,
-        label: raw,
-        description: '',
-        _line: raw,
-      };
-    });
-}
-
-function parseMemoryCandidateRows(text) {
-  const trimmed = String(text || '').trim();
-  // op:'candidates' returns this exact sentinel (index.mjs ~3158) when the
-  // resolved scope has none — treat as an empty list, not an inert text row.
-  if (!trimmed || /^core candidates:\s*none$/i.test(trimmed)) return [];
-  // Backend row shape (index.mjs ~3164), one candidate per line, no group
-  // headers:
-  //   id=<n> project=<COMMON|slug> [<category>] score=<x.xx|-> <element> — <summary> (<reason>)
-  const rowPattern = /^id=(\d+)\s+project=(\S+)\s+\[([^\]]*)\]\s+score=(\S+)\s+(.+?)\s+—\s+(.+?)\s+\(([^)]*)\)$/;
-  return trimmed
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line, index) => {
-      const raw = line.trim();
-      const match = raw.match(rowPattern);
-      if (match) {
-        const [, id, project, category, score, element, summary, reason] = match;
-        return {
-          value: `candidate-${id}`,
-          label: `#${id} [${category}] ${element}`,
-          meta: project === 'COMMON' ? 'common' : project,
-          description: `${summary}${score !== '-' ? ` (score ${score})` : ''} — ${reason}`,
-          _line: raw,
-          _action: 'candidate-entry',
-          _id: Number(id),
-          _projectId: project === 'COMMON' ? null : project,
-        };
-      }
-      return {
-        value: `candidate-${index}`,
-        label: raw,
-        description: '',
-        _line: raw,
-      };
-    });
-}
-
-// Backend "core" op errors are flattened to plain text by store.memoryControl
-// (isError is dropped -- see engine.mjs memoryControl / toolResponseText in
-// mixdog-session-runtime.mjs). Success text always uses a past-tense verb
-// ("core added/edited/deleted/promoted...", "core candidate dismissed...");
-// every declared failure in index.mjs's core-op handling uses the op word
-// followed by either ":" (validation message) or " failed" (caught
-// exception) -- e.g. "core add: project_id required...", "core edit failed:
-// no entry with id=5". That shape is used here to recover the error signal
-// since store.memoryControl resolves instead of rejecting on isError.
-function memoryCoreResultErrorText(text) {
-  const value = String(text || '').trim();
-  if (/^core (add|edit|delete|promote|dismiss)(:| failed)/i.test(value)) return value;
-  // Broader catch-all for other flattened "core" failures that don't name an
-  // op word right after "core" (e.g. "core: memory data dir is not
-  // initialized", "core requires op: ..."), plus any bare error/failed lead-in.
-  if (/^core:.*(not initialized|failed|error)/i.test(value)) return value;
-  if (/^(error|failed)\b/i.test(value)) return value;
-  return null;
-}
-
 function fitLine(value, columns, reserve = 4) {
   const text = String(value || '');
   const width = Math.max(1, Number(columns || 80) - reserve);
@@ -612,86 +308,6 @@ function promptStatusColor(tone) {
 
 function promptHistoryKey(value) {
   return String(value || '').trim().replace(/\s+/g, ' ');
-}
-
-function osc52ClipboardSequence(text) {
-  const b64 = Buffer.from(String(text ?? ''), 'utf8').toString('base64');
-  const raw = `\x1b]52;c;${b64}\x07`;
-  if (!process.env.TMUX) return raw;
-  return `\x1bPtmux;${raw.replaceAll('\x1b', '\x1b\x1b')}\x1b\\`;
-}
-
-function writeOsc52Clipboard(text) {
-  try {
-    process.stdout.write(osc52ClipboardSequence(text));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function nativeClipboardCommand(text) {
-  if (process.platform === 'win32') {
-    // Do not use clip.exe here: it decodes stdin with the system code page on
-    // many Windows setups, which turns UTF-8 glyphs like `·` into mojibake.
-    // Send base64 ASCII through stdin and let PowerShell decode UTF-8 before
-    // calling Set-Clipboard.
-    return {
-      cmd: 'powershell.exe',
-      args: [
-        '-NoLogo',
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        '$b=[Console]::In.ReadToEnd();$t=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b));Set-Clipboard -Value $t',
-      ],
-      input: Buffer.from(String(text ?? ''), 'utf8').toString('base64'),
-    };
-  }
-  if (process.platform === 'darwin') return { cmd: 'pbcopy', args: [], input: text };
-  if (process.env.WAYLAND_DISPLAY) return { cmd: 'wl-copy', args: [], input: text };
-  return { cmd: 'xclip', args: ['-selection', 'clipboard'], input: text };
-}
-
-// Copy text to the OS clipboard: send OSC 52 to the
-// terminal, then use a native helper as a local safety net. OSC 52 preserves
-// Unicode via base64; the Windows helper avoids clip.exe's code-page mojibake.
-function copyToClipboard(text) {
-  const value = String(text ?? '');
-  const wroteOsc52 = writeOsc52Clipboard(value);
-  return new Promise((resolve, reject) => {
-    const { cmd, args, input } = nativeClipboardCommand(value);
-    let child;
-    try {
-      child = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true });
-    } catch (e) {
-      if (wroteOsc52) resolve();
-      else reject(e);
-      return;
-    }
-    child.on('error', (e) => {
-      if (wroteOsc52) resolve();
-      else reject(e);
-    });
-    child.on('close', (code) => {
-      if (code === 0 || wroteOsc52) resolve();
-      else reject(new Error(`${cmd} exited with code ${code}`));
-    });
-    child.stdin.on('error', () => { /* ignore EPIPE if the helper closed early */ });
-    child.stdin.end(input);
-  });
-}
-
-const SKILL_SURFACE_NAMES = new Set([
-  'skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill',
-]);
-
-function isAgentResponseResultText(text) {
-  const value = String(text || '').trim();
-  if (!value) return false;
-  if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(value)) return false;
-  if (/^(?:background task\b|agent task:|task_id:)/i.test(value) && !/\n\s*\n[\s\S]*\S/.test(value)) return false;
-  return true;
 }
 
 function ToolHookDenialCard({ item, columns = 80 }) {
@@ -779,223 +395,6 @@ const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpan
   );
 });
 
-function positiveIntEnv(name, fallback) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
-}
-
-// Per-keystroke render cost is proportional to the number of MOUNTED transcript
-// items: ink's renderNodeToOutput still serializes (squashTextNodes/wrapText/
-// output.write) every child even when an overflow:hidden viewport clips it
-// off-screen — clipping only trims write coordinates, not the serialization. So
-// the only lever for typing latency on a tall transcript is mounting fewer
-// rows. The window keeps a small ITEM floor (so a few items stay mounted for
-// stable scroll/overscan) but is otherwise driven by the viewport+overscan ROW
-// span, not a large fixed item count. All three are env-tunable for A/B / revert.
-const TRANSCRIPT_WINDOW_MIN_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_MIN_ITEMS', 12);
-const TRANSCRIPT_WINDOW_OVERSCAN_ROWS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_OVERSCAN_ROWS', 16);
-
-// Hard cap on simultaneously MOUNTED transcript items. Every mounted child is
-// fully serialized by ink each frame (clipping only trims write coords, not the
-// serialize pass), so this cap is the dominant lever for per-frame render cost
-// on a tall transcript. The viewport+overscan ROW span already drives the
-// window; this cap only bounds the worst case (many short rows). 180 mounted
-// rows is far more than any viewport needs and made each frame serialize a long
-// tail of off-screen rows, so lower it to a value that still comfortably covers
-// viewport + overscan on a large terminal. Env-tunable for A/B / revert.
-const TRANSCRIPT_WINDOW_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS', 80);
-const SELECTION_PAINT_INTERVAL_MS = positiveIntEnv('MIXDOG_TUI_SELECTION_PAINT_MS', 24);
-// Frame-coalesce edge-drag auto-scroll + wheel scroll: both paths accumulate
-// deltas into one pending total and flush via a single scrollTranscriptRows
-// call per this interval, instead of firing the (expensive: anchor recompute +
-// selection repaint) scrollTranscriptRows on every mousemove/wheel tick.
-const SCROLL_COALESCE_MS = positiveIntEnv('MIXDOG_TUI_SCROLL_COALESCE_MS', 16);
-const PROMPT_HISTORY_LIMIT = 50;
-
-// Parse a boolean env var that DEFAULTS ON. Any of 0/false/off/no (case-
-// insensitive, trimmed) disables it; everything else (including unset) leaves it
-// on. Used as the kill switch for the app-level measured-height feature below.
-function boolEnvDefaultTrue(name) {
-  const raw = process.env[name];
-  if (raw == null) return true;
-  const v = String(raw).trim().toLowerCase();
-  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
-}
-
-// App-level measured transcript heights (virtual-scroll height cache). When ON (default), each mounted transcript
-// row's REAL Yoga
-// getComputedHeight() replaces the row-count ESTIMATE in the scroll/window math,
-// so wheel scrolling moves REAL rows and stops juddering ("덜컥거림") on estimate
-// error (markdown tables, wrapped long tokens, tool-card growth). Off-screen
-// (never-measured) items keep the estimate; the overscan band absorbs that
-// residual in the overscan band.
-//
-// ESCAPE HATCH: set MIXDOG_TUI_TRANSCRIPT_MEASURED to 0/false/off/no to fall
-// back to the pure-estimate behavior. The measured path depends on two
-// invariants that the estimate is now hand-tuned to satisfy (see
-// estimateTranscriptItemRows: the tool branch includes the ToolExecution
-// wrapper marginTop so estimate≈measured and no row "settles" by +1), and on
-// anchor-aware scroll preservation (see the row-delta effect). If either drifts
-// after a UI change and the transcript starts jumping on measure, flip this off
-// to restore the previous estimate-only behavior with zero other code changes.
-const TRANSCRIPT_MEASURED_ROWS = boolEnvDefaultTrue('MIXDOG_TUI_TRANSCRIPT_MEASURED');
-
-function selectionRectsEqual(a, b) {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return a.mode === b.mode
-    && a.x1 === b.x1
-    && a.y1 === b.y1
-    && a.x2 === b.x2
-    && a.y2 === b.y2
-    && a.clipY1 === b.clipY1
-    && a.clipY2 === b.clipY2
-    && a.captureText === b.captureText;
-}
-
-function shiftSelectionRectY(rect, deltaY) {
-  const dy = Math.round(Number(deltaY) || 0);
-  if (!rect || dy === 0) return rect || null;
-  return { ...rect, y1: rect.y1 + dy, y2: rect.y2 + dy };
-}
-
-// Reading-order compare (row then col): -1 if a<b, 1 if a>b, 0 equal. Shared by
-// buildSpanRect (word/line drag-extension). Module scope so both the mouse
-// handler and the auto-scroll path can reach it.
-function comparePoints(a, b) {
-  if (a.y !== b.y) return a.y < b.y ? -1 : 1;
-  if (a.x !== b.x) return a.x < b.x ? -1 : 1;
-  return 0;
-}
-
-// Count how many terminal rows ONE logical line (no '\n') occupies once ink
-// word-wraps it. ink/Yoga break on whitespace (wrap-ansi wordWrap), NOT on a
-// hard column count: a word that does not fit the remaining space is pushed
-// whole to the next row, so `Math.ceil(width/cols)` UNDER-counts whenever a
-// long token (e.g. `src/tui/App.jsx`) straddles a wrap boundary. That
-// under-count accumulates over a long transcript and, because the viewport is
-// `overflow:hidden` + `justifyContent:flex-end`, the newest assistant row gets
-// its TOP wrapped lines clipped (only the last line shows). Mirror the greedy
-// word-wrap so the row estimate is never lower than what ink actually renders.
-function wrappedLineRows(line, width) {
-  const text = String(line);
-  const full = displayWidth(text);
-  if (full === 0) return 1;
-  if (full <= width) return 1;
-  let rows = 1;
-  let col = 0;
-  for (const token of text.split(/(\s+)/)) {
-    if (!token) continue;
-    const tw = displayWidth(token);
-    if (tw === 0) continue;
-    if (tw > width) {
-      // Over-long unbreakable token: ink hard-splits it across rows.
-      if (col > 0) { rows++; col = 0; }
-      rows += Math.ceil(tw / width) - 1;
-      col = tw % width || width;
-      continue;
-    }
-    if (col + tw > width) { rows++; col = tw; }
-    else { col += tw; }
-  }
-  return Math.max(1, rows);
-}
-
-function estimateWrappedRows(text, columns, reserve = 4) {
-  const width = Math.max(8, Number(columns || 80) - reserve);
-  const lines = String(text ?? '').split('\n');
-  return Math.max(1, lines.reduce((sum, line) => sum + wrappedLineRows(line, width), 0));
-}
-
-// EXACT assistant-body row measurement (lockstep with Markdown.jsx render).
-//
-// The old raw-line heuristic (estimateWrappedRows + per-block/table fudge)
-// could not see what the renderer actually draws — fenced-code indent + border
-// fences, list markers/indent, heading trailing blank rows, and (worst) GFM
-// table borders / vertical fallback. That drift caused either a phantom blank
-// band (over-estimate) or top-clipping (under-estimate) on streaming answers.
-//
-// Instead, mirror the render path: `renderTokenAnsiSegments(text)` returns the
-// SAME ordered segments <Markdown> emits — one ANSI block per token plus a
-// `table` segment carrying the token. The renderer stacks them in a
-// `<Box flexDirection="column" gap={1}>`, so the rendered height is:
-//   sum(each segment's wrapped line count) + (segments.length - 1)  // gap rows
-// where an ANSI segment wraps at the assistant body width (columns-3, see
-// AssistantMessage) and a table is measured by the SHARED table-layout module
-// (`measureMarkdownTableRows`) at that SAME body width — the renderer passes it
-// to MarkdownTable via forceWidth (Markdown.jsx/Message.jsx), so the estimate
-// equals MarkdownTable's real line count (horizontal box OR vertical fallback)
-// with zero drift, including on win32 where stdout.columns ≠ frameColumns.
-//
-const BACKGROUND_TASK_TOOL_NAMES = new Set(['explore', 'search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']);
-
-function isBackgroundTaskToolName(normalizedName) {
-  return BACKGROUND_TASK_TOOL_NAMES.has(String(normalizedName || '').toLowerCase());
-}
-
-function parseBackgroundTaskResultForRows(value) {
-  const text = String(value || '').trim();
-  if (!text) return null;
-  const allLines = text.split('\n');
-  const start = allLines.findIndex((line) => line.trim() === 'background task');
-  if (start < 0) return null;
-  const rest = allLines.slice(start + 1);
-  const blank = rest.findIndex((line) => !line.trim());
-  const headLines = blank >= 0 ? rest.slice(0, blank) : rest;
-  const body = blank >= 0 ? rest.slice(blank + 1).join('\n').trim() : '';
-  const fields = {};
-  for (const line of headLines) {
-    const match = /^([a-zA-Z][\w-]*):\s*(.*)$/.exec(line.trim());
-    if (match) fields[match[1].toLowerCase()] = match[2].trim();
-  }
-  const status = String(fields.status || '').toLowerCase();
-  const error = String(fields.error || '').trim();
-  const errorOnlyBody = isBackgroundErrorOnlyBody(body, error);
-  return {
-    status,
-    body,
-    error,
-    errorOnlyBody,
-    hasResponse: Boolean(body) && !errorOnlyBody && !/^(running|pending|queued)$/i.test(status),
-  };
-}
-
-function isBackgroundTaskResponseArgsForRows(normalizedName, args = {}) {
-  if (!isBackgroundTaskToolName(normalizedName)) return false;
-  const type = String(args?.type || args?.action || '').toLowerCase();
-  const status = String(args?.status || '').toLowerCase();
-  return type === 'result' || type === 'completion' || (/^(completed|cancelled|canceled)$/i.test(status) && Boolean(args?.task_id));
-}
-
-// ToolExecution derives its background-task classification from
-// formatToolSurface(name, args).args — i.e. parseToolArgs(args), which unwraps a
-// JSON string or a `{ input: {...} }` envelope into the flat arg object. The
-// row estimate / variant key must read the SAME parsed shape, otherwise a tool
-// whose raw `args` is a JSON string or input-wrapped object is mis-classified
-// here (raw `args.type` is undefined) while ToolExecution treats it as a
-// background response — desyncing the reserved height. Parse once, cheaply, and
-// reuse for both the estimate branch and the variant key. parseToolArgs already
-// guards malformed input (returns {} / { value } without throwing).
-function backgroundArgsForRows(rawArgs) {
-  const parsed = parseToolArgs(rawArgs);
-  return parsed && typeof parsed === 'object' ? parsed : {};
-}
-
-function toolItemPendingForRows(item) {
-  const count = Math.max(1, Number(item?.count || 1));
-  const done = Math.max(0, Math.min(count, Number(item?.completedCount || (item?.result == null ? 0 : count))));
-  return done < count;
-}
-
-// Mirror ToolExecution displayedResultText for row estimates (agent brief, etc.).
-const LEADING_STATUS_MARKER_LINE_RE = /^\[status:\s*[^\]]*\]\s*$/i;
-
-function stripLeadingStatusMarkerFromTextForRows(text) {
-  const lines = String(text || '').split('\n');
-  if (lines.length > 0 && LEADING_STATUS_MARKER_LINE_RE.test(String(lines[0] ?? '').trim())) lines.shift();
-  return lines.join('\n');
-}
-
 function toolDisplayedResultTextForRows(item) {
   const rt = item?.result == null ? '' : String(item.result).replace(/\s+$/, '');
   const bgArgs = backgroundArgsForRows(item?.args);
@@ -1009,28 +408,6 @@ function toolDisplayedResultTextForRows(item) {
     }
   }
   return stripLeadingStatusMarkerFromTextForRows(errorOnlyResult ? '' : (rt || ''));
-}
-
-function toolHasDisplayResultForRows(item) {
-  const rt = item.result == null ? '' : String(item.result).replace(/\s+$/, '');
-  const trimmed = String(rt || '').trim();
-  if (!trimmed) return false;
-  const bgArgs = backgroundArgsForRows(item.args);
-  if (isBackgroundErrorOnlyBody(trimmed, bgArgs.error || '')) return false;
-  const normalizedName = String(normalizeToolName(item.name) || '').toLowerCase();
-  if (isBackgroundTaskToolName(normalizedName)) {
-    const meta = parseBackgroundTaskResultForRows(trimmed);
-    if (meta) return Boolean(meta.hasResponse && String(meta.body || '').trim());
-  }
-  return true;
-}
-
-// Mirror ToolExecution expanded ResultBody rawText selection (aggregate always rawResult).
-function toolExpandedRawTextForRows(item, rawRt) {
-  if (item?.aggregate) return rawRt;
-  const hasDisplayResult = toolHasDisplayResultForRows(item);
-  if (hasDisplayResult) return toolDisplayedResultTextForRows(item);
-  return stripLeadingStatusMarkerFromTextForRows(rawRt || '');
 }
 
 function toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult) {
@@ -1075,23 +452,6 @@ function isShellSurfaceForRows(normalizedName, label = '') {
 function isShellSurfaceForToolItem(item, normalizedName) {
   const label = formatToolSurface(item?.name, item?.args)?.label || '';
   return isShellSurfaceForRows(normalizedName, label);
-}
-
-// EXPANDED tool bodies are post-processed by formatExpandedResult (JSON pretty,
-// oversize guard, line-number split). It can add rows (JSON pretty) or drop them
-// (truncation marker), so the row estimate MUST run the SAME pipeline — counting
-// the raw `split('\n')` would desync windowing/scroll the moment the measured
-// path replaces the estimate. Pass pathArg/isShell so the count matches exactly.
-function estimateToolRenderedResultRows(value, { pathArg = '', isShell = false, columns = 80 } = {}) {
-  const text = String(value ?? '').replace(/\s+$/, '');
-  if (!text) return 1;
-  try {
-    const logical = formatExpandedResult(text, { pathArg, isShell });
-    const rows = wrapExpandedResultLines(logical, columns, { isShell }).length;
-    return Math.max(1, rows);
-  } catch {
-    return Math.max(1, text.split('\n').length);
-  }
 }
 
 function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
@@ -4395,7 +3755,10 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     closeUsagePanel();
     const saveStyle = (styleId, { advance = false } = {}) => {
       if (!styleId) return;
-      setPicker(null);
+      // Onboarding advance: keep the current picker visible during the async
+      // style switch so the screen never flashes empty between steps; the next
+      // step (or finishOnboarding) replaces/clears the picker itself.
+      if (!(advance && onboarding)) setPicker(null);
       void store.setOutputStyle?.(styleId)
         .then((result) => {
           if (!result) {
@@ -4508,7 +3871,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         ],
         onConfirm: (button) => {
           if (button.value === 'back') {
-            setPicker(null);
             // Restore the palette active before the picker opened, then step back.
             if (currentId) applyTheme(currentId, { persist: false });
             onboarding.onBack?.();
@@ -5804,20 +5166,23 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
               providerName,
               label: `${providerName} OAuth code`,
               hint: manualUrl
-                ? 'If the browser callback does not finish, paste code#state below. Manual URL added to the transcript.'
+                ? 'If the browser callback does not finish, open the URL below manually and paste code#state.'
                 : `Paste the authorization code or full redirect URL for ${providerName}.`,
+              // Shown inside the live panel only — never written to the
+              // transcript, so it cannot linger in scrollback after the flow.
+              detail: manualUrl,
               login,
               afterSave: returnTo,
-              successReturn: () => showOAuthResult(true, `${providerName} login complete.`),
-              failureReturn: (e) => showOAuthResult(false, `${providerName} code failed: ${e?.message || e}`),
-              cancelReturn: () => openOAuthProviderActions(providerItem),
+              successReturn: () => {
+                showOAuthResult(true, `${providerName} login complete.`);
+              },
+              failureReturn: (e) => {
+                showOAuthResult(false, `${providerName} code failed: ${e?.message || e}`);
+              },
+              cancelReturn: () => {
+                openOAuthProviderActions(providerItem);
+              },
             });
-            // Persist the full manual URL into the transcript (not just a
-            // transient toast) so it stays retrievable; the visible panel hint
-            // is kept short/bounded and never carries the URL inline.
-            if (manualUrl) {
-              store.pushNotice(`${providerName} manual OAuth URL: ${manualUrl}`, 'info', { transcript: true });
-            }
             store.pushNotice(`browser opened for ${providerName}; paste code/redirect here if callback does not finish`, 'info');
             login.waitForCallback
               ?.then((result) => {
@@ -6053,7 +5418,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       preloadedSetup,
       confirmBar: {
         buttons: [{ value: 'next', label: 'Next ▶' }],
-        onConfirm: () => { setPicker(null); void openOnboardingWorkflowStep(); },
+        // Keep Step 1 visible while Step 2's async model load runs; the next
+        // step replaces the picker itself, so no blank frame in between.
+        onConfirm: () => { void openOnboardingWorkflowStep(); },
       },
       onCancel: onboardingWarnReopen,
     });
@@ -6221,14 +5588,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
             delete nextOverrides[target];
             onboardingRef.current.agentRoutes = nextOverrides;
           }
-          setPicker(null);
           void openOnboardingWorkflowStep();
           return;
         }
         const next = item?._model ? routeFromModel(item._model) : null;
         if (!next) {
           store.pushNotice('select a provider model first', 'warn');
-          setPicker(null);
           void openOnboardingWorkflowStep();
           return;
         }
@@ -6242,11 +5607,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
             [target]: next,
           };
         }
-        setPicker(null);
         void openOnboardingWorkflowStep();
       },
       onCancel: () => {
-        setPicker(null);
         void openOnboardingWorkflowStep();
       },
     });
@@ -6331,13 +5694,14 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           { value: 'next', label: 'Next ▶' },
         ],
         onConfirm: (button) => {
-          setPicker(null);
+          // Both neighbors are async (Step 1 preloads provider setup; theme
+          // list is sync but keep symmetric) — leave Step 2 visible until the
+          // next picker replaces it to avoid a blank frame.
           if (button.value === 'back') openOnboardingAuthStep();
           else openOnboardingThemeStep();
         },
       },
       onSelect: (_value, item) => {
-        setPicker(null);
         if (item._action === 'slot') {
           openOnboardingRoleModelPicker(item._target);
         }
@@ -6452,8 +5816,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
               backend,
               label: isTelegram ? 'Main chat' : 'Main channel',
               hint: isTelegram
-                ? 'Format: main | Telegram chat ID | mode(interactive/broadcast) | main'
-                : 'Format: main | Discord channel ID | mode(interactive/broadcast) | main',
+                ? 'Paste the Telegram chat ID.'
+                : 'Paste the Discord channel ID.',
             });
           }
         } catch (e) {
@@ -8032,8 +7396,11 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           .catch((e) => store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error'));
         return true;
       case 'remote': {
-        const enabled = store.toggleRemote?.() === true;
-        store.pushNotice(enabled ? 'Remote mode ON' : 'Remote mode OFF', 'info');
+        // /remote = force-claim, not toggle: always turns remote ON for THIS
+        // session and steals the seat from any other session (which flips
+        // itself OFF via the superseded notification). Turn off via /channels.
+        const enabled = store.claimRemote?.() === true;
+        store.pushNotice(enabled ? 'Remote mode ON — this session owns remote now.' : 'Remote mode unavailable.', 'info');
         return true;
       }
       case 'voice': {
@@ -8509,9 +7876,23 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         }
         const parts = commandText.split('|').map((part) => part.trim());
         if (channelPrompt.kind === 'channel-add') {
-          const [name, channelId, mode, mainFlag] = parts;
-          const main = String(mainFlag || '').toLowerCase() === 'main' || String(name || '').toLowerCase() === 'main';
-          store.saveChannel({ name, channelId, mode, main, backend: channelPrompt.backend });
+          // ID-only input: everything else defaults to the main interactive
+          // channel. Legacy `name | id | mode | main` pipe input still parses
+          // so nothing breaks, but the UI only asks for the ID.
+          const [first, pipeId, mode, mainFlag] = parts;
+          const isPipe = parts.length > 1;
+          const name = isPipe ? first : 'main';
+          const channelId = isPipe ? pipeId : first;
+          const main = !isPipe
+            || String(mainFlag || '').toLowerCase() === 'main'
+            || String(name || '').toLowerCase() === 'main';
+          store.saveChannel({
+            name,
+            channelId,
+            mode: isPipe ? mode : 'interactive',
+            main,
+            backend: channelPrompt.backend,
+          });
           resumeAfterChannelPrompt(channelPrompt);
           return true;
         }
@@ -10036,6 +9417,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
                     : providerPrompt.kind === 'opencode-go-cookie'
                       ? 'Paste the OpenCode web auth cookie value. It is stored in the OS keychain.'
                       : `Default: ${providerPrompt.defaultURL}`}
+                detail={providerPrompt.detail || ''}
                 mask={providerPrompt.kind === 'api-key' || providerPrompt.kind === 'opencode-go-cookie' || providerPrompt.kind === 'openai-usage-session'}
                 columns={frameColumns}
                 actionLabel={providerPrompt.kind === 'oauth-code' ? 'continue' : 'save'}

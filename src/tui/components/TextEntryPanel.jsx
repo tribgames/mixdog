@@ -159,6 +159,7 @@ function isAnyModifiedEnterSequence(input) {
 export function TextEntryPanel({
   title,
   hint = '',
+  detail = '',
   initialValue = '',
   mask = false,
   columns = 80,
@@ -465,6 +466,10 @@ export function TextEntryPanel({
   // The hint is collapsed to one line and width-truncated so a long manual
   // OAuth URL can never wrap and push the bordered title off the top.
   const hintText = truncateText(singleLine(hint), Math.max(0, columns - 4));
+  // Optional wrapped detail block (e.g. the manual OAuth URL). Lives INSIDE the
+  // live panel — never pushed to the transcript — so it disappears completely
+  // when the panel closes instead of lingering in terminal scrollback.
+  const detailText = String(detail || '').trim();
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%">
@@ -475,6 +480,12 @@ export function TextEntryPanel({
         </Box>
         <Text> </Text>
         <Text color={theme.subtle}>{hintText || ' '}</Text>
+        {detailText ? (
+          <Box flexDirection="column" width="100%">
+            <Text> </Text>
+            <Text color={theme.subtle} wrap="wrap">{detailText}</Text>
+          </Box>
+        ) : null}
         <Text> </Text>
         <Box ref={boxRef} flexDirection="row" width="100%" backgroundColor={surfaceBackground()}>
           <Text color={theme.inactive}>{promptLabel}</Text>

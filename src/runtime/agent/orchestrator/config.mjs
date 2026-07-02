@@ -231,6 +231,27 @@ function persistAgentConfig(build) {
     updateSection('agent', (current) => build(hasKeys(current) ? current : {}));
 }
 
+// Recap toggle (recap.enabled, default true) gates ONLY the background memory
+// cycles. The memory module itself is always-on. On load we fold a legacy
+// `modules.memory === false` flag into recap.enabled=false one time; the caller
+// (loadConfig) persists the migration so the legacy flag is dropped from disk.
+let _migratedRecapLegacy = false;
+function normalizeRecapConfig(rawRecap, rawModules) {
+    const recap = rawRecap && typeof rawRecap === 'object' ? { ...rawRecap } : {};
+    if (!('enabled' in recap)) {
+        const legacyMemory = rawModules && typeof rawModules === 'object' ? rawModules.memory : undefined;
+        if (legacyMemory && typeof legacyMemory === 'object' && legacyMemory.enabled === false) {
+            recap.enabled = false;
+            _migratedRecapLegacy = true;
+        } else {
+            recap.enabled = true;
+        }
+    } else {
+        recap.enabled = recap.enabled !== false;
+    }
+    return recap;
+}
+
 export function loadConfig(options = {}) {
     const includeSecrets = options.secrets !== false;
     const sectionRaw = readSection('agent');
@@ -353,6 +374,36 @@ export function loadConfig(options = {}) {
                     process.stderr.write(`[config] persist maintenance migration failed: ${err?.message}\n`);
                 }
             }
+            // One-time recap migration: fold a legacy `modules.memory === false`
+            // flag into `recap.enabled=false` and drop the legacy flag on disk.
+            // Compute the recap shape here (before the return) so the
+            // _migratedRecapLegacy latch is set, then persist under the lock.
+            const recapConfig = normalizeRecapConfig(raw.recap, raw.modules);
+            if (_migratedRecapLegacy) {
+                _migratedRecapLegacy = false;
+                try {
+                    persistAgentConfig((current) => {
+                        const cur = { ...current };
+                        const target = (cur.agent && cur.agent.providers)
+                            ? (cur.agent = { ...cur.agent })
+                            : cur;
+                        const recap = (target.recap && typeof target.recap === 'object') ? { ...target.recap } : {};
+                        if (!('enabled' in recap)) recap.enabled = false;
+                        target.recap = recap;
+                        if (target.modules && typeof target.modules === 'object' && target.modules.memory) {
+                            const modules = { ...target.modules };
+                            const memoryMod = { ...modules.memory };
+                            delete memoryMod.enabled;
+                            if (Object.keys(memoryMod).length === 0) delete modules.memory;
+                            else modules.memory = memoryMod;
+                            target.modules = modules;
+                        }
+                        return cur;
+                    });
+                } catch (err) {
+                    process.stderr.write(`[config] persist recap migration failed: ${err?.message}\n`);
+                }
+            }
             const rawPresets = Array.isArray(raw.presets) ? raw.presets : [];
             const normalizedPresets = rawPresets
                 .map(p => normalizePreset(p))
@@ -384,6 +435,8 @@ export function loadConfig(options = {}) {
                 runtime: raw.runtime && typeof raw.runtime === 'object' ? raw.runtime : {},
                 shell: raw.shell && typeof raw.shell === 'object' ? raw.shell : {},
                 update: raw.update && typeof raw.update === 'object' ? { ...raw.update } : {},
+                recap: recapConfig,
+                modules: raw.modules && typeof raw.modules === 'object' ? { ...raw.modules } : {},
             };
         }
         catch { /* fall through */ }
@@ -410,6 +463,8 @@ export function loadConfig(options = {}) {
         runtime: {},
         shell: {},
         update: {},
+        recap: { enabled: true },
+        modules: {},
     };
 }
 /**
@@ -485,6 +540,8 @@ export function saveConfig(config) {
         runtime: config.runtime || {},
         shell: config.shell || {},
         update: config.update || {},
+        recap: config.recap || {},
+        modules: config.modules || existingRaw.modules || {},
     }));
 }
 // --- Preset helpers ---

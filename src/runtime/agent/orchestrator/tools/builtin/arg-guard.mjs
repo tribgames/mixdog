@@ -458,8 +458,13 @@ function guardList(a) {
 }
 
 function guardFind(a) {
-    if (!hasOwn(a, 'query') || typeof a.query !== 'string' || a.query.trim().length === 0) {
-        return `Error: find requires non-empty string "query" (got ${describeType(a.query)})`;
+    // query accepts string or string[] (query[] fans out per-lookup downstream).
+    const queryOk = hasOwn(a, 'query') && (
+        (typeof a.query === 'string' && a.query.trim().length > 0)
+        || (Array.isArray(a.query) && a.query.length > 0 && a.query.every((q) => typeof q === 'string' && q.trim().length > 0))
+    );
+    if (!queryOk) {
+        return `Error: find requires non-empty string (or string[]) "query" (got ${describeType(a.query)})`;
     }
     if (hasOwn(a, 'path') && !isString(a.path)) {
         return `Error: find arg "path" must be a string (got ${describeType(a.path)})`;

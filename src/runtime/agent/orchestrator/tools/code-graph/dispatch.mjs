@@ -38,6 +38,7 @@ import {
 } from './search.mjs';
 
 const CODE_GRAPH_BATCHABLE_MODES = new Set(['symbol', 'find_symbol', 'symbol_search', 'callers', 'callees', 'references']);
+const CODE_GRAPH_FILE_BATCHABLE_MODES = new Set(['imports', 'dependents', 'related', 'impact', 'symbols', 'overview']);
 
 function _collectGraphSymbolList(args) {
   const split = (s) => String(s || '').split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
@@ -46,6 +47,23 @@ function _collectGraphSymbolList(args) {
     ...(typeof args?.symbols === 'string' ? split(args.symbols) : []),
     ...(typeof args?.symbol === 'string' ? split(args.symbol) : []),
   ])];
+}
+
+const CODE_GRAPH_FILE_BATCH_CAP = 20;
+
+function _collectGraphFileList(args) {
+  const split = (s) => String(s || '').split(/,+/).map((t) => t.trim()).filter(Boolean);
+  const list = [...new Set([
+    ...(Array.isArray(args?.files) ? args.files.map((f) => String(f || '').trim()).filter(Boolean) : []),
+    ...(typeof args?.files === 'string' ? split(args.files) : []),
+    ...(typeof args?.file === 'string' && args.file.trim() ? [args.file.trim()] : []),
+  ])];
+  if (list.length > CODE_GRAPH_FILE_BATCH_CAP) {
+    const capped = list.slice(0, CODE_GRAPH_FILE_BATCH_CAP);
+    capped._capped = true;
+    return capped;
+  }
+  return list;
 }
 
 async function codeGraph(args, cwd, signal = null, options = {}) {
@@ -466,6 +484,26 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
           }
           if (symbolList.length === 1 && args?.symbol !== symbolList[0]) {
             return dispatchOne({ ...args, symbol: symbolList[0], symbols: undefined });
+          }
+        }
+        if (CODE_GRAPH_FILE_BATCHABLE_MODES.has(batchMode)) {
+          const fileList = _collectGraphFileList(args);
+          if (fileList.length > 1) {
+            const capped = fileList._capped;
+            return (async () => {
+              const sections = [];
+              for (const f of fileList) {
+                let body;
+                try { body = await dispatchOne({ ...args, file: f, files: undefined }); }
+                catch (e) { body = `Error: ${e?.message || String(e)}`; }
+                sections.push(`# ${batchMode} ${f}\n${body}`);
+              }
+              if (capped) sections.push(`Note: file list capped at ${CODE_GRAPH_FILE_BATCH_CAP} entries.`);
+              return sections.join('\n\n');
+            })();
+          }
+          if (fileList.length === 1 && args?.file !== fileList[0]) {
+            return dispatchOne({ ...args, file: fileList[0], files: undefined });
           }
         }
         return dispatchOne(args);

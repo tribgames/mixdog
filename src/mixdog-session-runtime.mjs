@@ -140,6 +140,8 @@ import {
   normalizeCompactionConfig,
   moduleEnabled,
   setModuleEnabledInConfig,
+  recapEnabled,
+  setRecapEnabledInConfig,
   formatDurationMs,
   parseDurationMs,
   modelMetaLooksResolved,
@@ -520,7 +522,12 @@ export async function createMixdogSessionRuntime({
   let outputStyleStatusCacheAt = 0;
   let outputStyleStatusCacheDir = '';
 
-  const memoryEnabled = () => moduleEnabled(config, 'memory', true);
+  // Memory module is always-on. `memoryEnabled()` is kept as a thin alias that
+  // now always returns true (callers/compaction helpers still reference it);
+  // the user-facing toggle is `recap` (background cycles only), read via
+  // recapEnabled(config).
+  const memoryEnabled = () => true;
+  const recapEnabledFn = () => recapEnabled(config, true);
   const channelsEnabled = () => moduleEnabled(config, 'channels', true);
   const getOutputStyleStatusCached = ({ fresh = false } = {}) => {
     const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
@@ -546,7 +553,6 @@ export async function createMixdogSessionRuntime({
   };
 
   async function getMemoryModule() {
-    if (!memoryEnabled()) throw new Error('memory is disabled in settings');
     const startedAt = performance.now();
     memoryModPromise ??= Promise.resolve(memoryRuntime);
     const mod = await memoryModPromise;
@@ -831,10 +837,6 @@ export async function createMixdogSessionRuntime({
   async function loadCoreMemoryContext() {
     // Boot should not pay for memory/PG startup unless explicitly requested.
     // Recall and memory tools still initialize the memory service on first use.
-    if (!memoryEnabled()) {
-      bootProfile('core-memory:disabled');
-      return '';
-    }
     if (process.env.MIXDOG_BOOT_CORE_MEMORY !== '1') {
       bootProfile('core-memory:skipped');
       return '';
@@ -955,6 +957,14 @@ export async function createMixdogSessionRuntime({
   let codeGraphFirstTurnPrewarmDone = false;
   const modelMetaByRoute = new Map();
   const notificationListeners = new Set();
+  // Remote seat listeners (TUI): fired when remote mode flips outside a direct
+  // user action — currently only the superseded (seat stolen) path.
+  const remoteStateListeners = new Set();
+  function emitRemoteStateChange(enabled, reason = '') {
+    for (const listener of [...remoteStateListeners]) {
+      try { listener({ enabled: enabled === true, reason: String(reason || '') }); } catch {}
+    }
+  }
   let providerModelsCache = { models: null, at: 0 };
   let providerModelsPromise = null;
   let providerModelsLoadSeq = 0;
@@ -1508,6 +1518,16 @@ export async function createMixdogSessionRuntime({
     dataDir: cfgMod.getPluginData(),
     cwd,
     onNotify: (msg) => {
+      // Single-holder remote: the worker reports it lost the bridge seat to a
+      // newer remote session. Drop remote mode entirely on this session (no
+      // handover, no retry) and tell UI listeners so the indicator updates.
+      if (msg?.method === 'notifications/mixdog/remote') {
+        if (msg?.params?.state === 'superseded' && remoteEnabled) {
+          stopRemote('superseded-by-newer-remote-session');
+          emitRemoteStateChange(false, 'superseded');
+        }
+        return;
+      }
       if (msg?.method !== 'notifications/claude/channel') return;
       const params = msg?.params && typeof msg.params === 'object' ? msg.params : {};
       const meta = params.meta && typeof params.meta === 'object' ? params.meta : {};
@@ -2753,6 +2773,10 @@ function parsedProviderModelVersion(id) {
   // Remote (Discord channel) mode is opt-in per session. Only a session that
   // explicitly enables remote — via `mixdog --remote` or the runtime toggle —
   // boots the channel worker and contends for channel ownership.
+  // startRemote() is FORCE-TAKEOVER: it always (re)claims the bridge seat and
+  // rebinds output forwarding to this session, even when the worker is
+  // already running (e.g. `/remote` re-issued after another session took the
+  // seat, or to re-pin forwarding onto the current transcript).
   function startRemote() {
     remoteEnabled = true;
     // A backend switch may still be sitting in its debounce window; flush it
@@ -2773,7 +2797,15 @@ function parsedProviderModelVersion(id) {
       channelStartTimer = null;
     }
     bootProfile('channels:start-scheduled', { delayMs: 0, immediate: true });
-    void invokeChannelStart();
+    void invokeChannelStart()
+      .then(() => {
+        // Unconditional claim + forwarder rebind. A freshly-forked worker
+        // already claims in its own start(), so this is idempotent there; the
+        // already-running case is where it matters (last-wins seat overwrite +
+        // transcript rebind onto this session).
+        return channels.execute('activate_channel_bridge', { active: true });
+      })
+      .catch((error) => bootProfile('channels:claim-failed', { error: error?.message || String(error) }));
     return true;
   }
 
@@ -3161,9 +3193,6 @@ function parsedProviderModelVersion(id) {
       if (hasOwn(input, 'type') || hasOwn(input, 'compactType') || hasOwn(input, 'compact_type')) {
         const requestedType = input.type ?? input.compactType ?? input.compact_type;
         const compactType = normalizeCompactTypeSetting(requestedType, current.compactType || current.type || 'semantic');
-        if (compactType === 'recall-fasttrack' && !memoryEnabled()) {
-          throw new Error('recall-fasttrack compact requires memory to be enabled');
-        }
         next.type = compactType;
         next.compactType = compactType;
       }
@@ -3179,31 +3208,32 @@ function parsedProviderModelVersion(id) {
       invalidateContextStatusCache();
       return normalizeCompactionConfig(config.compaction, { memoryEnabled: memoryEnabled() });
     },
+    // Recap toggle: user-facing switch that gates ONLY the background memory
+    // cycles (1/2/3). The memory module (transcript watcher/ingest, on-demand
+    // recall/fasttrack drains) is always-on. Persisted via the same
+    // saveConfigAndAdopt path as compaction/autoClear. The memory daemon
+    // re-reads recap from the agent config section each cycle tick, so toggling
+    // takes effect without a restart (no memory-service stop/start here).
+    getRecapSettings() {
+      return { enabled: recapEnabledFn() };
+    },
+    setRecapEnabled(enabled) {
+      const nextConfig = setRecapEnabledInConfig({ ...config }, enabled !== false);
+      saveConfigAndAdopt(nextConfig);
+      invalidatePreSessionToolSurface();
+      invalidateContextStatusCache();
+      return this.getRecapSettings();
+    },
+    // Thin aliases kept for the current TUI callsites (updated separately).
+    // enabled here reflects the recap toggle; memory itself is always-on.
     getMemorySettings() {
       return {
-        enabled: memoryEnabled(),
-        compactFastTrackAvailable: memoryEnabled(),
+        enabled: recapEnabledFn(),
+        compactFastTrackAvailable: true,
       };
     },
     async setMemoryEnabled(enabled) {
-      const nextConfig = setModuleEnabledInConfig({ ...config }, 'memory', enabled !== false);
-      if (enabled === false) {
-        nextConfig.compaction = normalizeCompactionConfig(nextConfig.compaction, { memoryEnabled: false });
-      }
-      saveConfigAndAdopt(nextConfig);
-      if (!memoryEnabled() && memoryModPromise) {
-        await memoryModPromise.then((mod) => mod?.stop?.()).catch(() => {});
-        memoryModPromise = null;
-      }
-      if (session && config.compaction) {
-        session.compaction = {
-          ...(session.compaction || {}),
-          ...normalizeCompactionConfig(config.compaction, { memoryEnabled: memoryEnabled() }),
-        };
-      }
-      invalidatePreSessionToolSurface();
-      invalidateContextStatusCache();
-      return this.getMemorySettings();
+      return this.setRecapEnabled(enabled);
     },
     getChannelSettings(options = {}) {
       return {
@@ -3407,6 +3437,14 @@ function parsedProviderModelVersion(id) {
     },
     isRemoteEnabled() {
       return isRemoteEnabled();
+    },
+    // Subscribe to non-user-initiated remote flips (seat superseded). Returns
+    // an unsubscribe function. TUI uses this to sync its Remote indicator and
+    // show a "remote taken over" notice.
+    onRemoteStateChange(listener) {
+      if (typeof listener !== 'function') return () => {};
+      remoteStateListeners.add(listener);
+      return () => remoteStateListeners.delete(listener);
     },
     saveDiscordToken(token) {
       const result = saveDiscordToken(token);

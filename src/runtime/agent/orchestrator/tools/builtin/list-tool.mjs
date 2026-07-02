@@ -60,6 +60,26 @@ function listGuardPath(p) {
 }
 
 export async function executeListTool(args, workDir, options = {}) {
+    if (Array.isArray(args.path)) {
+        const list = [...new Set(args.path.map((p) => (typeof p === 'string' ? p.trim() : '')).filter((p) => p.length > 0))];
+        const capped = list.length > 10;
+        const targets = capped ? list.slice(0, 10) : list;
+        if (targets.length > 1) {
+            const sections = [];
+            for (const p of targets) {
+                let body;
+                try {
+                    body = await executeListTool({ ...args, path: p }, workDir, options);
+                } catch (err) {
+                    body = `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+                }
+                sections.push(`# list ${p}\n${body}`);
+            }
+            if (capped) sections.push(`... [capped at 10 of ${list.length} paths]`);
+            return sections.join('\n\n');
+        }
+        args.path = targets[0];
+    }
     if (typeof args.fuzzy === 'string' && args.fuzzy.length > 0) {
         return executeFuzzyFindTool({ ...args, query: args.fuzzy }, workDir, options);
     }
@@ -302,6 +322,26 @@ export async function executeTreeTool(args, workDir, options = {}) {
 // routes here for hidden backward compatibility, but the model-facing tool is
 // `find`.
 export async function executeFuzzyFindTool(args, workDir, options = {}) {
+    if (Array.isArray(args.query)) {
+        const list = [...new Set(args.query.map((q) => (typeof q === 'string' ? q.trim() : '')).filter((q) => q.length > 0))];
+        const capped = list.length > 10;
+        const targets = capped ? list.slice(0, 10) : list;
+        if (targets.length > 1) {
+            const sections = [];
+            for (const q of targets) {
+                let body;
+                try {
+                    body = await executeFuzzyFindTool({ ...args, query: q }, workDir, options);
+                } catch (err) {
+                    body = `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+                }
+                sections.push(`# find ${q}\n${body}`);
+            }
+            if (capped) sections.push(`... [capped at 10 of ${list.length} queries]`);
+            return sections.join('\n\n');
+        }
+        args.query = targets[0];
+    }
     const query = String(args.query ?? args.fuzzy ?? '').trim();
     if (!query) return 'Error: find requires query.';
     const inputPath = normalizeInputPath(args.path) || '.';

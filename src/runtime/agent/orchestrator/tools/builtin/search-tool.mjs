@@ -276,6 +276,32 @@ function formatGrepOutput({ windowed, totalWindowed, totalKnown, headLimit, offs
 
 export async function executeGrepTool(args, workDir, executeChildBuiltinTool, readStateScope = null, options = {}) {
     args = normalizeGrepArgs(args);
+    // Fan-out guard: batch multiple string paths sequentially, mirroring
+    // code_graph files[] batching. Recursive calls pass a single string
+    // path, so recursion bottoms out after one level.
+    if (Array.isArray(args.path)) {
+        const GREP_PATH_CAP = 10;
+        const seen = new Set();
+        const list = args.path
+            .map(p => typeof p === 'string' ? p.trim() : '')
+            .filter(p => p && !seen.has(p) && seen.add(p));
+        if (list.length > 1) {
+            const capped = list.slice(0, GREP_PATH_CAP);
+            const parts = [];
+            for (const p of capped) {
+                let body;
+                try {
+                    body = await executeGrepTool({ ...args, path: p }, workDir, executeChildBuiltinTool, readStateScope, options);
+                } catch (err) {
+                    body = `Error: ${err && err.message ? err.message : err}`;
+                }
+                parts.push(`# grep ${p}\n${body}`);
+            }
+            if (list.length > GREP_PATH_CAP) parts.push(`[capped at ${GREP_PATH_CAP} of ${list.length} paths]`);
+            return parts.join('\n\n');
+        }
+        args.path = list[0];
+    }
     // Shape context immediately before deriving rg flags. This keeps the
     // Lead-direct MCP path and direct executeGrepTool callers on the same
     // policy even if they bypass or race the outer builtin arg guard.

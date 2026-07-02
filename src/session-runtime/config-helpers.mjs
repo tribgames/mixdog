@@ -155,7 +155,11 @@ export function normalizeCompactTypeSetting(value, fallback = 'semantic') {
 export function normalizeCompactionConfig(value = {}, { memoryEnabled = true } = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   let compactType = normalizeCompactTypeSetting(raw.compactType ?? raw.compact_type ?? raw.type, 'semantic');
-  if (compactType === 'recall-fasttrack' && memoryEnabled === false) compactType = 'semantic';
+  // Memory is now always-on, so recall-fasttrack no longer downgrades to
+  // semantic. `memoryEnabled` is retained as a param for API compatibility but
+  // is intentionally ignored (fasttrack drains run on-demand regardless of the
+  // recap/background-cycle toggle).
+  void memoryEnabled;
   return {
     ...raw,
     auto: raw.auto !== false && raw.enabled !== false,
@@ -168,6 +172,34 @@ export function moduleEnabled(configLike, name, fallback = true) {
   const entry = configLike?.modules?.[name];
   if (entry && typeof entry === 'object' && entry.enabled === false) return false;
   return fallback !== false;
+}
+
+// Recap toggle: gates ONLY the background memory cycles (1/2/3). The memory
+// module itself (transcript watcher/ingest, on-demand recall/fasttrack drains)
+// is always-on. Default enabled. Reads the dedicated `recap` section; if a
+// legacy `modules.memory === false` flag is present it is honored as recap off
+// (migration folds it into `recap.enabled` on config load).
+export function recapEnabled(configLike, fallback = true) {
+  const entry = configLike?.recap;
+  if (entry && typeof entry === 'object' && entry.enabled === false) return false;
+  // Legacy fallback: pre-migration configs may still carry modules.memory=false.
+  if (moduleEnabled(configLike, 'memory', true) === false) return false;
+  return fallback !== false;
+}
+
+export function setRecapEnabledInConfig(configLike, enabled) {
+  const next = { ...(configLike || {}) };
+  next.recap = { ...(next.recap || {}), enabled: enabled !== false };
+  // Drop the legacy flag if it was carrying the disabled state.
+  if (next.modules && next.modules.memory && typeof next.modules.memory === 'object') {
+    const modules = { ...next.modules };
+    const memoryMod = { ...modules.memory };
+    delete memoryMod.enabled;
+    if (Object.keys(memoryMod).length === 0) delete modules.memory;
+    else modules.memory = memoryMod;
+    next.modules = modules;
+  }
+  return next;
 }
 
 export function setModuleEnabledInConfig(configLike, name, enabled) {

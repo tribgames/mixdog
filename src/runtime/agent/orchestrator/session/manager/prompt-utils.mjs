@@ -1,6 +1,7 @@
 // Prompt content + temporal helpers, extracted verbatim from manager.mjs
 // (behavior-preserving). Pure string/date utilities with no session state.
 import { isInternalRuntimeNotificationText as contractIsInternalRuntimeNotificationText } from '../../../../shared/tool-execution-contract.mjs';
+import { SUMMARY_PREFIX } from '../compact.mjs';
 
 export function promptContentText(content) {
     if (typeof content === 'string') return content;
@@ -124,11 +125,22 @@ export function isProtectedContextUserMessage(message) {
         && message.content.trimStart().startsWith('<system-reminder>');
 }
 
+// Compact summary messages (role:'user', content startsWith SUMMARY_PREFIX)
+// are synthetic anchors, not a real human turn — they must not count as
+// "user conversation" or the post-clear/post-compact session-start block
+// would be wrongly suppressed on the next real user turn.
+function isSummaryAnchorMessage(message) {
+    return message?.role === 'user'
+        && typeof message.content === 'string'
+        && message.content.startsWith(SUMMARY_PREFIX);
+}
+
 export function hasUserConversationMessage(messages) {
     return (Array.isArray(messages) ? messages : []).some((message) => (
         message?.role === 'user'
         && !isProtectedContextUserMessage(message)
         && !isReferenceFilesMessage(message)
+        && !isSummaryAnchorMessage(message)
     ));
 }
 

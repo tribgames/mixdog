@@ -571,6 +571,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         return true;
     };
     const maxLoopIterations = resolveSessionMaxLoopIterations(sessionRef);
+    // Tracks consecutive assistant turns that ran exactly one read-only tool
+    // call (missed parallelism). Not reset per-iteration — only by the
+    // steering-hint fire below or by a turn that batches/edits.
+    let _serialReadOnlyStreak = 0;
     // Tool execution must use the session cwd even when the caller omitted the
     // legacy positional cwd argument. Agent workers always carry their cwd on
     // sessionRef; falling through to pwd()/process.cwd() resolves relatives
@@ -1960,6 +1964,18 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     }
                 } catch { /* best-effort: PostToolBatch hook must never break the loop */ }
             }
+        }
+        // Missed-parallelism steering: 3+ consecutive turns of a single
+        // read-only tool call suggest the model isn't batching independent
+        // lookups. Nudge once, then reset (fires again after 3 more).
+        if (calls.length === 1 && isEagerDispatchable(calls[0].name, tools)) {
+            _serialReadOnlyStreak += 1;
+            if (_serialReadOnlyStreak >= 3) {
+                messages.push({ role: 'user', content: '<system-reminder>\nLast 3 turns each ran a single read-only tool. Batch independent lookups (read/grep/glob/code_graph) into ONE turn, or start editing if you have enough context.\n</system-reminder>', meta: 'hook' });
+                _serialReadOnlyStreak = 0;
+            }
+        } else {
+            _serialReadOnlyStreak = 0;
         }
         // Mid-turn steering is drained at the next loop's pre-send point,
         // AFTER any auto-compact pass. Draining here would put the steering

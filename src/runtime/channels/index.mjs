@@ -916,6 +916,15 @@ async function stopOwnedRuntime(reason) {
 function refreshBridgeOwnershipSafe(options = {}) {
   refreshBridgeOwnership(options).catch(err => process.stderr.write(`[channels] refreshBridgeOwnership rejected: ${err?.message || err}\n`));
 }
+// Tell the parent session that this worker LOST the bridge seat to a newer
+// remote session (last-wins). The parent flips its remote mode OFF entirely —
+// exactly one session holds remote; losers fully release, no handover.
+function notifyRemoteSuperseded() {
+  if (!process.send) return;
+  try {
+    process.send({ type: 'notify', method: 'notifications/mixdog/remote', params: { state: 'superseded' } });
+  } catch {}
+}
 function startOwnerHeartbeat() {
   if (ownerHeartbeatTimer) return;
   ownerHeartbeatTimer = setInterval(() => {
@@ -962,7 +971,8 @@ async function refreshBridgeOwnership(options = {}) {
     // Not the owner. Two sub-cases:
     //   (a) A live remote session holds the seat (active-instance names a
     //       different, non-stale instance) → last-wins: we lost, go quiet
-    //       (disconnect if we were connected).
+    //       (disconnect if we were connected) and tell the parent session to
+    //       drop remote mode entirely (single-holder, no handover).
     //   (b) There is NO live owner (active is null/stale — e.g. our own entry
     //       was cleared after a backend-connect failure or a bridge
     //       deactivate/reactivate) → this remote session claims the empty seat
@@ -971,6 +981,7 @@ async function refreshBridgeOwnership(options = {}) {
     if (active && active.instanceId && active.instanceId !== INSTANCE_ID) {
       if (bridgeRuntimeConnected) {
         await stopOwnedRuntime("ownership lost (newer remote session)");
+        notifyRemoteSuperseded();
       }
       return;
     }
@@ -1728,8 +1739,23 @@ async function handleToolCall(name, args, _signal) {
           const wasActive = channelBridgeActive;
           channelBridgeActive = active;
           writeBridgeState(active);
-          if (active && !wasActive) {
-            refreshBridgeOwnershipSafe({ restoreBinding: true });
+          if (active) {
+            // Force-takeover semantics: activation ALWAYS claims the seat
+            // (last-wins overwrite of active-instance.json) and refreshes the
+            // output-forwarder binding onto THIS session — even when the
+            // bridge was already active. `/remote` relies on this to re-occupy
+            // after another session stole ownership, and to re-pin forwarding
+            // to the current session transcript.
+            claimBridgeOwnership(wasActive ? "re-activate takeover" : "bridge activated");
+            try {
+              await refreshBridgeOwnership({ restoreBinding: true });
+              // An already-connected owner returns early from
+              // startOwnedRuntime(), so rebind explicitly to follow the
+              // current (parent-chain) session transcript.
+              if (bridgeRuntimeConnected) await bindPersistedTranscriptIfAny();
+            } catch (e) {
+              process.stderr.write(`mixdog: bridge activate refresh failed (non-fatal): ${e?.message || e}\n`);
+            }
           }
           if (!active && wasActive) {
             stopServerTyping();
