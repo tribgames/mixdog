@@ -154,6 +154,14 @@ class OutputForwarder {
     try {
       const stat = this._pendingStat ?? statSync(this.transcriptPath);
       this._pendingStat = null;
+      // File shrank below our cursor: the transcript was rotated out from
+      // under us (buffered-appender rotation, or an external truncation).
+      // Treat it as a fresh file and reset the cursor instead of getting
+      // stuck forever (stat.size <= readFileSize would otherwise short
+      // circuit below and never read the new content).
+      if (stat.size < this.readFileSize) {
+        this.readFileSize = 0;
+      }
       if (stat.size <= this.readFileSize) {
         return { lines: [], nextFileSize: this.readFileSize };
       }

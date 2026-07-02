@@ -249,7 +249,41 @@ export function openCodeGoUsageConfigStatus(config = {}) {
   };
 }
 
+// Primary discovery: GET /auth with the auth cookie, follow-manual. The
+// console redirects authenticated sessions straight to /workspace/{id};
+// unauthenticated/invalid cookies redirect to /auth/authorize instead.
+// This avoids depending on the hashed server-fn id used by the /_server
+// probe (WORKSPACES_SERVER_ID), which can change across console deploys.
+async function fetchWorkspaceIdFromAuthRedirect(authCookie, { signal } = {}) {
+  let res;
+  try {
+    res = await fetch(`${BASE_URL}/auth`, {
+      signal,
+      redirect: 'manual',
+      headers: requestHeaders(authCookie),
+    });
+  } catch {
+    return null; // network/redirect-mode quirk: let the _server fallback decide
+  }
+  if (res.status === 401 || res.status === 403) {
+    const err = new Error('OpenCode Go console auth failed');
+    err.code = 'OPENCODE_GO_USAGE_AUTH_FAILED';
+    throw err;
+  }
+  const location = res.headers.get('location') || '';
+  if (!location) return null;
+  if (/(?:^|\/|\.\/)auth\/authorize\b/.test(location)) {
+    const err = new Error('OpenCode Go console auth failed');
+    err.code = 'OPENCODE_GO_USAGE_AUTH_FAILED';
+    throw err;
+  }
+  const workspaceMatch = location.match(/\/workspace\/(wrk_[a-zA-Z0-9]+)/);
+  return normalizeWorkspaceId(workspaceMatch ? workspaceMatch[1] : location);
+}
+
 async function fetchWorkspaceId(authCookie, { signal } = {}) {
+  const fromRedirect = await fetchWorkspaceIdFromAuthRedirect(authCookie, { signal });
+  if (fromRedirect) return fromRedirect;
   const url = new URL(`${BASE_URL}/_server`);
   url.searchParams.set('id', WORKSPACES_SERVER_ID);
   const res = await fetch(url, {

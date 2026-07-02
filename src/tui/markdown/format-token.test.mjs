@@ -39,7 +39,7 @@ test('short code line is gutter-indented with no background band', () => {
   const width = 60;
   const token = lexFirst('```js\nshort\n```\n', 'code');
   const out = formatToken(token, 0, null, null, width);
-  // No background band: codex/claude-code render code with no `48;2;` bg.
+  // No background band: fenced code renders with no `48;2;` bg SGR.
   assert.ok(!out.includes('48;2;'), 'no background SGR');
   const bodyLine = stripAnsi(out).split('\n').find((l) => l.includes('short'));
   assert.ok(bodyLine, 'body line present');
@@ -305,8 +305,8 @@ test('strong and em use distinct mdStrong / mdEmph colors', () => {
   const emTok = lexFirst('*ital*', 'paragraph');
   const strongOut = formatToken(strongTok);
   const emOut = formatToken(emTok);
-  // Bold/italic carry weight/style only — NO color tint (codex/claude-code
-  // convention; a colored strong/em clashes per-theme and reads too loud).
+  // Bold/italic carry weight/style only — NO color tint (a colored
+  // strong/em clashes per-theme and reads too loud).
   assert.ok(strongOut.includes('\x1b[1m'), 'strong is bold');
   assert.ok(emOut.includes('\x1b[3m'), 'em is italic');
   assert.ok(!strongOut.includes(rgbSgr(theme.mdStrong)), 'strong is not color-tinted');

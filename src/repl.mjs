@@ -1,16 +1,16 @@
 /**
- * mixdog REPL — styled inline terminal loop over the ported mixdog brain.
+ * mixdog REPL — styled inline terminal loop over the mixdog session runtime.
  *
- * Drives the *ported mixdog brain* through mixdog-session-runtime.mjs:
+ * Drives the session runtime through mixdog-session-runtime.mjs:
  * createSession + askSession own agentLoop/provider/tools/compaction, while
  * this module stays presentation-only: markdown-rendered replies, tool-call
  * cards, a per-turn statusline footer, slash commands, and arrow-key history.
  *
  * Flow:  stdin line → runtime.ask(prompt) → onTextDelta streams tokens to
- *        stdout live → tool calls render as cards → on turn end we re-render
- *        the assistant text as markdown → statusline footer.
+ * stdout live → tool calls render as cards → on turn end we re-render
+ * the assistant text as markdown → statusline footer.
  *
- * STREAMING DECISION (approach (a) from the brief):
+ * STREAMING DECISION:
  *   Live token streaming via onTextDelta conflicts with post-hoc markdown
  *   rendering (you can't style a heading until you've seen the whole line).
  *   We choose: stream raw tokens live so the turn FEELS alive, then on turn

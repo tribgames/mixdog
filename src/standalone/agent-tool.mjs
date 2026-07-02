@@ -391,7 +391,7 @@ function renderResult(value) {
       for (const job of jobs) {
         const target = job.tag || job.sessionId || '-';
         const terminal = job.clientHostPid ? ` term=${job.clientHostPid}` : '';
-        const base = `- ${job.task_id} ${job.type} ${job.status} target=${target}${terminal}${job.error ? ` error=${presentErrorText(job.error, { surface: 'agent' })}` : ''}`;
+        const base = `- ${job.task_id} ${job.type} ${job.status} target=${target}${terminal}${job.error ? ` error=${job.error}` : ''}`;
         lines.push(appendAgentProgressKv(base, job));
       }
       if (workers.length === 0 && jobs.length === 0) lines.push('(no agents or tasks)');
@@ -426,7 +426,7 @@ function renderResult(value) {
         const elapsed = elapsedFromStamps(value.startedAt, value.finishedAt, value.status);
         if (elapsed) lines.push(`elapsed: ${elapsed}`);
       }
-      if (value.error) lines.push(`error: ${presentErrorText(value.error, { surface: 'agent' })}`);
+      if (value.error) lines.push(`error: ${value.error}`);
       if (value.status === 'running') lines.push('notification: completion will be delivered to the owner session; use read/status only for manual recovery.');
       if (value.result !== undefined) {
         const result = value.result;
@@ -470,7 +470,13 @@ function renderResult(value) {
   return JSON.stringify(value, null, 2);
 }
 
-export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultCwd }) {
+export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultCwd, onSubagentEvent }) {
+  // Optional bridge to the standard hook bus for SubagentStart / SubagentStop.
+  // Best-effort: a hook error must never affect worker spawn/finish.
+  function emitSubagentEvent(phase, agent, extra = {}) {
+    if (typeof onSubagentEvent !== 'function') return;
+    try { onSubagentEvent(phase, { agent_type: agent || null, ...extra }); } catch { /* best-effort */ }
+  }
   const tags = new Map();
   const tagAgents = new Map();
   const tagCwds = new Map();
@@ -1624,6 +1630,8 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     const { args, tag, session, agent, preset, presetName, workerCwd, prompt, watchdogPolicy } = prepared;
     const watchdog = startProgressIdleWatchdog(session.id, watchdogPolicy);
     let finalStatus = 'idle';
+    // SubagentStart: a worker session is about to run its first turn.
+    emitSubagentEvent('start', agent, { session_id: session.id, tag });
     upsertWorkerSessionDeferred(session, tag, {
       agent,
       preset: presetKey(preset) || presetName,
@@ -1752,6 +1760,8 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         } catch {}
       }
       scheduleReap(session.id);
+      // SubagentStop: worker finished (terminal), regardless of outcome.
+      emitSubagentEvent('stop', agent, { session_id: session.id, tag, status: finalStatus });
     }
   }
 
@@ -2062,7 +2072,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       }
       throw new Error(`agent: unknown type "${type}"`);
     } catch (err) {
-      return `Error: ${presentErrorText(err, { surface: 'agent' })}`;
+      return errorLine(err, { surface: 'agent' });
     }
   }
 

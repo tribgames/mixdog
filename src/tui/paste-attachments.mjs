@@ -67,6 +67,44 @@ export function imageReferenceIds(input) {
   return new Set([...String(input || '').matchAll(re)].map((m) => Number(m[1]) || 0).filter(Boolean));
 }
 
+// --- Large pasted-text folding ------------------------------------------
+// A big paste is replaced in the prompt by a compact token so the editor does
+// not choke on thousands of raw characters; the original text is stored in an
+// App-level map (mirroring pastedImages) and expanded back on submit.
+const PASTE_TOKEN_MIN_LINES = 3;
+const PASTE_TOKEN_MIN_CHARS = 200;
+
+export function shouldFoldPastedText(text) {
+  const value = String(text ?? '');
+  if (!value) return false;
+  const lineCount = value.split('\n').length;
+  return lineCount >= PASTE_TOKEN_MIN_LINES || value.length > PASTE_TOKEN_MIN_CHARS;
+}
+
+export function formatPastedTextRef(id, text) {
+  const lines = String(text ?? '').split('\n').length;
+  return `[Pasted text #${id} +${lines} lines]`;
+}
+
+export function pastedTextReferenceIds(input) {
+  const re = /\[Pasted text #(\d+) \+\d+ lines\]/g;
+  return new Set([...String(input || '').matchAll(re)].map((m) => Number(m[1]) || 0).filter(Boolean));
+}
+
+// Expand every intact pasted-text token in `value` back to its original text.
+// Broken / partially-deleted tokens simply do not match and are left as-is.
+export function expandPastedTextTokens(value, pastedTexts = {}) {
+  let out = String(value ?? '');
+  if (!pastedTexts || typeof pastedTexts !== 'object') return out;
+  const re = /\[Pasted text #(\d+) \+\d+ lines\]/g;
+  out = out.replace(re, (match, idRaw) => {
+    const entry = pastedTexts[Number(idRaw)] || pastedTexts[idRaw];
+    if (entry && typeof entry.text === 'string') return entry.text;
+    return match;
+  });
+  return out;
+}
+
 export function buildPromptContentWithImages(text, pastedImages = {}) {
   const value = String(text ?? '');
   const refs = imageReferenceIds(value);

@@ -1,31 +1,28 @@
-// Telegram MarkdownV2 conversion — a faithful JS port of hermes-agent's
-// gateway/platforms/telegram.py (functions: _MDV2_ESCAPE_RE, _escape_mdv2,
-// _strip_mdv2, _TABLE_SEPARATOR_RE, _is_table_row, _split_markdown_table_row,
-// _render_table_block_for_telegram, _wrap_markdown_tables, and the 12-step
-// format_message pipeline). The Python behaviour is battle-tested; this port
-// keeps the same step order and the same table/header/blockquote decisions so
-// output matches the reference.
+// Telegram MarkdownV2 conversion.
+//
+// Converts standard markdown into Telegram's MarkdownV2 entity format: escapes
+// all MarkdownV2-special characters outside protected regions, converts tables
+// into bullet-grouped blocks Telegram can render, and preserves a fixed step
+// order for table/header/blockquote handling so output stays deterministic.
 //
 // Exported:
-//   toMarkdownV2(text)  — the main converter (port of format_message)
-//   stripMdV2(text)     — plain-text fallback (port of _strip_mdv2)
-//   escapeMdV2(text)    — raw escape helper (port of _escape_mdv2)
+//   toMarkdownV2(text)  — the main converter
+//   stripMdV2(text)     — plain-text fallback (strips MarkdownV2 markers)
+//   escapeMdV2(text)    — raw escape helper
 //   isParseEntitiesError(err) — detect a MarkdownV2 400 parse failure
 
 // Matches every character MarkdownV2 requires to be backslash-escaped outside a
-// code span / fenced block. Port of _MDV2_ESCAPE_RE:
-//   Python: r'([_*\[\]()~`>#\+\-=|{}.!\\])'
+// code span / fenced block.
 const MDV2_ESCAPE_RE = /([_*[\]()~`>#+\-=|{}.!\\])/g;
 
-/** Port of _escape_mdv2: backslash-escape all MarkdownV2 specials. */
+/** Backslash-escape all MarkdownV2 special characters. */
 export function escapeMdV2(text) {
   return String(text).replace(MDV2_ESCAPE_RE, "\\$1");
 }
 
 /**
- * Port of _strip_mdv2: remove MarkdownV2 escape backslashes AND the entity
- * markers format_message introduced, producing clean plain text for the
- * parse-error fallback.
+ * Remove MarkdownV2 escape backslashes and the entity markers toMarkdownV2
+ * introduces, producing clean plain text for the parse-error fallback.
  */
 export function stripMdV2(text) {
   let cleaned = String(text);
@@ -34,7 +31,7 @@ export function stripMdV2(text) {
   // Remove bold markers (*text* → text).
   cleaned = cleaned.replace(/\*([^*]+)\*/g, "$1");
   // Remove italic markers (_text_ → text). Word-boundary guards keep
-  // snake_case identifiers intact (mirrors the Python lookbehind/lookahead).
+  // snake_case identifiers intact.
   cleaned = cleaned.replace(/(^|\W)_([^_]+)_(?!\w)/g, "$1$2");
   // Remove strikethrough markers (~text~ → text).
   cleaned = cleaned.replace(/~([^~]+)~/g, "$1");
@@ -44,10 +41,10 @@ export function stripMdV2(text) {
 }
 
 // ── Markdown table → Telegram-friendly row groups ──────────────────────────
-// Port of _TABLE_SEPARATOR_RE / _is_table_row / _split_markdown_table_row /
-// _render_table_block_for_telegram / _wrap_markdown_tables.
+// Converts a markdown table block into per-row bullet groups Telegram can
+// render (Telegram MarkdownV2 has no native table support).
 
-// Python: r'^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*){1,}\|?\s*$'
+// Matches a markdown table header-separator row, e.g. `| --- | :---: |`.
 const TABLE_SEPARATOR_RE = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*){1,}\|?\s*$/;
 
 function isTableRow(line) {
@@ -99,7 +96,7 @@ function renderTableBlockForTelegram(tableBlock) {
       bullets.push(`• ${headers[c]}: ${value}`);
     }
     // The heading is emitted as `**heading**` markdown so step 5 (bold) of the
-    // main pipeline converts it — matches the Python ordering intentionally.
+    // main pipeline converts it.
     const groupLines = [`**${heading}**`, ...bullets];
     renderedGroups.push(groupLines.join("\n"));
   }
@@ -145,7 +142,7 @@ function wrapMarkdownTables(text) {
   return out.join("\n");
 }
 
-// ── Main converter — port of format_message (12-step placeholder pipeline) ──
+// ── Main converter (placeholder-protected escape pipeline) ──
 
 /**
  * Convert standard/assistant markdown into Telegram MarkdownV2.

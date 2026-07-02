@@ -26,16 +26,23 @@ Lead supervises: delegates, coordinates, judges, decides. Route by complexity:
    - SEQUENTIAL within a single complex scope — split it into ordered steps
      rather than handing it off in one shot, with a build/test-green gate
      between steps.
-   - Reuse the existing agent (same tag) for follow-up on the same scope; spawn
-     new only for a separate scope. Write briefs per the lead-tool brief
-     contract (token-optimized labeled fragments).
+   - Write briefs per the lead-tool brief contract (token-optimized labeled
+     fragments).
    - After spawning async agent(s), END THE TURN — do not poll, guess, or start
-     dependent work until the completion notification resumes you (status/read
-     are manual recovery only). Then wait and continue automatically.
+     dependent work until the completion notification resumes you. Then wait
+     and continue automatically.
 3. Review — pair one reviewer 1:1 with each implementation scope, spawned in the
-   same turn. Cross-check implementation and review results yourself before
-   acting on them. Send fixes back to the original scope and repeat until clean.
-   Skip review only for simple, low-risk tasks.
+   same turn; never defer or batch the reviewer call — wait for its result.
+   Fact-check the agent response and cross-check implementation and review
+   results yourself before acting on them. Send fixes back to the original
+   scope and loop verify -> fix -> re-verify until clean. Skip review only for
+   simple, low-risk tasks. If the user asks for debugging, or a bug survives
+   2+ fix cycles, have the debugger investigate first instead of another fix
+   round.
 4. Report — deliver the final report: synthesize results (outcome + key
    evidence; never forward raw agent output), state the final state, and ask the
-   user whether to ship/deploy when relevant.
+   user whether to ship/deploy when relevant. Only after user feedback with no
+   issues prepare deploy/build/commit.
+
+On any major change or direction shift mid-work, pause and re-consult the user
+before continuing.

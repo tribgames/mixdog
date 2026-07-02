@@ -974,19 +974,49 @@ function parseNativeToolSearchPayload(toolName, result) {
         const parsed = JSON.parse(result);
         const native = parsed?.nativeToolSearch;
         if (!native || typeof native !== 'object') return null;
-        const toolReferences = Array.isArray(native.toolReferences)
-            ? native.toolReferences.map((name) => String(name || '').trim()).filter(Boolean)
-            : [];
-        const openaiTools = Array.isArray(native.openaiTools)
-            ? native.openaiTools.filter((tool) => tool && typeof tool === 'object')
-            : [];
+        const rawToolReferences = Array.isArray(native.toolReferences) ? native.toolReferences : [];
+        const toolReferences = rawToolReferences
+            .filter((name) => typeof name === 'string')
+            .map((name) => name.trim())
+            .filter(Boolean);
+        const rawOpenaiTools = Array.isArray(native.openaiTools) ? native.openaiTools : [];
+        const openaiTools = rawOpenaiTools.filter((tool) => (
+            tool
+            && typeof tool === 'object'
+            && !Array.isArray(tool)
+            && typeof tool.name === 'string'
+            && tool.name.trim()
+            && (tool.type === undefined || typeof tool.type === 'string')
+        ));
         if (!toolReferences.length && !openaiTools.length) return null;
+        const baseSummary = typeof native.summary === 'string' && native.summary
+            ? native.summary
+            : `Loaded deferred tools: ${toolReferences.join(', ') || openaiTools.map((tool) => tool.name).filter(Boolean).join(', ')}`;
+        const selectedTools = parsed?.selected?.tools;
+        const missing = Array.isArray(selectedTools?.missing)
+            ? selectedTools.missing.map((name) => String(name || '').trim()).filter(Boolean)
+            : [];
+        const blocked = Array.isArray(selectedTools?.blocked)
+            ? selectedTools.blocked
+                .map((entry) => {
+                    if (entry && typeof entry === 'object') {
+                        const name = String(entry.name || '').trim();
+                        if (!name) return '';
+                        const reason = String(entry.reason || '').trim();
+                        return reason ? `${name} (${reason})` : name;
+                    }
+                    return String(entry || '').trim();
+                })
+                .filter(Boolean)
+            : [];
+        const extraLines = [];
+        if (missing.length) extraLines.push(`missing: ${missing.join(', ')}`);
+        if (blocked.length) extraLines.push(`blocked: ${blocked.join(', ')}`);
+        const summary = extraLines.length ? `${baseSummary}\n${extraLines.join('; ')}` : baseSummary;
         return {
             toolReferences,
             openaiTools,
-            summary: typeof native.summary === 'string' && native.summary
-                ? native.summary
-                : `Loaded deferred tools: ${toolReferences.join(', ') || openaiTools.map((tool) => tool.name).filter(Boolean).join(', ')}`,
+            summary,
         };
     } catch {
         return null;
@@ -1471,6 +1501,18 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 // them apart, then clear the one-shot flag.
                 const compactTrigger = reactiveOverflowRetryPending ? 'reactive' : 'auto';
                 reactiveOverflowRetryPending = false;
+                // PreCompact: bridge to the standard hook bus before compaction
+                // runs. session-property hook (manager/loop have no bus access).
+                // { trigger } normalized to 'auto'|'manual'. Best-effort.
+                {
+                    const _preCompactHook = typeof opts.preCompactHook === 'function'
+                        ? opts.preCompactHook
+                        : sessionRef?.preCompactHook;
+                    if (typeof _preCompactHook === 'function') {
+                        try { await _preCompactHook({ sessionId, cwd, trigger: compactTrigger === 'manual' ? 'manual' : 'auto' }); }
+                        catch { /* best-effort: PreCompact hook must never break compaction */ }
+                    }
+                }
                 rememberCompactTelemetry(sessionRef, compactPolicy, {
                     stage: 'compacting',
                     beforeTokens: messageTokensEst,
@@ -1798,6 +1840,17 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     durationMs: compactDurationMs,
                 });
             }
+            // PostCompact: bridge to the standard hook bus after compaction
+            // completes. session-property hook; { trigger } 'auto'|'manual'.
+            {
+                const _postCompactHook = typeof opts.postCompactHook === 'function'
+                    ? opts.postCompactHook
+                    : sessionRef?.postCompactHook;
+                if (typeof _postCompactHook === 'function') {
+                    try { await _postCompactHook({ sessionId, cwd, trigger: compactTrigger === 'manual' ? 'manual' : 'auto' }); }
+                    catch { /* best-effort: PostCompact hook must never break the loop */ }
+                }
+            }
         }
         const nextIteration = iterations + 1;
         opts.iteration = nextIteration;
@@ -2088,13 +2141,18 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // the stateless contract for providers that don't use continuation).
         providerState = response?.providerState ?? undefined;
         iterations = nextIteration;
-        traceAgentLoop({
-            sessionId,
-            iteration: iterations,
-            sendMs: Date.now() - sendStartedAt,
-            messageCount: Array.isArray(messages) ? messages.length : 0,
-            bodyBytesEst: estimateProviderPayloadBytes(messages, model, sendTools),
-        });
+        // Payload byte estimate serializes the FULL messages+tools array —
+        // only pay that cost when verbose loop tracing is actually enabled
+        // (traceAgentLoop is a no-op otherwise).
+        if (process.env.MIXDOG_AGENT_TRACE_VERBOSE === '1') {
+            traceAgentLoop({
+                sessionId,
+                iteration: iterations,
+                sendMs: Date.now() - sendStartedAt,
+                messageCount: Array.isArray(messages) ? messages.length : 0,
+                bodyBytesEst: estimateProviderPayloadBytes(messages, model, sendTools),
+            });
+        }
         // Accumulate usage across iterations — every billable slot, not just
         // input/output. Anthropic cache_read/cache_write typically stay 0 on
         // the first iteration and surge on later ones (warm prefix reuse),
@@ -2336,8 +2394,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             let toolStartedAt;
             let toolEndedAt;
             const toolKind = getToolKind(call.name);
-            // Cross-turn read dedup. Mirrors a reference agent's
-            // fileReadCache.ts: if the path's stat tuple (mtime/size/ino/dev)
+            // Cross-turn read dedup: if the path's stat tuple (mtime/size/ino/dev)
             // is unchanged since a prior read in THIS session, return the cached
             // body instead of executing. Both scalar and array/object-array path
             // forms are cached — keyed by (abs, offset, limit, mode, n) per entry.
@@ -2465,6 +2522,36 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 const _env = normalizeToolEnvelope(result);
                 result = _env.result;
                 if (_env.newMessages.length) _batchNewMessages.push(..._env.newMessages);
+            }
+            // Bounded-map cleanup: a scoped-cache outcome recorded for this call.id
+            // (via _scopedCacheOutcomeForCall) is only ever consumed/deleted on the
+            // success path below (_executeOk && _resultKind==='normal'). A failed or
+            // errored call would otherwise leak its entry in
+            // sessionRef._scopedCacheOutcomeByCallId forever — reclaim it here.
+            if (sessionRef?._scopedCacheOutcomeByCallId && call?.id && (!_executeOk || _resultKind === 'error')) {
+                sessionRef._scopedCacheOutcomeByCallId.delete(call.id);
+            }
+            // PostToolUseFailure: a tool that resolved to a failure (thrown-error
+            // path -> `Error:` string, or an is_error result classified as
+            // 'error') fires the optional session failure hook. Same shape as
+            // afterToolHook; `result` carries the error text. Best-effort — a
+            // hook error must never wedge the tool loop.
+            if (!_executeOk || _resultKind === 'error') {
+                const _afterToolFailureHook = typeof opts.afterToolFailureHook === 'function'
+                    ? opts.afterToolFailureHook
+                    : sessionRef?.afterToolFailureHook;
+                if (typeof _afterToolFailureHook === 'function') {
+                    try {
+                        await _afterToolFailureHook({
+                            name: call.name,
+                            args: call.arguments,
+                            cwd,
+                            sessionId,
+                            toolCallId: call.id,
+                            result: typeof result === 'string' ? result : String(result ?? ''),
+                        });
+                    } catch { /* best-effort: PostToolUseFailure hook must never break the loop */ }
+                }
             }
             // Update the cross-iteration repeat-failure guard with this call's
             // outcome: bump the consecutive-failure count for an identical
@@ -2715,6 +2802,32 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         for (const _nm of _batchNewMessages) {
             if (!_nm || _nm.role !== 'user' || typeof _nm.content !== 'string' || !_nm.content) continue;
             messages.push({ role: 'user', content: _nm.content, ...(_nm.meta ? { meta: _nm.meta } : {}) });
+        }
+        // PostToolBatch: the full parallel batch of tool calls for this
+        // assistant turn has resolved and all tool_results are pushed. Fire the
+        // optional session hook before the next model call. No matcher event.
+        // Block support: if the hook returns blocked===true, inject its reason
+        // as a system-note user message for the next send (natural mechanism —
+        // same channel the newMessages flush just used). Best-effort otherwise.
+        {
+            const _afterToolBatchHook = typeof opts.afterToolBatchHook === 'function'
+                ? opts.afterToolBatchHook
+                : sessionRef?.afterToolBatchHook;
+            if (typeof _afterToolBatchHook === 'function' && calls.length > 0) {
+                try {
+                    const _batchDecision = await _afterToolBatchHook({
+                        sessionId,
+                        cwd,
+                        toolCount: calls.length,
+                    });
+                    if (_batchDecision?.blocked === true) {
+                        const _reason = String(_batchDecision.reason || 'PostToolBatch hook blocked continuation').trim();
+                        if (_reason) {
+                            messages.push({ role: 'user', content: `<system-reminder>\n${_reason}\n</system-reminder>`, meta: 'hook' });
+                        }
+                    }
+                } catch { /* best-effort: PostToolBatch hook must never break the loop */ }
+            }
         }
         // Mid-turn steering is drained at the next loop's pre-send point,
         // AFTER any auto-compact pass. Draining here would put the steering

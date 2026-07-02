@@ -22,6 +22,8 @@ import {
 } from './anthropic-effort.mjs';
 import { normalizeContentForAnthropic } from './media-normalization.mjs';
 import { enrichModels } from './model-catalog.mjs';
+import { makeModelCache } from './model-cache.mjs';
+import { resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 
 const require = createRequire(import.meta.url);
@@ -159,13 +161,48 @@ function _normalizeAnthropicModel(raw, provider = 'anthropic') {
 }
 // Family-based heuristic so new model ids (including custom user-configured
 // ones) resolve a sensible max_tokens without requiring a code change.
-function resolveMaxTokens(model) {
-    const id = String(model || '').toLowerCase();
-    if (id.includes('opus')) return 32768;
-    if (id.includes('sonnet')) return 16384;
-    if (id.includes('haiku')) return 8192;
-    return 8192;
+// The API-key provider has no catalog cache of its own — it reads the same
+// anthropic-oauth-models.json disk cache (read-only) that the OAuth provider
+// maintains. Both providers hit the same Anthropic /v1/models catalog, so a
+// per-model outputTokens entry is valid regardless of which auth path wrote
+// it. If this provider is ever run standalone without the OAuth provider
+// ever having populated the cache, loadSync() simply returns null and we
+// fall through to the shared static heuristic in anthropic-max-tokens.mjs.
+const ANTHROPIC_OAUTH_MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
+const _sharedOAuthModelCache = makeModelCache({
+    fileName: 'anthropic-oauth-models.json',
+    ttlMs: ANTHROPIC_OAUTH_MODEL_CACHE_TTL_MS,
+    version: 1,
+});
+
+// In-memory mirror populated by this provider's own listModels() fetch.
+// API-key-only installs never have the OAuth provider write the shared disk
+// cache, so without this mirror catalog outputTokens would stay invisible to
+// resolveMaxTokens until an OAuth session runs. listModels() results flow in
+// here (memory only — the disk cache stays OAuth-owned/read-only for us).
+let _apiKeyCatalogMirror = null;
+
+function _catalogOutputTokensFromSharedCache(model) {
+    if (!model) return null;
+    try {
+        const models = Array.isArray(_apiKeyCatalogMirror)
+            ? _apiKeyCatalogMirror
+            : _sharedOAuthModelCache.loadSync();
+        if (!Array.isArray(models)) return null;
+        const entry = models.find(m => m?.id === model);
+        const out = Number(entry?.outputTokens);
+        return Number.isFinite(out) && out > 0 ? out : null;
+    } catch {
+        return null;
+    }
 }
+
+function resolveMaxTokens(model) {
+    return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokensFromSharedCache });
+}
+
+// Test-only escape hatch for scripts/anthropic-maxtokens-test.mjs.
+export const _test = { resolveMaxTokens };
 
 const MIN_THINKING_BUDGET = 1024;
 const THINKING_OUTPUT_RESERVE = 1024;
@@ -464,8 +501,7 @@ export class AnthropicProvider {
         const usedSlots = toolsBpUsed + systemBpUsed;
         // Env override for BP strategy. ANTHROPIC_MSG_SLOTS=0 disables
         // message caching entirely. Any value >=1 first marks the previous
-        // user text turn; a second free slot marks the tail. Mirrors
-        // anthropic-oauth.mjs for twin parity.
+        // user text turn; a second free slot marks the tail.
         const msgSlotsCap = Number.parseInt(process.env.ANTHROPIC_MSG_SLOTS, 10);
         const defaultMsgSlots = Math.max(0, 4 - usedSlots);
         const msgSlots = ttls.messages
@@ -826,6 +862,9 @@ export class AnthropicProvider {
                 .map((m) => _normalizeAnthropicModel(m, this.name))
                 .filter(Boolean);
             const enriched = await enrichModels(normalized);
+            // Feed the resolver-visible mirror so API-key-only installs get
+            // catalog outputTokens without depending on the OAuth disk cache.
+            if (enriched.length) _apiKeyCatalogMirror = enriched.slice();
             return enriched.length ? enriched : MODELS;
         }
         catch (err) {

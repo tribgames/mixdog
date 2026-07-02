@@ -14,8 +14,14 @@
  * `mixdog: transcript-writer: `) and suppress duplicates so a broken path
  * cannot spam the terminal.
  */
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { appendBuffered, drainPathSync, hasInFlightWrite } from './buffered-appender.mjs';
+
+// Rotate the JSONL transcript once it exceeds this size, keeping one prior
+// generation (`<path>.1`). Checked on each append; the check itself is a
+// cheap statSync so no extra timer/interval is needed.
+const TRANSCRIPT_ROTATE_BYTES = 10 * 1024 * 1024;
 
 // Byte-identical to cwdToProjectSlug() in
 // src/runtime/channels/lib/session-discovery.mjs. Inlined to avoid a
@@ -56,10 +62,31 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
     }
   }
 
+  function rotateIfNeeded() {
+    try {
+      if (!existsSync(transcriptPath)) return;
+      const { size } = statSync(transcriptPath);
+      if (size < TRANSCRIPT_ROTATE_BYTES) return;
+      // An async appendFile may be in flight for this path; renaming out
+      // from under it races the write on Windows. Skip this round and
+      // retry rotation on the next append instead.
+      if (hasInFlightWrite(transcriptPath)) return;
+      // Force any still-buffered bytes onto disk before renaming, so the
+      // rotated-out file ends with everything queued for it and the fresh
+      // file post-rename doesn't inherit stale in-memory chunks.
+      drainPathSync(transcriptPath);
+      const rotatedPath = `${transcriptPath}.1`;
+      try { renameSync(transcriptPath, rotatedPath); } catch (err) { logOnce(err); }
+    } catch (err) {
+      logOnce(err);
+    }
+  }
+
   function appendLine(entry) {
     ensureProjectDir();
+    rotateIfNeeded();
     try {
-      appendFileSync(transcriptPath, `${JSON.stringify(entry)}\n`);
+      appendBuffered(transcriptPath, `${JSON.stringify(entry)}\n`);
     } catch (err) {
       logOnce(err);
     }

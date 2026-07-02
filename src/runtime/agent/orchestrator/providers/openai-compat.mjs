@@ -1032,12 +1032,15 @@ export function parseResponsesToolCalls(response, label) {
             const call = customToolCallFromResponseItem(item);
             if (call) out.push(call);
         } else if (item?.type === 'tool_search_call') {
+            const _tsArgs = item.arguments && typeof item.arguments === 'object' && !Array.isArray(item.arguments)
+                ? item.arguments
+                : parseCompletedToolCallArgumentsJson(item.arguments || '{}', label, { id: item.call_id || item.id, name: 'tool_search', finishReason });
             out.push({
                 id: item.call_id || item.id,
                 name: 'tool_search',
-                arguments: item.arguments && typeof item.arguments === 'object'
-                    ? item.arguments
-                    : parseCompletedToolCallArgumentsJson(item.arguments || '{}', label, { id: item.call_id || item.id, name: 'tool_search', finishReason }),
+                // Schema is a plain object ({query,select,limit}); an array
+                // (parsed JSON or passthrough) must never pass through as args.
+                arguments: (_tsArgs && typeof _tsArgs === 'object' && !Array.isArray(_tsArgs)) ? _tsArgs : {},
                 nativeType: 'tool_search_call',
             });
         }
@@ -1284,8 +1287,7 @@ export class OpenAICompatProvider {
         const opts = sendOpts || {};
         // Re-warm a kept-alive socket to the provider origin before the turn so
         // the request hot path lands on a live socket instead of paying a cold
-        // TLS handshake after an idle gap. Fire-and-forget; never awaited. This
-        // mirrors anthropic-oauth's send()-start preconnect.
+        // TLS handshake after an idle gap. Fire-and-forget; never awaited.
         preconnect(this.baseURL);
         if (this.name === 'xai' && useXaiResponsesApi(opts, this.config)) {
             if (useXaiResponsesWebSocket(opts, this.config)) {

@@ -328,3 +328,194 @@ console.log(JSON.stringify({ hookSpecificOutput: {
     else process.env.MIXDOG_HOOKS_FILE = prev;
   }
 });
+
+test('mcp_tool handler routes output through parseHandlerOutput', async () => {
+  const root = tempRoot();
+  const hooksFile = join(root, 'hooks.json');
+  writeJson(hooksFile, {
+    hooks: {
+      PreToolUse: [{
+        matcher: 'shell',
+        hooks: [{ type: 'mcp_tool', server: 'guard', tool: 'check' }],
+      }],
+    },
+  });
+  const prev = process.env.MIXDOG_HOOKS_FILE;
+  process.env.MIXDOG_HOOKS_FILE = hooksFile;
+  try {
+    let seenName = null;
+    const bus = createStandaloneHookBus({
+      dataDir: root,
+      mcpToolRunner: async ({ name }) => {
+        seenName = name;
+        return JSON.stringify({ hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: 'mcp denied',
+        }});
+      },
+    });
+    const denied = await bus.beforeTool({ sessionId: 's', cwd: root, name: 'shell', args: { command: 'x' } });
+    assert.equal(seenName, 'mcp__guard__check');
+    assert.equal(denied.action, 'deny');
+    assert.match(denied.reason, /mcp denied/);
+  } finally {
+    if (prev == null) delete process.env.MIXDOG_HOOKS_FILE;
+    else process.env.MIXDOG_HOOKS_FILE = prev;
+  }
+});
+
+test('prompt handler ok:false maps to deny', async () => {
+  const root = tempRoot();
+  const hooksFile = join(root, 'hooks.json');
+  writeJson(hooksFile, {
+    hooks: {
+      PreToolUse: [{
+        matcher: 'shell',
+        hooks: [{ type: 'prompt', prompt: 'is this safe?' }],
+      }],
+    },
+  });
+  const prev = process.env.MIXDOG_HOOKS_FILE;
+  process.env.MIXDOG_HOOKS_FILE = hooksFile;
+  try {
+    const bus = createStandaloneHookBus({
+      dataDir: root,
+      promptRunner: async () => JSON.stringify({ ok: false, reason: 'unsafe' }),
+    });
+    const denied = await bus.beforeTool({ sessionId: 's', cwd: root, name: 'shell', args: { command: 'x' } });
+    assert.equal(denied.action, 'deny');
+    assert.match(denied.reason, /unsafe/);
+  } finally {
+    if (prev == null) delete process.env.MIXDOG_HOOKS_FILE;
+    else process.env.MIXDOG_HOOKS_FILE = prev;
+  }
+});
+
+test('unconfigured prompt/mcp_tool and unsupported agent emit hook:error and skip', async () => {
+  const root = tempRoot();
+  const hooksFile = join(root, 'hooks.json');
+  writeJson(hooksFile, {
+    hooks: {
+      PreToolUse: [{
+        matcher: 'shell',
+        hooks: [
+          { type: 'prompt', prompt: 'x' },
+          { type: 'mcp_tool', server: 'g', tool: 't' },
+          { type: 'agent', agent: 'a' },
+        ],
+      }],
+    },
+  });
+  const prev = process.env.MIXDOG_HOOKS_FILE;
+  process.env.MIXDOG_HOOKS_FILE = hooksFile;
+  try {
+    const bus = createStandaloneHookBus({ dataDir: root });
+    const result = await bus.beforeTool({ sessionId: 's', cwd: root, name: 'shell', args: { command: 'x' } });
+    assert.equal(result, null);
+    const errs = bus.status().recent.filter((e) => e.name === 'hook:error');
+    assert.ok(errs.some((e) => /prompt not configured/.test(e.payload?.error || '')));
+    assert.ok(errs.some((e) => /mcp_tool not configured/.test(e.payload?.error || '')));
+    assert.ok(errs.some((e) => /unsupported hook type: agent/.test(e.payload?.error || '')));
+  } finally {
+    if (prev == null) delete process.env.MIXDOG_HOOKS_FILE;
+    else process.env.MIXDOG_HOOKS_FILE = prev;
+  }
+});
+
+test('setRewakeHandler fires on async child exit code 2', async () => {
+  const root = tempRoot();
+  const hookScript = join(root, 'rewake.mjs');
+  writeFileSync(hookScript, `process.stderr.write('needs rewake'); process.exit(2);`, 'utf8');
+  const hooksFile = join(root, 'hooks.json');
+  writeJson(hooksFile, {
+    hooks: {
+      Stop: [{
+        hooks: [{ type: 'command', command: process.execPath, args: [hookScript], asyncRewake: true }],
+      }],
+    },
+  });
+  const prev = process.env.MIXDOG_HOOKS_FILE;
+  process.env.MIXDOG_HOOKS_FILE = hooksFile;
+  try {
+    const bus = createStandaloneHookBus({ dataDir: root });
+    const fired = new Promise((resolve) => bus.setRewakeHandler((info) => resolve(info)));
+    await bus.dispatch('Stop', { session_id: 's', cwd: root });
+    const info = await fired;
+    assert.equal(info.eventName, 'Stop');
+    assert.match(info.text, /needs rewake/);
+  } finally {
+    if (prev == null) delete process.env.MIXDOG_HOOKS_FILE;
+    else process.env.MIXDOG_HOOKS_FILE = prev;
+  }
+});
+
+test('prompt handler plain-text "no" denies', async () => {
+  const root = tempRoot();
+  const hooksFile = join(root, 'hooks.json');
+  writeJson(hooksFile, {
+    hooks: {
+      PreToolUse: [{ matcher: 'shell', hooks: [{ type: 'prompt', prompt: 'safe?' }] }],
+    },
+  });
+  const prev = process.env.MIXDOG_HOOKS_FILE;
+  process.env.MIXDOG_HOOKS_FILE = hooksFile;
+  try {
+    const bus = createStandaloneHookBus({ dataDir: root, promptRunner: async () => 'no' });
+    const denied = await bus.beforeTool({ sessionId: 's', cwd: root, name: 'shell', args: { command: 'x' } });
+    assert.equal(denied.action, 'deny');
+    assert.match(denied.reason, /no/i);
+  } finally {
+    if (prev == null) delete process.env.MIXDOG_HOOKS_FILE;
+    else process.env.MIXDOG_HOOKS_FILE = prev;
+  }
+});
+
+test('prompt handler timeout does not hang and reports error', async () => {
+  const root = tempRoot();
+  const hooksFile = join(root, 'hooks.json');
+  writeJson(hooksFile, {
+    hooks: {
+      PreToolUse: [{ matcher: 'shell', hooks: [{ type: 'prompt', prompt: 'x', timeout: 0.05 }] }],
+    },
+  });
+  const prev = process.env.MIXDOG_HOOKS_FILE;
+  process.env.MIXDOG_HOOKS_FILE = hooksFile;
+  try {
+    const bus = createStandaloneHookBus({
+      dataDir: root,
+      promptRunner: () => new Promise(() => {}),
+    });
+    const result = await bus.beforeTool({ sessionId: 's', cwd: root, name: 'shell', args: { command: 'x' } });
+    assert.equal(result, null);
+    const errs = bus.status().recent.filter((e) => e.name === 'hook:error');
+    assert.ok(errs.some((e) => /timed out/i.test(e.payload?.error || '')));
+  } finally {
+    if (prev == null) delete process.env.MIXDOG_HOOKS_FILE;
+    else process.env.MIXDOG_HOOKS_FILE = prev;
+  }
+});
+
+test('prompt deny uses universal exit-2 path on Stop event', async () => {
+  const root = tempRoot();
+  const hooksFile = join(root, 'hooks.json');
+  writeJson(hooksFile, {
+    hooks: {
+      Stop: [{ hooks: [{ type: 'prompt', prompt: 'done?' }] }],
+    },
+  });
+  const prev = process.env.MIXDOG_HOOKS_FILE;
+  process.env.MIXDOG_HOOKS_FILE = hooksFile;
+  try {
+    const bus = createStandaloneHookBus({
+      dataDir: root,
+      promptRunner: async () => JSON.stringify({ ok: false, reason: 'not done' }),
+    });
+    const result = await bus.dispatch('Stop', { session_id: 's', cwd: root });
+    assert.equal(result.blocked, true);
+    assert.match(result.reason, /not done/);
+  } finally {
+    if (prev == null) delete process.env.MIXDOG_HOOKS_FILE;
+    else process.env.MIXDOG_HOOKS_FILE = prev;
+  }
+});

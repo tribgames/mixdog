@@ -19,6 +19,7 @@ import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { makeModelCache } from './model-cache.mjs';
+import { resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
 import { sanitizeToolPairs, sanitizeAnthropicContentPairs } from '../session/context-utils.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
@@ -55,7 +56,7 @@ import { scanLeakedToolCalls, createToolCallDedupe } from './anthropic-leaked-to
 // hammer /v1/models. 24h TTL matches the upstream client cadence.
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
 // Bump when the on-disk cache shape changes so stale-shape entries are
-// discarded instead of misread (mirrors openai-oauth's schema-version gate).
+// discarded instead of misread.
 const ANTHROPIC_MODEL_CACHE_SCHEMA_VERSION = 1;
 // SSE progress emits (per-request "Response …" and "Done:" lines). Off by default.
 const SSE_VERBOSE = process.env.MIXDOG_SSE_VERBOSE === '1';
@@ -222,8 +223,7 @@ function _compareVersion(a, b) {
 }
 
 // Newest HIGH-TIER chat model by version, read from the SYNC in-memory catalog
-// mirror. Symmetric with resolveLatestGrokModel / resolveLatestCodexModel.
-// Anthropic ships three families: opus / sonnet / haiku. "Latest" is the
+// mirror. Anthropic ships three families: opus / sonnet / haiku. "Latest" is the
 // highest version across opus + sonnet only — haiku is the cheap tier and is
 // never the flagship default. Returns null until listModels() populates the
 // mirror; callers must warm the catalog (ensureLatestAnthropicModel) when null.
@@ -305,12 +305,11 @@ const OAUTH_SUCCESS_REDIRECT_URL = process.env.ANTHROPIC_OAUTH_SUCCESS_REDIRECT_
 const OAUTH_LOGIN_TIMEOUT_MS = 5 * 60_000;
 const OAUTH_TOKEN_TIMEOUT_MS = 30_000;
 
-// Anthropic OAuth contract for first-party OAuth clients.
-// Opus/Sonnet requests are gated on a specific system-prompt prefix.
-// Mixdog keeps that upstream client contract for OAuth routing. Haiku is not
+// Anthropic OAuth contract for first-party OAuth clients: Opus/Sonnet
+// requests are gated on this exact system-prompt prefix. Haiku is not
 // gated and ignores this prefix.
 const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude.";
-const OAUTH_BETA_HEADERS = 'oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,extended-cache-ttl-2025-04-11,advanced-tool-use-2025-11-20';
+const OAUTH_BETA_HEADERS = 'oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,extended-cache-ttl-2025-04-11';
 const DEFAULT_CLI_VERSION = '2.1.77';
 
 function resolveCliVersion() {
@@ -374,37 +373,6 @@ function buildSystemBlocks(systemMsgs, model, systemTtl, tier3Ttl) {
     return blocks;
 }
 
-// Per-model max_tokens when the model id is explicitly listed. New models
-// (e.g., Sonnet 4.7) won't match a specific entry and fall through to the
-// family-based heuristic below. Conservative defaults — model may support
-// more but we'd rather stay within safe bounds.
-const MAX_TOKENS = {
-    'claude-opus-4-8': 65536,
-    'claude-opus-4-7': 65536,
-    'claude-opus-4-6': 65536,
-    'claude-sonnet-4-6': 16384,
-    'claude-haiku-4-5-20251001': 8192,
-};
-
-// Sanity floor/ceiling for resolveMaxTokens. Catalog-reported outputTokens
-// (from the Anthropic API, cached to disk) can be trusted above these
-// hardcoded fallbacks, but we still clamp to a safety cap so a bad/huge
-// catalog value can't blow the thinking+output budget, and floor so a
-// missing/zero catalog value never degenerates to an unusable cap.
-const MAX_TOKENS_FLOOR = 8192;
-const DEFAULT_SAFETY_CAP = 65536;
-// Parse MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS strictly: only a finite positive
-// number is a valid override. Invalid values ("0", negatives, garbage,
-// whitespace) are treated as unset — NOT as "use the default cap outright" —
-// so resolveMaxTokens still consults catalog/fallback for low-cap models.
-function _envMaxOutputOverride() {
-    const raw = process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS;
-    if (raw == null || String(raw).trim() === '') return null;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return null;
-    return Math.floor(n);
-}
-
 // Catalog-reported outputTokens for a model id, read from the in-memory
 // catalog mirror (lazily populated from the disk cache if the mirror hasn't
 // been warmed yet by listModels()). Never throws — any failure just means
@@ -425,37 +393,17 @@ function _catalogOutputTokens(model) {
     }
 }
 
-function _fallbackMaxTokens(model) {
-    if (MAX_TOKENS[model]) return MAX_TOKENS[model];
-    const id = String(model || '').toLowerCase();
-    if (id.includes('opus')) return 65536;
-    if (id.includes('fable')) return 65536;
-    // Sonnet 5+ ships a much larger output budget than the legacy 4.x line
-    // (this is the claude-sonnet-5 fix: 16384 was starving visible output
-    // once extended thinking ate into the same hard cap). Keep sonnet-4-x
-    // conservative at 16384; only bump 5+.
-    const sonnetVersion = id.match(/^claude-sonnet-(\d+)/);
-    if (sonnetVersion) return Number(sonnetVersion[1]) >= 5 ? 65536 : 16384;
-    if (id.includes('sonnet')) return 16384;
-    if (id.includes('haiku')) return 8192;
-    return 8192;
-}
-
-// resolveMaxTokens: catalog-driven max_tokens for a model id.
+// resolveMaxTokens: catalog-driven max_tokens for a model id. Thin wrapper
+// around the shared anthropic-max-tokens helper (also used by the API-key
+// twin in anthropic.mjs) — this provider supplies its own in-memory-mirror-
+// first catalog lookup strategy.
 //   1. MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS env override, if set, wins outright.
 //   2. Catalog outputTokens (trusted over hardcoded heuristics when present),
 //      clamped to [MAX_TOKENS_FLOOR, safetyCap].
 //   3. Static MAX_TOKENS table / family heuristic fallback when the catalog
 //      has no entry for this model, also clamped to the safety cap.
 function resolveMaxTokens(model) {
-    const envOverride = _envMaxOutputOverride();
-    if (envOverride != null) return envOverride;
-    const safetyCap = DEFAULT_SAFETY_CAP;
-    const catalogValue = _catalogOutputTokens(model);
-    if (catalogValue != null) {
-        return Math.max(MAX_TOKENS_FLOOR, Math.min(catalogValue, safetyCap));
-    }
-    return Math.min(_fallbackMaxTokens(model), safetyCap);
+    return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokens });
 }
 
 const MIN_THINKING_BUDGET = 1024;
@@ -492,8 +440,8 @@ function credentialCandidates() {
 // Fallback expiry from the access_token's JWT `exp` claim (epoch ms) when the
 // credentials file carries no explicit expiresAt — without it expiresAt stays 0,
 // which ensureAuth reads as "never expires", disabling proactive refresh. Claude
-// OAuth tokens are opaque so this returns 0 and the file's expiresAt governs; kept
-// for parity with the other OAuth providers. JWT `exp` is epoch SECONDS (RFC 7519).
+// OAuth tokens are opaque so this returns 0 and the file's expiresAt governs.
+// JWT `exp` is epoch SECONDS (RFC 7519).
 function _expiryFromAccessToken(token) {
     try {
         const parts = String(token || '').split('.');
@@ -718,7 +666,7 @@ export class ReauthRequired extends Error {
     }
 }
 
-// --- Message conversion (mirrors anthropic.mjs) ---
+// --- Message conversion ---
 
 function withCacheControl(block, ttl = CACHE_TTL_VOLATILE) {
     if (!block || typeof block !== 'object' || block.cache_control) return block;
@@ -1068,7 +1016,8 @@ async function parseSSEStream(response, signal, abortStream, onStreamDelta, onTo
 
     // Synthesize + dispatch a recovered leaked call exactly like the native
     // content_block_stop path (push into toolCalls, flag state, eager
-    // onToolCall). A generated id mirrors the `toolu_`-prefixed native shape.
+    // onToolCall). A generated id uses the same `toolu_`-prefixed shape as
+    // Anthropic's native tool-call ids.
     const dispatchLeakedCall = (recovered) => {
         let args = recovered?.arguments;
         if (args === null || typeof args !== 'object' || Array.isArray(args)) args = {};
@@ -1790,6 +1739,11 @@ export class AnthropicOAuthProvider {
         if (body.speed === 'fast') {
             this.fastModeBetaHeaderLatched = true;
         }
+        // advanced-tool-use-2025-11-20 beta is only needed when this request
+        // actually carries deferred (defer_loading) tools — gate the header on
+        // that instead of sending it unconditionally on every request.
+        const hasDeferredTools = Array.isArray(body.tools)
+            && body.tools.some((t) => t && t.defer_loading === true);
         // Known tool names for the leaked-tool-call guard in parseSSEStream:
         // recovered leaked calls are only synthesized when they name a tool
         // actually offered to this request (native + lowered). Derived from the
@@ -1866,7 +1820,7 @@ export class AnthropicOAuthProvider {
                         'anthropic-beta': buildAnthropicBetaHeaders({
                             base: OAUTH_BETA_HEADERS,
                             fastMode: this.fastModeBetaHeaderLatched,
-                            toolSearch: true,
+                            toolSearch: hasDeferredTools,
                             effort: shouldIncludeEffortBeta(useModel, opts),
                         }),
                         'anthropic-dangerous-direct-browser-access': 'true',

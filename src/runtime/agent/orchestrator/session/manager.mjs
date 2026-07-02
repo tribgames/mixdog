@@ -6,7 +6,7 @@ import { getProvider, providerInputExcludesCache } from '../providers/registry.m
 import { getModelMetadataSync } from '../providers/model-catalog.mjs';
 import { fetchOAuthUsageSnapshot } from '../providers/oauth-usage.mjs';
 // Image content is kept in-memory and in the model-visible history so multi-turn
-// recognition matches reference agent behavior (live transcript always retains images). The
+// recognition works reliably (live transcript always retains images). The
 // stored-history placeholder swap now happens only at disk-serialization time
 // inside the session store, so it is no longer imported here.
 import {
@@ -898,7 +898,7 @@ async function runRecallFastTrackForSession(session, messages, opts = {}) {
     }
     return { query, querySha, recallText: [`session_id=${sessionId}`, cycle1Text, recallText].map(v => String(v || '').trim()).filter(Boolean).join('\n\n') };
 }
-// Element-identity change detection (mirrors loop.mjs messagesArrayChanged): two
+// Element-identity change detection (same approach as loop.mjs messagesArrayChanged): two
 // arrays are "unchanged" only when same length AND every slot is the same object
 // reference. Used to reject a no-op prune (which returns a fresh array whose
 // elements are the untouched originals) from being accepted as a recovery.
@@ -3958,6 +3958,11 @@ export function closeSession(id, reason = 'manual') {
     // or Map entries across session lifetime. Fire-and-forget — close path
     // should not await disk IO; errors are swallowed inside.
     try { clearOffloadSession(id); } catch { /* ignore */ }
+    // Drop the in-memory pending-message queue and any buffered-persist entry
+    // for this session — otherwise both Maps accumulate one entry per closed
+    // session for the life of the mcp-server.
+    try { _sessionPendingMessages.delete(id); } catch { /* ignore */ }
+    try { _pendingPersistBuffers.delete(id); } catch { /* ignore */ }
     // 4. Defer runtime map clear to next tick so any settling askSession can
     //    observe `closed=true` / bumped generation before we yank the entry.
     //    Disk tombstone remains — that's what blocks resurrection.

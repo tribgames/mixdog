@@ -571,7 +571,10 @@ function toolSearchLoadedSummary(resultText) {
   try {
     parsed = JSON.parse(String(resultText || ''));
   } catch {
-    return '';
+    const text = String(resultText || '');
+    const match = /^Loaded deferred tools:\s*(.+)$/m.exec(text);
+    if (!match) return '';
+    return [...new Set(match[1].split(',').map((name) => name.trim()).filter(Boolean))].join(', ');
   }
   const tools = parsed?.selected?.tools;
   if (!tools || typeof tools !== 'object') return '';
@@ -813,7 +816,10 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     // Aggregate cards intentionally omit elapsed time once grouped. A brief
     // `Running · 1s` tick during the grouped→finished handoff reads as visual
     // noise, and the grouped header already communicates that work is active.
-    const pendingPlaceholder = headerPending
+    // The placeholder tracks `pending` (real completion), NOT headerPending:
+    // the header verb stays active until the block seals, but the detail row
+    // must not keep saying "Running" after every call already resolved.
+    const pendingPlaceholder = pending
       ? 'Running'
       : 'Finished';
     const detailLines = showRawAggregate

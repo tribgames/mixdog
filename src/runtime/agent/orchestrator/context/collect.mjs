@@ -34,6 +34,47 @@ function mixdogAssetDirs(projectDir, kind) {
     return dirs;
 }
 /**
+ * Absolute path to the plugin registry file, or null when the data dir is
+ * unresolvable. Included in the skills mtime gate so plugin add/remove
+ * (which rewrites registry.json) invalidates the cached skill list even
+ * when no surviving skills dir got a newer mtime.
+ */
+function pluginRegistryPath() {
+    try {
+        return join(resolvePluginData(), 'plugins', 'registry.json');
+    } catch {
+        return null;
+    }
+}
+/**
+ * Read `<resolvePluginData()>/plugins/registry.json` (safe JSON parse, ignore
+ * errors) and yield `<root>/skills` for each registered plugin whose `root`
+ * exists on disk and has a `skills` subdirectory.
+ */
+function pluginSkillDirs() {
+    const registryPath = pluginRegistryPath();
+    if (!registryPath)
+        return [];
+    let registry;
+    try {
+        registry = JSON.parse(readFileSync(registryPath, 'utf-8'));
+    } catch {
+        return [];
+    }
+    if (!registry || !Array.isArray(registry.plugins))
+        return [];
+    const dirs = [];
+    for (const entry of registry.plugins) {
+        const root = entry && typeof entry.root === 'string' ? entry.root : null;
+        if (!root || !existsSync(root))
+            continue;
+        const skillsDir = join(root, 'skills');
+        if (existsSync(skillsDir))
+            dirs.push(skillsDir);
+    }
+    return dirs;
+}
+/**
  * Collect available skills (frontmatter only — token efficient).
  * Full content loaded on demand via loadSkillContent().
  */
@@ -49,6 +90,9 @@ export function collectSkills(cwd) {
     // first, then user-global. When cwd is missing, only the global dir is
     // searched.
     const dirs = mixdogAssetDirs(projectDir, 'skills');
+    // Plugin-provided skills load last so project-local and global mixdog
+    // skill dirs keep precedence; `seen` below dedupes by frontmatter name.
+    dirs.push(...pluginSkillDirs());
     const seen = new Set();
     for (const dir of dirs) {
         if (!existsSync(dir))
@@ -88,6 +132,13 @@ export function collectSkillsCached(cwd) {
     const projectDir = (typeof cwd === 'string' && cwd.length > 0) ? cwd : null;
     // Same mixdog-owned dirs collectSkills() reads, used as the freshness gate.
     const skillsDirs = mixdogAssetDirs(projectDir, 'skills');
+    skillsDirs.push(...pluginSkillDirs());
+    // registry.json itself gates plugin add/remove: removal deletes the
+    // plugin's skills dir (so no dir mtime advances), but saveRegistry()
+    // always rewrites this file. maxMtimeRecursive stats plain files directly.
+    const registryPath = pluginRegistryPath();
+    if (registryPath)
+        skillsDirs.push(registryPath);
     let mtime;
     const mtimeCached = _mtimeCache.get(key);
     if (mtimeCached && Date.now() - mtimeCached.checkedAt < _MTIME_TTL_MS) {

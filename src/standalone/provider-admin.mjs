@@ -314,10 +314,21 @@ export function saveOpenCodeGoUsageAuth(cfgMod, { workspaceId, authCookie } = {}
   if (!cookie) throw new Error('OpenCode auth cookie is required for usage lookup');
   const authMatch = /(?:^|;\s*)auth=([^;]+)/.exec(cookie);
   saveSecret(SECRET_ACCOUNTS.opencodeGoAuthCookie, authMatch ? authMatch[1] : cookie);
-  updateConfigProvider(cfgMod, 'opencode-go', workspace
-    ? { enabled: true, workspaceId: workspace }
-    : { enabled: true });
+  // Usage auth is a console cookie, not a model API key. Only flip the model
+  // provider on when a key actually exists; otherwise cookie-only setups get
+  // routed to the provider with apiKey 'no-key' and fail with 401s.
+  const hasApiKey = Boolean(getAgentApiKey('opencode-go'));
+  updateConfigProvider(cfgMod, 'opencode-go', {
+    ...(hasApiKey ? { enabled: true } : {}),
+    ...(workspace ? { workspaceId: workspace } : {}),
+  });
   return { provider: 'opencode-go', type: 'usage-auth', authenticated: true, workspaceId: workspace || null };
+}
+
+export async function loginOpenCodeGoUsage(cfgMod) {
+  const { loginOpenCodeGoConsoleWithBrowser } = await import('./opencode-go-login.mjs');
+  const { workspaceId, authCookie } = await loginOpenCodeGoConsoleWithBrowser();
+  return saveOpenCodeGoUsageAuth(cfgMod, { workspaceId, authCookie });
 }
 
 export function setLocalProvider(cfgMod, provider, { enabled, baseURL } = {}) {

@@ -15,6 +15,3 @@ call is `apply_patch`. 3+ read-only calls without an edit = you are stalling
 threshold is "plausible", not "proven"; self-check comes AFTER the edit, and
 Lead/Reviewer own final verification.
 
-Handoff fragments only, no report bloat: changed `file:line`, verification,
-risks.
-

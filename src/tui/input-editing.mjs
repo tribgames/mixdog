@@ -147,14 +147,27 @@ export function wordRangeAt(text, offset) {
   return { start: units[start].start, end: units[end].end };
 }
 
-export function caretPosition(text, offset, width) {
+// `hasTrailingContent` (default derived from the full text) decides whether a
+// caret that lands FLUSH on the last column (col === w) rolls to the next row.
+// It must reflect whether ANY rendered cell follows this offset in the FULL
+// text — not just the sliced prefix — otherwise a caret at a mid-text soft-wrap
+// boundary reports {row N, col w} while ink already rendered the next glyph on
+// row N+1, dropping the caret outside the box. PromptInput also appends a
+// trailing space cell when the cursor sits at end-of-input, so "end of text"
+// still has a following cell there; callers pass hasTrailingContent=true for
+// that case.
+export function caretPosition(text, offset, width, hasTrailingContent = undefined) {
   const value = String(text || '');
   const before = value.slice(0, offset);
   const w = safeWidth(width);
+  const followsInFullText = hasTrailingContent === undefined
+    ? offset < value.length
+    : hasTrailingContent === true;
   let row = 0;
   let col = 0;
-
-  for (const { segment } of graphemeSegmenter.segment(before)) {
+  const segments = [...graphemeSegmenter.segment(before)];
+  for (let i = 0; i < segments.length; i += 1) {
+    const { segment } = segments[i];
     if (segment === '\n') {
       row += 1;
       col = 0;
@@ -164,15 +177,24 @@ export function caretPosition(text, offset, width) {
     const segmentWidth = stringWidth(segment);
     if (segmentWidth === 0) continue;
 
+    // Mirror ink's wrap-ansi wrapWord (wrap="hard", wordWrap:false): a glyph
+    // that would overflow the row is pushed WHOLE to the next row (col never
+    // exceeds w for wide chars — no half-column left behind), and a glyph that
+    // lands flush on the last column starts a new row ONLY when more rendered
+    // content follows. Whether content follows is decided from the FULL text
+    // (followsInFullText), not the sliced prefix, so a caret at a mid-text wrap
+    // boundary rolls to row N+1 exactly as ink renders it. The old
+    // `col >= w → row += floor(col/w)` over-counted a row for width-2 glyphs at
+    // odd widths (col could reach w+1), landing the cursor one row too low.
     if (col > 0 && col + segmentWidth > w) {
       row += 1;
       col = 0;
     }
-
     col += segmentWidth;
-    if (col >= w) {
-      row += Math.floor(col / w);
-      col %= w;
+    const moreFollows = i < segments.length - 1 || followsInFullText;
+    if (col === w && moreFollows) {
+      row += 1;
+      col = 0;
     }
   }
 
@@ -210,13 +232,16 @@ function boundaryPositions(text, width) {
   for (const unit of graphemeUnits(value)) offsets.push(unit.end);
 
   const seen = new Set();
-  return offsets
+  const positions = offsets
     .filter((offset) => {
       if (seen.has(offset)) return false;
       seen.add(offset);
       return true;
     })
+    // Decide the flush-boundary advance from the FULL text so a soft-wrap
+    // offset reports {row N+1, col 0} (matching ink) instead of {row N, col w}.
     .map((offset) => ({ offset, ...caretPosition(value, offset, width) }));
+  return positions;
 }
 
 export function verticalOffset(text, offset, width, direction, preferredColumn = null) {

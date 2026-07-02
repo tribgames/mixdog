@@ -56,14 +56,13 @@ const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const CODEX_OAUTH_ORIGINATOR = 'codex_cli_rs';
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses';
-// Version string baked into the models endpoint query — the OAuth backend rejects the
-// request without it. Keep close to the latest published @openai/codex CLI because
-// older versions trigger a visibility-filtered catalog (e.g. only rollout
-// models). Bump when the real CLI bumps.
-// OpenAI OAuth backend gates new model exposures (e.g. gpt-5.5 only on >= 0.130.0)
-// on the client_version header. Resolve dynamically from npm so newly-shipped
-// models surface within a day instead of waiting on a hardcoded bump here.
-// Cached 24h in-process; npm failure falls back to the floor below.
+// Version string baked into the models endpoint query — the OAuth backend
+// rejects the request without it, and gates new model exposures (e.g.
+// gpt-5.5 only on >= 0.130.0) on this client_version header; older versions
+// trigger a visibility-filtered catalog (e.g. only rollout models). Resolved
+// dynamically from npm so newly-shipped models surface within a day instead
+// of waiting on a hardcoded bump here. Cached 24h in-process; npm failure
+// falls back to the floor below.
 const CODEX_CLIENT_VERSION_FLOOR = '0.130.0';
 const CODEX_VERSION_CACHE_TTL_MS = 24 * 60 * 60_000;
 let _codexVersionCache = { value: null, fetchedAt: 0 };
@@ -587,7 +586,7 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         providerState: opts.providerState,
         model,
     });
-    // Match the body shape pi-mono and the official OpenAI CLI ship so the
+    // Match the request body shape the OAuth backend expects so the
     // server-side auto-cache routes correctly. text.verbosity / include /
     // tool_choice / parallel_tool_calls are all inert without side effects
     // for most callers but their presence affects how the OAuth backend classifies the
@@ -618,8 +617,8 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     if (opts.fast === true) {
         // 'priority' is the only fast-class value the OpenAI OAuth backend
         // accepts on the wire: 'fast' is hard-rejected ("Unsupported
-        // service_tier: fast", probed 2026-06-11). Match official CLI behavior:
-        // only send the request value when the model catalog advertises it.
+        // service_tier: fast", probed 2026-06-11). Only send the request value
+        // when the model catalog advertises it.
         if (codexModelSupportsServiceTier(model, 'priority')) {
             body.service_tier = 'priority';
         }
@@ -669,8 +668,8 @@ function _envPositiveInt(name, fallback) {
 }
 
 // Completed function_call.arguments parse for the OpenAI Responses stream.
-// Native convergence (openai-oauth / anthropic-oauth / opencode): a function_call item
-// arrives only on a completion/done signal, so a non-empty-but-malformed
+// A function_call item arrives only on a completion/done signal, so a
+// non-empty-but-malformed
 // arguments string is deterministic bad JSON — NOT mid-stream truncation.
 // Empty/whitespace input legitimately means "no arguments" → {}. A non-empty
 // string that fails JSON.parse is surfaced as an invalid-args MARKER (instead
@@ -888,7 +887,7 @@ export async function sendViaHttpSse({
         _clearSemanticIdle();
         _semanticIdleTimer = setTimeout(() => {
             _streamAbortReason = streamStalledError('OpenAI OAuth HTTP fallback', PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS, { emittedToolCall: emittedToolCallIds.size > 0 });
-            // Partial-final recovery parity with anthropic-oauth: attach the
+            // Partial-final recovery: attach the
             // streamed partial state so the agent loop can accept a wedged FINAL
             // no-tool summary as a successful partial-final instead of dropping
             // the result. pendingToolUse gates out any mid-flight tool call.
@@ -1076,6 +1075,22 @@ export async function sendViaHttpSse({
                         name: event.item.name || '',
                         callId: event.item.call_id || '',
                     });
+                } else if (event.item?.type === 'tool_search_call') {
+                    // Mark tool_search as in-flight the moment the item is
+                    // added, mirroring function_call above, so the semantic
+                    // idle watchdog's pendingToolUse gate (pendingCalls.size)
+                    // sees a mid-flight tool_search and never lets stall
+                    // recovery drop it before response.output_item.done.
+                    // kind:'tool_search' tags the entry so the shared
+                    // function_call_arguments.done handler (below) never
+                    // mistakes it for a function call by id collision/empty id.
+                    if (event.item.id) {
+                        pendingCalls.set(event.item.id, {
+                            name: 'tool_search',
+                            callId: event.item.call_id || '',
+                            kind: 'tool_search',
+                        });
+                    }
                 }
                 break;
             case 'response.function_call_arguments.delta':
@@ -1084,6 +1099,7 @@ export async function sendViaHttpSse({
             case 'response.function_call_arguments.done': {
                 const itemId = event.item_id || '';
                 const pending = pendingCalls.get(itemId);
+                if (pending?.kind === 'tool_search') { meaningful(); break; }
                 const call = {
                     id: pending?.callId || event.call_id || '',
                     name: pending?.name || event.name || '',
@@ -1116,6 +1132,7 @@ export async function sendViaHttpSse({
                         }
                     }
                 } else if (item.type === 'tool_search_call') {
+                    pendingCalls.delete(item.id || '');
                     pushToolSearchCall(item);
                 } else if (item.type === 'custom_tool_call') {
                     pushCustomToolCall(item);

@@ -9,10 +9,10 @@
  * `input` delta plus `previous_response_id`, skipping the full
  * tools/system/history prefix each turn.
  *
- * References:
- * - pi-mono packages/ai/src/providers/openai-codex-responses.ts
- *   (acquireWebSocket/release, get_incremental_items delta logic).
- * - openai/codex codex-rs/core/src/client.rs (turn-state echo header).
+ * Incremental-input reuse is decided by diffing against the cached request
+ * the socket last sent (see _sansInput below), and requests carry a
+ * turn-state echo header so the backend can correlate WS frames to the
+ * in-flight turn.
  *
  * Exposes:
  *   sendViaWebSocket({ auth, body, sendOpts, onStreamDelta, onToolCall,
@@ -83,9 +83,8 @@ const WS_PRE_RESPONSE_CREATED_MS = (() => {
     if (Number.isFinite(n) && n > 0) return Math.min(Math.max(n, 1_000), 120_000);
     return 10_000;
 })();
-// Single inter-chunk idle timer. Resets on EVERY received frame (matches codex
-// responses_websocket.rs timeout(idle_timeout, ws_stream.next()) and mixdog
-// anthropic-oauth resetIdleTimer on every chunk).
+// Single inter-chunk idle timer. Resets on EVERY received frame — any frame,
+// including metadata/keepalive, proves the socket is live.
 const WS_INTER_CHUNK_MS = PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS;
 // Mid-stream retry budgets + backoff now live in the shared MIDSTREAM_RETRY_POLICY
 // table (retry-classifier.mjs). These aliases keep the local call sites readable
@@ -109,8 +108,8 @@ const WS_MIDSTREAM_POLICY = {
 // decision and just double the user-visible latency.
 // Aligned to the cross-provider default (retry-classifier DEFAULT_MAX_ATTEMPTS=5,
 // anthropic-oauth MAX_ATTEMPTS=5, withRetry-using providers all default to 5).
-// Previously 3 — bumped for parity so every provider exhausts the same number
-// of transient-5xx attempts before surfacing failure to the caller.
+// Bumped from 3 so this provider exhausts the same number of transient-5xx
+// attempts as the others before surfacing failure to the caller.
 const HANDSHAKE_MAX_ATTEMPTS = PROVIDER_RETRY_MAX_ATTEMPTS;
 const HANDSHAKE_BACKOFF_BASE_MS = 500;
 const HANDSHAKE_BACKOFF_CAP_MS = 5000;
@@ -942,9 +941,9 @@ function releaseWebSocket({ entry, poolKey, keep }) {
     _scheduleIdleClose(poolKey, entry);
 }
 
-// Port of pi-mono get_incremental_items: if the cached request (sans input)
-// matches the current one and the current input starts with the cached input,
-// return only the tail. Otherwise return the full input (fresh turn).
+// If the cached request (sans input) matches the current one and the current
+// input starts with the cached input, return only the tail. Otherwise return
+// the full input (fresh turn).
 function _sansInput(body) {
     const { input: _ignored, previous_response_id: _prevIgnored, ...rest } = body;
     return rest;
@@ -1214,19 +1213,23 @@ function _wsErrLabel(p) {
     return 'OpenAI OAuth WS';
 }
 // tool_search_call.arguments parse. Module-scope (exported) for direct test
-// coverage. Native convergence (openai-oauth / anthropic-oauth / opencode): same policy
-// as the function_call_arguments.done path and openai-oauth _parseJsonObject —
+// coverage. Same policy as the function_call_arguments.done path and
+// openai-oauth _parseJsonObject —
 // object passes through; null/non-string/empty/whitespace → {} (no args); a
 // non-empty string that fails JSON.parse is deterministic bad JSON, surfaced
 // as an invalid-args MARKER (not silently swallowed to {}) so the dispatch
 // loop returns an is_error tool_result and the model self-corrects in the same
 // turn.
 export function parseToolSearchArgs(value) {
-    if (value && typeof value === 'object') return value;
+    if (value && typeof value === 'object') {
+        // Reject arrays — the tool_search schema is an object
+        // ({query,select,limit}); an array must never pass through as args.
+        return Array.isArray(value) ? {} : value;
+    }
     if (typeof value !== 'string' || !value.trim()) return {};
     try {
         const parsed = JSON.parse(value);
-        return parsed && typeof parsed === 'object' ? parsed : {};
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
     } catch (err) {
         return makeInvalidToolArgsMarker(value, err instanceof Error ? err.message : String(err));
     }
@@ -1456,7 +1459,7 @@ export async function _streamResponse({
     let messageHandler = null;
     let closeHandler = null;
     let errorHandler = null;
-    // SEMANTIC idle timer (pi per-event parity): distinct from the inter-chunk
+    // SEMANTIC idle timer: distinct from the inter-chunk
     // timer, which resets on EVERY frame (rate_limits/metadata/keepalive keep
     // the socket "alive"). This timer resets ONLY on meaningful output deltas
     // (text/reasoning/tool args — the same events that call onStreamDelta) so a
@@ -1561,7 +1564,7 @@ export async function _streamResponse({
             semanticIdleTimer = setTimeout(() => {
                 traceWsTimeout('semantic_idle_timeout', semanticIdleMs);
                 terminalError = streamStalledError('Responses WS', semanticIdleMs, { emittedToolCall: !!midState?.emittedToolCall });
-                // Partial-final recovery parity: attach streamed partial state so
+                // Partial-final recovery: attach streamed partial state so
                 // a wedged FINAL no-tool summary can be accepted as partial-final
                 // success by the loop. pendingToolUse gates out mid-flight tools.
                 try {
@@ -1633,7 +1636,7 @@ export async function _streamResponse({
         messageHandler = (data) => {
             resetIdle();
             // resetIdle() above resets the SINGLE inter-chunk idle timer on
-            // EVERY received frame (codex parity) — response.created, metadata,
+            // EVERY received frame — response.created, metadata,
             // rate_limits, and all deltas keep the socket alive. Separately, do
             // NOT call onStreamDelta for every frame — metadata/keepalive frames
             // must not reset the agent stall watchdog's lastStreamDeltaAt. Only
@@ -1706,6 +1709,13 @@ export async function _streamResponse({
                         _toolInFlight = true;
                     } else if (event.item?.type === 'custom_tool_call') {
                         _toolInFlight = true;
+                    } else if (event.item?.type === 'tool_search_call') {
+                        // Mark tool_search in-flight at item-added time, same
+                        // as function_call/custom_tool_call above, so the
+                        // semantic-idle stall gate's pendingToolUse never
+                        // drops a mid-flight tool_search before
+                        // response.output_item.done.
+                        _toolInFlight = true;
                     }
                     break;
                 case 'response.function_call_arguments.delta':
@@ -1723,10 +1733,10 @@ export async function _streamResponse({
                     const pending = pendingCalls.get(itemId);
                     // function_call_arguments.done is a completion signal:
                     // empty/whitespace → no args ({}); a non-empty string that
-                    // fails JSON.parse is deterministic bad JSON. Native
-                    // convergence: surface an invalid-args MARKER (not silent
-                    // {}) so the dispatch loop returns an is_error tool_result
-                    // and the model re-issues valid JSON in the same turn.
+                    // fails JSON.parse is deterministic bad JSON. Surface an
+                    // invalid-args MARKER (not silent {}) so the dispatch loop
+                    // returns an is_error tool_result and the model re-issues
+                    // valid JSON in the same turn.
                     let args = {};
                     {
                         const _argText = typeof event.arguments === 'string' ? event.arguments : '';

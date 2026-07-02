@@ -1,4 +1,5 @@
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync } from 'fs';
+import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
@@ -273,7 +274,10 @@ function capMcpOutput(content) {
         const dir = join(tmpdir(), 'mixdog-mcp-output');
         mkdirSync(dir, { recursive: true });
         spillPath = join(dir, `mcp-${Date.now()}-${randomUUID().slice(0, 8)}.txt`);
-        writeFileSync(spillPath, s, 'utf-8');
+        // Fire-and-forget: the spill path is returned to the caller
+        // immediately (below) for later recovery; the write itself must not
+        // block this hot tool-result path.
+        writeFile(spillPath, s, 'utf-8').catch(() => { /* spill best-effort */ });
     } catch { /* spill best-effort */ }
     const spillNote = spillPath
         ? `\n\n... [full output spilled to ${spillPath}] ...`

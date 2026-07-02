@@ -10,6 +10,7 @@ import { SPINNER_VERBS } from './spinner-verbs.mjs';
 import {
   aggregateToolCategoryEntry,
   classifyToolCategory,
+  formatAggregateDetail,
   summarizeToolResult,
 } from '../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody, presentErrorText } from '../runtime/shared/err-text.mjs';
@@ -827,6 +828,18 @@ function mergePastedImages(entries) {
   return Object.keys(out).length > 0 ? out : null;
 }
 
+function mergePastedTexts(entries) {
+  const out = {};
+  for (const entry of entries || []) {
+    const texts = entry?.pastedTexts;
+    if (!texts || typeof texts !== 'object') continue;
+    for (const [id, text] of Object.entries(texts)) {
+      if (text) out[id] = text;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 function callCommitCallbacks(entries) {
   for (const entry of entries || []) {
     try { entry?.onCommitted?.(); } catch {}
@@ -1009,6 +1022,7 @@ export async function createEngineSession({
   let state = {
     items: [],
     toasts: [],
+    progressHint: null,
     busy: false,
     commandBusy: false,
     commandStatus: null,
@@ -1018,6 +1032,14 @@ export async function createEngineSession({
     toolApproval: null,
     lastTurn: null,
     stats: createSessionStats(),
+    // Incremental derivations published by the engine so App does not scan all
+    // transcript items on every change:
+    //  - activeToolSummary: running Explore/Search active counts + earliest
+    //    startedAt for the prompt-line status (replaces App.jsx O(n) items scan).
+    //  - promptHistoryList: newest-first deduped user-prompt history, rebuilt
+    //    only when a user item is appended (replaces the per-change rescan).
+    activeToolSummary: null,
+    promptHistoryList: [],
     ...baseRouteState(),
     displayContextWindow: 0,
     compactBoundaryTokens: 0,
@@ -1131,10 +1153,85 @@ export async function createEngineSession({
       const id = nextItems[i]?.id;
       if (id != null) itemIndexById.set(id, i);
     }
+    // Bulk item swap (session load / clear / compact). Derive the prompt-history
+    // list from the NEW items and stage it onto state here so App never rescans;
+    // the callers that invoke replaceItems always follow with a set({items:...,
+    // ...}) that carries fresh references, so this pre-stage does not defeat any
+    // emit (the accompanying set() diffs the full patch). A bulk swap also
+    // discards the old transcript, so drop any tracked active tool calls.
+    activeToolCalls.clear();
+    state = { ...state, items: nextItems, promptHistoryList: recomputePromptHistory(nextItems), activeToolSummary: null };
     return nextItems;
   };
   let flushDeferredBeforeImmediatePush = null;
   let pushingFromDeferredEntry = false;
+  // --- Prompt-history list (newest-first, deduped) maintained incrementally ---
+  // App previously rebuilt this from state.items on EVERY transcript change
+  // (App.jsx recentPromptHistory useMemo). It only changes when a user item is
+  // appended, so rebuild it there and on bulk item swaps, publishing to
+  // state.promptHistoryList.
+  const PROMPT_HISTORY_LIMIT = 50;
+  const promptHistoryKey = (value) => String(value || '').trim().replace(/\s+/g, ' ');
+  const recomputePromptHistory = (sourceItems = null) => {
+    // Pure: derive the newest-first deduped user-prompt history from the given
+    // items (defaults to state.items) and RETURN it. Callers decide whether to
+    // publish via set() so the immutable-emit contract is preserved.
+    const items = Array.isArray(sourceItems) ? sourceItems : (Array.isArray(state.items) ? state.items : []);
+    const seen = new Set();
+    const history = [];
+    for (let i = items.length - 1; i >= 0 && history.length < PROMPT_HISTORY_LIMIT; i -= 1) {
+      const item = items[i];
+      if (item?.kind !== 'user') continue;
+      const text = String(item.text || '').trim();
+      const key = promptHistoryKey(text);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      history.push(text);
+    }
+    return history;
+  };
+  // --- Active-tool summary (Explore/Search) maintained incrementally ---
+  // App previously scanned every transcript item on every change to derive the
+  // prompt-line "Exploring N / Searching N" status. Instead the tool lifecycle
+  // below tracks per-callId category + started-at in activeToolCalls and derives
+  // the small summary from it, publishing state.activeToolSummary only when the
+  // aggregate (counts + earliest start) actually changes.
+  const activeToolCalls = new Map(); // callKey -> { category, count, startedAt }
+  const recomputeActiveToolSummary = () => {
+    let exploreCount = 0, exploreStart = 0, searchCount = 0, searchStart = 0;
+    for (const rec of activeToolCalls.values()) {
+      if (!rec) continue;
+      const c = Math.max(1, Number(rec.count || 1));
+      const started = Number(rec.startedAt || 0);
+      if (rec.category === 'Explore') {
+        exploreCount += c;
+        if (started > 0 && (exploreStart === 0 || started < exploreStart)) exploreStart = started;
+      } else if (rec.category === 'Search') {
+        searchCount += c;
+        if (started > 0 && (searchStart === 0 || started < searchStart)) searchStart = started;
+      }
+    }
+    const next = (exploreCount || searchCount)
+      ? `${exploreCount}:${exploreStart}:${searchCount}:${searchStart}`
+      : '';
+    const prev = state.activeToolSummary || '';
+    if (next !== prev) set({ activeToolSummary: next || null });
+  };
+  const markToolCallActive = (callKey, category, count, startedAt) => {
+    if (!callKey || (category !== 'Explore' && category !== 'Search')) return;
+    activeToolCalls.set(callKey, { category, count: Math.max(1, Number(count || 1)), startedAt: Number(startedAt || Date.now()) });
+    recomputeActiveToolSummary();
+  };
+  const markToolCallDone = (callKey) => {
+    if (!callKey || !activeToolCalls.has(callKey)) return;
+    activeToolCalls.delete(callKey);
+    recomputeActiveToolSummary();
+  };
+  const clearActiveToolSummary = () => {
+    if (activeToolCalls.size === 0 && !state.activeToolSummary) return;
+    activeToolCalls.clear();
+    if (state.activeToolSummary) set({ activeToolSummary: null });
+  };
   const pushItem = (item) => {
     if (!pushingFromDeferredEntry && flushDeferredBeforeImmediatePush) {
       flushDeferredBeforeImmediatePush();
@@ -1142,7 +1239,16 @@ export async function createEngineSession({
     const index = state.items.length;
     const items = [...state.items, item];
     if (item?.id != null) itemIndexById.set(item.id, index);
-    set({ items });
+    if (item?.kind === 'user') {
+      // Rebuild the derived history against the NEW list (not yet in state) and
+      // publish items + the fresh list in ONE set(). Do NOT pre-assign to state
+      // first — set() diffs against the current state, so a pre-assign would make
+      // the references identical and skip emit().
+      const promptHistoryList = recomputePromptHistory(items);
+      set({ items, promptHistoryList });
+    } else {
+      set({ items });
+    }
   };
   const upsertSyntheticToolItem = (text, id = nextId(), parsed = null) => {
     const synthetic = parseSyntheticAgentMessage(text);
@@ -1197,6 +1303,16 @@ export async function createEngineSession({
     const id = nextId();
     pushItem({ kind: 'notice', id, text: value, tone });
     return id;
+  };
+  // Sticky (non-TTL) input-hint-line progress state, for long-running
+  // installs (e.g. voice runtime download) that would otherwise spam the
+  // 3s toast queue. Distinct from pushToast/pushNotice: it persists across
+  // renders until explicitly cleared (setProgressHint('', ...) or a falsy
+  // text), and App.jsx's inputHint falls back to it only when no promptHint
+  // and no live toast currently cover the same line.
+  const setProgressHint = (text, tone = 'info') => {
+    const value = String(text ?? '').trim();
+    set({ progressHint: value ? { text: value, tone } : null });
   };
   const toolApprovalQueue = [];
   let activeToolApproval = null;
@@ -1523,6 +1639,9 @@ export async function createEngineSession({
     if (!card || card.done) return false;
     const callId = toolResultCallId(message) || card.callId;
     if (callId && done.has(callId)) return false;
+    // Any resolving call clears its active-summary entry (keyed by the same
+    // callKey used at markToolCallActive; card.callId holds it for both branches).
+    markToolCallDone(card.callId);
     // A result for this card arrived (possibly before its deferred push delay
     // elapsed) — surface the card now so the patch below has a live item and the
     // fast tool paints a completed card directly, no pending placeholder stage.
@@ -1551,19 +1670,19 @@ export async function createEngineSession({
       const allCalls = [...aggregate.calls.values()];
       const completed = allCalls.filter((r) => r.resolved).length;
       const errors = allCalls.filter((r) => r.isError).length;
-      // Collapsed detail is status-only (no per-result summary). Failures keep a
-      // bare 'N Failed' status so an error stays visible while collapsed.
+      // Collapsed detail carries the merged per-call count summary
+      // ("512 lines, 6 matches, 3 files") so the finished card answers "how
+      // much" without ctrl+o. Failures keep a bare 'N Ok · N Failed' status so
+      // an error stays visible while collapsed.
       const succeeded = completed - errors;
       const detailText = errors > 0
         ? (succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`)
-        : '';
+        : formatAggregateDetail(aggregateSummaries(aggregate));
       const currentItem = state.items.find((it) => it.id === card.itemId);
       const earlyCompleted = allCalls.filter((r) => r.resolved || r.completedEarly).length;
       const visualCompleted = Math.max(completed, earlyCompleted, Math.min(allCalls.length, Number(currentItem?.completedCount || 0)));
       const rawResult = aggregateRawResult(allCalls);
-      // Collapsed aggregate detail carries no per-result summary — the card body
-      // shows only a status word ('Finished') or, on failure, 'N Failed'. The
-      // numbered+labelled raw (rawResult) is preserved for ctrl+o expansion.
+      // The numbered+labelled raw (rawResult) is preserved for ctrl+o expansion.
       const displayDetail = detailText;
       patchItem(card.itemId, {
         result: displayDetail,
@@ -1671,11 +1790,11 @@ export async function createEngineSession({
         const errors = allCalls.filter((r) => r.isError).length;
         const succeeded = completed - errors;
         const rawResult = aggregateRawResult(allCalls);
-        // Collapsed detail is status-only: no per-result summary. Failures keep a
-        // bare 'N Failed' status. The numbered+labelled raw is kept for ctrl+o.
+        // Collapsed detail carries the merged per-call count summary; failures
+        // keep a bare 'N Ok · N Failed' status. Raw is kept for ctrl+o.
         let displayDetail = errors > 0
           ? (succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`)
-          : '';
+          : formatAggregateDetail(aggregateSummaries(aggregate));
         if (cancelled) {
           // Cancelled aggregates MUST keep the [status: cancelled] marker on the
           // result so terminalStatus parsing resolves to 'cancelled'. Only normal
@@ -1726,6 +1845,7 @@ export async function createEngineSession({
     activePromptRestore = {
       text: String(displayText || '').trim(),
       pastedImages: options.pastedImages && typeof options.pastedImages === 'object' ? options.pastedImages : null,
+      pastedTexts: options.pastedTexts && typeof options.pastedTexts === 'object' ? options.pastedTexts : null,
       onCommitted: typeof options.onCommitted === 'function' ? options.onCommitted : null,
       restorable: options.restorable !== false,
       submittedIds,
@@ -1854,6 +1974,7 @@ export async function createEngineSession({
         activePromptRestore.committed = true;
         activePromptRestore.requeueEntries = [];
         activePromptRestore.pastedImages = null;
+        activePromptRestore.pastedTexts = null;
       }
     };
 
@@ -1889,11 +2010,11 @@ export async function createEngineSession({
         const completed = allCalls.filter((r) => r.resolved).length;
         const succeeded = completed - errors;
         const rawResult = aggregateRawResult(allCalls);
-        // Status-only collapsed detail (see patchToolCardResult): no per-result
-        // summary; failures keep 'N Failed'. Raw preserved for ctrl+o expansion.
+        // Merged count summary (see patchToolCardResult); failures keep
+        // 'N Ok · N Failed'. Raw preserved for ctrl+o expansion.
         const displayDetail = errors > 0
           ? (succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`)
-          : '';
+          : formatAggregateDetail(aggregateSummaries(aggregate));
         patchItem(aggregate.itemId, {
           result: displayDetail,
           text: displayDetail,
@@ -2051,6 +2172,17 @@ export async function createEngineSession({
     let _pendingThinkFlush = false;  // true when a thinking update is queued
     let _pendingThinkingLastEndedAt = 0;
     let compactingActive = false;
+    // Engine-local streaming scalars. Neither responseLength nor thinkingText is
+    // rendered per-token by any consumer: App reads state.thinking only as a
+    // boolean (App.jsx `!!(state.thinking || liveSpinner?.thinking)`) and the
+    // Spinner takes outputTokens, not responseLength. So we keep these growing
+    // values in engine-local vars and publish to the store only on a visible
+    // transition (thinking on↔off), a completed visible text line, tool/usage
+    // updates, or finalization — not on every 8ms streaming flush.
+    let _publishedThinkingActive = false; // last thinking boolean pushed to store
+    // responseLength is only consumed at finalize as an outputTokens fallback
+    // (Math.round(responseLength/4)); we refresh state.spinner.responseLength on
+    // visible-line flush and finalize so that fallback stays valid.
 
     const flushStreamBatch = () => {
       if (_batchTimer !== null) {
@@ -2095,24 +2227,51 @@ export async function createEngineSession({
             }
           }
         }
+        // Only touch the spinner when there is a real reason: a visible-line
+        // change (patch.items set above), a thinking→responding transition, or a
+        // pending thinking end timestamp. Refresh responseLength here so the
+        // finalize outputTokens fallback stays valid without a per-token push.
         const responseLengthVal = assistantText.length + thinkingText.length;
-        if (state.spinner) {
+        const visibleLineChanged = patch.items !== undefined;
+        const thinkingTransition = _publishedThinkingActive === true; // was thinking, now responding
+        if (state.spinner && (visibleLineChanged || thinkingTransition || _pendingThinkingLastEndedAt)) {
           patch.spinner = { ...state.spinner, responseLength: responseLengthVal, thinking: false, thinkingLastEndedAt: _pendingThinkingLastEndedAt || state.spinner.thinkingLastEndedAt, mode: compactingActive ? 'compacting' : 'responding' };
+          _publishedThinkingActive = false;
         }
         if (Object.keys(patch).length > 0) set(patch);
         _pendingThinkingLastEndedAt = 0;
       }
       if (_pendingThinkFlush) {
         _pendingThinkFlush = false;
-        const responseLengthVal = assistantText.length + thinkingText.length;
-        const thinkingElapsedMs = accumulatedThinkingMs + (thinkingSegmentStartedAt ? Math.max(0, Date.now() - thinkingSegmentStartedAt) : 0);
-        const patch = { thinking: compactingActive ? null : thinkingText };
-        if (state.spinner) {
-          patch.spinner = compactingActive
-            ? { ...state.spinner, responseLength: responseLengthVal, thinking: false, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingElapsedMs, thinkingLastEndedAt: state.spinner.thinkingLastEndedAt || 0, mode: 'compacting' }
-            : { ...state.spinner, responseLength: responseLengthVal, thinking: true, thinkingStartedAt, thinkingSegmentStartedAt, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingElapsedMs, thinkingLastEndedAt: 0, mode: 'thinking' };
+        // App only consumes state.thinking as a boolean and the Spinner only
+        // reads the thinking flag + timing anchors — none of them render the
+        // growing thinkingText. So publish the thinking boolean only on the
+        // OFF→ON transition (or when compacting toggles the flag), not on every
+        // 8ms reasoning chunk. The full thinkingText stays engine-local and is
+        // emitted at finalize via the normal spinner/thinking teardown.
+        const nextThinkingActive = !compactingActive;
+        // Skip the push when the published thinking boolean is unchanged: neither
+        // the growing thinkingText nor responseLength is rendered per-token, and
+        // the Spinner derives its live elapsed from the (already-published)
+        // thinkingSegmentStartedAt anchor. Applies to both thinking and
+        // compacting steady state.
+        if (nextThinkingActive === _publishedThinkingActive) {
+          // no-op: boolean unchanged
+        } else {
+          const responseLengthVal = assistantText.length + thinkingText.length;
+          const thinkingElapsedMs = accumulatedThinkingMs + (thinkingSegmentStartedAt ? Math.max(0, Date.now() - thinkingSegmentStartedAt) : 0);
+          // state.thinking stays a truthy sentinel while active; consumers read it
+          // as a boolean. Keep the value stable (thinkingText) so a late consumer
+          // still sees real text, but only push on transition.
+          const patch = { thinking: compactingActive ? null : thinkingText };
+          if (state.spinner) {
+            patch.spinner = compactingActive
+              ? { ...state.spinner, responseLength: responseLengthVal, thinking: false, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingElapsedMs, thinkingLastEndedAt: state.spinner.thinkingLastEndedAt || 0, mode: 'compacting' }
+              : { ...state.spinner, responseLength: responseLengthVal, thinking: true, thinkingStartedAt, thinkingSegmentStartedAt, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingElapsedMs, thinkingLastEndedAt: 0, mode: 'thinking' };
+          }
+          set(patch);
+          _publishedThinkingActive = nextThinkingActive;
         }
-        set(patch);
       }
     };
 
@@ -2127,6 +2286,8 @@ export async function createEngineSession({
     const markToolCardCompletedState = (callId, message) => {
       const card = cardByCallId.get(callId);
       if (!card) return;
+      // Early completion also clears the active-summary entry.
+      markToolCallDone(card.callId);
       const aggregate = card.aggregate;
       if (aggregate && card.itemId === aggregate.itemId) {
         const callRec = aggregate.calls.get(callId);
@@ -2217,6 +2378,7 @@ export async function createEngineSession({
           if (thinkingText && state.thinking) {
             const thinkingLastEndedAt = closeThinkingSegment();
             set({ thinking: null, spinner: state.spinner ? { ...state.spinner, thinking: false, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingLastEndedAt, mode: 'tool-use' } : state.spinner });
+            _publishedThinkingActive = false;
           } else if (state.spinner) {
             set({ spinner: { ...state.spinner, mode: 'tool-use' } });
           }
@@ -2242,6 +2404,13 @@ export async function createEngineSession({
             const bucket = aggregateBucketForCategory(category);
             const callId = toolCallId(c);
             const callKey = callId || `__tool_${toolCards.length}_${i}`;
+            // The old App scan counted multi-pattern calls via
+            // aggregateToolCategoryEntry(...).count, not a flat 1. Derive the same
+            // count here so the incremental Explore/Search summary matches.
+            const activeCount = Number(aggregateToolCategoryEntry(name, args, category)?.count || 1);
+            // Track Explore/Search calls as active for the incremental prompt-
+            // line summary; cleared when their result lands or the turn ends.
+            markToolCallActive(callKey, category, activeCount, Date.now());
 
             if (!bucket) {
               const itemId = nextId();
@@ -2349,6 +2518,7 @@ export async function createEngineSession({
             compactingActive = true;
             const thinkingLastEndedAt = closeThinkingSegment();
             _pendingThinkFlush = false;
+            _publishedThinkingActive = false; // compacting cleared the thinking flag
             set({
               thinking: null,
               spinner: {
@@ -2376,7 +2546,11 @@ export async function createEngineSession({
           if (!textChunk) return;
           markPromptCommitted();
           const thinkingLastEndedAt = closeThinkingSegment();
-          if (state.thinking) set({ thinking: null }); // collapse thinking panel immediately, no batch delay
+          // Drop any queued think-flush too: it would otherwise re-publish
+          // spinner.thinking:true from flushStreamBatch and resurrect the
+          // indicator after we cleared it here.
+          _pendingThinkFlush = false;
+          if (state.thinking) { set({ thinking: null }); _publishedThinkingActive = false; } // collapse thinking panel immediately, no batch delay
           assistantText += textChunk;
           currentAssistantText += textChunk;
           // Accumulate text and schedule a batched flush (≤1 render per
@@ -2405,7 +2579,8 @@ export async function createEngineSession({
           if (currentAssistantText.trim()) return;
           markPromptCommitted();
           closeThinkingSegment();
-          if (state.thinking) set({ thinking: null });
+          _pendingThinkFlush = false; // see onTextDelta: prevent a stale think flush resurrecting the indicator
+          if (state.thinking) { set({ thinking: null }); _publishedThinkingActive = false; }
           assistantText += full;
           currentAssistantText += full;
           _pendingTextFlush = true;
@@ -2491,7 +2666,15 @@ export async function createEngineSession({
       closeThinkingSegment();
       const elapsedMs = Date.now() - startedAt;
       const thinkingElapsedMs = thinkingStartedAt ? accumulatedThinkingMs : 0;
-      const finalOutputTokens = Math.max(0, Number(state.spinner?.outputTokens || 0), Math.round(Number(state.spinner?.responseLength || 0) / 4));
+      // responseLength is engine-local now (not pushed per-token), so compute the
+      // fallback from the live accumulator instead of the possibly-stale
+      // state.spinner.responseLength. Final-only / non-streaming turns never
+      // accumulate `assistantText` (only currentAssistantText is set at the
+      // finalize reconcile above), so take the larger of the two text sources so
+      // a no-usage turn still estimates tokens from the final content.
+      const finalAssistantLen = Math.max(assistantText.length, currentAssistantText.length);
+      const finalResponseLength = finalAssistantLen + thinkingText.length;
+      const finalOutputTokens = Math.max(0, Number(state.spinner?.outputTokens || 0), Math.round(finalResponseLength / 4));
       const turnStatus = cancelled ? 'cancelled' : 'done';
       const resultContent = askResult?.content != null ? String(askResult.content).trim() : '';
       const assistantOutput = (currentAssistantText || assistantText || '').trim();
@@ -2524,6 +2707,8 @@ export async function createEngineSession({
       });
       flushDeferredExecutionPendingResumeKick();
     }
+    clearActiveToolSummary();
+    _publishedThinkingActive = false; // turn teardown cleared state.thinking
     return cancelled ? 'cancelled' : 'done';
   }
 
@@ -2540,6 +2725,7 @@ export async function createEngineSession({
       text: displayText,
       content: text,
       pastedImages: options.pastedImages && typeof options.pastedImages === 'object' ? options.pastedImages : null,
+      pastedTexts: options.pastedTexts && typeof options.pastedTexts === 'object' ? options.pastedTexts : null,
       onCommitted: typeof options.onCommitted === 'function' ? options.onCommitted : null,
       mode,
       priority,
@@ -2553,6 +2739,7 @@ export async function createEngineSession({
     const ids = new Set(entries.map((entry) => entry.id));
     const keys = entries.map((entry) => entry.key).filter(Boolean);
     for (const key of keys) pendingNotificationKeys.delete(key);
+    for (const key of keys) displayedExecutionNotificationKeys.delete(key);
     const queued = state.queued.filter((q) => !ids.has(q.id));
     if (queued.length !== state.queued.length) set({ queued });
   }
@@ -2631,9 +2818,11 @@ export async function createEngineSession({
         }
         const nonEditable = batch.filter((entry) => !isQueuedEntryEditable(entry));
         const batchPastedImages = mergePastedImages(batch);
+        const batchPastedTexts = mergePastedTexts(batch);
         const turnStatus = await runTurn(merged, {
           displayText: batch.map((entry) => entry.text).filter((text) => String(text || '').trim()).join('\n'),
           pastedImages: batchPastedImages,
+          pastedTexts: batchPastedTexts,
           onCommitted: () => callCommitCallbacks(batch),
           submittedIds: [...ids],
           restorable: nonEditable.length === 0,
@@ -2761,7 +2950,7 @@ export async function createEngineSession({
     removeQueuedEntries(queued);
     const queuedText = queued.map((item) => item.text).filter((text) => String(text || '').trim()).join('\n');
     const combinedText = [queuedText, String(currentText || '')].filter((text) => text.trim()).join('\n');
-    return { count: queued.length, text: combinedText, pastedImages: mergePastedImages(queued) };
+    return { count: queued.length, text: combinedText, pastedImages: mergePastedImages(queued), pastedTexts: mergePastedTexts(queued) };
   }
 
   const resetStats = () => {
@@ -2776,6 +2965,8 @@ export async function createEngineSession({
     state.spinner = null;
     state.lastTurn = null;
     state.busy = false;
+    pendingNotificationKeys.clear();
+    displayedExecutionNotificationKeys.clear();
   };
   const resetTuiForPendingSessionReset = () => {
     pendingSessionReset = true;
@@ -2943,8 +3134,15 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const next = runtime.setCompactionSettings?.(input) || {};
-        syncContextStats({ allowEstimated: true });
         set({ ...routeState(), stats: { ...state.stats } });
+        // Context-stats recompute (transcript scan + per-message JSON
+        // stringify) is the secondary hitch source on this toggle; defer it
+        // off the key-handler tick so Ink repaints the setting change first.
+        // Stats become eventually consistent on the next tick/repaint.
+        setTimeout(() => {
+          syncContextStats({ allowEstimated: true });
+          set({ stats: { ...state.stats } });
+        }, 0);
         return next;
       } finally {
         set({ commandBusy: false });
@@ -2958,8 +3156,14 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const next = await runtime.setMemoryEnabled?.(enabled);
-        syncContextStats({ allowEstimated: true });
         set({ ...routeState(), stats: { ...state.stats } });
+        // Deferred for the same reason as setCompactionSettings above: keep
+        // the recompute off the key-handler tick so the toggle repaints
+        // immediately; stats catch up right after.
+        setTimeout(() => {
+          syncContextStats({ allowEstimated: true });
+          set({ stats: { ...state.stats } });
+        }, 0);
         return next;
       } finally {
         set({ commandBusy: false });
@@ -3292,12 +3496,16 @@ export async function createEngineSession({
       const canRestore = restoreState?.restorable && !hasPendingSteering;
       const restoreText = canRestore ? restoreState.text : '';
       const restorePastedImages = canRestore && restoreState?.pastedImages ? restoreState.pastedImages : null;
+      const restorePastedTexts = canRestore && restoreState?.pastedTexts ? restoreState.pastedTexts : null;
       // When steering suppresses the restore, the interrupted prompt's pasted
       // images never get committed (onCommitted won't fire) nor re-installed into
       // the draft, so hand them back for cleanup to avoid a stale `[Image #id]`
       // lingering in the paste snapshot.
       const discardPastedImages = restoreState?.restorable && hasPendingSteering && restoreState?.pastedImages
         ? restoreState.pastedImages
+        : null;
+      const discardPastedTexts = restoreState?.restorable && hasPendingSteering && restoreState?.pastedTexts
+        ? restoreState.pastedTexts
         : null;
       const requeueEntries = restoreState && !restoreState.committed && Array.isArray(restoreState.requeueEntries)
         ? restoreState.requeueEntries.slice()
@@ -3320,7 +3528,7 @@ export async function createEngineSession({
         restoreState.restorable = false;
         restoreState.requeueEntries = [];
       }
-      return { aborted, restoreText, pastedImages: restorePastedImages, discardPastedImages };
+      return { aborted, restoreText, pastedImages: restorePastedImages, discardPastedImages, pastedTexts: restorePastedTexts, discardPastedTexts };
     },
     resolveToolApproval: (id, decision = {}) => {
       const approved = decision === true || decision?.approved === true;
@@ -3382,8 +3590,14 @@ export async function createEngineSession({
       set({ commandBusy: true });
       try {
         const result = await runtime.setOutputStyle?.(styleId);
-        resetStatsAndSyncContext();
+        resetStats();
         set({ ...routeState(), stats: { ...state.stats } });
+        // Defer the context recompute (transcript scan) off this tick so
+        // the style change repaints immediately; stats settle right after.
+        setTimeout(() => {
+          syncContextStats({ allowEstimated: true });
+          set({ stats: { ...state.stats } });
+        }, 0);
         return result;
       } finally {
         set({ commandBusy: false });
@@ -3617,6 +3831,7 @@ export async function createEngineSession({
       }
     },
     pushNotice,
+    setProgressHint,
     clear: async () => {
       if (state.commandBusy) return false;
       set({ commandBusy: true });

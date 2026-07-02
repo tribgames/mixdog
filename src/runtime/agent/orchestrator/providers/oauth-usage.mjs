@@ -301,7 +301,7 @@ function balanceFromCredits(credits, source) {
 }
 
 function balanceFromExtraUsage(extra) {
-  if (!extra || typeof extra !== 'object' || extra.is_enabled !== true) return null;
+  if (!extra || typeof extra !== 'object') return null;
   const limit = num(extra.monthly_limit, null);
   const used = num(extra.used_credits, 0);
   if (limit === null) return null;
@@ -313,6 +313,57 @@ function balanceFromExtraUsage(extra) {
     remainingUsd: round(Math.max(0, limit - used), 4),
     currency: cleanString(extra.currency) || 'USD',
   };
+}
+
+function balanceFromAnthropicSpend(spend) {
+  if (!spend || typeof spend !== 'object') return null;
+  const currency = cleanString(spend.used?.currency ?? spend.limit?.currency) || 'USD';
+  // spend.balance may be a plain number or a {amount_minor, exponent} money
+  // object like used/limit; support both shapes.
+  const directBalance = spend.balance && typeof spend.balance === 'object'
+    ? (() => {
+      const minor = num(spend.balance.amount_minor, null);
+      return minor === null ? null : minor / (10 ** num(spend.balance.exponent, 2));
+    })()
+    : num(spend.balance, null);
+  if (directBalance !== null) {
+    return {
+      source: 'anthropic-oauth-spend',
+      remainingUsd: round(directBalance, 4),
+      spentUsd: round(num(spend.used?.amount_minor, 0) / (10 ** num(spend.used?.exponent, 2)), 4),
+      currency,
+    };
+  }
+
+  const usedMinor = num(spend.used?.amount_minor, null);
+  const usedExponent = num(spend.used?.exponent, 2);
+  const usedUsd = usedMinor === null ? null : usedMinor / (10 ** usedExponent);
+
+  const capMinor = num(spend.cap?.credits?.amount_minor, null);
+  if (capMinor !== null && usedUsd !== null) {
+    const capExponent = num(spend.cap?.credits?.exponent, 2);
+    const capUsd = capMinor / (10 ** capExponent);
+    return {
+      source: 'anthropic-oauth-spend',
+      remainingUsd: round(Math.max(0, capUsd - usedUsd), 4),
+      spentUsd: round(usedUsd, 4),
+      currency,
+    };
+  }
+
+  const limitMinor = num(spend.limit?.amount_minor, null);
+  if (limitMinor !== null && limitMinor > 0 && usedUsd !== null) {
+    const limitExponent = num(spend.limit?.exponent, 2);
+    const limitUsd = limitMinor / (10 ** limitExponent);
+    return {
+      source: 'anthropic-oauth-spend',
+      remainingUsd: round(Math.max(0, limitUsd - usedUsd), 4),
+      spentUsd: round(usedUsd, 4),
+      currency,
+    };
+  }
+
+  return null;
 }
 
 function normalizeOpenAIWhamUsage(data) {
@@ -388,7 +439,7 @@ function normalizeAnthropicUsage(data, source = 'anthropic-oauth') {
     provider: 'anthropic-oauth',
     source,
     quotaWindows: windows,
-    balance: balanceFromExtraUsage(data.extra_usage),
+    balance: balanceFromAnthropicSpend(data.spend) || balanceFromExtraUsage(data.extra_usage),
     rawKeys: Object.keys(data || {}).sort(),
   };
 }

@@ -33,7 +33,7 @@ const DEFAULT_MODEL = MODELS[0].id;
 // VERSION-based (parse gemini-X.Y) rather than release-date based.
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
 // Bump when the on-disk cache shape changes so stale-shape entries are
-// discarded instead of misread (mirrors openai-oauth's schema-version gate).
+// discarded instead of misread.
 const GEMINI_MODEL_CACHE_SCHEMA_VERSION = 1;
 
 // De-dupes concurrent force-refreshes so they share one HTTP round-trip,

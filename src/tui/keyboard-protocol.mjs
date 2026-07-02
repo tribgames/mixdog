@@ -1,7 +1,7 @@
 /**
  * src/tui/keyboard-protocol.mjs — terminal extended-keys capability gate.
  *
- * We do NOT query the terminal. Instead, mirroring Claude Code, we enable the
+ * We do NOT query the terminal. Instead, we enable the
  * kitty keyboard protocol AND xterm modifyOtherKeys SYNCHRONOUSLY at the moment
  * raw mode turns on (see App.jsx's mount effect), gated by the allowlist below.
  * Writing both enables unconditionally is safe — a terminal honors whichever it
@@ -22,7 +22,7 @@ export const POP_KITTY = '\x1b[<u';
 export const DISABLE_MODIFY_OTHER_KEYS = '\x1b[>4;0m';
 
 // Allowlist of terminals known to honor kitty and/or xterm modifyOtherKeys.
-// Mirrors Claude Code's supportsExtendedKeys allowlist. VS Code's xterm.js
+// VS Code's xterm.js
 // integrated terminal mishandles these sequences, so it is excluded first.
 // Honors the MIXDOG_TUI_EXTENDED_KEYS opt-out (=0) / override (=1).
 export function supportsExtendedKeys() {

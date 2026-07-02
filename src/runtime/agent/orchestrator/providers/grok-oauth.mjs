@@ -114,7 +114,7 @@ export function normalizeGrokModelId(id) {
 }
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
 // Bump when the on-disk cache shape changes so stale-shape entries are
-// discarded instead of misread (mirrors openai-oauth's schema-version gate).
+// discarded instead of misread.
 const GROK_MODEL_CACHE_SCHEMA_VERSION = 1;
 const DISCOVERY_TIMEOUT_MS = 15_000;
 const TOKEN_TIMEOUT_MS = 30_000;

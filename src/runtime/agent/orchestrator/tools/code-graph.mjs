@@ -621,7 +621,7 @@ export function drainCodeGraphCache() {
  * Fire-and-forget prewarm — schedule a code-graph build for `cwd` on the
  * next tick so the first find_symbol call hits a warm cache instead of
  * paying the cold-build outlier (PG telemetry: avg 4117ms, max 93645ms).
- * Mirrors the warmupCatalogs pattern in providers/registry.mjs (catch-all
+ * Same fire-and-forget pattern as warmupCatalogs in providers/registry.mjs (catch-all
  * silent so prewarm never affects the caller). Effect requires that the
  * caller-supplied cwd matches the cwd of the first lookup.
  */
@@ -1058,12 +1058,14 @@ function _graphRel(absPath, cwd) {
   return toDisplayPath(absPath, cwd);
 }
 
-// When a "file not found in graph" error fires, the model often hallucinated
-// a plausible-looking path (e.g. src/runtime/agent/loop.mjs) that shares its
-// basename with a real, differently-located file already in the graph. Scan
-// the in-memory graph.nodes keys (no filesystem access) for a case-insensitive
-// basename match and append a recovery hint so the next call can self-correct
-// in one turn instead of a blind re-grep.
+// "file not found in graph" fires AFTER the dispatch-level existsSync check
+// passed — the file EXISTS on disk but is not indexed (excluded dir like
+// dist/vendor, unsupported extension, or the graph file cap). Say that
+// explicitly, and only offer same-basename indexed paths as a secondary
+// pointer: for generic names (index.mjs, config.mjs) an unqualified "Use
+// that path" would steer the model at up to 5 unrelated files. Scan is over
+// in-memory graph.nodes keys — no filesystem access. Capped at 3 to match
+// the read path's findFileByBasename hint budget.
 function _appendSameBasenameHint(message, normFile, graph) {
   const raw = String(normFile || '');
   const base = raw.replace(/\\/g, '/').split('/').pop();
@@ -1073,11 +1075,12 @@ function _appendSameBasenameHint(message, normFile, graph) {
   for (const key of graph.nodes.keys()) {
     if (key.split('/').pop().toLowerCase() === baseLower) {
       matches.push(key);
-      if (matches.length >= 5) break;
+      if (matches.length >= 3) break;
     }
   }
-  if (!matches.length) return message;
-  return `${message} Same filename exists in graph at: ${matches.map((m) => `"${m}"`).join(', ')}. Use that path.`;
+  const why = ' — the file exists on disk but is not indexed (excluded dir like dist/vendor, unsupported type, or graph file cap); use grep/read on it directly.';
+  if (!matches.length) return `${message}${why}`;
+  return `${message}${why} If you meant the indexed source, same filename is indexed at: ${matches.map((m) => `"${m}"`).join(', ')}.`;
 }
 
 
@@ -2861,7 +2864,7 @@ function _nearestEnclosingSymbol(node, sourceText, lineNumber, col = null) {
 
 // Raised from 40 to 200 after HS-A5 surfaced that callers on a cross-
 // codebase symbol (`parseInt` across refs/) silently truncated at 40
-// callers, hiding all codex/ and warp/ matches. tail-trim still bounds
+// callers, hiding matches from large peer directories. tail-trim still bounds
 // the payload; a higher cap is the invariant-correct fix vs. asking
 // every caller to pass an explicit limit.
 // Classify each reference of `symbol` into a structured entry

@@ -18,11 +18,35 @@ export function buildCategoryFilterClause(offset, categories, { tableAlias = '' 
   return { clause: `AND (${inner})`, params: [...cats] }
 }
 
+// Shared, param-less predicate excluding promoted/promoting core-candidate
+// roots AND member rows under such a root. Single source of truth so the hybrid
+// recall path (buildRecallScopeFilter) and the query-less browse path
+// (retrieveEntries) can't diverge. tableAlias='' → bare `entries` column refs.
+export function buildPromotedExclusionClauses(tableAlias = '') {
+  const p = `${tableAlias || 'entries'}.`
+  return [
+    // Promoted core-candidate roots have been absorbed into user-curated
+    // core_entries and archived by promoteCoreCandidate. Their content now
+    // lives in the {{USER_CORE}} slot, so surfacing the stale generated root
+    // would double-serve the same fact. 'promoting' (mid-flight or crashed
+    // promote awaiting recovery) is excluded too — its root is already archived
+    // and finalizes to 'promoted'. Member rows whose chunk_root points at a
+    // promoted/promoting root are excluded via EXISTS-on-root (the flag lives
+    // only on the root; members keep NULL). Constant predicates — no bind param.
+    `(${p}core_candidate_status IS NULL OR ${p}core_candidate_status NOT IN ('promoted', 'promoting'))`,
+    `NOT (${p}is_root = 0 AND ${p}chunk_root IS NOT NULL AND ${p}chunk_root <> ${p}id AND EXISTS (
+      SELECT 1 FROM entries r WHERE r.id = ${p}chunk_root AND r.is_root = 1 AND r.core_candidate_status IN ('promoted', 'promoting')
+    ))`,
+  ]
+}
+
 export function buildRecallScopeFilter(offset, options = {}, tableAlias = '') {
   const outerRef = tableAlias || 'entries'
   const p = `${outerRef}.`
   const clauses = [
     `NOT (${p}is_root = 0 AND ${p}chunk_root IS NOT DISTINCT FROM ${p}id AND ${p}status IS NOT DISTINCT FROM 'archived')`,
+    // Exclude promoted/promoting roots + their members (shared predicate).
+    ...buildPromotedExclusionClauses(tableAlias),
   ]
   const params = []
   let next = offset

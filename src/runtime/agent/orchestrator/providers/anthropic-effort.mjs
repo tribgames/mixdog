@@ -1,5 +1,5 @@
 /**
- * Anthropic effort API alignment (Claude Code effort.ts + configureEffortParams).
+ * Anthropic "effort" (extended-thinking budget) request parameter handling.
  */
 
 export const EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'max']);

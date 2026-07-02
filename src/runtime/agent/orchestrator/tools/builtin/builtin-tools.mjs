@@ -17,7 +17,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read known file path(s). Prefer grep content_with_context or code_graph anchors first. Window with numeric offset+limit only. Batch paths/regions as real arrays. Dirs use list.',
+        description: 'Read known file path(s). Prefer grep content_with_context or code_graph anchors first. Window with numeric offset+limit only. Batch paths/regions as real arrays; adjacent spans in one file = one window, not repeated calls. Dirs use list.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -42,7 +42,7 @@ export const BUILTIN_TOOLS = [
                             minItems: 1,
                         },
                     ],
-                    description: 'File path, path[], or {path,offset,limit}[] region objects. Pass arrays directly; JSON strings are legacy recovery only. Dirs use list.',
+                    description: 'File path, path[], or {path,offset,limit}[] region objects. Pass arrays directly; JSON strings are legacy recovery only.',
                 },
                 offset: { type: 'number', minimum: 0, description: 'Numeric lines to skip before reading; 0 starts at line 1. Continue with offset:N.' },
                 limit: { type: 'number', minimum: 1, description: 'Numeric max lines to return after offset.' },

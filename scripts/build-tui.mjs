@@ -44,7 +44,19 @@ await build({
   // Only `ink` is redirected to Mixdog's checked-in renderer instead of
   // node_modules/ink.
   packages: 'external',
-  external: ['../vendor/*', '../../vendor/*'],
+  external: [
+    '../vendor/*',
+    '../../vendor/*',
+    // Voice runtime modules stay external (lazy dynamic imports by design):
+    // voice-runtime-fetcher.mjs resolves its bundled manifest via
+    // import.meta.url ('../data/voice-runtime-manifest.json'), which breaks
+    // when inlined into src/tui/dist/index.mjs (resolves to src/tui/data/).
+    // The '../../runtime/...' specifier is depth-safe: src/tui/lib/* and
+    // src/tui/dist/* are both 2 levels below src/, so the relative path
+    // resolves to src/runtime/channels/lib/* either way.
+    '../../runtime/channels/lib/voice-runtime-fetcher.mjs',
+    '../../runtime/channels/lib/whisper-server.mjs',
+  ],
   plugins: [mixdogInkAliasPlugin],
   logLevel: 'info',
 });

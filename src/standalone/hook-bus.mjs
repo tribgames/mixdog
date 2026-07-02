@@ -86,7 +86,7 @@ const PLAIN_STDOUT_CONTEXT_EVENTS = new Set([
   'UserPromptExpansion',
 ]);
 
-const SUPPORTED_HANDLER_TYPES = new Set(['command', 'http']);
+const SUPPORTED_HANDLER_TYPES = new Set(['command', 'http', 'mcp_tool', 'prompt']);
 
 function compactValue(value) {
   if (value == null) return value;
@@ -349,6 +349,7 @@ function buildEventPayload(eventName, input = {}) {
     'expansion_type',
     'stop_reason',
     'error_type',
+    'agent_type',
   ]) {
     if (input[key] != null) payload[key] = input[key];
   }
@@ -374,6 +375,7 @@ function handlerTimeoutS(handler, eventName) {
   if (Number.isFinite(handler.timeout) && handler.timeout > 0) return handler.timeout;
   if (handler.type === 'prompt') return DEFAULT_PROMPT_TIMEOUT_S;
   if (handler.type === 'agent') return DEFAULT_AGENT_TIMEOUT_S;
+  if (handler.type === 'mcp_tool') return DEFAULT_COMMAND_TIMEOUT_S;
   if (eventName === 'UserPromptSubmit') return USER_PROMPT_TIMEOUT_S;
   if (eventName === 'MessageDisplay') return MESSAGE_DISPLAY_TIMEOUT_S;
   return DEFAULT_COMMAND_TIMEOUT_S;
@@ -427,7 +429,7 @@ function hookEnv(projectDir, pluginData, payload, pluginRoot = null) {
   return env;
 }
 
-function runCommandHandler(handler, payload, eventName, pluginData, onSpawnError = null) {
+function runCommandHandler(handler, payload, eventName, pluginData, onSpawnError = null, onRewake = null) {
   const projectDir = payload.cwd || process.cwd();
   const effectivePluginData = handler._pluginData || pluginData || null;
   const stdin = JSON.stringify(payload);
@@ -440,7 +442,58 @@ function runCommandHandler(handler, payload, eventName, pluginData, onSpawnError
     stdio: ['pipe', 'pipe', 'pipe'],
   };
 
-  if (handler.async === true || handler.asyncRewake === true) {
+  if (handler.asyncRewake === true) {
+    try {
+      const child = spawn(spec.command, spec.args, {
+        ...baseOpts,
+      });
+      let bgStdout = '';
+      let bgStderr = '';
+      let bgStdoutBytes = 0;
+      let bgStderrBytes = 0;
+      let killed = false;
+      child.stdout?.on('data', (chunk) => {
+        bgStdoutBytes += chunk.length;
+        if (bgStdoutBytes <= MAX_BUFFER_BYTES) bgStdout += chunk.toString('utf8');
+      });
+      child.stderr?.on('data', (chunk) => {
+        bgStderrBytes += chunk.length;
+        if (bgStderrBytes <= MAX_BUFFER_BYTES) bgStderr += chunk.toString('utf8');
+      });
+      const killTimer = setTimeout(() => {
+        killed = true;
+        try { child.stdout?.removeAllListeners('data'); } catch {}
+        try { child.stderr?.removeAllListeners('data'); } catch {}
+        try { child.kill('SIGTERM'); } catch {}
+      }, timeoutMs);
+      killTimer.unref?.();
+      child.on('error', (error) => {
+        clearTimeout(killTimer);
+        if (typeof onSpawnError === 'function') onSpawnError(error);
+      });
+      child.on('close', (code) => {
+        clearTimeout(killTimer);
+        try {
+          if (!killed && code === 2 && typeof onRewake === 'function') {
+            const text = (bgStderr || '').trim() || (bgStdout || '').trim();
+            onRewake({ eventName, payload, text });
+          }
+        } catch {}
+      });
+      child.stdin?.end(stdin);
+      return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', async: true });
+    } catch (error) {
+      return Promise.resolve({
+        exitCode: -1,
+        stdout: '',
+        stderr: error?.message || String(error),
+        timedOut: false,
+        spawnError: error,
+      });
+    }
+  }
+
+  if (handler.async === true) {
     try {
       const child = spawn(spec.command, spec.args, {
         ...baseOpts,
@@ -581,6 +634,78 @@ async function runHttpHandler(handler, payload, eventName) {
     };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+async function runMcpToolHandler(handler, payload, eventName, mcpToolRunner) {
+  const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
+  let name = String(handler.tool || '').trim();
+  if (handler.server && !name.startsWith('mcp__')) {
+    name = `mcp__${String(handler.server).trim()}__${name}`;
+  }
+  if (!name) {
+    return { exitCode: -1, stdout: '', stderr: 'mcp_tool handler missing tool name', timedOut: false, spawnError: null };
+  }
+  let timer = null;
+  try {
+    const runPromise = Promise.resolve(mcpToolRunner({ name, args: payload }));
+    const text = await Promise.race([
+      runPromise,
+      new Promise((_r, reject) => {
+        timer = setTimeout(() => reject(new Error(`mcp_tool hook timed out: ${name}`)), timeoutMs);
+        // No unref: this timer must keep the event loop alive so the race can
+        // settle even when the runner promise never resolves. Cleared in finally.
+      }),
+    ]);
+    return { exitCode: 0, stdout: limitText(String(text ?? '')), stderr: '', timedOut: false, spawnError: null };
+  } catch (error) {
+    const timedOut = /timed out/i.test(error?.message || '');
+    return { exitCode: -1, stdout: '', stderr: error?.message || String(error), timedOut, spawnError: null };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function runPromptHandler(handler, payload, eventName, promptRunner) {
+  const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
+  const prompt = String(handler.prompt || '');
+  if (!prompt) {
+    return { exitCode: -1, stdout: '', stderr: 'prompt handler missing prompt', timedOut: false, spawnError: null };
+  }
+  let timer = null;
+  try {
+    const runPromise = Promise.resolve(promptRunner({ prompt, payload, timeoutMs }));
+    const text = await Promise.race([
+      runPromise,
+      new Promise((_r, reject) => {
+        timer = setTimeout(() => reject(new Error(`prompt hook timed out: ${eventName}`)), timeoutMs);
+        // No unref: this timer must keep the event loop alive so the race can
+        // settle even when the runner promise never resolves. Cleared in finally.
+      }),
+    ]);
+    const raw = String(text ?? '').trim();
+    const deny = (reason) => ({ exitCode: 2, stdout: '', stderr: reason, timedOut: false, spawnError: null });
+    const allow = () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false, spawnError: null });
+    let verdict = null;
+    try {
+      verdict = JSON.parse(raw);
+    } catch {
+      verdict = undefined;
+    }
+    if (verdict && typeof verdict === 'object') {
+      if (verdict.ok === false) return deny(String(verdict.reason || `blocked by ${eventName} prompt hook`));
+      return allow();
+    }
+    // plain-text response
+    const lowered = raw.toLowerCase();
+    if (!raw || ['yes', 'true', 'allow', 'ok'].includes(lowered)) return allow();
+    if (['no', 'false', 'deny', 'block'].includes(lowered)) return deny(raw || `blocked by ${eventName} prompt hook`);
+    return allow();
+  } catch (error) {
+    const timedOut = /timed out/i.test(error?.message || '');
+    return { exitCode: -1, stdout: '', stderr: error?.message || String(error), timedOut, spawnError: null };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -727,10 +852,13 @@ function summarizeRule(rule, index) {
 
 function handlerDedupeKey(handler) {
   if (!handler || typeof handler !== 'object') return '';
+  const ifKey = handler.if != null ? `|if:${JSON.stringify(handler.if)}` : '';
   if (handler.type === 'command') {
-    return `command:${handler._pluginRoot || ''}:${handler.command || ''}:${JSON.stringify(handler.args || null)}`;
+    return `command:${handler._pluginRoot || ''}:${handler.command || ''}:${JSON.stringify(handler.args || null)}${ifKey}`;
   }
-  if (handler.type === 'http') return `http:${handler.url || ''}`;
+  if (handler.type === 'http') return `http:${handler.url || ''}${ifKey}`;
+  if (handler.type === 'mcp_tool') return `mcp_tool:${handler.server || ''}:${handler.tool || ''}${ifKey}`;
+  if (handler.type === 'prompt') return `prompt:${handler.prompt || ''}${ifKey}`;
   return `${handler.type || 'unknown'}:${JSON.stringify(handler)}`;
 }
 
@@ -742,11 +870,12 @@ function shellCountFor(handler) {
   return handler?.type || 'unknown';
 }
 
-export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {}) {
+export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, promptRunner = null, mcpToolRunner = null } = {}) {
   const recent = [];
   const counts = new Map(DEFAULT_EVENTS.map((name) => [name, 0]));
   const rulesPath = hookRulesPath(dataDir);
   const pluginData = dataDir || null;
+  let rewakeHandler = null;
   let rulesCache = { mtimeMs: -1, rules: [] };
   let configCache = {
     key: '',
@@ -883,11 +1012,34 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
           error: `hook spawn failed: ${error?.message || error}`,
         });
       };
-      return await runCommandHandler(handler, payload, eventName, pluginData, reportSpawnError);
+      const reportRewake = ({ eventName: en, payload: pl, text }) => {
+        try {
+          if (typeof rewakeHandler === 'function') {
+            rewakeHandler({ eventName: en, payload: pl, text });
+          } else {
+            emit('hook:rewake', { name: pl?.tool_name || en, text: text || null });
+          }
+        } catch {}
+      };
+      return await runCommandHandler(handler, payload, eventName, pluginData, reportSpawnError, reportRewake);
     }
     if (type === 'http') {
       if (!handler.url) return null;
       return await runHttpHandler(handler, payload, eventName);
+    }
+    if (type === 'mcp_tool') {
+      if (typeof mcpToolRunner !== 'function') {
+        emit('hook:error', { name: payload.tool_name || eventName, error: 'handler type mcp_tool not configured' });
+        return null;
+      }
+      return await runMcpToolHandler(handler, payload, eventName, mcpToolRunner);
+    }
+    if (type === 'prompt') {
+      if (typeof promptRunner !== 'function') {
+        emit('hook:error', { name: payload.tool_name || eventName, error: 'handler type prompt not configured' });
+        return null;
+      }
+      return await runPromptHandler(handler, payload, eventName, promptRunner);
     }
     return null;
   }
@@ -1118,5 +1270,10 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null } = {})
     };
   }
 
-  return { addRule, beforeTool, deleteRule, dispatch, emit, listRules, setRuleEnabled, status };
+  function setRewakeHandler(fn) {
+    rewakeHandler = typeof fn === 'function' ? fn : null;
+    return rewakeHandler;
+  }
+
+  return { addRule, beforeTool, deleteRule, dispatch, emit, listRules, setRewakeHandler, setRuleEnabled, status };
 }

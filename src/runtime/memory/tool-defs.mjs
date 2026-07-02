@@ -8,7 +8,7 @@ export const TOOL_DEFS = [
     name: 'memory',
     title: 'Memory Cycle',
     annotations: { title: 'Memory Cycle', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-    description: 'Memory status/lifecycle or explicit mutation. Use recall for retrieval. Destructive jobs require exact confirm strings.',
+    description: 'Memory status/lifecycle or explicit mutation. Use recall for retrieval. When the user explicitly asks to remember something (e.g. "remember this", a stated preference, or a decision), persist it immediately with action:"core" op:"add" — do not wait for a cycle. Destructive jobs require exact confirm strings.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -38,13 +38,13 @@ export const TOOL_DEFS = [
     name: 'recall',
     title: 'Recall',
     annotations: { title: 'Recall', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    description: 'Retrieve stored memory/session history. Use for earlier work, resumes, or possibly decided items; when in doubt, recall first.',
+    description: 'Retrieve stored memory/session history. Use for earlier work, resumes, or possibly decided items; when in doubt, recall first. For "what did we just discuss": pass sessionId with no query to browse the current session (includes in-progress content); period:"last" without sessionId browses the previous completed session only.',
     inputSchema: {
       type: 'object',
       properties: {
         query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Search text, or array for independent fan-out queries.' },
         id: { anyOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' }, minItems: 1 }], description: 'Exact #id(s) from recall. Do not invent ids.' },
-        period: { type: 'string', description: 'last, 24h/7d/30d, all, date, or range.' },
+        period: { type: 'string', description: "last (previous completed session; pair with sessionId instead to include the current one), 24h/7d/30d, all, date, or range." },
         limit: { type: 'number', description: 'Max entries.' },
         offset: { type: 'number', description: 'Skip entries.' },
         sort: { type: 'string', enum: ['importance', 'date'], description: 'importance or date.' },

@@ -170,8 +170,12 @@ function findConfigPreset(config, presetName) {
 }
 
 async function ensureExploreProviderReady(config) {
-  const preset = findConfigPreset(config, config?.maintenance?.explore);
-  const provider = clean(preset?.provider);
+  const route = config?.maintenance?.explore;
+  // Route object ({provider,model}) is the current shape; a string is a
+  // legacy preset NAME resolved against config.presets.
+  const provider = (route && typeof route === 'object')
+    ? clean(route.provider)
+    : clean(findConfigPreset(config, route)?.provider);
   if (!provider) return;
   const providers = { ...(config?.providers || {}) };
   providers[provider] = { ...(providers[provider] || {}), enabled: true };
@@ -303,7 +307,10 @@ async function runExploreSync(args = {}, ctx = {}) {
   scheduleExploreCodeGraphPrewarm(resolvedCwd);
   const config = loadConfig();
   await ensureExploreProviderReady(config);
-  const presetName = config?.maintenance?.explore || '';
+  const route = config?.maintenance?.explore;
+  const presetName = (route && typeof route === 'object')
+    ? `${clean(route.provider)}/${clean(route.model)}`
+    : (route || '');
   const llm = makeAgentDispatch({
     agent: 'explorer',
     cwd: resolvedCwd,

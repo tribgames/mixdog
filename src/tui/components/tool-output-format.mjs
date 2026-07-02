@@ -1,7 +1,7 @@
 /**
  * components/tool-output-format.mjs — shared post-processing for EXPANDED tool
- * result bodies (ctrl+o). Mirrors the Claude Code output pipeline so every tool
- * surface renders the same way instead of a flat run of plain lines:
+ * result bodies (ctrl+o), so every tool surface renders the same way instead
+ * of a flat run of plain lines:
  *
  *   - language inference from the read/grep path argument (file extension)
  *   - JSON auto pretty-print (precision-safe, size-capped)

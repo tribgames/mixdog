@@ -1367,7 +1367,7 @@ function prepareInput(patchStr) {
   return String(patchStr).replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
 }
 
-function isCodexApplyPatchEnvelope(patchStr) {
+function isApplyPatchEnvelope(patchStr) {
   const text = prepareInput(patchStr).trimStart();
   return text.startsWith('*** Begin Patch')
     || text.startsWith('*** Add File:')
@@ -1377,7 +1377,7 @@ function isCodexApplyPatchEnvelope(patchStr) {
 
 function isV4APatchInput(patchStr, format) {
   return String(format || '').toLowerCase() === 'v4a'
-    || isCodexApplyPatchEnvelope(patchStr);
+    || isApplyPatchEnvelope(patchStr);
 }
 
 const UNIFIED_HUNK_HEADER_RE = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/;
@@ -2947,7 +2947,7 @@ async function _executePatchTool(name, args, cwd, options = {}) {
         return errText;
       }
       if (isPatchErrorText(String(result))) maybeCapturePatchReplay(args, effectiveCwd, String(result));
-      // ② completion progress (claude "Found N" parity). Best-effort, no-op
+      // ② completion progress ("Found N" summary line). Best-effort, no-op
       // when onProgress is absent (no progressToken). Never throws — only
       // emits on success (an "Error:" body is left to the tool result alone).
       if (typeof options?.onProgress === 'function') {

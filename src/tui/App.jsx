@@ -54,6 +54,12 @@ import {
   readImageAttachmentFromPath,
   splitPastedImagePathCandidates,
 } from './paste-attachments.mjs';
+import {
+  expandPastedTextTokens,
+  formatPastedTextRef,
+  pastedTextReferenceIds,
+  shouldFoldPastedText,
+} from './paste-attachments.mjs';
 import { formatDuration } from './time-format.mjs';
 import {
   listProjects,
@@ -212,7 +218,9 @@ function wrappedTextRows(value, width) {
   const w = Math.max(1, Math.floor(Number(width) || 1));
   let row = 0;
   let col = 0;
-  for (const { segment } of graphemeSegmenter.segment(String(value ?? ''))) {
+  const segments = [...graphemeSegmenter.segment(String(value ?? ''))];
+  for (let i = 0; i < segments.length; i += 1) {
+    const { segment } = segments[i];
     if (segment === '\n') {
       row += 1;
       col = 0;
@@ -220,14 +228,17 @@ function wrappedTextRows(value, width) {
     }
     const segmentWidth = stringWidth(segment);
     if (segmentWidth === 0) continue;
+    // Same wrap-ansi hard/wordWrap:false wrapping as caretPosition — keep the
+    // reserved row count in lock-step with the caret math so the prompt box
+    // height matches ink's actual wrap for wide-char lines.
     if (col > 0 && col + segmentWidth > w) {
       row += 1;
       col = 0;
     }
     col += segmentWidth;
-    if (col >= w) {
-      row += Math.floor(col / w);
-      col %= w;
+    if (col === w && i < segments.length - 1) {
+      row += 1;
+      col = 0;
     }
   }
   return row + 1;
@@ -443,6 +454,12 @@ function parseMemoryCoreRows(text) {
           _element: element,
           _summary: summary,
           _projectId: currentProjectId,
+          // Raw pre-edit values, distinct from the (possibly later-mutated)
+          // _element/_summary above -- beginEditCoreMemory reads these to
+          // decide whether the row's element duplicated its summary (single-
+          // sentence entry) before deciding whether to touch element on edit.
+          _origElement: element,
+          _origSummary: summary,
         };
       }
       return {
@@ -455,21 +472,31 @@ function parseMemoryCoreRows(text) {
 }
 
 function parseMemoryCandidateRows(text) {
-  return String(text || '')
+  const trimmed = String(text || '').trim();
+  // op:'candidates' returns this exact sentinel (index.mjs ~3158) when the
+  // resolved scope has none — treat as an empty list, not an inert text row.
+  if (!trimmed || /^core candidates:\s*none$/i.test(trimmed)) return [];
+  // Backend row shape (index.mjs ~3164), one candidate per line, no group
+  // headers:
+  //   id=<n> project=<COMMON|slug> [<category>] score=<x.xx|-> <element> — <summary> (<reason>)
+  const rowPattern = /^id=(\d+)\s+project=(\S+)\s+\[([^\]]*)\]\s+score=(\S+)\s+(.+?)\s+—\s+(.+?)\s+\(([^)]*)\)$/;
+  return trimmed
     .split('\n')
     .filter((line) => line.trim())
     .map((line, index) => {
       const raw = line.trim();
-      const match = raw.match(/^id=(\d+)\s+\[([^\]]*)\]\s+(.+?)(?:\s+—\s+(.+))?$/);
+      const match = raw.match(rowPattern);
       if (match) {
-        const [, id, category, element, summary = ''] = match;
+        const [, id, project, category, score, element, summary, reason] = match;
         return {
           value: `candidate-${id}`,
           label: `#${id} [${category}] ${element}`,
-          description: summary,
+          meta: project === 'COMMON' ? 'common' : project,
+          description: `${summary}${score !== '-' ? ` (score ${score})` : ''} — ${reason}`,
           _line: raw,
           _action: 'candidate-entry',
           _id: Number(id),
+          _projectId: project === 'COMMON' ? null : project,
         };
       }
       return {
@@ -479,6 +506,26 @@ function parseMemoryCandidateRows(text) {
         _line: raw,
       };
     });
+}
+
+// Backend "core" op errors are flattened to plain text by store.memoryControl
+// (isError is dropped -- see engine.mjs memoryControl / toolResponseText in
+// mixdog-session-runtime.mjs). Success text always uses a past-tense verb
+// ("core added/edited/deleted/promoted...", "core candidate dismissed...");
+// every declared failure in index.mjs's core-op handling uses the op word
+// followed by either ":" (validation message) or " failed" (caught
+// exception) -- e.g. "core add: project_id required...", "core edit failed:
+// no entry with id=5". That shape is used here to recover the error signal
+// since store.memoryControl resolves instead of rejecting on isError.
+function memoryCoreResultErrorText(text) {
+  const value = String(text || '').trim();
+  if (/^core (add|edit|delete|promote|dismiss)(:| failed)/i.test(value)) return value;
+  // Broader catch-all for other flattened "core" failures that don't name an
+  // op word right after "core" (e.g. "core: memory data dir is not
+  // initialized", "core requires op: ..."), plus any bare error/failed lead-in.
+  if (/^core:.*(not initialized|failed|error)/i.test(value)) return value;
+  if (/^(error|failed)\b/i.test(value)) return value;
+  return null;
 }
 
 function fitLine(value, columns, reserve = 4) {
@@ -758,6 +805,11 @@ const TRANSCRIPT_WINDOW_OVERSCAN_ROWS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_OV
 // viewport + overscan on a large terminal. Env-tunable for A/B / revert.
 const TRANSCRIPT_WINDOW_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS', 80);
 const SELECTION_PAINT_INTERVAL_MS = positiveIntEnv('MIXDOG_TUI_SELECTION_PAINT_MS', 24);
+// Frame-coalesce edge-drag auto-scroll + wheel scroll: both paths accumulate
+// deltas into one pending total and flush via a single scrollTranscriptRows
+// call per this interval, instead of firing the (expensive: anchor recompute +
+// selection repaint) scrollTranscriptRows on every mousemove/wheel tick.
+const SCROLL_COALESCE_MS = positiveIntEnv('MIXDOG_TUI_SCROLL_COALESCE_MS', 16);
 const PROMPT_HISTORY_LIMIT = 50;
 
 // Parse a boolean env var that DEFAULTS ON. Any of 0/false/off/no (case-
@@ -1357,8 +1409,7 @@ function computeTranscriptItemVariantKey(item) {
 // flushes — so the values stay 100% identical to the uncached implementation.
 const transcriptRowsCache = new WeakMap();
 
-// ── App-level MEASURED row heights (ScrollBox/useVirtualScroll-inspired
-// heightCache) ────────────────────────────────────────────────────────────────
+// ── App-level MEASURED row heights (real, per-item height cache) ───────────
 // Keyed on the transcript item OBJECT (stable until engine.mjs swaps it on a
 // patch — a patched item legitimately changed height, so a cache miss → re-
 // measure is correct). Stores the REAL Yoga getComputedHeight() of the row the
@@ -1652,7 +1703,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   // the anchor "dirty" for one frame, and if streaming grows the transcript on
   // that same frame the lock is not engaged yet and the view lurches.
   const transcriptGeomRef = useRef({ prefixRows: null, totalRows: 0, viewRows: 1 });
-  // App-level measured row heights (ScrollBox/useVirtualScroll-inspired). The map of
+  // App-level measured row heights (real per-item height cache). The map of
   // mounted item id → ink DOM element is read every commit to harvest each
   // row's REAL Yoga height into transcriptMeasuredRowsCache. measuredRowsVersion
   // is bumped whenever a height actually changes so the row-index/window memos
@@ -1797,6 +1848,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   const [contextPanel, setContextPanel] = useState(null);
   const [usagePanel, setUsagePanel] = useState(null);
   const usageRequestRef = useRef(0);
+  // Cache of the last computed heavy settings-picker status objects (MCP,
+  // hooks, plugins, skills, channel backend). ←/→ cycle/toggle handlers in
+  // openSettingsPicker() pass { light: true } to reuse this cache instead of
+  // re-querying these heavy getters on every keystroke; only a full open
+  // (initial /config or Esc-return) recomputes them.
+  const settingsHeavyCacheRef = useRef(null);
   const closeUsagePanel = useCallback(() => {
     usageRequestRef.current += 1;
     setUsagePanel(null);
@@ -1814,6 +1871,11 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   const [, setPastedImages] = useState({});
   const pastedImagesRef = useRef({});
   const nextPastedImageIdRef = useRef(1);
+  // Large pasted texts folded into [Pasted text #N +M lines] tokens; mirrors
+  // pastedImagesRef. Original text is expanded back on submit.
+  const [, setPastedTexts] = useState({});
+  const pastedTextsRef = useRef({});
+  const nextPastedTextIdRef = useRef(1);
   const promptValueRef = useRef('');
   const promptSelectionRef = useRef(null);
   // [mixdog] Prompt-box mouse selection wiring. boxRect is the editable text
@@ -1880,6 +1942,10 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   // extendSelection). Null ⇔ ordinary char-drag selection.
   const dragRef = useRef({ anchor: null, anchorScroll: 0, last: null, active: false, rect: null, region: null, anchorSpan: null });
   const selectionPaintRef = useRef({ t: 0, rect: null, pending: null, timer: null });
+  // Coalescer for edge-drag auto-scroll + wheel scroll deltas (see
+  // SCROLL_COALESCE_MS above). Both call sites accumulate into pendingRows and
+  // rely on flushScrollCoalesce to make the single scrollTranscriptRows call.
+  const scrollCoalesceRef = useRef({ pendingRows: 0, timer: null });
   const transcriptViewportRef = useRef({ top: 0, bottom: 0 });
   // [mixdog] Latest terminal row count + the statusline band (bottom rows),
   // refreshed each render. The mouse handler uses these to (a) clip a status-bar
@@ -1887,7 +1953,19 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   // region. STATUSLINE_ROWS mirrors the layout reserve below.
   const frameRowsRef = useRef(24);
   const STATUSLINE_BAND_ROWS = 3;
-  const promptContentColumns = Math.max(1, frameColumns - 4);
+  // Voice enabled is cached in state instead of calling isVoiceEnabled() on
+  // every render — readSection() is a sync config-file read + JSON.parse per
+  // call, which would otherwise run on every keystroke re-render. Updated by
+  // the /voice command handler when toggleVoice resolves.
+  const [voiceEnabled, setVoiceEnabled] = useState(() => isVoiceEnabled());
+  // When the prompt-box voice indicator is visible, PromptInput reserves up
+  // to 3 columns (2-cell 'recording' glyph pair + 1 gap) out of its content
+  // width. The row-reservation math here must shrink by the SAME worst-case
+  // amount, or wrapped input near the right edge under-reserves rows and the
+  // transcript overprints the prompt box. Over-reserving by a column in the
+  // 1-cell indicator states only costs an occasional early wrap — safe side.
+  const voiceIndicatorVisible = Boolean(state.progressHint?.text) || voiceEnabled || getRecorderState() !== 'idle';
+  const promptContentColumns = Math.max(1, frameColumns - 4 - (voiceIndicatorVisible ? 3 : 0));
   const syncPromptLayoutRows = useCallback((value) => {
     const text = String(value ?? '');
     promptLayoutValueRef.current = text;
@@ -1963,7 +2041,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   // can detect a double-click (same cell within 500ms) for word selection.
   // count = consecutive qualifying presses on the same cell (1=single,
   // 2=double/word, 3=triple/line). A 4th qualifying press restarts the
-  // sequence at 1 (claude-code cycles; simplest reset). Any non-qualifying
+  // sequence at 1 (simplest reset: no ratcheting/back-off). Any non-qualifying
   // press resets to a fresh single.
   const lastClickRef = useRef({ x: -1, y: -1, t: 0, count: 0 });
 
@@ -2078,6 +2156,13 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     setPromptHintTone(tone);
   }, []);
 
+  // Dedicated recorder-phase state for the prompt-box voice indicator.
+  // Deliberately NOT derived from the promptHint text ('● REC' equality):
+  // any draft keystroke clears promptHint via clearPromptHint(), which would
+  // silently demote a live recording's indicator back to 'idle' while the
+  // mic is still hot. This state only changes at real recorder transitions.
+  const [voiceRecPhase, setVoiceRecPhase] = useState('idle');
+
   // Ctrl+Space handler wired to PromptInput's onVoiceToggle. Dispatches on the
   // recorder's CURRENT state (idle/recording/transcribing) — see
   // src/tui/lib/voice-recorder.mjs for the state machine itself.
@@ -2093,6 +2178,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     }
     if (recState === 'recording') {
       setVoiceStatusHint('… transcribing', 'info');
+      setVoiceRecPhase('transcribing');
       let result;
       try {
         result = await stopRecording();
@@ -2100,6 +2186,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         result = { ok: false, reason: e?.message || String(e) };
       }
       setVoiceStatusHint('', 'info');
+      setVoiceRecPhase('idle');
       if (!result) return; // race: recorder was no longer RECORDING
       if (!result.ok) {
         store.pushNotice(`Voice: ${result.reason || 'transcription failed'}`, 'error');
@@ -2137,6 +2224,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       return;
     }
     setVoiceStatusHint('● REC', 'error');
+    setVoiceRecPhase('recording');
   }, [store, setVoiceStatusHint, syncPromptLayoutRows]);
 
   // Best-effort recorder teardown on unmount (component-level cleanup;
@@ -2187,6 +2275,48 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     return formatImageRef(id);
   }, []);
 
+  const installPastedTexts = useCallback((texts, { merge = true } = {}) => {
+    if (!texts || typeof texts !== 'object' || Object.keys(texts).length === 0) return;
+    const next = merge ? { ...pastedTextsRef.current, ...texts } : { ...texts };
+    pastedTextsRef.current = next;
+    const maxId = Object.keys(next)
+      .map((id) => Number(id) || 0)
+      .reduce((max, id) => Math.max(max, id), 0);
+    if (maxId >= nextPastedTextIdRef.current) nextPastedTextIdRef.current = maxId + 1;
+    setPastedTexts(next);
+  }, []);
+
+  const clearPastedTextsSnapshot = useCallback((snapshot = null) => {
+    if (!snapshot) {
+      if (Object.keys(pastedTextsRef.current || {}).length === 0) return;
+      pastedTextsRef.current = {};
+      setPastedTexts({});
+      return;
+    }
+    if (typeof snapshot !== 'object' || Object.keys(snapshot).length === 0) return;
+    const next = { ...pastedTextsRef.current };
+    let changed = false;
+    for (const [id, text] of Object.entries(snapshot)) {
+      if (next[id] === text) {
+        delete next[id];
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    pastedTextsRef.current = next;
+    setPastedTexts(next);
+  }, []);
+
+  const registerPastedText = useCallback((text) => {
+    const value = String(text ?? '');
+    if (!value) return '';
+    const id = nextPastedTextIdRef.current++;
+    const entry = { id, text: value };
+    pastedTextsRef.current = { ...pastedTextsRef.current, [id]: entry };
+    setPastedTexts(pastedTextsRef.current);
+    return formatPastedTextRef(id, value);
+  }, []);
+
   const handlePromptPaste = useCallback((text, meta = {}) => {
     const source = String(meta?.source || 'paste');
     const value = String(text ?? '');
@@ -2208,7 +2338,17 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     }
 
     const chunks = splitPastedImagePathCandidates(value);
-    if (!chunks.some((chunk) => chunk.imagePath)) return undefined;
+    const hasImagePath = chunks.some((chunk) => chunk.imagePath);
+    // No image paths in the paste: fold the whole text into a token when it is
+    // large, otherwise let PromptInput insert it raw (return undefined).
+    if (!hasImagePath) {
+      if (shouldFoldPastedText(value)) return registerPastedText(value);
+      return undefined;
+    }
+    // Mixed paste: resolve each image chunk to an image ref, then fold each
+    // CONTIGUOUS run of non-image text into its own token (only if over
+    // threshold) so content order around image refs is preserved. '\n'
+    // separator chunks are plain text and stay inside their surrounding run.
     return Promise.all(chunks.map(async (chunk) => {
       if (!chunk.imagePath) return chunk.text;
       try {
@@ -2221,8 +2361,26 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         showPromptHint(`image attach failed: ${e?.message || e}`, 'warn');
         return chunk.text;
       }
-    })).then((parts) => parts.join(''));
-  }, [registerPastedImage, showPromptHint, state.cwd]);
+    })).then((parts) => {
+      let out = '';
+      let run = '';
+      const flushRun = () => {
+        if (!run) return;
+        out += shouldFoldPastedText(run) ? registerPastedText(run) : run;
+        run = '';
+      };
+      for (let i = 0; i < chunks.length; i += 1) {
+        if (chunks[i].imagePath) {
+          flushRun();
+          out += parts[i];
+        } else {
+          run += parts[i];
+        }
+      }
+      flushRun();
+      return out;
+    });
+  }, [registerPastedImage, registerPastedText, showPromptHint, state.cwd]);
 
   const stopSmoothScroll = useCallback(() => {
     if (!scrollAnimationRef.current) return;
@@ -2446,75 +2604,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     return Boolean(rect) && !(rect.x1 === rect.x2 && rect.y1 === rect.y2);
   });
 
-  const moveSelectionFocus = useCallback((move) => {
-    const drag = dragRef.current;
-    if (drag.active) return false;
-    const region = drag.region;
-    if (region !== 'transcript' && region !== 'status') return false;
-    const rect = drag.rect;
-    if (!rect) return false;
-    if (rect.x1 === rect.x2 && rect.y1 === rect.y2) return false;
-
-    const anchor = { x: rect.x1, y: rect.y1 };
-    let col = rect.x2;
-    let row = rect.y2;
-    const beforeCol = col;
-    const beforeRow = row;
-
-    const { top, bottom } = region === 'status' ? statusBandRows() : transcriptViewportRows();
-
-    switch (move) {
-      case 'left':
-        if (col > 0) col -= 1;
-        else if (row > top) {
-          row -= 1;
-          col = selectionMaxColAtRow(row);
-        }
-        break;
-      case 'right': {
-        const maxCol = selectionMaxColAtRow(row);
-        if (col < maxCol) col += 1;
-        else if (row < bottom) {
-          row += 1;
-          col = 0;
-        }
-        break;
-      }
-      case 'up':
-        if (row > top) row -= 1;
-        break;
-      case 'down':
-        if (row < bottom) row += 1;
-        break;
-      case 'lineStart':
-        col = 0;
-        break;
-      case 'lineEnd':
-        col = selectionMaxColAtRow(row);
-        break;
-      default:
-        return false;
-    }
-
-    row = Math.max(top, Math.min(bottom, row));
-    col = Math.max(0, Math.min(selectionMaxColAtRow(row), col));
-
-    if (col === beforeCol && row === beforeRow) return false;
-
-    if (drag.anchorSpan) drag.anchorSpan = null;
-
-    const focus = { x: col, y: row };
-    applySelectionRect({
-      mode: 'linear',
-      x1: anchor.x,
-      y1: anchor.y,
-      x2: focus.x,
-      y2: focus.y,
-    });
-    drag.last = { x: focus.x, y: focus.y };
-    return true;
-  }, [applySelectionRect, statusBandRows, transcriptViewportRows, selectionMaxColAtRow]);
-
   useEffect(() => () => {
     const paintState = selectionPaintRef.current;
     if (paintState.timer) clearTimeout(paintState.timer);
@@ -2522,6 +2611,10 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     paintState.pending = null;
     if (selectionTextTimerRef.current) clearTimeout(selectionTextTimerRef.current);
     selectionTextTimerRef.current = null;
+    const coalesceState = scrollCoalesceRef.current;
+    if (coalesceState.timer) clearTimeout(coalesceState.timer);
+    coalesceState.timer = null;
+    coalesceState.pendingRows = 0;
   }, []);
 
   const scrollTranscriptRows = useCallback((deltaRows, options = {}) => {
@@ -2595,6 +2688,146 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     scrollPositionRef.current = target;
     setScrollOffset(Math.round(target));
   }, [startSmoothScroll, stopSmoothScroll, paintSelectionRect, selectionPointAtCurrentScroll, withSelectionClip, cancelTranscriptFollow, buildSpanRect]);
+
+  // Leading-edge coalescer for edge-drag auto-scroll + wheel deltas: the first
+  // delta after an idle period flushes immediately (single wheel ticks/short
+  // drags stay responsive), while a flood of deltas within SCROLL_COALESCE_MS
+  // accumulates into one scrollTranscriptRows call per tick instead of one per
+  // mousemove/wheel event. Both call sites below route through this instead of
+  // calling scrollTranscriptRows directly.
+  const queueScrollCoalesced = useCallback((deltaRows) => {
+    const state = scrollCoalesceRef.current;
+    state.pendingRows += deltaRows;
+    if (state.timer) return;
+    const rows = state.pendingRows;
+    state.pendingRows = 0;
+    scrollTranscriptRows(rows);
+    state.timer = setTimeout(() => {
+      state.timer = null;
+      if (state.pendingRows !== 0) {
+        const remaining = state.pendingRows;
+        state.pendingRows = 0;
+        scrollTranscriptRows(remaining);
+      }
+    }, SCROLL_COALESCE_MS);
+    state.timer.unref?.();
+  }, [scrollTranscriptRows]);
+
+  // NOTE: declared AFTER scrollTranscriptRows — it appears in the deps array
+  // below, and useCallback deps are evaluated at render time, so referencing
+  // it before its const initializer would throw a TDZ ReferenceError.
+  const moveSelectionFocus = useCallback((move) => {
+    const drag = dragRef.current;
+    if (drag.active) return false;
+    const region = drag.region;
+    if (region !== 'transcript' && region !== 'status') return false;
+    const rect = drag.rect;
+    if (!rect) return false;
+    if (rect.x1 === rect.x2 && rect.y1 === rect.y2) return false;
+
+    let anchor = { x: rect.x1, y: rect.y1 };
+    let col = rect.x2;
+    let row = rect.y2;
+    const beforeCol = col;
+    const beforeRow = row;
+    // Set when Shift+Up/Down hits the viewport edge and we scroll the
+    // transcript to reveal a new row rather than moving within the current
+    // viewport (mirrors the mouse edge-drag auto-scroll at the drag-motion
+    // handler). In that case row/col numerically equal their "before" values
+    // (both clamp to the same viewport edge index) even though the
+    // underlying content changed, so the generic before/after guard below
+    // must not treat it as a no-op.
+    let scrolledEdge = false;
+
+    const { top, bottom } = region === 'status' ? statusBandRows() : transcriptViewportRows();
+
+    switch (move) {
+      case 'left':
+        if (col > 0) col -= 1;
+        else if (row > top) {
+          row -= 1;
+          col = selectionMaxColAtRow(row);
+        }
+        break;
+      case 'right': {
+        const maxCol = selectionMaxColAtRow(row);
+        if (col < maxCol) col += 1;
+        else if (row < bottom) {
+          row += 1;
+          col = 0;
+        }
+        break;
+      }
+      case 'up':
+        if (row > top) {
+          row -= 1;
+        } else if (region === 'transcript') {
+          // Already at the top visible row: scroll the transcript up by one
+          // row (same direction as the mouse edge-drag auto-scroll at the
+          // top edge, App.jsx ~3060) instead of clamping the selection in
+          // place, then extend the focus onto the newly revealed top row.
+          const beforeTarget = scrollTargetRef.current;
+          scrollTranscriptRows(1);
+          if (scrollTargetRef.current !== beforeTarget) {
+            scrolledEdge = true;
+            // scrollTranscriptRows REPLACES dragRef.current with a shifted
+            // copy — re-read it; the local `drag` binding is stale here.
+            const shiftedRect = dragRef.current.rect;
+            if (shiftedRect) anchor = { x: shiftedRect.x1, y: shiftedRect.y1 };
+            row = top;
+          }
+        }
+        break;
+      case 'down':
+        if (row < bottom) {
+          row += 1;
+        } else if (region === 'transcript') {
+          // Already at the bottom visible row: scroll down by one row (mirrors
+          // the mouse edge-drag auto-scroll at the bottom edge, App.jsx
+          // ~3062) instead of clamping, then extend the focus onto the newly
+          // revealed bottom row.
+          const beforeTarget = scrollTargetRef.current;
+          scrollTranscriptRows(-1);
+          if (scrollTargetRef.current !== beforeTarget) {
+            scrolledEdge = true;
+            // Re-read post-scroll dragRef.current (see 'up' case).
+            const shiftedRect = dragRef.current.rect;
+            if (shiftedRect) anchor = { x: shiftedRect.x1, y: shiftedRect.y1 };
+            row = bottom;
+          }
+        }
+        break;
+      case 'lineStart':
+        col = 0;
+        break;
+      case 'lineEnd':
+        col = selectionMaxColAtRow(row);
+        break;
+      default:
+        return false;
+    }
+
+    row = Math.max(top, Math.min(bottom, row));
+    col = Math.max(0, Math.min(selectionMaxColAtRow(row), col));
+
+    if (!scrolledEdge && col === beforeCol && row === beforeRow) return false;
+
+    // After an edge scroll dragRef.current is a NEW object; mutate the live
+    // one, not the stale entry binding.
+    const dragNow = dragRef.current;
+    if (dragNow.anchorSpan) dragNow.anchorSpan = null;
+
+    const focus = { x: col, y: row };
+    applySelectionRect({
+      mode: 'linear',
+      x1: anchor.x,
+      y1: anchor.y,
+      x2: focus.x,
+      y2: focus.y,
+    });
+    dragNow.last = { x: focus.x, y: focus.y };
+    return true;
+  }, [applySelectionRect, statusBandRows, transcriptViewportRows, selectionMaxColAtRow, scrollTranscriptRows]);
 
   const passthroughCtrlWheelZoom = useCallback(() => {
     if (!stdout?.write) return;
@@ -2847,7 +3080,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           // one within 500ms — up to 2 columns and 1 row of drift (terminals
           // often report a shifted cell on repeat clicks); tighter matching made
           // word selection unreliable. A 4th qualifying press restarts the
-          // sequence at 1 (claude-code cycles; simplest: reset). Works for
+          // sequence at 1 (simplest: reset). Works for
           // transcript AND status rows since getWordRectAt/getLineRectAt are
           // grid-based. Copy still happens on Ctrl+C, never here.
           const lc = lastClickRef.current;
@@ -2936,9 +3169,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           if (region === 'transcript') {
             const rows = Math.max(1, Number(resizeState.rows) || 24);
             if (y <= 1) {
-              scrollTranscriptRows(3);
+              queueScrollCoalesced(3);
             } else if (y >= rows - 5) {
-              scrollTranscriptRows(-3);
+              queueScrollCoalesced(-3);
             }
           }
         } else if (!press && dragRef.current.active) {
@@ -2996,15 +3229,15 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         }
         if (overlayBlocksGlobalTranscriptScroll(scrollFocusRef.current)) return;
         const STEP = 3; // rows per wheel notch; immediate updates feel steadier in Windows Terminal
-        scrollTranscriptRows((up - down) * STEP);
+        queueScrollCoalesced((up - down) * STEP);
       }
     };
     inkInput.on('input', onData);
     return () => { inkInput.off('input', onData); };
-  }, [inkInput, isRawModeSupported, store, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll, buildSpanRect, dismissWelcomePromptHint]);
+  }, [inkInput, isRawModeSupported, store, passthroughCtrlWheelZoom, resizeState.rows, scrollTranscriptRows, queueScrollCoalesced, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll, buildSpanRect, dismissWelcomePromptHint]);
 
-  // Enable extended keyboard reporting (kitty + xterm modifyOtherKeys) the same
-  // way Claude Code does: SYNCHRONOUSLY, ONCE, with NO query/round-trip. ink
+  // Enable extended keyboard reporting (kitty + xterm modifyOtherKeys)
+  // SYNCHRONOUSLY, ONCE, with NO query/round-trip. ink
   // turns raw mode on during the first useInput mount (synchronously, inside
   // render); this mount effect runs in the same commit phase, right after — i.e.
   // before the user can realistically press a key. We write BOTH enables
@@ -3075,6 +3308,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     }
     if (restoreDraft) {
       if (restored.pastedImages) installPastedImages(restored.pastedImages, { merge: true });
+      if (restored.pastedTexts) installPastedTexts(restored.pastedTexts, { merge: true });
       syncPromptLayoutRows(restored.text);
       setPromptDraftOverride({ id: Date.now(), value: restored.text });
     }
@@ -3087,6 +3321,11 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   }, [store, promptDraft, showPromptHint, clearPromptHint, installPastedImages, syncPromptLayoutRows]);
 
   const recentPromptHistory = useMemo(() => {
+    // The engine maintains this list incrementally (rebuilt only when a user
+    // item is appended or the transcript is bulk-swapped), so App no longer
+    // rescans all items on every transcript change. Fall back to a local scan
+    // only if the engine did not publish it (older snapshot).
+    if (Array.isArray(state.promptHistoryList)) return state.promptHistoryList;
     const items = Array.isArray(state.items) ? state.items : [];
     const seen = new Set();
     const history = [];
@@ -3100,7 +3339,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       history.push(text);
     }
     return history;
-  }, [state.items]);
+  }, [state.promptHistoryList, state.items]);
 
   const resetPromptHistoryNav = useCallback(() => {
     promptHistoryNavRef.current = { active: false, index: -1, seed: '', lastValue: '' };
@@ -3179,6 +3418,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     if (getRecorderState() === 'recording') {
       cancelRecording();
       setVoiceStatusHint('', 'info');
+      setVoiceRecPhase('idle');
       store.pushNotice('Voice: recording cancelled', 'plain');
       return true;
     }
@@ -3203,6 +3443,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     if (result?.aborted === false) return undefined;
     if (result?.pastedImages) installPastedImages(result.pastedImages, { merge: true });
     if (result?.discardPastedImages) clearPastedImagesSnapshot(result.discardPastedImages);
+    if (result?.pastedTexts) installPastedTexts(result.pastedTexts, { merge: true });
+    if (result?.discardPastedTexts) clearPastedTextsSnapshot(result.discardPastedTexts);
     const restoreText = String(result?.restoreText || '').trim();
     if (!restoreText) return undefined;
     const existingText = String(currentText || '').trim();
@@ -4747,24 +4989,39 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     state.clientHostPid,
   ]);
 
-  const openSettingsPicker = () => {
+  const openSettingsPicker = (opts = {}) => {
+    const light = opts.light === true;
+    const overrides = opts.overrides || null;
+    const heavyCache = light ? settingsHeavyCacheRef.current : null;
     const autoClear = store.getAutoClear?.() || {};
     const compaction = store.getCompactionSettings?.() || {};
     const memory = store.getMemorySettings?.() || { enabled: true };
     const channels = store.getChannelSettings?.({ includeStatus: false }) || { enabled: true };
     const outputStyle = store.getOutputStyle?.() || store.listOutputStyles?.() || {};
     const workflow = state.workflow || {};
-    const mcp = store.mcpStatus?.() || { connectedCount: 0, configuredCount: 0, failedCount: 0 };
-    const hooks = store.hooksStatus?.() || { ruleCount: 0 };
-    const plugins = store.pluginsStatus?.() || { count: 0 };
-    const skills = store.skillsStatus?.() || { count: 0 };
+    const mcp = heavyCache ? heavyCache.mcp : (store.mcpStatus?.() || { connectedCount: 0, configuredCount: 0, failedCount: 0 });
+    const hooks = heavyCache ? heavyCache.hooks : (store.hooksStatus?.() || { ruleCount: 0 });
+    const plugins = heavyCache ? heavyCache.plugins : (store.pluginsStatus?.() || { count: 0 });
+    const skills = heavyCache ? heavyCache.skills : (store.skillsStatus?.() || { count: 0 });
     const channelWorker = store.getChannelWorkerStatus?.();
     let channelBackend = 'discord';
-    try {
-      channelBackend = store.getChannelSetup?.()?.backend || 'discord';
-    } catch {
-      channelBackend = 'discord';
+    if (heavyCache) {
+      channelBackend = heavyCache.channelBackend || 'discord';
+    } else {
+      try {
+        channelBackend = store.getChannelSetup?.()?.backend || 'discord';
+      } catch {
+        channelBackend = 'discord';
+      }
     }
+    if (overrides && Object.prototype.hasOwnProperty.call(overrides, 'channelBackend')) {
+      channelBackend = overrides.channelBackend;
+    }
+    // Refresh the cache every build (light or full) so the next light
+    // refresh reuses whatever was most recently known, and so an
+    // optimistic override (e.g. channel backend cycle) sticks without
+    // re-running the heavy getter it came from.
+    settingsHeavyCacheRef.current = { mcp, hooks, plugins, skills, channelBackend };
     const channelBackendLabel = channelBackend === 'telegram' ? 'Telegram' : 'Discord';
     const remoteEnabled = store.isRemoteEnabled?.() === true;
     const remoteRuntimeDescription = channelWorker?.running
@@ -4788,7 +5045,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       } catch (e) {
         store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error');
       }
-      openSettingsPicker();
+      openSettingsPicker({ light: true });
     };
     const applyCompaction = (patch = {}) => {
       void Promise.resolve(store.setCompactionSettings?.(patch))
@@ -4800,7 +5057,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           store.pushNotice(`Compaction ${next.auto !== false ? 'auto on' : 'auto off'} · ${next.compactType === 'recall-fasttrack' ? 'Fast-track' : 'Default'}`, 'info');
         })
         .catch((e) => store.pushNotice(`compaction failed: ${e?.message || e}`, 'error'))
-        .finally(() => openSettingsPicker());
+        .finally(() => openSettingsPicker({ light: true }));
     };
     const applyMemory = (enabled) => {
       void Promise.resolve(store.setMemoryEnabled?.(enabled))
@@ -4812,7 +5069,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           store.pushNotice(`Memory ${next.enabled ? 'on' : 'off'}`, 'info');
         })
         .catch((e) => store.pushNotice(`memory setting failed: ${e?.message || e}`, 'error'))
-        .finally(() => openSettingsPicker());
+        .finally(() => openSettingsPicker({ light: true }));
     };
     const applyChannels = (enabled) => {
       void Promise.resolve(store.setChannelsEnabled?.(enabled))
@@ -4824,7 +5081,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           store.pushNotice(`Channels ${next.enabled ? 'on' : 'off'}`, 'info');
         })
         .catch((e) => store.pushNotice(`channel setting failed: ${e?.message || e}`, 'error'))
-        .finally(() => openSettingsPicker());
+        .finally(() => openSettingsPicker({ light: true }));
     };
     const cycleOutputStyle = (direction = 1) => {
       let status = null;
@@ -4849,7 +5106,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           store.pushNotice(outputStyleNotice(result), 'info');
         })
         .catch((e) => store.pushNotice(`Couldn’t switch output style: ${e?.message || e}`, 'error'))
-        .finally(() => openSettingsPicker());
+        .finally(() => openSettingsPicker({ light: true }));
     };
     const cycleWorkflow = (direction = 1) => {
       let workflows = [];
@@ -4873,7 +5130,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           store.pushNotice(workflowSwitchNotice(result), 'info');
         })
         .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'))
-        .finally(() => openSettingsPicker());
+        .finally(() => openSettingsPicker({ light: true }));
     };
     const cycleTheme = (direction = 1) => {
       let themes = [];
@@ -4894,19 +5151,19 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       } catch (e) {
         store.pushNotice(`Couldn’t set theme: ${e?.message || e}`, 'error');
       }
-      openSettingsPicker();
+      openSettingsPicker({ light: true });
     };
     const applyRemoteRuntime = () => {
       const enabled = store.toggleRemote?.() === true;
       store.pushNotice(enabled ? 'Remote mode ON' : 'Remote mode OFF', 'info');
-      openSettingsPicker();
+      openSettingsPicker({ light: true });
     };
     const cycleChannelBackend = (direction = 1) => {
       const backends = ['discord', 'telegram'];
       const currentIndex = Math.max(0, backends.indexOf(channelBackend));
       const chosen = backends[(currentIndex + direction + backends.length) % backends.length];
       if (chosen === channelBackend) {
-        openSettingsPicker();
+        openSettingsPicker({ light: true, overrides: { channelBackend } });
         return;
       }
       try {
@@ -4919,7 +5176,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       } catch (e) {
         store.pushNotice(`channel backend failed: ${e?.message || e}`, 'error');
       }
-      openSettingsPicker();
+      openSettingsPicker({ light: true, overrides: { channelBackend: chosen } });
     };
     const items = [
       {
@@ -5341,6 +5598,20 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           _action: 'forget-key',
         });
       }
+      if (providerItem._providerId === 'opencode-go') {
+        apiActions.push({
+          value: 'usage-login-browser',
+          label: 'Usage login (browser)',
+          description: 'open browser; auth cookie captured automatically',
+          _action: 'usage-login-browser',
+        });
+        apiActions.push({
+          value: 'usage-cookie',
+          label: 'Paste usage cookie',
+          description: 'manual auth cookie entry (DevTools)',
+          _action: 'usage-cookie',
+        });
+      }
       setPicker({
         title: `Provider · ${providerItem._providerName}`,
         description: 'Choose an API-key action.',
@@ -5365,6 +5636,66 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
             } catch (e) {
               store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
             }
+          }
+          if (detail._action === 'usage-cookie') {
+            setProviderPrompt({
+              kind: 'opencode-go-cookie',
+              providerId: 'opencode-go',
+              label: 'OpenCode Go',
+              afterSave: returnTo,
+            });
+            return;
+          }
+          if (detail._action === 'usage-login-browser') {
+            let backedOut = false;
+            const waitItems = [
+              {
+                value: 'waiting',
+                label: 'Waiting for login',
+                meta: 'Running',
+                description: 'sign in via the browser window',
+                _action: 'waiting',
+              },
+              {
+                value: 'back',
+                label: 'Back',
+                meta: '',
+                description: 'return to provider actions',
+                _action: 'back',
+              },
+            ];
+            setPicker({
+              title: `Provider · ${providerItem._providerName}`,
+              description: 'Opening browser. Sign in at opencode.ai/auth; the auth cookie is captured automatically.',
+              footer: () => providerActionFooter(provider),
+              help: '↑/↓ Select · Enter Choose · Esc Providers',
+              indexMode: 'never',
+              labelWidth: 22,
+              metaWidth: 12,
+              pickerKey: `providers-usage-login:${providerItem.value}`,
+              initialIndex: 0,
+              items: waitItems,
+              onSelect: (_value, item) => {
+                if (item?._action === 'back') {
+                  backedOut = true;
+                  openApiProviderActions(providerItem);
+                }
+              },
+              onCancel: () => {
+                backedOut = true;
+                openApiProviderActions(providerItem);
+              },
+            });
+            void store.loginOpenCodeGoUsage()
+              .then(() => {
+                store.pushNotice('OpenCode Go usage auth captured', 'info');
+                if (!backedOut) reopenProviders();
+              })
+              .catch((e) => {
+                store.pushNotice(`OpenCode Go usage login failed: ${e?.message || e}`, 'error');
+                if (!backedOut) openApiProviderActions(providerItem);
+              });
+            return;
           }
         },
         onCancel: reopenProviders,
@@ -7038,13 +7369,18 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     });
     void store.memoryControl?.({ action: 'core', op: 'list', project_id: '*' }, { silent: true })
       .then((result) => {
-        const rows = parseMemoryCoreRows(result);
+        const rows = [
+          { value: 'core-add', label: '+ Add core memory', description: 'store a new curated memory sentence', _action: 'add-core' },
+          ...parseMemoryCoreRows(result),
+        ];
         setPicker({
           title: 'Core Memory',
           description: 'User-curated core memories across projects.',
           items: rows.length ? rows : [{ value: 'empty', label: 'Core memory', description: 'empty' }],
           onSelect: (_value, item) => {
-            if (item?._line) store.pushNotice(item._line, 'info');
+            if (item?._action === 'add-core') beginAddCoreMemory();
+            else if (item?._action === 'core-entry') openCoreEntryActionsPicker(item);
+            else if (item?._line) store.pushNotice(item._line, 'info');
           },
           onCancel: () => openMemoryPicker(),
         });
@@ -7052,6 +7388,127 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       .catch((e) => {
         setPicker(null);
         store.pushNotice(`core memory failed: ${e?.message || e}`, 'error');
+      });
+  };
+
+  const openCoreEntryActionsPicker = (entryItem) => {
+    setPicker({
+      title: `Core Memory · #${entryItem._id}`,
+      description: entryItem._summary || entryItem._element || '',
+      items: [
+        { value: 'edit', label: 'Edit', description: 'rewrite this memory sentence', _action: 'edit' },
+        { value: 'delete', label: 'Delete', description: 'remove this entry (confirm)', _action: 'delete' },
+      ],
+      onSelect: (_value, detail) => {
+        if (detail._action === 'edit') beginEditCoreMemory(entryItem);
+        else if (detail._action === 'delete') beginDeleteCoreMemory(entryItem);
+      },
+      onCancel: () => openMemoryCorePicker(),
+    });
+  };
+
+  const beginAddCoreMemory = () => {
+    setPicker(null);
+    setSettingsPrompt({
+      kind: 'core-add',
+      label: 'Add core memory',
+      hint: 'Type the memory sentence to store as a core memory.',
+    });
+  };
+
+  const beginEditCoreMemory = (entryItem) => {
+    setPicker(null);
+    setSettingsPrompt({
+      kind: 'core-edit',
+      label: `Core Memory · Edit #${entryItem._id}`,
+      hint: 'Edit the memory sentence.',
+      initialValue: entryItem._summary || entryItem._element || '',
+      _id: entryItem._id,
+      _projectId: entryItem._projectId ?? null,
+      // Only rewrite `element` on edit when the row was already a
+      // single-sentence entry (element === summary at load time). Otherwise
+      // element carries distinct legacy meaning and must survive untouched.
+      _singleSentence: entryItem._origElement === entryItem._origSummary,
+    });
+  };
+
+  const beginDeleteCoreMemory = (entryItem) => {
+    setPicker(null);
+    setSettingsPrompt({
+      kind: 'core-delete-confirm',
+      label: `Core Memory · Delete #${entryItem._id}?`,
+      hint: 'Type "y" to delete this entry, or anything else to cancel.',
+      _id: entryItem._id,
+      _projectId: entryItem._projectId ?? null,
+    });
+  };
+
+  const openMemoryPromotionPicker = () => {
+    setPicker({
+      title: 'Promotion Candidates',
+      description: 'Loading candidate memories.',
+      items: [{ value: 'loading', label: 'Loading candidates', description: 'please wait' }],
+      onSelect: () => {},
+      onCancel: () => openMemoryPicker(),
+    });
+    void store.memoryControl?.({ action: 'core', op: 'candidates', project_id: '*' }, { silent: true })
+      .then((result) => {
+        const rows = parseMemoryCandidateRows(result);
+        setPicker({
+          title: 'Promotion Candidates',
+          description: 'Memories flagged for possible promotion to core memory.',
+          items: rows.length ? rows : [{ value: 'empty', label: 'Promotion candidates', description: 'empty' }],
+          onSelect: (_value, item) => {
+            if (item?._action === 'candidate-entry') openCandidateActionsPicker(item);
+            else if (item?._line) store.pushNotice(item._line, 'info');
+          },
+          onCancel: () => openMemoryPicker(),
+        });
+      })
+      .catch((e) => {
+        setPicker(null);
+        store.pushNotice(`promotion candidates unavailable: ${e?.message || e}`, 'warn');
+      });
+  };
+
+  const openCandidateActionsPicker = (candidateItem) => {
+    setPicker({
+      title: `Candidate · #${candidateItem._id}`,
+      description: candidateItem._line || '',
+      items: [
+        { value: 'approve', label: 'Approve', description: 'promote to core memory', _action: 'approve' },
+        { value: 'dismiss', label: 'Dismiss', description: 'discard this candidate', _action: 'dismiss' },
+      ],
+      onSelect: (_value, detail) => {
+        if (detail._action === 'approve') runCandidateAction(candidateItem._id, 'promote', candidateItem._projectId);
+        else if (detail._action === 'dismiss') runCandidateAction(candidateItem._id, 'dismiss', candidateItem._projectId);
+      },
+      onCancel: () => openMemoryPromotionPicker(),
+    });
+  };
+
+  const runCandidateAction = (id, op, projectId) => {
+    setPicker(null);
+    // projectId is undefined when the backend candidate row carried no
+    // per-row project marker (pre-change / not-yet-updated backend) -- omit
+    // project_id entirely in that case so the op falls back to prior
+    // (COMMON-default) behavior instead of sending a bogus scope.
+    const args = projectId === undefined
+      ? { action: 'core', op, id }
+      : { action: 'core', op, id, project_id: projectId === null ? 'common' : projectId };
+    void store.memoryControl?.(args, { silent: true })
+      .then((result) => {
+        const errText = memoryCoreResultErrorText(result);
+        if (errText) {
+          store.pushNotice(`candidate ${op} failed: ${errText}`, 'error');
+        } else {
+          store.pushNotice(op === 'promote' ? 'promoted to core memory' : 'candidate dismissed', 'info');
+        }
+        openMemoryPromotionPicker();
+      })
+      .catch((e) => {
+        store.pushNotice(`candidate ${op} failed: ${e?.message || e}`, 'error');
+        openMemoryPromotionPicker();
       });
   };
 
@@ -7202,6 +7659,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           _action: 'core',
         },
         {
+          value: 'candidates',
+          label: 'Promotion candidates',
+          description: 'review memories flagged for promotion to core',
+          _action: 'candidates',
+        },
+        {
           value: 'cycle1',
           label: 'Run cycle1',
           description: 'chunk raw transcript leaves',
@@ -7229,6 +7692,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       onSelect: (_value, item) => {
         if (item._action === 'status') openMemoryStatusPicker();
         else if (item._action === 'core') openMemoryCorePicker();
+        else if (item._action === 'candidates') openMemoryPromotionPicker();
         else if (item._action === 'cycle1') runMemoryAction({ action: 'cycle1' });
         else if (item._action === 'cycle2') runMemoryAction({ action: 'cycle2' });
         else if (item._action === 'cycle3') runMemoryAction({ action: 'cycle3' });
@@ -7590,7 +8054,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         // the missing-component install sequence + its own notices (OFF/ON/
         // progress/failure). We don't push a redundant notice here; a null
         // return means "already running" or "failed", both already noticed.
-        void toggleVoice({ pushNotice: store.pushNotice });
+        void toggleVoice({ pushNotice: store.pushNotice, setProgressHint: store.setProgressHint })
+          .then((result) => {
+            // true/false = new enabled state; null = failed/busy (unchanged).
+            if (result === true || result === false) setVoiceEnabled(result);
+            else if (result && typeof result === 'object') setVoiceEnabled(isVoiceEnabled());
+          });
         return true;
       }
       case 'search':
@@ -8240,6 +8709,77 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           if (accepted) armTranscriptFollow();
           return accepted;
         }
+        if (settingsPrompt.kind === 'core-add') {
+          const sentence = commandText.trim();
+          if (!sentence) {
+            store.pushNotice('memory sentence is required', 'warn');
+            return false;
+          }
+          setSettingsPrompt(null);
+          void store.memoryControl?.({ action: 'core', op: 'add', project_id: 'common', element: sentence, summary: sentence }, { silent: true })
+            .then((result) => {
+              const errText = memoryCoreResultErrorText(result);
+              store.pushNotice(errText || 'core memory added', errText ? 'error' : 'info');
+              openMemoryCorePicker();
+            })
+            .catch((e) => {
+              store.pushNotice(`core add failed: ${e?.message || e}`, 'error');
+              openMemoryCorePicker();
+            });
+          return true;
+        }
+        if (settingsPrompt.kind === 'core-edit') {
+          const sentence = commandText.trim();
+          const id = settingsPrompt._id;
+          const projectId = settingsPrompt._projectId ?? 'common';
+          if (!sentence) {
+            store.pushNotice('memory sentence is required', 'warn');
+            return false;
+          }
+          setSettingsPrompt(null);
+          // Single-sentence semantics only rewrite `element` when the row was
+          // already element===summary at load (see beginEditCoreMemory's
+          // _singleSentence flag). A distinct legacy element carries meaning
+          // this text prompt never captured -- clobbering it on every edit
+          // would corrupt the entry (and re-embed/dedupe on the clobbered
+          // value). Otherwise only `summary` is sent.
+          const editArgs = settingsPrompt._singleSentence
+            ? { action: 'core', op: 'edit', id, project_id: projectId, element: sentence, summary: sentence }
+            : { action: 'core', op: 'edit', id, project_id: projectId, summary: sentence };
+          void store.memoryControl?.(editArgs, { silent: true })
+            .then((result) => {
+              const errText = memoryCoreResultErrorText(result);
+              store.pushNotice(errText || 'core memory updated', errText ? 'error' : 'info');
+              openMemoryCorePicker();
+            })
+            .catch((e) => {
+              store.pushNotice(`core edit failed: ${e?.message || e}`, 'error');
+              openMemoryCorePicker();
+            });
+          return true;
+        }
+        if (settingsPrompt.kind === 'core-delete-confirm') {
+          const id = settingsPrompt._id;
+          const projectId = settingsPrompt._projectId ?? 'common';
+          const answer = String(commandText || '').trim().toLowerCase();
+          setSettingsPrompt(null);
+          if (answer !== 'y' && answer !== 'yes') {
+            store.pushNotice('delete canceled', 'info');
+            openMemoryCorePicker();
+            return true;
+          }
+          void store.memoryControl?.({ action: 'core', op: 'delete', id, project_id: projectId }, { silent: true })
+            .then((result) => {
+              const errText = memoryCoreResultErrorText(result);
+              store.pushNotice(errText || 'core memory deleted', errText ? 'error' : 'info');
+              openMemoryCorePicker();
+            })
+            .catch((e) => {
+              store.pushNotice(`core delete failed: ${e?.message || e}`, 'error');
+              openMemoryCorePicker();
+            });
+          return true;
+        }
       } catch (e) {
         store.pushNotice(`settings update failed: ${e?.message || e}`, 'error');
         return false;
@@ -8261,16 +8801,33 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     const imageSnapshot = Object.fromEntries(Object.entries(pastedImagesRef.current || {})
       .filter(([id]) => imageRefs.has(Number(id))));
     const hasImageSnapshot = Object.keys(imageSnapshot).length > 0;
-    const content = buildPromptContentWithImages(text, imageSnapshot);
+    // Expand folded [Pasted text #N +M lines] tokens back to their original
+    // text at the same point buildPromptContentWithImages runs. Broken /
+    // partially-deleted tokens do not match and are left as-is.
+    const textRefs = pastedTextReferenceIds(text);
+    const textSnapshot = Object.fromEntries(Object.entries(pastedTextsRef.current || {})
+      .filter(([id]) => textRefs.has(Number(id))));
+    const hasTextSnapshot = Object.keys(textSnapshot).length > 0;
+    const expandedText = hasTextSnapshot ? expandPastedTextTokens(text, textSnapshot) : text;
+    const content = buildPromptContentWithImages(expandedText, imageSnapshot);
     const accepted = store.submit(content, {
-      displayText: text,
+      // Store the EXPANDED text in the transcript/history so a later prompt-
+      // history recall resubmits the real content, not the literal token
+      // (pastedTexts entries are cleared on accept). History recall therefore
+      // shows the full original text instead of the token — acceptable.
+      displayText: expandedText,
       pastedImages: imageSnapshot,
-      onCommitted: hasImageSnapshot ? () => clearPastedImagesSnapshot(imageSnapshot) : null,
+      pastedTexts: textSnapshot,
+      onCommitted: (hasImageSnapshot || hasTextSnapshot)
+        ? () => { clearPastedImagesSnapshot(imageSnapshot); clearPastedTextsSnapshot(textSnapshot); }
+        : null,
     });
     if (accepted) {
       armTranscriptFollow();
       if (imageRefs.size === 0 || (!hasImageSnapshot && !state.busy)) clearPastedImagesSnapshot();
       else if (state.busy && hasImageSnapshot) clearPastedImagesSnapshot(imageSnapshot);
+      if (textRefs.size === 0 || (!hasTextSnapshot && !state.busy)) clearPastedTextsSnapshot();
+      else if (state.busy && hasTextSnapshot) clearPastedTextsSnapshot(textSnapshot);
     }
     return accepted;
   };
@@ -8304,6 +8861,10 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   const onPromptDraftChange = useCallback((value) => {
     if (String(value ?? '').length > 0) dismissWelcomePromptHint();
     syncPromptLayoutRows(value);
+    // NOTE: do NOT prune pasted-text entries on edit. A partially-edited token
+    // can be undone back to its intact form, which must still expand on submit;
+    // entries are kept until an accepted submit or an explicit clear. (Memory
+    // cost is bounded and acceptable.)
     const suppressPromptHint = promptHistoryDraftChangeRef.current;
     promptHistoryDraftChangeRef.current = false;
     const historyNav = promptHistoryNavRef.current;
@@ -8373,6 +8934,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     setSettingsPrompt(null);
     if (kind === 'project-new' || kind === 'project-create-confirm' || kind === 'project-rename') {
       openProjectPicker();
+    } else if (kind === 'core-add' || kind === 'core-edit' || kind === 'core-delete-confirm') {
+      openMemoryCorePicker();
     }
   }, [settingsPrompt, showPromptHint]);
 
@@ -8430,10 +8993,15 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   // added pending calls.) Aggregate cards carry a `categories` map; standalone
   // cards carry name/args resolved
   // via classifyToolCategory. Keep this CHEAP: build a primitive signature from
-  // only the tool items (mirrors agentRevision) so streaming flushes that swap
+  // only the tool items so streaming flushes that swap
   // state.items for a fresh array don't restringify the whole transcript and
   // the StatusLine effect only re-fires when the numbers actually change.
   const activeToolsSignature = useMemo(() => {
+    // The engine maintains this signature incrementally (updated on tool
+    // start/early-complete/result/turn-end), so App no longer scans every
+    // transcript item on each change. Prefer it; fall back to the local scan
+    // only when the engine did not publish it (older snapshot).
+    if (state.activeToolSummary !== undefined) return state.activeToolSummary || '';
     const items = state.items || [];
     let exploreCount = 0;
     let exploreStart = 0;
@@ -8479,7 +9047,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     }
     if (!exploreCount && !searchCount) return '';
     return `${exploreCount}:${exploreStart}:${searchCount}:${searchStart}`;
-  }, [state.items]);
+  }, [state.activeToolSummary, state.items]);
 
   const activeTools = useMemo(() => {
     if (!activeToolsSignature) return null;
@@ -8562,8 +9130,23 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   const liveSpinner = state.spinner?.active ? state.spinner : (state.commandStatus?.active ? state.commandStatus : null);
   const latestToast = state.toasts?.length ? state.toasts[state.toasts.length - 1] : null;
   const toastHint = latestToast ? latestToast.text : '';
-  const inputHint = promptHint || toastHint;
-  const inputHintTone = promptHint ? promptHintTone : (latestToast?.tone || 'info');
+  const progressHint = state.progressHint || null;
+  const inputHint = promptHint || toastHint || (progressHint?.text || '');
+  const inputHintTone = promptHint
+    ? promptHintTone
+    : (latestToast?.tone || progressHint?.tone || 'info');
+  // Voice indicator mode for the prompt-box glyph (PromptInput owns the
+  // actual animation timer). Recording/transcribing come from the dedicated
+  // voiceRecPhase state (NOT the promptHint text — typing clears promptHint,
+  // which must not demote a hot mic to 'idle'); install comes from the
+  // persistent progressHint; enabled/off from the cached voiceEnabled state.
+  const voiceIndicatorMode = voiceRecPhase !== 'idle'
+    ? voiceRecPhase
+    : progressHint?.text
+      ? 'installing'
+      : voiceEnabled
+        ? 'idle'
+        : 'off';
   const latestTranscriptItem = state.items[state.items.length - 1] || null;
   const latestDoneAtTail = latestTranscriptItem?.kind === 'turndone' || latestTranscriptItem?.kind === 'statusdone';
   // Bottom meta band ownership is LIVE-SPINNER ONLY. A finished turn's done row
@@ -8895,7 +9478,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     && floatingPanelRows <= 0
     && transcriptGuardRows > 0
     && !overlayHintOnLastItem;
-  // ── App-level measured height harvest (ScrollBox/useVirtualScroll-inspired) ─
+  // ── App-level measured height harvest ───────────────────────────────────
   // Runs after EVERY commit (no deps): Yoga has just laid out the mounted rows,
   // so each tracked item Box's getComputedHeight() is its REAL terminal height.
   // Fold those into transcriptMeasuredRowsCache (validated on the same variant
@@ -8930,8 +9513,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       }
       if (item.kind === 'assistant' && item.streaming) continue;
       // Width 0 = Yoga has not laid this node out yet this frame; skip so a
-      // transient 0 never poisons the cache (mirrors useVirtualScroll's
-      // getComputedWidth()>0 guard).
+      // transient 0 never poisons the cache (guard on a real positive width).
       if (typeof yoga.getComputedWidth === 'function' && yoga.getComputedWidth() <= 0) continue;
       const rawMeasured = Math.round(Number(yoga.getComputedHeight?.()) || 0);
       if (rawMeasured <= 0) {
@@ -9193,6 +9775,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       onPasteText={handlePromptPaste}
       onHistoryNavigate={handlePromptHistoryNavigate}
       onVoiceToggle={handleVoiceToggle}
+      voiceIndicatorMode={voiceIndicatorMode}
       commandPaletteActive={slashPaletteOpen}
       onCommandPaletteNavigate={(direction) => {
         setSlashIndex((index) => {
@@ -9514,6 +10097,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
                       ? 'confirm'
                       : settingsPrompt.kind === 'project-rename'
                         ? 'rename'
+                        : settingsPrompt.kind === 'core-add'
+                          ? 'add'
+                          : settingsPrompt.kind === 'core-edit'
+                            ? 'save'
+                            : settingsPrompt.kind === 'core-delete-confirm'
+                              ? 'confirm'
                         : 'save'}
                 promptLabel={settingsPrompt.kind === 'skill-use'
                   ? 'Command > '
@@ -9523,6 +10112,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
                       ? 'Create? (y/n) > '
                       : settingsPrompt.kind === 'project-rename'
                         ? 'Name > '
+                        : settingsPrompt.kind === 'core-add'
+                          ? 'Sentence > '
+                          : settingsPrompt.kind === 'core-edit'
+                            ? 'Sentence > '
+                            : settingsPrompt.kind === 'core-delete-confirm'
+                              ? 'Delete? (y/n) > '
                         : 'Value > '}
                 onSubmit={onSubmit}
                 onCancel={cancelSettingsPrompt}

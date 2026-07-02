@@ -8,8 +8,7 @@
 // pyenv / mise / asdf / direnv setup the user gets in their interactive
 // terminal — without paying a fresh login-shell startup on every call.
 //
-// Mirrors upstream shell snapshot pattern (reference ShellSnapshot.ts:413,
-// createAndSaveSnapshot). Simpler scope: bash and zsh only, no embedded
+// Scope: bash and zsh only, no embedded
 // search-tool injection (mixdog ships its own grep/glob helpers).
 
 import { spawn } from 'node:child_process';
@@ -34,8 +33,7 @@ const _cache = new Map();
 // command. Cleared on process exit (process-scoped Set).
 const _failedShells = new Set();
 
-// Mirrors reference cleanupRegistry pattern (utils/
-// cleanupRegistry.ts + ShellSnapshot.ts:534-545). Snapshot files are
+// Snapshot files are
 // session-scoped and must be unlinked on graceful shutdown — otherwise
 // they pile up forever (each rc-file mtime change creates a new file).
 const _activeSnapshots = new Set();

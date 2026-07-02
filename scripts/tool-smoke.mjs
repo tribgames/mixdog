@@ -747,7 +747,7 @@ if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not
     agentRules: '# Tool Use',
     skillManifest: '',
   });
-  if (!heavyPrompt.stableSystemContext.includes('## heavy-worker') || !heavyPrompt.stableSystemContext.includes('Handoff fragments only')) {
+  if (!heavyPrompt.stableSystemContext.includes('## heavy-worker')) {
     throw new Error(`heavy-worker AGENT.md must be included in scoped role instructions: ${heavyPrompt.stableSystemContext}`);
   }
   const workerPrompt = composeSystemPrompt({
@@ -756,7 +756,7 @@ if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not
     agentRules: '# Tool Use',
     skillManifest: '',
   });
-  if (!workerPrompt.stableSystemContext.includes('## worker') || !workerPrompt.stableSystemContext.includes('Handoff fragments only')) {
+  if (!workerPrompt.stableSystemContext.includes('## worker')) {
     throw new Error(`worker AGENT.md must be included in scoped role instructions: ${workerPrompt.stableSystemContext}`);
   }
 }
@@ -1091,7 +1091,7 @@ setInternalToolsProvider({
     if (!/Read-only retrieval role/i.test(visible) || /# environment/i.test(visible) || /git operations deferred to Lead/i.test(visible)) {
       throw new Error(`explorer hidden retrieval context should stay slim: ${visible.slice(0, 1200)}`);
     }
-    if (!/# Role: explorer/i.test(systemVisible) || /# Role: explorer/i.test(userReminderVisible) || !/Locator only/i.test(systemVisible)) {
+    if (!/# Role: explorer/i.test(systemVisible) || /# Role: explorer/i.test(userReminderVisible) || !/one-shot locator/i.test(systemVisible)) {
       throw new Error(`explorer role md must ride BP2 system, not BP3 user reminder: system=${systemVisible.slice(0, 600)} user=${userReminderVisible.slice(0, 600)}`);
     }
     const visibleBytes = Buffer.byteLength(visible, 'utf8');
@@ -1434,8 +1434,11 @@ for (const requiredGrammarLine of [
 }
 const readPathSchema = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.inputSchema?.properties?.path || {};
 const readPathDescription = readPathSchema.description || '';
-if (!/File path/i.test(readPathDescription) || !/\{path,offset,limit\}\[\]/i.test(readPathDescription) || !/Pass arrays directly/i.test(readPathDescription) || !/legacy recovery only/i.test(readPathDescription) || !/Dirs use list/i.test(readPathDescription)) {
+if (!/File path/i.test(readPathDescription) || !/\{path,offset,limit\}\[\]/i.test(readPathDescription) || !/Pass arrays directly/i.test(readPathDescription) || !/legacy recovery only/i.test(readPathDescription)) {
   throw new Error('read schema must keep directory-vs-file guidance');
+}
+if (!/Dirs use list/i.test((BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.description) || '')) {
+  throw new Error('read description must keep directory-vs-file guidance');
 }
 const readTool = BUILTIN_TOOLS.find((tool) => tool.name === 'read');
 const readDescription = readTool?.description || '';

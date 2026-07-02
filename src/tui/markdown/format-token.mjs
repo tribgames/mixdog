@@ -108,8 +108,8 @@ function decodeEntities(s) {
 
 // ── Fenced code block rendering ─────────────────────────────────────────────
 // Gutter-indented, syntax-highlighted body with NO background band and no ```
-// fences (codex/claude-code convention). Diff/patch languages (and bodies that
-// look like unified diffs) keep the diff highlighter; other languages use
+// fences. Diff/patch languages (and bodies that look like unified diffs) keep
+// the diff highlighter; other languages use
 // cli-highlight (highlight.js) themed from our syntax* palette; unknown
 // languages fall back to flat `mdCodeBlock` body color.
 const DIFF_LANGS = new Set(['diff', 'patch', 'udiff', 'git-diff', 'gitdiff']);
@@ -567,7 +567,7 @@ function collectHighlightedBodyLines(text, hljsLang, bandWidth) {
 const CODE_GUTTER = '  ';
 
 /**
- * Render a fenced `code` token (codex/claude-code convention): an optional
+ * Render a fenced `code` token: an optional
  * subtle language label row, then the wrapped, syntax/diff/flat-highlighted
  * body. Every row is left-indented by a 2-col gutter. NO background band, no
  * full-width padding, and no visible ``` fence lines.
@@ -653,7 +653,7 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
   const ex = extraColorizers();
   switch (token.type) {
     case 'blockquote': {
-      // Block structure carries no color (claude-code policy): a dim bar plus
+      // Block structure carries no color: a dim bar plus
       // body-colored italic text. Color is reserved for inline codespan/link.
       const bar = chalk.dim(BLOCKQUOTE_BAR);
       const quotePrefix = `${BLOCKQUOTE_BAR} `;
@@ -673,12 +673,11 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
       return renderCodeBlock(token, width);
     case 'codespan':
       // inline code — accent color only (no background tint; a bg box behind
-      // inline spans reads as awkward against body text, matches claude-code's
-      // codespan = color-only treatment).
+      // inline spans reads as awkward against body text).
       return accent(decodeEntities(token.text));
     case 'em':
-      // Italic only — no color tint (matches codex/claude-code; a colored em
-      // clashes per-theme and reads loud against body prose).
+      // Italic only — no color tint (a colored em clashes per-theme and
+      // reads loud against body prose).
       return chalk.italic((token.tokens ?? []).map((t) => formatToken(t, 0, null, parent)).join(''));
     case 'strong':
       // Bold only — no color tint (stays body-colored, just heavier weight).

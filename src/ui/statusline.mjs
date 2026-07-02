@@ -425,6 +425,16 @@ function renderNativeStatusline({
     const label = `Running ${n} Shell${n === 1 ? '' : 's'}`;
     addL2(`${spin} ${B}${label}${R}${elapsedSuffix(shellStatus.elapsedLabel)}`);
   }
+  // Memory cycle segment — single unified "Memory" wording for all states:
+  // running -> "⠋ Memory · 12s"; backlog warning -> "⠋ Memory · backlog 512"
+  // (yellow). Nothing when idle (no L2 pollution).
+  const memStatus = memoryCycleStatus();
+  if (memStatus?.kind === 'running') {
+    const elapsed = formatElapsed(Date.now() - memStatus.startedAt);
+    addL2(`${spin} ${B}Memory${R}${elapsedSuffix(elapsed)}`);
+  } else if (memStatus?.kind === 'backlog') {
+    addL2(`${spin} ${B}Memory${R} ${D}·${R} ${YLW}backlog ${memStatus.pending}${R}`);
+  }
   const l1 = l1Parts.join(sep) || 'mixdog';
   const l2 = l2Parts.join(sep);
   return l2 ? `${l1}\n${l2}` : l1;
@@ -767,6 +777,45 @@ function maintenanceLabel(tag) {
 }
 
 function shellJobsStatus({ clientHostPid } = {}) {
+  return _shellJobsStatusImpl({ clientHostPid });
+}
+
+// Memory cycle L2 segment source. The memory daemon writes
+// data/memory-cycle-state.json on every cycle start/finish (index.mjs
+// _writeCycleStateFile) — no HTTP call from the statusline path. Cached at
+// the same 1s cadence as the shell segment. Shows a single unified "Memory"
+// segment: running (spinner + elapsed) or backlog warning (yellow count).
+let _memoryCycleSegmentCache = { at: 0, value: null };
+const MEMORY_CYCLE_SEGMENT_CACHE_MS = 1000;
+const MEMORY_CYCLE_BACKLOG_WARN = 500;
+function memoryCycleStatus() {
+  const now = Date.now();
+  if (now - _memoryCycleSegmentCache.at < MEMORY_CYCLE_SEGMENT_CACHE_MS) {
+    return _memoryCycleSegmentCache.value;
+  }
+  let value = null;
+  try {
+    const p = join(dataDir(), 'memory-cycle-state.json');
+    if (existsSync(p)) {
+      const state = JSON.parse(readFileSync(p, 'utf-8'));
+      const running = state?.running || null;
+      const backlog = state?.backlog || {};
+      // Stale-file guard: a daemon that died mid-run leaves running set —
+      // ignore anything not refreshed in the last 10 minutes.
+      const fresh = Number(state?.updatedAt) > now - 10 * 60_000;
+      if (fresh && running?.cycle && Number(running.started_at) > 0) {
+        value = { kind: 'running', startedAt: Number(running.started_at) };
+      } else if (fresh) {
+        const pending = Math.max(Number(backlog?.unchunked) || 0, Number(backlog?.cycle2_pending) || 0);
+        if (pending > MEMORY_CYCLE_BACKLOG_WARN) value = { kind: 'backlog', pending };
+      }
+    }
+  } catch { value = null; }
+  _memoryCycleSegmentCache = { at: now, value };
+  return value;
+}
+
+function _shellJobsStatusImpl({ clientHostPid } = {}) {
   const ownerPid = positiveInt(clientHostPid);
   const empty = { count: 0, elapsedLabel: '' };
   if (!ownerPid) return empty;

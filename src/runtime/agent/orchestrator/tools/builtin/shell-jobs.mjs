@@ -10,8 +10,15 @@ import {
     notifyToolCompletion,
 } from '../../../../shared/tool-execution-contract.mjs';
 import {
+    renderShellCompletionEnvelope,
+    shellCompletionInstruction,
+    renderShellPromptStallEnvelope,
+    shellPromptStallInstruction,
+} from '../../../../shared/task-notification-envelope.mjs';
+import {
     completeBackgroundTask,
     notifyBackgroundTaskProgress,
+    getBackgroundTask,
 } from '../../../../shared/background-tasks.mjs';
 import { startChildGuardian } from '../../../../shared/child-guardian.mjs';
 
@@ -729,22 +736,21 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
             const elapsedMs = Number.isFinite(startedAtMs) ? Math.max(0, finishedAtMs - startedAtMs) : null;
             const exitCode = (typeof detail.exitCode === 'number') ? detail.exitCode : null;
             const status = detail.status || (reason === 'timeout' ? 'running' : 'unknown');
-            const lines = [
-                `[task_id: ${jobId}]`,
-                `[status: ${status}]`,
-                `[exit: ${exitCode === null ? 'n/a' : exitCode}]`,
-                elapsedMs !== null ? `[elapsed: ${elapsedMs} ms]` : null,
-                detail.command ? `[command: ${detail.command}]` : null,
-                '',
-                detail.summary ? `Summary: ${detail.summary}` : null,
-                detail.stdoutPreview ? `\n[stdout preview]\n${detail.stdoutPreview}` : null,
-                (detail.mergeStderr !== true && detail.stderrPreview) ? `\n[stderr preview]\n${detail.stderrPreview}` : null,
-            ].filter((l) => l !== null && l !== '');
-            const body = lines.join('\n');
+            const body = renderShellCompletionEnvelope({
+                jobId,
+                status,
+                exitCode,
+                elapsedMs,
+                command: detail.command,
+                summary: detail.summary,
+                stdoutPreview: detail.stdoutPreview,
+                stderrPreview: detail.stderrPreview,
+                mergeStderr: detail.mergeStderr,
+            });
             const taskStatus = status === 'completed'
                 ? 'completed'
                 : (status === 'cancelled' ? 'cancelled' : 'failed');
-            const instruction = `The background shell task ${jobId} you started earlier has finished (${status}, exit ${exitCode === null ? 'n/a' : exitCode}) - review this result in your next step.`;
+            const instruction = shellCompletionInstruction({ jobId, status, exitCode });
             const completedTask = completeBackgroundTask(jobId, {
                 status: taskStatus,
                 result: shellJobPublicTaskResult(detail),
@@ -780,33 +786,38 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
         if (now - lastOutputAtMs < SHELL_JOB_PROMPT_STALL_MS) return;
         if (!looksLikeInteractivePrompt(tail.text)) return;
         const elapsedMs = now - (Date.parse(detail.startedAt || '') || now);
-        const body = [
-            `[task_id: ${jobId}]`,
-            '[status: running]',
-            `[stalled: no output growth for ${now - lastOutputAtMs} ms]`,
-            elapsedMs >= 0 ? `[elapsed: ${elapsedMs} ms]` : null,
-            detail.command ? `[command: ${detail.command}]` : null,
-            '',
-            'This background shell task appears to be waiting for interactive input. Background tasks cannot answer prompts automatically; cancel it or rerun with non-interactive flags/input.',
-            tail.text ? `\n${tail.text}` : null,
-        ].filter((line) => line !== null && line !== '').join('\n');
-        const instruction = `The background shell task ${jobId} appears to be waiting for interactive input; inspect the prompt, then cancel or rerun it non-interactively.`;
-        const sent = notifyBackgroundTaskProgress(jobId, {
-            text: body,
-            resultType: 'shell_task_progress',
-            instruction,
-            key: 'interactive-prompt-stall',
-            status: null,
-        }) || notifyToolCompletion({
-            surface: 'shell',
-            id: jobId,
-            status: null,
-            text: body,
-            resultType: 'shell_task_progress',
-            instruction,
-            context: ctx,
-            logPrefix: 'shell-jobs',
+        const body = renderShellPromptStallEnvelope({
+            jobId,
+            stalledMs: now - lastOutputAtMs,
+            elapsedMs,
+            command: detail.command,
+            tailText: tail.text,
         });
+        const instruction = shellPromptStallInstruction({ jobId });
+        // Prefer the progress-notify path when a background task row exists.
+        // Its once-key ('interactive-prompt-stall') dedupe returns false after
+        // a re-arm even though the row is present — do NOT fall back to
+        // notifyToolCompletion in that case (it would fire a duplicate). Only
+        // use the completion fallback when the task row is absent (progress
+        // path unavailable).
+        const sent = getBackgroundTask(jobId)
+            ? notifyBackgroundTaskProgress(jobId, {
+                text: body,
+                resultType: 'shell_task_progress',
+                instruction,
+                key: 'interactive-prompt-stall',
+                status: null,
+            })
+            : notifyToolCompletion({
+                surface: 'shell',
+                id: jobId,
+                status: null,
+                text: body,
+                resultType: 'shell_task_progress',
+                instruction,
+                context: ctx,
+                logPrefix: 'shell-jobs',
+            });
         if (sent) promptStallNotified = true;
     };
     const checkDone = (reason) => {

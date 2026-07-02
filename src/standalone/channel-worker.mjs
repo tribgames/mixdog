@@ -1,9 +1,10 @@
 import { execFile, fork, spawnSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startChildGuardian } from '../runtime/shared/child-guardian.mjs';
+import { appendBuffered } from '../runtime/shared/buffered-appender.mjs';
 
 const CHANNEL_TOOLS = new Set([
   'reply',
@@ -24,7 +25,7 @@ const WORKER_PRELOAD = fileURLToPath(new URL('./channel-worker-preload.cjs', imp
 function logLine(path, line) {
   try {
     mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, `[${new Date().toISOString()}] ${line}\n`);
+    appendBuffered(path, `[${new Date().toISOString()}] ${line}\n`);
   } catch {
     // Logging must never break the TUI.
   }

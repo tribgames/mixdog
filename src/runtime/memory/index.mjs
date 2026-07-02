@@ -719,7 +719,42 @@ async function recallSessionRows(args = {}) {
   const limit = Math.max(1, Math.min(100, Number(args.limit) || 20))
   const terms = sessionRecallTerms(args.query)
   const params = [sessionId]
-  const where = ['session_id = $1']
+  // Roots + not-yet-chunked leaves only. Once cycle1 turns raw leaves into
+  // (root, members) pairs, selecting every row unfiltered emitted the root's
+  // summary AND its own member rows in the same browse — duplicate content.
+  // A committed member (is_root=0 with a chunk_root) is always reachable via
+  // its root's `members` expansion below, so it never needs to be selected
+  // directly here.
+  const where = ['session_id = $1', '(is_root = 1 OR chunk_root IS NULL OR chunk_root = id)']
+  // Current-turn cutoff: the newest unchunked row is very often the calling
+  // turn's OWN recall request/tool-args, still being written when this query
+  // runs. Exclude it from a bare (no-query) browse so the in-flight turn
+  // doesn't self-echo; a query browse (explicit search intent) keeps it.
+  // Only treat the newest unchunked turn as "in-flight" when its latest row
+  // is fresh (within FRESHNESS_MS of now) — an older newest-unchunked-turn
+  // is completed history (cycle1 just hasn't gotten to it, or drain timed
+  // out) and must stay visible, not be silently hidden every browse.
+  const IN_FLIGHT_TURN_FRESHNESS_MS = 5 * 60 * 1000
+  let excludeSourceTurnId = null
+  if (terms.length === 0) {
+    try {
+      const r = await db.query(
+        `SELECT source_turn t, MAX(ts) last_ts FROM entries
+         WHERE session_id = $1 AND chunk_root IS NULL
+         GROUP BY source_turn ORDER BY source_turn DESC LIMIT 1`,
+        [sessionId],
+      )
+      const t = r.rows?.[0]?.t
+      const lastTs = Number(r.rows?.[0]?.last_ts)
+      if (t != null && Number.isFinite(lastTs) && (Date.now() - lastTs) <= IN_FLIGHT_TURN_FRESHNESS_MS) {
+        excludeSourceTurnId = Number(t)
+      }
+    } catch {}
+  }
+  if (Number.isFinite(excludeSourceTurnId)) {
+    params.push(excludeSourceTurnId)
+    where.push(`NOT (chunk_root IS NULL AND source_turn = $${params.length})`)
+  }
   if (terms.length > 0) {
     const textExpr = `lower(coalesce(content, '') || ' ' || coalesce(element, '') || ' ' || coalesce(summary, ''))`
     const clauses = terms.map((term) => {
@@ -740,16 +775,22 @@ async function recallSessionRows(args = {}) {
   if (rows.length < limit) {
     const seen = new Set(rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id)))
     const fillLimit = Math.max(0, limit - rows.length)
+    const fillWhere = ['session_id = $1', 'id <> ALL($2::bigint[])', '(is_root = 1 OR chunk_root IS NULL OR chunk_root = id)']
+    const fillParams = [sessionId, [...seen]]
+    if (Number.isFinite(excludeSourceTurnId)) {
+      fillParams.push(excludeSourceTurnId)
+      fillWhere.push(`NOT (chunk_root IS NULL AND source_turn = $${fillParams.length})`)
+    }
+    fillParams.push(fillLimit)
     const fillRows = fillLimit > 0
       ? (await db.query(`
           SELECT id, ts, role, content, session_id, source_turn, chunk_root, is_root,
                  element, category, summary, status, score, last_seen_at, project_id
           FROM entries
-          WHERE session_id = $1
-            AND id <> ALL($2::bigint[])
+          WHERE ${fillWhere.join(' AND ')}
           ORDER BY ts DESC, id DESC
-          LIMIT $3
-        `, [sessionId, [...seen], fillLimit])).rows
+          LIMIT $${fillParams.length}
+        `, fillParams)).rows
       : []
     if (fillRows.length > 0) rows = [...rows, ...fillRows]
   }
@@ -1288,6 +1329,62 @@ async function recordCycle1Result(result) {
   if (!skipped && !coalescedNoop && !allFailed) {
     await setCycleLastRun('cycle1', now)
   }
+  if (!skipped && !coalescedNoop) markCycleDone('cycle1', !allFailed, allFailed ? 'all rows skipped' : null)
+}
+
+// ── Cycle health state (no new commands; consumed by /health + statusline) ──
+// In-memory per-cycle run ledger + a small state file the TUI statusline can
+// read without HTTP. "Silently stalled cycles" (2026-07: cycle2 poison
+// rotation sat unnoticed for months) become visible three ways: /health
+// fields, a WARN log with cooldown, and the L2 "Memory" segment.
+const CYCLE_STATE_FILE = path.join(DATA_DIR, 'memory-cycle-state.json')
+const _cycleHealth = {
+  cycle1: { last_success_at: 0, last_error_at: 0, last_error: null, consecutive_failures: 0 },
+  cycle2: { last_success_at: 0, last_error_at: 0, last_error: null, consecutive_failures: 0 },
+  cycle3: { last_success_at: 0, last_error_at: 0, last_error: null, consecutive_failures: 0 },
+}
+let _cycleRunning = null // { cycle, started_at }
+let _cycleBacklogSnapshot = { unchunked: 0, cycle2_pending: 0, at: 0 }
+let _lastBacklogWarnAt = 0
+const BACKLOG_WARN_COOLDOWN_MS = 10 * 60_000
+const BACKLOG_WARN_PENDING = 500
+const BACKLOG_WARN_FAILURES = 5
+
+function _writeCycleStateFile() {
+  try {
+    fs.writeFileSync(CYCLE_STATE_FILE, JSON.stringify({
+      running: _cycleRunning,
+      backlog: _cycleBacklogSnapshot,
+      cycles: _cycleHealth,
+      updatedAt: Date.now(),
+    }))
+  } catch { /* best-effort; statusline just shows nothing */ }
+}
+
+function markCycleRunning(cycle) {
+  _cycleRunning = { cycle, started_at: Date.now() }
+  _writeCycleStateFile()
+}
+
+function markCycleDone(cycle, ok, err = null) {
+  const h = _cycleHealth[cycle]
+  if (h) {
+    const now = Date.now()
+    if (ok) { h.last_success_at = now; h.consecutive_failures = 0; h.last_error = null }
+    else { h.last_error_at = now; h.consecutive_failures += 1; h.last_error = String(err || 'unknown').slice(0, 200) }
+    if (!ok && h.consecutive_failures >= BACKLOG_WARN_FAILURES) {
+      _warnCycleHealth(`${cycle} failing repeatedly (consecutive=${h.consecutive_failures}, last="${h.last_error}")`)
+    }
+  }
+  if (_cycleRunning?.cycle === cycle) _cycleRunning = null
+  _writeCycleStateFile()
+}
+
+function _warnCycleHealth(msg) {
+  const now = Date.now()
+  if (now - _lastBacklogWarnAt < BACKLOG_WARN_COOLDOWN_MS) return
+  _lastBacklogWarnAt = now
+  __mixdogMemoryLog(`[cycle-health] WARN ${msg}\n`)
 }
 
 function _startCycle1Run(config = {}, options = {}) {
@@ -1298,6 +1395,7 @@ function _startCycle1Run(config = {}, options = {}) {
   if (typeof options?.callLlm !== 'function') {
     options = { ...options, callLlm: getCycle1CallLlm() }
   }
+  markCycleRunning('cycle1')
   _cycle1InFlight = (async () => {
     try {
       const result = await runCycle1(db, config, options, DATA_DIR)
@@ -1310,7 +1408,11 @@ function _startCycle1Run(config = {}, options = {}) {
         await recordCycle1Result(result)
       }
       return result
+    } catch (err) {
+      markCycleDone('cycle1', false, err?.message || err)
+      throw err
     } finally {
+      if (_cycleRunning?.cycle === 'cycle1') { _cycleRunning = null; _writeCycleStateFile() }
       if (_cycle1InFlight === promise) _cycle1InFlight = null
     }
   })()
@@ -1337,7 +1439,14 @@ async function _awaitCycle1Run(config = {}, options = {}) {
   let timer
   const deadlinePromise = new Promise((resolve) => {
     timer = setTimeout(() => {
-      if (_cycle1InFlight === target) _cycle1InFlight = null
+      // Do NOT clear _cycle1InFlight here — the underlying runCycle1 is still
+      // running in the background and owns that slot; its own `finally`
+      // (_startCycle1Run above) clears it when the real work settles. Clearing
+      // it early made a later unbounded drain (deadlineMs:0, e.g. the query
+      // recall path) re-enter _startCycle1Run and spawn a SECOND concurrent
+      // cycle1 run instead of awaiting the one already in flight, defeating
+      // drain-to-zero silently. The caller here just stops WAITING at the
+      // deadline; state ownership stays with the promise itself.
       resolve({
         processed: 0,
         chunks: 0,
@@ -1461,6 +1570,7 @@ function scheduleScheduledCycle2(config, signature, attempt = 0) {
       return
     }
     _cycle2InFlight = true
+    markCycleRunning('cycle2')
     try {
       let c2Options = {
         coalescedRetry: true,
@@ -1479,8 +1589,10 @@ function scheduleScheduledCycle2(config, signature, attempt = 0) {
       }
     } catch (err) {
       __mixdogMemoryLog(`[cycle2] scheduled queue failed: ${err?.message || err}\n`)
+      markCycleDone('cycle2', false, err?.message || err)
     } finally {
       _cycle2InFlight = false
+      if (_cycleRunning?.cycle === 'cycle2') { _cycleRunning = null; _writeCycleStateFile() }
     }
   }, config, signature)
 }
@@ -1498,10 +1610,11 @@ function scheduleScheduledCycle3(config, signature, attempt = 0) {
       return
     }
     _cycle3InFlight = true
+    markCycleRunning('cycle3')
     try {
       let c3Options = {
         coalescedRetry: true,
-        onCoalescedSuccess: () => setCycleLastRun('cycle3', Date.now()),
+        onCoalescedSuccess: async () => { await setCycleLastRun('cycle3', Date.now()); markCycleDone('cycle3', true) },
       }
       if (typeof c3Options?.callLlm !== 'function') {
         c3Options = { ...c3Options, callLlm: getCycle3CallLlm() }
@@ -1514,8 +1627,10 @@ function scheduleScheduledCycle3(config, signature, attempt = 0) {
       }
     } catch (err) {
       __mixdogMemoryLog(`[cycle3] scheduled queue failed: ${err?.message || err}\n`)
+      markCycleDone('cycle3', false, err?.message || err)
     } finally {
       _cycle3InFlight = false
+      if (_cycleRunning?.cycle === 'cycle3') { _cycleRunning = null; _writeCycleStateFile() }
     }
   }, retryConfig, signature)
 }
@@ -1529,9 +1644,11 @@ async function _finalizeCycle2Run(result) {
     await setCycleLastRun('cycle2', Date.now())
     await setCycleLastRun('cycle2_last_error', '')
     __mixdogMemoryLog('[cycle2] completed\n')
+    markCycleDone('cycle2', true)
   } else {
     await setCycleLastRun('cycle2_last_error', result.error || 'unknown error')
     __mixdogMemoryLog(`[cycle2] failed: ${result.error}\n`)
+    markCycleDone('cycle2', false, result.error || 'unknown error')
   }
 }
 
@@ -1608,6 +1725,36 @@ async function checkCycles() {
   if (now - last.cycle3 >= cycle3Ms) {
     await enqueueScheduledCycle3(cycle3Ms, 'scheduled')
   }
+
+  // ── Backlog watch + self-kick (cycle-health) ─────────────────────────────
+  // Cheap counts each tick (60s): surface a WARN when the pipeline is
+  // building a backlog, and if a cycle has not SUCCEEDED for 2h+ while its
+  // backlog is over threshold, kick one unscheduled run now instead of
+  // waiting for the interval — a stalled cycle otherwise hides behind
+  // "the schedule ran it" (attempt != success; see 2026-07 cycle2 stall).
+  try {
+    const unchunked = Number((await db.query(
+      `SELECT COUNT(*) c FROM entries WHERE chunk_root IS NULL AND NULLIF(btrim(session_id), '') IS NOT NULL`,
+    )).rows[0]?.c ?? 0)
+    const cycle2Pending = Number((await db.query(
+      `SELECT COUNT(*) c FROM entries WHERE is_root = 1 AND status = 'pending'`,
+    )).rows[0]?.c ?? 0)
+    _cycleBacklogSnapshot = { unchunked, cycle2_pending: cycle2Pending, at: now }
+    _writeCycleStateFile()
+    if (unchunked > BACKLOG_WARN_PENDING || cycle2Pending > BACKLOG_WARN_PENDING) {
+      _warnCycleHealth(`backlog unchunked=${unchunked} cycle2_pending=${cycle2Pending}`)
+    }
+    const SELF_KICK_STALE_MS = 2 * 3600_000
+    const c1Stale = (_cycleHealth.cycle1.last_success_at || last.cycle1 || 0) < now - SELF_KICK_STALE_MS
+    const c2Stale = (_cycleHealth.cycle2.last_success_at || last.cycle2 || 0) < now - SELF_KICK_STALE_MS
+    if (c1Stale && unchunked > BACKLOG_WARN_PENDING) {
+      _warnCycleHealth(`cycle1 self-kick: no success 2h+, unchunked=${unchunked}`)
+      await enqueueScheduledCycle1(0, 'self-kick')
+    } else if (c2Stale && cycle2Pending > BACKLOG_WARN_PENDING) {
+      _warnCycleHealth(`cycle2 self-kick: no success 2h+, pending=${cycle2Pending}`)
+      await enqueueScheduledCycle2(0, 'self-kick')
+    }
+  } catch { /* counts are best-effort; never fail the tick */ }
 }
 let _cycle2InFlight = false
 let _cycle3InFlight = false
@@ -1870,7 +2017,7 @@ async function recallCoreRows(query, { projectScope, category, limit } = {}) {
 // DB writes). A drain only gates recall for its OWN session — every other
 // terminal's recall (different session, or no session) proceeds unblocked.
 const RECALL_DRAIN_HARD_CAP_ROWS = 500
-async function _drainSessionForRecallQuery(sessionId, signal) {
+async function _drainSessionForRecallQuery(sessionId, signal, deadlineMs = 0) {
   if (!sessionId || signal?.aborted) return
   const existing = _recallDrainInFlight.get(sessionId)
   if (existing) { try { await existing } catch {} return }
@@ -1898,7 +2045,8 @@ async function _drainSessionForRecallQuery(sessionId, signal) {
       return await drainSessionCycle1(runTool, {
         sessionId,
         dumpArgs,
-        deadlineMs: 0, // no time budget — drive the session's backlog to 0
+        deadlineMs, // 0 = no time budget (query path); bare browse passes a
+        // short bound so a browse call never blocks minutes on LLM chunking.
         maxPasses: 20, // safety stopper; drainSessionCycle1 also self-stops on no-progress
         cycleArgs: {
           min_batch: 1,
@@ -1922,22 +2070,45 @@ async function _drainSessionForRecallQuery(sessionId, signal) {
   }
 }
 
+// Bare-browse drain deadline: best-effort only. A browse call ("show me
+// recent context") must never block on LLM chunking for minutes the way a
+// query recall is allowed to — the raw-row merge already covers unchunked
+// content, so the drain here is a nice-to-have upgrade to chunked/scored
+// rows, not a correctness requirement. Failures/timeouts are silently
+// tolerated; the raw fallback in the caller applies regardless.
+const RECALL_BROWSE_DRAIN_DEADLINE_MS = 1800
+
 async function handleSearch(args, signal) {
   // Cooperative abort check: throw early if the caller already aborted
   // (IPC cancel handler signals the AbortController before re-entry).
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')
   // Drain this session's unchunked backlog to zero BEFORE searching, so a
-  // query recall never returns raw/unclassified transcript tail instead of
-  // the chunked summary. Only runs when both a session and a query are
-  // present; a bare recent-browsing call (no query) skips this entirely.
+  // recall never returns raw/unclassified transcript tail instead of the
+  // chunked summary. Runs whenever a session is scoped, query or not — a
+  // bare "show recent" browse hits raw unchunked rows just as often as a
+  // query recall does. Query path keeps the unbounded (deadlineMs:0) drain
+  // since chunked accuracy matters more than latency there; bare browse
+  // gets a short best-effort deadline — it must never block on LLM
+  // chunking for minutes, the raw-row merge covers the fallback either way.
   {
     const _drainSessionId = String(args?.sessionId || args?.session_id || '').trim()
     const _drainHasQuery = Array.isArray(args?.query)
       ? args.query.some((v) => String(v || '').trim())
       : String(args?.query ?? '').trim() !== ''
-    if (_drainSessionId && _drainHasQuery) {
-      await _drainSessionForRecallQuery(_drainSessionId, signal)
+    if (_drainSessionId) {
+      await _drainSessionForRecallQuery(
+        _drainSessionId,
+        signal,
+        _drainHasQuery ? 0 : RECALL_BROWSE_DRAIN_DEADLINE_MS,
+      )
     }
+  }
+  // #id lookup normalization: search_memories and memory action:'search'
+  // callers pass a single `id` (or an id array under that same key), not
+  // the `ids` array below. Normalize once here so every dispatch path gets
+  // exact-id lookup, not just callers who already knew to use `ids`.
+  if (!Array.isArray(args.ids) && args.id != null) {
+    args = { ...args, ids: Array.isArray(args.id) ? args.id : [args.id] }
   }
   if (args?.currentSession === true || args?.sessionId || args?.session_id) {
     return await recallSessionRows(args)
@@ -1950,7 +2121,7 @@ async function handleSearch(args, signal) {
   if (Array.isArray(args.ids) && args.ids.length > 0) {
     const ids = args.ids
       .map(v => Number(v))
-      .filter(v => Number.isFinite(v) && v > 0)
+      .filter(v => Number.isInteger(v) && v > 0)
     if (ids.length === 0) return { text: '(no valid ids)' }
     const includeArchived = args.includeArchived !== false
     const category = args.category
@@ -2262,7 +2433,16 @@ async function handleSearch(args, signal) {
 
   const filters = { limit: limit + offset }
   if (temporal?.startMs != null) { filters.ts_from = temporal.startMs; filters.ts_to = temporal.endMs }
-  if (temporal?.mode === 'last' && _bootTimestamp) {
+  // period='last' used to hard-cap ts_to at _bootTimestamp-1 unconditionally,
+  // which silently hid the CURRENT session's own content from a query-less
+  // recent browse (the whole point of "what did we just talk about"). Keep
+  // the boot cap only for session-less global browsing, where 'last' means
+  // "the previously completed session" and there's no session-scoped drain
+  // above to have already surfaced the in-flight rows. When a sessionId is
+  // present the drain above already pulled that session's raw backlog to
+  // zero, so the current session's rows are safe (and wanted) to include.
+  const _hasScopedSession = Boolean(String(args?.sessionId || args?.session_id || '').trim())
+  if (temporal?.mode === 'last' && _bootTimestamp && !_hasScopedSession) {
     filters.ts_to = _bootTimestamp - 1
   }
   filters.projectScope = projectScope
@@ -2986,28 +3166,47 @@ async function handleMemoryAction(args, signal) {
     }
     const dataDir = (typeof DATA_DIR === 'string' ? DATA_DIR : resolvePluginData())
     if (!dataDir) return { text: 'core: memory data dir is not initialized', isError: true }
-    // Core-candidate promotion pipeline (proposal mode). These ops operate on
-    // the generated `entries` pool (the candidate flag lives there), not on a
-    // project-scoped core pool, so they run before the project_id normalization
-    // below. UI scope calls exactly these op names.
+    // Core-candidate promotion pipeline (proposal mode). The candidate flag
+    // lives on generated `entries`, which carry a project_id, so these ops MUST
+    // be project-scoped just like add/edit/delete — an unscoped listing/promote
+    // would leak candidates across projects. project_id resolution mirrors the
+    // block below: 'common'/null → COMMON (project_id NULL), '*' → all pools
+    // (candidates op only, same escape hatch as op:'list'). UI calls exactly
+    // these op names.
     if (op === 'candidates' || op === 'promote' || op === 'dismiss') {
+      const hasPid = Object.prototype.hasOwnProperty.call(args, 'project_id')
+      const scope = (() => {
+        if (!hasPid || args.project_id == null) return null
+        const s = String(args.project_id).trim()
+        if (s === '' || s.toLowerCase() === 'common') return null
+        if (s === '*') return '*'
+        return s
+      })()
       try {
         if (op === 'candidates') {
-          const list = await listCoreCandidates(dataDir)
+          const list = await listCoreCandidates(dataDir, scope)
           if (list.length === 0) return { text: 'core candidates: none' }
           return {
             text: list.map(c =>
-              `id=${c.id} [${c.category}] score=${c.score == null ? '-' : c.score.toFixed(2)} ${c.element} — ${String(c.summary || '').slice(0, 200)} (${c.reason})`,
+              // project=<pool> lets the UI thread project_id into the follow-up
+              // promote/dismiss call — matters under project_id:'*' listing where
+              // rows span pools. Uses the same COMMON/slug convention as op:'list'.
+              `id=${c.id} project=${c.project_id == null ? 'COMMON' : c.project_id} [${c.category}] score=${c.score == null ? '-' : c.score.toFixed(2)} ${c.element} — ${String(c.summary || '').slice(0, 200)} (${c.reason})`,
             ).join('\n'),
           }
         }
+        // promote/dismiss operate on a single id but are scope-guarded: the
+        // candidate must belong to the resolved scope (or COMMON), never '*'.
+        if (scope === '*') {
+          return { text: `core ${op}: project_id "*" only valid for op="candidates"`, isError: true }
+        }
         if (op === 'promote') {
-          const entry = await promoteCoreCandidate(dataDir, args.id, args)
+          const entry = await promoteCoreCandidate(dataDir, args.id, { ...args, scope })
           const mergeNote = entry.merged_with ? ` (merged into core id=${entry.merged_with}, sim=${entry.sim})` : ''
           return { text: `core promoted candidate id=${args.id} → core id=${entry.id}${mergeNote}: [${entry.category}] ${entry.element}` }
         }
         // dismiss
-        const removed = await dismissCoreCandidate(dataDir, args.id)
+        const removed = await dismissCoreCandidate(dataDir, args.id, { scope })
         return { text: `core candidate dismissed (id=${removed.id}): [${removed.category}] ${removed.element}` }
       } catch (e) {
         return { text: `core ${op} failed: ${e.message}`, isError: true }
@@ -3430,6 +3629,9 @@ const httpServer = http.createServer(async (req, res) => {
         active_core_summaries: stats.active_core_summaries,
         active_core_summary_missing: stats.active_core_summary_missing,
         mv_hot_active_populated: stats.mv_hot_active_populated,
+        cycle_running: _cycleRunning,
+        cycle_health: _cycleHealth,
+        cycle_backlog: _cycleBacklogSnapshot,
       })
     } catch (e) { sendError(res, e.message) }
     return

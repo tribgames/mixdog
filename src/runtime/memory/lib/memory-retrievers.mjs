@@ -1,5 +1,7 @@
 import { recallReadQuery } from './memory-recall-read-query.mjs'
 
+import { buildPromotedExclusionClauses } from './memory-recall-scope-filter.mjs'
+
 const VALID_CATEGORIES_SET = new Set([
   'rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue',
 ])
@@ -71,6 +73,12 @@ export async function retrieveEntries(db, filters = {}) {
   if (filters.chunkRootNull === true) {
     where.push(`chunk_root IS NULL`)
   }
+
+  // Exclude promoted/promoting core-candidate roots AND members under such a
+  // root — the query-less browse path (includeArchived) would otherwise surface
+  // rows the hybrid recall path already filters. Shared predicate (param-less)
+  // keeps this in lock-step with buildRecallScopeFilter.
+  where.push(...buildPromotedExclusionClauses())
 
   const limit = Math.max(1, Math.min(500, Number(filters.limit ?? 50)))
   const offset = Math.max(0, Number(filters.offset ?? 0))

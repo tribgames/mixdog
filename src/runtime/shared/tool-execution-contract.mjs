@@ -33,7 +33,7 @@ function notificationResultBody(text) {
   return match ? String(match[1] || '').trim() : '';
 }
 
-function backgroundTaskHeaderStatus(text) {
+export function backgroundTaskHeaderStatus(text) {
   const match = /^status:\s*(\S+)/mi.exec(String(text || ''));
   return clean(match?.[1]).toLowerCase();
 }
@@ -86,7 +86,7 @@ export function shouldPersistModelVisibleToolCompletion(text, meta = {}) {
 
 const BRACKETED_SHELL_STATUS_RE = /^\[status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled|error|timeout|done|success)\]/im;
 
-function isBracketedShellNotificationEnvelope(text) {
+export function isBracketedShellNotificationEnvelope(text) {
   const value = String(text ?? '').trim();
   if (!value) return false;
   if (!/^\[task_id:\s*\S+\]/im.test(value)) return false;

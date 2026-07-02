@@ -80,28 +80,42 @@ export function isVoiceEnabled() {
 }
 
 // Coalesce ensure*'s onProgress ({ phase, downloaded, total } | { phase:'extra', ... })
-// into a throttled (2s) human-readable pushNotice call so a multi-hundred-MB
-// model download doesn't spam the notice toast on every chunk.
-function makeThrottledProgressNotice(pushNotice, intervalMs = 2000) {
+// into a sticky, in-place input-hint-line progress bar (setProgressHint) so a
+// multi-hundred-MB model download doesn't spam the notice toast on every
+// chunk. Falls back to the old throttled (2s) toast-spam behavior when the
+// caller (e.g. the channels pipeline) doesn't have a progress-hint slot to
+// render into — only pushNotice is guaranteed to exist everywhere.
+const PROGRESS_BAR_CELLS = 6;
+function renderProgressBarText(phase, downloaded, total) {
+  const label = phaseLabel(phase);
+  if (total > 0) {
+    const ratio = Math.max(0, Math.min(1, downloaded / total));
+    const filled = Math.round(ratio * PROGRESS_BAR_CELLS);
+    const bar = '▓'.repeat(filled) + '░'.repeat(PROGRESS_BAR_CELLS - filled);
+    return `⬇ Voice ${label} ${bar} ${Math.round(ratio * 100)}%`;
+  }
+  return `⬇ Voice ${label} …`;
+}
+function phaseLabel(phase) {
+  if (phase === 'model') return 'model';
+  if (phase === 'ffmpeg') return 'ffmpeg';
+  if (phase === 'extra') return 'extra data';
+  return 'whisper runtime';
+}
+function makeThrottledProgressNotice({ pushNotice, setProgressHint } = {}, intervalMs = 500) {
   let lastEmitAt = 0;
-  const phaseLabel = (phase) => {
-    if (phase === 'model') return 'model';
-    if (phase === 'ffmpeg') return 'ffmpeg';
-    if (phase === 'extra') return 'extra data';
-    return 'whisper runtime';
-  };
   return (progress = {}) => {
-    if (typeof pushNotice !== 'function') return;
     const now = Date.now();
     if (now - lastEmitAt < intervalMs) return;
     lastEmitAt = now;
     const total = Number(progress.total) || 0;
     const downloaded = Number(progress.downloaded) || 0;
-    const label = phaseLabel(progress.phase);
-    const text = total > 0
-      ? `Voice: downloading ${label}… ${Math.min(100, Math.round((downloaded / total) * 100))}%`
-      : `Voice: downloading ${label}…`;
-    pushNotice(text, 'info');
+    const text = renderProgressBarText(progress.phase, downloaded, total);
+    if (typeof setProgressHint === 'function') {
+      setProgressHint(text, 'info');
+      return;
+    }
+    if (typeof pushNotice === 'function') pushNotice(text, 'info');
   };
 }
 
@@ -112,12 +126,12 @@ function makeThrottledProgressNotice(pushNotice, intervalMs = 2000) {
  * runtime descriptor (resolveVoiceRuntime shape) once `installed` is true;
  * throws on any ensure* failure (manifest fetch, sha256 mismatch, etc.).
  */
-export async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), pushNotice } = {}) {
+export async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), pushNotice, setProgressHint } = {}) {
   const fetcher = await loadVoiceRuntimeFetcher();
   let runtime = fetcher.resolveVoiceRuntime(dataDir);
   if (runtime.installed) return runtime;
 
-  const onProgress = makeThrottledProgressNotice(pushNotice);
+  const onProgress = makeThrottledProgressNotice({ pushNotice, setProgressHint });
   if (!runtime.binary || !runtime.serverCmd) {
     await fetcher.ensureWhisperRuntime(dataDir, onProgress);
   }
@@ -147,7 +161,7 @@ export async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), p
  * Returns the NEW enabled state (true/false) on success, or null when the
  * toggle could not run (install already in flight) or failed.
  */
-export async function toggleVoice({ pushNotice } = {}) {
+export async function toggleVoice({ pushNotice, setProgressHint } = {}) {
   const dataDir = resolvePluginData();
   if (isVoiceEnabled()) {
     // Med-5: updateSection is a synchronous file write (readAllForRmW +
@@ -172,11 +186,13 @@ export async function toggleVoice({ pushNotice } = {}) {
   }
   _voiceInstallBusy = true;
   try {
-    await ensureVoiceRuntimeReady({ dataDir, pushNotice });
+    await ensureVoiceRuntimeReady({ dataDir, pushNotice, setProgressHint });
     updateSection('voice', (current) => ({ ...current, enabled: true }));
+    setProgressHint?.('');
     pushNotice?.('Voice ON — Ctrl+Space to record', 'info');
     return true;
   } catch (err) {
+    setProgressHint?.('');
     pushNotice?.(`Voice setup failed: ${err?.message || err}`, 'error');
     return null;
   } finally {

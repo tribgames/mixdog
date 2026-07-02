@@ -13,10 +13,10 @@ import { basePalette } from './base.mjs';
 export const kanagawaPalette = {
   ...basePalette,
   background: 'transparent', // sumiInk3 #1F1F28
-  claude: 'rgb(210,126,153)', // sakuraPink accent (opencode)
+  claude: 'rgb(210,126,153)', // sakuraPink accent
   logo: 'rgb(232,156,182)', // welcome banner — brighter than accent
   claudeShimmer: 'rgb(156,171,202)', // springViolet2 #9CABCA (lighter accent)
-  mixdogOrange: 'rgb(210,126,153)', // sakuraPink accent (opencode)
+  mixdogOrange: 'rgb(210,126,153)', // sakuraPink accent
   mixdogAmber: 'rgb(156,171,202)', // lighter accent
   mixdogIvory: 'rgb(220,215,186)', // fujiWhite #DCD7BA
   spinnerGlyph: 'rgb(228,104,118)', // most-emphasized: waveRed
@@ -57,7 +57,7 @@ export const kanagawaPalette = {
   mdLink: 'rgb(126,156,216)', // crystalBlue
   mdLinkText: 'rgb(118,148,106)', // waveAqua #76946A
   mdStrong: 'rgb(215,166,87)', // roninYellow #D7A657
-  mdEmph: 'rgb(195,141,157)', // carpYellow opencode #C38D9D
+  mdEmph: 'rgb(195,141,157)', // carpYellow #C38D9D
   mdDiffAdded: 'rgb(152,187,108)', // springGreen
   mdDiffRemoved: 'rgb(255,93,98)', // peachRed
   mdDiffHunk: 'rgb(45,79,103)', // waveBlue #2D4F67
@@ -71,7 +71,7 @@ export const kanagawaPalette = {
   syntaxVariable: 'rgb(220,215,186)', // fujiWhite
   syntaxString: 'rgb(152,187,108)', // springGreen
   syntaxNumber: 'rgb(215,166,87)', // roninYellow #D7A657
-  syntaxType: 'rgb(195,141,157)', // carpYellow opencode #C38D9D
+  syntaxType: 'rgb(195,141,157)', // carpYellow #C38D9D
   syntaxOperator: 'rgb(210,126,153)', // sakuraPink
   syntaxPunctuation: 'rgb(220,215,186)', // fg
   userMessageBackground: 'rgb(42,42,55)', // sumiInk4 #2A2A37

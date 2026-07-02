@@ -1,7 +1,7 @@
 /**
  * src/tui/themes/utils.mjs — palette post-processing helpers.
  *
- * Reference pattern (Claude Code / opencode / pi):
+ * Design goals:
  * - keep body text neutral and highly readable;
  * - keep strong live-state colors for spinners/status;
  * - use accent colors sparingly for headings, links and syntax, preferably

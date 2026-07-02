@@ -232,12 +232,11 @@ export function jitterDelayMs(ms, ratio = PROVIDER_RETRY_JITTER_RATIO, mode = 's
 }
 
 // ── Shared network-resilience interface ──────────────────────────────────────
-// One home for the logic that used to be copied per provider: mid-stream
-// classifier (WS + SSE), transport fallback predicate, stream-safety stamp
-// latches, abort-aware sleep, handshake classifier, and the retry-budget table.
-// Provider differences are passed as ARGUMENTS (policy objects), never branched
-// on a hardcoded provider name. Behavior is preserved EXACTLY — each path below
-// is the relocated original, selected by policy.mode.
+// One home for the logic shared across providers: mid-stream classifier
+// (WS + SSE), transport fallback predicate, stream-safety stamp latches,
+// abort-aware sleep, handshake classifier, and the retry-budget table.
+// Provider differences are passed as ARGUMENTS (policy objects), never
+// branched on a hardcoded provider name.
 
 // F) Retry-budget profiles as DATA. The numbers live ONLY here now.
 //    ws.transientCloseRetries (4) — ws_1006 / ws_1011 connection-loss buckets.
@@ -260,8 +259,8 @@ function _midstreamLimitFor(classifier, policy) {
   return policy.defaultRetries
 }
 
-// WS gates each classifier against its own budget (mirrors the old
-// _allowMidstreamRetry). SSE applies a single top-of-function budget gate and
+// WS gates each classifier against its own budget. SSE applies a single
+// top-of-function budget gate and
 // then returns raw classifier strings, so perClassifierGate:false returns the
 // classifier unconditionally here.
 function _allowMidstream(classifier, attemptIndex, policy) {

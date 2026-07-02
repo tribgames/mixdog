@@ -448,13 +448,20 @@ export async function ensureCurrentSchemaExtensions(db, dims) {
   // auto-inserted into core_entries — a user approves each via the
   // action:'core' op:'promote' handler. Columns are nullable and the ALTERs
   // are idempotent (ADD COLUMN IF NOT EXISTS), safe to re-run every boot.
-  //   core_candidate_status: NULL (not a candidate) | 'candidate' | 'promoted' | 'dismissed'
+  //   core_candidate_status: NULL (not a candidate) | 'candidate' | 'promoting'
+  //     (mid-flight promote, recoverable) | 'promoted' | 'dismissed'
   //   core_candidate_at:     ms timestamp of last nomination/state change
   // 'dismissed'/'promoted' are terminal for a given root so the pass never
   // re-nominates the same entry.
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS core_candidate_status text`)
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS core_candidate_at bigint`)
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_core_candidate ON entries(core_candidate_status, score DESC) WHERE is_root = 1 AND core_candidate_status = 'candidate'`)
+  // No index on core_candidate_status by design (round-2 finding #4): the only
+  // readers are listCoreCandidates (user picker, on-demand) and
+  // nominateCoreCandidates (once per cycle2, hourly). Both are rare and the
+  // entries table is small enough that a seq scan is fine — an index isn't
+  // worth the boot-time AccessExclusive build lock on the hot entries table.
+  // Drop it if a previous deploy created it (idempotent no-op otherwise).
+  await db.exec(`DROP INDEX IF EXISTS idx_entries_core_candidate`)
 
   // Dedupe core_entries before creating the unique index — keeps the row with
   // the most recent updated_at (id breaks ties), drops the rest.

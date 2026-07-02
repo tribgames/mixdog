@@ -490,7 +490,13 @@ export async function runPhaseMerge(db, options = {}) {
     // Archiving one overlap and deleting its embedding is one mutation unit;
     // cancellation resumes at the next row boundary.
     const r = await db.query(
-      `UPDATE entries SET status = 'archived' WHERE id = $1 AND is_root = 1 AND status = 'active'`,
+      // Clear a live core-candidate flag on the same UPDATE: an archived root
+      // must not stay listed as a candidate or keep eating CANDIDATE_CAP. Set
+      // it to 'dismissed' (terminal) since the fact already restates a core row.
+      `UPDATE entries
+       SET status = 'archived',
+           core_candidate_status = CASE WHEN core_candidate_status = 'candidate' THEN 'dismissed' ELSE core_candidate_status END
+       WHERE id = $1 AND is_root = 1 AND status = 'active'`,
       [Number(row.entry_id)],
     )
     if (Number(r.rowCount ?? r.affectedRows ?? 0) > 0) {
@@ -1383,6 +1389,33 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
   // exposes Active/cap counts and instructs aggressive `archived` verdicts on
   // overflow. No deterministic safety net here — if the gate ever fails to
   // contain growth, fix the prompt, not bolt a fallback back on.
+
+  // Chronic gate-failure sweep: pending roots that have failed the gate 5+
+  // times AND are 30+ days old will realistically never pass (their content
+  // keeps breaking the parse — 2026-07 drain left 154 such rows cycling as
+  // permanent noop batches). Terminal-archive them (status only, no data
+  // deletion) so they stop occupying gate batches. Same cooldown semantics
+  // as the parse-failure reviewed_at advance above.
+  try {
+    throwIfAborted(signal)
+    const sweepRes = await db.query(
+      `UPDATE entries
+       SET status = 'archived', reviewed_at = $1
+       WHERE is_root = 1 AND status = 'pending'
+         AND COALESCE(error_count, 0) >= 5
+         AND ts < $2
+       RETURNING id`,
+      [Date.now(), Date.now() - 30 * 86_400_000],
+    )
+    const swept = sweepRes?.rows?.length ?? 0
+    if (swept > 0) {
+      stats.chronic_swept = swept
+      __mixdogMemoryLog(`[cycle2] chronic gate-failure sweep archived=${swept}\n`)
+    }
+  } catch (err) {
+    if (signal?.aborted) throw signal.reason ?? err
+    __mixdogMemoryLog(`[cycle2] chronic sweep failed: ${err.message}\n`)
+  }
 
   __mixdogMemoryLog(
     `[cycle2] rescore=${stats.rescore.updated}` +

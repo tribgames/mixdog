@@ -1,5 +1,5 @@
 // fuzzy-match.mjs — lightweight subsequence fuzzy scorer for filename / path
-// search (codex file-search / nucleo style, in JS). Returns a score where a
+// search. Returns a score where a
 // higher value is a better match, or null when the query is not a subsequence
 // of the candidate.
 //

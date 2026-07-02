@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { ensureStandaloneEnvironment } from './standalone/seeds.mjs';
@@ -38,6 +38,7 @@ import {
   renderProviderStatus,
   saveOpenAIUsageSessionKey,
   saveOpenCodeGoUsageAuth,
+  loginOpenCodeGoUsage,
   saveProviderApiKey,
   setLocalProvider,
 } from './standalone/provider-admin.mjs';
@@ -741,7 +742,7 @@ function readJsonSafe(path) {
   try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
 }
 
-// Standard Claude Code project-local MCP ingress: read `.mcp.json` from the
+// Project-local MCP ingress: read `.mcp.json` from the
 // project root and return a cleaned { name: cfg } map. Best-effort — never
 // throws. Accepts either the standard `{ mcpServers: {...} }` shape or a bare
 // name->cfg map. Self-ref servers (`mixdog` / `trib-plugin`) are stripped for
@@ -801,11 +802,41 @@ function countSkillFiles(root) {
 
 function mcpScriptForPlugin(root) {
   const candidates = [
+    '.mcp.json',
     'scripts/run-mcp.mjs',
     'mcp/server.mjs',
     'server.mjs',
   ];
   return candidates.find((rel) => existsSync(join(root, rel))) || null;
+}
+
+function substitutePluginRootTokens(value, root) {
+  if (typeof value !== 'string') return value;
+  return value
+    .replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, root)
+    .replace(/\$\{CODEX_PLUGIN_ROOT\}/g, root);
+}
+
+function substitutePluginRootTokensDeep(value, root) {
+  if (typeof value === 'string') return substitutePluginRootTokens(value, root);
+  if (Array.isArray(value)) return value.map((v) => substitutePluginRootTokensDeep(v, root));
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = substitutePluginRootTokensDeep(v, root);
+    return out;
+  }
+  return value;
+}
+
+function normalizePluginMcpServerConfig(cfg, root) {
+  const substituted = substitutePluginRootTokensDeep(cfg, root) || {};
+  const out = { ...substituted };
+  if (typeof out.cwd === 'string' && out.cwd) {
+    out.cwd = isAbsolute(out.cwd) ? out.cwd : join(root, out.cwd);
+  } else {
+    out.cwd = root;
+  }
+  return out;
 }
 
 function pluginManifest(root) {
@@ -1221,6 +1252,14 @@ const QUICK_SEARCH_MODELS = Object.freeze({
 });
 const AGENT_ROLE_IDS = new Set(FIXED_AGENT_SLOTS.map((agent) => agent.id));
 const agentDefinitionCache = new Map();
+const AGENT_DEFINITION_CACHE_LIMIT = 64;
+function setAgentDefinitionCache(key, value) {
+  if (!agentDefinitionCache.has(key) && agentDefinitionCache.size >= AGENT_DEFINITION_CACHE_LIMIT) {
+    const oldestKey = agentDefinitionCache.keys().next().value;
+    agentDefinitionCache.delete(oldestKey);
+  }
+  agentDefinitionCache.set(key, value);
+}
 const DEFAULT_WORKFLOW_ID = 'default';
 
 function workflowPresetId(slot) {
@@ -1361,12 +1400,12 @@ function loadAgentDefinition(dataDir, id) {
       frontmatter: doc.frontmatter,
       body,
     };
-    agentDefinitionCache.set(cacheKey, definition);
+    setAgentDefinitionCache(cacheKey, definition);
     return definition;
   }
   const legacyDoc = readMarkdownDocument(readTextSafe(join(STANDALONE_ROOT, 'agents', `${agentId}.md`)));
   if (!legacyDoc.body) {
-    agentDefinitionCache.set(cacheKey, null);
+    setAgentDefinitionCache(cacheKey, null);
     return null;
   }
   const definition = {
@@ -1377,7 +1416,7 @@ function loadAgentDefinition(dataDir, id) {
     frontmatter: legacyDoc.frontmatter,
     body: legacyDoc.body,
   };
-  agentDefinitionCache.set(cacheKey, definition);
+  setAgentDefinitionCache(cacheKey, definition);
   return definition;
 }
 
@@ -1778,6 +1817,15 @@ function toolSearchRank(row, query) {
     score += 100;
     reasons.push('exact-alias');
   }
+  // Stop-word-only queries (e.g. "tool", "to") have zero meaningful tokens.
+  // Without an exact name/alias hit, they must not fall through to the raw
+  // substring/haystack checks below — every row description likely contains
+  // "tool" somewhere, producing a noisy pseudo-match list instead of "no
+  // results". Exact name/alias matches stay intact even when the name is
+  // itself a stop word.
+  if (!queryTokens.length && !reasons.length) {
+    return { score: 0, reasons: [] };
+  }
   if (haystack.includes(raw)) {
     score += 34;
     reasons.push('phrase');
@@ -1839,10 +1887,58 @@ function rankedToolSearchRows(rows, query) {
     });
 }
 
+function isAsciiWordChar(ch) {
+  return !!ch && /[A-Za-z0-9]/.test(ch);
+}
+
+// Matches `phrase` inside `text` at a word boundary. ASCII letters/digits on
+// either side of the match block it (so "webhook" does not match "web" and
+// "prune" does not match "run"); non-ASCII characters (e.g. Korean, where
+// words are not space-separated) never count as word chars, so Korean
+// substring phrases keep matching as before.
+function phraseMatchesAsWords(text, phrase) {
+  if (!phrase) return false;
+  let idx = text.indexOf(phrase);
+  while (idx !== -1) {
+    const before = idx > 0 ? text[idx - 1] : '';
+    const after = idx + phrase.length < text.length ? text[idx + phrase.length] : '';
+    if (!isAsciiWordChar(before) && !isAsciiWordChar(after)) return true;
+    idx = text.indexOf(phrase, idx + 1);
+  }
+  return false;
+}
+
 function queryHasAnyPhrase(query, phrases) {
   const text = clean(query).toLowerCase().replace(/[_-]+/g, ' ');
-  return phrases.some((phrase) => text.includes(phrase));
+  return phrases.some((phrase) => phraseMatchesAsWords(text, phrase));
 }
+
+const TOOL_SEARCH_AUTO_CATEGORY_BRANCHES = [
+  {
+    names: ['memory'],
+    phrases: ['save memory', 'store memory', 'delete memory', 'forget memory', 'memory status', '기억 저장', '메모리 저장'],
+  },
+  {
+    names: ['shell', 'task'],
+    phrases: ['run', 'execute', 'test', 'tests', 'build', 'terminal', 'command', 'powershell', 'bash', 'shell', 'npm', 'node', 'git', '실행', '테스트', '빌드', '터미널', '쉘'],
+  },
+  {
+    names: ['search', 'web_fetch'],
+    phrases: ['web', 'internet', 'online', 'current info', 'latest', 'news', 'browse', 'docs', 'documentation', '웹', '인터넷', '최신', '뉴스', '문서'],
+  },
+  {
+    names: ['recall'],
+    phrases: ['recall', 'remember', 'memory previous', 'previous', 'history', 'past', 'prior', 'earlier', 'resume', '이전', '기억', '히스토리'],
+  },
+  {
+    names: ['agent'],
+    phrases: ['delegate', 'subagent', 'worker', 'parallel agent', 'background agent', 'reviewer', 'explorer', '에이전트', '워커', '병렬'],
+  },
+  {
+    names: ['cwd'],
+    phrases: ['working directory', 'project root', 'current directory', 'cwd'],
+  },
+];
 
 function autoToolSelectionNames(query, rows) {
   const raw = clean(query).toLowerCase();
@@ -1850,24 +1946,14 @@ function autoToolSelectionNames(query, rows) {
   if (TOOL_SEARCH_SAFE_AUTO_ALIASES.has(raw) && DEFERRED_SELECT_ALIASES[raw]) {
     return DEFERRED_SELECT_ALIASES[raw];
   }
-  if (queryHasAnyPhrase(raw, ['save memory', 'store memory', 'delete memory', 'forget memory', 'memory status', '기억 저장', '메모리 저장'])) {
-    return ['memory'];
-  }
-  if (queryHasAnyPhrase(raw, ['run', 'execute', 'test', 'tests', 'build', 'terminal', 'command', 'powershell', 'bash', 'shell', 'npm', 'node', 'git', '실행', '테스트', '빌드', '터미널', '쉘'])) {
-    return ['shell', 'task'];
-  }
-  if (queryHasAnyPhrase(raw, ['web', 'internet', 'online', 'current info', 'latest', 'news', 'browse', 'docs', 'documentation', '웹', '인터넷', '최신', '뉴스', '문서'])) {
-    return ['search', 'web_fetch'];
-  }
-  if (queryHasAnyPhrase(raw, ['recall', 'remember', 'memory previous', 'previous', 'history', 'past', 'prior', 'earlier', 'resume', '이전', '기억', '히스토리'])) {
-    return ['recall'];
-  }
-  if (queryHasAnyPhrase(raw, ['delegate', 'subagent', 'worker', 'parallel agent', 'background agent', 'reviewer', 'explorer', '에이전트', '워커', '병렬'])) {
-    return ['agent'];
-  }
-  if (queryHasAnyPhrase(raw, ['working directory', 'project root', 'current directory', 'cwd'])) {
-    return ['cwd'];
-  }
+  const matchedBranches = TOOL_SEARCH_AUTO_CATEGORY_BRANCHES.filter((branch) =>
+    queryHasAnyPhrase(raw, branch.phrases)
+  );
+  if (matchedBranches.length === 1) return matchedBranches[0].names;
+  // Ambiguous (0 or 2+ category branches matched): never auto-load a
+  // category's tools off a possibly-wrong guess. Fall through to the ranked
+  // exact-name/alias path below; that path returns [] on its own when there
+  // is no exact match, so an ambiguous query still safely resolves to [].
   const ranked = rankedToolSearchRows(rows, raw);
   const top = ranked[0];
   if (!top) return [];
@@ -2881,6 +2967,11 @@ export async function createMixdogSessionRuntime({
         }
       } catch {}
     }
+    // CwdChanged: bridge an effective cwd switch to the standard hook bus.
+    // No matcher event — payload is minimal { cwd }. Fire-and-forget.
+    if (changed) {
+      try { void hooks.dispatch('CwdChanged', hookCommonPayload({ cwd: currentCwd })); } catch {}
+    }
     return currentCwd;
   }
 
@@ -2964,7 +3055,8 @@ export async function createMixdogSessionRuntime({
         mcpScript: mcpScriptForPlugin(root),
       };
       plugin.mcpServerName = pluginMcpServerName(plugin);
-      plugin.mcpEnabled = Object.prototype.hasOwnProperty.call(configuredMcp, plugin.mcpServerName);
+      plugin.mcpEnabled = Object.prototype.hasOwnProperty.call(configuredMcp, plugin.mcpServerName)
+        || Object.keys(configuredMcp).some((k) => k.startsWith(`${plugin.mcpServerName}--`));
       plugins.push(plugin);
     };
 
@@ -2986,17 +3078,18 @@ export async function createMixdogSessionRuntime({
   }
 
   // Merge mixdog-config `agent.mcpServers` with project-local `.mcp.json`.
-  // On name collision the mixdog-config entry WINS. `sources[name]` records
-  // each server's origin ('config' | 'project') for status reporting.
+  // On name collision the project-local `.mcp.json` entry WINS (Claude Code
+  // precedence: project > user config). `sources[name]` records each server's
+  // origin ('config' | 'project') for status reporting.
   function resolveEffectiveMcpServers() {
     const configured = config?.mcpServers && typeof config.mcpServers === 'object'
       ? config.mcpServers
       : {};
     const project = readProjectMcpServers(currentCwd);
-    const servers = { ...project, ...configured };
+    const servers = { ...configured, ...project };
     const sources = {};
-    for (const name of Object.keys(project)) sources[name] = 'project';
     for (const name of Object.keys(configured)) sources[name] = 'config';
+    for (const name of Object.keys(project)) sources[name] = 'project';
     return { servers, sources };
   }
 
@@ -3100,6 +3193,18 @@ export async function createMixdogSessionRuntime({
     mgr,
     dataDir: cfgMod.getPluginData(),
     cwd,
+    // SubagentStart/SubagentStop: bridge internal worker spawn/finish to the
+    // standard hook bus. agent_type is passed top-level via hookCommonPayload
+    // (added to hook-bus buildEventPayload passthrough). Best-effort.
+    onSubagentEvent: (phase, info = {}) => {
+      try {
+        const event = phase === 'stop' ? 'SubagentStop' : 'SubagentStart';
+        void hooks.dispatch(event, hookCommonPayload({
+          session_id: info?.session_id || null,
+          agent_type: info?.agent_type || null,
+        }));
+      } catch { /* best-effort: subagent hook must never affect worker lifecycle */ }
+    },
   });
   bootProfile('agent:ready', { ms: (performance.now() - agentToolStartedAt).toFixed(1) });
   const agentStatusState = () => {
@@ -3308,6 +3413,58 @@ export async function createMixdogSessionRuntime({
   let pendingConfigToSave = null;
   let configSaveTimer = null;
   const CONFIG_SAVE_DEBOUNCE_MS = 150;
+  // Same debounce pattern as saveConfigAndAdopt below, but for the channels-
+  // section backend switch: channel-admin's setBackend() does a synchronous
+  // file-locked read-modify-write (updateChannelsSection), which is a
+  // secondary hitch source on the settings-toggle key handler. Coalesce
+  // rapid toggles and move the write off the key-handler tick.
+  let pendingBackendName = null;
+  let backendSaveTimer = null;
+  function flushBackendSave() {
+    if (backendSaveTimer) {
+      clearTimeout(backendSaveTimer);
+      backendSaveTimer = null;
+    }
+    if (pendingBackendName === null) return;
+    const name = pendingBackendName;
+    pendingBackendName = null;
+    try {
+      setBackend(name);
+    } catch (err) {
+      process.stderr.write(`[channels] debounced setBackend failed: ${err?.message || err}\n`);
+    }
+  }
+  // Debounced persist for the top-level `outputStyle` config key. This CANNOT
+  // ride saveConfigAndAdopt/flushConfigSave: cfgMod.saveConfig() serializes
+  // ONLY the agent-section fields (see orchestrator config.mjs saveConfig),
+  // so a top-level outputStyle adopted in memory would never reach disk and
+  // would silently revert on the next fresh catalog read/restart. Persist it
+  // through sharedCfgMod.updateConfig (whole-root RMW under the same file
+  // lock), debounced off the key-handler tick like the backend switch above.
+  let pendingOutputStyleId = null;
+  let outputStyleSaveTimer = null;
+  function flushOutputStyleSave() {
+    if (outputStyleSaveTimer) {
+      clearTimeout(outputStyleSaveTimer);
+      outputStyleSaveTimer = null;
+    }
+    if (pendingOutputStyleId === null) return;
+    const styleId = pendingOutputStyleId;
+    pendingOutputStyleId = null;
+    try {
+      sharedCfgMod.updateConfig((root) => {
+        const next = { ...(root || {}), outputStyle: styleId };
+        if (next.agent && typeof next.agent === 'object' && !Array.isArray(next.agent)) {
+          const agent = { ...next.agent };
+          delete agent.outputStyle;
+          next.agent = agent;
+        }
+        return next;
+      });
+    } catch (err) {
+      process.stderr.write(`[config] debounced outputStyle save failed: ${err?.message || err}\n`);
+    }
+  }
   function flushConfigSave() {
     if (configSaveTimer) {
       clearTimeout(configSaveTimer);
@@ -4022,11 +4179,61 @@ function parsedProviderModelVersion(id) {
         configurable: true,
         writable: true,
       });
+      // PostToolUseFailure: dispatched by loop.mjs only when a tool execution
+      // resolved to a failure (thrown-error path or an is_error result). Same
+      // shape as afterToolHook; `result` carries the error text. Best-effort.
+      Object.defineProperty(session, 'afterToolFailureHook', {
+        value: (input) => hooks.dispatch('PostToolUseFailure', hookCommonPayload({
+          session_id: input?.sessionId || input?.session_id || session?.id,
+          cwd: input?.cwd || currentCwd,
+          tool_name: input?.name,
+          tool_input: input?.args,
+          tool_use_id: input?.toolCallId || input?.tool_use_id,
+          tool_response: input?.result,
+        })),
+        enumerable: false,
+        configurable: true,
+        writable: true,
+      });
+      // PostToolBatch: dispatched by loop.mjs after a full parallel batch of
+      // tool calls resolves and before the next model call. No matcher event.
+      Object.defineProperty(session, 'afterToolBatchHook', {
+        value: (input) => hooks.dispatch('PostToolBatch', hookCommonPayload({
+          session_id: input?.sessionId || input?.session_id || session?.id,
+          cwd: input?.cwd || currentCwd,
+        })),
+        enumerable: false,
+        configurable: true,
+        writable: true,
+      });
+      // PreCompact / PostCompact: dispatched by manager.mjs/loop.mjs compaction
+      // flow via these session-property hooks (manager has no hooks bus access).
+      // payload { trigger: 'auto' | 'manual' }. Best-effort.
+      Object.defineProperty(session, 'preCompactHook', {
+        value: (input) => hooks.dispatch('PreCompact', hookCommonPayload({
+          session_id: input?.sessionId || input?.session_id || session?.id,
+          cwd: input?.cwd || currentCwd,
+          trigger: input?.trigger || 'auto',
+        })),
+        enumerable: false,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(session, 'postCompactHook', {
+        value: (input) => hooks.dispatch('PostCompact', hookCommonPayload({
+          session_id: input?.sessionId || input?.session_id || session?.id,
+          cwd: input?.cwd || currentCwd,
+          trigger: input?.trigger || 'auto',
+        })),
+        enumerable: false,
+        configurable: true,
+        writable: true,
+      });
       applyDeferredToolSurface(session, deferredSurfaceModeForLead(mode), standaloneTools, { provider: route.provider });
       applyPreSessionToolSelection();
       writeStatuslineRoute(statusRoutes, session, route);
       hooks.emit('session:create', { sessionId: session.id, provider: route.provider, model: route.model, toolMode: mode, cwd: currentCwd });
-      // SessionStart: bridge to the standard Claude Code hook bus. Best-effort;
+      // SessionStart: bridge to the standard project hook bus. Best-effort;
       // a hook error must never break session creation. additionalContext is
       // injected before the first user turn as a system-reminder context pair.
       try {
@@ -4266,6 +4473,10 @@ function parsedProviderModelVersion(id) {
   // boots the channel worker and contends for channel ownership.
   function startRemote() {
     remoteEnabled = true;
+    // A backend switch may still be sitting in its debounce window; flush it
+    // so the channel worker boots against the backend the user just chose,
+    // not the previous on-disk value.
+    try { flushBackendSave(); } catch {}
     if (envFlag('MIXDOG_DISABLE_CHANNEL_START')) {
       bootProfile('channels:start-skipped');
       return true;
@@ -4897,6 +5108,10 @@ function parsedProviderModelVersion(id) {
       return this.getOnboardingStatus();
     },
     getChannelSetup() {
+      // Flush a pending debounced backend switch first so setup readers
+      // (Settings → Channel Setting, remote toggles) never observe the
+      // previous backend during the 150ms debounce window.
+      try { flushBackendSave(); } catch {}
       return channelSetup();
     },
     getChannelWorkerStatus() {
@@ -4932,8 +5147,21 @@ function parsedProviderModelVersion(id) {
       return result;
     },
     setBackend(name) {
-      const result = setBackend(name);
-      return result;
+      // Validate synchronously (same contract as before: bad input throws on
+      // this call so the TUI's try/catch can react immediately). The actual
+      // channels-section file read-modify-write is the hitch source on the
+      // settings-toggle key handler, so defer it through the same debounce
+      // pattern as saveConfigAndAdopt/flushConfigSave instead of writing to
+      // disk synchronously inside the key handler.
+      const value = String(name || '').trim();
+      if (value !== 'discord' && value !== 'telegram') {
+        throw new Error('backend must be discord or telegram');
+      }
+      pendingBackendName = value;
+      if (backendSaveTimer) clearTimeout(backendSaveTimer);
+      backendSaveTimer = setTimeout(flushBackendSave, CONFIG_SAVE_DEBOUNCE_MS);
+      backendSaveTimer.unref?.();
+      return { ok: true, backend: value };
     },
     saveWebhookAuthtoken(token) {
       const result = saveWebhookAuthtoken(token);
@@ -5043,6 +5271,12 @@ function parsedProviderModelVersion(id) {
     },
     saveOpenCodeGoUsageAuth(opts) {
       const result = saveOpenCodeGoUsageAuth(cfgMod, opts);
+      reloadFullConfig();
+      invalidateProviderCaches();
+      return result;
+    },
+    async loginOpenCodeGoUsage() {
+      const result = await loginOpenCodeGoUsage(cfgMod);
       reloadFullConfig();
       invalidateProviderCaches();
       return result;
@@ -5157,26 +5391,51 @@ function parsedProviderModelVersion(id) {
         const names = before.styles.map((style) => style.label || style.id).join(', ') || 'Default';
         throw new Error(`output style must be one of ${names}`);
       }
-      if (typeof sharedCfgMod.updateConfig !== 'function') throw new Error('output style config writer unavailable');
-      sharedCfgMod.updateConfig((root) => {
-        const next = { ...(root || {}), outputStyle: selected.id };
-        if (next.agent && typeof next.agent === 'object' && !Array.isArray(next.agent)) {
-          const agent = { ...next.agent };
-          delete agent.outputStyle;
-          next.agent = agent;
-        }
-        return next;
-      });
-      invalidateOutputStyleStatusCache();
+      // Adopt in-memory immediately so same-tick readers see the new style;
+      // persist off the key-handler tick. NOTE: the disk write goes through
+      // the dedicated flushOutputStyleSave debounce (sharedCfgMod whole-root
+      // RMW) — cfgMod.saveConfig only serializes agent-section fields and
+      // would drop the top-level outputStyle key.
+      const nextConfig = { ...config, outputStyle: selected.id };
+      if (nextConfig.agent && typeof nextConfig.agent === 'object' && !Array.isArray(nextConfig.agent)) {
+        const agent = { ...nextConfig.agent };
+        delete agent.outputStyle;
+        nextConfig.agent = agent;
+      }
+      adoptConfig(nextConfig);
+      pendingOutputStyleId = selected.id;
+      if (outputStyleSaveTimer) clearTimeout(outputStyleSaveTimer);
+      outputStyleSaveTimer = setTimeout(flushOutputStyleSave, CONFIG_SAVE_DEBOUNCE_MS);
+      outputStyleSaveTimer.unref?.();
+      // Reuse the catalog already scanned above for `before` instead of a
+      // second forced-fresh filesystem scan; refresh the status cache
+      // in-memory (short TTL, same as getOutputStyleStatusCached) so reads
+      // during the debounce window see the just-selected style.
+      const freshStatus = { configured: selected.id, current: selected, styles: before.styles };
+      outputStyleStatusCache = freshStatus;
+      outputStyleStatusCacheAt = performance.now();
+      outputStyleStatusCacheDir = resolve(cfgMod.getPluginData?.() || STANDALONE_DATA_DIR);
       const hasConversation = sessionHasConversationMessages(session);
       let appliedToCurrentSession = !hasConversation;
       if (session?.id && !hasConversation) {
-        mgr.closeSession(session.id, 'cli-output-style-switch');
+        const closedSessionId = session.id;
+        mgr.closeSession(closedSessionId, 'cli-output-style-switch');
         session = null;
-        await recreateCurrentSessionIfReady();
+        // Defer the recreate so the output-style picker can repaint first;
+        // any failure still surfaces via the existing notice path.
+        setTimeout(() => {
+          recreateCurrentSessionIfReady().catch((err) => {
+            try {
+              notifyFnForSession(closedSessionId)(
+                `Failed to start a new session after output style change: ${err?.message || err}`,
+                { level: 'error' },
+              );
+            } catch {}
+          });
+        }, 0);
       }
       invalidateContextStatusCache();
-      return { ...getOutputStyleStatusCached({ fresh: true }), appliedToCurrentSession };
+      return { ...freshStatus, appliedToCurrentSession };
     },
     async setWorkflow(workflowId) {
       const id = normalizeWorkflowId(workflowId, DEFAULT_WORKFLOW_ID);
@@ -5389,6 +5648,18 @@ function parsedProviderModelVersion(id) {
         return { result, session };
       } catch (error) {
         hooks.emit('turn:error', { sessionId: session?.id || null, elapsedMs: Date.now() - startedAt, error: error?.message || String(error) });
+        // StopFailure: bridge a turn error to the standard hook bus. Spec:
+        // output + exit code ignored, so pure fire-and-forget. error_type is a
+        // simple regex mapping from the error message (default 'unknown').
+        try {
+          const msg = String(error?.message || error || '').toLowerCase();
+          const errorType = /rate.?limit|429|too many requests/.test(msg) ? 'rate_limit'
+            : /overloaded|529/.test(msg) ? 'overloaded'
+            : /authenticat|unauthorized|401|invalid.*api.?key/.test(msg) ? 'authentication_failed'
+            : /server.?error|5\d\d|internal error/.test(msg) ? 'server_error'
+            : 'unknown';
+          void hooks.dispatch('StopFailure', hookCommonPayload({ session_id: session?.id || null, error_type: errorType }));
+        } catch { /* best-effort: StopFailure hook must never break teardown */ }
         throw error;
       } finally {
         activeTurnCount = Math.max(0, activeTurnCount - 1);
@@ -5415,7 +5686,14 @@ function parsedProviderModelVersion(id) {
       if (activeTurnCount > 0) {
         return { changed: false, reason: 'compact skipped: turn in progress' };
       }
+      // Manual compact bypasses loop.mjs, so its PreCompact/PostCompact never
+      // fire here — dispatch them explicitly via the session-property hooks
+      // (wired at session create). Best-effort; a hook must not block compaction.
+      try { await session.preCompactHook?.({ trigger: 'manual' }); }
+      catch { /* best-effort: PreCompact hook must never break manual compact */ }
       const result = await mgr.compactSessionMessages(session.id);
+      try { await session.postCompactHook?.({ trigger: 'manual' }); }
+      catch { /* best-effort: PostCompact hook must never break manual compact */ }
       session = mgr.getSession(session.id) || session;
       if (options.recoverAgent === true) {
         try { agentTool.recoverWorkers?.({ clientHostPid: session?.clientHostPid || process.pid }); } catch {}
@@ -5587,9 +5865,15 @@ function parsedProviderModelVersion(id) {
       const removed = registryRemovePlugin(key, { dataDir });
       const nextConfig = { ...config };
       const serverName = pluginMcpServerName(plugin);
-      if (nextConfig.mcpServers && Object.prototype.hasOwnProperty.call(nextConfig.mcpServers, serverName)) {
+      const prefix = `${serverName}--`;
+      const hasMatch = nextConfig.mcpServers && Object.keys(nextConfig.mcpServers).some(
+        (k) => k === serverName || k.startsWith(prefix)
+      );
+      if (hasMatch) {
         const current = { ...nextConfig.mcpServers };
-        delete current[serverName];
+        for (const k of Object.keys(current)) {
+          if (k === serverName || k.startsWith(prefix)) delete current[k];
+        }
         saveConfigAndAdopt({ ...nextConfig, mcpServers: current });
         await connectConfiguredMcp({ reset: true });
         invalidatePreSessionToolSurface();
@@ -5602,22 +5886,50 @@ function parsedProviderModelVersion(id) {
       const root = clean(plugin.root);
       const script = clean(plugin.mcpScript);
       if (!root || !script) throw new Error('plugin has no MCP script');
-      const scriptPath = join(root, script);
-      if (!existsSync(scriptPath)) throw new Error(`plugin MCP script not found: ${scriptPath}`);
       const serverName = pluginMcpServerName(plugin);
       const nextConfig = { ...config };
-      nextConfig.mcpServers = {
-        ...(nextConfig.mcpServers || {}),
-        [serverName]: {
-          command: 'node',
-          args: [scriptPath],
-          cwd: root,
-          env: {
+      if (script === '.mcp.json') {
+        const mcpJsonPath = join(root, script);
+        if (!existsSync(mcpJsonPath)) throw new Error(`plugin MCP manifest not found: ${mcpJsonPath}`);
+        const manifest = readJsonSafe(mcpJsonPath) || {};
+        const rawServers = manifest.mcpServers;
+        const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+        if (!isPlainObject(rawServers)) throw new Error(`plugin .mcp.json missing mcpServers object: ${mcpJsonPath}`);
+        const keys = Object.keys(rawServers).filter((k) => isPlainObject(rawServers[k]));
+        if (!keys.length) throw new Error(`plugin .mcp.json has no mcpServers: ${mcpJsonPath}`);
+        const ownedPrefix = `${serverName}--`;
+        const nextServers = {};
+        for (const [k, v] of Object.entries(nextConfig.mcpServers || {})) {
+          if (k === serverName || k.startsWith(ownedPrefix)) continue;
+          nextServers[k] = v;
+        }
+        for (const serverKey of keys) {
+          const cfg = normalizePluginMcpServerConfig(rawServers[serverKey], root);
+          cfg.env = {
+            ...(cfg.env || {}),
             MIXDOG_PLUGIN_ROOT: root,
             MIXDOG_PLUGIN_DATA: join(cfgMod.getPluginData?.() || STANDALONE_DATA_DIR, 'plugins', 'data', clean(plugin.id || plugin.name || serverName)),
+          };
+          const key = keys.length === 1 ? serverName : `${serverName}--${serverKey}`;
+          nextServers[key] = cfg;
+        }
+        nextConfig.mcpServers = nextServers;
+      } else {
+        const scriptPath = join(root, script);
+        if (!existsSync(scriptPath)) throw new Error(`plugin MCP script not found: ${scriptPath}`);
+        nextConfig.mcpServers = {
+          ...(nextConfig.mcpServers || {}),
+          [serverName]: {
+            command: 'node',
+            args: [scriptPath],
+            cwd: root,
+            env: {
+              MIXDOG_PLUGIN_ROOT: root,
+              MIXDOG_PLUGIN_DATA: join(cfgMod.getPluginData?.() || STANDALONE_DATA_DIR, 'plugins', 'data', clean(plugin.id || plugin.name || serverName)),
+            },
           },
-        },
-      };
+        };
+      }
       saveConfigAndAdopt(nextConfig);
       const status = await connectConfiguredMcp({ reset: true });
       invalidatePreSessionToolSurface();
@@ -5801,10 +6113,28 @@ function parsedProviderModelVersion(id) {
     async close(reason = 'cli-exit', options = {}) {
       const detach = options?.detach === true || options?.wait === false || options?.waitForExit === false;
       closeRequested = true;
+      // SessionEnd: bridge teardown to the standard hook bus. reason mapped to
+      // standard values ('clear'/'exit' where applicable, else 'other'). Short
+      // await guard so a slow hook cannot wedge teardown; best-effort.
+      try {
+        const rl = String(reason || '').toLowerCase();
+        const endReason = /clear/.test(rl) ? 'clear'
+          : /exit|quit|cli-exit|shutdown|sigint|sigterm/.test(rl) ? 'exit'
+          : 'other';
+        if (session?.id) {
+          await withTeardownDeadline(
+            Promise.resolve(hooks.dispatch('SessionEnd', hookCommonPayload({ session_id: session.id, reason: endReason }))).catch(() => {}),
+            300,
+            undefined,
+          );
+        }
+      } catch { /* best-effort: SessionEnd hook must never wedge teardown */ }
       // Persist any change that is still sitting in the debounce window so a
       // toggle made right before exit is not lost. Synchronous + best-effort:
       // teardown must continue even if the final write fails.
       try { flushConfigSave(); } catch {}
+      try { flushBackendSave(); } catch {}
+      try { flushOutputStyleSave(); } catch {}
       if (channelStartTimer) {
         clearTimeout(channelStartTimer);
         channelStartTimer = null;

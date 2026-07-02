@@ -1,5 +1,4 @@
-// Per-tool live-status message builder (ported from a reference agent's progress
-// generalization / getActivityDescription). Dependency-light and
+// Per-tool live-status message builder. Dependency-light and
 // side-effect-free: given a tool name + its raw args, return a short
 // human-readable "what's happening now" string. Used by the central dispatch
 // path to emit a single start-of-tool progress notification. Every tool gets a

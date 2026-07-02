@@ -35,8 +35,8 @@ export const basePalette = {
   // Picker/list focus row. This is intentionally stronger than text selection.
   selectionText: 'rgb(230,238,255)', // readable on selectionBackground
   selectionBackground: 'rgb(38,79,120)', // classic dark-mode selection blue
-  // Mouse/drag text-selection overlay. Claude Code keeps this role separate:
-  // it replaces the cell background while text remains copy-highlight readable.
+  // Mouse/drag text-selection overlay: a separate role from selectionBackground
+  // so it replaces the cell background while text remains copy-highlight readable.
   selectionHighlightText: 'rgb(255,255,255)',
   selectionHighlightBackground: 'rgb(38,79,120)',
   inactive: 'rgb(132,139,152)', // light_grey

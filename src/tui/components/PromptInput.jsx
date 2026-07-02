@@ -53,6 +53,26 @@ function hintStyle(tone) {
 // paddingX of 1, so the typing start can sit directly against that padding
 // without an extra guard column.
 const IME_LEFT_GUARD_COLUMNS = 0;
+
+// Monotone voice indicator glyphs — right end of the prompt box. All frames
+// are 1-cell-wide (no emoji, no string-width special-casing needed). Modes:
+//   'off'          — voice disabled and no install in flight: renders nothing,
+//                    zero reserved columns.
+//   'installing'   — voice-runtime download in progress (progressHint active):
+//                    braille spinner only.
+//   'idle'         — voice enabled, recorder idle: a slow "breathing" pulse
+//                    (◎ ◍ ◉ ◍) so the indicator isn't a dead static glyph.
+//   'recording'    — steady ◉ + a braille spinner riding next to it (2 cells).
+//   'transcribing' — braille spinner only (recording just stopped, awaiting
+//                    the whisper-server round-trip).
+// A single ~120ms interval drives BOTH the fast braille cycle and the slower
+// idle pulse (idle advances one frame every VOICE_IDLE_FRAME_TICKS ticks) —
+// one timer instead of two, and it only exists while the indicator is
+// visible (mode !== 'off'); it's torn down otherwise, never a permanent timer.
+const VOICE_BRAILLE_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧'];
+const VOICE_IDLE_FRAMES = ['◎', '◍', '◉', '◍'];
+const VOICE_TICK_MS = 120;
+const VOICE_IDLE_FRAME_TICKS = 5; // ~600ms per idle frame (5 * 120ms)
 // Coalesce prompt mouse-drag extend commits (SGR motion can fire faster than ink
 // needs to immediate-render). Matches transcript selection paint cadence.
 const MOUSE_EXTEND_COALESCE_MS = 24;
@@ -151,6 +171,7 @@ export function PromptInput({
   onHistoryNavigate,
   onPasteText,
   onVoiceToggle,
+  voiceIndicatorMode = 'off',
   selectionRef,
   valueRef,
   boxRectRef,
@@ -173,8 +194,26 @@ export function PromptInput({
   const boxRef = useRef(null);
   const cursorEnabledRef = useRef(false); // latest enabled state, read by the anchor fn at render time
   const contentWidthRef = useRef(80);
+  // Cells reserved on the right for the voice indicator glyph(s) (0 when
+  // hidden, 1 idle/spinner-only, 2 recording's "◉"+braille). Read by the
+  // cursor-anchor closure below (installed ONCE, so it must read live state
+  // via a ref rather than close over a render-local variable) to keep the
+  // caret/wrap math in sync with the actual reserved column, same pattern as
+  // IME_LEFT_GUARD_COLUMNS on the left edge.
+  const voiceIndicatorWidthRef = useRef(0);
   const preferredColumnRef = useRef(null);
   const mouseExtendCoalesceRef = useRef({ pendingNext: null, timer: null, t: 0 });
+  // Voice indicator animation tick. Runs a single ~120ms interval ONLY while
+  // voiceIndicatorMode !== 'off' (installing/idle/recording/transcribing) —
+  // torn down the instant the mode goes 'off', so no permanent timer exists
+  // when voice is disabled and no install is in flight.
+  const [voiceTick, setVoiceTick] = useState(0);
+  useEffect(() => {
+    if (voiceIndicatorMode === 'off') return undefined;
+    const timer = setInterval(() => setVoiceTick((t) => (t + 1) % 1000000), VOICE_TICK_MS);
+    timer.unref?.();
+    return () => clearInterval(timer);
+  }, [voiceIndicatorMode]);
   // Undo/redo snapshot stack. Each entry is a { value, cursor, selectionAnchor }
   // draft snapshot. Continuous typing coalesces (see UNDO_COALESCE_MS) so a run
   // of characters collapses into one undo step; cursor-only moves are NOT
@@ -256,10 +295,19 @@ export function PromptInput({
       const d = draftRef.current;
       const w = yogaNode?.getComputedWidth?.() ?? 0;
       const guardColumns = w > IME_LEFT_GUARD_COLUMNS ? IME_LEFT_GUARD_COLUMNS : 0;
-      const contentWidth = Math.max(1, (w ? w - guardColumns : contentWidthRef.current) || 80);
+      // Reserve the voice-indicator's own cells (+1 gap column when visible)
+      // out of the SAME width the caret/wrap math uses, mirroring the left
+      // guard above — otherwise a visible indicator would silently overlap
+      // the caret/typed text at the right edge instead of pushing content in.
+      const voiceReserve = voiceIndicatorWidthRef.current > 0 ? voiceIndicatorWidthRef.current + 1 : 0;
+      const contentWidth = Math.max(1, (w ? w - guardColumns - voiceReserve : contentWidthRef.current) || 80);
       contentWidthRef.current = contentWidth;
       const caret = w > 0
-        ? caretPosition(d.value, d.cursor, contentWidth)
+        // PromptInput renders a trailing space cell when the cursor is at
+        // end-of-input, so a caret flush on the last column there still has a
+        // following cell — pass hasTrailingContent=true so it rolls to row N+1
+        // exactly as ink wraps the trailing space.
+        ? caretPosition(d.value, d.cursor, contentWidth, d.cursor >= d.value.length ? true : undefined)
         : { row: 0, col: stringWidth(d.value.slice(0, d.cursor)) };
       return w > 0
         ? { ...caret, col: caret.col + guardColumns }
@@ -800,8 +848,8 @@ export function PromptInput({
         commitDraft({ value: '', cursor: 0, selectionAnchor: null });
         return;
       }
-      // Active turn takes precedence over queue restore (matches claude-code
-      // useCancelRequest priority): Esc during a running turn interrupts the
+      // Active turn takes precedence over queue restore: Esc during a
+      // running turn interrupts the
       // turn and leaves queued steering prompts intact to run afterward. Queued
       // messages only pop back into the draft when the turn is idle.
       if (interruptActive) {
@@ -1014,6 +1062,24 @@ export function PromptInput({
   const displayValue = mask ? value.replace(/[^\n]/g, '*') : value;
   const renderedValue = renderSelectedText(displayValue, selectionRange(draft), cursor === value.length);
   const hintMeta = hintStyle(hintTone);
+  // Monotone voice indicator glyph text — zero-width (rendered as null) when
+  // mode is 'off'. Braille frame drives installing/recording/transcribing;
+  // the idle pulse advances one frame every VOICE_IDLE_FRAME_TICKS ticks of
+  // the SAME interval (slower "breathing" cadence off one shared timer).
+  const voiceBrailleFrame = VOICE_BRAILLE_FRAMES[voiceTick % VOICE_BRAILLE_FRAMES.length];
+  const voiceIdleFrame = VOICE_IDLE_FRAMES[Math.floor(voiceTick / VOICE_IDLE_FRAME_TICKS) % VOICE_IDLE_FRAMES.length];
+  const voiceIndicatorText = voiceIndicatorMode === 'installing' || voiceIndicatorMode === 'transcribing'
+    ? voiceBrailleFrame
+    : voiceIndicatorMode === 'recording'
+      ? `◉${voiceBrailleFrame}`
+      : voiceIndicatorMode === 'idle'
+        ? voiceIdleFrame
+        : '';
+  // stringWidth is unnecessary here — every glyph above is a single
+  // 1-column codepoint (◎◍◉ and the braille frames), and 'recording'
+  // concatenates exactly two 1-cell glyphs, so plain .length gives the
+  // correct cell count without pulling in emoji-width special-casing.
+  voiceIndicatorWidthRef.current = voiceIndicatorText.length;
 
   return (
     <Box ref={boxRef} flexDirection="row" width="100%" flexGrow={1} flexShrink={1} backgroundColor={surfaceBackground()}>
@@ -1023,6 +1089,17 @@ export function PromptInput({
         <Box marginLeft={-1}>
           <Text color={hintMeta.textColor}>{hint}</Text>
         </Box>
+      ) : null}
+      {voiceIndicatorText ? (
+        <>
+          {/* flexGrow spacer pins the indicator to the RIGHT edge of the row
+              even when the typed text is short; without it the glyph would
+              ride directly after the caret instead of the box edge. */}
+          <Box flexGrow={1} backgroundColor={surfaceBackground()} />
+          <Box flexShrink={0} width={voiceIndicatorText.length + 1} justifyContent="flex-end" backgroundColor={surfaceBackground()}>
+            <Text color={theme.subtle}>{voiceIndicatorText}</Text>
+          </Box>
+        </>
       ) : null}
     </Box>
   );

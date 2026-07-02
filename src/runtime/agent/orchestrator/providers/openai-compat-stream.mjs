@@ -31,8 +31,7 @@ function truncatedCompatStreamError(label, detail) {
     );
 }
 
-// Invalid-tool-args marker. Native-provider convergence (openai-oauth /
-// opencode): completed-but-malformed tool_call arguments JSON must NOT throw
+// Invalid-tool-args marker: completed-but-malformed tool_call arguments JSON must NOT throw
 // (kills the turn) NOR be silently swallowed to `{}`. Instead the parse
 // failure is carried as data on the tool call's `arguments` slot so the
 // dispatch loop can turn it into an is_error tool_result and let the model
@@ -49,8 +48,7 @@ export function isInvalidToolArgsMarker(value) {
     return !!value && typeof value === 'object' && value.__invalidToolArgs === true;
 }
 /** Model-facing tool_result text for a tool call whose arguments failed to
- * parse. Mirrors opencode `The arguments provided to the tool are invalid` and
- * `failed to parse function arguments` — instructs an in-turn retry. */
+ * parse; instructs the model to retry with valid JSON in the same turn. */
 export function formatInvalidToolArgsResult(call) {
     const name = call?.name || 'tool';
     const detail = call?.arguments?.__parseError || 'arguments were not valid JSON';
@@ -85,9 +83,9 @@ export function parseCompletedToolCallArgumentsJson(raw, label, meta) {
         // Invariant: a completion/finish signal was observed for this tool call
         // (finish_reason present, or a per-call/response "done" event fired), so
         // the arguments are NOT mid-stream-truncated — they are complete but
-        // malformed. Native convergence: return an invalid-args MARKER (not a
-        // throw) so the dispatch loop feeds the parse error back to the model as
-        // a tool_result and the model self-corrects in the same turn. Only an
+        // malformed. Return an invalid-args MARKER (not a throw) so the
+        // dispatch loop feeds the parse error back to the model as a
+        // tool_result and the model self-corrects in the same turn. Only an
         // unfinished stream (no finishReason) stays the retryable truncation
         // case — that transient behavior is deliberately preserved.
         if (meta?.finishReason) {
@@ -406,7 +404,7 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
     } catch (err) {
         // Any mid-stream failure after live text was relayed is non-retryable.
         if (emittedText) throw markErrorLiveTextEmitted(err);
-        // Partial-final recovery parity: on a mid-stream stall, attach the
+        // Partial-final recovery: on a mid-stream stall, attach the
         // streamed partial state so the loop can accept a wedged FINAL no-tool
         // summary as partial-final success. pendingToolUse gates out any
         // in-flight/emitted tool call.
@@ -488,12 +486,15 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
         if (!item || item.type !== 'tool_search_call') return;
         const callId = item.call_id || item.id || '';
         if (!callId || state.toolCalls.some((call) => call.id === callId)) return;
+        const _tsArgs = item.arguments && typeof item.arguments === 'object' && !Array.isArray(item.arguments)
+            ? item.arguments
+            : parseCompletedToolCallArgumentsJson(item.arguments || '{}', label, { id: callId, name: 'tool_search', finishReason: 'done' });
         const call = {
             id: callId,
             name: 'tool_search',
-            arguments: item.arguments && typeof item.arguments === 'object'
-                ? item.arguments
-                : parseCompletedToolCallArgumentsJson(item.arguments || '{}', label, { id: callId, name: 'tool_search', finishReason: 'done' }),
+            // Schema is a plain object ({query,select,limit}); an array must
+            // never pass through as args.
+            arguments: (_tsArgs && typeof _tsArgs === 'object' && !Array.isArray(_tsArgs)) ? _tsArgs : {},
             nativeType: 'tool_search_call',
         };
         state.toolCalls.push(call);
@@ -532,6 +533,12 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
                 });
                 state.toolInFlight = true;
             } else if (event.item?.type === 'custom_tool_call') {
+                state.toolInFlight = true;
+            } else if (event.item?.type === 'tool_search_call') {
+                // Mark tool_search in-flight at item-added time, same as
+                // function_call/custom_tool_call above, so the stall-recovery
+                // pendingToolUse gate never drops a mid-flight tool_search
+                // before response.output_item.done pushes it.
                 state.toolInFlight = true;
             }
             try { onStreamDelta?.(); } catch {}
@@ -766,7 +773,7 @@ export async function consumeCompatResponsesStream(stream, {
         }
         flushLeak();
     } catch (err) {
-        // Partial-final recovery parity: attach streamed partial state so a
+        // Partial-final recovery: attach streamed partial state so a
         // wedged FINAL no-tool summary can be accepted as partial-final success.
         if (err?.streamStalled === true) {
             try {
