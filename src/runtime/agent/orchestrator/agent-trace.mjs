@@ -682,7 +682,17 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
     const resultLinesEst = typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0;
     const numericToolMs = Number(toolMs);
     const summarizedArgs = summarizeToolArgs(toolName, toolArgs);
-    const toolArgsHash = summarizedArgs ? hashTraceValue(summarizedArgs) : null;
+    // Hash the FULL args, not the summary: summaries drop payload fields
+    // (e.g. apply_patch keeps only base_path), which made every patch in a
+    // session collide to one hash and broke duplicate/retry detection.
+    const toolArgsHash = toolArgs && typeof toolArgs === 'object'
+        ? hashTraceValue(toolArgs)
+        : (summarizedArgs ? hashTraceValue(summarizedArgs) : null);
+    // Keep a short redacted error preview on the tool row itself so trace
+    // analysis can see WHY a call failed without joining the failure log.
+    const errorFirstLine = resultKind === 'error'
+        ? _firstNonEmptyLine(_redactLogText(String(resultText ?? ''))).slice(0, 200) || null
+        : null;
     // Flat shape — fields named exactly as the agent_calls PG columns so
     // insertAgentCalls can pick them up by direct property access without
     // a payload-unwrap step. result_kind has no column and rides as plain
@@ -700,6 +710,7 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
         tool_args_hash: toolArgsHash,
         tool_args_summary: summarizedArgs,
         result_kind: resultKind || null,
+        result_error_first_line: errorFirstLine,
         result_has_next_call: nextCallCount > 0,
         result_next_call_count: nextCallCount,
         result_bytes_est: resultBytesEst,
