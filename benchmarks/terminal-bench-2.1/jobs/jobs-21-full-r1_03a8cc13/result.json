@@ -1,0 +1,44 @@
+{
+    "id": "03a8cc13-3aa4-4e43-8764-7cbaff7522ee",
+    "started_at": "2026-07-05T19:18:39.665719",
+    "updated_at": "2026-07-05T10:22:37.773672Z",
+    "finished_at": null,
+    "n_total_trials": 89,
+    "stats": {
+        "n_completed_trials": 4,
+        "n_errored_trials": 0,
+        "n_running_trials": 8,
+        "n_pending_trials": 77,
+        "n_cancelled_trials": 0,
+        "n_retries": 0,
+        "evals": {
+            "mixdog__terminal-bench/terminal-bench-2-1": {
+                "n_trials": 4,
+                "n_errors": 0,
+                "metrics": [
+                    {
+                        "mean": 0.5
+                    }
+                ],
+                "pass_at_k": {},
+                "reward_stats": {
+                    "reward": {
+                        "0.0": [
+                            "dna-assembly__KjoCACQ",
+                            "write-compressor__TtgBLjN"
+                        ],
+                        "1.0": [
+                            "kv-store-grpc__TMeDcRL",
+                            "pypi-server__RyvkZZ4"
+                        ]
+                    }
+                },
+                "exception_stats": {}
+            }
+        },
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null
+    }
+}

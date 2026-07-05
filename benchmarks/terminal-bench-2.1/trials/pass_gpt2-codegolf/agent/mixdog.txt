@@ -1,0 +1,9 @@
+(node:5533) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_5533_1783253424775_1783253424951_108bd3151fbf2aa6410acf160c185c79
+3260 bytes, compiles clean. Testing against the known greedy reference continuation:Output matches the known GPT-2 124M greedy reference exactly (picoGPT's documented continuation for the Turing prompt). Quick timing and tokenizer edge check:Done. `/app/gpt2.c` (3,260 bytes, well under 5,000) compiles with `gcc -O3 -lm` and greedily generates 20 tokens in ~1.7s.
+
+- **Checkpoint reading**: the .ckpt is the raw TensorBundle payload — 124,439,808 float32s concatenated in lexicographic tensor-name order (h0,h1,h10,h11,h2…h9); offsets verified against ln_f gains ≈1.x before coding.
+- **Tokenizer**: full byte-level BPE from vocab.bpe alone — token IDs derived from merge rank (256+rank) plus the standard 256 byte-token ordering, so no encoder.json needed; hash-mapped pair ranks drive lowest-rank-first merging.
+- **Verified**: "Alan Turing theorized that computers would one day become" → " the most powerful machines on the planet.\n\nThe computer is a machine that can perform complex calculations" — byte-exact match with the known GPT-2 124M greedy reference; contraction/number prompts tokenize and continue coherently.

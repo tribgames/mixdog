@@ -1,0 +1,11 @@
+(node:734) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_734_1783263469746_1783263469871_6e1a00b53cccf8be727ee7863a02c185
+Now let me check the ELF layout, the map file, and what tooling is available.mips-linux-gnu-objdump is available. Let me collect the exact instruction set used by the binary so the interpreter covers everything.Run completed cleanly. Now validating the saved frame:Done — `/app/vm.js` is a complete MIPS interpreter that boots DOOM end-to-end and saves rendered frames.
+
+**What it is:** a MIPS32r2 little-endian user-mode emulator in pure Node.js — ELF loader, full integer + FPU instruction coverage for this binary (incl. `lwl/lwr/swl/swr`, `mult/div` with exact 64-bit high words, `ext/ins/seb/seh/wsbh`, COP1 S/D/W ops), 1.09GB flat guest memory covering the binary's 1GB static heap, and a syscall layer matching the guest's custom stdlib convention (x86_64 numbers in `$v0`, args in `$a0-$a3,$t0,$t1`, negative-errno returns) with host-FS passthrough for read/write/open/close/lseek/fsync/rename/mkdir/unlink plus exit/time/gettimeofday/nanosleep.
+
+**Verified:** `node vm.js` boots the full DOOM init chain (Z_Init → W_Init picks up doom.wad → R_Init → I_InitGraphics 640×400) and writes each rendered frame to `/tmp/frame.bmp`; 129 frames saved in a ~60s run, with a `[vm] frame #N saved` log per frame. The first frame is a valid `BM` BMP — 640×400, 32bpp top-down, 54-byte offset, 126 distinct colors, zero black pixels — matching the title screen. Also confirmed it works from any cwd (doom.wad resolves against the script directory as fallback), and the multiply helpers were fuzz-tested against BigInt.
+
+**Behavior note:** the guest's main loop is infinite by design, so `node vm.js` keeps rendering and overwriting `/tmp/frame.bmp` one frame at a time until killed; guest `exit()` is honored if it ever fires.

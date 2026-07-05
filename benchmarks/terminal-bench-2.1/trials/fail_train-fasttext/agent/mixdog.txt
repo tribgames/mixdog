@@ -1,0 +1,10 @@
+(node:1119) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+[steer] sess=sess_1119_1783265570779_1783265570899_2fd923768e451dd484a543f18afcdc2d injected pre-send user message (merged=1 len=1032)
+models: ["claude-fable-5"]
+sessionId: sess_1119_1783265570779_1783265570899_2fd923768e451dd484a543f18afcdc2d
+While the build runs, I'll prepare the data conversion script.fasttext is installed and data is prepped (650k train / 10k test, 5-class Yelp full). Training now.Training is running (105M words, 384k vocab → ~95MB model, safely under 150MB). Waiting for completion.The model loads fine — that error is a known numpy 2.x incompatibility in the fasttext python wrapper's `predict` return path, not a model issue. Verifying predictions via the raw API:Done — `/app/model.bin` is trained and verified.
+
+- **Accuracy 0.6362** on the held-out 10k Yelp test split (`data/test-*.parquet`), above the 0.62 target.
+- **Size 103MB** (< 150MB), no quantization needed — fasttext supervised, dim=10, bigrams, 5 epochs, lr=0.5.
+- **Sanity-checked**: model loads and predicts correctly (`__label__4` for a glowing review, `__label__0` for a scathing one). Note the training data was lightly normalized (lowercased, punctuation padded), and predictions on raw text still behave correctly as shown.

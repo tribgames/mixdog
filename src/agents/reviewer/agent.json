@@ -1,0 +1,6 @@
+{
+  "id": "reviewer",
+  "name": "Reviewer",
+  "description": "Change review and risk finding.",
+  "entry": "AGENT.md"
+}

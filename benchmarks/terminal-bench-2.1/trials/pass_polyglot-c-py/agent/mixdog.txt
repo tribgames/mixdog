@@ -1,0 +1,9 @@
+(node:3354) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_3354_1783256615036_1783256615180_a9ab7c29a6542c784d3b00f9f012ea75
+Done — `/app/polyglot/main.py.c` works both ways and is verified.
+
+- **Trick**: `#if 0`/`#endif` hides the Python block from gcc, while a `'''` triple-quoted string (opened/closed inside C comments) hides the C code from Python; compiles warning-free.
+- **Verified**: both `python3 /app/polyglot/main.py.c N` and `gcc ... && /app/polyglot/cmain N` print identical results for N = 0,1,2,3,10,20,30 (0, 1, 1, 2, 55, 6765, 832040).
+- **Note**: the C path uses `long long`, so it's exact up to f(92); the Python path is arbitrary precision.

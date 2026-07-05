@@ -1,0 +1,8 @@
+(node:5507) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_5507_1783259747077_1783259747227_267a4af679b380f992c8bb3079cb7fb2
+Verifying the slot programmatically at minute granularity against all events and constraints:Done — `/app/meeting_scheduled.ics` created with the Team Planning Meeting on **Wednesday, Jan 17, 2024, 11:00–12:00 UTC**.
+
+- **Verified earliest**: a minute-granularity sweep over all five days confirms Mon/Tue have no valid 1-hour slot (only a 12:30–13:00 gap exists), making Wed 11:00 the global earliest; it also satisfies both tie-breakers (not Monday, Alice's morning window).
+- **All constraints hold**: ends by Alice's 14:00 cutoff, starts after Bob's 10:00 minimum, clears Carol's lunch and every existing VEVENT; input calendars were left untouched.

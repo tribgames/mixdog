@@ -1,0 +1,10 @@
+(node:3363) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+[steer] sess=sess_3363_1783261219167_1783261219362_c0716b43b99eb398ee545ea2e95addd1 injected pre-send user message (merged=1 len=1119)
+[steer] sess=sess_3363_1783261219167_1783261219362_c0716b43b99eb398ee545ea2e95addd1 injected pre-send user message (merged=1 len=1808)
+models: ["claude-fable-5"]
+sessionId: sess_3363_1783261219167_1783261219362_c0716b43b99eb398ee545ea2e95addd1
+Toolchain ready (Coq 8.17.1, menhir 20230608). Configuring and building CompCert for x86_64-linux:CompCert 3.13.1 caps at Coq 8.16.1 — downgrading Coq, then rebuilding:Build succeeded. Verifying `ccomp` end-to-end:**Done** — CompCert v3.13.1 built from source and fully functional at `/tmp/CompCert/ccomp`.
+
+- **Configuration**: target `x86_64-linux` matching the environment (Ubuntu 24.04, x86_64); toolchain installed via opam (OCaml 4.14.2, Coq 8.16.1, Menhir 20230608) since 3.13.1 rejects Coq ≥ 8.17.
+- **Verified**: source tree is tag `v3.13.1` (`git describe`), full proof + extraction build exited 0, runtime installed via `make install`, and `/tmp/CompCert/ccomp` compiled and linked a test program that ran correctly (`fib(10)=55`); `--version` reports "The CompCert C verified compiler, version 3.13".

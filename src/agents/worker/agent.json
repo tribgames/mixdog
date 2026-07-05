@@ -1,0 +1,6 @@
+{
+  "id": "worker",
+  "name": "Worker",
+  "description": "Scoped implementation.",
+  "entry": "AGENT.md"
+}

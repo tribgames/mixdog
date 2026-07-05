@@ -1,0 +1,26 @@
+{
+  "version": "0.7.18",
+  "_comment": "Rewritten by .github/workflows/graph-release.yml on each tagged release. assets maps platformKey (process.platform-process.arch, e.g. win32-x64, linux-x64, darwin-arm64) to { url, sha256 } of the mixdog-graph binary on the GitHub release. A local cargo build under native/mixdog-graph/target/release always takes precedence at runtime. (v0.5.236 entries were filled manually after CI's commit step hit detached HEAD; the workflow now checks out ref: main so future releases self-update.)",
+  "assets": {
+    "darwin-arm64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/v0.7.18/mixdog-graph-darwin-arm64",
+      "sha256": "34653a7cdf457295c4835fa9819627e9690c323b6012e6f571259478406bbe04"
+    },
+    "darwin-x64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/v0.7.18/mixdog-graph-darwin-x64",
+      "sha256": "1c0648ed8a1b9fd2d8bc44d85b91262cb11e0773d2280d6ec351ee1ff1c579f0"
+    },
+    "linux-arm64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/v0.7.18/mixdog-graph-linux-arm64",
+      "sha256": "71c9d69125b97e93466e5a5613c00db2d797c1f25cc4237e776225574c5f6970"
+    },
+    "linux-x64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/v0.7.18/mixdog-graph-linux-x64",
+      "sha256": "4800a7ac77b777ddb5862f252cdc00b55230455921e0c58416d7a77b120604a7"
+    },
+    "win32-x64": {
+      "url": "https://github.com/tribgames/mixdog/releases/download/v0.7.18/mixdog-graph-win32-x64.exe",
+      "sha256": "1d0d62f5b78965c7d5b05ebc7cf7bdef1a3e14cc2600aa205ca762e56c446934"
+    }
+  }
+}

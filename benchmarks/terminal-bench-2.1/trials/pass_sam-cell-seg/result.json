@@ -1,0 +1,115 @@
+{
+    "id": "da994618-c7e2-48f3-9095-f3b384ef5529",
+    "task_name": "terminal-bench/sam-cell-seg",
+    "trial_name": "sam-cell-seg__9pw6pqZ",
+    "trial_uri": "file:///C:/Project/mixdog/bench/harbor/jobs-21-refusal-opus/2026-07-05__22-05-35/sam-cell-seg__9pw6pqZ",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "sam-cell-seg",
+        "ref": "latest"
+    },
+    "source": null,
+    "task_checksum": "7ec5aad46e3ecdb169a65cf38392d4a87eb37ce0bf4acef3398dbd60af59b2f4",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/sam-cell-seg",
+            "ref": "latest",
+            "overwrite": false,
+            "download_dir": null,
+            "source": null
+        },
+        "trial_name": "sam-cell-seg__9pw6pqZ",
+        "trials_dir": "bench\\harbor\\jobs-21-refusal-opus\\2026-07-05__22-05-35",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "bench.harbor.mixdog_agent:MixdogAgent",
+            "model_name": "claude-opus-4-8",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "effort": "xhigh"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "b1ea8d40-9c64-414e-ae5c-9c64a24d47ef"
+    },
+    "agent_info": {
+        "name": "mixdog",
+        "version": "mixdog-0.9.18",
+        "model_info": {
+            "name": "claude-opus-4-8",
+            "provider": null
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-07-05T13:05:39.950863Z",
+    "finished_at": "2026-07-05T13:33:20.289368Z",
+    "environment_setup": {
+        "started_at": "2026-07-05T13:05:40.130298Z",
+        "finished_at": "2026-07-05T13:05:42.638692Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-07-05T13:05:42.638731Z",
+        "finished_at": "2026-07-05T13:06:37.891738Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-07-05T13:06:37.891889Z",
+        "finished_at": "2026-07-05T13:31:59.437010Z"
+    },
+    "verifier": {
+        "started_at": "2026-07-05T13:31:59.465756Z",
+        "finished_at": "2026-07-05T13:33:14.661282Z"
+    },
+    "step_results": null
+}

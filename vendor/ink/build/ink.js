@@ -1,0 +1,1351 @@
+import process from 'node:process';
+import React from 'react';
+import { throttle } from 'es-toolkit/compat';
+import ansiEscapes from 'ansi-escapes';
+import isInCi from 'is-in-ci';
+import autoBind from 'auto-bind';
+import signalExit from 'signal-exit';
+import patchConsole from 'patch-console';
+import { LegacyRoot, ConcurrentRoot } from 'react-reconciler/constants.js';
+import Yoga from 'yoga-layout';
+import wrapAnsi from 'wrap-ansi';
+import { getWindowSize } from './utils.js';
+import reconciler from './reconciler.js';
+import render from './renderer.js';
+import * as dom from './dom.js';
+import { hideCursorEscape, showCursorEscape } from './cursor-helpers.js';
+import logUpdate, { frameLog } from './log-update.js';
+import { bsu, esu, shouldSynchronize } from './write-synchronized.js';
+import instances from './instances.js';
+import App from './components/App.js';
+import { accessibilityContext as AccessibilityContext } from './components/AccessibilityContext.js';
+import { resolveFlags, } from './kitty-keyboard.js';
+const noop = () => { };
+const textEncoder = new TextEncoder();
+const yieldImmediate = async () => new Promise(resolve => {
+    setImmediate(resolve);
+});
+const kittyQueryEscapeByte = 0x1b;
+const kittyQueryOpenBracketByte = 0x5b;
+const kittyQueryQuestionMarkByte = 0x3f;
+const kittyQueryLetterByte = 0x75;
+const zeroByte = 0x30;
+const nineByte = 0x39;
+const isDigitByte = (byte) => byte >= zeroByte && byte <= nineByte;
+const matchKittyQueryResponse = (buffer, startIndex) => {
+    if (buffer[startIndex] !== kittyQueryEscapeByte ||
+        buffer[startIndex + 1] !== kittyQueryOpenBracketByte ||
+        buffer[startIndex + 2] !== kittyQueryQuestionMarkByte) {
+        return undefined;
+    }
+    let index = startIndex + 3;
+    const digitsStartIndex = index;
+    while (index < buffer.length && isDigitByte(buffer[index])) {
+        index++;
+    }
+    if (index === digitsStartIndex) {
+        return undefined;
+    }
+    if (index === buffer.length) {
+        return { state: 'partial' };
+    }
+    if (buffer[index] === kittyQueryLetterByte) {
+        return { state: 'complete', endIndex: index };
+    }
+    return undefined;
+};
+const hasCompleteKittyQueryResponse = (buffer) => {
+    for (let index = 0; index < buffer.length; index++) {
+        const match = matchKittyQueryResponse(buffer, index);
+        if (match?.state === 'complete') {
+            return true;
+        }
+    }
+    return false;
+};
+const stripKittyQueryResponsesAndTrailingPartial = (buffer) => {
+    const keptBytes = [];
+    let index = 0;
+    while (index < buffer.length) {
+        const match = matchKittyQueryResponse(buffer, index);
+        if (match?.state === 'complete') {
+            index = match.endIndex + 1;
+            continue;
+        }
+        if (match?.state === 'partial') {
+            break;
+        }
+        keptBytes.push(buffer[index]);
+        index++;
+    }
+    return keptBytes;
+};
+// Windows consoles scroll the buffer when the bottom-right cell is written,
+// unlike xterm-like terminals which defer the wrap. That extra scroll
+// desynchronizes the incremental erase used for frames that exactly fill the
+// viewport, leaving stale copies of previous frames behind (#969). Keep the
+// pre-7.0 behavior of fully clearing between fullscreen frames there.
+const isWindowsConsole = process.platform === 'win32' || Boolean(process.env.WT_SESSION);
+const shouldClearTerminalForFrame = ({ isTty, viewportRows, previousViewportRows, previousOutputHeight, nextOutputHeight, isUnmounting, }) => {
+    if (!isTty) {
+        return false;
+    }
+    const priorViewportRows = previousViewportRows ?? viewportRows;
+    const hadPreviousFrame = previousOutputHeight > 0;
+    const wasFullscreen = previousOutputHeight >= priorViewportRows;
+    const wasOverflowing = previousOutputHeight > priorViewportRows;
+    const isOverflowing = nextOutputHeight > viewportRows;
+    const isFullscreen = nextOutputHeight >= viewportRows;
+    const isLeavingFullscreen = wasFullscreen && nextOutputHeight < viewportRows;
+    // [mixdog fork] A frame that SHRINKS by more than a line while at/over the
+    // viewport can leave stale wrapped rows below the new content on ANY
+    // terminal (not just Windows) — the incremental erase only clears the exact
+    // delta and a hardware wrap can desync it by a cell. Force a full clear on a
+    // meaningful height shrink near/at the viewport edge, cross-platform.
+    const isShrinkingAtViewport = hadPreviousFrame &&
+        nextOutputHeight < previousOutputHeight &&
+        (wasFullscreen || isFullscreen || wasOverflowing || isOverflowing);
+    const shouldClearOnUnmount = isUnmounting && wasFullscreen;
+    // [jitter fix] Do not full-clear EVERY fullscreen frame on Windows consoles:
+    // that repaint-from-scratch caused visible vertical jitter. A full clear is
+    // only needed when the geometry actually changes — the viewport was resized
+    // (viewportRows differs from the previous frame) or the output height
+    // shrank at/over the viewport (stale wrapped rows possible). Otherwise
+    // repaint in place via the incremental erase path.
+    const viewportResized = previousViewportRows != null && previousViewportRows !== viewportRows;
+    if (isWindowsConsole && (wasFullscreen || isFullscreen) &&
+        (viewportResized || isShrinkingAtViewport || isLeavingFullscreen)) {
+        return true;
+    }
+    return (
+    // Overflowing frames still need full clear fallback.
+    wasOverflowing ||
+        (isOverflowing && hadPreviousFrame) ||
+        // Clear when shrinking from fullscreen to non-fullscreen output.
+        isLeavingFullscreen ||
+        // Clear on any height shrink at/over the viewport (cross-platform).
+        isShrinkingAtViewport ||
+        // Preserve legacy unmount behavior for fullscreen frames: final teardown
+        // render should clear once to avoid leaving a scrolled viewport state.
+        shouldClearOnUnmount);
+};
+const isErrorInput = (value) => {
+    return (value instanceof Error ||
+        Object.prototype.toString.call(value) === '[object Error]');
+};
+const getWritableStreamState = (stdout) => {
+    const canWriteToStdout = !stdout.destroyed && !stdout.writableEnded && (stdout.writable ?? true);
+    const hasWritableState = stdout._writableState !== undefined || stdout.writableLength !== undefined;
+    return {
+        canWriteToStdout,
+        hasWritableState,
+    };
+};
+const settleThrottle = (throttled, canWriteToStdout) => {
+    if (!throttled ||
+        typeof throttled.flush !== 'function') {
+        return;
+    }
+    const throttledValue = throttled;
+    if (canWriteToStdout) {
+        throttledValue.flush();
+    }
+    else if (typeof throttledValue.cancel === 'function') {
+        throttledValue.cancel();
+    }
+};
+export default class Ink {
+    /**
+    Whether this instance is using concurrent rendering mode.
+    */
+    isConcurrent;
+    options;
+    log;
+    cursorPosition;
+    throttledLog;
+    isScreenReaderEnabled;
+    interactive;
+    renderThrottleMs;
+    alternateScreen;
+    // Ignore last render after unmounting a tree to prevent empty output before exit
+    isUnmounted;
+    isUnmounting;
+    lastOutput;
+    lastOutputToRender;
+    lastOutputHeight;
+    // [mixdog fork] True when the immediately-previous interactive frame was the
+    // one-row-short frame that got a leading blank pad. Used to make the pad a
+    // ONE-COMMIT transient: a second consecutive one-short frame is NOT padded,
+    // so a steady rows-1 state takes the normal non-fullscreen path (correct
+    // clear/leave-fullscreen decisions) instead of shifting content down forever.
+    lastOneShortPadded = false;
+    lastTerminalWidth;
+    lastTerminalHeight;
+    container;
+    rootNode;
+    // This variable is used only in debug mode to store full static output
+    // so that it's rerendered every time, not just new static parts, like in non-debug mode
+    fullStaticOutput;
+    exitPromise;
+    exitResult;
+    beforeExitHandler;
+    restoreConsole;
+    unsubscribeResize;
+    // [mixdog fork] Deferred repaint safety-net timer for resized(); cancelled
+    // by onRender when a real (App-driven) render lands first.
+    resizeRepaintTimer;
+    throttledOnRender;
+    hasPendingThrottledRender = false;
+    kittyProtocolEnabled = false;
+    kittyFlags;
+    cancelKittyDetection;
+    nextRenderCommit;
+    // Set while suspendTerminal() has handed the terminal to a child process.
+    isSuspended = false;
+    // Input pause/resume hooks registered by the App component, which owns raw
+    // mode and bracketed paste state.
+    pauseInput;
+    resumeInput;
+    // [mixdog fork] current mouse drag-selection rectangle in absolute terminal
+    // cells ({ x1, y1, x2, y2 } inclusive, normalized) or null. The App sets it
+    // via setSelection(); onRender forwards it to the renderer for highlighting.
+    selectionRect = null;
+    // [mixdog fork] Coalesce drag-selection repaints when a frame is pending.
+    isRendering = false;
+    selectionRepaintQueued = false;
+    selectionRepaintFlushPending = false;
+    selectionRepaintEpoch = 0;
+    // [mixdog fork] text under the current selection rect, refreshed every render
+    // from the output grid. Read back via getSelectionText() on drag-release.
+    selectedText = null;
+    // [mixdog fork] column-indexed cell values per grid row from the last frame,
+    // used by getWordRectAt() to compute word boundaries for double-click select.
+    lastPlainRows = null;
+    // [mixdog fork] per-row {y, text} selection harvest from the last frame,
+    // refreshed every render; read back via getSelectionRows() so the app can
+    // stitch selections taller than the viewport. null when no selection.
+    lastSelectionRows = null;
+    constructor(options) {
+        autoBind(this);
+        this.options = options;
+        this.rootNode = dom.createNode('ink-root');
+        this.rootNode.onComputeLayout = this.calculateLayout;
+        this.isScreenReaderEnabled =
+            options.isScreenReaderEnabled ??
+                process.env['INK_SCREEN_READER'] === 'true';
+        // CI detection takes precedence: even a TTY stdout in CI defaults to non-interactive.
+        // Using Boolean(isTTY) (rather than an 'in' guard) correctly handles piped streams
+        // where the property is absent (e.g. `node app.js | cat`).
+        this.interactive = this.resolveInteractiveOption(options.interactive);
+        this.alternateScreen = false;
+        const unthrottled = options.debug || this.isScreenReaderEnabled;
+        const maxFps = options.maxFps ?? 30;
+        // Treat non-positive maxFps as an internal fallback case, not a supported
+        // "disable throttling" mode. Keep animation scheduling on a normal cadence
+        // so future changes don't accidentally reintroduce zero-delay loops.
+        const renderThrottleMs = maxFps > 0 ? Math.max(1, Math.ceil(1000 / maxFps)) : 0;
+        this.renderThrottleMs = unthrottled ? 0 : renderThrottleMs;
+        if (unthrottled) {
+            this.rootNode.onRender = this.onRender;
+            this.throttledOnRender = undefined;
+        }
+        else {
+            const throttled = throttle(this.onRender, renderThrottleMs, {
+                leading: true,
+                trailing: true,
+            });
+            this.rootNode.onRender = () => {
+                this.hasPendingThrottledRender = true;
+                throttled();
+            };
+            this.throttledOnRender = throttled;
+        }
+        this.rootNode.onImmediateRender = this.onRender;
+        this.rootNode.onStaticChange = this.handleStaticChange;
+        this.log = logUpdate.create(options.stdout, {
+            incremental: options.incrementalRendering,
+        });
+        this.cursorPosition = undefined;
+        this.throttledLog = unthrottled
+            ? this.log
+            : throttle((output) => {
+                const shouldWrite = this.log.willRender(output);
+                const sync = this.shouldSync();
+                if (sync && shouldWrite) {
+                    this.options.stdout.write(bsu);
+                }
+                this.log(output);
+                if (sync && shouldWrite) {
+                    this.options.stdout.write(esu);
+                }
+            }, undefined, {
+                leading: true,
+                trailing: true,
+            });
+        // Ignore last render after unmounting a tree to prevent empty output before exit
+        this.isUnmounted = false;
+        this.isUnmounting = false;
+        // Store concurrent mode setting
+        this.isConcurrent = options.concurrent ?? false;
+        // Store last output to only rerender when needed
+        this.lastOutput = '';
+        this.lastOutputToRender = '';
+        this.lastOutputHeight = 0;
+        this.lastTerminalWidth = getWindowSize(this.options.stdout).columns;
+        this.lastTerminalHeight = getWindowSize(this.options.stdout).rows;
+        // This variable is used only in debug mode to store full static output
+        // so that it's rerendered every time, not just new static parts, like in non-debug mode
+        this.fullStaticOutput = '';
+        // Use ConcurrentRoot for concurrent mode, LegacyRoot for legacy mode
+        const rootTag = options.concurrent ? ConcurrentRoot : LegacyRoot;
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        this.container = reconciler.createContainer(this.rootNode, rootTag, null, false, null, 'id', () => { }, () => { }, () => { }, () => { });
+        // Unmount when process exits
+        this.unsubscribeExit = signalExit(this.unmount, { alwaysLast: false });
+        this.setAlternateScreen(Boolean(options.alternateScreen));
+        if (process.env['DEV'] === 'true') {
+            // @ts-expect-error outdated types
+            reconciler.injectIntoDevTools();
+        }
+        if (options.patchConsole) {
+            this.patchConsole();
+        }
+        if (this.interactive) {
+            options.stdout.on('resize', this.resized);
+            this.unsubscribeResize = () => {
+                options.stdout.off('resize', this.resized);
+            };
+        }
+        this.initKittyKeyboard();
+        this.exitPromise = new Promise((resolve, reject) => {
+            this.resolveExitPromise = resolve;
+            this.rejectExitPromise = reject;
+        });
+        // Prevent global unhandled-rejection crashes when app code exits with an
+        // error but consumers never call waitUntilExit().
+        void this.exitPromise.catch(noop);
+    }
+    resized = () => {
+        const currentWidth = getWindowSize(this.options.stdout).columns;
+        const currentHeight = getWindowSize(this.options.stdout).rows;
+        if (currentWidth !== this.lastTerminalWidth || currentHeight !== this.lastTerminalHeight) {
+            // [mixdog fork] On viewport size change, full-clear the alt screen to
+            // drop the stale frame, but DO NOT immediately re-render with the old
+            // React tree at the new size. Ink's own onRender() here fires before
+            // App's debounced resizeState state update, so it paints a frame laid
+            // out for the PREVIOUS dimensions into the NEW viewport — that is the
+            // 2-frame jump/re-settle on resize. Clearing (no re-render) leaves a
+            // blank screen for the sub-frame until App's setResizeState commit
+            // drives a single, correctly-sized App-owned render. Layout listeners
+            // still fire so consumers observe the new size synchronously.
+            this.log.clear();
+            this.log.reset?.();
+            // this.log.clear() only erases the PRIOR log frame's row span. On a
+            // fullscreen/alt-screen grow the newly exposed rows (below the old
+            // frame) are never touched by that erase, so stale scrollback can
+            // remain visible until the next full repaint — which, with the
+            // immediate onRender suppressed, may be shorter or delayed. Issue a
+            // true whole-screen clear so the viewport is uniformly blank until
+            // App's correctly-sized render lands.
+            this.writeBestEffort(this.options.stdout, ansiEscapes.clearTerminal);
+            this.lastOutput = '';
+            this.lastOutputToRender = '';
+            this.lastOutputHeight = 0;
+            this.calculateLayout();
+            dom.emitLayoutListeners(this.rootNode);
+            this.lastTerminalWidth = currentWidth;
+            this.lastTerminalHeight = currentHeight;
+            // Safety net: the early return delegates the repaint to App's stdout
+            // 'resize' listener (debounced setResizeState). If that render never
+            // arrives (listener not mounted yet, batched-away no-op, consumer
+            // without a resize handler), the screen would sit blank. Schedule a
+            // deferred onRender() that repaints with whatever tree is current;
+            // it is cancelled below whenever a real render happens first, so in
+            // the normal path it never fires and the immediate render stays
+            // suppressed.
+            if (this.resizeRepaintTimer) clearTimeout(this.resizeRepaintTimer);
+            this.resizeRepaintTimer = setTimeout(() => {
+                this.resizeRepaintTimer = undefined;
+                if (this.isUnmounted || this.isUnmounting) return;
+                this.onRender();
+            }, 200);
+            if (typeof this.resizeRepaintTimer.unref === 'function') this.resizeRepaintTimer.unref();
+            return;
+        }
+        this.calculateLayout();
+        dom.emitLayoutListeners(this.rootNode);
+        this.onRender();
+        this.lastTerminalWidth = currentWidth;
+        this.lastTerminalHeight = currentHeight;
+    };
+    resolveExitPromise = () => { };
+    rejectExitPromise = () => { };
+    unsubscribeExit = () => { };
+    handleAppExit = (errorOrResult) => {
+        if (this.isUnmounted || this.isUnmounting) {
+            return;
+        }
+        if (isErrorInput(errorOrResult)) {
+            this.unmount(errorOrResult);
+            return;
+        }
+        this.exitResult = errorOrResult;
+        this.unmount();
+    };
+    setCursorPosition = (position) => {
+        this.cursorPosition = position;
+        this.log.setCursorPosition(position);
+    };
+    // [mixdog fork] Update the mouse drag-selection rectangle and repaint so the
+    // inverse highlight tracks the drag. Called by the App's mouse handler.
+    // A no-op-equal update is skipped to avoid redundant frames during motion.
+    setSelection = (rect, options = {}) => {
+        const a = this.selectionRect;
+        const same = a === rect ||
+            (a && rect &&
+                a.mode === rect.mode &&
+                a.x1 === rect.x1 &&
+                a.y1 === rect.y1 &&
+                a.x2 === rect.x2 &&
+                a.y2 === rect.y2 &&
+                a.clipY1 === rect.clipY1 &&
+                a.clipY2 === rect.clipY2 &&
+                a.captureText === rect.captureText &&
+                a.selectionForeground === rect.selectionForeground &&
+                a.selectionBackground === rect.selectionBackground);
+        if (same) {
+            if (!options.immediate) {
+                return;
+            }
+        }
+        else {
+            this.selectionRect = rect ?? null;
+        }
+        if (!this.isUnmounted) {
+            if (options.immediate) {
+                this.selectionRepaintEpoch++;
+                this.selectionRepaintFlushPending = false;
+                this.rootNode.onImmediateRender();
+                return;
+            }
+            this.scheduleSelectionRepaint();
+        }
+    };
+    scheduleSelectionRepaint = () => {
+        if (this.hasPendingThrottledRender) {
+            return;
+        }
+        if (this.isRendering) {
+            this.selectionRepaintQueued = true;
+            return;
+        }
+        if (this.selectionRepaintFlushPending) {
+            return;
+        }
+        this.selectionRepaintFlushPending = true;
+        const epoch = ++this.selectionRepaintEpoch;
+        queueMicrotask(() => {
+            this.selectionRepaintFlushPending = false;
+            if (epoch !== this.selectionRepaintEpoch || this.isUnmounted) {
+                return;
+            }
+            if (this.hasPendingThrottledRender) {
+                return;
+            }
+            this.rootNode.onImmediateRender();
+        });
+    };
+    // [mixdog fork] Given a 0-based cell (x, y), return the inclusive rect of the
+    // word at that cell on that single row, or null if the cell is whitespace/empty
+    // or out of range. Reuses the cached cell-value rows from the last render so it
+    // works without retaining the Output instance.
+    //
+    // Ported from claude-code's selection.ts charClass/wordBoundsAt (3-class word
+    // model) onto mixdog's rect(linear) infra. Instead of a naive "non-space run",
+    // expansion stops at a CHARACTER-CLASS change:
+    //   class 1 = WORD_CHAR — letters (any script), digits, and the punctuation
+    //             iTerm2 treats as word-part by default (/-+~_.\), so a path like
+    //             `/usr/bin/bash` or `~/.claude/config.json` selects whole.
+    //   class 2 = other punctuation — so `->` selects just `->`, not the words
+    //             on either side.
+    //   class 0 = space/empty. claude-code treats a space run as selectable
+    //             (class 0), but mixdog intentionally returns null on empty/space
+    //             so a double-click on blank does nothing (safer for our transcript
+    //             where most alt-screen cells are padding).
+    getWordRectAt = (x, y) => {
+        const rows = this.lastPlainRows;
+        if (!rows)
+            return null;
+        const cells = rows[y];
+        if (!Array.isArray(cells))
+            return null;
+        // Unicode-aware word-char set (matches selection.ts WORD_CHAR).
+        const WORD_CHAR = /[\p{L}\p{N}_/.\-+~\\]/u;
+        const charClass = (v) => {
+            if (!v || v === ' ')
+                return 0;
+            return WORD_CHAR.test(v) ? 1 : 2;
+        };
+        // [mixdog fork] Wide/CJK glyphs occupy 2+ grid cells: the HEAD cell
+        // holds the glyph and each TRAILING cell is stored as '' (spacer tail)
+        // carrying the glyph's styles — see output.js ~L237-243 for how wide
+        // chars are laid into the grid. A '' cell is a wide-char TAIL only when
+        // it directly follows a non-empty non-space glyph (class !== 0); a ''
+        // after '' or after a space is genuine blank padding. This mirrors
+        // selection.ts wordBoundsAt's SpacerTail step-back (L172-178) and
+        // expansion step-over (L206-221) on mixdog's string-cell grid.
+        const isWideTail = (i) => i > 0 && cells[i] === '' && charClass(cells[i - 1]) !== 0;
+        // On entry: if the click landed on a spacer tail, step back to the head
+        // so charClass sees the actual glyph. Genuine blank padding is left
+        // alone, preserving the null-on-blank behavior below.
+        let sx = x;
+        if (isWideTail(sx))
+            sx = sx - 1;
+        const cls = charClass(cells[sx]);
+        // Preserve mixdog's null-on-space/empty behavior (class 0).
+        if (cls === 0)
+            return null;
+        let x1 = sx, x2 = sx;
+        // Expand left: step OVER a spacer tail to the wide-char head and include
+        // both columns when the head matches the class; otherwise stop at a
+        // class change.
+        while (x1 - 1 >= 0) {
+            const p = x1 - 1;
+            if (isWideTail(p)) {
+                if (p - 1 >= 0 && charClass(cells[p - 1]) === cls) {
+                    x1 = p - 1;
+                    continue;
+                }
+                break;
+            }
+            if (charClass(cells[p]) === cls) {
+                x1 = p;
+                continue;
+            }
+            break;
+        }
+        // Expand right: INCLUDE a spacer tail that follows an in-run glyph so x2
+        // covers the wide glyph's full width; otherwise stop at a class change.
+        while (x2 + 1 < cells.length) {
+            const n = x2 + 1;
+            if (isWideTail(n)) {
+                x2 = n;
+                continue;
+            }
+            if (charClass(cells[n]) === cls) {
+                x2 = n;
+                continue;
+            }
+            break;
+        }
+        return { x1, y1: y, x2, y2: y };
+    };
+    // [mixdog fork] Given a 0-based row y, return the inclusive rect of the whole
+    // logical line at that row (mirrors claude-code's selectLineAt intent on
+    // mixdog's rect infra). x1 is always 0; x2 is the last non-space content cell
+    // so trailing padding isn't selected. Returns null for an empty/blank row.
+    // Exposed symmetrically to getWordRectAt (index.jsx wires it into the store).
+    getLineRectAt = (y) => {
+        const rows = this.lastPlainRows;
+        if (!rows)
+            return null;
+        const cells = rows[y];
+        if (!Array.isArray(cells))
+            return null;
+        let x2 = -1;
+        for (let x = 0; x < cells.length; x++) {
+            const v = cells[x];
+            if (v && !/^\s$/u.test(v))
+                x2 = x;
+        }
+        if (x2 < 0)
+            return null;
+        return { x1: 0, y1: y, x2, y2: y };
+    };
+    // [mixdog fork] Return the per-row {y, text} selection harvest cached from the
+    // last frame, or null when there is no selection. y is the absolute screen row
+    // of the last frame; text is trailing-space-trimmed (partial first/last rows
+    // respect x1/x2). Lets the app stitch selections taller than the viewport.
+    getSelectionRows = () => {
+        return this.lastSelectionRows;
+    };
+    restoreLastOutput = () => {
+        if (!this.interactive) {
+            return;
+        }
+        // Clear() resets log-update's cursor state, so replay the latest cursor intent
+        // before restoring output after external stdout/stderr writes.
+        this.log.setCursorPosition(this.cursorPosition);
+        this.log(this.lastOutputToRender || this.lastOutput + '\n');
+    };
+    calculateLayout = () => {
+        const terminalWidth = getWindowSize(this.options.stdout).columns;
+        this.rootNode.yogaNode.setWidth(terminalWidth);
+        this.rootNode.yogaNode.calculateLayout(undefined, undefined, Yoga.DIRECTION_LTR);
+    };
+    // Resets `fullStaticOutput` when the <Static> identity changes so stale items from a previous instance are not replayed on future rewrites.
+    handleStaticChange = () => {
+        this.fullStaticOutput = '';
+    };
+    onRender = () => {
+        this.hasPendingThrottledRender = false;
+        // A real render is happening: cancel the resize safety-net timer so the
+        // deferred repaint never double-fires in the normal path.
+        if (this.resizeRepaintTimer) {
+            clearTimeout(this.resizeRepaintTimer);
+            this.resizeRepaintTimer = undefined;
+        }
+        if (this.isUnmounted) {
+            return;
+        }
+        // While suspended, the terminal belongs to a child process. Discard queued
+        // renders; resume() forces a full redraw once Ink reclaims the terminal.
+        // Resolve any awaited render commit so callers don't hang during suspension.
+        if (this.isSuspended) {
+            if (this.nextRenderCommit) {
+                this.nextRenderCommit.resolve();
+                this.nextRenderCommit = undefined;
+            }
+            return;
+        }
+        if (this.nextRenderCommit) {
+            this.nextRenderCommit.resolve();
+            this.nextRenderCommit = undefined;
+        }
+        this.isRendering = true;
+        try {
+        const startTime = performance.now();
+        const { output, outputHeight, staticOutput, cursor, selectedText, plainRows, selectionRows } = render(this.rootNode, this.isScreenReaderEnabled, this.selectionRect);
+        // [mixdog fork] Cache the text under the current selection rect so the App
+        // can read it back on drag-release to copy it to the OS clipboard.
+        if (selectedText !== undefined) {
+            this.selectedText = selectedText ?? null;
+        }
+        // [mixdog fork] Cache per-row cell values for double-click word lookup.
+        if (plainRows !== undefined) {
+            this.lastPlainRows = plainRows ?? null;
+        }
+        // [mixdog fork] Cache per-row selection harvest for getSelectionRows().
+        if (selectionRows !== undefined) {
+            this.lastSelectionRows = selectionRows ?? null;
+        }
+        this.options.onRender?.({ renderTime: performance.now() - startTime });
+        // [mixdog fork] Drive the hardware cursor from the anchored input node's
+        // real render-time position, computed fresh every frame. This replaces
+        // useCursor()'s externally-supplied absolute coordinate, which drifted
+        // whenever the layout above the input changed (spinner/thinking growth,
+        // Enter, fullscreen re-layout) because it was computed a beat too early.
+        this.setCursorPosition(cursor ?? undefined);
+        // If <Static> output isn't empty, it means new children have been added to it
+        const hasStaticOutput = staticOutput && staticOutput !== '\n';
+        if (this.options.debug) {
+            if (hasStaticOutput) {
+                this.fullStaticOutput += staticOutput;
+            }
+            this.lastOutput = output;
+            this.lastOutputToRender = output;
+            this.lastOutputHeight = outputHeight;
+            this.options.stdout.write(this.fullStaticOutput + output);
+            return;
+        }
+        if (!this.interactive) {
+            if (hasStaticOutput) {
+                this.options.stdout.write(staticOutput);
+            }
+            this.lastOutput = output;
+            this.lastOutputToRender = output + '\n';
+            this.lastOutputHeight = outputHeight;
+            return;
+        }
+        if (this.isScreenReaderEnabled) {
+            const sync = this.shouldSync();
+            if (sync) {
+                this.options.stdout.write(bsu);
+            }
+            if (hasStaticOutput) {
+                // We need to erase the main output before writing new static output
+                const erase = this.lastOutputHeight > 0
+                    ? ansiEscapes.eraseLines(this.lastOutputHeight)
+                    : '';
+                this.options.stdout.write(erase + staticOutput);
+                // After erasing, the last output is gone, so we should reset its height
+                this.lastOutputHeight = 0;
+            }
+            if (output === this.lastOutput && !hasStaticOutput) {
+                if (sync) {
+                    this.options.stdout.write(esu);
+                }
+                return;
+            }
+            const terminalWidth = getWindowSize(this.options.stdout).columns;
+            const wrappedOutput = wrapAnsi(output, terminalWidth, {
+                trim: false,
+                hard: true,
+            });
+            // If we haven't erased yet, do it now.
+            if (hasStaticOutput) {
+                this.options.stdout.write(wrappedOutput);
+            }
+            else {
+                const erase = this.lastOutputHeight > 0
+                    ? ansiEscapes.eraseLines(this.lastOutputHeight)
+                    : '';
+                this.options.stdout.write(erase + wrappedOutput);
+            }
+            this.lastOutput = output;
+            this.lastOutputToRender = wrappedOutput;
+            this.lastOutputHeight =
+                wrappedOutput === '' ? 0 : wrappedOutput.split('\n').length;
+            if (sync) {
+                this.options.stdout.write(esu);
+            }
+            return;
+        }
+        if (hasStaticOutput) {
+            this.fullStaticOutput += staticOutput;
+        }
+        this.renderInteractiveFrame(output, outputHeight, hasStaticOutput ? staticOutput : '');
+        }
+        finally {
+            this.isRendering = false;
+            if (this.selectionRepaintQueued) {
+                this.selectionRepaintQueued = false;
+                this.scheduleSelectionRepaint();
+            }
+        }
+    };
+    render(node) {
+        const tree = (React.createElement(AccessibilityContext.Provider, { value: { isScreenReaderEnabled: this.isScreenReaderEnabled } },
+            React.createElement(App, { stdin: this.options.stdin, stdout: this.options.stdout, stderr: this.options.stderr, exitOnCtrlC: this.options.exitOnCtrlC, interactive: this.interactive, renderThrottleMs: this.renderThrottleMs, writeToStdout: this.writeToStdout, writeToStderr: this.writeToStderr, setCursorPosition: this.setCursorPosition, onExit: this.handleAppExit, onWaitUntilRenderFlush: this.waitUntilRenderFlush, onSuspendTerminal: this.suspendTerminal, onRegisterInputControl: this.registerInputControl }, node)));
+        if (this.options.concurrent) {
+            // Concurrent mode: use updateContainer (async scheduling)
+            reconciler.updateContainer(tree, this.container, null, noop);
+        }
+        else {
+            // Legacy mode: use updateContainerSync + flushSyncWork (sync)
+            reconciler.updateContainerSync(tree, this.container, null, noop);
+            reconciler.flushSyncWork();
+        }
+    }
+    writeToStdout(data) {
+        if (this.isUnmounted) {
+            return;
+        }
+        // While suspended, the terminal belongs to a child process. Don't erase or
+        // repaint Ink's frame around console output; the forced redraw on resume
+        // restores the screen.
+        if (this.isSuspended) {
+            return;
+        }
+        if (this.options.debug) {
+            this.options.stdout.write(data + this.fullStaticOutput + this.lastOutput);
+            return;
+        }
+        if (!this.interactive) {
+            this.options.stdout.write(data);
+            return;
+        }
+        const sync = this.shouldSync();
+        if (sync) {
+            this.options.stdout.write(bsu);
+        }
+        this.log.clear();
+        this.options.stdout.write(data);
+        this.restoreLastOutput();
+        if (sync) {
+            this.options.stdout.write(esu);
+        }
+    }
+    writeToStderr(data) {
+        if (this.isUnmounted) {
+            return;
+        }
+        // See writeToStdout: stay off the terminal while suspended.
+        if (this.isSuspended) {
+            return;
+        }
+        if (this.options.debug) {
+            this.options.stderr.write(data);
+            this.options.stdout.write(this.fullStaticOutput + this.lastOutput);
+            return;
+        }
+        if (!this.interactive) {
+            this.options.stderr.write(data);
+            return;
+        }
+        const sync = this.shouldSync();
+        if (sync) {
+            this.options.stdout.write(bsu);
+        }
+        this.log.clear();
+        this.options.stderr.write(data);
+        this.restoreLastOutput();
+        if (sync) {
+            this.options.stdout.write(esu);
+        }
+    }
+    // eslint-disable-next-line @typescript-eslint/no-restricted-types
+    unmount(error) {
+        if (this.isUnmounted || this.isUnmounting) {
+            return;
+        }
+        this.isUnmounting = true;
+        if (this.beforeExitHandler) {
+            process.off('beforeExit', this.beforeExitHandler);
+            this.beforeExitHandler = undefined;
+        }
+        const stdout = this.options.stdout;
+        const { canWriteToStdout, hasWritableState } = getWritableStreamState(stdout);
+        // Clear any pending throttled render timer on unmount. When stdout is writable,
+        // flush so the final frame is emitted; otherwise cancel to avoid delayed callbacks.
+        settleThrottle(this.throttledOnRender, canWriteToStdout);
+        if (canWriteToStdout) {
+            // If throttling is enabled and there is already a pending render, flushing above
+            // is sufficient. Also avoid calling onRender() again when static output already
+            // exists, as that can duplicate <Static> children output on exit (see issue #397).
+            const shouldRenderFinalFrame = !this.throttledOnRender ||
+                (!this.hasPendingThrottledRender && this.fullStaticOutput === '');
+            if (shouldRenderFinalFrame) {
+                this.calculateLayout();
+                this.onRender();
+            }
+        }
+        // Mark as unmounted after the final render but before stdout writes
+        // that could re-enter exit() via synchronous write callbacks.
+        this.isUnmounted = true;
+        this.unsubscribeExit();
+        // Flush any pending throttled log writes if possible, otherwise cancel to
+        // prevent delayed callbacks from writing to a closed stream.
+        settleThrottle(this.throttledLog, canWriteToStdout);
+        if (typeof this.restoreConsole === 'function') {
+            // Once unmount starts, Ink stops trying to manage teardown-time
+            // console output. Restoring the native console before React cleanup keeps
+            // unmount behavior simple and avoids special-case handling for custom
+            // streams, fullscreen frames, and alternate-screen teardown.
+            this.restoreConsole();
+        }
+        const finishUnmount = () => {
+            if (typeof this.unsubscribeResize === 'function') {
+                this.unsubscribeResize();
+            }
+            // [mixdog fork] Drop the resize safety-net timer so a deferred
+            // repaint cannot fire against a torn-down tree.
+            if (this.resizeRepaintTimer) {
+                clearTimeout(this.resizeRepaintTimer);
+                this.resizeRepaintTimer = undefined;
+            }
+            // Cancel any in-progress auto-detection before checking protocol state
+            if (this.cancelKittyDetection) {
+                this.cancelKittyDetection();
+            }
+            if (canWriteToStdout) {
+                if (this.kittyProtocolEnabled) {
+                    this.writeBestEffort(this.options.stdout, '\u001B[<u');
+                }
+                // Alternate-screen content is disposable by design. We intentionally
+                // leave it active until React cleanup finishes, then restore the
+                // primary buffer without replaying prior frames, hook writes, or
+                // diagnostics onto it. Trying to preserve teardown output across the
+                // buffer switch adds fragile lifecycle-specific behavior, so Ink keeps
+                // alternate-screen teardown intentionally simple and best-effort.
+                if (this.alternateScreen) {
+                    this.writeBestEffort(this.options.stdout, ansiEscapes.exitAlternativeScreen);
+                    this.writeBestEffort(this.options.stdout, showCursorEscape);
+                    this.alternateScreen = false;
+                }
+                if (!this.interactive) {
+                    // Non-interactive environments don't handle erasing ansi escapes well.
+                    // In debug mode, each render already writes to stdout, so only a trailing
+                    // newline is needed. In non-debug mode, write the last frame now (it was
+                    // deferred during rendering).
+                    this.options.stdout.write(this.options.debug ? '\n' : this.lastOutput + '\n');
+                }
+                else if (!this.options.debug) {
+                    this.log.done();
+                }
+            }
+            this.kittyProtocolEnabled = false;
+            instances.delete(this.options.stdout);
+            // Ensure all queued writes have been processed before resolving the
+            // exit promise. For real writable streams, queue an empty write as a
+            // barrier — its callback fires only after all prior writes complete.
+            // For non-stream objects (e.g. test spies), resolve on next tick.
+            //
+            // When called from signal-exit during process shutdown (error is a
+            // number or null rather than undefined/Error), resolve synchronously
+            // because the event loop is draining and async callbacks won't fire.
+            const { exitResult } = this;
+            const resolveOrReject = () => {
+                if (isErrorInput(error)) {
+                    this.rejectExitPromise(error);
+                }
+                else {
+                    this.resolveExitPromise(exitResult);
+                }
+            };
+            const isProcessExiting = error !== undefined && !isErrorInput(error);
+            if (isProcessExiting) {
+                resolveOrReject();
+            }
+            else if (canWriteToStdout && hasWritableState) {
+                this.options.stdout.write('', resolveOrReject);
+            }
+            else {
+                setImmediate(resolveOrReject);
+            }
+        };
+        const concurrentReconciler = reconciler;
+        if (this.options.concurrent) {
+            reconciler.updateContainerSync(null, this.container, null, noop);
+            reconciler.flushSyncWork();
+            concurrentReconciler.flushPassiveEffects?.();
+            finishUnmount();
+        }
+        else {
+            // Legacy mode: use updateContainerSync + flushSyncWork (sync)
+            reconciler.updateContainerSync(null, this.container, null, noop);
+            reconciler.flushSyncWork();
+            finishUnmount();
+        }
+    }
+    async waitUntilExit() {
+        if (!this.beforeExitHandler) {
+            this.beforeExitHandler = () => {
+                this.unmount();
+            };
+            process.once('beforeExit', this.beforeExitHandler);
+        }
+        return this.exitPromise;
+    }
+    async waitUntilRenderFlush() {
+        if (this.isUnmounted || this.isUnmounting) {
+            await this.awaitExit();
+            return;
+        }
+        // Yield to the macrotask queue so that React's scheduler has a chance to
+        // fire passive effects and process any work they enqueued.
+        await yieldImmediate();
+        if (this.isUnmounted || this.isUnmounting) {
+            await this.awaitExit();
+            return;
+        }
+        // In concurrent mode, React's scheduler may still be mid-render after
+        // the yield. Wait for the next render commit instead of polling.
+        if (this.isConcurrent && this.hasPendingConcurrentWork()) {
+            await Promise.race([this.awaitNextRender(), this.awaitExit()]);
+            if (this.isUnmounted || this.isUnmounting) {
+                this.nextRenderCommit = undefined;
+                await this.awaitExit();
+                return;
+            }
+        }
+        reconciler.flushSyncWork();
+        const stdout = this.options.stdout;
+        const { canWriteToStdout, hasWritableState } = getWritableStreamState(stdout);
+        // Flush pending throttled render/log timers so their output is included in this wait.
+        settleThrottle(this.throttledOnRender, canWriteToStdout);
+        settleThrottle(this.throttledLog, canWriteToStdout);
+        if (canWriteToStdout && hasWritableState) {
+            await new Promise(resolve => {
+                this.options.stdout.write('', () => {
+                    resolve();
+                });
+            });
+            return;
+        }
+        await yieldImmediate();
+    }
+    clear() {
+        if (this.interactive && !this.options.debug) {
+            this.log.clear();
+            // Sync lastOutput so that unmount's final onRender
+            // sees it as unchanged and log-update skips it
+            this.log.sync(this.lastOutputToRender || this.lastOutput + '\n');
+        }
+    }
+    patchConsole() {
+        if (this.options.debug) {
+            return;
+        }
+        this.restoreConsole = patchConsole((stream, data) => {
+            if (stream === 'stdout') {
+                this.writeToStdout(data);
+            }
+            if (stream === 'stderr') {
+                const isReactMessage = data.startsWith('The above error occurred');
+                if (!isReactMessage) {
+                    this.writeToStderr(data);
+                }
+            }
+        });
+    }
+    registerInputControl(pauseInput, resumeInput) {
+        this.pauseInput = pauseInput;
+        this.resumeInput = resumeInput;
+    }
+    async suspendTerminal(callback) {
+        this.beginSuspend();
+        if (callback) {
+            try {
+                await callback();
+            }
+            finally {
+                await this.endSuspend();
+            }
+            return undefined;
+        }
+        const resume = async () => {
+            await this.endSuspend();
+        };
+        return { resume, [Symbol.asyncDispose]: resume };
+    }
+    setAlternateScreen(enabled) {
+        this.alternateScreen = this.resolveAlternateScreenOption(enabled, this.interactive);
+        if (this.alternateScreen) {
+            this.writeBestEffort(this.options.stdout, ansiEscapes.enterAlternativeScreen);
+            this.writeBestEffort(this.options.stdout, hideCursorEscape);
+        }
+    }
+    resolveInteractiveOption(interactive) {
+        return interactive ?? (!isInCi && Boolean(this.options.stdout.isTTY));
+    }
+    resolveAlternateScreenOption(alternateScreen, interactive) {
+        return (Boolean(alternateScreen) &&
+            interactive &&
+            Boolean(this.options.stdout.isTTY));
+    }
+    shouldSync() {
+        return shouldSynchronize(this.options.stdout, this.interactive);
+    }
+    // Best-effort write: streams may already be destroyed during shutdown.
+    writeBestEffort(stream, data) {
+        try {
+            stream.write(data);
+        }
+        catch { }
+    }
+    // Waits for the exit promise to settle, suppressing any rejection.
+    // Errors are surfaced via waitUntilExit() instead.
+    async awaitExit() {
+        try {
+            await this.exitPromise;
+        }
+        catch { }
+    }
+    hasPendingConcurrentWork() {
+        const concurrentContainer = this.container;
+        return ((concurrentContainer.pendingLanes ?? 0) !== 0 &&
+            concurrentContainer.callbackNode !== undefined &&
+            concurrentContainer.callbackNode !== null);
+    }
+    async awaitNextRender() {
+        if (!this.nextRenderCommit) {
+            let resolveRender;
+            const promise = new Promise(resolve => {
+                resolveRender = resolve;
+            });
+            this.nextRenderCommit = { promise, resolve: resolveRender };
+        }
+        return this.nextRenderCommit.promise;
+    }
+    renderInteractiveFrame(output, outputHeight, staticOutput) {
+        const hasStaticOutput = staticOutput !== '';
+        const isTty = this.options.stdout.isTTY;
+        // Detect fullscreen: output fills or exceeds terminal height.
+        // Only apply when writing to a real TTY — piped output always gets trailing newlines.
+        const viewportRows = isTty ? getWindowSize(this.options.stdout).rows : 24;
+        const viewportColumns = isTty ? getWindowSize(this.options.stdout).columns : this.lastTerminalWidth;
+        // [mixdog fork] Capture the previous viewport rows (as tracked at the
+        // end of the last frame) before we update it below, so wasFullscreen/
+        // wasOverflowing classify the PREVIOUS frame against the viewport it
+        // was actually rendered into, not the current (possibly resized) one.
+        const previousViewportRows = this.lastTerminalHeight ?? viewportRows;
+        // [mixdog fork] A frame whose React tree is EXACTLY ONE ROW SHORT of the
+        // live viewport, while the PREVIOUS frame filled it, is a transitional
+        // App-accounting artifact (a reclaimed panel/hint/prompt row not yet
+        // refilled — slash-palette close, prompt-newline add/remove). Left as-is
+        // its serialized string is viewportRows-1 lines tall, so:
+        //   (a) `outputHeight >= viewportRows` is false → outputToRender gets a
+        //       trailing '\n' → log-update takes the relative cursorUp walk →
+        //       under Windows Terminal the bottom cluster paints one row LOW; and
+        //   (b) even forcing the fullscreen branch cannot help, because the
+        //       CONTENT itself is one row short — the prompt/statusline are
+        //       physically at rows-2/rows-1 of a rows-1-tall block, i.e. one row
+        //       above where the settled frame puts them.
+        // The bottom cluster is bottom-pinned in the App, so the missing row
+        // belongs at the TOP. Prepend a single blank line to restore the frame to
+        // full viewport height: the pinned cluster returns to its steady rows and
+        // the absolute cursorTo(0,i) repaint path stays engaged. Guard tightly:
+        //   (a) Windows-like terminals only — the relative-walk desync is a WT/
+        //       conhost quirk; other terminals render the rows-1 frame correctly,
+        //       so padding them would needlessly hide a legitimately reclaimed row.
+        //   (b) EXACTLY one row short of a viewport we were filling, and
+        //   (c) ONE-COMMIT transient — never pad two frames in a row. lastOutputHeight
+        //       stores the PADDED height (viewportRows), so a genuinely steady rows-1
+        //       state would look "fullscreen→one-short" every frame and re-pad forever,
+        //       shifting content down indefinitely and starving isLeavingFullscreen/
+        //       shrink-clear. lastOneShortPadded breaks that: the 2nd consecutive
+        //       one-short frame is left unpadded → normal non-fullscreen path with
+        //       correct clear decisions. The padded→unpadded diff erases the top
+        //       blank row via log-update's own recorded-line diff (verified in harness).
+        const wasFullscreenFrame = this.lastOutputHeight >= previousViewportRows && this.lastOutputHeight > 0;
+        const isExactlyOneRowShort = isTty && isWindowsConsole &&
+            outputHeight === viewportRows - 1 && wasFullscreenFrame && !this.lastOneShortPadded;
+        if (isExactlyOneRowShort) {
+            output = '\n' + output;
+            outputHeight = viewportRows;
+            this.lastOneShortPadded = true;
+        }
+        else {
+            this.lastOneShortPadded = false;
+        }
+        const isFullscreen = isTty && outputHeight >= viewportRows;
+        let outputToRender = isFullscreen ? output : output + '\n';
+        // [mixdog fork] A fullscreen frame whose BOTTOM row is blank serializes
+        // with a trailing '\n' (output.js trimEnd + join), which makes
+        // log-update classify it as a NON-fullscreen frame: hasTrailingNewline
+        // flips true, useWindowsFullscreenSafe turns off, and the repaint falls
+        // back to the relative cursorUp walk. Under Windows Terminal that walk
+        // desyncs by one row for a frame (prompt/statusline paint one row low,
+        // then snap up on the next commit). Normalize EVERY fullscreen frame to
+        // the no-trailing-newline mode by appending a zero-width SGR reset: the
+        // physical row count is unchanged, but endsWith('\n') is false, so the
+        // absolute cursorTo(0, i) repaint path stays engaged and the frame mode
+        // never flips between commits.
+        if (isFullscreen && outputToRender.endsWith('\n')) {
+            outputToRender += '\u001B[0m';
+        }
+        const shouldClearTerminal = shouldClearTerminalForFrame({
+            isTty,
+            viewportRows,
+            previousViewportRows,
+            previousOutputHeight: this.lastOutputHeight,
+            nextOutputHeight: outputHeight,
+            isUnmounting: this.isUnmounting,
+        });
+        // [mixdog debug] opt-in via MIXDOG_INK_FRAME_LOG (see log-update.js frameLog).
+        frameLog({
+            src: 'ink',
+            outputHeight,
+            viewportRows,
+            isFullscreen,
+            oneShortPadded: this.lastOneShortPadded,
+            shouldClearTerminal,
+            trailNL: outputToRender.endsWith('\n'),
+            prevOutputHeight: this.lastOutputHeight,
+        });
+        const viewportUnchanged = viewportRows === previousViewportRows && viewportColumns === this.lastTerminalWidth;
+        if (isTty) {
+            this.lastTerminalHeight = viewportRows;
+        }
+        // [mixdog fork] Skip redundant full clears: on Windows every fullscreen
+        // frame takes the clearTerminal path, so a commit with IDENTICAL output
+        // (e.g. post-mount tuiReady flip with no layout change) still blanked and
+        // rewrote the whole screen — visible as boot flicker. Nothing changed →
+        // nothing to write. [mixdog fork] Also require the viewport (rows AND
+        // columns) to be unchanged since the last frame: a resize can arrive
+        // with identical output text but must still force a full clear to
+        // avoid ghosting stale cells left outside the new viewport.
+        if (shouldClearTerminal &&
+            !this.isUnmounting &&
+            output === this.lastOutput &&
+            staticOutput === '' &&
+            !this.log.isCursorDirty() &&
+            viewportUnchanged) {
+            return;
+        }
+        if (shouldClearTerminal) {
+            const sync = this.shouldSync();
+            if (sync) {
+                this.options.stdout.write(bsu);
+            }
+            // [mixdog fork] Reset SGR before erasing so stale style/background
+            // from the previous frame doesn't leak onto the cleared cells.
+            // [mixdog fork] Write outputToRender (not output) so the trailing
+            // newline of non-fullscreen frames is actually emitted — log.sync()
+            // below records outputToRender, and the incremental renderer's next
+            // diff assumes its recorded lines were physically written; a missing
+            // trailing row would shift every subsequent cursor movement up one.
+            this.options.stdout.write('\u001B[0m' + ansiEscapes.clearTerminal + this.fullStaticOutput + outputToRender);
+            this.lastOutput = output;
+            this.lastOutputToRender = outputToRender;
+            this.lastOutputHeight = outputHeight;
+            this.log.sync(outputToRender);
+            if (sync) {
+                this.options.stdout.write(esu);
+            }
+            return;
+        }
+        // To ensure static output is cleanly rendered before main output, clear main output first
+        if (hasStaticOutput) {
+            const sync = this.shouldSync();
+            if (sync) {
+                this.options.stdout.write(bsu);
+            }
+            this.log.clear();
+            this.options.stdout.write(staticOutput);
+            this.log(outputToRender);
+            if (sync) {
+                this.options.stdout.write(esu);
+            }
+        }
+        else if (output !== this.lastOutput || this.log.isCursorDirty()) {
+            // ThrottledLog manages its own bsu/esu at actual write time
+            this.throttledLog(outputToRender);
+        }
+        this.lastOutput = output;
+        this.lastOutputToRender = outputToRender;
+        this.lastOutputHeight = outputHeight;
+    }
+    initKittyKeyboard() {
+        // Protocol is opt-in: if kittyKeyboard is not specified, do nothing
+        if (!this.options.kittyKeyboard) {
+            return;
+        }
+        const opts = this.options.kittyKeyboard;
+        const mode = opts.mode ?? 'auto';
+        if (mode === 'disabled') {
+            return;
+        }
+        const flags = opts.flags ?? ['disambiguateEscapeCodes'];
+        // 'enabled' force-enables the protocol as long as both streams are TTYs,
+        // regardless of the interactive setting (e.g. even in CI).
+        if (mode === 'enabled') {
+            if (this.options.stdin.isTTY && this.options.stdout.isTTY) {
+                this.enableKittyProtocol(flags);
+            }
+            return;
+        }
+        // Auto mode: require interactive + TTY
+        if (!this.interactive ||
+            !this.options.stdin.isTTY ||
+            !this.options.stdout.isTTY) {
+            return;
+        }
+        // Auto mode: query the terminal for kitty keyboard protocol support.
+        // The CSI ? u query is safe to send to any terminal — unsupporting
+        // terminals simply won't respond, and the 200ms timeout handles that.
+        // This avoids maintaining a hardcoded whitelist of terminal names.
+        this.confirmKittySupport(flags);
+    }
+    confirmKittySupport(flags) {
+        const { stdin, stdout } = this.options;
+        let responseBuffer = [];
+        const cleanup = () => {
+            this.cancelKittyDetection = undefined;
+            clearTimeout(timer);
+            stdin.removeListener('data', onData);
+            // Re-emit any buffered data that wasn't the protocol response,
+            // so it isn't lost from Ink's normal input pipeline.
+            // Clear responseBuffer afterwards to make cleanup idempotent.
+            const remaining = stripKittyQueryResponsesAndTrailingPartial(responseBuffer);
+            responseBuffer = [];
+            if (remaining.length > 0) {
+                stdin.unshift(Uint8Array.from(remaining));
+            }
+        };
+        const onData = (data) => {
+            const chunk = typeof data === 'string' ? textEncoder.encode(data) : data;
+            for (const byte of chunk) {
+                responseBuffer.push(byte);
+            }
+            if (hasCompleteKittyQueryResponse(responseBuffer)) {
+                cleanup();
+                if (!this.isUnmounted) {
+                    this.enableKittyProtocol(flags);
+                }
+            }
+        };
+        // Attach listener before writing the query so that synchronous
+        // or immediate responses are not missed.
+        stdin.on('data', onData);
+        const timer = setTimeout(cleanup, 200);
+        this.cancelKittyDetection = cleanup;
+        stdout.write('\u001B[?u');
+    }
+    enableKittyProtocol(flags) {
+        this.options.stdout.write(`\u001B[>${resolveFlags(flags)}u`);
+        this.kittyProtocolEnabled = true;
+        // Remember the flags so suspendTerminal() can re-enable the same protocol
+        // after a child process has had the terminal.
+        this.kittyFlags = flags;
+    }
+    beginSuspend() {
+        if (this.isSuspended) {
+            throw new Error('The terminal is already suspended. Resume the current suspension before suspending again.');
+        }
+        this.isSuspended = true;
+        if (!this.interactive || this.isUnmounted || this.isUnmounting) {
+            return;
+        }
+        try {
+            const stdout = this.options.stdout;
+            const { canWriteToStdout } = getWritableStreamState(stdout);
+            // Flush any pending render/log so the child starts from a settled screen.
+            settleThrottle(this.throttledOnRender, canWriteToStdout);
+            settleThrottle(this.throttledLog, canWriteToStdout);
+            if (canWriteToStdout) {
+                // Erase Ink's current frame, then show the cursor and re-arm the hide.
+                // The forced redraw on resume hides the cursor again.
+                this.log.clear();
+                this.log.done();
+                if (this.kittyProtocolEnabled) {
+                    this.writeBestEffort(this.options.stdout, '\u001B[<u');
+                }
+                if (this.alternateScreen) {
+                    this.writeBestEffort(this.options.stdout, ansiEscapes.exitAlternativeScreen);
+                }
+            }
+            // Hand input back to the terminal (raw mode off, bracketed paste off).
+            this.pauseInput?.();
+        }
+        catch (error) {
+            // If handing over the terminal fails partway, don't strand the app in a
+            // suspended state with no way back. Best-effort reclaim input, clear the
+            // flag, and rethrow so the caller sees the failure.
+            this.isSuspended = false;
+            try {
+                this.resumeInput?.();
+            }
+            catch { }
+            throw error;
+        }
+    }
+    async endSuspend() {
+        if (!this.isSuspended) {
+            return;
+        }
+        this.isSuspended = false;
+        // Reclaim input even mid-unmount: pauseInput already ran in beginSuspend, so
+        // restoring it is symmetric regardless of any state change during suspension.
+        this.resumeInput?.();
+        if (!this.interactive || this.isUnmounted || this.isUnmounting) {
+            return;
+        }
+        const stdout = this.options.stdout;
+        const { canWriteToStdout } = getWritableStreamState(stdout);
+        if (canWriteToStdout) {
+            if (this.alternateScreen) {
+                this.writeBestEffort(this.options.stdout, ansiEscapes.enterAlternativeScreen);
+            }
+            if (this.kittyProtocolEnabled && this.kittyFlags) {
+                this.writeBestEffort(this.options.stdout, `\u001B[>${resolveFlags(this.kittyFlags)}u`);
+            }
+        }
+        // Force a full redraw instead of diffing against the stale pre-suspension
+        // frame, which the child process may have overwritten. A redraw failure here
+        // is best-effort: it must not mask a callback error propagating through the
+        // caller's finally block.
+        this.lastOutput = '';
+        this.lastOutputToRender = '';
+        this.lastOutputHeight = 0;
+        this.log.reset();
+        try {
+            this.calculateLayout();
+            this.onRender();
+            await this.waitUntilRenderFlush();
+        }
+        catch { }
+    }
+}
+//# sourceMappingURL=ink.js.map

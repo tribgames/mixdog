@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+vendor/pi/node_modules/
+refs/
+
+# Build output
+src/tui/dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local Mixdog runtime state
+.mixdog/
+.mixdog-bench/
+# Kiwi Korean morph model cache (runtime-downloaded, never committed)
+kiwi-model/
+**/kiwi-model/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Scratch
+*.tmp
+tmp/
+scratch/
+
+# Tool backups
+.codex-backups/
+
+.bench/
+
+.bench-*.json
+scripts/bench/cache-hit-*.json
+boot-profile.log
+_smart-compact-sample.txt
+
+# Bench artifacts (local only)
+scripts/bench/
+/bench/
+/jobs/
+scripts/recall-bench-*.txt
+.mixdog-bench-*.json
+
+.tmp-ppt/

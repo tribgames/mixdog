@@ -1,0 +1,251 @@
+/**
+ * src/tui/engine/tool-card-results.mjs — the tool-card result state machine
+ * (patchToolCardResult + flushToolResults) extracted from createEngineSession
+ * (engine.mjs) as a dependency-injection factory.
+ *
+ * These handlers own the per-turn accounting that reflects tool results into
+ * store items: aggregate cards, non-aggregate/legacy agent-job cards, grouped
+ * fallbacks, and the finalize/cancelled sweeps. They mutate live session state,
+ * so state/set/patchItem/markToolCallDone/updateAgentJobCard are threaded via
+ * the factory argument (getters/callbacks) — never stale snapshots. Every body
+ * is the original engine.mjs logic verbatim.
+ */
+import { summarizeToolResult } from '../../runtime/shared/tool-surface.mjs';
+import { toolResultText, toolErrorDisplay, toolGroupedDisplayFallback } from './tool-result-text.mjs';
+import { toolResultCallId } from './tool-call-fields.mjs';
+import { parseAgentJob, agentArgsWithResultMetadata, toolResultStatus, isErrorToolStatus } from './agent-envelope.mjs';
+import {
+  withCancelledResultMarker,
+  groupedToolResultText,
+  aggregateRawResult,
+  aggregateSummaries,
+  assignAggregateSummaryOrder,
+} from './tool-result-status.mjs';
+import { formatAggregateDetail } from '../../runtime/shared/tool-surface.mjs';
+import { carryTranscriptMeasuredRowsCache } from '../app/transcript-window.mjs';
+
+export function createToolCardResults({
+  getState,
+  set,
+  patchItem,
+  markToolCallDone,
+  updateAgentJobCard,
+  agentStatusState,
+}) {
+  function patchToolItem(id, patch) {
+    const prev = getState().items.find((it) => it.id === id);
+    const ok = patchItem(id, patch);
+    if (!ok || !prev) return ok;
+    const next = getState().items.find((it) => it.id === id);
+    if (next && next !== prev) carryTranscriptMeasuredRowsCache(prev, next);
+    return ok;
+  }
+
+  function patchToolCardResult(card, message, toolGroups, done) {
+    if (!card || card.done) return false;
+    const callId = toolResultCallId(message) || card.callId;
+    if (callId && done.has(callId)) return false;
+    // Any resolving call clears its active-summary entry (keyed by the same
+    // callKey used at markToolCallActive; card.callId holds it for both branches).
+    markToolCallDone(card.callId);
+    // A result for this card arrived (possibly before its deferred push delay
+    // elapsed) — surface the card now so the patch below has a live item and the
+    // fast tool paints a completed card directly, no pending placeholder stage.
+    // ensureVisible flushes this card AND every earlier-created still-deferred
+    // card in order, so transcript order always matches call order.
+    (card.aggregate?.ensureVisible || card.ensureVisible)?.();
+    const rawText = toolResultText(message?.content);
+    const isError = message?.isError === true || message?.toolKind === 'error' || /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText));
+    const text = isError ? toolErrorDisplay(rawText, card?.name || 'tool') : rawText;
+
+    // Aggregate card handling — collect semantic summaries per call
+    const aggregate = card.aggregate;
+    if (aggregate && card.itemId === aggregate.itemId) {
+      const callRec = callId ? aggregate.calls.get(callId) : null;
+      if (!callRec) return false;
+      if (callRec.resolved) {
+        card.done = true;
+        if (callId) done.add(callId);
+        return false;
+      }
+      callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
+      assignAggregateSummaryOrder(aggregate, callRec);
+      callRec.isError = isError;
+      callRec.resultText = text;
+      callRec.resolved = true;
+      const allCalls = [...aggregate.calls.values()];
+      const completed = allCalls.filter((r) => r.resolved).length;
+      const errors = allCalls.filter((r) => r.isError).length;
+      // Collapsed detail carries the merged per-call count summary
+      // ("512 lines, 6 matches, 3 files") so the finished card answers "how
+      // much" without ctrl+o. Failures keep a bare 'N Ok · N Failed' status so
+      // an error stays visible while collapsed.
+      const succeeded = completed - errors;
+      const detailText = errors > 0
+        ? (succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`)
+        : formatAggregateDetail(aggregateSummaries(aggregate));
+      const currentItem = getState().items.find((it) => it.id === card.itemId);
+      const earlyCompleted = allCalls.filter((r) => r.resolved || r.completedEarly).length;
+      const visualCompleted = Math.max(completed, earlyCompleted, Math.min(allCalls.length, Number(currentItem?.completedCount || 0)));
+      const rawResult = aggregateRawResult(allCalls);
+      // The numbered+labelled raw (rawResult) is preserved for ctrl+o expansion.
+      const displayDetail = detailText;
+      patchToolItem(card.itemId, {
+        result: displayDetail,
+        text: displayDetail,
+        rawResult: rawResult || null,
+        isError: errors > 0,
+        errorCount: errors,
+        count: allCalls.length,
+        completedCount: visualCompleted,
+        completedAt: Number(currentItem?.completedAt) || Date.now(),
+      });
+      card.done = true;
+      if (callId) done.add(callId);
+      return true;
+    }
+
+    // Non-aggregate (legacy agent-job cards, etc.)
+    const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, results: [] };
+    group.completed = Math.min(group.count, group.completed + 1);
+    group.errors += isError ? 1 : 0;
+    group.results.push({ text, isError });
+    toolGroups.set(card.itemId, group);
+    const resultText = groupedToolResultText(group);
+    const displayResult = toolGroupedDisplayFallback(resultText, text, rawText);
+    const patch = {
+      result: displayResult,
+      text: displayResult,
+      isError: group.errors > 0,
+      errorCount: group.errors,
+      count: group.count,
+      completedCount: group.completed,
+      completedAt: Date.now(),
+    };
+    if (group.count <= 1) {
+      const body = String(text || rawText || '').trim();
+      if (body) patch.rawResult = text || rawText;
+      const parsedAgent = parseAgentJob(rawText);
+      if (parsedAgent) {
+        patch.args = agentArgsWithResultMetadata(getState().items.find((it) => it.id === card.itemId)?.args, parsedAgent);
+        set(agentStatusState({ force: true }));
+      }
+    }
+    patchToolItem(card.itemId, patch);
+    if (group.count <= 1) {
+      const beforeAgent = getState().items.find((it) => it.id === card.itemId);
+      updateAgentJobCard(card.itemId, rawText, isError);
+      const afterAgent = getState().items.find((it) => it.id === card.itemId);
+      if (afterAgent && beforeAgent && afterAgent !== beforeAgent) {
+        carryTranscriptMeasuredRowsCache(beforeAgent, afterAgent);
+      }
+    }
+    card.done = true;
+    if (callId) done.add(callId);
+    return true;
+  }
+
+  const flushToolResults = (messages, toolCards, cardByCallId, toolGroups, done, { finalize = false, cancelled = false } = {}) => {
+    const results = [];
+    for (const m of messages || []) {
+      if (!m || m.role !== 'tool') continue;
+      const callId = toolResultCallId(m);
+      results.push({ message: m, callId, used: false });
+      if (!callId || done.has(callId)) continue;
+      const card = cardByCallId.get(callId);
+      if (patchToolCardResult(card, m, toolGroups, done)) {
+        results[results.length - 1].used = true;
+      }
+    }
+
+    const openCards = (toolCards || []).filter((card) => !card.done);
+    if (openCards.length === 0) return;
+
+    const unusedResults = results.filter((result) => !result.used);
+    const fallbackResults = unusedResults.slice(-openCards.length);
+    for (let i = 0; i < fallbackResults.length; i++) {
+      const card = openCards[i];
+      const result = fallbackResults[i];
+      if (!card || !result || card.done) continue;
+      if (patchToolCardResult(card, result.message, toolGroups, done)) {
+        if (result.callId) done.add(result.callId);
+        result.used = true;
+      }
+    }
+
+    if (!finalize) return;
+    for (const card of toolCards || []) {
+      if (card.done) continue;
+      // Finalize must surface any still-deferred card before patching its result
+      // so the completed/cancelled card is never silently dropped.
+      (card.aggregate?.ensureVisible || card.ensureVisible)?.();
+      // Aggregate finalize — mark any remaining calls as done
+      const aggregate = card.aggregate;
+      if (aggregate && card.itemId === aggregate.itemId) {
+        const allCalls = [...aggregate.calls.values()];
+        // Never let a call that truly never resolved be presented as a real
+        // completion. Stamp it resolved so completedCount reflects an honest
+        // (if degenerate) accounting instead of manufacturing success out of
+        // a call that never came back. A record already marked completedEarly
+        // (via __earlyNotify) already carries a real isError/resultText/summary
+        // from its actual result — preserve those; only blank-fill for calls
+        // truly never heard from (no completedEarly, no resolved).
+        for (const rec of allCalls) {
+          if (rec.resolved) continue;
+          rec.resolved = true;
+          if (!rec.completedEarly) {
+            rec.isError = false;
+            rec.resultText = rec.resultText || '';
+          }
+        }
+        const completed = allCalls.filter((r) => r.resolved).length;
+        const totalCompleted = completed;
+        const errors = allCalls.filter((r) => r.isError).length;
+        const succeeded = completed - errors;
+        const rawResult = aggregateRawResult(allCalls);
+        // Collapsed detail carries the merged per-call count summary; failures
+        // keep a bare 'N Ok · N Failed' status. Raw is kept for ctrl+o.
+        let displayDetail = errors > 0
+          ? (succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`)
+          : formatAggregateDetail(aggregateSummaries(aggregate));
+        if (cancelled) {
+          // Cancelled aggregates MUST keep the [status: cancelled] marker on the
+          // result so terminalStatus parsing resolves to 'cancelled'. Only normal
+          // completions drop the summary; cancelled ones prepend the marker.
+          const currentItem = getState().items.find((it) => it.id === card.itemId);
+          displayDetail = withCancelledResultMarker(displayDetail, currentItem);
+        }
+        patchToolItem(card.itemId, {
+          result: displayDetail,
+          text: displayDetail,
+          rawResult: rawResult || null,
+          isError: errors > 0,
+          errorCount: errors,
+          count: allCalls.length,
+          completedCount: totalCompleted,
+          completedAt: Date.now(),
+        });
+        for (const sibling of toolCards || []) {
+          if (sibling.itemId !== card.itemId) continue;
+          sibling.done = true;
+          if (sibling.callId) done.add(sibling.callId);
+        }
+        continue;
+      }
+      // Non-aggregate finalize
+      const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, results: [] };
+      group.completed = Math.min(group.count, group.completed + 1);
+      toolGroups.set(card.itemId, group);
+      let resultText = groupedToolResultText(group);
+      if (cancelled) {
+        const currentItem = getState().items.find((it) => it.id === card.itemId);
+        resultText = withCancelledResultMarker(resultText, currentItem);
+      }
+      patchToolItem(card.itemId, { result: resultText, text: resultText, isError: group.errors > 0, errorCount: group.errors, count: group.count, completedCount: group.completed, completedAt: Date.now() });
+      card.done = true;
+      if (card.callId) done.add(card.callId);
+    }
+  };
+
+  return { patchToolCardResult, flushToolResults };
+}

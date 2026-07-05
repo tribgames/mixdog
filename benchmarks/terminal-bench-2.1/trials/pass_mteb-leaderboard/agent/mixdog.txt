@@ -1,0 +1,10 @@
+(node:747) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+[steer] sess=sess_747_1783251510336_1783251510448_fe63d674e011ec90cfeb6097eea8574e injected pre-send user message (merged=1 len=972)
+models: ["claude-fable-5"]
+sessionId: sess_747_1783251510336_1783251510448_fe63d674e011ec90cfeb6097eea8574e
+The leaderboard is dynamic, so I'll compute this directly from official MTEB results data. Let me check the container environment first.Network works but Python's stdlib `types.py` looks broken. Let me inspect.More sabotaged files. Let me find all empty stdlib modules and restore them in one pass.The 4 "missing" files are legitimately empty `__init__.py` files. Verifying Python/pip now:Environment fixed. Now for the actual task: I'll compute the leaderboard from the official MTEB results repo, pinned to the last commit before September 2025 to match the "as of August 2025" requirement.Both done: mteb 1.38.41 installed, results repo pinned at commit `71f6b625` (2025-08-29). Now computing the leaderboard:Done — `/app/result.txt` contains `GritLM/GritLM-7B`.
+
+- **Answer:** `GritLM/GritLM-7B`, the highest Mean (Task) (64.08) among models with results for all 28 MTEB(Scandinavian, v1) tasks, computed from the official `embeddings-benchmark/results` repo pinned to the last pre-September commit (`71f6b625`, 2025-08-29).
+- **Completeness filter mattered:** only 8 models cover all tasks; runners-up were `intfloat/e5-mistral-7b-instruct` (62.01) and `intfloat/multilingual-e5-large-instruct` (61.62).
+- **Environment repair:** the container's Python stdlib had ~140 zeroed-out modules (`types.py`, `ssl.py`, `subprocess.py`, …); I restored them from the CPython 3.10.20 source tarball before pip/mteb could run.

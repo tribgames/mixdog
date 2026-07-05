@@ -1,0 +1,10 @@
+(node:1143) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+[steer] sess=sess_1143_1783256924404_1783256924572_e3cba9a7a92b06330013fd838a5de3d8 injected pre-send user message (merged=1 len=1334)
+models: ["claude-fable-5"]
+sessionId: sess_1143_1783256924404_1783256924572_e3cba9a7a92b06330013fd838a5de3d8
+The script was written but vim never ran (`time` missing under dash). Rerunning with bash:Done — `/app/apply_macros.vim` transforms input.csv to a byte-for-byte match with expected.csv, and input.csv is restored so the test suite's own run starts fresh.
+
+- **Macros (62 total keystrokes):** `@a` strips spaces, converts `,`→`;`, uppercases the line (`gUU`); `@b` reverses the three fields via one `:s` with backreferences; `@c` appends `;OK`.
+- **Verified:** `vim -Nu NONE -n -Es /app/input.csv -S /app/apply_macros.vim` exited 0 in ~25s over 1M rows, and `cmp` against expected.csv reported a match.
+- **Script contents:** only the three `call setreg(...)` lines, `:%normal! @a/@b/@c`, and `:wq` — no Vimscript functions or shell escapes.

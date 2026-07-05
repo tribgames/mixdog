@@ -1,0 +1,59 @@
+## Phase C: negative-path tests against the released runtime tarballs.
+## Runs after Build Runtime succeeds, OR on demand. Validates fetcher behavior
+## under corrupt/missing/stale conditions on each OS.
+
+name: Smoke Runtime (negative paths)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to test (e.g. runtime-v0.4.0)"
+        required: false
+        default: "runtime-v0.4.0"
+      release_repository:
+        description: "Release repository override (e.g. trib-plugin/mixdog for legacy runtime-v0.4.0)"
+        required: false
+        default: ""
+  workflow_run:
+    workflows: ["Build Runtime"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  negative:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    name: negative-${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux,  arch: x64,   runner: ubuntu-22.04, container: 'ubuntu:20.04' }
+          - { os: darwin, arch: arm64, runner: macos-14,     container: '' }
+          - { os: win32,  arch: x64,   runner: windows-2022, container: '' }
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Negative tests (unix)
+        if: runner.os != 'Windows'
+        env:
+          TAG: ${{ inputs.tag || 'runtime-v0.4.0' }}
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+          RUNTIME_RELEASE_REPOSITORY: ${{ inputs.release_repository }}
+        run: bash scripts/smoke-runtime-negative.sh
+
+      - name: Negative tests (windows)
+        if: runner.os == 'Windows'
+        env:
+          TAG: ${{ inputs.tag || 'runtime-v0.4.0' }}
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+          RUNTIME_RELEASE_REPOSITORY: ${{ inputs.release_repository }}
+        shell: pwsh
+        run: .\scripts\smoke-runtime-negative.ps1

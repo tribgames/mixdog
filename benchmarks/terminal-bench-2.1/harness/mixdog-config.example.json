@@ -1,0 +1,33 @@
+{
+  "agent": {
+    "providers": {
+      "anthropic-oauth": { "enabled": true },
+      "openai-oauth": { "enabled": true, "websocket": true }
+    },
+    "presets": [
+      {
+        "id": "workflow-lead",
+        "name": "WORKFLOW LEAD",
+        "type": "agent",
+        "provider": "anthropic-oauth",
+        "model": "claude-fable-5",
+        "effort": "high",
+        "tools": "full"
+      }
+    ],
+    "default": "workflow-lead",
+    "workflow": { "active": "default" },
+    "workflowRoutes": {
+      "lead": { "provider": "anthropic-oauth", "model": "claude-fable-5", "effort": "high" },
+      "explorer": { "provider": "anthropic-oauth", "model": "claude-haiku-4-5-20251001" },
+      "memory": { "provider": "anthropic-oauth", "model": "claude-haiku-4-5-20251001" }
+    },
+    "agents": {
+      "explore": { "provider": "anthropic-oauth", "model": "claude-haiku-4-5-20251001" },
+      "worker": { "provider": "anthropic-oauth", "model": "claude-opus-4-8", "effort": "medium" },
+      "heavy-worker": { "provider": "anthropic-oauth", "model": "claude-opus-4-8", "effort": "high" },
+      "reviewer": { "provider": "openai-oauth", "model": "gpt-5.5", "effort": "high", "fast": true },
+      "debugger": { "provider": "openai-oauth", "model": "gpt-5.5", "effort": "xhigh", "fast": true }
+    }
+  }
+}

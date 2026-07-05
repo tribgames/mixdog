@@ -1,0 +1,8 @@
+(node:5486) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_5486_1783256817732_1783256818019_7c2fd29d5143defb3287847a237cb570
+The WAL is XOR-encrypted with 0x42 (first 4 bytes XOR 0x42 = `37 7f 06 82`, the WAL magic). Decrypting and extracting:Done — all 11 records recovered to `/app/recovered.json`.
+
+- **Fix**: the WAL was XOR-encrypted with key `0x42` (spotted via the mangled WAL magic and pervasive `0x42` filler); XOR-decrypting the whole file restored a valid WAL, confirmed by `PRAGMA integrity_check` = ok.
+- **Extraction**: SQLite now reads base + WAL data — `items` returns 11 rows (apple…mango, values 150–1100), written sorted by id in the required JSON format.

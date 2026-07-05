@@ -1,0 +1,6 @@
+{
+  "id": "maintainer",
+  "name": "Maintainer",
+  "description": "Maintenance, upkeep, and long-running health work.",
+  "entry": "AGENT.md"
+}

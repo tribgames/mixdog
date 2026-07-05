@@ -1,0 +1,147 @@
+/**
+ * Agent Runtime — shared session builder.
+ *
+ * Single source of truth for agent session creation + role/preset
+ * telemetry. Both entry points route through this helper:
+ *
+ *   - `agent-runtime/agent-dispatch.mjs` — internal callers
+ *     (memory-cycle, scheduler, webhook) dispatching via
+ *     `makeAgentDispatch`.
+ *   - Lead-originated agent dispatches into configured workflow agents.
+ *
+ * Before this helper, the two paths carried separate `createSession` +
+ * `traceAgentPreset` blocks. Lead-direct dispatches silently skipped
+ * the trace so cache-hit analysis missed every public agent call.
+ *
+ * Preset resolution stays with each caller since they read from
+ * different sources. The helper takes already-resolved primitives.
+ */
+
+import { createSession } from '../session/manager.mjs';
+import { traceAgentPreset } from '../agent-trace.mjs';
+import { resolveAgentSessionPermission } from '../internal-agents.mjs';
+import { loadConfig } from '../config.mjs';
+import { AGENT_OWNER } from '../agent-owner.mjs';
+
+import {
+    COMPACT_TYPE_SEMANTIC,
+    normalizeCompactType,
+} from '../session/compact.mjs';
+
+function normalizeAgentCompactionConfig(value = {}, { memoryEnabled = true } = {}) {
+    const raw = value && typeof value === 'object' ? value : {};
+    let compactType = normalizeCompactType(
+        raw.compactType ?? raw.compact_type ?? raw.type,
+        COMPACT_TYPE_SEMANTIC,
+    );
+    // Memory is now always-on, so recall-fasttrack no longer downgrades to
+    // semantic. `memoryEnabled` is retained as a param for API compatibility
+    // but is intentionally ignored (fasttrack drains run on-demand regardless
+    // of the recap/background-cycle toggle) — mirrors config-helpers.mjs.
+    void memoryEnabled;
+    return {
+        ...raw,
+        auto: raw.auto !== false && raw.enabled !== false,
+        type: compactType,
+        compactType,
+    };
+}
+
+/**
+ * @param {object} opts
+ * @param {string}  opts.agent         — canonical agent name ('worker', 'explorer', ...)
+ * @param {string}  opts.presetName    — resolved preset identifier
+ * @param {object}  opts.preset        — resolved preset object from agent-config
+ * @param {object}  opts.runtimeSpec   — resolveRuntimeSpec output; must carry .scopeKey / .lane
+ * @param {string}  [opts.permission]  — 'none' | 'read' | 'read-write' | 'mcp' | 'full' | null
+ * @param {string|null} [opts.cwd]     — absolute working dir; null is the fixed agent sentinel meaning "no caller workspace context"
+ * @param {string}  [opts.owner='agent']
+ * @param {string}  [opts.permissionMode] — permissionMode forwarded from the MCP payload ('bypassPermissions', 'acceptEdits', 'plan', 'dontAsk', 'default')
+ * @param {string[]} [opts.schemaAllowedTools] — schema-level allowlist from a hidden-agent toolSchemaProfile
+ * @param {string}  [opts.sourceType]
+ * @param {string}  [opts.sourceName]
+ * @param {string}  [opts.taskType]
+ * @param {number}  [opts.maxLoopIterations]
+ * @param {string}  [opts.parentSessionId]
+ * @param {string|null} [opts.ownerSessionId] - owning Mixdog MCP instance id for statusline isolation
+ * @returns {{ session: object, effectiveCwd: string|null }}
+ */
+export function prepareAgentSession({
+    agent,
+    presetName,
+    preset,
+    runtimeSpec,
+    permission,
+    cwd,
+    owner = 'agent',
+    permissionMode,
+    sourceType,
+    sourceName,
+    taskType,
+    maxLoopIterations,
+    parentSessionId,
+    ownerSessionId,
+    clientHostPid,
+    agentTag,
+    cacheKeyOverride,
+    schemaAllowedTools,
+}) {
+    const effectivePermission = resolveAgentSessionPermission(agent, permission);
+    // No per-agent loop caps: sessions either pin maxLoopIterations explicitly
+    // or fall through to the shared runaway guard (LEAD_MAX_LOOP_ITERATIONS).
+    const effectiveMaxLoopIterations = maxLoopIterations;
+    // Pass cwd through verbatim — null is the fixed agent sentinel meaning
+    // "no caller workspace context" (cycle1-agent shards, etc). Upgrading
+    // null → process.cwd() here would defeat cache-shard fork suppression.
+    // Downstream collectors (collect.mjs) handle null as "no project cwd".
+    const effectiveCwd = cwd == null ? null : cwd;
+    const effectiveOwnerSessionId = ownerSessionId === undefined
+        ? (process.env.MIXDOG_OWNER_SESSION_ID || null)
+        : ownerSessionId;
+    let compaction = null;
+    try {
+        const cfg = loadConfig({ secrets: false });
+        if (cfg?.compaction && typeof cfg.compaction === 'object') {
+            compaction = normalizeAgentCompactionConfig(cfg.compaction);
+        }
+    } catch { /* config is best-effort for agent compaction policy */ }
+    const sessionOpts = {
+        preset,
+        owner,
+        scopeKey: runtimeSpec.scopeKey,
+        lane: runtimeSpec.lane,
+        cwd: effectiveCwd,
+        agent: agent || undefined,
+        taskType: taskType || undefined,
+        maxLoopIterations: Number.isFinite(effectiveMaxLoopIterations) ? effectiveMaxLoopIterations : undefined,
+        sourceType: sourceType || undefined,
+        sourceName: sourceName || undefined,
+        ownerSessionId: effectiveOwnerSessionId || null,
+        clientHostPid: clientHostPid || null,
+        compaction: compaction || undefined,
+    };
+    if (agentTag) sessionOpts.agentTag = agentTag;
+    if (effectivePermission) sessionOpts.permission = effectivePermission;
+    if (permissionMode) sessionOpts.permissionMode = permissionMode;
+    if (cacheKeyOverride) sessionOpts.cacheKeyOverride = cacheKeyOverride;
+    if (Array.isArray(schemaAllowedTools)) {
+        sessionOpts.schemaAllowedTools = schemaAllowedTools;
+    }
+    const session = createSession(sessionOpts);
+    try {
+        traceAgentPreset({
+            sessionId: session.id,
+            agent: agent || null,
+            presetName: presetName || null,
+            // runtimeSpec carries scopeKey/lane but resolveRuntimeSpec does not
+            // populate model/provider — fall back to preset fields.
+            model: runtimeSpec?.model || preset?.model || null,
+            provider: runtimeSpec?.provider || preset?.provider || null,
+            parentSessionId: parentSessionId || null,
+            permission: effectivePermission || null,
+            sourceName: sourceName || null,
+            cacheKeyOverride: cacheKeyOverride || null,
+        });
+    } catch { /* telemetry best-effort */ }
+    return { session, effectiveCwd };
+}

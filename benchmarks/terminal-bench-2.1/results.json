@@ -1,0 +1,447 @@
+[
+  {
+    "task": "adaptive-rejection-sampler",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "bn-fit-modify",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "break-filter-js-from-html",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "build-cython-ext",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "build-pmars",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "build-pov-ray",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "caffe-cifar-10",
+    "result": "fail",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "cancel-async-tasks",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "chess-best-move",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "circuit-fibsqrt",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "cobol-modernization",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "code-from-image",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "compile-compcert",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "configure-git-webserver",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "constraints-scheduling",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "count-dataset-tokens",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "crack-7z-hash",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "custom-memory-heap-crash",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "db-wal-recovery",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "distribution-search",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "dna-assembly",
+    "result": "pass",
+    "source_job": "jobs-21-refusal-opus"
+  },
+  {
+    "task": "dna-insert",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "extract-elf",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "extract-moves-from-video",
+    "result": "fail",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "feal-differential-cryptanalysis",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "feal-linear-cryptanalysis",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "filter-js-from-html",
+    "result": "fail",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "financial-document-processor",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "fix-code-vulnerability",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "fix-git",
+    "result": "pass",
+    "source_job": "jobs"
+  },
+  {
+    "task": "fix-ocaml-gc",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "gcode-to-text",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "git-leak-recovery",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "git-multibranch",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "gpt2-codegolf",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "headless-terminal",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "hf-model-inference",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "install-windows-3.11",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "kv-store-grpc",
+    "result": "pass",
+    "source_job": "jobs-21-full-r2"
+  },
+  {
+    "task": "large-scale-text-editing",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "largest-eigenval",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "llm-inference-batching-scheduler",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "log-summary-date-ranges",
+    "result": "pass",
+    "source_job": "jobs"
+  },
+  {
+    "task": "mailman",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "make-doom-for-mips",
+    "result": "fail",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "make-mips-interpreter",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "mcmc-sampling-stan",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "merge-diff-arc-agi-task",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "model-extraction-relu-logits",
+    "result": "pass",
+    "source_job": "jobs-21-refusal-opus"
+  },
+  {
+    "task": "modernize-scientific-stack",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "mteb-leaderboard",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "mteb-retrieve",
+    "result": "fail",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "multi-source-data-merger",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "nginx-request-logging",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "openssl-selfsigned-cert",
+    "result": "pass",
+    "source_job": "jobs-21-full-r2"
+  },
+  {
+    "task": "overfull-hbox",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "password-recovery",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "path-tracing",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "path-tracing-reverse",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "polyglot-c-py",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "polyglot-rust-c",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "portfolio-optimization",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "protein-assembly",
+    "result": "fail",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "prove-plus-comm",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "pypi-server",
+    "result": "pass",
+    "source_job": "jobs-21-full-r2"
+  },
+  {
+    "task": "pytorch-model-cli",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "pytorch-model-recovery",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "qemu-alpine-ssh",
+    "result": "pass",
+    "source_job": "jobs-21-full-r2"
+  },
+  {
+    "task": "qemu-startup",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "query-optimize",
+    "result": "fail",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "raman-fitting",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "regex-chess",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "regex-log",
+    "result": "pass",
+    "source_job": "jobs"
+  },
+  {
+    "task": "reshard-c4-data",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "rstan-to-pystan",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "sam-cell-seg",
+    "result": "pass",
+    "source_job": "jobs-21-refusal-opus"
+  },
+  {
+    "task": "sanitize-git-repo",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "schemelike-metacircular-eval",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "sparql-university",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "sqlite-db-truncate",
+    "result": "pass",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "sqlite-with-gcov",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "torch-pipeline-parallelism",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "torch-tensor-parallelism",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "train-fasttext",
+    "result": "fail",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "tune-mjcf",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "video-processing",
+    "result": "fail",
+    "source_job": "jobs-21-infra-retry"
+  },
+  {
+    "task": "vulnerable-secret",
+    "result": "pass",
+    "source_job": "jobs-21-refusal-opus"
+  },
+  {
+    "task": "winning-avg-corewars",
+    "result": "pass",
+    "source_job": "jobs-21-full-r3"
+  },
+  {
+    "task": "write-compressor",
+    "result": "pass",
+    "source_job": "jobs-21-refusal-retest"
+  }
+]

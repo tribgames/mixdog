@@ -1,0 +1,42 @@
+{
+    "id": "dda9dc4d-f31c-4640-9264-c9f040b39dc1",
+    "started_at": "2026-07-05T18:39:30.936980",
+    "updated_at": "2026-07-05T18:42:16.987923",
+    "finished_at": "2026-07-05T18:42:16.987923",
+    "n_total_trials": 2,
+    "stats": {
+        "n_completed_trials": 2,
+        "n_errored_trials": 0,
+        "n_running_trials": 0,
+        "n_pending_trials": 0,
+        "n_cancelled_trials": 0,
+        "n_retries": 0,
+        "evals": {
+            "mixdog__claude-sonnet-4-5__terminal-bench/terminal-bench-2": {
+                "n_trials": 2,
+                "n_errors": 0,
+                "metrics": [
+                    {
+                        "mean": 0.5
+                    }
+                ],
+                "pass_at_k": {},
+                "reward_stats": {
+                    "reward": {
+                        "0.0": [
+                            "log-summary-date-ranges__r5PMi8F"
+                        ],
+                        "1.0": [
+                            "regex-log__UyYMZsG"
+                        ]
+                    }
+                },
+                "exception_stats": {}
+            }
+        },
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null
+    }
+}

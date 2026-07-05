@@ -1,0 +1,9 @@
+(node:3374) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_3374_1783258096301_1783258096484_cdc9a4a8c6e06b90157f22fe9fcb58e3
+Done — SQLite 3.50.4 is built in /app/sqlite with gcov instrumentation and available on PATH.
+
+- **Build**: extracted the vendored snapshot to /app/sqlite, installed gcc/make/tcl, configured with `-g -O0 -fprofile-arcs -ftest-coverage` (CFLAGS and LDFLAGS), and `make sqlite3` succeeded.
+- **PATH**: `/usr/local/bin/sqlite3` → `/app/sqlite/sqlite3`; `which sqlite3` and `sqlite3 --version` (3.50.4) both resolve.
+- **Coverage verified**: running a query emitted `sqlite3-sqlite3.gcda`/`sqlite3-shell.gcda` in /app/sqlite, and `gcov sqlite3-sqlite3.gcda` reports `Lines executed: 10.19% of 58038` for sqlite3.c.

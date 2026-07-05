@@ -1,0 +1,9 @@
+(node:1017) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_1017_1783252748724_1783252748855_f6466cf4bf30e7773023a64461a5c1d3
+4759 lines. Now build the sim and test against known values.Done — `/app/gates.txt` (4,759 lines, well under 32,000) computes `fib(isqrt(N)) % 2^32` and passes all checks.
+
+- **Design**: low-index signals act as clocked registers (they read high-index next-state values from the previous step), giving a state machine on top of the event-driven simulator; isqrt is computed combinationally (16-round restoring method), then a loop advances Fibonacci 4 iterations per step, so worst case needs ~16,385 of the 32,000 steps.
+- **Verified**: both given examples (`sim 208` → 377, `sim 20000` → 1407432322) plus 12 more cases including edge values `N=0`, `N=1`, and worst case `N=4294967295` (s=65535) — all match the reference `fib(isqrt(N)) % 2^32`.
+- Generator kept at `/app/gen.py` for reproducibility.

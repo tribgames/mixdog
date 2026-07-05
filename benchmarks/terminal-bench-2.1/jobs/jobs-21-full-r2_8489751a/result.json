@@ -1,0 +1,48 @@
+{
+    "id": "8489751a-b91b-4759-b936-d1b01009c435",
+    "started_at": "2026-07-05T19:24:45.594406",
+    "updated_at": "2026-07-05T10:32:31.803025Z",
+    "finished_at": null,
+    "n_total_trials": 89,
+    "stats": {
+        "n_completed_trials": 8,
+        "n_errored_trials": 0,
+        "n_running_trials": 8,
+        "n_pending_trials": 73,
+        "n_cancelled_trials": 0,
+        "n_retries": 0,
+        "evals": {
+            "mixdog__terminal-bench/terminal-bench-2-1": {
+                "n_trials": 8,
+                "n_errors": 0,
+                "metrics": [
+                    {
+                        "mean": 0.625
+                    }
+                ],
+                "pass_at_k": {},
+                "reward_stats": {
+                    "reward": {
+                        "0.0": [
+                            "write-compressor__xVKHjim",
+                            "dna-assembly__YieAh3P",
+                            "model-extraction-relu-logits__wsSrEY4"
+                        ],
+                        "1.0": [
+                            "pypi-server__iHTsh8A",
+                            "kv-store-grpc__cHTpcK3",
+                            "openssl-selfsigned-cert__VJLyMLx",
+                            "log-summary-date-ranges__Cqg7JpX",
+                            "qemu-alpine-ssh__9N2DeGg"
+                        ]
+                    }
+                },
+                "exception_stats": {}
+            }
+        },
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null
+    }
+}

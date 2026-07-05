@@ -1,0 +1,80 @@
+{
+  "agents": [
+    {
+      "agent": "explorer",
+      "slot": "explore",
+      "systemFile": "rules/agent/30-explorer.md",
+      "description": "Filesystem navigation agent invoked by the `explore` MCP tool",
+      "invokedBy": "explore",
+      "toolSchemaProfile": "read",
+      "schemaAllowedTools": ["grep", "find", "glob", "code_graph"],
+      "kind": "retrieval",
+      "permission": "read",
+      "stallCap": { "idleSeconds": 240, "toolRunningSeconds": 180 }
+    },
+    {
+      "agent": "cycle1-agent",
+      "slot": "cycle1",
+      "systemFile": "rules/agent/40-cycle1-agent.md",
+      "description": "Chunker/classifier invoked by memory-cycle runCycle1",
+      "invokedBy": "cycle1",
+      "maintKey": "memory",
+      "toolSchemaProfile": "none",
+      "kind": "maintenance",
+      "permission": "read",
+      "stallCap": { "idleSeconds": 300, "toolRunningSeconds": 300 }
+    },
+    {
+      "agent": "cycle2-agent",
+      "slot": "cycle2",
+      "systemFile": "rules/agent/41-cycle2-agent.md",
+      "description": "Root re-scorer invoked by memory-cycle runCycle2",
+      "invokedBy": "cycle2",
+      "maintKey": "memory",
+      "toolSchemaProfile": "none",
+      "kind": "maintenance",
+      "permission": "read",
+      "stallCap": { "idleSeconds": 300, "toolRunningSeconds": 300 }
+    },
+    {
+      "agent": "cycle3-agent",
+      "slot": "cycle3",
+      "systemFile": "rules/agent/42-cycle3-agent.md",
+      "description": "Core memory reviewer invoked by memory-cycle runCycle3",
+      "invokedBy": "cycle3",
+      "maintKey": "memory",
+      "toolSchemaProfile": "none",
+      "kind": "maintenance",
+      "permission": "read",
+      "stallCap": { "idleSeconds": 300, "toolRunningSeconds": 300 }
+    },
+    {
+      "agent": "scheduler-task",
+      "slot": "scheduler",
+      "systemFile": "agents/scheduler-task/AGENT.md",
+      "description": "Scheduled-task executor invoked by scheduler tick",
+      "invokedBy": "scheduler",
+      "toolSchemaProfile": "read-write-search",
+      "schemaAllowedTools": ["code_graph", "find", "glob", "list", "grep", "read", "apply_patch", "search", "web_fetch"],
+      "kind": "maintenance",
+      "permission": "read-write",
+      "inboundEvent": true,
+      "instructionDir": "schedules",
+      "stallCap": { "idleSeconds": 600, "toolRunningSeconds": 600 }
+    },
+    {
+      "agent": "webhook-handler",
+      "slot": "webhook",
+      "systemFile": "agents/webhook-handler/AGENT.md",
+      "description": "Webhook payload handler invoked by inbound webhook events",
+      "invokedBy": "webhook",
+      "toolSchemaProfile": "read-write-search",
+      "schemaAllowedTools": ["code_graph", "find", "glob", "list", "grep", "read", "apply_patch", "search", "web_fetch"],
+      "kind": "maintenance",
+      "permission": "read-write",
+      "inboundEvent": true,
+      "instructionDir": "webhooks",
+      "stallCap": { "idleSeconds": 600, "toolRunningSeconds": 600 }
+    }
+  ]
+}

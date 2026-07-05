@@ -1,0 +1,13 @@
+(node:911) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_911_1783254431592_1783254431732_9d9adf25d3118a2e2b7bfd3f4a1f9082
+All extensions compiled. Installing into the global environment (skipping deps like `vispy`/`planarity` that fail to build and aren't needed):The `planarity` package renamed node/edge attributes. Checking all uses of the old keys:The `.pyx` is fixed, but a few `.py` files use the `np.` alias too. Fixing those and rebuilding:Done — pyknotid 0.5.3 is built from source and installed into the global Python 3.13 environment with all Cython extensions working against NumPy 2.3.0.
+
+**Fixed for NumPy 2.0+:** replaced removed aliases (`n.float`/`n.int`/`n.bool`/`n.complex` and `np.*` variants) across the package, including `np.int` → `np.int64` inside `ccomplexity.pyx` which would have crashed at call time.
+
+**Other compatibility fixes:** `from fractions import gcd` → `from math import gcd` in `pyknotid/make/torus.py` (Python ≥3.9), and updated `planarity` node/edge attribute keys (`pos/start/end` → `vertex_position/vertex_start/vertex_end`, `edge_*`) in `representations/representation.py`.
+
+**Verified:** the README snippet runs cleanly (`alexander_polynomial(-1)` = 7); `chelpers`, `ccomplexity`, `cinvariants` (plus `coctree`) all import as compiled `.so` from site-packages and were exercised in their original call paths (`find_crossings`, `higher_order_writhe_integral`, `vassiliev_degree_3`); `tests/test_knot.py` + `tests/test_spacecurve.py` pass 18/18 (excluded `test_random_curves.py`/`test_catalogue.py` per spec).
+
+Install used `pip install --no-build-isolation --no-deps .` with runtime deps (`sympy`, `networkx`, `planarity`, `peewee`, `vispy`, `appdirs`, `tqdm`, `requests`) installed separately; package structure unchanged.

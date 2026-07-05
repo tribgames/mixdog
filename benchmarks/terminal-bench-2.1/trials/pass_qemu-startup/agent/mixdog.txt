@@ -1,0 +1,9 @@
+(node:5808) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_5808_1783262388524_1783262388644_3dd62ea53cfa4c4c95256a8ff29448a7
+No ISO tools available. Let me try loop-mounting with error output visible, and set up a loop device if needed:7z installed. Extracting kernel and initramfs from the ISO:Done — the VM is booted, running in the background, and the Alpine login prompt is live on `telnet 127.0.0.1 6665`.
+
+- **Why direct kernel boot**: the ISO's syslinux config is VGA-only (no serial output), so I extracted `/boot/vmlinuz-lts` + `initramfs-lts` from the ISO and booted them with the original `modules=...` args plus `console=ttyS0,115200`, with the ISO attached as `-cdrom` and serial bound to `telnet:127.0.0.1:6665,server,nowait`.
+- **Verified ready**: probe saw `Welcome to Alpine Linux 3.19 ... localhost login:` and confirmed getty re-prompts on Enter; qemu (pid in `/tmp/qemu.pid`) is alive and the port accepts connections after the probe disconnected.
+- **Note**: since the boot output was consumed during verification, a fresh telnet session may open on a blank line — pressing Enter immediately shows the `localhost login:` prompt.

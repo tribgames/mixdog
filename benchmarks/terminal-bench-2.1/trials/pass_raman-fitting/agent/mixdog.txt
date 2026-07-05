@@ -1,0 +1,10 @@
+(node:1143) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_1143_1783261222248_1783261222699_1b7086fcc1532d99b3b45f4cc6fb0eb0
+The x-axis is unusual — I'll analyze the full spectrum numerically to identify the peaks.Done — both peaks fitted and `/app/results.json` written.
+
+- **Axis decoding**: the file's first column converts to Raman shift via `1e7/x`, which places the substrate silicon lines at 302/520/950 cm⁻¹ and the graphene peaks exactly where expected, confirming the interpretation.
+- **G peak**: x0 = 1580.33 cm⁻¹, gamma = 8.54, amplitude = 8316.7, offset = 5732.8.
+- **2D peak**: x0 = 2670.10 cm⁻¹, gamma = 17.86, amplitude = 12382.3, offset = 1131.7.
+- **Verification**: Lorentzian + constant-offset fits converged with parameter errors <0.4 cm⁻¹ on position/width and residual RMS ~4% of peak span; the 2D/G intensity ratio >1 is consistent with monolayer graphene.

@@ -1,0 +1,115 @@
+{
+    "id": "7cfe0196-4631-4e62-8cec-1c124f321c32",
+    "task_name": "terminal-bench/vulnerable-secret",
+    "trial_name": "vulnerable-secret__Pm6Tko3",
+    "trial_uri": "file:///C:/Project/mixdog/bench/harbor/jobs-21-refusal-opus/2026-07-05__21-24-16/vulnerable-secret__Pm6Tko3",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "vulnerable-secret",
+        "ref": "latest"
+    },
+    "source": null,
+    "task_checksum": "08ff9cb3cd416576bed330e9b92191ce0acbf5322f64714b6955ea6638361256",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/vulnerable-secret",
+            "ref": "latest",
+            "overwrite": false,
+            "download_dir": null,
+            "source": null
+        },
+        "trial_name": "vulnerable-secret__Pm6Tko3",
+        "trials_dir": "bench\\harbor\\jobs-21-refusal-opus\\2026-07-05__21-24-16",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "bench.harbor.mixdog_agent:MixdogAgent",
+            "model_name": "claude-opus-4-8",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "effort": "xhigh"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "107a2baf-fece-412e-97bd-807509815819"
+    },
+    "agent_info": {
+        "name": "mixdog",
+        "version": "mixdog-0.9.18",
+        "model_info": {
+            "name": "claude-opus-4-8",
+            "provider": null
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-07-05T12:24:20.026322Z",
+    "finished_at": "2026-07-05T12:27:35.159605Z",
+    "environment_setup": {
+        "started_at": "2026-07-05T12:24:20.142252Z",
+        "finished_at": "2026-07-05T12:24:23.499733Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-07-05T12:24:23.499776Z",
+        "finished_at": "2026-07-05T12:25:23.568700Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-07-05T12:25:23.568824Z",
+        "finished_at": "2026-07-05T12:27:25.879056Z"
+    },
+    "verifier": {
+        "started_at": "2026-07-05T12:27:25.880045Z",
+        "finished_at": "2026-07-05T12:27:31.823394Z"
+    },
+    "step_results": null
+}

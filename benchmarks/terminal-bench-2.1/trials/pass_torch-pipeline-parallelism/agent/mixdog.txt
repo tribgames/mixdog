@@ -1,0 +1,10 @@
+(node:3374) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+[steer] sess=sess_3374_1783250453994_1783250454158_ff2e599a38cd9bc1e45b039a6fc6b83f injected pre-send user message (merged=1 len=1160)
+models: ["claude-fable-5"]
+sessionId: sess_3374_1783250453994_1783250454158_ff2e599a38cd9bc1e45b039a6fc6b83f
+While the package install runs, I'll write the implementation.Both world sizes pass. One quick smoke test with a non-default dtype and an uneven layer split to confirm robustness:Done — `/app/pipeline_parallel.py` implements `train_step_pipeline_afab` and passes verification against a reference model.
+
+- **Design:** each rank takes a contiguous, balanced slice of decoder layers (rank 0 adds embeddings, last rank adds norm + lm_head and computes `cross_entropy / num_microbatches`); stage boundaries exchange `[microbatch, seq_len, hidden_size]` activations/gradients via `dist.P2POp` + `batch_isend_irecv`, with all forwards completed before all backwards. No hooks used, and it reuses `LlamaModel.forward` internally so mask/rotary handling matches the reference across transformers versions.
+
+- **Verified:** with torch 2.12.1+cpu / transformers 5.13.0 under `torchrun` at world_size 1 and 2 — per-layer forward activations, all parameter gradients (layers, embed, norm, lm_head), and loss match a reference full-model run exactly; also smoke-tested bfloat16 and an uneven 7-layer split.

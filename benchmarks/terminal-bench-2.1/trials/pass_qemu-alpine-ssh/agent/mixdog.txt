@@ -1,0 +1,9 @@
+(node:5810) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_5810_1783247172164_1783247172269_e585192d814dcde6a703daf1e6fd5fba
+No serial console in the ISO's boot config — that's why the pane is blank. I'll boot with extracted kernel/initrd and `console=ttyS0` instead.Booting on serial now. Waiting for the login prompt.sshd is up. Verifying the exact login path from the host with expect.Done — the VM is running and `ssh -p 2222 root@localhost` with password `password123` drops into a root shell (verified both interactively and with a remote command).
+
+- **Boot workaround**: the ISO's syslinux config has no serial console, so QEMU boots via extracted `/tmp/vmlinuz-lts` + `/tmp/initramfs-lts` with `console=ttyS0`, with `/app/alpine.iso` attached as cdrom and `hostfwd=tcp::2222-:22`.
+- **VM setup**: DHCP on eth0, `openssh` installed from the ISO repo, root password set, `PermitRootLogin yes`, sshd started.
+- **Persistence note**: QEMU runs inside tmux session `vm` (attach with `tmux attach -t vm`); it's a live-ISO boot, so the config lives in RAM — the setup persists as long as this VM stays up.

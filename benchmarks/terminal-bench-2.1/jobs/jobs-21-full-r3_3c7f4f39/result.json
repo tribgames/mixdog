@@ -1,0 +1,132 @@
+{
+    "id": "3c7f4f39-71b5-4a3c-88f4-7917a69af994",
+    "started_at": "2026-07-05T20:19:32.904221",
+    "updated_at": "2026-07-05T23:05:00.673718",
+    "finished_at": "2026-07-05T23:05:00.673718",
+    "n_total_trials": 81,
+    "stats": {
+        "n_completed_trials": 81,
+        "n_errored_trials": 20,
+        "n_running_trials": 0,
+        "n_pending_trials": 0,
+        "n_cancelled_trials": 0,
+        "n_retries": 0,
+        "evals": {
+            "mixdog__terminal-bench/terminal-bench-2-1": {
+                "n_trials": 63,
+                "n_errors": 20,
+                "metrics": [
+                    {
+                        "mean": 0.6790123456790124
+                    }
+                ],
+                "pass_at_k": {},
+                "reward_stats": {
+                    "reward": {
+                        "1.0": [
+                            "mteb-leaderboard__Rk6Ze8u",
+                            "path-tracing__Zn4YvGg",
+                            "regex-log__aoj284X",
+                            "torch-pipeline-parallelism__kx8eJGZ",
+                            "torch-tensor-parallelism__vtCkuRq",
+                            "schemelike-metacircular-eval__tXDvhWt",
+                            "regex-chess__Kz43W4p",
+                            "llm-inference-batching-scheduler__r7BDgR9",
+                            "pytorch-model-recovery__h8oqNAN",
+                            "circuit-fibsqrt__hymd9Pq",
+                            "merge-diff-arc-agi-task__RBB2hF7",
+                            "build-pov-ray__nJLEiSn",
+                            "cobol-modernization__Fe82adF",
+                            "mcmc-sampling-stan__abW4UAo",
+                            "gpt2-codegolf__57PVMcp",
+                            "adaptive-rejection-sampler__Mt5yx5v",
+                            "extract-elf__ZHwUNti",
+                            "nginx-request-logging__4YmPAat",
+                            "configure-git-webserver__9taNqhs",
+                            "build-cython-ext__b23NseQ",
+                            "gcode-to-text__yPhegMY",
+                            "financial-document-processor__kAgufS7",
+                            "install-windows-3.11__dJggdcY",
+                            "polyglot-c-py__Cfrwuhn",
+                            "pytorch-model-cli__eniXBp2",
+                            "db-wal-recovery__G4dDazK",
+                            "largest-eigenval__atLog7C",
+                            "large-scale-text-editing__z8QgWDE",
+                            "break-filter-js-from-html__GPy636b",
+                            "count-dataset-tokens__rNLMsSe",
+                            "path-tracing-reverse__zXQK6HD",
+                            "chess-best-move__q5uKvmk",
+                            "prove-plus-comm__sP4sbbs",
+                            "git-multibranch__4AE96uv",
+                            "multi-source-data-merger__VNWDKC3",
+                            "sqlite-with-gcov__sppEwiQ",
+                            "polyglot-rust-c__UZPetMz",
+                            "feal-linear-cryptanalysis__hKQNxu5",
+                            "crack-7z-hash__hPZARis",
+                            "sparql-university__cjZiSRk",
+                            "custom-memory-heap-crash__iGGR9TT",
+                            "code-from-image__Ax4M3L6",
+                            "fix-git__fWrFe5d",
+                            "winning-avg-corewars__HcS9Sau",
+                            "modernize-scientific-stack__3qb8F7A",
+                            "git-leak-recovery__EAmJBzM",
+                            "distribution-search__qQMu9e7",
+                            "build-pmars__zCY2oPR",
+                            "mailman__UF6ZSgS",
+                            "headless-terminal__dLgyg7T",
+                            "bn-fit-modify__HYKNEQL",
+                            "constraints-scheduling__MaXJgZg",
+                            "tune-mjcf__D8zDgdH",
+                            "fix-code-vulnerability__DJFTAUL",
+                            "portfolio-optimization__SNYCsFf"
+                        ],
+                        "0.0": [
+                            "caffe-cifar-10__iNuHk3v",
+                            "filter-js-from-html__sUo2Mmy",
+                            "sam-cell-seg__mGA7d3u",
+                            "mteb-retrieve__5J2AWm4",
+                            "vulnerable-secret__8LqpPMV",
+                            "make-doom-for-mips__FUDt5mw",
+                            "extract-moves-from-video__EdH3E4T",
+                            "protein-assembly__MxGhFRG"
+                        ]
+                    }
+                },
+                "exception_stats": {
+                    "AgentTimeoutError": [
+                        "make-doom-for-mips__FUDt5mw",
+                        "extract-moves-from-video__EdH3E4T"
+                    ],
+                    "NonZeroAgentExitCodeError": [
+                        "train-fasttext__yzeHi3t",
+                        "compile-compcert__zYz7Kuu",
+                        "dna-insert__9Eerriu"
+                    ],
+                    "RewardFileNotFoundError": [
+                        "fix-ocaml-gc__svLYDWB"
+                    ],
+                    "RuntimeError": [
+                        "raman-fitting__WkAJ5tF",
+                        "overfull-hbox__m8hnodQ",
+                        "video-processing__iEwWPhB",
+                        "sanitize-git-repo__Dv2rq37",
+                        "qemu-startup__c6BooAk",
+                        "hf-model-inference__ErJtxjF",
+                        "reshard-c4-data__bQZqUDh",
+                        "feal-differential-cryptanalysis__KPGaGcF",
+                        "rstan-to-pystan__8CAEgUD",
+                        "make-mips-interpreter__joKKaqR",
+                        "password-recovery__PMHJxeE",
+                        "sqlite-db-truncate__oWzBCyr",
+                        "query-optimize__eHNGao7",
+                        "cancel-async-tasks__XKj8X9R"
+                    ]
+                }
+            }
+        },
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null
+    }
+}

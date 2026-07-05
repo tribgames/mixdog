@@ -1,0 +1,14 @@
+(node:1019) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_1019_1783253162596_1783253162741_53cdc1d5f970b9c50d1d37bb3246a98f
+All 19 scenarios match. Running a randomized fuzz round with varied initial data states for extra confidence:Fuzz clean across 300 randomized data/input combinations. Restoring the original fixtures and doing a final sanity check:Done — `/app/program.py` reproduces the COBOL program's file effects byte-for-byte, verified by differential testing against the compiled GnuCOBOL binary.
+
+**Changed**: added `/app/program.py` (runs from `/app`, reads `src/INPUT.DAT`, updates the three `data/*.DAT` files); all original fixtures restored to their initial state.
+
+**Replicated semantics beyond the happy path**:
+- Fixed-length record I/O with space-padding of short records; numeric fields parsed per-char GnuCOBOL-style (space = 0, otherwise `ord(c)-48`), so garbage bytes yield identical exotic values.
+- Unsigned `PIC 9(10)` storage drops sign and truncates to the low 10 digits on over/underflow; the transaction record copies amount bytes verbatim with spaces normalized to `'0'`.
+- buyer == seller triggers the COBOL fatal double-REWRITE (status 43): only the subtract persists, books/transactions untouched — mirrored exactly.
+
+**Verified**: 19 targeted scenarios plus 300 seeded fuzz trials with randomized data states — zero mismatches across all three `.DAT` files.

@@ -1,0 +1,6 @@
+{
+  "id": "explore",
+  "name": "Explore",
+  "description": "Broad codebase exploration and target narrowing.",
+  "entry": "AGENT.md"
+}

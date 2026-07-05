@@ -1,0 +1,9 @@
+(node:1142) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_1142_1783263596838_1783263596961_c86595bd1f126e672359ddb22d444dd1
+The file is a single 4KB SQLite leaf page (header stripped by truncation). I'll parse the cells directly.Done — all 10 rows recovered to `/app/recover.json`.
+
+- **Damage assessment**: the file was truncated to a single 4KB SQLite leaf b-tree page with the 100-byte database header stripped; no other non-zero data exists in the file, so 10 cells is the complete recoverable set.
+- **Recovery**: parsed the page's cell pointer array and record varints/serial types directly, extracting `testword00`–`testword09` with values `1, 2, 10, 25, 42, 50, 75, 99, 99.99, 0.5` (last two stored as float64).
+- **Verified**: output written and re-read as valid JSON in the requested `[{"word": ..., "value": ...}]` format.

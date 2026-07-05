@@ -1,0 +1,58 @@
+{
+    "id": "96810f0f-b046-47fb-96bc-681256286817",
+    "started_at": "2026-07-05T23:08:29.488618",
+    "updated_at": "2026-07-06T00:38:01.315372",
+    "finished_at": "2026-07-06T00:38:01.315372",
+    "n_total_trials": 18,
+    "stats": {
+        "n_completed_trials": 18,
+        "n_errored_trials": 0,
+        "n_running_trials": 0,
+        "n_pending_trials": 0,
+        "n_cancelled_trials": 0,
+        "n_retries": 1,
+        "evals": {
+            "mixdog__terminal-bench/terminal-bench-2-1": {
+                "n_trials": 18,
+                "n_errors": 0,
+                "metrics": [
+                    {
+                        "mean": 0.8333333333333334
+                    }
+                ],
+                "pass_at_k": {},
+                "reward_stats": {
+                    "reward": {
+                        "1.0": [
+                            "compile-compcert__zcDuZMU",
+                            "dna-insert__urtKg8e",
+                            "fix-ocaml-gc__4N7VBmP",
+                            "hf-model-inference__NEr2fBV",
+                            "overfull-hbox__5v62bzM",
+                            "qemu-startup__9QmH2jk",
+                            "raman-fitting__XpEADwp",
+                            "sanitize-git-repo__gH6SieM",
+                            "reshard-c4-data__uadbkhD",
+                            "feal-differential-cryptanalysis__zn6ogEV",
+                            "rstan-to-pystan__nLE4vrd",
+                            "make-mips-interpreter__wQLG6Vw",
+                            "password-recovery__KWRuvhm",
+                            "sqlite-db-truncate__bbBQfvy",
+                            "cancel-async-tasks__L7cRfrQ"
+                        ],
+                        "0.0": [
+                            "video-processing__QUeejwa",
+                            "train-fasttext__BkUu2G2",
+                            "query-optimize__tA8h3kA"
+                        ]
+                    }
+                },
+                "exception_stats": {}
+            }
+        },
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null
+    }
+}

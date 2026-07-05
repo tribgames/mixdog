@@ -1,0 +1,8 @@
+(node:3343) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_3343_1783261604607_1783261604717_5997136dbc7e564d97207b5a86250b62
+Done — main.tex now compiles cleanly with zero overfull hbox warnings (verified with a fresh pdflatex run; PDF produced, exit 0).
+
+- **6 synonym swaps** in input.tex, each within its allowed family: reserved→quiet, promises→vows, pathfinder→pioneer, rooms→chambers, marshes→bogs, name→title.
+- **main.tex and synonyms.txt untouched**; swaps were found by an automated compile-and-score search over the synonym families, going from 7 overfull boxes to 0.

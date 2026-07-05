@@ -1,0 +1,8 @@
+(node:1143) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_1143_1783247372340_1783247372521_54f22e2d1f2f520fe55c6415495a8a74
+Done — `/app/summary.csv` is written and verified.
+
+- **Counting**: parsed each file's date from the filename, tallied `[ERROR]`/`[WARNING]`/`[INFO]` per line, and bucketed into today (2025-08-12), last 7 days (08-06→08-12), last 30 days (07-14→08-12), month-to-date (08-01→08-12), and total.
+- **Verification**: independent `grep -c` cross-check matched the script for today (370/463/1433) and total (14160/18772/56621); remaining lines are other severities (e.g., DEBUG), intentionally excluded.

@@ -1,0 +1,274 @@
+import { clean } from './session-text.mjs';
+import { envFlag } from './env.mjs';
+import { normalizeToolMode } from './effort.mjs';
+import {
+  toolRow,
+  toolSearchMatches,
+  sortedNamesByMeasuredUsage,
+  selectDeferredTools,
+} from './tool-catalog.mjs';
+
+// Turn execution (ask) + session-manage/tool-surface/agent surfaces. Extracted
+// verbatim from the runtime API object; stateless helpers are imported directly
+// and the runtime injects live getters/setters for the mutable session/mode/
+// turn-counter/transcript-writer locals plus the closure callbacks.
+export function createSessionTurnApi(deps) {
+  const {
+    getSession, setSession, getCurrentCwd, getMode, setMode,
+    getActiveTurnCount, setActiveTurnCount, isFirstTurnCompleted, setFirstTurnCompleted,
+    getCodeGraphFirstTurnPrewarmDone, setCodeGraphFirstTurnPrewarmDone, codeGraphPrewarmLazy,
+    getRemoteEnabled, getCloseRequested,
+    getPendingSessionReset, setPendingSessionReset,
+    getTranscriptWriter, getTwKey, getLastAppendedAssistant, setLastAppendedAssistant,
+    scheduleCodeGraphPrewarm, refreshSessionForCwdIfNeeded, createCurrentSession,
+    ensureRemoteTranscriptWriter, channelsEnabled, invokeChannelStart, channels,
+    hooks, hookCommonPayload, mgr, notifyFnForSession, bootProfile,
+    scheduleProviderWarmup, scheduleProviderModelWarmup, invalidateContextStatusCache,
+    agentTool, recreateCurrentSessionIfReady, invalidatePreSessionToolSurface,
+    activeToolSurface, applyResolvedCwd, resolveCwdPath, agentStatusState, notificationListeners,
+  } = deps;
+  return {
+    async ask(prompt, options = {}) {
+      setActiveTurnCount(getActiveTurnCount() + 1);
+      // Lazy code-graph prewarm: kick off the build ONCE, on the first real
+      // turn, so a likely code lookup hits a warm cache.
+      if (codeGraphPrewarmLazy && !getCodeGraphFirstTurnPrewarmDone()) {
+        setCodeGraphFirstTurnPrewarmDone(true);
+        scheduleCodeGraphPrewarm(0, 'first-turn');
+      }
+      const startedAt = Date.now();
+      try {
+        await refreshSessionForCwdIfNeeded('cwd-change');
+        if (!getSession()?.id) await createCurrentSession('turn');
+        // Remote outbound: ensure a transcript writer bound to the current
+        // session.id + cwd. Gated on remoteEnabled so non-remote sessions write nothing.
+        if (getRemoteEnabled()) {
+          setLastAppendedAssistant('');
+          const prevKey = getTwKey();
+          ensureRemoteTranscriptWriter();
+          if (getTwKey() && getTwKey() !== prevKey && channelsEnabled() && !envFlag('MIXDOG_DISABLE_CHANNEL_START')) {
+            void invokeChannelStart()
+              .then(() => {
+                if (!getRemoteEnabled() || getCloseRequested()) return undefined;
+                return channels.execute('activate_channel_bridge', { active: true });
+              })
+              .catch((error) => bootProfile('channels:turn-rebind-failed', { error: error?.message || String(error) }));
+          }
+        }
+        const session0 = getSession();
+        hooks.emit('turn:start', { sessionId: session0.id, prompt, cwd: getCurrentCwd() });
+        // UserPromptSubmit: a hook FAILURE must not block the turn, but blocked===true MUST throw.
+        let promptDispatch = null;
+        try {
+          promptDispatch = await hooks.dispatch('UserPromptSubmit', hookCommonPayload({ session_id: session0.id, prompt }));
+        } catch { /* hook failure never blocks the turn */ }
+        if (promptDispatch?.blocked === true) {
+          throw new Error(`prompt blocked by hook: ${promptDispatch.reason || ''}`);
+        }
+        const hookContext = Array.isArray(promptDispatch?.additionalContext)
+          ? promptDispatch.additionalContext.join('\n\n')
+          : String(promptDispatch?.additionalContext || '');
+        const turnContext = [options.context || '', hookContext]
+          .map((part) => String(part || '').trim())
+          .filter(Boolean)
+          .join('\n\n');
+        const result = await mgr.askSession(
+          session0.id,
+          prompt,
+          turnContext || null,
+          async (iter, calls) => {
+            for (const call of calls || []) {
+              hooks.emit('tool:planned', {
+                sessionId: session0.id,
+                name: call?.name || 'tool',
+                callId: call?.id || null,
+              });
+              if (getRemoteEnabled() && getTranscriptWriter()) {
+                try { getTranscriptWriter().appendToolUse(call?.name, call?.input ?? call?.arguments); }
+                catch (error) { process.stderr.write(`mixdog: transcript-writer: onToolCall failed: ${error?.message || error}\n`); }
+              }
+            }
+            if (typeof options.onToolCall === 'function') {
+              return await options.onToolCall(iter, calls);
+            }
+            return undefined;
+          },
+          getCurrentCwd(),
+          options.prefetch || null,
+          {
+            onTextDelta: options.onTextDelta,
+            onReasoningDelta: options.onReasoningDelta,
+            onAssistantText: (text) => {
+              if (getRemoteEnabled() && getTranscriptWriter()) {
+                try {
+                  const value = typeof text === 'string' ? text : (text == null ? '' : String(text));
+                  if (value.trim()) {
+                    getTranscriptWriter().appendAssistant(value);
+                    setLastAppendedAssistant(value);
+                  }
+                }
+                catch (error) { process.stderr.write(`mixdog: transcript-writer: onAssistantText failed: ${error?.message || error}\n`); }
+              }
+              return options.onAssistantText?.(text);
+            },
+            onUsageDelta: options.onUsageDelta,
+            onToolResult: (message) => {
+              if (getRemoteEnabled() && getTranscriptWriter()) {
+                try {
+                  const tur = message?.toolUseResult;
+                  if (tur && (tur.oldString != null || tur.newString != null)) {
+                    getTranscriptWriter().appendToolResult({ oldString: tur.oldString ?? '', newString: tur.newString ?? '' });
+                  }
+                } catch (error) { process.stderr.write(`mixdog: transcript-writer: onToolResult failed: ${error?.message || error}\n`); }
+              }
+              return options.onToolResult?.(message);
+            },
+            onToolApproval: options.onToolApproval,
+            onCompactEvent: options.onCompactEvent,
+            onStageChange: options.onStageChange,
+            onStreamDelta: options.onStreamDelta,
+            drainSteering: options.drainSteering,
+            onSteerMessage: options.onSteerMessage,
+            notifyFn: notifyFnForSession(session0.id),
+          },
+        );
+        setSession(mgr.getSession(session0.id) || getSession());
+        if (getRemoteEnabled() && getTranscriptWriter()) {
+          try {
+            const finalText = result?.content != null ? String(result.content) : '';
+            if (finalText.trim() && finalText !== getLastAppendedAssistant()) {
+              getTranscriptWriter().appendAssistant(finalText);
+              setLastAppendedAssistant(finalText);
+            }
+          } catch (error) {
+            process.stderr.write(`mixdog: transcript-writer: final append failed: ${error?.message || error}\n`);
+          }
+        }
+        hooks.emit('turn:end', { sessionId: session0.id, elapsedMs: Date.now() - startedAt });
+        try {
+          await hooks.dispatch('Stop', hookCommonPayload({ session_id: session0.id }));
+        } catch { /* best-effort: Stop hook must never break the turn */ }
+        return { result, session: getSession() };
+      } catch (error) {
+        hooks.emit('turn:error', { sessionId: getSession()?.id || null, elapsedMs: Date.now() - startedAt, error: error?.message || String(error) });
+        try {
+          const msg = String(error?.message || error || '').toLowerCase();
+          const errorType = /rate.?limit|429|too many requests/.test(msg) ? 'rate_limit'
+            : /overloaded|529/.test(msg) ? 'overloaded'
+            : /authenticat|unauthorized|401|invalid.*api.?key/.test(msg) ? 'authentication_failed'
+            : /server.?error|5\d\d|internal error/.test(msg) ? 'server_error'
+            : 'unknown';
+          void hooks.dispatch('StopFailure', hookCommonPayload({ session_id: getSession()?.id || null, error_type: errorType }));
+        } catch { /* best-effort: StopFailure hook must never break teardown */ }
+        throw error;
+      } finally {
+        setActiveTurnCount(Math.max(0, getActiveTurnCount() - 1));
+        if (!isFirstTurnCompleted()) {
+          setFirstTurnCompleted(true);
+          scheduleProviderWarmup();
+          scheduleProviderModelWarmup();
+        }
+      }
+    },
+    async clear(options = {}) {
+      const session = getSession();
+      if (!session?.id) return false;
+      const cleared = await mgr.clearSessionMessages(session.id, options);
+      if (!cleared) return false;
+      setSession(typeof cleared === 'object' ? cleared : (mgr.getSession(session.id) || session));
+      if (options.recoverAgent === true) {
+        try { agentTool.recoverWorkers?.({ clientHostPid: getSession()?.clientHostPid || process.pid }); } catch {}
+      }
+      invalidateContextStatusCache();
+      return true;
+    },
+    // session_manage tool handoff: the engine polls this at turn end and, if
+    // set, runs the same clear path the idle auto-clear uses. One-shot read.
+    consumePendingSessionReset() {
+      const pending = getPendingSessionReset();
+      setPendingSessionReset(null);
+      if (!pending) return null;
+      const session = getSession();
+      // Session changed since scheduling (resume / new session) — drop it.
+      if (!session?.id || pending.sessionId !== session.id) return null;
+      return pending.action;
+    },
+    async compact(options = {}) {
+      const session = getSession();
+      if (!session?.id) return null;
+      if (getActiveTurnCount() > 0) {
+        return { changed: false, reason: 'compact skipped: turn in progress' };
+      }
+      // Manual compact bypasses loop.mjs, so its PreCompact/PostCompact never
+      // fire here — dispatch them explicitly via the session-property hooks.
+      try { await session.preCompactHook?.({ trigger: 'manual' }); }
+      catch { /* best-effort: PreCompact hook must never break manual compact */ }
+      const result = await mgr.compactSessionMessages(session.id);
+      try { await session.postCompactHook?.({ trigger: 'manual' }); }
+      catch { /* best-effort: PostCompact hook must never break manual compact */ }
+      setSession(mgr.getSession(session.id) || session);
+      if (options.recoverAgent === true) {
+        try { agentTool.recoverWorkers?.({ clientHostPid: getSession()?.clientHostPid || process.pid }); } catch {}
+      }
+      invalidateContextStatusCache();
+      return result;
+    },
+    async setToolMode(nextMode) {
+      const mode = normalizeToolMode(nextMode);
+      setMode(mode);
+      invalidatePreSessionToolSurface();
+      const session = getSession();
+      if (session?.id) mgr.closeSession(session.id, 'cli-mode-switch');
+      await recreateCurrentSessionIfReady();
+      return mode;
+    },
+    agentStatus() {
+      return agentStatusState();
+    },
+    agentControl(args = {}) {
+      const session = getSession();
+      const callerSessionId = session?.id || null;
+      return agentTool.execute(args, {
+        callerCwd: getCurrentCwd(),
+        invocationSource: 'user-command',
+        callerSessionId,
+        clientHostPid: session?.clientHostPid || process.pid,
+        notifyFn: notifyFnForSession(callerSessionId),
+      });
+    },
+    onNotification(listener) {
+      if (typeof listener !== 'function') return () => {};
+      notificationListeners.add(listener);
+      return () => notificationListeners.delete(listener);
+    },
+    toolsStatus(query = '') {
+      const surface = activeToolSurface();
+      const catalog = Array.isArray(surface?.deferredToolCatalog)
+        ? surface.deferredToolCatalog
+        : (Array.isArray(surface?.tools) ? surface.tools : []);
+      const activeNames = new Set((surface?.tools || []).map((tool) => tool?.name).filter(Boolean));
+      const needle = clean(query).toLowerCase();
+      const rows = catalog.map((tool) => toolRow(tool, activeNames)).filter((row) => row.name);
+      const tools = needle
+        ? rows.filter((row) => toolSearchMatches(row, needle))
+        : rows;
+      return {
+        mode: getMode(),
+        count: rows.length,
+        activeCount: rows.filter((row) => row.active).length,
+        tools,
+        activeTools: sortedNamesByMeasuredUsage(activeNames),
+        discoveredTools: sortedNamesByMeasuredUsage(surface?.deferredDiscoveredTools || []),
+      };
+    },
+    selectTools(names) {
+      const list = Array.isArray(names) ? names : String(names || '').split(/[,\s]+/);
+      const result = selectDeferredTools(activeToolSurface(), list, getMode());
+      return { ...result, status: this.toolsStatus() };
+    },
+    setCwd(path) {
+      applyResolvedCwd(resolveCwdPath(path));
+      return getCurrentCwd();
+    },
+  };
+}

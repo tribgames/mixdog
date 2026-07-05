@@ -1,0 +1,13 @@
+(node:5387) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+[steer] sess=sess_5387_1783259472774_1783259472913_f7456caeecca0c434aaeb58c06f81948 injected pre-send user message (merged=1 len=2947)
+models: ["claude-fable-5"]
+sessionId: sess_5387_1783259472774_1783259472913_f7456caeecca0c434aaeb58c06f81948
+Setting up: patch postfix main.cf and mailman.cfg first.Now start mailman, create the list, and set policies:Mailman is up and the LMTP maps are generated. Now fix map permissions for postfix, start postfix, and run the eval:New users aren't visible to the chrooted smtpd's stale passwd copy. Accept local recipients unconditionally instead:All eval tests pass. Now verifying the leave and announcement flows end-to-end since eval only covers join:The join mail at 13:55 never reached Mailman. Enabling postfix file logging to trace:The tracer join works end-to-end now. Checking where the 13:55:00 join mail vanished:The join did reach Mailman but hit a `StopIteration` in `_step_send_confirmation`. Inspecting that code path:The StopIteration logging is benign workflow pausing. Checking whether the confirmation mail for that user was actually sent out:All flows pass. Final run of the official eval to confirm the end state:Done — the mailing list server is up and `/app/eval.py` passes all three tests, plus I verified the leave and announcement flows end-to-end myself.
+
+**What's running**
+- **Mailman 3** (master + runners) with `reading-group@local.edu` created; `subscription_policy = SubscriptionPolicy.open`, `unsubscription_policy = confirm`, config kept at `/etc/mailman3/mailman.cfg` (only `site_owner` changed to `root@local.edu`).
+- **Postfix** on `local.edu`: `transport_maps = hash:/var/lib/mailman3/data/postfix_lmtp` routes all `reading-group*` addresses (join/leave/confirm/post) to Mailman's LMTP on `127.0.0.1:8024`; local users get mbox delivery at `/var/mail/<username>`.
+- **Key fix**: emptied `local_recipient_maps` — the chrooted smtpd holds a stale passwd snapshot, so freshly `useradd`-ed users were rejected with `550 User unknown in local recipient table`.
+
+**Verified**: direct local delivery, join→confirm→member, member post fan-out to all subscribers, and leave→confirm→removed; the one failure I chased was an artifact of my own test pre-creating a root-owned mbox (postfix ownership check), not a config issue — eval's flow is unaffected.

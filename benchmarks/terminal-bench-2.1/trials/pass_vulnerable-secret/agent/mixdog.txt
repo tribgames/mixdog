@@ -1,0 +1,14 @@
+[user-data-backup] pre-config-write: copied 1 file(s) to /root/.mixdog/backups/user-data/2026-07-05T12-25-28-347Z-pre-config-write
+[user-data-backup] post-config-write: copied 1 file(s) to /root/.mixdog/backups/user-data/2026-07-05T12-25-29-135Z-post-config-write
+(node:1019) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+[user-data-backup] pre-config-write: copied 1 file(s) to /root/.mixdog/backups/user-data/2026-07-05T12-25-29-445Z-pre-config-write
+[user-data-backup] post-config-write: copied 1 file(s) to /root/.mixdog/backups/user-data/2026-07-05T12-25-30-630Z-post-config-write
+models: ["claude-opus-4-8"]
+sessionId: sess_1019_1783254328334_1783254329265_fffffbf89535fe9e5cb773a4e0f5ce33
+I'll start by examining the /app directory to find the executable.ELF 64-bit executable. Let me examine it with strings and check how it behaves.This is a buffer overflow challenge with anti-debugging (ptrace). Let me disassemble it.I now understand the program. It's a stack buffer at `rsp` with a check variable at `rsp+0x40` (64 bytes in). `gets()` allows overflow. If we write 64 bytes of padding + the value `1`, the "Authentication bypassed!" path prints the secret. The secret is stored XOR-encoded at `0x404060`. Let me run the exploit.The exploit worked. Let me extract just the flag and save it, verifying against a static decode of the encoded bytes.Static decode confirms the dynamic result — the `.data` bytes at `0x404060` XORed with `0x42` yield the same flag (terminated by `0x42`).
+
+**Done** — secret key extracted and written to `/app/results.txt`:
+`FLAG{b4ff3r_0v3rfl0w_m4st3r_k3y_2024}`
+
+**How it worked** — the binary reads input with `gets()` into a 64-byte stack buffer sitting directly below a check variable at `rsp+0x40`. Overflowing with 64 bytes of padding + the little-endian value `1` triggers the "Authentication bypassed!" path, which decodes and prints the secret. The ptrace anti-debug check is harmless when run normally (not under a tracer). Verified both dynamically and by static XOR‑0x42 decode.

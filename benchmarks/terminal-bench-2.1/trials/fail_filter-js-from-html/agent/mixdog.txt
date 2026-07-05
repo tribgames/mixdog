@@ -1,0 +1,9 @@
+(node:824) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_824_1783253440642_1783253440789_49ee380a304336b360e8b087fa66db1e
+I'll create a position-tracking HTML sanitizer that preserves original formatting exactly, editing only the dangerous ranges.All vectors removed and clean markup untouched. Testing edge cases: no-op purity on clean files, unclosed script, CRLF, SVG:File-level checks pass. Running a browser-level check with the installed selenium to confirm no JS actually executes:Done — `/app/filter.py` sanitizes HTML files in-place while preserving formatting byte-for-byte outside the removed ranges.
+
+**Approach:** parses with `html.parser` while tracking exact source offsets, then applies minimal edits to the original text — deletes `<script>…</script>` blocks (including unclosed and `<script/>` variants) and rewrites only tags carrying dangerous attributes (`on*` handlers, `srcdoc`, `javascript:`/`vbscript:` and entity/whitespace-obfuscated schemes, executable `data:` URLs in embeds, CSS `expression()`, meta-refresh JS).
+
+**Verified:** clean files come back byte-identical (`cmp` pass), filter is idempotent, CRLF/entities/comments/tag case preserved; headless Chromium via selenium confirms 0 script elements, 0 `on*` attributes, no JS execution, and table/link/text content intact across all fixtures.

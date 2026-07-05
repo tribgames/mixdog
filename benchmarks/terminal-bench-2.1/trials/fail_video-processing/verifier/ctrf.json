@@ -1,0 +1,68 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 5,
+            "passed": 4,
+            "failed": 1,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1783262480.868895,
+            "stop": 1783262482.6915104
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_example_video_exists",
+                "status": "passed",
+                "duration": 0.0006652079991908977,
+                "start": 1783262480.8878436,
+                "stop": 1783262480.8890026,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_test_video_exists",
+                "status": "passed",
+                "duration": 0.0002499649999663234,
+                "start": 1783262480.889135,
+                "stop": 1783262480.8897321,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_jump_analyzer_example_video",
+                "status": "passed",
+                "duration": 0.7280133019994537,
+                "start": 1783262480.889929,
+                "stop": 1783262481.6183524,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_jump_analyzer_test_video",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 1.0562890769997466,
+                "start": 1783262481.618555,
+                "stop": 1783262482.6885414,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_jump_analyzer_test_video():\n        \"\"\"Test jump_analyzer.py against test_video.mp4 using explicit frame ranges.\"\"\"\n>       _test_jump_analyzer_video(\n            \"/tests/test_video.mp4\",\n            takeoff_range=(219, 223),\n            landing_range=(231, 234),\n        )\n\n/tests/test_outputs.py:104: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nvideo_path = '/tests/test_video.mp4', takeoff_range = (219, 223)\nlanding_range = (231, 234)\n\n    def _test_jump_analyzer_video(\n        video_path,\n        takeoff_range=None,\n        landing_range=None,\n    ):\n        \"\"\"Helper for running jump_analyzer.py and validating outputs.\n    \n        Frame validation uses inclusive ranges only: provide (min_frame, max_frame)\n        for both takeoff_range and landing_range.\n        \"\"\"\n    \n        # Check that the video file exists before running the test\n        video_file = Path(video_path)\n        assert video_file.exists(), f\"Video file {video_path} does not exist\"\n    \n        # Run jump_analyzer.py on the specified video\n        result = subprocess.run(\n            [sys.executable, \"/app/jump_analyzer.py\", video_path],\n            capture_output=True,\n            text=True,\n            cwd=\"/app\",\n        )\n    \n>       assert result.returncode == 0, (\n            f\"jump_analyzer.py failed with error: {result.stderr}\"\n        )\nE       AssertionError: jump_analyzer.py failed with error: Traceback (most recent call last):\nE           File \"/app/jump_analyzer.py\", line 199, in <module>\nE             main()\nE             ~~~~^^\nE           File \"/app/jump_analyzer.py\", line 183, in main\nE             takeoff, land = analyze(video)\nE                             ~~~~~~~^^^^^^^\nE           File \"/app/jump_analyzer.py\", line 131, in analyze\nE             raise RuntimeError(\"no runner detected in video\")\nE         RuntimeError: no runner detected in video\nE         \nE       assert 1 == 0\nE        +  where 1 = CompletedProcess(args=['/root/.cache/uv/archive-v0/Na0TPrxGKrCKxwttWYvaI/bin/python', '/app/jump_analyzer.py', '/tests...e 131, in analyze\\n    raise RuntimeError(\"no runner detected in video\")\\nRuntimeError: no runner detected in video\\n').returncode\n\n/tests/test_outputs.py:35: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_jump_analyzer_imports",
+                "status": "passed",
+                "duration": 0.0020005309997941367,
+                "start": 1783262482.6886983,
+                "stop": 1783262482.6911418,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

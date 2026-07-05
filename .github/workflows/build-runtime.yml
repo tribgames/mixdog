@@ -1,0 +1,240 @@
+# Build PG 16.4 + pgvector 0.8.2 runtime tarballs per supported OS.
+# Triggers: workflow_dispatch (default tag runtime-v0.4.0) or push tag runtime-v*.
+# Linux job runs in ubuntu:20.04 container so produced binaries link against
+# glibc 2.31 — works on every distro from Ubuntu 20.04 / Debian 11 forward.
+# Output: per-OS tarballs + manifest uploaded to the release.
+
+name: Build Runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. runtime-v0.4.0)"
+        required: false
+        default: "runtime-v0.4.0"
+      force_rebuild:
+        description: "Force rebuild even if content-hash marker exists"
+        type: boolean
+        required: false
+        default: false
+  push:
+    tags:
+      - "runtime-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  gate:
+    name: gate-content-hash
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    env:
+      PG_VER: "16.4"
+      PGVEC_VER: "0.8.2"
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      matrix:     ${{ steps.check.outputs.matrix }}
+      has_builds: ${{ steps.check.outputs.has_builds }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check content-hash markers
+        id: check
+        run: |
+          set -euo pipefail
+
+          FORCE="${{ inputs.force_rebuild }}"
+
+          # Fetch existing release asset names (empty string if release doesn't exist yet).
+          ASSETS=$(gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null || true)
+
+          INCLUDES='[]'
+
+          # linux-arm64 uses ubuntu-22.04-arm — free GitHub-hosted ARM64
+          # runner available for PUBLIC repos. Builds inside the multi-arch
+          # ubuntu:20.04 container (arm64 variant) so the glibc 2.31 floor is
+          # preserved for arm64 too.
+          # darwin-x64 uses macos-15-intel (free for public repos; GitHub
+          # retires macOS Intel images after the macOS 15 image sunsets in
+          # fall 2027 — revisit then).
+          maybe_add() {
+            local os="$1" arch="$2" runner="$3" container="$4" script="$5"
+            local HASH
+            HASH=$(sha256sum "$script" | cut -d' ' -f1)
+            local MARKER="build-success-${os}-${arch}-pg${PG_VER}-pgvector${PGVEC_VER}-${HASH}.marker"
+
+            if [[ "$FORCE" == "true" ]] || ! echo "$ASSETS" | grep -qxF "$MARKER"; then
+              echo "  [$os] adding to build matrix (force=$FORCE, marker=$MARKER)"
+              INCLUDES=$(echo "$INCLUDES" | jq -c \
+                --arg os        "$os" \
+                --arg arch      "$arch" \
+                --arg runner    "$runner" \
+                --arg container "$container" \
+                --arg script    "$script" \
+                '. + [{os:$os, arch:$arch, runner:$runner, container:$container, script:$script}]')
+            else
+              echo "  [$os] marker found ($MARKER) → skip"
+            fi
+          }
+
+          maybe_add linux  x64   ubuntu-22.04 'ubuntu:20.04' scripts/build-runtime-linux.sh
+          maybe_add linux  arm64 ubuntu-22.04-arm 'ubuntu:20.04' scripts/build-runtime-linux.sh
+          maybe_add darwin arm64 macos-14     ''             scripts/build-runtime-macos.sh
+          maybe_add darwin x64   macos-15-intel ''           scripts/build-runtime-macos.sh
+          maybe_add win32  x64   windows-2022 ''             scripts/build-runtime-windows.ps1
+
+          echo "matrix=$INCLUDES" >> "$GITHUB_OUTPUT"
+          echo "has_builds=$(echo "$INCLUDES" | jq 'length > 0')" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build-${{ matrix.os }}-${{ matrix.arch }}
+    needs: gate
+    if: needs.gate.outputs.has_builds == 'true'
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    env:
+      PG_VER: "16.4"
+      PGVEC_VER: "0.8.2"
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.gate.outputs.matrix) }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Cache the PG + pgvector build directory so unchanged versions skip
+      # the 5-8 min source compile on every run. Hash key includes the build
+      # script — script changes invalidate the cache and force a fresh build.
+      - name: Cache build artifacts
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: build-${{ matrix.os }}-${{ matrix.arch }}-pg16.4-pgvector0.8.2-${{ hashFiles(matrix.script) }}
+
+      # Cache the chocolatey-installed PG 16 on Windows runners so we skip
+      # the ~3 min `choco install postgresql16` step on subsequent runs.
+      # windows-2022 runner image ships PG 14/15 by default — PG 16 must be
+      # installed (or restored from this cache) every run.
+      - name: Cache Windows PG 16 system install
+        if: matrix.os == 'win32'
+        uses: actions/cache@v4
+        with:
+          path: 'C:\Program Files\PostgreSQL\16'
+          key: pg16-system-win32-x64-16.4.0
+
+      - name: Build (unix)
+        if: runner.os != 'Windows'
+        env:
+          TARGET_OS: ${{ matrix.os }}
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          chmod +x ${{ matrix.script }}
+          bash ${{ matrix.script }}
+          ls -lh dist/
+
+      - name: Build (windows)
+        if: runner.os == 'Windows'
+        env:
+          TARGET_OS: ${{ matrix.os }}
+          TARGET_ARCH: ${{ matrix.arch }}
+        shell: pwsh
+        run: |
+          .\${{ matrix.script }}
+          Get-ChildItem dist/
+
+      - name: Upload tarballs to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: |
+            dist/mixdog-runtime-*.tar.gz
+            dist/mixdog-runtime-*.tar.gz.sha256
+
+      - name: Write and upload build-success marker (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if command -v sha256sum >/dev/null 2>&1; then
+            HASH=$(sha256sum "${{ matrix.script }}" | cut -d' ' -f1)
+          else
+            HASH=$(shasum -a 256 "${{ matrix.script }}" | cut -d' ' -f1)
+          fi
+          MARKER_NAME="build-success-${{ matrix.os }}-${{ matrix.arch }}-pg${PG_VER}-pgvector${PGVEC_VER}-${HASH}.marker"
+          BUILT_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          mkdir -p dist
+          # All values are sanitized (hex hash, dotted version, ISO timestamp,
+          # github-supplied sha + matrix tokens) — no JSON escaping needed.
+          # Heredoc avoids the jq dependency (linux container lacks it).
+          cat > "dist/${MARKER_NAME}" <<EOF
+          {
+            "build_hash": "${HASH}",
+            "pg_version": "${PG_VER}",
+            "pgvector_version": "${PGVEC_VER}",
+            "built_at": "${BUILT_AT}",
+            "commit_sha": "${{ github.sha }}",
+            "os": "${{ matrix.os }}",
+            "arch": "${{ matrix.arch }}"
+          }
+          EOF
+
+      - name: Write and upload build-success marker (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $Hash    = (Get-FileHash "${{ matrix.script }}" -Algorithm SHA256).Hash.ToLower()
+          $Name    = "build-success-${{ matrix.os }}-${{ matrix.arch }}-pg$env:PG_VER-pgvector$env:PGVEC_VER-${Hash}.marker"
+          $BuiltAt = (Get-Date -AsUTC -Format "yyyy-MM-ddTHH:mm:ssZ")
+          $Json    = [ordered]@{
+            build_hash       = $Hash
+            pg_version       = $env:PG_VER
+            pgvector_version = $env:PGVEC_VER
+            built_at         = $BuiltAt
+            commit_sha       = "${{ github.sha }}"
+            os               = "${{ matrix.os }}"
+            arch             = "${{ matrix.arch }}"
+          } | ConvertTo-Json
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Set-Content -Path "dist\$Name" -Value $Json -Encoding UTF8
+
+      - name: Upload build-success marker to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: dist/build-success-*.marker
+
+  aggregate:
+    name: aggregate-manifest
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Generate runtime-manifest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: node scripts/generate-runtime-manifest.mjs
+
+      - name: Upload manifest to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: dist/runtime-manifest.json
+
+      - name: Publish manifest as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-manifest
+          path: dist/runtime-manifest.json
