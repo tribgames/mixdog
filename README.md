@@ -13,6 +13,18 @@ providers, workflow agents, MCP/plugin/skill/hook support, lightweight
 memory, web search, channel integrations, and repo-native tools for reading,
 editing, testing, and reviewing code.
 
+## Quick start
+
+Requires Node.js >= 22.
+
+```bash
+npm install -g mixdog
+mixdog
+```
+
+First run walks you through onboarding: provider auth, model pick, and
+workflow setup. Re-run it anytime with `mixdog --onboarding`.
+
 ## Terminal-Bench 2.1 — 89.9% (self-reported)
 
 ![Terminal-Bench 2.1 leaderboard with mixdog](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-leaderboard.svg)
@@ -84,24 +96,14 @@ for every constituent run are included.
 - Workflow delegation through the `agent` tool and `/agents`: worker,
   heavy-worker, reviewer, debugger, maintainer, and explorer roles.
 
-## Requirements
-
-- Node.js >= 22
-
-## Install
-
-```bash
-npm install -g mixdog
-mixdog --help
-```
+## Run
 
 For local development from this checkout:
 
 ```bash
 npm install
+npm start
 ```
-
-## Run
 
 ```bash
 # Start the TUI in the current project
