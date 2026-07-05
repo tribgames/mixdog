@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { loadConfig } from '../config.mjs';
 import { sanitizeToolPairs, sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../session/context-utils.mjs';
-import { classifyError, midstreamBackoffFor, sleepWithAbort, withRetry } from './retry-classifier.mjs';
+import { classifyError, midstreamBackoffFor, sleepWithAbort, withRetry, retryAfterMsFromError } from './retry-classifier.mjs';
 import { traceAgentUsage } from '../agent-trace.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
@@ -518,7 +518,8 @@ export class AnthropicProvider {
         try {
             return await this._doSend(messages, model, tools, sendOpts);
         } catch (err) {
-            if (err.message && (err.message.includes('401') || err.message.includes('403'))) {
+            if (err.message && (err.message.includes('401') || err.message.includes('403'))
+                && !err.liveTextEmitted && !err.emittedToolCall && !err.unsafeToRetry) {
                 process.stderr.write(`[provider] Auth error, re-reading config...\n`);
                 this.reloadApiKey();
                 return await this._doSend(messages, model, tools, sendOpts);
@@ -745,6 +746,22 @@ export class AnthropicProvider {
                                 const err = new Error(`Anthropic API ${res.status}: ${text.slice(0, 200)}`);
                                 err.status = res.status;
                                 err.httpStatus = res.status;
+                                // Carry response headers so withRetry can honor a
+                                // short Retry-After and upstream can read quota hints.
+                                err.headers = res.headers;
+                                err.response = { status: res.status, headers: res.headers };
+                                // 429: promote to a quota-style error equivalent to
+                                // anthropic-oauth's anthropicQuotaError so upstream
+                                // quota handling and unsafe-to-retry gating apply.
+                                if (res.status === 429) {
+                                    const retryAfterMs = retryAfterMsFromError({ headers: res.headers, response: { headers: res.headers } });
+                                    err.name = 'ProviderQuotaError';
+                                    err.code = 'PROVIDER_QUOTA';
+                                    err.retryAfterMs = retryAfterMs;
+                                    err.providerQuota = true;
+                                    err.quotaExceeded = true;
+                                    err.unsafeToRetry = true;
+                                }
                                 throw err;
                             }
                             if (!res.body) {
@@ -853,6 +870,21 @@ export class AnthropicProvider {
                         try {
                             process.stderr.write(
                                 `[${this.name}] empty stream (no message_start) — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES}\n`,
+                            );
+                        } catch {}
+                        await _midstreamSleepWithAbort(midstreamBackoffFor(attemptIndex + 1), totalSignal);
+                        continue;
+                    }
+                    if (classifyError(err) === 'transient'
+                        && !midState.sawMessageStart
+                        && !midState.emittedToolCall
+                        && attemptIndex < MAX_MIDSTREAM_RETRIES) {
+                        firstAttemptError = err;
+                        firstAttemptClassifier = err?.providerErrorType || 'sse_transient';
+                        try { streamController.abort?.(err); } catch {}
+                        try {
+                            process.stderr.write(
+                                `[${this.name}] transient SSE error — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES} (${err?.providerErrorType || err?.message || 'unknown'})\n`,
                             );
                         } catch {}
                         await _midstreamSleepWithAbort(midstreamBackoffFor(attemptIndex + 1), totalSignal);

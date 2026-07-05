@@ -16,6 +16,9 @@ import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import { buildRequestBody } from './openai-oauth.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
+import { sendViaHttpSse, _envFlag } from './openai-oauth-http-sse.mjs';
+import { shouldFallbackTransport } from './retry-classifier.mjs';
+import { loadConfig } from '../config.mjs';
 import {
     resolveProviderCacheKey,
     resolveProviderPromptCacheLane,
@@ -51,6 +54,23 @@ export class OpenAIDirectProvider {
         const k = this.config.apiKey;
         if (!k) throw new Error('OPENAI_API_KEY not configured (providers.openai.apiKey)');
         return k;
+    }
+    // Auth-recovery mirror of openai-compat.reloadApiKey: on a 401/403 the key
+    // was likely rotated in config after this provider instance was built, so
+    // re-read providers.openai.apiKey from disk before the single retry.
+    // Returns the fresh key (or null if none) — no client to rebuild here since
+    // the WS/HTTP transports take the key per-call via the `auth` object.
+    reloadApiKey() {
+        try {
+            const freshConfig = loadConfig();
+            const cfg = freshConfig.providers?.openai;
+            const newKey = cfg?.apiKey || this.config.apiKey;
+            if (newKey) {
+                this.config = { ...(this.config || {}), ...(cfg || {}), apiKey: newKey };
+                return newKey;
+            }
+        } catch { /* best effort */ }
+        return null;
     }
     async send(messages, model, tools, sendOpts) {
         const opts = sendOpts || {};
@@ -109,10 +129,8 @@ export class OpenAIDirectProvider {
         const cacheKey = body.prompt_cache_key || resolveProviderCacheKey(opts, 'openai');
         const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
         const auth = { type: 'openai-direct', apiKey };
-        return sendViaWebSocket({
-            auth,
+        const common = {
             body,
-            sendOpts: opts,
             onStreamDelta,
             onToolCall,
             onTextDelta,
@@ -122,8 +140,60 @@ export class OpenAIDirectProvider {
             cacheKey,
             iteration,
             useModel,
+        };
+        const dispatchWs = (a) => sendViaWebSocket({
+            ...common,
+            auth: a,
+            sendOpts: opts,
             displayModel: (id) => id,
         });
+        // WS→HTTP/SSE fallback mirrors the openai-oauth wrapper: the shared
+        // HTTP transport now accepts auth.type==='openai-direct' (public
+        // Responses endpoint + Bearer <apiKey>), so the api-key provider gets
+        // the same envelope. Gate via shouldFallbackTransport (denies
+        // 401/403/404/429 + liveTextEmitted/emittedToolCall/unsafeToRetry).
+        const httpFallbackEnabled = _envFlag('MIXDOG_OPENAI_HTTP_FALLBACK', true);
+        const dispatchHttp = (a) => {
+            if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) {
+                process.stderr.write('[openai-ws] WebSocket unhealthy; falling back to HTTP/SSE\n');
+            }
+            return sendViaHttpSse({ ...common, auth: a, opts, fetchFn: opts._fetchFn });
+        };
+        try {
+            return await dispatchWs(auth);
+        } catch (err) {
+            const status = err?.httpStatus;
+            // Live-text/tool invariant: never reissue a turn that already
+            // relayed visible output or dispatched a tool call.
+            const unsafeToRetry = err?.liveTextEmitted === true
+                || err?.emittedToolCall === true
+                || err?.unsafeToRetry === true;
+            // (1) 401/403 → reload apiKey from config and retry once over WS.
+            //     shouldFallbackTransport denies 401/403, so this branch owns
+            //     its own guard.
+            if ((status === 401 || status === 403) && !unsafeToRetry) {
+                process.stderr.write(`[openai-ws] ${status} — reloading apiKey and retrying once\n`);
+                const freshKey = this.reloadApiKey();
+                if (freshKey) {
+                    const retryAuth = { type: 'openai-direct', apiKey: freshKey };
+                    try {
+                        return await dispatchWs(retryAuth);
+                    } catch (retryErr) {
+                        if (shouldFallbackTransport(retryErr, { signal: externalSignal, enabled: httpFallbackEnabled })) {
+                            return await dispatchHttp(retryAuth);
+                        }
+                        throw retryErr;
+                    }
+                }
+                throw err;
+            }
+            // (2) WS transport failure → HTTP/SSE fallback (predicate handles
+            //     the safety denies).
+            if (shouldFallbackTransport(err, { signal: externalSignal, enabled: httpFallbackEnabled })) {
+                return await dispatchHttp(auth);
+            }
+            throw err;
+        }
     }
     async listModels() {
         try {

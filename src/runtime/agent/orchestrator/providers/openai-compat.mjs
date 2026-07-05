@@ -173,6 +173,9 @@ export class OpenAICompatProvider {
             return await this._doSend(messages, model, tools, sendOpts);
         } catch (err) {
             if (err.message && (err.message.includes('401') || err.message.includes('403'))) {
+                if (err.liveTextEmitted === true || err.emittedToolCall === true || err.unsafeToRetry === true) {
+                    throw err;
+                }
                 process.stderr.write(`[provider] Auth error, re-reading config...\n`);
                 this.reloadApiKey();
                 return await this._doSend(messages, model, tools, sendOpts);

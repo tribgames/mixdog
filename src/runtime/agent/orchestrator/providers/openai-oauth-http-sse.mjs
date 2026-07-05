@@ -27,6 +27,13 @@ import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './ant
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
 import { CODEX_OAUTH_ORIGINATOR, CODEX_RESPONSES_URL, _displayCodexModel } from './openai-oauth.mjs';
 
+// Public OpenAI Responses API endpoint for the api-key `openai` provider.
+// The openai-direct WS transport hits the same origin (openai-ws-pool
+// OPENAI_WS_URL = wss://api.openai.com/v1/responses); this HTTP/SSE fallback
+// mirrors it so OpenAIDirectProvider can fall back off WebSocket like
+// openai-oauth. Same Responses SSE wire format, only endpoint + auth differ.
+const OPENAI_DIRECT_RESPONSES_URL = 'https://api.openai.com/v1/responses';
+
 export function _envFlag(name, fallback = true) {
     const raw = process.env[name];
     if (raw == null || raw === '') return fallback;
@@ -116,6 +123,18 @@ function _pushOutputTextAnnotations(part, citations, citationKeys) {
 }
 
 function _buildOpenAIHttpFallbackHeaders({ auth, cacheKey }) {
+    if (auth?.type === 'openai-direct') {
+        // Public API-key auth: Bearer <OPENAI_API_KEY>, no chatgpt-account-id /
+        // originator (mirrors openai-ws-pool _buildHandshakeHeaders' direct
+        // branch). session_id anchors are an OAuth-backend behavior, so omit
+        // them — the public API keys its prefix cache off body.prompt_cache_key.
+        return {
+            Authorization: `Bearer ${auth.apiKey}`,
+            'Content-Type': 'application/json',
+            Accept: 'text/event-stream',
+            'x-client-request-id': randomBytes(16).toString('hex'),
+        };
+    }
     const headers = {
         Authorization: `Bearer ${auth.access_token}`,
         'Content-Type': 'application/json',
@@ -189,10 +208,13 @@ export async function sendViaHttpSse({
     );
     const headers = _buildOpenAIHttpFallbackHeaders({ auth, cacheKey });
     const fetchStartedAt = Date.now();
+    const responsesUrl = auth?.type === 'openai-direct'
+        ? OPENAI_DIRECT_RESPONSES_URL
+        : CODEX_RESPONSES_URL;
     let response;
     try {
         try { onStageChange?.('requesting'); } catch {}
-        response = await fetchFn(CODEX_RESPONSES_URL, {
+        response = await fetchFn(responsesUrl, {
             method: 'POST',
             headers,
             body: JSON.stringify(body),
@@ -304,6 +326,17 @@ export async function sendViaHttpSse({
     // a second attempt.
     let emittedText = false;
 
+    // Tool-emit invariant (mirrors emittedText, WS path's emittedToolCall): set
+    // once onToolCall has actually dispatched a call. A failure afterwards is
+    // non-retryable — the side-effecting tool already ran, and any upstream
+    // retry/fallback would double-execute it. Stamped onto errors below so
+    // shouldFallbackTransport / the WS auth-retry gate refuse to reissue.
+    let emittedToolCall = false;
+    const _stampToolSafety = (err) => {
+        if (emittedToolCall && err) { try { err.emittedToolCall = true; err.unsafeToRetry = true; } catch {} }
+        return err;
+    };
+
     // Single-emit guard for tool calls (matches the WS path's
     // emittedToolCall intent). The HTTP/SSE event stream can surface the
     // same function_call across multiple frames — response.function_call_arguments.done,
@@ -324,6 +357,7 @@ export async function sendViaHttpSse({
         if (emittedToolCallIds.has(call.id)) return;
         emittedToolCallIds.add(call.id);
         if (!_toolDedupe.shouldDispatch(call.name, call.arguments)) return;
+        emittedToolCall = true;
         try { onToolCall?.(call); } catch {}
     };
 
@@ -676,6 +710,9 @@ export async function sendViaHttpSse({
         // Live-text invariant: once a non-empty chunk has been relayed it
         // cannot be withdrawn — flag the error so no upstream layer retries.
         if (emittedText && err) { try { err.liveTextEmitted = true; err.unsafeToRetry = true; } catch {} }
+        // Tool-emit invariant: an error after a dispatched tool call must not
+        // reissue the turn (double-execution). Stamp emittedToolCall too.
+        _stampToolSafety(err);
         throw err;
     } finally {
         _clearSemanticIdle();
@@ -688,10 +725,10 @@ export async function sendViaHttpSse({
 
     const unresolved = toolCalls.find(t => t._pendingItemId);
     if (unresolved) {
-        throw new Error(`OpenAI OAuth HTTP fallback function_call salvage failed: missing call_id/name for item_id=${unresolved._pendingItemId || '?'}`);
+        throw _stampToolSafety(new Error(`OpenAI OAuth HTTP fallback function_call salvage failed: missing call_id/name for item_id=${unresolved._pendingItemId || '?'}`));
     }
     if (!completed && !content && !toolCalls.length) {
-        throw new Error('OpenAI OAuth HTTP fallback ended before response.completed');
+        throw _stampToolSafety(new Error('OpenAI OAuth HTTP fallback ended before response.completed'));
     }
 
     const liveModel = model || useModel;
