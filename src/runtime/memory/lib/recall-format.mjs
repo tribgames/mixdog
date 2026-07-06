@@ -316,7 +316,11 @@ function shortSessionLabel(sid) {
 // The caller's own session (currentSessionId hint) is marked "(current)".
 // Single-session (or session-less) result sets fall through to the flat
 // renderer — no headers when grouping adds nothing.
-export function renderSessionGroupedLines(rows, { currentSessionId } = {}) {
+// recencyOrder (date-sorted browse) is forwarded to renderEntryLines so each
+// group's lines are globally ts-desc: without it a chunk root's members (stored
+// ts-ASC) interleave with raw rows and invert the visible timeline within a
+// session (e.g. 04:33 rendered above 04:41).
+export function renderSessionGroupedLines(rows, { currentSessionId, recencyOrder = false } = {}) {
   if (!rows || rows.length === 0) return '(no results)'
   const groups = new Map()
   for (const r of rows) {
@@ -325,14 +329,14 @@ export function renderSessionGroupedLines(rows, { currentSessionId } = {}) {
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key).push(r)
   }
-  if (groups.size <= 1) return renderEntryLines(rows)
+  if (groups.size <= 1) return renderEntryLines(rows, { recencyOrder })
   const current = String(currentSessionId || '').trim()
   const parts = []
   for (const [sid, groupRows] of groups) {
     const mark = current && sid === current ? ' (current)' : ''
     const label = sid === '(no session)' ? sid : `session ${shortSessionLabel(sid)}`
     parts.push(`## ${label}${mark}`)
-    parts.push(renderEntryLines(groupRows))
+    parts.push(renderEntryLines(groupRows, { recencyOrder }))
   }
   return parts.join('\n')
 }

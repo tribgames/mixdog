@@ -23,8 +23,9 @@ function isChannelsDegraded() { return _channelsDegraded; }
 try {
   process.stderr.on('error', (e) => {
     if (e && (e.code === 'EPIPE' || /EPIPE/.test(String(e.message || '')))) {
+      // Parent stdio pipe loss stops stderr writes only. It is NOT runtime
+      // corruption, so it must not degrade tool dispatch (_channelsDegraded).
       _stderrBroken = true;
-      _channelsDegraded = true;
     }
   });
 } catch {}
@@ -75,7 +76,8 @@ ${err instanceof Error ? err.stack : ""}
     _writeCrashLine(crashLog, msg);
   }
   if (err instanceof Error && err.message.includes("EPIPE")) {
-    _channelsDegraded = true;
+    // EPIPE = a broken pipe (parent stdio/IPC gone), not corrupted runtime
+    // state. Stop writing to the dead pipe but keep serving tool calls.
     _stderrBroken = true;
   }
   crashLogging = false;

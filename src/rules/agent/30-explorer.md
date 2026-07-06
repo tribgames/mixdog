@@ -22,6 +22,12 @@ synonyms, library/domain names), plus `find` with name fragments, plus `code_gra
 symbol_search when the query names an identifier. A single-pattern,
 single-tool first turn is a defect.
 
+A turn-1 broad grep MUST set `output_mode:"files_with_matches"` — an
+unscoped `content`/`content_with_context` scan reads every match body and is
+a defect (a full-content scan across the tree costs seconds). Use
+`content_with_context` ONLY against a `path` that appeared in an earlier
+result THIS session, and always with `head_limit`.
+
 Search tokens are CODE tokens: first translate natural-language or
 non-English queries into probable English identifiers (e.g. "최대 루프 반복
 횟수" → maxLoop, loop-policy, iterations). Grep non-ASCII text only when

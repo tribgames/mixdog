@@ -583,6 +583,25 @@ export function aggregateToolCategoryEntry(name, args = {}, category = '') {
   };
 }
 
+/**
+ * Rebuild the per-category count map for the DONE state, excluding calls that
+ * terminated in an error (rec.isError). Mirrors the call-time accumulation in
+ * turn.mjs (sum aggregateToolCategoryEntry(...).count per key) but drops failed
+ * calls so the completed label counts only successful work — across ALL
+ * categories, not just Memory. The active/in-flight header keeps using the raw
+ * `categories` map, so in-flight counting is unchanged.
+ */
+export function aggregateDoneCategories(calls = []) {
+  const map = new Map();
+  for (const rec of calls || []) {
+    if (!rec || rec.isError) continue;
+    const entry = aggregateToolCategoryEntry(rec.name, rec.args, rec.category);
+    const prev = map.get(entry.key);
+    map.set(entry.key, { ...entry, count: Number(prev?.count || 0) + Number(entry.count || 1) });
+  }
+  return Object.fromEntries(map);
+}
+
 function aggregateCount(value) {
   if (value && typeof value === 'object') return Math.max(0, Number(value.count || 0));
   return Math.max(0, Number(value || 0));

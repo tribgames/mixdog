@@ -61,6 +61,11 @@ export function resolveTuiRuntimeNotificationDelivery(event, text) {
   if (!trimmed) return { action: 'ignore' };
   const parsed = parseAgentJob(trimmed);
   const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  // UI-only notices (e.g. boot auto-update outcome): render as a transcript
+  // notice, never enqueue anything model-visible.
+  if (meta.kind === 'update-notice') {
+    return { action: 'notice', displayText: trimmed, tone: meta.tone === 'warn' ? 'warn' : 'info' };
+  }
   if (!isExecutionNotification(event, trimmed, parsed)) {
     return { action: 'enqueue', displayText: trimmed, modelContent: trimmed };
   }

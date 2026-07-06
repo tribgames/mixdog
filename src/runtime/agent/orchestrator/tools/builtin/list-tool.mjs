@@ -22,6 +22,7 @@ import {
     getCachedReadOnlyStat,
     statPathsForMtime,
     lstatPathsForMtime,
+    registerCacheInvalidationListener,
 } from './cache-layers.mjs';
 import {
     compileSimpleGlob,
@@ -339,6 +340,106 @@ export async function executeTreeTool(args, workDir, options = {}) {
     return out;
 }
 
+// ── Broad-enumeration cache (shared `rg --files` sweep) ──────────────────
+// A `rg --files` sweep of a root depends ONLY on (root, hidden, depth,
+// includeNoise) — NOT on the per-query narrowing. Yet both the fuzzy-find
+// broad pass and the find_files broad fast path re-run that full sweep for
+// every query item AND for every concurrent caller (measured 1-4s each when
+// 8 explorer sub-sessions hit the same root). Cache the PARSED file list per
+// key with in-flight promise dedup (N concurrent callers share ONE sweep)
+// plus a short TTL for serial reuse. Truncated/partial sweeps are
+// known-incomplete and are NEVER cached.
+const FIND_ENUM_CACHE = new Map(); // key -> { files, expiresAt }
+const FIND_ENUM_INFLIGHT = new Map(); // key -> Promise<{files,truncated,partial}>
+
+// The broad enumeration is a DERIVED cache the scope/path invalidation layer
+// does not otherwise know about — a file created/renamed after a sweep would
+// stay invisible to broad find reuse for the whole TTL. Drop all entries on any
+// write-invalidation event (TTL remains the secondary bound). Full clear is
+// fine: entries are cheap to rebuild.
+registerCacheInvalidationListener(() => {
+    FIND_ENUM_CACHE.clear();
+    FIND_ENUM_INFLIGHT.clear();
+});
+
+function findEnumTtlMs() {
+    const raw = process.env.MIXDOG_FIND_ENUM_CACHE_TTL_MS;
+    if (raw == null || raw === '') return 30000;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) return 30000; // malformed → default
+    return Math.floor(n); // 0 = disabled
+}
+
+function findEnumKey({ root, hidden, depth, includeNoise }) {
+    return `${root}\u0000${hidden ? 1 : 0}\u0000${depth ?? ''}\u0000${includeNoise ? 1 : 0}`;
+}
+
+// Parse `rg --files` stdout into the same normalized relative-path list both
+// broad passes build (strip trailing CR, drop empties, strip leading `./`,
+// forward-slash). Module-level so the cache and both call sites agree.
+function parseRgFileList(stdout) {
+    return String(stdout)
+        .split('\n')
+        .map((p) => (p.endsWith('\r') ? p.slice(0, -1) : p))
+        .filter((p) => p.length > 0)
+        .map((p) => normalizeOutputPath(p.replace(/^\.[/\\]/, '')));
+}
+
+// Run (or reuse) the broad `rg --files` sweep for a root. Returns
+// { files, truncated, partial }. The returned `files` array is SHARED — callers
+// must treat it as read-only. `rgArgs` must be the broad-pass args (no per-query
+// narrowing); the cache key is the 4 dims only, so any caller producing an
+// equivalent sweep for the same dims reuses the result.
+async function getBroadEnumeration({ root, hidden, depth, includeNoise, rgArgs, cwd, runRgImpl = runRg }) {
+    const ttl = findEnumTtlMs();
+    const key = findEnumKey({ root, hidden, depth, includeNoise });
+    if (ttl > 0) {
+        const hit = FIND_ENUM_CACHE.get(key);
+        if (hit && hit.expiresAt > Date.now()) {
+            return { files: hit.files, truncated: false, partial: false };
+        }
+        if (hit) FIND_ENUM_CACHE.delete(key); // expired
+        const inflight = FIND_ENUM_INFLIGHT.get(key);
+        if (inflight) return inflight;
+    }
+    const run = (async () => {
+        const stdout = await runRgImpl(rgArgs, { cwd });
+        const truncated = Boolean(stdout && typeof stdout === 'object' && stdout.truncated);
+        const partial = Boolean(stdout && typeof stdout === 'object' && stdout.partial);
+        const files = parseRgFileList(stdout);
+        // Never cache a truncated/partial sweep — it is known-incomplete, so a
+        // later query with a larger head_limit must re-run the enumeration.
+        if (ttl > 0 && !truncated && !partial) {
+            FIND_ENUM_CACHE.set(key, { files, expiresAt: Date.now() + ttl });
+        }
+        return { files, truncated, partial };
+    })();
+    if (ttl > 0) {
+        FIND_ENUM_INFLIGHT.set(key, run);
+        try { return await run; }
+        finally { FIND_ENUM_INFLIGHT.delete(key); }
+    }
+    return run;
+}
+
+// Best-effort warm of the broad enumeration for a root using the `find` tool's
+// DEFAULT flags (hidden:true, includeNoise:false, depth:unbounded). Swallows
+// all errors — a failed prewarm must never surface or block the caller.
+export async function prewarmFindEnumeration(root) {
+    try {
+        if (!root || typeof root !== 'string') return;
+        const hidden = true, includeNoise = false, depth = null;
+        const rgArgs = ['--files', '--no-ignore', '--hidden'];
+        for (const ex of DEFAULT_IGNORE_GLOBS) rgArgs.push('--glob', ex);
+        rgArgs.push('.');
+        await getBroadEnumeration({
+            root: normalizeOutputPath(root),
+            hidden, depth, includeNoise,
+            rgArgs, cwd: root,
+        });
+    } catch { /* best-effort warm; never surface */ }
+}
+
  // Fuzzy filename search (nucleo-style): collect the file
 // list via `rg --files`, then rank by subsequence score. `list.fuzzy` still
 // routes here for hidden backward compatibility, but the model-facing tool is
@@ -372,7 +473,11 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     const fullPath = resolveAgainstCwd(inputPath, workDir);
     const guardFull = listGuardPath(fullPath);
     if (guardFull) return guardFull;
-    const hidden = Boolean(args.hidden);
+    // Fuzzy find defaults to searching dot-directories (hidden:true) so
+    // machine-wide discovery reaches paths like ~/.mixdog/data/…; callers
+    // opt out with hidden:false. .git and other noise dirs are still pruned
+    // via DEFAULT_IGNORE_GLOBS below (unless include_noise).
+    const hidden = args.hidden === false ? false : true;
     const includeNoise = Boolean(args.include_noise);
     // head_limit:0 means "no cap" per list semantics; default is intentionally
     // compact so ambiguous discovery does not dump a huge candidate list.
@@ -392,36 +497,108 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     });
     const cached = cacheGet(cacheKey);
     if (cached !== null) return cached;
-    const rgArgs = ['--files'];
-    if (hidden) rgArgs.push('--hidden');
-    if (depth != null) rgArgs.push('--max-depth', String(depth));
+    // --no-ignore: match the find_files fast path contract — do not consult
+    // .gitignore, so a .gitignored-but-present file is still discoverable.
+    // Noise dirs stay excluded via DEFAULT_IGNORE_GLOBS below.
+    // Shared rg flags for both enumeration passes below.
+    const baseRgArgs = ['--files', '--no-ignore'];
+    if (hidden) baseRgArgs.push('--hidden');
+    if (depth != null) baseRgArgs.push('--max-depth', String(depth));
+    // Noise-exclusion globs are kept SEPARATE and always appended LAST (after
+    // any positive --iglob). ripgrep's "last matching glob wins" rule means a
+    // positive include placed after these negations would re-admit e.g.
+    // `.git/<query>` — so the exclusions must trail the narrowed include.
+    const ignoreGlobs = [];
     if (!includeNoise) {
-        for (const ex of DEFAULT_IGNORE_GLOBS) rgArgs.push('--glob', ex);
+        for (const ex of DEFAULT_IGNORE_GLOBS) ignoreGlobs.push('--glob', ex);
     }
-    rgArgs.push('.');
-    let stdout;
-    try {
-        stdout = await runRg(rgArgs, { cwd: fullPath });
-    } catch (err) {
-        return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
-    }
-    const items = String(stdout)
+    // The narrowed pass must treat `query` as a LITERAL filename substring, not
+    // a glob. Wrap every globset metacharacter in a single-char character class
+    // (`[` → `[[]`, `*` → `[*]`, …): character-class quoting is the only form
+    // globset honors on Windows, where a backslash-escape (`\*`) is read as a
+    // literal path separator and does NOT escape. So a query like "[slug].tsx"
+    // still produces the intended `*[[]slug[]].tsx*` include instead of a
+    // character-class that matches one of s/l/u/g.
+    const escapeGlobLiteral = (s) => s.replace(/[*?[\]{}]/g, (c) => `[${c}]`);
+    // Test-only seam: allow a caller to inject a runRg stand-in (e.g. to
+    // simulate a truncated broad pass) without touching the production path.
+    // Never set on the real tool-execution options object.
+    const runRgImpl = (options && typeof options.__runRg === 'function') ? options.__runRg : runRg;
+    const parseRgFiles = (stdout) => String(stdout)
         .split('\n')
         // Strip only the trailing CR from rg's line split — do NOT trim, or a
         // filename with leading/trailing spaces would be corrupted.
         .map((p) => (p.endsWith('\r') ? p.slice(0, -1) : p))
         .filter((p) => p.length > 0)
-        .map((p) => ({ path: normalizeOutputPath(p.replace(/^\.[/\\]/, '')) }));
+        .map((p) => normalizeOutputPath(p.replace(/^\.[/\\]/, '')));
+    // Broad enumeration: every file under the scope, ranked by fuzzy score.
+    // Subject to rg's 20MB/20s cap — an exact-name hit deep in a huge tree can
+    // be dropped by cap lottery, so it is backstopped by the narrowed pass.
+    // Shared across queries/concurrent callers via the broad-enumeration cache
+    // (keyed on root+hidden+depth+includeNoise, i.e. exactly this pass's args).
+    let broadEnum;
+    try {
+        broadEnum = await getBroadEnumeration({
+            root: normalizeOutputPath(fullPath),
+            hidden, depth, includeNoise,
+            rgArgs: [...baseRgArgs, ...ignoreGlobs, '.'],
+            cwd: fullPath,
+            runRgImpl,
+        });
+    } catch (err) {
+        return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+    }
+    const rgTruncated = broadEnum.truncated;
+    const rgPartial = broadEnum.partial;
+    // Narrowed enumeration: only files whose NAME contains the query
+    // (case-insensitive substring glob). This output is tiny and effectively
+    // never truncated, so exact/substring hits are guaranteed to reach ranking
+    // regardless of whether the broad pass was cut at the cap. Best-effort:
+    // failures here never fail the tool — the broad pass still stands.
+    let narrowPaths = [];
+    try {
+        // A positive --iglob whitelist makes ripgrep re-admit paths its own
+        // `!**/<noise>/**` negations would otherwise exclude (the whitelist
+        // wins regardless of glob order), so noise dirs are pruned in JS here
+        // instead — matching the broad pass's effective exclusion set.
+        const narrowStdout = await runRgImpl([...baseRgArgs, '--iglob', `*${escapeGlobLiteral(query)}*`, '.'], { cwd: fullPath });
+        narrowPaths = parseRgFiles(narrowStdout).filter((p) =>
+            includeNoise || !p.split('/').some((seg) => NOISE_DIR_NAMES.has(seg)));
+    } catch { /* best-effort backstop; broad pass already collected */ }
+    // Merge broad + narrowed, deduplicating by path (broad order preserved,
+    // narrowed-only exact-name candidates appended).
+    const seen = new Set();
+    const items = [];
+    for (const p of broadEnum.files) {
+        if (seen.has(p)) continue;
+        seen.add(p);
+        items.push({ path: p });
+    }
+    for (const p of narrowPaths) {
+        if (seen.has(p)) continue;
+        seen.add(p);
+        items.push({ path: p });
+    }
     const rankLimit = headLimit > 0 ? headLimit + 1 : headLimit;
     const rankedRaw = fuzzyRank(query, items, rankLimit);
     const hasMore = headLimit > 0 && rankedRaw.length > headLimit;
     const ranked = hasMore ? rankedRaw.slice(0, headLimit) : rankedRaw;
-    if (ranked.length === 0) return `(no fuzzy match for "${query}")`;
-    const out = ranked.map((r) => r.item.path).join('\n');
-    const result = hasMore
-        ? `${out}\n... (top ${headLimit}; raise head_limit for more)`
-        : out;
-    cacheSet(cacheKey, result, { scopes: [fullPath] });
+    // Build output lines uniformly for the hit and no-match cases so a
+    // truncated/partial broad pass ALWAYS surfaces its warning — otherwise a
+    // cut-off enumeration that happened to drop the sole match would silently
+    // report "(no fuzzy match …)" as if the tree were exhaustively searched.
+    const noMatch = ranked.length === 0;
+    const lines = noMatch ? [`(no fuzzy match for "${query}")`] : ranked.map((r) => r.item.path);
+    if (!noMatch && hasMore) lines.push(`... (top ${headLimit}; raise head_limit for more)`);
+    if (rgTruncated) lines.push('... [warning] rg stdout truncated at 20MB cap; broad ranking incomplete (exact-name hits still merged)');
+    if (rgPartial && !rgTruncated) lines.push('... [warning] rg exit 2 (partial results); broad ranking may be incomplete');
+    const result = lines.join('\n');
+    // Do not cache a truncated/partial enumeration — the broad ranking is
+    // known-incomplete, so a later call with a larger head_limit must re-run.
+    // A no-match result is also left uncached (mirrors the prior early return).
+    if (!noMatch && !rgTruncated && !rgPartial) {
+        cacheSet(cacheKey, result, { scopes: [fullPath] });
+    }
     if (typeof options?.onProgress === 'function') {
         try { options.onProgress(`${ranked.length} candidates`); } catch { /* best-effort */ }
     }
@@ -563,14 +740,30 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
             // pre-filter matches the JS matcher; explicit globs pass through.
             if (namePattern) rgArgs.push('--iglob', nameIsGlob ? namePattern : `*${namePattern}*`);
             rgArgs.push('.');
-            const stdout = await runRg(rgArgs, { cwd: fullPath });
-            rgStdoutTruncated = Boolean(stdout && typeof stdout === 'object' && stdout.truncated);
-            rgStdoutPartial = Boolean(stdout && typeof stdout === 'object' && stdout.partial);
+            // No `name` filter → this is the pure broad sweep (rgArgs match the
+            // fuzzy-find broad pass), so share it via the enumeration cache.
+            // With a `name` filter the sweep is narrowed by --iglob and must
+            // NOT hit the broad cache — run it directly.
+            let relPaths;
+            if (!namePattern) {
+                const enumRes = await getBroadEnumeration({
+                    root: normalizeOutputPath(fullPath),
+                    hidden, depth, includeNoise,
+                    rgArgs, cwd: fullPath,
+                });
+                rgStdoutTruncated = enumRes.truncated;
+                rgStdoutPartial = enumRes.partial;
+                relPaths = enumRes.files;
+            } else {
+                const stdout = await runRg(rgArgs, { cwd: fullPath });
+                rgStdoutTruncated = Boolean(stdout && typeof stdout === 'object' && stdout.truncated);
+                rgStdoutPartial = Boolean(stdout && typeof stdout === 'object' && stdout.partial);
+                relPaths = parseRgFileList(stdout);
+            }
             const candidates = [];
-            for (const line of String(stdout).split('\n')) {
-                const trimmed = line.trim();
-                if (!trimmed) continue;
-                const candidate = resolveAgainstCwd(normalizeInputPath(trimmed), fullPath);
+            for (const rel of relPaths) {
+                if (!rel) continue;
+                const candidate = resolveAgainstCwd(normalizeInputPath(rel), fullPath);
                 if (!matchesFindNamePattern(basename(candidate), candidate)) continue;
                 candidates.push(candidate);
                 if (candidates.length >= FIND_ABSOLUTE_CAP) {

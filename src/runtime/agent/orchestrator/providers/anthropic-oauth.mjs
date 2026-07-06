@@ -301,6 +301,21 @@ function nativeAnthropicTools(opts) {
         ? opts.nativeTools.filter(t => t && typeof t === 'object')
         : [];
 }
+// Map the orchestrator-level opts.toolChoice into Anthropic's tool_choice.
+// Only 'none' is activated: it lets the hard-cap final turn keep the tool
+// DEFINITIONS in-request (so the tools->system->messages prefix — and its
+// prompt-cache prefix — stay byte-identical to prior turns) while forbidding
+// tool USE, so the model can only emit text. Forced values
+// ('required'->{type:'any'}, {name}->{type:'tool'}) are deliberately NOT
+// mapped: Anthropic returns a 400 for any forced tool_choice while
+// extended/adaptive thinking is enabled, and the only caller that sets
+// opts.toolChoice='required' (the forced-first-tool turn) runs with
+// effort/thinking active on reasoning models — activating it would convert a
+// previously-harmless no-op into a hard 400 on exactly that turn. Attached
+// only when the request actually carries tools (see buildRequestBody).
+function toAnthropicToolChoice(toolChoice) {
+    return toolChoice === 'none' ? { type: 'none' } : undefined;
+}
 function deferredAnthropicTools(activeTools, opts) {
     if (opts?.session?.deferredNativeTools !== true) return [];
     // A request whose ONLY tools are deferred is rejected by the API with
@@ -464,10 +479,25 @@ function applyAnthropicCacheMarkers(sanitizedMessages, { messageTtl = CACHE_TTL_
         return -1;
     };
 
+    const firstRequestUserPromptIdx = () => {
+        // Iteration-1 fallback: on the very first request a session has only the
+        // current user prompt — no tool_result tail and no earlier user turn, so
+        // both anchors above return -1 and NO message breakpoint is placed. That
+        // left the whole tools+system prefix (~4.2k) uncached on iter1: nothing
+        // was written, so iter2 re-sent it as a fresh full write instead of a
+        // read hit. Anchor the current prompt's tail so the stable prefix is
+        // cache-written on the first ask and read back on the next. Only used
+        // when neither real anchor exists, so later turns still prefer the
+        // tool_result / previous-user-text anchors (never the volatile new
+        // prompt). Synthetic <system-reminder> turns are excluded by hasUserText.
+        if (latestToolResultTailIdx() !== -1 || previousUserTextAnchorIdx() !== -1) return -1;
+        const tailIdx = sanitizedMessages.length - 1;
+        return hasUserText(sanitizedMessages[tailIdx]) ? tailIdx : -1;
+    };
     if (messageTtl !== null) {
         const slots = Math.max(0, Math.min(4, Number(messageSlots) || 0));
         const marked = new Set();
-        const candidates = [latestToolResultTailIdx(), previousUserTextAnchorIdx()];
+        const candidates = [latestToolResultTailIdx(), previousUserTextAnchorIdx(), firstRequestUserPromptIdx()];
         for (const idx of candidates) {
             if (slots <= 0) break;
             if (idx < 0 || marked.has(idx) || !canMarkMessageIdx(idx)) continue;
@@ -596,6 +626,13 @@ function buildRequestBody(messages, model, tools, sendOpts) {
         // tools → system → messages). Placing a separate BP here would waste
         // a slot that's better spent on messages tail.
         body.tools = [...nativeTools, ...toAnthropicTools([...(tools || []), ...deferredTools])];
+    }
+    // tool_choice only when tools are actually present (Anthropic rejects
+    // tool_choice without tools). 'none' rides the hard-cap final turn to
+    // forbid tool USE while keeping the tools prefix stable for cache reuse.
+    if (body.tools) {
+        const toolChoice = toAnthropicToolChoice(opts.toolChoice);
+        if (toolChoice) body.tool_choice = toolChoice;
     }
 
     applyAnthropicEffortToBody(body, {

@@ -17,8 +17,7 @@ import {
   resolveV4AEntryPath,
   parsedEntryResolvedPath,
   isResolvedPathOutsideBase,
-  assertNoDuplicateParsedModifyTargets,
-  mergeDuplicateParsedModifyEntries,
+  splitParsedModifyWaves,
   renderParsedUnifiedPatch,
   rewriteHeaderPaths,
   preValidateNativeBatch,
@@ -190,16 +189,16 @@ async function apply_patch(args, cwd, options = {}) {
   if (!v4aRenameOnly && (!Array.isArray(parsed) || parsed.length === 0)) {
     return 'Error: patch contained no file sections';
   }
+  // Split duplicate modify-target blocks into sequential waves: occurrence i
+  // of a path lands in wave i so each duplicate applies against the prior
+  // wave's on-disk result. Non-duplicate patches yield exactly one wave, so
+  // single-target behavior is unchanged.
+  let parsedWaves = v4aRenameOnly ? [] : [parsed];
   if (!v4aRenameOnly) {
     try {
-      assertNoDuplicateParsedModifyTargets(parsed, basePath);
+      parsedWaves = splitParsedModifyWaves(parsed, basePath);
     } catch (err) {
       return `Error: ${err?.message || String(err)}`;
-    }
-    const merged = mergeDuplicateParsedModifyEntries(parsed, basePath);
-    if (merged.changed) {
-      parsed = merged.parsed;
-      normalizedPatchStr = renderParsedUnifiedPatch(parsed);
     }
   }
 
@@ -210,18 +209,22 @@ async function apply_patch(args, cwd, options = {}) {
       return `Error: ${err?.message || String(err)}`;
     }
   }
-  let entries = [];
-  let headerRewrites = [];
+  // Pre-validate each wave independently: a wave only ever holds unique
+  // targets, so the native batch's per-file semantics stay intact.
+  const waveDispatch = [];
   if (!v4aRenameOnly) {
     try {
-      ({ entries, headerRewrites } = await preValidateNativeBatch(parsed, basePath));
+      for (const wparsed of parsedWaves) {
+        const { entries, headerRewrites } = await preValidateNativeBatch(wparsed, basePath);
+        waveDispatch.push({ parsed: wparsed, entries, headerRewrites });
+      }
     } catch (err) {
       return `Error: ${err?.message || String(err)}`;
     }
   }
 
   const _lockPaths = [
-    ...entries.map((entry) => entry.fullPath),
+    ...new Set(waveDispatch.flatMap((wd) => wd.entries.map((entry) => entry.fullPath))),
     ...(v4aRenamePlan?.renameSections || []).flatMap((section) => {
       const src = resolveV4AEntryPath(basePath, section.path);
       const dest = resolveV4AEntryPath(basePath, section.movePath);
@@ -240,56 +243,96 @@ async function apply_patch(args, cwd, options = {}) {
       if (lines.length === 0) return 'Error: patch contained no applicable file sections';
       return wrapPatchMutationOutput(`${lines.join('\n')}\n`, mutationPlan, { backend: 'v4a-rename' });
     }
-    const insideEntries = entries.filter((entry) => !isResolvedPathOutsideBase(entry.fullPath, basePath));
-    const outsideEntries = entries.filter((entry) => isResolvedPathOutsideBase(entry.fullPath, basePath));
-    const parsedInside = (parsed || []).filter(
-      (entry) => !isResolvedPathOutsideBase(parsedEntryResolvedPath(entry, basePath), basePath),
-    );
-    const backend = outsideEntries.length > 0
-      ? (insideEntries.length > 0 ? 'native+js-patch' : 'js-patch')
-      : 'native-patch';
-    const resultParts = [];
-    if (insideEntries.length > 0) {
-      const nativePatchStr = rewriteHeaderPaths(renderParsedUnifiedPatch(parsedInside), headerRewrites);
-      const nativeResult = await dispatchNativePatch({
-        entries: insideEntries,
-        basePath,
-        nativePatchStr,
-        fuzz,
-        rejectPartial,
-        dryRun,
-        readStateScope,
-        signal: abortSignal,
-        parsed: parsedInside,
-      });
-      if (isPatchErrorText(nativeResult)) {
-        return wrapPatchMutationOutput(nativeResult, mutationPlan, { backend });
+    // Apply one wave (a set of unique targets) via the existing native(+js)
+    // split. Returns { backend, text } on success or { backend, error } so the
+    // caller can decide whether earlier waves already committed to disk.
+    const applyWave = async ({ parsed: wparsed, entries: wentries, headerRewrites: whr }) => {
+      const insideEntries = wentries.filter((entry) => !isResolvedPathOutsideBase(entry.fullPath, basePath));
+      const outsideEntries = wentries.filter((entry) => isResolvedPathOutsideBase(entry.fullPath, basePath));
+      const parsedInside = (wparsed || []).filter(
+        (entry) => !isResolvedPathOutsideBase(parsedEntryResolvedPath(entry, basePath), basePath),
+      );
+      const backend = outsideEntries.length > 0
+        ? (insideEntries.length > 0 ? 'native+js-patch' : 'js-patch')
+        : 'native-patch';
+      const resultParts = [];
+      if (insideEntries.length > 0) {
+        const nativePatchStr = rewriteHeaderPaths(renderParsedUnifiedPatch(parsedInside), whr);
+        const nativeResult = await dispatchNativePatch({
+          entries: insideEntries,
+          basePath,
+          nativePatchStr,
+          fuzz,
+          rejectPartial,
+          dryRun,
+          readStateScope,
+          signal: abortSignal,
+          parsed: parsedInside,
+        });
+        if (isPatchErrorText(nativeResult)) return { backend, error: nativeResult };
+        resultParts.push(nativeResult);
       }
-      resultParts.push(nativeResult);
-    }
-    if (outsideEntries.length > 0) {
-      // Out-of-base targets are applied via the JS dispatcher (no base-path
-      // confinement); write permission is enforced at the hook layer.
-      const jsResult = await dispatchJsPatchEntries({
-        rows: outsideEntries,
-        parsed,
-        basePath,
-        dryRun,
-        fuzzy,
-        readStateScope,
-      });
-      if (isPatchErrorText(jsResult)) {
-        return wrapPatchMutationOutput(jsResult, mutationPlan, { backend });
+      if (outsideEntries.length > 0) {
+        // Out-of-base targets are applied via the JS dispatcher (no base-path
+        // confinement); write permission is enforced at the hook layer.
+        const jsResult = await dispatchJsPatchEntries({
+          rows: outsideEntries,
+          parsed: wparsed,
+          basePath,
+          dryRun,
+          fuzzy,
+          readStateScope,
+        });
+        if (isPatchErrorText(jsResult)) return { backend, error: jsResult };
+        resultParts.push(jsResult);
       }
-      resultParts.push(jsResult);
+      return { backend, text: resultParts.join('\n') };
+    };
+
+    // Duplicate-target blocks were split into contiguous sequential groups
+    // (listed order preserved); apply them in order, each against the prior
+    // group's on-disk result.
+    const waveTexts = [];
+    let backend = 'native-patch';
+    // dry_run never writes, so a later group would validate against unchanged
+    // disk and false-fail on any block that depends on an earlier edit. Only
+    // the first group is validated under dry_run; the rest are reported as
+    // unsimulated below (no false failures).
+    const groupCount = (dryRun && waveDispatch.length > 1) ? 1 : waveDispatch.length;
+    for (let w = 0; w < groupCount; w++) {
+      const res = await applyWave(waveDispatch[w]);
+      backend = res.backend;
+      if (res.error) {
+        if (w === 0) return wrapPatchMutationOutput(res.error, mutationPlan, { backend });
+        // A later group failed. rejectPartial makes each group all-or-nothing,
+        // so every block in groups 1..w is fully committed to disk and left in
+        // place. List them all so the caller knows the true on-disk state.
+        const failMsg = res.error.replace(/^Error:\s*/, '');
+        const note = [
+          `Error: apply_patch: a block failed in sequential group ${w + 1}/${waveDispatch.length}; every edit listed below was already applied to disk (writes committed) and left in place:`,
+          waveTexts.join('\n'),
+          '--- failing block ---',
+          failMsg,
+        ].join('\n');
+        return wrapPatchMutationOutput(note, mutationPlan, { backend });
+      }
+      waveTexts.push(res.text);
     }
-    let combined = resultParts.join('\n');
+
+    let combined = waveTexts.join('\n');
+    if (dryRun && waveDispatch.length > 1) {
+      const skipped = [...new Set(
+        waveDispatch.slice(1).flatMap((wd) => wd.entries.map((e) => e.displayPath)),
+      )];
+      combined += `\n(dry_run: only the first sequential group was validated against disk; blocks depending on earlier edits were not simulated: ${skipped.join(', ')})`;
+    }
     const renameLines = formatV4ARenameSuccessLines(v4aRenameResults);
     if (renameLines.length > 0 && !isPatchErrorText(combined)) {
       combined = `${renameLines.join('\n')}\n${combined}`;
     }
     if (!isPatchErrorText(combined) && options?.toolCallId) {
-      registerApplyPatchUiDiff(options.toolCallId, rewriteHeaderPaths(normalizedPatchStr, headerRewrites));
+      const allRewrites = waveDispatch.flatMap((wd) => wd.headerRewrites);
+      registerApplyPatchUiDiff(options.toolCallId, rewriteHeaderPaths(normalizedPatchStr, allRewrites));
     }
     if (!isPatchErrorText(combined) && rejectedV4AHunks.length > 0) {
       const tail = [

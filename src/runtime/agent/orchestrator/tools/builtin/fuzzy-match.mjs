@@ -83,6 +83,20 @@ export function fuzzyScore(query, str) {
     return score;
 }
 
+// Below this per-query-char score, a subsequence-only match (query chars in
+// order but scattered mid-word, no contiguity/boundary structure) is treated
+// as noise rather than a real hit. Contiguous substring / basename matches
+// bypass the floor entirely — an exact hit must never be filtered.
+const SUBSEQUENCE_MIN_PER_CHAR = 4;
+
+// Separator/case-insensitive normalization used for the "contiguous substring"
+// strong-match test. Mirrors the query normalization in fuzzyScore so
+// "tool-events.log" matches a "tool-events.log" basename or a ".../tool-events.log"
+// path regardless of separators.
+function normalizeForContains(s) {
+    return String(s || '').toLowerCase().replace(/[\/\\_.\-\s]+/g, '');
+}
+
 /**
  * Rank candidates by fuzzy score against `query`, dropping non-matches.
  * @param {string} query
@@ -91,13 +105,30 @@ export function fuzzyScore(query, str) {
  * @returns {Array<{item:object, score:number}>}  sorted desc, then path asc
  */
 export function fuzzyRank(query, items, limit = 0) {
+    const normQuery = normalizeForContains(query);
+    // Floor scales with query length: a scattered subsequence earns ~1 point
+    // per char, while any contiguous run (+5/char) or word-boundary hit
+    // (+8) pushes a genuine match well past 4/char.
+    const floor = normQuery.length * SUBSEQUENCE_MIN_PER_CHAR;
     const scored = [];
     for (const item of items) {
-        const pathScore = fuzzyScore(query, item.path);
-        const base = String(item.path || '').split(/[\\/]/).pop() || '';
+        const p = String(item.path || '');
+        const pathScore = fuzzyScore(query, p);
+        const base = p.split(/[\\/]/).pop() || '';
         const baseScore = fuzzyScore(query, base);
         const sc = Math.max(pathScore ?? -Infinity, baseScore === null ? -Infinity : baseScore + 40);
-        if (Number.isFinite(sc)) scored.push({ item, score: sc });
+        if (!Number.isFinite(sc)) continue;
+        // Strong match: the query (separators stripped) is a contiguous
+        // substring of the basename or the full path. These ALWAYS pass so an
+        // exact substring/basename hit can never be starved out as noise.
+        const strong = normQuery.length > 0
+            && (normalizeForContains(base).includes(normQuery)
+                || normalizeForContains(p).includes(normQuery));
+        // Otherwise it is subsequence-only: keep it only if it clears the
+        // per-char floor. Weak scattered matches (the pgAdmin-style junk that
+        // merely contains the query chars in order) fall below it and drop out.
+        if (!strong && sc < floor) continue;
+        scored.push({ item, score: sc });
     }
     scored.sort((a, b) => (b.score - a.score) || (a.item.path < b.item.path ? -1 : a.item.path > b.item.path ? 1 : 0));
     return limit > 0 ? scored.slice(0, limit) : scored;

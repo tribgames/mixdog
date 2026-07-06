@@ -291,8 +291,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         if (iterations >= maxLoopIterations) {
             // Final-answer turn: instead of breaking mid-transcript (which
             // yields an empty final for locator-style agents that never got to
-            // answer), give the model ONE tool-less text turn to wrap up, then
-            // stop (empty sendTools + refusal stubs if tools are requested).
+            // answer), give the model ONE text-only turn to wrap up, then stop.
+            // Tool DEFINITIONS stay in-request (stable cache prefix) but tool
+            // USE is forbidden via tool_choice:'none'; any tool call a
+            // toolChoice-ignoring provider still emits gets a refusal stub.
             if (_capFinalTurnUsed) {
                 process.stderr.write(`[loop] hard iteration cap ${maxLoopIterations} reached (sess=${sessionId || 'unknown'}); stopping loop.\n`);
                 terminatedByCap = true;
@@ -362,15 +364,22 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const nextIteration = iterations + 1;
         opts.iteration = nextIteration;
         opts.providerState = providerState;
-        if (forcedFirstTool && toolCallsTotal === 0) {
+        if (_capFinalToolsDisabled) {
+            // Hard-cap final turn: forbid tool USE (tool_choice:'none') instead
+            // of stripping tool DEFINITIONS. Sending tools:[] changed the
+            // tools→system→messages prefix chain, so Anthropic could no longer
+            // prefix-match and re-prefilled the whole prompt (~10k, cache
+            // read=0) on the final capped turn. Keeping the tools in-request
+            // holds the prefix byte-stable; 'none' makes the model emit text
+            // only. Overrides the forced-first-tool path below.
+            opts.toolChoice = 'none';
+        } else if (forcedFirstTool && toolCallsTotal === 0) {
             opts.toolChoice = 'required';
         } else {
             delete opts.toolChoice;
         }
-        // Hard-cap final turn: send NO tool definitions so the provider can
-        // only emit text. Overrides the forced-first-tool path.
         const sendTools = _capFinalToolsDisabled
-            ? []
+            ? tools
             : (forcedFirstToolDef && toolCallsTotal === 0 ? [forcedFirstToolDef] : tools);
         // Eager-dispatch queue: when the provider streams a tool-call event,
         // start read-only tools immediately so execution overlaps with the
@@ -387,7 +396,15 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             getNextIteration: () => nextIteration,
             repeatFailLimit: REPEAT_FAIL_LIMIT,
         });
-        opts.onToolCall = eager.onToolCall;
+        // Hard-cap final turn: forbid eager dispatch. Tools are still sent (to
+        // hold the cache prefix) but tool_choice:'none' means Anthropic emits
+        // no calls; a toolChoice-IGNORING provider could still stream calls,
+        // and an attached onToolCall would eager-run read-only tools mid-stream
+        // (real cost/UI/network side effects) whose results are then discarded
+        // by the refusal-stub path. Leave it unset so nothing dispatches; opts
+        // is reused across iterations but onToolCall is cleared to undefined
+        // after send() below, so non-cap iterations are unaffected.
+        opts.onToolCall = _capFinalToolsDisabled ? undefined : eager.onToolCall;
         // Reattach separated tool results, then drop only truly dangling
         // assistant/orphan pairs before the provider sees the transcript.
         repairTranscriptBeforeProviderSend(messages, sessionId);

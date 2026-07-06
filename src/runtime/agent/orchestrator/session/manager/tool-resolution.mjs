@@ -74,14 +74,39 @@ const AGENT_STRING_PERMISSION_READ_ALLOW = Object.freeze([
     'list',
     'grep',
     'read',
+    // shell/task: read-role agents (reviewer/debugger) must run their own
+    // verification (tests/repro). task is required because shell's
+    // auto-background transition settles with a bare jobId — agent sessions
+    // get no completion notification, so `task wait/read` is the only way to
+    // collect a long-running result. apply_patch stays excluded: read roles
+    // keep the no-edit contract.
+    'shell',
+    'task',
     'explore',
     'search',
     'web_fetch',
     'Skill',
 ]);
 
-function stringToolPermissionAllowList(toolPermission) {
-    if (toolPermission === 'read') return AGENT_STRING_PERMISSION_READ_ALLOW;
+// Retrieval/locator roles never self-verify, so they keep the historical
+// no-shell read surface. Covers hidden retrieval agents (kind 'retrieval')
+// AND public wrapper roles (explore + any invokedBy wrapper) — the same set
+// pre-dispatch-deny treats as recursive wrappers. Only verifying read roles
+// (reviewer/debugger) get shell/task.
+const AGENT_STRING_PERMISSION_READ_RETRIEVAL_ALLOW = Object.freeze(
+    AGENT_STRING_PERMISSION_READ_ALLOW.filter((n) => n !== 'shell' && n !== 'task'),
+);
+
+function isRetrievalToolRole(agent) {
+    if (!agent) return false;
+    if (getHiddenAgent(agent)?.kind === 'retrieval') return true;
+    return Boolean(recursiveWrapperToolNameForPublicAgent(agent));
+}
+
+function stringToolPermissionAllowList(toolPermission, { retrieval = false } = {}) {
+    if (toolPermission === 'read') {
+        return retrieval ? AGENT_STRING_PERMISSION_READ_RETRIEVAL_ALLOW : AGENT_STRING_PERMISSION_READ_ALLOW;
+    }
     if (toolPermission === 'read-write') return AGENT_STRING_PERMISSION_READ_WRITE_ALLOW;
     if (toolPermission === 'none') return [];
     return null;
@@ -109,7 +134,7 @@ const AGENT_STRING_PERMISSION_READ_WRITE_ALLOW = Object.freeze([
 
 export function applyToolPermissionNarrowing(tools, toolPermission, warnRole = null) {
     if (toolPermission === 'none') return [];
-    const allowList = stringToolPermissionAllowList(toolPermission);
+    const allowList = stringToolPermissionAllowList(toolPermission, { retrieval: isRetrievalToolRole(warnRole) });
     if (allowList) {
         const allowSet = new Set(allowList.map((n) => String(n).toLowerCase()));
         return tools.filter((t) => allowSet.has(String(t?.name || '').toLowerCase()));
@@ -203,7 +228,7 @@ export function resolveSessionTools(toolSpec, skills, { ownerIsAgentSession = fa
     // time (loop.mjs), so the schema bytes stay bit-identical across roles /
     // cwds and the provider cache shard does not fragment.
     const skillTools = buildSkillToolDefs(skills, { ownerIsAgentSession });
-    return _computeBaseTools(toolSpec, mcp, skillTools);
+    return _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession });
 }
 
 export function previewSessionTools(toolSpec, skills = [], options = {}) {
@@ -230,7 +255,7 @@ function _dedupByName(tools) {
 // Tools with agentHidden:true are stripped from agent sessions at schema
 // build time (see deny filtering below). No code-level name list needed.
 
-function _computeBaseTools(toolSpec, mcp, skillTools) {
+function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = false } = {}) {
     if (Array.isArray(toolSpec)) {
         if (toolSpec.length === 0) {
             // Explicit "no tools" — skill meta tools still travel so the model
@@ -285,7 +310,16 @@ function _computeBaseTools(toolSpec, mcp, skillTools) {
             return _dedupByName([...mcp, ...skillTools]);
         case 'readonly': {
             const readTools = ALL_BUILTIN_SESSION_TOOLS.filter(t => READONLY_TOOL_NAMES.has(t.name));
-            return _dedupByName([...readTools, ...mcp, ...skillTools]);
+            // Read-ROLE agent sessions (reviewer/debugger) must self-verify, so
+            // their base bundle carries shell/task defs. The 'read' permission
+            // allowlist (AGENT_STRING_PERMISSION_READ_ALLOW) is a pure FILTER —
+            // it can only keep tools already assembled here, so without this the
+            // allowlist's shell/task entries were dead letters. Non-agent
+            // 'readonly' profiles stay strictly read-only.
+            const verifyTools = ownerIsAgentSession
+                ? ALL_BUILTIN_SESSION_TOOLS.filter(t => t.name === 'shell' || t.name === 'task')
+                : [];
+            return _dedupByName([...readTools, ...verifyTools, ...mcp, ...skillTools]);
         }
         case 'full':
         default:

@@ -8,7 +8,7 @@ process.env.MIXDOG_WORKER_MODE = process.env.MIXDOG_WORKER_MODE || '1';
 
 import os from 'node:os';
 import path from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { claimSingletonOwner, releaseSingletonOwner } from '../src/runtime/shared/singleton-owner.mjs';
 import { createChannelDaemonTransport } from '../src/standalone/channel-daemon-transport.mjs';
 
@@ -39,6 +39,17 @@ async function main() {
   const claim = claimSingletonOwner(OWNER_PATH, { kind: 'channel-runtime-daemon', pid: process.pid, meta: { cwd: process.cwd() } });
   if (!claim.owned) { process.exit(0); } // race loser → spawner attaches to winner
   process.on('exit', () => { try { releaseSingletonOwner(OWNER_PATH, process.pid); } catch {} });
+
+  // Optional env dump for the tool smoke: proves daemonEnv() spawned us with
+  // the daemon-mode flags (MIXDOG_CHANNEL_DAEMON=1, MIXDOG_CLI_OWNED=0).
+  if (process.env.SMOKE_CHANNEL_ENV_OUT) {
+    try {
+      writeFileSync(process.env.SMOKE_CHANNEL_ENV_OUT, JSON.stringify({
+        cliOwned: process.env.MIXDOG_CLI_OWNED,
+        daemon: process.env.MIXDOG_CHANNEL_DAEMON,
+      }));
+    } catch { /* smoke-only, best-effort */ }
+  }
 
   // Stub runtime: echo the call + caller identity, and (for 'fetch') emit a
   // notify AFTER responding so the smoke can assert targeted routing.

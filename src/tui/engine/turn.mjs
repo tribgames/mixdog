@@ -1,13 +1,14 @@
 /**
  * src/tui/engine/turn.mjs - lead TUI turn engine (createRunTurn). Extracted from engine.mjs.
  */
-import { aggregateToolCategoryEntry, classifyToolCategory, formatAggregateDetail, summarizeToolResult } from '../../runtime/shared/tool-surface.mjs';
+import { aggregateToolCategoryEntry, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, summarizeToolResult } from '../../runtime/shared/tool-surface.mjs';
 import { applyUsageDelta } from './session-stats.mjs';
 import { pickVerb, pickDoneVerb, compactEventLabel, compactEventDetail } from './labels.mjs';
 import { toolResultText, toolErrorDisplay } from './tool-result-text.mjs';
 import { toolCallId, toolResultCallId, toolCallName, toolCallArgs } from './tool-call-fields.mjs';
 import { toolResultStatus, isErrorToolStatus } from './agent-envelope.mjs';
 import { promptDisplayText } from './queue-helpers.mjs';
+import { memoryCoreResultErrorText } from '../app/input-parsers.mjs';
 import { yieldToRenderer } from './render-timing.mjs';
 import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, assignAggregateSummaryOrder } from './tool-result-status.mjs';
 
@@ -299,6 +300,7 @@ export function createRunTurn(bag) {
           isError: errors > 0,
           count: allCalls.length,
           completedCount: allCalls.length,
+          doneCategories: aggregateDoneCategories(allCalls),
           completedAt: Date.now(),
         });
       }
@@ -605,7 +607,12 @@ export function createRunTurn(bag) {
         if (!callRec || callRec.resolved || callRec.completedEarly) return;
         aggregate.ensureVisible?.();
         const rawText = toolResultText(message?.content);
-        const isError = message?.isError === true || message?.toolKind === 'error' || /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText));
+        // Recover flattened memory "core" op failures (isError dropped upstream)
+        // so they are excluded from the done count — see memoryCoreResultErrorText.
+        // Gated to Memory calls: the text-matcher's ^(error|failed) catch-all
+        // would otherwise misflag legitimate non-memory success output.
+        const isMemoryCall = classifyToolCategory(callRec.name, callRec.args) === 'Memory';
+        const isError = message?.isError === true || message?.toolKind === 'error' || /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText)) || (isMemoryCall && memoryCoreResultErrorText(rawText) != null);
         const text = isError ? toolErrorDisplay(rawText, callRec.name || 'tool') : rawText;
         callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
         assignAggregateSummaryOrder(aggregate, callRec);

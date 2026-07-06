@@ -295,8 +295,8 @@ function localOldestWorkerStartMs(agentWorkers = [], agentJobs = []) {
 // L2 assembly only — themed SGR (statusColors SUCCESS/STATUS/SUBTLE), already in
 // the active palette, so this must NOT be passed through normalizeStatusLine.
 // Returns the joined L2 string or '' when no active segment. Order:
-// Agents → Exploring → Searching → Shells. (Shell segment is disk-based and not
-// available to the instant-local path; intentionally omitted here.)
+// Agents → Exploring → Web Searching → Shells. (Shell segment is disk-based and
+// not available to the instant-local path; intentionally omitted here.)
 function localStatusLineL2({
   agentWorkers = [],
   agentJobs = [],
@@ -325,7 +325,7 @@ function localStatusLineL2({
   }
   if (searchInfo && localNum(searchInfo.count) > 0) {
     const elapsed = localNum(searchInfo.startedAt) > 0 ? localFormatElapsed(now - localNum(searchInfo.startedAt)) : '';
-    l2Parts.push(`${spin} ${STATUS}Searching${RESET}${elapsedSuffix(elapsed)}`);
+    l2Parts.push(`${spin} ${STATUS}Web Searching${RESET}${elapsedSuffix(elapsed)}`);
   }
   return l2Parts.length ? l2Parts.join(segSep) : '';
 }

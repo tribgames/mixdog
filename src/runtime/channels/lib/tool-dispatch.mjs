@@ -50,24 +50,17 @@ function createToolDispatch({
             setChannelBridgeActive(active);
             writeBridgeState(active);
             if (active) {
-              // Claim the seat only when we are NOT already the owner — a
-              // genuine /remote takeover or re-occupy after being superseded.
-              // When this session already owns the seat (e.g. the boot-time
-              // activate that fires right after start() claimed after READY),
-              // skip the redundant claim so boot performs ONE claim, not a
-              // remote-start + re-activate double claim (the latter forced a
-              // double reconnect). refreshBridgeOwnership below still re-pins
-              // the forwarder binding onto THIS session either way.
+              // Daemon model: this runtime is the unconditional bridge owner
+              // (getOwned() is always true), so activate never needs to claim a
+              // seat or pre-notify — the not-connected -> connected transition
+              // inside startOwnedRuntime fires notifyRemoteAcquired exactly once.
+              // refreshBridgeOwnership still re-pins the forwarder binding onto
+              // THIS session.
               if (getOwned?.() !== true) {
-                // Genuine acquire transition (we do NOT hold the seat) — tell the
-                // parent to flip remote ON. The seat itself is acquired inside
-                // refreshBridgeOwnership({ claim: true }) below (explicit
-                // takeover). An idempotent re-activate (already own the seat)
-                // skips both the notify and the takeover.
                 notifyRemoteAcquired?.();
               }
               try {
-                await refreshBridgeOwnership({ restoreBinding: true, claim: true });
+                await refreshBridgeOwnership({ restoreBinding: true });
                 // An already-connected owner returns early from
                 // startOwnedRuntime(), so rebind explicitly to follow the
                 // current (parent-chain) session transcript.
@@ -154,9 +147,8 @@ function createToolDispatch({
       // Remote-owner startup: ensure this owner's backend is connected.
       for (let i = 0; i < 2 && !getBridgeRuntimeConnected(); i++) {
         try {
-          // Auto-connect a remote owner. claimIfVacant: acquire the seat only
-          // when vacant/stale — never steal a live holder from this retry path.
-          await refreshBridgeOwnership({ claim: true, claimIfVacant: true });
+          // Auto-connect this owner's backend (daemon singleton — no seat claim).
+          await refreshBridgeOwnership();
         } catch {
         }
         if (!getBridgeRuntimeConnected()) await new Promise((r) => setTimeout(r, 300));

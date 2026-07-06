@@ -67,7 +67,6 @@ import { createParentBridge } from "./parent-bridge.mjs";
 import { createInboundRouting } from "./inbound-routing.mjs";
 import { createToolDispatch } from "./tool-dispatch.mjs";
 import { createOwnerHeartbeat } from "./owner-heartbeat.mjs";
-import { createSeatLock } from "./seat-lock.mjs";
 import { createTranscriptBinding } from "./transcript-binding.mjs";
 import { isNetworkError, retryOnNetwork } from "./network-retry.mjs";
 import { runWorkerIpc } from "./worker-ipc.mjs";
@@ -139,9 +138,6 @@ let config = loadConfig();
 let backend = createBackend(config);
 const INSTANCE_ID = makeInstanceId();
 const TERMINAL_LEAD_PID = getTerminalLeadPid();
-// OS-enforced bridge-seat singleton. Ownership TRUTH is holding this listener;
-// a holder crash auto-releases it and takeover is an explicit release message.
-const seatLock = createSeatLock({ runtimeRoot: RUNTIME_ROOT, instanceId: INSTANCE_ID });
 runWorkerBootstrap({
   instanceId: INSTANCE_ID,
   isWorkerMode: _isWorkerMode,
@@ -328,9 +324,7 @@ const {
   logOwnership,
   currentOwnerState,
   getBridgeOwnershipSnapshot,
-} = createOwnerHeartbeat({
-  isSeatHeld: () => seatLock.isSeatHeld(),
-});
+} = createOwnerHeartbeat();
 // ── Owned-runtime lifecycle ─────────────────────────────────────────────────
 // Extracted -> lib/owned-runtime.mjs. Owns its own start/stop/refresh in-flight
 // flags + ownership timer + memory-drain timer; shares config/backend/
@@ -359,14 +353,11 @@ const {
   instanceId: INSTANCE_ID,
   TERMINAL_LEAD_PID,
   forwarder,
+  sendNotifyToParent,
   scheduler,
   statusState,
   logOwnership,
   currentOwnerState,
-  acquireSeat: (opts) => seatLock.acquireSeat(opts),
-  closeSeatServer: () => seatLock.closeSeatServer(),
-  isSeatHeld: () => seatLock.isSeatHeld(),
-  onTakeover: (cb) => seatLock.onTakeover(cb),
   bindPersistedTranscriptIfAny,
   cancelPendingTranscriptRearm,
   schedulePendingTranscriptRearm,
@@ -707,21 +698,13 @@ async function init(_sharedMcp) {
 async function start() {
   channelBridgeActive = true;
   writeBridgeState(true);
-  // Opt-in remote, single-owner, last-wins, MAKE-BEFORE-BREAK. Do NOT claim the
-  // seat up front: connect our own gateway first and claim only after it reports
-  // READY (inside startOwnedRuntime, claimAfterReady). Until then the previous
-  // owner keeps serving, so a boot causes no send/receive gap. This is also the
-  // SINGLE boot claim — the old "remote start" pre-claim + "re-activate
-  // takeover" second claim (double reconnect) is gone.
+  // Daemon model: this runtime is the machine-global singleton bridge owner
+  // (enforced by the standalone daemon's singleton-owner lock), so there is no
+  // seat to claim and no contender to make-before-break against. Just connect
+  // the owned runtime and bind the persisted transcript.
   const _bindingReadyStart = Date.now();
   try {
-    // Boot claim intent (published by the parent via env before this fork):
-    //   explicit (/remote, --remote) -> last-wins force-takeover.
-    //   auto (config/delayed autoStart) -> claim-if-vacant: take the seat only
-    //   when no live owner holds it, otherwise back off silently (no claim, no
-    //   acquire notify) so a live owner is never stolen.
-    const autoStartClaim = process.env.MIXDOG_REMOTE_INTENT === 'auto';
-    await startOwnedRuntime({ restoreBinding: true, claimAfterReady: true, claimIfVacant: autoStartClaim });
+    await startOwnedRuntime({ restoreBinding: true });
     bindingReadyStatus = "resolved";
     dropTrace("bindingReady.resolve", { elapsedMs: Date.now() - _bindingReadyStart, status: bindingReadyStatus });
     _bindingReadyResolve(true);
@@ -730,10 +713,8 @@ async function start() {
     dropTrace("bindingReady.reject", { elapsedMs: Date.now() - _bindingReadyStart, status: bindingReadyStatus, err: String(e) });
     _bindingReadyResolve(e);
   }
-  // Ownership timer: keep checking whether a newer remote session has taken
-  // over (last-wins) so a superseded owner disconnects promptly. Normally
-  // already armed by startOwnedRuntime before connect(); this is the fallback
-  // for a start path that aborted pre-connect (idempotent).
+  // No-op under the daemon model (kept for call-site stability): there is no
+  // ownership timer — the singleton daemon guarantees exactly one owner.
   armBridgeOwnershipTimer();
   // Hot-reload config on file change (schedules/webhooks/events).
   if (!_configWatcher) {

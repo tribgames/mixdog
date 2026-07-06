@@ -84,12 +84,12 @@ function activeInstanceStaleReason(state) {
   if (workerPid && !isPidAlive(workerPid)) return `worker PID ${workerPid} is dead`;
   const serverPid = parsePositivePid(state?.server_pid);
   if (serverPid && !isPidAlive(serverPid)) return `server PID ${serverPid} is dead`;
-  // NOTE: ownership is no longer decided here — the OS seat lock
-  // (lib/seat-lock.mjs) is the authority. This PID-death check only marks a
-  // metadata advert whose owning process is gone so refreshActiveInstance can
-  // avoid preserving its owner fields. The former ui_heartbeat_at staleness
-  // branch was removed: its false-stale eviction was the Discord-flapping root
-  // cause, and a crashed holder now auto-releases the seat instead.
+  // NOTE: ownership is no longer decided here — the machine-global channels
+  // daemon (singleton-owner lock in src/standalone) is the authority. This
+  // PID-death check only marks a metadata advert whose owning process is gone so
+  // refreshActiveInstance can avoid preserving its owner fields. The former
+  // ui_heartbeat_at staleness branch was removed: its false-stale eviction was
+  // the Discord-flapping root cause.
   return null;
 }
 function buildRuntimeIdentity() {

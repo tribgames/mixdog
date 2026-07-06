@@ -176,7 +176,9 @@ export async function attachToDaemon({
       // Re-register (the daemon may have pruned us) then reopen the stream.
       // Re-register mints a fresh client token (the old one was pruned); adopt
       // it so the reopened stream and subsequent calls target the live entry.
-      request({ port, token: serverToken, method: 'POST', path: '/client/register', body: { leadPid, cwd }, timeoutMs: 3000 })
+      // reattach:true — a reconnect is NOT a new terminal, so it must NOT steal
+      // the ownership seat (last-wins is reserved for genuine fresh registers).
+      request({ port, token: serverToken, method: 'POST', path: '/client/register', body: { leadPid, cwd, reattach: true }, timeoutMs: 3000 })
         .then((r) => { if (r?.token) clientToken = r.token; })
         .catch(() => {})
         .finally(() => openStream());

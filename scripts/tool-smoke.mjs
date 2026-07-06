@@ -1050,32 +1050,28 @@ const prevChannelSingleton = process.env.MIXDOG_CHANNEL_SINGLETON;
 const prevChannelWorkerProcess = process.env.MIXDOG_CHANNEL_WORKER_PROCESS;
 const prevRuntimeRoot = process.env.MIXDOG_RUNTIME_ROOT;
 const prevEnvOut = process.env.SMOKE_CHANNEL_ENV_OUT;
+const prevDaemonEntry = process.env.MIXDOG_CHANNEL_DAEMON_ENTRY;
 try {
-  const entry = join(channelWorkerTmp, 'entry.mjs');
+  // Daemon-mode worker env coverage: start() spawn-or-attaches the machine
+  // -global daemon (the stub daemon entry — no Discord token) instead of
+  // forking `entry`, so assert the flags on the SPAWNED DAEMON's env (the stub
+  // dumps them to SMOKE_CHANNEL_ENV_OUT). The old fork-path env assertion died
+  // with the fork path itself; full flip/attach coverage lives in
+  // scripts/channel-daemon-smoke.mjs.
+  const stubEntry = join(root, 'scripts', 'channel-daemon-stub.mjs');
   const dataDir = join(channelWorkerTmp, 'data');
   const runtimeDir = join(channelWorkerTmp, 'runtime');
   const envOut = join(channelWorkerTmp, 'env.json');
   mkdirSync(dataDir, { recursive: true });
   mkdirSync(runtimeDir, { recursive: true });
-  writeFileSync(entry, `
-import { writeFileSync } from 'node:fs';
-writeFileSync(process.env.SMOKE_CHANNEL_ENV_OUT, JSON.stringify({
-  cliOwned: process.env.MIXDOG_CLI_OWNED,
-  daemon: process.env.MIXDOG_CHANNEL_DAEMON,
-}));
-process.send?.({ type: 'ready' });
-process.on('message', (msg) => {
-  if (msg?.type === 'shutdown') process.exit(0);
-});
-setInterval(() => {}, 10000);
-`);
   process.env.MIXDOG_CHANNEL_DAEMON = '1';
   process.env.MIXDOG_CHANNEL_SINGLETON = '1';
   process.env.MIXDOG_CHANNEL_WORKER_PROCESS = '1';
   process.env.MIXDOG_RUNTIME_ROOT = runtimeDir;
   process.env.SMOKE_CHANNEL_ENV_OUT = envOut;
+  process.env.MIXDOG_CHANNEL_DAEMON_ENTRY = stubEntry;
   channelEnvWorker = createStandaloneChannelWorker({
-    entry,
+    entry: stubEntry,
     rootDir: root,
     dataDir,
     cwd: root,
@@ -1100,6 +1096,11 @@ setInterval(() => {}, 10000);
   else process.env.MIXDOG_RUNTIME_ROOT = prevRuntimeRoot;
   if (prevEnvOut == null) delete process.env.SMOKE_CHANNEL_ENV_OUT;
   else process.env.SMOKE_CHANNEL_ENV_OUT = prevEnvOut;
+  if (prevDaemonEntry == null) delete process.env.MIXDOG_CHANNEL_DAEMON_ENTRY;
+  else process.env.MIXDOG_CHANNEL_DAEMON_ENTRY = prevDaemonEntry;
+  // Detach only ends OUR attachment; the stub daemon self-shuts after its
+  // client-grace window. Give it that window before deleting its tmp root.
+  await new Promise((resolveWait) => setTimeout(resolveWait, 700));
   rmSync(channelWorkerTmp, { recursive: true, force: true });
 }
 
@@ -1191,10 +1192,10 @@ if (EXPLORE_TOOL.annotations?.agentHidden === true) {
   }
 }
 const exploreProps = EXPLORE_TOOL.inputSchema?.properties || {};
-if (!/Repo anchor locator/i.test(EXPLORE_TOOL.description || '') || !/broad\/uncertain/i.test(EXPLORE_TOOL.description || '') || !/independent targets/i.test(EXPLORE_TOOL.description || '') || (EXPLORE_TOOL.description || '').length > 90) {
-  throw new Error('explore description must stay compact and anchor-oriented');
+if (!/broad\/uncertain/i.test(EXPLORE_TOOL.description || '') || !/machine-wide/i.test(EXPLORE_TOOL.description || '') || !/independent targets/i.test(EXPLORE_TOOL.description || '') || (EXPLORE_TOOL.description || '').length > 600) {
+  throw new Error('explore description must keep the locator + facet fan-out contract');
 }
-if (!/Narrow locator query/i.test(exploreProps.query?.description || '') || !/independent targets/i.test(exploreProps.query?.description || '') || !/Project\/root/i.test(exploreProps.cwd?.description || '')) {
+if (!/Narrow locator query/i.test(exploreProps.query?.description || '') || !/independent facets/i.test(exploreProps.query?.description || '') || !/Project\/root/i.test(exploreProps.cwd?.description || '')) {
   throw new Error('explore schema must stay compact and preserve query/cwd shape');
 }
 const normalizedExplore = normalizeExploreQueries('["where is model selection?","  ","which file owns agent async?"]');
@@ -1412,7 +1413,11 @@ setInternalToolsProvider({
     const writeTools = (writeAgentSession.tools || []).map((tool) => tool?.name).filter(Boolean);
     const fullTools = (fullAgentSession.tools || []).map((tool) => tool?.name).filter(Boolean);
     const publicExploreTools = (publicExploreSession.tools || []).map((tool) => tool?.name).filter(Boolean);
-    const expectedReadTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'explore', 'search', 'web_fetch', 'Skill'];
+    // Read-role AGENT sessions carry shell/task so review/debug agents can run
+    // their own verification (build/test); the plain readonly preset (public
+    // explore role) still omits them.
+    const expectedReadTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'shell', 'task', 'explore', 'search', 'web_fetch', 'Skill'];
+    const expectedPublicReadTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'explore', 'search', 'web_fetch', 'Skill'];
     const expectedWriteTools = ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'shell', 'task', 'explore', 'search', 'web_fetch', 'Skill'];
     if (JSON.stringify(readTools) !== JSON.stringify(expectedReadTools)) {
       throw new Error(`read agent schema must be fixed allow-list: expected=${expectedReadTools.join(', ')} actual=${readTools.join(', ')}`);
@@ -1423,12 +1428,15 @@ setInternalToolsProvider({
     if (readTools.includes('load_tool') || writeTools.includes('load_tool')) {
       throw new Error(`agent session fixed schemas must omit load_tool: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
     }
-    if (readTools.includes('shell')) {
-      throw new Error(`read agent schema must omit shell: read=${readTools.join(', ')}`);
+    if (readTools.includes('apply_patch')) {
+      throw new Error(`read agent schema must omit apply_patch: read=${readTools.join(', ')}`);
     }
-    for (const name of ['shell', 'apply_patch', 'task']) {
-      if (readTools.includes(name)) {
-        throw new Error(`read agent schema must omit non-read tool ${name}: read=${readTools.join(', ')}`);
+    for (const name of ['shell', 'task']) {
+      if (!readTools.includes(name)) {
+        throw new Error(`read agent schema must carry verification tool ${name}: read=${readTools.join(', ')}`);
+      }
+      if (publicExploreTools.includes(name)) {
+        throw new Error(`public explore role must omit ${name}: explore=${publicExploreTools.join(', ')}`);
       }
     }
     for (const name of ['apply_patch', 'shell', 'task']) {
@@ -1450,13 +1458,13 @@ setInternalToolsProvider({
     if (!fullTools.includes('explore')) {
       throw new Error(`full agent schema must expose explore: full=${fullTools.join(', ')}`);
     }
-    // Unified-shard policy (v0.9.13): the explore wrapper stays IN the schema
-    // for every read role — including the explore agent itself — so the
-    // read-only bundle is bit-identical across roles (one cache group).
-    // Recursion is broken at call time in pre-dispatch-deny.mjs via
-    // recursiveWrapperToolNameForPublicAgent, not by schema stripping.
-    if (JSON.stringify(publicExploreTools) !== JSON.stringify(expectedReadTools)) {
-      throw new Error(`public explore role must ship the shared read-only bundle (incl. explore): expected=${expectedReadTools.join(', ')} actual=${publicExploreTools.join(', ')}`);
+    // The explore wrapper stays IN the schema for every read role — including
+    // the explore agent itself. Recursion is broken at call time in
+    // pre-dispatch-deny.mjs via recursiveWrapperToolNameForPublicAgent, not by
+    // schema stripping. (Read AGENT sessions add shell/task on top, so the
+    // public explore bundle is its own cache group now.)
+    if (JSON.stringify(publicExploreTools) !== JSON.stringify(expectedPublicReadTools)) {
+      throw new Error(`public explore role must ship the readonly bundle (incl. explore): expected=${expectedPublicReadTools.join(', ')} actual=${publicExploreTools.join(', ')}`);
     }
     if (recursiveWrapperToolNameForPublicAgent('explore') !== 'explore') {
       throw new Error('call-time anti-recursion must map public explore agent to its own wrapper tool');

@@ -11,6 +11,7 @@ import { takeApplyPatchUiDiff } from '../tools/patch.mjs';
 import { compressToolResult } from '../tools/result-compression.mjs';
 import { appendAgentTrace, traceAgentTool, traceAgentToolFailure } from '../agent-trace.mjs';
 import { markSessionToolCall, updateSessionStage } from './manager.mjs';
+import { resolveToolSelfDeadlineMs } from '../agent-runtime/agent-progress-watchdog.mjs';
 import { classifyResultKind } from './result-classification.mjs';
 import { normalizeToolEnvelope } from './tool-envelope.mjs';
 import { maybeOffloadToolResult } from './tool-result-offload.mjs';
@@ -150,7 +151,7 @@ export async function processToolBatch(ctx) {
                     continue;
                 }
             }
-            if (sessionId) markSessionToolCall(sessionId, call.name);
+            if (sessionId) markSessionToolCall(sessionId, call.name, resolveToolSelfDeadlineMs(call.name, call.arguments));
             let result;
             let toolStartedAt;
             let toolEndedAt;

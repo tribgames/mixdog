@@ -6,6 +6,7 @@ import {
   formatToolSurface,
   isExplorerSurface,
   isMemorySurface,
+  stripToolPrefix,
 } from "../../shared/tool-surface.mjs";
 import {
   cwdToProjectSlug,
@@ -726,7 +727,7 @@ ${_bt.trim()}` : _bt.trim();
     // The non-set checks are inlined rather than delegated to the imported
     // isHidden, because that helper would re-consult the module-local
     // HIDDEN_TOOLS Set and ignore the OutputForwarder static.
-    if (OutputForwarder.HIDDEN_TOOLS.has(name)) return true;
+    if (OutputForwarder.HIDDEN_TOOLS.has(name) || OutputForwarder.HIDDEN_TOOLS.has(stripToolPrefix(name))) return true;
     if (name === "reply" || name === "fetch") return true;
     return false;
   };

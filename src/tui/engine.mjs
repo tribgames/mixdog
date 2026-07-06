@@ -21,7 +21,7 @@ import {
   isModelVisibleToolCompletionWrapper,
   isLikelyToolCompletionWrapper,
 } from '../runtime/shared/tool-execution-contract.mjs';
-import { isLateToolAnnouncement, summarizeLateToolAnnouncement } from '../session-runtime/session-text.mjs';
+import { isLateToolAnnouncement } from '../session-runtime/session-text.mjs';
 import { presentErrorText } from '../runtime/shared/err-text.mjs';
 import { listThemes, getThemeSetting, setThemeSetting } from './theme.mjs';
 import { resetAllStreamingMarkdownStablePrefixes } from './markdown/streaming-markdown.mjs';
@@ -89,6 +89,11 @@ import {
 } from './engine/tui-steering-persist.mjs';
 import { createContextState } from './engine/context-state.mjs';
 import { recomputePromptHistory } from './engine/prompt-history.mjs';
+import {
+  appendPromptHistory,
+  buildMergedPromptHistory,
+  loadPromptHistory,
+} from './prompt-history-store.mjs';
 import { createSessionFlow } from './engine/session-flow.mjs';
 import { createRunTurn } from './engine/turn.mjs';
 import { createEngineApi } from './engine/session-api.mjs';
@@ -216,7 +221,9 @@ export async function createEngineSession({
     //  - promptHistoryList: newest-first deduped user-prompt history, rebuilt
     //    only when a user item is appended (replaces the per-change rescan).
     activeToolSummary: null,
-    promptHistoryList: [],
+    // Seed from the persisted cwd-scoped store so up-arrow history is available
+    // on a fresh start, before any bulk swap / first submit republishes it.
+    promptHistoryList: buildMergedPromptHistory([], loadPromptHistory(cwd)),
     ...baseRouteState(),
     displayContextWindow: 0,
     compactBoundaryTokens: 0,
@@ -280,7 +287,12 @@ export async function createEngineSession({
     // emit (the accompanying set() diffs the full patch). A bulk swap also
     // discards the old transcript, so drop any tracked active tool calls.
     activeToolCalls.clear();
-    state = { ...state, items: nextItems, promptHistoryList: recomputePromptHistory(nextItems), activeToolSummary: null };
+    state = {
+      ...state,
+      items: nextItems,
+      promptHistoryList: buildMergedPromptHistory(recomputePromptHistory(nextItems), loadPromptHistory(state.cwd)),
+      activeToolSummary: null,
+    };
     return nextItems;
   };
   // --- Prompt-history list (newest-first, deduped) maintained incrementally ---
@@ -306,7 +318,11 @@ export async function createEngineSession({
       if (rec.category === 'Explore') {
         exploreCount += c;
         if (started > 0 && (exploreStart === 0 || started < exploreStart)) exploreStart = started;
-      } else if (rec.category === 'Search') {
+      } else if (rec.category === 'Web Research') {
+        // L2 "Web Searching" segment tracks WEB searches (search/web_fetch —
+        // category 'Web Research'), not local file search ('Search' =
+        // grep/find/glob/list). Local search is routine transcript noise and
+        // is intentionally NOT surfaced on the statusline.
         searchCount += c;
         if (started > 0 && (searchStart === 0 || started < searchStart)) searchStart = started;
       }
@@ -318,7 +334,7 @@ export async function createEngineSession({
     if (next !== prev) set({ activeToolSummary: next || null });
   };
   const markToolCallActive = (callKey, category, count, startedAt) => {
-    if (!callKey || (category !== 'Explore' && category !== 'Search')) return;
+    if (!callKey || (category !== 'Explore' && category !== 'Web Research')) return;
     activeToolCalls.set(callKey, { category, count: Math.max(1, Number(count || 1)), startedAt: Number(startedAt || Date.now()) });
     recomputeActiveToolSummary();
   };
@@ -344,7 +360,7 @@ export async function createEngineSession({
       // publish items + the fresh list in ONE set(). Do NOT pre-assign to state
       // first — set() diffs against the current state, so a pre-assign would make
       // the references identical and skip emit().
-      const promptHistoryList = recomputePromptHistory(items);
+      const promptHistoryList = buildMergedPromptHistory(recomputePromptHistory(items), loadPromptHistory(state.cwd));
       set({ items, promptHistoryList });
     } else {
       set({ items });
@@ -388,13 +404,15 @@ export async function createEngineSession({
     if (origin === 'injected' && isLikelyToolCompletionWrapper(text)) return;
     if (isModelVisibleToolCompletionWrapper(text)) return;
     // Late-MCP deferred-tool announcement (model-visible <system-reminder>):
-    // keep it in model context, but never render the raw block here. Collapse
-    // to one muted notice line, e.g. "MCP tools available: UnityMCP (12 tools)".
-    if (isLateToolAnnouncement(text)) {
-      pushItem({ kind: 'notice', id, text: summarizeLateToolAnnouncement(text), tone: 'info' });
-      return;
-    }
+    // keep it in model context, but render NOTHING user-facing — not even the
+    // collapsed one-line notice (user request: hide late-tool notices entirely).
+    if (isLateToolAnnouncement(text)) return;
     if (upsertSyntheticToolItem(text, id)) return;
+    // Genuine, directly-typed/pasted user submissions only (never injected or
+    // synthetic paths, which returned above): persist to the cwd-scoped store so
+    // up-arrow history survives across sessions. Runs before pushItem so the
+    // merge in pushItem's user branch (loadPromptHistory) already sees it.
+    if (origin === 'user') appendPromptHistory(state.cwd, text);
     pushItem({ kind: 'user', id, text });
   };
   const pushToast = (text, tone = 'info', ttlMs = 3000) => {
@@ -513,6 +531,7 @@ export async function createEngineSession({
     getPending: () => pending,
     agentStatusState,
     displayedExecutionNotificationKeys,
+    pushNotice,
   });
   lifecycle.unsubscribeRuntimeNotifications = subscribeRuntimeNotifications();
 

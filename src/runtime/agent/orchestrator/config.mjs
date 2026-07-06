@@ -1,5 +1,5 @@
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
-import { readSection, updateSection, getAgentApiKey, AGENT_PROVIDER_ENV } from '../../shared/config.mjs';
+import { readSection, updateSection, updateSectionAsync, getAgentApiKey, AGENT_PROVIDER_ENV } from '../../shared/config.mjs';
 import { OPENAI_COMPAT_PRESETS } from './providers/openai-compat-presets.mjs';
 import {
     hasAnthropicOAuthCredentials,
@@ -239,6 +239,14 @@ function migrateMaintenanceRoutes(rawMaint, presets) {
 // our read and write is rebased onto, not silently clobbered (lost-update).
 function persistAgentConfig(build) {
     updateSection('agent', (current) => build(hasKeys(current) ? current : {}));
+}
+
+// Async twin of persistAgentConfig: same in-lock rebase-on-current semantics,
+// but the whole-section RMW runs through updateSectionAsync so a debounced
+// timer flush never blocks the event loop on icacls/backup. Reuses the same
+// config lock file, so it stays linearizable with the sync writers.
+async function persistAgentConfigAsync(build) {
+    await updateSectionAsync('agent', (current) => build(hasKeys(current) ? current : {}));
 }
 
 // Recap toggle (recap.enabled, default true) gates ONLY the background memory
@@ -506,23 +514,34 @@ export function loadConfig(options = {}) {
  * concurrent instance's edits are not reverted.
  */
 /** In-lock patch of `skills.disabled` only (avoids whole-config lost-update). */
-export function patchSkillsDisabled(disabledNames) {
+function buildSkillsDisabledPatch(disabledNames) {
     const names = disabledNames instanceof Set
         ? [...disabledNames]
         : (Array.isArray(disabledNames) ? disabledNames : []);
     const nextSkills = normalizeSkillsConfig({ disabled: names });
-    persistAgentConfig((current) => {
+    const build = (current) => {
         const cur = { ...current };
         const target = (cur.agent && cur.agent.providers)
             ? (cur.agent = { ...cur.agent })
             : cur;
         target.skills = nextSkills;
         return cur;
-    });
+    };
+    return { build, nextSkills };
+}
+export function patchSkillsDisabled(disabledNames) {
+    const { build, nextSkills } = buildSkillsDisabledPatch(disabledNames);
+    persistAgentConfig(build);
+    return nextSkills;
+}
+// Async twin used by the debounced skills flush timer.
+export async function patchSkillsDisabledAsync(disabledNames) {
+    const { build, nextSkills } = buildSkillsDisabledPatch(disabledNames);
+    await persistAgentConfigAsync(build);
     return nextSkills;
 }
 
-export function saveConfig(config) {
+function buildAgentSaveBuilder(config) {
     // Strip ephemeral defaults from providers but preserve any unknown
     // per-provider subkey so future schema additions round-trip through the
     // setup UI without changes here. apiKey is intentionally omitted —
@@ -556,7 +575,7 @@ export function saveConfig(config) {
     // Build the replacement from `existingRaw` — the section read INSIDE the
     // file lock — not a snapshot taken before it, so unmanaged keys written by
     // a concurrent instance survive the save (lost-update guard).
-    persistAgentConfig((existingRaw) => ({
+    return (existingRaw) => ({
         ...existingRaw,
         guide: config.guide || existingRaw.guide || undefined,
         providers: persistedProviders,
@@ -582,7 +601,14 @@ export function saveConfig(config) {
         update: config.update || {},
         recap: config.recap || {},
         modules: config.modules || existingRaw.modules || {},
-    }));
+    });
+}
+export function saveConfig(config) {
+    persistAgentConfig(buildAgentSaveBuilder(config));
+}
+// Async twin used by the debounced config-save flush timer.
+export async function saveConfigAsync(config) {
+    await persistAgentConfigAsync(buildAgentSaveBuilder(config));
 }
 // --- Preset helpers ---
 // preset shape: { id, name, type: 'agent', provider, model, effort?, fast?, tools? }

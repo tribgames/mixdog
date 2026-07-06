@@ -6,6 +6,8 @@ import { toolErrorDisplay } from './tool-result-text.mjs';
 import { isQueuedEntryEditable, promptDisplayText } from './queue-helpers.mjs';
 import { createEngineApiB } from './session-api-ext.mjs';
 import { buildDoctorReport } from '../app/doctor.mjs';
+import { recomputePromptHistory } from './prompt-history.mjs';
+import { buildMergedPromptHistory, loadPromptHistory } from '../prompt-history-store.mjs';
 
 export function createEngineApi(bag) {
   return { ...createEngineApiA(bag), ...createEngineApiB(bag) };
@@ -225,7 +227,10 @@ export function createEngineApiA(bag) {
     },
     setCwd: (path, options = {}) => {
       const next = runtime.setCwd(path);
-      set({ cwd: next });
+      // Republish up-arrow history for the NEW project: current session prompts
+      // merged with the cwd-scoped persisted store for the new cwd.
+      const sessionList = recomputePromptHistory(getState().items);
+      set({ cwd: next, promptHistoryList: buildMergedPromptHistory(sessionList, loadPromptHistory(next)) });
       if (options?.notice !== false) {
         pushNotice(options?.message || `Project set: ${projectNameFromPath(next)}`, 'info');
       }

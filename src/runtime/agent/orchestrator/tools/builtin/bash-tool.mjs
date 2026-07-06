@@ -21,6 +21,7 @@ import {
 import {
     analyzeShellCommandEffects,
     foregroundLongCommandHint,
+    isAutobackgroundingAllowed,
 } from './shell-analysis.mjs';
 import {
     cancelBackgroundTask,
@@ -208,41 +209,56 @@ export async function executeBashTool(args, workDir, options = {}) {
     }
     // Keep foreground commands on a long tool-owned timeout. The MCP dispatch
     // layer must not add a shorter fallback ceiling when timeout is omitted.
-    // Claude Code parity (refs/claude-code src/utils/timeouts.ts): default
-    // 120 s (2 min), max 600 s (10 min); BASH_DEFAULT_TIMEOUT_MS /
-    // BASH_MAX_TIMEOUT_MS env overrides, max floored at default.
+    // Reference-CLI parity (opencode/codex/claude-code): sync-first, no hard
+    // upper ceiling on a caller-provided timeout. Default 120 s (2 min) when
+    // omitted; BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS env overrides keep
+    // their semantics (max floored at default) but only bound the *omitted*
+    // default — an explicit args.timeout is honored UNCAPPED.
     const _envDefaultTimeout = parseInt(process.env.BASH_DEFAULT_TIMEOUT_MS ?? '', 10);
     const DEFAULT_BASH_TIMEOUT_MS = _envDefaultTimeout > 0 ? _envDefaultTimeout : 120_000;
-    const DEFAULT_BACKGROUND_BASH_TIMEOUT_MS = DEFAULT_BASH_TIMEOUT_MS;
+    // Background (async / run_in_background) jobs get NO omitted default: 0
+    // means "unlimited" and flows unchanged through startBackgroundShellJob →
+    // task meta (detail.timeoutMs 0). An explicit args.timeout is still honored
+    // and enforced exactly as before. Sync path keeps the 120s omitted default.
+    const DEFAULT_BACKGROUND_BASH_TIMEOUT_MS = 0;
     const _envMaxTimeout = parseInt(process.env.BASH_MAX_TIMEOUT_MS ?? '', 10);
     const MAX_BASH_TIMEOUT_MS = Math.max(_envMaxTimeout > 0 ? _envMaxTimeout : 600_000, DEFAULT_BASH_TIMEOUT_MS);
     const defaultTimeoutMs = runInBackground
         ? DEFAULT_BACKGROUND_BASH_TIMEOUT_MS
         : DEFAULT_BASH_TIMEOUT_MS;
-    const rawTimeout = (typeof args.timeout === 'number' && args.timeout > 0)
-        ? args.timeout : defaultTimeoutMs;
-    const timeoutMs = rawTimeout;
-    const timeout = Math.min(timeoutMs, wmicRewrite?.timeoutMs || MAX_BASH_TIMEOUT_MS);
+    const hasExplicitTimeout = typeof args.timeout === 'number' && args.timeout > 0;
+    const timeoutMs = hasExplicitTimeout ? args.timeout : defaultTimeoutMs;
+    // Explicit caller timeout is uncapped (only the wmic-rewrite ceiling, when
+    // present, still bounds it); the omitted default keeps the MAX ceiling.
+    // JS timers (setTimeout) and PS WaitForExit(ms) are 32-bit: a delay above
+    // 2^31-1 wraps to a tiny/negative value and fires immediately. Clamp the
+    // uncapped explicit timeout once here (~24.8 days ceiling) so every
+    // downstream timer — foreground, background job, hard-stop watcher — stays
+    // valid without per-site guards.
+    const TIMER_MAX_MS = 2_147_483_647;
+    // timeoutMs <= 0 (omitted background default) means unlimited: pass it
+    // through untouched — the min() clamps below must not turn 0 into a bound.
+    const timeout = timeoutMs <= 0
+        ? 0
+        : (hasExplicitTimeout
+            ? Math.min(timeoutMs, wmicRewrite?.timeoutMs || TIMER_MAX_MS)
+            : Math.min(timeoutMs, wmicRewrite?.timeoutMs || MAX_BASH_TIMEOUT_MS));
     const mergeStderr = args.merge_stderr === true;
     const longForegroundHint = foregroundLongCommandHint(command, timeout, { ...args, run_in_background: runInBackground });
     if (longForegroundHint) return longForegroundHint;
-    // Auto-background threshold (CC ASSISTANT_BLOCKING_BUDGET_MS analogue):
-    // a foreground one-shot that is still running after this many ms is
-    // detached into a tracked shell-job instead of blocking the tool call
-    // indefinitely. Only the foreground one-shot path uses it — never
-    // run_in_background (already detached) or persistent sessions (handled
-    // far above). Capped below the hard timeout so the 600 s upper bound
-    // stays a separate, later ceiling.
-    // Soft config: reuse the sync task-wait budget (30 s, see waitForShellJob
-    // default in executeTaskTool) as the default promotion threshold. Override
-    // with MIXDOG_SHELL_AUTO_BACKGROUND_MS (positive ms). This is a soft hint,
-    // not a hard cap — the value is clamped below `timeout` so the hard ceiling
-    // stays a separate, later bound.
+    // Auto-background threshold. Reference-CLI parity: sync commands run to
+    // their timeout without any default auto-promotion, so the default is 0
+    // (disabled) for ALL callers. It is an explicit opt-in only: set
+    // MIXDOG_SHELL_AUTO_BACKGROUND_MS (positive ms) to re-enable detaching a
+    // still-running foreground one-shot into a tracked shell-job. When enabled,
+    // the value stays a soft hint clamped below `timeout` so the hard ceiling
+    // remains a separate, later bound. Never applies to run_in_background
+    // (already detached) or persistent sessions (handled far above).
     const _autoBgEnvMs = Number(process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS);
     const DEFAULT_AUTO_BACKGROUND_MS = Number.isFinite(_autoBgEnvMs) && _autoBgEnvMs > 0
       ? Math.floor(_autoBgEnvMs)
-      : 30_000;
-    const autoBackgroundMs = runInBackground
+      : 0;
+    const autoBackgroundMs = (runInBackground || DEFAULT_AUTO_BACKGROUND_MS <= 0)
       ? 0
       : Math.min(DEFAULT_AUTO_BACKGROUND_MS, timeout);
 
@@ -348,6 +364,19 @@ export async function executeBashTool(args, workDir, options = {}) {
                     : wrapBashWithCwdProbe(wrappedCommand, _stateFile);
             }
         } catch { syncCommand = wrappedCommand; }
+        // Promote-at-timeout (CC shouldAutoBackground parity). When a
+        // foreground one-shot hits its timeout and is still running, adopt it
+        // as a background job (task_id + notify) instead of tree-killing it.
+        // Opt-outs restore the old kill behavior: (a) disallowed sleep-like
+        // base commands (isAutobackgroundingAllowed), (b) the truthy
+        // MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS env. Never applies to
+        // run_in_background (already detached, handled above).
+        const _bgTasksDisabled = /^(1|true|yes|on)$/i.test(
+            String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
+        );
+        const backgroundOnTimeout = !runInBackground
+            && !_bgTasksDisabled
+            && isAutobackgroundingAllowed(command, shellType);
         const result = await execShellCommand({
             shell, shellArg, shellArgs, command: syncCommand,
             env: spawnEnv,
@@ -355,6 +384,9 @@ export async function executeBashTool(args, workDir, options = {}) {
             timeoutMs: timeout,
             abortSignal: combinedBashAbort,
             autoBackgroundMs,
+            // On a foreground timeout, promote the still-running child to a
+            // tracked background job (unlimited) instead of killing it.
+            backgroundOnTimeout,
             // Threaded so an auto-backgrounded foreground job is stamped with
             // the dispatching terminal's claude.exe pid (per-terminal scope).
             clientHostPid: options?.clientHostPid,
@@ -388,7 +420,10 @@ export async function executeBashTool(args, workDir, options = {}) {
                             stdout: result.stdoutPath ? normalizeOutputPath(result.stdoutPath) : null,
                             stderr: (!mergeStderr && result.stderrPath) ? normalizeOutputPath(result.stderrPath) : null,
                             cwd: bashWorkDir,
-                            timeoutMs: timeout,
+                            // Adopted foreground jobs run unlimited (timeoutMs 0)
+                            // — matches the async default; the original
+                            // foreground timeout no longer bounds the promoted job.
+                            timeoutMs: 0,
                         },
                         resultType: 'shell_task_result',
                         cancel: () => killShellJob(result.jobId),
@@ -430,8 +465,11 @@ export async function executeBashTool(args, workDir, options = {}) {
         // Timeout marker carries an inline recovery hint so the caller can
         // act in one round (increase ceiling or detach) instead of repeating
         // the same command and hitting the same wall.
+        const timeoutHint = result.timedOut
+            ? ` — command killed after ${timeout} ms; if it legitimately needs longer, retry with a larger timeout`
+            : '';
         const statusMarker = result.timedOut
-            ? `[timeout: ${timeout}ms signal: ${signal || 'SIGTERM'}]`
+            ? `[timeout: ${timeout}ms signal: ${signal || 'SIGTERM'}]${timeoutHint}`
             : (signal
                 ? `[signal: ${signal}]`
                 : (isReallyErrored ? `[exit code: ${exitCode}]` : ''));

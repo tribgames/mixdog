@@ -13,7 +13,10 @@ import {
 } from 'fs';
 import { dirname, basename, join } from 'path';
 import { randomBytes } from 'crypto';
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
+import { promisify } from 'util';
+
+const _execFileAsync = promisify(execFile);
 
 const RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST']);
 const LOCK_WAIT_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
@@ -419,7 +422,10 @@ export async function withFileLock(lockPath, fn, opts = {}) {
     }
     try { writeFileSync(fd, `${process.pid} ${Date.now()} ${_OWNER_TOKEN}\n`, 'utf8'); } catch {}
     try {
-      if (opts.secret === true) _enforceOwnerOnlyAclWin32(lockPath);
+      // Async ACL enforcement (promisified execFile) so a secret-bearing
+      // async holder never blocks the event loop on icacls; identical
+      // fail-closed semantics to the sync variant.
+      if (opts.secret === true) await _enforceOwnerOnlyAclWin32Async(lockPath);
       return await fn();
     } finally {
       try { closeSync(fd); } catch {}
@@ -515,6 +521,59 @@ function _enforceOwnerOnlyAclWin32(targetPath) {
       stdio: ['ignore', 'ignore', 'pipe'],
       windowsHide: true,
     });
+  } catch (err) {
+    const e = new Error(`icacls failed to apply owner-only ACL to ${targetPath}: ${err?.message || err}`);
+    e.code = 'EACLFAIL';
+    e.cause = err;
+    throw e;
+  }
+}
+
+// ── Async owner-only ACL enforcement (non-blocking, fail-closed) ─────
+// Byte-for-byte the same policy as `_enforceOwnerOnlyAclWin32`, but the two
+// icacls invocations (and the one-time whoami SID resolution) run through
+// promisified execFile so the event loop is never blocked on a subprocess.
+// Shares the `_cachedUserSid` cache with the sync variant, and throws the
+// same EACL* codes so callers keep their fail-closed guarantees.
+async function _resolveCurrentUserPrincipalAsync() {
+  const systemRoot = process.env.SystemRoot || process.env.windir;
+  if (systemRoot) {
+    const whoami = join(systemRoot, 'System32', 'whoami.exe');
+    if (existsSync(whoami)) {
+      try {
+        const { stdout } = await _execFileAsync(whoami, ['/user', '/fo', 'csv', '/nh'], {
+          encoding: 'utf8',
+          windowsHide: true,
+        });
+        const m = String(stdout).match(/S-1-5-[0-9-]+/);
+        if (m) return m[0];
+      } catch {}
+    }
+  }
+  const err = new Error('cannot resolve current Windows user for owner-only ACL enforcement');
+  err.code = 'EACLNOUSER';
+  throw err;
+}
+
+async function _enforceOwnerOnlyAclWin32Async(targetPath) {
+  if (process.platform !== 'win32') return;
+  const systemRoot = process.env.SystemRoot || process.env.windir;
+  if (!systemRoot) {
+    const err = new Error('SystemRoot not set; cannot locate icacls.exe for owner-only ACL enforcement');
+    err.code = 'EACLNOROOT';
+    throw err;
+  }
+  const icacls = join(systemRoot, 'System32', 'icacls.exe');
+  if (!existsSync(icacls)) {
+    const err = new Error(`icacls.exe not found at ${icacls}; refusing to leave secret world-readable`);
+    err.code = 'EACLNOICACLS';
+    throw err;
+  }
+  if (_cachedUserSid === null) _cachedUserSid = await _resolveCurrentUserPrincipalAsync();
+  const principal = _icaclsPrincipal(_cachedUserSid);
+  try {
+    await _execFileAsync(icacls, [targetPath, '/reset'], { windowsHide: true });
+    await _execFileAsync(icacls, [targetPath, '/inheritance:r', '/grant:r', `${principal}:(F)`], { windowsHide: true });
   } catch (err) {
     const e = new Error(`icacls failed to apply owner-only ACL to ${targetPath}: ${err?.message || err}`);
     e.code = 'EACLFAIL';
@@ -646,6 +705,75 @@ export function updateJsonAtomicSync(filePath, mutator, opts = {}) {
     writeJsonAtomicSync(filePath, next, { ...writeOpts, lock: false });
     return next;
   }, opts);
+}
+
+// ── Async atomic file write (non-blocking secret ACL) ───────────────
+// Mirror of writeFileAtomicSync, but the owner-only ACL enforcement on the
+// temp and final path runs through the async icacls variant so a debounced
+// timer flush never blocks the event loop on a subprocess. The tiny
+// writeFileSync/renameSync of a small JSON payload stay synchronous (they are
+// not the hitch); only the icacls calls — the actual blockers — are awaited.
+// The truncate renameFallback branch is intentionally omitted: it only ever
+// applied to non-secret writes (opts.secret !== true), and every async caller
+// here is a secret config write, so behavior is identical.
+export async function writeFileAtomicAsync(filePath, data, opts = {}) {
+  const run = async () => {
+    const dir = dirname(filePath);
+    mkdirSync(dir, { recursive: true });
+    const tmp = join(dir, `.${basename(filePath)}.${randomBytes(12).toString('hex')}.tmp`);
+    try {
+      const writeOpts = { encoding: opts.encoding || 'utf8', flag: 'wx', mode: opts.mode !== undefined ? opts.mode : 0o600 };
+      writeFileSync(tmp, data, writeOpts);
+      if (opts.secret === true) await _enforceOwnerOnlyAclWin32Async(tmp);
+      if (opts.fsync !== false) {
+        let fd = null;
+        try {
+          fd = openSync(tmp, 'r');
+          fsyncSync(fd);
+        } catch (err) {
+          if (!['EPERM', 'ENOTSUP', 'EINVAL'].includes(err?.code)) throw err;
+        } finally {
+          try { if (fd !== null) closeSync(fd); } catch {}
+        }
+      }
+      if (opts.createOnly === true) {
+        try {
+          linkSync(tmp, filePath);
+        } catch (err) {
+          try { unlinkSync(tmp); } catch {}
+          if (err?.code === 'EEXIST') return false;
+          throw err;
+        }
+        try { unlinkSync(tmp); } catch {}
+      } else {
+        renameWithRetrySync(tmp, filePath, opts);
+      }
+      if (opts.secret === true) await _enforceOwnerOnlyAclWin32Async(filePath);
+      if (opts.fsyncDir === true) {
+        let dfd = null;
+        try {
+          dfd = openSync(dir, 'r');
+          fsyncSync(dfd);
+        } catch (err) {
+          if (!['EPERM', 'ENOTSUP', 'EINVAL', 'EACCES'].includes(err?.code)) throw err;
+        } finally {
+          try { if (dfd !== null) closeSync(dfd); } catch {}
+        }
+      }
+      return true;
+    } catch (err) {
+      try { if (existsSync(tmp)) unlinkSync(tmp); } catch {}
+      throw err;
+    }
+  };
+  if (opts.lock === true) {
+    return withFileLock(`${filePath}.lock`, run, opts);
+  }
+  return run();
+}
+
+export function writeJsonAtomicAsync(filePath, value, opts = {}) {
+  return writeFileAtomicAsync(filePath, JSON.stringify(value, null, opts.compact ? 0 : 2) + '\n', opts);
 }
 
 // Async read-modify-write. Same lock path (`${filePath}.lock`) and protocol

@@ -21,7 +21,7 @@ export const TOOL_DEFS = [
         status: { type: 'string', enum: ['pending','active','archived'], description: 'Lifecycle status.' },
         limit: { type: 'number', description: 'Max rows/items.' },
         confirm: { type: 'string', description: 'Exact confirmation phrase for destructive actions.' },
-        project_id: { type: 'string', description: 'Core pool: common, slug, or *.' },
+        project_id: { type: 'string', description: 'Core pool: common, slug, or *. Required for core add/edit; there is no default pool.' },
       },
       required: ['action'],
     },

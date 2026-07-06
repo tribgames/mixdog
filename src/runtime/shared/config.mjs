@@ -6,9 +6,10 @@ import { readFileSync, mkdirSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { createRequire } from 'module'
 import { resolvePluginData } from './plugin-paths.mjs'
-import { renameWithRetrySync, writeJsonAtomicSync, withFileLockSync } from './atomic-file.mjs'
+import { renameWithRetrySync, writeJsonAtomicSync, writeJsonAtomicAsync, withFileLockSync, withFileLock } from './atomic-file.mjs'
 import {
   backupUserData,
+  backupUserDataAsync,
   markUserDataInitialized,
   loadLatestMixdogConfigFromBackup,
   hasUserDataInitMarker,
@@ -207,6 +208,57 @@ export function updateSection(section, updater) {
     const current = stripGeneratedMarker(all[section] || {})
     all[section] = stripGeneratedMarker(typeof updater === 'function' ? updater(current) : updater)
     writeAll(all)
+  })
+}
+
+// ── Async write path (non-blocking) ─────────────────────────────────
+// Parity with the sync RMW above, but every heavy blocker (cross-process
+// lock wait, owner-only icacls ACL, user-data backup copy tree) is awaited
+// off the event loop. Reuses the SAME lock file (`${CONFIG_PATH}.lock`) and
+// secret:true ACL protocol, so an async writer and a sync writer are mutually
+// exclusive against one another AND against other processes — cross-process
+// RMW linearizability is preserved. The in-lock read (readAllForRmW) stays
+// synchronous: it is a small local read, not the hitch source.
+async function writeJsonFileAsync(path, data) {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+  if (path === CONFIG_PATH) {
+    try { await backupUserDataAsync(DATA_DIR, 'pre-config-write') } catch {}
+  }
+  await writeJsonAtomicAsync(path, data, { lock: false, fsyncDir: true, mode: 0o600, secret: true })
+  if (path === CONFIG_PATH) {
+    try { markUserDataInitialized(DATA_DIR) } catch {}
+    try { await backupUserDataAsync(DATA_DIR, 'post-config-write') } catch {}
+  }
+}
+
+async function writeAllAsync(data) {
+  await writeJsonFileAsync(CONFIG_PATH, data)
+}
+
+// secret:true clamps the shared-home lock file owner-only on win32 via the
+// ASYNC icacls variant inside withFileLock (fail-closed, non-blocking).
+function withConfigLockAsync(fn) {
+  return withFileLock(`${CONFIG_PATH}.lock`, fn, { secret: true })
+}
+
+export async function updateConfigAsync(updater) {
+  let saved = null
+  await withConfigLockAsync(async () => {
+    const current = stripGeneratedMarker(readAllForRmW()) || {}
+    const next = typeof updater === 'function' ? updater({ ...current }) : updater
+    if (!isPlainObject(next)) throw new Error('[config] updateConfigAsync updater must return an object')
+    saved = stripGeneratedMarker(next) || {}
+    await writeAllAsync(saved)
+  })
+  return saved
+}
+
+export async function updateSectionAsync(section, updater) {
+  await withConfigLockAsync(async () => {
+    const all = readAllForRmW()
+    const current = stripGeneratedMarker(all[section] || {})
+    all[section] = stripGeneratedMarker(typeof updater === 'function' ? updater(current) : updater)
+    await writeAllAsync(all)
   })
 }
 

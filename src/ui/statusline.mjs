@@ -23,7 +23,7 @@ import {
 } from './statusline-format.mjs';
 import { shellJobsStatus, memoryCycleStatus } from './statusline-segments.mjs';
 import {
-  summarizeWorkerTags, agentStatuslinePayload, classifyAgentWorkers, activeHiddenAgentWorkers,
+  summarizeWorkerTags, agentStatuslinePayload, classifyAgentWorkers, activeHiddenAgentWorkers, agentWebSearchStatus,
 } from './statusline-agents.mjs';
 export { createSessionStats, applyUsageDelta } from './session-stats.mjs';
 // Facade re-exports: keep these public symbols resolving from statusline.mjs.
@@ -362,7 +362,9 @@ function renderNativeStatusline({
   const sp = l2SpinnerFrame(spinnerNow);
   const spin = `${GRN}${sp}${R}`;
   const elapsedSuffix = (label) => (label ? ` ${D}·${R} ${label}` : '');
-  // Segment order: Running Agents → Exploring → Searching → Running Shells.
+  // Segment order: Running Agents → Exploring → Web Searching → Running Shells.
+  // (activeTools.search counts WEB searches — category 'Web Research' — not
+  // local file search, which is intentionally not surfaced.)
   if (runningWorkers.length) {
     const n = runningWorkers.length;
     const label = `Running ${n} Agent${n === 1 ? '' : 's'}`;
@@ -382,9 +384,17 @@ function renderNativeStatusline({
     const elapsed = num(exploreInfo.startedAt) > 0 ? formatElapsed(Date.now() - num(exploreInfo.startedAt)) : '';
     addL2(`${spin} ${B}Exploring${R}${elapsedSuffix(elapsed)}`);
   }
-  if (searchInfo && num(searchInfo.count) > 0) {
-    const elapsed = num(searchInfo.startedAt) > 0 ? formatElapsed(Date.now() - num(searchInfo.startedAt)) : '';
-    addL2(`${spin} ${B}Searching${R}${elapsedSuffix(elapsed)}`);
+  // Web Searching = lead's own web searches (activeTools.search) PLUS any
+  // spawned agent sub-session whose current tool call is a web search
+  // (agentWebSearchStatus reads the live session-runtime map). Earliest start
+  // wins for the elapsed label.
+  const agentSearch = agentWebSearchStatus({ sessionId, clientHostPid });
+  const webSearchCount = (searchInfo ? num(searchInfo.count) : 0) + num(agentSearch.count);
+  if (webSearchCount > 0) {
+    const starts = [searchInfo ? num(searchInfo.startedAt) : 0, num(agentSearch.startedAt)].filter((v) => v > 0);
+    const searchStart = starts.length ? Math.min(...starts) : 0;
+    const elapsed = searchStart > 0 ? formatElapsed(Date.now() - searchStart) : '';
+    addL2(`${spin} ${B}Web Searching${R}${elapsedSuffix(elapsed)}`);
   }
   if (shellStatus.count > 0) {
     const n = shellStatus.count;

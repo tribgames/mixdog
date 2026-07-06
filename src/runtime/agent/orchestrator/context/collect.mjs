@@ -407,9 +407,38 @@ export function stripDeferredToolManifestBlock(text) {
         .trimEnd();
 }
 
-/** Inject the skill-style deferred pool (name + description) into BP1 once at session start; never rewrite BP1 after. */
-export function applyInitialDeferredToolManifestToBp1(session, poolNames) {
-    if (!session || !Array.isArray(session.messages) || session.deferredToolBp1Applied) return false;
+// Rebuild path: replace the FIRST previously-injected <available-deferred-tools>
+// block (with its leading `---` separator) with the fresh manifest IN PLACE, so
+// the block keeps its original position and no sibling BP1 block (skills
+// manifest, agent rules, …) is reordered or dropped. The fresh manifest already
+// carries the mcp-instructions companion, so any pre-existing standalone one is
+// removed first to avoid duplication.
+export function rebuildDeferredToolManifestBlock(text, manifest) {
+    let out = String(text || '').replace(MCP_INSTRUCTIONS_BLOCK_RE, '');
+    let replaced = false;
+    out = out.replace(DEFERRED_TOOLS_BLOCK_RE, (match, sep) => {
+        if (replaced) return '';
+        replaced = true;
+        return `${sep || ''}${manifest}`;
+    });
+    if (!replaced) {
+        const base = out.trimEnd();
+        out = base ? `${base}\n\n---\n\n${manifest}` : manifest;
+    }
+    return out;
+}
+
+/**
+ * Inject the skill-style deferred pool (name + description) into BP1 at session
+ * start. Normally once; with `{ rebuild: true }` it strips any existing
+ * <available-deferred-tools>/<mcp-instructions> block and re-injects the fresh
+ * pool in place (used by the first-turn MCP refresh, before the prompt renders,
+ * so late-connected MCP tools land in the INITIAL manifest — never duplicated).
+ */
+export function applyInitialDeferredToolManifestToBp1(session, poolNames, options = {}) {
+    const rebuild = options?.rebuild === true;
+    if (!session || !Array.isArray(session.messages)) return false;
+    if (session.deferredToolBp1Applied && !rebuild) return false;
     const pool = Array.isArray(poolNames) ? poolNames : [];
     const descByName = new Map();
     for (const tool of Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []) {
@@ -432,15 +461,21 @@ export function applyInitialDeferredToolManifestToBp1(session, poolNames) {
     }
     if (idx === -1) return false;
     const raw = typeof session.messages[idx].content === 'string' ? session.messages[idx].content : '';
-    if (bp1HasDeferredToolManifestBlock(raw)) {
+    if (bp1HasDeferredToolManifestBlock(raw) && !rebuild) {
         session.deferredToolBp1Applied = true;
         return true;
     }
     if (manifest) {
-        const base = stripDeferredToolManifestBlock(raw);
-        session.messages[idx].content = base
-            ? `${base}\n\n---\n\n${manifest}`
-            : manifest;
+        if (rebuild && bp1HasDeferredToolManifestBlock(raw)) {
+            // Anchored in-place rebuild: swap the previously injected manifest
+            // block for the fresh one at its EXISTING position.
+            session.messages[idx].content = rebuildDeferredToolManifestBlock(raw, manifest);
+        } else {
+            const base = stripDeferredToolManifestBlock(raw);
+            session.messages[idx].content = base
+                ? `${base}\n\n---\n\n${manifest}`
+                : manifest;
+        }
     }
     session.deferredToolBp1Applied = true;
     session.updatedAt = Date.now();

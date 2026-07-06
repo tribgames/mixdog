@@ -51,7 +51,7 @@ export function executionModeSchemaDescription(defaultMode = 'sync') {
   if (defaultMode === 'async') {
     return 'sync = inline result; async = task_id + completion notification. Default async.';
   }
-  return 'Runs sync; long-running auto-promotes to a background task_id + completion notification. async forces background.';
+  return 'Runs sync (inline result); no default auto-background. async forces a background task_id + completion notification.';
 }
 
 export function taskIdFromArgs(args = {}) {

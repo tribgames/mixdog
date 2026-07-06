@@ -83,7 +83,7 @@ function statusCopy(name, label, count, doneCount, pending, isError, args = {}) 
   // dropping the pad just normalizes the spacing.
   return formatToolActionHeader(name, args, { pending, count });
 }
-export function ToolExecution({ name, args, result, rawResult, isError, errorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, headerFinalized = true, deferredDisplayReady = false }) {
+export function ToolExecution({ name, args, result, rawResult, isError, errorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, doneCategories = null, headerFinalized = true, deferredDisplayReady = false }) {
   const rowWidth = Math.max(1, Number(columns || 80));
   const [blinkOn, setBlinkOn] = useState(true);
   const [blinkExpired, setBlinkExpired] = useState(false);
@@ -120,6 +120,18 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const failedCount = clampFailureCount(errorCount, groupCount, isError);
   const displayGroupCount = groupCount;
   const displayCategories = normalizeCountMap(categories || {});
+  // In the DONE state, count only successful calls: error-terminated calls are
+  // excluded from the category totals via the engine-supplied doneCategories
+  // map (failures still surface in the 'N Ok · N Failed' detail). The pending/
+  // in-flight header keeps using the raw call-time counts unchanged.
+  const normalizedDoneCategories = doneCategories ? normalizeCountMap(doneCategories) : displayCategories;
+  // All-failed aggregate collapses doneCategories to zero counts, which would
+  // render a blank header. Fall back to the raw call-time counts so the done
+  // header is never empty; the 'N Failed' detail still marks the failure.
+  const hasDoneCounts = Object.values(normalizedDoneCategories || {}).some(
+    (v) => (v && typeof v === 'object' ? Number(v.count || 0) : Number(v || 0)) > 0,
+  );
+  const displayDoneCategories = hasDoneCounts ? normalizedDoneCategories : displayCategories;
 
   useEffect(() => {
     if (!pending) {
@@ -206,7 +218,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     // No stableVerbWidth: see statusCopy — the padding only left a mid-header
     // gap ("Searched  1 pattern, Read    1 file") since Ink trims trailing
     // spaces and never stabilized the flip.
-    const headerText = safeInlineText(formatAggregateHeader(displayCategories || {}, { pending: headerPending, order: headerOrder }));
+    const headerText = safeInlineText(formatAggregateHeader((headerPending ? displayCategories : displayDoneCategories) || {}, { pending: headerPending, order: headerOrder }));
     let detailText;
     if (hasResult) {
       // The aggregate card reserves EXACTLY ONE detail row when it is not

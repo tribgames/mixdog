@@ -700,7 +700,10 @@ export function createQueryHandlers({
     // caller's own session marked "(current)" via the currentSessionId hint.
     // Falls through to the flat list when everything is one session.
     const _currentSessionHint = String(args?.currentSessionId || '').trim()
-    return { text: recallCapPrefix + renderSessionGroupedLines(sliced, { currentSessionId: _currentSessionHint }) }
+    // recencyOrder on the date path: without it, chunk members (stored ts-ASC
+    // per root) interleave out of order with raw rows inside each session
+    // group (e.g. 04:33 rendered above 04:41).
+    return { text: recallCapPrefix + renderSessionGroupedLines(sliced, { currentSessionId: _currentSessionHint, recencyOrder: sort === 'date' }) }
   }
 
   async function dumpSessionRootChunks(args = {}) {

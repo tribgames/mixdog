@@ -8,6 +8,13 @@ import {
   statSync,
   writeFileSync,
 } from 'fs';
+import {
+  copyFile as copyFileP,
+  mkdir as mkdirP,
+  readdir as readdirP,
+  rm as rmP,
+  stat as statP,
+} from 'fs/promises';
 import { dirname, join, resolve } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
@@ -151,6 +158,65 @@ export function backupUserData(dataDir, reason = 'snapshot') {
   if (copied.length > 0) {
     markUserDataInitialized(dataDir);
     pruneBackups();
+    if (process.env.MIXDOG_SETUP_QUIET !== '1') {
+      process.stderr.write(`[user-data-backup] ${reason}: copied ${copied.length} file(s) to ${backupDir}\n`);
+    }
+  }
+  return { dir: copied.length > 0 ? backupDir : null, copied };
+}
+
+// ── Async backup variant (fs.promises) ──────────────────────────────
+// Byte-for-byte the same policy/skip guards/prune behavior as backupUserData,
+// but every filesystem op yields via fs.promises so a debounced config flush
+// on the UI event loop never blocks on the copy tree or the prune sweep.
+async function copyTreeAsync(src, dst, copied) {
+  const st = await statP(src);
+  if (st.isDirectory()) {
+    for (const name of await readdirP(src)) {
+      await copyTreeAsync(join(src, name), join(dst, name), copied);
+    }
+    return;
+  }
+  if (!st.isFile()) return;
+  await mkdirP(dirname(dst), { recursive: true });
+  await copyFileP(src, dst);
+  copied.push(dst);
+}
+
+async function pruneBackupsAsync(keep = 40) {
+  let entries = [];
+  try {
+    entries = (await readdirP(getBackupRoot(), { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+      .reverse();
+  } catch {
+    return;
+  }
+  for (const name of entries.slice(keep)) {
+    try { await rmP(join(getBackupRoot(), name), { recursive: true, force: true }); } catch {}
+  }
+}
+
+export async function backupUserDataAsync(dataDir, reason = 'snapshot') {
+  if (process.env.MIXDOG_SKIP_USER_DATA_BACKUP === '1' || process.env.MIXDOG_SKIP_USER_DATA_BACKUP === 'true') {
+    return { dir: null, copied: [] };
+  }
+  if (!dataDir || !existsSync(dataDir)) return { dir: null, copied: [] };
+  const backupDir = join(getBackupRoot(), `${stamp()}-${safeReason(reason)}`);
+  const copied = [];
+  for (const rel of USER_DATA_FILES) {
+    const src = join(dataDir, rel);
+    if (existsSync(src)) await copyTreeAsync(src, join(backupDir, rel), copied);
+  }
+  for (const rel of USER_DATA_DIRS) {
+    const src = join(dataDir, rel);
+    if (existsSync(src)) await copyTreeAsync(src, join(backupDir, rel), copied);
+  }
+  if (copied.length > 0) {
+    markUserDataInitialized(dataDir);
+    await pruneBackupsAsync();
     if (process.env.MIXDOG_SETUP_QUIET !== '1') {
       process.stderr.write(`[user-data-backup] ${reason}: copied ${copied.length} file(s) to ${backupDir}\n`);
     }

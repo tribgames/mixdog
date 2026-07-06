@@ -446,6 +446,50 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   return session;
 }
 
+// FIRST-TURN deferred-surface refresh (claude-code turn-time deferred manifest).
+// An MCP server may finish its handshake BETWEEN session-create and the first
+// user send. Fold those LIVE MCP tools into the boot deferred catalog + the
+// initial BP1 <available-deferred-tools> manifest (rebuilt IN PLACE — strip +
+// reappend, never duplicated) and pre-mark them announced, so they appear in the
+// INITIAL manifest instead of arriving as a late-tool <system-reminder>. Fully
+// sync (registry read is sync, no await) and idempotent: no genuinely-new MCP
+// name => no-op / no mutation. Skipped in 'full' provider mode (all tools ship
+// active — there is no deferred manifest to refresh).
+export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
+  if (!session || !Array.isArray(session.messages)) return false;
+  if (session.deferredProviderMode === 'full') return false;
+  const isMcp = (name) => typeof name === 'string' && name.startsWith('mcp__');
+  const byName = new Map();
+  for (const tool of Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : []) {
+    const name = clean(tool?.name);
+    if (name && !byName.has(name)) byName.set(name, tool);
+  }
+  let added = false;
+  for (const tool of Array.isArray(liveMcpTools) ? liveMcpTools : []) {
+    const name = clean(tool?.name);
+    if (!name || !isMcp(name) || byName.has(name)) continue;
+    byName.set(name, activeToolForSurface(tool));
+    added = true;
+  }
+  if (!added) return false;
+  session.deferredToolCatalog = sortedCatalogByMeasuredUsage([...byName.values()]);
+  // Refresh MCP server instructions so a newly-connected server's block is
+  // included when BP1 is re-rendered below.
+  session.mcpServerInstructions = getMcpServerInstructionsMap();
+  const applied = applyInitialDeferredToolManifestToBp1(session, deferredPoolToolNames(session), { rebuild: true });
+  if (!applied) return false;
+  // Pre-mark ONLY the names that ACTUALLY landed in the rebuilt BP1 manifest as
+  // announced; anything the manifest could not advertise stays un-announced so
+  // the turn-boundary late reminder can still surface it.
+  const rendered = (() => {
+    const sys = session.messages.find((m) => m?.role === 'system');
+    return typeof sys?.content === 'string' ? sys.content : '';
+  })();
+  session.deferredAnnouncedTools = deferredPoolToolNames(session).filter((name) => rendered.includes(name));
+  session.updatedAt = Date.now();
+  return true;
+}
+
 /**
  * Turn-boundary reconciliation (Codex-style snapshot + CC-style delta).
  * Merge currently-connected MCP tools into session.deferredLateToolCatalog (a

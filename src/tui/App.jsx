@@ -2379,12 +2379,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           const cat = v && typeof v === 'object' ? v.category : null;
           const c = Math.max(1, Number(v && typeof v === 'object' ? v.count : 1) || 1);
           if (cat === 'Explore') exploreHits += c;
-          else if (cat === 'Search') searchHits += c;
+          else if (cat === 'Web Research') searchHits += c;
         }
       } else if (it.name) {
         const cat = classifyToolCategory(it.name, it.args || {});
         if (cat === 'Explore') exploreHits = count;
-        else if (cat === 'Search') searchHits = count;
+        else if (cat === 'Web Research') searchHits = count;
       }
       if (exploreHits > 0) {
         exploreCount += exploreHits;

@@ -5,6 +5,7 @@ import {
   isExplorerSurface,
   isMemorySurface,
   normalizeToolName,
+  stripToolPrefix,
 } from "../../shared/tool-surface.mjs";
 
 // Texts that should never be forwarded to Discord (Claude's internal status lines)
@@ -23,7 +24,11 @@ const HIDDEN_TOOLS = /* @__PURE__ */ new Set([
   "TaskCreate",
   "TaskUpdate",
   "TaskList",
-  "TaskGet"
+  "TaskGet",
+  // Channel-plumbing tools — internal bridge/transcript wiring; never
+  // meaningful to channel readers ("Rebind Current Transcript", etc).
+  "activate_channel_bridge",
+  "rebind_current_transcript"
 ]);
 
 /** Check if a tool name is recall_memory */
@@ -40,7 +45,7 @@ function isMemoryFile(filePath) {
 }
 /** Check if a tool should be hidden */
 function isHidden(name) {
-  if (HIDDEN_TOOLS.has(name)) return true;
+  if (HIDDEN_TOOLS.has(name) || HIDDEN_TOOLS.has(stripToolPrefix(name))) return true;
   if (formatToolSurface(name, {}).label === "Memory") return false;
   if (name === "reply" || name === "fetch") return true;
   return false;

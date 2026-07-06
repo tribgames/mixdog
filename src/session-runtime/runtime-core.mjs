@@ -67,6 +67,7 @@ import {
   saveWebhook,
   saveWebhookAuthtoken,
   setBackend,
+  setBackendAsync,
   setScheduleEnabled,
   setWebhookEnabled,
   setWebhookConfig,
@@ -333,6 +334,11 @@ export async function createMixdogSessionRuntime({
   // session.id + cwd inside ask(); only active while remoteEnabled.
   let _transcriptWriter = null;
   let _twKey = '';
+  // One-shot: an 'acquired' verdict (or other rebind trigger) landed before a
+  // session/writer existed, so the rebind push could not fire. Set true when a
+  // push is deferred; the next session-create / turn-start flushes it exactly
+  // once so the daemon forwarder always ends bound to THIS session's transcript.
+  let _pendingRebind = false;
   // Last assistant text handed to the transcript writer (via onAssistantText),
   // so the post-turn final-content append can skip an exact duplicate.
   let _lastAppendedAssistant = '';
@@ -599,6 +605,7 @@ export async function createMixdogSessionRuntime({
     resolveEffectiveMcpServers,
     mcpStatus,
     connectConfiguredMcp,
+    awaitInitialMcpConnect,
     normalizeMcpServerInput,
   } = createMcpGlue({
     mcpClient,
@@ -683,7 +690,19 @@ export async function createMixdogSessionRuntime({
     void (async () => {
       await checkForUpdateInternal({ force: true });
       if (autoUpdateEnabled() && updateCheckState.updateAvailable) {
-        await runUpdateNowInternal();
+        const result = await runUpdateNowInternal();
+        // Surface the boot auto-update outcome as a UI-only notice (TUI maps
+        // meta.kind 'update-notice' to a transcript notice, never a
+        // model-visible message). Silent before: installed-but-needs-restart
+        // and failed installs were invisible unless the user opened the
+        // maintenance picker.
+        if (result?.phase === 'installed') {
+          const v = result.version && result.version !== 'unknown'
+            ? `v${result.version}` : (updateCheckState.latestVersion ? `v${updateCheckState.latestVersion}` : 'latest');
+          emitRuntimeNotification(`mixdog ${v} installed — restart to apply.`, { kind: 'update-notice', tone: 'info' });
+        } else if (result?.phase === 'failed') {
+          emitRuntimeNotification(`mixdog auto-update failed: ${result.error || 'unknown error'}`, { kind: 'update-notice', tone: 'warn' });
+        }
       }
     })().catch(() => {});
   }, 0);
@@ -1131,6 +1150,7 @@ export async function createMixdogSessionRuntime({
     cfgMod,
     sharedCfgMod,
     setBackend,
+    setBackendAsync,
     setConfiguredShell,
     normalizeSystemShellConfig,
     normalizeSearchRouteConfig,
@@ -1380,7 +1400,28 @@ export async function createMixdogSessionRuntime({
       session = mgr.createSession(sessionOpts);
       sessionNeedsCwdRefresh = false;
       attachSessionHooks(session, { hooks, hookCommonPayload, getCwd: () => currentCwd });
-      applyDeferredToolSurface(session, deferredSurfaceModeForLead(mode), standaloneTools, { provider: route.provider });
+      // Every-create MCP fold (NO blocking): seed the INITIAL deferred surface +
+      // BP1 manifest from whatever MCP servers are ALREADY connected at create
+      // time. There is no await — a boot connect still mid-handshake is caught on
+      // the first user turn by refreshInitialDeferredMcpSurface (session-turn-api),
+      // which re-folds the live registry into the initial manifest before the
+      // prompt renders. This fold keeps recreate paths (cwd change with MCP
+      // already connected) seeding their manifest instead of re-announcing late.
+      let connectedMcpTools = [];
+      try { connectedMcpTools = mcpClient.getMcpTools?.() || []; }
+      catch { connectedMcpTools = []; }
+      applyDeferredToolSurface(
+        session,
+        deferredSurfaceModeForLead(mode),
+        connectedMcpTools.length ? [...standaloneTools, ...connectedMcpTools] : standaloneTools,
+        { provider: route.provider },
+      );
+      // Session-local one-shot: mark this FRESH session eligible for the
+      // first-turn deferred-surface refresh (session-turn-api). A resumed
+      // session (prior transcript) is NEVER marked, so its already-baked BP1 is
+      // never rebuilt or re-announced — the gate is per-session, not the
+      // process-wide firstTurnCompleted.
+      session.deferredInitialRefreshPending = !/resume/i.test(String(reason || ''));
       applyPreSessionToolSelection();
       writeStatuslineRoute(statusRoutes, session, route);
       hooks.emit('session:create', { sessionId: session.id, provider: route.provider, model: route.model, toolMode: mode, cwd: currentCwd });
@@ -1407,6 +1448,9 @@ export async function createMixdogSessionRuntime({
         tools: Array.isArray(session.tools) ? session.tools.length : 0,
         catalog: Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog.length : 0,
       });
+      // A rebind push may have been deferred (e.g. 'acquired' landed before this
+      // session existed). The writer is now bindable — flush it exactly once.
+      flushPendingTranscriptRebind();
       return session;
     })();
 
@@ -1538,15 +1582,53 @@ export async function createMixdogSessionRuntime({
   // failure must never throw into the lead paths that call this.
   function pushTranscriptRebind() {
     if (!remoteEnabled) return;
-    if (!ensureRemoteTranscriptWriter()) return;
+    // Writer not bindable yet (e.g. 'acquired' before the session exists in
+    // lazy mode): defer instead of silently dropping the push. flushPending-
+    // TranscriptRebind() re-fires this exactly once when the writer is ready.
+    if (!ensureRemoteTranscriptWriter()) { _pendingRebind = true; return; }
     const transcriptPath = _transcriptWriter?.transcriptPath;
-    if (!transcriptPath || !channelsEnabled()) return;
+    if (!transcriptPath || !channelsEnabled()) { _pendingRebind = true; return; }
+    _pendingRebind = false;
+    executeTranscriptRebind(transcriptPath, 1);
+  }
+
+  // Fire the idempotent worker op with bounded retry. A rejected/throwing
+  // channels.execute retries a few times with short backoff; the final failure
+  // surfaces one stderr line (not only the env-gated bootProfile) so a lost
+  // rebind is diagnosable by default. Best-effort throughout — never throws
+  // into the lead paths that call pushTranscriptRebind().
+  function executeTranscriptRebind(transcriptPath, attempt) {
+    const maxAttempts = 3;
+    const onError = (error) => {
+      const detail = error?.message || String(error);
+      bootProfile('channels:rebind-push-failed', { attempt, error: detail });
+      if (attempt < maxAttempts && remoteEnabled && !closeRequested) {
+        const timer = setTimeout(() => {
+          // Abort the retry chain silently if remote was dropped or the writer
+          // moved on (supersede→re-acquire, newSession/clear): re-firing the
+          // captured path would rebind forwarding back to a stale transcript.
+          if (!remoteEnabled || !channelsEnabled()) return;
+          if (_transcriptWriter?.transcriptPath !== transcriptPath) return;
+          executeTranscriptRebind(transcriptPath, attempt + 1);
+        }, 150 * attempt);
+        timer.unref?.();
+      } else {
+        process.stderr.write(`mixdog: channels: rebind_current_transcript failed after ${attempt} attempt(s): ${detail}\n`);
+      }
+    };
     try {
-      void channels.execute('rebind_current_transcript', { transcriptPath })
-        .catch((error) => bootProfile('channels:rebind-push-failed', { error: error?.message || String(error) }));
+      void channels.execute('rebind_current_transcript', { transcriptPath }).catch(onError);
     } catch (error) {
-      bootProfile('channels:rebind-push-failed', { error: error?.message || String(error) });
+      onError(error);
     }
+  }
+
+  // Re-fire a deferred rebind exactly once, after a session/writer becomes
+  // available (session create or turn start). No-op unless a push was deferred,
+  // so no unconditional rebind fires per turn for already-bound sessions.
+  function flushPendingTranscriptRebind() {
+    if (!_pendingRebind || !remoteEnabled) return;
+    pushTranscriptRebind();
   }
 
   // Remote (Discord channel) mode is opt-in per session. Only a session that
@@ -2008,6 +2090,7 @@ export async function createMixdogSessionRuntime({
     createCurrentSession,
     ensureRemoteTranscriptWriter,
     pushTranscriptRebind,
+    flushPendingTranscriptRebind,
     channelsEnabled,
     invokeChannelStart,
     channels,
@@ -2027,6 +2110,7 @@ export async function createMixdogSessionRuntime({
     resolveCwdPath,
     agentStatusState,
     notificationListeners,
+    awaitInitialMcpConnect,
   });
 
   return {

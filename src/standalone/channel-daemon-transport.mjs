@@ -45,6 +45,7 @@ export function createChannelDaemonTransport({
   sweepMs = 5_000,
   onClientsEmpty = null,
   getStatus = () => ({}),
+  dispatchBind = null,
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
 
@@ -56,6 +57,16 @@ export function createChannelDaemonTransport({
   // targeting for both inbound-message notifies and proactive injects.
   let pointerToken = null;
   let boundPort = null;
+  // Sticky replay cache for the bridge remote-state notify. The daemon emits
+  // 'notifications/mixdog/remote' {state:'acquired'} at boot (and 'superseded'
+  // on repoint). That is a STATE signal, not an inbound message: every TUI must
+  // observe the current remote-enabled state, and a late/non-pointer TUI that
+  // attaches after the one-shot notify would otherwise never learn it. We stash
+  // the latest such frame and replay it to each client as it attaches. Only the
+  // remote-state notify is cached/replayed — inbound notifies
+  // (notifications/claude/channel) stay pointer-targeted, never broadcast.
+  const REMOTE_STATE_METHOD = 'notifications/mixdog/remote';
+  let stickyRemoteFrame = null;
   // Idempotency cache: callId -> { promise }. A retried /call with the SAME
   // callId awaits/returns the ORIGINAL run's result, so a transport-failure
   // retry never double-runs a non-idempotent tool (e.g. reply). Short TTL.
@@ -91,11 +102,61 @@ export function createChannelDaemonTransport({
   function dropClient(token, reason) {
     const c = clients.get(token);
     if (!c) return;
+    const wasPointer = pointerToken === token;
     clients.delete(token);
     try { c.sse?.end?.(); } catch {}
     if (pointerToken === token) pointerToken = null;
     log(`client ${token} (lead=${c.leadPid}) removed: ${reason}`);
+    // Pointer client death → hand the seat to a survivor (last-wins among the
+    // living), replay its badge, and rebind the output forwarder to it. Skipped
+    // during stop()/close (grace shutdown owns teardown) and when no live client
+    // remains (grace shutdown path).
+    if (wasPointer && !closed) failoverPointer(reason);
     maybeArmGrace('client removed');
+  }
+
+  // Pointer failover on owner death. Move the pointer to the most-recently-seen
+  // LIVE client (reason 'failover'), deliver the sticky 'acquired' badge to it
+  // (pending-buffered if it has no SSE yet), and re-dispatch ITS stored bind
+  // intent so the output forwarder rebinds to the survivor's transcript. A
+  // survivor with no stored bind still gets the pointer + badge (no rebind).
+  function failoverPointer(reason) {
+    let best = null;
+    for (const [, c] of liveClients()) {
+      if (!best || c.lastSeen > best.lastSeen) best = c;
+    }
+    if (!best) return; // no live clients — let grace shutdown run
+    movePointer(best.token, 'failover');
+    // Persist the acquired badge as the sticky frame so a later attachSse (or a
+    // reconnect that follows the pointer) can replay it — matters when the
+    // runtime never emitted 'acquired' since daemon boot (sticky still null).
+    stickyRemoteFrame = JSON.stringify({ type: 'notify', method: REMOTE_STATE_METHOD, params: { state: 'acquired' } });
+    writeRemoteStateTo(best, 'acquired');
+    if (best.lastBind && typeof dispatchBind === 'function') {
+      const { name, args } = best.lastBind;
+      log(`failover rebind -> token=${best.token} lead=${best.leadPid} bind=${name} (${reason})`);
+      try {
+        Promise.resolve()
+          .then(() => dispatchBind(name, args || {}, { clientToken: best.token, leadPid: best.leadPid, cwd: best.cwd }))
+          .catch((err) => log(`failover rebind dispatch failed for lead=${best.leadPid}: ${err?.message || err}`));
+      } catch (err) { log(`failover rebind dispatch failed for lead=${best.leadPid}: ${err?.message || err}`); }
+    }
+  }
+
+  // Re-dispatch a client's stored bind intent so the output forwarder rebinds to
+  // ITS transcript — the same mechanism failoverPointer uses on owner death,
+  // applied when a client GAINS the pointer while already holding a bind (e.g.
+  // migrated by pointer-follows-reconnect). Guarded, logged, non-throwing; does
+  // not touch last-wins ownership or sticky replay.
+  function redispatchPointerBind(client, reason) {
+    if (!client?.lastBind || typeof dispatchBind !== 'function') return;
+    const { name, args } = client.lastBind;
+    log(`pointer rebind -> token=${client.token} lead=${client.leadPid} bind=${name} (${reason})`);
+    try {
+      Promise.resolve()
+        .then(() => dispatchBind(name, args || {}, { clientToken: client.token, leadPid: client.leadPid, cwd: client.cwd }))
+        .catch((err) => log(`pointer rebind dispatch failed for lead=${client.leadPid}: ${err?.message || err}`));
+    } catch (err) { log(`pointer rebind dispatch failed for lead=${client.leadPid}: ${err?.message || err}`); }
   }
 
   function cancelGrace() {
@@ -133,7 +194,18 @@ export function createChannelDaemonTransport({
     if (pointerToken) {
       const c = clients.get(pointerToken);
       if (c && isPidAlive(c.leadPid)) return c;
-      if (pointerToken) pointerToken = null;
+      // Dead pointer discovered at notify time (i.e. BEFORE the sweep prunes
+      // it): route removal through dropClient so failoverPointer runs — the
+      // survivor gets the pointer, sticky 'acquired' badge, and its bind
+      // intent re-dispatched. Silently nulling the token here bypassed all of
+      // that (pointer stayed null; survivor never got badge/rebind).
+      if (c) dropClient(pointerToken, 'pid dead (notify-time)');
+      else pointerToken = null;
+      // failoverPointer (via dropClient) may have installed a new pointer.
+      if (pointerToken) {
+        const p = clients.get(pointerToken);
+        if (p && isPidAlive(p.leadPid)) return p;
+      }
     }
     let best = null;
     for (const [, c] of liveClients()) {
@@ -142,7 +214,77 @@ export function createChannelDaemonTransport({
     return best;
   }
 
+  // Write a targeted remote-state frame to ONE client's SSE. If that client has
+  // no live stream yet (e.g. displaced mid-reconnect), BUFFER the frame on its
+  // pending queue and flush it when the stream (re)attaches — otherwise the
+  // 'superseded' signal is silently lost and the old owner keeps its badge.
+  function writeRemoteStateTo(client, state) {
+    if (!client) return false;
+    const frame = JSON.stringify({ type: 'notify', method: REMOTE_STATE_METHOD, params: { state } });
+    if (!client.sse) { client.pending.push(frame); return true; }
+    try { client.sse.write(`data: ${frame}\n\n`); return true; }
+    catch (err) { log(`remote-state '${state}' write failed for lead=${client.leadPid}: ${err?.message || err}`); return false; }
+  }
+
+  // Unified last-wins ownership move. The pointer client owns ALL THREE of
+  // inbound notify routing, outbound transcript binding, and the remote badge.
+  // Every move (new TUI register OR a bind-intent /call) hands the seat to the
+  // newcomer AND tells the DISPLACED owner it lost via a targeted 'superseded'
+  // frame — so the old TUI drops its badge and stops pushing rebinds. Skip the
+  // superseded when the old/new client share a leadPid (same TUI reconnecting /
+  // re-binding to itself — it never "lost").
+  function movePointer(newToken, reason) {
+    const oldToken = pointerToken;
+    if (oldToken === newToken) { pointerToken = newToken; return; }
+    pointerToken = newToken;
+    const oldClient = oldToken ? clients.get(oldToken) : null;
+    const newClient = clients.get(newToken);
+    log(`routing pointer -> token=${newToken} lead=${newClient?.leadPid ?? '?'} via ${reason}`);
+    if (!oldClient || oldClient === newClient) return;
+    if (newClient && oldClient.leadPid === newClient.leadPid) return; // same TUI
+    if (isPidAlive(oldClient.leadPid)) {
+      if (writeRemoteStateTo(oldClient, 'superseded')) {
+        log(`superseded -> displaced pointer token=${oldToken} lead=${oldClient.leadPid}`);
+      }
+    }
+    // Newcomer gaining the seat with a stored bind must rebind the output
+    // forwarder to ITS transcript, mirroring failoverPointer. Only for moves
+    // that carry NO fresh bind of their own: a POINTER_TOOLS /call already
+    // dispatches the new bind right after this returns (redispatching the stale
+    // lastBind first would fire an out-of-date rebind), and 'failover'
+    // self-dispatches best.lastBind. Last-wins ordering above is untouched.
+    if (reason !== 'failover' && !POINTER_TOOLS.has(reason)) redispatchPointerBind(newClient, reason);
+  }
+
   function notify(method, params) {
+    if (method === REMOTE_STATE_METHOD) {
+      const frame = JSON.stringify({ type: 'notify', method, params });
+      if (params?.state === 'acquired') {
+        // 'acquired' is the standing badge state of the CURRENT owner. It is
+        // sticky (cached even with zero live clients, e.g. boot-time notify) so
+        // a late attach that IS the pointer can replay it. Under last-wins the
+        // owner is exactly the pointer client, so deliver ONLY there — a
+        // broadcast would light the badge on displaced/non-owner TUIs.
+        stickyRemoteFrame = frame;
+        const target = resolveTarget();
+        if (!target?.sse) { log('remote-state acquired not delivered (no live pointer SSE); sticky set'); return false; }
+        try { target.sse.write(`data: ${frame}\n\n`); return true; }
+        catch (err) { log(`remote-state acquired write failed for lead=${target.leadPid}: ${err?.message || err}`); return false; }
+      }
+      // 'superseded' (seat lost to ANOTHER daemon, owned-runtime.mjs) and any
+      // other transition CLEAR the sticky and broadcast to every live client —
+      // whoever holds the badge must drop it; replaying it to a future attach
+      // would wrongly stop a fresh remote client.
+      stickyRemoteFrame = null;
+      let delivered = false;
+      for (const [, c] of liveClients()) {
+        if (!c.sse) continue;
+        try { c.sse.write(`data: ${frame}\n\n`); delivered = true; }
+        catch (err) { log(`remote-state write failed for lead=${c.leadPid}: ${err?.message || err}`); }
+      }
+      if (!delivered) log('remote-state superseded not delivered live (no live SSE); sticky cleared');
+      return delivered;
+    }
     const target = resolveTarget();
     if (!target) {
       log(`notify dropped (no live target): ${method}`);
@@ -162,7 +304,7 @@ export function createChannelDaemonTransport({
     }
   }
 
-  function registerClient({ leadPid, cwd }) {
+  function registerClient({ leadPid, cwd, reattach = false }) {
     const pid = parsePid(leadPid) ?? 0;
     const token = randomUUID();
     clients.set(token, {
@@ -170,16 +312,50 @@ export function createChannelDaemonTransport({
       leadPid: pid,
       cwd: cwd || null,
       sse: null,
+      pending: [],
       lastSeen: nowMs(),
       registeredAt: nowMs(),
     });
     everHadClient = true;
     cancelGrace();
     startSweep();
-    // First client to attach becomes the routing pointer until an explicit
-    // bind call moves it. Ensures a lone TUI receives notifies immediately.
-    if (!pointerToken) pointerToken = token;
     log(`client registered token=${token} lead=${pid} cwd=${cwd || '-'}`);
+    // Pointer-follows-pid: if the current pointer client shares this leadPid AND
+    // has no live SSE, it is the SAME terminal re-registering after its stream
+    // dropped. That old entry is a dead-stream blackhole — pid-prune never reaps
+    // it (pid still alive) and sse-close never drops entries, so resolveTarget
+    // would write to a dead stream forever. Transfer the seat to the fresh
+    // token, migrate its buffered pending frames + last bind intent, and remove
+    // the old entry WITHOUT a failover or a self-'superseded'. A live-stream
+    // pointer that happens to share the pid (e.g. co-located clients) is left
+    // alone — last-wins handles a genuine fresh register below.
+    if (pointerToken && pointerToken !== token) {
+      const old = clients.get(pointerToken);
+      if (old && old.leadPid === pid && !old.sse) {
+        const fresh = clients.get(token);
+        if (old.pending?.length) fresh.pending.push(...old.pending.splice(0));
+        if (old.lastBind) fresh.lastBind = old.lastBind;
+        clients.delete(pointerToken);
+        try { old.sse?.end?.(); } catch {}
+        pointerToken = token;
+        log(`pointer follows reconnect -> token=${token} lead=${pid} (old entry dropped)`);
+        // The fresh token inherited the old entry's bind intent but never went
+        // through movePointer — re-dispatch it so the forwarder rebinds to this
+        // reconnected terminal's transcript (guarded/no-op when no lastBind).
+        redispatchPointerBind(fresh, 'reconnect');
+        return token;
+      }
+    }
+    if (reattach) {
+      // SSE-reconnect re-register: a pruned client re-registers with a FRESH
+      // token but it is NOT a new terminal — it must never steal ownership.
+      // Only adopt the pointer when none exists (avoid a notify blackhole).
+      if (!pointerToken) pointerToken = token;
+    } else {
+      // Last-wins: the NEWEST registered TUI (fresh terminal) always steals the
+      // ownership seat, and the displaced owner is told it lost (superseded).
+      movePointer(token, 'register');
+    }
     return token;
   }
 
@@ -196,6 +372,20 @@ export function createChannelDaemonTransport({
     res.write(': attached\n\n');
     c.sse = res;
     c.lastSeen = nowMs();
+    // Flush any targeted frames buffered while this client had no stream (e.g. a
+    // 'superseded' emitted at the moment it was reconnecting). Drop-with-client.
+    if (c.pending?.length) {
+      for (const frame of c.pending.splice(0)) {
+        try { res.write(`data: ${frame}\n\n`); } catch {}
+      }
+    }
+    // Replay the sticky 'acquired' badge ONLY when THIS attaching client is the
+    // current pointer (the owner). A non-pointer late attach must NOT light the
+    // badge — under last-wins only the newest owner holds it. The TUI-side
+    // handler is idempotent, so re-delivery to the owner is safe.
+    if (stickyRemoteFrame && token === pointerToken) {
+      try { res.write(`data: ${stickyRemoteFrame}\n\n`); } catch {}
+    }
     const ka = setInterval(() => {
       try { res.write(': ka\n\n'); } catch {}
     }, 15_000);
@@ -227,7 +417,7 @@ export function createChannelDaemonTransport({
 
       if (req.method === 'POST' && pathName === '/client/register') {
         const body = await readBody(req);
-        const clientToken = registerClient({ leadPid: body.leadPid, cwd: body.cwd });
+        const clientToken = registerClient({ leadPid: body.leadPid, cwd: body.cwd, reattach: body.reattach === true });
         sendJson(res, { token: clientToken, pid: process.pid });
         return;
       }
@@ -251,8 +441,9 @@ export function createChannelDaemonTransport({
         // Bind-intent calls re-point routing at the caller BEFORE dispatch, so a
         // notify emitted synchronously during the call already targets it.
         if (c && POINTER_TOOLS.has(name)) {
-          pointerToken = clientToken;
-          log(`routing pointer -> token=${clientToken} lead=${c.leadPid} via ${name}`);
+          // Last-wins bind claim (/remote or boot). Steals the seat AND tells
+          // the displaced owner it lost (targeted superseded).
+          movePointer(clientToken, name);
         }
         const callId = body.callId ? String(body.callId) : null;
         let dispatch;
@@ -280,6 +471,9 @@ export function createChannelDaemonTransport({
         }
         try {
           const result = await dispatch;
+          // Record the caller's last bind intent so a failover can rebind the
+          // output forwarder to THIS client's transcript when it becomes owner.
+          if (c && POINTER_TOOLS.has(name)) c.lastBind = { name, args: body.args || {} };
           sendJson(res, { result });
         } catch (err) {
           sendJson(res, { error: err?.message || String(err) }, 200);

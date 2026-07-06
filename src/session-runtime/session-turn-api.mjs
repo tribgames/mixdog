@@ -7,6 +7,7 @@ import {
   sortedNamesByMeasuredUsage,
   selectDeferredTools,
   reconcileDeferredMcpToolCatalog,
+  refreshInitialDeferredMcpSurface,
 } from './tool-catalog.mjs';
 import { getMcpTools } from '../runtime/agent/orchestrator/mcp/client.mjs';
 
@@ -24,11 +25,12 @@ export function createSessionTurnApi(deps) {
     getTranscriptWriter, getTwKey, getLastAppendedAssistant, setLastAppendedAssistant,
     scheduleCodeGraphPrewarm, refreshSessionForCwdIfNeeded, createCurrentSession,
     ensureRemoteTranscriptWriter, channelsEnabled, invokeChannelStart, channels,
-    pushTranscriptRebind,
+    pushTranscriptRebind, flushPendingTranscriptRebind,
     hooks, hookCommonPayload, mgr, notifyFnForSession, bootProfile,
     scheduleProviderWarmup, scheduleProviderModelWarmup, invalidateContextStatusCache,
     agentTool, recreateCurrentSessionIfReady, invalidatePreSessionToolSurface,
     activeToolSurface, applyResolvedCwd, resolveCwdPath, agentStatusState, notificationListeners,
+    awaitInitialMcpConnect,
   } = deps;
   return {
     async ask(prompt, options = {}) {
@@ -49,6 +51,9 @@ export function createSessionTurnApi(deps) {
           setLastAppendedAssistant('');
           const prevKey = getTwKey();
           ensureRemoteTranscriptWriter();
+          // Flush a rebind deferred before the session/writer existed ('acquired'
+          // in lazy mode). One-shot: no-op unless a push was actually deferred.
+          flushPendingTranscriptRebind?.();
           if (getTwKey() && getTwKey() !== prevKey && channelsEnabled() && !envFlag('MIXDOG_DISABLE_CHANNEL_START')) {
             void invokeChannelStart()
               .then(() => {
@@ -59,22 +64,43 @@ export function createSessionTurnApi(deps) {
           }
         }
         const session0 = getSession();
-        // Turn-boundary snapshot: fold in MCP tools whose servers finished their
-        // handshake after this session was created, and announce the newly
-        // available deferred tool names via ONE appended, persistent
-        // system-reminder (append-only — never rewrites BP1 or touches the
-        // active tool surface, so the prompt-cache prefix stays intact).
-        try {
-          reconcileDeferredMcpToolCatalog(session0, getMcpTools(), {
-            // Deliver the late-tool announcement through the pending-message
-            // queue so it rides inside the next real user turn as a persisted
-            // system-reminder (no synthetic user + '.' assistant pair).
-            enqueue: (text) => (typeof mgr.enqueuePendingMessage === 'function'
-              ? mgr.enqueuePendingMessage(session0.id, text) > 0
-              : false),
-          });
+        if (session0.deferredInitialRefreshPending) {
+          // FIRST TURN of a FRESH session (session-local gate, NOT the
+          // process-wide firstTurnCompleted): an MCP server may have finished its
+          // handshake BETWEEN session-create and this first send. Re-fold the
+          // LIVE registry into the INITIAL deferred surface + BP1
+          // <available-deferred-tools> manifest (sync, in-place, idempotent) and
+          // pre-mark those names announced, so they ship in the initial manifest
+          // instead of a late-tool <system-reminder>. One-shot: cleared before
+          // the fold so a throw still never re-runs it, and a resumed session
+          // (flag unset) skips straight to the late path below.
+          session0.deferredInitialRefreshPending = false;
+          // First-turn gate: give the in-flight INITIAL MCP connect a bounded
+          // chance to finish so servers that connect within the startup budget
+          // land in THIS request's tool surface. Bounded by the same budget —
+          // UI/boot never blocks here; only this first ask waits, and only once.
+          try { await awaitInitialMcpConnect?.(); }
+          catch { /* gate must never break the turn */ }
+          try { refreshInitialDeferredMcpSurface(session0, getMcpTools()); }
+          catch { /* first-turn MCP fold must never break the turn */ }
+        } else {
+          // AFTER FIRST TURN: fold in MCP tools whose servers finished their
+          // handshake after this session was created, and announce the newly
+          // available deferred tool names via ONE appended, persistent
+          // system-reminder (append-only — never rewrites BP1 or touches the
+          // active tool surface, so the prompt-cache prefix stays intact).
+          try {
+            reconcileDeferredMcpToolCatalog(session0, getMcpTools(), {
+              // Deliver the late-tool announcement through the pending-message
+              // queue so it rides inside the next real user turn as a persisted
+              // system-reminder (no synthetic user + '.' assistant pair).
+              enqueue: (text) => (typeof mgr.enqueuePendingMessage === 'function'
+                ? mgr.enqueuePendingMessage(session0.id, text) > 0
+                : false),
+            });
+          }
+          catch { /* MCP delta must never break the turn */ }
         }
-        catch { /* MCP delta must never break the turn */ }
         hooks.emit('turn:start', { sessionId: session0.id, prompt, cwd: getCurrentCwd() });
         // UserPromptSubmit: a hook FAILURE must not block the turn, but blocked===true MUST throw.
         let promptDispatch = null;

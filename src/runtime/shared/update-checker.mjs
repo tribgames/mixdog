@@ -188,6 +188,9 @@ export function runGlobalUpdate() {
       child = spawn(npmCmd, ['install', '-g', `${PACKAGE_NAME}@latest`], {
         stdio: 'ignore',
         windowsHide: true,
+        // detached: survive parent exit — quitting the TUI mid-install must
+        // not kill npm halfway and leave the global install corrupted.
+        detached: true,
         shell: process.platform === 'win32',
       });
     } catch (err) {

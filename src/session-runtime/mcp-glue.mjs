@@ -250,11 +250,41 @@ export function createMcpGlue({
     return { name, config };
   }
 
+  // First-turn gate: await the in-flight INITIAL connect, bounded by the global
+  // startup budget. Boot/UI never call this; only the first ask awaits so
+  // servers that connect within the budget land in THIS request's tool surface.
+  // Resolves (never rejects): a server still connecting after the budget flows
+  // through the existing late-tool deferred announcement path unchanged.
+  async function awaitInitialMcpConnect() {
+    const inFlight = state.mcpConnectInFlight;
+    if (!inFlight) return;
+    let budgetMs = 10000;
+    try {
+      const resolved = mcpClient.resolveMcpStartupTimeoutMs?.({});
+      if (Number.isFinite(resolved)) budgetMs = resolved;
+    } catch { /* fall back to default budget */ }
+    // Swallow the in-flight rejection: failures are already captured in
+    // state.mcpFailures, and this gate must never reject the turn.
+    const settled = Promise.resolve(inFlight).catch(() => {});
+    // Budget disabled (0/off) = no per-server startup timeout, so the connect
+    // promise may never settle; never gate the turn on it — fall back to the
+    // legacy fire-and-forget behavior (late servers use the deferred path).
+    if (!(budgetMs > 0)) return;
+    let timer = null;
+    const budget = new Promise((resolveBudget) => { timer = setTimeout(resolveBudget, budgetMs); });
+    try {
+      await Promise.race([settled, budget]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   return {
     mcpTransportLabel,
     resolveEffectiveMcpServers,
     mcpStatus,
     connectConfiguredMcp,
+    awaitInitialMcpConnect,
     normalizeMcpServerInput,
   };
 }

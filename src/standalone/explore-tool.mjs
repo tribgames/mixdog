@@ -15,11 +15,11 @@ export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: 'Repo anchor locator: broad/uncertain targets, no known path. Array = independent targets.',
+  description: 'Locator for broad/uncertain targets with no known path — repo anchors AND out-of-repo/machine-wide file locations (e.g. "where does X store its logs/config"). Searches dot-directories via the hardened find internally. Array = independent targets: when starting a task, decompose what you need to know into facets (implementation site / config-load path / tests / error origin, ...) and fan them out as one query[] call (max 8, parallel) — never send rephrasings of the same target.',
   inputSchema: {
     type: 'object',
     properties: {
-        query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Narrow locator query; array only for independent targets.' },
+        query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Narrow locator query; array = independent facets of the task (not rephrasings), fanned out in parallel.' },
       cwd: { type: 'string', description: 'Project/root directory.' },
     },
     required: [],
@@ -34,6 +34,13 @@ export const EXPLORE_OUTPUT_CHAR_CAP = 24_000;
 const EXPLORE_TRUNCATION_MARKER = '\n\n[explore: output truncated; narrow cwd or split queries to see more]';
 // Bound fan-out so a hostile/poisoned query array cannot spawn unbounded subs.
 export const MAX_FANOUT_QUERIES = 8;
+// Mechanical turn cap per explorer sub-session: 3 free turns (contract: tool
+// turn 1 = whole batched search, turns 2-3 = miss recovery), then the agent
+// loop forces one tool-less final-answer turn. Overridable for tuning.
+export const EXPLORE_MAX_LOOP_ITERATIONS = (() => {
+  const raw = Number(process.env.MIXDOG_EXPLORE_MAX_LOOP);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 3;
+})();
 const EXPLORE_RESULT_CACHE_MAX_ENTRIES = 64;
 const EXPLORE_RESULT_CACHE_TTL_MS = (() => {
   const raw = Number(process.env.MIXDOG_EXPLORE_RESULT_CACHE_TTL_MS);
@@ -47,6 +54,18 @@ export const EXPLORE_COMPUTE_HARD_TIMEOUT_MS = (() => {
   return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 10 * 60_000;
 })();
 const EXPLORE_RESULT_CACHE = new Map(); // key -> { ts, value?, promise? }
+// Fan-out launch stagger: when >1 query, dispatch the first sub-session
+// immediately and delay the rest by this many ms so they can reuse the first
+// sub's provider prompt-cache write instead of racing cold. Default 0 (off):
+// live A/B (2026-07-07) showed 800ms produced zero cross-sub iter1 cache
+// reads (the first sub's write lands only after its iter1 completes, ~2.5s+)
+// while costing every later sub the full delay. Cross-BATCH reuse works
+// without stagger now that iter1 writes the prefix breakpoint. Env knob kept
+// for tuning experiments.
+const EXPLORE_FANOUT_STAGGER_MS = (() => {
+  const raw = Number(process.env.MIXDOG_EXPLORE_FANOUT_STAGGER_MS);
+  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
+})();
 
 function withExploreHardTimeout(promise) {
   if (!(EXPLORE_COMPUTE_HARD_TIMEOUT_MS > 0)) return promise;
@@ -210,6 +229,15 @@ function scheduleExploreCodeGraphPrewarm(cwd) {
     .catch(() => { /* best-effort */ });
 }
 
+// Best-effort: warm the find/enumeration cache the explorer's turn-1 `find`
+// will hit, in parallel with provider warmup. The export may not exist yet —
+// tolerate its absence.
+function scheduleExploreFindPrewarm(cwd) {
+  void import('../runtime/agent/orchestrator/tools/builtin/list-tool.mjs')
+    .then((mod) => mod?.prewarmFindEnumeration?.(cwd))
+    .catch(() => { /* best-effort; export may not exist yet */ });
+}
+
 function getCachedExploreResult(key) {
   if (!exploreResultCacheEnabled()) return null;
   const entry = EXPLORE_RESULT_CACHE.get(key);
@@ -277,6 +305,19 @@ function responseText(response) {
 
 const ANCHOR_LINE_RE = /(?:^|\s)(?:[A-Za-z]:[\\/][^:\n]+|\.{0,2}[\\/][^:\n]+|src[\\/][^:\n]+|[\w.-]+[\\/][^:\n]+):\d+\b/;
 const ANCHOR_PATH_CAPTURE_RE = /(?:^|\s)((?:[A-Za-z]:[\\/][^:\n]+|\.{0,2}[\\/][^:\n]+|src[\\/][^:\n]+|[\w.-]+[\\/][^:\n]+)):\d+\b/;
+// Coordinate (path:line) capture used as the dedup key: the same anchor
+// restated with different reason wording must collapse to one line.
+const ANCHOR_COORD_CAPTURE_RE = /(?:^|\s)((?:[A-Za-z]:[\\/][^:\n]+|\.{0,2}[\\/][^:\n]+|src[\\/][^:\n]+|[\w.-]+[\\/][^:\n]+):\d+(?:-\d+)?)\b/;
+// Path-only anchor: line starts with a path token (contains a separator) and
+// is followed by a dash separator or end of line — the `path — reason` shape
+// without a :line suffix. Keeps such answers while dropping prose narration.
+const ANCHOR_PATHONLY_CAPTURE_RE = /^(\S+[\\/][^\s:]+)(?=\s+[—–-]|\s*$)/;
+// Explorer self-count markers ("turn 1/3") belong on tool messages only;
+// strip them defensively if they leak into the final answer.
+const TURN_COUNTER_LINE_RE = /^turn\s+\d+\s*\/\s*\d+\b/i;
+// Contract cap: anchor answers are max 3 lines per query; extra anchors are
+// cost, not quality (rules/agent/30-explorer.md).
+const EXPLORE_MAX_ANCHOR_LINES = 3;
 const FAILED_RE = /\b(?:EXPLORATION_FAILED|exploration failed|no credible (?:anchor|location)|no relevant (?:anchor|location)|not found|could(?: not|n't) find)\b/i;
 
 function normalizeExplorerLine(line) {
@@ -292,31 +333,48 @@ function normalizeExplorerLine(line) {
 
 // Anchor existence filter: a locator answer citing a file that does not exist
 // is a hallucination — drop the line. Only enforced when cwd is known.
-function anchorLineExists(line, cwd) {
-  const m = line.match(ANCHOR_PATH_CAPTURE_RE);
+function anchorLineExists(line, cwd, captureRe = ANCHOR_PATH_CAPTURE_RE) {
+  const m = line.match(captureRe);
   if (!m) return true;
   const p = m[1].trim();
   try { return existsSync(isAbsolute(p) ? p : resolve(cwd, p)); } catch { return true; }
 }
 
-function cleanExplorerText(text, cwd = null) {
+export function cleanExplorerText(text, cwd = null) {
   const raw = String(text || '').trim();
   if (!raw) return '';
   const anchors = [];
+  const pathOnly = [];
+  const passthrough = [];
+  const seen = new Set();
   for (const sourceLine of raw.split(/\r?\n/)) {
     const line = normalizeExplorerLine(sourceLine);
-    if (!line || /^-{3,}$/.test(line) || /^#+\s+/.test(line)) continue;
+    if (!line || /^-{3,}$/.test(line) || /^#+\s+/.test(line) || TURN_COUNTER_LINE_RE.test(line)) continue;
     if (/^EXPLORATION_FAILED\b/i.test(line)) return 'EXPLORATION_FAILED';
+    const coord = line.match(ANCHOR_COORD_CAPTURE_RE)?.[1]
+      ?? line.match(ANCHOR_PATHONLY_CAPTURE_RE)?.[1];
+    const key = (coord ?? line).toLowerCase().replace(/\\/g, '/');
+    if (seen.has(key)) continue;
+    seen.add(key);
     if (ANCHOR_LINE_RE.test(line)) anchors.push(line);
+    else if (ANCHOR_PATHONLY_CAPTURE_RE.test(line)) pathOnly.push(line);
+    else passthrough.push(sourceLine);
   }
   if (anchors.length) {
-    const real = cwd ? anchors.filter((l) => anchorLineExists(l, cwd)) : anchors;
+    const real = (cwd ? anchors.filter((l) => anchorLineExists(l, cwd)) : anchors)
+      .slice(0, EXPLORE_MAX_ANCHOR_LINES);
     // All anchors pointed at nonexistent paths: fail harmlessly instead of
     // forwarding hallucinated locations.
     return real.length ? real.join('\n') : 'EXPLORATION_FAILED';
   }
+  if (pathOnly.length) {
+    const real = (cwd ? pathOnly.filter((l) => anchorLineExists(l, cwd, ANCHOR_PATHONLY_CAPTURE_RE)) : pathOnly)
+      .slice(0, EXPLORE_MAX_ANCHOR_LINES);
+    if (real.length) return real.join('\n');
+    return 'EXPLORATION_FAILED';
+  }
   if (FAILED_RE.test(raw)) return 'EXPLORATION_FAILED';
-  return raw;
+  return passthrough.join('\n').trim() || raw;
 }
 
 /**
@@ -349,17 +407,21 @@ async function runExploreSync(args = {}, ctx = {}) {
 
   const resolvedCwd = resolveExploreCwd(args.cwd, ctx.callerCwd);
   scheduleExploreCodeGraphPrewarm(resolvedCwd);
+  scheduleExploreFindPrewarm(resolvedCwd);
   const config = loadConfig();
   await ensureExploreProviderReady(config);
   const route = config?.maintenance?.explore;
   const presetName = (route && typeof route === 'object')
     ? `${clean(route.provider)}/${clean(route.model)}`
     : (route || '');
-  // Explorer self-manages its turn budget: the 5-turn budget lives ONLY in
-  // explorer-scoped surfaces (rules/agent/30-explorer.md + per-query prompt
-  // with explicit "turn N/5" self-count markers), never as a loop hard cap —
-  // no maxLoopIterations here by design. The wall-clock hard timeout
-  // (EXPLORE_COMPUTE_HARD_TIMEOUT_MS) remains the only runaway guard.
+  // Turn budget is enforced BOTH ways: the prompt contract (rules/agent/
+  // 30-explorer.md, "hard max 3 tool turns, expected 1") steers the model,
+  // and maxLoopIterations mechanically backstops it — live traces showed
+  // explorers overshooting to 4+ tool turns on compound queries despite the
+  // prompt. At the cap the loop grants ONE tool-less final turn ("answer
+  // with your best result from context"), so a capped explorer still emits
+  // its anchors instead of an empty/failed result. The wall-clock hard
+  // timeout (EXPLORE_COMPUTE_HARD_TIMEOUT_MS) remains the runaway guard.
   const llm = makeAgentDispatch({
     agent: 'explorer',
     cwd: resolvedCwd,
@@ -367,11 +429,21 @@ async function runExploreSync(args = {}, ctx = {}) {
     parentSessionId: ctx.callerSessionId || null,
     clientHostPid: ctx.clientHostPid || null,
     config,
+    maxLoopIterations: EXPLORE_MAX_LOOP_ITERATIONS,
   });
 
-  const settled = await Promise.allSettled(working.map((q) => {
+  // Stagger cold sub-session launches so later subs reuse the first sub's
+  // provider prompt-cache write. Index 0 fires immediately; a cached-result
+  // query resolves without delay regardless of index.
+  const stagger = working.length > 1 ? EXPLORE_FANOUT_STAGGER_MS : 0;
+  const settled = await Promise.allSettled(working.map((q, i) => {
     const key = exploreResultCacheKey({ cwd: resolvedCwd, presetName, query: q });
-    return runExploreCached(key, () => llm({ prompt: buildExplorerPrompt(q) }));
+    return runExploreCached(key, () => {
+      const delay = (stagger > 0 && i > 0) ? new Promise((r) => setTimeout(r, stagger)) : null;
+      return delay
+        ? delay.then(() => llm({ prompt: buildExplorerPrompt(q) }))
+        : llm({ prompt: buildExplorerPrompt(q) });
+    });
   }));
 
   const fatal = fatalExploreError(settled);

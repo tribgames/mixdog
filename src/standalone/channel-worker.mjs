@@ -27,10 +27,14 @@ const CHANNEL_TOOLS = new Set([
 
 const WORKER_PRELOAD = fileURLToPath(new URL('./channel-worker-preload.cjs', import.meta.url));
 // Machine-global channels daemon entry (spawn-or-attach target). Overridable
-// via env so the flip smoke can point at a stub daemon (no Discord token).
-const DAEMON_ENTRY = process.env.MIXDOG_CHANNEL_DAEMON_ENTRY
-  ? resolve(process.env.MIXDOG_CHANNEL_DAEMON_ENTRY)
-  : fileURLToPath(new URL('./channel-daemon.mjs', import.meta.url));
+// via env so smokes can point at a stub daemon (no Discord token). Resolved
+// LAZILY at spawn time — an import-time constant would freeze before a smoke
+// that imports this module first gets a chance to set the env override.
+function daemonEntry() {
+  return process.env.MIXDOG_CHANNEL_DAEMON_ENTRY
+    ? resolve(process.env.MIXDOG_CHANNEL_DAEMON_ENTRY)
+    : fileURLToPath(new URL('./channel-daemon.mjs', import.meta.url));
+}
 
 // A global package update can briefly remove channel-worker-preload.cjs while
 // the worker is spawning (MODULE_NOT_FOUND boot crash). Retry once before
@@ -433,7 +437,7 @@ export function createStandaloneChannelWorker({
       const done = () => { if (settled) return; settled = true; resolveSpawn(); };
       let daemon;
       try {
-        daemon = fork(DAEMON_ENTRY, [], {
+        daemon = fork(daemonEntry(), [], {
           cwd,
           execArgv: ['--require', WORKER_PRELOAD],
           stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
@@ -446,12 +450,19 @@ export function createStandaloneChannelWorker({
         done();
         return;
       }
-      daemon.stderr?.on('data', (chunk) => {
+      // Mirror daemon stderr into the shared log ONLY until it is ready. After
+      // ready the daemon appends its own lines directly (channel-daemon.mjs), and
+      // this TUI may exit at any time — a live mirror would both duplicate those
+      // lines and die with the parent. Detach the listener at the ready boundary.
+      const mirrorDaemonStderr = (chunk) => {
         const text = String(chunk || '').trimEnd();
         if (text) logLine(logPath, text);
-      });
+      };
+      daemon.stderr?.on('data', mirrorDaemonStderr);
       daemon.once('message', (msg) => {
         if (msg && msg.type === 'ready') {
+          // Stop mirroring: the daemon now owns file logging (no loss, no dup).
+          try { daemon.stderr?.off?.('data', mirrorDaemonStderr); } catch {}
           // Fully detach: the daemon must not be tied to this TUI's IPC/lifecycle.
           try { daemon.disconnect?.(); } catch {}
           try { daemon.unref?.(); } catch {}

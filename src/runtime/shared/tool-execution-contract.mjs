@@ -2,7 +2,7 @@ export const TOOL_SYNC_EXECUTION_CONTRACT =
   'Runs synchronously in this tool call.';
 
 export const TOOL_ASYNC_EXECUTION_CONTRACT =
-  'Runs sync; long-running auto-promotes to a task_id + completion notification. async forces background. status/read/wait are recovery/blocking only.';
+  'Runs sync inline; no default auto-background. async forces a background task_id + completion notification. status/read/wait are recovery/blocking only.';
 
 export const TOOL_MANUAL_CONTROL_CONTRACT =
   'wait/read/status/cancel are for explicit blocking or recovery only.';

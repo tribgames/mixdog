@@ -88,42 +88,60 @@ function parsedEntryTargetKey(entry, basePath) {
   return process.platform === 'win32' ? fullPath.toLowerCase() : fullPath;
 }
 
-export function mergeDuplicateParsedModifyEntries(parsed, basePath) {
-  const out = [];
-  const byTarget = new Map();
-  let changed = false;
-  for (const entry of parsed || []) {
-    const key = parsedEntryTargetKey(entry, basePath);
-    if (!key) {
-      out.push(entry);
-      continue;
-    }
-    const existing = byTarget.get(key);
-    if (!existing) {
-      byTarget.set(key, entry);
-      out.push(entry);
-      continue;
-    }
-    existing.hunks.push(...(entry.hunks || []));
-    changed = true;
+// Group parsed entries into sequential application "waves". When a file is
+// listed as a modify target N times, occurrence i is placed in wave i, so
+// each duplicate block applies against the on-disk result of the previous
+// one — the native engine re-reads the file per apply() call, giving true
+// sequential semantics ("block 2 against block 1's output"). Unique and
+// non-modify entries always land in wave 0.
+//
+// Genuinely unsupported same-path combos (a create/delete mixed with any
+// other block for that path) cannot be sequenced and throw with guidance to
+// merge hunks into one block or send separate apply_patch calls.
+export function splitParsedModifyWaves(parsed, basePath) {
+  const entries = Array.isArray(parsed) ? parsed : [];
+  const kindsByPath = new Map();
+  for (const entry of entries) {
+    const kind = classifyEntry(entry);
+    const headerName = kind === 'create' ? entry.newFileName : entry.oldFileName;
+    if (!headerName || DEV_NULL.test(headerName)) continue;
+    const full = resolveEntryPath(basePath, headerName);
+    const key = process.platform === 'win32' ? full.toLowerCase() : full;
+    const rec = kindsByPath.get(key) || { kinds: [], headerName };
+    rec.kinds.push(kind);
+    kindsByPath.set(key, rec);
   }
-  return { parsed: out, changed };
-}
-
-
-export function assertNoDuplicateParsedModifyTargets(parsed, basePath) {
-  const seenPaths = new Set();
-  for (const entry of parsed || []) {
-    if (classifyEntry(entry) !== 'modify') continue;
-    const key = parsedEntryTargetKey(entry, basePath);
-    if (!key) continue;
-    if (seenPaths.has(key)) {
-      const headerName = entry.oldFileName || entry.newFileName;
+  for (const { kinds, headerName } of kindsByPath.values()) {
+    if (kinds.length > 1 && kinds.some((k) => k !== 'modify')) {
       const display = normalizeOutputPath(stripDiffPrefix(headerName));
-      throw new Error(`apply_patch: duplicate target ${display} — patch lists the same path twice.`);
+      throw new Error(
+        `apply_patch: unsupported duplicate target ${display} — a create/delete block cannot `
+        + 'be combined with other blocks for the same path. Merge the hunks into one block or '
+        + 'send separate apply_patch calls.',
+      );
     }
-    seenPaths.add(key);
   }
+  // Split into contiguous sequential groups that PRESERVE the patch's block
+  // listing order: accumulate blocks until a target path would repeat within
+  // the current group, then start a new group beginning with that block.
+  // Every group holds unique targets (the native batch stays valid) and
+  // groups apply in listed order, so the effective apply order — and thus the
+  // set of committed blocks at any failure point — equals the on-wire order.
+  const groups = [];
+  let current = [];
+  let currentKeys = new Set();
+  for (const entry of entries) {
+    const key = parsedEntryTargetKey(entry, basePath);
+    if (key && currentKeys.has(key)) {
+      groups.push(current);
+      current = [];
+      currentKeys = new Set();
+    }
+    current.push(entry);
+    if (key) currentKeys.add(key);
+  }
+  if (current.length > 0) groups.push(current);
+  return groups;
 }
 
 function headerRelFromBase(basePath, absNorm) {

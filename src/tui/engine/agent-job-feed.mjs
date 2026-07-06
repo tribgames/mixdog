@@ -38,6 +38,7 @@ export function createAgentJobFeed({
   getPending,
   agentStatusState,
   displayedExecutionNotificationKeys,
+  pushNotice,
 }) {
   let executionResumeKickDeferred = false;
 
@@ -92,6 +93,10 @@ export function createAgentJobFeed({
       const notificationKey = notificationQueueKey(event, text, parsed);
       const delivery = resolveTuiRuntimeNotificationDelivery(event, text);
       if (delivery.action === 'ignore') return;
+      if (delivery.action === 'notice') {
+        pushNotice?.(delivery.displayText, delivery.tone || 'info', { transcript: true });
+        return true;
+      }
       if (delivery.action === 'status-only') {
         if (parsed?.taskId) set(agentStatusState({ force: true }));
         return true;

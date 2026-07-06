@@ -402,6 +402,11 @@ export function startBackgroundShellJob({ command, timeoutMs, workDir, mergeStde
 // watcher never keeps the host process alive.
 const SHELL_JOB_WATCH_POLL_MS = 2000;
 const SHELL_JOB_WATCH_GRACE_MS = 5000;
+// 32-bit timer ceiling: setTimeout delays above 2^31-1 wrap to a tiny value
+// and fire immediately. The resolved timeout is already clamped at parse time
+// (bash-tool.mjs TIMER_MAX_MS), but sites that add grace to it can still exceed
+// the ceiling, so clamp the summed delay here too.
+const TIMER_MAX_MS = 2_147_483_647;
 // Registry of armed background-job watchers keyed by jobId. task wait
 // and `kill` actions already hold the completed outcome, so they cancel the
 // armed watcher here to prevent a double-notify when its next poll fires.
@@ -653,11 +658,16 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
         } catch { watcher = null; }
         pollTimer = setInterval(() => checkDone('poll'), SHELL_JOB_WATCH_POLL_MS);
         if (typeof pollTimer.unref === 'function') pollTimer.unref();
-        const startedAtMs = Date.parse(readShellJobDetail(jobId)?.startedAt || '') || Date.now();
         const timeoutMs = Number(readShellJobDetail(jobId)?.timeoutMs || 0);
-        const hardStopMs = Math.max(0, (startedAtMs + timeoutMs + SHELL_JOB_WATCH_GRACE_MS) - Date.now());
-        hardStopTimer = setTimeout(() => fire('timeout'), hardStopMs);
-        if (typeof hardStopTimer.unref === 'function') hardStopTimer.unref();
+        // Only arm the hard-stop when a timeout is enforced. timeoutMs<=0 means
+        // unlimited: arming it would fire ~grace ms after arm and mark the job
+        // failed. fs.watch + poll remain the completion paths for such jobs.
+        if (timeoutMs > 0) {
+            const startedAtMs = Date.parse(readShellJobDetail(jobId)?.startedAt || '') || Date.now();
+            const hardStopMs = Math.min(TIMER_MAX_MS, Math.max(0, (startedAtMs + timeoutMs + SHELL_JOB_WATCH_GRACE_MS) - Date.now()));
+            hardStopTimer = setTimeout(() => fire('timeout'), hardStopMs);
+            if (typeof hardStopTimer.unref === 'function') hardStopTimer.unref();
+        }
     } catch (err) {
         cleanup();
         try { process.stderr.write(`[shell-jobs] watchBackgroundShellJob arm failed: jobId=${jobId} err=${err?.message ?? String(err)}\n`); } catch { /* ignore */ }
@@ -755,7 +765,10 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
     const stderrPath = shellJobStderrPath(jobId);
     const exitPath = shellJobExitPath(jobId);
     const donePath = shellJobDonePath(jobId);
-    const timeoutSeconds = Math.max(1, Math.ceil(timeoutMs / 1000));
+    // timeoutMs <= 0 means unlimited (async omitted default): no kernel
+    // `timeout` wrapper, no enforced marker — exec the inner shell directly.
+    const enforceTimeout = Number(timeoutMs) > 0;
+    const timeoutSeconds = enforceTimeout ? Math.max(1, Math.ceil(timeoutMs / 1000)) : 0;
     // P2 fix: wrap with POSIX `timeout` so the kernel terminates the process
     // at deadline even if the JS-side timer is interrupted. --preserve-status
     // keeps the user command's exit code on success; on timeout the wrapper
@@ -787,7 +800,11 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
     // status for processes that actually exited 0. `rm -- "$0"` removes
     // the staged wrapper .cmd.sh after donePath is published so a host
     // crash before this point still leaves the file for the sweep to GC.
-    const wrapped = `{ if command -v timeout >/dev/null 2>&1; then _to=timeout; elif command -v gtimeout >/dev/null 2>&1; then _to=gtimeout; else _to=; fi; if [ -n "$_to" ]; then touch ${shellQuoteSingle(enforcedPath)}; "$_to" ${timeoutSeconds} ${innerShellQ} ${innerArgsQ} ${userCmdQuoted}; else ${innerShellQ} ${innerArgsQ} ${userCmdQuoted}; fi; rc=$?; printf '%s' "$rc" > ${shellQuoteSingle(exitPath)}; touch ${shellQuoteSingle(donePath)}; rm -- "$0" 2>/dev/null; exit $rc; }`;
+    const _innerRun = `${innerShellQ} ${innerArgsQ} ${userCmdQuoted}`;
+    const _execPart = enforceTimeout
+        ? `if command -v timeout >/dev/null 2>&1; then _to=timeout; elif command -v gtimeout >/dev/null 2>&1; then _to=gtimeout; else _to=; fi; if [ -n "$_to" ]; then touch ${shellQuoteSingle(enforcedPath)}; "$_to" ${timeoutSeconds} ${_innerRun}; else ${_innerRun}; fi`
+        : _innerRun;
+    const wrapped = `{ ${_execPart}; rc=$?; printf '%s' "$rc" > ${shellQuoteSingle(exitPath)}; touch ${shellQuoteSingle(donePath)}; rm -- "$0" 2>/dev/null; exit $rc; }`;
     // Stage the wrapped command to a .sh and let the script open its own
     // output files via `exec > … 2> …`. The parent does NOT pass file
     // descriptors via stdio inheritance (`stdio: 'ignore'` for all three).
@@ -841,8 +858,13 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
         startedAt: new Date().toISOString(),
     };
     writeShellJobDetail(detail);
-    const timer = setTimeout(() => { refreshShellJob(jobId); }, timeoutMs + 25);
-    if (typeof timer.unref === 'function') timer.unref();
+    // Deadline cleanup poke only when a timeout is enforced; an unlimited
+    // (timeoutMs<=0) job has no deadline — completion is observed via the
+    // fs.watch/poll watcher and refreshShellJob on task queries.
+    if (enforceTimeout) {
+        const timer = setTimeout(() => { refreshShellJob(jobId); }, Math.min(TIMER_MAX_MS, timeoutMs + 25));
+        if (typeof timer.unref === 'function') timer.unref();
+    }
     return detail;
 }
 
@@ -876,7 +898,10 @@ function startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr
         `$exitPath = ${psSingleQuote(exitPath)}`,
         `$donePath = ${psSingleQuote(donePath)}`,
         `$mergeStderr = ${mergeLiteral}`,
-        `$timeoutMs = ${Math.max(1, Math.floor(timeoutMs || 0))}`,
+        // 0 (or negative) = unlimited: the wrapper's `if ($timeoutMs -gt 0 ...`
+        // guard falls through to a plain WaitForExit() with no deadline. Do NOT
+        // floor to 1 — that would enforce a 1ms timeout on unlimited jobs.
+        `$timeoutMs = ${Math.max(0, Math.floor(timeoutMs || 0))}`,
         '$code = 1',
         'try {',
         // -ExecutionPolicy Bypass: unlike -EncodedCommand, -File is subject to
@@ -986,21 +1011,23 @@ function startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr
         pid: childPid,
         mergeStderr,
         timeoutMs,
-        timeoutSeconds: Math.max(1, Math.ceil(timeoutMs / 1000)),
+        timeoutSeconds: Number(timeoutMs) > 0 ? Math.max(1, Math.ceil(timeoutMs / 1000)) : 0,
         stdoutPath,
         stderrPath: mergeStderr ? stdoutPath : rawStderrPath,
         exitPath,
         donePath,
-        // The PS wrapper enforces timeoutMs unconditionally in-wrapper
-        // (WaitForExit($timeoutMs) → Stop-Process → 124), so the deadline
-        // invariant always holds for PowerShell jobs.
-        timeoutEnforced: true,
+        // The PS wrapper enforces the deadline (WaitForExit($timeoutMs) →
+        // Stop-Process → 124) only when timeoutMs>0; an unlimited job waits
+        // with no deadline, so don't falsely claim enforcement.
+        timeoutEnforced: Number(timeoutMs) > 0,
         // Per-terminal session stamp (see resolveJobOwnerHostPid).
         ownerHostPid: resolveJobOwnerHostPid(clientHostPid),
         startedAt: new Date().toISOString(),
     };
     writeShellJobDetail(detail);
-    const timer = setTimeout(() => { refreshShellJob(jobId); }, timeoutMs + 25);
-    if (typeof timer.unref === 'function') timer.unref();
+    if (Number(timeoutMs) > 0) {
+        const timer = setTimeout(() => { refreshShellJob(jobId); }, Math.min(TIMER_MAX_MS, timeoutMs + 25));
+        if (typeof timer.unref === 'function') timer.unref();
+    }
     return detail;
 }

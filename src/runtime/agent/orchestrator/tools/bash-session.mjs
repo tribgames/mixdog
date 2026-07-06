@@ -54,12 +54,16 @@ globalThis.__mixdogBashSessionRuntimeLoaded = true;
 // Claude Code parity (refs/claude-code src/utils/timeouts.ts): default 120 s
 // (2 min), max 600 s (10 min), BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS
 // env overrides (max floored at default). Matches the one-shot bash tool
-// (builtin/bash-tool.mjs); per-call `timeout` still overrides, capped at
-// MAX_TIMEOUT_MS.
+// (builtin/bash-tool.mjs): an omitted `timeout` uses the 120 s default bounded
+// by MAX_TIMEOUT_MS; an explicit per-call `timeout` is honored uncapped, clamped
+// only by TIMER_MAX_MS so JS/PS 32-bit timers stay valid.
 const _envDefaultTimeout = parseInt(process.env.BASH_DEFAULT_TIMEOUT_MS ?? '', 10);
 const DEFAULT_TIMEOUT_MS = _envDefaultTimeout > 0 ? _envDefaultTimeout : 120_000;
 const _envMaxTimeout = parseInt(process.env.BASH_MAX_TIMEOUT_MS ?? '', 10);
 const MAX_TIMEOUT_MS = Math.max(_envMaxTimeout > 0 ? _envMaxTimeout : 600_000, DEFAULT_TIMEOUT_MS);
+// JS setTimeout / PS WaitForExit(ms) are 32-bit: a delay above 2^31-1 wraps and
+// fires immediately. Hard ceiling (~24.8 days) for an uncapped explicit timeout.
+const TIMER_MAX_MS = 2_147_483_647;
 const IDLE_TIMEOUT_MS = 5 * 60_000;
 const MAX_SESSIONS = 10;
 const STDERR_DRAIN_MS = 25;
@@ -645,9 +649,13 @@ async function bash_session(args, cwd = process.cwd(), opts = {}) {
         }
         return requestedCwd;
     })();
-    const rawTimeout = typeof args?.timeout === 'number' ? args.timeout : DEFAULT_TIMEOUT_MS;
-    const timeoutMs = rawTimeout;
-    const effectiveTimeout = Math.min(Math.max(timeoutMs, 1), wmicRewrite?.timeoutMs || MAX_TIMEOUT_MS);
+    const hasExplicitTimeout = typeof args?.timeout === 'number' && args.timeout > 0;
+    const timeoutMs = hasExplicitTimeout ? args.timeout : DEFAULT_TIMEOUT_MS;
+    // Explicit per-call timeout uncapped (only the wmic-rewrite ceiling or the
+    // 32-bit TIMER_MAX_MS still bound it); omitted default keeps MAX_TIMEOUT_MS.
+    const effectiveTimeout = hasExplicitTimeout
+        ? Math.min(Math.max(timeoutMs, 1), wmicRewrite?.timeoutMs || TIMER_MAX_MS)
+        : Math.min(Math.max(timeoutMs, 1), wmicRewrite?.timeoutMs || MAX_TIMEOUT_MS);
     const resolved = _getOrCreate(requestedSessionId || args?.session_id, baseCwd, { create: args?.create === true });
     if (resolved.error) return resolved.error;
     const { id, entry } = resolved;

@@ -20,6 +20,7 @@ import {
   readSection,
   saveSecret,
   updateSection,
+  updateSectionAsync,
 } from '../runtime/shared/config.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import { readMarkdownDocument, serializeFrontmatterDoc } from '../runtime/shared/markdown-frontmatter.mjs';
@@ -131,6 +132,21 @@ function updateChannelsSection(build) {
   return next;
 }
 
+// Async twin of updateChannelsSection: identical normalize/strip logic, but the
+// channels-section RMW runs through updateSectionAsync so a debounced backend
+// flush does not block the event loop. Same config lock file → linearizable
+// with the sync writers.
+async function updateChannelsSectionAsync(build) {
+  let next;
+  await updateSectionAsync('channels', (current) => {
+    const normalized = normalizeChannelsConfig(current);
+    next = build(normalized);
+    const { channelsConfig: _lc, mainChannel: _lm, ...clean } = normalizeChannelsConfig(next);
+    return clean;
+  });
+  return next;
+}
+
 function listEntryDirs(dir) {
   try {
     return readdirSync(dir, { withFileTypes: true })
@@ -225,19 +241,32 @@ export function setWebhookConfig(patch = {}) {
   }));
 }
 
-export function setBackend(name) {
+function validateBackend(name) {
   const value = String(name || '').trim();
   if (value !== 'discord' && value !== 'telegram') {
     throw new Error('backend must be discord or telegram');
   }
-  updateChannelsSection((cfg) => {
+  return value;
+}
+function backendBuilder(value) {
+  return (cfg) => {
     const activeBackend = cfg.backend === 'telegram' ? 'telegram' : 'discord';
     const seeded = seedBackendChannelIds(resolveChannelEntry(cfg), activeBackend);
     // `channelId` now mirrors the newly-selected backend's id; both per-backend
     // id fields are retained so switching back keeps the other id.
     const channel = { ...seeded, channelId: channelIdForBackend(seeded, value) };
     return { ...cfg, channel, backend: value };
-  });
+  };
+}
+export function setBackend(name) {
+  const value = validateBackend(name);
+  updateChannelsSection(backendBuilder(value));
+  return { ok: true, backend: value };
+}
+// Async twin used by the debounced backend-save flush timer.
+export async function setBackendAsync(name) {
+  const value = validateBackend(name);
+  await updateChannelsSectionAsync(backendBuilder(value));
   return { ok: true, backend: value };
 }
 

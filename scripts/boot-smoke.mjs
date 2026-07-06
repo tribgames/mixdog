@@ -64,7 +64,7 @@ const rows = [
     try {
       const status = runtime.toolsStatus();
       const active = new Set(status.activeTools || []);
-      for (const name of ['read','code_graph','grep','find','glob','list','apply_patch','explore','agent','shell','task','cwd','recall','search','web_fetch','Skill','tool_search']) {
+      for (const name of ['read','code_graph','grep','find','glob','list','apply_patch','explore','agent','shell','task','cwd','recall','search','web_fetch','Skill','load_tool']) {
         if (!active.has(name)) throw new Error('missing ' + name + ' in ' + [...active].join(','));
       }
       for (const name of ['bash']) {

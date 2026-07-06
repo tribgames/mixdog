@@ -108,6 +108,7 @@ export function markSessionAskStart(id) {
     entry.lastStreamDeltaAt = null;
     entry.lastToolCall = null;
     entry.toolStartedAt = null;
+    entry.toolSelfDeadlineMs = null;
     entry.lastError = null;
     // A new ask starts a fresh turn lifecycle — clear any stale empty-final
     // classification from the prior turn so inspectBridgeEntry doesn't keep
@@ -166,11 +167,18 @@ export async function markSessionStreamDelta(id) {
     }
     entry.updatedAt = now;
 }
-export function markSessionToolCall(id, toolName) {
+export function markSessionToolCall(id, toolName, selfDeadlineMs) {
     if (!id) return;
     const entry = _touchRuntime(id);
     entry.stage = 'tool_running';
     entry.lastToolCall = toolName || null;
+    // Self-enforced deadline (ms) for tools that kill themselves at a known
+    // budget (shell timeout / task wait). The watchdog raises the tool-running
+    // ceiling to this + grace instead of aborting at toolRunningMs. Null/<=0
+    // means unknown -> plain toolRunningMs behavior.
+    entry.toolSelfDeadlineMs = (typeof selfDeadlineMs === 'number' && selfDeadlineMs > 0)
+        ? selfDeadlineMs
+        : null;
     entry.toolStartedAt = Date.now();
     entry.lastProgressAt = entry.toolStartedAt;
     entry.updatedAt = entry.toolStartedAt;
@@ -289,6 +297,8 @@ export function getSessionProgressSnapshot(sessionId) {
         firstActivityAt,
         lastStreamDeltaAt: entry.lastStreamDeltaAt || 0,
         toolStartedAt: entry.toolStartedAt || 0,
+        currentTool: entry.lastToolCall || null,
+        toolSelfDeadlineMs: entry.toolSelfDeadlineMs || 0,
         lastProgressAt: entry.lastProgressAt || 0,
         updatedAt: entry.updatedAt || 0,
         hasFirstActivity: Boolean(firstActivityAt && (!askStartedAt || firstActivityAt >= askStartedAt)),

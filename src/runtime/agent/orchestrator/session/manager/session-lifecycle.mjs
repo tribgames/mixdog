@@ -167,8 +167,9 @@ export function createSession(opts) {
     //   - read-only roles (reviewer / debugger / hidden retrieval, i.e. any
     //     session resolving to permission 'read') -> 'readonly' bundle:
     //     read builtins (code_graph/find/glob/list/grep/read) + retrieval
-    //     (explore/search/web_fetch/Skill), no apply_patch/shell/task, no
-    //     MCP-write. applyToolPermissionNarrowing('read') below trims the
+    //     (explore/search/web_fetch/Skill) + shell/task for self-verification
+    //     (agent-owned readonly bundle only), no apply_patch, no MCP-write.
+    //     applyToolPermissionNarrowing('read') below trims the
     //     bundle to AGENT_STRING_PERMISSION_READ_ALLOW so the final surface is
     //     bit-identical across these roles regardless of MCP registry state.
     //   - write roles (worker / heavy-worker / maintainer / …) -> 'full'
@@ -188,7 +189,10 @@ export function createSession(opts) {
     // fail closed (zero tools) rather than silently falling back to the full
     // preset, which would grant the role more surface than declared.
     if (ownerIsAgent) {
-        toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, toolPermission, opts.agent || null);
+        // Pass the RESOLVED agent (opts.agent || opts.role): narrowing keys
+        // retrieval/locator roles (explore etc.) off this name to strip
+        // shell/task; verifying read roles (reviewer/debugger) keep them.
+        toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, toolPermission, resolvedAgent);
     }
 
     const { baseRules, stableSystemContext, sessionMarker, volatileTail } = composeSystemPrompt({

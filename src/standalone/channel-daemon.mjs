@@ -17,7 +17,7 @@ process.env.MIXDOG_WORKER_MODE = process.env.MIXDOG_WORKER_MODE || '1';
 
 import os from 'node:os';
 import path from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { claimSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
@@ -46,8 +46,25 @@ const OWNER_PATH = path.join(DATA_DIR, 'channel-daemon-owner.json');
 // external readers / memory-client.mjs discovery is UNCHANGED.
 const MEMORY_ENTRY = fileURLToPath(new URL('../runtime/memory/index.mjs', import.meta.url));
 
+// The spawning TUI mirrors our stderr into this file ONLY until it sees our
+// 'ready' message; after that its pipe consumer dies on parent exit and later
+// lines would be lost. So once ready we append here ourselves (fileLogging on),
+// keyed to the SAME ready event the spawner detaches on — no loss, no dup.
+const LOG_PATH = path.join(DATA_DIR, 'channels-worker-standalone.log');
+let fileLogging = false;
 function log(line) {
-  try { process.stderr.write(`[channel-daemon] ${line}\n`); } catch {}
+  const text = `[channel-daemon] ${line}`;
+  // Exactly ONE sink per line: before ready the spawner mirrors our stderr into
+  // the log, so write stderr only; after ready we own the file, so write the
+  // file only — never both (no duplicate around the ready handoff).
+  if (!fileLogging) {
+    try { process.stderr.write(`${text}\n`); } catch {}
+    return;
+  }
+  try {
+    mkdirSync(path.dirname(LOG_PATH), { recursive: true });
+    appendFileSync(LOG_PATH, `[${new Date().toISOString()}] ${text}\n`);
+  } catch {}
 }
 
 let channels = null;
@@ -90,13 +107,18 @@ async function main() {
   // (mirrors the transport's routing pointer) so external readers see the
   // pointer TUI, not the daemon's spawner.
   const POINTER_TOOLS = new Set(['activate_channel_bridge', 'rebind_current_transcript']);
+  const handleCall = (name, args, ctx) => {
+    if (ctx && POINTER_TOOLS.has(name)) {
+      try { setOwnerContext({ leadPid: ctx.leadPid, cwd: ctx.cwd }); } catch {}
+    }
+    return channels.handleToolCallWithBridgeRetry(name, args || {});
+  };
   transport = createChannelDaemonTransport({
-    handleCall: (name, args, ctx) => {
-      if (ctx && POINTER_TOOLS.has(name)) {
-        try { setOwnerContext({ leadPid: ctx.leadPid, cwd: ctx.cwd }); } catch {}
-      }
-      return channels.handleToolCallWithBridgeRetry(name, args || {});
-    },
+    handleCall,
+    // Failover re-dispatch of the survivor's stored bind intent goes through the
+    // SAME handleCall + setOwnerContext path a POINTER_TOOLS /call uses, so the
+    // output forwarder rebinds to the survivor's transcript on pointer death.
+    dispatchBind: (name, args, ctx) => handleCall(name, args, ctx),
     discoveryPath: DISCOVERY_PATH,
     log,
     // Self-shutdown when the last attached TUI leaves (reuses the SSE/client
@@ -106,9 +128,30 @@ async function main() {
   setChannelNotifySink((method, params) => transport.notify(method, params));
   const { port, token } = await transport.start();
 
-  // Boot the owned channels runtime (Discord connect, transcript bind). Failure
-  // is non-fatal — the daemon still serves tool calls and can reconnect later.
-  try { await channels.start(); } catch (e) { log(`channels.start failed (non-fatal): ${e?.message || e}`); }
+  // Ready handshake for the spawner FIRST (mirrors the memory daemon's ready
+  // port). Transport is already listening; signal ready before the heavy
+  // Discord connect so the spawner's ready wait never blocks on backend I/O.
+  // Take over file logging from the spawner at the ready boundary. No rotate
+  // here: the spawner already bounds the file at its own boot (channel-worker
+  // rotateBoundedLog), and rotating now would race other processes' buffered
+  // appends into the same log.
+  fileLogging = true;
+  // Guard the ready handshake against a dead/closing parent pipe. process.send
+  // delivery is async: if the spawner TUI already exited, the write fails with
+  // an async 'error' (EPIPE) that a sync try/catch cannot catch — it would
+  // surface as uncaughtException and (pre-fix) flip the daemon degraded
+  // forever. process.connected gates the obvious-dead case; the send callback
+  // swallows the async delivery error so it never reaches uncaughtException.
+  if (process.connected && process.send) {
+    try { process.send({ type: 'ready', port, token }, undefined, () => {}); } catch {}
+  }
+  log(`ready port=${port} pid=${process.pid} in ${(performance.now() - startedAt).toFixed(0)}ms`);
+
+  // Boot the owned channels runtime (Discord connect, transcript bind) AFTER
+  // the ready signal. Fire-and-forget — failure is non-fatal (the daemon still
+  // serves tool calls and can reconnect later) and must not delay ready.
+  void Promise.resolve().then(() => channels.start())
+    .catch((e) => log(`channels.start failed (non-fatal): ${e?.message || e}`));
 
   // Fold memory startup in: eagerly ensure the memory runtime is up under the
   // daemon's lifecycle (spawn-or-attach singleton). Fire-and-forget — memory
@@ -119,12 +162,6 @@ async function main() {
     memoryRuntime = createStandaloneMemoryRuntime({ entry: MEMORY_ENTRY, dataDir: DATA_DIR, cwd: CWD });
     void memoryRuntime.start().catch((e) => log(`memory.start failed (non-fatal): ${e?.message || e}`));
   } catch (e) { log(`memory.start setup failed (non-fatal): ${e?.message || e}`); }
-
-  // Ready handshake for the spawner (mirrors the memory daemon's ready port).
-  if (process.send) {
-    try { process.send({ type: 'ready', port, token }); } catch {}
-  }
-  log(`ready port=${port} pid=${process.pid} in ${(performance.now() - startedAt).toFixed(0)}ms`);
 }
 
 process.on('SIGTERM', () => { void shutdown('SIGTERM'); });

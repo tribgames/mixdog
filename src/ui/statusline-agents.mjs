@@ -8,6 +8,7 @@
  */
 import { forEachSessionRuntime } from '../runtime/agent/orchestrator/session/manager.mjs';
 import { listHiddenAgentNames } from '../runtime/agent/orchestrator/internal-agents.mjs';
+import { classifyToolCategory } from '../runtime/shared/tool-surface.mjs';
 import { num, GRN, R, B } from './statusline-format.mjs';
 
 const DEFAULT_HIDDEN_STATUSLINE_AGENTS = Object.freeze(['explorer', 'cycle1-agent', 'cycle2-agent', 'cycle3-agent', 'scheduler-task', 'webhook-handler']);
@@ -187,6 +188,41 @@ export function activeHiddenAgentWorkers({ sessionId = '', clientHostPid = 0 } =
 
 function isTerminalBridgeStatus(statusText) {
   return /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/.test(String(statusText || '').toLowerCase());
+}
+
+// Agent-side web search activity for the L2 "Web Searching" segment: any live
+// sub-session owned by THIS lead (ownerSessionId / clientHostPid match) whose
+// CURRENT tool call classifies as 'Web Research' (search/web_fetch/...). The
+// lead's own calls are excluded — those arrive via activeTools from the
+// transcript — so counts never double.
+export function agentWebSearchStatus({ sessionId = '', clientHostPid = 0 } = {}) {
+  const ownerPid = positiveInt(clientHostPid);
+  const ownerSessionId = String(sessionId || '').trim();
+  let count = 0;
+  let startedAt = 0;
+  try {
+    for (const [runtimeSessionId, entry] of forEachSessionRuntime() || []) {
+      if (!entry || entry.closed === true) continue;
+      if (String(entry.stage || '').trim().toLowerCase() !== 'tool_running') continue;
+      const session = entry.session || null;
+      if (!session || session.closed === true) continue;
+      const id = session?.id || runtimeSessionId || null;
+      if (ownerSessionId && id === ownerSessionId) continue;
+      const sessionOwnerId = String(session?.ownerSessionId || '').trim();
+      if (sessionOwnerId && ownerSessionId && sessionOwnerId !== ownerSessionId) continue;
+      const pid = positiveInt(session?.clientHostPid);
+      if (ownerPid && pid && pid !== ownerPid) continue;
+      const tool = String(entry.lastToolCall || '').trim();
+      if (!tool) continue;
+      let category = null;
+      try { category = classifyToolCategory(tool); } catch { /* unknown tool -> skip */ }
+      if (category !== 'Web Research') continue;
+      count += 1;
+      const started = num(entry.toolStartedAt);
+      if (started > 0 && (startedAt === 0 || started < startedAt)) startedAt = started;
+    }
+  } catch {}
+  return { count, startedAt };
 }
 
 function timeMs(value) {

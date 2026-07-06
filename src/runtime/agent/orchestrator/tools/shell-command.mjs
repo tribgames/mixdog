@@ -37,7 +37,7 @@ import { startChildGuardian } from '../../../shared/child-guardian.mjs';
 // transition). shell-jobs.mjs imports stripAnsi from this module, so this is
 // a static cycle — safe because neither binding is touched at module-eval
 // time, only when the respective functions actually run.
-import { adoptForegroundShellJob } from './builtin/shell-jobs.mjs';
+import { adoptForegroundShellJob, killShellJob } from './builtin/shell-jobs.mjs';
 import {
   _maybeEncodePowerShellCommand,
   extractPowerShellCommandInner,
@@ -494,6 +494,7 @@ export function execShellCommand({
   autoBackgroundMs,
   onProgress,
   clientHostPid,
+  backgroundOnTimeout,
 }) {
   return new Promise(async (resolve) => {
     const taskId = `shell_${randomUUID().slice(0, 8)}`;
@@ -723,16 +724,20 @@ export function execShellCommand({
       if (grace.unref) grace.unref();
     });
 
-    // Auto-background transition (CC ASSISTANT_BLOCKING_BUDGET_MS +
-    // startBackgrounding analogue). Fires once, autoBackgroundMs after spawn,
-    // IFF the child is still running and the run has not already settled /
-    // been killed / timed out. It adopts the child into the shell-jobs
-    // registry while keeping it owned by this CLI process, then resolves the
-    // call immediately with a 'backgrounded' result so the tool stops hanging.
-    // The 600 s timeoutMs upper bound is carried into the adopted job detail
-    // so refreshShellJob still enforces it. Mutually exclusive with settle()
-    // via the autoBackgrounded flag set synchronously at the top before any await.
-    const _autoBackground = async () => {
+    // Auto-background transition (CC startBackgrounding analogue). Two triggers
+    // resolve the call immediately with a 'backgrounded' result while the
+    // child keeps running, adopted into the shell-jobs registry but still
+    // owned by this CLI process:
+    //   1. the optional autoBackgroundMs soft threshold (MIXDOG_SHELL_AUTO_
+    //      BACKGROUND_MS opt-in) — an EARLIER promotion before the timeout, and
+    //   2. the foreground timeout deadline (backgroundOnTimeout) — the default
+    //      promote-on-timeout that replaces the old tree-kill.
+    // Either way the adopted job runs UNLIMITED (timeoutMs 0, matching the
+    // async default): the original foreground timeout no longer bounds it, and
+    // the adopted-job cap poll still enforces the 100 MB output ceiling.
+    // Mutually exclusive with settle() via the autoBackgrounded flag set
+    // synchronously at the top before any await.
+    const _autoBackground = async ({ reason = 'threshold' } = {}) => {
       // Win the race: bail if a terminal transition already happened, and
       // claim the transition synchronously so a concurrently-queued settle()
       // (which checks autoBackgrounded) becomes inert.
@@ -740,16 +745,18 @@ export function execShellCommand({
       if (child.exitCode != null || child.signalCode != null) return;
       autoBackgrounded = true;
       // The foreground capture is over; stop the local watchdogs/timers so
-      // they cannot treeKill the now-adopted child. The 600 s bound lives
-      // on in the adopted job detail (timeoutMs) for refreshShellJob.
+      // they cannot treeKill the now-adopted child. The adopted job runs
+      // unlimited; refreshShellJob only enforces the output cap.
       if (timer) { clearTimeout(timer); timer = null; }
       _clearProgressTimer();
       if (sizeWatchdog) { clearInterval(sizeWatchdog); sizeWatchdog = null; }
       if (autoBgTimer) { clearTimeout(autoBgTimer); autoBgTimer = null; }
-      if (abortSignal && abortHandler) {
-        try { abortSignal.removeEventListener('abort', abortHandler); } catch {}
-        abortHandler = null;
-      }
+      // Keep the abort handler ATTACHED through the promotion window. A user
+      // cancel racing in after promotion starts must still bring the adopted
+      // child down — the handler's treeKill(child) does exactly that (settle()
+      // is inert once autoBackgrounded, but the kill itself still lands, and
+      // refreshShellJob then flags the job failed). We only detach on a real
+      // settle() or on the adoption-failure fallback below.
       // Every subsequent stdout/stderr chunk must hit disk — the call is
       // about to resolve and nobody will drain the in-memory buffers again.
       try { taskOutput.forceSpill(); } catch {}
@@ -766,7 +773,9 @@ export function execShellCommand({
           command,
           cwd,
           pid: child.pid,
-          timeoutMs,
+          // Unlimited: the promoted job is no longer bounded by the foreground
+          // timeout (matches the async omitted-default behavior).
+          timeoutMs: 0,
           mergeStderr: false,
           stdoutPath,
           stderrPath,
@@ -776,6 +785,18 @@ export function execShellCommand({
         });
       } catch {
         job = null;
+      }
+      // Adoption failed AFTER the foreground timers/size-watchdog were already
+      // torn down. Do NOT resolve as backgrounded — that would leave the child
+      // running unlimited with no task_id and no watcher. Release the claim and
+      // fall back to the old kill path so the command never outlives a failed
+      // promotion. (The abort handler is still attached, so an in-flight cancel
+      // is honored by the kill path too.)
+      if (!job) {
+        autoBackgrounded = false;
+        if (reason === 'timeout') timedOut = true; else killed = true;
+        _treeKillForceSettle();
+        return;
       }
       // Wire the lifecycle: on close, write the exit-code file FIRST then
       // touch donePath STRICTLY AFTER — the exact ordering refreshShellJob()
@@ -787,6 +808,14 @@ export function execShellCommand({
           try { writeFileSync(job.donePath, ''); } catch {}
         });
       }
+      // Adoption committed. If a cancel already fired (before or during the
+      // adoption window), bring the now-adopted child down via its jobId so the
+      // promotion can't outlive a user abort. Idempotent with the still-attached
+      // abort handler's treeKill.
+      if (abortSignal && abortSignal.aborted) {
+        try { killShellJob(job.jobId); } catch {}
+        try { treeKill(child); } catch {}
+      }
       // Snapshot the partial output captured so far for the immediate result.
       let stdout = '';
       let stderr = '';
@@ -795,7 +824,10 @@ export function execShellCommand({
       try { stderr = await taskOutput.getStderr(); }
       catch (err) { taskOutput.writeError = taskOutput.writeError || err; }
       const jobId = job ? job.jobId : null;
-      const secs = Math.round(autoBackgroundMs / 1000);
+      const secs = Math.max(0, Math.round((Date.now() - _startMs) / 1000));
+      const _verb = reason === 'timeout'
+        ? `moved to background at timeout after ${secs}s`
+        : `auto-backgrounded after ${secs}s`;
       resolve(
         new ExecResult({
           stdout,
@@ -814,14 +846,31 @@ export function execShellCommand({
           backgrounded: true,
           jobId,
           backgroundMessage: jobId
-            ? `auto-backgrounded after ${secs}s; still running — completion will be delivered as a background task notification. Use task with task_id:${jobId} only for manual wait/status/read/cancel.`
-            : `auto-backgrounded after ${secs}s; still running`,
+            ? `${_verb}; still running — completion will be delivered as a background task notification. Use task with task_id:${jobId} only for manual wait/status/read/cancel.`
+            : `${_verb}; still running`,
         }),
       );
     };
 
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
+        // Promote-on-timeout: if the caller allows backgrounding and the child
+        // is still running (not a trailing-`&` detach), adopt it as a tracked
+        // background job instead of tree-killing it. Falls through to the old
+        // kill path for disallowed/opted-out commands (backgroundOnTimeout
+        // false) or when a terminal transition already won the race.
+        if (
+          backgroundOnTimeout &&
+          !_isBackground &&
+          !settled &&
+          !autoBackgrounded &&
+          !killed &&
+          child.exitCode == null &&
+          child.signalCode == null
+        ) {
+          _autoBackground({ reason: 'timeout' });
+          return;
+        }
         timedOut = true;
         _treeKillForceSettle();
       }, timeoutMs);

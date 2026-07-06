@@ -10,9 +10,10 @@
  * the factory argument (getters/callbacks) — never stale snapshots. Every body
  * is the original engine.mjs logic verbatim.
  */
-import { summarizeToolResult } from '../../runtime/shared/tool-surface.mjs';
+import { summarizeToolResult, aggregateDoneCategories, classifyToolCategory } from '../../runtime/shared/tool-surface.mjs';
 import { toolResultText, toolErrorDisplay, toolGroupedDisplayFallback } from './tool-result-text.mjs';
 import { toolResultCallId } from './tool-call-fields.mjs';
+import { memoryCoreResultErrorText } from '../app/input-parsers.mjs';
 import { parseAgentJob, agentArgsWithResultMetadata, toolResultStatus, isErrorToolStatus } from './agent-envelope.mjs';
 import {
   withCancelledResultMarker,
@@ -55,13 +56,19 @@ export function createToolCardResults({
     // card in order, so transcript order always matches call order.
     (card.aggregate?.ensureVisible || card.ensureVisible)?.();
     const rawText = toolResultText(message?.content);
-    const isError = message?.isError === true || message?.toolKind === 'error' || /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText));
-    const text = isError ? toolErrorDisplay(rawText, card?.name || 'tool') : rawText;
-
     // Aggregate card handling — collect semantic summaries per call
     const aggregate = card.aggregate;
+    const callRec = aggregate && callId ? aggregate.calls.get(callId) : null;
+    // Backend "core" memory-op failures are flattened to plain text (isError
+    // dropped upstream — see memoryCoreResultErrorText); recover that signal so
+    // failed memory writes are excluded from the done count. Gated to Memory
+    // calls: the text-matcher's ^(error|failed) catch-all would otherwise
+    // misflag legitimate non-memory success output.
+    const isMemoryCall = classifyToolCategory(callRec?.name || card?.name || '', callRec?.args || {}) === 'Memory';
+    const isError = message?.isError === true || message?.toolKind === 'error' || /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText)) || (isMemoryCall && memoryCoreResultErrorText(rawText) != null);
+    const text = isError ? toolErrorDisplay(rawText, card?.name || 'tool') : rawText;
+
     if (aggregate && card.itemId === aggregate.itemId) {
-      const callRec = callId ? aggregate.calls.get(callId) : null;
       if (!callRec) return false;
       if (callRec.resolved) {
         card.done = true;
@@ -98,6 +105,7 @@ export function createToolCardResults({
         errorCount: errors,
         count: allCalls.length,
         completedCount: visualCompleted,
+        doneCategories: aggregateDoneCategories(allCalls),
         completedAt: Number(currentItem?.completedAt) || Date.now(),
       });
       card.done = true;
@@ -223,6 +231,7 @@ export function createToolCardResults({
           errorCount: errors,
           count: allCalls.length,
           completedCount: totalCompleted,
+          doneCategories: aggregateDoneCategories(allCalls),
           completedAt: Date.now(),
         });
         for (const sibling of toolCards || []) {

@@ -526,10 +526,19 @@ function readRawBufForV4AConversion(fullPath) {
   return buf;
 }
 
+// win32 filesystems are case-insensitive, so `Foo` and `foo` are the same
+// file: the V4A source-line cache MUST key on this normalized form at every
+// get/set, otherwise a mixed-case duplicate section refreshed under one
+// casing is missed under another and converts against stale/original lines.
+export function v4aLinesCacheKey(fullPath) {
+  return process.platform === 'win32' ? String(fullPath).toLowerCase() : String(fullPath);
+}
+
 function v4aConversionSourceLines(fullPath, linesCache) {
-  if (linesCache.has(fullPath)) return linesCache.get(fullPath);
+  const cacheKey = v4aLinesCacheKey(fullPath);
+  if (linesCache.has(cacheKey)) return linesCache.get(cacheKey);
   const lines = splitTextLinesForPatch(readRawBufForV4AConversion(fullPath).toString('utf-8'));
-  linesCache.set(fullPath, lines);
+  linesCache.set(cacheKey, lines);
   return lines;
 }
 
@@ -552,6 +561,20 @@ export async function convertV4ASectionsToUnifiedPatch(sections, basePath, optio
   const fuzzy = options.fuzzy !== false;
   const out = [];
   const v4aLinesCache = new Map();
+  // Paths that appear as update targets more than once: their duplicate
+  // sections must be converted against the PRIOR section's result so the
+  // emitted unified hunks line up for sequential (wave) application. We
+  // refresh v4aLinesCache after each such section below.
+  const dupUpdatePaths = new Set();
+  {
+    const seenUpd = new Set();
+    for (const s of sections || []) {
+      if (!s || s.kind === 'add' || s.kind === 'delete' || typeof s.path !== 'string' || !s.path) continue;
+      const fp = resolveV4AEntryPath(basePath, s.path);
+      const key = v4aLinesCacheKey(fp);
+      if (seenUpd.has(key)) dupUpdatePaths.add(key); else seenUpd.add(key);
+    }
+  }
   for (const section of sections) {
     const displayPath = section.path.replace(/\\/g, '/');
     if (section.kind === 'add') {
@@ -645,6 +668,16 @@ export async function convertV4ASectionsToUnifiedPatch(sections, basePath, optio
       out.push(`--- a/${displayPath}`);
       out.push(`+++ b/${displayPath}`);
       for (const line of sectionHunks) out.push(line);
+    }
+    // If this path is edited again later, the next section must resolve
+    // against this section's applied result, not the original file — apply
+    // these hunks to the cached lines so duplicate V4A blocks convert to a
+    // sequentially-appliable unified patch. Best-effort: on any mismatch we
+    // keep the original cache and let native wave application surface it.
+    if (dupUpdatePaths.has(v4aLinesCacheKey(fullPath))) {
+      try {
+        v4aLinesCache.set(v4aLinesCacheKey(fullPath), applyV4AHunksToLines(sourceLines, section.hunks, { fuzzy }));
+      } catch { /* leave original cached lines */ }
     }
   }
   return out.join('\n') + '\n';

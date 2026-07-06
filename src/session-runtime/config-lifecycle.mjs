@@ -31,6 +31,7 @@ export function createConfigLifecycle({
   cfgMod,
   sharedCfgMod,
   setBackend,
+  setBackendAsync,
   setConfiguredShell,
   normalizeSystemShellConfig,
   normalizeSearchRouteConfig,
@@ -90,8 +91,61 @@ export function createConfigLifecycle({
   }
 
   // --- debounced config save --------------------------------------------------
+  // Coexistence strategy (sync vs async flush):
+  //  * The debounce TIMER fires the ASYNC flush (async lock wait + async icacls
+  //    + async backup + async atomic write) so a toggle never blocks the UI
+  //    event loop.
+  //  * Per-channel serialization: each channel keeps ONE in-flight promise tail;
+  //    a new async flush chains after it so flushes never interleave. The pending
+  //    payload is re-read at write time (identity guard), so a burst collapses to
+  //    the last writer without dropping a newer toggle.
+  //  * The SYNC flush is retained for reloadFullConfig/teardown (they need the
+  //    write durable before continuing). It nulls the pending payload and writes
+  //    synchronously; that sync write takes the SAME cross-process lock file as
+  //    any in-flight async write, so it serializes AFTER it (lock contention),
+  //    and the async loop's identity guard then finds a null/superseded payload
+  //    and does not rewrite — never a revert, and no double-write except a rare
+  //    idempotent same-content window if a sync flush lands mid async disk-write.
   let pendingConfigToSave = null;
   let configSaveTimer = null;
+  let configFlushInFlight = null;
+
+  async function runConfigFlushAsync() {
+    // Drain config, then skills, and RE-CHECK config. A config snapshot queued
+    // after the skills patch may carry a stale snapshot.skills (the snapshot
+    // captured an older config object ref, before the skills toggle replaced it)
+    // that would overwrite the just-patched skills.disabled. Looping until BOTH
+    // channels are quiescent keeps the skills patch the last writer relative to
+    // EVERY pending/queued config snapshot.
+    do {
+      let configFailed = false;
+      while (pendingConfigToSave !== null) {
+        const snapshot = pendingConfigToSave;
+        try {
+          await cfgMod.saveConfigAsync(snapshot);
+        } catch (err) {
+          process.stderr.write(`[config] async saveConfig failed: ${err?.message || err}\n`);
+          // Keep the payload: a failed write must not drop the pending change.
+          configFailed = true;
+          break;
+        }
+        if (pendingConfigToSave === snapshot) pendingConfigToSave = null;
+      }
+      // Ordering invariant: skills.disabled patch lands AFTER the config save.
+      await flushSkillsSaveAsync();
+      if (configFailed) break; // avoid a hot spin on a persistently failing write
+    } while (pendingConfigToSave !== null);
+  }
+
+  function flushConfigSaveAsync() {
+    if (configSaveTimer) { clearTimeout(configSaveTimer); configSaveTimer = null; }
+    const start = () => runConfigFlushAsync();
+    const p = configFlushInFlight ? configFlushInFlight.then(start, start) : start();
+    configFlushInFlight = p;
+    const clear = () => { if (configFlushInFlight === p) configFlushInFlight = null; };
+    p.then(clear, clear);
+    return p;
+  }
 
   function flushConfigSave() {
     if (configSaveTimer) {
@@ -100,9 +154,13 @@ export function createConfigLifecycle({
     }
     if (pendingConfigToSave !== null) {
       const snapshot = pendingConfigToSave;
-      pendingConfigToSave = null;
       try {
         cfgMod.saveConfig(snapshot);
+        // Clear ONLY after a durable write. saveConfig blocks on the same
+        // cross-process lock an async flush may hold, so it serializes after it;
+        // if it still fails (e.g. lock timeout) we keep the payload so a later
+        // flush / reloadFullConfig retries instead of reverting to stale disk.
+        if (pendingConfigToSave === snapshot) pendingConfigToSave = null;
       } catch (err) {
         process.stderr.write(`[config] debounced saveConfig failed: ${err?.message || err}\n`);
       }
@@ -126,7 +184,7 @@ export function createConfigLifecycle({
     // disk write after CONFIG_SAVE_DEBOUNCE_MS of quiet.
     pendingConfigToSave = getConfig();
     if (configSaveTimer) clearTimeout(configSaveTimer);
-    configSaveTimer = setTimeout(flushConfigSave, CONFIG_SAVE_DEBOUNCE_MS);
+    configSaveTimer = setTimeout(() => { flushConfigSaveAsync(); }, CONFIG_SAVE_DEBOUNCE_MS);
     configSaveTimer.unref?.();
     return adopted;
   }
@@ -134,6 +192,31 @@ export function createConfigLifecycle({
   // --- debounced backend switch ----------------------------------------------
   let pendingBackendName = null;
   let backendSaveTimer = null;
+  let backendFlushInFlight = null;
+
+  async function runBackendFlushAsync() {
+    while (pendingBackendName !== null) {
+      const name = pendingBackendName;
+      try {
+        await setBackendAsync(name);
+      } catch (err) {
+        process.stderr.write(`[channels] async setBackend failed: ${err?.message || err}\n`);
+        if (pendingBackendName === name) pendingBackendName = null;
+        break;
+      }
+      if (pendingBackendName === name) pendingBackendName = null;
+    }
+  }
+
+  function flushBackendSaveAsync() {
+    if (backendSaveTimer) { clearTimeout(backendSaveTimer); backendSaveTimer = null; }
+    const start = () => runBackendFlushAsync();
+    const p = backendFlushInFlight ? backendFlushInFlight.then(start, start) : start();
+    backendFlushInFlight = p;
+    const clear = () => { if (backendFlushInFlight === p) backendFlushInFlight = null; };
+    p.then(clear, clear);
+    return p;
+  }
 
   function flushBackendSave() {
     if (backendSaveTimer) {
@@ -153,7 +236,7 @@ export function createConfigLifecycle({
   function scheduleBackendSave(name) {
     pendingBackendName = name;
     if (backendSaveTimer) clearTimeout(backendSaveTimer);
-    backendSaveTimer = setTimeout(flushBackendSave, CONFIG_SAVE_DEBOUNCE_MS);
+    backendSaveTimer = setTimeout(() => { flushBackendSaveAsync(); }, CONFIG_SAVE_DEBOUNCE_MS);
     backendSaveTimer.unref?.();
   }
 
@@ -163,6 +246,31 @@ export function createConfigLifecycle({
   // burst of settings-toggle key presses collapses into one disk write.
   let pendingSkillsNames = null;
   let skillsSaveTimer = null;
+  let skillsFlushInFlight = null;
+
+  async function runSkillsFlushAsync() {
+    while (pendingSkillsNames !== null) {
+      const names = pendingSkillsNames;
+      try {
+        await cfgMod.patchSkillsDisabledAsync(names);
+      } catch (err) {
+        process.stderr.write(`[config] async patchSkillsDisabled failed: ${err?.message || err}\n`);
+        if (pendingSkillsNames === names) pendingSkillsNames = null;
+        break;
+      }
+      if (pendingSkillsNames === names) pendingSkillsNames = null;
+    }
+  }
+
+  function flushSkillsSaveAsync() {
+    if (skillsSaveTimer) { clearTimeout(skillsSaveTimer); skillsSaveTimer = null; }
+    const start = () => runSkillsFlushAsync();
+    const p = skillsFlushInFlight ? skillsFlushInFlight.then(start, start) : start();
+    skillsFlushInFlight = p;
+    const clear = () => { if (skillsFlushInFlight === p) skillsFlushInFlight = null; };
+    p.then(clear, clear);
+    return p;
+  }
 
   function flushSkillsSave() {
     if (skillsSaveTimer) {
@@ -182,13 +290,50 @@ export function createConfigLifecycle({
   function scheduleSkillsSave(names) {
     pendingSkillsNames = names;
     if (skillsSaveTimer) clearTimeout(skillsSaveTimer);
-    skillsSaveTimer = setTimeout(flushSkillsSave, CONFIG_SAVE_DEBOUNCE_MS);
+    skillsSaveTimer = setTimeout(() => { flushSkillsSaveAsync(); }, CONFIG_SAVE_DEBOUNCE_MS);
     skillsSaveTimer.unref?.();
   }
 
   // --- debounced top-level outputStyle persist -------------------------------
   let pendingOutputStyleId = null;
   let outputStyleSaveTimer = null;
+  let outputStyleFlushInFlight = null;
+
+  function outputStyleUpdater(styleId) {
+    return (root) => {
+      const next = { ...(root || {}), outputStyle: styleId };
+      if (next.agent && typeof next.agent === 'object' && !Array.isArray(next.agent)) {
+        const agent = { ...next.agent };
+        delete agent.outputStyle;
+        next.agent = agent;
+      }
+      return next;
+    };
+  }
+
+  async function runOutputStyleFlushAsync() {
+    while (pendingOutputStyleId !== null) {
+      const styleId = pendingOutputStyleId;
+      try {
+        await sharedCfgMod.updateConfigAsync(outputStyleUpdater(styleId));
+      } catch (err) {
+        process.stderr.write(`[config] async outputStyle save failed: ${err?.message || err}\n`);
+        if (pendingOutputStyleId === styleId) pendingOutputStyleId = null;
+        break;
+      }
+      if (pendingOutputStyleId === styleId) pendingOutputStyleId = null;
+    }
+  }
+
+  function flushOutputStyleSaveAsync() {
+    if (outputStyleSaveTimer) { clearTimeout(outputStyleSaveTimer); outputStyleSaveTimer = null; }
+    const start = () => runOutputStyleFlushAsync();
+    const p = outputStyleFlushInFlight ? outputStyleFlushInFlight.then(start, start) : start();
+    outputStyleFlushInFlight = p;
+    const clear = () => { if (outputStyleFlushInFlight === p) outputStyleFlushInFlight = null; };
+    p.then(clear, clear);
+    return p;
+  }
 
   function flushOutputStyleSave() {
     if (outputStyleSaveTimer) {
@@ -199,15 +344,7 @@ export function createConfigLifecycle({
     const styleId = pendingOutputStyleId;
     pendingOutputStyleId = null;
     try {
-      sharedCfgMod.updateConfig((root) => {
-        const next = { ...(root || {}), outputStyle: styleId };
-        if (next.agent && typeof next.agent === 'object' && !Array.isArray(next.agent)) {
-          const agent = { ...next.agent };
-          delete agent.outputStyle;
-          next.agent = agent;
-        }
-        return next;
-      });
+      sharedCfgMod.updateConfig(outputStyleUpdater(styleId));
     } catch (err) {
       process.stderr.write(`[config] debounced outputStyle save failed: ${err?.message || err}\n`);
     }
@@ -216,7 +353,7 @@ export function createConfigLifecycle({
   function scheduleOutputStyleSave(styleId) {
     pendingOutputStyleId = styleId;
     if (outputStyleSaveTimer) clearTimeout(outputStyleSaveTimer);
-    outputStyleSaveTimer = setTimeout(flushOutputStyleSave, CONFIG_SAVE_DEBOUNCE_MS);
+    outputStyleSaveTimer = setTimeout(() => { flushOutputStyleSaveAsync(); }, CONFIG_SAVE_DEBOUNCE_MS);
     outputStyleSaveTimer.unref?.();
   }
 
@@ -227,7 +364,30 @@ export function createConfigLifecycle({
     // subsequent adopt preserves) that change instead of reverting to a stale
     // on-disk snapshot.
     flushConfigSave();
-    return adoptConfig(cfgMod.loadConfig(), { hasSecrets: true });
+    const loaded = cfgMod.loadConfig();
+    if (pendingConfigToSave !== null) {
+      // The debounced write could not land (e.g. lock timeout), so on-disk is
+      // stale. Prefer the freshest in-memory state and re-overlay the keychain
+      // provider secrets that only the disk load carries, so a failed flush
+      // never reverts the user's latest change.
+      const current = getConfig();
+      const merged = { ...loaded, ...current, providers: { ...(current.providers || {}) } };
+      for (const [name, val] of Object.entries(loaded.providers || {})) {
+        if (val && val.apiKey) {
+          // Match loadConfig's keychain overlay: apiKey ⇒ enabled:true, UNLESS
+          // the in-memory pending state EXPLICITLY disabled this provider (a
+          // genuine newer user change that must not be reverted).
+          const explicitlyDisabled = current.providers?.[name]?.enabled === false;
+          merged.providers[name] = {
+            ...(merged.providers[name] || {}),
+            apiKey: val.apiKey,
+            enabled: explicitlyDisabled ? false : true,
+          };
+        }
+      }
+      return adoptConfig(merged, { hasSecrets: true });
+    }
+    return adoptConfig(loaded, { hasSecrets: true });
   }
 
   function ensureFullConfig() {

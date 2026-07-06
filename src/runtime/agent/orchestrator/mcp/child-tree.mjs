@@ -86,6 +86,45 @@ export async function collectDescendants(rootPid) {
     return descendantsOf(childrenOf, rootPid);
 }
 
+/**
+ * Immediate, non-blocking tree kill for a transport whose MCP handshake never
+ * completed (shutdown-during-connect). Unlike shutdownStdioChild there is no
+ * grace wait and no identity-checked enumeration on Windows — the ChildProcess
+ * handle is live, so the pid is current, and taskkill /T reaps the still-
+ * parented tree. Everything is unref'd/fire-and-forget so the kill can never
+ * hold the caller's event loop open (the caller is a process about to exit).
+ */
+export function killStdioChildTreeFast(transport) {
+    const proc = transport?._process;
+    const pid = (typeof transport?.pid === 'number' ? transport.pid : null) ?? proc?.pid ?? null;
+    if (!pid) return false;
+    if (proc && (proc.exitCode !== null || proc.signalCode !== null)) return false;
+    try { proc?.unref?.(); } catch { /* ignore */ }
+    for (const s of [proc?.stdin, proc?.stdout, proc?.stderr]) {
+        try { s?.unref?.(); } catch { /* ignore */ }
+        try { s?.destroy?.(); } catch { /* ignore */ }
+    }
+    if (isWin) {
+        try {
+            const cp = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {
+                windowsHide: true,
+                detached: true,
+                stdio: 'ignore',
+            });
+            cp.unref();
+        } catch { /* ignore */ }
+        return true;
+    }
+    // POSIX: cheap ps enumerate, then SIGKILL descendants + root. Best-effort
+    // and un-awaited; a straggler orphan is reparented to init, not leaked by us.
+    void collectDescendants(pid).then((pids) => {
+        for (const p of [...pids, pid]) {
+            try { process.kill(p, 'SIGKILL'); } catch { /* ignore */ }
+        }
+    }).catch(() => { /* ignore */ });
+    return true;
+}
+
 function isAlive(pid) {
     try {
         process.kill(pid, 0);

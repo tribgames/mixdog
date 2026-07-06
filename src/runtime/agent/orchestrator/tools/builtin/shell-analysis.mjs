@@ -1,6 +1,7 @@
 import { statSync } from 'fs';
 import { assertPathReachable, assertPathsReachable } from './fs-reachability.mjs';
 import { isAbsolute, resolve } from 'path';
+import { WRAPPER_NAMES } from '../shell-policy.mjs';
 import {
     cwdRelativePath,
     normalizeInputPath,
@@ -650,4 +651,64 @@ export function foregroundLongCommandHint(command, timeoutMs, args = {}) {
     if (!watchLike && !longSleep) return '';
     if (!longTimeout && !watchLike && !longSleep) return '';
     return 'Error: long foreground command detected.';
+}
+
+// Commands that must NOT be promoted to background on a foreground timeout —
+// they run in the foreground and are killed at their deadline instead. Mirrors
+// the reference CLI DISALLOWED_AUTO_BACKGROUND_COMMANDS: `sleep` on posix,
+// `start-sleep`/`sleep` (the PS built-in alias) on PowerShell. A `sleep`/
+// `Start-Sleep` the caller wants to survive must be launched with
+// run_in_background/async explicitly.
+const _DISALLOWED_AUTO_BACKGROUND_POSIX = ['sleep'];
+const _DISALLOWED_AUTO_BACKGROUND_PS = ['start-sleep', 'sleep'];
+
+// Whether one shell segment reaches a disallowed sleep-like command. Strips a
+// leading subshell/paren/brace/`&`, then walks tokens skipping VAR=val and
+// option flags (quotes stripped so `'Start-Sleep'` resolves). A disallowed base
+// name found anywhere reachable blocks promotion. Once a command-runner wrapper
+// (env/sudo/timeout/nice/…, shell-policy.mjs's WRAPPER_NAMES) has been seen we
+// do NOT model that wrapper's flag arity — we keep scanning EVERY later bare
+// token for a hidden `sleep`, so `sudo -u nobody sleep 5` / `setpriv --reuid
+// user sleep` are caught (erring toward NOT promoting). Without a wrapper the
+// first real command token decides the segment.
+function _segmentDisallowed(segment, disallowed) {
+    const stripped = String(segment || '').replace(/^[\s(){}&]+/, '');
+    const tokens = stripped.split(/\s+/).filter(Boolean);
+    let sawWrapper = false;
+    for (let tok of tokens) {
+        tok = tok.replace(/^['"]+|['"]+$/g, '');
+        if (!tok) continue;
+        if (/^[A-Za-z_]\w*=/.test(tok)) continue;            // VAR=val assignment
+        if (tok.startsWith('-')) continue;                    // option flag
+        const stem = tok.toLowerCase().replace(/^.*[\\/]/, '').replace(/\.exe$/, '');
+        if (disallowed.includes(stem)) return true;           // sleep reachable here
+        if (WRAPPER_NAMES.has(stem)) { sawWrapper = true; continue; }
+        if (/^\d+(?:\.\d+)?[smhd]?$/i.test(tok)) continue;    // numeric/duration arg
+        // First real command token. Without a preceding wrapper it IS the base
+        // command and it wasn't disallowed → segment is safe. With a wrapper,
+        // this may be a wrapper value arg (`sudo -u nobody …`); keep scanning
+        // for a hidden sleep instead of stopping here.
+        if (!sawWrapper) return false;
+    }
+    return false;
+}
+
+// Whether a still-running foreground one-shot may be promoted to a background
+// job when it hits its timeout (CC isAutobackgroundingAllowed analogue).
+// Scans EVERY segment of a &&/||/;/|/& chain and, per segment, peels wrappers
+// before reading the base command — so a sleep-like hidden behind a chain
+// (`cd x && sleep 5`) or a runner wrapper (`timeout 5 sleep`, `env sleep`) is
+// still caught. Errs toward NOT promoting: any disallowed base command in any
+// segment blocks promotion. shellType 'powershell' uses the PS disallow list.
+export function isAutobackgroundingAllowed(command, shellType) {
+    const cmd = String(command || '').trim();
+    if (!cmd) return true;
+    const disallowed = shellType === 'powershell'
+        ? _DISALLOWED_AUTO_BACKGROUND_PS
+        : _DISALLOWED_AUTO_BACKGROUND_POSIX;
+    const segments = cmd.split(/(?:&&|\|\||[;\n|&])/);
+    for (const seg of segments) {
+        if (_segmentDisallowed(seg, disallowed)) return false;
+    }
+    return true;
 }

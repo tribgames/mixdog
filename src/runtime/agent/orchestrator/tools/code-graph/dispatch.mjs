@@ -180,13 +180,61 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
   }
 
   if (mode === 'dependents') {
-    if (!rel) throw new Error('code_graph dependents: "file" is required');
-    if (!node) return _appendSameBasenameHint(`Error: code_graph dependents: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
+    let depRel = rel;
+    let depNorm = normFile;
+    let subNote = null;
+    // (1) Symbol inference runs ONLY when no `file` arg was supplied at all —
+    // an explicit file (even a directory that yields no rel) is never overridden.
+    if (!depRel && !normFile) {
+      const symCandidates = [
+        ...(Array.isArray(args?.symbols) ? args.symbols : []),
+        args?.symbol,
+      ].map((s) => String(s || '').trim()).filter(Boolean);
+      const KNOWN_SRC_EXT = /\.(mjs|cjs|js|jsx|mts|cts|ts|tsx|json|py|go|rb|rs|java|kt|c|h|cc|cpp|hpp|cs|php|swift|scala|sh)$/i;
+      // (2) Symbol lookup FIRST — dotted names (e.g. obj.method) resolve here
+      // before any path classification.
+      for (const s of symCandidates) {
+        const hits = _findSymbolHits(graph, s, {});
+        const usable = hits.filter((h) => graph.nodes.get(h.rel));
+        const pool = usable.length ? usable : hits;
+        if (!pool.length) continue;
+        // (3) Deterministic pick: defining hit, else first by sorted rel.
+        const sorted = [...pool].sort((a, b) => String(a.rel).localeCompare(String(b.rel)));
+        const primary = sorted.find((h) => h.declarationLike) || sorted[0];
+        depRel = primary.rel; depNorm = primary.rel;
+        subNote = `# note: dependents resolved from symbol '${s}' → ${primary.rel}`;
+        const others = [...new Set(sorted.map((h) => h.rel))].filter((r) => r !== primary.rel);
+        if (others.length) subNote += `\n# note: '${s}' also defined in: ${others.join(', ')}`;
+        break;
+      }
+      // Path-classification only when the value has a slash or a known source
+      // extension — never for plain dotted symbol names.
+      if (!depRel) {
+        const pathLike = symCandidates.find((s) => /[\\/]/.test(s) || KNOWN_SRC_EXT.test(s));
+        if (pathLike) {
+          const pAbs = isAbsolute(pathLike) ? pathResolve(pathLike) : pathResolve(cwd, pathLike);
+          const pRel = _graphRel(pAbs, cwd);
+          if (graph.nodes.get(pRel)) {
+            depRel = pRel; depNorm = pathLike;
+            subNote = `# note: treated symbol '${pathLike}' as file`;
+          }
+        }
+      }
+      // (4) Nothing resolved → actionable hint naming the attempted values,
+      // with a distinct message when no symbol was supplied at all.
+      if (!depRel) {
+        throw new Error(symCandidates.length
+          ? `code_graph dependents: dependents needs file:<path>; got symbol only (tried: ${symCandidates.join(', ')})`
+          : 'code_graph dependents: "file" is required (no file or symbol supplied)');
+      }
+    }
+    const depFileNode = depRel ? graph.nodes.get(depRel) : null;
+    if (!depFileNode) return _appendSameBasenameHint(`Error: code_graph dependents: file not found in graph: ${depNorm || '(missing file)'}`, depNorm, graph);
     const GRAPH_LIST_CAP = 200;
-    const depsAll = [...(graph.reverse.get(rel) || [])].sort();
+    const depsAll = [...(graph.reverse.get(depRel) || [])].sort();
     if (!depsAll.length) return '(no dependents)';
     const deps = depsAll.slice(0, GRAPH_LIST_CAP);
-    const basename = rel.split('/').pop();
+    const basename = depRel.split('/').pop();
     const stem = basename.replace(/\.[^/.]+$/, '');
     const enriched = deps.map((dep) => {
       const depNode = graph.nodes.get(dep);
@@ -203,7 +251,8 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
       }
       return dep;
     });
-    const out = enriched.join('\n');
+    const body = enriched.join('\n');
+    const out = subNote ? `${subNote}\n${body}` : body;
     return depsAll.length > deps.length
       ? `${out}\n[truncated — showing first ${GRAPH_LIST_CAP} of ${depsAll.length} dependents]`
       : out;

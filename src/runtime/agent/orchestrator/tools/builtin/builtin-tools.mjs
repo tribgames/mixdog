@@ -12,10 +12,11 @@ import {
     executionModeSchemaDescription,
 } from '../../../../shared/background-tasks.mjs';
 
-// Shell timeout envelope surfaced in the tool schema. Mirrors Claude Code:
-// default 120 s / max 600 s, BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS
-// env overrides, max floored at default. Keep in sync with
-// builtin/bash-tool.mjs and bash-session.mjs.
+// Shell timeout envelope surfaced in the tool schema. Reference-CLI parity:
+// default 120 s when omitted; an explicit timeout is honored uncapped.
+// BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS env overrides only bound the
+// omitted default (max floored at default). Keep in sync with
+// builtin/bash-tool.mjs.
 function _shellDefaultTimeoutMs() {
     const parsed = parseInt(process.env.BASH_DEFAULT_TIMEOUT_MS ?? '', 10);
     return parsed > 0 ? parsed : 120_000;
@@ -72,7 +73,7 @@ export const BUILTIN_TOOLS = [
             properties: {
                 command: { type: 'string', description: 'Command.' },
                 cwd: { type: 'string', description: 'Working directory. Persists across shell calls in a session — omit to reuse the previous command\'s directory (e.g. after cd); pass an absolute path to change it.' },
-                timeout: { type: 'number', description: `Timeout ms. Default ${_shellDefaultTimeoutMs()} (${_shellDefaultTimeoutMs() / 60000} min); long-running commands may raise it up to ${_shellMaxTimeoutMs()} (${_shellMaxTimeoutMs() / 60000} min).` },
+                timeout: { type: 'number', description: `Timeout ms. Default ${_shellDefaultTimeoutMs()} (${_shellDefaultTimeoutMs() / 60000} min) when omitted; an explicit value is honored uncapped — long-running commands may set it higher. On timeout the command is MOVED TO BACKGROUND (a task_id you can wait/status/read/cancel) and keeps running instead of being killed; sleep-like commands and MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS opt out (killed with a [timeout] marker). async/background runs with timeout omitted have NO timeout (run until done/cancelled); an explicit timeout is still enforced.` },
                 merge_stderr: { type: 'boolean', description: 'Merge stderr.' },
                 mode: { type: 'string', enum: ['sync', 'async'], description: executionModeSchemaDescription('sync') },
                 shell: { type: 'string', enum: ['bash', 'powershell'], description: 'Force shell. Windows defaults to PowerShell; bash = Git Bash/POSIX.' },
@@ -167,7 +168,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Mixdog Find Files',
         annotations: { title: 'Mixdog Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Find files by partial path/name. Returns verified paths. Batch names as query[].',
+        description: 'Find files by partial path/name, searching dot-directories (e.g. .git-adjacent, .mixdog) too. The right tool for locating a file at an unknown, possibly machine-wide path — run it from a verified broad root. Returns verified paths. Batch names as query[].',
         inputSchema: {
             type: 'object',
             properties: {
