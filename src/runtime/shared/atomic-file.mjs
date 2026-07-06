@@ -38,6 +38,22 @@ function sleepSync(ms) {
   }
 }
 
+// Best-effort holder snapshot for lock-failure diagnostics: pid/token/age
+// read from the lock file AT THROW TIME, so ELOCKTIMEOUT/ELOCKCONTENDED
+// messages identify the culprit without needing a live repro. Never throws.
+function _describeLockHolder(lockPath) {
+  try {
+    const st = statSync(lockPath);
+    const owner = _readLockOwner(lockPath);
+    const ageMs = Math.max(0, Math.round(Date.now() - st.mtimeMs));
+    const live = owner.pid === null ? 'unknown' : (_ownerIsLive(owner) ? 'live' : 'dead');
+    const token = owner.token === null ? '?' : String(owner.token).slice(0, 8);
+    return `holder pid=${owner.pid ?? '?'} token=${token} age=${ageMs}ms ${live}`;
+  } catch {
+    return 'holder unknown (lock file unreadable/absent)';
+  }
+}
+
 export function renameWithRetrySync(src, dst, opts = {}) {
   const backoffs = Array.isArray(opts.backoffs) && opts.backoffs.length > 0
     ? opts.backoffs
@@ -76,7 +92,7 @@ export function withFileLockSync(lockPath, fn, opts = {}) {
       // the main loop is never blocked by Atomics.wait. No stale-reclaim,
       // since reclaim would require waiting on the guard.
       if (timeoutMs <= 0) {
-        const contErr = new Error(`atomic lock contended (try-once): ${lockPath}`);
+        const contErr = new Error(`atomic lock contended (try-once): ${lockPath} [${_describeLockHolder(lockPath)}]`);
         contErr.code = 'ELOCKCONTENDED';
         contErr.cause = err;
         throw contErr;
@@ -118,7 +134,7 @@ export function withFileLockSync(lockPath, fn, opts = {}) {
       } catch {}
     }
   }
-  const timeoutErr = new Error(`atomic lock timeout after ${timeoutMs}ms: ${lockPath}`);
+  const timeoutErr = new Error(`atomic lock timeout after ${timeoutMs}ms: ${lockPath} [${_describeLockHolder(lockPath)}]`);
   timeoutErr.code = 'ELOCKTIMEOUT';
   timeoutErr.cause = lastErr;
   throw timeoutErr;
@@ -383,7 +399,7 @@ export async function withFileLock(lockPath, fn, opts = {}) {
       lastErr = err;
       if (!LOCK_WAIT_CODES.has(err?.code)) throw err;
       if (timeoutMs <= 0) {
-        const contErr = new Error(`atomic lock contended (try-once): ${lockPath}`);
+        const contErr = new Error(`atomic lock contended (try-once): ${lockPath} [${_describeLockHolder(lockPath)}]`);
         contErr.code = 'ELOCKCONTENDED';
         contErr.cause = err;
         throw contErr;
@@ -412,7 +428,7 @@ export async function withFileLock(lockPath, fn, opts = {}) {
       } catch {}
     }
   }
-  const timeoutErr = new Error(`atomic lock timeout after ${timeoutMs}ms: ${lockPath}`);
+  const timeoutErr = new Error(`atomic lock timeout after ${timeoutMs}ms: ${lockPath} [${_describeLockHolder(lockPath)}]`);
   timeoutErr.code = 'ELOCKTIMEOUT';
   timeoutErr.cause = lastErr;
   throw timeoutErr;

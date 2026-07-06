@@ -84,30 +84,86 @@ export function useTranscriptScroll({
       const scroll = stitchHarvestScrollRef.current;
       for (const row of rows) {
         if (!row || typeof row.y !== 'number') continue;
-        stitchBufferRef.current.set(row.y - scroll, typeof row.text === 'string' ? row.text : '');
+        // Store text AND the soft-wrap continuation flag so the stitch join can
+        // rejoin word-wrapped rows into their logical line (mirrors output.js).
+        stitchBufferRef.current.set(row.y - scroll, {
+          text: typeof row.text === 'string' ? row.text : '',
+          sw: row.sw === true,
+        });
       }
     }, 0);
   }, [store]);
 
+  // Synchronous sibling of harvestStitchRowsSoon: snapshot the rows CURRENTLY
+  // under the selection into the stitch buffer immediately, keyed by the given
+  // (pre-scroll) offset. Called right before a scroll shifts those rows out of
+  // view — mirrors selection.ts captureScrolledRows, which grabs the outgoing
+  // rows BEFORE scrollBy overwrites them. The deferred harvest could never see
+  // rows that a fast drag/wheel scrolled past between paint and its setTimeout.
+  // selectionRows is harvested by the renderer UNCONDITIONALLY (even on the
+  // captureText:false motion paints, output.js), so this works mid-drag.
+  const harvestStitchRowsNow = useCallback((scroll) => {
+    if (dragRef.current.region !== 'transcript') return;
+    const rows = store.getRenderSelectionRows?.();
+    if (!Array.isArray(rows)) return;
+    const s = Number(scroll) || 0;
+    for (const row of rows) {
+      if (!row || typeof row.y !== 'number') continue;
+      stitchBufferRef.current.set(row.y - s, {
+        text: typeof row.text === 'string' ? row.text : '',
+        sw: row.sw === true,
+      });
+    }
+  }, [store]);
+
   // Map the CURRENT rect + current scrollTarget onto the content-key range and
-  // join buffered rows sorted by key with '\n' (skipping missing keys). Returns
-  // '' when unusable so callers can fall back to render/remembered text.
+  // join buffered rows sorted by key with '\n'. Returns { text, complete }:
+  // `complete` is true only when the harvested keys covering the selection form
+  // a CONTIGUOUS run (no interior gap). The old code silently skipped missing
+  // keys and returned only the string, so a gap (a scrolled-off row that was
+  // never harvested) produced a stitched copy with a line dropped in the middle
+  // — a mangled, shorter-than-real result the caller then preferred purely on
+  // length. Callers must gate on `complete` before preferring the stitch.
+  // Returns { text: '', complete: false } when unusable so callers fall back to
+  // render/remembered text.
   const getStitchedSelectionText = useCallback(() => {
+    const empty = { text: '', complete: false };
     const buf = stitchBufferRef.current;
-    if (!buf.size) return '';
-    if (dragRef.current.region !== 'transcript') return '';
+    if (!buf.size) return empty;
+    if (dragRef.current.region !== 'transcript') return empty;
     const rect = dragRef.current.rect;
-    if (!rect) return '';
+    if (!rect) return empty;
     const y1 = Number(rect.y1);
     const y2 = Number(rect.y2);
-    if (!Number.isFinite(y1) || !Number.isFinite(y2)) return '';
+    if (!Number.isFinite(y1) || !Number.isFinite(y2)) return empty;
     const scroll = Number(scrollTargetRef.current) || 0;
     const lo = Math.min(y1, y2) - scroll;
     const hi = Math.max(y1, y2) - scroll;
     const keys = [...buf.keys()].filter((k) => k >= lo && k <= hi).sort((a, b) => a - b);
-    if (!keys.length) return '';
-    const text = keys.map((k) => buf.get(k)).filter((t) => t != null).join('\n');
-    return text.trim() ? text : '';
+    if (!keys.length) return empty;
+    // FULL coverage of the selection's [lo..hi] row range with no hole. Keys are
+    // already filtered to [lo..hi] and unique, so a count equal to the range
+    // size means every selected row is present (interior AND both endpoints).
+    // Internal contiguity alone was not enough: an endpoint-missing stitch (e.g.
+    // the top/bottom selected row never harvested) is internally contiguous yet
+    // drops a boundary line, so it must NOT be marked complete and win in copy.
+    const complete = keys.length === hi - lo + 1;
+    // SOFT-WRAP JOIN (same rule as output.js getSelectedText): a row whose sw
+    // flag is set is a word-wrap continuation — concatenate it onto the prior
+    // logical line WITHOUT a newline; only source/hard breaks emit '\n'. Blank
+    // inner rows ('' text) survive as empty logical lines (paragraph gaps).
+    // Trailing whitespace is trimmed once per logical-line end.
+    const logical = [];
+    for (const k of keys) {
+      const entry = buf.get(k);
+      if (entry == null) continue;
+      const t = typeof entry === 'string' ? entry : (entry.text ?? '');
+      const sw = typeof entry === 'string' ? false : entry.sw === true;
+      if (sw && logical.length > 0) logical[logical.length - 1] += t;
+      else logical.push(t);
+    }
+    const text = logical.map((l) => l.replace(/\s+$/u, '')).join('\n');
+    return text.trim() ? { text, complete } : empty;
   }, []);
 
   const stopSmoothScroll = useCallback(() => {
@@ -221,6 +277,36 @@ export function useTranscriptScroll({
     return true;
   }, [store, rememberSelectionTextSoon, harvestStitchRowsSoon]);
 
+  // Shared guard for EVERY direct (non-throttled) paint path: a pending
+  // throttled repaint (state.timer/state.pending, armed by
+  // applySelectionRectThrottled) would fire AFTER a direct paint and stamp a
+  // stale pre-scroll/pre-direction rect over the current one — surfacing as two
+  // coexisting highlights. Cancel it before any direct paint.
+  const cancelPendingSelectionPaint = useCallback(() => {
+    const state = selectionPaintRef.current;
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    state.pending = null;
+  }, []);
+
+  // Commit an armed-but-unpainted throttled rect NOW, so paths that read the
+  // rendered selection (the pre-scroll stitch harvest) see the newest fast-drag
+  // rect rather than the previous rendered one. Cancel-only would drop the
+  // pending rect and lose rows it covered that scroll off before the rebuild.
+  const flushPendingSelectionPaint = useCallback(() => {
+    const state = selectionPaintRef.current;
+    if (!state.timer && !state.pending) return;
+    const pending = state.pending;
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    state.pending = null;
+    if (pending) paintSelectionRect(pending, { rememberText: false, immediate: true });
+  }, [paintSelectionRect]);
+
   const applySelectionRect = useCallback((rect) => {
     const clippedRect = withSelectionClip(rect);
     dragRef.current.rect = clippedRect || null;
@@ -228,14 +314,9 @@ export function useTranscriptScroll({
       selectionTextRef.current = '';
       clearStitchBuffer();
     }
-    const state = selectionPaintRef.current;
-    if (state.timer) {
-      clearTimeout(state.timer);
-      state.timer = null;
-      state.pending = null;
-    }
+    cancelPendingSelectionPaint();
     paintSelectionRect(clippedRect, { rememberText: true, immediate: true });
-  }, [paintSelectionRect, withSelectionClip, clearStitchBuffer]);
+  }, [paintSelectionRect, withSelectionClip, clearStitchBuffer, cancelPendingSelectionPaint]);
 
   const applySelectionRectThrottled = useCallback((rect) => {
     const clippedRect = withSelectionClip(rect, { captureText: false });
@@ -246,11 +327,7 @@ export function useTranscriptScroll({
     const now = Date.now();
     const elapsed = now - state.t;
     if (elapsed >= SELECTION_PAINT_INTERVAL_MS) {
-      if (state.timer) {
-        clearTimeout(state.timer);
-        state.timer = null;
-        state.pending = null;
-      }
+      cancelPendingSelectionPaint();
       paintSelectionRect(clippedRect, { rememberText: false });
       return;
     }
@@ -265,7 +342,7 @@ export function useTranscriptScroll({
       }, Math.max(1, SELECTION_PAINT_INTERVAL_MS - elapsed));
       state.timer.unref?.();
     }
-  }, [paintSelectionRect, withSelectionClip]);
+  }, [paintSelectionRect, withSelectionClip, cancelPendingSelectionPaint]);
 
   const selectionPointAtCurrentScroll = useCallback((point, pointScroll = 0) => {
     if (!point) return null;
@@ -298,13 +375,13 @@ export function useTranscriptScroll({
     } else {
       const lr = store.getLineRectAt?.(y);
       if (lr) { mLo = { x: lr.x1, y: lr.y1 }; mHi = { x: lr.x2, y: lr.y2 }; }
-      else { mLo = { x: 0, y }; mHi = { x, y }; }
+      else { mLo = { x: 0, y }; mHi = { x: Math.max(0, frameColumns - 1), y }; }
     }
     const rect = (a, b) => ({ mode: 'linear', x1: a.x, y1: a.y, x2: b.x, y2: b.y });
     if (comparePoints(mHi, spanLo) < 0) return rect(spanHi, mLo);
     if (comparePoints(mLo, spanHi) > 0) return rect(spanLo, mHi);
     return rect(spanLo, spanHi);
-  }, [store, selectionPointAtCurrentScroll]);
+  }, [store, frameColumns, selectionPointAtCurrentScroll]);
 
   const transcriptViewportRows = useCallback(() => {
     const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
@@ -356,6 +433,17 @@ export function useTranscriptScroll({
     const maxTarget = Math.max(0, Number(maxScrollRowsRef.current) || 0);
     const target = Math.max(0, Math.min(maxTarget, scrollTargetRef.current + deltaRows));
     const appliedDelta = target - scrollTargetRef.current;
+    // Before the scroll moves selected rows out of view, snapshot the rows
+    // currently under the selection into the stitch buffer keyed by the
+    // PRE-scroll offset (ref selection.ts captureScrolledRows). Runs for BOTH
+    // an active drag and a wheel-shift of a released selection, so Ctrl+C
+    // reconstructs the full text no matter how far it scrolled off-screen.
+    if (appliedDelta !== 0 && dragRef.current.region === 'transcript' && dragRef.current.rect) {
+      // Commit any pending throttled rect first so the harvest reads the newest
+      // rendered selection (not the previous rect) before those rows scroll off.
+      flushPendingSelectionPaint();
+      harvestStitchRowsNow(Number(scrollTargetRef.current) || 0);
+    }
     // Any manual wheel/keyboard scroll takes precedence over an in-flight
     // transcript follow: drop the glide so the user's intent wins.
     if (appliedDelta !== 0) cancelTranscriptFollow();
@@ -411,8 +499,17 @@ export function useTranscriptScroll({
       } else {
         rect = shiftSelectionRectY(dragRef.current.rect, appliedDelta);
       }
-      const clippedRect = withSelectionClip(rect);
+      // Active-drag rebuild paints directly, so route through the themed clip
+      // (captureText:false, matching rememberText:false below) — a bare rect
+      // without selectionBackground falls back to a near-white full-width block
+      // with vanishing text (vendor/ink output.js). Also cancel any armed
+      // throttled repaint first: it would fire the pre-scroll rect AFTER this
+      // one, leaving two coexisting highlights.
+      const clippedRect = dragRef.current.active
+        ? withSelectionClip(rect, { captureText: false })
+        : withSelectionClip(rect);
       dragRef.current = { ...dragRef.current, rect: clippedRect };
+      cancelPendingSelectionPaint();
       // Never re-harvest selection text from a scroll-shifted rect: the shift
       // clips the rect to the viewport, so a harvest here would OVERWRITE the
       // full text remembered at drag-release with only the still-visible rows
@@ -426,7 +523,7 @@ export function useTranscriptScroll({
     stopSmoothScroll();
     scrollPositionRef.current = target;
     setScrollOffset(Math.round(target));
-  }, [startSmoothScroll, stopSmoothScroll, paintSelectionRect, selectionPointAtCurrentScroll, withSelectionClip, cancelTranscriptFollow, buildSpanRect]);
+  }, [startSmoothScroll, stopSmoothScroll, paintSelectionRect, selectionPointAtCurrentScroll, withSelectionClip, cancelTranscriptFollow, buildSpanRect, harvestStitchRowsNow, cancelPendingSelectionPaint, flushPendingSelectionPaint]);
 
   // Leading-edge coalescer for edge-drag auto-scroll + wheel deltas: the first
   // delta after an idle period flushes immediately (single wheel ticks/short

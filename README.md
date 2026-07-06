@@ -23,7 +23,7 @@ mixdog
 ```
 
 First run walks you through onboarding: provider auth, model pick, and
-workflow setup. Re-run it anytime with `mixdog --onboarding`.
+workflow setup.
 
 ## Terminal-Bench 2.1 — 89.9% (self-reported)
 
@@ -117,9 +117,6 @@ mixdog --readonly
 
 # Enable remote/channel mode for this session
 mixdog --remote
-
-# Re-run first-run setup
-mixdog --onboarding
 ```
 
 Headless role mode is also supported:

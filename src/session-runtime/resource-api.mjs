@@ -29,8 +29,56 @@ export function createResourceApi(deps) {
     saveConfigAndAdopt, connectConfiguredMcp, invalidatePreSessionToolSurface,
     recreateCurrentSessionIfReady, normalizeMcpServerInput, mcpStatus,
     skillsStatus, skillContent, addProjectSkill, pluginsStatus, getMemoryModule,
-    reloadFullConfig,
+    reloadFullConfig, getActiveTurnCount,
   } = deps;
+  // Per-server MCP toggle serialization. The synchronous config adopt in
+  // setMcpServerEnabled has already made the intent durable; the heavy
+  // connectConfiguredMcp (process spawn/handshake) + session close/recreate
+  // run here off the toggle's critical path. Rapid re-toggles on one server
+  // update `desired` and ride the in-flight chain so it converges to the last
+  // requested state, closing/recreating the session only once at the end.
+  const mcpToggleChains = new Map(); // name -> { desired, running }
+  // Close/recreate the live session only at a turn boundary: a background
+  // toggle must never abort an in-flight turn. If a turn is active, poll until
+  // it ends, then swap the session so it picks up the new tool surface.
+  function applyMcpToggleRecreate(serverName) {
+    if (typeof getActiveTurnCount === 'function' && getActiveTurnCount() > 0) {
+      const timer = setTimeout(() => applyMcpToggleRecreate(serverName), 250);
+      timer.unref?.();
+      return;
+    }
+    invalidatePreSessionToolSurface();
+    const session = getSession();
+    if (session?.id) mgr.closeSession(session.id, 'cli-mcp-toggle');
+    // Recreate off the critical path (see removeMcpServer notes): the next
+    // on-demand createCurrentSession dedupes onto this in-flight create.
+    void recreateCurrentSessionIfReady().catch((err) => {
+      process.stderr.write(`[mcp] session recreate after toggle failed: ${err?.message || err}\n`);
+    });
+  }
+  function scheduleMcpToggle(serverName, enabled) {
+    const chain = mcpToggleChains.get(serverName) || { desired: enabled, running: null };
+    chain.desired = enabled;
+    mcpToggleChains.set(serverName, chain);
+    if (!chain.running) {
+      chain.running = (async () => {
+        let status;
+        try {
+          let want;
+          do {
+            want = chain.desired;
+            status = await connectConfiguredMcp({ only: serverName, enabled: want });
+          } while (chain.desired !== want);
+          // Turn-safe: defers until any active turn ends (never aborts it).
+          applyMcpToggleRecreate(serverName);
+        } finally {
+          chain.running = null;
+        }
+        return status;
+      })();
+    }
+    return chain.running;
+  }
   return {
     mcpStatus() {
       return mcpStatus();
@@ -78,7 +126,7 @@ export function createResourceApi(deps) {
       await recreateCurrentSessionIfReady();
       return status;
     },
-    async setMcpServerEnabled(name, enabled) {
+    setMcpServerEnabled(name, enabled) {
       const serverName = clean(name);
       if (!serverName) throw new Error('MCP server name is required');
       const nextConfig = { ...getConfig() };
@@ -88,14 +136,20 @@ export function createResourceApi(deps) {
       if (!Object.prototype.hasOwnProperty.call(current, serverName)) {
         throw new Error(`MCP server not configured: ${serverName}`);
       }
+      // A project-local `.mcp.json` entry WINS over config for this name, so a
+      // config enable/disable flag would persist but never change live state.
+      // Surface that to the caller instead of reporting a silent success.
+      const shadowRow = mcpStatus().servers.find((s) => s.name === serverName);
+      if (shadowRow && shadowRow.source === 'project') {
+        throw new Error(`'${serverName}' is defined by project .mcp.json — config toggle has no effect`);
+      }
+      // Adopt + persist config synchronously (fast) so intent is durable, then
+      // hand the heavy connect/close/recreate to the per-server background
+      // chain. Return that chain's promise so callers can settle the picker on
+      // completion, but the store no longer blocks on it.
       current[serverName] = { ...(current[serverName] || {}), enabled: enabled !== false };
       saveConfigAndAdopt({ ...nextConfig, mcpServers: current });
-      const status = await connectConfiguredMcp({ reset: true });
-      invalidatePreSessionToolSurface();
-      const session = getSession();
-      if (session?.id) mgr.closeSession(session.id, 'cli-mcp-toggle');
-      await recreateCurrentSessionIfReady();
-      return status;
+      return scheduleMcpToggle(serverName, enabled !== false);
     },
     skillsStatus() {
       return skillsStatus();

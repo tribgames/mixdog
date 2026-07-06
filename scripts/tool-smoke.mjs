@@ -906,7 +906,7 @@ const fullDefaults = defaultDeferredToolNames(smokeCatalog, 'full');
 if (fullDefaults.size !== 10) {
   throw new Error(`full default surface should stay 10 tools, got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'apply_patch', 'explore', 'Skill', 'tool_search']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'apply_patch', 'explore', 'Skill', 'load_tool']) {
   assertHas(fullDefaults, name);
 }
 for (const name of ['shell', 'task', 'agent', 'recall', 'search', 'web_fetch', 'cwd']) {
@@ -917,7 +917,7 @@ const leadDefaults = defaultDeferredToolNames(smokeCatalog, 'lead');
 if (leadDefaults.size !== 16) {
   throw new Error(`lead default surface should stay 16 tools for this static catalog, got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'shell', 'task', 'apply_patch', 'explore', 'agent', 'recall', 'search', 'web_fetch', 'Skill', 'tool_search']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'shell', 'task', 'apply_patch', 'explore', 'agent', 'recall', 'search', 'web_fetch', 'Skill', 'load_tool']) {
   assertHas(leadDefaults, name);
 }
 if (TOOL_SEARCH_TOOL.annotations?.agentHidden !== true) {
@@ -943,7 +943,7 @@ for (const [name, cap] of [
   ['recall', 2400],
   ['search', 3200],
   ['web_fetch', 900],
-  ['tool_search', 900],
+  ['load_tool', 900],
 ]) {
   const tool = smokeCatalog.find((item) => item?.name === name);
   const size = toolSchemaSize(tool);
@@ -954,7 +954,7 @@ const readonlyDefaults = defaultDeferredToolNames(smokeCatalog, 'readonly');
 if (readonlyDefaults.size !== 9) {
   throw new Error(`readonly default surface should stay 9 tools, got ${readonlyDefaults.size}: ${[...readonlyDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'explore', 'Skill', 'tool_search']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'explore', 'Skill', 'load_tool']) {
   assertHas(readonlyDefaults, name);
 }
 for (const name of ['apply_patch', 'agent', 'shell']) {
@@ -1359,8 +1359,8 @@ setInternalToolsProvider({
       throw new Error(`agent context must not inject environment reminder: ${visible.slice(0, 1200)}`);
     }
     const workerToolNames = (workerSession.tools || []).map((tool) => tool?.name).filter(Boolean);
-    if (workerToolNames.includes('tool_search')) {
-      throw new Error(`agent session schema must not expose deferred tool_search: ${workerToolNames.join(', ')}`);
+    if (workerToolNames.includes('load_tool')) {
+      throw new Error(`agent session schema must not expose deferred load_tool: ${workerToolNames.join(', ')}`);
     }
     for (const name of ['shell', 'task']) {
       if (!workerToolNames.includes(name)) {
@@ -1420,8 +1420,8 @@ setInternalToolsProvider({
     if (JSON.stringify(writeTools) !== JSON.stringify(expectedWriteTools)) {
       throw new Error(`read-write agent schema must be fixed allow-list: expected=${expectedWriteTools.join(', ')} actual=${writeTools.join(', ')}`);
     }
-    if (readTools.includes('tool_search') || writeTools.includes('tool_search')) {
-      throw new Error(`agent session fixed schemas must omit tool_search: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
+    if (readTools.includes('load_tool') || writeTools.includes('load_tool')) {
+      throw new Error(`agent session fixed schemas must omit load_tool: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
     }
     if (readTools.includes('shell')) {
       throw new Error(`read agent schema must omit shell: read=${readTools.join(', ')}`);
@@ -1846,25 +1846,38 @@ if (!/Use after search/i.test(webFetchTool?.description || '') || !webFetchProps
 if (!/offset/i.test(webFetchProps.startIndex?.description || '') || !/Maximum characters/i.test(webFetchProps.maxLength?.description || '')) {
   throw new Error('web_fetch schema must describe paging window fields');
 }
-if (!/deferred tools/i.test(TOOL_SEARCH_TOOL.description || '') || !TOOL_SEARCH_TOOL.inputSchema?.properties?.select) {
-  throw new Error('tool_search schema must preserve selection guidance and select field');
+if (!/deferred tools/i.test(TOOL_SEARCH_TOOL.description || '')
+  || !TOOL_SEARCH_TOOL.inputSchema?.properties?.names
+  || !TOOL_SEARCH_TOOL.inputSchema?.properties?.select) {
+  throw new Error('load_tool schema must preserve loader guidance plus names + legacy select fields');
 }
 const toolSearchSession = {
   tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
   deferredToolCatalog: smokeCatalog.slice(),
   deferredSelectedTools: [...fullDefaults],
 };
-// A plain query is a case-insensitive substring filter over name+description.
-// It lists matches only — it never auto-loads or ranks.
+// load_tool is a pure loader: a free-text query is NOT a search. It loads
+// nothing, returns an error steering to names[], and never activates tools.
 const listQueryResult = JSON.parse(__renderToolSearchForTest({ query: 'shell' }, toolSearchSession, 'full'));
-if (listQueryResult.selected) {
-  throw new Error(`tool_search plain query must not auto-load: ${JSON.stringify(listQueryResult.selected)}`);
+if (listQueryResult.selected || (Array.isArray(listQueryResult.loaded) && listQueryResult.loaded.length)) {
+  throw new Error(`load_tool free-text query must not load: ${JSON.stringify(listQueryResult)}`);
 }
-if (!listQueryResult.matches.some((row) => row.name === 'shell')) {
-  throw new Error(`tool_search plain query should list substring matches: ${JSON.stringify(listQueryResult.matches)}`);
+if (!listQueryResult.error || !/names/i.test(listQueryResult.error)) {
+  throw new Error(`load_tool free-text query must steer to names[]: ${JSON.stringify(listQueryResult)}`);
 }
 if (listQueryResult.activeTools.includes('shell') || (Array.isArray(listQueryResult.discoveredTools) && listQueryResult.discoveredTools.includes('shell'))) {
-  throw new Error(`tool_search plain query must not activate/discover tools: ${JSON.stringify(listQueryResult)}`);
+  throw new Error(`load_tool free-text query must not activate/discover tools: ${JSON.stringify(listQueryResult)}`);
+}
+// names[] is the primary loader input (aliases expand, tools activate).
+const namesLoadResult = JSON.parse(__renderToolSearchForTest({ names: ['shell', 'recall'] }, {
+  tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
+  deferredToolCatalog: smokeCatalog.slice(),
+  deferredSelectedTools: [...fullDefaults],
+}, 'full'));
+for (const name of ['shell', 'recall']) {
+  if (!namesLoadResult.activeTools.includes(name) || !namesLoadResult.loaded.includes(name)) {
+    throw new Error(`load_tool names[] must load ${name}: ${JSON.stringify(namesLoadResult)}`);
+  }
 }
 // query "select:a,b" is the explicit query-side loader (aliases expand).
 const bulkSelectResult = JSON.parse(__renderToolSearchForTest({ query: 'select:shell,recall' }, toolSearchSession, 'full'));

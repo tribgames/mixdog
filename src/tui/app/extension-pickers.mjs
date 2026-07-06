@@ -15,6 +15,7 @@ export function createExtensionPickers({
   clean,
   copyToClipboard,
   setPicker,
+  getPicker,
   setProviderPrompt,
   setChannelPrompt,
   setHookPrompt,
@@ -22,6 +23,12 @@ export function createExtensionPickers({
   getDisabledSkills,
   setDisabledSkills,
 }) {
+  // MCP toggle settle-guard state: bumped per toggle (epoch) and armed only
+  // while the MCP picker is on screen (see openMcpServersPicker). The live
+  // picker is read via getPicker() so a stale settle can also detect pickers
+  // opened outside this factory replacing the MCP one.
+  let mcpEpoch = 0;
+  let mcpActive = false;
   const mcpStatus = () => {
     let status;
     try {
@@ -37,6 +44,7 @@ export function createExtensionPickers({
     const status = mcpStatus();
     if (!status) return;
     const servers = status.servers || [];
+    const optimistic = options?.optimistic || null;
     const items = [];
     if (servers.length === 0) {
       items.push({
@@ -47,13 +55,16 @@ export function createExtensionPickers({
       });
     }
     for (const server of servers) {
-      const enabled = server.enabled !== false;
+      const pending = optimistic && optimistic.name === server.name;
+      const enabled = pending ? optimistic.enabled : server.enabled !== false;
       items.push({
         value: `server:${server.name}`,
         label: server.name,
         marker: enabled ? '●' : '○',
         markerColor: enabled ? theme.success : theme.inactive,
-        description: `${server.status || 'unknown'} · ${server.transport || 'unknown'} · ${server.toolCount || 0} tools${server.error ? ` · ${server.error}` : ''}`,
+        description: pending
+          ? `${optimistic.enabled ? 'enabling' : 'disabling'}… · ${server.transport || 'unknown'}`
+          : `${server.status || 'unknown'} · ${server.transport || 'unknown'} · ${server.toolCount || 0} tools${server.error ? ` · ${server.error}` : ''}`,
         _action: 'server',
         _server: server,
         _enabled: enabled,
@@ -65,11 +76,31 @@ export function createExtensionPickers({
     setSettingsPrompt(null);
     const toggleServer = (item) => {
       if (item._action !== 'server' || !item._server?.name) return;
-      void store.setMcpServerEnabled?.(item._server.name, !item._enabled)
-        .then(() => openMcpServersPicker({ highlightValue: `server:${item._server.name}` }))
-        .catch((e) => store.pushNotice(`mcp toggle failed: ${e?.message || e}`, 'error'));
+      const name = item._server.name;
+      const target = !item._enabled;
+      const highlightValue = `server:${name}`;
+      // A settle is only allowed to touch the UI if it is still the newest
+      // toggle (token === mcpEpoch) and the MCP picker is still on screen.
+      const token = ++mcpEpoch;
+      const settle = (fn) => {
+        if (token !== mcpEpoch || !mcpActive || getPicker?.()?._kind !== 'mcp-servers') return;
+        fn();
+      };
+      // Optimistic: instantly reopen with the row flipped + pending status.
+      openMcpServersPicker({ highlightValue, optimistic: { name, enabled: target } });
+      Promise.resolve(store.setMcpServerEnabled?.(name, target))
+        .then(() => {
+          // Per-server serialization in the runtime already converged rapid
+          // re-toggles to the last requested state; just refresh the row.
+          settle(() => openMcpServersPicker({ highlightValue }));
+        })
+        .catch((e) => {
+          store.pushNotice(`mcp toggle failed: ${e?.message || e}`, 'error');
+          settle(() => openMcpServersPicker({ highlightValue }));
+        });
     };
     setPicker({
+      _kind: 'mcp-servers',
       title: 'MCP servers',
       description: 'Enable or disable configured MCP servers.',
       initialIndex: Math.max(0, items.findIndex((entry) => entry.value === options?.highlightValue)),
@@ -78,9 +109,13 @@ export function createExtensionPickers({
       onLeft: (item) => toggleServer(item),
       onRight: (item) => toggleServer(item),
       onCancel: () => {
+        // Leaving the picker invalidates any in-flight settle.
+        mcpActive = false;
+        mcpEpoch++;
         setPicker(null);
       },
     });
+    mcpActive = true;
   };
 
   const openMcpPicker = () => {
@@ -141,9 +176,16 @@ export function createExtensionPickers({
   };
 
   const openSkillsPicker = (options = {}) => {
-    const status = skillsStatus();
-    if (!status) return;
-    const skills = status.skills || [];
+    // Reuse the skills list already fetched by the opening call when a toggle
+    // reopens the picker: avoids a store.skillsStatus() round-trip per keypress.
+    let skills;
+    if (Array.isArray(options.skills)) {
+      skills = options.skills;
+    } else {
+      const status = skillsStatus();
+      if (!status) return;
+      skills = status.skills || [];
+    }
     const disabledSet = options.disabledOverride instanceof Set ? options.disabledOverride : getDisabledSkills();
     const items = [];
     if (skills.length === 0) {
@@ -181,9 +223,10 @@ export function createExtensionPickers({
         `skill ${item._enabled ? 'disabled' : 'enabled'}: ${name} (prompt updates next session /clear)`,
         'info',
       );
-      openSkillsPicker({ highlightValue: name, disabledOverride: next });
+      openSkillsPicker({ highlightValue: name, disabledOverride: next, skills });
     };
     setPicker({
+      _kind: 'skills',
       title: 'Skills',
       description: 'Enable or disable project skills.',
       initialIndex: Math.max(0, items.findIndex((entry) => entry.value === options.highlightValue)),
@@ -482,6 +525,7 @@ export function createExtensionPickers({
       }
     };
     setPicker({
+      _kind: 'hooks',
       title: 'Hooks',
       description: 'Before-tool hook rules; Enter toggles a rule.',
       items,

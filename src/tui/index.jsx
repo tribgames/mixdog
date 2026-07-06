@@ -10,19 +10,35 @@ import { closeSync, constants as fsConstants, createWriteStream, mkdirSync, open
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { format } from 'node:util';
 import { App } from './App.jsx';
 import { createEngineSession } from './engine.mjs';
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
-import { touchUiHeartbeat } from '../runtime/channels/lib/runtime-paths.mjs';
 import { emitTerminalBackground, loadThemeSettingFromConfig, theme } from './theme.mjs';
+import { loadMouseModeFromConfig, getMouseModeSetting, setMouseModeSetting } from './mouse-mode.mjs';
 import { POP_KITTY, DISABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
 import { displayWidth } from './display-width.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
 
-const TERMINAL_MODE_RESET = '\x1b[?1006l\x1b[?1005l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[?25h';
+// Trailing `\x1b[>0s` restores XTSHIFTESCAPE (shift-to-select-extend) to its
+// terminal default; MOUSE_TRACKING_ON opts into `\x1b[>1s`, so every mouse/alt
+// screen teardown that emits this reset also undoes that opt-in.
+const TERMINAL_MODE_RESET = '\x1b[?1006l\x1b[?1005l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[>0s\x1b[?25h';
 const TERMINAL_OSC_RESET_BG = '\x1b]111\x07';
 const TERMINAL_MODE_RESET_HIDDEN_CURSOR = TERMINAL_MODE_RESET.replace('\x1b[?25h', '\x1b[?25l');
-const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
+// Trailing `\x1b[>1s` is XTSHIFTESCAPE: terminals that support it forward
+// shift+click/drag to the app so our shift-extend selection paths work.
+// Windows Terminal half-honors it — it forwards the shift events AND still
+// paints its own native selection, so the user sees two overlapping
+// highlights. Gate on WT_SESSION: in WT shift stays fully native (single
+// highlight, native copy); ctrl+click/right-click remain the app-side
+// extend triggers there. Restored via `\x1b[>0s` in TERMINAL_MODE_RESET.
+const XTSHIFTESCAPE_ON = process.env.WT_SESSION ? '' : '\x1b[>1s';
+const MOUSE_TRACKING_ON = `\x1b[?1000h\x1b[?1002h\x1b[?1006h${XTSHIFTESCAPE_ON}`;
+// Alternate-scroll (DECSET 1007): in native mode we keep this ON so Windows
+// Terminal converts wheel notches into arrow bursts that the native scroll
+// router hands to the transcript (mouse tracking itself stays off).
+const ALT_SCROLL_ON = '\x1b[?1007h';
 // Keyboard-protocol teardown. App.jsx enables kitty + modifyOtherKeys
 // synchronously at raw-mode-on (no query); here we just pop/disable them on
 // exit. POP_KITTY / DISABLE_MODIFY_OTHER_KEYS come from keyboard-protocol.mjs.
@@ -366,6 +382,36 @@ function installTuiStderrGuard() {
   };
 }
 
+/**
+ * Route console.* to the guarded stderr (→ mixdog-tui.stderr.log) while the
+ * fullscreen TUI owns the terminal, and mount ink with patchConsole:false.
+ *
+ * Why: ink's patchConsole path (writeToStdout/writeToStderr) handles an
+ * intercepted console line by erasing the whole frame (log.clear()), writing
+ * the line, then re-writing the last frame RELATIVE to the cursor. On a
+ * fullscreen alt-screen frame that relative rewrite overflows the bottom row
+ * by exactly the stray line's height, so the terminal scrolls one line and
+ * the next incremental frame snaps it back — the visible "+1 line / -1 line"
+ * bounce during streaming (reproduced in a VT harness: one console.log mid-
+ * stream = scrollDelta 1, with or without the spinner). The stray text itself
+ * was already invisible (stderr guard files it), so the only user-visible
+ * effect of the whole dance WAS the bounce. Routing console output straight
+ * to the guarded stderr keeps the diagnostics AND skips ink's repaint dance.
+ */
+function installTuiConsoleGuard() {
+  const methods = ['log', 'info', 'warn', 'error', 'debug', 'trace'];
+  const original = new Map();
+  for (const m of methods) {
+    original.set(m, console[m]);
+    console[m] = (...args) => {
+      try { process.stderr.write(`[console.${m}] ${format(...args)}\n`); } catch { /* ignore */ }
+    };
+  }
+  return () => {
+    for (const [m, fn] of original) console[m] = fn;
+  };
+}
+
 export async function runTui({ provider, model, toolMode, remote, forceOnboarding } = {}) {
   const startedAt = performance.now();
   bootProfile('run:start', { provider, model, toolMode, remote });
@@ -380,6 +426,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
   }
 
   const restoreStderr = installTuiStderrGuard();
+  const restoreConsole = installTuiConsoleGuard();
   const stopPerfProbe = installTuiPerfProbe();
   const stopLoopProbe = installTuiLoopProbe();
   const restorePrimedInput = () => drainStdin(process.stdin);
@@ -438,6 +485,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     stopLoopProbe();
     restoreTerminal();
     try { process.off('exit', restoreTerminal); } catch { /* ignore */ }
+    restoreConsole();
     restoreStderr();
     process.stderr.write(`mixdog: ${error?.message || error}\n`);
     return 1;
@@ -446,13 +494,21 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
   // between (or after) ink's first frames.
   splash.stop();
 
-  // Keep mouse handling app-owned by default: native terminal selections are
-  // cleared by the fullscreen redraws that happen while a turn streams. Users
-  // who prefer their terminal's native mouse behavior can opt out with
-  // MIXDOG_TUI_MOUSE=0.
-  const mouseTracking = !/^(0|false|no|off)$/i.test(String(process.env.MIXDOG_TUI_MOUSE || '1'));
-  if (mouseTracking) {
+  // Mouse handling defaults to app-owned (native terminal selections are wiped
+  // by the fullscreen redraws that happen while a turn streams). Resolution:
+  //   1. honor the persisted ui.mouseMode (runtime /mouse toggle),
+  //   2. an explicit MIXDOG_TUI_MOUSE env overrides it (0/off ⇒ native).
+  // App mode enables SGR mouse tracking; native mode only arms alternate-scroll
+  // so the wheel still reaches the transcript while the terminal owns selection.
+  try { await loadMouseModeFromConfig(); } catch { /* default app stays */ }
+  const envMouse = process.env.MIXDOG_TUI_MOUSE;
+  if (envMouse != null && String(envMouse).length > 0) {
+    setMouseModeSetting(/^(0|false|no|off)$/i.test(String(envMouse)) ? 'native' : 'app', { persist: false });
+  }
+  if (getMouseModeSetting() === 'app') {
     process.stdout.write(MOUSE_TRACKING_ON);
+  } else {
+    process.stdout.write(ALT_SCROLL_ON);
   }
   let storeDisposed = false;
   const disposeStoreOnce = async (reason = 'cli-react-exit') => {
@@ -469,21 +525,10 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     afterCleanup: (reason) => {
       restoreTerminal();
       dumpActiveHandles(`after-${reason}`);
+      restoreConsole();
       restoreStderr();
     },
   });
-
-  // Zombie-Lead repro (2026-07-02): the render loop can wedge (all owning
-  // PIDs still alive) leaving active-instance.json's pid-only staleness
-  // check unable to detect it. Heartbeat every 30s so runtime-paths.mjs can
-  // fall back to a ui_heartbeat_at staleness check when pids look fine.
-  // Best-effort: a failed/late write just means the next tick catches up,
-  // and the timer is unref'd so it never keeps the process alive on its own.
-  const uiHeartbeatTimer = setInterval(() => {
-    try { touchUiHeartbeat(); } catch { /* ignore */ }
-  }, 30_000);
-  if (typeof uiHeartbeatTimer.unref === 'function') uiHeartbeatTimer.unref();
-  try { touchUiHeartbeat(); } catch { /* ignore */ }
 
   // Zombie-Lead repro (2026-07-02): stdio can die (TTY hangup, EPIPE on a
   // detached/piped stdout) without the process ever receiving SIGHUP/SIGTERM,
@@ -527,9 +572,19 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     // [render] incrementalRendering: line-diff repaint (only changed rows are
     // rewritten) instead of erase-all+rewrite per frame — removes the whole-
     // frame flash on surface transitions and slash palette open/close.
-    const instance = render(<App store={store} forceOnboarding={forceOnboarding === true} />, { exitOnCtrlC: false, maxFps: 60, incrementalRendering: true, onRender: makeRenderProfiler() });
+    // patchConsole:false — console.* is already routed to the stderr log by
+    // installTuiConsoleGuard above. Letting ink intercept it instead triggers
+    // its clear-frame → write → relative re-render dance, which scrolls the
+    // alt screen one line per stray console line (the streaming newline
+    // bounce). See installTuiConsoleGuard.
+    const instance = render(<App store={store} forceOnboarding={forceOnboarding === true} />, { exitOnCtrlC: false, maxFps: 60, incrementalRendering: true, patchConsole: false, onRender: makeRenderProfiler() });
     bootProfile('render:mounted', { ms: (performance.now() - startedAt).toFixed(1) });
     const { waitUntilExit } = instance;
+    // Selection-capability setters are wired unconditionally: the mouse mode is
+    // runtime-toggleable (/mouse), so switching to 'app' after a native start
+    // must find these hookups already present. They are inert while native mode
+    // holds — the app mouse handler no-ops there.
+    const mouseTracking = true;
     // [mixdog fork] Hand the ink renderer's drag-selection setter to the store so
     // App's mouse handler can push selection rectangles (absolute terminal cells)
     // that ink paints as an inverse highlight. render() returns synchronously
@@ -550,11 +605,17 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     if (mouseTracking && typeof instance.getSelectionRows === 'function') {
       store.getRenderSelectionRows = instance.getSelectionRows;
     }
+    // [mixdog] One-shot full clear+repaint. The app's mouse handler fires it on
+    // every button press under Windows Terminal to dismiss WT's persistent
+    // NATIVE (shift+drag) selection overlay, which survives incremental
+    // repaints and would otherwise sit on top of the app-drawn selection.
+    if (mouseTracking && typeof instance.forceFullRepaint === 'function') {
+      store.forceRenderRepaint = instance.forceFullRepaint;
+    }
     await waitUntilExit();
   } finally {
     stopPerfProbe();
     stopLoopProbe();
-    clearInterval(uiHeartbeatTimer);
     for (const [stream, event, handler] of stdioDeathListeners.splice(0)) {
       try { stream.off(event, handler); } catch { /* ignore */ }
     }
@@ -566,6 +627,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     }
     restoreTerminal();
     dumpActiveHandles('after-restore');
+    restoreConsole();
     restoreStderr();
   }
   scheduleHardExit(0);

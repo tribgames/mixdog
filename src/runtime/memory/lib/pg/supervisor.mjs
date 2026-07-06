@@ -182,21 +182,82 @@ const _RUNTIME_ROOT = process.env.MIXDOG_RUNTIME_ROOT
   : join(tmpdir(), 'mixdog');
 const _ACTIVE_FILE = join(_RUNTIME_ROOT, 'active-instance.json');
 
-function patchActiveInstance(fields) {
+// Lock contention codes thrown by withFileLockSync when the active-instance
+// lock cannot be acquired within timeoutMs (or try-once contention).
+const _LOCK_CONTENTION_CODES = new Set(['ELOCKTIMEOUT', 'ELOCKCONTENDED']);
+
+function _applyActiveInstancePatch(fields, timeoutMs) {
+  updateJsonAtomicSync(_ACTIVE_FILE, (curRaw) => {
+    // Drop stale fields (pid/startedAt) written by older server versions.
+    const { pid: _legacyPid, startedAt: _legacyStartedAt, ...cur } = curRaw ?? {};
+    // Omit null-valued fields (clean removal when pg is stopped).
+    const merged = { ...cur, updatedAt: Date.now() };
+    for (const [k, v] of Object.entries(fields)) {
+      if (v == null) delete merged[k];
+      else merged[k] = v;
+    }
+    return merged;
+  }, { compact: true, fsyncDir: true, renameFallback: 'truncate', timeoutMs });
+}
+
+// Single module-level background-retry slot: a delayed retry must NEVER replay
+// stale `fields` over newer state (e.g. a stale clear deleting a fresh pg_port,
+// or a stale start resurrecting pg_port after shutdown). Every patch bumps the
+// generation and cancels any pending chain, so only the newest fields replay.
+let _patchGeneration = 0;
+let _pendingPatchRetry = null; // { timer, generation }
+
+function _cancelPendingPatchRetry() {
+  if (_pendingPatchRetry) {
+    try { clearTimeout(_pendingPatchRetry.timer); } catch {}
+    _pendingPatchRetry = null;
+  }
+}
+
+function _tryPatchInBackground(fields, timeoutMs, generation, attempt) {
+  // A newer patch has superseded this chain — abandon (last write wins).
+  if (generation !== _patchGeneration) return;
   try {
-    updateJsonAtomicSync(_ACTIVE_FILE, (curRaw) => {
-      // Drop stale fields (pid/startedAt) written by older server versions.
-      const { pid: _legacyPid, startedAt: _legacyStartedAt, ...cur } = curRaw ?? {};
-      // Omit null-valued fields (clean removal when pg is stopped).
-      const merged = { ...cur, updatedAt: Date.now() };
-      for (const [k, v] of Object.entries(fields)) {
-        if (v == null) delete merged[k];
-        else merged[k] = v;
-      }
-      return merged;
-    }, { compact: true, fsyncDir: true, renameFallback: 'truncate' });
+    _applyActiveInstancePatch(fields, timeoutMs);
+    if (_pendingPatchRetry?.generation === generation) _pendingPatchRetry = null;
   } catch (e) {
+    if (_LOCK_CONTENTION_CODES.has(e?.code) && attempt < 5) {
+      const delay = Math.min(2000, 100 * 2 ** attempt);
+      const timer = setTimeout(
+        () => _tryPatchInBackground(fields, timeoutMs, generation, attempt + 1),
+        delay,
+      );
+      timer.unref?.();
+      _pendingPatchRetry = { timer, generation };
+      return;
+    }
+    if (_pendingPatchRetry?.generation === generation) _pendingPatchRetry = null;
     __mixdogMemoryLog(`[supervisor-pg] patchActiveInstance failed: ${e?.message}\n`);
+  }
+}
+
+// Boot-path advertise writes (pg_port et al.) must never serially block init on
+// the 8s default lock wait. Callers pass { timeoutMs, background, syncRetries }:
+//   background:true  — short lock timeout; on contention schedule unref'd,
+//                      backed-off, bounded bg retries of the NEWEST fields only.
+//   background:false — synchronous best-effort with `syncRetries` extra sync
+//                      attempts on lock timeout (shutdown clear path).
+function patchActiveInstance(fields, opts = {}) {
+  const { timeoutMs = 8000, background = false, syncRetries = 0 } = opts;
+  // Supersede any in-flight background retry: last write wins per process.
+  _patchGeneration++;
+  _cancelPendingPatchRetry();
+  if (background) {
+    _tryPatchInBackground(fields, timeoutMs, _patchGeneration, 0);
+    return;
+  }
+  for (let i = 0; ; i++) {
+    try { _applyActiveInstancePatch(fields, timeoutMs); return; }
+    catch (e) {
+      if (_LOCK_CONTENTION_CODES.has(e?.code) && i < syncRetries) continue;
+      __mixdogMemoryLog(`[supervisor-pg] patchActiveInstance failed: ${e?.message}\n`);
+      return;
+    }
   }
 }
 
@@ -276,7 +337,7 @@ async function _startFresh(dataDir, pgdata, port, runtimeDir) {
   patchActiveInstance({
     pg_port: actualPort, pg_started_at: Date.now(),
     pg_pgdata: pgdata, pg_runtime_dir: runtimeDir,
-  });
+  }, { timeoutMs: 1000, background: true });
   __mixdogMemoryLog(`[supervisor-pg] ${proc?.attached ? 'attached to' : 'started'} PG port=${actualPort} pgdata=${pgdata}\n`);
   return { host: '127.0.0.1', port: actualPort, runtimeDir, pgdataDir };
 }
@@ -314,7 +375,7 @@ async function tryReusePgInstance({ pgdata, runtimeDir, healthcheckPg, source = 
           pg_started_at: ai?.pg_started_at ?? Date.now(),
           pg_pgdata: pgdata,
           pg_runtime_dir: runtimeDir,
-        });
+        }, { timeoutMs: 1000, background: true });
         return { host: '127.0.0.1', port: pm.port, runtimeDir, pgdataDir: pgdata };
       }
     } catch {}
@@ -429,7 +490,7 @@ async function _doEnsure(dataDir) {
         try { unlinkSync(join(pgdata, 'postmaster.pid')); } catch {}
       }
       // Clear stale pg fields before restart
-      patchActiveInstance({ pg_port: null, pg_started_at: null, pg_pgdata: null });
+      patchActiveInstance({ pg_port: null, pg_started_at: null, pg_pgdata: null }, { timeoutMs: 1000, background: true });
     }
 
     // ── Allocate a fresh port and spawn ───────────────────────────────────
@@ -490,7 +551,9 @@ export async function stopPgForShutdown() {
     } catch (e) {
       __mixdogMemoryLog(`[supervisor-pg] stopPg error on shutdown (no _live): ${e?.message}\n`);
     }
-    patchActiveInstance({ pg_port: null, pg_started_at: null, pg_pgdata: null, pg_runtime_dir: null });
+    // Bounded sync clear (<=4s: 2s + one 2s retry). A residual stale pg_port is
+    // tolerated — readers healthcheck-verify the port before reuse.
+    patchActiveInstance({ pg_port: null, pg_started_at: null, pg_pgdata: null, pg_runtime_dir: null }, { timeoutMs: 2000, syncRetries: 1 });
     return;
   }
   const snap = _live;
@@ -503,5 +566,7 @@ export async function stopPgForShutdown() {
   } catch (e) {
     __mixdogMemoryLog(`[supervisor-pg] stopPg error on shutdown: ${e?.message}\n`);
   }
-  patchActiveInstance({ pg_port: null, pg_started_at: null, pg_pgdata: null, pg_runtime_dir: null });
+  // Bounded sync clear (<=4s: 2s + one 2s retry). A residual stale pg_port is
+  // tolerated — readers healthcheck-verify the port before reuse.
+  patchActiveInstance({ pg_port: null, pg_started_at: null, pg_pgdata: null, pg_runtime_dir: null }, { timeoutMs: 2000, syncRetries: 1 });
 }

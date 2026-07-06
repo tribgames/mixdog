@@ -9,6 +9,7 @@
  * malformed argument objects (the engine hands us `{ name, arguments, id }`).
  */
 import { bold, cyan, gray } from './ansi.mjs';
+import { parseMcpToolName, isSelfMcpToolName } from '../runtime/shared/tool-primitives.mjs';
 
 const MAX_SUMMARY = 72;
 
@@ -38,12 +39,18 @@ export function renderToolCard(call) {
 
   const summary = safeSummary(name, args);
   const bullet = cyan('>');
-  const label = bold(name);
+  const label = bold(mcpCardLabel(name));
   if (!summary) return `  ${bullet} ${label}`;
   return `  ${bullet} ${label} ${gray(truncate(summary, MAX_SUMMARY))}`;
 }
 
 // --- helpers -----------------------------------------------------------------
+
+function mcpCardLabel(name) {
+  const mcp = parseMcpToolName(name);
+  if (!mcp || isSelfMcpToolName(name)) return name;
+  return `MCP ${mcp.server}.${mcp.tool}`;
+}
 
 function safeSummary(name, args) {
   try {

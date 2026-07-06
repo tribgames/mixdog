@@ -17,6 +17,9 @@ const CHANNEL_TOOLS = new Set([
   // Lead-only runtime plumbing (bridge-claim on start, config hot-reload).
   'activate_channel_bridge',
   'reload_config',
+  // Lead-pushed transcript repoint (auto-acquire / newSession / resume /
+  // clear). Not model-facing; internal Lead-only runtime plumbing.
+  'rebind_current_transcript',
 ]);
 
 const WORKER_PRELOAD = fileURLToPath(new URL('./channel-worker-preload.cjs', import.meta.url));

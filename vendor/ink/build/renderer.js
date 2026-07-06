@@ -42,13 +42,16 @@ const renderer = (node, isScreenReaderEnabled, selection) => {
                 skipStaticElements: false,
             });
         }
-        const { output: generatedOutput, height: outputHeight, cursor, selectedText, plainRows } = output.get();
+        const { output: generatedOutput, height: outputHeight, cursor, selectedText, plainRows, selectionRows } = output.get();
         return {
             output: generatedOutput,
             outputHeight,
             cursor, // [mixdog fork] absolute cursor cell from the anchored input node, or null
             selectedText, // [mixdog fork] text inside the drag-selection, or null
             plainRows, // [mixdog fork] column-indexed cell values per row for word lookup
+            selectionRows, // [mixdog fork] per-row {y,text} selection harvest; ink.js caches
+            // it for getSelectionRows() so the app stitch harvest can reach rows
+            // that scrolled out of the viewport. Was dropped here → always null.
             // Newline at the end is needed, because static output doesn't have one, so
             // interactive output will override last line of static output
             staticOutput: staticOutput ? `${staticOutput.get().output}\n` : '',

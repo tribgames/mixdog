@@ -74,6 +74,39 @@ function recallMemoryTimeoutMs(session) {
     // misconfigured tiny value can't turn the bound into a busy no-wait.
     return Math.max(250, configured || RECALL_MEMORY_CALL_TIMEOUT_MS);
 }
+// Cold-start allowance (clear/manual path only): a booting memory daemon can
+// miss the tight first bound (waitForPort + first-RPC warmup ~2-10s). On a
+// timeout we retry ONCE with a longer bound before honoring the bail-to-
+// semantic contract, so a rebooting runtime succeeds instead of instantly
+// failing. Non-timeout errors and outer aborts propagate immediately.
+// 15s: memory boot is ~2-4s warm-cache / ~10s worst since the PG fast-start
+// fix; keeping this tight bounds the clear path's worst case (2 memory calls
+// retried + 120s semantic) under the TUI auto-clear watchdog (180s).
+const RECALL_COLD_START_TIMEOUT_MS = 15_000;
+function isTimeoutError(err) {
+    return typeof err?.message === 'string' && err.message.includes('timed out after');
+}
+async function callMemoryColdStart(args, callerCtx, timeoutMs) {
+    try {
+        return await callMemoryBounded(args, callerCtx, timeoutMs);
+    } catch (err) {
+        if (!isTimeoutError(err) || callerCtx?.signal?.aborted) throw err;
+        const coldMs = Math.max(timeoutMs, RECALL_COLD_START_TIMEOUT_MS);
+        if (coldMs <= timeoutMs) throw err;
+        try { process.stderr.write(`[session] recall-fasttrack ${args?.action || 'call'} cold-start retry (${timeoutMs}ms -> ${coldMs}ms)\n`); } catch {}
+        return await callMemoryBounded(args, callerCtx, coldMs);
+    }
+}
+// Semantic-compact timeout scales with transcript size (clear/manual path):
+// default max(30s, ~10s per 25k estimated message tokens) capped at 120s, so a
+// large (~100k-token) transcript no longer dies on a fixed 30s bound.
+// session.compaction.timeoutMs still overrides.
+function semanticCompactTimeoutMs(session, messageTokens) {
+    const override = positiveContextWindow(session?.compaction?.timeoutMs);
+    if (override) return override;
+    const scaled = Math.ceil((messageTokens || 0) / 25_000) * 10_000;
+    return Math.min(120_000, Math.max(30_000, scaled));
+}
 async function callMemoryBounded(args, callerCtx, timeoutMs) {
     const ac = new AbortController();
     const outer = callerCtx?.signal;
@@ -118,7 +151,7 @@ async function runRecallFastTrackForSession(session, messages, opts = {}) {
         || Math.max(500, Math.min(5000, messages.length || 0));
     const memoryTimeoutMs = recallMemoryTimeoutMs(session);
     try {
-        await callMemoryBounded({
+        await callMemoryColdStart({
             action: 'ingest_session',
             sessionId,
             messages,
@@ -140,7 +173,7 @@ async function runRecallFastTrackForSession(session, messages, opts = {}) {
     // digest.
     let recallText = '';
     try {
-        const browsed = await callMemoryBounded({
+        const browsed = await callMemoryColdStart({
             action: 'search',
             sessionId,
             limit: positiveContextWindow(session?.compaction?.recallDigestLimit) || 30,
@@ -298,7 +331,7 @@ export async function runSessionCompaction(session, opts = {}) {
                             signal: opts.signal || null,
                             promptCacheKey: session.promptCacheKey || null,
                             providerCacheKey: session.promptCacheKey || null,
-                            timeoutMs: positiveContextWindow(session.compaction?.timeoutMs) || 30_000,
+                            timeoutMs: semanticCompactTimeoutMs(session, beforeMessageTokens),
                             tailTurns: positiveContextWindow(session.compaction?.tailTurns) || 2,
                             keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
                             preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
@@ -341,7 +374,7 @@ export async function runSessionCompaction(session, opts = {}) {
                     signal: opts.signal || null,
                     promptCacheKey: session.promptCacheKey || null,
                     providerCacheKey: session.promptCacheKey || null,
-                    timeoutMs: positiveContextWindow(session.compaction?.timeoutMs) || 30_000,
+                    timeoutMs: semanticCompactTimeoutMs(session, beforeMessageTokens),
                     tailTurns: positiveContextWindow(session.compaction?.tailTurns) || 2,
                     keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
                     preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),

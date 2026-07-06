@@ -16,6 +16,7 @@ export function createSettingsApi({
   adoptConfig,
   saveConfigAndAdopt,
   scheduleBackendSave,
+  scheduleSkillsSave,
   // normalizers / helpers
   cfgMod,
   hasOwn,
@@ -139,8 +140,14 @@ export function createSettingsApi({
       const names = disabled instanceof Set
         ? [...disabled]
         : (Array.isArray(disabled) ? disabled : []);
-      const nextSkills = cfgMod.patchSkillsDisabled(names);
+      // Adopt in-memory synchronously so getDisabledSkills reflects the new
+      // value on the same tick (matches normalizeSkillsConfig({ disabled })
+      // used by patchSkillsDisabled). Defer the heavy in-lock file RMW through
+      // the skills debounce channel so the settings-toggle key handler does not
+      // hitch on a synchronous disk write.
+      const nextSkills = cfgMod.normalizeSkillsConfig({ disabled: names });
       adoptConfig({ ...getConfig(), skills: nextSkills });
+      scheduleSkillsSave(names);
       return this.getDisabledSkills();
     },
     setProfile(input = {}) {

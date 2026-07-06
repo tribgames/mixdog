@@ -107,7 +107,9 @@ export function toOpenAITools(tools) {
 
 export function toResponsesTools(tools) {
     return tools.map((t) => {
-        if (t?.name === 'tool_search') {
+        // load_tool advertises as the OpenAI-native `tool_search` wire type
+        // (legacy 'tool_search' name still accepted for back-compat).
+        if (t?.name === 'load_tool' || t?.name === 'tool_search') {
             return {
                 type: 'tool_search',
                 execution: 'client',
@@ -193,7 +195,7 @@ export function parseResponsesToolCalls(response, label) {
                 : parseCompletedToolCallArgumentsJson(item.arguments || '{}', label, { id: item.call_id || item.id, name: 'tool_search', finishReason });
             out.push({
                 id: item.call_id || item.id,
-                name: 'tool_search',
+                name: 'load_tool',
                 // Schema is a plain object ({query,select,limit}); an array
                 // (parsed JSON or passthrough) must never pass through as args.
                 arguments: (_tsArgs && typeof _tsArgs === 'object' && !Array.isArray(_tsArgs)) ? _tsArgs : {},
@@ -294,7 +296,7 @@ export function toResponsesInputMessage(m, pendingToolMedia = null, customToolCa
         const items = [];
         if (m.content) items.push({ role: 'assistant', content: normalizeContentForOpenAIResponses(m.content, { role: 'assistant' }) });
         for (const tc of m.toolCalls) {
-            if (tc.nativeType === 'tool_search_call' || tc.name === 'tool_search') {
+            if (tc.nativeType === 'tool_search_call' || tc.name === 'load_tool' || tc.name === 'tool_search') {
                 items.push({
                     type: 'tool_search_call',
                     call_id: tc.id,

@@ -343,27 +343,30 @@ function cachedQuotaWindowsFallback(provider, model) {
   // OAuth quota is provider/account-scoped, not model-scoped. Prefer the
   // current route key, then provider-wide cache, then the freshest same-provider
   // route entry so a model switch keeps showing quota before the next live fetch.
-  if (!provider || !model) return [];
+  // Returns the chosen entry's cachedAt alongside the windows so the caller can
+  // apply monotonic hysteresis (never displace a displayed value with an older
+  // shared-cache snapshot written by a different instance).
+  if (!provider || !model) return { quotaWindows: [], cachedAt: 0 };
   try {
     const cachePath = path.join(pluginDataDir(), 'gateway-oauth-usage-cache.json');
     const cache = readJson(cachePath);
     const routes = cache && typeof cache.routes === 'object' ? cache.routes : null;
-    if (!routes) return [];
+    if (!routes) return { quotaWindows: [], cachedAt: 0 };
     const routeKey = `${String(provider).toLowerCase()}${String(model)}`;
     const providerOnlyKey = String(provider).toLowerCase();
     const routePrefix = `${providerOnlyKey}`;
     const entry = routes[routeKey] || routes[providerOnlyKey] || Object.entries(routes)
       .filter(([key, value]) => key.startsWith(routePrefix) && Array.isArray(value?.quotaWindows))
       .sort((a, b) => (Number(b[1]?.cachedAt) || 0) - (Number(a[1]?.cachedAt) || 0))[0]?.[1];
-    if (!Array.isArray(entry?.quotaWindows)) return [];
+    if (!Array.isArray(entry?.quotaWindows)) return { quotaWindows: [], cachedAt: 0 };
     // Boot guard: do not render previous-launch usage before the current runtime
     // has captured at least one snapshot. Once captured in this process, hold it
     // instead of blanking it during idle/network gaps.
     const cachedAt = Number(entry.cachedAt);
-    if (!Number.isFinite(cachedAt) || cachedAt < STATUSLINE_PROCESS_STARTED_AT_MS) return [];
-    return entry.quotaWindows;
+    if (!Number.isFinite(cachedAt) || cachedAt < STATUSLINE_PROCESS_STARTED_AT_MS) return { quotaWindows: [], cachedAt: 0 };
+    return { quotaWindows: entry.quotaWindows, cachedAt };
   } catch {
-    return [];
+    return { quotaWindows: [], cachedAt: 0 };
   }
 }
 
@@ -499,11 +502,18 @@ function configuredGatewayStatus(options = {}) {
 
 export function loadGatewayStatus(options = {}) {
   const configured = configuredGatewayStatus(options);
+  const quotaFallback = configured
+    ? cachedQuotaWindowsFallback(configured.provider, configured.model)
+    : { quotaWindows: [], cachedAt: 0 };
   const configuredStatus = configured ? {
     ...configured,
     contextUsedPct: pctOf(options.activeContextTokens, compactBoundaryForStatus(configured)),
     lastUsage: null,
-    quotaWindows: cachedQuotaWindowsFallback(configured.provider, configured.model),
+    quotaWindows: quotaFallback.quotaWindows,
+    // Shared provider-wide cache snapshot: not owned by this instance. asOf is
+    // the cache entry's cachedAt so an older snapshot can be rejected downstream.
+    quotaWindowsAsOf: num(quotaFallback.cachedAt, 0),
+    quotaWindowsOwned: false,
     balance: null,
     routeSpend: null,
   } : null;
@@ -609,6 +619,12 @@ export function loadGatewayStatus(options = {}) {
       : null,
     lastUsage,
     quotaWindows: activeQuotaWindows.length ? activeQuotaWindows : (configuredStatus?.quotaWindows || []),
+    // Provenance for monotonic hysteresis: live active-instance windows are
+    // own-instance data timestamped by the advert's updatedAt; otherwise inherit
+    // the shared-cache fallback's (unowned) asOf. Older/unowned snapshots must
+    // not displace a value already rendered from newer/owned data.
+    quotaWindowsAsOf: activeQuotaWindows.length ? (updatedAt || 0) : num(configuredStatus?.quotaWindowsAsOf, 0),
+    quotaWindowsOwned: activeQuotaWindows.length ? metricsMatch : false,
     balance: metricsMatch && active.gateway_balance && typeof active.gateway_balance === 'object' ? active.gateway_balance : (configuredStatus?.balance || null),
     routeSpend: metricsMatch && active.gateway_route_spend && typeof active.gateway_route_spend === 'object' ? active.gateway_route_spend : (configuredStatus?.routeSpend || null),
     providerKind: statusProviderKind,

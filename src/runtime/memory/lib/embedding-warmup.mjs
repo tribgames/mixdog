@@ -16,11 +16,16 @@ export function createEmbeddingWarmup({
   log = () => {},
 }) {
   let _pending = null
+  // Fired latch: an init() retry after the early (PG-wait-edge) fire must not
+  // re-schedule and run the warmup twice (double ONNX session create +
+  // double embedding-meta persist). reset() clears it for true re-inits.
+  let _fired = false
 
   // Queue the warmup; fireDeferred() runs it once boot completes. Re-queuing
   // overwrites any prior pending closure (matches the original single-slot
   // module var). MIXDOG_EMBED_WARMUP=0 (checked via canStart) disables it.
   function schedule(metaPath, metaKey) {
+    if (_fired) return
     if (!canStart()) {
       // Silent skip here previously made "warmup never ran" boots
       // indistinguishable from failed warmups. One line, boot-edge only.
@@ -50,11 +55,13 @@ export function createEmbeddingWarmup({
     const fire = _pending
     if (!fire) return
     _pending = null
+    _fired = true
     fire()
   }
 
   function reset() {
     _pending = null
+    _fired = false
   }
 
   return { schedule, fireDeferred, reset }

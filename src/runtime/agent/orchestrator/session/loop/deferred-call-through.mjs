@@ -1,7 +1,7 @@
 // Deferred catalog call-through: inactive catalog tool_use → discovery bookkeeping
 // then normal executeTool routing (runtime errors only; no pre-dispatch schema).
 import { clean } from '../../../../../session-runtime/session-text.mjs';
-import { isReadonlySelectable, selectDeferredTools } from '../../../../../session-runtime/tool-catalog.mjs';
+import { deferredCatalogUnion, isReadonlySelectable, selectDeferredTools } from '../../../../../session-runtime/tool-catalog.mjs';
 
 /** Skill-list plumbing only; mutation/MCP/builtins must use the catalog+mode gate. */
 const INACTIVE_INFRA_BYPASS = new Set(['skills_list', 'skill_view']);
@@ -13,7 +13,10 @@ function isActiveSessionTool(session, name) {
 }
 
 function lookupDeferredCatalogTool(session, name) {
-    const catalog = Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : [];
+    // Union of the boot-frozen catalog and the late-connected MCP catalog so a
+    // direct call to a tool whose server connected after boot resolves and
+    // auto-loads (selectDeferredTools promotes it onto session.tools).
+    const catalog = deferredCatalogUnion(session);
     const key = clean(name);
     if (!key) return null;
     for (const tool of catalog) {
@@ -66,7 +69,7 @@ export function prepareDeferredToolCallThrough(sessionRef, name, _args) {
     if (resolvedMode === null) {
         if (!isReadonlySelectable(tool)) {
             return denyDeferredCallThrough(
-                `Error: tool "${toolLabel}" is deferred and cannot be auto-loaded without a resolved tool mode; use tool_search or load it explicitly.`,
+                `Error: tool "${toolLabel}" is deferred and cannot be auto-loaded without a resolved tool mode; load it with load_tool names:["${toolLabel}"].`,
             );
         }
     } else if (resolvedMode === 'readonly' && !isReadonlySelectable(tool)) {

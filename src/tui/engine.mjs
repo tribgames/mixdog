@@ -21,6 +21,7 @@ import {
   isModelVisibleToolCompletionWrapper,
   isLikelyToolCompletionWrapper,
 } from '../runtime/shared/tool-execution-contract.mjs';
+import { isLateToolAnnouncement, summarizeLateToolAnnouncement } from '../session-runtime/session-text.mjs';
 import { presentErrorText } from '../runtime/shared/err-text.mjs';
 import { listThemes, getThemeSetting, setThemeSetting } from './theme.mjs';
 import { resetAllStreamingMarkdownStablePrefixes } from './markdown/streaming-markdown.mjs';
@@ -386,6 +387,13 @@ export async function createEngineSession({
     // detector only, same as before this change.
     if (origin === 'injected' && isLikelyToolCompletionWrapper(text)) return;
     if (isModelVisibleToolCompletionWrapper(text)) return;
+    // Late-MCP deferred-tool announcement (model-visible <system-reminder>):
+    // keep it in model context, but never render the raw block here. Collapse
+    // to one muted notice line, e.g. "MCP tools available: UnityMCP (12 tools)".
+    if (isLateToolAnnouncement(text)) {
+      pushItem({ kind: 'notice', id, text: summarizeLateToolAnnouncement(text), tone: 'info' });
+      return;
+    }
     if (upsertSyntheticToolItem(text, id)) return;
     pushItem({ kind: 'user', id, text });
   };

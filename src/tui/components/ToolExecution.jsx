@@ -456,7 +456,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   labelText = safeInlineText(labelText);
   // Show the parenthesized arg summary for grouped cards too, matching single
   // calls so the header carries the same context.
-  const toolSearchSummary = !pending && normalizedName === 'tool_search' && hasResult
+  const toolSearchSummary = !pending && normalizedName === 'load_tool' && hasResult
     ? toolSearchLoadedSummary(displayedResultText)
     : '';
   const rawSummaryText = safeInlineText(isAgentResponse || isBackgroundResponse
@@ -486,7 +486,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     && hasDisplayBody
     && (totalLines > 1 || firstResultLineClipped || Boolean(shellCollapsedSummary && shellCollapsedSummary !== firstResultLine));
   const showHeaderExpandHint = (isShellSurface ? shellHasExpandableBody : (isAgentSurfaceCard ? agentHasExpandableBody : (hasHiddenDetail || backgroundMetadataExpandable)))
-    && normalizedName !== 'tool_search';
+    && normalizedName !== 'load_tool';
   const expandHintColor = theme.subtle;
 
   // Build a single-line header that never wraps: reserve width for the fixed

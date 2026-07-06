@@ -57,7 +57,6 @@ function isPidAlive(pid) {
     return e?.code === "EPERM";
   }
 }
-const UI_HEARTBEAT_STALE_MS = 5 * 60 * 1e3;
 function activeInstanceStaleReason(state) {
   const ownerPid = getActiveOwnerPid(state);
   if (!isPidAlive(ownerPid)) return `owner PID ${ownerPid ?? "unknown"} is dead`;
@@ -67,36 +66,13 @@ function activeInstanceStaleReason(state) {
   if (workerPid && !isPidAlive(workerPid)) return `worker PID ${workerPid} is dead`;
   const serverPid = parsePositivePid(state?.server_pid);
   if (serverPid && !isPidAlive(serverPid)) return `server PID ${serverPid} is dead`;
-  // Zombie-Lead repro (2026-07-02): a Lead's owner/channels/worker/server
-  // PIDs can all still be alive (process not killed) while the TUI's render
-  // loop is dead in the water — no signal ever fires, so pid-only staleness
-  // never trips. If the TUI is heartbeating (field present), treat a stale
-  // heartbeat as stale ownership too. Backward-compat: state written by an
-  // older/non-TUI process (or before the first heartbeat tick) simply omits
-  // ui_heartbeat_at, so this branch is a no-op and pid-only judgment stands.
-  const uiHeartbeatAt = Number(state?.ui_heartbeat_at);
-  if (Number.isFinite(uiHeartbeatAt) && uiHeartbeatAt > 0) {
-    const age = Date.now() - uiHeartbeatAt;
-    if (age > UI_HEARTBEAT_STALE_MS) {
-      return `ui heartbeat stale (${Math.round(age / 1000)}s since last tick)`;
-    }
-  }
+  // NOTE: ownership is no longer decided here — the OS seat lock
+  // (lib/seat-lock.mjs) is the authority. This PID-death check only marks a
+  // metadata advert whose owning process is gone so refreshActiveInstance can
+  // avoid preserving its owner fields. The former ui_heartbeat_at staleness
+  // branch was removed: its false-stale eviction was the Discord-flapping root
+  // cause, and a crashed holder now auto-releases the seat instead.
   return null;
-}
-// Called from src/tui on a 30s timer while the render loop is alive. Only
-// touches ui_heartbeat_at (and updatedAt) so it never races/clobbers the
-// channels worker's own refreshActiveInstance() writes.
-function touchUiHeartbeat(instanceId) {
-  ensureRuntimeDirs();
-  try {
-    updateJsonAtomicSync(ACTIVE_INSTANCE_FILE, (curRaw) => {
-      if (!curRaw) return undefined;
-      if (instanceId && curRaw.instanceId !== instanceId) return undefined;
-      return { ...curRaw, ui_heartbeat_at: Date.now(), updatedAt: Date.now() };
-    }, { compact: true, fsync: false, fsyncDir: false, renameFallback: 'truncate', timeoutMs: 0 });
-  } catch { /* best-effort try-once (timeoutMs:0): on lock contention we skip
-               this tick without ever blocking the render loop on Atomics.wait;
-               the next 30s tick catches up. */ }
 }
 function buildRuntimeIdentity() {
   const terminalLeadPid = getTerminalLeadPid();
@@ -140,71 +116,11 @@ function readActiveInstance() {
     state = readJsonFile(ACTIVE_INSTANCE_FILE, null);
     if (!state) return null;
   }
-  const staleReason = activeInstanceStaleReason(state);
-  if (staleReason) {
-    // Owner is dead — but the file may carry process-independent runtime
-    // state (memory_port, pg_*) that next callers want to preserve. Wiping
-    // the whole file forced the next refresh to rebuild from {} and drop
-    // memory_port, which broke the scheduler and MCP memory lookup
-    // until the memory worker re-advertised. Instead, clear only the
-    // owner-identity fields and keep the rest as a stale-but-useful prev
-    // for the next refresh. refreshActiveInstance still treats the
-    // returned state as "no live owner" via getActiveOwnerPid downstream.
-    const {
-      pinned: _stalePinned,
-      instanceId: _staleId,
-      ownerLeadPid: _staleOwner,
-      terminalLeadPid: _staleTerm,
-      supervisor_pid: _staleSup,
-      server_pid: _staleServer,
-      worker_pid: _staleWorker,
-      channels_pid: _staleChannels,
-      supervisor_started_at: _staleStart,
-      server_started_at: _staleServerStart,
-      httpPort: _staleHttpPort,
-      backendReady: _staleBackendReady,
-      turnEndFile: _staleTurnEnd,
-      statusFile: _staleStatus,
-    } = state ?? {};
-    const ownerFieldsAlreadyEmpty = _staleId === undefined
-      && _staleOwner === undefined
-      && _staleTerm === undefined
-      && _staleSup === undefined;
-    if (!ownerFieldsAlreadyEmpty) {
-      process.stderr.write(`mixdog: stale active-instance.json (${staleReason}), clearing owner fields\n`);
-      try {
-        updateJsonAtomicSync(ACTIVE_INSTANCE_FILE, (curRaw) => {
-          if (!curRaw) return undefined;
-          const liveReason = activeInstanceStaleReason(curRaw);
-          if (!liveReason) return undefined;
-          const {
-            pinned: _stalePinned2,
-            instanceId: _staleId2,
-            ownerLeadPid: _staleOwner2,
-            terminalLeadPid: _staleTerm2,
-            supervisor_pid: _staleSup2,
-            server_pid: _staleServer2,
-            worker_pid: _staleWorker2,
-            channels_pid: _staleChannels2,
-            supervisor_started_at: _staleStart2,
-            server_started_at: _staleServerStart2,
-            httpPort: _staleHttpPort2,
-            backendReady: _staleBackendReady2,
-            turnEndFile: _staleTurnEnd2,
-            statusFile: _staleStatus2,
-            ...stableRestLocked
-          } = curRaw ?? {};
-          const ownerEmpty = _staleId2 === undefined
-            && _staleOwner2 === undefined
-            && _staleTerm2 === undefined
-            && _staleSup2 === undefined;
-          if (ownerEmpty) return undefined;
-          return { ...stableRestLocked, updatedAt: Date.now() };
-        }, { compact: true, fsync: false, fsyncDir: false, renameFallback: 'truncate' });
-      } catch {}
-    }
-    return null;
-  }
+  // Pure metadata-advert read: ownership is the OS seat lock now, so this no
+  // longer evicts a "stale" owner (the false-stale ui_heartbeat eviction was
+  // the Discord-flapping root cause). A crashed holder auto-releases the seat;
+  // its leftover advert is harmless and refreshActiveInstance's own
+  // preservation logic decides which fields to carry forward.
   return state;
 }
 function writeActiveInstance(state) {
@@ -401,22 +317,6 @@ function refreshActiveInstance(instanceId, meta, options) {
         }
       }
     }
-    // Headless worker-owned seat: THIS process is the channels worker AND no
-    // distinct terminal lead owns the seat (ownerLeadPid resolves to our own
-    // pid). A worker never runs the TUI render loop, so it owns no heartbeat —
-    // it must NOT keep refreshing a ui_heartbeat_at it does not own. An
-    // inherited value (written by a prior TUI session, carried forward in
-    // prevRest) would otherwise be perpetually renewed here and falsely mask a
-    // dead render loop, so DROP it and let pid-only judgment stand.
-    // When a distinct terminal lead owns the seat (ownerLeadPid !== our pid),
-    // this branch is a no-op: the TUI's own heartbeat is carried forward
-    // untouched, so a stale (zombie) render loop still evicts the seat even
-    // while the worker pid is alive.
-    const workerOwnsSeat = process.env.MIXDOG_WORKER_MODE === "1"
-      && identity.ownerLeadPid === process.pid;
-    if (workerOwnsSeat) {
-      delete next.ui_heartbeat_at;
-    }
     return { ...preservedExtra, ...next };
   }, writeOpts);
 }
@@ -572,6 +472,5 @@ export {
   probeActiveOwner,
   refreshActiveInstance,
   releaseOwnedChannelLocks,
-  touchUiHeartbeat,
   writeServerPid
 };

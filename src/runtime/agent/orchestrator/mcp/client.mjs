@@ -4,6 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { smartReadTruncate } from '../tools/builtin/read-formatting.mjs';
+import { shutdownStdioChild } from './child-tree.mjs';
 // --- Types ---
 /** Known auto-detect targets: port file path relative to tmpdir.
  *  Note: `mixdog` used to self-loopback via active-instance.json's
@@ -182,7 +183,7 @@ export async function executeMcpTool(name, args) {
         mcpLog(`[mcp-client] Tool call failed, attempting reconnect...\n`);
         await new Promise(r => setTimeout(r, 500));
         try {
-            await server.client.close();
+            await _closeServer(server);
         } catch { /* ignore close error */ }
         try {
             await connectServer(serverName, server.cfg);
@@ -241,7 +242,9 @@ async function _callToolWithTimeout(server, toolName, args) {
     }
     const timeout = new Promise((_, rej) => {
         timer = setTimeout(() => {
-            try { server.client.close().catch(() => {}); } catch { /* ignore */ }
+            // Route through the full tree-shutdown path so a timed-out stdio
+            // server never orphans grandchildren. Fire-and-forget.
+            try { _closeServer(server).catch(() => {}); } catch { /* ignore */ }
             const err = new Error(`MCP tool call timed out after ${timeoutMs}ms (server="${server.name}", tool="${toolName}")`);
             err.code = 'EMCPTOOLTIMEOUT';
             err.serverName = server.name;
@@ -338,12 +341,46 @@ export function mcpToolHasField(name, field) {
 export async function disconnectAll() {
     for (const [name, server] of servers) {
         try {
-            await server.client.close();
+            await _closeServer(server);
         }
         catch { /* ignore */ }
         servers.delete(name);
     }
     _invalidateMcpToolFieldMemo();
+}
+/**
+ * Disconnect a single MCP server by name. No-op (returns false) when the
+ * server is not in the live registry; otherwise closes its transport, removes
+ * it, and invalidates the tool-field memo. Lets callers toggle one server
+ * without a full disconnectAll()/reconnect cycle.
+ */
+export async function disconnectMcpServer(name) {
+    const server = servers.get(name);
+    if (!server) return false;
+    try {
+        await _closeServer(server);
+    }
+    catch { /* ignore */ }
+    servers.delete(name);
+    _invalidateMcpToolFieldMemo();
+    return true;
+}
+/**
+ * Close a single server: for stdio transports first shut down the full child
+ * process tree (close stdin -> grace -> tree kill) so wrapper chains such as
+ * uvx/npx/uv never orphan grandchildren, then release the SDK client. The
+ * tree teardown runs before client.close() because the SDK's own close()
+ * only kills the direct child and discards the pid we need to walk the tree.
+ */
+async function _closeServer(server) {
+    const transport = server?.transport;
+    // Live stdio transports expose the spawned ChildProcess on _process.
+    if (transport && transport._process) {
+        try { await shutdownStdioChild(transport); }
+        catch { /* ignore */ }
+    }
+    try { await server.client.close(); }
+    catch { /* ignore */ }
 }
 async function connectServer(name, cfg) {
     const {

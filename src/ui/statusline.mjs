@@ -90,6 +90,28 @@ function rememberNonEmptyQuotaSegments(key, segments) {
     _lastNonEmptyQuotaSegmentsByKey.delete(oldestKey);
   }
 }
+
+// Monotonic hysteresis for the quota/usage segment. Once a value has rendered
+// (held), a new non-empty result replaces it ONLY when it is at least as fresh
+// or is confirmed own-instance live data. This stops the 5H/7D values flapping
+// when another mixdog instance overwrites the shared active-instance/usage cache
+// with an OLDER snapshot: metricsMatch flips false, the source alternates to a
+// provider-wide cache snapshot captured at a different time, and without this
+// gate the two sources would oscillate tick-to-tick.
+//   - nothing displayed yet .................. accept
+//   - incoming is own-instance live data ..... accept (always wins)
+//   - either side lacks a comparable asOf .... accept (preserves prior behavior)
+//   - displayed value is own live data ....... accept only a STRICTLY newer snapshot
+//   - both shared-cache snapshots ............ accept same-or-newer asOf
+export function acceptQuotaSnapshot(held, incoming) {
+  if (!held) return true;
+  if (incoming && incoming.owned) return true;
+  const incomingAsOf = num(incoming && incoming.asOf);
+  const heldAsOf = num(held.asOf);
+  if (!incomingAsOf || !heldAsOf) return true;
+  if (held.owned) return incomingAsOf > heldAsOf;
+  return incomingAsOf >= heldAsOf;
+}
 // Option A boot gate: the L1 usage/quota segment stays fully empty until THIS
 // process has captured its FIRST confirmed (current-process) OAuth usage
 // snapshot for THAT provider. The latch is monotonic PER PROVIDER — once a
@@ -310,10 +332,21 @@ function renderNativeStatusline({
   if (usageReady && _oauthUsageArmedProviders.has(normalizedHoldProvider)) {
     const holdKey = quotaSegmentsHoldKey({ provider, model, effort, fast, sessionId, clientHostPid });
     if (quotaSegments.length) {
-      rememberNonEmptyQuotaSegments(holdKey, quotaSegments);
+      // Monotonic replace: keep the currently displayed value unless the new
+      // one is same-or-newer, or is confirmed own-instance live data.
+      const incoming = {
+        asOf: num(quotaStatus?.quotaWindowsAsOf),
+        owned: quotaStatus?.quotaWindowsOwned === true,
+      };
+      const held = _lastNonEmptyQuotaSegmentsByKey.get(holdKey);
+      if (acceptQuotaSnapshot(held, incoming)) {
+        rememberNonEmptyQuotaSegments(holdKey, { segments: quotaSegments, asOf: incoming.asOf, owned: incoming.owned });
+      } else if (held?.segments?.length) {
+        quotaSegments = held.segments;
+      }
     } else {
       const held = _lastNonEmptyQuotaSegmentsByKey.get(holdKey);
-      if (held && held.length) quotaSegments = held;
+      if (held?.segments?.length) quotaSegments = held.segments;
     }
   }
   for (const seg of quotaSegments) addL1(seg);
@@ -530,6 +563,10 @@ function fallbackQuotaStatus({ provider, model } = {}) {
             value = {
               ...routeInfo,
               quotaWindows: limits.quotaWindows || [],
+              // Shared provider-wide OAuth usage cache snapshot: not owned by
+              // this instance. asOf = the snapshot's cachedAt for hysteresis.
+              quotaWindowsAsOf: num(usageSnapshot?.cachedAt),
+              quotaWindowsOwned: false,
               balance: limits.balance || null,
               routeSpend: limits.routeSpend || null,
             };
@@ -556,12 +593,15 @@ function providerKindForQuota(provider) {
 function mergeQuotaStatus(primary, fallback) {
   if (!primary) return fallback || null;
   if (!fallback) return primary;
+  const usePrimaryWindows = Array.isArray(primary.quotaWindows) && primary.quotaWindows.length;
   return {
     ...fallback,
     ...primary,
-    quotaWindows: Array.isArray(primary.quotaWindows) && primary.quotaWindows.length
-      ? primary.quotaWindows
-      : (fallback.quotaWindows || []),
+    quotaWindows: usePrimaryWindows ? primary.quotaWindows : (fallback.quotaWindows || []),
+    // Keep asOf/owned aligned with whichever windows won, so the hysteresis gate
+    // compares against the timestamp of the value actually being rendered.
+    quotaWindowsAsOf: usePrimaryWindows ? num(primary.quotaWindowsAsOf) : num(fallback.quotaWindowsAsOf),
+    quotaWindowsOwned: usePrimaryWindows ? primary.quotaWindowsOwned === true : fallback.quotaWindowsOwned === true,
     balance: primary.balance || fallback.balance || null,
     routeSpend: primary.routeSpend || fallback.routeSpend || null,
     providerKind: primary.providerKind || fallback.providerKind || providerKindForQuota(primary.provider || fallback.provider),

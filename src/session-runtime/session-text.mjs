@@ -32,6 +32,7 @@ export function isSessionPreviewNoise(text) {
   return !value
     || value.startsWith('<system-reminder>')
     || value.startsWith('</system-reminder>')
+    || isLateToolAnnouncement(value)
     || /^#\s*permission\b/i.test(value)
     || /^permission:\s*/i.test(value)
     || /^cwd:\s*/i.test(value);
@@ -43,6 +44,46 @@ export function cleanSessionPreview(text) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 160);
+}
+
+// Stable sentinel carried in every late-tool (deferred MCP) announcement
+// reminder — must stay byte-identical to LATE_TOOL_REMINDER_SENTINEL in
+// src/session-runtime/tool-catalog.mjs. Detection keys on this exact string
+// (never fuzzy matching) so the raw announcement block can be hidden from
+// user-facing surfaces while the model context stays untouched.
+export const LATE_TOOL_ANNOUNCEMENT_SENTINEL = 'connected after this session started';
+
+export function isLateToolAnnouncement(text) {
+  const value = String(text || '');
+  return value.includes(LATE_TOOL_ANNOUNCEMENT_SENTINEL)
+    && /<available-deferred-tools>/i.test(value);
+}
+
+// Derive a muted one-line notice from a late-tool announcement body, e.g.
+// "MCP tools available: UnityMCP (12 tools)". MCP tool entries in the manifest
+// are `- mcp__<server>__<tool>: ...` lines; the server name is the segment
+// after the `mcp__` prefix. Returns '' for non-announcement text.
+export function summarizeLateToolAnnouncement(text) {
+  const value = String(text || '');
+  if (!isLateToolAnnouncement(value)) return '';
+  const block = value.match(/<available-deferred-tools>([\s\S]*?)<\/available-deferred-tools>/i);
+  const body = block ? block[1] : value;
+  const names = [];
+  const lineRe = /^\s*-\s+([A-Za-z0-9_.:-]+)/gm;
+  let m;
+  while ((m = lineRe.exec(body))) names.push(m[1]);
+  const servers = new Set();
+  for (const name of names) {
+    const seg = name.startsWith('mcp__') ? name.slice(5) : name;
+    const server = seg.split('__')[0];
+    if (server) servers.add(server);
+  }
+  const count = names.length;
+  const label = servers.size === 1
+    ? [...servers][0]
+    : (servers.size ? `${servers.size} MCP servers` : 'MCP');
+  if (!count) return `MCP tools available: ${label}`;
+  return `MCP tools available: ${label} (${count} ${count === 1 ? 'tool' : 'tools'})`;
 }
 
 export function clean(value) {

@@ -1,9 +1,9 @@
 // Deferred-tool catalog: measured-usage ordering, kind/bucket classification,
 // tool_search ranking + auto-selection, and the session tool-surface
 // application/selection logic. Pure module (session objects passed in).
-import { clean } from './session-text.mjs';
+import { clean, LATE_TOOL_ANNOUNCEMENT_SENTINEL } from './session-text.mjs';
 import { estimateToolSchemaTokens } from '../runtime/agent/orchestrator/session/context-utils.mjs';
-import { applyInitialDeferredToolManifestToBp1 } from '../runtime/agent/orchestrator/context/collect.mjs';
+import { applyInitialDeferredToolManifestToBp1, buildDeferredToolManifest } from '../runtime/agent/orchestrator/context/collect.mjs';
 import { getMcpServerInstructionsMap } from '../runtime/agent/orchestrator/mcp/client.mjs';
 import {
   isResponsesFreeformTool,
@@ -37,7 +37,7 @@ export const DEFERRED_DEFAULT_FULL_TOOLS = Object.freeze([
   'explore',
   'apply_patch',
   'Skill',
-  'tool_search',
+  'load_tool',
 ]);
 export const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
   'read',
@@ -48,7 +48,7 @@ export const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
   'list',
   'explore',
   'Skill',
-  'tool_search',
+  'load_tool',
 ]);
 export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   'read',
@@ -68,7 +68,7 @@ export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   'cwd',
     'session_manage',
   'Skill',
-  'tool_search',
+  'load_tool',
 ]);
 const READONLY_TOOL_NAMES = new Set([
   'read',
@@ -120,7 +120,7 @@ export function toolSchemaBucket(tool) {
   if (['shell', 'apply_patch'].includes(name)) return 'mutation';
   if (name === 'agent' || name === 'delegate') return 'agents';
   if (name.includes('channel') || name.includes('discord') || name.includes('webhook')) return 'channels';
-  if (name.includes('provider') || name === 'tool_search' || name === 'cwd') return 'setup';
+  if (name.includes('provider') || name === 'load_tool' || name === 'tool_search' || name === 'cwd') return 'setup';
   return 'other';
 }
 
@@ -225,6 +225,15 @@ export function defaultDeferredToolNames(catalog, mode) {
 export function compactToolSearchDescription(value, max = 220) {
   const text = clean(value).replace(/\s+/g, ' ');
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+// Late-announcement lines stay skill-manifest shaped but much tighter than the
+// BP1 pool (first sentence, hard 80-char cap): the reminder is transient
+// discovery only — the full description/schema arrives when the tool loads.
+function lateAnnouncementDescription(value) {
+  const text = clean(value).replace(/\s+/g, ' ');
+  const sentence = text.split(/(?<=[.!?])\s+/, 1)[0] || text;
+  return sentence.length > 80 ? `${sentence.slice(0, 79)}…` : sentence;
 }
 
 export function toolRow(tool, activeNames = new Set()) {
@@ -345,6 +354,33 @@ export function deferredPoolToolNames(session) {
   return sortedNamesByMeasuredUsage(out);
 }
 
+// Union of the boot-frozen deferred catalog and the late-connected MCP catalog.
+// The boot catalog (session.deferredToolCatalog) is what the Anthropic providers
+// serialize as defer_loading tools, so it MUST stay byte-identical after boot;
+// tools whose MCP servers connected after boot live in
+// session.deferredLateToolCatalog and are merged in ONLY for lookup/selection
+// (never for provider serialization) so the request tools param — and its cache
+// hash — is unchanged until a late tool is actually loaded.
+export function deferredCatalogUnion(session) {
+  const boot = Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : [];
+  const late = Array.isArray(session?.deferredLateToolCatalog) ? session.deferredLateToolCatalog : [];
+  if (!late.length) return boot;
+  const byName = new Map();
+  // On a same-name collision (a boot MCP tool whose server reconnected with a
+  // possibly fresher schema also lives in the late pool) prefer the LATE entry
+  // for lookup/load resolution. The boot-catalog ARRAY itself is never mutated,
+  // so provider defer_loading serialization stays byte-identical.
+  for (const tool of boot) {
+    const name = clean(tool?.name);
+    if (name && !byName.has(name)) byName.set(name, tool);
+  }
+  for (const tool of late) {
+    const name = clean(tool?.name);
+    if (name) byName.set(name, tool);
+  }
+  return [...byName.values()];
+}
+
 export function isReadonlySelectable(tool) {
   const name = clean(tool?.name);
   if (READONLY_TOOL_NAMES.has(name)) return true;
@@ -400,13 +436,188 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
     }
     applyInitialDeferredToolManifestToBp1(session, deferredPoolToolNames(session));
   }
+  if (!Array.isArray(session.deferredAnnouncedTools) && session.deferredToolBp1Applied) {
+    // Seed the announced set with everything already advertised in the BP1
+    // manifest, so the turn-boundary MCP delta (reconcileDeferredMcpToolCatalog)
+    // only announces genuinely new, late-connecting tools and never re-announces
+    // the startup pool.
+    session.deferredAnnouncedTools = deferredPoolToolNames(session);
+  }
   return session;
+}
+
+/**
+ * Turn-boundary reconciliation (Codex-style snapshot + CC-style delta).
+ * Merge currently-connected MCP tools into session.deferredLateToolCatalog (a
+ * SEPARATE pool from the boot-frozen session.deferredToolCatalog) so tools from
+ * servers that finished their handshake AFTER this session was created become
+ * reachable (deferred-call-through / load_tool resolve against the union of both
+ * catalogs and auto-load them on first direct call). The boot catalog — the only
+ * one the Anthropic providers serialize as defer_loading tools — is never
+ * touched, so the tools request parameter (and its cache hash) is byte-identical
+ * until a late tool is actually loaded (promoted onto session.tools).
+ * When the late pool gains MCP names not yet advertised, deliver ONE persistent
+ * <system-reminder> through the pending-message queue (options.enqueue) so it
+ * rides inside the next real user turn; if that queue is unreachable, fall back
+ * to a tail append ONLY when the transcript tail is an assistant turn, else defer
+ * the announcement (names stay un-announced and are retried next turn). No filler
+ * assistant messages are ever appended.
+ * A disconnected server's unloaded tools leave the late pool; a loaded (active)
+ * tool stays on session.tools, is never announced as removed, and is re-linked to
+ * the fresh server tool on reconnect.
+ * Returns the announced names, or null when nothing was announced.
+ */
+export function reconcileDeferredMcpToolCatalog(session, liveMcpTools, options = {}) {
+  if (!session || !Array.isArray(session.messages)) return null;
+  if (session.deferredProviderMode === 'full') return null;
+  const isMcp = (name) => typeof name === 'string' && name.startsWith('mcp__');
+  const live = Array.isArray(liveMcpTools) ? liveMcpTools : [];
+  const lateCatalog = Array.isArray(session.deferredLateToolCatalog) ? session.deferredLateToolCatalog : [];
+  const active = new Set((session.tools || []).map((tool) => clean(tool?.name)).filter(Boolean));
+
+  const liveMcpByName = new Map();
+  for (const tool of live) {
+    const name = clean(tool?.name);
+    if (!name || !isMcp(name) || liveMcpByName.has(name)) continue;
+    liveMcpByName.set(name, activeToolForSurface(tool));
+  }
+
+  // Rebuild the LATE pool only (boot catalog stays frozen). It holds live MCP
+  // tools — INCLUDING ones whose name also exists in the boot catalog, so a
+  // reconnect's fresher schema is reachable via deferredCatalogUnion (which
+  // prefers the late entry). Keep an entry only while its server is still
+  // connected OR the tool is already loaded (active). A disconnected server's
+  // unloaded tool drops out; a loaded one stays on session.tools.
+  const nextByName = new Map();
+  for (const tool of lateCatalog) {
+    const name = clean(tool?.name);
+    if (!name || nextByName.has(name)) continue;
+    if (!liveMcpByName.has(name) && !active.has(name)) continue;
+    nextByName.set(name, tool);
+  }
+  for (const [name, tool] of liveMcpByName) nextByName.set(name, tool);
+  session.deferredLateToolCatalog = sortedCatalogByMeasuredUsage([...nextByName.values()]);
+
+  // A promoted (active) MCP tool survives its server disconnecting; on reconnect
+  // re-link the active session.tools entry to the fresh server tool so its
+  // schema/handler track the live connection. Swap ONLY when the serialized
+  // surface actually changed, so a steady reconnect never perturbs the tools
+  // request param or its cache hash.
+  if (Array.isArray(session.tools)) {
+    for (let i = 0; i < session.tools.length; i += 1) {
+      const name = clean(session.tools[i]?.name);
+      if (!name || !isMcp(name) || !liveMcpByName.has(name)) continue;
+      const freshTool = liveMcpByName.get(name);
+      if (JSON.stringify(freshTool) !== JSON.stringify(session.tools[i])) session.tools[i] = freshTool;
+    }
+  }
+
+  const announced = new Set(Array.isArray(session.deferredAnnouncedTools) ? session.deferredAnnouncedTools : []);
+  // Commit-based dedupe: a late tool counts as announced only once its reminder
+  // actually LANDED in session.messages (the tail-append path lands immediately;
+  // the enqueue path lands when the pending queue drains into the next user
+  // turn). Fold those committed names in now and persist them so a later
+  // transcript trim can never resurrect an already-delivered announcement. A
+  // crash BETWEEN enqueue and drain leaves the name uncommitted, so the next
+  // reconcile re-announces instead of silently dropping it; the scan is
+  // idempotent, so a double-drain never double-marks.
+  const lateMcpNames = session.deferredLateToolCatalog
+    .map((tool) => clean(tool?.name))
+    .filter((name) => name && isMcp(name));
+  let announcedChanged = false;
+  for (const name of committedAnnouncedLateTools(session, lateMcpNames)) {
+    if (!announced.has(name)) { announced.add(name); announcedChanged = true; }
+  }
+  if (announcedChanged) session.deferredAnnouncedTools = sortedNamesByMeasuredUsage([...announced]);
+  const fresh = [];
+  for (const tool of session.deferredLateToolCatalog) {
+    const name = clean(tool?.name);
+    if (!name || !isMcp(name)) continue;
+    if (active.has(name) || announced.has(name)) continue;
+    fresh.push({ name, description: lateAnnouncementDescription(tool?.description) });
+  }
+  if (!fresh.length) return null;
+
+  const manifest = buildDeferredToolManifest(fresh);
+  if (!manifest) return null;
+  const reminder = `<system-reminder>\nTools from MCP servers that ${LATE_TOOL_ANNOUNCEMENT_SENTINEL} are now available. Call any tool listed below directly by name; it loads on first use.\n\n${manifest}\n</system-reminder>`;
+  const delivery = deliverDeferredAnnouncement(session, reminder, options);
+  if (!delivery) return null;
+  // Only the tail-append path commits into session.messages synchronously, so
+  // mark it announced now. Enqueued reminders are marked on the next reconcile's
+  // transcript scan (post-drain) — never at enqueue time (crash-safety above).
+  if (delivery === 'committed') {
+    for (const entry of fresh) announced.add(entry.name);
+    session.deferredAnnouncedTools = sortedNamesByMeasuredUsage([...announced]);
+  }
+  session.updatedAt = Date.now();
+  return fresh.map((entry) => entry.name);
+}
+
+// Sentinel phrase carried in every late-tool reminder; used to recognise a
+// delivered (committed) announcement inside session.messages regardless of
+// whether the pending drain merged it with other queued user content.
+// Single source of truth lives in session-text.mjs (imported above) so the
+// hide-from-UI detection can never drift from the emitted reminder text.
+const LATE_TOOL_REMINDER_SENTINEL = LATE_TOOL_ANNOUNCEMENT_SENTINEL;
+
+function reminderMessageText(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.map((b) => (typeof b === 'string' ? b : String(b?.text || ''))).join('\n');
+  }
+  return '';
+}
+
+// Late-tool names whose reminder is already present in session.messages (either
+// tail-appended directly or drained in from the pending queue). Idempotent.
+function committedAnnouncedLateTools(session, lateNames) {
+  const names = Array.isArray(lateNames) ? lateNames.filter(Boolean) : [];
+  if (!names.length) return [];
+  const msgs = Array.isArray(session?.messages) ? session.messages : [];
+  const blob = msgs
+    .filter((m) => m && m.role === 'user')
+    .map((m) => reminderMessageText(m.content))
+    .filter((t) => t.includes(LATE_TOOL_REMINDER_SENTINEL))
+    .join('\n');
+  if (!blob) return [];
+  return names.filter((name) => blob.includes(name));
+}
+
+// Deliver the late-tool <system-reminder> without any '.' filler turn. Primary
+// path: the pending-message queue (options.enqueue) — the SAME mechanism that
+// carries tool-completion notifications. The queue drains AFTER the current
+// turn's assistant terminal response (ask-session.mjs), so the reminder rides a
+// fresh follow-up user turn that always follows an assistant turn; strict
+// role-alternation holds and no wire-level same-role merge is needed (the
+// Anthropic/OpenAI lowering never merges two plain user turns, and none occurs
+// here). Returns 'enqueued' (commit deferred to drain) on that path.
+// Fallback (queue unreachable, e.g. unit tests): append a user reminder ONLY
+// when the transcript tail is an assistant turn — that commits synchronously
+// ('committed'); otherwise defer to the next turn (null).
+function deliverDeferredAnnouncement(session, reminder, options) {
+  const enqueue = typeof options?.enqueue === 'function' ? options.enqueue : null;
+  if (enqueue) {
+    try { if (enqueue(reminder) === true) return 'enqueued'; }
+    catch { /* fall through to the tail-append fallback */ }
+  }
+  const messages = session.messages;
+  const tail = messages[messages.length - 1];
+  if (tail && tail.role === 'assistant') {
+    messages.push({ role: 'user', meta: 'hook', content: reminder });
+    return 'committed';
+  }
+  return null;
 }
 
 export function selectDeferredTools(session, names, mode, options = {}) {
   const promoteToActive = options?.promoteToActive === true;
-  const catalog = Array.isArray(session?.deferredToolCatalog)
-    ? session.deferredToolCatalog
+  // Resolve against the union of the boot-frozen catalog and the late-connected
+  // MCP catalog so load_tool can load a late tool; loading promotes it onto
+  // session.tools where the providers serialize it as a real (non-deferred) tool.
+  const union = deferredCatalogUnion(session);
+  const catalog = union.length
+    ? union
     : (Array.isArray(session?.tools) ? session.tools : []);
   const active = new Set((session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean));
   const native = session?.deferredProviderMode === 'native' || session?.deferredNativeTools === true;
@@ -459,44 +670,101 @@ export function selectDeferredTools(session, names, mode, options = {}) {
   return { added, already, blocked, missing, native };
 }
 
-export function renderToolSearch(args = {}, session, mode = 'full') {
+// Collect the exact deferred-tool names to load, honoring back-compat inputs:
+//   names[]            → primary loader input
+//   select / "select:" → legacy alias (parseToolSelection strips the prefix)
+//   query "select:a,b" → legacy query-side loader
+// A free-text `query` is NOT a search anymore: it yields no names, and the
+// caller is steered back to names[].
+export function parseLoadToolNames(args = {}) {
+  const fromNames = parseToolSelection(args.names);
+  if (fromNames.length) return fromNames;
+  const fromSelect = parseToolSelection(args.select);
+  if (fromSelect.length) return fromSelect;
+  return parseToolSearchQuerySelection(args.query);
+}
+
+// Split live MCP servers into "still connecting" (pending) and "failed" so the
+// loader can tell the model to retry next turn instead of treating a missing
+// tool as a permanent zero result. `mcpStatus` is a getter plumbed from the
+// runtime; absent in unit tests, where these lists are simply empty.
+function pendingAndFailedMcpServers(mcpStatus) {
+  const empty = { pending: [], failed: [] };
+  let status = null;
+  try {
+    status = typeof mcpStatus === 'function' ? mcpStatus() : mcpStatus;
+  } catch {
+    return empty;
+  }
+  const servers = Array.isArray(status?.servers) ? status.servers : [];
+  const pending = [];
+  const failed = [];
+  for (const row of servers) {
+    const name = clean(row?.name);
+    if (!name) continue;
+    if (row?.status === 'disconnected') pending.push(name);
+    else if (row?.status === 'failed') failed.push(name);
+  }
+  return { pending: [...new Set(pending)].sort(), failed: [...new Set(failed)].sort() };
+}
+
+// Pure loader (formerly a keyword search). Input is exact deferred-tool
+// names/aliases; output reports loaded / already-active / missing / blocked
+// tools PLUS pending/failed MCP servers. No listing, no ranking, no substring
+// filter. `options.mcpStatus` is the runtime getter for per-server status.
+export function renderToolSearch(args = {}, session, mode = 'full', options = {}) {
   const catalog = Array.isArray(session?.deferredToolCatalog)
     ? session.deferredToolCatalog
     : (Array.isArray(session?.tools) ? session.tools : []);
-  const rawQuery = clean(args.query);
-  const explicitSelectedNames = parseToolSelection(args.select);
-  const querySelectedNames = explicitSelectedNames.length ? [] : parseToolSearchQuerySelection(rawQuery);
-  const forcedSelectedNames = explicitSelectedNames.length ? explicitSelectedNames : querySelectedNames;
-  const query = querySelectedNames.length ? '' : rawQuery.toLowerCase();
-  const limit = Math.max(1, Math.min(50, Number(args.limit) || 20));
-  // Explicit loader only: select names/aliases (or query "select:a,b") load
-  // deferred tools. A plain query is a case-insensitive substring filter over
-  // name+description for listing — it never loads. No scores, no ranking, no
-  // category auto-load: deferred tools are called directly (they auto-promote
-  // via deferred call-through) and are advertised in the system-prompt manifest.
-  const toolSelection = forcedSelectedNames.length
-    ? selectDeferredTools(session, forcedSelectedNames, mode)
-    : null;
-  const selectionMode = forcedSelectedNames.length ? 'select' : null;
+  const requestedNames = parseLoadToolNames(args);
+  const { pending: pendingMcpServers, failed: failedMcpServers } = pendingAndFailedMcpServers(options?.mcpStatus);
+  const mcpFields = {
+    ...(pendingMcpServers.length ? { pendingMcpServers } : {}),
+    ...(failedMcpServers.length ? { failedMcpServers } : {}),
+  };
+
+  if (!requestedNames.length) {
+    const strayQuery = clean(args.query || args.q || args.text);
+    return JSON.stringify({
+      error: strayQuery
+        ? `load_tool is a loader, not a search: "${strayQuery}" is not an exact tool name. Pass names:["exact_tool_name", ...] (deferred tool names/aliases). No keyword search.`
+        : 'load_tool requires names:["exact_tool_name", ...] (deferred tool names/aliases).',
+      loaded: [],
+      alreadyActive: [],
+      missing: [],
+      ...mcpFields,
+      activeTools: sortedNamesByMeasuredUsage((session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean)),
+      discoveredTools: sortedNamesByMeasuredUsage(session?.deferredDiscoveredTools || []),
+    }, null, 2);
+  }
+
+  const toolSelection = selectDeferredTools(session, requestedNames, mode);
   const nextActiveNames = new Set((session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean));
-  const rows = catalog.map((tool) => toolRow(tool, nextActiveNames)).filter((row) => row.name);
-  const matches = query ? rows.filter((row) => toolSearchMatches(row, query)) : rows;
-  const selected = toolSelection
-    ? {
-        mode: selectionMode,
-        tools: toolSelection,
-      }
+  const loaded = toolSelection.added || [];
+  const alreadyActive = toolSelection.already || [];
+  const missing = toolSelection.missing || [];
+  const blocked = toolSelection.blocked || [];
+  const nativeToolSearch = toolSelection.native
+    ? toolSearchNativePayload(catalog, [...new Set([...loaded, ...alreadyActive])], session?.provider)
     : null;
-  const nativeToolSearch = toolSelection?.native
-    ? toolSearchNativePayload(catalog, [...new Set([...toolSelection.added, ...(toolSelection.already || [])])], session?.provider)
-    : null;
+  const notes = [];
+  if (missing.length && pendingMcpServers.length) {
+    notes.push('Some requested names may belong to an MCP server still connecting — retry next turn.');
+  }
+  if (missing.length && failedMcpServers.length) {
+    notes.push('Some requested names may belong to a failed MCP server; those tools are unavailable.');
+  }
   return JSON.stringify({
-    selected,
+    // `selected` retained for back-compat consumers (mode is always 'select').
+    selected: { mode: 'select', tools: toolSelection },
     ...(nativeToolSearch ? { nativeToolSearch } : {}),
-    totalMatches: matches.length,
-    matches: matches.slice(0, limit),
+    loaded,
+    alreadyActive,
+    missing,
+    ...(blocked.length ? { blocked } : {}),
+    ...mcpFields,
     activeTools: sortedNamesByMeasuredUsage(nextActiveNames),
     discoveredTools: sortedNamesByMeasuredUsage(session?.deferredDiscoveredTools || []),
-    note: 'Deferred tools listed in the system-prompt manifest can be called directly by name (they auto-load on first call). This tool only lists (query = case-insensitive substring over name+description; never loads) or loads exact tools when you pass select names/aliases or query "select:a,b".',
+    ...(notes.length ? { note: notes.join(' ') } : {}),
   }, null, 2);
 }

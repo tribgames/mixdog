@@ -355,7 +355,7 @@ export async function _streamResponse({
         if (!callId || toolCalls.some((call) => call.id === callId)) return;
         const call = {
             id: callId,
-            name: 'tool_search',
+            name: 'load_tool',
             arguments: parseToolSearchArgs(item.arguments),
             nativeType: 'tool_search_call',
         };

@@ -8,6 +8,9 @@ import {
   stripToolPrefix,
   parseMcpToolName,
   isMcpToolName,
+  isExternalMcpToolName,
+  isSelfMcpToolName,
+  titleCaseMcpServer,
   normalizeToolName,
   truncateToolText,
   truncateSingleLine,
@@ -68,7 +71,10 @@ export {
 };
 
 export function displayToolName(name, args = {}) {
-  if (isMcpToolName(name)) return 'MCP';
+  if (isExternalMcpToolName(name)) {
+    const mcp = parseMcpToolName(name);
+    return `MCP ${titleCaseMcpServer(mcp.server)}`;
+  }
   const normalized = normalizeToolName(name);
   switch (normalized) {
     case 'read':
@@ -94,7 +100,7 @@ export function displayToolName(name, args = {}) {
     case 'list':
     case 'ls':
       return 'Search';
-    case 'tool_search':
+    case 'load_tool':
       return toolSearchDisplayLabel(parseToolArgs(args));
     case 'search':
     case 'search_query':
@@ -145,10 +151,10 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
   const a = parseToolArgs(args);
   if (!a || typeof a !== 'object') return '';
   const normalized = normalizeToolName(name);
-  const mcpTarget = mcpToolTarget(name, max);
-  if (mcpTarget) {
+  if (isExternalMcpToolName(name)) {
+    const mcp = parseMcpToolName(name);
     return compactParts([
-      mcpTarget,
+      truncateToolText(mcp.tool, max),
       truncateToolText(firstText(a.query, a.q, a.text, a.prompt, a.path, a.uri, a.name, a.id, a.action), Math.min(max, 80)),
     ]);
   }
@@ -225,9 +231,9 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         return formatCountedUnit(collectionCount(a.query, a.prompt, a.task, a.goal), 'query', 'queries');
       }
       return truncateSingleLine(firstText(a.query, a.prompt, a.task, a.goal, a.path), Math.min(max, 80));
-    case 'tool_search':
+    case 'load_tool':
       {
-        const selected = splitToolSearchSelection(a.select);
+        const selected = [...splitToolSearchSelection(a.names), ...splitToolSearchSelection(a.select)];
         if (selected.length) return truncateToolText(selected.map(displayToolSearchTarget).join(', '), max);
         return quoted(firstText(a.query, a.q, a.text), max);
       }
@@ -325,7 +331,7 @@ const TOOL_CATEGORY = new Map([
   ['glob', 'Search'],
   ['list', 'Search'],
   ['ls', 'Search'],
-  ['tool_search', 'Load'],
+  ['load_tool', 'Load'],
   ['search', 'Web Research'],
   ['web_search', 'Web Research'],
   ['search_query', 'Web Research'],
@@ -364,7 +370,7 @@ const TOOL_CATEGORY = new Map([
 
 /** Return the aggregate category for a tool name + args. */
 export function classifyToolCategory(name, args = {}) {
-  if (isMcpToolName(name)) return 'MCP';
+  if (isExternalMcpToolName(name)) return 'MCP';
   const normalized = normalizeToolName(name);
   if (normalized === 'code_graph') {
     const mode = String(args.mode || args.action || '').toLowerCase();
@@ -431,8 +437,12 @@ export function toolWorkUnit(name, args = {}, category = '') {
   const a = parseToolArgs(args);
   const normalized = normalizeToolName(name);
   const cat = category || classifyToolCategory(name, a);
-  if (isMcpToolName(name)) {
-    return unitDescriptor('MCP', { count: queryCount(a, 'query', 'q', 'text', 'prompt', 'path', 'uri', 'name', 'id', 'action') || 1 });
+  if (isExternalMcpToolName(name)) {
+    const mcp = parseMcpToolName(name);
+    return unitDescriptor('MCP', {
+      count: queryCount(a, 'query', 'q', 'text', 'prompt', 'path', 'uri', 'name', 'id', 'action') || 1,
+      noun: `${titleCaseMcpServer(mcp.server)} tool`,
+    });
   }
   switch (normalized) {
     case 'read':
@@ -470,8 +480,8 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'list':
     case 'ls':
       return unitDescriptor('Search', { count: queryCount(a, 'path', 'paths', 'dir', 'dirs', 'cwd') || 1, active: 'Listing', done: 'Listed', noun: 'directory', pluralNoun: 'directories' });
-    case 'tool_search': {
-      const selected = splitToolSearchSelection(a.select);
+    case 'load_tool': {
+      const selected = [...splitToolSearchSelection(a.names), ...splitToolSearchSelection(a.select)];
       if (selected.length) return unitDescriptor('Load', { count: selected.length, noun: 'tool' });
       return unitDescriptor('Load', { count: queryCount(a, 'query', 'q', 'text') || 1, noun: 'query', pluralNoun: 'queries' });
     }

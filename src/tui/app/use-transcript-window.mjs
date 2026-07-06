@@ -60,6 +60,18 @@ export function useTranscriptWindow({
 }) {
   const transcriptTotalRowsRef = useRef(0);
   const preservedScrollDeltaRef = useRef(0);
+  // Pessimistic "committed" max-scroll for the IMMEDIATE wheel/keyboard clamp.
+  // transcriptWindow.maxScrollRows is derived from the row index, which uses
+  // ESTIMATED heights for rows in the mounted slice. On the frame a scroll-up
+  // FIRST mounts a new row, its estimate may overshoot the real Yoga height, so
+  // that frame's maxScrollRows is inflated and a wheel offset clamped only
+  // against it scrolls past committed geometry — opening a one-frame blank band
+  // at the top until the post-commit harvest corrects it. We hold this cap only
+  // while a row IN the mounted slice is still unmeasured; the harvest measures
+  // it on the next commit and the estimate is adopted. Expansion can never be
+  // blocked longer than that frame (and is bypassed entirely when measured-rows
+  // mode is off — no harvest ever runs, so the estimate is the only geometry).
+  const committedMaxScrollRowsRef = useRef(0);
   // Per-hook-instance settled-prefix row-index cache for the incremental
   // builder. Was module-level (leaked across hook instances); now local so
   // each transcript window owns its own tail-flush cache.
@@ -389,7 +401,49 @@ export function useTranscriptWindow({
     rowIndex: transcriptRowIndex,
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: sig+scroll/viewport capture the relevant changes
   }), [transcriptStructureSig, renderScrollOffset, transcriptContentHeight, transcriptRowIndex]);
-  maxScrollRowsRef.current = transcriptWindow.maxScrollRows;
+  // Publish the max for the immediate wheel/keyboard clamp (see the
+  // committedMaxScrollRowsRef note above). Adopt the estimate-based max unless a
+  // row in THIS frame's mounted slice is still unmeasured — that is the only
+  // case where an over-estimated freshly-mounted row can inflate maxScrollRows
+  // ahead of committed Yoga geometry. Off-slice appended rows (bottom spacer,
+  // never mounted) don't trigger the hold, so scroll can always reach the true
+  // oldest rows; and with measured-rows mode off, no harvest ever runs, so the
+  // raw estimate is published unconditionally.
+  const estimateMaxScrollRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
+  let holdCommittedMax = false;
+  if (TRANSCRIPT_MEASURED_ROWS && estimateMaxScrollRows > committedMaxScrollRowsRef.current) {
+    // Expansion requested: only trust it once every mounted-slice row has a
+    // committed measurement that is VALID FOR THIS geometry. A just-mounted row
+    // lacks a cache entry until the post-commit harvest records its real height;
+    // and a cache entry left over from a prior columns/tool-expanded/variant is
+    // stale (the harvest re-measures it against these same fields), so it must
+    // also count as unmeasured — otherwise the pre-harvest estimate for the new
+    // geometry could re-open the overshoot right after such a change.
+    const toolExpandedFlag = toolOutputExpanded ? 1 : 0;
+    const mountedSlice = transcriptWindow.items || [];
+    for (let i = 0; i < mountedSlice.length; i++) {
+      const it = mountedSlice[i];
+      if (!it || shouldSuppressFullyFailedToolItem(it)) continue;
+      if (it.kind === 'assistant' && it.streaming) {
+        const idPrev = streamingMeasuredRowsById.get(it.id);
+        if (!idPrev || idPrev.columns !== frameColumns || idPrev.toolExpanded !== toolExpandedFlag) {
+          holdCommittedMax = true;
+          break;
+        }
+      } else {
+        const prev = transcriptMeasuredRowsCache.get(it);
+        if (!prev
+          || prev.columns !== frameColumns
+          || prev.toolExpanded !== toolExpandedFlag
+          || prev.variantKey !== transcriptItemVariantKey(it)) {
+          holdCommittedMax = true;
+          break;
+        }
+      }
+    }
+  }
+  if (!holdCommittedMax) committedMaxScrollRowsRef.current = estimateMaxScrollRows;
+  maxScrollRowsRef.current = committedMaxScrollRowsRef.current;
   // Publish this frame's geometry so a manual scroll can capture the reading
   // anchor synchronously (see captureTranscriptAnchorAt).
   transcriptGeomRef.current = {

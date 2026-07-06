@@ -12,6 +12,7 @@
 import { useCallback } from 'react';
 import {
   readClipboardImageAttachment,
+  readClipboardText,
   readImageAttachmentFromPath,
   splitPastedImagePathCandidates,
 } from '../paste-attachments.mjs';
@@ -57,36 +58,24 @@ export function usePromptHandlers({
   const handlePromptPaste = useCallback((text, meta = {}) => {
     const source = String(meta?.source || 'paste');
     const value = String(text ?? '');
-    if (source === 'clipboard-image-shortcut' && !value) {
-      return readClipboardImageAttachment()
-        .then((image) => {
-          if (!image) {
-            showPromptHint('no image found on clipboard', 'plain');
-            return false;
-          }
-          const ref = registerPastedImage(image);
-          showPromptHint(`attached ${image.filename || 'clipboard image'}`, 'plain');
-          return ref;
-        })
-        .catch((e) => {
-          showPromptHint(`image paste failed: ${e?.message || e}`, 'warn');
-          return false;
-        });
-    }
-
-    const chunks = splitPastedImagePathCandidates(value);
-    const hasImagePath = chunks.some((chunk) => chunk.imagePath);
-    // No image paths in the paste: fold the whole text into a token when it is
-    // large, otherwise let PromptInput insert it raw (return undefined).
-    if (!hasImagePath) {
-      if (shouldFoldPastedText(value)) return registerPastedText(value);
-      return undefined;
-    }
-    // Mixed paste: resolve each image chunk to an image ref, then fold each
-    // CONTIGUOUS run of non-image text into its own token (only if over
-    // threshold) so content order around image refs is preserved. '\n'
-    // separator chunks are plain text and stay inside their surrounding run.
-    return Promise.all(chunks.map(async (chunk) => {
+    // Fold-or-insert text pipeline shared by bracketed paste and the Ctrl+V text
+    // path. returnRaw=true makes the "insert raw" case return the string itself
+    // (needed by the clipboard-text path, whose outer `text` is empty so the
+    // handleExternalPaste fallback would insert nothing).
+    const processText = (raw, returnRaw = false) => {
+      const chunks = splitPastedImagePathCandidates(raw);
+      const hasImagePath = chunks.some((chunk) => chunk.imagePath);
+      // No image paths: fold the whole text into a token when large, otherwise
+      // insert it raw (return undefined → PromptInput inserts, or the string).
+      if (!hasImagePath) {
+        if (shouldFoldPastedText(raw)) return registerPastedText(raw);
+        return returnRaw ? raw : undefined;
+      }
+      // Mixed paste: resolve each image chunk to an image ref, then fold each
+      // CONTIGUOUS run of non-image text into its own token (only if over
+      // threshold) so content order around image refs is preserved. '\n'
+      // separator chunks are plain text and stay inside their surrounding run.
+      return Promise.all(chunks.map(async (chunk) => {
       if (!chunk.imagePath) return chunk.text;
       try {
         const image = await readImageAttachmentFromPath(chunk.text, state.cwd || process.cwd());
@@ -117,6 +106,36 @@ export function usePromptHandlers({
       flushRun();
       return out;
     });
+    };
+
+    // Ctrl+V / Meta+V: opencode clipboard.read() model. Prefer OS-clipboard TEXT
+    // (routed through the SAME fold pipeline as bracketed paste); when the
+    // clipboard holds no text, fall back to the image-attachment path. The async
+    // read result is applied by handleExternalPaste under its pasteGeneration
+    // staleness guard, so a stale resolve is dropped.
+    if (source === 'clipboard-shortcut' && !value) {
+      return readClipboardText()
+        .then((clip) => {
+          const normalized = String(clip ?? '').replace(/\r\n?/g, '\n');
+          if (normalized) return processText(normalized, true);
+          return readClipboardImageAttachment()
+            .then((image) => {
+              if (!image) {
+                showPromptHint('no text or image found on clipboard', 'plain');
+                return false;
+              }
+              const ref = registerPastedImage(image);
+              showPromptHint(`attached ${image.filename || 'clipboard image'}`, 'plain');
+              return ref;
+            });
+        })
+        .catch((e) => {
+          showPromptHint(`paste failed: ${e?.message || e}`, 'warn');
+          return false;
+        });
+    }
+
+    return processText(value);
   }, [registerPastedImage, registerPastedText, showPromptHint, state.cwd]);
 
   const handlePromptHistoryNavigate = useCallback((direction, currentText = '', meta = {}) => {

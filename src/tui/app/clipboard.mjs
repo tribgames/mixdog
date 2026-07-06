@@ -12,9 +12,17 @@ export function osc52ClipboardSequence(text) {
   return `\x1bPtmux;${raw.replaceAll('\x1b', '\x1b\x1b')}\x1b\\`;
 }
 
+// Base64 of large selections becomes a multi-hundred-KB TTY write. Emitting
+// that as a single OSC 52 sequence blocks the terminal (and our render loop)
+// for a noticeable beat, so skip OSC 52 past this size and rely on the native
+// helper. ~256KB of clipboard text → ~350KB of base64.
+const OSC52_MAX_BYTES = 256 * 1024;
+
 export function writeOsc52Clipboard(text) {
+  const value = String(text ?? '');
+  if (Buffer.byteLength(value, 'utf8') > OSC52_MAX_BYTES) return false;
   try {
-    process.stdout.write(osc52ClipboardSequence(text));
+    process.stdout.write(osc52ClipboardSequence(value));
     return true;
   } catch {
     return false;
@@ -22,27 +30,32 @@ export function writeOsc52Clipboard(text) {
 }
 
 export function nativeClipboardCommand(text) {
+  const value = String(text ?? '');
   if (process.platform === 'win32') {
+    // clip.exe starts in tens of ms (vs 1s+ for powershell.exe). It reads its
+    // stdin as UTF-16LE, so feed plain UTF-16LE bytes for correct Unicode. No
+    // BOM: clip.exe copies a leading FF FE verbatim, leaking U+FEFF as the
+    // first pasted char.
     return {
-      cmd: 'powershell.exe',
-      args: [
-        '-NoLogo',
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        '$b=[Console]::In.ReadToEnd();$t=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b));Set-Clipboard -Value $t',
-      ],
-      input: Buffer.from(String(text ?? ''), 'utf8').toString('base64'),
+      cmd: 'clip.exe',
+      args: [],
+      input: Buffer.from(value, 'utf16le'),
     };
   }
-  if (process.platform === 'darwin') return { cmd: 'pbcopy', args: [], input: text };
-  if (process.env.WAYLAND_DISPLAY) return { cmd: 'wl-copy', args: [], input: text };
-  return { cmd: 'xclip', args: ['-selection', 'clipboard'], input: text };
+  if (process.platform === 'darwin') return { cmd: 'pbcopy', args: [], input: value };
+  if (process.env.WAYLAND_DISPLAY) return { cmd: 'wl-copy', args: [], input: value };
+  return { cmd: 'xclip', args: ['-selection', 'clipboard'], input: value };
 }
 
 export function copyToClipboard(text) {
   const value = String(text ?? '');
   const wroteOsc52 = writeOsc52Clipboard(value);
+  // When OSC 52 already wrote the clipboard, fire-and-forget the native helper
+  // and resolve immediately so the TUI never blocks on subprocess startup/exit
+  // (clip.exe/pbcopy/etc. still finish in the background). When OSC 52 was
+  // skipped (payload too large), the native helper is the ONLY writer, so we
+  // must await its exit to report real success/failure instead of a false
+  // "copied" hint.
   return new Promise((resolve, reject) => {
     const { cmd, args, input } = nativeClipboardCommand(value);
     let child;
@@ -54,14 +67,21 @@ export function copyToClipboard(text) {
       return;
     }
     child.on('error', (e) => {
-      if (wroteOsc52) resolve();
-      else reject(e);
+      // Surface only if OSC 52 didn't cover us; otherwise the copy still landed.
+      if (!wroteOsc52) reject(e);
     });
-    child.on('close', (code) => {
-      if (code === 0 || wroteOsc52) resolve();
-      else reject(new Error(`${cmd} exited with code ${code}`));
-    });
+    if (!wroteOsc52) {
+      child.on('close', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`${cmd} exited with code ${code}`));
+      });
+    }
     child.stdin.on('error', () => { /* ignore EPIPE if the helper closed early */ });
     child.stdin.end(input);
+    // OSC 52 covered us: resolve now, don't await the child's exit.
+    if (wroteOsc52) {
+      child.unref?.();
+      resolve();
+    }
   });
 }

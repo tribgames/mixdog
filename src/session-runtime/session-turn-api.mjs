@@ -6,7 +6,9 @@ import {
   toolSearchMatches,
   sortedNamesByMeasuredUsage,
   selectDeferredTools,
+  reconcileDeferredMcpToolCatalog,
 } from './tool-catalog.mjs';
+import { getMcpTools } from '../runtime/agent/orchestrator/mcp/client.mjs';
 
 // Turn execution (ask) + session-manage/tool-surface/agent surfaces. Extracted
 // verbatim from the runtime API object; stateless helpers are imported directly
@@ -22,6 +24,7 @@ export function createSessionTurnApi(deps) {
     getTranscriptWriter, getTwKey, getLastAppendedAssistant, setLastAppendedAssistant,
     scheduleCodeGraphPrewarm, refreshSessionForCwdIfNeeded, createCurrentSession,
     ensureRemoteTranscriptWriter, channelsEnabled, invokeChannelStart, channels,
+    pushTranscriptRebind,
     hooks, hookCommonPayload, mgr, notifyFnForSession, bootProfile,
     scheduleProviderWarmup, scheduleProviderModelWarmup, invalidateContextStatusCache,
     agentTool, recreateCurrentSessionIfReady, invalidatePreSessionToolSurface,
@@ -56,6 +59,22 @@ export function createSessionTurnApi(deps) {
           }
         }
         const session0 = getSession();
+        // Turn-boundary snapshot: fold in MCP tools whose servers finished their
+        // handshake after this session was created, and announce the newly
+        // available deferred tool names via ONE appended, persistent
+        // system-reminder (append-only — never rewrites BP1 or touches the
+        // active tool surface, so the prompt-cache prefix stays intact).
+        try {
+          reconcileDeferredMcpToolCatalog(session0, getMcpTools(), {
+            // Deliver the late-tool announcement through the pending-message
+            // queue so it rides inside the next real user turn as a persisted
+            // system-reminder (no synthetic user + '.' assistant pair).
+            enqueue: (text) => (typeof mgr.enqueuePendingMessage === 'function'
+              ? mgr.enqueuePendingMessage(session0.id, text) > 0
+              : false),
+          });
+        }
+        catch { /* MCP delta must never break the turn */ }
         hooks.emit('turn:start', { sessionId: session0.id, prompt, cwd: getCurrentCwd() });
         // UserPromptSubmit: a hook FAILURE must not block the turn, but blocked===true MUST throw.
         let promptDispatch = null;
@@ -180,6 +199,11 @@ export function createSessionTurnApi(deps) {
         try { agentTool.recoverWorkers?.({ clientHostPid: getSession()?.clientHostPid || process.pid }); } catch {}
       }
       invalidateContextStatusCache();
+      // clearSessionMessages swaps the live session object; the worker binding
+      // + persisted status still reference the pre-clear transcript. Push the
+      // current transcript so outbound forwarding repoints now, not on the next
+      // inbound steal (best-effort, remote-gated inside pushTranscriptRebind).
+      pushTranscriptRebind?.();
       return true;
     },
     // session_manage tool handoff: the engine polls this at turn end and, if

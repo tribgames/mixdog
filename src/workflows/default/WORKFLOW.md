@@ -7,7 +7,13 @@ agents: worker, heavy-worker, reviewer, debugger, maintainer
 
 # Default Workflow
 
+HARD APPROVAL GATE — before the user gives an explicit go-ahead ("do it",
+"proceed", "ㄱㄱ"), NO edits, apply_patch, state-changing shell commands, or
+agent spawns. Read-only exploration only. Agreeing with a diagnosis or
+pointing out a problem is NOT approval.
+
 Lead supervises: delegates, coordinates, judges, decides. Route by complexity:
+(routing applies only AFTER approval)
 - Lead directly: simple 1–2 step work, plus coordination, pre-planning, config
   changes, and final git deployment.
 - Worker: implementation that takes several steps. Heavy Worker:

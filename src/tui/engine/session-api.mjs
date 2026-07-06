@@ -286,17 +286,27 @@ export function createEngineApiA(bag) {
       }
     },
     setMcpServerEnabled: async (name, enabled) => {
-      if (getState().commandBusy) return null;
-      set({ commandBusy: true });
-      try {
-        const status = await runtime.setMcpServerEnabled?.(name, enabled);
+      // No global commandBusy: the runtime adopts config synchronously and
+      // serializes the heavy connect/close/recreate per server name, so rapid
+      // re-toggles converge instead of being dropped. This awaits the
+      // background chain purely to settle the picker on completion/failure.
+      const status = await runtime.setMcpServerEnabled?.(name, enabled);
+      // The context re-estimate is a full-transcript token count; defer it off
+      // the interactive frame so it never runs inside the toggle key handler.
+      setImmediate(() => {
         resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...getState().stats } });
+      });
+      // A connect failure resolves as a status object (not a throw), so inspect
+      // this server's row before claiming success: enabling can fail on spawn/
+      // handshake. Disabling never spawns, so it is always a success.
+      const row = status?.servers?.find((s) => s.name === name);
+      if (enabled && row && (row.status === 'failed' || row.error)) {
+        pushNotice(`mcp enable failed: ${name}${row.error ? ` — ${row.error}` : ''}`, 'error');
+      } else {
         pushNotice(`mcp ${enabled ? 'enabled' : 'disabled'}: ${name}`, 'info');
-        return status;
-      } finally {
-        set({ commandBusy: false });
       }
+      return status;
     },
     getDisabledSkills: () => runtime.getDisabledSkills?.() || { disabled: [] },
     setDisabledSkills: (disabled) => runtime.setDisabledSkills?.(disabled) || { disabled: [] },

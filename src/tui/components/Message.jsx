@@ -71,7 +71,7 @@ export const UserMessage = React.memo(function UserMessage({ text, attached = fa
   const bandColumns = Math.max(1, columns - 1);
   return (
     <Box flexDirection="column" width={bandColumns} marginTop={attached ? 0 : 1} backgroundColor={theme.userMessageBackground} paddingLeft={2} paddingRight={1}>
-      <Text color={theme.text} wrap="wrap">{text}</Text>
+      <Text color={theme.mixdogIvory} wrap="wrap">{text}</Text>
     </Box>
   );
 });

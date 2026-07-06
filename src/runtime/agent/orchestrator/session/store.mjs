@@ -45,17 +45,20 @@ const _lastSaveError = new Map(); // id -> { message, at }
 // starving the model of the image mid-conversation. Returns the same object
 // reference when nothing changed (no-image sessions pay only a shallow scan).
 function _sessionForDisk(session) {
-    // Strip the in-flight live-turn alias (askSession sets session.liveTurnMessages
-    // for the turn duration so contextStatus() can estimate live context growth).
-    // It is a transient duplicate of the working transcript and must never be
-    // serialized: mid-turn saves (persistIterationMetrics) would otherwise bloat
-    // the session file and persist a non-canonical message array.
-    const hasLiveTurn = session && typeof session === 'object'
-        && Object.prototype.hasOwnProperty.call(session, 'liveTurnMessages');
+    // Strip transient in-flight aliases askSession sets for the turn duration:
+    //  - liveTurnMessages: live working transcript (so contextStatus() can
+    //    estimate live context growth) — a duplicate of the working transcript
+    //    that must never be serialized (mid-turn saves would bloat the file and
+    //    persist a non-canonical message array).
+    //  - toolApprovalHook: the askOpts.onToolApproval callback wired for the
+    //    turn — a function that must never be serialized.
+    const hasTransient = session && typeof session === 'object'
+        && (Object.prototype.hasOwnProperty.call(session, 'liveTurnMessages')
+            || Object.prototype.hasOwnProperty.call(session, 'toolApprovalHook'));
     const messages = Array.isArray(session?.messages) ? session.messages : null;
     if (!messages || messages.length === 0) {
-        if (!hasLiveTurn) return session;
-        const { liveTurnMessages: _drop, ...rest } = session;
+        if (!hasTransient) return session;
+        const { liveTurnMessages: _dropLTM, toolApprovalHook: _dropTAH, ...rest } = session;
         return rest;
     }
     let changed = false;
@@ -66,11 +69,11 @@ function _sessionForDisk(session) {
         return m;
     });
     if (!changed) {
-        if (!hasLiveTurn) return session;
-        const { liveTurnMessages: _drop, ...rest } = session;
+        if (!hasTransient) return session;
+        const { liveTurnMessages: _dropLTM, toolApprovalHook: _dropTAH, ...rest } = session;
         return rest;
     }
-    const { liveTurnMessages: _drop, ...rest } = session;
+    const { liveTurnMessages: _dropLTM, toolApprovalHook: _dropTAH, ...rest } = session;
     return { ...rest, messages: out };
 }
 
@@ -305,13 +308,26 @@ export function saveSessionAsync(session, opts) {
     setLiveSession(session);
     const reqId = ++_saveWorkerReqId;
     const safeOpts = opts || null;
+    // The Worker `postMessage` below structured-clones the whole session on the
+    // main thread. `session.liveTurnMessages` (live working transcript) and
+    // `session.toolApprovalHook` (askOpts.onToolApproval callback) are transient
+    // in-flight aliases askSession sets for the turn duration; both carry
+    // non-cloneable values (a function, and raw messages that can hold functions),
+    // which makes structuredClone throw "could not be cloned" for every mid-turn
+    // iteration save. The worker strips both via _sessionForDisk anyway, so drop
+    // them from the cloned payload here WITHOUT mutating the live session object.
+    const clonePayload = (session && typeof session === 'object'
+        && (Object.prototype.hasOwnProperty.call(session, 'liveTurnMessages')
+            || Object.prototype.hasOwnProperty.call(session, 'toolApprovalHook')))
+        ? (() => { const { liveTurnMessages: _dropLTM, toolApprovalHook: _dropTAH, ...rest } = session; return rest; })()
+        : session;
     return new Promise((resolve, reject) => {
         // Persist {session, opts} so drainSessionStore can sync-flush
         // outstanding writes if process exit interrupts the worker queue.
-        _saveWorkerPending.set(reqId, { resolve, reject, session, opts: safeOpts });
+        _saveWorkerPending.set(reqId, { resolve, reject, session: clonePayload, opts: safeOpts });
         try {
             const w = _getOrSpawnWorker();
-            w.postMessage({ session, opts: safeOpts, reqId });
+            w.postMessage({ session: clonePayload, opts: safeOpts, reqId });
             // Ref AFTER successful postMessage so a queue/throw failure path
             // does not leave the worker held alive with no pending message.
             // Paired with the unref in the message handler when count hits 0.

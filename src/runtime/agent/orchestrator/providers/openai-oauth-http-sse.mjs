@@ -451,7 +451,7 @@ export async function sendViaHttpSse({
         }
         const call = {
             id: callId,
-            name: 'tool_search',
+            name: 'load_tool',
             arguments: args,
             nativeType: 'tool_search_call',
         };
@@ -501,7 +501,7 @@ export async function sendViaHttpSse({
                     // mistakes it for a function call by id collision/empty id.
                     if (event.item.id) {
                         pendingCalls.set(event.item.id, {
-                            name: 'tool_search',
+                            name: 'load_tool',
                             callId: event.item.call_id || '',
                             kind: 'tool_search',
                         });

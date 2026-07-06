@@ -14,8 +14,36 @@ import { compareSemver } from '../../runtime/shared/update-checker.mjs';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolvePluginData } from '../../runtime/shared/plugin-paths.mjs';
 
 const GLYPH = { ok: '✓', warn: '⚠', fail: '✗' };
+
+// Windows Defender real-time scanning of the Postgres data dir shows up as
+// pathologically long checkpoint write phases in pg.log (e.g. write=12 s for a
+// <10MB checkpoint). Get-MpPreference needs admin, so we never read the actual
+// exclusion list — we infer interference from checkpoint timings instead.
+const CKPT_WRITE_WARN_S = 10; // any single checkpoint write phase over this = suspicious
+const CKPT_WRITE_MEDIAN_S = 5; // sustained median over this = suspicious
+
+function parseCheckpointWriteSeconds(logText) {
+  const lines = String(logText).split(/\r?\n/).slice(-200);
+  const out = [];
+  for (const line of lines) {
+    const m = /checkpoint complete:.*?\bwrite=([\d.]+)\s*s/i.exec(line);
+    if (m) {
+      const v = Number(m[1]);
+      if (Number.isFinite(v)) out.push(v);
+    }
+  }
+  return out;
+}
+
+function median(nums) {
+  if (!nums.length) return 0;
+  const s = [...nums].sort((a, b) => a - b);
+  const mid = s.length >> 1;
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
 
 function readPackageJson() {
   try {
@@ -170,6 +198,35 @@ export async function buildDoctorReport(runtime = {}, getState = () => ({})) {
     const enabled = h.enabled === true;
     row('ok', `${enabled ? 'enabled' : 'disabled'} · ${events.length} event${events.length === 1 ? '' : 's'}`);
   });
+
+  // 8. defender (win32 only): infer AV real-time-scan interference on the PG
+  //    data dir from checkpoint write timings; report-only, so surface the
+  //    exact elevated exclusion one-liner as copyable fix text.
+  if (process.platform === 'win32') {
+    await check('defender', async (row) => {
+      const dataDir = resolvePluginData();
+      const pgdata = join(dataDir, 'pgdata');
+      let writes;
+      try {
+        writes = parseCheckpointWriteSeconds(readFileSync(join(dataDir, 'pg.log'), 'utf8'));
+      } catch {
+        row('ok', 'pg.log unavailable · check skipped');
+        return;
+      }
+      if (!writes.length) {
+        row('ok', 'no checkpoint timings yet');
+        return;
+      }
+      const max = Math.max(...writes);
+      const med = median(writes);
+      if (max <= CKPT_WRITE_WARN_S && med <= CKPT_WRITE_MEDIAN_S) {
+        row('ok', `checkpoint write median ${med.toFixed(1)}s · max ${max.toFixed(1)}s`);
+        return;
+      }
+      const fix = `Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile','-Command',"Add-MpPreference -ExclusionPath '${pgdata}'"`;
+      row('warn', `slow checkpoints (median ${med.toFixed(1)}s · max ${max.toFixed(1)}s) suggest Defender real-time scan of ${pgdata}. Fix (run in PowerShell): ${fix}`);
+    });
+  }
 
   return ['mixdog doctor — installation health', ...rows].join('\n');
 }

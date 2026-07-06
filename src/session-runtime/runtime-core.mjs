@@ -903,6 +903,11 @@ export async function createMixdogSessionRuntime({
         if (msg?.params?.state === 'acquired' && !remoteEnabled) {
           remoteEnabled = true;
           ensureRemoteTranscriptWriter();
+          // Auto-acquire: the worker restored yesterday's transcript from
+          // persisted status and we just created the CURRENT writer. Push the
+          // repoint now instead of waiting for the next inbound parent-chain
+          // steal, so outbound forwarding never tails a stale transcript.
+          pushTranscriptRebind();
           emitRemoteStateChange(true, 'acquired');
         }
         return;
@@ -1001,8 +1006,8 @@ export async function createMixdogSessionRuntime({
         if (!codeGraphMod?.executeCodeGraphTool) throw new Error('code_graph runtime is not available');
         return await codeGraphMod.executeCodeGraphTool(name, args || {}, args?.cwd || callerCwd);
       }
-      if (name === 'tool_search') {
-        return renderToolSearch(args, activeToolSurface(), mode);
+      if (name === 'tool_search' || name === 'load_tool') {
+        return renderToolSearch(args, activeToolSurface(), mode, { mcpStatus });
       }
       if (name === 'explore') {
         const callerSessionId = callerCtx?.callerSessionId || session?.id || null;
@@ -1107,6 +1112,8 @@ export async function createMixdogSessionRuntime({
     flushConfigSave,
     flushBackendSave,
     scheduleBackendSave,
+    scheduleSkillsSave,
+    flushSkillsSave,
     flushOutputStyleSave,
     scheduleOutputStyleSave,
     reloadFullConfig,
@@ -1523,6 +1530,25 @@ export async function createMixdogSessionRuntime({
     return _transcriptWriter != null;
   }
 
+  // Push the CURRENT transcript path to the channel worker so outbound
+  // forwarding repoints immediately at the moments the binding can go stale
+  // (auto-acquire, newSession/resume, clear) instead of waiting for the next
+  // inbound parent-chain steal. Best-effort: ensures the writer, then fires
+  // the dedicated idempotent worker op — a missing/not-ready worker or a bind
+  // failure must never throw into the lead paths that call this.
+  function pushTranscriptRebind() {
+    if (!remoteEnabled) return;
+    if (!ensureRemoteTranscriptWriter()) return;
+    const transcriptPath = _transcriptWriter?.transcriptPath;
+    if (!transcriptPath || !channelsEnabled()) return;
+    try {
+      void channels.execute('rebind_current_transcript', { transcriptPath })
+        .catch((error) => bootProfile('channels:rebind-push-failed', { error: error?.message || String(error) }));
+    } catch (error) {
+      bootProfile('channels:rebind-push-failed', { error: error?.message || String(error) });
+    }
+  }
+
   // Remote (Discord channel) mode is opt-in per session. Only a session that
   // explicitly enables remote — via `mixdog --remote` or the runtime toggle —
   // boots the channel worker and contends for channel ownership.
@@ -1783,6 +1809,7 @@ export async function createMixdogSessionRuntime({
     adoptConfig,
     saveConfigAndAdopt,
     scheduleBackendSave,
+    scheduleSkillsSave,
     cfgMod,
     hasOwn,
     normalizeAutoClearConfig,
@@ -1859,6 +1886,7 @@ export async function createMixdogSessionRuntime({
     statusRoutes,
     channels,
     agentTool,
+    pushTranscriptRebind,
     mcpClient,
     warmupTimers,
     prewarmTimers,
@@ -1896,6 +1924,7 @@ export async function createMixdogSessionRuntime({
     pluginsStatus,
     getMemoryModule,
     reloadFullConfig,
+    getActiveTurnCount: () => activeTurnCount,
   });
   const modelRouteApi = createModelRouteApi({
     getConfig: () => config,
@@ -1978,6 +2007,7 @@ export async function createMixdogSessionRuntime({
     refreshSessionForCwdIfNeeded,
     createCurrentSession,
     ensureRemoteTranscriptWriter,
+    pushTranscriptRebind,
     channelsEnabled,
     invokeChannelStart,
     channels,

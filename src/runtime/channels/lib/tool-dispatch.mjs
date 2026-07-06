@@ -23,10 +23,10 @@ function createToolDispatch({
     setChannelBridgeActive,
     writeBridgeState,
     stopServerTyping,
-    claimBridgeOwnership,
     notifyRemoteAcquired,
     refreshBridgeOwnership,
     bindPersistedTranscriptIfAny,
+    rebindCurrentTranscript,
     stopOwnedRuntime,
     reloadRuntimeConfig,
   } = lifecycle;
@@ -59,14 +59,15 @@ function createToolDispatch({
               // double reconnect). refreshBridgeOwnership below still re-pins
               // the forwarder binding onto THIS session either way.
               if (getOwned?.() !== true) {
-                claimBridgeOwnership(wasActive ? "re-activate takeover" : "bridge activated");
-                // Genuine acquire transition (we were NOT the owner) — tell the
-                // parent to flip remote ON. Not fired when we already own the
-                // seat, so an idempotent re-activate never re-notifies.
+                // Genuine acquire transition (we do NOT hold the seat) — tell the
+                // parent to flip remote ON. The seat itself is acquired inside
+                // refreshBridgeOwnership({ claim: true }) below (explicit
+                // takeover). An idempotent re-activate (already own the seat)
+                // skips both the notify and the takeover.
                 notifyRemoteAcquired?.();
               }
               try {
-                await refreshBridgeOwnership({ restoreBinding: true });
+                await refreshBridgeOwnership({ restoreBinding: true, claim: true });
                 // An already-connected owner returns early from
                 // startOwnedRuntime(), so rebind explicitly to follow the
                 // current (parent-chain) session transcript.
@@ -104,6 +105,16 @@ function createToolDispatch({
             result = { content: [{ type: "text", text: `config reloaded — schedules, webhooks, events${agentReloadMsg} re-registered` }] };
             break;
           }
+        case "rebind_current_transcript": {
+            // Lead-pushed repoint to the transcript it just created/rebound.
+            // Best-effort + idempotent: absent channelId or path => no-op; a
+            // bind failure is swallowed by the outer try so lead paths never
+            // throw. Same binding path as the inbound steal.
+            const transcriptPath = typeof args.transcriptPath === "string" ? args.transcriptPath.trim() : "";
+            if (transcriptPath) await rebindCurrentTranscript(transcriptPath);
+            result = { content: [{ type: "text", text: `transcript rebind ${transcriptPath ? "pushed" : "skipped (no path)"}` }] };
+            break;
+        }
         // memory — handled by memory-service.mjs MCP
         default:
             result = {
@@ -132,7 +143,10 @@ function createToolDispatch({
     // Debounce: only forward when ≥250 ms have elapsed since the last forward,
     // to avoid one HTTP roundtrip per tool call on rapid-fire sequences.
     const now = Date.now();
-    if (now - _lastForwardMs >= 250) {
+    // The transcript rebind op must repoint the forwarder BEFORE any flush;
+    // running the pre-flush first would send stale-transcript text ahead of the
+    // rebind. Skip the pre-flush for it so rebinding always precedes forwarding.
+    if (toolName !== 'rebind_current_transcript' && now - _lastForwardMs >= 250) {
       _lastForwardMs = now;
       await forwarder.forwardNewText();
     }
@@ -140,7 +154,9 @@ function createToolDispatch({
       // Remote-owner startup: ensure this owner's backend is connected.
       for (let i = 0; i < 2 && !getBridgeRuntimeConnected(); i++) {
         try {
-          await refreshBridgeOwnership();
+          // Auto-connect a remote owner. claimIfVacant: acquire the seat only
+          // when vacant/stale — never steal a live holder from this retry path.
+          await refreshBridgeOwnership({ claim: true, claimIfVacant: true });
         } catch {
         }
         if (!getBridgeRuntimeConnected()) await new Promise((r) => setTimeout(r, 300));

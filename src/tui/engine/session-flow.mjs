@@ -15,6 +15,12 @@ export function createSessionFlow(bag) {
   // runtime.clear() resolve only after compaction finishes; without a bound a
   // stalled compaction wedges autoClearRunning/commandBusy forever, which
   // suppresses the input drain. On timeout we abandon this attempt.
+  // NOTE: this bounds how long the INPUT stays blocked (commandBusy), not the
+  // compaction itself — the clear path's worst case (recall cold retries ~38s
+  // + size-scaled semantic up to 120s) may exceed it, and that is fine: the
+  // abandoned promise keeps running and the late-fulfillment path below
+  // (autoClearInFlight / pendingClearedSessionUi) applies the clear when it
+  // settles. Do NOT raise this to cover compaction worst cases.
   const AUTO_CLEAR_COMPACT_TIMEOUT_MS = 60_000;
 
     const leadSessionId = () => runtime.id;

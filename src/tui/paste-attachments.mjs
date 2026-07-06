@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { Buffer } from 'node:buffer';
 import { randomBytes } from 'node:crypto';
 import { existsSync, unlinkSync } from 'node:fs';
 import { readFile as readFileAsync, stat as statAsync } from 'node:fs/promises';
@@ -222,4 +223,29 @@ export async function readClipboardImageAttachment() {
   } finally {
     try { unlinkSync(file); } catch {}
   }
+}
+
+// Cross-platform OS-clipboard TEXT read. Mirrors the per-OS command pattern in
+// clipboard.mjs (writes) and readClipboardImageAttachment (reads). Returns '' on
+// any miss/error so callers can cleanly fall through to the image path. Windows
+// round-trips through base64 so non-ASCII survives the console codepage.
+export async function readClipboardText() {
+  if (process.platform === 'win32') {
+    const ps = '$t=Get-Clipboard -Raw; if ($null -eq $t) { exit 2 }; [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($t)))';
+    const r = await execFileBuffer('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', ps], { timeout: 3000 });
+    if (!r.ok || !r.stdout?.length) return '';
+    try { return Buffer.from(r.stdout.toString('ascii').trim(), 'base64').toString('utf8'); } catch { return ''; }
+  }
+  if (process.platform === 'darwin') {
+    const r = await execFileBuffer('pbpaste', [], { timeout: 3000 });
+    return r.ok && r.stdout?.length ? r.stdout.toString('utf8') : '';
+  }
+  if (process.platform === 'linux') {
+    const wl = await execFileBuffer('wl-paste', ['--no-newline'], { timeout: 3000 });
+    if (wl.ok && wl.stdout?.length) return wl.stdout.toString('utf8');
+    const xc = await execFileBuffer('xclip', ['-selection', 'clipboard', '-o'], { timeout: 3000 });
+    if (xc.ok && xc.stdout?.length) return xc.stdout.toString('utf8');
+    return '';
+  }
+  return '';
 }

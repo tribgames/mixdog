@@ -134,6 +134,10 @@ const RUNTIME_ROOT = process.env.MIXDOG_RUNTIME_ROOT
 
 let _periodicAdvertiseInstalled = false
 let _periodicAdvertiseTimer = null
+// Single module-level advertise retry chain. A newer advertiseMemoryPort call
+// cancels the older chain so a delayed retry never replays a stale boundPort.
+let _advertiseRetryTimer = null
+let _advertiseGeneration = 0
 // Track the most recently advertised port so the periodic tick re-reads it
 // every interval. Without this the setInterval closure binds the FIRST port
 // (the upstream we proxied to) and keeps re-advertising the dead upstream
@@ -248,7 +252,14 @@ function deregisterClient(clientPid) {
 
 function advertiseMemoryPort(boundPort, attempt = 0) {
   if (!Number.isFinite(boundPort) || boundPort <= 0) return
-  _currentAdvertisedPort = boundPort
+  // A fresh top-level advertise (attempt 0) supersedes any pending retry chain:
+  // last write wins, so a delayed retry never clobbers a newer boundPort.
+  if (attempt === 0) {
+    _currentAdvertisedPort = boundPort
+    _advertiseGeneration++
+    if (_advertiseRetryTimer) { try { clearTimeout(_advertiseRetryTimer) } catch {} ; _advertiseRetryTimer = null }
+  }
+  const generation = _advertiseGeneration
   if (!_periodicAdvertiseInstalled) {
     _periodicAdvertiseInstalled = true
     _periodicAdvertiseTimer = setInterval(() => {
@@ -284,12 +295,24 @@ function advertiseMemoryPort(boundPort, attempt = 0) {
         updatedAt: Date.now(),
       }
       return next
-    }, { compact: true, fsyncDir: true, renameFallback: 'truncate' })
+    }, { compact: true, fsyncDir: true, renameFallback: 'truncate', timeoutMs: 1000 })
+    if (generation === _advertiseGeneration) _advertiseRetryTimer = null
   } catch (e) {
-    const transient = e?.code === 'EPERM' || e?.code === 'EBUSY' || e?.code === 'EACCES'
-    if (transient && attempt < 3) {
-      const retryTimer = setTimeout(() => advertiseMemoryPort(boundPort, attempt + 1), 50 * (attempt + 1))
-      retryTimer.unref?.()
+    // Boot path must not serially block on the default 8s lock wait: use a short
+    // lock timeout and treat lock contention/timeout as transient so pg_port /
+    // memory_port still eventually publish via unref'd, backed-off bg retries.
+    const transient =
+      e?.code === 'EPERM' || e?.code === 'EBUSY' || e?.code === 'EACCES' ||
+      e?.code === 'ELOCKTIMEOUT' || e?.code === 'ELOCKCONTENDED'
+    if (transient && attempt < 5 && generation === _advertiseGeneration) {
+      const delay = Math.min(2000, 50 * 2 ** attempt)
+      // Fire-time generation re-check: even if clearTimeout was missed, a
+      // retry from a superseded chain must never republish an old boundPort.
+      _advertiseRetryTimer = setTimeout(() => {
+        if (generation !== _advertiseGeneration) return
+        advertiseMemoryPort(boundPort, attempt + 1)
+      }, delay)
+      _advertiseRetryTimer.unref?.()
       return
     }
     __mixdogMemoryLog(`[memory-service] active-instance memory_port advertise failed: ${e?.message || e}\n`)
@@ -454,10 +477,23 @@ async function _initStore() {
   if (dimsResolved) {
     primeEmbeddingDims(dimsResolved)
     assertSecondaryPgAttachable()
+    // Start embedding + kiwi warmup NOW so they run on their worker threads
+    // during the PG ensure I/O-wait window below: openDatabase spawns/awaits
+    // Postgres (I/O-bound, not CPU), so overlapping warmup there is safe and
+    // lands a cold boot's first recall dense instead of lexical-fallback.
+    // Both are fire-and-forget; the boot-complete fireDeferred/initKoMorph edge
+    // stays an idempotent no-op fallback. schedule() respects canStart
+    // (secondary/env-disabled skip → fireDeferred no-op); kiwi skips secondary.
+    _embeddingWarmup.schedule(EMBEDDING_META_PATH, metaKey)
+    memoryProfile('embedding:warmup:fire')
+    _embeddingWarmup.fireDeferred()
+    if (!memorySecondaryMode()) {
+      memoryProfile('ko-morph:warmup:fire')
+      initKoMorph(DATA_DIR, __mixdogMemoryLog).catch(() => {})
+    }
     const openStartedAt = performance.now()
     db = await openDatabase(DATA_DIR, dimsResolved)
     memoryProfile('open-db:done', { ms: (performance.now() - openStartedAt).toFixed(1), dims: dimsResolved })
-    _embeddingWarmup.schedule(EMBEDDING_META_PATH, metaKey)
   } else {
     if (!embeddingWarmupCanStart()) {
       throw new Error('memory-service: embedding dims unavailable while warmup is disabled')
@@ -469,6 +505,12 @@ async function _initStore() {
     memoryProfile('embedding:cold-warmup:done', { ms: (performance.now() - warmupStartedAt).toFixed(1) })
     dimsResolved = Number(getEmbeddingDims())
     assertSecondaryPgAttachable()
+    // Embedding is already warm (awaited above); still fire kiwi during the PG
+    // ensure I/O-wait so the first recall's FTS path is morph-aware too.
+    if (!memorySecondaryMode()) {
+      memoryProfile('ko-morph:warmup:fire')
+      initKoMorph(DATA_DIR, __mixdogMemoryLog).catch(() => {})
+    }
     const openStartedAt = performance.now()
     db = await openDatabase(DATA_DIR, dimsResolved)
     memoryProfile('open-db:done', { ms: (performance.now() - openStartedAt).toFixed(1), dims: dimsResolved })
@@ -798,6 +840,11 @@ export async function stop() {
       try { clearInterval(_periodicAdvertiseTimer) } catch {}
       _periodicAdvertiseTimer = null
     }
+    if (_advertiseRetryTimer) {
+      try { clearTimeout(_advertiseRetryTimer) } catch {}
+      _advertiseRetryTimer = null
+    }
+    _advertiseGeneration++
     _periodicAdvertiseInstalled = false
     _currentAdvertisedPort = null
     _embeddingWarmup.reset()

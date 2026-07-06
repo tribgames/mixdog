@@ -50,6 +50,10 @@ const render = (node, options) => {
         // store.getRenderSelectionRows so the app can stitch selections taller
         // than the viewport.
         getSelectionRows: () => instance.getSelectionRows(),
+        // [mixdog fork] one-shot full clear+repaint of the next frame; the app
+        // uses it to dismiss Windows Terminal's persistent NATIVE (shift+drag)
+        // selection overlay before starting an app-owned selection.
+        forceFullRepaint: () => instance.forceFullRepaint(),
     };
 };
 export default render;

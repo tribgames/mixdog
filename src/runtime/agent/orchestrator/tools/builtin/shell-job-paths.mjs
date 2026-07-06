@@ -109,7 +109,7 @@ async function sweepStaleShellJobs(dir) {
     });
     await Promise.all([
         ...expired.flatMap((jobId) =>
-            ['.json', '.done', '.exit', '.enforced', '.exit.cmd.sh', '.exit.cmd.ps1', '.stdout.log', '.stderr.log'].map((ext) =>
+            ['.json', '.done', '.exit', '.enforced', '.exit.cmd.sh', '.exit.cmd.ps1', '.exit.user.ps1', '.stdout.log', '.stderr.log'].map((ext) =>
                 fsPromises.unlink(join(dir, jobId + ext)).catch(() => {}),
             ),
         ),

@@ -95,12 +95,54 @@ const renderNodeToOutput = (node, output, options) => {
             if (text.length > 0) {
                 const currentWidth = widestLine(text);
                 const maxWidth = getMaxWidth(yogaNode);
+                // [mixdog fork] soft-wrap continuation metadata, parallel to the
+                // FINAL text.split('\n'). softWrap[i]=true means visual line i is a
+                // word-wrap continuation of line i-1 (the '\n' before it was
+                // inserted by wrapText, not present in the source). This is the
+                // ONLY place both the pre-wrap source AND maxWidth are known, so
+                // the flags originate here and ride the write op to output.js,
+                // where the selection copy uses them to rejoin wrapped rows into
+                // their logical source line. Only 'wrap'/'hard' create
+                // continuations; truncate never does.
+                let softWrap;
                 if (currentWidth > maxWidth) {
                     const textWrap = node.style.textWrap ?? 'wrap';
+                    const sourceLines = text.split('\n');
                     text = wrapText(text, maxWidth, textWrap);
+                    if (textWrap === 'wrap' || textWrap === 'hard') {
+                        // Re-wrap each source logical line independently (wrap-ansi
+                        // treats '\n' as a hard break, so per-line wrapping
+                        // reproduces the whole-text row layout) and mark every
+                        // produced line after the first as a continuation.
+                        const flags = [];
+                        for (const line of sourceLines) {
+                            const parts = wrapText(line, maxWidth, textWrap).split('\n');
+                            for (let i = 0; i < parts.length; i++) {
+                                flags.push(i > 0);
+                            }
+                        }
+                        // Guard: if per-line reflow disagrees with the whole-text
+                        // row count, drop the metadata rather than emit a
+                        // misaligned bitmap (output.js then keeps the honest '\n').
+                        if (flags.length === text.split('\n').length) {
+                            softWrap = flags;
+                        }
+                    }
                 }
-                text = applyPaddingToText(node, text);
-                output.write(x, y, text, { transformers: newTransformers });
+                const padded = applyPaddingToText(node, text);
+                if (softWrap) {
+                    // applyPaddingToText prepends offsetY blank lines (never
+                    // continuations) and indents in place. Shift the flags by the
+                    // number of prepended lines so they stay parallel to `padded`.
+                    const added = padded.split('\n').length - text.split('\n').length;
+                    if (added > 0) {
+                        softWrap = new Array(added).fill(false).concat(softWrap);
+                    }
+                    if (softWrap.length !== padded.split('\n').length) {
+                        softWrap = undefined;
+                    }
+                }
+                output.write(x, y, padded, { transformers: newTransformers, softWrap });
             }
             return;
         }

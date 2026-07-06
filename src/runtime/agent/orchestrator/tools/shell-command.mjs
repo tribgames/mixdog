@@ -433,6 +433,55 @@ async function _execPolicyBlockMessage(command) {
   return checkExecPolicyMessage(command);
 }
 
+// Count of shell spawns currently in-flight (including those parked in an
+// EPERM backoff). Logged with each failed spawn so a Defender-induced storm
+// is reconstructable: activeSpawnCount > 1 means concurrent spawns were
+// racing the AV scan when the failure hit.
+let _activeShellSpawns = 0;
+
+function _isPowerShellSpawn(shell, shellArg) {
+  return /pwsh|powershell/i.test(String(shell || '')) || shellArg === '-Command';
+}
+
+// Windows Defender intermittently fails node→PowerShell spawns with EPERM
+// while it scans the child image (see shell-runtime.mjs Trojan false-positive
+// note). The failure is at spawn() time — before any stdio/side effect — so a
+// short bounded retry is safe and never re-runs a command that already ran.
+// Retry ONLY on EPERM/win32/powershell; everything else throws on first
+// failure. Backoff 100/300/700ms caps added latency at ~1.1s. Every failed
+// attempt logs one diagnostic line for later reconstruction.
+async function _spawnShellWithRetry({ shell, argv, spawnOptions, shellArg, cwd }) {
+  const _delays = [100, 300, 700];
+  const _isPowerShell = _isPowerShellSpawn(shell, shellArg);
+  _activeShellSpawns++;
+  try {
+    let attempt = 0;
+    for (;;) {
+      try {
+        return spawn(shell, argv, spawnOptions);
+      } catch (err) {
+        try {
+          console.error('[shell-spawn-retry] ' + JSON.stringify({
+            code: (err && err.code) || null,
+            syscall: (err && err.syscall) || null,
+            shell,
+            cwd,
+            activeSpawnCount: _activeShellSpawns,
+          }));
+        } catch { /* logging must never mask the spawn error */ }
+        const _canRetry = err && err.code === 'EPERM'
+          && process.platform === 'win32'
+          && _isPowerShell
+          && attempt < _delays.length;
+        if (!_canRetry) throw err;
+        await new Promise((r) => setTimeout(r, _delays[attempt++]));
+      }
+    }
+  } finally {
+    _activeShellSpawns--;
+  }
+}
+
 export function execShellCommand({
   shell,
   shellArg,
@@ -516,7 +565,12 @@ export function execShellCommand({
       const argv = Array.isArray(shellArgs) && shellArgs.length > 0
         ? [...shellArgs, _spawnCommand]
         : [shellArg, _spawnCommand];
-      child = spawn(shell, argv, {
+      child = await _spawnShellWithRetry({
+        shell,
+        argv,
+        shellArg,
+        cwd,
+        spawnOptions: {
         env,
         cwd,
         windowsHide: true,
@@ -533,6 +587,7 @@ export function execShellCommand({
         // not unref it after adoption. Windows detached has different console
         // semantics, so it stays off there.
         detached: process.platform !== 'win32',
+        },
       });
       startChildGuardian({
         childPid: child.pid,

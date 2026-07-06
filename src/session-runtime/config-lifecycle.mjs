@@ -98,14 +98,24 @@ export function createConfigLifecycle({
       clearTimeout(configSaveTimer);
       configSaveTimer = null;
     }
-    if (pendingConfigToSave === null) return;
-    const snapshot = pendingConfigToSave;
-    pendingConfigToSave = null;
-    try {
-      cfgMod.saveConfig(snapshot);
-    } catch (err) {
-      process.stderr.write(`[config] debounced saveConfig failed: ${err?.message || err}\n`);
+    if (pendingConfigToSave !== null) {
+      const snapshot = pendingConfigToSave;
+      pendingConfigToSave = null;
+      try {
+        cfgMod.saveConfig(snapshot);
+      } catch (err) {
+        process.stderr.write(`[config] debounced saveConfig failed: ${err?.message || err}\n`);
+      }
     }
+    // Config-save flush points (reloadFullConfig re-read, runtime teardown) are
+    // exactly where a pending skills.disabled patch must also land, so piggyback
+    // the skills flush here — AFTER saveConfig: the whole-section snapshot may
+    // predate the latest skills toggle (stale snapshot.skills), so the in-lock
+    // skills patch must be the last writer. When the snapshot is newer than the
+    // toggle it already carries the same skills value, so the order is always
+    // safe. Runs even when no config snapshot is pending (early return above
+    // must not skip it).
+    flushSkillsSave();
   }
 
   function saveConfigAndAdopt(nextConfig, { hasSecrets = getConfigHasSecrets() } = {}) {
@@ -145,6 +155,35 @@ export function createConfigLifecycle({
     if (backendSaveTimer) clearTimeout(backendSaveTimer);
     backendSaveTimer = setTimeout(flushBackendSave, CONFIG_SAVE_DEBOUNCE_MS);
     backendSaveTimer.unref?.();
+  }
+
+  // --- debounced skills.disabled persist -------------------------------------
+  // In-memory skills state is adopted synchronously by setDisabledSkills; the
+  // heavy in-lock file RMW (cfgMod.patchSkillsDisabled) is deferred here so a
+  // burst of settings-toggle key presses collapses into one disk write.
+  let pendingSkillsNames = null;
+  let skillsSaveTimer = null;
+
+  function flushSkillsSave() {
+    if (skillsSaveTimer) {
+      clearTimeout(skillsSaveTimer);
+      skillsSaveTimer = null;
+    }
+    if (pendingSkillsNames === null) return;
+    const names = pendingSkillsNames;
+    pendingSkillsNames = null;
+    try {
+      cfgMod.patchSkillsDisabled(names);
+    } catch (err) {
+      process.stderr.write(`[config] debounced patchSkillsDisabled failed: ${err?.message || err}\n`);
+    }
+  }
+
+  function scheduleSkillsSave(names) {
+    pendingSkillsNames = names;
+    if (skillsSaveTimer) clearTimeout(skillsSaveTimer);
+    skillsSaveTimer = setTimeout(flushSkillsSave, CONFIG_SAVE_DEBOUNCE_MS);
+    skillsSaveTimer.unref?.();
   }
 
   // --- debounced top-level outputStyle persist -------------------------------
@@ -221,6 +260,8 @@ export function createConfigLifecycle({
     flushConfigSave,
     flushBackendSave,
     scheduleBackendSave,
+    flushSkillsSave,
+    scheduleSkillsSave,
     flushOutputStyleSave,
     scheduleOutputStyleSave,
     // reload / ensure

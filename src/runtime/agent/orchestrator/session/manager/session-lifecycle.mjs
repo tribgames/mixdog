@@ -314,6 +314,11 @@ export function createSession(opts) {
         },
         tools,
         preset: toolPreset,
+        // Persisted so the deferred call-through gate (deferred-call-through.mjs
+        // resolveDeferredSelectMode) can resolve the session's tool mode; without
+        // this every session read `undefined` and write-capable deferred tools
+        // (e.g. MCP) were permanently denied auto-promotion.
+        toolSpec,
         presetName: presetObj?.name || null,
         effort,
         fast,
@@ -459,6 +464,8 @@ export async function resumeSession(sessionId, preset) {
     if (ownerIsAgent) {
         toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, session.toolPermission, session.agent || null);
     }
+    // Keep the persisted tool mode in sync on resume (see createSession note).
+    session.toolSpec = toolSpec;
     session.tools = finalizeSessionToolList(toolsForRouting, {
         schemaAllowedTools: Array.isArray(session.schemaAllowedTools) ? session.schemaAllowedTools : null,
         disallowedTools: getHiddenAgent(session.agent || null) ? ['Skill'] : null,

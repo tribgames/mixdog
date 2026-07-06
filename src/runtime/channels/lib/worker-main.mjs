@@ -67,6 +67,7 @@ import { createParentBridge } from "./parent-bridge.mjs";
 import { createInboundRouting } from "./inbound-routing.mjs";
 import { createToolDispatch } from "./tool-dispatch.mjs";
 import { createOwnerHeartbeat } from "./owner-heartbeat.mjs";
+import { createSeatLock } from "./seat-lock.mjs";
 import { createTranscriptBinding } from "./transcript-binding.mjs";
 import { isNetworkError, retryOnNetwork } from "./network-retry.mjs";
 import { runWorkerIpc } from "./worker-ipc.mjs";
@@ -138,6 +139,9 @@ let config = loadConfig();
 let backend = createBackend(config);
 const INSTANCE_ID = makeInstanceId();
 const TERMINAL_LEAD_PID = getTerminalLeadPid();
+// OS-enforced bridge-seat singleton. Ownership TRUTH is holding this listener;
+// a holder crash auto-releases it and takeover is an explicit release message.
+const seatLock = createSeatLock({ runtimeRoot: RUNTIME_ROOT, instanceId: INSTANCE_ID });
 runWorkerBootstrap({
   instanceId: INSTANCE_ID,
   isWorkerMode: _isWorkerMode,
@@ -324,13 +328,8 @@ const {
   logOwnership,
   currentOwnerState,
   getBridgeOwnershipSnapshot,
-  claimBridgeOwnership,
-  startOwnerHeartbeat,
-  stopOwnerHeartbeat,
 } = createOwnerHeartbeat({
-  getInstanceId: () => INSTANCE_ID,
-  readActiveInstance,
-  refreshActiveInstance,
+  isSeatHeld: () => seatLock.isSeatHeld(),
 });
 // ── Owned-runtime lifecycle ─────────────────────────────────────────────────
 // Extracted -> lib/owned-runtime.mjs. Owns its own start/stop/refresh in-flight
@@ -364,9 +363,10 @@ const {
   statusState,
   logOwnership,
   currentOwnerState,
-  claimBridgeOwnership,
-  startOwnerHeartbeat,
-  stopOwnerHeartbeat,
+  acquireSeat: (opts) => seatLock.acquireSeat(opts),
+  closeSeatServer: () => seatLock.closeSeatServer(),
+  isSeatHeld: () => seatLock.isSeatHeld(),
+  onTakeover: (cb) => seatLock.onTakeover(cb),
   bindPersistedTranscriptIfAny,
   cancelPendingTranscriptRearm,
   schedulePendingTranscriptRearm,
@@ -634,10 +634,38 @@ const {
     setChannelBridgeActive: (v) => { channelBridgeActive = v; },
     writeBridgeState,
     stopServerTyping,
-    claimBridgeOwnership,
     notifyRemoteAcquired,
     refreshBridgeOwnership,
     bindPersistedTranscriptIfAny,
+    // Lead-pushed repoint: bind the exact transcript the lead just created
+    // (auto-acquire / newSession / resume / clear) instead of waiting for the
+    // next inbound parent-chain steal. Idempotent + best-effort: same binding
+    // path as the inbound steal (rebindTranscriptContext -> applyTranscriptBinding).
+    rebindCurrentTranscript: async (transcriptPath) => {
+      const cleanPath = typeof transcriptPath === "string" ? transcriptPath.trim() : "";
+      if (!cleanPath) return;
+      const channelId = statusState.read().channelId || config.channelId;
+      if (!channelId) return;
+      // Fail-closed: a malformed / not-yet-on-disk path must NEVER fall through
+      // to rebindTranscriptContext's discovery loop (which would mutate the
+      // binding onto a different session). Only an existing regular file binds;
+      // otherwise log + return so the current binding is left untouched.
+      let exists = false;
+      try { exists = fs.statSync(cleanPath).isFile(); } catch { exists = false; }
+      if (!exists) {
+        process.stderr.write(`mixdog: rebind_current_transcript: ignoring non-existent path ${cleanPath}\n`);
+        return;
+      }
+      // Idempotent: already bound to this exact transcript => no-op. In
+      // particular do NOT re-run recoverUnsyncedTail, which is only meaningful
+      // when the binding actually changes.
+      if (forwarder.hasBinding() && sameResolvedPath(forwarder.transcriptPath, cleanPath)) return;
+      // Binding changed: same path as the inbound steal's applyTranscriptBinding.
+      applyTranscriptBinding(channelId, cleanPath, {
+        persistStatus: true,
+        recoverUnsyncedTail: true,
+      });
+    },
     stopOwnedRuntime,
     reloadRuntimeConfig,
   },

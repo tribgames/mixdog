@@ -9,8 +9,6 @@ import {
   refreshActiveInstance,
   releaseOwnedChannelLocks,
   clearActiveInstance,
-  probeActiveOwner,
-  RUNTIME_ROOT,
 } from "./runtime-paths.mjs";
 // Owned-runtime lifecycle extracted from channels/index.mjs (behavior-
 // preserving): bridge-ownership claim/refresh/loss, backend connect/disconnect,
@@ -37,9 +35,10 @@ export function createOwnedRuntime({
   statusState,
   logOwnership,
   currentOwnerState,
-  claimBridgeOwnership,
-  startOwnerHeartbeat,
-  stopOwnerHeartbeat,
+  acquireSeat,
+  closeSeatServer,
+  isSeatHeld,
+  onTakeover,
   bindPersistedTranscriptIfAny,
   cancelPendingTranscriptRearm,
   schedulePendingTranscriptRearm,
@@ -51,51 +50,52 @@ export function createOwnedRuntime({
   let bridgeRuntimeStarting = false;
   let _ownedRuntimeStopRequested = false;
   let bridgeOwnershipRefreshInFlight = null;
-  let bridgeOwnershipTimer = null;
   let _memoryDrainTimer = null;
-  // Event-driven ownership signal: an fs.watch on the runtime dir fires the
-  // ownership refresh the instant active-instance.json changes (a newer owner
-  // claims, or the owner releases/clears it), instead of waiting up to 3s for
-  // the poll tick. This shrinks the double-owner window on takeover (the old
-  // owner observes owned=false and tears down in ms) and signals ownership
-  // loss to contenders immediately on release. The 3s timer stays as fallback.
-  let activeInstanceWatcher = null;
-  let _activeInstanceWatchDebounce = null;
-  function armActiveInstanceWatcher() {
-    if (activeInstanceWatcher) return;
-    try {
-      activeInstanceWatcher = fs.watch(RUNTIME_ROOT, { persistent: false }, (_event, filename) => {
-        if (filename && filename !== 'active-instance.json') return;
-        // Coalesce the burst of events an atomic rename/truncate emits.
-        if (_activeInstanceWatchDebounce) return;
-        _activeInstanceWatchDebounce = setTimeout(() => {
-          _activeInstanceWatchDebounce = null;
-          refreshBridgeOwnershipSafe();
-        }, 50);
-        _activeInstanceWatchDebounce.unref?.();
-      });
-      // fs.watch emits 'error' (and an unhandled one CRASHES the worker) when
-      // the watched dir is removed or the handle is invalidated (common on
-      // Windows). Close the dead handle and fall back to the 3s poll, which is
-      // still armed — the event signal is a latency optimization, never the
-      // sole ownership mechanism.
-      activeInstanceWatcher.on('error', (err) => {
-        process.stderr.write(`[ownership] active-instance watch error, falling back to poll: ${err?.message || err}\n`);
-        clearActiveInstanceWatcher();
-      });
-      activeInstanceWatcher.unref?.();
-    } catch { activeInstanceWatcher = null; }
-  }
-  function clearActiveInstanceWatcher() {
-    if (_activeInstanceWatchDebounce) { clearTimeout(_activeInstanceWatchDebounce); _activeInstanceWatchDebounce = null; }
-    if (activeInstanceWatcher) { try { activeInstanceWatcher.close(); } catch {} activeInstanceWatcher = null; }
+  let _seatTakeoverRegistered = false;
+  let _vacantReacquireTimer = null;
+  // Ownership loss is push-based now: the seat lock invokes our onTakeover
+  // handler when a contender sends an explicit takeover message, and the OS
+  // auto-releases the pipe/socket on crash. No fs.watch on active-instance.json
+  // and no 3s ownership poll — both retired with the file-heuristic model.
+  function registerSeatTakeoverOnce() {
+    if (_seatTakeoverRegistered) return;
+    _seatTakeoverRegistered = true;
+    onTakeover(async () => {
+      // A newer session explicitly took the seat. Tear the owned runtime down
+      // (the seat lock closes the listener afterwards) and drop remote mode.
+      if (getBridgeRuntimeConnected() || bridgeRuntimeStarting) {
+        await stopOwnedRuntime("ownership lost (seat taken over)");
+      }
+      notifyRemoteSuperseded();
+    });
   }
   function clearBridgeOwnershipTimer() {
-    if (bridgeOwnershipTimer) {
-      clearInterval(bridgeOwnershipTimer);
-      bridgeOwnershipTimer = null;
-    }
-    clearActiveInstanceWatcher();
+    // Only the standby reacquire poll survives under the seat-lock model (the 3s
+    // ownership poll + active-instance fs.watch are gone). Stop it on shutdown.
+    stopVacantReacquirePoll();
+  }
+  function stopVacantReacquirePoll() {
+    if (_vacantReacquireTimer) { clearInterval(_vacantReacquireTimer); _vacantReacquireTimer = null; }
+  }
+  // Standby reacquire: after an auto-start (claim-if-vacant) backed off from a
+  // LIVE holder, poll modestly so a LATER holder crash is reclaimed without
+  // explicit user action. Never steals a live holder (force:false, try-once),
+  // and stops the instant it wins. Unref'd so it never keeps the worker alive.
+  function armVacantReacquirePoll() {
+    if (_vacantReacquireTimer) return;
+    _vacantReacquireTimer = setInterval(() => {
+      void (async () => {
+        if (!getChannelBridgeActive() || isSeatHeld() || getBridgeRuntimeConnected() || bridgeRuntimeStarting) return;
+        let got = false;
+        try { got = await acquireSeat({ force: false, timeoutMs: 0 }); } catch { got = false; }
+        if (!got) return;
+        stopVacantReacquirePoll();
+        registerSeatTakeoverOnce();
+        logOwnership("standby reclaim (vacant seat acquired)");
+        await startOwnedRuntime({ restoreBinding: true });
+      })();
+    }, 15e3);
+    _vacantReacquireTimer.unref?.();
   }
 function shouldStartEventPipelineRuntime() {
   return getConfig().webhook?.enabled === true || (Array.isArray(getConfig().events?.rules) && getConfig().events.rules.length > 0);
@@ -218,60 +218,47 @@ async function startOwnedRuntime(options = {}) {
   // Auto-start intent: claim the seat ONLY if it is vacant/stale (never steal a
   // live owner). Threaded from worker start() (MIXDOG_REMOTE_INTENT=auto).
   const claimIfVacant = options.claimIfVacant === true;
-  // Single-holder correctness: the seat is claimed BEFORE getBackend().connect(),
-  // never after. The old make-before-break (claim-after-ready) boot left two
-  // gateways connected and contending during the multi-second connect window;
-  // claiming first makes the previous owner observe owned=false on its next
-  // tick and drain+disconnect, so at most one gateway ever serves.
-  //   - boot (claimAfterReady): last-wins acquire — this new remote session
-  //     takes the seat outright.
-  //   - refresh/owned-path: CAS onlyIfOwned — abort fast if the seat moved.
-  // backendReady=false marks the partial state until getBackend().connect() succeeds.
-  // Wrapped so ANY throw in the pre-connect claim (lock contention/error)
-  // resets bridgeRuntimeStarting — otherwise a transient lock error would
-  // leave it stuck true and permanently block every future ownership attempt.
+  // Seat acquisition IS the ownership claim (OS-enforced singleton). Acquiring
+  // == successfully listen()ing on the pipe/socket, so at most one process ever
+  // holds it. This replaces the old pre-connect active-instance CAS dance:
+  //   - boot (claimAfterReady) / reload (reclaim): acquire the seat here.
+  //     claimIfVacant (auto-start) backs off silently when a LIVE holder is
+  //     present (force:false); explicit /remote + last-wins force-take it via
+  //     the seat lock's takeover message (force:true).
+  //   - refresh/owned path: only proceed if we ALREADY hold the seat (never
+  //     re-steal — the seat lock, not a file re-read, is the authority).
+  // Wrapped so ANY throw in the pre-connect claim resets bridgeRuntimeStarting.
+  const reclaim = options.reclaim === true;
   try {
-    if (claimAfterReady) {
-      if (claimIfVacant) {
-        // Auto-start claim-if-vacant. Probe first: a live owner other than us
-        // holds the seat -> back off SILENTLY (no claim, no acquire notify) so
-        // this session stays non-remote. Then claim atomically via the
-        // onlyIfVacant CAS (guards the probe->write TOCTOU: a live owner landing
-        // in that gap aborts the write, leaving the seat untouched).
-        const probe = probeActiveOwner();
-        if (probe.status === 'live' && probe.state?.instanceId && probe.state.instanceId !== instanceId) {
-          bridgeRuntimeStarting = false;
-          logOwnership("autostart backoff (live owner holds seat)");
-          return;
-        }
-        const casResult = refreshActiveInstance(instanceId, { backendReady: false }, { onlyIfVacant: true, timeoutMs: 0 });
-        if (casResult?.instanceId !== instanceId) {
-          bridgeRuntimeStarting = false;
-          logOwnership("autostart backoff (seat claimed by newer owner)");
-          return;
-        }
-        logOwnership("boot claim (pre-connect, claim-if-vacant)");
-      } else {
-        refreshActiveInstance(instanceId, { backendReady: false });
-        logOwnership("boot claim (pre-connect, last-wins)");
-      }
-    } else {
-      // Try-once (timeoutMs:0): a refresh-path re-acquire must never block on
-      // the active-instance lock. Contention throws → caught below and treated
-      // as "seat busy, abort this attempt"; the next 3s tick retries.
-      const casResult = refreshActiveInstance(instanceId, { backendReady: false }, { onlyIfOwned: true, timeoutMs: 0 });
-      // A successful CAS write always sets instanceId to ours; any other result
-      // (aborted write returning the stale/foreign/missing prior state) means the
-      // seat was not ours to claim — abort here rather than relying on the timer.
-      if (casResult?.instanceId !== instanceId) {
+    if (claimAfterReady || reclaim) {
+      const acquired = await acquireSeat({ force: !claimIfVacant });
+      if (!acquired) {
         bridgeRuntimeStarting = false;
+        if (claimIfVacant) {
+          logOwnership("autostart backoff (live owner holds seat)");
+          // Keep a bounded standby poll running so a later holder crash frees
+          // the seat and this session reclaims it without explicit action.
+          armVacantReacquirePoll();
+        } else {
+          logOwnership("seat acquire failed");
+        }
         return;
       }
+      registerSeatTakeoverOnce();
+      stopVacantReacquirePoll();
+      logOwnership(claimIfVacant
+        ? "boot claim (seat acquired, claim-if-vacant)"
+        : (reclaim ? "reclaim (seat acquired)" : "boot claim (seat acquired, last-wins)"));
+    } else if (!isSeatHeld()) {
+      // Refresh/owned path with no seat held: not ours to start.
+      bridgeRuntimeStarting = false;
+      return;
     }
-    // A newer session can claim between our write and this read. If we no longer
-    // own the seat, abort fast WITHOUT starting heartbeat/getBackend()/scheduler/
-    // webhook/ngrok — ancillary runtime starts only past a confirmed-owned claim.
-    if (!currentOwnerState().owned) {
+    // Advertise metadata (memory_port/pg_*/channelId/... preserved inside
+    // refreshActiveInstance). active-instance.json is a pure advert now; the
+    // seat lock is the ownership authority, so no CAS guard is needed.
+    refreshActiveInstance(instanceId, { backendReady: false });
+    if (!isSeatHeld()) {
       bridgeRuntimeStarting = false;
       return;
     }
@@ -280,13 +267,9 @@ async function startOwnedRuntime(options = {}) {
     process.stderr.write(`mixdog: pre-connect seat claim aborted (${e instanceof Error ? e.message : String(e)})\n`);
     return;
   }
-  // Arm ownership-loss detection BEFORE getBackend().connect() so a session that is
-  // superseded during the (multi-second) connect window is torn down: the 3s
-  // tick observes a newer owner and flips _ownedRuntimeStopRequested, and
-  // bailIfStopRequested below disconnects the getBackend() WE connected.
+  // Ensure the seat-lock takeover handler is registered so a superseding
+  // session tears us down promptly (replaces the old 3s ownership poll).
   armBridgeOwnershipTimer();
-  // Heartbeat is ownership-gated; safe to arm now that we hold the seat.
-  startOwnerHeartbeat();
   // Periodic buffer drain: replays memory-buffer/entry-*/ingest-*.json once the
   // memory service publishes its port. Idempotent + reentrancy-guarded inside
   // drainBuffer(); unref'd so it never holds the worker open.
@@ -304,7 +287,7 @@ async function startOwnedRuntime(options = {}) {
   const bailIfStopRequested = async () => {
     if (!_ownedRuntimeStopRequested) return false;
     try { await startingBackend.disconnect(); } catch {}
-    try { stopOwnerHeartbeat(); } catch {}
+    try { await closeSeatServer(); } catch {}
     try { releaseOwnedChannelLocks(instanceId); } catch {}
     try { clearActiveInstance(instanceId); } catch {}
     setBridgeRuntimeConnected(false);
@@ -329,19 +312,14 @@ async function startOwnedRuntime(options = {}) {
       if (bindPersistedTranscriptTask) await bindPersistedTranscriptTask;
       return;
     }
-    // Post-connect ownership confirm (CAS). The seat was claimed BEFORE
-    // connect; a newer session may have superseded us during the connect
-    // window (the 3s tick would already be tearing us down). onlyIfOwned:
-    // never re-steal here. If the CAS aborts we LOST the seat — disconnect the
-    // getBackend() WE connected and mark the bridge runtime not connected (do NOT
-    // clear active-instance; the newer owner holds it).
-    let ownConfirm;
-    try {
-      ownConfirm = refreshActiveInstance(instanceId, { backendReady: true }, { onlyIfOwned: true });
-    } catch { ownConfirm = null; }
-    if (ownConfirm?.instanceId !== instanceId) {
+    // Post-connect seat check. The seat was acquired BEFORE connect; a takeover
+    // during the (multi-second) connect window would have closed our listener
+    // via onTakeover. If we no longer hold the seat we LOST it — disconnect the
+    // backend WE connected and drop remote (no active-instance clear; the newer
+    // owner holds the seat).
+    if (!isSeatHeld()) {
       try { await startingBackend.disconnect(); } catch {}
-      try { stopOwnerHeartbeat(); } catch {}
+      try { await closeSeatServer(); } catch {}
       try { releaseOwnedChannelLocks(instanceId); } catch {}
       if (_memoryDrainTimer) { clearInterval(_memoryDrainTimer); _memoryDrainTimer = null; }
       setBridgeRuntimeConnected(false);
@@ -351,6 +329,8 @@ async function startOwnedRuntime(options = {}) {
       notifyRemoteSuperseded();
       return;
     }
+    // Advertise backend readiness (metadata advert; seat lock is authority).
+    try { refreshActiveInstance(instanceId, { backendReady: true }); } catch {}
     setBridgeRuntimeConnected(true);
     // Fresh confirmed ownership — tell the parent it holds the seat so it flips
     // remote ON. Reached ONLY on a not-connected -> connected transition (the
@@ -404,11 +384,14 @@ async function startOwnedRuntime(options = {}) {
     try { forwarder.stopWatch(); } catch {}
     if (bindPersistedTranscriptTask) await bindPersistedTranscriptTask;
     // Roll back partial owner-side state advertised before connect() ran:
-    // heartbeat and active-instance entry.
-    try { stopOwnerHeartbeat(); } catch {}
+    // disconnect the backend WE started FIRST (a post-connect startup step may
+    // have thrown while the gateway is live), then release the seat LAST so no
+    // contender can acquire + connect a second gateway while ours is still up.
+    try { await startingBackend.disconnect(); } catch {}
     try { releaseOwnedChannelLocks(instanceId); } catch {}
     try { clearActiveInstance(instanceId); } catch {}
     if (_memoryDrainTimer) { clearInterval(_memoryDrainTimer); _memoryDrainTimer = null; }
+    try { await closeSeatServer(); } catch {}
   } finally {
     bridgeRuntimeStarting = false;
   }
@@ -437,7 +420,6 @@ async function stopOwnedRuntime(reason) {
   // and the drain/retry timers stay live after ownership is dropped, leaking a
   // file handle + timers for the rest of the process lifetime.
   try { forwarder.stopWatch(); } catch {}
-  stopOwnerHeartbeat();
   if (_memoryDrainTimer) { clearInterval(_memoryDrainTimer); _memoryDrainTimer = null; }
   scheduler.stop();
   stopSnapshotWriter();
@@ -459,21 +441,23 @@ async function stopOwnedRuntime(reason) {
     setBridgeRuntimeConnected(false);
     logOwnership(`standby: ${reason}`);
   }
+  // Release the OS seat lock LAST — only after the backend has drained and
+  // disconnected — so a contender can never acquire + connect a second gateway
+  // while ours is still live (double-owner). Idempotent: a takeover-message
+  // teardown runs this via stopOwnedRuntime, then the seat lock's own close is
+  // a no-op.
+  try { await closeSeatServer(); } catch {}
 }
 function refreshBridgeOwnershipSafe(options = {}) {
   refreshBridgeOwnership(options).catch(err => process.stderr.write(`[channels] refreshBridgeOwnership rejected: ${err?.message || err}\n`));
 }
-// Ownership-loss / re-acquire detection timer. Armed BEFORE getBackend().connect()
-// (from startOwnedRuntime) so a session superseded during the connect window is
-// torn down promptly, and re-armed idempotently on every start path.
+// Ownership-loss detection is push-based under the seat-lock model: the OS
+// releases the pipe/socket on holder crash, and an explicit takeover message
+// invokes onTakeover. This entry point (called from worker-main start() and
+// startOwnedRuntime) now just guarantees that handler is registered — no poll
+// timer, no active-instance fs.watch.
 function armBridgeOwnershipTimer() {
-  if (bridgeOwnershipTimer) return;
-  bridgeOwnershipTimer = setInterval(() => {
-    refreshBridgeOwnershipSafe();
-  }, 3e3);
-  bridgeOwnershipTimer.unref?.();
-  // Arm the event-driven signal alongside the poll fallback.
-  armActiveInstanceWatcher();
+  registerSeatTakeoverOnce();
 }
 // Guarded IPC send to the parent: no-ops when there is no channel or it is
 // already disconnected, and swallows both the synchronous throw and the async
@@ -510,55 +494,28 @@ async function refreshBridgeOwnership(options = {}) {
   // instead of returning early and observing spurious auto-connect failure.
   if (bridgeOwnershipRefreshInFlight) return bridgeOwnershipRefreshInFlight;
   bridgeOwnershipRefreshInFlight = (async () => {
-    // Opt-in remote, single-owner, last-wins. Only a remote session with an
-    // active bridge participates. If this instance is the active owner (its
-    // instanceId is the one advertised in active-instance.json) it ensures
-    // the owned runtime is up. If a newer remote session has since claimed
-    // ownership (last-wins overwrite), this instance is no longer owner and
-    // quietly tears its getBackend() down on the next tick. No proxy, no steal.
+    // Ownership authority is the OS seat lock, not active-instance.json.
     if (!getChannelBridgeActive()) {
       if (getBridgeRuntimeConnected()) await stopOwnedRuntime("bridge inactive");
       return;
     }
-    // Non-blocking ownership probe (read-only, no lock): distinguishes a live
-    // owner from a genuinely empty/stale seat from an INDETERMINATE read (a
-    // concurrent atomic rename yields partial content). "Locked/unreadable =
-    // busy/unknown owner, never claimable" — skip the tick on 'unknown' so we
-    // never claim a seat we merely failed to read (double-owner guard).
-    const probe = probeActiveOwner();
-    if (probe.status === 'unknown') return;
-    const owned = probe.status === 'live' && probe.state?.instanceId === instanceId;
-    if (owned) {
-      // Try-once CAS refresh (timeoutMs:0): on lock contention treat as busy
-      // and skip the metadata touch — never block the tick. We still own, so
-      // ensure/keep the owned runtime up.
-      try { refreshActiveInstance(instanceId, undefined, { onlyIfOwned: true, timeoutMs: 0 }); } catch {}
+    // We hold the seat -> ensure the owned runtime is up (idempotent).
+    if (isSeatHeld()) {
       await startOwnedRuntime(options);
       return;
     }
-    if (probe.status === 'live' && probe.state.instanceId && probe.state.instanceId !== instanceId) {
-      // A different live remote session holds the seat (last-wins: we lost).
-      // Go quiet (disconnect if connected) and tell the parent to drop remote
-      // mode entirely (single-holder, no handover). Notify UNCONDITIONALLY —
-      // a loser whose getBackend() never connected must still drop its Remote
-      // indicator; the parent handler is idempotent.
-      // Also cover the STARTING phase: a worker stuck in getBackend().connect() must
-      // get _ownedRuntimeStopRequested set (stopOwnedRuntime does this while
-      // bridgeRuntimeStarting) so bailIfStopRequested tears it down promptly
-      // once connect() resolves — otherwise the superseded connect lingers.
-      if (getBridgeRuntimeConnected() || bridgeRuntimeStarting) {
-        await stopOwnedRuntime("ownership lost (newer remote session)");
-      }
+    // We do NOT hold the seat but the runtime still thinks it is live — a
+    // takeover slipped past the push handler; tear down and drop remote.
+    if (getBridgeRuntimeConnected() || bridgeRuntimeStarting) {
+      await stopOwnedRuntime("ownership lost (seat released)");
       notifyRemoteSuperseded();
       return;
     }
-    // Empty (absent) or stale (dead owner) seat — claim it. Try-once
-    // (timeoutMs:0): a contended lock means a concurrent claimant is mid-write,
-    // so treat as busy and skip this tick rather than block.
-    let claimed = false;
-    try { claimed = claimBridgeOwnership("no active owner", { timeoutMs: 0 }); } catch { claimed = false; }
-    if (claimed) {
-      await startOwnedRuntime(options);
+    // Explicit (re)claim only: activation (/remote), reload restart, or the
+    // auto-connect retry. Default force-takeover; claimIfVacant backs off from a
+    // live holder. Periodic/defensive nudges pass no claim flag and never steal.
+    if (options.claim) {
+      await startOwnedRuntime({ ...options, reclaim: true });
     }
   })();
   try {
@@ -603,7 +560,9 @@ async function reloadRuntimeConfig() {
         state.transcriptPath = "";
       });
     } catch {}
-    if (shouldRestart) refreshBridgeOwnershipSafe({ restoreBinding: false });
+    // stopOwnedRuntime above released the seat; a same-session reload must
+    // re-acquire it (claim: force-takeover) to resume owning the bridge.
+    if (shouldRestart) refreshBridgeOwnershipSafe({ restoreBinding: false, claim: true });
   } else if (nextBackend !== previousBackend) {
     try { await nextBackend.disconnect?.(); } catch {}
   }

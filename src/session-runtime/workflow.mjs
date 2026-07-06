@@ -101,6 +101,7 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
       name: clean(fm.name) || id,
       description: clean(fm.description),
       entry,
+      hidden: String(fm.hidden ?? '').trim().toLowerCase() === 'true',
       agentsConfigured,
       agents: agentsConfigured
         ? String(fm.agents || '')
@@ -124,7 +125,7 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
         const d = join(root, entry.name);
         if (!existsSync(join(d, 'WORKFLOW.md'))) continue;
         const pack = readWorkflowPackFromDir(d, source, entry.name);
-        if (pack) byId.set(pack.id, pack);
+        if (pack && !pack.hidden) byId.set(pack.id, pack);
       }
     }
     return [...byId.values()].sort((a, b) => {

@@ -26,6 +26,8 @@ export function createSlashDispatch({
   openThemePicker,
   themeNotice,
   openEffortPicker,
+  getMouseMode,
+  switchMouseMode,
   projectNameFromPath,
   enterProject,
   openProjectPicker,
@@ -171,6 +173,43 @@ export function createSlashDispatch({
           store.pushNotice(themeNotice(applied || match), 'info');
         } catch (e) {
           store.pushNotice(`Couldn’t set theme: ${e?.message || e}`, 'error');
+        }
+        return true;
+      }
+      case 'mouse': {
+        const value = String(arg || '').trim().toLowerCase();
+        const current = (getMouseMode?.() === 'native') ? 'native' : 'app';
+        if (!value || value === 'status' || value === 'current' || value === 'show') {
+          store.pushNotice(
+            current === 'native'
+              ? 'Mouse mode: native — terminal owns selection/copy; wheel scrolls the transcript.'
+              : 'Mouse mode: app — in-app selection and mouse handling.',
+            'info',
+          );
+          return true;
+        }
+        let target = null;
+        if (['native', 'terminal', 'off', '0', 'false', 'no'].includes(value)) target = 'native';
+        else if (['app', 'on', '1', 'true', 'yes'].includes(value)) target = 'app';
+        else if (value === 'toggle') target = current === 'native' ? 'app' : 'native';
+        if (!target) {
+          store.pushNotice('usage: /mouse [native|app|status]', 'warn');
+          return true;
+        }
+        if (target === current) {
+          store.pushNotice(`Mouse mode already ${target}.`, 'info');
+          return true;
+        }
+        try {
+          switchMouseMode?.(target, { persist: true });
+          store.pushNotice(
+            target === 'native'
+              ? 'Mouse mode: native — terminal owns selection/copy; wheel scrolls the transcript.'
+              : 'Mouse mode: app — in-app selection and mouse handling.',
+            'info',
+          );
+        } catch (e) {
+          store.pushNotice(`Couldn’t switch mouse mode: ${e?.message || e}`, 'error');
         }
         return true;
       }

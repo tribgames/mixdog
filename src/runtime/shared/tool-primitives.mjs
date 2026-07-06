@@ -33,8 +33,38 @@ export function isMcpToolName(name) {
   return Boolean(parseMcpToolName(name));
 }
 
+// The self-plugin surfaces mixdog's own builtin tools through an MCP prefix
+// (mcp__plugin_mixdog_mixdog__<tool>). Those must render as their stripped
+// builtin names, not as external "MCP" calls. Define the server id once here
+// and reuse everywhere a display path branches on MCP-ness.
+export const SELF_MCP_SERVER = 'plugin_mixdog_mixdog';
+
+export function isSelfMcpToolName(name) {
+  const mcp = parseMcpToolName(name);
+  return Boolean(mcp && mcp.server === SELF_MCP_SERVER);
+}
+
+// True only for genuine external MCP servers (excludes the self-plugin).
+export function isExternalMcpToolName(name) {
+  return isMcpToolName(name) && !isSelfMcpToolName(name);
+}
+
+// Title-case an MCP server id for display (e.g. "playwright" -> "Playwright").
+export function titleCaseMcpServer(server) {
+  return String(server || '')
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join(' ');
+}
+
+// Canonical tool-name aliases. The deferred loader was renamed tool_search →
+// load_tool; old transcripts/providers may still carry the legacy literal, so
+// it normalizes to the new canonical name here (one place, all consumers).
+const TOOL_NAME_ALIASES = { tool_search: 'load_tool' };
 export function normalizeToolName(name) {
-  return stripToolPrefix(name).replace(/-/g, '_').toLowerCase();
+  const base = stripToolPrefix(name).replace(/-/g, '_').toLowerCase();
+  return TOOL_NAME_ALIASES[base] || base;
 }
 
 export function truncateToolText(value, max = DEFAULT_SUMMARY_MAX) {

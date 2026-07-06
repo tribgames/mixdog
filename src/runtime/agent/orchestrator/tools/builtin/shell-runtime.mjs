@@ -27,11 +27,12 @@ function shellTypeFor(shell) {
 
 function shellSpec(shell, shellType = shellTypeFor(shell)) {
     if (shellType === 'powershell') {
-        // `-WindowStyle Hidden` is a Windows-only switch. PowerShell Core
-        // (pwsh) on macOS/Linux rejects it, so only append it on win32.
-        const psArgs = ['-NoLogo', '-NoProfile', '-NonInteractive'];
-        if (process.platform === 'win32') psArgs.push('-WindowStyle', 'Hidden');
-        psArgs.push('-Command');
+        // Deliberately NO `-WindowStyle Hidden` here: every spawn site passes
+        // windowsHide:true (CREATE_NO_WINDOW), which suppresses the console at
+        // the OS level without leaving a token on the command line. The CLI
+        // switch is redundant AND matches Defender's node→hidden-PowerShell
+        // dropper signature (Trojan:Win32/PowhidSubExec false positive).
+        const psArgs = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command'];
         return {
             shell,
             shellArg: '-Command',

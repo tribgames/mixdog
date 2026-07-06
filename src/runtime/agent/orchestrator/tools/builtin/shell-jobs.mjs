@@ -86,10 +86,6 @@ function psSingleQuote(s) {
     return `'${String(s).replace(/'/g, "''")}'`;
 }
 
-function powerShellEncodedCommand(command) {
-    return Buffer.from(String(command || ''), 'utf16le').toString('base64');
-}
-
 function isPowerShellShell(shell, shellType) {
     if (shellType === 'powershell') return true;
     const stem = basename(String(shell || '')).toLowerCase().replace(/\.exe$/, '');
@@ -857,14 +853,24 @@ function startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr
     const exitPath = shellJobExitPath(jobId);
     const donePath = shellJobDonePath(jobId);
     const wrappedTempPath = `${exitPath}.cmd.ps1`;
-    const encodedCommand = powerShellEncodedCommand(command);
+    // Stage the USER command as its own .ps1 and run it via `-File` instead of
+    // `-EncodedCommand <base64>`: the base64 token landed on the grandchild's
+    // visible command line, which is a prime Defender obfuscation signature
+    // (same family as the PowhidSubExec false positive). A file path on the
+    // command line carries no such signature, and the payload stays opaque to
+    // outer-shell quoting exactly as base64 did. UTF-8 BOM so Windows
+    // PowerShell 5.1 doesn't misread non-ASCII as ANSI.
+    // Trailer mirrors -Command/-EncodedCommand exit semantics (-File alone
+    // does NOT propagate the last native command's exit code).
+    const innerTempPath = `${exitPath}.user.ps1`;
+    const innerScript = `\ufeff${command}\nif ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }\n`;
     const mergeLiteral = mergeStderr ? '$true' : '$false';
     const wrapper = [
         "$ErrorActionPreference = 'Continue'",
         '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8',
         '$OutputEncoding=[System.Text.Encoding]::UTF8',
         '$exe = (Get-Process -Id $PID).Path',
-        `$encoded = ${psSingleQuote(encodedCommand)}`,
+        `$innerPath = ${psSingleQuote(innerTempPath)}`,
         `$stdoutPath = ${psSingleQuote(stdoutPath)}`,
         `$stderrPath = ${psSingleQuote(rawStderrPath)}`,
         `$exitPath = ${psSingleQuote(exitPath)}`,
@@ -873,7 +879,10 @@ function startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr
         `$timeoutMs = ${Math.max(1, Math.floor(timeoutMs || 0))}`,
         '$code = 1',
         'try {',
-        "    $argList = @('-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded)",
+        // -ExecutionPolicy Bypass: unlike -EncodedCommand, -File is subject to
+        // the execution policy on Windows PowerShell; pwsh on macOS/Linux
+        // accepts the parameter as a no-op, so it is safe unconditionally.
+        "    $argList = @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $innerPath)",
         // -WindowStyle is a Windows-only Start-Process parameter; pwsh on
         // macOS/Linux throws "not supported on this platform". Add it only on win32.
         '    $spArgs = @{ FilePath = $exe; ArgumentList = $argList; RedirectStandardOutput = $stdoutPath; RedirectStandardError = $stderrPath; PassThru = $true }',
@@ -912,23 +921,27 @@ function startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr
         '}',
         'try { Set-Content -LiteralPath $exitPath -Value ([string]$code) -NoNewline -Encoding ascii } catch {}',
         'try { Set-Content -LiteralPath $donePath -Value "" -NoNewline -Encoding ascii } catch {}',
+        'try { Remove-Item -LiteralPath $innerPath -Force -ErrorAction SilentlyContinue } catch {}',
         'try { Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue } catch {}',
         'exit $code',
         '',
     ].join('\n');
     try {
         writeFileSync(wrappedTempPath, wrapper, 'utf-8');
+        writeFileSync(innerTempPath, innerScript, 'utf-8');
     } catch (e) {
         return { jobId, kind: 'bash', status: 'failed', error: `failed to stage PowerShell background task: ${e?.message || e}` };
     }
 
     const shellStem = basename(String(shell || '')).toLowerCase().replace(/\.exe$/, '');
-    // `-WindowStyle Hidden` is a Windows-only CLI switch; pwsh on macOS/Linux
-    // rejects it. `-ExecutionPolicy` likewise only applies to Windows
-    // PowerShell. Build args per-platform so cross-OS pwsh background tasks run.
+    // No `-WindowStyle Hidden` CLI switch: windowsHide:true on the spawn below
+    // already gives CREATE_NO_WINDOW, and the visible command-line token trips
+    // Defender's hidden-PowerShell dropper signature (PowhidSubExec). The
+    // in-wrapper Start-Process WindowStyle=Hidden (above) stays — it lives in
+    // the staged .ps1, not on the command line, and is still needed there.
+    // `-ExecutionPolicy` only applies to Windows PowerShell; build per-platform.
     const isWin = process.platform === 'win32';
     const wrapperArgs = ['-NoLogo', '-NoProfile', '-NonInteractive'];
-    if (isWin) wrapperArgs.push('-WindowStyle', 'Hidden');
     if (isWin && shellStem === 'powershell') wrapperArgs.push('-ExecutionPolicy', 'Bypass');
     wrapperArgs.push('-File', wrappedTempPath);
     // Spawn the staged wrapper directly. detached MUST be false on Windows:

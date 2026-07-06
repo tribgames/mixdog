@@ -210,8 +210,6 @@ export function createMaintenancePickers({
       const current = readCurrent();
       const enabled = current?.enabled !== false;
       const idleMs = Number(current?.idleMs || HOUR_MS);
-      const custom = current?.custom === true;
-      const providerDefault = Number(current?.providerDefault || HOUR_MS);
       const cacheTtlLabel = !enabled || idleMs >= HOUR_MS ? '1h' : '5m';
       const items = [
         {
@@ -226,9 +224,6 @@ export function createMaintenancePickers({
         {
           value: 'advanced',
           label: 'Advanced',
-          marker: !custom ? '✓' : '',
-          markerColor: theme.success,
-          meta: `${current?.provider || 'current'} · ${formatDuration(providerDefault)}`,
           description: 'Edit provider-paired default idle windows as text.',
           _action: 'advanced',
         },

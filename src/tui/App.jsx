@@ -87,7 +87,8 @@ import {
 import { copyToClipboard } from './app/clipboard.mjs';
 import { wrappedTextRows, promptContentRows, wrappedDetailRows, textEntryReservedRows } from './app/text-layout.mjs';
 import stringWidth from 'string-width';
-import { useMouseInput } from './app/use-mouse-input.mjs';
+import { useMouseInput, MOUSE_TRACKING_ON, MOUSE_TRACKING_OFF, ALT_SCROLL_ON } from './app/use-mouse-input.mjs';
+import { useNativeScrollRouter } from './app/use-native-scroll-router.mjs';
 import { useTranscriptScroll } from './app/use-transcript-scroll.mjs';
 import { useTranscriptWindow } from './app/use-transcript-window.mjs';
 import {
@@ -319,7 +320,17 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   // factory is instantiated (see initialPickerBuiltRef below), which React
   // applies before the first commit — no picker-less flash frame.
   const [picker, setPickerState] = useState(null);
+  // Live handle to the current picker state so async callbacks (e.g. the MCP
+  // toggle settle guard in extension-pickers) read the picker actually on
+  // screen at call time — including pickers opened by other factories — rather
+  // than a stale closure. Updated synchronously in setPicker (below) so a
+  // settle firing before the next render sees the right _kind; render-time
+  // sync further down is a backstop.
+  const livePickerRef = useRef(null);
   const setPicker = useCallback((next) => {
+    // Synchronous ref update so out-of-band setPicker(null/other) is visible to
+    // in-flight async guards immediately, before React commits the next render.
+    livePickerRef.current = typeof next === 'function' ? next(livePickerRef.current) : next;
     setPickerState((prev) => {
       const resolved = typeof next === 'function' ? next(prev) : next;
       if (resolved && typeof resolved === 'object' && pickerOpenedFromEnterRef.current) {
@@ -330,9 +341,22 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         }
         return resolved.indexMode ? resolved : { ...resolved, indexMode: 'always' };
       }
+      // Same-kind reopen (toggle-driven rebuilds like the MCP ←/→ flip):
+      // carry the previous picker's indexMode so an 'always' injected at
+      // Enter-open time survives the rebuild instead of falling back to
+      // 'auto' and hiding the row indexes.
+      if (
+        resolved && typeof resolved === 'object' && !resolved.indexMode
+        && prev && typeof prev === 'object' && prev.indexMode
+        && prev._kind && prev._kind === resolved._kind
+      ) {
+        return { ...resolved, indexMode: prev.indexMode };
+      }
       return resolved;
     });
   }, []);
+  // Backstop: keep the ref aligned with committed state each render.
+  livePickerRef.current = picker;
   const [contextPanel, setContextPanel] = useState(null);
   const [usagePanel, setUsagePanel] = useState(null);
   const usageRequestRef = useRef(0);
@@ -385,7 +409,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       onboardingOwnsScreen = status?.completed !== true || forceOnboarding;
     } catch { /* status probe failed → fall through to the project picker */ }
     if (!onboardingOwnsScreen && state.items.length === 0) {
-      setPickerState(projectPicker.buildProjectPickerState({ initialEntry: true }));
+      setPicker(projectPicker.buildProjectPickerState({ initialEntry: true }));
     }
   }
   const {
@@ -465,6 +489,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     clean,
     copyToClipboard,
     setPicker,
+    getPicker: () => livePickerRef.current,
     setProviderPrompt,
     setChannelPrompt,
     setHookPrompt,
@@ -546,6 +571,13 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   // storm that can visually tear the prompt box in Windows Terminal.
   const workflowTabCycleRef = useRef({ pending: false, lastAt: 0 });
   const scrollFocusRef = useRef({});
+  // Runtime mouse mode ('app' | 'native'), seeded from the persisted setting.
+  // Read synchronously by the SGR mouse hook + native scroll router (refs, so
+  // no re-subscribe needed); flipped by switchMouseMode below.
+  const mouseModeRef = useRef(store?.getMouseMode?.() === 'native' ? 'native' : 'app');
+  // ctrl+wheel zoom passthrough timer (owned here so switchMouseMode can cancel
+  // a pending mouse-tracking re-enable when the user flips to native mid-window).
+  const mouseZoomPassthroughTimerRef = useRef(null);
   const onboardingStartedRef = useRef(false);
   const onboardingRef = useRef({ defaultRoute: null, searchRoute: null, agentRoutes: {}, agents: [], providerModels: [] });
   const providerModelsCacheRef = useRef({ models: null, at: 0 });
@@ -700,6 +732,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     openThemePicker: (...a) => openThemePicker(...a),
     themeNotice,
     openEffortPicker: (...a) => openEffortPicker(...a),
+    getMouseMode: () => mouseModeRef.current,
+    switchMouseMode: (...a) => switchMouseMode(...a),
     projectNameFromPath,
     enterProject: (...a) => enterProject(...a),
     openProjectPicker: (...a) => openProjectPicker(...a),
@@ -1061,14 +1095,23 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     // The stitch buffer accumulates rows harvested across every scroll position
     // during a transcript drag, so it can reconstruct rows that scrolled out of
     // view entirely (neither renderText nor the last-full-paint remembered text
-    // ever saw them). Prefer it only when it is strictly longer than both.
-    const stitched = getStitchedSelectionText?.() || '';
-    if (stitched.length > text.length) text = stitched;
+    // ever saw them). getStitchedSelectionText now reports a `complete` flag:
+    // prefer the stitch ONLY when it contiguously covers the selection (no
+    // interior gap) AND adds rows. A gapped stitch silently drops a scrolled-off
+    // row, so preferring it purely on length yielded a mangled copy.
+    const stitched = getStitchedSelectionText?.() || { text: '', complete: false };
+    if (stitched.complete && stitched.text.length > text.length) text = stitched.text;
     if ((!text || !text.trim()) && attempt < 4) {
       setTimeout(() => copySelection(attempt + 1), attempt === 0 ? 0 : 24);
       return;
     }
-    if (!text || !text.trim()) return;
+    if (!text || !text.trim()) {
+      // Retries exhausted with nothing to copy: never return silently — the
+      // user pressed Ctrl+C expecting feedback. Surface a hint (and still
+      // swallow the key, which the caller already did).
+      showSelectionCopyHint('nothing to copy · select text first', 'error');
+      return;
+    }
     selectionTextRef.current = text;
     copyToClipboard(text)
       .then(() => {
@@ -1096,6 +1139,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     rows: resizeState.rows,
     statuslineBandRows: STATUSLINE_BAND_ROWS,
     dragRef,
+    mouseModeRef,
+    mouseZoomPassthroughTimerRef,
     lastClickRef,
     slashPaletteRef,
     scrollFocusRef,
@@ -1115,6 +1160,39 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     setMeasuredRowsVersion,
     clearStitchBuffer,
   });
+
+  // Native-mode wheel router: WT's alternate-scroll arrow bursts → transcript
+  // scroll. Inert in app mode (checks mouseModeRef.current internally).
+  useNativeScrollRouter({
+    inkInput,
+    mouseModeRef,
+    scrollFocusRef,
+    queueScrollCoalesced,
+  });
+
+  // Runtime mouse-mode switch (wired to /mouse). Writes the terminal control
+  // sequences, clears any app-owned selection so no stale highlight survives
+  // the handoff, and persists ui.mouseMode. XTSHIFTESCAPE mirrors index.jsx's
+  // startup enable (empty on Windows Terminal).
+  const switchMouseMode = useCallback((mode, { persist = true } = {}) => {
+    const next = mode === 'native' ? 'native' : 'app';
+    mouseModeRef.current = next;
+    const XTSHIFTESCAPE_ON = process.env.WT_SESSION ? '' : '\x1b[>1s';
+    // Cancel any pending ctrl+wheel zoom re-enable so it can't recapture the
+    // mouse after we've handed control to the terminal.
+    if (next === 'native' && mouseZoomPassthroughTimerRef.current) {
+      try { clearTimeout(mouseZoomPassthroughTimerRef.current); } catch { /* ignore */ }
+      mouseZoomPassthroughTimerRef.current = null;
+    }
+    try {
+      if (next === 'native') stdout?.write?.(MOUSE_TRACKING_OFF + ALT_SCROLL_ON);
+      else stdout?.write?.(MOUSE_TRACKING_ON + XTSHIFTESCAPE_ON);
+    } catch { /* terminal may be closing */ }
+    try { promptMouseSelectionRef.current?.clear?.(); } catch { /* ignore */ }
+    try { applySelectionRect(null); } catch { /* ignore */ }
+    try { store.setMouseMode?.(next, { persist }); } catch { /* ignore */ }
+    return next;
+  }, [stdout, store, applySelectionRect]);
 
   // Enable extended keyboard reporting (kitty + xterm modifyOtherKeys)
   // SYNCHRONOUSLY, ONCE, with NO query/round-trip. ink
@@ -2695,8 +2773,13 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   // renderScrollOffset=0. Without this, the stale offset shrinks
   // transcriptContentHeight by one row that never actually gets rendered,
   // producing a one-row bounce that snaps back once state catches up.
-  const scrollGuardNearBottom = followingRef.current || scrollTargetRef.current <= baseGuardRows;
-  const scrollGuardRows = (!scrollGuardNearBottom && scrollOffset > 0 && guardCapacityRows > baseGuardRows) ? 1 : 0;
+  // [2026-07-06] Scroll-time extra guard DISABLED: the widened (2-row) guard
+  // rendered as a visibly empty band between the transcript and the prompt box
+  // whenever the viewport was scrolled up (user-reported "bottom rows look
+  // blank while scrolling"). The base 1-row guard below stays; if the
+  // scrolled-row-over-statusline overpaint resurfaces, fix it in the renderer
+  // diff (clip/erase) instead of carving more blank viewport rows.
+  const scrollGuardRows = 0;
   const transcriptGuardRows = Math.min(guardCapacityRows, baseGuardRows + panelTransitionGuardRows + scrollGuardRows);
   // Welcome prompt hint: a one-row band rendered INSIDE the transcript
   // viewport (as a sibling below the content clip), so it must be part of the

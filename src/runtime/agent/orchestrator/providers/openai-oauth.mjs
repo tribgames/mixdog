@@ -444,7 +444,7 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
             // reasoning in `input` triggers "Duplicate item".
             if (m.content) out.push({ role: 'assistant', content: normalizeContentForOpenAIResponses(m.content, { role: 'assistant' }) });
             for (const tc of m.toolCalls) {
-                if (tc.nativeType === 'tool_search_call' || tc.name === 'tool_search') {
+                if (tc.nativeType === 'tool_search_call' || tc.name === 'load_tool' || tc.name === 'tool_search') {
                     out.push({
                         type: 'tool_search_call',
                         call_id: tc.id,
@@ -480,7 +480,7 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
 }
 
 function toOpenAIResponsesTool(t) {
-    if (t?.name === 'tool_search') {
+    if (t?.name === 'load_tool' || t?.name === 'tool_search') {
         return {
             type: 'tool_search',
             execution: 'client',

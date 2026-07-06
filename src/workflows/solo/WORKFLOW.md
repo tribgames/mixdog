@@ -7,6 +7,11 @@ agents:
 
 # Solo Workflow
 
+HARD APPROVAL GATE — before the user gives an explicit go-ahead ("do it",
+"proceed", "ㄱㄱ"), NO edits, apply_patch, or state-changing shell commands.
+Read-only exploration only. Agreeing with a diagnosis or pointing out a
+problem is NOT approval.
+
 1. Plan — Lead discusses the request with the user, forms a plan, and waits for
    approval before execution.
    Only an explicit go-ahead is approval; diagnosis agreement is not. When

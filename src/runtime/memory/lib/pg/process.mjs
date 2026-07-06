@@ -14,7 +14,7 @@ function __mixdogMemoryLog(...args) {
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { spawnSync } from 'child_process'
+import { spawn, spawnSync } from 'child_process'
 import { createConnection } from 'net'
 import { createServer } from 'net'
 
@@ -248,55 +248,100 @@ export async function startPg({ runtimeDir, pgdataDir, port: preferredPort = 554
 
   __mixdogMemoryLog(`[pg-process] pg_ctl start -D ${pgdataDir} -p ${port}\n`)
 
-  const r = spawnSync(pgctl, [
-    'start', '-w',
+  const pgIsReady = pgBin(runtimeDir, 'pg_isready')
+  const startArgs = [
+    'start',
     '-D', pgdataDir,
     '-l', logFile,
     '-o', `-p ${port} -h 127.0.0.1`,
-  ], { env, stdio: 'pipe', timeout: 30_000, windowsHide: true })
+  ]
 
-  if (r.status !== 0) {
-    const errText = r.stderr?.toString() || r.stdout?.toString() || ''
-    // "another server might be running" — try status + immediate stop before failing.
-    if (errText.includes('another server might be running')) {
-      __mixdogMemoryLog(`[pg-process] pg_ctl start: "another server might be running" — probing status\n`)
-      const statusR = spawnSync(pgctl, ['status', '-D', pgdataDir], { env, stdio: 'pipe', timeout: 3_000, windowsHide: true })
-      __mixdogMemoryLog(`[pg-process] pg_ctl status: ${statusR.stdout?.toString() || statusR.stderr?.toString() || 'no output'}\n`)
-      const stopR = spawnSync(pgctl, ['stop', '-m', 'immediate', '-D', pgdataDir], { env, stdio: 'pipe', timeout: 3_000, windowsHide: true })
-      if (stopR.status === 0) {
-        // Retry start once after clearing the stale instance.
-        const r2 = spawnSync(pgctl, [
-          'start', '-w',
-          '-D', pgdataDir,
-          '-l', logPath ?? join(pgdataDir, 'pg.log'),
-          '-o', `-p ${port} -h 127.0.0.1`,
-        ], { env, stdio: 'pipe', timeout: 30_000, windowsHide: true })
-        if (r2.status === 0) {
-          let pid = null
-          try {
-            const pidFile = join(pgdataDir, 'postmaster.pid')
-            if (existsSync(pidFile)) pid = parseInt(readFileSync(pidFile, 'utf8').split('\n')[0], 10) || null
-          } catch {}
-          return { pid, port }
-        }
-        __mixdogMemoryLog(`[pg-process] retry start after stop also failed: ${r2.stderr?.toString() || ''}\n`)
-      } else {
-        __mixdogMemoryLog(`[pg-process] immediate stop failed: ${stopR.stderr?.toString() || ''} — treating as degraded\n`)
-      }
-    }
-    throw new Error(`[pg-process] pg_ctl start failed: ${errText}`)
+  // Poll-sleep is intentionally NOT unref'd: while startPg is awaiting readiness
+  // it must keep the process alive even if the event loop would otherwise drain.
+  const sleep = ms => new Promise(res => setTimeout(res, ms))
+
+  // Read pid + port from postmaster.pid (line 1 = pid, line 4 = port). Returns
+  // null unless the file exists, pid > 0, and its port matches ours.
+  function readPostmaster() {
+    try {
+      const pidFile = join(pgdataDir, 'postmaster.pid')
+      if (!existsSync(pidFile)) return null
+      const lines  = readFileSync(pidFile, 'utf8').split('\n')
+      const pid    = parseInt(lines[0], 10)
+      const pmPort = parseInt(lines[3], 10)
+      if (pid > 0 && pmPort === port) return { pid }
+      return null
+    } catch { return null }
   }
 
-  // Read PID from postmaster.pid (first line).
-  let pid = null
-  try {
-    const pidFile = join(pgdataDir, 'postmaster.pid')
-    if (existsSync(pidFile)) {
-      pid = parseInt(readFileSync(pidFile, 'utf8').split('\n')[0], 10) || null
+  // pg_isready can succeed a beat before postmaster.pid is fully written; give
+  // it a brief window to appear (and confirm the port matches) before trusting.
+  async function confirmPid() {
+    for (let i = 0; i < 5; i++) {
+      const pm = readPostmaster()
+      if (pm) return pm.pid
+      await sleep(100)
     }
-  } catch {}
+    return null
+  }
 
-  return { pid, port }
+  // Spawn pg_ctl asynchronously (no -w) and poll readiness ourselves. On
+  // AV-throttled boxes pg_ctl can lag ~30s behind actual postmaster readiness,
+  // so we return the instant pg_isready succeeds rather than waiting on pg_ctl.
+  // Only the long-lived child handle is unref'd; poll timers stay ref'd.
+  async function startAndWaitReady() {
+    const child = spawn(pgctl, startArgs, { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    child.unref?.()
+    let stdout = '', stderr = '', closed = false, exitCode = null
+    child.stdout?.on('data', d => { stdout += d.toString() })
+    child.stderr?.on('data', d => { stderr += d.toString() })
+    child.stdout?.unref?.(); child.stderr?.unref?.()
+    child.on('error', err => { closed = true; exitCode = -1; stderr += (err?.message || String(err)) })
+    // Use 'close' (stdio flushed), not 'exit', so captured stderr is complete
+    // and the "another server might be running" match below never truncates.
+    child.on('close', code => { closed = true; exitCode = code })
+
+    const deadline = Date.now() + 30_000
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const probe = spawnSync(pgIsReady, ['-h', '127.0.0.1', '-p', String(port)], {
+        env, stdio: 'pipe', timeout: 3_000, windowsHide: true,
+      })
+      if (probe.status === 0) {
+        const pid = await confirmPid()
+        // pid confirmed with matching port → ready. Otherwise keep polling until
+        // the cap (postmaster.pid not yet written or port mismatch).
+        if (pid != null) return { ready: true, pid }
+      }
+      // pg_ctl exited nonzero before PG became reachable — real startup failure.
+      if (closed && exitCode !== 0) return { ready: false, exited: true, stdout, stderr }
+      if (Date.now() >= deadline) return { ready: false, timeout: true, stdout, stderr }
+      await sleep(250)
+    }
+  }
+
+  const r = await startAndWaitReady()
+  if (r.ready) return { pid: r.pid, port }
+
+  const errText = r.stderr || r.stdout || ''
+  // "another server might be running" — try status + immediate stop before failing.
+  if (r.exited && errText.includes('another server might be running')) {
+    __mixdogMemoryLog(`[pg-process] pg_ctl start: "another server might be running" — probing status\n`)
+    const statusR = spawnSync(pgctl, ['status', '-D', pgdataDir], { env, stdio: 'pipe', timeout: 3_000, windowsHide: true })
+    __mixdogMemoryLog(`[pg-process] pg_ctl status: ${statusR.stdout?.toString() || statusR.stderr?.toString() || 'no output'}\n`)
+    const stopR = spawnSync(pgctl, ['stop', '-m', 'immediate', '-D', pgdataDir], { env, stdio: 'pipe', timeout: 3_000, windowsHide: true })
+    if (stopR.status === 0) {
+      // Retry start once after clearing the stale instance.
+      const r2 = await startAndWaitReady()
+      if (r2.ready) return { pid: r2.pid, port }
+      __mixdogMemoryLog(`[pg-process] retry start after stop also failed: ${r2.stderr || ''}\n`)
+    } else {
+      __mixdogMemoryLog(`[pg-process] immediate stop failed: ${stopR.stderr?.toString() || ''} — treating as degraded\n`)
+    }
+  }
+
+  const detail = errText || (r.timeout ? '(readiness probe timed out after 30s; no pg_ctl output)' : '(no captured output)')
+  throw new Error(`[pg-process] pg_ctl start failed: ${detail}`)
 }
 
 // ---------------------------------------------------------------------------

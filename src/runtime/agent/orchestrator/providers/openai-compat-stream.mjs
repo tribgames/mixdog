@@ -514,7 +514,7 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
             : parseCompletedToolCallArgumentsJson(item.arguments || '{}', label, { id: callId, name: 'tool_search', finishReason: 'done' });
         const call = {
             id: callId,
-            name: 'tool_search',
+            name: 'load_tool',
             // Schema is a plain object ({query,select,limit}); an array must
             // never pass through as args.
             arguments: (_tsArgs && typeof _tsArgs === 'object' && !Array.isArray(_tsArgs)) ? _tsArgs : {},

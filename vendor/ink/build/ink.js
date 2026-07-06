@@ -225,6 +225,10 @@ export default class Ink {
     // refreshed every render; read back via getSelectionRows() so the app can
     // stitch selections taller than the viewport. null when no selection.
     lastSelectionRows = null;
+    // [mixdog fork] One-shot flag: the next interactive frame takes the full
+    // clearTerminal+rewrite path even when nothing changed. Set via
+    // forceFullRepaint(); consumed (and reset) in renderInteractiveFrame.
+    forceClearNextFrame = false;
     constructor(options) {
         autoBind(this);
         this.options = options;
@@ -568,6 +572,19 @@ export default class Ink {
     // respect x1/x2). Lets the app stitch selections taller than the viewport.
     getSelectionRows = () => {
         return this.lastSelectionRows;
+    };
+    // [mixdog fork] Force a one-shot whole-screen clear + rewrite. Windows
+    // Terminal keeps its NATIVE (shift+drag) selection overlay alive across
+    // incremental in-place repaints, so a stale native highlight can sit on top
+    // of the app-drawn selection; a real clearTerminal+full rewrite dismisses
+    // it. The frame is BSU/ESU-wrapped by renderInteractiveFrame, so there is
+    // no visible flash. Called by the app on mouse-press via the render handle.
+    forceFullRepaint = () => {
+        if (this.isUnmounted || this.isUnmounting) {
+            return;
+        }
+        this.forceClearNextFrame = true;
+        this.rootNode.onImmediateRender();
     };
     restoreLastOutput = () => {
         if (!this.interactive) {
@@ -1115,7 +1132,11 @@ export default class Ink {
         if (isFullscreen && outputToRender.endsWith('\n')) {
             outputToRender += '\u001B[0m';
         }
-        const shouldClearTerminal = shouldClearTerminalForFrame({
+        // [mixdog fork] One-shot forced clear (see forceFullRepaint): TTY-only,
+        // consumed here so it applies to exactly one frame.
+        const forcedClear = this.forceClearNextFrame && isTty;
+        this.forceClearNextFrame = false;
+        const shouldClearTerminal = forcedClear || shouldClearTerminalForFrame({
             isTty,
             viewportRows,
             previousViewportRows,
@@ -1147,6 +1168,7 @@ export default class Ink {
         // with identical output text but must still force a full clear to
         // avoid ghosting stale cells left outside the new viewport.
         if (shouldClearTerminal &&
+            !forcedClear &&
             !this.isUnmounting &&
             output === this.lastOutput &&
             staticOutput === '' &&

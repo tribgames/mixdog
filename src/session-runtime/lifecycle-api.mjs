@@ -28,6 +28,7 @@ export function createLifecycleApi(deps) {
     createCurrentSession, refreshRouteEffort,
     invalidateContextStatusCache, invalidatePreSessionToolSurface,
     applyResolvedCwd, resolveRoute, applyDeferredToolSurface, standaloneTools,
+    pushTranscriptRebind,
   } = deps;
   return {
     async close(reason = 'cli-exit', options = {}) {
@@ -56,6 +57,7 @@ export function createLifecycleApi(deps) {
       try { flushConfigSave(); } catch {}
       try { flushBackendSave(); } catch {}
       try { flushOutputStyleSave(); } catch {}
+      try { hooks.flushRules?.(); } catch {}
       if (prewarmTimers.channelStartTimer) {
         clearTimeout(prewarmTimers.channelStartTimer);
         prewarmTimers.channelStartTimer = null;
@@ -201,6 +203,10 @@ export function createLifecycleApi(deps) {
       }
       invalidateContextStatusCache();
       await createCurrentSession();
+      // New session.id => the worker's binding (and persisted status) now point
+      // at the previous session's transcript. Push the current transcript so
+      // outbound forwarding repoints immediately (best-effort, remote-gated).
+      pushTranscriptRebind?.();
       return getSession().id;
     },
     async resume(id) {
@@ -230,6 +236,9 @@ export function createLifecycleApi(deps) {
       invalidateContextStatusCache();
       setSessionNeedsCwdRefresh(false);
       writeStatuslineRoute(statusRoutes, session, getRoute());
+      // Session swapped to the resumed one: repoint the worker to the current
+      // transcript instead of waiting for the next inbound steal.
+      pushTranscriptRebind?.();
       return {
         id: resumed.id,
         messages: resumed.messages || [],

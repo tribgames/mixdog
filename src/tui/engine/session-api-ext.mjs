@@ -2,6 +2,7 @@
  * src/tui/engine/session-api-ext.mjs - part of the public engine session object.
  */
 import { listThemes, getThemeSetting, setThemeSetting } from '../theme.mjs';
+import { getMouseModeSetting, setMouseModeSetting } from '../mouse-mode.mjs';
 import { resetAllStreamingMarkdownStablePrefixes } from '../markdown/streaming-markdown.mjs';
 import { toolResultText } from './tool-result-text.mjs';
 import { parseSyntheticAgentMessage } from './agent-envelope.mjs';
@@ -129,6 +130,11 @@ export function createEngineApiB(bag) {
       set({ themeEpoch: (getState().themeEpoch || 0) + 1 });
       return applied;
     },
+    // Mouse mode is a TUI-local concern too (no runtime round-trip). getMouseMode
+    // reports the active mode; setMouseMode persists ui.mouseMode. The terminal
+    // escape writes + selection clear live in App (switchMouseMode).
+    getMouseMode: () => getMouseModeSetting(),
+    setMouseMode: (mode, options = {}) => setMouseModeSetting(mode, options),
     setAgentRoute: async (agentId, opts) => {
       return await runtime.setAgentRoute?.(agentId, opts);
     },

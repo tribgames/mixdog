@@ -660,7 +660,9 @@ export function PromptInput({
     }
 
     if (!commandPaletteActive && ((key.ctrl && inputKey === 'v') || (key.meta && inputKey === 'v'))) {
-      handleExternalPaste('', { source: 'clipboard-image-shortcut' });
+      // Ctrl+V / Meta+V: read OS clipboard (text first, image fallback) — the
+      // empty text arg tags the shortcut path in handlePromptPaste.
+      handleExternalPaste('', { source: 'clipboard-shortcut' });
       return;
     }
 

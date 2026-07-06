@@ -352,11 +352,79 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     return saveRules(rules);
   }
 
+  // --- debounced hooks.json persist ------------------------------------------
+  // Rule state is flipped in the in-memory rulesCache synchronously so the
+  // picker reopen renders from memory (no disk re-read); the heavy file RMW
+  // (saveRules) is deferred so a burst of toggle key presses collapses into one
+  // write. Mirrors config-lifecycle's scheduleSkillsSave pattern.
+  const RULES_SAVE_DEBOUNCE_MS = 400;
+  // Pending flips are tracked as index→enabled patches (not a full snapshot) so
+  // that if hooks.json is edited externally during the debounce window the flush
+  // can reload the current disk rules and reapply only our enabled-flag changes
+  // instead of clobbering the external edit.
+  let pendingRulePatches = null;
+  let rulesBaseMtime = null;
+  let rulesSaveTimer = null;
+
+  function flushRules() {
+    if (rulesSaveTimer) {
+      clearTimeout(rulesSaveTimer);
+      rulesSaveTimer = null;
+    }
+    if (!pendingRulePatches || pendingRulePatches.size === 0) {
+      pendingRulePatches = null;
+      rulesBaseMtime = null;
+      return;
+    }
+    const patches = pendingRulePatches;
+    const base = rulesBaseMtime;
+    pendingRulePatches = null;
+    rulesBaseMtime = null;
+    try {
+      let rules;
+      const diskChanged = rulesPath && existsSync(rulesPath) && statSync(rulesPath).mtimeMs !== base;
+      if (diskChanged) {
+        // External edit during the debounce window: reload from disk and reapply
+        // only our flips so the external change survives.
+        const parsed = JSON.parse(readFileSync(rulesPath, 'utf8'));
+        rules = normalizeRules(parsed).filter((rule) => rule && typeof rule === 'object');
+      } else {
+        rules = [...(rulesCache.rules || [])];
+      }
+      for (const [index, enabled] of patches) {
+        if (index >= 0 && index < rules.length) rules[index] = { ...rules[index], enabled };
+      }
+      saveRules(rules);
+    } catch (error) {
+      emit('hook:error', { error: `debounced hooks save failed: ${error?.message || error}` });
+    }
+  }
+
+  function scheduleRulesSave() {
+    if (rulesSaveTimer) clearTimeout(rulesSaveTimer);
+    rulesSaveTimer = setTimeout(flushRules, RULES_SAVE_DEBOUNCE_MS);
+    rulesSaveTimer.unref?.();
+  }
+
   function setRuleEnabled(index, enabled) {
     const rules = [...loadRules()];
     if (!Number.isInteger(index) || index < 0 || index >= rules.length) throw new Error(`hook rule not found: ${index}`);
-    rules[index] = { ...rules[index], enabled: enabled !== false };
-    return saveRules(rules);
+    const nextEnabled = enabled !== false;
+    rules[index] = { ...rules[index], enabled: nextEnabled };
+    // Adopt in memory immediately: keep the last-known disk mtime so loadRules
+    // returns this flipped cache (disk is untouched until the debounce flushes),
+    // and drop the config cache so a re-read reflects the change.
+    rulesCache = { ...rulesCache, rules };
+    configCache.key = '';
+    if (!pendingRulePatches) {
+      pendingRulePatches = new Map();
+      // mtime the in-memory cache was loaded from; flush compares against it to
+      // detect an external edit made during the debounce window.
+      rulesBaseMtime = rulesCache.mtimeMs;
+    }
+    pendingRulePatches.set(index, nextEnabled);
+    scheduleRulesSave();
+    return listRules();
   }
 
   function deleteRule(index) {
@@ -496,5 +564,5 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     return rewakeHandler;
   }
 
-  return { addRule, beforeTool, deleteRule, dispatch, emit, listRules, setRewakeHandler, setRuleEnabled, status };
+  return { addRule, beforeTool, deleteRule, dispatch, emit, flushRules, listRules, setRewakeHandler, setRuleEnabled, status };
 }

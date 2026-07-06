@@ -44,10 +44,11 @@ function getParentPid(pid) {
       // which fires per transcript watchDebounce tick, so without these flags users
       // see a powershell.exe console window pop in/out repeatedly during
       // any chat activity — including while the config UI is loading.
+      // NO `-WindowStyle Hidden` CLI switch: windowsHide already covers it,
+      // and the token triggers Defender's PowhidSubExec false positive.
       const out2 = execFileSync("powershell.exe", [
         "-NoProfile",
         "-NonInteractive",
-        "-WindowStyle", "Hidden",
         "-Command",
         `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").ParentProcessId`
       ], {

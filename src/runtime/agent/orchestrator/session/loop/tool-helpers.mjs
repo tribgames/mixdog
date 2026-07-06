@@ -81,7 +81,7 @@ export function resolveToolResultAfterHook(originalResult, hookResult) {
 }
 
 export function parseNativeToolSearchPayload(toolName, result) {
-    if (toolName !== 'tool_search' || typeof result !== 'string') return null;
+    if ((toolName !== 'load_tool' && toolName !== 'tool_search') || typeof result !== 'string') return null;
     try {
         const parsed = JSON.parse(result);
         const native = parsed?.nativeToolSearch;

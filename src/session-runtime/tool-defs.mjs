@@ -3,23 +3,23 @@
 // from mixdog-session-runtime.mjs; no runtime closure dependencies.
 
 export const TOOL_SEARCH_TOOL = {
-  name: 'tool_search',
-  title: 'Tool Search',
+  name: 'load_tool',
+  title: 'load_tool',
   annotations: {
-    title: 'Tool Search',
+    title: 'load_tool',
     readOnlyHint: true,
     destructiveHint: false,
     idempotentHint: true,
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'List deferred tools by name+description substring, or load exact tools via select. Deferred tools can also be called directly by name.',
+  description: 'load_tool: pure loader for deferred tools. Pass names:["exact_tool_name", ...] (deferred tool names/aliases) to load them; returns loaded / already-active / missing plus any MCP servers still connecting (retry next turn) or failed. No keyword search, no ranking, no listing. Deferred tools can also be called directly by name (they auto-load on first call).',
   inputSchema: {
     type: 'object',
     properties: {
-      query: { type: 'string', description: 'Case-insensitive substring filter over deferred tool name+description (lists only, no load). Use select:a,b to load exact names.' },
-      select: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Force exact tool names.' },
-      limit: { type: 'number', description: 'Max matches.' },
+      names: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Exact deferred tool names/aliases to load.' },
+      select: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Legacy alias for names (accepts "select:a,b").' },
+      query: { type: 'string', description: 'Legacy: only "select:a,b" is honored (mapped to names); free-text keyword queries are rejected — this tool does not search.' },
     },
     additionalProperties: false,
   },
