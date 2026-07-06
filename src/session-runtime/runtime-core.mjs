@@ -322,6 +322,13 @@ export async function createMixdogSessionRuntime({
 } = {}) {
   bootProfile('session-runtime:start', { provider, model, toolMode, cwd });
   let remoteEnabled = remote === true;
+  // Transient marker: an AUTO start (config/delayed autoStart) has forked the
+  // worker to ATTEMPT a claim-if-vacant but has NOT asserted remote for this
+  // session yet. remoteEnabled flips only if the worker reports it acquired the
+  // seat (the 'acquired' notification). Lets the deferred start chain proceed
+  // past its remoteEnabled guards without prematurely showing this session as
+  // remote (single-holder: a live owner must not be stolen by autoStart).
+  let remoteClaimPending = false;
   // Remote-mode transcript writer (Discord outbound). Lazily created per
   // session.id + cwd inside ask(); only active while remoteEnabled.
   let _transcriptWriter = null;
@@ -882,6 +889,8 @@ export async function createMixdogSessionRuntime({
       // newer remote session. Drop remote mode entirely on this session (no
       // handover, no retry) and tell UI listeners so the indicator updates.
       if (msg?.method === 'notifications/mixdog/remote') {
+        // Any acquire/supersede verdict resolves an in-flight auto claim attempt.
+        remoteClaimPending = false;
         if (msg?.params?.state === 'superseded' && remoteEnabled) {
           stopRemote('superseded-by-newer-remote-session');
           emitRemoteStateChange(false, 'superseded');
@@ -1521,8 +1530,23 @@ export async function createMixdogSessionRuntime({
   // rebinds output forwarding to this session, even when the worker is
   // already running (e.g. `/remote` re-issued after another session took the
   // seat, or to re-pin forwarding onto the current transcript).
-  function startRemote() {
-    remoteEnabled = true;
+  function startRemote(options = {}) {
+    const intent = options?.intent === 'auto' ? 'auto' : 'explicit';
+    // Claim intent reaches the worker's boot claim via MIXDOG_REMOTE_INTENT
+    // (last-wins for explicit, claim-if-vacant for auto). It is set transiently
+    // around the worker fork below (see invokeChannelStart) and restored right
+    // after — NOT here on the shared process.env — so unrelated children forked
+    // during the boot window never inherit a stale intent.
+    if (intent === 'auto') {
+      // Auto-start (config/delayed): do NOT flip this session to remote up
+      // front. Boot the worker to ATTEMPT a claim-if-vacant; remoteEnabled is
+      // set only when the worker reports it actually acquired the seat (the
+      // 'acquired' notification). A live owner already holding the seat makes
+      // the worker back off silently and this session stays non-remote.
+      remoteClaimPending = true;
+    } else {
+      remoteEnabled = true;
+    }
     // Boot the memory daemon eagerly. The channels worker forwards
     // transcript ingests/entries to the memory HTTP service, whose port is
     // published to active-instance.json by getMemoryModule().init(). Without
@@ -1616,23 +1640,46 @@ export async function createMixdogSessionRuntime({
       // Re-check after the awaits above: stopRemote()/superseded or runtime
       // close may have landed mid-chain — do not boot/claim for a session
       // that already turned remote off.
-      if (!remoteEnabled || closeRequested) return;
-      await invokeChannelStart();
-      if (!remoteEnabled || closeRequested) return;
-      // Unconditional claim + forwarder rebind. A freshly-forked worker
-      // already claims in its own start(), so this is idempotent there; the
-      // already-running case is where it matters (last-wins seat overwrite +
-      // transcript rebind onto this session).
-      await channels.execute('activate_channel_bridge', { active: true });
-    })().catch((error) => bootProfile('channels:claim-failed', { error: error?.message || String(error) }));
+      if ((!remoteEnabled && !remoteClaimPending) || closeRequested) { remoteClaimPending = false; return; }
+      // Set the fork-inherited intent immediately before the worker fork (the
+      // fork reads process.env synchronously inside invokeChannelStart) and
+      // restore the prior value the instant it resolves, so the pollution
+      // window is just this fork rather than the whole boot chain.
+      const _prevIntent = process.env.MIXDOG_REMOTE_INTENT;
+      try {
+        process.env.MIXDOG_REMOTE_INTENT = intent;
+        await invokeChannelStart();
+      } finally {
+        if (_prevIntent === undefined) delete process.env.MIXDOG_REMOTE_INTENT;
+        else process.env.MIXDOG_REMOTE_INTENT = _prevIntent;
+      }
+      if ((!remoteEnabled && !remoteClaimPending) || closeRequested) { remoteClaimPending = false; return; }
+      // Explicit start: unconditional claim + forwarder rebind (last-wins seat
+      // overwrite + transcript rebind onto this session). AUTO start SKIPS this
+      // — the freshly-forked worker already ran its claim-if-vacant boot claim,
+      // and forcing activate here would steal a live owner that autoStart is
+      // meant to yield to. The worker's acquire notification drives remote ON.
+      if (intent !== 'auto') {
+        await channels.execute('activate_channel_bridge', { active: true });
+      }
+      // Claim attempt dispatched; the worker's acquire/supersede notification
+      // now owns the remoteEnabled transition. Drop the transient marker.
+      remoteClaimPending = false;
+    })().catch((error) => { remoteClaimPending = false; bootProfile('channels:claim-failed', { error: error?.message || String(error) }); });
     return true;
   }
 
   function stopRemote(reason) {
     remoteEnabled = false;
+    // A pending auto-claim is abandoned by an explicit stop/supersede.
+    remoteClaimPending = false;
     // Cancel any pending deferred start so it can't fire after remote is off.
     if (prewarmTimers.channelStartTimer) { clearTimeout(prewarmTimers.channelStartTimer); prewarmTimers.channelStartTimer = null; }
-    channels.stop(reason || 'remote-disabled', { waitForExit: false }).catch(() => {});
+    // Route /remote-off and supersede through a WAITING stop: the runtime keeps
+    // running, so we don't block on it (no await), but the waiting path runs the
+    // full SIGTERM -> taskkill /T /F escalation ladder to guarantee the worker
+    // dies rather than lingering as a zombie holding the bridge seat.
+    channels.stop(reason || 'remote-disabled').catch(() => {});
     return true;
   }
 
@@ -1685,11 +1732,18 @@ export async function createMixdogSessionRuntime({
   // cfgMod.loadConfig returns — read it via the shared whole-file reader.
   // `config?.remote?.autoStart` is kept for back-compat with agent-section
   // placement.
+  // `remote` (from `mixdog --remote`) is EXPLICIT force-takeover. Config
+  // `remote.autoStart` is AUTO: it must claim the seat ONLY if no live owner
+  // exists (claim-if-vacant) and back off silently otherwise — so it does NOT
+  // set remoteEnabled up front (that would assert remote before the claim is
+  // known to have won). Track it as a separate deferred auto request; the
+  // worker's acquire notification flips remoteEnabled if/when it wins the seat.
+  let remoteAutoStartRequested = false;
   if (!remoteEnabled) {
     try {
       if (config?.remote?.autoStart === true
         || sharedCfgMod?.readSection?.('remote')?.autoStart === true) {
-        remoteEnabled = true;
+        remoteAutoStartRequested = true;
       }
     } catch { /* unreadable config never blocks boot */ }
   }
@@ -1702,13 +1756,17 @@ export async function createMixdogSessionRuntime({
   // early /remote (startRemote clears it), stopRemote(), and close() all
   // cancel it through the existing clearTimeout paths. Runtime /remote calls
   // still start immediately (user-initiated, UI already painted).
-  if (remoteEnabled) {
+  if (remoteEnabled || remoteAutoStartRequested) {
+    const remoteStartIntent = remoteEnabled ? 'explicit' : 'auto';
     const remoteAutoStartDelayMs = envDelayMs('MIXDOG_REMOTE_AUTOSTART_DELAY_MS', 1_500, { min: 0, max: 60_000 });
-    bootProfile('channels:autostart-deferred', { delayMs: remoteAutoStartDelayMs });
+    bootProfile('channels:autostart-deferred', { delayMs: remoteAutoStartDelayMs, intent: remoteStartIntent });
     prewarmTimers.channelStartTimer = setTimeout(() => {
       prewarmTimers.channelStartTimer = null;
-      if (closeRequested || !remoteEnabled) return;
-      startRemote();
+      if (closeRequested) return;
+      // Explicit: a /remote-off before the timer clears remoteEnabled — skip.
+      // Auto: always attempt (claim-if-vacant is safe when a live owner exists).
+      if (remoteStartIntent === 'explicit' && !remoteEnabled) return;
+      startRemote({ intent: remoteStartIntent });
     }, remoteAutoStartDelayMs);
     prewarmTimers.channelStartTimer.unref?.();
   }

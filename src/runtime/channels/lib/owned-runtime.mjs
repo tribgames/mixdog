@@ -10,6 +10,7 @@ import {
   releaseOwnedChannelLocks,
   clearActiveInstance,
   probeActiveOwner,
+  RUNTIME_ROOT,
 } from "./runtime-paths.mjs";
 // Owned-runtime lifecycle extracted from channels/index.mjs (behavior-
 // preserving): bridge-ownership claim/refresh/loss, backend connect/disconnect,
@@ -52,11 +53,49 @@ export function createOwnedRuntime({
   let bridgeOwnershipRefreshInFlight = null;
   let bridgeOwnershipTimer = null;
   let _memoryDrainTimer = null;
+  // Event-driven ownership signal: an fs.watch on the runtime dir fires the
+  // ownership refresh the instant active-instance.json changes (a newer owner
+  // claims, or the owner releases/clears it), instead of waiting up to 3s for
+  // the poll tick. This shrinks the double-owner window on takeover (the old
+  // owner observes owned=false and tears down in ms) and signals ownership
+  // loss to contenders immediately on release. The 3s timer stays as fallback.
+  let activeInstanceWatcher = null;
+  let _activeInstanceWatchDebounce = null;
+  function armActiveInstanceWatcher() {
+    if (activeInstanceWatcher) return;
+    try {
+      activeInstanceWatcher = fs.watch(RUNTIME_ROOT, { persistent: false }, (_event, filename) => {
+        if (filename && filename !== 'active-instance.json') return;
+        // Coalesce the burst of events an atomic rename/truncate emits.
+        if (_activeInstanceWatchDebounce) return;
+        _activeInstanceWatchDebounce = setTimeout(() => {
+          _activeInstanceWatchDebounce = null;
+          refreshBridgeOwnershipSafe();
+        }, 50);
+        _activeInstanceWatchDebounce.unref?.();
+      });
+      // fs.watch emits 'error' (and an unhandled one CRASHES the worker) when
+      // the watched dir is removed or the handle is invalidated (common on
+      // Windows). Close the dead handle and fall back to the 3s poll, which is
+      // still armed — the event signal is a latency optimization, never the
+      // sole ownership mechanism.
+      activeInstanceWatcher.on('error', (err) => {
+        process.stderr.write(`[ownership] active-instance watch error, falling back to poll: ${err?.message || err}\n`);
+        clearActiveInstanceWatcher();
+      });
+      activeInstanceWatcher.unref?.();
+    } catch { activeInstanceWatcher = null; }
+  }
+  function clearActiveInstanceWatcher() {
+    if (_activeInstanceWatchDebounce) { clearTimeout(_activeInstanceWatchDebounce); _activeInstanceWatchDebounce = null; }
+    if (activeInstanceWatcher) { try { activeInstanceWatcher.close(); } catch {} activeInstanceWatcher = null; }
+  }
   function clearBridgeOwnershipTimer() {
     if (bridgeOwnershipTimer) {
       clearInterval(bridgeOwnershipTimer);
       bridgeOwnershipTimer = null;
     }
+    clearActiveInstanceWatcher();
   }
 function shouldStartEventPipelineRuntime() {
   return getConfig().webhook?.enabled === true || (Array.isArray(getConfig().events?.rules) && getConfig().events.rules.length > 0);
@@ -176,6 +215,9 @@ async function startOwnedRuntime(options = {}) {
   // both-backends-live window.
   const startingBackend = getBackend();
   const claimAfterReady = options.claimAfterReady === true;
+  // Auto-start intent: claim the seat ONLY if it is vacant/stale (never steal a
+  // live owner). Threaded from worker start() (MIXDOG_REMOTE_INTENT=auto).
+  const claimIfVacant = options.claimIfVacant === true;
   // Single-holder correctness: the seat is claimed BEFORE getBackend().connect(),
   // never after. The old make-before-break (claim-after-ready) boot left two
   // gateways connected and contending during the multi-second connect window;
@@ -190,8 +232,29 @@ async function startOwnedRuntime(options = {}) {
   // leave it stuck true and permanently block every future ownership attempt.
   try {
     if (claimAfterReady) {
-      refreshActiveInstance(instanceId, { backendReady: false });
-      logOwnership("boot claim (pre-connect, last-wins)");
+      if (claimIfVacant) {
+        // Auto-start claim-if-vacant. Probe first: a live owner other than us
+        // holds the seat -> back off SILENTLY (no claim, no acquire notify) so
+        // this session stays non-remote. Then claim atomically via the
+        // onlyIfVacant CAS (guards the probe->write TOCTOU: a live owner landing
+        // in that gap aborts the write, leaving the seat untouched).
+        const probe = probeActiveOwner();
+        if (probe.status === 'live' && probe.state?.instanceId && probe.state.instanceId !== instanceId) {
+          bridgeRuntimeStarting = false;
+          logOwnership("autostart backoff (live owner holds seat)");
+          return;
+        }
+        const casResult = refreshActiveInstance(instanceId, { backendReady: false }, { onlyIfVacant: true, timeoutMs: 0 });
+        if (casResult?.instanceId !== instanceId) {
+          bridgeRuntimeStarting = false;
+          logOwnership("autostart backoff (seat claimed by newer owner)");
+          return;
+        }
+        logOwnership("boot claim (pre-connect, claim-if-vacant)");
+      } else {
+        refreshActiveInstance(instanceId, { backendReady: false });
+        logOwnership("boot claim (pre-connect, last-wins)");
+      }
     } else {
       // Try-once (timeoutMs:0): a refresh-path re-acquire must never block on
       // the active-instance lock. Contention throws → caught below and treated
@@ -289,11 +352,18 @@ async function startOwnedRuntime(options = {}) {
       return;
     }
     setBridgeRuntimeConnected(true);
-    if (claimAfterReady) {
-      // First confirmed ownership at boot — tell the parent it holds the seat
-      // exactly once (heartbeat/refresh re-pin ownership but never re-enter).
-      notifyRemoteAcquired();
-    }
+    // Fresh confirmed ownership — tell the parent it holds the seat so it flips
+    // remote ON. Reached ONLY on a not-connected -> connected transition (the
+    // top-of-fn early-return skips already-connected re-ticks), so this fires
+    // exactly once per acquire and covers EVERY win path, not just boot:
+    //   - explicit/auto boot claim (claimAfterReady),
+    //   - the deferred claim when a bridge timer's refreshBridgeOwnership()
+    //     claims a seat vacated by a departing owner (finding 1).
+    // The parent's acquired handler is idempotent (no-op when already remote),
+    // so notifying post-connect — never pre-connect — means a connect FAILURE
+    // below leaves the parent non-remote instead of stuck remote-with-no-bridge
+    // (finding 2).
+    notifyRemoteAcquired();
     // initProviders must complete before scheduler.start() — otherwise the
     // scheduler's first fire can land before the registry is populated and
     // return `Provider "<name>" not found or not enabled`. The previous
@@ -402,15 +472,28 @@ function armBridgeOwnershipTimer() {
     refreshBridgeOwnershipSafe();
   }, 3e3);
   bridgeOwnershipTimer.unref?.();
+  // Arm the event-driven signal alongside the poll fallback.
+  armActiveInstanceWatcher();
+}
+// Guarded IPC send to the parent: no-ops when there is no channel or it is
+// already disconnected, and swallows both the synchronous throw and the async
+// error-callback path of ERR_IPC_CHANNEL_CLOSED (channel closing between the
+// connected check and delivery). Log-and-continue — never crash the worker.
+function sendToParent(message) {
+  if (!process.send || process.connected === false) return;
+  try {
+    process.send(message, undefined, undefined, err => {
+      if (err) process.stderr.write(`[channels] parent IPC send failed: ${err?.message || err}\n`);
+    });
+  } catch (err) {
+    process.stderr.write(`[channels] parent IPC send threw: ${err?.message || err}\n`);
+  }
 }
 // Tell the parent session that this worker LOST the bridge seat to a newer
 // remote session (last-wins). The parent flips its remote mode OFF entirely —
 // exactly one session holds remote; losers fully release, no handover.
 function notifyRemoteSuperseded() {
-  if (!process.send) return;
-  try {
-    process.send({ type: 'notify', method: 'notifications/mixdog/remote', params: { state: 'superseded' } });
-  } catch {}
+  sendToParent({ type: 'notify', method: 'notifications/mixdog/remote', params: { state: 'superseded' } });
 }
 // Symmetric to notifyRemoteSuperseded: tell the parent session this worker
 // ACQUIRED the bridge seat so it flips remote mode ON (badge/transcript writer).
@@ -419,10 +502,7 @@ function notifyRemoteSuperseded() {
 // transition (boot make-before-break, activate when not already owned) — never
 // on a heartbeat refresh — so the parent's idempotent handler sees it once.
 function notifyRemoteAcquired() {
-  if (!process.send) return;
-  try {
-    process.send({ type: 'notify', method: 'notifications/mixdog/remote', params: { state: 'acquired' } });
-  } catch {}
+  sendToParent({ type: 'notify', method: 'notifications/mixdog/remote', params: { state: 'acquired' } });
 }
 async function refreshBridgeOwnership(options = {}) {
   // Coalesce concurrent callers onto the in-flight refresh so getBackend() tool

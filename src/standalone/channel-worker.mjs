@@ -252,6 +252,13 @@ export function createStandaloneChannelWorker({
         MIXDOG_STANDALONE: '1',
         MIXDOG_WORKER_MODE: '1',
         MIXDOG_CLI_OWNED: '0',
+        // Preserve the real terminal-lead PID (host TUI, or an outer run-mcp
+        // supervisor if one injected MIXDOG_SUPERVISOR_PID) through the fork.
+        // Without this the worker resolves getTerminalLeadPid() to its OWN pid,
+        // so the seat's ownerLeadPid tracks the headless worker instead of the
+        // terminal that owns it — and the seat can never be evicted when the
+        // owning terminal/TUI dies while the worker stays alive.
+        MIXDOG_SUPERVISOR_PID: process.env.MIXDOG_SUPERVISOR_PID || String(process.pid),
         MIXDOG_QUIET_SESSION_LOG: process.env.MIXDOG_QUIET_SESSION_LOG ?? '1',
       },
       windowsHide: true,
@@ -416,6 +423,12 @@ export function createStandaloneChannelWorker({
 
   function uninstallParentExitHook() {
     if (!parentExitCleanup) return;
+    // Refcount-aware: never strip the shared parent-exit protection while any
+    // owned child PID is still tracked. A newer worker may have been spawned
+    // (new PID added, hook install is a no-op because it is already present)
+    // before an older worker finishes its async teardown; letting that old
+    // teardown uninstall here would leave the live newer PID unprotected.
+    if (ownedChildPids.size > 0) return;
     const unregister = parentExitCleanup;
     parentExitCleanup = null;
     unregister();
@@ -458,27 +471,70 @@ export function createStandaloneChannelWorker({
     child = null;
     if (!waitForExit) {
       rejectPending(new Error(`channels runtime shutdown requested (${reason})`));
-      if (targetPid) ownedChildPids.delete(targetPid);
+      // Fast/detached path is still TERMINAL: the caller does not block on the
+      // full teardown, but a background escalation ladder guarantees the worker
+      // dies so no zombie survives. Exit-hook + PID tracking stay installed
+      // until the process ACTUALLY exits (not on IPC ack), so a parent that
+      // force-exits mid-grace still force-kills the tree via the exit cleanup.
+      let torn = false;
+      const teardown = () => {
+        if (torn) return;
+        torn = true;
+        clearTimeout(termTimer);
+        clearTimeout(killTimer);
+        if (targetPid) ownedChildPids.delete(targetPid);
+        unrefChildHandles(target);
+        uninstallParentExitHook();
+      };
+      // Bounded grace after IPC shutdown, then SIGTERM.
+      const termTimer = setTimeout(() => {
+        try {
+          if (target.exitCode == null && !target.killed) target.kill('SIGTERM');
+        } catch {}
+      }, 1500);
+      // Hard fallback: taskkill /T /F the whole tree, then SIGKILL the handle.
+      const killTimer = setTimeout(() => {
+        try {
+          if (target.exitCode == null) forceKillTree(targetPid);
+        } catch {}
+        try {
+          if (target.exitCode == null && !target.killed) target.kill('SIGKILL');
+        } catch {}
+        teardown();
+      }, 3000);
+      // Unref so these background escalation timers never keep the event loop
+      // (or a pending /exit) alive waiting out the grace/hard-kill window.
+      termTimer.unref?.();
+      killTimer.unref?.();
+      // Actual exit (or spawn error) is the only thing that tears down tracking.
+      target.once('exit', teardown);
+      target.once('error', teardown);
       stopPromise = new Promise((resolve) => {
         let settled = false;
-        const finish = (ok) => {
+        const settle = (ok) => {
           if (settled) return;
           settled = true;
           clearTimeout(sendTimer);
           stopPromise = null;
-          unrefChildHandles(target);
-          uninstallParentExitHook();
           resolve(ok);
         };
-        const sendTimer = setTimeout(() => finish(false), 250);
+        // Resolve the caller quickly once the IPC shutdown is acked/timed out;
+        // the escalation ladder above keeps running in the background.
+        const sendTimer = setTimeout(() => settle(true), 250);
+        sendTimer.unref?.();
+        target.once('exit', () => settle(true));
         try {
           target.send?.({ type: 'shutdown', reason }, () => {
             try { target.disconnect?.(); } catch {}
-            finish(true);
+            settle(true);
           });
         } catch {
           try { target.disconnect?.(); } catch {}
-          finish(false);
+          // IPC unavailable: skip the grace window and escalate now.
+          try {
+            if (target.exitCode == null && !target.killed) target.kill('SIGTERM');
+          } catch {}
+          settle(false);
         }
       });
       return stopPromise;

@@ -279,6 +279,14 @@ function refreshActiveInstance(instanceId, meta, options) {
     if (options?.onlyIfOwned && (!prev?.instanceId || prev.instanceId !== instanceId)) {
       return undefined;
     }
+    // CAS guard (opt-in via options.onlyIfVacant): auto-start claim-if-vacant.
+    // Abort the write when a live (non-stale) owner OTHER than us already holds
+    // the seat — an auto-start must never steal from a live owner. A stale/dead
+    // prior owner leaves prev=null above, so it does NOT block the claim; an
+    // absent seat (prev=null) is claimable too.
+    if (options?.onlyIfVacant && prev?.instanceId && prev.instanceId !== instanceId) {
+      return undefined;
+    }
     // Drop stale fields (pid/startedAt) written by older server versions.
     const { pid: _legacyPid, startedAt: _legacyStartedAt, ...prevRest } = prev ?? {};
     const identity = buildRuntimeIdentity();
@@ -393,18 +401,21 @@ function refreshActiveInstance(instanceId, meta, options) {
         }
       }
     }
-    // Worker-owned seat: when THIS process is the channels worker and it is
-    // the seat owner (no distinct TUI/supervisor Lead — ownerLeadPid resolves
-    // to our own pid), keep ui_heartbeat_at fresh. A headless worker never
-    // runs the TUI render loop, so an inherited heartbeat (written by a prior
-    // TUI session and carried forward in prevRest) would otherwise go stale at
-    // UI_HEARTBEAT_STALE_MS and falsely flag a live worker-owned seat. A
-    // TUI-owned seat has a distinct supervisor (ownerLeadPid !== our pid), so
-    // this branch is a no-op there and TUI staleness is preserved.
+    // Headless worker-owned seat: THIS process is the channels worker AND no
+    // distinct terminal lead owns the seat (ownerLeadPid resolves to our own
+    // pid). A worker never runs the TUI render loop, so it owns no heartbeat —
+    // it must NOT keep refreshing a ui_heartbeat_at it does not own. An
+    // inherited value (written by a prior TUI session, carried forward in
+    // prevRest) would otherwise be perpetually renewed here and falsely mask a
+    // dead render loop, so DROP it and let pid-only judgment stand.
+    // When a distinct terminal lead owns the seat (ownerLeadPid !== our pid),
+    // this branch is a no-op: the TUI's own heartbeat is carried forward
+    // untouched, so a stale (zombie) render loop still evicts the seat even
+    // while the worker pid is alive.
     const workerOwnsSeat = process.env.MIXDOG_WORKER_MODE === "1"
       && identity.ownerLeadPid === process.pid;
     if (workerOwnsSeat) {
-      next.ui_heartbeat_at = Date.now();
+      delete next.ui_heartbeat_at;
     }
     return { ...preservedExtra, ...next };
   }, writeOpts);

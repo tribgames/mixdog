@@ -687,7 +687,13 @@ async function start() {
   // takeover" second claim (double reconnect) is gone.
   const _bindingReadyStart = Date.now();
   try {
-    await startOwnedRuntime({ restoreBinding: true, claimAfterReady: true });
+    // Boot claim intent (published by the parent via env before this fork):
+    //   explicit (/remote, --remote) -> last-wins force-takeover.
+    //   auto (config/delayed autoStart) -> claim-if-vacant: take the seat only
+    //   when no live owner holds it, otherwise back off silently (no claim, no
+    //   acquire notify) so a live owner is never stolen.
+    const autoStartClaim = process.env.MIXDOG_REMOTE_INTENT === 'auto';
+    await startOwnedRuntime({ restoreBinding: true, claimAfterReady: true, claimIfVacant: autoStartClaim });
     bindingReadyStatus = "resolved";
     dropTrace("bindingReady.resolve", { elapsedMs: Date.now() - _bindingReadyStart, status: bindingReadyStatus });
     _bindingReadyResolve(true);
