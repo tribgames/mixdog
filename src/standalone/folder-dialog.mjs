@@ -232,7 +232,10 @@ namespace Mixdog {
   }
 }
 '@`,
-    'Add-Type -TypeDefinition $code -ReferencedAssemblies System.Windows.Forms | Out-Null',
+    // System.Drawing is required too: GetDialogOwnerCenter uses
+    // Screen.PrimaryScreen.WorkingArea (System.Drawing.Rectangle) — without it
+    // the Add-Type compile fails and the dialog silently falls back to typing.
+    'Add-Type -TypeDefinition $code -ReferencedAssemblies System.Windows.Forms,System.Drawing | Out-Null',
     // Invisible TopMost owner anchored to the TUI console (or foreground window)
     // so IFileOpenDialog is modal, centered, and not detached on another monitor.
     '$owner = New-Object System.Windows.Forms.Form',
